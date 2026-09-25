@@ -10,6 +10,7 @@ using Genesis.Application.Core.Editing.Particles;
 using Genesis.Application.Editors.Suite.Scripts;
 using Genesis.Application.Editors.Suite.UiKit;
 using Genesis.Runtime.Particles;
+using Genesis.Rendering.Particles;
 using Genesis.Shared.Interfaces;
 using Genesis.Shared.Assets;
 
