@@ -31,7 +31,7 @@ public sealed class ParticleRuntimeEmitter : IDisposable
     public int Capacity => UsesGpu ? _gpu?.Capacity ?? 0 : _cpu?.Capacity ?? 0;
     public int ActiveCount => UsesGpu ? _gpu?.Diagnostics.Alive ?? 0 : _cpu?.ActiveCount ?? 0;
     public ParticleDiagnostics? GpuDiagnostics => UsesGpu ? _gpu?.Diagnostics : null;
-    internal GpuParticleEmitter GpuEmitter => _gpu;
+    public GpuParticleEmitter GpuEmitter => _gpu;
 
     public ParticleRuntimeEmitter(
         IRenderController renderer,
