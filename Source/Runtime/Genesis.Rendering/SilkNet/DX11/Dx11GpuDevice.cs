@@ -276,7 +276,11 @@ namespace Genesis.Rendering.SilkNet.DX11
                 CPUAccessFlags = cpuAccess,
                 MiscFlags = ((desc.BindFlags & GpuBindFlags.StructuredBuffer) != 0
                     ? (uint)ResourceMiscFlag.BufferStructured : 0u)
-                    | ((desc.BindFlags & GpuBindFlags.IndirectArguments) != 0 ? (uint)ResourceMiscFlag.DrawindirectArgs : 0u),
+                    | ((desc.BindFlags & GpuBindFlags.IndirectArguments) != 0 ? (uint)ResourceMiscFlag.DrawindirectArgs : 0u)
+                    | (((desc.BindFlags & (GpuBindFlags.IndirectArguments | GpuBindFlags.UnorderedAccess))
+                        == (GpuBindFlags.IndirectArguments | GpuBindFlags.UnorderedAccess)
+                        && (desc.BindFlags & GpuBindFlags.StructuredBuffer) == 0)
+                        ? (uint)ResourceMiscFlag.BufferAllowRawViews : 0u),
                 StructureByteStride = (uint)Math.Max(0, desc.StructureStride),
             };
 
@@ -308,15 +312,26 @@ namespace Genesis.Rendering.SilkNet.DX11
 
                 if ((desc.BindFlags & GpuBindFlags.UnorderedAccess) != 0)
                 {
-                    if (desc.Usage != GpuBufferUsage.Gpu || desc.StructureStride <= 0)
-                        throw new ArgumentException("Writable buffers require device-local structured storage.", nameof(desc));
+                    if (desc.Usage != GpuBufferUsage.Gpu)
+                        throw new ArgumentException("Writable buffers require device-local storage.", nameof(desc));
+
+                    bool rawIndirect = (desc.BindFlags & GpuBindFlags.IndirectArguments) != 0
+                        && (desc.BindFlags & GpuBindFlags.StructuredBuffer) == 0;
+                    if (!rawIndirect && desc.StructureStride <= 0)
+                        throw new ArgumentException("Structured writable buffers require a positive stride.", nameof(desc));
+
                     var uavDesc = new UnorderedAccessViewDesc
                     {
-                        Format = Format.FormatUnknown,
+                        Format = rawIndirect ? Format.FormatR32Typeless : Format.FormatUnknown,
                         ViewDimension = UavDimension.Buffer,
                     };
                     uavDesc.Anonymous.Buffer.FirstElement = 0;
-                    uavDesc.Anonymous.Buffer.NumElements = (uint)(desc.SizeBytes / desc.StructureStride);
+                    uavDesc.Anonymous.Buffer.NumElements = rawIndirect
+                        ? (uint)(desc.SizeBytes / sizeof(uint))
+                        : (uint)(desc.SizeBytes / desc.StructureStride);
+                    uavDesc.Anonymous.Buffer.Flags = rawIndirect
+                        ? (uint)BufferUavFlag.Raw
+                        : 0u;
                     SilkMarshal.ThrowHResult(Device->CreateUnorderedAccessView((ID3D11Resource*)buffer, &uavDesc, &uav));
                 }
 
