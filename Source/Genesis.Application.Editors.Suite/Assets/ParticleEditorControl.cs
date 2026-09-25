@@ -1095,6 +1095,7 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
             + $"{LiveParticleCount}/{PreviewParticleCapacity} live · "
             + $"{_config.Shape} · {_config.EmitRate:0.#}/s · life {_config.Lifetime:0.##}s · "
             + $"{_config.BlendMode} · {floor} · {_previewClock.Speed:0.##}×"
+            + (string.IsNullOrEmpty(PreviewGpuDiagnostics) ? "" : " · " + PreviewGpuDiagnostics)
             + (_previewClock.Seeking ? " · Seeking (Stop cancels)" : "");
     }
 
