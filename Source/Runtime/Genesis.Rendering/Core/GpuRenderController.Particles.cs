@@ -110,11 +110,15 @@ public sealed unsafe partial class GpuRenderController
             CameraUp = new Vector4(Vector3.Normalize(new Vector3(inverse.M21,inverse.M22,inverse.M23)),0),
             CameraForward = new Vector4(Vector3.Normalize(new Vector3(inverse.M31,inverse.M32,inverse.M33)),0),
         };
+        Matrix4x4 viewProjection = view * projection;
         foreach (ParticleDraw draw in _particleDraws)
         {
             if (draw.Is2D || draw.Emitter.IsDisposed) continue;
+            GpuParticleDefinition definition = draw.Emitter.Definition;
+            if (!ParticleSphereVisible(definition.BoundsCenter, definition.BoundsRadius, viewProjection))
+                continue;
             parameters.Mode = new Vector4(0, draw.Emitter.Capacity, 1, (float)draw.Emitter.SimulationTime);
-            draw.Emitter.Draw(parameters,draw.Mesh,draw.Texture,draw.Emitter.Definition.BlendMode);
+            draw.Emitter.Draw(parameters,draw.Mesh,draw.Texture,definition.BlendMode);
         }
     }
 
@@ -137,6 +141,21 @@ public sealed unsafe partial class GpuRenderController
             Mode=new Vector4(1,draw.Emitter.Capacity,1,(float)draw.Emitter.SimulationTime),
         };
         draw.Emitter.Draw(parameters,draw.Mesh,draw.Texture,draw.Emitter.Definition.BlendMode);
+    }
+
+    private static bool ParticleSphereVisible(Vector3 center, float radius, Matrix4x4 viewProjection)
+    {
+        if (!float.IsFinite(radius) || radius <= 0f) return true;
+        Vector4 clip = Vector4.Transform(new Vector4(center, 1f), viewProjection);
+        if (clip.W <= 0.0001f) return false;
+
+        float xScale = new Vector3(viewProjection.M11, viewProjection.M12, viewProjection.M13).Length();
+        float yScale = new Vector3(viewProjection.M21, viewProjection.M22, viewProjection.M23).Length();
+        float zScale = new Vector3(viewProjection.M31, viewProjection.M32, viewProjection.M33).Length();
+        float projectedRadius = radius * MathF.Max(xScale, MathF.Max(yScale, zScale));
+        return clip.X >= -clip.W - projectedRadius && clip.X <= clip.W + projectedRadius
+            && clip.Y >= -clip.W - projectedRadius && clip.Y <= clip.W + projectedRadius
+            && clip.Z >= -projectedRadius && clip.Z <= clip.W + projectedRadius;
     }
 
     private void DisposeParticles()
