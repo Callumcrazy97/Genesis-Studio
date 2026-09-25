@@ -73,6 +73,7 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem
     private readonly HashSet<int> _seenParticles = [];
     private readonly HashSet<int> _seenAudio = [];
     private IRenderController? _lastRenderer;
+    private RuntimeScene? _lastScene;
     private readonly RuntimeModelAssetRegistry _particleModelAssets = new();
     private readonly RuntimeModelAssetRegistry _attachmentModelAssets = new();
     private readonly ModelGpuCache _particleModelGpu = new();
@@ -96,6 +97,7 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem
     public void Update(RuntimeScene scene, GameTime time)
     {
         if (scene?.World == null) return;
+        _lastScene = scene;
         float dt = Math.Clamp(time?.Delta ?? 0f, 0f, 0.25f);
         _totalTime = time?.Total ?? (_totalTime + dt);
         _seenParticles.Clear();
@@ -212,7 +214,7 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem
                 foreach (ParticleLayerState layer in state.Layers)
                 {
                     EnsureParticleRenderResources(layer, renderer);
-                    AdvanceSoftwareLayer(layer, scene);
+                    AdvanceSoftwareLayer(state, layer, scene);
                     if (layer.Frames.Length == 0 || !layer.Frames[0].IsValid || layer.Simulation is null) continue;
                     layer.Simulation.DrawInstances3D(
                         renderer,
