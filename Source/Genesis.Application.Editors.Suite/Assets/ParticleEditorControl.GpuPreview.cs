@@ -1,4 +1,5 @@
 using System.Numerics;
+using Genesis.Application.Core.Editing.Particles;
 using Genesis.Rendering.Particles;
 using Genesis.Runtime.Modeling;
 using Genesis.Runtime.Particles;
