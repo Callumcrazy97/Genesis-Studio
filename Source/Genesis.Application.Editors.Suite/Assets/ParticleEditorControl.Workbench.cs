@@ -279,6 +279,7 @@ public sealed partial class ParticleEditorControl
         finally { _emitterList.EndUpdate(); _syncingEmitterList = false; }
         if (_selectedEmitterHeading is not null)
             _selectedEmitterHeading.Text = "Editing: " + ParticleEffectEditing.Name(_effect, _selectedEmitterIndex);
+        RefreshParticleEventEditor();
         RefreshParticleCommands();
     }
 
@@ -304,6 +305,7 @@ public sealed partial class ParticleEditorControl
         _activePreset = "Custom";
         _selectedEmitterIndex = selected;
         _config = ParticleEffectEditing.Emitter(_effect, selected);
+        PruneParticleEventLinks();
         EnsureEffectGradients(_effect);
         RebuildEmitterPreview(); SyncControls(); PushCodeFromConfig();
         CommitParticleEdit(label);
