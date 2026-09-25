@@ -35,6 +35,17 @@ public static class ParticleRenderGeometry
         return frames;
     }
 
+    /// <summary>
+    /// GPU particles animate flipbooks in the vertex shader, so they need one full-UV mesh rather
+    /// than one CPU-authored mesh per frame.
+    /// </summary>
+    public static MeshHandle RegisterGpuFrame(IRenderController renderer)
+    {
+        if (renderer == null) return MeshHandle.Invalid;
+        (MeshVertex[] vertices, ushort[] indices) = MeshGeometry.BuildQuad(RenderColor.White);
+        return renderer.RegisterMesh(vertices, indices);
+    }
+
     public static void ReleaseFrames(IRenderController renderer, MeshHandle[] frames)
     {
         if (renderer == null || frames == null) return;
