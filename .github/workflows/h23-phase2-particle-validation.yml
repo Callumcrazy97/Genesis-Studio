@@ -1,0 +1,26 @@
+name: H23 Phase 2 particle validation
+
+on:
+  push:
+    branches:
+      - work/h23-phase2-gpu-particles
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - name: Build Studio and runtime
+        shell: pwsh
+        run: dotnet build Source/Genesis.Application.Studio/Genesis.Application.Studio.csproj --configuration Release -warnaserror
+      - name: Particle shader and D3D11 WARP conformance
+        shell: pwsh
+        run: dotnet run --project Tests/Genesis.Particle.Checks --configuration Release -- --warp-conformance
+      - name: Production-code core checks
+        shell: pwsh
+        run: dotnet run --project Tests/Genesis.Foundation.Checks --configuration Release
