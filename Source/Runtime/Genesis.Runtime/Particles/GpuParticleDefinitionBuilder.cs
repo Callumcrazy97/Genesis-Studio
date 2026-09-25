@@ -142,12 +142,15 @@ public static class GpuParticleDefinitionBuilder
                 collisionTrianglesOffset),
         };
 
+        ComputeBounds(config, world, out Vector3 boundsCenter, out float boundsRadius);
         return new GpuParticleDefinition
         {
             Capacity = Math.Clamp(config.MaxParticles, 1, GpuParticleProtocol.MaximumCapacity),
             Parameters = parameters,
             Lookup = lookup.ToArray(),
             DebugName = string.IsNullOrWhiteSpace(config.EmitterName) ? "Particles" : config.EmitterName,
+            BoundsCenter = boundsCenter,
+            BoundsRadius = boundsRadius,
             BlendMode = (int)config.BlendMode,
         };
     }
@@ -236,6 +239,49 @@ public static class GpuParticleDefinitionBuilder
 
         return stops[^1].Color.Clone();
     }
+
+    private static void ComputeBounds(ParticleConfig config, Matrix4x4 world, out Vector3 center, out float radius)
+    {
+        if (config.BoundsMode == ParticleBoundsMode.Custom)
+        {
+            Vector3 localCenter = new((float)config.BoundsCenterX, (float)config.BoundsCenterY, (float)config.BoundsCenterZ);
+            Vector3 half = new(
+                (float)Math.Max(0.01d, config.BoundsSizeX) * 0.5f,
+                (float)Math.Max(0.01d, config.BoundsSizeY) * 0.5f,
+                (float)Math.Max(0.01d, config.BoundsSizeZ) * 0.5f);
+            center = Vector3.Transform(localCenter, world);
+            float scale = LargestScale(world);
+            radius = MathF.Max(0.01f, half.Length() * scale);
+            return;
+        }
+
+        float shapeRadius = config.Shape switch
+        {
+            ParticleEmitShape.Box => new Vector3(
+                (float)config.BoxSizeX, (float)config.BoxSizeY, (float)config.BoxSizeZ).Length() * 0.5f,
+            ParticleEmitShape.Disc or ParticleEmitShape.Ring => (float)Math.Max(0d, config.EmitRadius),
+            _ => 0f,
+        };
+        float maxLife = (float)Math.Max(0.05d, config.Lifetime * (1d + Math.Clamp(config.LifetimeVariance, 0d, 0.99d)));
+        float maxSpeed = (float)Math.Max(0d, config.Speed * (1d + Math.Clamp(config.SpeedVariance, 0d, 1d)));
+        float drift = new Vector2((float)config.WindX, (float)config.WindZ).Length() * maxLife;
+        float motion = maxSpeed * maxLife + drift
+            + (float)Math.Max(0d, config.TurbulenceStrength) * maxLife * maxLife * 0.5f;
+        float size = (float)Math.Max(config.StartSize, config.EndSize)
+            * (float)Math.Max(config.SizeXScale, config.SizeYScale);
+        float trail = config.RendererKind == ParticleRendererKind.Trail
+            ? maxSpeed * (float)Math.Max(0d, config.TrailDuration)
+            : 0f;
+        float localRadius = MathF.Max(0.25f, shapeRadius + motion + size + trail);
+        center = Vector3.Transform(Vector3.Zero, world);
+        radius = localRadius * LargestScale(world);
+    }
+
+    private static float LargestScale(Matrix4x4 world) => MathF.Max(
+        MathF.Max(
+            new Vector3(world.M11, world.M12, world.M13).Length(),
+            new Vector3(world.M21, world.M22, world.M23).Length()),
+        MathF.Max(0.0001f, new Vector3(world.M31, world.M32, world.M33).Length()));
 
     private static float Lerp(float a, float b, float t) => a + (b - a) * t;
     private static float DegreesToRadians(float degrees) => degrees * (MathF.PI / 180f);
