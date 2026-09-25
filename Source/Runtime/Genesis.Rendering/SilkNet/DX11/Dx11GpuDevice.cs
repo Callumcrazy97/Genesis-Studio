@@ -292,7 +292,8 @@ namespace Genesis.Rendering.SilkNet.DX11
             ID3D11UnorderedAccessView* uav = null;
             try
             {
-                if ((desc.BindFlags & GpuBindFlags.StructuredBuffer) != 0)
+                if ((desc.BindFlags & GpuBindFlags.StructuredBuffer) != 0
+                    && (desc.BindFlags & GpuBindFlags.ShaderResource) != 0)
                 {
                     var srvDesc = new ShaderResourceViewDesc
                     {
