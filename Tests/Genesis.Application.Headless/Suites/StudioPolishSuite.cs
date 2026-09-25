@@ -144,7 +144,7 @@ internal static class StudioPolishSuite
             int structures = panel.HierarchyStructureUpdateCount, refreshes = panel.HierarchyRefreshCount; IntPtr native = row.Handle;
             editor.Select(item); editor.Select(null); editor.Select(item);
             Assert(panel.HierarchyRefreshCount == refreshes, "Selecting an object rebuilt the hierarchy.");
-            item.Position[0] += 40; panel.RefreshRoomInstances();
+            item.Transform.Position[0] += 40; panel.RefreshRoomInstances();
             Assert(ReferenceEquals(row, Find(panel.InstanceHierarchy, item.Id)) && row.Handle == native
                 && panel.HierarchyStructureUpdateCount == structures, "Value refresh replaced stable native nodes.");
         }));
@@ -300,7 +300,7 @@ internal static class StudioPolishSuite
             Assert(entries.Count(item => item.Name == "studio.commands") >= 2
                 && shell.CommandCatalog.FindShortcut((int)(Keys.Control | Keys.Shift | Keys.P)) == "studio.commands"
                 && entries.Any(item => item.Name == "help.copyBuildInfo"), "Palette/build commands are hidden or not registered.");
-            Assert(entries.Any(item => item.Text.Contains("PGSL Command Reference")), "PGSL help is still confused with the action palette.");
+            Assert(entries.Any(item => (item.Text ?? string.Empty).Contains("PGSL Command Reference")), "PGSL help is still confused with the action palette.");
         }));
     }
 

@@ -364,9 +364,9 @@ VertexOutput VS(VertexInput input,uint vertex:SV_VertexID,uint instance:SV_Insta
     uint kind=(uint)Render.x,alignment=(uint)Render.y;
     if(kind==1 || kind==3) {
         uint sample=min(vertex/2,TRAIL_SAMPLES-1);float side=(vertex&1)==0?-0.5:0.5;
-        float3 point,previous,next;
+        float3 samplePosition,previous,next;
         if(kind==1) {
-            point=ToWorld(p.trail[sample].xyz); sampleAge=p.trail[sample].w;
+            samplePosition=ToWorld(p.trail[sample].xyz); sampleAge=p.trail[sample].w;
             previous=ToWorld(p.trail[sample==0?0:sample-1].xyz);
             next=ToWorld(p.trail[min(sample+1,TRAIL_SAMPLES-1)].xyz);
             color=Curve(saturate(sampleAge/life),CURVE_SAMPLES);
@@ -374,14 +374,14 @@ VertexOutput VS(VertexInput input,uint vertex:SV_VertexID,uint instance:SV_Insta
         } else {
             float f=sample/(float)(TRAIL_SAMPLES-1);
             float3 end=mul(float4(Beam.xyz,1),World).xyz;
-            point=lerp(centre,end,f);
+            samplePosition=lerp(centre,end,f);
             float envelope=sin(f*3.141593)*Beam.w;
-            point+=right*sin(f*31+Mode.w*13)*envelope+up*cos(f*19-Mode.w*9)*envelope;
+            samplePosition+=right*sin(f*31+Mode.w*13)*envelope+up*cos(f*19-Mode.w*9)*envelope;
             previous=centre;next=end;
         }
         float3 along=SafeNormal(next-previous,CameraUp.xyz);
         right=SafeNormal(cross(CameraForward.xyz,along),CameraRight.xyz);
-        centre=point;offset=right*side*size*Options.z;
+        centre=samplePosition;offset=right*side*size*Options.z;
         uv=float2(side+0.5,sample/(float)(TRAIL_SAMPLES-1));
     } else if(kind==2) {
         uint prior=asuint(p.identity.z);bool valid=prior<capacity;
