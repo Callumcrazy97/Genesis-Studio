@@ -256,6 +256,7 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
         _viewport.DrawScene += DrawParticles3D;
         _viewport.DrawOverlay += DrawParticleViewportOverlay;
         _viewport.SelectionWorldPoint = () => Vector3.Zero;
+        InitialiseParticleAuthoringGizmos();
         EditorViewportChrome.Attached chrome = EditorViewportChrome.Attach(
             toolbar,
             new EditorViewportChrome.Options
@@ -506,6 +507,7 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
             renderer.DrawLine(cx - radius, cy, cx, cy - height, cyan, 1.2f);
             renderer.DrawLine(cx + radius, cy, cx, cy - height, cyan, 1.2f);
         }
+        DrawParticleAuthoringGizmos(renderer);
     }
 
     public void Burst()
