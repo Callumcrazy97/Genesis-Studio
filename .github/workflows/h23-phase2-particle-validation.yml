@@ -15,6 +15,12 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
+      - name: Hydrate ignored template sentinel for compile-only CI
+        shell: pwsh
+        run: |
+          $p = 'Source/Genesis.Application.Core/Projects/Templates/Assets/LuigisMansion/Assets/Rooms'
+          New-Item -ItemType Directory -Force -Path $p | Out-Null
+          '{}' | Set-Content -Encoding utf8 (Join-Path $p '00 - A Light in the Dark.room.json')
       - name: Build Studio and runtime
         shell: pwsh
         run: dotnet build Source/Genesis.Application.Studio/Genesis.Application.Studio.csproj --configuration Release -warnaserror
