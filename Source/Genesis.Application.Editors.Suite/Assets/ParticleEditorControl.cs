@@ -31,7 +31,6 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
 {
     private readonly EditorViewport3D _viewport;
     private readonly Label _statusLabel;
-    private readonly ParticleSimulation _simulation = new();
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly Dictionary<string, NumericUpDown> _numericControls = new(StringComparer.Ordinal);
     private readonly ToolStripDropDownButton _presetMenu = new("Preset");
@@ -81,7 +80,6 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
         _activePreset = ParticlePresets.Names.Contains(_effect.EffectName, StringComparer.Ordinal)
             ? _effect.EffectName
             : "Custom";
-        _simulation.LoadConfig(_config);
 
         EditorCommandBar toolbar = EditorChrome.MakeToolbar();
         toolbar.Items.Add(EditorDocumentMenuChrome.BuildFileMenu(this));
@@ -356,7 +354,7 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
     public ParticleConfig Config => _effect.Clone();
     public EditorViewport3D Viewport => _viewport;
     public ParticleAuthoringMode AuthoringMode => _authoringMode;
-    public int LiveParticleCount => AllPreviewSimulations.Sum(simulation => simulation.ActiveCount);
+    public int LiveParticleCount => _previewExecutions.Sum(execution => execution.ActiveCount);
     public string ActivePreset => _activePreset;
     public bool TimelinePlaying => _timelinePlaying;
     public bool ShowEditorFloor => _floorStyle.DrawsPlate();
@@ -511,7 +509,9 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
     public void Burst()
     {
         CancelPreviewSeek();
-        foreach (ParticleSimulation simulation in AllPreviewSimulations) simulation.Burst();
+        foreach (ParticleExecutionEmitter execution in _previewExecutions)
+            execution.Burst();
+        _viewport.Invalidate(true);
         UpdateStatus();
     }
 
@@ -1042,12 +1042,14 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
 
     private void DrawParticles2D(IRenderController renderer)
     {
+        EnsurePreviewExecution(renderer);
         StepClock();
         DrawEmitterStack2D(renderer);
     }
 
     private void DrawParticles3D(IRenderController renderer)
     {
+        EnsurePreviewExecution(renderer);
         StepClock();
         DrawPreviewTarget(renderer);
         DrawEmitterStack3D(renderer);
@@ -1077,7 +1079,7 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
 
     private void EnsureSpriteCapacity()
     {
-        int capacity = Math.Max(1, _simulation.Capacity);
+        int capacity = Math.Max(1, _previewEmitterConfigs.Select(config => config.MaxParticles).DefaultIfEmpty(1).Max());
         if (_spriteCalls.Length != capacity) _spriteCalls = new SpriteDrawCall[capacity];
     }
 
@@ -1092,7 +1094,7 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
             : $"{execution.BackendName}: {execution.StatusText}";
         _statusLabel.Text =
             $"{_activePreset} · {mode} · {preview} · {executionText} · "
-            + $"{LiveParticleCount}/{AllPreviewSimulations.Sum(simulation => simulation.Capacity)} live · "
+            + $"{LiveParticleCount}/{_previewExecutions.Sum(execution => execution.Capacity)} live · "
             + $"{_config.Shape} · {_config.EmitRate:0.#}/s · life {_config.Lifetime:0.##}s · "
             + $"{_config.BlendMode} · {floor} · {_previewClock.Speed:0.##}×"
             + (_previewClock.Seeking ? " · Seeking (Stop cancels)" : "");
