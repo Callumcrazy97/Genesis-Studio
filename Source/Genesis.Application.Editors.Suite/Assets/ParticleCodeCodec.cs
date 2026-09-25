@@ -52,6 +52,12 @@ internal static class ParticleCodeCodec
             Line(text, "gradient.stops", string.Join(" | ", config.GradientStops.OrderBy(stop => stop.Position).Select(stop => $"{N(stop.Position)} {ColorLiteral(stop.Color)}")));
         Line(text, "render.blend", config.BlendMode);
         Line(text, "render.alignment", config.Alignment);
+        Line(text, "render.kind", config.RendererKind);
+        Line(text, "render.space", config.SimulationSpace);
+        Line(text, "render.trail", $"{N(config.TrailDuration)}, {N(config.TrailWidth)}");
+        Line(text, "render.ribbonMaxSegment", config.RibbonMaxSegmentLength);
+        Line(text, "render.velocityStretch", config.VelocityStretch);
+        Line(text, "render.beam", $"{N(config.BeamEndX)}, {N(config.BeamEndY)}, {N(config.BeamEndZ)}, {N(config.BeamNoise)}");
         Line(text, "render.texture", Quote(config.TexturePath));
         Line(text, "render.mesh", Quote(config.MeshParticleAsset));
         Line(text, "render.flipbook", $"{config.UseFlipbook.ToString().ToLowerInvariant()}, {config.FlipbookColumns}, {config.FlipbookRows}, {N(config.FlipbookFps)}");
@@ -60,6 +66,9 @@ internal static class ParticleCodeCodec
         Line(text, "collision.bounce", config.CollisionBounce);
         Line(text, "collision.terrain", config.CollideWithTerrain);
         Line(text, "collision.geometry", config.CollideWithGeometry);
+        Line(text, "bounds.mode", config.BoundsMode);
+        Line(text, "bounds.center", $"{N(config.BoundsCenterX)}, {N(config.BoundsCenterY)}, {N(config.BoundsCenterZ)}");
+        Line(text, "bounds.size", $"{N(config.BoundsSizeX)}, {N(config.BoundsSizeY)}, {N(config.BoundsSizeZ)}");
         text.AppendLine("}");
         return text.ToString();
     }
@@ -131,6 +140,12 @@ internal static class ParticleCodeCodec
                     case "gradient.stops": config.GradientStops = ParseStops(value); break;
                     case "render.blend": config.BlendMode = EnumValue<ParticleBlendMode>(value); break;
                     case "render.alignment": config.Alignment = EnumValue<ParticleAlignment>(value); break;
+                    case "render.kind": config.RendererKind = EnumValue<ParticleRendererKind>(value); break;
+                    case "render.space": config.SimulationSpace = EnumValue<ParticleSimulationSpace>(value); break;
+                    case "render.trail": (config.TrailDuration, config.TrailWidth) = Pair(value); break;
+                    case "render.ribbonmaxsegment": config.RibbonMaxSegmentLength = Number(value); break;
+                    case "render.velocitystretch": config.VelocityStretch = Number(value); break;
+                    case "render.beam": (config.BeamEndX, config.BeamEndY, config.BeamEndZ, config.BeamNoise) = Quad(value); break;
                     case "render.texture": config.TexturePath = Unquote(value); break;
                     case "render.mesh": config.MeshParticleAsset = Unquote(value); break;
                     case "render.flipbook": ParseFlipbook(value, config); break;
@@ -139,6 +154,9 @@ internal static class ParticleCodeCodec
                     case "collision.bounce": config.CollisionBounce = Number(value); break;
                     case "collision.terrain": config.CollideWithTerrain = Boolean(value); break;
                     case "collision.geometry": config.CollideWithGeometry = Boolean(value); break;
+                    case "bounds.mode": config.BoundsMode = EnumValue<ParticleBoundsMode>(value); break;
+                    case "bounds.center": (config.BoundsCenterX, config.BoundsCenterY, config.BoundsCenterZ) = Triple(value); break;
+                    case "bounds.size": (config.BoundsSizeX, config.BoundsSizeY, config.BoundsSizeZ) = Triple(value); break;
                     default: throw new FormatException("Unknown emitter property '" + key + "'.");
                 }
             }
@@ -175,6 +193,13 @@ internal static class ParticleCodeCodec
         string[] parts = value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length != 3) throw new FormatException("Expected three comma-separated values: " + value);
         return (Number(parts[0]), Number(parts[1]), Number(parts[2]));
+    }
+
+    private static (double X, double Y, double Z, double W) Quad(string value)
+    {
+        string[] parts = value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length != 4) throw new FormatException("Expected four comma-separated values: " + value);
+        return (Number(parts[0]), Number(parts[1]), Number(parts[2]), Number(parts[3]));
     }
 
     private static string ColorLiteral(ParticleColor color) => $"rgba({N(color.R)}, {N(color.G)}, {N(color.B)}, {N(color.A)})";
