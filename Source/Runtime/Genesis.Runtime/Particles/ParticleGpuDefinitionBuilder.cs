@@ -24,14 +24,23 @@ public static class ParticleGpuDefinitionBuilder
     public static GpuParticleDefinition Build(
         ParticleConfig config,
         Matrix4x4 world,
-        ReadOnlySpan<Vector3> meshSurfaceSamples = default)
+        ReadOnlySpan<Vector3> meshSurfaceSamples = default,
+        ReadOnlySpan<ParticleCollisionTriangle> collisionTriangles = default)
     {
         ArgumentNullException.ThrowIfNull(config);
         if (!Matrix4x4.Invert(world, out Matrix4x4 inverse))
             inverse = Matrix4x4.Identity;
 
         int sampleCount = Math.Min(meshSurfaceSamples.Length, 65_536);
-        Vector4[] lookup = new Vector4[GpuParticleProtocol.CurveSamples * 2 + sampleCount];
+        ParticleCollisionBvhData collision = ParticleCollisionBvh.Build(collisionTriangles);
+        int meshOffset = GpuParticleProtocol.CurveSamples * 2;
+        int nodeStart = meshOffset + sampleCount;
+        int triangleStart = nodeStart + collision.Nodes.Length;
+        Vector4[] lookup = new Vector4[
+            GpuParticleProtocol.CurveSamples * 2
+            + sampleCount
+            + collision.Nodes.Length
+            + collision.Triangles.Length];
         for (int i = 0; i < GpuParticleProtocol.CurveSamples; i++)
         {
             float t = i / (float)(GpuParticleProtocol.CurveSamples - 1);
@@ -54,7 +63,11 @@ public static class ParticleGpuDefinitionBuilder
                 new Vector4(colour.R, colour.G, colour.B, colour.A * alpha);
         }
         for (int i = 0; i < sampleCount; i++)
-            lookup[GpuParticleProtocol.CurveSamples * 2 + i] = new Vector4(meshSurfaceSamples[i], 1f);
+            lookup[meshOffset + i] = new Vector4(meshSurfaceSamples[i], 1f);
+        if (collision.Nodes.Length > 0)
+            collision.Nodes.CopyTo(lookup, nodeStart);
+        if (collision.Triangles.Length > 0)
+            collision.Triangles.CopyTo(lookup, triangleStart);
 
         var parameters = new GpuParticleParameters
         {
@@ -120,7 +133,7 @@ public static class ParticleGpuDefinitionBuilder
                 (float)config.BeamEndY,
                 (float)config.BeamEndZ,
                 (float)Math.Max(0d, config.BeamNoise)),
-            Geometry = new Vector4(GpuParticleProtocol.CurveSamples * 2, 0, 0, 0),
+            Geometry = new Vector4(meshOffset, nodeStart, collision.Nodes.Length / 3, triangleStart),
         };
 
         return new GpuParticleDefinition
