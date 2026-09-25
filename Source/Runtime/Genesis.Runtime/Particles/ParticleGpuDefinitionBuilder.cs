@@ -7,6 +7,20 @@ namespace Genesis.Runtime.Particles;
 
 public static class ParticleGpuDefinitionBuilder
 {
+    public static Matrix4x4 EmitterWorld(ParticleConfig config, Vector3 origin)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        Matrix4x4 rotation = Matrix4x4.CreateFromYawPitchRoll(
+            (float)(config.EmitterYaw * Math.PI / 180.0),
+            (float)(config.EmitterPitch * Math.PI / 180.0),
+            (float)(config.EmitterRoll * Math.PI / 180.0));
+        Vector3 translation = origin + new Vector3(
+            (float)config.EmitterOffsetX,
+            (float)config.EmitterOffsetY,
+            (float)config.EmitterOffsetZ);
+        return rotation * Matrix4x4.CreateTranslation(translation);
+    }
+
     public static GpuParticleDefinition Build(
         ParticleConfig config,
         Matrix4x4 world,
