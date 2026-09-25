@@ -1,3 +1,5 @@
+using Genesis.Rendering.Abstractions;
+
 namespace Genesis.Rendering.Particles;
 
 /// <summary>One HLSL simulation/render implementation, compiled to DXBC, DXIL, SPIR-V or GLSL.</summary>
