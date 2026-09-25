@@ -1,0 +1,38 @@
+name: Prepare editor toolchain
+on:
+  push:
+    branches: ['work/particle-editor-gpu']
+    paths: ['.github/workflows/editor-toolchain.yml']
+permissions:
+  contents: read
+jobs:
+  compiler:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+      - name: Restore public reference packages for Windows cross-compilation
+        run: |
+          dotnet restore Source/Genesis.Application.Studio/Genesis.Application.Studio.csproj -p:EnableWindowsTargeting=true
+          dotnet restore Tests/Genesis.Application.Headless/Genesis.Application.Headless.csproj -p:EnableWindowsTargeting=true
+          dotnet restore Tests/Genesis.Foundation.Checks/Genesis.Foundation.Checks.csproj
+      - name: Pack public SDK and NuGet packages (no source or credentials)
+        run: |
+          mkdir -p offline/dotnet/{sdk,host/fxr,shared/Microsoft.NETCore.App,packs}
+          D="$(dirname "$(readlink -f "$(command -v dotnet)")")"
+          cp "$D/dotnet" offline/dotnet/
+          cp -a "$D/sdk/$(dotnet --version)" offline/dotnet/sdk/
+          cp -a "$D"/host/fxr/10.* offline/dotnet/host/fxr/
+          cp -a "$D"/shared/Microsoft.NETCore.App/10.* offline/dotnet/shared/Microsoft.NETCore.App/
+          cp -a "$D"/packs/* offline/dotnet/packs/
+          cp -a "$HOME/.nuget/packages" offline/packages
+          tar -czf editor-toolchain.tar.gz -C offline .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: editor-toolchain
+          path: editor-toolchain.tar.gz
+          compression-level: 0
+          retention-days: 1
