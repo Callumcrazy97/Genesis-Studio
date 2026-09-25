@@ -208,8 +208,11 @@ public sealed partial class ParticleEditorControl
             || config.EmitRadius < 0 || config.StartSize < 0 || config.EndSize < 0
             || config.Drag < 0 || config.TurbulenceStrength < 0 || config.Emissive < 0
             || config.BoxSizeX < 0 || config.BoxSizeY < 0 || config.BoxSizeZ < 0
-            || config.SizeXScale <= 0 || config.SizeYScale <= 0 || config.FlipbookFps < 0)
-            throw new FormatException("Lengths, rates and sizes must be non-negative; scales must be positive; speed/lifetime variance must be in range.");
+            || config.SizeXScale <= 0 || config.SizeYScale <= 0 || config.FlipbookFps < 0
+            || config.TrailDuration <= 0 || config.TrailWidth <= 0 || config.RibbonMaxSegmentLength <= 0
+            || config.VelocityStretch < 0 || config.BeamNoise < 0
+            || config.BoundsSizeX <= 0 || config.BoundsSizeY <= 0 || config.BoundsSizeZ <= 0)
+            throw new FormatException("Lengths, rates and sizes must be non-negative; scales, trail/bounds sizes and ribbon limits must be positive; speed/lifetime variance must be in range.");
         if (config.MaxParticles is < 1 or > 100000) throw new FormatException("Maximum particles must be 1–100,000.");
         if (config.EmitRate is < 0 or > 5000) throw new FormatException("Emission rate must be 0–5,000 particles/second.");
         if (config.Lifetime is < .01 or > 3600) throw new FormatException("Lifetime must be 0.01–3,600 seconds.");
@@ -218,7 +221,9 @@ public sealed partial class ParticleEditorControl
             throw new FormatException("Flipbook columns and rows must be 1–64.");
         if (config.GradientStops is { Count: > 128 }) throw new FormatException("Use at most 128 gradient keys.");
         if (!Enum.IsDefined(config.Shape) || !Enum.IsDefined(config.BlendMode) || !Enum.IsDefined(config.Alignment)
-            || !Enum.IsDefined(config.CollisionMode) || !Enum.IsDefined(config.SizeCurve) || !Enum.IsDefined(config.AlphaCurve))
+            || !Enum.IsDefined(config.RendererKind) || !Enum.IsDefined(config.SimulationSpace)
+            || !Enum.IsDefined(config.BoundsMode) || !Enum.IsDefined(config.CollisionMode)
+            || !Enum.IsDefined(config.SizeCurve) || !Enum.IsDefined(config.AlphaCurve))
             throw new FormatException("One of the emitter enum values is not recognised.");
         foreach (ParticleBezierCurve? curve in new[] { config.SizeOverLifetime, config.SpeedOverLifetime, config.AlphaOverLifetime, config.VelocityOverLifetime })
             if (curve is not null && (!double.IsFinite(curve.X1) || !double.IsFinite(curve.X2)
