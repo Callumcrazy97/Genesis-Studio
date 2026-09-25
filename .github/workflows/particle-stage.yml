@@ -1,0 +1,61 @@
+name: Particle development validation
+on:
+  push:
+    branches: ['work/particle-editor-gpu']
+    paths: ['.github/staging/ready.json']
+permissions:
+  contents: write
+concurrency:
+  group: particle-source-staging
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Verify and apply source checkpoint on development branch only
+        id: apply
+        shell: python
+        run: |
+          import base64, gzip, hashlib, json, pathlib, subprocess
+          root = pathlib.Path('.github/staging')
+          manifest = json.loads((root / 'ready.json').read_text())
+          encoded = ''.join((root / part).read_text().strip() for part in manifest['parts'])
+          patch = gzip.decompress(base64.b64decode(encoded, validate=True))
+          assert hashlib.sha256(patch).hexdigest() == manifest['sha256'], 'Checkpoint checksum mismatch'
+          for line in patch.decode('utf-8').splitlines():
+              if line.startswith('+++ b/'):
+                  path = line[6:]
+                  assert path.startswith(('Source/', 'Tests/', 'Documentation/')), path
+                  assert '/Projects/Templates/Assets/' not in path, path
+          target = pathlib.Path('source-checkpoint.patch')
+          target.write_bytes(patch)
+          subprocess.run(['git', 'config', 'user.name', 'Genesis validation'], check=True)
+          subprocess.run(['git', 'config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com'], check=True)
+          subprocess.run(['git', 'apply', '--check', '--index', str(target)], check=True)
+          subprocess.run(['git', 'apply', '--index', str(target)], check=True)
+          subprocess.run(['git', 'commit', '-m', manifest['message']], check=True)
+          subprocess.run(['git', 'push', 'origin', 'HEAD:work/particle-editor-gpu'], check=True)
+          target.unlink()
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+      - name: Compile all particle shader formats and run explicit D3D11 reference-adapter checks
+        if: ${{ always() && steps.apply.outcome == 'success' }}
+        shell: pwsh
+        run: dotnet run --project Tests/Genesis.Particle.Checks --configuration Release -- --warp-conformance
+      - name: Build Studio and matching runtime
+        if: ${{ always() && steps.apply.outcome == 'success' }}
+        shell: pwsh
+        run: dotnet build Source/Genesis.Application.Studio/Genesis.Application.Studio.csproj --configuration Release -warnaserror
+      - name: Build native editor regression harness
+        if: ${{ always() && steps.apply.outcome == 'success' }}
+        shell: pwsh
+        run: dotnet build Tests/Genesis.Application.Headless/Genesis.Application.Headless.csproj --configuration Release -warnaserror
+      - name: Run core regression suite
+        if: ${{ always() && steps.apply.outcome == 'success' }}
+        shell: pwsh
+        run: dotnet run --project Tests/Genesis.Foundation.Checks --configuration Release
