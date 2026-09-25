@@ -268,16 +268,17 @@ namespace Genesis.Rendering.SilkNet.DX11
 
             (Usage usage, uint cpuAccess) = Dx11GpuFormats.ToUsage(desc.Usage);
             uint bind = desc.Usage == GpuBufferUsage.Staging ? 0u : Dx11GpuFormats.ToBindFlags(desc.BindFlags);
+            bool indirectArguments = (desc.BindFlags & GpuBindFlags.IndirectArguments) != 0;
+            bool nativeStructured = (desc.BindFlags & GpuBindFlags.StructuredBuffer) != 0 && !indirectArguments;
             var nativeDesc = new BufferDesc
             {
                 ByteWidth = (uint)desc.SizeBytes,
                 Usage = usage,
                 BindFlags = bind,
                 CPUAccessFlags = cpuAccess,
-                MiscFlags = ((desc.BindFlags & GpuBindFlags.StructuredBuffer) != 0
-                    ? (uint)ResourceMiscFlag.BufferStructured : 0u)
-                    | ((desc.BindFlags & GpuBindFlags.IndirectArguments) != 0 ? (uint)ResourceMiscFlag.DrawindirectArgs : 0u),
-                StructureByteStride = (uint)Math.Max(0, desc.StructureStride),
+                MiscFlags = (nativeStructured ? (uint)ResourceMiscFlag.BufferStructured : 0u)
+                    | (indirectArguments ? (uint)ResourceMiscFlag.DrawindirectArgs : 0u),
+                StructureByteStride = nativeStructured ? (uint)Math.Max(0, desc.StructureStride) : 0u,
             };
 
             ID3D11Buffer* buffer = null;
@@ -313,7 +314,7 @@ namespace Genesis.Rendering.SilkNet.DX11
                         throw new ArgumentException("Writable buffers require device-local structured storage.", nameof(desc));
                     var uavDesc = new UnorderedAccessViewDesc
                     {
-                        Format = Format.FormatUnknown,
+                        Format = indirectArguments ? Format.FormatR32Uint : Format.FormatUnknown,
                         ViewDimension = UavDimension.Buffer,
                     };
                     uavDesc.Anonymous.Buffer.FirstElement = 0;
