@@ -128,8 +128,25 @@ public sealed partial class ParticleEditorControl
         AddInfoCard(collision, "Preview collision", "Bounce / Die / Stick use the height plane or the selected terrain height. Arbitrary model-surface collision is not a full physics preview.");
 
         FlowLayoutPanel renderer = InspectorPage("Renderer");
+        AddInspectorRow(renderer, "Renderer", EnumCombo("rendererKind", _config.RendererKind, value => _config.RendererKind = (ParticleRendererKind)value));
+        AddInspectorRow(renderer, "Simulation space", EnumCombo("simulationSpace", _config.SimulationSpace, value => _config.SimulationSpace = (ParticleSimulationSpace)value));
         AddInspectorRow(renderer, "Blend", EnumCombo("blend", _config.BlendMode, value => _config.BlendMode = (ParticleBlendMode)value));
         AddInspectorRow(renderer, "Alignment", EnumCombo("alignment", _config.Alignment, value => _config.Alignment = (ParticleAlignment)value));
+        AddNumeric(renderer, "Trail duration", "trailDuration", _config.TrailDuration, 0.01, 60, value => _config.TrailDuration = value, 2);
+        AddNumeric(renderer, "Trail / ribbon width", "trailWidth", _config.TrailWidth, 0.01, 100, value => _config.TrailWidth = value, 2);
+        AddNumeric(renderer, "Ribbon max segment", "ribbonMaxSegment", _config.RibbonMaxSegmentLength, 0.01, 1000, value => _config.RibbonMaxSegmentLength = value, 2);
+        AddNumeric(renderer, "Velocity stretch", "velocityStretch", _config.VelocityStretch, 0, 100, value => _config.VelocityStretch = value, 2);
+        AddNumeric(renderer, "Beam end X", "beamEndX", _config.BeamEndX, -10000, 10000, value => _config.BeamEndX = value, 2);
+        AddNumeric(renderer, "Beam end Y", "beamEndY", _config.BeamEndY, -10000, 10000, value => _config.BeamEndY = value, 2);
+        AddNumeric(renderer, "Beam end Z", "beamEndZ", _config.BeamEndZ, -10000, 10000, value => _config.BeamEndZ = value, 2);
+        AddNumeric(renderer, "Beam noise", "beamNoise", _config.BeamNoise, 0, 1000, value => _config.BeamNoise = value, 2);
+        AddInspectorRow(renderer, "Bounds", EnumCombo("boundsMode", _config.BoundsMode, value => _config.BoundsMode = (ParticleBoundsMode)value));
+        AddNumeric(renderer, "Bounds centre X", "boundsCenterX", _config.BoundsCenterX, -100000, 100000, value => _config.BoundsCenterX = value, 2);
+        AddNumeric(renderer, "Bounds centre Y", "boundsCenterY", _config.BoundsCenterY, -100000, 100000, value => _config.BoundsCenterY = value, 2);
+        AddNumeric(renderer, "Bounds centre Z", "boundsCenterZ", _config.BoundsCenterZ, -100000, 100000, value => _config.BoundsCenterZ = value, 2);
+        AddNumeric(renderer, "Bounds size X", "boundsSizeX", _config.BoundsSizeX, 0.01, 100000, value => _config.BoundsSizeX = value, 2);
+        AddNumeric(renderer, "Bounds size Y", "boundsSizeY", _config.BoundsSizeY, 0.01, 100000, value => _config.BoundsSizeY = value, 2);
+        AddNumeric(renderer, "Bounds size Z", "boundsSizeZ", _config.BoundsSizeZ, 0.01, 100000, value => _config.BoundsSizeZ = value, 2);
         AddNumeric(renderer, "Emissive", "emissive", _config.Emissive, 0, 20, value => _config.Emissive = value, 2);
         AddNumeric(renderer, "Colour jitter", "colorJitter", _config.ColorJitter, 0, 1, value => _config.ColorJitter = value, 2);
         AddInspectorRow(renderer, "Texture", AssetButton("Choose Image…", ResourceKind.Image, () => _config.TexturePath, value => _config.TexturePath = value));
@@ -237,6 +254,9 @@ public sealed partial class ParticleEditorControl
     private void SyncAdvancedControls()
     {
         SetCombo("collisionMode", _config.CollisionMode);
+        SetCombo("rendererKind", _config.RendererKind);
+        SetCombo("simulationSpace", _config.SimulationSpace);
+        SetCombo("boundsMode", _config.BoundsMode);
         SetCombo("blend", _config.BlendMode);
         SetCombo("alignment", _config.Alignment);
         SetCheck("collideTerrain", _config.CollideWithTerrain);
@@ -253,6 +273,20 @@ public sealed partial class ParticleEditorControl
         SetNumeric("rotationVariance", _config.RotationVariance);
         SetNumeric("sizeScaleX", _config.SizeXScale);
         SetNumeric("sizeScaleY", _config.SizeYScale);
+        SetNumeric("trailDuration", _config.TrailDuration);
+        SetNumeric("trailWidth", _config.TrailWidth);
+        SetNumeric("ribbonMaxSegment", _config.RibbonMaxSegmentLength);
+        SetNumeric("velocityStretch", _config.VelocityStretch);
+        SetNumeric("beamEndX", _config.BeamEndX);
+        SetNumeric("beamEndY", _config.BeamEndY);
+        SetNumeric("beamEndZ", _config.BeamEndZ);
+        SetNumeric("beamNoise", _config.BeamNoise);
+        SetNumeric("boundsCenterX", _config.BoundsCenterX);
+        SetNumeric("boundsCenterY", _config.BoundsCenterY);
+        SetNumeric("boundsCenterZ", _config.BoundsCenterZ);
+        SetNumeric("boundsSizeX", _config.BoundsSizeX);
+        SetNumeric("boundsSizeY", _config.BoundsSizeY);
+        SetNumeric("boundsSizeZ", _config.BoundsSizeZ);
         SetCheck("emitLight", _effect.Light.Enabled);
         foreach ((Button button, Func<string> read, string fallback) in _assetButtons)
             button.Text = ShortAsset(read(), fallback);
