@@ -30,9 +30,28 @@ jobs:
           cp -a "$D"/packs/* offline/dotnet/packs/
           cp -a "$HOME/.nuget/packages" offline/packages
           tar -czf editor-toolchain.tar.gz -C offline .
+          split -b 250M -d -a 2 editor-toolchain.tar.gz toolchain-part-
       - uses: actions/upload-artifact@v4
         with:
-          name: editor-toolchain
-          path: editor-toolchain.tar.gz
+          name: editor-toolchain-00
+          path: toolchain-part-00
+          compression-level: 0
+          retention-days: 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: editor-toolchain-01
+          path: toolchain-part-01
+          compression-level: 0
+          retention-days: 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: editor-toolchain-02
+          path: toolchain-part-02
+          compression-level: 0
+          retention-days: 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: editor-toolchain-03
+          path: toolchain-part-03
           compression-level: 0
           retention-days: 1
