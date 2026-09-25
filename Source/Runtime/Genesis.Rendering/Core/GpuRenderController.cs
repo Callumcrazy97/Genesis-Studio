@@ -64,6 +64,8 @@ namespace Genesis.Rendering.Core
         public bool   IsFramebufferReady => _initialized && _gpuSwapChain != null && _gpuSwapChain.IsReady;
         public string BackendName   => _gpu.BackendName;
         public string AdapterName   => _gpu?.AdapterName ?? string.Empty;
+        public bool SupportsComputeShaders => _gpu?.Capabilities.SupportsComputeShaders ?? false;
+        public bool SupportsIndirectDraw => _gpu?.Capabilities.SupportsIndirectDraw ?? false;
         public int    PixelWidth    => _gpuSwapChain?.Width  ?? 0;
         public int    PixelHeight   => _gpuSwapChain?.Height ?? 0;
 
