@@ -1,0 +1,32 @@
+name: Editor validation
+
+on:
+  push:
+    branches: [main, 'work/particle-editor-gpu']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: editor-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build Studio and matching runtime
+        shell: pwsh
+        run: dotnet build Source/Genesis.Application.Studio/Genesis.Application.Studio.csproj --configuration Release -warnaserror
+      - name: Build native regression harness
+        shell: pwsh
+        run: dotnet build Tests/Genesis.Application.Headless/Genesis.Application.Headless.csproj --configuration Release -warnaserror
+      - name: Run production-code core checks
+        shell: pwsh
+        run: dotnet run --project Tests/Genesis.Foundation.Checks --configuration Release
