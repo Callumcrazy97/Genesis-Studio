@@ -1,6 +1,7 @@
 using System.Drawing;
 using System.Numerics;
 using Genesis.Shared.Interfaces;
+using Genesis.Runtime.Particles;
 
 namespace Genesis.Application.Editors.Suite.Assets;
 
