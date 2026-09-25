@@ -52,7 +52,7 @@ public sealed class ParticleRuntimeEmitter : IDisposable
             _gpuRenderer = renderer as IGpuParticleRenderer
                 ?? throw new InvalidOperationException(
                     $"Renderer '{renderer.BackendName}' advertises GPU particles but does not implement the GPU particle renderer.");
-            _definition = ParticleGpuDefinitionBuilder.Build(_config, Matrix4x4.CreateTranslation(_origin), _meshSamples);
+            _definition = ParticleGpuDefinitionBuilder.Build(_config, ParticleGpuDefinitionBuilder.EmitterWorld(_config, _origin), _meshSamples);
             _gpu = _gpuRenderer.CreateParticleEmitter(_definition, seed);
         }
         else
@@ -75,7 +75,7 @@ public sealed class ParticleRuntimeEmitter : IDisposable
         if (UsesGpu)
         {
             GpuParticleDefinition nextDefinition =
-                ParticleGpuDefinitionBuilder.Build(next, Matrix4x4.CreateTranslation(_origin), _meshSamples);
+                ParticleGpuDefinitionBuilder.Build(next, ParticleGpuDefinitionBuilder.EmitterWorld(next, _origin), _meshSamples);
             if (_gpu is null || nextDefinition.Capacity != _gpu.Capacity)
             {
                 _gpu?.Dispose();
@@ -96,6 +96,7 @@ public sealed class ParticleRuntimeEmitter : IDisposable
             _cpu.UpdateConfig(next);
         }
         _config = next;
+        if (UsesCpu) _cpu.SetEmitterOrigin(_origin);
     }
 
     public void SetMeshSurfaceSamples(ReadOnlySpan<Vector3> samples)
@@ -104,7 +105,7 @@ public sealed class ParticleRuntimeEmitter : IDisposable
         if (UsesGpu)
         {
             _definition = ParticleGpuDefinitionBuilder.Build(
-                _config, Matrix4x4.CreateTranslation(_origin), _meshSamples);
+                _config, ParticleGpuDefinitionBuilder.EmitterWorld(_config, _origin), _meshSamples);
             if (_definition.Capacity == _gpu.Capacity) _gpu.UpdateDefinition(_definition);
         }
         else _cpu.SetMeshSurfaceSamples(_meshSamples);
@@ -116,7 +117,7 @@ public sealed class ParticleRuntimeEmitter : IDisposable
         if (UsesGpu)
         {
             _definition = ParticleGpuDefinitionBuilder.WithWorld(
-                _definition, Matrix4x4.CreateTranslation(_origin));
+                _definition, ParticleGpuDefinitionBuilder.EmitterWorld(_config, _origin));
             _gpu.UpdateDefinition(_definition);
         }
         else _cpu.SetEmitterOrigin(worldPosition);
