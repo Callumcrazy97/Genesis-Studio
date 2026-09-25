@@ -1,0 +1,27 @@
+name: H24 phase 2 validation
+on:
+  push:
+    branches: ['work/h24-phase2-clean']
+permissions:
+  contents: read
+concurrency:
+  group: h24-phase2
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build Studio and runtime
+        shell: pwsh
+        run: dotnet build Source/Genesis.Application.Studio/Genesis.Application.Studio.csproj --configuration Release -warnaserror
+      - name: Particle shader and WARP compute checks
+        shell: pwsh
+        run: dotnet run --project Tests/Genesis.Particle.Checks --configuration Release -- --warp-conformance
+      - name: Production core regressions
+        shell: pwsh
+        run: dotnet run --project Tests/Genesis.Foundation.Checks --configuration Release
