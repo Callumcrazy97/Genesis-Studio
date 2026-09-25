@@ -55,7 +55,14 @@ public sealed class GpuParticleEmitter : IDisposable
             _state = Storage(definition.Capacity * GpuParticleProtocol.StateStride, GpuParticleProtocol.StateStride, "States");
             _pool = Storage(GpuParticleProtocol.PoolBytes(definition.Capacity), 4, "Pool");
             _events = Storage(GpuParticleProtocol.EventCapacity * 2 * GpuParticleProtocol.EventStride, GpuParticleProtocol.EventStride, "Events");
-            _arguments = Storage(GpuParticleProtocol.ArgumentsBytes, 4, "Indirect", GpuBindFlags.IndirectArguments);
+            _arguments = _gpu.CreateBuffer(new GpuBufferDesc
+            {
+                SizeBytes = GpuParticleProtocol.ArgumentsBytes,
+                StructureStride = 0,
+                Usage = GpuBufferUsage.Gpu,
+                BindFlags = GpuBindFlags.UnorderedAccess | GpuBindFlags.IndirectArguments,
+                DebugName = "Particles.Indirect",
+            }, ReadOnlySpan<byte>.Empty);
             _stepConstants = Constants<GpuParticleStep>("Step");
             _parametersConstants = Constants<GpuParticleParameters>("Parameters");
             _drawConstants = Constants<GpuParticleDraw>("Draw");
