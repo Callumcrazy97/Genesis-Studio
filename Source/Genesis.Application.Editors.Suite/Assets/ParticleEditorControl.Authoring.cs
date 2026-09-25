@@ -254,8 +254,7 @@ public sealed partial class ParticleEditorControl
     {
         _previewSeekTimer.Stop();
         _previewClock.Reset(play);
-        for (int i = 0; i < _previewSimulations.Count; i++)
-            _previewSimulations[i].Reset(ParticlePreviewClock.SeedForEmitter(_previewSeed, _previewEmitterIds[i]));
+        ResetPreviewExecution();
         SyncPreviewClock();
         _lastTime = _clock.Elapsed.TotalSeconds;
         _viewport?.Invalidate(true);
@@ -267,10 +266,7 @@ public sealed partial class ParticleEditorControl
         _timelineSeconds = _previewClock.Time;
     }
 
-    private void StepPreviewSimulations(float step)
-    {
-        foreach (ParticleSimulation simulation in _previewSimulations) simulation.Step(step);
-    }
+    private void StepPreviewSimulations(float step) => StepPreviewExecution(step);
 
     private void PumpPreviewSeek()
     {
