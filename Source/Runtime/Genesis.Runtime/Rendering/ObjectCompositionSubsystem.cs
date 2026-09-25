@@ -39,7 +39,7 @@ public sealed class ObjectCompositionSubsystem : ISceneSubsystem
     private sealed class ParticleLayerState
     {
         public required ParticleConfig Config;
-        public required ParticleSimulation Simulation;
+        public required ParticleExecutionEmitter Execution;
         public SpriteDrawCall[] SpriteCalls = [];
         public MeshHandle Quad;
         public MeshHandle[] Frames = [];
@@ -74,7 +74,7 @@ public sealed class ObjectCompositionSubsystem : ISceneSubsystem
     }
 
     public int ParticleEmitterCount => _particles.Count;
-    public int ActiveParticleCount => _particles.Values.Sum(state => state.Layers.Sum(layer => layer.Simulation.ActiveCount));
+    public int ActiveParticleCount => _particles.Values.Sum(state => state.Layers.Sum(layer => layer.Execution.ActiveCount));
     public ParticleExecutionDecision ParticleExecution => ParticleExecutionPolicy.Resolve(_lastRenderer);
     public int ActiveAudioCount => _audioStates.Values.Count(state => state.Channel.IsValid);
     public int PointLightCount { get; private set; }
@@ -109,10 +109,12 @@ public sealed class ObjectCompositionSubsystem : ISceneSubsystem
             if (state == null) return;
             foreach (ParticleLayerState layer in state.Layers)
             {
+                if (_lastRenderer is not null)
+                    layer.Execution.BindRenderer(_lastRenderer);
                 if (component.FollowEntity)
-                    layer.Simulation.SetEmitterOrigin(new Vector3(transform.X, transform.Y, transform.Z));
-                layer.Simulation.UpdateCameraPosition(scene.Camera3D.Position);
-                layer.Simulation.Step(dt);
+                    layer.Execution.SetEmitterOrigin(new Vector3(transform.X, transform.Y, transform.Z));
+                layer.Execution.UpdateCameraPosition(scene.Camera3D.Position);
+                layer.Execution.Step(dt);
             }
         });
 
@@ -184,19 +186,29 @@ public sealed class ObjectCompositionSubsystem : ISceneSubsystem
         {
             foreach (ParticleLayerState layer in state.Layers)
             {
+                layer.Execution.BindRenderer(renderer);
                 EnsureParticleRenderResources(layer, renderer);
                 if (layer.Frames.Length == 0 || !layer.Frames[0].IsValid) continue;
-                layer.Simulation.DrawInstances3D(
-                    renderer,
-                    layer.Frames,
-                    layer.Texture,
-                    scene.Camera3D.Position,
-                    scene.Camera3D.Forward);
 
-                // First emitters to fill the eight slots win. A per-emitter re-bin would be the wrong
-                // fix for a scene with more smoke than budget — the cap is the cost control.
-                if (smokeExtinction && smokeCount < SmokeExtinctionMath.MaxVolumes)
-                    smokeCount += layer.Simulation.TryGetSmokeVolumes(smokeVolumes[smokeCount..]);
+                if (layer.Execution.UsesGpu)
+                {
+                    // No ParticleSimulation exists on a hardware backend. Simulation state, compaction
+                    // and indirect draw counts remain device-resident until the emitter is destroyed.
+                    layer.Execution.Submit3D(layer.Frames[0], layer.Texture);
+                }
+                else if (layer.Execution.CpuSimulation is ParticleSimulation simulation)
+                {
+                    simulation.DrawInstances3D(
+                        renderer,
+                        layer.Frames,
+                        layer.Texture,
+                        scene.Camera3D.Position,
+                        scene.Camera3D.Forward);
+
+                    // The scalar Software renderer retains the detailed per-particle smoke binning.
+                    if (smokeExtinction && smokeCount < SmokeExtinctionMath.MaxVolumes)
+                        smokeCount += simulation.TryGetSmokeVolumes(smokeVolumes[smokeCount..]);
+                }
             }
         }
 
@@ -218,17 +230,65 @@ public sealed class ObjectCompositionSubsystem : ISceneSubsystem
         foreach (ParticleState state in _particles.Values)
         {
             foreach (ParticleLayerState layer in state.Layers)
+                commands.DrawDeferred2D(new ParticleDeferred2D(this, layer, offsetX, offsetY, zoom));
+        }
+    }
+
+    private sealed class ParticleDeferred2D : IDeferredDraw2D
+    {
+        private readonly ObjectCompositionSubsystem _owner;
+        private readonly ParticleLayerState _layer;
+        private readonly float _centerX;
+        private readonly float _centerY;
+        private readonly float _zoom;
+
+        public ParticleDeferred2D(
+            ObjectCompositionSubsystem owner,
+            ParticleLayerState layer,
+            float centerX,
+            float centerY,
+            float zoom)
+        {
+            _owner = owner;
+            _layer = layer;
+            _centerX = centerX;
+            _centerY = centerY;
+            _zoom = zoom;
+        }
+
+        public void Submit(IRenderController renderer, Vector2 viewportOffset, Vector4 clip)
+        {
+            _owner._lastRenderer = renderer;
+            _layer.Execution.BindRenderer(renderer);
+            _owner.EnsureParticleRenderResources(_layer, renderer);
+            if (_layer.Frames.Length == 0 || !_layer.Frames[0].IsValid) return;
+
+            if (_layer.Execution.UsesGpu)
             {
-                int capacity = Math.Max(1, layer.Simulation.Capacity);
-                if (layer.SpriteCalls.Length != capacity) layer.SpriteCalls = new SpriteDrawCall[capacity];
-                int count = layer.Simulation.FillSpriteDrawCalls2D(
-                    layer.SpriteCalls,
-                    offsetX,
-                    offsetY,
-                    zoom,
-                    layer.Texture);
-                if (count > 0) commands.DrawSpriteBatch(layer.SpriteCalls.AsSpan(0, count));
+                _layer.Execution.Submit2D(
+                    _layer.Frames[0],
+                    _layer.Texture,
+                    _centerX + viewportOffset.X,
+                    _centerY + viewportOffset.Y,
+                    _zoom,
+                    12f,
+                    -100,
+                    clip);
+                return;
             }
+
+            ParticleSimulation simulation = _layer.Execution.CpuSimulation;
+            if (simulation == null) return;
+            int capacity = Math.Max(1, simulation.Capacity);
+            if (_layer.SpriteCalls.Length != capacity)
+                _layer.SpriteCalls = new SpriteDrawCall[capacity];
+            int count = simulation.FillSpriteDrawCalls2D(
+                _layer.SpriteCalls,
+                _centerX + viewportOffset.X,
+                _centerY + viewportOffset.Y,
+                _zoom,
+                _layer.Texture);
+            if (count > 0) renderer.DrawSpriteBatch(_layer.SpriteCalls.AsSpan(0, count));
         }
     }
 
@@ -359,12 +419,15 @@ public sealed class ObjectCompositionSubsystem : ISceneSubsystem
             foreach ((string _, string _, ParticleConfig emitter) in ParticleAssetLoader.EnumerateEnabledEmitters(config))
             {
                 emitter.EmitRate = component.EmitRate > 0f ? component.EmitRate : emitter.EmitRate * rateScale;
-                ParticleSimulation simulation = new();
-                simulation.LoadConfig(emitter);
-                ConfigureMeshSurfaceSamples(simulation, emitter);
+                var execution = new ParticleExecutionEmitter(emitter, unchecked(entity.Id * 486187739 + state.Layers.Count * 16777619));
+                Vector3[] surfaceSamples = LoadMeshSurfaceSamples(emitter);
+                if (surfaceSamples.Length > 0)
+                    execution.SetMeshSurfaceSamples(surfaceSamples);
                 if (emitter.CollisionMode != ParticleCollisionMode.None && scene.Physics is not null)
                 {
-                    simulation.SetCollisionHeightProvider(position =>
+                    // Used only by the explicitly selected Software backend. Hardware collision is
+                    // evaluated by the compute shader and never calls back into CPU physics per particle.
+                    execution.SetCollisionHeightProvider(position =>
                     {
                         if (!scene.Physics.Raycast(scene.World, position + Vector3.UnitY * 0.5f, -Vector3.UnitY, 1000f, out var hit, entity))
                             return float.NaN;
@@ -374,7 +437,7 @@ public sealed class ObjectCompositionSubsystem : ISceneSubsystem
                             : float.NaN;
                     });
                 }
-                state.Layers.Add(new ParticleLayerState { Config = emitter, Simulation = simulation });
+                state.Layers.Add(new ParticleLayerState { Config = emitter, Execution = execution });
             }
             _particles[entity.Id] = state;
             return state;
@@ -433,24 +496,30 @@ public sealed class ObjectCompositionSubsystem : ISceneSubsystem
         }
     }
 
-    private void ConfigureMeshSurfaceSamples(ParticleSimulation simulation, ParticleConfig config)
+    private Vector3[] LoadMeshSurfaceSamples(ParticleConfig config)
     {
-        if (config.Shape != ParticleEmitShape.MeshSurface || string.IsNullOrWhiteSpace(config.MeshSurfaceAsset)) return;
+        if (config.Shape != ParticleEmitShape.MeshSurface || string.IsNullOrWhiteSpace(config.MeshSurfaceAsset))
+            return Array.Empty<Vector3>();
         try
         {
             GModelAsset asset = _particleModelAssets.Load(_projectPath, config.MeshSurfaceAsset);
             var positions = new List<Vector3>();
             foreach (GModelMesh mesh in asset.Meshes)
             {
-                if (mesh.Vertices is { Length: > 0 }) positions.AddRange(mesh.Vertices.Select(vertex => vertex.Position));
-                else if (mesh.SkinnedVertices is { Length: > 0 }) positions.AddRange(mesh.SkinnedVertices.Select(vertex => vertex.Position));
+                if (mesh.Vertices is { Length: > 0 })
+                    positions.AddRange(mesh.Vertices.Select(vertex => vertex.Position));
+                else if (mesh.SkinnedVertices is { Length: > 0 })
+                    positions.AddRange(mesh.SkinnedVertices.Select(vertex => vertex.Position));
                 if (positions.Count >= 100_000) break;
             }
-            if (positions.Count > 0) simulation.SetMeshSurfaceSamples(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(positions));
+            if (positions.Count > 100_000)
+                positions.RemoveRange(100_000, positions.Count - 100_000);
+            return positions.ToArray();
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
         {
             _ = exception;
+            return Array.Empty<Vector3>();
         }
     }
 
@@ -498,6 +567,7 @@ public sealed class ObjectCompositionSubsystem : ISceneSubsystem
         if (_lastRenderer is null) return;
         foreach (ParticleLayerState layer in state.Layers)
         {
+            layer.Execution.Dispose();
             if (layer.OwnsFrames) ParticleRenderGeometry.ReleaseFrames(_lastRenderer, layer.Frames);
             if (layer.OwnsTexture && layer.Texture.IsValid) _lastRenderer.ReleaseTexture(layer.Texture);
         }
