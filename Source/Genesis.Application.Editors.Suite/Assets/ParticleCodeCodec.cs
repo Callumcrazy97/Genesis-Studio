@@ -27,6 +27,8 @@ internal static class ParticleCodeCodec
         Line(text, "emission.spread", config.SpreadDegrees);
         Line(text, "emission.box", $"{N(config.BoxSizeX)}, {N(config.BoxSizeY)}, {N(config.BoxSizeZ)}");
         Line(text, "emission.meshSurface", Quote(config.MeshSurfaceAsset));
+        Line(text, "emission.offset", $"{N(config.EmitterOffsetX)}, {N(config.EmitterOffsetY)}, {N(config.EmitterOffsetZ)}");
+        Line(text, "emission.rotation", $"{N(config.EmitterPitch)}, {N(config.EmitterYaw)}, {N(config.EmitterRoll)}");
         Line(text, "motion.speed", config.Speed);
         Line(text, "motion.speedVariance", config.SpeedVariance);
         Line(text, "motion.gravity", $"{N(config.GravityX)}, {N(config.Gravity)}, {N(config.GravityZ)}");
@@ -123,6 +125,8 @@ internal static class ParticleCodeCodec
                     case "emission.spread": config.SpreadDegrees = Number(value); break;
                     case "emission.box": (config.BoxSizeX, config.BoxSizeY, config.BoxSizeZ) = Triple(value); break;
                     case "emission.meshsurface": config.MeshSurfaceAsset = Unquote(value); break;
+                    case "emission.offset": (config.EmitterOffsetX, config.EmitterOffsetY, config.EmitterOffsetZ) = Triple(value); break;
+                    case "emission.rotation": (config.EmitterPitch, config.EmitterYaw, config.EmitterRoll) = Triple(value); break;
                     case "motion.speed": config.Speed = Number(value); break;
                     case "motion.speedvariance": config.SpeedVariance = Number(value); break;
                     case "motion.gravity": (config.GravityX, config.Gravity, config.GravityZ) = Triple(value); break;
