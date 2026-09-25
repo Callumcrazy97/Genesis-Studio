@@ -23,7 +23,7 @@ namespace Genesis.Rendering.SilkNet.Vulkan
     /// hold and no matrix or shader differs from the other backends. The cost is a reversed winding,
     /// which the pipeline cache negates.</para>
     /// </remarks>
-    internal sealed unsafe partial class VulkanGpuDevice : IGpuDevice
+    internal sealed unsafe partial class VulkanGpuDevice : IGpuComputeDevice
     {
         private const int MaxVertexSlots = 4;
 
@@ -678,7 +678,7 @@ namespace Genesis.Rendering.SilkNet.Vulkan
         /// depending on <c>descriptorBindingPartiallyBound</c> — and writing the wrong descriptor
         /// type is invalid but silent, which is what made the previous backend render blank.
         /// </remarks>
-        private void WriteDescriptors(CommandBuffer cmd, ProgramResource program)
+        private void WriteDescriptors(CommandBuffer cmd, ProgramResource program, PipelineBindPoint bindPoint = PipelineBindPoint.Graphics)
         {
             DescriptorSet set = _descriptors.Allocate(program.Bindings.Layout);
 
@@ -686,7 +686,7 @@ namespace Genesis.Rendering.SilkNet.Vulkan
             if (count == 0)
             {
                 _runtime.Api.CmdBindDescriptorSets(
-                    cmd, PipelineBindPoint.Graphics, program.PipelineLayout, 0, 0, null, 0, null);
+                    cmd, bindPoint, program.PipelineLayout, 0, 0, null, 0, null);
                 return;
             }
 
@@ -714,8 +714,13 @@ namespace Genesis.Rendering.SilkNet.Vulkan
 
                     case DescriptorType.StorageBuffer:
                     {
-                        BufferResource resource = ResolveBuffer(
-                            register >= 0 && register < _boundStructured.Length ? _boundStructured[register] : default);
+                        bool writable = binding >= VulkanShaderBindingPolicy.UavBaseBinding;
+                        GpuBufferHandle handle = writable
+                            ? (register >= 0 && register < _boundUavs.Length ? _boundUavs[register] : default)
+                            : (register >= 0 && register < _boundStructured.Length ? _boundStructured[register] : default);
+                        if (writable && !handle.IsValid)
+                            throw new InvalidOperationException($"Compute shader requires writable u{register}, but no buffer is bound.");
+                        BufferResource resource = ResolveBuffer(handle);
                         buffers[bufferCount] = DescribeBuffer(resource);
                         writes[writeCount++] = Write(set, binding, type, buffer: &buffers[bufferCount++]);
                         break;
@@ -753,7 +758,7 @@ namespace Genesis.Rendering.SilkNet.Vulkan
 
             DescriptorSet local = set;
             _runtime.Api.CmdBindDescriptorSets(
-                cmd, PipelineBindPoint.Graphics, program.PipelineLayout, 0, 1, &local, 0, null);
+                cmd, bindPoint, program.PipelineLayout, 0, 1, &local, 0, null);
         }
 
         /// <summary>
@@ -812,8 +817,9 @@ namespace Genesis.Rendering.SilkNet.Vulkan
         private static int RegisterFor(uint binding, DescriptorType type) => type switch
         {
             DescriptorType.UniformBuffer => (int)binding - VulkanShaderBindingPolicy.CbvBaseBinding,
-            DescriptorType.StorageBuffer or DescriptorType.SampledImage =>
-                (int)binding - VulkanShaderBindingPolicy.SrvBaseBinding,
+            DescriptorType.StorageBuffer => (int)binding - (binding >= VulkanShaderBindingPolicy.UavBaseBinding
+                ? VulkanShaderBindingPolicy.UavBaseBinding : VulkanShaderBindingPolicy.SrvBaseBinding),
+            DescriptorType.SampledImage => (int)binding - VulkanShaderBindingPolicy.SrvBaseBinding,
             DescriptorType.Sampler => (int)binding - VulkanShaderBindingPolicy.SamplerBaseBinding,
             _ => -1,
         };
@@ -832,6 +838,7 @@ namespace Genesis.Rendering.SilkNet.Vulkan
                 EndRenderPass();
             }
             _frameRing.WaitIdle();
+            DisposeComputeResources();
             DisposeResources();
 
             _pipelines.Dispose();

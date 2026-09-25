@@ -1,4 +1,5 @@
 using System;
+using System.Numerics;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Genesis.Shared.Interfaces;
@@ -11,21 +12,27 @@ namespace Genesis.Runtime.Rendering
     /// </summary>
     public sealed class FrameRenderQueue : IRenderCommandSink, IMeshDrawList
     {
+        private readonly record struct Deferred(IDeferredDraw2D Command, Vector2 Offset, Vector4 Clip);
+        private readonly List<Deferred> _deferred = new(16);
         private readonly List<SpriteDrawCall> _sprites = new(256);
         private readonly List<MeshDrawCall> _meshes = new(256);
 
         public int SpriteCount => _sprites.Count;
         public int MeshCount => _meshes.Count;
         public int Count => _meshes.Count;
-        public bool IsEmpty => _sprites.Count == 0 && _meshes.Count == 0;
+        public bool IsEmpty => _sprites.Count == 0 && _meshes.Count == 0 && _deferred.Count == 0;
 
         public void Reset()
         {
+            _deferred.Clear();
             _sprites.Clear();
             _meshes.Clear();
         }
 
         public void Clear() => Reset();
+
+        public void DrawDeferred2D(IDeferredDraw2D command, Vector2 viewportOffset = default, Vector4 clip = default) =>
+            _deferred.Add(new Deferred(command, viewportOffset, clip));
 
         public void DrawSprite(in SpriteDrawCall call) => _sprites.Add(call);
 
@@ -64,6 +71,8 @@ namespace Genesis.Runtime.Rendering
 
             if (includeSprites && _sprites.Count > 0)
                 renderer.DrawSpriteBatch(CollectionsMarshal.AsSpan(_sprites));
+            if (includeSprites)
+                foreach (Deferred draw in _deferred) draw.Command.Submit(renderer, draw.Offset, draw.Clip);
         }
     }
 }

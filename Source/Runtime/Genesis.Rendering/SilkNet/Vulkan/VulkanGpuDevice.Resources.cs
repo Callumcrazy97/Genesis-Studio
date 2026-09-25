@@ -71,6 +71,8 @@ namespace Genesis.Rendering.SilkNet.Vulkan
         {
             public ShaderModule VertexShader;
             public ShaderModule PixelShader;
+            public ShaderModule ComputeShader;
+            public Pipeline ComputePipeline;
             public string VertexEntry;
             public string PixelEntry;
             public VulkanDescriptors.ProgramBindings Bindings;
@@ -849,6 +851,8 @@ namespace Genesis.Rendering.SilkNet.Vulkan
                     $"The Vulkan backend requires SPIR-V shaders; got {desc.BinaryFormat}.");
             }
 
+            if (desc.ComputeShader?.Length > 0) return CreateComputeProgram(desc);
+
             var declared = new List<SpirVBinding>();
             if (desc.VertexShader is { Length: > 0 }) declared.AddRange(SpirVReflection.ReadBindings(desc.VertexShader));
             if (desc.PixelShader is { Length: > 0 }) declared.AddRange(SpirVReflection.ReadBindings(desc.PixelShader));
@@ -919,6 +923,8 @@ namespace Genesis.Rendering.SilkNet.Vulkan
             // layouts. Use the same fence-delayed lifetime as uploaded mesh buffers.
             _frameRing.Defer(() =>
             {
+                if (program.ComputePipeline.Handle != 0) _runtime.Api.DestroyPipeline(_runtime.Device, program.ComputePipeline, null);
+                if (program.ComputeShader.Handle != 0) _runtime.Api.DestroyShaderModule(_runtime.Device, program.ComputeShader, null);
                 _runtime.Api.DestroyPipelineLayout(_runtime.Device, program.PipelineLayout, null);
                 _descriptors.DestroyLayout(program.Bindings.Layout);
                 if (program.PixelShader.Handle != 0) _runtime.Api.DestroyShaderModule(_runtime.Device, program.PixelShader, null);
@@ -1100,6 +1106,8 @@ namespace Genesis.Rendering.SilkNet.Vulkan
 
             foreach (ProgramResource program in _programs.Values)
             {
+                if (program.ComputePipeline.Handle != 0) _runtime.Api.DestroyPipeline(_runtime.Device, program.ComputePipeline, null);
+                if (program.ComputeShader.Handle != 0) _runtime.Api.DestroyShaderModule(_runtime.Device, program.ComputeShader, null);
                 _runtime.Api.DestroyPipelineLayout(_runtime.Device, program.PipelineLayout, null);
                 if (program.PixelShader.Handle != 0) _runtime.Api.DestroyShaderModule(_runtime.Device, program.PixelShader, null);
                 if (program.VertexShader.Handle != 0) _runtime.Api.DestroyShaderModule(_runtime.Device, program.VertexShader, null);
