@@ -34,7 +34,8 @@ internal sealed class GpuParticleLibrary : IDisposable
         {
             foreach (string entry in GpuParticleShaders.ComputeEntries)
             {
-                byte[] code = ShaderCompiler.CompileForBackend(GpuParticleShaders.Compute, entry,
+                byte[] code = ShaderCompiler.CompileForBackend(
+                    GpuParticleShaders.ComputeFor(Device.ShaderBinaryFormat), entry,
                     GpuShaderStage.Compute, Device.ShaderBinaryFormat).Blob;
                 _compute.Add(entry, Device.CreateShaderProgram(new GpuShaderProgramDesc
                 {
