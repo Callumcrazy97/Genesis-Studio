@@ -5,6 +5,17 @@ public static class GpuParticleShaders
 {
     public static readonly string[] ComputeEntries = ["Reset", "BeginStep", "CollectEvents", "UpdateScan", "PrefixGroups", "SpawnCompact", "FinishStep", "DrawArguments"];
 
+    /// <summary>
+    /// D3D11 indirect-argument buffers cannot use the structured-buffer misc flag together with
+    /// DRAWINDIRECT_ARGS on all conforming drivers/WARP. Its u3 view is therefore typed R32_UINT,
+    /// while DX12/Vulkan/OpenGL keep the ordinary structured-storage declaration.
+    /// </summary>
+    public static string ComputeFor(GpuShaderBinaryFormat format) =>
+        format == GpuShaderBinaryFormat.Dxbc
+            ? Compute.Replace("RWStructuredBuffer<uint> Arguments : register(u3);",
+                "RWBuffer<uint> Arguments : register(u3);", StringComparison.Ordinal)
+            : Compute;
+
     private const string Common = """
 #define THREADS 128
 #define TRAIL_SAMPLES 8
