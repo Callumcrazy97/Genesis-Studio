@@ -18,6 +18,7 @@ public sealed class ParticleRuntimeEmitter : IDisposable
     private ParticleConfig _config;
     private GpuParticleDefinition _definition;
     private Vector3[] _meshSamples = [];
+    private ParticleCollisionTriangle[] _collisionTriangles = [];
     private Vector3 _origin;
     private float _emitAccumulator;
     private int _pendingBurst;
@@ -37,12 +38,14 @@ public sealed class ParticleRuntimeEmitter : IDisposable
         IRenderController renderer,
         ParticleConfig config,
         int seed,
-        ReadOnlySpan<Vector3> meshSurfaceSamples = default)
+        ReadOnlySpan<Vector3> meshSurfaceSamples = default,
+        ReadOnlySpan<ParticleCollisionTriangle> collisionTriangles = default)
     {
         _renderer = renderer ?? throw new ArgumentNullException(nameof(renderer));
         _config = config?.CloneEmitter() ?? throw new ArgumentNullException(nameof(config));
         _seed = seed;
         _meshSamples = meshSurfaceSamples.ToArray();
+        _collisionTriangles = collisionTriangles.ToArray();
         Execution = ParticleExecutionPolicy.Resolve(renderer);
         if (!Execution.CanExecute)
             ParticleExecutionPolicy.ThrowIfHardwareWouldFallbackToCpu(renderer);
@@ -52,7 +55,11 @@ public sealed class ParticleRuntimeEmitter : IDisposable
             _gpuRenderer = renderer as IGpuParticleRenderer
                 ?? throw new InvalidOperationException(
                     $"Renderer '{renderer.BackendName}' advertises GPU particles but does not implement the GPU particle renderer.");
-            _definition = ParticleGpuDefinitionBuilder.Build(_config, ParticleGpuDefinitionBuilder.EmitterWorld(_config, _origin), _meshSamples);
+            _definition = ParticleGpuDefinitionBuilder.Build(
+                _config,
+                ParticleGpuDefinitionBuilder.EmitterWorld(_config, _origin),
+                _meshSamples,
+                _collisionTriangles);
             _gpu = _gpuRenderer.CreateParticleEmitter(_definition, seed);
         }
         else
@@ -75,7 +82,11 @@ public sealed class ParticleRuntimeEmitter : IDisposable
         if (UsesGpu)
         {
             GpuParticleDefinition nextDefinition =
-                ParticleGpuDefinitionBuilder.Build(next, ParticleGpuDefinitionBuilder.EmitterWorld(next, _origin), _meshSamples);
+                ParticleGpuDefinitionBuilder.Build(
+                    next,
+                    ParticleGpuDefinitionBuilder.EmitterWorld(next, _origin),
+                    _meshSamples,
+                    _collisionTriangles);
             if (_gpu is null || nextDefinition.Capacity != _gpu.Capacity)
             {
                 _gpu?.Dispose();
@@ -105,10 +116,29 @@ public sealed class ParticleRuntimeEmitter : IDisposable
         if (UsesGpu)
         {
             _definition = ParticleGpuDefinitionBuilder.Build(
-                _config, ParticleGpuDefinitionBuilder.EmitterWorld(_config, _origin), _meshSamples);
+                _config,
+                ParticleGpuDefinitionBuilder.EmitterWorld(_config, _origin),
+                _meshSamples,
+                _collisionTriangles);
             if (_definition.Capacity == _gpu.Capacity) _gpu.UpdateDefinition(_definition);
         }
         else _cpu.SetMeshSurfaceSamples(_meshSamples);
+    }
+
+    public void SetCollisionTriangles(ReadOnlySpan<ParticleCollisionTriangle> triangles)
+    {
+        _collisionTriangles = triangles.Length > ParticleCollisionBvh.MaximumTriangles
+            ? triangles[..ParticleCollisionBvh.MaximumTriangles].ToArray()
+            : triangles.ToArray();
+        if (!UsesGpu) return;
+
+        _definition = ParticleGpuDefinitionBuilder.Build(
+            _config,
+            ParticleGpuDefinitionBuilder.EmitterWorld(_config, _origin),
+            _meshSamples,
+            _collisionTriangles);
+        if (_definition.Capacity == _gpu.Capacity)
+            _gpu.UpdateDefinition(_definition);
     }
 
     public void SetEmitterOrigin(Vector3 worldPosition)
