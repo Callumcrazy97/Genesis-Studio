@@ -240,11 +240,17 @@ public sealed class GpuParticleEmitter : IDisposable
         }
     }
 
-    private GpuBufferHandle Storage(int bytes,int stride,string name,GpuBindFlags extra=0) => _gpu.CreateBuffer(new GpuBufferDesc
+    private GpuBufferHandle Storage(int bytes,int stride,string name,GpuBindFlags extra=0)
     {
-        SizeBytes=bytes,StructureStride=stride,Usage=GpuBufferUsage.Gpu,
-        BindFlags=GpuBindFlags.StructuredBuffer|GpuBindFlags.ShaderResource|GpuBindFlags.UnorderedAccess|extra,DebugName="Particles."+name,
-    },ReadOnlySpan<byte>.Empty);
+        GpuBindFlags flags = GpuBindFlags.StructuredBuffer | GpuBindFlags.UnorderedAccess | extra;
+        if ((extra & GpuBindFlags.IndirectArguments) == 0)
+            flags |= GpuBindFlags.ShaderResource;
+        return _gpu.CreateBuffer(new GpuBufferDesc
+        {
+            SizeBytes=bytes,StructureStride=stride,Usage=GpuBufferUsage.Gpu,
+            BindFlags=flags,DebugName="Particles."+name,
+        },ReadOnlySpan<byte>.Empty);
+    }
     private GpuBufferHandle Constants<T>(string name) where T:unmanaged => _gpu.CreateBuffer(new GpuBufferDesc
     {
         SizeBytes=Marshal.SizeOf<T>(),Usage=GpuBufferUsage.Dynamic,BindFlags=GpuBindFlags.ConstantBuffer,DebugName="Particles."+name,
