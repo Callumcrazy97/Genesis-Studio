@@ -54,7 +54,7 @@ float3 DirectionLocal(float3 v) { return Options.x > 0.5 ? mul(float4(v,0),Inver
 RWStructuredBuffer<Particle> State : register(u0);
 RWStructuredBuffer<uint> Pool : register(u1);
 RWStructuredBuffer<ParticleEvent> Events : register(u2);
-RWStructuredBuffer<uint> Arguments : register(u3);
+RWByteAddressBuffer Arguments : register(u3);
 StructuredBuffer<float4> Lookup : register(t0);
 StructuredBuffer<ParticleEvent> ParentEvents : register(t1);
 StructuredBuffer<uint> ParentPool : register(t2);
@@ -77,7 +77,7 @@ void Reset(uint3 tid : SV_DispatchThreadID) {
     uint i = tid.x;
     if (i < Capacity) State[i] = (Particle)0;
     if (i < 64) Pool[i] = 0;
-    if (i < 16) Arguments[i] = 0;
+    if (i < 16) Arguments.Store(i * 4, 0);
     if (i == 0) { Pool[13] = 0xffffffff; Pool[14] = 0; }
 }
 
@@ -312,7 +312,10 @@ void SpawnCompact(uint3 tid : SV_DispatchThreadID,uint3 gid : SV_GroupID) {
 }
 
 [numthreads(1,1,1)]
-void DrawArguments(uint3 tid : SV_DispatchThreadID) { Arguments[0]=(uint)Limits.y; Arguments[1]=Pool[0]; }
+void DrawArguments(uint3 tid : SV_DispatchThreadID) {
+    Arguments.Store(0, (uint)Limits.y);
+    Arguments.Store(4, Pool[0]);
+}
 
 [numthreads(THREADS,1,1)]
 void FinishStep(uint3 tid : SV_DispatchThreadID) {
@@ -325,9 +328,13 @@ void FinishStep(uint3 tid : SV_DispatchThreadID) {
         if(birth==Pool[3]-1){Pool[13]=at;Pool[14]=asuint(p.identity.x);}
     }
     if(birth==0) {
-        Arguments[0]=(uint)Limits.y;Arguments[1]=Pool[0];Arguments[2]=0;Arguments[3]=0;Arguments[4]=0;
-        Arguments[5]=(Pool[0]+THREADS-1)/THREADS;Arguments[6]=1;Arguments[7]=1;
-        Arguments[8]=(Pool[8]+THREADS-1)/THREADS;Arguments[9]=1;Arguments[10]=1;
+        Arguments.Store(0, (uint)Limits.y);
+        Arguments.Store(4, Pool[0]);
+        Arguments.Store(8, 0); Arguments.Store(12, 0); Arguments.Store(16, 0);
+        Arguments.Store(20, (Pool[0]+THREADS-1)/THREADS);
+        Arguments.Store(24, 1); Arguments.Store(28, 1);
+        Arguments.Store(32, (Pool[8]+THREADS-1)/THREADS);
+        Arguments.Store(36, 1); Arguments.Store(40, 1);
     }
 }
 """;
