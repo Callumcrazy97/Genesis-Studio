@@ -23,20 +23,23 @@ namespace Genesis.Rendering.SilkNet.DX11
             return _instance;
         }
 
-        private SilkNetDx11Runtime()
+        // Explicit reference adapter for native conformance tests only. Production always requests hardware.
+        internal static SilkNetDx11Runtime CreateValidationWarp() => new(D3DDriverType.Warp);
+
+        private SilkNetDx11Runtime(D3DDriverType driver = D3DDriverType.Hardware)
         {
             _d3d11Api = D3D11.GetApi(null, false);
-            CreateDevice();
+            CreateDevice(driver);
         }
 
-        private void CreateDevice()
+        private void CreateDevice(D3DDriverType requestedDriver)
         {
             ID3D11Device*        dev = null;
             ID3D11DeviceContext* ctx = null;
             D3DFeatureLevel      featureLevel = default;
 
-            // Prefer hardware; fall back to WARP software renderer.
-            D3DDriverType[] drivers = { D3DDriverType.Hardware, D3DDriverType.Warp };
+            // Never silently change the user's hardware selection into WARP.
+            D3DDriverType[] drivers = { requestedDriver };
 
             // Try with the debug layer first (it prints the precise reason for failures like
             // ResizeBuffers INVALID_CALL to the debugger / DebugView). Fall back to no debug if
@@ -75,7 +78,7 @@ namespace Genesis.Rendering.SilkNet.DX11
             ImmediateContext.Dispose();
             Device.Dispose();
             _d3d11Api.Dispose();
-            _instance = null;
+            if (ReferenceEquals(_instance, this)) _instance = null;
         }
     }
 }

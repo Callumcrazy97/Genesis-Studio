@@ -16,6 +16,16 @@ public sealed class ViewportSpriteSink : IRenderCommandSink
         _target = target ?? throw new ArgumentNullException(nameof(target));
         _port = port;
     }
+    public void DrawDeferred2D(IDeferredDraw2D command, Vector2 viewportOffset = default, Vector4 clip = default)
+    {
+        RectangleF clipped = _port;
+        if (clip.Z > 0 && clip.W > 0)
+            clipped = RectangleF.Intersect(clipped, new RectangleF(clip.X + _port.X, clip.Y + _port.Y, clip.Z, clip.W));
+        if (clipped.Width <= 0 || clipped.Height <= 0) return;
+        _target.DrawDeferred2D(command, viewportOffset + new Vector2(_port.X, _port.Y),
+            new Vector4(clipped.X, clipped.Y, clipped.Width, clipped.Height));
+    }
+
     public void DrawSprite(in SpriteDrawCall source)
     {
         SpriteDrawCall call = source;

@@ -37,6 +37,8 @@ namespace Genesis.Rendering.SilkNet.Vulkan
         private Fence _immediateFence;
         private int _frameIndex;
         private ulong _submitted;
+        private ulong _completedSubmission;
+        private readonly ulong[] _submissionForSlot = new ulong[FramesInFlight];
         private bool _recording;
         private bool _disposed;
 
@@ -183,6 +185,21 @@ namespace Genesis.Rendering.SilkNet.Vulkan
 
         public ulong SubmittedFrames => _submitted;
 
+        /// <summary>Non-blocking completion for asynchronous diagnostics copies.</summary>
+        public ulong CompletedSubmission
+        {
+            get
+            {
+                for (int i = 0; i < FramesInFlight; i++)
+                {
+                    if (_submissionForSlot[i] > _completedSubmission
+                        && _runtime.Api.GetFenceStatus(_runtime.Device, _fences[i]) == Result.Success)
+                        _completedSubmission = _submissionForSlot[i];
+                }
+                return _completedSubmission;
+            }
+        }
+
         /// <summary>Waits for this slot to be free, then opens its command buffer.</summary>
         public void BeginFrame()
         {
@@ -195,6 +212,8 @@ namespace Genesis.Rendering.SilkNet.Vulkan
             VulkanRuntime.Check(
                 _runtime.Api.WaitForFences(_runtime.Device, 1, &fence, true, ulong.MaxValue),
                 "waiting for the frame fence");
+            _completedSubmission = Math.Max(_completedSubmission, _submissionForSlot[_frameIndex]);
+            _submissionForSlot[_frameIndex] = 0;
             VulkanRuntime.Check(
                 _runtime.Api.ResetFences(_runtime.Device, 1, &fence), "resetting the frame fence");
 
@@ -259,6 +278,7 @@ namespace Genesis.Rendering.SilkNet.Vulkan
                 "submitting the frame");
 
             _submitted++;
+            _submissionForSlot[_frameIndex] = _submitted;
             _frameIndex = (_frameIndex + 1) % FramesInFlight;
         }
 
@@ -272,6 +292,7 @@ namespace Genesis.Rendering.SilkNet.Vulkan
 
             VulkanRuntime.Check(
                 _runtime.Api.DeviceWaitIdle(_runtime.Device), "waiting for the device to idle");
+            _completedSubmission = _submitted;
             DrainDeferred(force: true);
         }
 
