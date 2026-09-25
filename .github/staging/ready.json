@@ -1,15 +1,6 @@
 {
-  "parts": ["particles-01a.b64", "particles-01b.b64", "particles-01c.b64", "particles-01d.b64"],
-  "partHashes": {
-    "particles-01a.b64": "d61f8626cec8267e74fe1c3308e2c3b81126535efa02c94cd221798870d78838",
-    "particles-01b.b64": "1381f4f15bfc9549865efdd9c270cdc639f898c144ddc3dc83a990516e29af8c",
-    "particles-01c.b64": "a070ee4676285aa64aadea08bff2cb367c7c488b341d7ca0908e88550409e795",
-    "particles-01d.b64": "13363c85f88a767f192399b79b016403997f3081083bd6f3f7977bf257bdd0c4"
-  },
-  "sha256": "6e881f810f3d1a2f86b5c07b86de07a3f5cd90d5d75d4063cec9d4d03e18a67a",
-  "message": "Implement cross-backend GPU compute and particle simulation foundation",
-  "transportCorrections": {
-    "particles-01a.b64": [["KpudUTKFAC", "KpudUTKQb9TKFAC"], ["G9uezFpITqa", "G9uezFp/WvITqa"]],
-    "particles-01b.b64": [["GBSZffrguS7Mvf", "GBSZffrguMvf"]]
-  }
+  "parts": ["particles-02.b64"],
+  "partHashes": {"particles-02.b64": "c088c1e37b191644a8aa12edd72b4d8fdabff1dba54b048d85c7f58e10bcb79c"},
+  "sha256": "9b1870ac0478f296f98aa3038fd5c00309f34437a05745ac485a6142096c78c5",
+  "message": "Fix native HLSL keyword and compile existing editor regression harness"
 }
