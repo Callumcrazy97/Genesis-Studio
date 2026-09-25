@@ -254,8 +254,8 @@ public sealed partial class ParticleEditorControl
     {
         _previewSeekTimer.Stop();
         _previewClock.Reset(play);
-        for (int i = 0; i < _previewSimulations.Count; i++)
-            _previewSimulations[i].Reset(ParticlePreviewClock.SeedForEmitter(_previewSeed, _previewEmitterIds[i]));
+        for (int i = 0; i < _previewRuntimes.Count; i++)
+            _previewRuntimes[i].Reset(ParticlePreviewClock.SeedForEmitter(_previewSeed, _previewEmitterIds[i]));
         SyncPreviewClock();
         _lastTime = _clock.Elapsed.TotalSeconds;
         _viewport?.Invalidate(true);
@@ -269,7 +269,36 @@ public sealed partial class ParticleEditorControl
 
     private void StepPreviewSimulations(float step)
     {
-        foreach (ParticleSimulation simulation in _previewSimulations) simulation.Step(step);
+        for (int i = 0; i < _previewRuntimes.Count; i++)
+            _previewRuntimes[i].Step(step, BuildPreviewEventConnections(i));
+    }
+
+    private Genesis.Rendering.Particles.ParticleEventConnection[] BuildPreviewEventConnections(int childIndex)
+    {
+        if ((uint)childIndex >= (uint)_previewRuntimes.Count) return [];
+        ParticleConfig child = _previewEmitterConfigs[childIndex];
+        if (!_previewRuntimes[childIndex].UsesGpu || string.IsNullOrWhiteSpace(child.ParentEmitterId))
+            return [];
+
+        for (int i = 0; i < _previewRuntimes.Count; i++)
+        {
+            if (i == childIndex || !_previewRuntimes[i].UsesGpu) continue;
+            if (!string.Equals(_previewEmitterIds[i], child.ParentEmitterId, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(_previewEmitterConfigs[i].EmitterName, child.ParentEmitterId, StringComparison.OrdinalIgnoreCase))
+                continue;
+            Genesis.Rendering.Particles.GpuParticleEmitter? parent = _previewRuntimes[i].GpuEmitter;
+            if (parent is null) return [];
+            return
+            [
+                new Genesis.Rendering.Particles.ParticleEventConnection(
+                    parent,
+                    (int)child.ParentEvents,
+                    (float)Math.Clamp(child.EventProbability, 0d, 1d),
+                    Math.Clamp(child.EventSpawnCount, 1, 32),
+                    (float)Math.Clamp(child.EventInheritVelocity, 0d, 4d))
+            ];
+        }
+        return [];
     }
 
     private void PumpPreviewSeek()
