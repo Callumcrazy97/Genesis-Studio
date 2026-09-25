@@ -1140,7 +1140,7 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
             .Select(runtime => runtime.GpuDiagnostics)
             .FirstOrDefault();
         string gpuText = gpu.HasValue
-            ? $" · GPU {gpu.Value.GpuMilliseconds:0.00} ms · {gpu.Value.MemoryBytes / (1024d * 1024d):0.0} MiB"
+            ? $" · GPU {(gpu.Value.SimulationMilliseconds ?? 0d):0.00} ms · {gpu.Value.AllocatedBytes / (1024d * 1024d):0.0} MiB"
             : string.Empty;
         _statusLabel.Text =
             $"{_activePreset} · {mode} · {preview} · {executionText} · "
