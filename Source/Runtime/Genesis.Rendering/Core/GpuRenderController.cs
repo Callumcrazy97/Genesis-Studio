@@ -18,7 +18,7 @@ using Genesis.Rendering.Textures;
 
 namespace Genesis.Rendering.Core
 {
-    public sealed unsafe class GpuRenderController : IRenderController
+    public sealed unsafe partial class GpuRenderController : IRenderController, Genesis.Rendering.Particles.IGpuParticleRenderer
     {
         // ── Surface ──────────────────────────────────────────────────────────────
 
@@ -84,6 +84,7 @@ namespace Genesis.Rendering.Core
             if (_initialized) return;
             _gpuSwapChain = _gpu.CreateSwapChain(windowHandle, width, height);
             _fwd = new ForwardRenderer(_gpu);
+            _fwd.ExternalParticles = DrawSubmittedParticles3D;
             byte[] spriteVs = ShaderCompiler.CompileForBackend(
                 SpriteShaders.Source, "VS", GpuShaderStage.Vertex, _gpu.ShaderBinaryFormat).Blob;
             byte[] spritePs = ShaderCompiler.CompileForBackend(
@@ -190,6 +191,7 @@ namespace Genesis.Rendering.Core
                 _gpu.ReleaseBuffer(_previewParametersCb);
                 _previewParametersCb = GpuBufferHandle.Invalid;
             }
+            DisposeParticles();
             _fwd?.Dispose(); _fwd = null;
             _spr?.Dispose(); _spr = null;
             _shaderPreview?.Dispose(); _shaderPreview = null;
@@ -302,6 +304,8 @@ namespace Genesis.Rendering.Core
             int width  = offscreen ? target.Width  : _gpuSwapChain.Width;
             int height = offscreen ? target.Height : _gpuSwapChain.Height;
 
+            PrepareSubmittedParticles();
+
             if (_frame3DActive)
                 _fwd?.Flush(gpuTarget, _whiteTexture, width, height, depthTexture,
                     allowPostProcess: !offscreen || _cameraPostProcessing);
@@ -323,6 +327,7 @@ namespace Genesis.Rendering.Core
             // copy while a pass is open; leaving this bound forced HUD instance uploads onto a
             // dedicated command buffer that waited for the previous 3D frame (~15 FPS).
             _gpu.EndRenderPass();
+            _particleDraws.Clear();
         }
 
         public void FlushOverlaySprites()

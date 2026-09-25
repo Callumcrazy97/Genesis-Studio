@@ -1,4 +1,5 @@
 using System;
+using System.Numerics;
 
 namespace Genesis.Shared.Interfaces
 {
@@ -8,6 +9,11 @@ namespace Genesis.Shared.Interfaces
     /// </summary>
     public interface IRenderCommandSink
     {
+        void DrawDeferred2D(IDeferredDraw2D command, Vector2 viewportOffset = default, Vector4 clip = default)
+        {
+            if (this is IRenderController renderer) command.Submit(renderer, viewportOffset, clip);
+            else throw new NotSupportedException("This render command sink cannot preserve deferred 2D draws.");
+        }
         void DrawSprite(in SpriteDrawCall call);
         void DrawSpriteBatch(ReadOnlySpan<SpriteDrawCall> calls);
         void DrawMesh(in MeshDrawCall call);

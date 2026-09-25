@@ -81,7 +81,7 @@ namespace Genesis.Rendering.SilkNet.Vulkan
                     Binding = entry.Key,
                     DescriptorType = entry.Value,
                     DescriptorCount = 1,
-                    StageFlags = ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit,
+                    StageFlags = ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit | ShaderStageFlags.ComputeBit,
                     PImmutableSamplers = null,
                 };
             }

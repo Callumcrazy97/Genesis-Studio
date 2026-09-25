@@ -9,6 +9,10 @@
     <AssemblyName>Genesis.Application.Core</AssemblyName>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <Deterministic>true</Deterministic>
+    <!-- Media-heavy demonstration templates are optional in a source-only checkout.
+         Explicitly requesting one still fails rather than packaging an incomplete game. -->
+    <IncludeLuigisMansionTemplate Condition="'$(IncludeLuigisMansionTemplate)' == '' and Exists('Projects\Templates\Assets\LuigisMansion\Assets\Rooms\00 - A Light in the Dark.room.json')">true</IncludeLuigisMansionTemplate>
+    <IncludeLuigisMansionTemplate Condition="'$(IncludeLuigisMansionTemplate)' == ''">false</IncludeLuigisMansionTemplate>
   </PropertyGroup>
 
   <ItemGroup>
@@ -47,7 +51,7 @@
     <_LuigisMansionTemplateFile Include="Projects\Templates\Assets\LuigisMansion\Assets\**\*" />
   </ItemGroup>
 
-  <Target Name="PrepareLuigisMansionTemplateBundleInputs">
+  <Target Name="PrepareLuigisMansionTemplateBundleInputs" Condition="'$(IncludeLuigisMansionTemplate)' == 'true'">
     <!-- Resolve this at execution time, after the SDK appends configuration/TFM/RID. -->
     <PropertyGroup>
       <_LuigisMansionBundleDirectory>$(IntermediateOutputPath)TemplateBundles\</_LuigisMansionBundleDirectory>
@@ -71,7 +75,8 @@
   <Target Name="BuildLuigisMansionTemplateBundle"
           DependsOnTargets="PrepareLuigisMansionTemplateBundleInputs"
           Inputs="@(_LuigisMansionTemplateFile);$(_LuigisMansionBundleInputs);$(MSBuildProjectFullPath)"
-          Outputs="$(_LuigisMansionBundle)">
+          Outputs="$(_LuigisMansionBundle)"
+          Condition="'$(IncludeLuigisMansionTemplate)' == 'true'">
     <Message Importance="high" Text="Packing Luigi's Mansion template into Templates\LuigisMansion.zip (path-safe build content)." />
     <ZipDirectory SourceDirectory="$(MSBuildProjectDirectory)\Projects\Templates\Assets\LuigisMansion\Assets"
                   DestinationFile="$(_LuigisMansionBundlePending)" Overwrite="true" />
@@ -85,7 +90,7 @@
   <Target Name="RegisterLuigisMansionTemplateBundle"
           BeforeTargets="AssignTargetPaths"
           DependsOnTargets="BuildLuigisMansionTemplateBundle"
-          Condition="'$(DesignTimeBuild)' != 'true'">
+          Condition="'$(DesignTimeBuild)' != 'true' and '$(IncludeLuigisMansionTemplate)' == 'true'">
     <ItemGroup>
       <None Include="$(_LuigisMansionBundle)"
             Link="Templates\LuigisMansion.zip"

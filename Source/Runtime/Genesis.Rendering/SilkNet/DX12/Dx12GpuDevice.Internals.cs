@@ -782,6 +782,8 @@ namespace Genesis.Rendering.SilkNet.DX12
 
                 if (structured[i].IsValid && _buffers.TryGetValue(structured[i].Id, out BufferResource buffer))
                 {
+                    if (buffer.Usage != GpuBufferUsage.Dynamic)
+                        TransitionResource(buffer.Resource, ref buffer.State, ShaderResourceState);
                     int elementStride = Math.Max(1, buffer.StructureStride);
                     bool dynamic = buffer.Usage == GpuBufferUsage.Dynamic;
 
