@@ -1,3 +1,4 @@
+using Genesis.Application.Core.Editing.Particles;
 using Genesis.Runtime.Particles;
 
 namespace Genesis.Application.Editors.Suite.Assets;
