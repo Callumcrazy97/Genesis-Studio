@@ -96,7 +96,16 @@ public sealed class ParticleSimulation
     public void UpdateCameraPosition(Vector3 cameraPos)
     {
         if (_config.FollowCameraXZ)
-            _originOffset = new Vector3(cameraPos.X, 0f, cameraPos.Z);
+        {
+            _originOffset = new Vector3(cameraPos.X, 0f, cameraPos.Z) + new Vector3(
+                (float)_config.EmitterOffsetX,
+                (float)_config.EmitterOffsetY,
+                (float)_config.EmitterOffsetZ);
+            _emitterRotation = Matrix4x4.CreateFromYawPitchRoll(
+                (float)(_config.EmitterYaw * Math.PI / 180.0),
+                (float)(_config.EmitterPitch * Math.PI / 180.0),
+                (float)(_config.EmitterRoll * Math.PI / 180.0));
+        }
     }
 
     /// <summary>
