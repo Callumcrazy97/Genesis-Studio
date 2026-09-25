@@ -47,6 +47,31 @@ public enum ParticleAlignment
     Velocity,
     Horizontal,
     Mesh3D,
+    /// <summary>Velocity-aligned billboard stretched by current speed.</summary>
+    Stretched,
+}
+
+public enum ParticleRendererMode
+{
+    Sprite,
+    Trail,
+    Ribbon,
+    Beam,
+}
+
+[Flags]
+public enum ParticleEventMask
+{
+    None = 0,
+    Birth = 1,
+    Death = 2,
+    Collision = 4,
+}
+
+public enum ParticleBoundsMode
+{
+    Automatic,
+    Manual,
 }
 
 /// <summary>Response when a particle crosses the configured collision plane.</summary>
@@ -333,11 +358,40 @@ public sealed class ParticleConfig
     public ParticleAlignment Alignment { get; set; } = ParticleAlignment.Billboard;
     public string MeshParticleAsset { get; set; } = "";
 
+    // ── Renderer / GPU effect topology ───────────────────────────────────────
+    public ParticleRendererMode RendererMode { get; set; } = ParticleRendererMode.Sprite;
+    public double TrailDuration { get; set; } = 0.35;
+    public double TrailWidth { get; set; } = 1.0;
+    public double RibbonMaxSegmentLength { get; set; } = 4.0;
+    public double VelocityStretch { get; set; } = 0.08;
+    public double BeamEndX { get; set; }
+    public double BeamEndY { get; set; } = 3.0;
+    public double BeamEndZ { get; set; }
+    public double BeamNoise { get; set; } = 0.08;
+    public bool LocalSpace { get; set; }
+
+    // Optional GPU-to-GPU sub-emitter link. Empty parent means ordinary authored emission only.
+    public string ParentEmitterId { get; set; } = "";
+    public ParticleEventMask ParentEvents { get; set; } = ParticleEventMask.Death;
+    public double EventProbability { get; set; } = 1.0;
+    public int EventSpawnCount { get; set; } = 1;
+    public double EventInheritVelocity { get; set; }
+
+    // Editor/runtime bounds. Automatic is derived conservatively; Manual is author supplied.
+    public ParticleBoundsMode BoundsMode { get; set; } = ParticleBoundsMode.Automatic;
+    public double BoundsCenterX { get; set; }
+    public double BoundsCenterY { get; set; } = 1.0;
+    public double BoundsCenterZ { get; set; }
+    public double BoundsSizeX { get; set; } = 8.0;
+    public double BoundsSizeY { get; set; } = 8.0;
+    public double BoundsSizeZ { get; set; } = 8.0;
+
     // ── Collision ────────────────────────────────────────────────────────────
 
     public ParticleCollisionMode CollisionMode { get; set; }
     public double CollisionPlaneHeight { get; set; }
     public double CollisionBounce { get; set; } = 0.45;
+    public double CollisionRadius { get; set; } = 0.03;
     public bool CollideWithTerrain { get; set; } = true;
     public bool CollideWithGeometry { get; set; } = true;
 
@@ -434,9 +488,32 @@ public sealed class ParticleConfig
         FlipbookFps        = FlipbookFps,
         Alignment          = Alignment,
         MeshParticleAsset  = MeshParticleAsset,
+        RendererMode       = RendererMode,
+        TrailDuration      = TrailDuration,
+        TrailWidth         = TrailWidth,
+        RibbonMaxSegmentLength = RibbonMaxSegmentLength,
+        VelocityStretch    = VelocityStretch,
+        BeamEndX           = BeamEndX,
+        BeamEndY           = BeamEndY,
+        BeamEndZ           = BeamEndZ,
+        BeamNoise          = BeamNoise,
+        LocalSpace         = LocalSpace,
+        ParentEmitterId    = ParentEmitterId,
+        ParentEvents       = ParentEvents,
+        EventProbability   = EventProbability,
+        EventSpawnCount    = EventSpawnCount,
+        EventInheritVelocity = EventInheritVelocity,
+        BoundsMode         = BoundsMode,
+        BoundsCenterX      = BoundsCenterX,
+        BoundsCenterY      = BoundsCenterY,
+        BoundsCenterZ      = BoundsCenterZ,
+        BoundsSizeX        = BoundsSizeX,
+        BoundsSizeY        = BoundsSizeY,
+        BoundsSizeZ        = BoundsSizeZ,
         CollisionMode      = CollisionMode,
         CollisionPlaneHeight = CollisionPlaneHeight,
         CollisionBounce    = CollisionBounce,
+        CollisionRadius    = CollisionRadius,
         CollideWithTerrain = CollideWithTerrain,
         CollideWithGeometry = CollideWithGeometry,
         FollowCameraXZ     = FollowCameraXZ,
