@@ -356,7 +356,7 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
     public ParticleConfig Config => _effect.Clone();
     public EditorViewport3D Viewport => _viewport;
     public ParticleAuthoringMode AuthoringMode => _authoringMode;
-    public int LiveParticleCount => AllPreviewSimulations.Sum(simulation => simulation.ActiveCount);
+    public int LiveParticleCount => PreviewLiveParticleCount;
     public string ActivePreset => _activePreset;
     public bool TimelinePlaying => _timelinePlaying;
     public bool ShowEditorFloor => _floorStyle.DrawsPlate();
@@ -511,7 +511,7 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
     public void Burst()
     {
         CancelPreviewSeek();
-        foreach (ParticleSimulation simulation in AllPreviewSimulations) simulation.Burst();
+        BurstPreview();
         UpdateStatus();
     }
 
@@ -1092,7 +1092,7 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
             : $"{execution.BackendName}: {execution.StatusText}";
         _statusLabel.Text =
             $"{_activePreset} · {mode} · {preview} · {executionText} · "
-            + $"{LiveParticleCount}/{AllPreviewSimulations.Sum(simulation => simulation.Capacity)} live · "
+            + $"{LiveParticleCount}/{PreviewParticleCapacity} live · "
             + $"{_config.Shape} · {_config.EmitRate:0.#}/s · life {_config.Lifetime:0.##}s · "
             + $"{_config.BlendMode} · {floor} · {_previewClock.Speed:0.##}×"
             + (_previewClock.Seeking ? " · Seeking (Stop cancels)" : "");
