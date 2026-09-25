@@ -48,6 +48,7 @@ public sealed class ParticleSimulation
     // ParticleConfig.FollowCameraXZ is set, in which case UpdateCameraPosition keeps it pinned
     // to the camera's XZ position so weather (rain/snow) always falls around the player.
     private Vector3 _originOffset = Vector3.Zero;
+    private Matrix4x4 _emitterRotation = Matrix4x4.Identity;
 
     public int ActiveCount => _count;
     public int Capacity    => _particles.Length;
@@ -106,7 +107,14 @@ public sealed class ParticleSimulation
     public void SetEmitterOrigin(Vector3 worldPosition)
     {
         if (!_config.FollowCameraXZ)
-            _originOffset = worldPosition;
+            _originOffset = worldPosition + new Vector3(
+                (float)_config.EmitterOffsetX,
+                (float)_config.EmitterOffsetY,
+                (float)_config.EmitterOffsetZ);
+        _emitterRotation = Matrix4x4.CreateFromYawPitchRoll(
+            (float)(_config.EmitterYaw * Math.PI / 180.0),
+            (float)(_config.EmitterPitch * Math.PI / 180.0),
+            (float)(_config.EmitterRoll * Math.PI / 180.0));
     }
 
     /// <summary>
@@ -737,10 +745,11 @@ public sealed class ParticleSimulation
         float startRot = RandSym() * (float)_config.RotationVariance * 180f;
         float rotVel   = (float)_config.RotationSpeed * (1f + RandSym() * 0.3f);
 
-        // Recentre the spawn point under the tracked origin (camera XZ for precipitation
-        // presets, Vector3.Zero otherwise — see UpdateCameraPosition). In-flight particles are
-        // unaffected; only new spawns shift, so existing motion stays exactly as it was.
-        pos += _originOffset;
+        // Apply the authored emitter orientation before translating to the owning Object /
+        // preview origin. In-flight particles keep their world trajectories when the emitter moves.
+        pos = Vector3.Transform(pos, _emitterRotation) + _originOffset;
+        dir = Vector3.TransformNormal(dir, _emitterRotation);
+        if (dir.LengthSquared() > 1e-8f) dir = Vector3.Normalize(dir);
 
         _particles[_count++] = new ParticleState
         {
