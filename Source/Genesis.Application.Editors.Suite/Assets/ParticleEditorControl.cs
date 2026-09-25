@@ -238,8 +238,8 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
         AddInspectorRow(appearancePage, "", clearMidColor);
         AddInspectorRow(appearancePage, "Gradient end", endColor);
         AddInfoCard(lifetimePage, "Lifetime curve", "Size and alpha curves are shown here so lifetime editing has its own home.");
-        AddInfoCard(collisionPage, "Collision", "Runtime collision hooks are planned here; current preview is free-flight.");
-        AddInfoCard(rendererPage, "Renderer", "Blend, billboard and budget controls will live here as the renderer surface expands.");
+        AddInfoCard(collisionPage, "Collision", "GPU particles use the authored plane and uploaded collision geometry; explicit Software uses the runtime physics height provider.");
+        AddInfoCard(rendererPage, "Renderer", "Sprite, trail, ribbon and beam rendering share the active backend. Hardware simulation remains GPU-resident; Software is the only CPU path.");
 
         _viewport = new EditorViewport3D
         {
@@ -269,13 +269,19 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
                     Write = SetFloorStyle,
                     Invalidate = () => _viewport.Host.Invalidate(),
                 },
-                IncludeGizmo = false,
+                IncludeGizmo = true,
+                GizmoTooltip = "Transform the selected particle emitter",
+                ReadGizmoMode = () => _particleGizmoMode,
+                WriteGizmoMode = mode => { _particleGizmoMode = mode; _viewport.Invalidate(true); },
+                ReadGizmoSpace = () => _particleGizmoSpace,
+                WriteGizmoSpace = space => { _particleGizmoSpace = space; _viewport.Invalidate(true); },
                 Invalidate = () => _viewport.Invalidate(true),
-                IncludeRotateGizmo = false,
-                IncludeScaleGizmo = false,
+                IncludeRotateGizmo = true,
+                IncludeScaleGizmo = true,
             });
         _dimensionToggle = chrome.Dimension
             ?? throw new InvalidOperationException("Particle Editor requires the shared dimension chrome.");
+        AttachParticleGizmoInput();
 
         _statusLabel = EditorChrome.MakeStatusBar();
 
@@ -461,6 +467,12 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
 
     private void DrawParticleViewportOverlay(IRenderController renderer)
     {
+        if (!_effect.Preview2D)
+        {
+            DrawParticleBounds(renderer);
+            DrawParticleEmitterGizmo(renderer);
+        }
+
         if (!_effect.Preview2D && _floorStyle == EditorFloorStyle.GridOnly)
             EditorViewportGridHelper.DrawGrid3D(
                 _viewport,
@@ -787,8 +799,10 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
         new("Motion", "turbulenceStrength", "Turbulence", _config.TurbulenceStrength, Minimum: 0, Maximum: 20, Increment: 0.05m, DecimalPlaces: 2),
         new("Appearance", "startSize", "Start size", _config.StartSize, Minimum: 0.01m, Maximum: 20m, Increment: 0.05m, DecimalPlaces: 2),
         new("Appearance", "endSize", "End size", _config.EndSize, Minimum: 0, Maximum: 20, Increment: 0.05m, DecimalPlaces: 2),
+        new("Renderer", "rendererMode", "Renderer mode", _config.RendererMode.ToString(), Choices: Enum.GetNames<ParticleRendererMode>()),
         new("Renderer", "alignment", "Alignment", _config.Alignment.ToString(), Choices: Enum.GetNames<ParticleAlignment>()),
         new("Renderer", "blendMode", "Blend", _config.BlendMode.ToString(), Choices: Enum.GetNames<ParticleBlendMode>()),
+        new("Renderer", "trailDuration", "Trail duration", _config.TrailDuration, Minimum: .001m, Maximum: 60m, Increment: .01m, DecimalPlaces: 3),
         new("Lighting", "light.enabled", "Emit light", _effect.Light.Enabled),
         new("Lighting", "light.intensity", "Light intensity", _effect.Light.Intensity, Minimum: 0, Maximum: 100, Increment: 0.05m, DecimalPlaces: 2),
         new("Lighting", "light.radius", "Light radius", _effect.Light.Radius, Minimum: 0.1m, Maximum: 1000, Increment: 0.1m, DecimalPlaces: 2),
@@ -854,6 +868,16 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
                     ConfigChanged(reset: false);
                     SyncControls();
                     return true;
+                case "renderermode":
+                    if (!Enum.TryParse(text, ignoreCase: true, out ParticleRendererMode rendererMode) || !Enum.IsDefined(rendererMode)) return false;
+                    _config.RendererMode = rendererMode;
+                    ConfigChanged(reset: true);
+                    SyncControls();
+                    return true;
+                case "trailduration":
+                    ApplyNumeric("trailDuration", value, v => _config.TrailDuration = v);
+                    return true;
+
                 case "light.enabled":
                     _effect.Light.Enabled = Convert.ToBoolean(value, CultureInfo.InvariantCulture);
                     ConfigChanged(reset: false);
@@ -937,6 +961,30 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
             SetNumeric("boxX", _config.BoxSizeX);
             SetNumeric("boxY", _config.BoxSizeY);
             SetNumeric("boxZ", _config.BoxSizeZ);
+            SetNumeric("offsetX", _config.EmitterOffsetX);
+            SetNumeric("offsetY", _config.EmitterOffsetY);
+            SetNumeric("offsetZ", _config.EmitterOffsetZ);
+            SetNumeric("emitterPitch", _config.EmitterPitch);
+            SetNumeric("emitterYaw", _config.EmitterYaw);
+            SetNumeric("emitterRoll", _config.EmitterRoll);
+            SetNumeric("collisionRadius", _config.CollisionRadius);
+            SetNumeric("trailDuration", _config.TrailDuration);
+            SetNumeric("trailWidth", _config.TrailWidth);
+            SetNumeric("ribbonSegment", _config.RibbonMaxSegmentLength);
+            SetNumeric("velocityStretch", _config.VelocityStretch);
+            SetNumeric("beamX", _config.BeamEndX);
+            SetNumeric("beamY", _config.BeamEndY);
+            SetNumeric("beamZ", _config.BeamEndZ);
+            SetNumeric("beamNoise", _config.BeamNoise);
+            SetNumeric("eventProbability", _config.EventProbability);
+            SetNumeric("eventCount", _config.EventSpawnCount);
+            SetNumeric("eventVelocity", _config.EventInheritVelocity);
+            SetNumeric("boundsCX", _config.BoundsCenterX);
+            SetNumeric("boundsCY", _config.BoundsCenterY);
+            SetNumeric("boundsCZ", _config.BoundsCenterZ);
+            SetNumeric("boundsSX", _config.BoundsSizeX);
+            SetNumeric("boundsSY", _config.BoundsSizeY);
+            SetNumeric("boundsSZ", _config.BoundsSizeZ);
             SetNumeric("gravityX", _config.GravityX);
             SetNumeric("gravityZ", _config.GravityZ);
             SetNumeric("windX", _config.WindX);
