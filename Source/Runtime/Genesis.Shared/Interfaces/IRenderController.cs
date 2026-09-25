@@ -18,6 +18,16 @@ namespace Genesis.Shared.Interfaces
         string BackendName   { get; }
         /// <summary>GPU / device adapter string reported by the active backend (for F6 / diagnostics).</summary>
         string AdapterName   { get; }
+        /// <summary>
+        /// True when the active rendering backend exposes hardware compute suitable for GPU particle simulation.
+        /// Software/reference renderers leave this false.
+        /// </summary>
+        bool SupportsComputeShaders => false;
+        /// <summary>
+        /// True when the active backend supports indirect GPU draws. Phase 1 exposes this alongside compute
+        /// so particle routing never guesses capability from a backend name.
+        /// </summary>
+        bool SupportsIndirectDraw => false;
         int    PixelWidth    { get; }
         int    PixelHeight   { get; }
 

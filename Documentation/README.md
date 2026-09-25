@@ -1,3 +1,41 @@
+# Genesis Studio Master — Hotfix 23, Phase 1
+
+## H23 Phase 1 delivery ledger — particle GPU routing contract
+
+**Current delivery: H23 Phase 1. Required baseline: H22.**
+
+This phase is intentionally smaller than the interrupted all-at-once Particle overhaul. It completes
+one testable prerequisite and starts no unrelated editor work.
+
+| ID | Completed implementation | Validation state |
+|---|---|---|
+| H23-P1-01 | Shared renderer capability surface exposes compute-shader and indirect-draw support from the actually selected backend. | Source-wired; native build pending. |
+| H23-P1-02 | Central `ParticleExecutionPolicy` routes hardware renderers to GPU, explicit Software to CPU, and marks hardware-without-capability unsupported instead of allowing silent CPU fallback. | Pure policy regressions added; execution pending. |
+| H23-P1-03 | Particle Editor status bar reports the selected renderer and particle execution target after the preview renderer is initialised. | Interactive Windows acceptance pending. |
+| H23-P1-04 | Runtime `ObjectCompositionSubsystem` exposes the same execution decision for diagnostics and the Phase 2 simulation migration. | Source-wired; gameplay acceptance pending. |
+| H23-P1-05 | Particle Workbench regression suite covers DX11, DX12, Vulkan, OpenGL, Software, and missing-capability hardware behaviour. | Tests authored; native execution pending. |
+| H23-P1-06 | Studio source revision advanced to H23. | Build identity validation pending local build. |
+
+### Explicitly not claimed in Phase 1
+
+The H22 `ParticleSimulation` still performs the current simulation. Phase 1 does **not** call that GPU
+simulation. It establishes the backend contract and the visible proof needed before Phase 2 changes
+simulation ownership. No trails, ribbons, event graph, emitter gizmos, bounds editor, or Physics Editor
+work is included here.
+
+### Three-phase plan
+
+1. **Phase 1 — delivered here:** GPU target/capability contract and visible routing proof.
+2. **Phase 2:** actual GPU particle simulation and GPU render-state ownership on DX11/DX12/Vulkan/OpenGL;
+   CPU simulation remains only for explicit Software. Complete Particle Editor authoring/diagnostics.
+3. **Phase 3:** refactor the next roadmap editor, **Physics Editor**, as a separate acceptance delivery.
+
+Detailed test instructions: `Documentation/Hotfix23_ParticleGpu_Phase1.md`.
+
+---
+
+## Preserved H22 master
+
 # Genesis Studio Master — Hotfix 22
 
 ## H22 delivery ledger — H21 Room Editor compile correction

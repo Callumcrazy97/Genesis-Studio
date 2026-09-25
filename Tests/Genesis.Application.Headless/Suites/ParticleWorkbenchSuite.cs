@@ -161,6 +161,27 @@ internal static class ParticleWorkbenchSuite
             simulation.Step(.1f); int before = simulation.ActiveCount; config.EmitRate = 0; simulation.UpdateConfig(config);
             Assert(before > 0 && simulation.ActiveCount == before, "Live update erased the simulation.");
         });
+        Check("Runtime.ExecutionPolicyRoutesEveryHardwareBackendToGpu", () =>
+        {
+            foreach (string backend in new[] { "Direct3D 11", "Direct3D 12", "Vulkan", "OpenGL" })
+            {
+                ParticleExecutionDecision decision = ParticleExecutionPolicy.Resolve(backend, true, true);
+                Assert(decision.Target == ParticleExecutionTarget.Gpu && decision.UsesGpu && !decision.UsesCpu,
+                    backend + " was not routed to the GPU particle target.");
+            }
+        });
+        Check("Runtime.ExecutionPolicyUsesCpuOnlyForExplicitSoftware", () =>
+        {
+            ParticleExecutionDecision software = ParticleExecutionPolicy.Resolve("Software", false, false);
+            Assert(software.Target == ParticleExecutionTarget.CpuSoftware && software.UsesCpu && !software.UsesGpu,
+                "Software did not select the CPU particle target.");
+
+            ParticleExecutionDecision missingCompute = ParticleExecutionPolicy.Resolve("Direct3D 11", false, true);
+            ParticleExecutionDecision missingIndirect = ParticleExecutionPolicy.Resolve("Vulkan", true, false);
+            Assert(missingCompute.Target == ParticleExecutionTarget.UnsupportedHardware
+                && missingIndirect.Target == ParticleExecutionTarget.UnsupportedHardware,
+                "A hardware backend silently acquired the CPU fallback.");
+        });
         Check("Editor.WorkbenchRetainsSharedCommandsAndRealSections", () => WithEditor(editor =>
         {
             EditorCommandBar bar = editor.Controls.OfType<EditorCommandBar>().Single();

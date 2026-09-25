@@ -41,7 +41,7 @@
     <Deterministic>true</Deterministic>
     <!-- This revision is source-owned; the run identity comes from Build.bat. It is embedded
          in the loaded assembly so an old executable cannot borrow a new sidecar's identity. -->
-    <GenesisStudioRevision>22</GenesisStudioRevision>
+    <GenesisStudioRevision>23</GenesisStudioRevision>
     <GenesisBuildId Condition="'$(GenesisBuildId)' == ''">local</GenesisBuildId>
   </PropertyGroup>
 
