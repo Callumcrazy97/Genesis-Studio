@@ -75,6 +75,7 @@ public sealed class ObjectCompositionSubsystem : ISceneSubsystem
 
     public int ParticleEmitterCount => _particles.Count;
     public int ActiveParticleCount => _particles.Values.Sum(state => state.Layers.Sum(layer => layer.Simulation.ActiveCount));
+    public ParticleExecutionDecision ParticleExecution => ParticleExecutionPolicy.Resolve(_lastRenderer);
     public int ActiveAudioCount => _audioStates.Values.Count(state => state.Channel.IsValid);
     public int PointLightCount { get; private set; }
 
