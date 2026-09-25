@@ -123,6 +123,8 @@ public sealed class GpuParticleDefinition
     public GpuParticleParameters Parameters { get; init; }
     public Vector4[] Lookup { get; init; } = [];
     public string DebugName { get; init; } = "Particles";
+    public Vector3 BoundsCenter { get; init; }
+    public float BoundsRadius { get; init; }
     public int BlendMode { get; init; }
 }
 
