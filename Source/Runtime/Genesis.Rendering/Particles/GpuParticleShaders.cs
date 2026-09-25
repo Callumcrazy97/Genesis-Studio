@@ -54,7 +54,7 @@ float3 DirectionLocal(float3 v) { return Options.x > 0.5 ? mul(float4(v,0),Inver
 RWStructuredBuffer<Particle> State : register(u0);
 RWStructuredBuffer<uint> Pool : register(u1);
 RWStructuredBuffer<ParticleEvent> Events : register(u2);
-RWStructuredBuffer<uint> Arguments : register(u3);
+RWByteAddressBuffer Arguments : register(u3);
 StructuredBuffer<float4> Lookup : register(t0);
 StructuredBuffer<ParticleEvent> ParentEvents : register(t1);
 StructuredBuffer<uint> ParentPool : register(t2);
@@ -65,6 +65,7 @@ cbuffer Step : register(b0) {
     float4 Limits;
 };
 groupshared uint3 Scan[THREADS];
+void SetArgument(uint index, uint value) { Arguments.Store(index * 4, value); }
 uint AliveBase() { return LOCAL_BASE + Capacity * 4; }
 float4 Curve(float t, uint offset) {
     float x = saturate(t) * (CURVE_SAMPLES - 1);
@@ -77,7 +78,7 @@ void Reset(uint3 tid : SV_DispatchThreadID) {
     uint i = tid.x;
     if (i < Capacity) State[i] = (Particle)0;
     if (i < 64) Pool[i] = 0;
-    if (i < 16) Arguments[i] = 0;
+    if (i < 16) SetArgument(i, 0);
     if (i == 0) { Pool[13] = 0xffffffff; Pool[14] = 0; }
 }
 
@@ -312,7 +313,7 @@ void SpawnCompact(uint3 tid : SV_DispatchThreadID,uint3 gid : SV_GroupID) {
 }
 
 [numthreads(1,1,1)]
-void DrawArguments(uint3 tid : SV_DispatchThreadID) { Arguments[0]=(uint)Limits.y; Arguments[1]=Pool[0]; }
+void DrawArguments(uint3 tid : SV_DispatchThreadID) { SetArgument(0,(uint)Limits.y); SetArgument(1,Pool[0]); }
 
 [numthreads(THREADS,1,1)]
 void FinishStep(uint3 tid : SV_DispatchThreadID) {
@@ -325,9 +326,9 @@ void FinishStep(uint3 tid : SV_DispatchThreadID) {
         if(birth==Pool[3]-1){Pool[13]=at;Pool[14]=asuint(p.identity.x);}
     }
     if(birth==0) {
-        Arguments[0]=(uint)Limits.y;Arguments[1]=Pool[0];Arguments[2]=0;Arguments[3]=0;Arguments[4]=0;
-        Arguments[5]=(Pool[0]+THREADS-1)/THREADS;Arguments[6]=1;Arguments[7]=1;
-        Arguments[8]=(Pool[8]+THREADS-1)/THREADS;Arguments[9]=1;Arguments[10]=1;
+        SetArgument(0,(uint)Limits.y);SetArgument(1,Pool[0]);SetArgument(2,0);SetArgument(3,0);SetArgument(4,0);
+        SetArgument(5,(Pool[0]+THREADS-1)/THREADS);SetArgument(6,1);SetArgument(7,1);
+        SetArgument(8,(Pool[8]+THREADS-1)/THREADS);SetArgument(9,1);SetArgument(10,1);
     }
 }
 """;
