@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="DevProfiler/DevProfiler.csproj" />
+  <Project Path="SampleTargets/DotNetSample/DotNetSample.csproj" />
+</Solution>

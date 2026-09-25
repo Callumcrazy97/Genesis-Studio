@@ -1,0 +1,11 @@
+@echo off
+setlocal
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0build-release.ps1"
+if errorlevel 1 (
+  echo.
+  echo Build failed.
+  exit /b 1
+)
+echo.
+echo Build complete.
+endlocal

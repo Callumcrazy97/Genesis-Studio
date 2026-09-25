@@ -1,0 +1,71 @@
+﻿{
+  "target": "C:\\Users\\Chess_Admin\\Desktop\\C# Projects\\Aetherium3D\\Publish\\win-x64\\Aetherium3D.exe",
+  "workingDirectory": "C:\\Users\\Chess_Admin\\Desktop\\C# Projects\\Aetherium3D\\Publish\\win-x64",
+  "nativeLibraryDirectory": "C:\\Users\\Chess_Admin\\Desktop\\C# Projects\\Aetherium3D\\bin\\Release\\net10.0\\win-x64",
+  "processId": 14848,
+  "exitCode": 0,
+  "visibleWindowObserved": true,
+  "snapshots": [
+    {
+      "RequestedMilliseconds": 250,
+      "ActualMilliseconds": 259.1304,
+      "ProcessAlive": true,
+      "VisibleWindows": [],
+      "ScreenshotPath": "C:\\Users\\Chess_Admin\\Desktop\\Documents\\System Dev\\C# Development\\Other Apps\\DevProfilerAllInOne\\artifacts\\TestRuns\\AetheriumPublishFixed-20260730-01\\screen-0250ms.png"
+    },
+    {
+      "RequestedMilliseconds": 500,
+      "ActualMilliseconds": 509.719,
+      "ProcessAlive": true,
+      "VisibleWindows": [],
+      "ScreenshotPath": "C:\\Users\\Chess_Admin\\Desktop\\Documents\\System Dev\\C# Development\\Other Apps\\DevProfilerAllInOne\\artifacts\\TestRuns\\AetheriumPublishFixed-20260730-01\\screen-0500ms.png"
+    },
+    {
+      "RequestedMilliseconds": 750,
+      "ActualMilliseconds": 762.1628,
+      "ProcessAlive": true,
+      "VisibleWindows": [],
+      "ScreenshotPath": "C:\\Users\\Chess_Admin\\Desktop\\Documents\\System Dev\\C# Development\\Other Apps\\DevProfilerAllInOne\\artifacts\\TestRuns\\AetheriumPublishFixed-20260730-01\\screen-0750ms.png"
+    },
+    {
+      "RequestedMilliseconds": 1000,
+      "ActualMilliseconds": 999.8041,
+      "ProcessAlive": true,
+      "VisibleWindows": [],
+      "ScreenshotPath": "C:\\Users\\Chess_Admin\\Desktop\\Documents\\System Dev\\C# Development\\Other Apps\\DevProfilerAllInOne\\artifacts\\TestRuns\\AetheriumPublishFixed-20260730-01\\screen-1000ms.png"
+    },
+    {
+      "RequestedMilliseconds": 3000,
+      "ActualMilliseconds": 3013.5695,
+      "ProcessAlive": true,
+      "VisibleWindows": [
+        {
+          "Handle": 2033278,
+          "Title": "Aetherium: Horizon | .NET 10 \u002B Silk.NET | 18 FPS | Performance 672x376 (47%) | W01/50 L1 | COMMON Sidearm | Ammo 12/108 | HP 140 | NPC 0 | Ring 19171ft | Score 0 | Aetherium: Horizon. Start a new run from the menu.",
+          "Bounds": {
+            "Location": {
+              "IsEmpty": false,
+              "X": 33,
+              "Y": 10
+            },
+            "Size": {
+              "IsEmpty": false,
+              "Width": 1038,
+              "Height": 614
+            },
+            "X": 33,
+            "Y": 10,
+            "Width": 1038,
+            "Height": 614,
+            "Left": 33,
+            "Top": 10,
+            "Right": 1071,
+            "Bottom": 624,
+            "IsEmpty": false
+          }
+        }
+      ],
+      "ScreenshotPath": "C:\\Users\\Chess_Admin\\Desktop\\Documents\\System Dev\\C# Development\\Other Apps\\DevProfilerAllInOne\\artifacts\\TestRuns\\AetheriumPublishFixed-20260730-01\\screen-3000ms.png"
+    }
+  ]
+}

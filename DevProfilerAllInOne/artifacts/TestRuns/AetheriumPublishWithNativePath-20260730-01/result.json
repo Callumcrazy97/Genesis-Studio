@@ -1,0 +1,38 @@
+﻿{
+  "target": "C:\\Users\\Chess_Admin\\Desktop\\C# Projects\\Aetherium3D\\Publish\\win-x64\\Aetherium3D.exe",
+  "workingDirectory": "C:\\Users\\Chess_Admin\\Desktop\\C# Projects\\Aetherium3D\\Publish\\win-x64",
+  "nativeLibraryDirectory": "C:\\Users\\Chess_Admin\\Desktop\\C# Projects\\Aetherium3D\\bin\\Release\\net10.0\\win-x64",
+  "processId": 12656,
+  "exitCode": 0,
+  "visibleWindowObserved": false,
+  "snapshots": [
+    {
+      "RequestedMilliseconds": 250,
+      "ActualMilliseconds": 258.282,
+      "ProcessAlive": true,
+      "VisibleWindows": [],
+      "ScreenshotPath": "C:\\Users\\Chess_Admin\\Desktop\\Documents\\System Dev\\C# Development\\Other Apps\\DevProfilerAllInOne\\artifacts\\TestRuns\\AetheriumPublishWithNativePath-20260730-01\\screen-0250ms.png"
+    },
+    {
+      "RequestedMilliseconds": 500,
+      "ActualMilliseconds": 510.2533,
+      "ProcessAlive": true,
+      "VisibleWindows": [],
+      "ScreenshotPath": "C:\\Users\\Chess_Admin\\Desktop\\Documents\\System Dev\\C# Development\\Other Apps\\DevProfilerAllInOne\\artifacts\\TestRuns\\AetheriumPublishWithNativePath-20260730-01\\screen-0500ms.png"
+    },
+    {
+      "RequestedMilliseconds": 750,
+      "ActualMilliseconds": 762.6188,
+      "ProcessAlive": true,
+      "VisibleWindows": [],
+      "ScreenshotPath": "C:\\Users\\Chess_Admin\\Desktop\\Documents\\System Dev\\C# Development\\Other Apps\\DevProfilerAllInOne\\artifacts\\TestRuns\\AetheriumPublishWithNativePath-20260730-01\\screen-0750ms.png"
+    },
+    {
+      "RequestedMilliseconds": 1000,
+      "ActualMilliseconds": 1000.1329,
+      "ProcessAlive": true,
+      "VisibleWindows": [],
+      "ScreenshotPath": "C:\\Users\\Chess_Admin\\Desktop\\Documents\\System Dev\\C# Development\\Other Apps\\DevProfilerAllInOne\\artifacts\\TestRuns\\AetheriumPublishWithNativePath-20260730-01\\screen-1000ms.png"
+    }
+  ]
+}

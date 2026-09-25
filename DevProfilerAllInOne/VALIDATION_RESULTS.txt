@@ -1,0 +1,26 @@
+DevProfiler 1.1.1 validation results
+Generated: 2026-07-29
+
+PASS: XML parsed: 6 files
+PASS: Python syntax checked
+PASS: C# lexical delimiters checked: 16 files
+PASS: PowerShell lexical delimiters checked: 4 files
+PASS: XAML event handlers checked
+PASS: PowerShell STA launch
+PASS: NonInteractive removed
+PASS: Normal visible process window
+PASS: Launch gate model
+PASS: Launch gate adapter
+PASS: Launch gate bootstrap
+PASS: Launch gate signal
+PASS: Job accounting query
+PASS: Job PID query
+PASS: Root waits for owned tree
+PASS: Stop always terminates job
+PASS: Metrics include owned PIDs
+PASS: WinForms STA sample
+PASS: Version 1.1.1
+PASS: PowerShell bootstrap embedded
+
+Environment limitation:
+The Linux packaging environment does not contain the .NET SDK, PowerShell, or Windows Desktop runtime. A Windows WPF compile and WinForms runtime test could not be executed here.
