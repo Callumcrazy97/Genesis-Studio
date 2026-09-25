@@ -23,8 +23,18 @@ jobs:
           import base64, gzip, hashlib, json, pathlib, subprocess
           root = pathlib.Path('.github/staging')
           manifest = json.loads((root / 'ready.json').read_text())
-          encoded = ''.join((root / part).read_text().strip() for part in manifest['parts'])
-          patch = gzip.decompress(base64.b64decode(encoded, validate=True))
+          chunks = []
+          for part in manifest['parts']:
+              content = (root / part).read_text().strip()
+              for edit in manifest.get('transportCorrections', {}).get(part, []):
+                  assert content.count(edit[0]) == 1, 'Transport correction must match once'
+                  content = content.replace(edit[0], edit[1], 1)
+              actual = hashlib.sha256(content.encode()).hexdigest()
+              print(part, len(content), actual)
+              if part in manifest.get('partHashes', {}):
+                  assert actual == manifest['partHashes'][part], 'Staged chunk checksum mismatch: ' + part
+              chunks.append(content)
+          patch = gzip.decompress(base64.b64decode(''.join(chunks), validate=True))
           assert hashlib.sha256(patch).hexdigest() == manifest['sha256'], 'Checkpoint checksum mismatch'
           for line in patch.decode('utf-8').splitlines():
               if line.startswith('+++ b/'):
