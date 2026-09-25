@@ -1086,8 +1086,13 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
         string preview = _effect.Preview2D ? "2D" : "3D";
         string floor = _effect.Preview2D ? "floor n/a" : _floorStyle.StatusLabel();
         string mode = _authoringMode == ParticleAuthoringMode.Code ? "Code" : "Properties";
+        ParticleExecutionDecision execution = ParticleExecutionPolicy.Resolve(_particlePreviewRenderer);
+        string executionText = execution.Target == ParticleExecutionTarget.Pending
+            ? "particle backend pending"
+            : $"{execution.BackendName}: {execution.StatusText}";
         _statusLabel.Text =
-            $"{_activePreset} · {mode} · {preview} · {LiveParticleCount}/{AllPreviewSimulations.Sum(simulation => simulation.Capacity)} live · "
+            $"{_activePreset} · {mode} · {preview} · {executionText} · "
+            + $"{LiveParticleCount}/{AllPreviewSimulations.Sum(simulation => simulation.Capacity)} live · "
             + $"{_config.Shape} · {_config.EmitRate:0.#}/s · life {_config.Lifetime:0.##}s · "
             + $"{_config.BlendMode} · {floor} · {_previewClock.Speed:0.##}×"
             + (_previewClock.Seeking ? " · Seeking (Stop cancels)" : "");
