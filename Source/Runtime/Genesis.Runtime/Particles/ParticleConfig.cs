@@ -258,6 +258,14 @@ public sealed class ParticleConfig
     public double BoxSizeZ { get; set; } = 1;
     public string MeshSurfaceAsset { get; set; } = "";
 
+    // Authored emitter transform relative to the owning Object / preview origin.
+    public double EmitterOffsetX { get; set; }
+    public double EmitterOffsetY { get; set; }
+    public double EmitterOffsetZ { get; set; }
+    public double EmitterPitch { get; set; }
+    public double EmitterYaw { get; set; }
+    public double EmitterRoll { get; set; }
+
     // ── Motion ───────────────────────────────────────────────────────────────
 
     public double Speed { get; set; } = 4;
@@ -445,6 +453,12 @@ public sealed class ParticleConfig
         BoxSizeY           = BoxSizeY,
         BoxSizeZ           = BoxSizeZ,
         MeshSurfaceAsset   = MeshSurfaceAsset,
+        EmitterOffsetX     = EmitterOffsetX,
+        EmitterOffsetY     = EmitterOffsetY,
+        EmitterOffsetZ     = EmitterOffsetZ,
+        EmitterPitch       = EmitterPitch,
+        EmitterYaw         = EmitterYaw,
+        EmitterRoll        = EmitterRoll,
         Speed              = Speed,
         SpeedVariance      = SpeedVariance,
         Gravity            = Gravity,
