@@ -55,7 +55,7 @@ public sealed class GpuParticleEmitter : IDisposable
             _state = Storage(definition.Capacity * GpuParticleProtocol.StateStride, GpuParticleProtocol.StateStride, "States");
             _pool = Storage(GpuParticleProtocol.PoolBytes(definition.Capacity), 4, "Pool");
             _events = Storage(GpuParticleProtocol.EventCapacity * 2 * GpuParticleProtocol.EventStride, GpuParticleProtocol.EventStride, "Events");
-            _arguments = Storage(GpuParticleProtocol.ArgumentsBytes, 4, "Indirect", GpuBindFlags.IndirectArguments);
+            _arguments = ArgumentStorage(GpuParticleProtocol.ArgumentsBytes, "Indirect");
             _stepConstants = Constants<GpuParticleStep>("Step");
             _parametersConstants = Constants<GpuParticleParameters>("Parameters");
             _drawConstants = Constants<GpuParticleDraw>("Draw");
@@ -244,6 +244,11 @@ public sealed class GpuParticleEmitter : IDisposable
     {
         SizeBytes=bytes,StructureStride=stride,Usage=GpuBufferUsage.Gpu,
         BindFlags=GpuBindFlags.StructuredBuffer|GpuBindFlags.ShaderResource|GpuBindFlags.UnorderedAccess|extra,DebugName="Particles."+name,
+    },ReadOnlySpan<byte>.Empty);
+    private GpuBufferHandle ArgumentStorage(int bytes,string name) => _gpu.CreateBuffer(new GpuBufferDesc
+    {
+        SizeBytes=bytes,StructureStride=0,Usage=GpuBufferUsage.Gpu,
+        BindFlags=GpuBindFlags.UnorderedAccess|GpuBindFlags.IndirectArguments,DebugName="Particles."+name,
     },ReadOnlySpan<byte>.Empty);
     private GpuBufferHandle Constants<T>(string name) where T:unmanaged => _gpu.CreateBuffer(new GpuBufferDesc
     {
