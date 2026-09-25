@@ -176,6 +176,7 @@ public sealed partial class ParticleEditorControl
         AddInspectorRow(appearance, "Emit light", BoundCheckBox("emitLight", () => _effect.Light.Enabled, value => _effect.Light.Enabled = value));
         AddInspectorRow(appearance, "Light colour", MakeColorWell(() => _effect.Light.Color, PickLightColor));
         AddInfoCard(appearance, "One light per effect", "These settings belong to the entire effect, not its selected emitter. Preview lighting uses the 3D view.");
+        BuildParticleEventControls();
     }
 
     private FlowLayoutPanel InspectorPage(string title) => _inspectorTabs.TabPages.Cast<TabPage>()
