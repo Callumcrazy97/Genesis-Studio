@@ -290,6 +290,20 @@ namespace Genesis.Rendering.Primitives
 
         // ── Mesh registry ─────────────────────────────────────────────────────────
 
+        internal Action<Matrix4x4, Matrix4x4> ExternalParticles;
+
+        internal bool TryGetParticleMesh(MeshHandle handle, out Genesis.Rendering.Particles.GpuParticleMesh mesh)
+        {
+            if (TryGetMesh(handle.Id, out MeshEntry entry) && !entry.IsSkinned && entry.VertexStride == 48)
+            {
+                mesh = new Genesis.Rendering.Particles.GpuParticleMesh(entry.VB, entry.IB,
+                    entry.VertexStride, entry.IndexCount, GpuIndexFormat.UInt16);
+                return true;
+            }
+            mesh = default;
+            return false;
+        }
+
         private struct MeshEntry
         {
             public GpuBufferHandle VB;
@@ -4015,6 +4029,7 @@ namespace Genesis.Rendering.Primitives
             // Transparent / additive particle instanced pass — one DrawIndexedInstanced per unique
             // (mesh, texture, blendMode) instead of one DrawIndexed per particle.
             DrawTransparentBatches(whiteTexture);
+            if (!_reflectionPassActive) ExternalParticles?.Invoke(_view, _proj);
 
             // Unbind SRVs that were written during shadow pass so they can be used as DSV next frame
             _gpu.ClearTexture(GpuShaderStage.Pixel, 2);

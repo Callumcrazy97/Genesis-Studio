@@ -40,7 +40,8 @@ namespace Genesis.Rendering.SilkNet.Vulkan
 
         public static BufferUsageFlags ToVulkanUsage(GpuBufferUsage usage, GpuBindFlags bind)
         {
-            BufferUsageFlags flags = BufferUsageFlags.TransferDstBit;
+            BufferUsageFlags flags = BufferUsageFlags.TransferDstBit | BufferUsageFlags.TransferSrcBit;
+            if (bind.HasFlag(GpuBindFlags.IndirectArguments)) flags |= BufferUsageFlags.IndirectBufferBit;
             if (bind.HasFlag(GpuBindFlags.VertexBuffer)) flags |= BufferUsageFlags.VertexBufferBit;
             if (bind.HasFlag(GpuBindFlags.IndexBuffer)) flags |= BufferUsageFlags.IndexBufferBit;
             if (usage == GpuBufferUsage.Staging) flags |= BufferUsageFlags.TransferSrcBit;

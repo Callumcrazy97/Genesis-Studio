@@ -16,12 +16,14 @@ namespace Genesis.Rendering.SilkNet.DX11
     /// handle registry instead of exposing COM pointers; the shared sprite and forward renderers
     /// therefore stay reusable without allowing DX11 types to leak back into them.
     /// </summary>
-    public sealed unsafe class Dx11GpuDevice : IGpuDevice
+    public sealed unsafe partial class Dx11GpuDevice : IGpuComputeDevice
     {
         private sealed class BufferResource
         {
             public ID3D11Buffer* Buffer;
             public ID3D11ShaderResourceView* Srv;
+            public ID3D11UnorderedAccessView* Uav;
+            public GpuBindFlags BindFlags;
             public int SizeBytes;
             public GpuBufferUsage Usage;
             public bool Mapped;
@@ -191,9 +193,11 @@ namespace Genesis.Rendering.SilkNet.DX11
         private GpuTextureHandle _dummyTexture;
         private GpuPipelineKey _pipeline;
 
-        public Dx11GpuDevice()
+        public Dx11GpuDevice() : this(SilkNetDx11Runtime.EnsureDevice()) { }
+
+        internal Dx11GpuDevice(SilkNetDx11Runtime runtime)
         {
-            _runtime = SilkNetDx11Runtime.EnsureDevice();
+            _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
             _pipeline.Topology = GpuPrimitiveTopology.TriangleList;
             _pipeline.Blend = GpuBlendState.Opaque;
             _pipeline.Depth = GpuDepthState.Default;
@@ -270,8 +274,9 @@ namespace Genesis.Rendering.SilkNet.DX11
                 Usage = usage,
                 BindFlags = bind,
                 CPUAccessFlags = cpuAccess,
-                MiscFlags = (desc.BindFlags & GpuBindFlags.StructuredBuffer) != 0
-                    ? (uint)ResourceMiscFlag.BufferStructured : 0u,
+                MiscFlags = ((desc.BindFlags & GpuBindFlags.StructuredBuffer) != 0
+                    ? (uint)ResourceMiscFlag.BufferStructured : 0u)
+                    | ((desc.BindFlags & GpuBindFlags.IndirectArguments) != 0 ? (uint)ResourceMiscFlag.DrawindirectArgs : 0u),
                 StructureByteStride = (uint)Math.Max(0, desc.StructureStride),
             };
 
@@ -284,6 +289,7 @@ namespace Genesis.Rendering.SilkNet.DX11
             }
 
             ID3D11ShaderResourceView* srv = null;
+            ID3D11UnorderedAccessView* uav = null;
             try
             {
                 if ((desc.BindFlags & GpuBindFlags.StructuredBuffer) != 0)
@@ -300,11 +306,27 @@ namespace Genesis.Rendering.SilkNet.DX11
                         (ID3D11Resource*)buffer, &srvDesc, &srv));
                 }
 
+                if ((desc.BindFlags & GpuBindFlags.UnorderedAccess) != 0)
+                {
+                    if (desc.Usage != GpuBufferUsage.Gpu || desc.StructureStride <= 0)
+                        throw new ArgumentException("Writable buffers require device-local structured storage.", nameof(desc));
+                    var uavDesc = new UnorderedAccessViewDesc
+                    {
+                        Format = Format.FormatUnknown,
+                        ViewDimension = UavDimension.Buffer,
+                    };
+                    uavDesc.Anonymous.Buffer.FirstElement = 0;
+                    uavDesc.Anonymous.Buffer.NumElements = (uint)(desc.SizeBytes / desc.StructureStride);
+                    SilkMarshal.ThrowHResult(Device->CreateUnorderedAccessView((ID3D11Resource*)buffer, &uavDesc, &uav));
+                }
+
                 int id = _nextBuffer++;
                 _buffers.Add(id, new BufferResource
                 {
                     Buffer = buffer,
                     Srv = srv,
+                    Uav = uav,
+                    BindFlags = desc.BindFlags,
                     SizeBytes = desc.SizeBytes,
                     Usage = desc.Usage,
                     Shadow = desc.Usage == GpuBufferUsage.Dynamic ? new byte[desc.SizeBytes] : null,
@@ -316,6 +338,7 @@ namespace Genesis.Rendering.SilkNet.DX11
             }
             catch
             {
+                if (uav != null) uav->Release();
                 if (srv != null) srv->Release();
                 if (buffer != null) buffer->Release();
                 throw;
@@ -423,6 +446,7 @@ namespace Genesis.Rendering.SilkNet.DX11
         {
             if (!_buffers.Remove(handle.Id, out BufferResource resource)) return;
             if (resource.Mapped) Context->Unmap((ID3D11Resource*)resource.Buffer, 0);
+            Release(resource.Uav);
             Release(resource.Srv);
             Release(resource.Buffer);
         }
@@ -1402,6 +1426,7 @@ namespace Genesis.Rendering.SilkNet.DX11
         public void Dispose()
         {
             if (_disposed) return;
+            DisposeComputeResources();
             _disposed = true;
             Context->ClearState();
 
