@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 4,
+  "pipeline": "Mesh",
+  "authoringMode": "Code",
+  "targetType": "Model",
+  "preset": "",
+  "targetComponent": "all",
+  "entry": "MainPS",
+  "profile": "ps_5_0",
+  "source": "struct VSOut { float4 SvPos : SV_Position; float3 WorldPos : TEXCOORD1; float3 Normal : TEXCOORD2; float4 Color : TEXCOORD3; float2 UV : TEXCOORD4; float4 ShadowPos : TEXCOORD5; float4 ShadowPosNr : TEXCOORD6; float AtlasLayer : TEXCOORD7; };\nfloat4 MainPS(VSOut IN) : SV_Target\n{\n    float2 cell = floor(IN.WorldPos.xz / 2.0);\n    float parity = fmod(abs(cell.x + cell.y), 2.0);\n    float3 darkTile = float3(0.008, 0.008, 0.010);\n    float3 lightTile = float3(0.94, 0.94, 0.92);\n    return float4(lerp(darkTile, lightTile, parity), 1.0);\n}",
+  "previewAsset": "Assets/Models/Visual Test Floor.model.json",
+  "parameters": [],
+  "resources": [],
+  "variants": []
+}

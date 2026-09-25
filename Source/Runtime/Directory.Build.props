@@ -1,0 +1,12 @@
+<Project>
+  <!-- Genesis engine projects are Windows-only; suppress CA1416 cross-platform API noise. -->
+  <PropertyGroup>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+    <!-- Shared output dir (Genesis Application\Build) is locked while GenesisEngine.exe runs. -->
+    <CopyRetryCount>20</CopyRetryCount>
+    <CopyRetryDelayMilliseconds>500</CopyRetryDelayMilliseconds>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(TargetFramework)' != '' and $(TargetFramework.Contains('-windows'))">
+    <SupportedOSPlatformVersion>7.0</SupportedOSPlatformVersion>
+  </PropertyGroup>
+</Project>

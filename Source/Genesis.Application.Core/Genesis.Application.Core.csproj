@@ -1,0 +1,98 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>Genesis.Application.Core</RootNamespace>
+    <AssemblyName>Genesis.Application.Core</AssemblyName>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Project templates author runtime-native procedural assets, so Core needs the same
+         mesh/model contracts that load those assets in F5. All Core consumers are Windows apps. -->
+    <ProjectReference Include="..\Runtime\Genesis.Shared\Genesis.Shared.csproj" />
+    <ProjectReference Include="..\Runtime\Genesis.Rendering\Genesis.Rendering.csproj" />
+    <ProjectReference Include="..\Runtime\Genesis.Runtime\Genesis.Runtime.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Keep the editable sources in place, but never propagate their deeply nested
+         sprite sidecars into every referencing project's bin/publish directory. -->
+    <None Update="Projects\Templates\Assets\LuigisMansion\**">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Never</CopyToPublishDirectory>
+    </None>
+    <None Update="Projects\Templates\Assets\TwoDShowcase\**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+    <None Update="Projects\Templates\Assets\NatureWalk\**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AssimpNetter" Version="6.0.5" />
+    <None Include="..\..\Documentation\Assimp-LICENSE.txt" Link="Licenses\Assimp-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- Build a single short-path content item, then install its ordinary editable files
+       when the user creates a project. ZipDirectory is a built-in MSBuild task: no
+       PowerShell, external archiver, registry setting or asset rename is required. -->
+  <ItemGroup>
+    <_LuigisMansionTemplateFile Include="Projects\Templates\Assets\LuigisMansion\Assets\**\*" />
+  </ItemGroup>
+
+  <Target Name="PrepareLuigisMansionTemplateBundleInputs">
+    <!-- Resolve this at execution time, after the SDK appends configuration/TFM/RID. -->
+    <PropertyGroup>
+      <_LuigisMansionBundleDirectory>$(IntermediateOutputPath)TemplateBundles\</_LuigisMansionBundleDirectory>
+      <_LuigisMansionBundle>$(_LuigisMansionBundleDirectory)LuigisMansion.zip</_LuigisMansionBundle>
+      <_LuigisMansionBundlePending>$(_LuigisMansionBundleDirectory)LuigisMansion.pending.zip</_LuigisMansionBundlePending>
+      <_LuigisMansionBundleInputs>$(_LuigisMansionBundleDirectory)LuigisMansion.inputs</_LuigisMansionBundleInputs>
+    </PropertyGroup>
+    <Error Condition="!Exists('Projects\Templates\Assets\LuigisMansion\Assets\Rooms\00 - A Light in the Dark.room.json')"
+           Text="The original Luigi's Mansion Patch 5 template is missing. Apply Patch 5 before this packaging hotfix." />
+    <MakeDir Directories="$(_LuigisMansionBundleDirectory)" />
+    <!-- Recording the set of files catches additions, removals and renames, not just
+         changed timestamps. An unchanged list does not force another compression. -->
+    <WriteLinesToFile File="$(_LuigisMansionBundleInputs)"
+                      Lines="@(_LuigisMansionTemplateFile)"
+                      Overwrite="true" WriteOnlyWhenDifferent="true" Encoding="UTF-8" />
+    <ItemGroup>
+      <FileWrites Include="$(_LuigisMansionBundleInputs);$(_LuigisMansionBundle);$(_LuigisMansionBundlePending)" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="BuildLuigisMansionTemplateBundle"
+          DependsOnTargets="PrepareLuigisMansionTemplateBundleInputs"
+          Inputs="@(_LuigisMansionTemplateFile);$(_LuigisMansionBundleInputs);$(MSBuildProjectFullPath)"
+          Outputs="$(_LuigisMansionBundle)">
+    <Message Importance="high" Text="Packing Luigi's Mansion template into Templates\LuigisMansion.zip (path-safe build content)." />
+    <ZipDirectory SourceDirectory="$(MSBuildProjectDirectory)\Projects\Templates\Assets\LuigisMansion\Assets"
+                  DestinationFile="$(_LuigisMansionBundlePending)" Overwrite="true" />
+    <!-- Do not replace the last valid bundle unless compression completed. -->
+    <Move SourceFiles="$(_LuigisMansionBundlePending)" DestinationFiles="$(_LuigisMansionBundle)"
+          OverwriteReadOnlyFiles="true" />
+  </Target>
+
+  <!-- AssignTargetPaths is used by build, publish and transitive project-content
+       discovery. Register even when the incremental compression target is skipped. -->
+  <Target Name="RegisterLuigisMansionTemplateBundle"
+          BeforeTargets="AssignTargetPaths"
+          DependsOnTargets="BuildLuigisMansionTemplateBundle"
+          Condition="'$(DesignTimeBuild)' != 'true'">
+    <ItemGroup>
+      <None Include="$(_LuigisMansionBundle)"
+            Link="Templates\LuigisMansion.zip"
+            TargetPath="Templates\LuigisMansion.zip"
+            CopyToOutputDirectory="PreserveNewest"
+            CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+
+</Project>

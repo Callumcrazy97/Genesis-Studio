@@ -1,0 +1,7 @@
+{
+  "source": "Generated",
+  "parts": [
+    { "name": "Pulsing Cone", "primitive": "Cone", "position": [0, 0, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.82, 0.86, 0.92] }
+  ],
+  "materials": []
+}

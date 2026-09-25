@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 4,
+  "pipeline": "Mesh",
+  "authoringMode": "Code",
+  "targetType": "Model",
+  "preset": "",
+  "targetComponent": "all",
+  "entry": "MainPS",
+  "profile": "ps_5_0",
+  "source": "cbuffer GenesisFrame : register(b4) { float Time; float Frame; float2 Resolution; };\nstruct VSOut { float4 SvPos : SV_Position; float3 WorldPos : TEXCOORD1; float3 Normal : TEXCOORD2; float4 Color : TEXCOORD3; float2 UV : TEXCOORD4; float4 ShadowPos : TEXCOORD5; float4 ShadowPosNr : TEXCOORD6; float AtlasLayer : TEXCOORD7; };\nfloat4 MainPS(VSOut IN) : SV_Target\n{\n    float facing = 0.58 + 0.42 * saturate(IN.Normal.y * 0.5 + 0.5);\n    float pulse = 0.88 + 0.12 * sin(Time * 3.0 + IN.WorldPos.y * 2.0);\n    float3 warm = float3(1.0, 0.42, 0.06) * facing * pulse + float3(0.42, 0.16, 0.01);\n    return float4(warm, IN.Color.a);\n}",
+  "previewAsset": "Assets/Models/Visual Test Sphere.model.json",
+  "parameters": [],
+  "resources": [],
+  "variants": []
+}

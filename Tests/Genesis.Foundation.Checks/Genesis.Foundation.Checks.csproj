@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Exact production implementations; no GUI, graphics backend, NuGet test package or replicas. -->
+    <Compile Include="../../Source/Genesis.Application.Core/Commands/StudioCommandCatalog.cs" Link="Production/StudioCommandCatalog.cs" />
+    <Compile Include="../../Source/Genesis.Application.Core/Editing/DocumentSaveCoordinator.cs" Link="Production/DocumentSaveCoordinator.cs" />
+    <Compile Include="../Genesis.Application.Headless/Suites/StudioFoundationCoreCases.cs" Link="StudioFoundationCoreCases.cs" />
+    <Compile Include="../../Source/Genesis.Application.Core/Resources/ResourcePickerPreferences.cs" Link="Production/ResourcePickerPreferences.cs" />
+    <Compile Include="../Genesis.Application.Headless/Suites/StudioPolishCoreCases.cs" Link="StudioPolishCoreCases.cs" />
+    <Compile Include="../../Source/Genesis.Application.Core/Resources/ResourceKind.cs" Link="Production/ResourceKind.cs" />
+    <Compile Include="../../Source/Genesis.Application.Core/Resources/ResourceItem.cs" Link="Production/ResourceItem.cs" />
+    <Compile Include="../../Source/Genesis.Application.Core/Resources/ResourceBrowserProjection.cs" Link="Production/ResourceBrowserProjection.cs" />
+    <Compile Include="../Genesis.Application.Headless/Suites/ResourceLibraryCoreCases.cs" Link="ResourceLibraryCoreCases.cs" />
+    <Compile Include="../../Source/Genesis.Application.Core/Resources/ResourceLibraryTags.cs" Link="Production/ResourceLibraryTags.cs" />
+    <Compile Include="../../Source/Genesis.Application.Core/Resources/ResourceLibraryTagHistory.cs" Link="Production/ResourceLibraryTagHistory.cs" />
+    <Compile Include="../../Source/Genesis.Application.Core/Resources/ResourceLibraryQuery.cs" Link="Production/ResourceLibraryQuery.cs" />
+    <Compile Include="../Genesis.Application.Headless/Suites/ResourceTagsCoreCases.cs" Link="ResourceTagsCoreCases.cs" />
+    <Compile Include="../../Source/Genesis.Application.Core/Editing/Particles/ParticlePreviewClock.cs" Link="Production/ParticlePreviewClock.cs" />
+    <Compile Include="../Genesis.Application.Headless/Suites/ParticleClockCoreCases.cs" Link="ParticleClockCoreCases.cs" />
+  </ItemGroup>
+</Project>

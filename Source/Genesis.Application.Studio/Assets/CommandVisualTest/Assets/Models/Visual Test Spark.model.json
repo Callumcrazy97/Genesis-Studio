@@ -1,0 +1,9 @@
+{
+  "source": "Generated",
+  "emissive": 4.0,
+  "emissiveColor": [1.0, 0.82, 0.12],
+  "parts": [
+    { "name": "Glow Spark", "primitive": "Sphere", "position": [0, 0, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1.0, 0.92, 0.34] }
+  ],
+  "materials": []
+}

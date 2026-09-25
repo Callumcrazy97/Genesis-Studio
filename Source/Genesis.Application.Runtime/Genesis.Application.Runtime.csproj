@@ -1,0 +1,26 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>Genesis.Application.Runtime</RootNamespace>
+    <AssemblyName>Genesis.Application.Runtime</AssemblyName>
+    <PlatformTarget>x64</PlatformTarget>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Deterministic>true</Deterministic>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Ember (Genesis) runtime is integrated in-tree under Source/Runtime and consumed behind contracts. -->
+    <ProjectReference Include="..\Runtime\Genesis.Shared\Genesis.Shared.csproj" />
+    <ProjectReference Include="..\Runtime\Genesis.Runtime\Genesis.Runtime.csproj" />
+    <ProjectReference Include="..\Runtime\Genesis.Rendering\Genesis.Rendering.csproj" />
+    <ProjectReference Include="..\Runtime\Genesis.Rendering.WinForms\Genesis.Rendering.WinForms.csproj" />
+    <ProjectReference Include="..\Runtime\Genesis.Audio\Genesis.Audio.csproj" />
+    <ProjectReference Include="..\Runtime\Genesis.Net\Genesis.Net.csproj" />
+  </ItemGroup>
+
+</Project>

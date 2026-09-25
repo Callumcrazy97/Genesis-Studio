@@ -1,0 +1,21 @@
+{
+  "maxParticles": 256,
+  "emitRate": 42.0,
+  "burstCount": 0,
+  "loop": true,
+  "shape": "Cone",
+  "spreadDegrees": 16.0,
+  "emitRadius": 0.08,
+  "speed": 2.8,
+  "speedVariance": 0.45,
+  "gravity": -0.15,
+  "drag": 0.2,
+  "lifetime": 1.8,
+  "lifetimeVariance": 0.35,
+  "startSize": 0.15,
+  "endSize": 0.025,
+  "emissive": 3.0,
+  "blendMode": "Additive",
+  "startColor": { "r": 1.0, "g": 0.92, "b": 0.34, "a": 1.0 },
+  "endColor": { "r": 1.0, "g": 0.42, "b": 0.04, "a": 0.0 }
+}

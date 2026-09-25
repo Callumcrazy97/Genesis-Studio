@@ -1,0 +1,100 @@
+# =============================================================================
+# Genesis Studio - Git Ignore Configuration
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 1. Build Outputs & Generated Artifacts
+# -----------------------------------------------------------------------------
+**/bin/
+**/obj/
+.build/
+Dist/
+Genesis Application/
+TestResults/
+Installer/redist/
+Installer/art/
+Ignore/
+Backups/
+[Bb]ackup/
+[Bb]ackups/
+Workspace/
+
+# Compiled Binaries & Release Archives
+*.exe
+*.dll
+*.pdb
+*.lib
+*.so
+*.dylib
+*.nupkg
+*.msi
+*.zip
+
+# -----------------------------------------------------------------------------
+# 2. Project Templates & Starter Assets
+# (Excludes heavy demo/template assets, sprites like spr_Luigi, music, and audio)
+# -----------------------------------------------------------------------------
+**/Projects/Templates/Assets/
+**/Templates/Assets/
+**/Templates/*.zip
+**/TemplateBundles/
+**/LuigisMansion/
+**/TwoDShowcase/
+**/NatureWalk/
+
+# Specific template media (sprites and audio/music)
+*spr_Luigi*
+*spr_LUigi*
+*spr_luigi*
+
+# Audio and Music files
+*.wav
+*.mp3
+*.ogg
+*.flac
+*.aiff
+*.m4a
+*.wma
+*.aac
+
+# User-created Genesis Projects & Saves
+*.genesisproj
+
+# -----------------------------------------------------------------------------
+# 3. Developer & IDE Metadata / User Preferences
+# -----------------------------------------------------------------------------
+.vs/
+.vscode/
+.idea/
+.ionide/
+*.user
+*.suo
+*.userosv
+*.userprefs
+*.sln.docstates
+
+# -----------------------------------------------------------------------------
+# 4. Logs, Caches & Temporary Files
+# -----------------------------------------------------------------------------
+*.log
+*.tmp
+*.bak
+*.backup
+*.cache
+*.pidb
+*.booproj
+
+# AI Assistant Working Directories
+.gemini/
+.claude/
+.codex-remote-attachments/
+.validation/
+AiControl/
+
+# -----------------------------------------------------------------------------
+# 5. Operating System & DCC Temporary / Backup Files
+# -----------------------------------------------------------------------------
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.blend1

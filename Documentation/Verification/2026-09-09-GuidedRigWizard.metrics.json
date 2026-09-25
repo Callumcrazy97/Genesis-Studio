@@ -1,0 +1,385 @@
+{
+  "MaxWholeStanceDriftRatio": 0.0009249222348444164,
+  "MaxSegmentLengthErrorRatio": 1.827391201913997E-06,
+  "SamplesPerClip": 600,
+  "Measurements": [
+    {
+      "Model": "Humanoid/1",
+      "Motion": "Idle",
+      "WholeStanceDriftRatio": 0.0008910975884646177,
+      "SegmentLengthErrorRatio": 9.493955985817593E-07
+    },
+    {
+      "Model": "Humanoid/1",
+      "Motion": "Walk",
+      "WholeStanceDriftRatio": 4.266188170731766E-06,
+      "SegmentLengthErrorRatio": 8.630868819636817E-07
+    },
+    {
+      "Model": "Humanoid/1",
+      "Motion": "Run",
+      "WholeStanceDriftRatio": 4.1999387576652225E-06,
+      "SegmentLengthErrorRatio": 8.630868819636817E-07
+    },
+    {
+      "Model": "Humanoid/1",
+      "Motion": "TurnLeft",
+      "WholeStanceDriftRatio": 4.210546649119351E-06,
+      "SegmentLengthErrorRatio": 8.630868819636817E-07
+    },
+    {
+      "Model": "Humanoid/1",
+      "Motion": "TurnRight",
+      "WholeStanceDriftRatio": 4.2057463360833935E-06,
+      "SegmentLengthErrorRatio": 8.630868819636817E-07
+    },
+    {
+      "Model": "Humanoid/1",
+      "Motion": "Crouch",
+      "WholeStanceDriftRatio": 0.0009249222348444164,
+      "SegmentLengthErrorRatio": 7.767782221890229E-07
+    },
+    {
+      "Model": "Humanoid/1",
+      "Motion": "Jump",
+      "WholeStanceDriftRatio": 0.0009113065898418427,
+      "SegmentLengthErrorRatio": 7.767782221890229E-07
+    },
+    {
+      "Model": "Humanoid/2",
+      "Motion": "Idle",
+      "WholeStanceDriftRatio": 0.0008910975884646177,
+      "SegmentLengthErrorRatio": 9.493955985817593E-07
+    },
+    {
+      "Model": "Humanoid/2",
+      "Motion": "Walk",
+      "WholeStanceDriftRatio": 4.266188170731766E-06,
+      "SegmentLengthErrorRatio": 8.630868819636817E-07
+    },
+    {
+      "Model": "Humanoid/2",
+      "Motion": "Run",
+      "WholeStanceDriftRatio": 4.1999387576652225E-06,
+      "SegmentLengthErrorRatio": 8.630868819636817E-07
+    },
+    {
+      "Model": "Humanoid/2",
+      "Motion": "TurnLeft",
+      "WholeStanceDriftRatio": 4.210546649119351E-06,
+      "SegmentLengthErrorRatio": 8.630868819636817E-07
+    },
+    {
+      "Model": "Humanoid/2",
+      "Motion": "TurnRight",
+      "WholeStanceDriftRatio": 4.2057463360833935E-06,
+      "SegmentLengthErrorRatio": 8.630868819636817E-07
+    },
+    {
+      "Model": "Humanoid/2",
+      "Motion": "Crouch",
+      "WholeStanceDriftRatio": 0.0009249222348444164,
+      "SegmentLengthErrorRatio": 8.630868819636817E-07
+    },
+    {
+      "Model": "Humanoid/2",
+      "Motion": "Jump",
+      "WholeStanceDriftRatio": 0.0009113065898418427,
+      "SegmentLengthErrorRatio": 7.767782221890229E-07
+    },
+    {
+      "Model": "Humanoid/4",
+      "Motion": "Idle",
+      "WholeStanceDriftRatio": 0.0008910975884646177,
+      "SegmentLengthErrorRatio": 9.493955985817593E-07
+    },
+    {
+      "Model": "Humanoid/4",
+      "Motion": "Walk",
+      "WholeStanceDriftRatio": 4.266188170731766E-06,
+      "SegmentLengthErrorRatio": 8.630868819636817E-07
+    },
+    {
+      "Model": "Humanoid/4",
+      "Motion": "Run",
+      "WholeStanceDriftRatio": 4.1999387576652225E-06,
+      "SegmentLengthErrorRatio": 8.630868819636817E-07
+    },
+    {
+      "Model": "Humanoid/4",
+      "Motion": "TurnLeft",
+      "WholeStanceDriftRatio": 4.210546649119351E-06,
+      "SegmentLengthErrorRatio": 8.630868819636817E-07
+    },
+    {
+      "Model": "Humanoid/4",
+      "Motion": "TurnRight",
+      "WholeStanceDriftRatio": 4.2057463360833935E-06,
+      "SegmentLengthErrorRatio": 8.630868819636817E-07
+    },
+    {
+      "Model": "Humanoid/4",
+      "Motion": "Crouch",
+      "WholeStanceDriftRatio": 0.0009249222348444164,
+      "SegmentLengthErrorRatio": 8.630868819636817E-07
+    },
+    {
+      "Model": "Humanoid/4",
+      "Motion": "Jump",
+      "WholeStanceDriftRatio": 0.0009113065898418427,
+      "SegmentLengthErrorRatio": 7.767782221890229E-07
+    },
+    {
+      "Model": "Humanoid/8",
+      "Motion": "Idle",
+      "WholeStanceDriftRatio": 0.0008910975884646177,
+      "SegmentLengthErrorRatio": 9.493955985817593E-07
+    },
+    {
+      "Model": "Humanoid/8",
+      "Motion": "Walk",
+      "WholeStanceDriftRatio": 4.266188170731766E-06,
+      "SegmentLengthErrorRatio": 8.630868819636817E-07
+    },
+    {
+      "Model": "Humanoid/8",
+      "Motion": "Run",
+      "WholeStanceDriftRatio": 4.1999387576652225E-06,
+      "SegmentLengthErrorRatio": 8.630868819636817E-07
+    },
+    {
+      "Model": "Humanoid/8",
+      "Motion": "TurnLeft",
+      "WholeStanceDriftRatio": 4.210546649119351E-06,
+      "SegmentLengthErrorRatio": 8.630868819636817E-07
+    },
+    {
+      "Model": "Humanoid/8",
+      "Motion": "TurnRight",
+      "WholeStanceDriftRatio": 4.2057463360833935E-06,
+      "SegmentLengthErrorRatio": 8.630868819636817E-07
+    },
+    {
+      "Model": "Humanoid/8",
+      "Motion": "Crouch",
+      "WholeStanceDriftRatio": 0.0009249222348444164,
+      "SegmentLengthErrorRatio": 8.630868819636817E-07
+    },
+    {
+      "Model": "Humanoid/8",
+      "Motion": "Jump",
+      "WholeStanceDriftRatio": 0.0009113065898418427,
+      "SegmentLengthErrorRatio": 7.767782221890229E-07
+    },
+    {
+      "Model": "Quadruped/1",
+      "Motion": "Idle",
+      "WholeStanceDriftRatio": 7.637836461071856E-06,
+      "SegmentLengthErrorRatio": 5.455339646687207E-07
+    },
+    {
+      "Model": "Quadruped/1",
+      "Motion": "Walk",
+      "WholeStanceDriftRatio": 5.0018275032925885E-06,
+      "SegmentLengthErrorRatio": 4.953932375428849E-07
+    },
+    {
+      "Model": "Quadruped/1",
+      "Motion": "Run",
+      "WholeStanceDriftRatio": 5.0457902034395374E-06,
+      "SegmentLengthErrorRatio": 8.256553769570019E-07
+    },
+    {
+      "Model": "Quadruped/1",
+      "Motion": "TurnLeft",
+      "WholeStanceDriftRatio": 4.515220098255668E-06,
+      "SegmentLengthErrorRatio": 5.779587581855594E-07
+    },
+    {
+      "Model": "Quadruped/1",
+      "Motion": "TurnRight",
+      "WholeStanceDriftRatio": 4.162331151746912E-06,
+      "SegmentLengthErrorRatio": 5.779587581855594E-07
+    },
+    {
+      "Model": "Quadruped/1",
+      "Motion": "Crouch",
+      "WholeStanceDriftRatio": 2.558771666372195E-05,
+      "SegmentLengthErrorRatio": 5.779587581855594E-07
+    },
+    {
+      "Model": "Quadruped/1",
+      "Motion": "Jump",
+      "WholeStanceDriftRatio": 1.1819910469057504E-05,
+      "SegmentLengthErrorRatio": 5.455339646687207E-07
+    },
+    {
+      "Model": "Insect/1",
+      "Motion": "Idle",
+      "WholeStanceDriftRatio": 6.287901214818703E-06,
+      "SegmentLengthErrorRatio": 6.516077064588899E-07
+    },
+    {
+      "Model": "Insect/1",
+      "Motion": "Walk",
+      "WholeStanceDriftRatio": 8.058158528001513E-06,
+      "SegmentLengthErrorRatio": 4.654340841625526E-07
+    },
+    {
+      "Model": "Insect/1",
+      "Motion": "Run",
+      "WholeStanceDriftRatio": 7.963244570419192E-06,
+      "SegmentLengthErrorRatio": 5.509216975951858E-07
+    },
+    {
+      "Model": "Insect/1",
+      "Motion": "TurnLeft",
+      "WholeStanceDriftRatio": 8.140718819049653E-06,
+      "SegmentLengthErrorRatio": 5.585208668890118E-07
+    },
+    {
+      "Model": "Insect/1",
+      "Motion": "TurnRight",
+      "WholeStanceDriftRatio": 8.825330041872803E-06,
+      "SegmentLengthErrorRatio": 7.446944891853491E-07
+    },
+    {
+      "Model": "Insect/1",
+      "Motion": "Crouch",
+      "WholeStanceDriftRatio": 6.30471549811773E-06,
+      "SegmentLengthErrorRatio": 5.585208668890118E-07
+    },
+    {
+      "Model": "Insect/1",
+      "Motion": "Jump",
+      "WholeStanceDriftRatio": 7.223284228530247E-06,
+      "SegmentLengthErrorRatio": 6.516077064588899E-07
+    },
+    {
+      "Model": "Arachnid/1",
+      "Motion": "Idle",
+      "WholeStanceDriftRatio": 3.6279793675930705E-06,
+      "SegmentLengthErrorRatio": 5.532450018108648E-07
+    },
+    {
+      "Model": "Arachnid/1",
+      "Motion": "Walk",
+      "WholeStanceDriftRatio": 8.079939107119571E-06,
+      "SegmentLengthErrorRatio": 4.921433287563559E-07
+    },
+    {
+      "Model": "Arachnid/1",
+      "Motion": "Run",
+      "WholeStanceDriftRatio": 7.97790471551707E-06,
+      "SegmentLengthErrorRatio": 5.509216975951858E-07
+    },
+    {
+      "Model": "Arachnid/1",
+      "Motion": "TurnLeft",
+      "WholeStanceDriftRatio": 6.752306944690645E-06,
+      "SegmentLengthErrorRatio": 4.921433287563559E-07
+    },
+    {
+      "Model": "Arachnid/1",
+      "Motion": "TurnRight",
+      "WholeStanceDriftRatio": 8.825330041872803E-06,
+      "SegmentLengthErrorRatio": 4.921433287563559E-07
+    },
+    {
+      "Model": "Arachnid/1",
+      "Motion": "Crouch",
+      "WholeStanceDriftRatio": 5.066080575488741E-06,
+      "SegmentLengthErrorRatio": 5.485761676027323E-07
+    },
+    {
+      "Model": "Arachnid/1",
+      "Motion": "Jump",
+      "WholeStanceDriftRatio": 7.77873628976522E-06,
+      "SegmentLengthErrorRatio": 6.427419521060074E-07
+    },
+    {
+      "Model": "wizard-archer-walk.gmodel",
+      "Motion": "Idle",
+      "WholeStanceDriftRatio": 2.62419848695572E-06,
+      "SegmentLengthErrorRatio": 1.8197284816778847E-06
+    },
+    {
+      "Model": "wizard-archer-walk.gmodel",
+      "Motion": "Walk",
+      "WholeStanceDriftRatio": 5.2124592002655845E-06,
+      "SegmentLengthErrorRatio": 1.6056427512012306E-06
+    },
+    {
+      "Model": "wizard-archer-walk.gmodel",
+      "Motion": "Run",
+      "WholeStanceDriftRatio": 5.051012522017118E-06,
+      "SegmentLengthErrorRatio": 1.6056427512012306E-06
+    },
+    {
+      "Model": "wizard-archer-walk.gmodel",
+      "Motion": "TurnLeft",
+      "WholeStanceDriftRatio": 1.6410710941272555E-06,
+      "SegmentLengthErrorRatio": 1.6056427512012306E-06
+    },
+    {
+      "Model": "wizard-archer-walk.gmodel",
+      "Motion": "TurnRight",
+      "WholeStanceDriftRatio": 1.4645172541349893E-06,
+      "SegmentLengthErrorRatio": 1.6056427512012306E-06
+    },
+    {
+      "Model": "wizard-archer-walk.gmodel",
+      "Motion": "Crouch",
+      "WholeStanceDriftRatio": 1.8851062122848816E-05,
+      "SegmentLengthErrorRatio": 1.7127864566646167E-06
+    },
+    {
+      "Model": "wizard-archer-walk.gmodel",
+      "Motion": "Jump",
+      "WholeStanceDriftRatio": 1.873897053883411E-05,
+      "SegmentLengthErrorRatio": 1.8197284816778847E-06
+    },
+    {
+      "Model": "wizard-vulipet-walk.gmodel",
+      "Motion": "Idle",
+      "WholeStanceDriftRatio": 1.716307792776206E-06,
+      "SegmentLengthErrorRatio": 1.7360216588713229E-06
+    },
+    {
+      "Model": "wizard-vulipet-walk.gmodel",
+      "Motion": "Walk",
+      "WholeStanceDriftRatio": 4.233451818436151E-06,
+      "SegmentLengthErrorRatio": 1.5532825727859745E-06
+    },
+    {
+      "Model": "wizard-vulipet-walk.gmodel",
+      "Motion": "Run",
+      "WholeStanceDriftRatio": 4.185336365480907E-06,
+      "SegmentLengthErrorRatio": 1.6446521158286487E-06
+    },
+    {
+      "Model": "wizard-vulipet-walk.gmodel",
+      "Motion": "TurnLeft",
+      "WholeStanceDriftRatio": 4.69225915367133E-06,
+      "SegmentLengthErrorRatio": 1.827391201913997E-06
+    },
+    {
+      "Model": "wizard-vulipet-walk.gmodel",
+      "Motion": "TurnRight",
+      "WholeStanceDriftRatio": 4.3352224565751385E-06,
+      "SegmentLengthErrorRatio": 1.6446521158286487E-06
+    },
+    {
+      "Model": "wizard-vulipet-walk.gmodel",
+      "Motion": "Crouch",
+      "WholeStanceDriftRatio": 1.9768778656725772E-05,
+      "SegmentLengthErrorRatio": 1.7360216588713229E-06
+    },
+    {
+      "Model": "wizard-vulipet-walk.gmodel",
+      "Motion": "Jump",
+      "WholeStanceDriftRatio": 5.448222964332672E-06,
+      "SegmentLengthErrorRatio": 1.6446521158286487E-06
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Genesis.Player</RootNamespace>
+    <!-- The Ember player binary. Studio F5 resolves this exact name (RuntimePaths.RuntimeExeName). -->
+    <AssemblyName>GenesisEngine</AssemblyName>
+    <PlatformTarget>x64</PlatformTarget>
+    <!-- The debug window is WinForms and lives here, in the executable host, so that the engine
+         boundary holds: Genesis.Runtime stays free of both Studio and WinForms and publishes plain
+         snapshots instead. A game launched without the debug switch never constructs it. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Deterministic>true</Deterministic>
+    <!-- Shared with Studio: a game the designer exports carries the Genesis mark until they
+         replace it, which is better than the blank default .NET icon it shipped with before. -->
+    <ApplicationIcon>..\Genesis.Application.Studio\Assets\Genesis.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Runtime\Genesis.Runtime\Genesis.Runtime.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The executable host stages the shared artwork instead of making Genesis.Runtime reference
+         Studio. Runtime only resolves and renders files, so neither Studio nor WinForms crosses the
+         engine boundary and an exported game can replace the staged files later. -->
+    <Content Include="..\Genesis.Application.Studio\Assets\Genesis_Studio_Emblem.png"
+             Link="Assets\Genesis_Studio_Emblem.png"
+             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\Genesis.Application.Studio\Assets\Genesis_Studio_Logo.png"
+             Link="Assets\Genesis_Studio_Logo.png"
+             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\Genesis.Application.Studio\Assets\Genesis.ico"
+             Link="Assets\Genesis.ico"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

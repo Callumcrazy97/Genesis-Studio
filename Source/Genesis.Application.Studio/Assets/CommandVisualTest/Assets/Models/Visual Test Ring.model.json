@@ -1,0 +1,7 @@
+{
+  "source": "Generated",
+  "parts": [
+    { "name": "Motion Ring", "primitive": "Torus", "position": [0, 0, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.88, 0.92, 1.0] }
+  ],
+  "materials": []
+}

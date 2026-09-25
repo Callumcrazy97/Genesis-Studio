@@ -1,0 +1,68 @@
+// Real-resource baseline for Help -> Commands -> PGSL Game Code visual testing.
+// The host supplies demo_time in seconds before this asset is executed every frame.
+DrawSetColorRgb(255, 255, 255);
+DrawSetAlpha(1);
+
+DrawModelTransform3D("Visual Test Floor", 0, -0.08, 0, 1, 1, 1, 0, 0, 0);
+
+// Ground-contact shadows cast away from the scene's two real lights. These remain explicit
+// PGSL resource draws because the renderer's current shadow maps are directional-light maps;
+// this demo deliberately has no hidden sun.
+DrawSetColorRgb(2, 3, 4);
+DrawSetAlpha(0.62);
+DrawModelTransform3D("Visual Test Shadow", -2 * demo_spacing - 0.62, 0.025, 0.18, 2.8, 0.045, 1.45, 0, 0, 0);
+DrawSetAlpha(0.52);
+DrawModelTransform3D("Visual Test Shadow", 0.45, 0.025, 0.12, 2.1, 0.04, 1.2, 0, 0, 0);
+DrawSetAlpha(0.55);
+DrawModelTransform3D("Visual Test Shadow", demo_spacing + 0.88, 0.025, 0.16, 3.0, 0.045, 1.55, 0, 0, 0);
+DrawSetAlpha(0.48);
+DrawModelTransform3D("Visual Test Shadow", 2 * demo_spacing + 1.18, 0.025, 0.18, 3.5, 0.05, 1.8, 0, 0, 0);
+DrawSetColorRgb(255, 255, 255);
+DrawSetAlpha(1);
+
+DrawModelShader3D("Visual Test Cube", "Assets/Shaders/Visual Test Iridescent.shader.json", -2 * demo_spacing, 1.1, 0, 2.2, 2.2, 2.2, 0, demo_time * 24, 0);
+DrawModelShader3D("Visual Test Sphere", "Assets/Shaders/Visual Test Glow.shader.json", -demo_spacing, 1.1, 0, 2.2, 2.2, 2.2, 0, 0, 0);
+DrawPointLight3D(-demo_spacing, 1.35, 0, 24, 4.2, 255, 126, 32);
+DrawSetAlpha(0.12);
+DrawModelShader3D("Visual Test Sphere", "Assets/Shaders/Visual Test Glow.shader.json", -demo_spacing, 1.1, 0, 2.56, 2.56, 2.56, 0, 0, 0);
+DrawSetAlpha(0.09);
+DrawModelShader3D("Visual Test Sphere", "Assets/Shaders/Visual Test Glow.shader.json", -demo_spacing, 1.1, 0, 2.92, 2.92, 2.92, 0, 0, 0);
+DrawSetAlpha(1);
+
+DrawModelTransform3D("Visual Test Pyramid", 0, 1.2, 0, 2.2, 2.4, 2.2, 0, demo_time * 18, 0);
+DrawPointLight3D(0, 2.55, 0, 7, 1.35, 255, 194, 46);
+
+particle_phase = demo_time * 0.72 - Floor(demo_time * 0.72);
+DrawSetColorRgb(255, 238, 84);
+DrawModelShader3D("Visual Test Spark", "Assets/Shaders/Visual Test Glow.shader.json", -0.12 + Sin(demo_time * 91) * 0.20, 2.45 + particle_phase * 4.2, 0.03 + Cos(demo_time * 73) * 0.18, 0.36, 0.36, 0.36, 0, 0, 0);
+particle_phase = demo_time * 0.72 + 0.18 - Floor(demo_time * 0.72 + 0.18);
+DrawModelShader3D("Visual Test Spark", "Assets/Shaders/Visual Test Glow.shader.json", 0.10 + Sin(demo_time * 67) * 0.28, 2.45 + particle_phase * 4.2, -0.06 + Cos(demo_time * 83) * 0.22, 0.28, 0.28, 0.28, 0, 0, 0);
+particle_phase = demo_time * 0.72 + 0.36 - Floor(demo_time * 0.72 + 0.36);
+DrawModelShader3D("Visual Test Spark", "Assets/Shaders/Visual Test Glow.shader.json", -0.08 + Sin(demo_time * 113) * 0.24, 2.45 + particle_phase * 4.2, 0.08 + Cos(demo_time * 59) * 0.24, 0.33, 0.33, 0.33, 0, 0, 0);
+particle_phase = demo_time * 0.72 + 0.54 - Floor(demo_time * 0.72 + 0.54);
+DrawModelShader3D("Visual Test Spark", "Assets/Shaders/Visual Test Glow.shader.json", 0.02 + Sin(demo_time * 79) * 0.32, 2.45 + particle_phase * 4.2, -0.02 + Cos(demo_time * 97) * 0.20, 0.26, 0.26, 0.26, 0, 0, 0);
+particle_phase = demo_time * 0.72 + 0.72 - Floor(demo_time * 0.72 + 0.72);
+DrawModelShader3D("Visual Test Spark", "Assets/Shaders/Visual Test Glow.shader.json", 0.06 + Sin(demo_time * 103) * 0.22, 2.45 + particle_phase * 4.2, 0.04 + Cos(demo_time * 71) * 0.30, 0.31, 0.31, 0.31, 0, 0, 0);
+
+DrawSetColorRgb(210, 218, 232);
+DrawModelTransform3D("Visual Test Cylinder", demo_spacing, 1.15, 0, 2.1, 2.3, 2.1, 0, demo_time * 720, 0);
+DrawSetAlpha(0.48);
+DrawModelTransform3D("Visual Test Ring", demo_spacing, 0.75, 0, 2.75, 2.75, 2.75, 0, demo_time * 360, 0);
+DrawModelTransform3D("Visual Test Ring", demo_spacing, 1.15, 0, 2.95, 2.95, 2.95, 0, demo_time * 420, 0);
+DrawModelTransform3D("Visual Test Ring", demo_spacing, 1.55, 0, 2.65, 2.65, 2.65, 0, demo_time * 480, 0);
+
+pulse = 1 + Sin(demo_time * 150) * 0.10;
+DrawSetColorRgb(222, 230, 244);
+DrawSetAlpha(1);
+DrawModelTransform3D("Visual Test Cone", 2 * demo_spacing, 1.2, 0, 2.2 * pulse, 2.4 * pulse, 2.2 * pulse, 0, 0, 0);
+DrawSetAlpha(0.16);
+DrawModelTransform3D("Visual Test Cone", 2 * demo_spacing, 1.2, 0, 2.55 * pulse, 2.75 * pulse, 2.55 * pulse, 0, 0, 0);
+DrawModelTransform3D("Visual Test Cone", 2 * demo_spacing, 1.2, 0, 2.95 * pulse, 3.15 * pulse, 2.95 * pulse, 0, 0, 0);
+DrawModelTransform3D("Visual Test Cone", 2 * demo_spacing, 1.2, 0, 3.35 * pulse, 3.55 * pulse, 3.35 * pulse, 0, 0, 0);
+DrawSetAlpha(0.34);
+DrawModelTransform3D("Visual Test Ring", 2 * demo_spacing, 0.18, 0, 3.1, 3.1, 3.1, 0, 0, 0);
+DrawModelTransform3D("Visual Test Ring", 2 * demo_spacing, 0.64, 0, 2.32, 2.32, 2.32, 0, 0, 0);
+DrawModelTransform3D("Visual Test Ring", 2 * demo_spacing, 1.10, 0, 1.54, 1.54, 1.54, 0, 0, 0);
+
+DrawSetColorRgb(70, 170, 255);
+DrawSetAlpha(1);

@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PlatformTarget>x64</PlatformTarget>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Genesis.Shared\Genesis.Shared.csproj" />
+    <ProjectReference Include="..\Genesis.Streaming\Genesis.Streaming.csproj" />
+    <ProjectReference Include="..\Genesis.Physics\Genesis.Physics.csproj" />
+    <!-- Genesis.Rendering used to reference *this* project, for one shader string. That made the
+         natural direction a cycle, so VoxelWorldRenderer/VoxelPlayerController/VoxelWorldSetup were
+         Compile Remove'd here and re-included by path from Genesis.Runtime. The string moved to
+         Genesis.Rendering.Primitives.WaterShaders and the reference now points the right way. -->
+    <ProjectReference Include="..\Genesis.Rendering\Genesis.Rendering.csproj" />
+  </ItemGroup>
+
+</Project>

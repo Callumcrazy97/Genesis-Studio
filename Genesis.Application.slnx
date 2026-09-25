@@ -1,0 +1,23 @@
+<Solution>
+  <Folder Name="/Source/">
+    <Project Path="Source/Genesis.Application.Core/Genesis.Application.Core.csproj" />
+    <Project Path="Source/Genesis.Application.Editors.Image/Genesis.Application.Editors.Image.csproj" />
+    <Project Path="Source/Genesis.Application.Runtime/Genesis.Application.Runtime.csproj" />
+    <Project Path="Source/Genesis.Application.Studio/Genesis.Application.Studio.csproj" />
+  </Folder>
+  <Folder Name="/Source/Runtime/">
+    <Project Path="Source/Runtime/Genesis.Shared/Genesis.Shared.csproj" />
+    <Project Path="Source/Runtime/Genesis.Audio/Genesis.Audio.csproj" />
+    <Project Path="Source/Runtime/Genesis.Net/Genesis.Net.csproj" />
+    <Project Path="Source/Runtime/Genesis.Physics/Genesis.Physics.csproj" />
+    <Project Path="Source/Runtime/Genesis.Streaming/Genesis.Streaming.csproj" />
+    <Project Path="Source/Runtime/Genesis.World/Genesis.World.csproj" />
+    <Project Path="Source/Runtime/Genesis.Rendering.Abstractions/Genesis.Rendering.Abstractions.csproj" />
+    <Project Path="Source/Runtime/Genesis.Rendering/Genesis.Rendering.csproj" />
+    <Project Path="Source/Runtime/Genesis.Rendering.WinForms/Genesis.Rendering.WinForms.csproj" />
+    <Project Path="Source/Runtime/Genesis.Runtime/Genesis.Runtime.csproj" />
+  </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="Tests/Genesis.Application.Headless/Genesis.Application.Headless.csproj" />
+  </Folder>
+</Solution>

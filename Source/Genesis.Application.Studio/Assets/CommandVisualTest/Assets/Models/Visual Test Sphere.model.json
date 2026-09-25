@@ -1,0 +1,9 @@
+{
+  "source": "Generated",
+  "emissive": 3.2,
+  "emissiveColor": [1.0, 0.36, 0.04],
+  "parts": [
+    { "name": "Warm Light Sphere", "primitive": "Sphere", "position": [0, 0, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1.0, 0.72, 0.18] }
+  ],
+  "materials": []
+}

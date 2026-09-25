@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 4,
+  "pipeline": "Mesh",
+  "authoringMode": "Code",
+  "targetType": "Model",
+  "preset": "",
+  "targetComponent": "all",
+  "entry": "MainPS",
+  "profile": "ps_5_0",
+  "source": "cbuffer GenesisFrame : register(b4) { float Time; float Frame; float2 Resolution; };\nstruct VSOut { float4 SvPos : SV_Position; float3 WorldPos : TEXCOORD1; float3 Normal : TEXCOORD2; float4 Color : TEXCOORD3; float2 UV : TEXCOORD4; float4 ShadowPos : TEXCOORD5; float4 ShadowPosNr : TEXCOORD6; float AtlasLayer : TEXCOORD7; };\nfloat4 MainPS(VSOut IN) : SV_Target\n{\n    float3 n = normalize(IN.Normal);\n    float band = dot(n, normalize(float3(0.45, 0.72, 0.53))) + IN.WorldPos.y * 0.18 + Time * 0.22;\n    float3 rainbow = 0.18 + 0.82 * (0.5 + 0.5 * cos(6.2831853 * (band + float3(0.00, 0.33, 0.67))));\n    float edge = pow(1.0 - saturate(abs(n.z)), 2.0);\n    return float4(saturate(rainbow * 0.86 + edge * float3(0.20, 0.55, 0.85)), 1.0);\n}",
+  "previewAsset": "Assets/Models/Visual Test Cube.model.json",
+  "parameters": [],
+  "resources": [],
+  "variants": []
+}
