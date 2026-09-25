@@ -23,7 +23,10 @@ namespace Genesis.Application.Editors.Suite.Assets;
 
 public sealed partial class ParticleEditorControl
 {
+    // Kept only for Software-backend compatibility tests; hardware previews own no scalar simulations.
     private readonly List<ParticleSimulation> _previewSimulations = [];
+    private readonly List<ParticleRuntimeEmitter> _previewRuntimes = [];
+    private readonly List<Vector3[]> _previewSurfaceSamples = [];
     private readonly List<ParticleConfig> _previewEmitterConfigs = [];
     private readonly List<TextureHandle> _previewTextures = [];
     private readonly List<bool> _previewTexturesOwned = [];
@@ -106,6 +109,18 @@ public sealed partial class ParticleEditorControl
         AddNumeric(emission, "Box Z", "boxZ", _config.BoxSizeZ, 0.01, 1000, value => _config.BoxSizeZ = value, 2);
         _meshSurfaceField = AssetButton("Choose Model…", ResourceKind.Model, () => _config.MeshSurfaceAsset, value => _config.MeshSurfaceAsset = value);
         AddInspectorRow(emission, "Mesh surface", _meshSurfaceField);
+        AddInspectorRow(emission, "Parent emitter", BuildParentEmitterCombo());
+        AddInspectorRow(emission, "Parent event", EnumCombo("parentEvents", _config.ParentEvents, value => _config.ParentEvents = (ParticleEventMask)value));
+        AddNumeric(emission, "Event probability", "eventProbability", _config.EventProbability, 0, 1, value => _config.EventProbability = value, 2);
+        AddNumeric(emission, "Event spawn count", "eventCount", _config.EventSpawnCount, 1, 32, value => _config.EventSpawnCount = (int)value);
+        AddNumeric(emission, "Inherit velocity", "eventVelocity", _config.EventInheritVelocity, 0, 4, value => _config.EventInheritVelocity = value, 2);
+        AddInspectorRow(emission, "Bounds mode", EnumCombo("boundsMode", _config.BoundsMode, value => _config.BoundsMode = (ParticleBoundsMode)value));
+        AddNumeric(emission, "Bounds centre X", "boundsCX", _config.BoundsCenterX, -100000, 100000, value => _config.BoundsCenterX = value, 2);
+        AddNumeric(emission, "Bounds centre Y", "boundsCY", _config.BoundsCenterY, -100000, 100000, value => _config.BoundsCenterY = value, 2);
+        AddNumeric(emission, "Bounds centre Z", "boundsCZ", _config.BoundsCenterZ, -100000, 100000, value => _config.BoundsCenterZ = value, 2);
+        AddNumeric(emission, "Bounds size X", "boundsSX", _config.BoundsSizeX, .001, 100000, value => _config.BoundsSizeX = value, 2);
+        AddNumeric(emission, "Bounds size Y", "boundsSY", _config.BoundsSizeY, .001, 100000, value => _config.BoundsSizeY = value, 2);
+        AddNumeric(emission, "Bounds size Z", "boundsSZ", _config.BoundsSizeZ, .001, 100000, value => _config.BoundsSizeZ = value, 2);
 
         FlowLayoutPanel motion = InspectorPage("Motion");
         AddNumeric(motion, "Speed variation", "speedVariance", _config.SpeedVariance, 0, 1, value => _config.SpeedVariance = value, 2);
@@ -123,6 +138,7 @@ public sealed partial class ParticleEditorControl
         AddInspectorRow(collision, "Response", collisionMode);
         AddNumeric(collision, "Plane height", "collisionHeight", _config.CollisionPlaneHeight, -10000, 10000, value => _config.CollisionPlaneHeight = value, 2);
         AddNumeric(collision, "Bounce", "collisionBounce", _config.CollisionBounce, 0, 1.5, value => _config.CollisionBounce = value, 2);
+        AddNumeric(collision, "Particle radius", "collisionRadius", _config.CollisionRadius, 0, 1000, value => _config.CollisionRadius = value, 3);
         AddInspectorRow(collision, "Terrain", BoundCheckBox("collideTerrain", () => _config.CollideWithTerrain, value => _config.CollideWithTerrain = value));
         AddInspectorRow(collision, "Geometry", BoundCheckBox("collideGeometry", () => _config.CollideWithGeometry, value => _config.CollideWithGeometry = value));
         AddInfoCard(collision, "Preview collision", "Bounce / Die / Stick use the height plane or the selected terrain height. Arbitrary model-surface collision is not a full physics preview.");
@@ -139,6 +155,17 @@ public sealed partial class ParticleEditorControl
         AddNumeric(renderer, "Columns", "flipColumns", _config.FlipbookColumns, 1, 64, value => _config.FlipbookColumns = (int)value);
         AddNumeric(renderer, "Rows", "flipRows", _config.FlipbookRows, 1, 64, value => _config.FlipbookRows = (int)value);
         AddNumeric(renderer, "Flipbook FPS", "flipFps", _config.FlipbookFps, 0.1, 240, value => _config.FlipbookFps = value, 1);
+        AddInspectorRow(renderer, "Renderer mode", EnumCombo("rendererMode", _config.RendererMode, value => _config.RendererMode = (ParticleRendererMode)value));
+        AddNumeric(renderer, "Trail duration", "trailDuration", _config.TrailDuration, .001, 60, value => _config.TrailDuration = value, 3);
+        AddNumeric(renderer, "Trail / ribbon width", "trailWidth", _config.TrailWidth, .001, 100, value => _config.TrailWidth = value, 3);
+        AddNumeric(renderer, "Ribbon max segment", "ribbonSegment", _config.RibbonMaxSegmentLength, .001, 1000, value => _config.RibbonMaxSegmentLength = value, 2);
+        AddNumeric(renderer, "Velocity stretch", "velocityStretch", _config.VelocityStretch, 0, 100, value => _config.VelocityStretch = value, 3);
+        AddNumeric(renderer, "Beam end X", "beamX", _config.BeamEndX, -10000, 10000, value => _config.BeamEndX = value, 2);
+        AddNumeric(renderer, "Beam end Y", "beamY", _config.BeamEndY, -10000, 10000, value => _config.BeamEndY = value, 2);
+        AddNumeric(renderer, "Beam end Z", "beamZ", _config.BeamEndZ, -10000, 10000, value => _config.BeamEndZ = value, 2);
+        AddNumeric(renderer, "Beam noise", "beamNoise", _config.BeamNoise, 0, 1000, value => _config.BeamNoise = value, 3);
+        AddInspectorRow(renderer, "Local simulation", BoundCheckBox("localSpace", () => _config.LocalSpace, value => _config.LocalSpace = value));
+        AddInfoCard(renderer, "GPU renderer", "Sprite, trail, ribbon and beam modes are simulated and expanded on the selected GPU backend. CPU simulation is used only by the explicit Software renderer.");
 
         FlowLayoutPanel material = InspectorPage("Appearance");
         AddNumeric(material, "Width scale", "sizeScaleX", _config.SizeXScale, 0.01, 100, value => _config.SizeXScale = value, 2);
@@ -159,6 +186,46 @@ public sealed partial class ParticleEditorControl
         AddInspectorRow(appearance, "Emit light", BoundCheckBox("emitLight", () => _effect.Light.Enabled, value => _effect.Light.Enabled = value));
         AddInspectorRow(appearance, "Light colour", MakeColorWell(() => _effect.Light.Color, PickLightColor));
         AddInfoCard(appearance, "One light per effect", "These settings belong to the entire effect, not its selected emitter. Preview lighting uses the 3D view.");
+    }
+
+    private ComboBox BuildParentEmitterCombo()
+    {
+        ThemedComboBox combo = new() { DropDownStyle = ComboBoxStyle.DropDownList };
+        combo.Items.Add("(none)");
+        combo.SelectedIndex = 0;
+        void Refresh()
+        {
+            string current = _config.ParentEmitterId ?? string.Empty;
+            combo.Items.Clear();
+            combo.Items.Add("(none)");
+            foreach ((string id, string name, ParticleConfig _) in ParticleAssetLoader.EnumerateEnabledEmitters(_effect))
+            {
+                if (string.Equals(id, _config.EmitterId, StringComparison.OrdinalIgnoreCase)) continue;
+                combo.Items.Add(new ParentEmitterChoice(id, name));
+            }
+            int selected = 0;
+            for (int i = 1; i < combo.Items.Count; i++)
+                if (combo.Items[i] is ParentEmitterChoice choice
+                    && string.Equals(choice.Id, current, StringComparison.OrdinalIgnoreCase))
+                { selected = i; break; }
+            combo.SelectedIndex = selected;
+        }
+        combo.DropDown += (_, _) => Refresh();
+        combo.SelectedIndexChanged += (_, _) =>
+        {
+            if (_syncing) return;
+            _config.ParentEmitterId = combo.SelectedItem is ParentEmitterChoice choice ? choice.Id : string.Empty;
+            _activePreset = "Custom";
+            ConfigChanged(reset: true);
+        };
+        Refresh();
+        EditorChrome.StyleField(combo);
+        return combo;
+    }
+
+    private sealed record ParentEmitterChoice(string Id, string Name)
+    {
+        public override string ToString() => Name;
     }
 
     private FlowLayoutPanel InspectorPage(string title) => _inspectorTabs.TabPages.Cast<TabPage>()
@@ -239,11 +306,15 @@ public sealed partial class ParticleEditorControl
         SetCombo("collisionMode", _config.CollisionMode);
         SetCombo("blend", _config.BlendMode);
         SetCombo("alignment", _config.Alignment);
+        SetCombo("rendererMode", _config.RendererMode);
+        SetCombo("parentEvents", _config.ParentEvents);
+        SetCombo("boundsMode", _config.BoundsMode);
         SetCheck("collideTerrain", _config.CollideWithTerrain);
         SetCheck("collideGeometry", _config.CollideWithGeometry);
         SetCheck("flipbook", _config.UseFlipbook);
         SetCheck("downward", _config.DownwardEmit);
         SetCheck("followCamera", _config.FollowCameraXZ);
+        SetCheck("localSpace", _config.LocalSpace);
         SetCheck("curveSize", _config.UseCustomSizeCurve);
         SetCheck("curveSpeed", _config.UseCustomSpeedCurve);
         SetCheck("curveAlpha", _config.UseCustomAlphaCurve);
@@ -345,40 +416,41 @@ public sealed partial class ParticleEditorControl
     {
         ReleaseEmitterPreviewResources();
         _previewSimulations.Clear();
+        _previewRuntimes.Clear();
+        _previewSurfaceSamples.Clear();
         _previewEmitterConfigs.Clear();
-        _previewEmitterIds.Clear(); _previewKeys.Clear(); _previewSurfaceKeys.Clear();
-        _simulation.LoadConfig(_effect);
-        ConfigureMeshSurfacePreview(_simulation, _effect);
+        _previewEmitterIds.Clear();
+        _previewKeys.Clear();
+        _previewSurfaceKeys.Clear();
+
         if (_effect.EmitterEnabled)
         {
-            _previewSimulations.Add(_simulation);
             _previewEmitterConfigs.Add(_effect);
             _previewEmitterIds.Add(_effect.EmitterId);
         }
         foreach (ParticleEmitterLayer layer in _effect.Emitters)
         {
             if (!layer.Enabled) continue;
-            ParticleSimulation simulation = new();
-            simulation.LoadConfig(layer.Config);
-            ConfigureMeshSurfacePreview(simulation, layer.Config);
-            _previewSimulations.Add(simulation);
             _previewEmitterConfigs.Add(layer.Config);
             _previewEmitterIds.Add(layer.Id);
         }
-        if (_terrainTarget is not null) ConfigureTerrainEmitterPreview(_terrainTarget, reset: false);
         foreach (ParticleConfig config in _previewEmitterConfigs)
         {
+            _previewSurfaceSamples.Add(LoadMeshSurfacePreview(config));
             _previewKeys.Add(ParticlePreviewKey.From(config));
             _previewSurfaceKeys.Add(config.Shape + ":" + config.MeshSurfaceAsset);
         }
-        ResetParticlePreview(_timelinePlaying);
+
+        _previewClock.Reset(_timelinePlaying);
+        SyncPreviewClock();
+        _lastTime = _clock.Elapsed.TotalSeconds;
+        _viewport?.Invalidate(true);
     }
 
-    private void ConfigureMeshSurfacePreview(ParticleSimulation simulation, ParticleConfig config)
+    private Vector3[] LoadMeshSurfacePreview(ParticleConfig config)
     {
-        // Clearing/changing a source must not reuse old mesh samples if loading the new one fails.
-        simulation.SetMeshSurfaceSamples(ReadOnlySpan<Vector3>.Empty);
-        if (config.Shape != ParticleEmitShape.MeshSurface || string.IsNullOrWhiteSpace(config.MeshSurfaceAsset)) return;
+        if (config.Shape != ParticleEmitShape.MeshSurface || string.IsNullOrWhiteSpace(config.MeshSurfaceAsset))
+            return [];
         try
         {
             GModelAsset asset = _particleMeshAssets.Load(ProjectRoot, config.MeshSurfaceAsset);
@@ -387,35 +459,48 @@ public sealed partial class ParticleEditorControl
             {
                 if (mesh.Vertices is { Length: > 0 }) positions.AddRange(mesh.Vertices.Select(vertex => vertex.Position));
                 else if (mesh.SkinnedVertices is { Length: > 0 }) positions.AddRange(mesh.SkinnedVertices.Select(vertex => vertex.Position));
-                if (positions.Count >= 100_000) break;
+                if (positions.Count >= 65_536) break;
             }
-            if (positions.Count > 0) simulation.SetMeshSurfaceSamples(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(positions));
+            if (positions.Count > 65_536) positions.RemoveRange(65_536, positions.Count - 65_536);
+            return positions.ToArray();
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
         {
             LoadWarning = "Mesh surface emitter could not be sampled: " + exception.Message;
+            return [];
         }
     }
 
     private void UpdateSelectedEmitterPreview(bool reset)
     {
         bool renderChanged = false;
-        for (int i = 0; i < _previewSimulations.Count; i++)
+        for (int i = 0; i < _previewEmitterConfigs.Count; i++)
         {
             ParticleConfig config = _previewEmitterConfigs[i];
-            _previewSimulations[i].UpdateConfig(config);
             ParticlePreviewKey key = ParticlePreviewKey.From(config);
             if (_previewKeys[i] != key) { _previewKeys[i] = key; renderChanged = true; }
+
             string surface = config.Shape + ":" + config.MeshSurfaceAsset;
             if (_previewSurfaceKeys[i] != surface)
             {
                 _previewSurfaceKeys[i] = surface;
-                ConfigureMeshSurfacePreview(_previewSimulations[i], config);
+                _previewSurfaceSamples[i] = LoadMeshSurfacePreview(config);
+                renderChanged = true;
+            }
+
+            if (i < _previewRuntimes.Count)
+            {
+                _previewRuntimes[i].SetMeshSurfaceSamples(_previewSurfaceSamples[i]);
+                _previewRuntimes[i].UpdateConfig(config);
             }
         }
-        // Rates, forces, colours, curves and size edits keep both the in-flight particles and
-        // their GPU resources. Re-register geometry/textures only when their definition changes.
-        if (renderChanged) ReleaseEmitterPreviewResources();
+
+        if (renderChanged)
+        {
+            // Renderer dependency changes recreate the mesh/texture/runtime together so no GPU
+            // emitter survives with stale lookup or geometry state.
+            ReleaseEmitterPreviewResources();
+        }
         if (reset) ResetParticlePreview(_timelinePlaying);
         _viewport.Invalidate(true);
     }
@@ -495,32 +580,49 @@ public sealed partial class ParticleEditorControl
     {
         CancelPreviewSeek();
         int count = (int)(_burstCount?.Value ?? 150);
-        foreach (ParticleSimulation simulation in AllPreviewSimulations)
-            simulation.Burst(count);
+        foreach (ParticleRuntimeEmitter runtime in _previewRuntimes)
+            runtime.Burst(count);
         _viewport.Invalidate(true);
     }
 
     private void DrawEmitterStack2D(IRenderController renderer)
     {
-        EnsureEmitterPreviewResources(renderer);
-        int capacity = Math.Max(1, AllPreviewSimulations.Select(simulation => simulation.Capacity).DefaultIfEmpty(1).Max());
-        if (_spriteCalls.Length < capacity) _spriteCalls = new SpriteDrawCall[capacity];
-        for (int i = 0; i < _previewSimulations.Count; i++)
+        for (int i = 0; i < _previewRuntimes.Count; i++)
         {
+            if (i >= _previewFrames.Count || _previewFrames[i].Length == 0) continue;
+            ParticleRuntimeEmitter runtime = _previewRuntimes[i];
             TextureHandle texture = i < _previewTextures.Count ? _previewTextures[i] : TextureHandle.Invalid;
-            int count = _previewSimulations[i].FillSpriteDrawCalls2D(_spriteCalls, 0f, 0f, 12f, texture);
+            if (runtime.UsesGpu)
+            {
+                runtime.Draw2D(_previewFrames[i][0], texture, 0f, 0f, 12f, 144f, -10000, default);
+                continue;
+            }
+
+            ParticleSimulation? simulation = runtime.CpuSimulation;
+            if (simulation is null) continue;
+            int capacity = Math.Max(1, simulation.Capacity);
+            if (_spriteCalls.Length < capacity) _spriteCalls = new SpriteDrawCall[capacity];
+            int count = simulation.FillSpriteDrawCalls2D(_spriteCalls, 0f, 0f, 12f, texture);
             if (count > 0) renderer.DrawSpriteBatch(_spriteCalls.AsSpan(0, count));
         }
     }
 
     private void DrawEmitterStack3D(IRenderController renderer)
     {
-        EnsureEmitterPreviewResources(renderer);
-        for (int i = 0; i < _previewSimulations.Count; i++)
+        for (int i = 0; i < _previewRuntimes.Count; i++)
         {
             if (i >= _previewFrames.Count || _previewFrames[i].Length == 0) continue;
+            ParticleRuntimeEmitter runtime = _previewRuntimes[i];
             TextureHandle texture = i < _previewTextures.Count ? _previewTextures[i] : TextureHandle.Invalid;
-            _previewSimulations[i].DrawInstances3D(renderer, _previewFrames[i], texture, _viewport.Camera.Eye, _viewport.Camera.Forward);
+            if (runtime.UsesGpu)
+            {
+                runtime.Draw3D(_previewFrames[i][0], texture);
+                continue;
+            }
+
+            ParticleSimulation? simulation = runtime.CpuSimulation;
+            if (simulation is null) continue;
+            simulation.DrawInstances3D(renderer, _previewFrames[i], texture, _viewport.Camera.Eye, _viewport.Camera.Forward);
         }
     }
 
@@ -531,12 +633,41 @@ public sealed partial class ParticleEditorControl
             ReleaseEmitterPreviewResources();
             _particlePreviewRenderer = renderer;
         }
+
+        while (_previewRuntimes.Count < _previewEmitterConfigs.Count)
+        {
+            int index = _previewRuntimes.Count;
+            ParticleConfig config = _previewEmitterConfigs[index];
+            int seed = ParticlePreviewClock.SeedForEmitter(_previewSeed, _previewEmitterIds[index]);
+            ParticleRuntimeEmitter runtime;
+            try
+            {
+                runtime = new ParticleRuntimeEmitter(
+                    renderer, config, seed, _previewSurfaceSamples[index]);
+            }
+            catch (Exception exception) when (
+                exception is InvalidOperationException or NotSupportedException or ArgumentException)
+            {
+                LoadWarning = "Particle GPU preview could not start: " + exception.Message;
+                throw;
+            }
+
+            runtime.SetEmitterOrigin(_previewOrigin);
+            if (_terrainTarget is not null && runtime.UsesCpu)
+                runtime.SetCollisionHeightProvider(position => _terrainTarget.SampleHeight(position.X, position.Z));
+            _previewRuntimes.Add(runtime);
+            if (runtime.CpuSimulation is ParticleSimulation cpu) _previewSimulations.Add(cpu);
+        }
+
         while (_previewFrames.Count < _previewEmitterConfigs.Count)
         {
-            ParticleConfig config = _previewEmitterConfigs[_previewFrames.Count];
+            int index = _previewFrames.Count;
+            ParticleConfig config = _previewEmitterConfigs[index];
+            ParticleRuntimeEmitter runtime = _previewRuntimes[index];
             MeshHandle[] frames = [];
             bool ownsFrames = false;
-            if (config.Alignment == ParticleAlignment.Mesh3D && !string.IsNullOrWhiteSpace(config.MeshParticleAsset))
+            if (config.Alignment == ParticleAlignment.Mesh3D
+                && !string.IsNullOrWhiteSpace(config.MeshParticleAsset))
             {
                 try
                 {
@@ -552,8 +683,16 @@ public sealed partial class ParticleEditorControl
             }
             if (frames.Length == 0)
             {
-                frames = ParticleRenderGeometry.RegisterFrames(renderer, config);
-                ownsFrames = true;
+                if (runtime.UsesGpu)
+                {
+                    MeshHandle mesh = ParticleRenderGeometry.RegisterGpuFrame(renderer);
+                    frames = mesh.IsValid ? [mesh] : [];
+                }
+                else
+                {
+                    frames = ParticleRenderGeometry.RegisterFrames(renderer, config);
+                }
+                ownsFrames = frames.Length > 0;
             }
             _previewFrames.Add(frames);
             _previewFramesOwned.Add(ownsFrames);
@@ -578,10 +717,18 @@ public sealed partial class ParticleEditorControl
             _previewTextures.Add(texture);
             _previewTexturesOwned.Add(ownsTexture);
         }
+
+        if (_terrainTarget is not null)
+            ConfigureTerrainEmitterPreview(_terrainTarget, reset: false);
     }
 
     private void ReleaseEmitterPreviewResources()
     {
+        foreach (ParticleRuntimeEmitter runtime in _previewRuntimes)
+            runtime.Dispose();
+        _previewRuntimes.Clear();
+        _previewSimulations.Clear();
+
         if (_particlePreviewRenderer is not null)
         {
             for (int i = 0; i < _previewFrames.Count; i++)
@@ -598,6 +745,7 @@ public sealed partial class ParticleEditorControl
         _previewFramesOwned.Clear();
         _previewTextures.Clear();
         _previewTexturesOwned.Clear();
+        _particlePreviewRenderer = null;
     }
 
     private void PickPreviewTarget()
@@ -768,11 +916,14 @@ public sealed partial class ParticleEditorControl
         float emitterZ = terrain.OriginZ + (terrain.ResolutionZ - 1) * terrain.CellSize * .5f;
         float emitterY = terrain.SampleHeight(emitterX, emitterZ);
         _previewOrigin = new Vector3(emitterX, emitterY, emitterZ);
-        foreach (ParticleSimulation simulation in _previewSimulations)
+        for (int i = 0; i < _previewRuntimes.Count; i++)
         {
-            simulation.SetCollisionHeightProvider(position => terrain.SampleHeight(position.X, position.Z));
-            simulation.SetEmitterOrigin(_previewOrigin);
-            if (reset) simulation.Reset();
+            ParticleRuntimeEmitter runtime = _previewRuntimes[i];
+            if (runtime.UsesCpu)
+                runtime.SetCollisionHeightProvider(position => terrain.SampleHeight(position.X, position.Z));
+            runtime.SetEmitterOrigin(_previewOrigin);
+            if (reset)
+                runtime.Reset(ParticlePreviewClock.SeedForEmitter(_previewSeed, _previewEmitterIds[i]));
         }
     }
 
