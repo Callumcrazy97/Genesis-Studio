@@ -25,7 +25,7 @@ try
     {
         foreach (string entry in GpuParticleShaders.ComputeEntries)
         {
-            var compiled = ShaderCompiler.CompileForBackend(GpuParticleShaders.Compute, entry, GpuShaderStage.Compute, format);
+            var compiled = ShaderCompiler.CompileForBackend(GpuParticleShaders.ComputeFor(format), entry, GpuShaderStage.Compute, format);
             Check(compiled.Blob.Length > 16, format + " compute " + entry);
         }
         foreach (GpuShaderStage stage in new[] { GpuShaderStage.Vertex, GpuShaderStage.Pixel })
