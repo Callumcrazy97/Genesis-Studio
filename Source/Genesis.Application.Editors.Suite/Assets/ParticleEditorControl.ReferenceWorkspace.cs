@@ -343,6 +343,7 @@ public sealed partial class ParticleEditorControl
 
     private void RebuildEmitterPreview()
     {
+        DisposeGpuPreviewEmitters();
         ReleaseEmitterPreviewResources();
         _previewSimulations.Clear();
         _previewEmitterConfigs.Clear();
@@ -495,33 +496,20 @@ public sealed partial class ParticleEditorControl
     {
         CancelPreviewSeek();
         int count = (int)(_burstCount?.Value ?? 150);
-        foreach (ParticleSimulation simulation in AllPreviewSimulations)
-            simulation.Burst(count);
+        BurstPreview(count);
         _viewport.Invalidate(true);
     }
 
     private void DrawEmitterStack2D(IRenderController renderer)
     {
         EnsureEmitterPreviewResources(renderer);
-        int capacity = Math.Max(1, AllPreviewSimulations.Select(simulation => simulation.Capacity).DefaultIfEmpty(1).Max());
-        if (_spriteCalls.Length < capacity) _spriteCalls = new SpriteDrawCall[capacity];
-        for (int i = 0; i < _previewSimulations.Count; i++)
-        {
-            TextureHandle texture = i < _previewTextures.Count ? _previewTextures[i] : TextureHandle.Invalid;
-            int count = _previewSimulations[i].FillSpriteDrawCalls2D(_spriteCalls, 0f, 0f, 12f, texture);
-            if (count > 0) renderer.DrawSpriteBatch(_spriteCalls.AsSpan(0, count));
-        }
+        DrawPreviewParticles2D(renderer);
     }
 
     private void DrawEmitterStack3D(IRenderController renderer)
     {
         EnsureEmitterPreviewResources(renderer);
-        for (int i = 0; i < _previewSimulations.Count; i++)
-        {
-            if (i >= _previewFrames.Count || _previewFrames[i].Length == 0) continue;
-            TextureHandle texture = i < _previewTextures.Count ? _previewTextures[i] : TextureHandle.Invalid;
-            _previewSimulations[i].DrawInstances3D(renderer, _previewFrames[i], texture, _viewport.Camera.Eye, _viewport.Camera.Forward);
-        }
+        DrawPreviewParticles3D(renderer);
     }
 
     private void EnsureEmitterPreviewResources(IRenderController renderer)
@@ -582,6 +570,7 @@ public sealed partial class ParticleEditorControl
 
     private void ReleaseEmitterPreviewResources()
     {
+        DisposeGpuPreviewEmitters();
         if (_particlePreviewRenderer is not null)
         {
             for (int i = 0; i < _previewFrames.Count; i++)
