@@ -1116,6 +1116,8 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
         config.EmitterId ??= "primary";
         config.Emitters ??= [];
         config.Emitters.RemoveAll(layer => layer is null);
+        config.EventLinks ??= [];
+        config.EventLinks.RemoveAll(link => link is null);
         config.Light ??= new ParticleLightConfig();
         config.Light.Color ??= new ParticleColor(1f, .48f, .12f, 1f);
         config.SizeOverLifetime ??= new ParticleBezierCurve();
