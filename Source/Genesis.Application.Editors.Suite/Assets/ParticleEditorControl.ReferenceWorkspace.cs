@@ -45,6 +45,7 @@ public sealed partial class ParticleEditorControl
     private ToolStripComboBox? _targetTypeCombo;
     private ToolStripButton? _targetAssetButton;
     private ToolStripButton? _topPlayButton;
+    private ComboBox? _parentEmitterCombo;
     private NumericUpDown? _burstCount;
     private SplitContainer? _referenceAuthoringSplit;
     private int _selectedEmitterIndex;
@@ -116,7 +117,7 @@ public sealed partial class ParticleEditorControl
         AddNumeric(emission, "Yaw", "emitterYaw", _config.EmitterYaw, -36000, 36000, value => _config.EmitterYaw = value, 1);
         AddNumeric(emission, "Roll", "emitterRoll", _config.EmitterRoll, -36000, 36000, value => _config.EmitterRoll = value, 1);
         AddInspectorRow(emission, "Parent emitter", BuildParentEmitterCombo());
-        AddInspectorRow(emission, "Parent event", EnumCombo("parentEvents", _config.ParentEvents, value => _config.ParentEvents = (ParticleEventMask)value));
+        AddInspectorRow(emission, "Parent events", BuildEventMaskControls());
         AddNumeric(emission, "Event probability", "eventProbability", _config.EventProbability, 0, 1, value => _config.EventProbability = value, 2);
         AddNumeric(emission, "Event spawn count", "eventCount", _config.EventSpawnCount, 1, 32, value => _config.EventSpawnCount = (int)value);
         AddNumeric(emission, "Inherit velocity", "eventVelocity", _config.EventInheritVelocity, 0, 4, value => _config.EventInheritVelocity = value, 2);
@@ -196,37 +197,84 @@ public sealed partial class ParticleEditorControl
 
     private ComboBox BuildParentEmitterCombo()
     {
-        ThemedComboBox combo = new() { DropDownStyle = ComboBoxStyle.DropDownList };
-        combo.Items.Add("(none)");
-        combo.SelectedIndex = 0;
-        void Refresh()
+        _parentEmitterCombo = new ThemedComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
+        _parentEmitterCombo.DropDown += (_, _) => RefreshParentEmitterCombo();
+        _parentEmitterCombo.SelectedIndexChanged += (_, _) =>
         {
-            string current = _config.ParentEmitterId ?? string.Empty;
-            combo.Items.Clear();
-            combo.Items.Add("(none)");
-            foreach ((string id, string name, ParticleConfig _) in ParticleAssetLoader.EnumerateEnabledEmitters(_effect))
-            {
-                if (string.Equals(id, _config.EmitterId, StringComparison.OrdinalIgnoreCase)) continue;
-                combo.Items.Add(new ParentEmitterChoice(id, name));
-            }
-            int selected = 0;
-            for (int i = 1; i < combo.Items.Count; i++)
-                if (combo.Items[i] is ParentEmitterChoice choice
-                    && string.Equals(choice.Id, current, StringComparison.OrdinalIgnoreCase))
-                { selected = i; break; }
-            combo.SelectedIndex = selected;
-        }
-        combo.DropDown += (_, _) => Refresh();
-        combo.SelectedIndexChanged += (_, _) =>
-        {
-            if (_syncing) return;
-            _config.ParentEmitterId = combo.SelectedItem is ParentEmitterChoice choice ? choice.Id : string.Empty;
+            if (_syncing || _parentEmitterCombo is null) return;
+            _config.ParentEmitterId = _parentEmitterCombo.SelectedItem is ParentEmitterChoice choice
+                ? choice.Id
+                : string.Empty;
             _activePreset = "Custom";
             ConfigChanged(reset: true);
         };
-        Refresh();
-        EditorChrome.StyleField(combo);
-        return combo;
+        RefreshParentEmitterCombo();
+        EditorChrome.StyleField(_parentEmitterCombo);
+        return _parentEmitterCombo;
+    }
+
+    private void RefreshParentEmitterCombo()
+    {
+        if (_parentEmitterCombo is null) return;
+        string current = _config.ParentEmitterId ?? string.Empty;
+        bool syncing = _syncing;
+        _syncing = true;
+        try
+        {
+            _parentEmitterCombo.Items.Clear();
+            _parentEmitterCombo.Items.Add("(none)");
+            foreach ((string id, string name, ParticleConfig _) in ParticleAssetLoader.EnumerateEnabledEmitters(_effect))
+            {
+                if (string.Equals(id, _config.EmitterId, StringComparison.OrdinalIgnoreCase)) continue;
+                _parentEmitterCombo.Items.Add(new ParentEmitterChoice(id, name));
+            }
+
+            int selected = 0;
+            for (int i = 1; i < _parentEmitterCombo.Items.Count; i++)
+            {
+                if (_parentEmitterCombo.Items[i] is ParentEmitterChoice choice
+                    && (string.Equals(choice.Id, current, StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(choice.Name, current, StringComparison.OrdinalIgnoreCase)))
+                {
+                    selected = i;
+                    break;
+                }
+            }
+            _parentEmitterCombo.SelectedIndex = selected;
+        }
+        finally { _syncing = syncing; }
+    }
+
+    private Control BuildEventMaskControls()
+    {
+        FlowLayoutPanel row = new()
+        {
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            BackColor = EditorChrome.Surface,
+        };
+        foreach ((ParticleEventMask mask, string key, string caption) in new[]
+        {
+            (ParticleEventMask.Birth, "eventBirth", "Birth"),
+            (ParticleEventMask.Death, "eventDeath", "Death"),
+            (ParticleEventMask.Collision, "eventCollision", "Collision"),
+        })
+        {
+            CheckBox box = new() { Text = caption, AutoSize = true, ForeColor = EditorChrome.Text };
+            box.Checked = (_config.ParentEvents & mask) != 0;
+            box.CheckedChanged += (_, _) =>
+            {
+                if (_syncing) return;
+                if (box.Checked) _config.ParentEvents |= mask;
+                else _config.ParentEvents &= ~mask;
+                _activePreset = "Custom";
+                ConfigChanged(reset: true);
+            };
+            _advancedChecks[key] = box;
+            row.Controls.Add(box);
+        }
+        return row;
     }
 
     private sealed record ParentEmitterChoice(string Id, string Name)
@@ -313,14 +361,17 @@ public sealed partial class ParticleEditorControl
         SetCombo("blend", _config.BlendMode);
         SetCombo("alignment", _config.Alignment);
         SetCombo("rendererMode", _config.RendererMode);
-        SetCombo("parentEvents", _config.ParentEvents);
         SetCombo("boundsMode", _config.BoundsMode);
+        RefreshParentEmitterCombo();
         SetCheck("collideTerrain", _config.CollideWithTerrain);
         SetCheck("collideGeometry", _config.CollideWithGeometry);
         SetCheck("flipbook", _config.UseFlipbook);
         SetCheck("downward", _config.DownwardEmit);
         SetCheck("followCamera", _config.FollowCameraXZ);
         SetCheck("localSpace", _config.LocalSpace);
+        SetCheck("eventBirth", (_config.ParentEvents & ParticleEventMask.Birth) != 0);
+        SetCheck("eventDeath", (_config.ParentEvents & ParticleEventMask.Death) != 0);
+        SetCheck("eventCollision", (_config.ParentEvents & ParticleEventMask.Collision) != 0);
         SetCheck("curveSize", _config.UseCustomSizeCurve);
         SetCheck("curveSpeed", _config.UseCustomSpeedCurve);
         SetCheck("curveAlpha", _config.UseCustomAlphaCurve);
