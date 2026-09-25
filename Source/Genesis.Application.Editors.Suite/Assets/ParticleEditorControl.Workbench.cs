@@ -323,8 +323,19 @@ public sealed partial class ParticleEditorControl
         Row("boxX", box); Row("boxY", box); Row("boxZ", box);
         Row("emitRadius", _config.Shape is ParticleEmitShape.Disc or ParticleEmitShape.Ring);
         if (_meshSurfaceField?.Parent is Control sourceRow) sourceRow.Visible = _config.Shape == ParticleEmitShape.MeshSurface;
-        if (_meshParticleField?.Parent is Control meshRow) meshRow.Visible = _config.Alignment == ParticleAlignment.Mesh3D;
-        Row("flipColumns", _config.UseFlipbook); Row("flipRows", _config.UseFlipbook); Row("flipFps", _config.UseFlipbook);
+        if (_meshParticleField?.Parent is Control meshRow)
+            meshRow.Visible = _config.Alignment == ParticleAlignment.Mesh3D && _config.RendererKind == ParticleRendererKind.Billboard;
+        Row("trailDuration", _config.RendererKind == ParticleRendererKind.Trail);
+        Row("trailWidth", _config.RendererKind is ParticleRendererKind.Trail or ParticleRendererKind.Ribbon or ParticleRendererKind.Beam);
+        Row("ribbonMaxSegment", _config.RendererKind == ParticleRendererKind.Ribbon);
+        Row("velocityStretch", _config.RendererKind == ParticleRendererKind.Billboard && _config.Alignment == ParticleAlignment.Velocity);
+        bool beam = _config.RendererKind == ParticleRendererKind.Beam;
+        Row("beamEndX", beam); Row("beamEndY", beam); Row("beamEndZ", beam); Row("beamNoise", beam);
+        bool customBounds = _config.BoundsMode == ParticleBoundsMode.Custom;
+        Row("boundsCenterX", customBounds); Row("boundsCenterY", customBounds); Row("boundsCenterZ", customBounds);
+        Row("boundsSizeX", customBounds); Row("boundsSizeY", customBounds); Row("boundsSizeZ", customBounds);
+        bool flipbook = _config.UseFlipbook && _config.RendererKind == ParticleRendererKind.Billboard;
+        Row("flipColumns", flipbook); Row("flipRows", flipbook); Row("flipFps", flipbook);
         Row("collisionHeight", _config.CollisionMode != ParticleCollisionMode.None);
         Row("collisionBounce", _config.CollisionMode == ParticleCollisionMode.Bounce);
         foreach (string key in new[] { "lightRadius", "lightPower", "lightFlicker", "lightFalloff", "lightFrequency", "lightY" })
