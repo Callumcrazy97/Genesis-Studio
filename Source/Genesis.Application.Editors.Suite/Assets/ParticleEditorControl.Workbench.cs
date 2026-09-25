@@ -327,6 +327,18 @@ public sealed partial class ParticleEditorControl
         Row("flipColumns", _config.UseFlipbook); Row("flipRows", _config.UseFlipbook); Row("flipFps", _config.UseFlipbook);
         Row("collisionHeight", _config.CollisionMode != ParticleCollisionMode.None);
         Row("collisionBounce", _config.CollisionMode == ParticleCollisionMode.Bounce);
+        Row("collisionRadius", _config.CollisionMode != ParticleCollisionMode.None);
+        bool trail = _config.RendererMode == ParticleRendererMode.Trail;
+        bool ribbon = _config.RendererMode == ParticleRendererMode.Ribbon;
+        bool beam = _config.RendererMode == ParticleRendererMode.Beam;
+        Row("trailDuration", trail);
+        Row("trailWidth", trail || ribbon || beam);
+        Row("ribbonSegment", ribbon);
+        Row("velocityStretch", _config.Alignment == ParticleAlignment.Stretched);
+        Row("beamX", beam); Row("beamY", beam); Row("beamZ", beam); Row("beamNoise", beam);
+        bool manualBounds = _config.BoundsMode == ParticleBoundsMode.Manual;
+        foreach (string key in new[] { "boundsCX", "boundsCY", "boundsCZ", "boundsSX", "boundsSY", "boundsSZ" })
+            Row(key, manualBounds);
         foreach (string key in new[] { "lightRadius", "lightPower", "lightFlicker", "lightFalloff", "lightFrequency", "lightY" })
             Row(key, _effect.Light.Enabled);
     }
