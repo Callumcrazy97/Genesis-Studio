@@ -1487,7 +1487,18 @@ internal static class HeadlessTestRunner
             Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "Untitled.jpg")),
             Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "Untitled.jpg")),
         ];
-        return candidates.FirstOrDefault(File.Exists) ?? candidates[0];
+        string? existing = candidates.FirstOrDefault(File.Exists);
+        if (existing is not null)
+            return existing;
+
+        // The JPEG upload was never tracked. Keep the codec/readback regression reproducible
+        // on a fresh checkout with the same known yellow pixels that its assertions require.
+        string generated = Path.Combine(Path.GetTempPath(), "Genesis-Yellow-Jpeg-" + Guid.NewGuid().ToString("N") + ".jpg");
+        using Bitmap fixture = new(64, 64);
+        using (Graphics graphics = Graphics.FromImage(fixture))
+            graphics.Clear(Color.Yellow);
+        fixture.Save(generated, System.Drawing.Imaging.ImageFormat.Jpeg);
+        return generated;
     }
 
     private static void AssertYellowSquareReadback(Bitmap bitmap)

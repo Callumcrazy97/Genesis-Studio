@@ -43,6 +43,8 @@ namespace Genesis.Rendering.Abstractions
         Dynamic = 1,
         /// <summary>Written by the GPU and read back by the CPU.</summary>
         Staging = 2,
+        /// <summary>Device-local, shader-writable storage; no CPU shadow or mapping.</summary>
+        Gpu = 4,
     }
 
     [Flags]
@@ -58,6 +60,8 @@ namespace Genesis.Rendering.Abstractions
         DepthStencil = 32,
         /// <summary>Element-addressed buffer (HLSL StructuredBuffer, GLSL SSBO, Vulkan STORAGE_BUFFER).</summary>
         StructuredBuffer = 64,
+        UnorderedAccess = 128,
+        IndirectArguments = 256,
     }
 
     public enum GpuIndexFormat

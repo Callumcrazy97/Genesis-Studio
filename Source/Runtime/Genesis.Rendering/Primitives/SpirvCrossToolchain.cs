@@ -33,7 +33,7 @@ namespace Genesis.Rendering.Primitives
         /// translation below changes, or stale GLSL is served for unchanged HLSL.
         /// </summary>
         public static string CompilerIdentity(uint glslVersion) =>
-            $"spirv-cross|glsl={glslVersion}|core|combined-samplers|unshifted-bindings|sampler-map|v2";
+            $"spirv-cross|glsl={glslVersion}|core|combined-samplers|unshifted-bindings|compute-uav4|sampler-map|v3";
 
         /// <summary>Transpiles a SPIR-V module to core-profile GLSL, returned as UTF-8.</summary>
         public static byte[] TranspileToGlsl(byte[] spirv, uint glslVersion)
@@ -165,7 +165,10 @@ namespace Genesis.Rendering.Primitives
                 // wrapping it around into a huge unsigned value.
                 if (binding >= (uint)baseBinding)
                 {
-                    Api.CompilerSetDecoration(compiler, id, Decoration.Binding, binding - (uint)baseBinding);
+                    uint mapped = type == ResourceType.StorageBuffer && binding >= VulkanShaderBindingPolicy.UavBaseBinding
+                        ? binding - VulkanShaderBindingPolicy.UavBaseBinding + Abstractions.GpuComputeLimits.OpenGlWritableBase
+                        : binding - (uint)baseBinding;
+                    Api.CompilerSetDecoration(compiler, id, Decoration.Binding, mapped);
                 }
 
                 Api.CompilerUnsetDecoration(compiler, id, Decoration.DescriptorSet);

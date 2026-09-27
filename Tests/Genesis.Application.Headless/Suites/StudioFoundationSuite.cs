@@ -29,7 +29,7 @@ internal static class StudioFoundationSuite
             foreach (ToolStripMenuItem menu in fixture.Shell.MainMenuStrip!.Items.OfType<ToolStripMenuItem>())
             foreach (ToolStripMenuItem item in menu.DropDownItems.OfType<ToolStripMenuItem>())
             {
-                StudioCommand<ShellCommandContext>? command = fixture.Shell.CommandCatalog.Find(item.Name);
+                StudioCommand<ShellCommandContext>? command = fixture.Shell.CommandCatalog.Find(item.Name ?? string.Empty);
                 Assert(command is not null, "Menu has an unregistered action: " + item.Text);
                 Assert(item.ShortcutKeys == Keys.None, "Menu accelerator bypasses focus routing: " + item.Text);
                 Assert(item.ShortcutKeyDisplayString == (command!.Shortcuts.FirstOrDefault()?.DisplayText ?? string.Empty),
@@ -42,9 +42,9 @@ internal static class StudioFoundationSuite
         {
             using StudioFixture fixture = new();
             ToolStripButton[] buttons = Descendants(fixture.Shell).OfType<ToolStrip>()
-                .SelectMany(strip => strip.Items.OfType<ToolStripButton>()).Where(button => button.Name.StartsWith("project.")
-                    || button.Name.StartsWith("edit.") || button.Name == "studio.commands").ToArray();
-            Assert(buttons.Length >= 7 && buttons.All(button => fixture.Shell.CommandCatalog.Find(button.Name) is not null),
+                .SelectMany(strip => strip.Items.OfType<ToolStripButton>()).Where(button => (button.Name ?? string.Empty).StartsWith("project.")
+                    || (button.Name ?? string.Empty).StartsWith("edit.") || button.Name == "studio.commands").ToArray();
+            Assert(buttons.Length >= 7 && buttons.All(button => fixture.Shell.CommandCatalog.Find(button.Name ?? string.Empty) is not null),
                 "Shell toolbar lost its shared command bindings.");
         });
         Check("Shell.ResourceCommandsRequireBrowserAndMutableSelection", () =>

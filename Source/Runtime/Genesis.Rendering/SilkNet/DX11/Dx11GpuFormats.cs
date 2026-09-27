@@ -152,12 +152,14 @@ namespace Genesis.Rendering.SilkNet.DX11
             if ((flags & GpuBindFlags.StructuredBuffer) != 0) result |= (uint)BindFlag.ShaderResource;
             if ((flags & GpuBindFlags.RenderTarget) != 0)   result |= (uint)BindFlag.RenderTarget;
             if ((flags & GpuBindFlags.DepthStencil) != 0)   result |= (uint)BindFlag.DepthStencil;
+            if ((flags & GpuBindFlags.UnorderedAccess) != 0) result |= (uint)BindFlag.UnorderedAccess;
             return result;
         }
 
         public static (Usage usage, uint cpuAccess) ToUsage(GpuBufferUsage usage) => usage switch
         {
             GpuBufferUsage.Immutable => (Usage.Default, 0u),
+            GpuBufferUsage.Gpu       => (Usage.Default, 0u),
             GpuBufferUsage.Dynamic   => (Usage.Dynamic, (uint)CpuAccessFlag.Write),
             GpuBufferUsage.Staging   => (Usage.Staging, (uint)CpuAccessFlag.Read),
             _ => throw new ArgumentOutOfRangeException(nameof(usage), usage, "Unmapped GpuBufferUsage."),

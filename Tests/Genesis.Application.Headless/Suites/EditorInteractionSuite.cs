@@ -17,6 +17,7 @@ using Genesis.Runtime.Scene;
 using Genesis.Runtime.Scripting;
 using Genesis.Shared.ECS;
 using Genesis.Shared.Interfaces;
+using Genesis.Shared.Scripting;
 using EcsWorld = Genesis.Runtime.ECS.World;
 using EditorRasterizer = Genesis.Application.Editors.Image.Rigging.PixelRigRasterizer;
 using EditorPose = Genesis.Application.Editors.Image.Rigging.PixelRigPoseEditor;

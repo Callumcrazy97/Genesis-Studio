@@ -21,7 +21,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Include="..\..\Untitled.jpg" Link="Untitled.jpg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\Untitled.jpg" Link="Untitled.jpg" CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\Untitled.jpg')" />
     <None Include="..\..\Source\Genesis.Application.Studio\Assets\CommandVisualTest\**\*"
           Link="Assets\CommandVisualTest\%(RecursiveDir)%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest" />

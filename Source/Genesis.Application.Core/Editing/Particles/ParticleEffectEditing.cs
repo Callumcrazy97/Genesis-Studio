@@ -123,6 +123,13 @@ public static class ParticleEffectEditing
         result.EffectName = envelope.EffectName;
         result.Duration = envelope.Duration;
         result.Light = envelope.Light.Clone();
+        HashSet<string> liveIds = new(layers.Select(layer => layer.Id), StringComparer.OrdinalIgnoreCase);
+        result.EventLinks = (envelope.EventLinks ?? [])
+            .Where(link => link is not null
+                && liveIds.Contains(link.SourceEmitterId)
+                && liveIds.Contains(link.TargetEmitterId))
+            .Select(link => link.Clone())
+            .ToList();
         result.Preview2D = envelope.Preview2D;
         result.PreviewTargetType = envelope.PreviewTargetType;
         result.PreviewTargetAsset = envelope.PreviewTargetAsset;

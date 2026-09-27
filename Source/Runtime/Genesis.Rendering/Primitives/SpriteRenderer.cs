@@ -57,6 +57,7 @@ namespace Genesis.Rendering.Primitives
         {
             public SpriteDrawCall Call;
             public ulong SortKey;
+            public Action<Matrix4x4, int, int> External;
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public int CompareTo(DrawEntry other) => SortKey.CompareTo(other.SortKey);
@@ -357,6 +358,17 @@ namespace Genesis.Rendering.Primitives
             _pending.Add(new DrawEntry { Call = call, SortKey = sortKey });
         }
 
+        internal void SubmitExternal(int depth, Action<Matrix4x4, int, int> draw)
+        {
+            ArgumentNullException.ThrowIfNull(draw);
+            uint depthKey = (uint)(10240 - depth);
+            _pending.Add(new DrawEntry
+            {
+                Call = new SpriteDrawCall { Depth = depth },
+                SortKey = ((ulong)depthKey << 32) | (uint)_seq++, External = draw,
+            });
+        }
+
         public void SubmitLine(
             float x1,
             float y1,
@@ -494,16 +506,6 @@ namespace Genesis.Rendering.Primitives
                 0f,
                 1f);
 
-            _gpu.SetRasterState(SpriteRaster);
-            _gpu.SetBlendState(SpriteBlend);
-            _gpu.SetDepthState(GpuDepthState.Disabled);
-            _gpu.SetPrimitiveTopology(GpuPrimitiveTopology.TriangleList);
-            _gpu.SetVertexLayout(_layout);
-            _gpu.SetVertexBuffer(0, _quadVb, Unsafe.SizeOf<UnitVertex>());
-            _gpu.SetIndexBuffer(_quadIb, GpuIndexFormat.UInt16);
-            _gpu.SetStructuredBuffer(GpuShaderStage.Vertex, 1, _instanceBuffer);
-            _gpu.SetStructuredBuffer(GpuShaderStage.Pixel, 1, _instanceBuffer);
-
             float thickness = MathF.Max(0.001f, _fog.Thickness);
             var fogConstants = new SpriteFogCB
             {
@@ -524,11 +526,34 @@ namespace Genesis.Rendering.Primitives
                 _samplerFilter == SamplerFilter.Point ? _samplerPoint : _samplerLinear);
 
             int runStart = 0;
-            SpriteDrawCall current = _sorted[0].Call;
-            for (int i = 0; i <= count; i++)
+            while (runStart < count)
             {
-                if (i < count && SameMaterial(current, _sorted[i].Call)) continue;
+                DrawEntry first = _sorted[runStart];
+                if (first.External != null)
+                {
+                    first.External(transform, viewWidth, viewHeight);
+                    LastDrawCalls++;
+                    runStart++;
+                    continue;
+                }
+                SpriteDrawCall current = first.Call;
+                int runEnd = runStart + 1;
+                while (runEnd < count && _sorted[runEnd].External == null && SameMaterial(current, _sorted[runEnd].Call))
+                    runEnd++;
+                // An external GPU draw owns its state. Rebind ordinary sprites at each material
+                // boundary, including after particles, rather than relying on hidden inherited state.
+                _gpu.SetRasterState(SpriteRaster);
+                _gpu.SetBlendState(SpriteBlend);
+                _gpu.SetDepthState(GpuDepthState.Disabled);
+                _gpu.SetPrimitiveTopology(GpuPrimitiveTopology.TriangleList);
+                _gpu.SetVertexLayout(_layout);
+                _gpu.SetVertexBuffer(0, _quadVb, Unsafe.SizeOf<UnitVertex>());
+                _gpu.SetIndexBuffer(_quadIb, GpuIndexFormat.UInt16);
+                _gpu.SetStructuredBuffer(GpuShaderStage.Vertex, 1, _instanceBuffer);
+                _gpu.SetStructuredBuffer(GpuShaderStage.Pixel, 1, _instanceBuffer);
 
+                _gpu.SetConstantBuffer(GpuShaderStage.Vertex, 1, _fogConstantBuffer);
+                _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 1, _fogConstantBuffer);
                 GpuTextureHandle texture = current.Texture.Id > 0
                     ? resolveTexture(current.Texture.Id)
                     : whiteTexture;
@@ -553,7 +578,7 @@ namespace Genesis.Rendering.Primitives
                     current.SmoothSampling || _samplerFilter != SamplerFilter.Point ? _samplerLinear : _samplerPoint);
                 BindAuthoredTextures(current, resolveTexture);
 
-                int runCount = i - runStart;
+                int runCount = runEnd - runStart;
                 var constants = new SpriteCB
                 {
                     Transform = transform,
@@ -578,8 +603,7 @@ namespace Genesis.Rendering.Primitives
                 LastTextureSwitches++;
                 LastTriangles += runCount * 2;
 
-                runStart = i;
-                if (i < count) current = _sorted[i].Call;
+                runStart = runEnd;
             }
 
             _gpu.SetScissor(0, 0, viewWidth, viewHeight);

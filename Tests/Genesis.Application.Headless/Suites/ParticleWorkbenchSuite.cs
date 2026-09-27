@@ -9,6 +9,8 @@ using Genesis.Application.Editors.Suite;
 using Genesis.Application.Editors.Suite.Assets;
 using Genesis.Application.Editors.Suite.Scripts;
 using Genesis.Runtime.Particles;
+using Genesis.Rendering.Core;
+using Genesis.Rendering.Particles;
 using Genesis.Shared.Interfaces;
 
 namespace Genesis.Application.Headless.Suites;
@@ -188,7 +190,7 @@ internal static class ParticleWorkbenchSuite
             Assert(bar.IsDocumentBound && bar.IsSavePinned && bar.SaveCommand is not null, "Workspace discarded shared Save/history chrome.");
             foreach (string caption in new[] { "Pause", "Stop", "Restart", "Step", "Burst", "Advanced", "Panels" })
                 Assert(bar.Items.Cast<ToolStripItem>().Any(item => item.Text == caption), "Missing transport/workspace command " + caption);
-            Assert(editor.InspectorSections.SequenceEqual(new[] { "Emission", "Forces", "Material", "Curves", "Collision", "Renderer", "Effect Light" }),
+            Assert(editor.InspectorSections.SequenceEqual(new[] { "Emission", "Forces", "Material", "Curves", "Collision", "Renderer", "Effect Light", "Events" }),
                 "The inspector contract disagrees with the actual property sections.");
         }));
         Check("Editor.CleanOpenAndPreviewControlsDoNotDirtyDocument", () => WithEditor(editor =>
@@ -197,7 +199,7 @@ internal static class ParticleWorkbenchSuite
             editor.SetPreviewSeed(12); editor.SetPreviewSpeed(.5); editor.StopPreview(); editor.StepPreviewFrame(); editor.Restart();
             Assert(!editor.IsDirty && !editor.CanUndo, "Transport polluted document history.");
         }));
-        Check("Editor.ScalarUpdatesReuseLiveSimulationAndRows", () => WithEditor(editor =>
+        Check("Editor.ScalarUpdatesReuseLiveSimulationAndRows", () => WithPreview(RenderBackendOption.Software, editor =>
         {
             editor.StepForTest(.2f); int live = editor.LiveParticleCount;
             ParticleSimulation simulation = Field<List<ParticleSimulation>>(editor, "_previewSimulations")[0];
@@ -206,6 +208,28 @@ internal static class ParticleWorkbenchSuite
             Assert(ReferenceEquals(simulation, Field<List<ParticleSimulation>>(editor, "_previewSimulations")[0])
                 && editor.LiveParticleCount == live && live > 0, "Scalar editing reset in-flight particles.");
             Assert(ReferenceEquals(row, Field<ListView>(editor, "_emitterList").Items[0]), "Scalar editing rebuilt emitter rows.");
+        }));
+        Check("Editor.GpuScalarUpdatesRetainEmitterAndLiveParticles", () => WithPreview(RenderBackendOption.SilkNetDx11, editor =>
+        {
+            editor.StepForTest(.2f);
+            using (editor.Viewport.CaptureFrame(3)) { }
+            GpuParticleEmitter emitter = Field<List<GpuParticleEmitter>>(editor, "_gpuPreviewEmitters")[0];
+            emitter.RequestDiagnosticSample();
+            for (int frame = 0; frame < 40 && emitter.Diagnostics.CountsPending; frame++)
+            {
+                using (editor.Viewport.CaptureFrame(1)) { }
+                System.Windows.Forms.Application.DoEvents();
+                emitter.PollCompletedDiagnostics();
+            }
+            int live = editor.LiveParticleCount;
+            Assert(live > 0, "The hardware editor preview did not produce live GPU particles.");
+            ListViewItem row = Field<ListView>(editor, "_emitterList").Items[0];
+            Assert(editor.TryApplyInspectorValue("emitRate", 44), "Rate property was not handled.");
+            using (editor.Viewport.CaptureFrame(3)) { }
+            Assert(ReferenceEquals(emitter, Field<List<GpuParticleEmitter>>(editor, "_gpuPreviewEmitters")[0])
+                && !emitter.IsDisposed && editor.LiveParticleCount == live,
+                $"Scalar edit: same emitter={ReferenceEquals(emitter, Field<List<GpuParticleEmitter>>(editor, "_gpuPreviewEmitters")[0])}, disposed={emitter.IsDisposed}, live before={live}, after={editor.LiveParticleCount}, playing={editor.TimelinePlaying}.");
+            Assert(ReferenceEquals(row, Field<ListView>(editor, "_emitterList").Items[0]), "GPU scalar editing rebuilt emitter rows.");
         }));
         Check("Editor.UndoRedoAndSavedCheckpoint", () => WithEditor(editor =>
         {
@@ -379,5 +403,26 @@ internal static class ParticleWorkbenchSuite
             test(editor);
         }
         finally { Directory.Delete(root, true); }
+    }
+
+    private static void WithPreview(RenderBackendOption backend, Action<ParticleEditorControl> test)
+    {
+        RenderBackendOption previous = RenderBackendSelection.RequestedBackend;
+        try
+        {
+            RenderBackendSelection.Configure(backend);
+            WithEditor(editor =>
+            {
+                using Form host = new() { ClientSize = new System.Drawing.Size(1280, 800) };
+                editor.Dock = DockStyle.Fill;
+                host.Controls.Add(editor);
+                GateSuite.ShowHost(host);
+                editor.StopPreview();
+                using (editor.Viewport.CaptureFrame(2)) { }
+                test(editor);
+                host.Controls.Remove(editor);
+            });
+        }
+        finally { RenderBackendSelection.Configure(previous); }
     }
 }

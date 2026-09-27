@@ -256,6 +256,7 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
         _viewport.DrawScene += DrawParticles3D;
         _viewport.DrawOverlay += DrawParticleViewportOverlay;
         _viewport.SelectionWorldPoint = () => Vector3.Zero;
+        InitialiseParticleAuthoringGizmos();
         EditorViewportChrome.Attached chrome = EditorViewportChrome.Attach(
             toolbar,
             new EditorViewportChrome.Options
@@ -356,7 +357,7 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
     public ParticleConfig Config => _effect.Clone();
     public EditorViewport3D Viewport => _viewport;
     public ParticleAuthoringMode AuthoringMode => _authoringMode;
-    public int LiveParticleCount => AllPreviewSimulations.Sum(simulation => simulation.ActiveCount);
+    public int LiveParticleCount => PreviewLiveParticleCount;
     public string ActivePreset => _activePreset;
     public bool TimelinePlaying => _timelinePlaying;
     public bool ShowEditorFloor => _floorStyle.DrawsPlate();
@@ -506,12 +507,13 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
             renderer.DrawLine(cx - radius, cy, cx, cy - height, cyan, 1.2f);
             renderer.DrawLine(cx + radius, cy, cx, cy - height, cyan, 1.2f);
         }
+        DrawParticleAuthoringGizmos(renderer);
     }
 
     public void Burst()
     {
         CancelPreviewSeek();
-        foreach (ParticleSimulation simulation in AllPreviewSimulations) simulation.Burst();
+        BurstPreview();
         UpdateStatus();
     }
 
@@ -1092,9 +1094,10 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
             : $"{execution.BackendName}: {execution.StatusText}";
         _statusLabel.Text =
             $"{_activePreset} · {mode} · {preview} · {executionText} · "
-            + $"{LiveParticleCount}/{AllPreviewSimulations.Sum(simulation => simulation.Capacity)} live · "
+            + $"{LiveParticleCount}/{PreviewParticleCapacity} live · "
             + $"{_config.Shape} · {_config.EmitRate:0.#}/s · life {_config.Lifetime:0.##}s · "
             + $"{_config.BlendMode} · {floor} · {_previewClock.Speed:0.##}×"
+            + (string.IsNullOrEmpty(PreviewGpuDiagnostics) ? "" : " · " + PreviewGpuDiagnostics)
             + (_previewClock.Seeking ? " · Seeking (Stop cancels)" : "");
     }
 
@@ -1115,6 +1118,8 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
         config.EmitterId ??= "primary";
         config.Emitters ??= [];
         config.Emitters.RemoveAll(layer => layer is null);
+        config.EventLinks ??= [];
+        config.EventLinks.RemoveAll(link => link is null);
         config.Light ??= new ParticleLightConfig();
         config.Light.Color ??= new ParticleColor(1f, .48f, .12f, 1f);
         config.SizeOverLifetime ??= new ParticleBezierCurve();

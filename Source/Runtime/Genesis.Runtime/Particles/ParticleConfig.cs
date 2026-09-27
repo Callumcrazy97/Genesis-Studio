@@ -49,6 +49,35 @@ public enum ParticleAlignment
     Mesh3D,
 }
 
+public enum ParticleRendererKind
+{
+    Billboard = 0,
+    Trail = 1,
+    Ribbon = 2,
+    Beam = 3,
+}
+
+public enum ParticleSimulationSpace
+{
+    World = 0,
+    Local = 1,
+}
+
+[Flags]
+public enum ParticleEventTrigger
+{
+    None = 0,
+    Birth = 1,
+    Death = 2,
+    Collision = 4,
+}
+
+public enum ParticleBoundsMode
+{
+    Automatic = 0,
+    Custom = 1,
+}
+
 /// <summary>Response when a particle crosses the configured collision plane.</summary>
 public enum ParticleCollisionMode
 {
@@ -186,6 +215,26 @@ public sealed class ParticleLightConfig
     };
 }
 
+public sealed class ParticleEventLink
+{
+    public string SourceEmitterId { get; set; } = "primary";
+    public string TargetEmitterId { get; set; } = "";
+    public ParticleEventTrigger Trigger { get; set; } = ParticleEventTrigger.Death;
+    public double Probability { get; set; } = 1.0;
+    public int Count { get; set; } = 1;
+    public double InheritVelocity { get; set; }
+
+    public ParticleEventLink Clone() => new()
+    {
+        SourceEmitterId = SourceEmitterId,
+        TargetEmitterId = TargetEmitterId,
+        Trigger = Trigger,
+        Probability = Probability,
+        Count = Count,
+        InheritVelocity = InheritVelocity,
+    };
+}
+
 /// <summary>An additional independently editable emitter in a particle effect.</summary>
 public sealed class ParticleEmitterLayer
 {
@@ -218,6 +267,7 @@ public sealed class ParticleConfig
     public bool EmitterEnabled { get; set; } = true;
     public double Duration { get; set; } = 3.0;
     public List<ParticleEmitterLayer> Emitters { get; set; } = [];
+    public List<ParticleEventLink> EventLinks { get; set; } = [];
     public ParticleLightConfig Light { get; set; } = new();
     // ── Emission ─────────────────────────────────────────────────────────────
 
@@ -331,7 +381,24 @@ public sealed class ParticleConfig
     /// <summary>Animation playback speed in frames per second.</summary>
     public double FlipbookFps { get; set; } = 12.0;
     public ParticleAlignment Alignment { get; set; } = ParticleAlignment.Billboard;
+    public ParticleRendererKind RendererKind { get; set; } = ParticleRendererKind.Billboard;
+    public ParticleSimulationSpace SimulationSpace { get; set; } = ParticleSimulationSpace.World;
     public string MeshParticleAsset { get; set; } = "";
+    public double TrailDuration { get; set; } = 0.45;
+    public double TrailWidth { get; set; } = 1.0;
+    public double RibbonMaxSegmentLength { get; set; } = 2.0;
+    public double VelocityStretch { get; set; } = 0.12;
+    public double BeamEndX { get; set; }
+    public double BeamEndY { get; set; } = 3.0;
+    public double BeamEndZ { get; set; }
+    public double BeamNoise { get; set; } = 0.08;
+    public ParticleBoundsMode BoundsMode { get; set; } = ParticleBoundsMode.Automatic;
+    public double BoundsCenterX { get; set; }
+    public double BoundsCenterY { get; set; }
+    public double BoundsCenterZ { get; set; }
+    public double BoundsSizeX { get; set; } = 8.0;
+    public double BoundsSizeY { get; set; } = 8.0;
+    public double BoundsSizeZ { get; set; } = 8.0;
 
     // ── Collision ────────────────────────────────────────────────────────────
 
@@ -379,6 +446,7 @@ public sealed class ParticleConfig
         EmitterEnabled    = EmitterEnabled,
         Duration          = Duration,
         Emitters          = includeEmitters ? Emitters?.Select(emitter => emitter.Clone()).ToList() ?? [] : [],
+        EventLinks        = includeEmitters ? EventLinks?.Select(link => link.Clone()).ToList() ?? [] : [],
         Light             = Light?.Clone() ?? new ParticleLightConfig(),
         MaxParticles       = MaxParticles,
         EmitRate           = EmitRate,
@@ -433,7 +501,24 @@ public sealed class ParticleConfig
         FlipbookRows       = FlipbookRows,
         FlipbookFps        = FlipbookFps,
         Alignment          = Alignment,
+        RendererKind       = RendererKind,
+        SimulationSpace    = SimulationSpace,
         MeshParticleAsset  = MeshParticleAsset,
+        TrailDuration      = TrailDuration,
+        TrailWidth         = TrailWidth,
+        RibbonMaxSegmentLength = RibbonMaxSegmentLength,
+        VelocityStretch    = VelocityStretch,
+        BeamEndX           = BeamEndX,
+        BeamEndY           = BeamEndY,
+        BeamEndZ           = BeamEndZ,
+        BeamNoise          = BeamNoise,
+        BoundsMode         = BoundsMode,
+        BoundsCenterX      = BoundsCenterX,
+        BoundsCenterY      = BoundsCenterY,
+        BoundsCenterZ      = BoundsCenterZ,
+        BoundsSizeX        = BoundsSizeX,
+        BoundsSizeY        = BoundsSizeY,
+        BoundsSizeZ        = BoundsSizeZ,
         CollisionMode      = CollisionMode,
         CollisionPlaneHeight = CollisionPlaneHeight,
         CollisionBounce    = CollisionBounce,

@@ -24,7 +24,7 @@ namespace Genesis.Rendering.SilkNet.OpenGL
     /// resolved lazily, matching the other backends; GL is a state machine so this amounts to
     /// tracking what changed and issuing the minimum number of calls before each draw.</para>
     /// </remarks>
-    internal sealed unsafe class OpenGLGpuDevice : IGpuDevice
+    internal sealed unsafe partial class OpenGLGpuDevice : IGpuComputeDevice
     {
         private const int MaxVertexSlots = 4;
         private const int MaxTextureUnits = 16;
@@ -674,6 +674,7 @@ namespace Genesis.Rendering.SilkNet.OpenGL
             public uint Name;
             /// <summary>Sampler register feeding each texture unit, from the transpiler's map.</summary>
             public int[] SamplerRegisterForUnit;
+            public bool IsCompute;
         }
 
         public GpuShaderProgramHandle CreateShaderProgram(in GpuShaderProgramDesc desc)
@@ -683,6 +684,8 @@ namespace Genesis.Rendering.SilkNet.OpenGL
                 throw new InvalidOperationException(
                     $"The OpenGL backend requires GLSL shaders; got {desc.BinaryFormat}.");
             }
+
+            if (desc.ComputeShader?.Length > 0) return CreateComputeProgram(desc);
 
             string vertexSource = Encoding.UTF8.GetString(desc.VertexShader ?? Array.Empty<byte>());
             string pixelSource = Encoding.UTF8.GetString(desc.PixelShader ?? Array.Empty<byte>());
@@ -839,13 +842,13 @@ namespace Genesis.Rendering.SilkNet.OpenGL
 
         public void SetStructuredBuffer(GpuShaderStage stage, int tRegister, GpuBufferHandle handle)
         {
-            if (!_buffers.TryGetValue(handle.Id, out BufferResource buffer))
-            {
-                return;
-            }
-
-            // Storage buffers keep the t register too, in GL's separate SSBO binding namespace.
-            _gl.BindBufferBase(BufferTargetARB.ShaderStorageBuffer, (uint)tRegister, buffer.Name);
+            if (tRegister < 0) throw new ArgumentOutOfRangeException(nameof(tRegister));
+            if ((stage & GpuShaderStage.Compute) != 0 && tRegister >= GpuComputeLimits.ReadOnlyBuffers)
+                throw new ArgumentOutOfRangeException(nameof(tRegister));
+            if (handle.IsValid && !_buffers.ContainsKey(handle.Id)) throw new ArgumentException("Unknown buffer.", nameof(handle));
+            uint name = handle.IsValid ? _buffers[handle.Id].Name : 0;
+            // Read-only compute t0..t3 and writable u0..u3 occupy distinct SSBO binding ranges.
+            _gl.BindBufferBase(BufferTargetARB.ShaderStorageBuffer, (uint)tRegister, name);
         }
 
         public void SetSampler(GpuShaderStage stage, int sRegister, GpuSamplerHandle handle)
@@ -919,7 +922,7 @@ namespace Genesis.Rendering.SilkNet.OpenGL
         /// <summary>Resolves every deferred setter into GL state. False when the draw cannot proceed.</summary>
         private bool BindForDraw()
         {
-            if (!_programs.TryGetValue(_program.Id, out ProgramResource program))
+            if (!_programs.TryGetValue(_program.Id, out ProgramResource program) || program.IsCompute)
             {
                 return false;
             }
@@ -1200,6 +1203,7 @@ namespace Genesis.Rendering.SilkNet.OpenGL
         public void Dispose()
         {
             if (_disposed) return;
+            DisposeComputeResources();
             _disposed = true;
 
             foreach (BufferResource buffer in _buffers.Values) _gl.DeleteBuffer(buffer.Name);

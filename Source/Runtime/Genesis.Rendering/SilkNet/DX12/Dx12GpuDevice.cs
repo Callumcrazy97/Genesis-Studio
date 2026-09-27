@@ -25,7 +25,7 @@ namespace Genesis.Rendering.SilkNet.DX12
     /// destroyed the moment its handle is released, because a command list may still reference it —
     /// see <c>Defer</c> in the Internals partial.</para>
     /// </remarks>
-    internal sealed unsafe partial class Dx12GpuDevice : IGpuDevice
+    internal sealed unsafe partial class Dx12GpuDevice : IGpuComputeDevice
     {
         private const int UploadRingBytes = 32 * 1024 * 1024;
         private const int ConstantAlignment = 256;          // D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT
@@ -100,6 +100,8 @@ namespace Genesis.Rendering.SilkNet.DX12
         {
             public byte[] VertexShader;
             public byte[] PixelShader;
+            public byte[] ComputeShader;
+            public ComPtr<ID3D12PipelineState> ComputePipeline;
         }
 
         private sealed class TimestampResource
@@ -319,7 +321,8 @@ namespace Genesis.Rendering.SilkNet.DX12
             if (!dynamic)
             {
                 resource.Resource = CreateCommittedBuffer(
-                    size, HeapType.Default, ResourceStates.Common, ResourceFlags.None);
+                    size, HeapType.Default, ResourceStates.Common,
+                    (desc.BindFlags & GpuBindFlags.UnorderedAccess) != 0 ? ResourceFlags.AllowUnorderedAccess : ResourceFlags.None);
 
                 if (!initialData.IsEmpty)
                 {
@@ -796,6 +799,7 @@ namespace Genesis.Rendering.SilkNet.DX12
             // queued list still references a back buffer.
             _frames.WaitIdle();
             DrainDeferred(force: true);
+            DisposeComputeResources();
             _activeTarget = GpuRenderTargetHandle.Invalid;
             if (_backBufferTexture.IsValid)
             {
@@ -849,11 +853,17 @@ namespace Genesis.Rendering.SilkNet.DX12
             {
                 VertexShader = desc.VertexShader,
                 PixelShader = desc.PixelShader,
+                ComputeShader = desc.ComputeShader,
             };
             return new GpuShaderProgramHandle(id);
         }
 
-        public void ReleaseShaderProgram(GpuShaderProgramHandle handle) => _shaderPrograms.Remove(handle.Id);
+        public void ReleaseShaderProgram(GpuShaderProgramHandle handle)
+        {
+            if (!_shaderPrograms.Remove(handle.Id, out ShaderProgramResource program)) return;
+            Defer((nint)program.ComputePipeline.Handle);
+            program.ComputePipeline = default;
+        }
 
         public GpuVertexLayoutHandle CreateVertexLayout(
             in GpuVertexLayoutDesc desc, GpuShaderProgramHandle program)
@@ -871,6 +881,11 @@ namespace Genesis.Rendering.SilkNet.DX12
 
         public void SetConstantBuffer(GpuShaderStage stage, int bRegister, GpuBufferHandle handle)
         {
+            if ((stage & GpuShaderStage.Compute) != 0)
+            {
+                if ((uint)bRegister >= _csCbv.Length) throw new ArgumentOutOfRangeException(nameof(bRegister));
+                _csCbv[bRegister] = handle;
+            }
             if ((stage & GpuShaderStage.Vertex) != 0 && bRegister < _vsCbv.Length) _vsCbv[bRegister] = handle;
             if ((stage & GpuShaderStage.Pixel) != 0 && bRegister < _psCbv.Length) _psCbv[bRegister] = handle;
         }
@@ -908,6 +923,11 @@ namespace Genesis.Rendering.SilkNet.DX12
 
         public void SetStructuredBuffer(GpuShaderStage stage, int tRegister, GpuBufferHandle handle)
         {
+            if ((stage & GpuShaderStage.Compute) != 0)
+            {
+                if ((uint)tRegister >= _csSrv.Length) throw new ArgumentOutOfRangeException(nameof(tRegister));
+                _csSrv[tRegister] = handle;
+            }
             if ((stage & GpuShaderStage.Vertex) != 0 && tRegister < _vsStructured.Length)
             {
                 _vsStructured[tRegister] = handle;

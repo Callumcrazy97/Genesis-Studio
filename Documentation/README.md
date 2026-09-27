@@ -1,4 +1,82 @@
-# Genesis Studio Master — Hotfix 23, Phase 1
+# Genesis Studio Master
+
+## Current acceptance programme — 2D game production, 27 September 2026
+
+This is the single authoritative completion document. The older hotfix ledgers below are historical
+evidence, not current acceptance results. README files are navigation; generated JSON, logs and
+captures are evidence. New editor work, findings, comparison results and acceptance decisions belong
+in this section. Finish one task at a time; do not use computer control or parallel agents. Complete
+2D production before outstanding 3D work.
+
+**Overall state: NOT ACCEPTED.** A successful build or a source implementation does not establish
+editor usability, appearance, gameplay integration, export correctness or backend parity.
+
+### Required outcomes and sequential queue
+
+| Order | Outcome | Current state |
+|---|---|---|
+| 1 | Review GitHub branches, preserve useful work and local edits, retain only `main` as a branch. | Selected H23 Phase 2 GPU particle implementation integrated locally; acceptance and remote cleanup recorded below. |
+| 2 | Click the bottom-right renderer indicator to choose DX11, DX12, Vulkan, OpenGL or Software; persist the preference and refresh live editor renderers. | Pending. |
+| 3 | One shell command palette. Help → Commands separates PGSL, Engine, Editor and Shell commands, with accurate scope and shortcuts. | Pending; existing View/Help/toolbar entries duplicate the palette. |
+| 4 | Create functionality, usability and aesthetics judges for every routed editor and the shell; record evidence and fix failures. | Pending. Missing evidence must remain unverified and cannot pass. |
+| 5 | Complete relevant 2D editors and live, interactive cross-editor authoring. | Pending current audit: Image, Object, Room, Audio, Particle, Physics, Pathing, Shader, Script, UI and Notes; Model/Terrain evaluated without prematurely expanding 3D scope. |
+| 6 | Every script-based surface provides type/member completion, call signatures, active argument and caret context in a bottom strip. | Existing shared CodeEditor support requires verification on every consumer. |
+| 7 | Saved Image rigs/animations and Model animations are usable from gameplay code, with visible animated output and cross-editor propagation. | Pending runtime and save/reopen evidence. Names, frame counts and metadata alone cannot pass. |
+| 8 | Complete Mushroom Meadow as a full playable platformer, with onboarding, start/pause/restart, progression, enemies/hazards, win/lose, sound and editable resources. | Existing showcase requires gameplay audit and completion. |
+| 9 | Export Mushroom Meadow, play the exported executable, switch all five backends explicitly and inspect the resulting pixels and behavior. | Pending; no fallback may count as a requested backend pass. |
+| 10 | Full build, all judges, all required 2D acceptance and fair comparisons pass before broad 3D completion starts. | Pending. |
+
+### Judge contract
+
+Functionality uses production authoring operations, undo/redo, validation, save/reopen, runtime
+consumption and exported gameplay. A registered command or a nonblank preview is insufficient.
+Usability judges the path from a new project to a running platformer, discoverability, clear labels,
+disabled reasons, selection/focus, keyboard routing, error recovery and the number of unnecessary
+steps. Aesthetics inspects populated captures of every editor, shell, menu, toolbar, dialog and
+Inspector at normal and narrow sizes and 100/125/150/200% scale: hierarchy, contrast, typography,
+alignment, viewport space, clipping, button size/placement and duplicated affordances. Automated
+geometry checks and visual judgement are separate evidence. Never infer aesthetics from file names
+or a colour count. Record failures with the actual capture or test name and an actionable remedy.
+
+Scores are descriptive (1 unusable, 2 obstructive, 3 workable, 4 clear, 5 polished), not feature-count
+rankings. Acceptance requires at least 4 for relevant workflows and no blocking defects; missing
+evidence is unverified rather than a fabricated score. Compare the same small 2D platformer tasks
+against GameMaker Studio 1.4, Godot, Unity and Unreal. Account for their scope, maturity and setup
+cost. Unreal's high-end 3D rendering is not a Genesis 2D acceptance target. External comparisons
+must cite official documentation and distinguish documented capability from direct testing.
+
+### Branch reconciliation and verified evidence
+
+The local checkout originally pointed at the initial commit even though its Genesis source content
+matched GitHub `main` at `e123d4a` apart from line endings. Initial status: 210 modified tracked files
+and three untracked entries. A complete tracked/untracked source snapshot was saved in
+`refs/recovery/20260927-local-workspace`; all remote branches and that snapshot are retained in the
+verified `.build/recovery/20260927-2d-readiness/all-branches-and-local.bundle`. Local `main` was
+aligned with the existing GitHub baseline without discarding semantic local source changes.
+
+| Reviewed branch tip | Decision |
+|---|---|
+| `ea7a090` — six H23 baseline/checkpoint/backup branches | Already contained in `main`; preserve one archive tag before deleting redundant branches. |
+| `10ccede` — `work/h23-phase2-gpu-particles` | Retain GPU compute/indirect simulation, runtime integration, live editor preview, stable sub-emitter event links, authored bounds and gizmos. Latest GitHub CI was successful; verify locally before publication. |
+| `29d12ed` — `work/h24-gpu-validation` | Retain the three test-harness compile corrections. Preserve the alternative substrate and CI/staging history in an archive tag; do not install duplicate particle implementations or encoded staging payloads. |
+| `906b51e` — `work/h24-particle-phase2` | Preserve alternative implementation in an archive tag; its later corrections are in the clean branch. |
+| `7591ec7` — `work/h24-phase2-clean` | Preserve alternative unified runtime-emitter and mesh-collision work in an archive tag for the later 3D audit; avoid introducing a second particle runtime into the selected implementation. |
+
+Fresh local evidence: initial headless build failed with seven compile errors. The retained branch
+corrections fix those errors; the missing, untracked yellow JPEG fixture is now reproducibly generated
+when absent. Integrated Release headless build: **0 warnings, 0 errors**. Particle conformance:
+**52 checks passed**, all shader formats plus explicit D3D11 WARP compute/indirect behavior; this is
+not physical GPU performance evidence. Focused Particle Workbench: **60 checks passed**, including
+hosted Software particle preservation, hosted DX11 GPU particle preservation, history, invalid-input
+protection and save/reopen. Outputs: `TestResults/Readiness/ParticleIntegration/results.json` and
+`.build/recovery/20260927-2d-readiness/particle-conformance.log`.
+
+Remote publication and branch cleanup: pending. Overall editor, aesthetics, DPI, complete game,
+export and physical backend acceptance remain unverified.
+
+---
+
+## Historical H23 Phase 1 ledger
 
 ## H23 Phase 1 delivery ledger — particle GPU routing contract
 
@@ -8409,5 +8487,4 @@ without review:
     changes and apply them through normal validation and undo. Preserve a fully usable non-AI
     workflow. This is a roadmap footnote, not an implemented feature or authorization to transmit
     project data, configure paid services or use credentials now.
-
 
