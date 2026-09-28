@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using Genesis.Application.Core.Resources;
@@ -149,17 +150,26 @@ public static class VisualActionCatalog
             .FirstOrDefault(method => string.Equals(method.Name, ShortName(commandName), StringComparison.OrdinalIgnoreCase));
         foreach ((string name, string defaultValue) in VisualActionSyntax.ParseSignature(signature))
         {
+            var native = method?.GetParameters().FirstOrDefault(parameter => string.Equals(parameter.Name, name, StringComparison.OrdinalIgnoreCase));
+            BlueprintValueType? dataType = BlueprintActions.FromClrType(native?.ParameterType);
             ResourceKind? assetKind = InferAssetKind(name, category ?? string.Empty);
-            bool boolean = IsBoolean(name, defaultValue);
+            bool boolean = native is not null ? native.ParameterType == typeof(bool) : IsBoolean(name, defaultValue);
+            string declared = defaultValue;
+            if (string.IsNullOrWhiteSpace(declared) && native?.HasDefaultValue == true)
+                declared = native.DefaultValue switch
+                {
+                    null => "null", string text => assetKind.HasValue ? text : System.Text.Json.JsonSerializer.Serialize(text),
+                    bool flag => flag ? "true" : "false", var value => Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty,
+                };
             parameters.Add(new VisualActionParameter(
                 name,
-                DefaultValue(name, defaultValue, assetKind, boolean),
+                DefaultValue(name, declared, assetKind, boolean, dataType),
                 assetKind.HasValue
                     ? VisualActionValueKind.Asset
                     : boolean ? VisualActionValueKind.Boolean : VisualActionValueKind.Expression,
                 assetKind,
                 boolean ? ["true", "false"] : null,
-                BlueprintActions.FromClrType(method?.GetParameters().FirstOrDefault(parameter => string.Equals(parameter.Name, name, StringComparison.OrdinalIgnoreCase))?.ParameterType)));
+                dataType));
         }
         return new VisualActionCommand(
             commandName,
@@ -214,11 +224,14 @@ public static class VisualActionCatalog
         string name,
         string declaredDefault,
         ResourceKind? assetKind,
-        bool boolean)
+        bool boolean,
+        BlueprintValueType? dataType)
     {
+        if (assetKind.HasValue && declaredDefault.Equals("null", StringComparison.OrdinalIgnoreCase)) return string.Empty;
         if (!string.IsNullOrWhiteSpace(declaredDefault)) return declaredDefault;
         if (assetKind.HasValue) return string.Empty;
         if (boolean) return "false";
+        if (dataType == BlueprintValueType.String) return "\"\"";
         string lower = name.ToLowerInvariant();
         if (lower is "x" or "x1" or "xfrom") return "x";
         if (lower is "y" or "y1" or "yfrom") return "y";
@@ -321,7 +334,7 @@ public static partial class VisualActionSyntax
                           ?? Humanize(match.Groups["kind"].Value);
             blocks.Add(new VisualActionBlock(
                 id,
-                name,
+                ActionDisplayName(name, commandName),
                 commandName,
                 attributes.GetValueOrDefault("category") ?? command?.Category ?? "Custom",
                 attributes.GetValueOrDefault("description") ?? command?.Description ?? string.Empty,
@@ -609,6 +622,13 @@ public static partial class VisualActionSyntax
             ? parameter with { Value = parameter.Kind == VisualActionValueKind.Asset ? Unquote(match.Groups[$"p{index}"].Value.Trim()) : match.Groups[$"p{index}"].Value.Trim() } : parameter).ToArray();
         return match.Success;
     }
+
+    internal static string ActionDisplayName(string name, string commandName) =>
+        name.Equals("Spawn Prefab", StringComparison.OrdinalIgnoreCase)
+        && commandName.Equals("CreateInstance", StringComparison.OrdinalIgnoreCase) ? "Create Instance" : name;
+
+    internal static string ExecutionPreview(string source) =>
+        ActionBlockPattern().Replace(source, match => match.Groups["body"].Value);
 
     public static string CreateBlock(VisualActionTemplate template, string? id = null)
     {

@@ -32,6 +32,18 @@ public sealed partial class PgslScriptEditorControl : EditorSurfaceControl, IRes
     private readonly System.Windows.Forms.Timer _validateTimer;
     private readonly ToolStripButton _builderModeButton;
     private readonly ToolStripButton _codeModeButton;
+    private readonly ToolStripMenuItem _functionsButton;
+    private readonly ToolStripMenuItem _commandsButton;
+    private readonly ToolStripButton _addActionButton;
+    private readonly Panel _functionsPanel;
+    private readonly Panel _referencePanel;
+    private readonly Panel _commandReference;
+    private readonly Panel _diagnosticsPanel;
+    private readonly Control _actionToolbox;
+    private readonly ToolStripMenuItem _signatureButton;
+    private readonly ToolStripMenuItem _deleteRoutineButton;
+    private bool _showFunctions;
+    private bool _showCommands;
     private int _errorCount;
     private int _warningCount;
     private bool _syncingBuilder;
@@ -44,11 +56,17 @@ public sealed partial class PgslScriptEditorControl : EditorSurfaceControl, IRes
         Dock = DockStyle.Fill;
 
         _code = new CodeEditor { Dock = DockStyle.Fill };
+        _code.SetLanguage("PGSL");
         _code.SetRules(BuildRules());
         _code.CodeText = LoadText();
+        _lastScriptText = _savedScriptText = _code.CodeText;
+        _code.DocumentUndoRequested = Undo;
+        _code.DocumentRedoRequested = Redo;
         _code.IntelligenceRequested += OnIntelligenceRequested;
 
         _builder = new VisualActionBuilderControl(ProjectRoot) { Dock = DockStyle.Fill };
+        _builder.UseDocumentHistory(this);
+        _builder.EditGroupCompleted += () => RecordScriptEdit("Edit script actions");
         _builder.UseBlueprintWorkspace();
         _builder.SourceChanged += BuilderSourceChanged;
         _builder.EditCodeRequested += caret =>
@@ -56,31 +74,45 @@ public sealed partial class PgslScriptEditorControl : EditorSurfaceControl, IRes
             SetAuthoringMode(PgslScriptAuthoringMode.Code);
             if (FindRoutine(_selectedRoutineName) is { } routine)
                 _code.MoveCaret(Math.Clamp(routine.BodyStart + caret, routine.BodyStart, routine.BodyEnd));
+            else _code.MoveCaret(caret);
         };
 
         ToolStrip toolbar = EditorChrome.MakeToolbar();
-        EditorViewportChrome.AttachDocumentMenus(toolbar, this);
-        toolbar.Items.Add(new ToolStripLabel(ResourceDisplayName.Format(ResourcePath))
-        {
-            Font = EditorChrome.HeadingFont,
-            ForeColor = EditorChrome.Text,
-            ToolTipText = ResourcePath,
-        });
         ToolStripButton save = EditorChrome.ToolButton("Save", "Save callable PGSL library (Ctrl+S)", Save);
         save.BackColor = EditorChrome.Accent;
         toolbar.Items.Add(save);
-        toolbar.Items.Add(new ToolStripSeparator());
         _builderModeButton = EditorChrome.ToolButton("Builder", "Author the selected function with typed visual blocks", () => SetAuthoringMode(PgslScriptAuthoringMode.Builder), toggle: true);
         _codeModeButton = EditorChrome.ToolButton("</> Code", "Author the complete PGSL library as text", () => SetAuthoringMode(PgslScriptAuthoringMode.Code), toggle: true);
         toolbar.Items.Add(_builderModeButton);
         toolbar.Items.Add(_codeModeButton);
         toolbar.Items.Add(new ToolStripSeparator());
-        toolbar.Items.Add(EditorChrome.ToolButton("+ Function", "Add a callable function with typed inputs and return metadata", AddFunction));
-        toolbar.Items.Add(EditorChrome.ToolButton("If / Else", "Add a branch to the selected function", () => _builder.InsertCondition("condition")));
-        toolbar.Items.Add(EditorChrome.ToolButton("Return", "Add a return-value node to the selected function", () => _builder.InsertBlueprintAction("Return Value")));
-        toolbar.Items.Add(EditorChrome.ToolButton("Validate", "Parse and semantically check this library (Ctrl+Shift+V)", ValidateNow));
+        _addActionButton = EditorChrome.ToolButton("Add action…", "Choose a typed action; it is added to the selected function or script entry", () => _builder.OpenWizard(FindForm()));
+        toolbar.Items.Add(_addActionButton);
+        toolbar.Items.Add(EditorChrome.ToolButton("Use in game", "Create an Object caller or see the exact gameplay code for this Script", ShowScriptGameGuide));
+        ToolStripDropDownButton options = new("Options") { ForeColor = EditorChrome.Text };
+        options.DropDownItems.Add("Add function…", null, (_, _) => AddFunction());
+        _signatureButton = new ToolStripMenuItem("Edit selected function…", null, (_, _) => EditSelectedFunction());
+        _deleteRoutineButton = new ToolStripMenuItem("Remove selected function", null, (_, _) => DeleteSelectedFunction());
+        options.DropDownItems.AddRange([_signatureButton, _deleteRoutineButton, new ToolStripSeparator()]);
+        options.DropDownItems.Add("Validate", null, (_, _) => ValidateNow()).ToolTipText = "Check PGSL syntax and commands (Ctrl+Shift+V)";
+        _functionsButton = new ToolStripMenuItem("Function outline") { CheckOnClick = true };
+        _functionsButton.CheckedChanged += (_, _) =>
+        {
+            _showFunctions = _functionsButton.Checked;
+            if (_showFunctions && _commandsButton is not null) _commandsButton.Checked = false;
+            LayoutAuthoringPanels();
+        };
+        _commandsButton = new ToolStripMenuItem("Command reference") { CheckOnClick = true };
+        _commandsButton.CheckedChanged += (_, _) =>
+        {
+            _showCommands = _commandsButton.Checked;
+            if (_showCommands) _functionsButton.Checked = false;
+            LayoutAuthoringPanels();
+        };
+        options.DropDownItems.AddRange([_functionsButton, _commandsButton]);
+        toolbar.Items.Add(options);
 
-        Panel left = EditorChrome.SidePanel(EditorChrome.LeftPanelWidth, DockStyle.Left);
+        Panel left = _functionsPanel = EditorChrome.SidePanel(240, DockStyle.Left);
         _outline.BackColor = EditorChrome.Surface;
         _outline.BorderStyle = BorderStyle.None;
         _outline.Dock = DockStyle.Fill;
@@ -89,25 +121,15 @@ public sealed partial class PgslScriptEditorControl : EditorSurfaceControl, IRes
         _outline.IntegralHeight = false;
         _outline.SelectedIndexChanged += (_, _) => NavigateToSelectedOutlineItem(moveCaret: false);
         _outline.DoubleClick += (_, _) => NavigateToSelectedOutlineItem(moveCaret: true);
-        FlowLayoutPanel routineTools = new()
-        {
-            Dock = DockStyle.Bottom,
-            Height = 42,
-            BackColor = EditorChrome.Surface,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false,
-            Padding = new Padding(6, 4, 4, 4),
-        };
-        routineTools.Controls.Add(SmallButton("+ Function", AddFunction, 88));
-        routineTools.Controls.Add(SmallButton("Signature", EditSelectedFunction, 78));
-        routineTools.Controls.Add(SmallButton("Delete", DeleteSelectedFunction, 64));
         left.Controls.Add(_outline);
-        left.Controls.Add(routineTools);
-        left.Controls.Add(EditorChrome.SectionLabel("FUNCTIONS & LIBRARY VALUES"));
+        _scriptOutlineHint = new Label { Dock = DockStyle.Top, ForeColor = EditorChrome.Muted,
+            Text = "Select a function; double-click a value to edit its code.", Padding = new Padding(8, 4, 8, 4) };
+        left.Controls.Add(_scriptOutlineHint);
+        left.Controls.Add(EditorChrome.SectionLabel("SCRIPT OUTLINE"));
 
-        Panel right = EditorChrome.SidePanel(EditorChrome.RightPanelWidth, DockStyle.Right);
-        Control actionToolbox = _builder.TakeActionToolbox();
-        Panel commandReference = new() { Dock = DockStyle.Bottom, Height = 230, BackColor = EditorChrome.Surface };
+        Panel right = _referencePanel = EditorChrome.SidePanel(260, DockStyle.Right);
+        Control actionToolbox = _actionToolbox = _builder.TakeActionToolbox();
+        Panel commandReference = _commandReference = new() { Dock = DockStyle.Bottom, Height = 180, BackColor = EditorChrome.Surface };
         TextBox search = new() { Dock = DockStyle.Top, PlaceholderText = "Filter callable commands…" };
         EditorChrome.StyleField(search);
         _commands = new ListView
@@ -127,11 +149,11 @@ public sealed partial class PgslScriptEditorControl : EditorSurfaceControl, IRes
         search.TextChanged += (_, _) => PopulateCommands(search.Text);
         commandReference.Controls.Add(_commands);
         commandReference.Controls.Add(search);
-        commandReference.Controls.Add(EditorChrome.SectionLabel("COMMAND SIGNATURES"));
+        commandReference.Controls.Add(EditorChrome.SectionLabel("COMMANDS"));
         right.Controls.Add(actionToolbox);
         right.Controls.Add(commandReference);
 
-        Panel bottom = new() { BackColor = EditorChrome.Surface, Dock = DockStyle.Bottom, Height = 132 };
+        Panel bottom = _diagnosticsPanel = new() { BackColor = EditorChrome.Surface, Dock = DockStyle.Bottom, Height = 100 };
         _problems = new ListView
         {
             BackColor = EditorChrome.Surface,
@@ -150,6 +172,7 @@ public sealed partial class PgslScriptEditorControl : EditorSurfaceControl, IRes
         _authoringHost = new Panel { Dock = DockStyle.Fill, BackColor = EditorChrome.Canvas };
         _authoringHost.Controls.Add(_code);
         _authoringHost.Controls.Add(_builder);
+        BuildScriptWorkflow();
         _statusLabel = EditorChrome.MakeStatusBar();
 
         Controls.Add(_authoringHost);
@@ -158,13 +181,15 @@ public sealed partial class PgslScriptEditorControl : EditorSurfaceControl, IRes
         Controls.Add(left);
         Controls.Add(toolbar);
         Controls.Add(_statusLabel);
+        if (toolbar is EditorCommandBar commandBar && commandBar.HistoryCommand is { } history) history.Visible = false;
         _authoringHost.BringToFront();
 
         _validateTimer = new System.Windows.Forms.Timer { Interval = 650 };
         _validateTimer.Tick += (_, _) => { _validateTimer.Stop(); ValidateNow(); };
         _code.TextChangedByUser += (_, _) =>
         {
-            MarkDirty();
+            if (_syncingBuilder) return;
+            RecordScriptEdit("Edit script code");
             _validateTimer.Stop();
             _validateTimer.Start();
             RefreshOutline();
@@ -192,7 +217,7 @@ public sealed partial class PgslScriptEditorControl : EditorSurfaceControl, IRes
         set
         {
             _code.CodeText = value ?? string.Empty;
-            MarkDirty();
+            RecordScriptEdit("Edit script");
             RefreshOutline();
             ValidateNow();
         }
@@ -201,11 +226,14 @@ public sealed partial class PgslScriptEditorControl : EditorSurfaceControl, IRes
     public void SetAuthoringMode(PgslScriptAuthoringMode mode)
     {
         _authoringMode = mode;
+        _showScriptGuide = false;
         bool builder = mode == PgslScriptAuthoringMode.Builder;
         _builder.Visible = builder;
         _code.Visible = !builder;
         _builderModeButton.Checked = builder;
         _codeModeButton.Checked = !builder;
+        _addActionButton.Visible = builder;
+        LayoutAuthoringPanels();
         if (builder)
         {
             LoadSelectedRoutine();
@@ -223,6 +251,8 @@ public sealed partial class PgslScriptEditorControl : EditorSurfaceControl, IRes
     public override void Save()
     {
         WriteResourceText(_code.CodeText);
+        _savedScriptText = _code.CodeText;
+        ScriptAssetRegistry.ClearCache();
         AcceptSave();
     }
 
@@ -230,9 +260,9 @@ public sealed partial class PgslScriptEditorControl : EditorSurfaceControl, IRes
     {
         List<ResourceInspectorLiveValue> values = [];
         string scriptName = ResourceDisplayName.Format(ResourcePath);
-        foreach (PgslInspectableVariables.Variable variable in PgslInspectableVariables.Reflect(_code.CodeText))
-            values.Add(new(scriptName, "Variables." + variable.Name, Humanize(variable.Name), variable.Value,
-                Description: $"Authored library value in {scriptName}; saved with this PGSL script."));
+        foreach (PgslInspectableVariables.Variable variable in PgslInspectableVariables.Reflect(_code.CodeText, ProjectRoot))
+            values.Add(new(scriptName, "Variables." + variable.Name, variable.Name, variable.Value,
+                Description: $"Authored library value in {scriptName}; saved with this PGSL script.", AssetKind: variable.AssetKind));
         values.Add(new("Diagnostics", "Diagnostics.Errors", "Errors", _errorCount, ReadOnly: true));
         values.Add(new("Diagnostics", "Diagnostics.Warnings", "Warnings", _warningCount, ReadOnly: true));
         return values;
@@ -247,7 +277,7 @@ public sealed partial class PgslScriptEditorControl : EditorSurfaceControl, IRes
         string name = propertyPath[prefix.Length..];
         if (!PgslInspectableVariables.TrySetValue(_code.CodeText, name, value, out string updated)) return false;
         _code.CodeText = updated;
-        MarkDirty();
+        RecordScriptEdit("Edit script value");
         RefreshOutline();
         ValidateNow();
         InspectorStateChanged?.Invoke(this, EventArgs.Empty);
@@ -275,17 +305,43 @@ public sealed partial class PgslScriptEditorControl : EditorSurfaceControl, IRes
         foreach (string warning in report.Warnings) _problems.Items.Add(new ListViewItem("△  " + warning) { ForeColor = EditorChrome.Warning });
         if (_errorCount == 0 && _warningCount == 0) _problems.Items.Add(new ListViewItem("✓  No problems.") { ForeColor = EditorChrome.Success });
         _problems.EndUpdate();
+        LayoutAuthoringPanels();
         UpdateStatusForMode(report.Summary);
         InspectorStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    private void RefreshOutline()
+    protected override void OnResize(EventArgs e)
+    {
+        base.OnResize(e);
+        if (_functionsPanel is not null) LayoutAuthoringPanels();
+    }
+
+    private void LayoutAuthoringPanels()
+    {
+        bool builder = _authoringMode == PgslScriptAuthoringMode.Builder;
+        float scale = EditorChrome.BaseFont.SizeInPoints / 9.5f * DeviceDpi / 96f;
+        _functionsPanel.Width = Math.Min((int)(240 * scale), Math.Max(160, ClientSize.Width / 3));
+        _referencePanel.Width = Math.Min((int)(260 * scale), Math.Max(180, ClientSize.Width / 3));
+        _functionsPanel.Visible = !_showScriptGuide && _showFunctions && LogicalClientWidth >= 400;
+        _referencePanel.Visible = !_showScriptGuide && (_showCommands || builder && LogicalClientWidth >= 900)
+            && LogicalClientWidth >= 400 && (!_showFunctions || LogicalClientWidth >= 1100);
+        _actionToolbox.Visible = builder && !_showCommands;
+        _commandReference.Visible = _showCommands;
+        _commandReference.Dock = DockStyle.Fill;
+        _diagnosticsPanel.Visible = _errorCount + _warningCount > 0;
+        _diagnosticsPanel.Height = Math.Min((int)(100 * scale), Math.Max(72, ClientSize.Height / 3));
+        LayoutScriptWorkflow();
+    }
+
+    private void RefreshOutline(bool loadBuilder = true)
     {
         string? selected = _selectedRoutineName;
         _outline.BeginUpdate();
         _outline.Items.Clear();
         foreach (ScriptRoutine routine in ParseRoutines(_code.CodeText))
             _outline.Items.Add(new ScriptOutlineItem("Function", routine.Name, routine.DeclarationStart, routine));
+        if (ParseRoutines(_code.CodeText).Count == 0)
+            _outline.Items.Add(new ScriptOutlineItem("Script", "Entry", 0, null));
         foreach (PgslInspectableVariables.Variable variable in PgslInspectableVariables.Reflect(_code.CodeText))
             _outline.Items.Add(new ScriptOutlineItem("Library value", variable.Name,
                 Math.Max(0, _code.CodeText.IndexOf(variable.Name, StringComparison.OrdinalIgnoreCase)), null));
@@ -301,11 +357,13 @@ public sealed partial class PgslScriptEditorControl : EditorSurfaceControl, IRes
         }
         _outline.SelectedIndex = restore >= 0 ? restore : (_outline.Items.Count > 0 ? 0 : -1);
         _outline.EndUpdate();
-        if (_authoringMode == PgslScriptAuthoringMode.Builder) LoadSelectedRoutine();
+        RefreshScriptRoutinePicker();
+        if (loadBuilder && _authoringMode == PgslScriptAuthoringMode.Builder) LoadSelectedRoutine();
     }
 
     private void NavigateToSelectedOutlineItem(bool moveCaret)
     {
+        if (_syncingBuilder) return;
         if (_outline.SelectedItem is not ScriptOutlineItem item || item.Kind == "Hint") return;
         if (item.Routine is { } routine)
         {
@@ -317,6 +375,7 @@ public sealed partial class PgslScriptEditorControl : EditorSurfaceControl, IRes
             SetAuthoringMode(PgslScriptAuthoringMode.Code);
             _code.MoveCaret(item.Offset);
         }
+        UpdateStatusForMode();
     }
 
     private void LoadSelectedRoutine()
@@ -328,24 +387,40 @@ public sealed partial class PgslScriptEditorControl : EditorSurfaceControl, IRes
             if (routine is null)
             {
                 _selectedRoutineName = null;
-                _builder.ConfigureRoutineHeader("NewFunction", [], "Void");
-                _builder.LoadSource(string.Empty, groupName: "NewFunction");
+                _signatureButton.Visible = _deleteRoutineButton.Visible = false;
+                string name = ResourceDisplayName.Format(ResourcePath);
+                _builder.ConfigureRoutineHeader(name, [], "Dynamic", scriptEntry: true);
+                _builder.LoadSource(_code.CodeText, groupName: name);
+                _builder.Graph.FocusStartNode();
                 return;
             }
+            _signatureButton.Visible = _deleteRoutineButton.Visible = true;
             _selectedRoutineName = routine.Name;
             _builder.ConfigureRoutineHeader(routine.Name, routine.Parameters.Select(parameter => (parameter.Name, parameter.Type)), routine.ReturnType);
             _builder.LoadSource(_code.CodeText[routine.BodyStart..routine.BodyEnd].Trim('\r', '\n'), groupName: routine.Name);
+            _builder.Graph.FocusStartNode();
         }
         finally { _syncingBuilder = false; }
     }
 
     private void BuilderSourceChanged(object? sender, VisualActionSourceChangedEventArgs args)
     {
-        if (_syncingBuilder || FindRoutine(_selectedRoutineName) is not { } routine) return;
-        string body = args.Source.Trim('\r', '\n');
-        string replacement = Environment.NewLine + body + Environment.NewLine;
-        _code.CodeText = _code.CodeText[..routine.BodyStart] + replacement + _code.CodeText[routine.BodyEnd..];
-        MarkDirty();
+        if (_syncingBuilder) return;
+        _syncingBuilder = true;
+        try
+        {
+            if (FindRoutine(_selectedRoutineName) is { } routine)
+            {
+                string body = args.Source.Trim('\r', '\n');
+                string replacement = Environment.NewLine + body + Environment.NewLine;
+                _code.CodeText = _code.CodeText[..routine.BodyStart] + replacement + _code.CodeText[routine.BodyEnd..];
+            }
+            else if (ParseRoutines(_code.CodeText).Count == 0) _code.CodeText = args.Source;
+            else return;
+            RefreshOutline(loadBuilder: false);
+        }
+        finally { _syncingBuilder = false; }
+        RecordScriptEdit("Edit script actions");
         _validateTimer.Stop();
         _validateTimer.Start();
         InspectorStateChanged?.Invoke(this, EventArgs.Empty);
@@ -357,7 +432,7 @@ public sealed partial class PgslScriptEditorControl : EditorSurfaceControl, IRes
         string separator = _code.CodeText.Length == 0 || _code.CodeText.EndsWith('\n') ? string.Empty : Environment.NewLine;
         _code.CodeText += separator + BuildFunctionText(signature, string.Empty) + Environment.NewLine;
         _selectedRoutineName = signature.Name;
-        MarkDirty();
+        RecordScriptEdit("Add function");
         RefreshOutline();
         ValidateNow();
     }
@@ -370,7 +445,7 @@ public sealed partial class PgslScriptEditorControl : EditorSurfaceControl, IRes
         string replacement = BuildFunctionText(signature, body);
         _code.CodeText = _code.CodeText[..routine.DeclarationStart] + replacement + _code.CodeText[(routine.CloseBrace + 1)..];
         _selectedRoutineName = signature.Name;
-        MarkDirty();
+        RecordScriptEdit("Edit function signature");
         RefreshOutline();
         ValidateNow();
     }
@@ -382,39 +457,17 @@ public sealed partial class PgslScriptEditorControl : EditorSurfaceControl, IRes
         while (end < _code.CodeText.Length && (_code.CodeText[end] == '\r' || _code.CodeText[end] == '\n')) end++;
         _code.CodeText = _code.CodeText.Remove(routine.DeclarationStart, end - routine.DeclarationStart);
         _selectedRoutineName = null;
-        MarkDirty();
+        RecordScriptEdit("Remove function");
         RefreshOutline();
         ValidateNow();
     }
 
     private bool ShowFunctionDialog(ScriptRoutine? existing, out FunctionSignature signature)
     {
-        using DpiAwareForm dialog = new() { Text = existing is null ? "Add Function" : "Edit Function Signature", ClientSize = new Size(480, 232), StartPosition = FormStartPosition.CenterParent };
-        TextBox name = new() { Width = 430, Text = existing?.Name ?? "NewFunction" };
-        TextBox parameters = new() { Width = 430, Text = existing is null ? string.Empty : string.Join(", ", existing.Parameters.Select(parameter => $"{parameter.Name}: {parameter.Type}")) };
-        ThemedComboBox returns = new() { Width = 430, DropDownStyle = ComboBoxStyle.DropDownList };
-        returns.Items.AddRange(["Void", .. Enum.GetNames<BlueprintValueType>()]);
-        returns.SelectedItem = existing?.ReturnType ?? "Void";
-        EditorChrome.StyleField(name); EditorChrome.StyleField(parameters); EditorChrome.StyleField(returns);
-        FlowLayoutPanel fields = new() { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(14), BackColor = EditorChrome.Surface };
-        fields.Controls.Add(DialogLabel("FUNCTION NAME")); fields.Controls.Add(name);
-        fields.Controls.Add(DialogLabel("INPUTS  ·  name: Type, name: Type")); fields.Controls.Add(parameters);
-        fields.Controls.Add(DialogLabel("RETURN TYPE")); fields.Controls.Add(returns);
-        Button create = new() { Dock = DockStyle.Bottom, Height = 36, Text = existing is null ? "Create Function" : "Update Signature", DialogResult = DialogResult.OK };
-        dialog.Controls.Add(fields); dialog.Controls.Add(create); dialog.AcceptButton = create;
+        using DpiAwareForm dialog = CreateFunctionDialog(existing);
         signature = default!;
         if (dialog.ShowDialog(FindForm()) != DialogResult.OK) return false;
-        string functionName = name.Text.Trim();
-        if (!Regex.IsMatch(functionName, @"^[A-Za-z_]\w*$")) return false;
-        List<RoutineParameter> parsed = [];
-        foreach (string token in parameters.Text.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
-        {
-            string[] parts = token.Split(':', 2, StringSplitOptions.TrimEntries);
-            if (!Regex.IsMatch(parts[0], @"^[A-Za-z_]\w*$")) return false;
-            BlueprintValueType type = parts.Length == 2 && Enum.TryParse(parts[1], true, out BlueprintValueType value) ? value : BlueprintValueType.Float;
-            parsed.Add(new RoutineParameter(parts[0], type));
-        }
-        signature = new FunctionSignature(functionName, parsed, returns.SelectedItem?.ToString() ?? "Void");
+        signature = (FunctionSignature)dialog.Tag!;
         return true;
     }
 
@@ -556,12 +609,11 @@ public sealed partial class PgslScriptEditorControl : EditorSurfaceControl, IRes
         _statusLabel.BackColor = EditorChrome.Surface; _statusLabel.ForeColor = EditorChrome.Muted;
         _outline.BackColor = EditorChrome.Surface; _outline.ForeColor = EditorChrome.Text;
         _problems.BackColor = EditorChrome.Surface; _commands.BackColor = EditorChrome.Surface;
+        LayoutAuthoringPanels();
     }
 
     private void OnIntelligenceRequested(object? sender, CodeIntelligenceRequestEventArgs request) => PgslCodeIntelligenceProvider.ApplyRequest(_code, ProjectRoot, _code.CodeText, request);
-    private void UpdateStatusForMode(string? validation = null) => _statusLabel.Text = $"{_authoringMode} · {(_selectedRoutineName ?? "No function selected")}" + (string.IsNullOrWhiteSpace(validation) ? string.Empty : " · " + validation);
-    private static Button SmallButton(string text, Action action, int width) { Button button = new() { Text = text, Width = width, Height = 30, Margin = new Padding(2) }; EditorChrome.StyleField(button); button.Click += (_, _) => action(); return button; }
-    private static Label DialogLabel(string text) => new() { AutoSize = false, Width = 430, Height = 20, ForeColor = EditorChrome.Muted, Text = text };
+    private void UpdateStatusForMode(string? validation = null) => _statusLabel.Text = $"{_authoringMode} · {(_selectedRoutineName ?? "Script entry")}" + (string.IsNullOrWhiteSpace(validation) ? string.Empty : " · " + validation);
     private static string Humanize(string value) { if (string.IsNullOrWhiteSpace(value)) return "Value"; string spaced = Regex.Replace(value, "([a-z0-9])([A-Z])", "$1 $2").Replace('_', ' '); return char.ToUpperInvariant(spaced[0]) + spaced[1..]; }
 
     private sealed record RoutineParameter(string Name, BlueprintValueType Type);

@@ -63,11 +63,18 @@ public sealed class ObjectCompositionDialog : DpiAwareForm
     {
         SplitContainer split = new()
         {
+            Size = ClientSize,
             Dock = DockStyle.Fill,
             FixedPanel = FixedPanel.Panel1,
             IsSplitterFixed = false,
             SplitterDistance = 330,
             BackColor = EditorChrome.Border,
+        };
+        split.SizeChanged += (_, _) =>
+        {
+            if (split.ClientSize.Width < 400) return;
+            float scale = EditorChrome.BaseFont.SizeInPoints / 9.5f * DeviceDpi / 96f;
+            split.SplitterDistance = Math.Min((int)(split.ClientSize.Width * .47f), (int)(330 * scale));
         };
 
         Panel left = new() { Dock = DockStyle.Fill, BackColor = EditorChrome.Surface };
@@ -106,29 +113,27 @@ public sealed class ObjectCompositionDialog : DpiAwareForm
         _stack.Font = new Font(EditorChrome.BaseFont, FontStyle.Bold);
         _stack.SelectedIndexChanged += (_, _) => ShowSelection();
 
-        Panel binding = new() { Dock = DockStyle.Bottom, Height = 94, Padding = new Padding(10), BackColor = EditorChrome.Raised };
+        TableLayoutPanel binding = new() { Dock = DockStyle.Bottom, AutoSize = true, ColumnCount = 3, RowCount = 2, Padding = new Padding(10), BackColor = EditorChrome.Raised };
+        binding.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); binding.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        binding.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        binding.RowStyles.Add(new RowStyle(SizeType.AutoSize)); binding.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         _enabled.Text = "Enabled";
         _enabled.AutoSize = true;
         _enabled.Location = new Point(10, 9);
         _enabled.CheckedChanged += (_, _) => CommitEnabled();
         _assetLabel.Text = "Asset";
-        _assetLabel.AutoSize = false;
+        _assetLabel.AutoSize = true;
         _assetLabel.ForeColor = EditorChrome.Muted;
-        _assetLabel.Location = new Point(10, 40);
-        _assetLabel.Size = new Size(62, 22);
+        _assetLabel.Anchor = AnchorStyles.Left;
         _asset.ReadOnly = true;
-        _asset.Location = new Point(72, 37);
-        _asset.Width = 194;
+        _asset.Dock = DockStyle.Fill;
         EditorChrome.StyleField(_asset);
         _browseAsset.Text = "…";
-        _browseAsset.Location = new Point(272, 36);
-        _browseAsset.Size = new Size(36, 28);
+        _browseAsset.AutoSize = true; _browseAsset.MinimumSize = new Size(36, 28);
         _browseAsset.Click += (_, _) => BrowseAsset();
         EditorChrome.StyleField(_browseAsset);
-        binding.Controls.Add(_enabled);
-        binding.Controls.Add(_assetLabel);
-        binding.Controls.Add(_asset);
-        binding.Controls.Add(_browseAsset);
+        binding.Controls.Add(_enabled, 0, 0); binding.SetColumnSpan(_enabled, 3);
+        binding.Controls.Add(_assetLabel, 0, 1); binding.Controls.Add(_asset, 1, 1); binding.Controls.Add(_browseAsset, 2, 1);
 
         left.Controls.Add(_stack);
         left.Controls.Add(binding);
@@ -143,6 +148,8 @@ public sealed class ObjectCompositionDialog : DpiAwareForm
         _properties.AllowUserToAddRows = false;
         _properties.AllowUserToDeleteRows = false;
         _properties.AllowUserToResizeRows = false;
+        _properties.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.AllCellsExceptHeaders;
+        _properties.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
         _properties.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
         _properties.RowHeadersVisible = false;
         _properties.SelectionMode = DataGridViewSelectionMode.CellSelect;
@@ -200,8 +207,8 @@ public sealed class ObjectCompositionDialog : DpiAwareForm
     private Control BuildButtons()
     {
         Panel panel = new() { Dock = DockStyle.Bottom, Height = 54, Padding = new Padding(10), BackColor = EditorChrome.Surface };
-        Button cancel = new() { Text = "Cancel", DialogResult = DialogResult.Cancel, Dock = DockStyle.Right, Width = 92 };
-        Button accept = new() { Text = "Apply", DialogResult = DialogResult.OK, Dock = DockStyle.Right, Width = 104 };
+        Button cancel = new() { Text = "Cancel", AutoSize = true, DialogResult = DialogResult.Cancel, Dock = DockStyle.Right, Width = 92 };
+        Button accept = new() { Text = "Apply", AutoSize = true, DialogResult = DialogResult.OK, Dock = DockStyle.Right, Width = 104 };
         EditorChrome.StyleField(cancel);
         EditorChrome.StyleField(accept);
         accept.BackColor = EditorChrome.Accent;

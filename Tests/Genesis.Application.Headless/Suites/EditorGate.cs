@@ -28,6 +28,7 @@ using Genesis.Runtime.Particles;
 using Genesis.Runtime.Project;
 using Genesis.Runtime.Rendering;
 using Genesis.Runtime.Climate;
+using Genesis.Physics;
 using Genesis.Rendering.Abstractions;
 using Genesis.Rendering.Core;
 using Genesis.Rendering.Primitives;
@@ -56,7 +57,7 @@ namespace Genesis.Application.Headless.Suites;
 /// folder, or nothing at all (NEXT-041, NEXT-044, NEXT-046, NEXT-086), and no amount of in-editor
 /// assertion catches it.
 /// </remarks>
-internal static class EditorGate
+internal static partial class EditorGate
 {
     public static void Run(HeadlessContext ctx, GateSuite.GateFixture fixture)
     {
@@ -73,6 +74,8 @@ internal static class EditorGate
         HeadlessHarness.RunCase(ctx.Report, "Editor.Particle", () => Particle(ctx, fixture));
         HeadlessHarness.RunCase(ctx.Report, "Editor.Physics", () => Physics(ctx, fixture));
         HeadlessHarness.RunCase(ctx.Report, "Editor.Note", () => Note(ctx, fixture));
+        HeadlessHarness.RunCase(ctx.Report, "Editor.Pathing", () => Pathing(ctx, fixture));
+        HeadlessHarness.RunCase(ctx.Report, "Editor.UI", () => Ui(ctx, fixture));
     }
 
     public static void RunFocused(HeadlessContext ctx, GateSuite.GateFixture fixture, string editor)
@@ -91,8 +94,10 @@ internal static class EditorGate
             "particle" => ("Editor.Particle", () => Particle(ctx, fixture)),
             "physics" => ("Editor.Physics", () => Physics(ctx, fixture)),
             "note" => ("Editor.Note", () => Note(ctx, fixture)),
+            "pathing" => ("Editor.Pathing", () => Pathing(ctx, fixture)),
+            "ui" => ("Editor.UI", () => Ui(ctx, fixture)),
             _ => throw new ArgumentException(
-                $"Unknown editor '{editor}'. Expected Image, Room, Object, Script, Terrain, Model, Audio, Shader, Particle, Physics, or Note."),
+                $"Unknown editor '{editor}'. Expected Image, Room, Object, Script, Terrain, Model, Audio, Shader, Particle, Physics, Note, Pathing, or UI."),
         };
         HeadlessHarness.RunCase(ctx.Report, focused.Name, focused.Action);
     }
@@ -104,7 +109,7 @@ internal static class EditorGate
         ProjectSession project = fixture.Blank;
         ResourceService resources = fixture.Resources(project);
         string path = resources.CreateResource(
-            fixture.Folder(project, "Images"), ResourceKind.Image, "Gate Sprite");
+            ResourceFolderPolicy.RootFor(project, ResourceKind.Image), ResourceKind.Image, "Gate Sprite");
 
         ImageDocumentSession session = new(
             ImageDocumentSerializer.LoadAtomic(path).Document, path, ImageDocumentAccess.Editor);
@@ -323,6 +328,7 @@ internal static class EditorGate
                 $"The open Image workspace kept stale pixels after an external write ({refreshed}).");
         });
 
+        ImageNoviceWorkflow(ctx, fixture);
         host.Close();
     }
 
@@ -356,19 +362,26 @@ internal static class EditorGate
         {
             static IEnumerable<Control> Children(Control parent) => parent.Controls.Cast<Control>()
                 .SelectMany(child => new[] { child }.Concat(Children(child)));
-            var sections = Children(editor.Inspector).OfType<Genesis.Application.Editors.Suite.UiKit.InspectorSection>()
-                .Where(section => section.Visible).ToArray();
+            editor.Inspector.ShowRoomSettings();
+            GateSuite.Pump(2, 10);
+            var sections = Children(editor.Inspector).OfType<TableLayoutPanel>()
+                .Where(section => section.Name.StartsWith("InspectorGroup", StringComparison.Ordinal)
+                    && section.ColumnCount == 1 && section.RowCount == 2 && section.Visible).ToArray();
             HeadlessHarness.Assert(sections.Length >= 3, "Room settings sections are missing.");
             foreach (var section in sections)
             {
+                TableLayoutPanel body = section.Controls.OfType<TableLayoutPanel>().Single();
+                Button header = Children(section).OfType<Button>().Single(button => button.Name == section.Name + "Header");
+                if (!body.Visible) header.PerformClick();
+                GateSuite.Pump(2, 10);
                 int expandedHeight = section.Height;
-                HeadlessHarness.Assert(section.Body.Bottom <= section.ClientSize.Height, $"{section.Title} clips its body.");
-                section.Expanded = false;
+                HeadlessHarness.Assert(body.Bottom <= section.ClientSize.Height, $"{header.Text} clips its body.");
+                header.PerformClick();
                 GateSuite.Pump(2, 10);
-                HeadlessHarness.Assert(section.Height < expandedHeight, $"{section.Title} did not collapse.");
-                section.Expanded = true;
+                HeadlessHarness.Assert(!body.Visible && section.Height < expandedHeight, $"{header.Text} did not collapse.");
+                header.PerformClick();
                 GateSuite.Pump(2, 10);
-                HeadlessHarness.Assert(section.Body.Bottom <= section.ClientSize.Height, $"{section.Title} clips after reopening.");
+                HeadlessHarness.Assert(body.Visible && body.Bottom <= section.ClientSize.Height, $"{header.Text} clips after reopening.");
             }
         });
 
@@ -381,8 +394,9 @@ internal static class EditorGate
             GateSuite.Pump(3, 20);
             HeadlessHarness.Assert(editor.IsNarrowLayout,
                 "A 760px-wide Room Editor should enter narrow layout.");
-            HeadlessHarness.Assert(commandBar.IsSavePinned && commandBar.HasOverflowedCommands,
-                "The narrow Room Editor neither pinned Save nor moved secondary commands into More.");
+            HeadlessHarness.Assert(commandBar.IsSavePinned && commandBar.Items.Cast<ToolStripItem>()
+                    .Count(item => item.Available && item.Alignment != ToolStripItemAlignment.Right) <= 6,
+                "The narrow Room Editor lost Save or retained a crowded primary command bar.");
             editor.SetTool(RoomEditorControl.RoomTool.Paint);
             HeadlessHarness.Assert(editor.ActiveTool == RoomEditorControl.RoomTool.Paint,
                 "The Room Editor has no explicit Paint mode.");
@@ -545,12 +559,12 @@ internal static class EditorGate
             HeadlessHarness.Assert(
                 canonicalEditor.ViewMode3D
                 && canonicalEditor.Room.Nodes.Any(node => node.Kind == RoomNodeKind.Terrain)
-                && canonicalEditor.Room.Nodes.Any(node => node.GameObject?.Prefab.EndsWith(
-                    "/" + SandboxTemplate.CampfireName + ".object.json",
-                    StringComparison.OrdinalIgnoreCase) == true)
-                && canonicalEditor.Room.Nodes.Any(node => node.GameObject?.Prefab.EndsWith(
-                    "/" + SandboxTemplate.PlayerName + ".object.json",
-                    StringComparison.OrdinalIgnoreCase) == true),
+                && canonicalEditor.Room.Nodes.Any(node => node.GameObject is { } gameObject
+                    && Path.GetFileName(ResourceNames.Resolve(canonicalProject.RootPath, gameObject.Prefab))
+                        .Equals(SandboxTemplate.CampfireName + ".object.json", StringComparison.OrdinalIgnoreCase))
+                && canonicalEditor.Room.Nodes.Any(node => node.GameObject is { } gameObject
+                    && Path.GetFileName(ResourceNames.Resolve(canonicalProject.RootPath, gameObject.Prefab))
+                        .Equals(SandboxTemplate.PlayerName + ".object.json", StringComparison.OrdinalIgnoreCase)),
                 "Room Editor did not open the canonical terrain/campfire/player graph in 3D mode.");
             using Bitmap? canonicalFrame = canonicalEditor.Viewport.CaptureFrame(settleFrames: 4);
             HeadlessHarness.Assert(
@@ -559,6 +573,7 @@ internal static class EditorGate
             canonicalHost.Close();
         });
 
+        RoomNoviceWorkflow(ctx, fixture);
         host.Close();
     }
 
@@ -608,6 +623,37 @@ internal static class EditorGate
                 "The preview reported no frame size.");
         });
 
+        HeadlessHarness.Step("enlarged object properties retain readable and selectable events", () =>
+        {
+            Genesis.Application.Core.Settings.GenesisSettings settings = new();
+            string? previous = editor.ActiveEvent;
+            try
+            {
+                settings.Appearance.InterfaceScale = 2;
+                Genesis.Application.Studio.Theme.ThemeService.ApplySettings(settings);
+                Genesis.Application.Studio.Docking.SuiteChromeBridge.Push();
+                Genesis.Application.Studio.Theme.ThemeService.Apply(editor);
+                GateSuite.Pump(4, 10);
+                EventListPanel events = SurfaceControls(editor).OfType<EventListPanel>().Single();
+                HeadlessHarness.Assert(events.ClientSize.Height >= 2 * EditorChrome.BaseFont.Height + 28,
+                    "The enlarged identity panel left insufficient room for Create and Step rows.");
+                HeadlessHarness.Assert(events.ClickEvent("Step") && editor.ActiveEvent == "Step",
+                    "Selecting an enlarged Step event did not select its actual authored code.");
+                Control graph = editor.VisualActions.Graph;
+                HeadlessHarness.Assert(graph.Width >= graph.Parent!.ClientSize.Width - 24 && graph.Height >= graph.Parent.ClientSize.Height - 24,
+                    "The enlarged Builder retained a small graph inside unused space.");
+                string capture = "gate-object-enlarged-events.png";
+                ctx.Report.Images.Add(ImageResult.From("Gate — enlarged Object event selection", capture,
+                    VisualCapture.CaptureOpenForm(host, Path.Combine(ctx.Captures, capture))));
+            }
+            finally
+            {
+                Genesis.Application.Studio.Theme.ThemeService.ApplySettings(new());
+                Genesis.Application.Studio.Docking.SuiteChromeBridge.Push();
+                Genesis.Application.Studio.Theme.ThemeService.Apply(editor);
+                if (previous is not null && !editor.IsDisposed) editor.SelectEvent(previous);
+            }
+        });
         HeadlessHarness.Step("add an event and write code into it", () =>
         {
             HeadlessHarness.Assert(
@@ -617,7 +663,7 @@ internal static class EditorGate
             string create = editor.PgslEvents.GetValueOrDefault("Create", string.Empty);
             editor.SetEventBody(
                 "Create",
-                create + "\nliveHealth = 100;\nliveLabel = \"Ready\";\n");
+                create + "\nvar liveHealth = 100;\nvar liveLabel = \"Ready\";\nfunction EditorValue(value) { return value * 6; }\nvar localProof = EditorValue(5);\n");
             HeadlessHarness.Assert(
                 editor.ActiveEvents.Contains("Alarm1"),
                 "Alarm1 is not among the object's active events.");
@@ -628,6 +674,8 @@ internal static class EditorGate
             ObjectSandboxResult? result = editor.RunSandbox();
             HeadlessHarness.Assert(result is not null, "The sandbox produced no result.");
             HeadlessHarness.Assert(result!.Ok, "The sandbox reported errors: " + FirstError(result));
+            HeadlessHarness.Assert(result.Numbers.GetValueOrDefault("localProof") == 30,
+                "The Object sandbox did not execute the local function declared by its authored event.");
 
             // The Coin's Step is pure maths, so this object must come back clean; the Player's does
             // not, and Editor.QoL asserts the warning path. Both halves matter: a sandbox that warns
@@ -666,7 +714,9 @@ internal static class EditorGate
                 && inspector.EditablePropertyGroups.Contains("CREATE EVENT", StringComparer.OrdinalIgnoreCase)
                 && inspector.EditablePropertyPaths.Contains("Runtime.Instance.x", StringComparer.OrdinalIgnoreCase)
                 && inspector.EditablePropertyPaths.Contains("Runtime.Variables.liveHealth", StringComparer.OrdinalIgnoreCase),
-                "The Inspector did not separate Create-event variables from built-in instance fields.");
+                "The Inspector did not separate Create-event variables from built-in instance fields. Groups: "
+                + string.Join(", ", inspector.EditablePropertyGroups) + "; fields: " + string.Join(", ", inspector.EditablePropertyPaths)
+                + "; source fields: " + string.Join(", ", editor.GetLiveInspectorValues().Select(value => value.PropertyPath)));
 
             HeadlessHarness.Assert(
                 inspector.SetEditableValue("Runtime.Variables.liveHealth", 50.0)
@@ -694,6 +744,29 @@ internal static class EditorGate
                 "Gate — live Object sandbox Inspector",
                 "gate-object-live-inspector.png",
                 metrics));
+        });
+
+        HeadlessHarness.Step("the embedded gameplay Inspector edits its own retained VM", () =>
+        {
+            editor.RunLiveSandbox();
+            editor.RuntimePreview.Playing = false;
+            PgslBehavior live = HeadlessHarness.Require(editor.RuntimePreview.LiveBehavior, "embedded Object behavior");
+            HeadlessHarness.Assert(Convert.ToDouble(live.GetVariablesSnapshot()["localProof"]) == 30,
+                "Production Object playback did not load and execute the authored local function.");
+            HeadlessHarness.Assert(editor.GetLiveInspectorValues().Any(value => value.Group == "CREATE EVENT"
+                && value.PropertyPath == "Runtime.Variables.liveHealth")
+                && editor.GetLiveInspectorValues().Any(value => value.Group == "INSTANCE FIELDS"
+                    && value.PropertyPath == "Runtime.Instance.x"), "Embedded variables and instance fields are not clearly grouped.");
+            HeadlessHarness.Assert(editor.TryApplyLiveInspectorValue("Runtime.Variables.liveHealth", 25.0)
+                && editor.TryApplyLiveInspectorValue("Runtime.Instance.x", 777.0), "The embedded VM rejected live Inspector edits.");
+            HeadlessHarness.Assert(ReferenceEquals(live, editor.RuntimePreview.LiveBehavior)
+                && Convert.ToDouble(live.GetVariablesSnapshot()["liveHealth"]) == 25.0
+                && live.Context.X == 777.0 && editor.PgslEvents["Create"].Contains("liveHealth = 100", StringComparison.Ordinal),
+                "Embedded Inspector edits reset the VM, targeted a different sandbox, or rewrote the authored event.");
+            editor.ResetLiveSandbox();
+            HeadlessHarness.Assert(editor.GetLiveInspectorValues().Any(value => value.PropertyPath == "Events.Create.Variables.liveHealth")
+                && !editor.GetLiveInspectorValues().Any(value => value.PropertyPath == "Runtime.Variables.liveHealth"),
+                "Reset did not return the Inspector to authored values.");
         });
 
         HeadlessHarness.Step("compose multiple live capabilities as one ordered object", () =>
@@ -849,9 +922,9 @@ internal static class EditorGate
 
             HeadlessHarness.Assert(
                 prefabWorld.Has<ParticleComponent>(prefabEntity)
-                && prefabWorld.GetRef<ParticleComponent>(prefabEntity).Asset == relativeParticle
+                && ResourceNames.Resolve(project.RootPath, prefabWorld.GetRef<ParticleComponent>(prefabEntity).Asset) == particle
                 && prefabWorld.Has<AudioComponent>(prefabEntity)
-                && prefabWorld.GetRef<AudioComponent>(prefabEntity).Asset == relativeAudio
+                && ResourceNames.Resolve(project.RootPath, prefabWorld.GetRef<AudioComponent>(prefabEntity).Asset) == audio
                 && prefabWorld.Has<PointLightComponent>(prefabEntity)
                 && Math.Abs(prefabWorld.GetRef<PointLightComponent>(prefabEntity).Radius - 7.5f) < 0.001f
                 && Math.Abs(prefabWorld.GetRef<PointLightComponent>(prefabEntity).Falloff - 3.5f) < 0.001f
@@ -861,7 +934,7 @@ internal static class EditorGate
                 "The F5 prefab spawn path lost a composed particle, audio, or Light Emitter setting.");
             HeadlessHarness.Assert(
                 ObjectDrawAssetRegistry.TryGet(prefabEntity, out ObjectDrawAssetEntry drawAssets)
-                && string.Equals(drawAssets.Shader, relativeShader, StringComparison.OrdinalIgnoreCase),
+                && string.Equals(ResourceNames.Resolve(project.RootPath, drawAssets.Shader), shader, StringComparison.OrdinalIgnoreCase),
                 "The F5 prefab spawn path lost the composed shader binding.");
 
             using ObjectEditorControl reopened = new(coin, project.RootPath);
@@ -1023,10 +1096,8 @@ internal static class EditorGate
             deepHost.Controls.Add(deepEditor);
             GateSuite.ShowHost(deepHost);
             GateSuite.Pump(8, 25);
-            ImageMetrics metrics = VisualCapture.Capture(
-                deepHost,
-                Path.Combine(ctx.Captures, "gate-object-deep-flow.png"),
-                captureFromScreen: false);
+            ImageMetrics metrics = VisualCapture.CaptureOpenForm(deepHost,
+                Path.Combine(ctx.Captures, "gate-object-deep-flow.png"));
             HeadlessHarness.Assert(
                 deepEditor.VisualActions.Flows.Count == 5
                 && deepEditor.VisualActions.Graph.NodeBounds.Count >= 1
@@ -1052,6 +1123,7 @@ internal static class EditorGate
         });
 
         host.Close();
+        ObjectNoviceWorkflow(ctx, fixture);
     }
 
     // ── PGSL script ─────────────────────────────────────────────────────────────
@@ -1095,6 +1167,7 @@ internal static class EditorGate
 
         HeadlessHarness.Step("completion and signature help are wired into the visible editor", () =>
         {
+            editor.SetAuthoringMode(PgslScriptAuthoringMode.Code);
             editor.ScriptText = "var moveSpeed = 4;\nmoveS";
             editor.Code.MoveCaret(editor.ScriptText.Length);
             HeadlessHarness.Assert(
@@ -1129,7 +1202,9 @@ internal static class EditorGate
             HeadlessHarness.Assert(
                 editor.Code.SignatureVisible
                 && editor.Code.CompletionVisible
-                && editor.Code.SignatureText.Contains("DrawSprite(spr,frame,x,y)", StringComparison.Ordinal)
+                && editor.Code.SignatureText.Contains("DrawSprite(", StringComparison.Ordinal)
+                && editor.Code.SignatureText.Contains("number", StringComparison.Ordinal)
+                && editor.Code.ActiveParameterIndex == 2
                 && editor.Code.SignatureText.Contains("Draw sprite", StringComparison.OrdinalIgnoreCase),
                 "Signature help, command documentation, and completion were not visible together.");
 
@@ -1145,20 +1220,238 @@ internal static class EditorGate
                 metrics));
         });
 
-        HeadlessHarness.Step("asset completion inserts a resolvable quoted resource path", () =>
+        HeadlessHarness.Step("asset completion inserts a resolvable quoted resource name", () =>
         {
-            _ = resources.CreateResource(
-                fixture.Folder(project, "Images"), ResourceKind.Image, "Completion Sprite");
+            string created = resources.CreateResource(
+                ResourceFolderPolicy.RootFor(project, ResourceKind.Image), ResourceKind.Image, "Completion Sprite");
             editor.ScriptText = "Complet";
             editor.Code.MoveCaret(editor.ScriptText.Length);
             CodeCompletionItem? asset = editor.Code.CompletionItems.FirstOrDefault(
                 item => item.DisplayText == "Completion Sprite" && item.Kind == "Image");
             HeadlessHarness.Assert(asset is not null, "Project Images were omitted from completion.");
             HeadlessHarness.Assert(
-                asset!.InsertText == "\"Assets/Images/Completion Sprite.image.json\"",
-                $"Asset completion would insert '{asset.InsertText}' instead of its real resource path.");
+                asset!.InsertText == "\"Completion Sprite\""
+                && string.Equals(ProjectAssetIndex.ResolveReference(project.RootPath, asset.InsertText.Trim('"'), ResourceKind.Image),
+                    created, StringComparison.OrdinalIgnoreCase),
+                $"Asset completion '{asset.InsertText}' cannot resolve to the created sprite.");
         });
 
+        HeadlessHarness.Step("top-level script entries remain editable in Builder and execute after reopening", () =>
+        {
+            string entryPath = resources.CreateResource(fixture.Folder(project, "Scripts"), ResourceKind.PgslScript, "Entry Score");
+            const string original = "// Script entry code is ordinary PGSL.\nvar total = Floor(3.5) * 10;\n";
+            File.WriteAllText(entryPath, original);
+            using Form entryHost = GateSuite.NewHost(1100, 700);
+            using PgslScriptEditorControl entry = new(entryPath, project.RootPath);
+            entryHost.Controls.Add(entry); GateSuite.ShowHost(entryHost);
+            Genesis.Application.Studio.Theme.ThemeService.Apply(entry); GateSuite.Pump(4, 10);
+            HeadlessHarness.Assert(!entry.IsDirty && entry.Builder.Source == original,
+                "Opening or theming an entry script marks it dirty or replaces its real body with an empty function.");
+            HeadlessHarness.Assert(entry.Builder.InsertCommand("Print") && entry.ScriptText.Contains("Print", StringComparison.Ordinal)
+                && entry.ScriptText.Contains("Floor(3.5) * 10", StringComparison.Ordinal),
+                "A Builder action did not reach the script entry or discarded its hand-written score calculation.");
+            string edited = entry.ScriptText;
+            entry.Builder.Undo();
+            HeadlessHarness.Assert(entry.ScriptText == original, "Undo did not restore the exact original entry source.");
+            entry.Builder.Redo();
+            HeadlessHarness.Assert(entry.ScriptText == edited, "Redo did not restore the entry action.");
+            entry.Save();
+            using PgslScriptEditorControl reopened = new(entryPath, project.RootPath);
+            HeadlessHarness.Assert(reopened.Builder.Source == edited && !reopened.IsDirty,
+                "Save/reopen lost the entry's Builder body or dirtied it without an edit.");
+            ObjectSandboxResult result = ObjectSandbox.Run(new Dictionary<string, string> { ["Create"] = File.ReadAllText(entryPath) }, frames: 1);
+            HeadlessHarness.Assert(result.Ok && Math.Abs(result.Numbers.GetValueOrDefault("total") - 30) < .001,
+                "The saved Builder entry failed to execute its original score calculation: " + FirstError(result));
+            const string library = "var shared = 7;\nfunction Score(seconds)\n{\n    return Floor(seconds) * 10;\n}\n";
+            entry.ScriptText = library; entry.SetAuthoringMode(PgslScriptAuthoringMode.Builder);
+            HeadlessHarness.Assert(entry.Builder.InsertCommand("Print", actionIndex: 0)
+                && entry.ScriptText.Contains("var shared = 7", StringComparison.Ordinal)
+                && entry.ScriptText.Contains("return Floor(seconds) * 10", StringComparison.Ordinal),
+                "Editing a named function discarded its body or a library value outside that function.");
+            string editedLibrary = entry.ScriptText;
+            entry.Builder.Undo();
+            HeadlessHarness.Assert(entry.ScriptText == library, "Named function undo did not retain its original source.");
+            entry.Builder.Redo();
+            HeadlessHarness.Assert(entry.ScriptText == editedLibrary, "Named function redo lost its body edit.");
+            entry.Save();
+            ObjectSandboxResult named = ObjectSandbox.Run(new Dictionary<string, string>
+                { ["Create"] = File.ReadAllText(entryPath) + "\nvar total = Score(3.5);\n" }, frames: 1);
+            HeadlessHarness.Assert(named.Ok && Math.Abs(named.Numbers.GetValueOrDefault("total") - 30) < .001,
+                "The saved named function failed after a Builder body edit: " + FirstError(named));
+        });
+        HeadlessHarness.Step("Script has a short starting workflow and one document history across modes", () =>
+        {
+            string guidedPath = resources.CreateResource(fixture.Folder(project, "Scripts"), ResourceKind.PgslScript, "Guided entry");
+            const string original = "var guidedScore = 40;\n";
+            File.WriteAllText(guidedPath, original);
+            using Form guidedHost = GateSuite.NewHost(1100, 700);
+            using PgslScriptEditorControl guided = new(guidedPath, project.RootPath);
+            guidedHost.Controls.Add(guided); GateSuite.ShowHost(guidedHost);
+            EditorCommandBar toolbar = guided.Controls.OfType<EditorCommandBar>().Single();
+            HeadlessHarness.Assert(!guided.IsDirty && toolbar.IsSaveVisible && toolbar.IsDocumentStateVisible
+                && toolbar.Items.Cast<ToolStripItem>().Any(item => item.Text == "Add action…")
+                && !toolbar.Items.Cast<ToolStripItem>().Any(item => item.Text is "File" or "Edit" or "+ Function" or "If / Else" or "Return" or "Commands"),
+                "The novice Script toolbar is missing its starting action or retains the old duplicate/advanced buttons.");
+            HeadlessHarness.Assert(guided.Builder.InsertCommand("Print") && guided.CanUndo,
+                "A Builder edit did not enter the shell's document history.");
+            string edited = guided.ScriptText;
+            string block = guided.Builder.Blocks.Last().Id;
+            var groupMethods = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            typeof(VisualActionBuilderControl).GetMethod("BeginGroupedEdit", groupMethods)!.Invoke(guided.Builder, null);
+            guided.Builder.Graph.SetNodePosition(block, new PointF(400, 180));
+            guided.Builder.Graph.SetNodePosition(block, new PointF(450, 210));
+            typeof(VisualActionBuilderControl).GetMethod("EndGroupedEdit", groupMethods)!.Invoke(guided.Builder, [false]);
+            string dragged = guided.ScriptText;
+            guided.Builder.Undo();
+            HeadlessHarness.Assert(guided.ScriptText == edited,
+                "The graph's Undo did not revert the entire node-drag gesture in one step.");
+            guided.Builder.Redo();
+            HeadlessHarness.Assert(guided.ScriptText == dragged, "The graph's Redo did not restore its node layout.");
+            guided.Undo();
+            guided.Undo();
+            HeadlessHarness.Assert(guided.ScriptText == original && !guided.IsDirty && guided.CanRedo,
+                "Document Undo did not restore the exact saved Builder source and clean state.");
+            guided.Redo(); guided.Save();
+            HeadlessHarness.Assert(guided.ScriptText == edited && !guided.IsDirty,
+                "Document Redo lost a Builder edit.");
+            guided.SetAuthoringMode(PgslScriptAuthoringMode.Code);
+            guided.Code.TextBox.AppendText("guidedScore += 2;\n");
+            string typed = guided.ScriptText;
+            guided.Undo();
+            HeadlessHarness.Assert(guided.ScriptText == edited && !guided.IsDirty,
+                "Shell Undo did not restore a typed Code edit to its saved state.");
+            guided.Redo(); guided.Save(); guided.Undo();
+            HeadlessHarness.Assert(guided.IsDirty, "Undoing past a later save incorrectly kept the Script clean.");
+            guided.Redo();
+            HeadlessHarness.Assert(guided.ScriptText == typed && !guided.IsDirty,
+                "Redoing to the later save did not restore the Script's clean state.");
+            guided.ScriptText = "function First() { return 1; }\nfunction Second() { return 2; }\n";
+            guided.SetAuthoringMode(PgslScriptAuthoringMode.Builder);
+            guidedHost.ClientSize = new Size(620, 420); GateSuite.Pump(2, 10);
+            ComboBox picker = SurfaceControls(guided).OfType<ComboBox>().Single(control => control.Name == "ScriptRoutinePicker");
+            HeadlessHarness.Assert(picker.Visible && picker.Items.Count == 2,
+                "The narrow Builder hides the only way to select another function.");
+            picker.SelectedIndex = 1;
+            HeadlessHarness.Assert(guided.Builder.GroupName == "Second" && guided.Builder.Source.Contains("return 2", StringComparison.Ordinal),
+                "The visible function selector did not load the selected function's real body.");
+        });
+        HeadlessHarness.Step("enlarged Script initially frames its function and preserves deliberate graph scrolling", () =>
+        {
+            try
+            {
+                GenesisSettings settings = new(); settings.Appearance.InterfaceScale = 2;
+                Genesis.Application.Studio.Theme.ThemeService.ApplySettings(settings); SuiteChromeBridge.Push();
+                string path = resources.CreateResource(fixture.Folder(project, "Scripts"), ResourceKind.PgslScript, "Scaled functions");
+                File.WriteAllText(path, "function First() { Print(1); }\nfunction Second() { Print(2); }\n");
+                using Form scaledHost = GateSuite.NewHost(1480, 900);
+                using PgslScriptEditorControl scaled = new(path, project.RootPath);
+                scaledHost.Controls.Add(scaled);
+                Genesis.Application.Studio.Theme.ThemeService.Apply(scaled); GateSuite.ShowHost(scaledHost);
+                GateSuite.Pump(4, 10);
+                VisualActionGraphCanvas graph = scaled.Builder.Graph;
+                var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                RectangleF start = (RectangleF)typeof(VisualActionGraphCanvas).GetProperty("EventBounds", flags)!.GetValue(graph)!;
+                Rectangle visibleStart = Rectangle.Round(new RectangleF(start.X * graph.Zoom + graph.AutoScrollPosition.X,
+                    start.Y * graph.Zoom + graph.AutoScrollPosition.Y, start.Width * graph.Zoom, start.Height * graph.Zoom));
+                HeadlessHarness.Assert(graph.ClientRectangle.Contains(visibleStart),
+                    "The initial function node is outside the enlarged graph after the host's final layout.");
+                ComboBox picker = SurfaceControls(scaled).OfType<ComboBox>().Single(control => control.Name == "ScriptRoutinePicker");
+                TableLayoutPanel row = (TableLayoutPanel)picker.Parent!;
+                Label caption = (Label)row.GetControlFromPosition(0, 0)!;
+                HeadlessHarness.Assert(caption.Height >= caption.Font.Height && picker.Bottom <= row.ClientSize.Height - row.Padding.Bottom,
+                    "The enlarged function selector clips its caption or selection field.");
+                graph.AutoScrollPosition = new Point(80, 100);
+                Point scrolled = graph.AutoScrollPosition; graph.Invalidate(); GateSuite.Pump(2, 10);
+                HeadlessHarness.Assert(graph.AutoScrollPosition == scrolled,
+                    "Repainting the Script graph undid deliberate user scrolling.");
+                ToolStripDropDownButton options = scaled.Controls.OfType<EditorCommandBar>().Single()
+                    .Items.OfType<ToolStripDropDownButton>().Single(item => item.Text == "Options");
+                options.DropDownItems.OfType<ToolStripMenuItem>().Single(item => item.Text == "Command reference").PerformClick();
+                GateSuite.Pump(2, 10);
+                Control toolbox = (Control)typeof(PgslScriptEditorControl).GetField("_actionToolbox", flags)!.GetValue(scaled)!;
+                Control reference = (Control)typeof(PgslScriptEditorControl).GetField("_commandReference", flags)!.GetValue(scaled)!;
+                HeadlessHarness.Assert(!toolbox.Visible && reference.Visible && reference.Height == reference.Parent!.ClientSize.Height,
+                    "The command reference is still crowded by the Builder toolbox.");
+            }
+            finally
+            {
+                Genesis.Application.Studio.Theme.ThemeService.ApplySettings(new()); SuiteChromeBridge.Push();
+                Genesis.Application.Studio.Theme.ThemeService.Apply(editor);
+            }
+        });
+        HeadlessHarness.Step("Use in game creates an executable caller and saved Script edits reach subsequent calls", () =>
+        {
+            string libraryPath = resources.CreateResource(fixture.Folder(project, "Scripts"), ResourceKind.PgslScript, "Guided score library");
+            const string original = "// @function Score inputs=seconds:Float return=Float\nfunction Score(seconds) { return seconds * 10 + 7; }\n";
+            File.WriteAllText(libraryPath, original);
+            using Form callerHost = GateSuite.NewHost(1100, 700);
+            using PgslScriptEditorControl library = new(libraryPath, project.RootPath);
+            callerHost.Controls.Add(library); GateSuite.ShowHost(callerHost);
+            library.Controls.OfType<EditorCommandBar>().Single().Items.OfType<ToolStripButton>()
+                .Single(item => item.Text == "Use in game").PerformClick();
+            Control guide = SurfaceControls(library).Single(control => control.Name == "ScriptGameGuide");
+            HeadlessHarness.Assert(guide.Visible && !library.Builder.Visible && !library.Code.Visible,
+                "Use in game did not expose the concrete Script-to-Object workflow.");
+            string? opened = null;
+            library.OpenLinkedResourceRequested += (_, linked) => opened = linked;
+            SurfaceControls(library).OfType<TextBox>().Single(control => control.Name == "ScriptCallerName").Text = "Guided score caller";
+            SurfaceControls(library).OfType<Button>().Single(control => control.Name == "ScriptCreateCallerObject").PerformClick();
+            HeadlessHarness.Assert(opened is not null && File.Exists(opened), "The visible create button did not save and open an Object caller.");
+            string callerPath = opened!;
+            Dictionary<string, string> calls = ObjectEventStore.Load(callerPath);
+            HeadlessHarness.Assert(calls.TryGetValue("Create", out string? call)
+                && call.Contains("ScriptExecute(\"Guided score library\")", StringComparison.Ordinal)
+                && call.Contains("Score(0)", StringComparison.Ordinal), "The saved caller uses a different or nonexistent Script route.");
+            string previousProject = PgslCommands.ProjectPath;
+            try
+            {
+                PgslCommands.ProjectPath = project.RootPath;
+                ScriptAssetRegistry.ClearCache(); ScriptAssetRegistry.LoadFromProject(project.RootPath);
+                ObjectSandboxResult first = ObjectSandbox.Run(calls, frames: 1);
+                HeadlessHarness.Assert(first.Ok && Math.Abs(first.Numbers.GetValueOrDefault("scriptResult") - 7) < .001,
+                    "The generated caller did not execute the selected saved function: " + FirstError(first));
+                string callerBefore = File.ReadAllText(ObjectEventStore.PathFor(callerPath, "Create"));
+                library.ScriptText = original.Replace("+ 7", "+ 9", StringComparison.Ordinal); library.Save();
+                ObjectSandboxResult second = ObjectSandbox.Run(calls, frames: 1);
+                HeadlessHarness.Assert(second.Ok && Math.Abs(second.Numbers.GetValueOrDefault("scriptResult") - 9) < .001
+                    && File.ReadAllText(ObjectEventStore.PathFor(callerPath, "Create")) == callerBefore,
+                    "Saving the Script did not update its next call or rewrote the caller's event.");
+                string savedLibrary = File.ReadAllText(libraryPath);
+                library.ScriptText = "function Broken( {";
+                bool rejected = false;
+                try { library.CreateCallerObject("Invalid script caller"); }
+                catch (InvalidOperationException) { rejected = true; }
+                HeadlessHarness.Assert(rejected && File.ReadAllText(libraryPath) == savedLibrary
+                    && ResourceNames.For(project.RootPath).Find("Invalid script caller", ResourceType.Object) is null,
+                    "Creating a caller saved an invalid Script or left a dangling Object.");
+            }
+            finally { PgslCommands.ProjectPath = previousProject; ScriptAssetRegistry.ClearCache(); }
+            SurfaceControls(library).OfType<Button>().Single(control => control.Name == "ScriptBackToEditing").PerformClick();
+            HeadlessHarness.Assert(library.Builder.Visible && !guide.Visible, "Back to editing did not restore the Script workspace.");
+        });
+        HeadlessHarness.Step("function dialog retains invalid input and explains typed parameters", () =>
+        {
+            using Form dialog = (Form)typeof(PgslScriptEditorControl).GetMethod("CreateFunctionDialog",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(editor, [null])!;
+            GateSuite.ShowHost(dialog);
+            TextBox functionName = SurfaceControls(dialog).OfType<TextBox>().Single(control => control.Name == "ScriptFunctionName");
+            TextBox inputs = SurfaceControls(dialog).OfType<TextBox>().Single(control => control.Name == "ScriptFunctionInputs");
+            Button confirm = SurfaceControls(dialog).OfType<Button>().Single(control => control.Name == "ScriptFunctionConfirm");
+            Label error = SurfaceControls(dialog).OfType<Label>().Single(control => control.Name == "ScriptFunctionError");
+            functionName.Text = "Bad name"; confirm.PerformClick();
+            HeadlessHarness.Assert(dialog.DialogResult == DialogResult.None && error.Visible && error.Text.Length > 0,
+                "Invalid function input closes the dialog without explaining how to fix it.");
+            functionName.Text = "Jump"; inputs.Text = "height: Flote"; confirm.PerformClick();
+            HeadlessHarness.Assert(dialog.DialogResult == DialogResult.None && error.Text.Contains("Float", StringComparison.Ordinal)
+                && inputs.Text == "height: Flote", "An unknown type is silently accepted or discards the draft.");
+            inputs.Text = "height: Float, height: Int"; confirm.PerformClick();
+            HeadlessHarness.Assert(dialog.DialogResult == DialogResult.None && error.Text.Contains("distinct", StringComparison.Ordinal),
+                "Duplicate inputs are accepted without a repair explanation.");
+            inputs.Text = "height: Float, fast: Boolean"; confirm.PerformClick();
+            HeadlessHarness.Assert(dialog.DialogResult == DialogResult.OK && dialog.Tag is { } signature
+                && (string?)signature.GetType().GetProperty("Name")!.GetValue(signature) == "Jump",
+                "Fixing the visible fields did not produce the requested typed function signature.");
+        });
         HeadlessHarness.Step("a mistake is reported while typing", () =>
         {
             editor.ScriptText = "event Create { this is not pgsl ((((";
@@ -2000,9 +2293,9 @@ internal static class EditorGate
             HeadlessHarness.Assert(
                 prefabWorld.Has<ModelRendererComponent>(prefab)
                 && prefabWorld.Has<ModelAnimatorComponent>(prefab)
-                && prefabWorld.GetRef<ModelRendererComponent>(prefab).ModelAsset == relativeModel
+                && ResourceNames.Resolve(project.RootPath, prefabWorld.GetRef<ModelRendererComponent>(prefab).ModelAsset) == importedPath
                 && prefabWorld.GetRef<ModelAnimatorComponent>(prefab).ClipName == "Wave",
-                "The Object Editor/F5 prefab path lost the imported model or its selected animation clip.");
+                "The saved Object lost the resolved imported model or its selected animation clip.");
 
             string roomPath = resources.CreateResource(
                 fixture.Folder(project, "Rooms"), ResourceKind.Room, "Animated Intake Room");
@@ -2238,6 +2531,8 @@ internal static class EditorGate
             cartHost.Close();
         });
 
+        ModelNoviceWorkflow(ctx, project, path);
+
         HeadlessHarness.Step("the viewport renders the model", () =>
         {
             editor.FrameModelForTest();
@@ -2259,7 +2554,6 @@ internal static class EditorGate
         string fileName,
         string label)
     {
-        
         host.BringToFront();
         host.TopMost = true;
         GateSuite.Pump(8, 30);
@@ -2281,6 +2575,9 @@ internal static class EditorGate
         ResourceService resources = fixture.Resources(project);
         string path = resources.CreateResource(
             fixture.Folder(project, "Audio"), ResourceKind.Audio, "Gate Sound");
+        string wave = Path.Combine(project.RootPath, "Assets", "Audio", "Gate Tone.wav");
+        Directory.CreateDirectory(Path.GetDirectoryName(wave)!);
+        WriteToneWave(wave, 330f, 1f);
 
         using Form host = GateSuite.NewHost(1000, 700);
         AudioEditorControl editor = new(path, project.RootPath);
@@ -2290,12 +2587,20 @@ internal static class EditorGate
 
         HeadlessHarness.Step("author the settings a game reads", () =>
         {
-            JObject document = JObject.Parse(File.ReadAllText(path));
-            document["volume"] = 0.42;
-            document["loop"] = true;
-            document["spatial"] = true;
-            document["bus"] = "music";
-            File.WriteAllText(path, document.ToString());
+            HeadlessHarness.Assert(editor.SelectSource("Assets/Audio/Gate Tone.wav") && editor.HasWaveform,
+                "A real project WAV could not be selected and decoded.");
+            editor.SetVolume(0.42f); editor.SetLoop(true); editor.SetSpatial(true);
+            HeadlessHarness.Assert(editor.TryApplyInspectorValue("bus", "music"), "The typed bus choice was rejected.");
+            HeadlessHarness.Assert(editor.SetRegion(0.2f, 0.8f, 0.1f, 0.15f), "Valid trim/fade editing failed.");
+            HeadlessHarness.Assert(editor.PreviewClip is { } clip && Math.Abs(clip.Duration - 0.6) < 0.0001
+                && clip.Samples[0] == 0 && clip.Samples[^1] == 0 && clip.Samples.Any(sample => Math.Abs((int)sample) > 3000),
+                "The waveform PCM did not trim the source and fade its edges while retaining audible samples.");
+            editor.Undo();
+            HeadlessHarness.Assert(editor.Settings.TrimStart == 0 && editor.PreviewClip?.Duration == 1, "Trim undo did not restore the waveform.");
+            editor.Redo();
+            HeadlessHarness.Assert(editor.Settings.TrimStart == 0.2f, "Trim redo failed.");
+            HeadlessHarness.Assert(!editor.SetRegion(0.9f, 0.2f, 0, 0), "An inverted region was accepted.");
+            editor.Save();
         });
 
         HeadlessHarness.Step("the runtime's own parser reads them back", () =>
@@ -2311,6 +2616,18 @@ internal static class EditorGate
                 $"The runtime read volume {settings.Volume}, the editor wrote 0.42.");
             HeadlessHarness.Assert(settings.Loop, "The runtime did not see the loop flag.");
             HeadlessHarness.Assert(settings.Spatial, "The runtime did not see the spatial flag.");
+            HeadlessHarness.Assert(settings.Bus == "music", "The mixer bus was lost on save.");
+            using AudioEditorControl reopened = new(path, project.RootPath);
+            var clip = PcmAudioClip.LoadWave(wave).ApplyRegion(settings);
+            HeadlessHarness.Assert(reopened.PreviewClip is { } preview && preview.Samples.SequenceEqual(clip.Samples),
+                "Save/reopen and game playback did not use identical trimmed, faded PCM.");
+            var effect = Genesis.Audio.SoundEffect.FromWavFile(wave, settings);
+            HeadlessHarness.Assert(effect is not null && Math.Abs(effect.DurationInSeconds - 0.6) < 0.0001,
+                "The actual runtime sound factory ignored the authored region.");
+            editor.Play();
+            HeadlessHarness.Assert(editor.IsAuditioning, "The real runtime mixer did not start an audition voice.");
+            editor.Stop();
+            HeadlessHarness.Assert(!editor.IsAuditioning, "Stop left the audition voice running.");
         });
 
         HeadlessHarness.Step("adaptive ambience presets persist as runtime roles", () =>
@@ -2324,6 +2641,47 @@ internal static class EditorGate
                 "The Water ambience preset did not persist its role, loop and spatial falloff.");
         });
 
+        HeadlessHarness.Step("enlarged audio fields remain readable beside the waveform", () =>
+        {
+            try
+            {
+                var settings = new Genesis.Application.Core.Settings.GenesisSettings();
+                settings.Appearance.InterfaceScale = 2f;
+                Genesis.Application.Studio.Theme.ThemeService.ApplySettings(settings);
+                Genesis.Application.Studio.Docking.SuiteChromeBridge.Push();
+                Genesis.Application.Studio.Theme.ThemeService.Apply(editor);
+                GateSuite.Pump(4, 10);
+                var role = SurfaceControls(editor).OfType<ComboBox>().Single(combo => combo.Items.Contains("Wildlife"));
+                HeadlessHarness.Assert(role.Width >= 150 && role.Parent!.Width <= role.Parent.Parent!.ClientSize.Width,
+                    $"The enlarged role field was squeezed or clipped: field={role.Width}, row={role.Parent?.Width}.");
+                string capture = "gate-audio-enlarged-fields.png";
+                ctx.Report.Images.Add(ImageResult.From("Gate — enlarged Audio fields", capture,
+                    VisualCapture.CaptureOpenForm(host, Path.Combine(ctx.Captures, capture))));
+                host.ClientSize = new Size(760, 560); GateSuite.Pump(3, 10);
+                HeadlessHarness.Assert(role.Width >= 130, "Resizing removed the audio field's readable editing width.");
+            }
+            finally
+            {
+                Genesis.Application.Studio.Theme.ThemeService.ApplySettings(new());
+                Genesis.Application.Studio.Docking.SuiteChromeBridge.Push();
+                Genesis.Application.Studio.Theme.ThemeService.Apply(editor);
+            }
+        });
+
+        HeadlessHarness.Step("out-of-range authored audio is preserved without an opening crash", () =>
+        {
+            string invalid = Path.Combine(Path.GetDirectoryName(path)!, "Invalid audio.audio.json");
+            const string source = "{\"Pitch\":1e38,\"TrimStart\":-1}";
+            File.WriteAllText(invalid, source);
+            using AudioEditorControl damaged = new(invalid, project.RootPath);
+            bool refused = false;
+            try { damaged.Save(); }
+            catch (InvalidDataException) { refused = true; }
+            HeadlessHarness.Assert(refused && File.ReadAllText(invalid) == source,
+                "An invalid audio document was silently overwritten by fallback settings.");
+        });
+
+        AudioNoviceWorkflow(ctx, fixture, editor, host);
         host.Close();
     }
 
@@ -2336,12 +2694,15 @@ internal static class EditorGate
         string path = resources.CreateResource(
             fixture.Folder(project, "Shaders"), ResourceKind.Shader, "Gate Shader");
         string previewImage = resources.CreateResource(
-            fixture.Folder(project, "Images"), ResourceKind.Image, "Gate Shader Preview");
+            ResourceFolderPolicy.RootFor(project, ResourceKind.Image), ResourceKind.Image, "Gate Shader Preview");
+        ImageDocumentSession previewSession = new(ImageDocumentSerializer.LoadAtomic(previewImage).Document, previewImage, ImageDocumentAccess.Editor);
+        ImageWorkspaceStorage.Save(previewSession, ImageWorkspace.CreateBlank(32, 32, Color.FromArgb(255, 40, 180, 220)));
         string terrain = resources.CreateResource(
             fixture.Folder(project, "Terrain"), ResourceKind.Terrain, "Gate Shader Terrain");
 
         using Form host = GateSuite.NewHost(1000, 720);
         ShaderEditorControl editor = new(path, project.RootPath);
+        editor.Viewport.Host.BackendOverride = RenderBackendOption.SilkNetDx11;
         host.Controls.Add(editor);
         GateSuite.ShowHost(host);
         GateSuite.Pump(6, 30);
@@ -2357,7 +2718,7 @@ internal static class EditorGate
                 && editor.PreviewVisible
                 && editor.CommandBar.IsSaveVisible
                 && editor.CommandBar.IsDocumentStateVisible,
-                "The narrow Shader workspace did not open its visual preview or hid Save/state.");
+                $"The narrow Shader workspace failed: narrow={editor.IsNarrowLayout}, active={editor.IsNarrowPreviewActive}, preview={editor.PreviewVisible}, save={editor.CommandBar.IsSaveVisible}, state={editor.CommandBar.IsDocumentStateVisible}.");
             host.ClientSize = new Size(1280, 760);
             GateSuite.Pump(3, 20);
             HeadlessHarness.Assert(
@@ -2370,7 +2731,8 @@ internal static class EditorGate
                 editor.AuthoringMode == ShaderAuthoringMode.Preset
                 && editor.TargetType == ShaderTargetType.Image
                 && editor.PresetNames.SequenceEqual(
-                    ["Image Rainbow", "Model Rainbow", "Particle Pulse", "Terrain Tint", "Pond Water", "Fullscreen Vignette"]),
+                    ["Water", "Dissolve", "Hologram", "Forcefield", "Rim Light", "Lava", "Toon", "Glitch",
+                     "Image Rainbow", "Model Rainbow", "Particle Pulse", "Terrain Tint", "Pond Water", "Fullscreen Vignette"]),
                 "The Shader Editor did not open with the complete Preset/Code authoring library.");
             editor.SetPreviewVisible(false);
             HeadlessHarness.Assert(!editor.PreviewVisible, "Unticking Preview left the shader viewport visible.");
@@ -2394,7 +2756,7 @@ internal static class EditorGate
             GateSuite.Pump(3, 20);
             HeadlessHarness.Assert(
                 editor.TargetType == ShaderTargetType.Terrain
-                && editor.PreviewAsset.EndsWith(Path.GetFileName(terrain), StringComparison.OrdinalIgnoreCase)
+                && string.Equals(ResourceNames.Resolve(project.RootPath, editor.PreviewAsset), terrain, StringComparison.OrdinalIgnoreCase)
                 && editor.TerrainComponents.Contains("none", StringComparer.Ordinal)
                 && editor.TerrainComponents.Contains("all", StringComparer.Ordinal)
                 && editor.TerrainComponents.Count(component => component.StartsWith("layer:", StringComparison.Ordinal)) == 4,
@@ -2402,7 +2764,7 @@ internal static class EditorGate
 
             editor.SetAuthoringMode(ShaderAuthoringMode.Code);
             HeadlessHarness.Assert(
-                editor.AuthoringMode == ShaderAuthoringMode.Code,
+                editor.AuthoringMode == ShaderAuthoringMode.Code && editor.WorkspaceMode == "Code",
                 "Code mode did not replace the preset controls with the source editor.");
             editor.SetAuthoringMode(ShaderAuthoringMode.Preset);
             HeadlessHarness.Assert(editor.SelectPreset("Image Rainbow"), "The Image preset could not be restored.");
@@ -2456,7 +2818,7 @@ internal static class EditorGate
                 && editor.DiagnosticsVisible
                 && editor.LivePreviewApplied
                 && editor.CanUndo,
-                "A bad source edit did not surface diagnostics, preserve the last-good preview, or enter history.");
+                $"Bad shader state: compiled={editor.LastCompileSucceeded}, diagnostics={editor.DiagnosticsVisible}, lastPreview={editor.LivePreviewApplied}, undo={editor.CanUndo}.");
 
             editor.Undo();
             GateSuite.Pump(2, 20);
@@ -2516,7 +2878,7 @@ internal static class EditorGate
             HeadlessHarness.Assert(File.Exists(path), "The shader document was not written.");
             ShaderAssetDocument authored = ShaderAssetDocument.Load(path);
             HeadlessHarness.Assert(
-                authored.SchemaVersion == 4
+                authored.SchemaVersion == 6
                 && authored.AuthoringMode == ShaderAuthoringMode.Preset
                 && authored.TargetType == ShaderTargetType.Image
                 && authored.Parameters.Count == 2,
@@ -2589,7 +2951,7 @@ internal static class EditorGate
             RoomBuildResult built = new RoomSceneBuilder(project.RootPath).Build(world, room);
             Entity entity = built.EntitiesByNodeId[placed.Id];
             HeadlessHarness.Assert(ObjectDrawAssetRegistry.TryGet(entity, out ObjectDrawAssetEntry assets)
-                && string.Equals(assets.Shader, relativeShader, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(ResourceNames.Resolve(project.RootPath, assets.Shader), path, StringComparison.OrdinalIgnoreCase)
                 && assets.ShaderParameters.TryGetValue("Speed", out float[]? speed)
                 && speed is { Length: > 0 }
                 && Math.Abs(speed[0] - 0.6f) < 0.001f,
@@ -2619,7 +2981,7 @@ internal static class EditorGate
                 "Adding MaskTex/MaskSamp did not reflect extra texture and sampler resources.");
             HeadlessHarness.Assert(
                 editor.SetResourceBinding("MaskTex", relativePreview)
-                && editor.ResourceBinding("MaskTex").Equals(relativePreview, StringComparison.OrdinalIgnoreCase),
+                && string.Equals(ResourceNames.Resolve(project.RootPath, editor.ResourceBinding("MaskTex")), previewImage, StringComparison.OrdinalIgnoreCase),
                 "The extra MaskTex slot could not be bound to a project Image.");
             HeadlessHarness.Assert(
                 editor.AddVariant("Swap", "SWAP")
@@ -2632,14 +2994,14 @@ internal static class EditorGate
             editor.Save();
             ShaderAssetDocument saved = ShaderAssetDocument.Load(path);
             HeadlessHarness.Assert(
-                saved.SchemaVersion == 4
+                saved.SchemaVersion == 6
                 && saved.ActiveVariant == "Swap"
                 && saved.Variants.Any(variant =>
                     variant.Name == "Swap" && variant.Keywords.Contains("SWAP", StringComparer.Ordinal))
                 && saved.Resources.Any(resource =>
                     resource.Name == "MaskTex"
                     && resource.Slot == 1
-                    && resource.Binding.Equals(relativePreview, StringComparison.OrdinalIgnoreCase)),
+                    && string.Equals(ResourceNames.Resolve(project.RootPath, resource.Binding), previewImage, StringComparison.OrdinalIgnoreCase)),
                 "Named variants or reflected texture bindings did not persist on disk.");
             HeadlessHarness.Assert(
                 saved.ResolveCompiledSource().Contains("#define SWAP 1", StringComparison.Ordinal),
@@ -2647,16 +3009,240 @@ internal static class EditorGate
             using ShaderEditorControl reopened = new(path, project.RootPath);
             HeadlessHarness.Assert(
                 reopened.ActiveVariant == "Swap"
-                && reopened.ResourceBinding("MaskTex").Equals(relativePreview, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(ResourceNames.Resolve(project.RootPath, reopened.ResourceBinding("MaskTex")), previewImage, StringComparison.OrdinalIgnoreCase)
                 && reopened.SelectVariant(string.Empty)
                 && reopened.ActiveVariant.Length == 0
                 && reopened.SelectVariant("Swap"),
                 "Reloading the shader lost its named variant or extra texture binding.");
         });
 
+        HeadlessHarness.Step("shader pass actions retain source, history, persistence and runtime enablement", () =>
+        {
+            host.ClientSize = new Size(1480, 900);
+            editor.SetAuthoringMode(ShaderAuthoringMode.Preset);
+            editor.CommandBar.Items.OfType<ToolStripDropDownButton>().Single(item => item.Text == "Options")
+                .DropDownItems.OfType<ToolStripMenuItem>().Single(item => item.Tag as string == "Presets").PerformClick();
+            GateSuite.Pump(2, 20);
+            ShaderAssetDocument Document() => (ShaderAssetDocument)typeof(ShaderEditorControl)
+                .GetField("_document", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(editor)!;
+            Button Action(string name) => SurfaceControls(editor).OfType<Button>().Single(button => button.AccessibleName == name);
+            ListBox passes = SurfaceControls(editor).OfType<ListBox>().Single(list => list.AccessibleName == "Shader passes");
+            Action("Add shader pass").PerformClick();
+            HeadlessHarness.Assert(Document().Passes.Count == 2 && passes.Items.Count == 2, "Adding a pass did not update its source document and visible list.");
+            editor.Undo();
+            HeadlessHarness.Assert(Document().Passes.Count == 1 && passes.Items.Count == 1 && !Action("Remove shader pass").Enabled,
+                "Pass undo left a stale list or allowed removing the only pass.");
+            editor.Redo();
+            string second = "// SECOND PASS\n" + editor.SourceText;
+            editor.SetSource(second); editor.CompileNow();
+            Action("Move shader pass up").PerformClick();
+            HeadlessHarness.Assert(Document().ActivePassIndex == 0 && Document().Passes[0].Source.StartsWith("// SECOND PASS", StringComparison.Ordinal)
+                && !Action("Move shader pass up").Enabled, "Moving a pass lost its selected source or boundary state.");
+            editor.Undo();
+            HeadlessHarness.Assert(Document().ActivePassIndex == 1 && editor.SourceText == second && passes.SelectedIndex == 1,
+                "Pass move undo did not restore selected code and list position.");
+            editor.Redo();
+            editor.Save();
+            IRenderController renderer = editor.Viewport.Host.Renderer ?? throw new InvalidOperationException("Shader viewport has no actual renderer.");
+            EditorInteractionRenderProbe sink = new();
+            int QueuedPasses()
+            {
+                sink.Sprites.Clear();
+                ObjectDrawPass.QueueSprite2D(project.RootPath, sink, renderer,
+                    new ObjectDrawAssetEntry { Shader = ResourceNames.Name(project.RootPath, path, ResourceType.Shader) },
+                    new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 }, new Draw2DComponent { Visible = true },
+                    ResourceNames.Name(project.RootPath, previewImage, ResourceType.Image), 0, 1, 0, 0, 1);
+                return sink.Sprites.Count;
+            }
+            int submitted = QueuedPasses();
+            HeadlessHarness.Assert(submitted == 2 && sink.Sprites.All(call => call.Shader.IsValid),
+                $"Gameplay did not submit both enabled authored passes: backend={renderer.BackendName}, count={submitted}, handles={string.Join(',', sink.Sprites.Select(call => call.Shader.IsValid))}.");
+            Action("Toggle shader pass").PerformClick();
+            HeadlessHarness.Assert(!Document().Passes[0].Enabled && Action("Toggle shader pass").Text == "Enable", "Pass toggle is undiscoverable or did not change authored enablement.");
+            editor.Undo();
+            HeadlessHarness.Assert(Document().Passes[0].Enabled && Action("Toggle shader pass").Text == "Disable", "Pass-toggle undo did not restore the control.");
+            editor.Redo(); editor.Save();
+            HeadlessHarness.Assert(QueuedPasses() == 1 && ShaderAssetDocument.Load(path).Passes[0].Enabled == false,
+                "Gameplay or persistence ignored a disabled pass.");
+            Action("Remove shader pass").PerformClick();
+            HeadlessHarness.Assert(Document().Passes.Count == 1 && !editor.SourceText.StartsWith("// SECOND PASS", StringComparison.Ordinal),
+                "Removing the active pass left its source displayed on another pass.");
+            editor.Undo();
+            HeadlessHarness.Assert(Document().Passes.Count == 2 && passes.Items.Count == 2 && editor.SourceText == second && !Document().Passes[0].Enabled,
+                "Removing a pass could not be undone with source and enablement intact.");
+            passes.SelectedIndex = 1;
+            Action("Toggle shader pass").PerformClick(); editor.Save();
+            HeadlessHarness.Assert(QueuedPasses() == 1 && !sink.Sprites[0].Shader.IsValid
+                && QueuedPasses() == 1 && !sink.Sprites[0].Shader.IsValid, "Disabling all passes retained or repeatedly released stale shader handles.");
+            editor.Undo(); editor.Save();
+            HeadlessHarness.Assert(QueuedPasses() == 1 && sink.Sprites[0].Shader.IsValid, "Re-enabling a pass did not rebuild the gameplay shader.");
+            using ShaderEditorControl reopened = new(path, project.RootPath);
+            HeadlessHarness.Assert(reopened.SourceText == editor.SourceText && ShaderAssetDocument.Load(path).Passes.Count == 2,
+                "Saved pass selection and source did not reopen correctly.");
+        });
+
+        HeadlessHarness.Step("Shader Quick setup creates an ordinary shaded Object and retains failed drafts", () =>
+        {
+            editor.SetTargetType(ShaderTargetType.Image); editor.SelectPreset("Image Rainbow");
+            editor.ChoosePreviewAsset(previewImage); editor.Save();
+            HeadlessHarness.Assert(editor.CommandBar.IsSaveVisible && editor.CommandBar.IsDocumentStateVisible
+                && !editor.CommandBar.Items.Cast<ToolStripItem>().Any(item => item.Text is "File" or "Edit" or "Compile" or "Target" or "Stop"),
+                "The short Shader toolbar retains duplicate menus or advanced target/compile controls.");
+            ComboBox effect = SurfaceControls(editor).OfType<ComboBox>().Single(control => control.Name == "ShaderQuickPreset");
+            HeadlessHarness.Assert(effect.Visible && effect.Items.Count == editor.PresetNames.Count + 1,
+                "Quick setup has no visible effect choice or has lost presets.");
+            editor.SetAuthoringMode(ShaderAuthoringMode.Code);
+            string savedSource = editor.SourceText;
+            CodeEditor code = SurfaceControls(editor).OfType<CodeEditor>().Single();
+            code.TextBox.AppendText("\n// Typed edit\n"); editor.Undo();
+            HeadlessHarness.Assert(editor.SourceText == savedSource, "Shader document Undo did not restore a typed Code edit.");
+            editor.Redo(); editor.Save(); editor.Undo();
+            HeadlessHarness.Assert(editor.IsDirty, "Undoing past a Shader save incorrectly kept it clean.");
+            editor.Redo(); HeadlessHarness.Assert(!editor.IsDirty, "Redoing to the saved Shader did not restore its clean state.");
+            editor.CommandBar.Items.OfType<ToolStripButton>().Single(item => item.Text == "Use in game").PerformClick();
+            HeadlessHarness.Assert(SurfaceControls(editor).Single(control => control.Name == "ShaderUseInGame").Visible,
+                "Use in game did not explain how to attach the saved shader.");
+            string? opened = null; editor.OpenLinkedResourceRequested += (_, resource) => opened = resource;
+            SurfaceControls(editor).OfType<TextBox>().Single(control => control.Name == "ShaderObjectName").Text = "Guided shaded sprite";
+            SurfaceControls(editor).OfType<Button>().Single(control => control.Name == "ShaderCreateObject").PerformClick();
+            HeadlessHarness.Assert(opened is not null && File.Exists(opened), "Create shaded Object did not save and open the actual Object.");
+            using ObjectEditorControl shaded = new(opened!, project.RootPath);
+            HeadlessHarness.Assert((string?)ObjectCompositionModel.Props(shaded.Composition.Find("SpriteComponent")!)["Sprite"] == ResourceNames.Name(project.RootPath, previewImage)
+                && (string?)ObjectCompositionModel.Props(shaded.Composition.Find("ShaderComponent")!)["Asset"] == ResourceNames.Name(project.RootPath, path),
+                "The shaded Object does not reference the chosen Image and saved Shader.");
+            string saved = File.ReadAllText(path);
+            editor.SetSource("float4 MainPS( { broken"); editor.Save();
+            HeadlessHarness.Assert(!editor.LastCompileSucceeded && editor.IsDirty && File.ReadAllText(path) == saved
+                && editor.SourceText.Contains("broken", StringComparison.Ordinal),
+                "Saving an invalid Shader discarded its draft or replaced the working resource.");
+            bool rejected = false;
+            try { editor.CreateShaderObject("Invalid shader sprite"); } catch (InvalidOperationException) { rejected = true; }
+            HeadlessHarness.Assert(rejected && !File.Exists(Path.Combine(fixture.Folder(project, "Objects"), "Invalid shader sprite.object.json")),
+                "An invalid Shader created an unusable game Object.");
+            editor.Undo(); editor.CompileNow();
+            SurfaceControls(editor).OfType<Button>().Single(control => control.Name == "ShaderBackToQuickSetup").PerformClick();
+            HeadlessHarness.Assert(editor.LastCompileSucceeded && editor.WorkspaceMode == "Preview",
+                "Undo and Back to Quick setup did not recover the valid working shader.");
+        });
+        HeadlessHarness.Step("saved sprite shader changes actual 2D gameplay pixels", () =>
+        {
+            string proofPath = resources.CreateResource(ResourceFolderPolicy.RootFor(project, ResourceKind.Shader), ResourceKind.Shader, "Sprite Pixel Proof");
+            const string pixelSource = """
+                Texture2D SpriteTex : register(t0);
+                SamplerState SpriteSamp : register(s0);
+                struct PS_IN { float4 Pos : SV_POSITION; float2 UV : TEXCOORD0; float4 Color : COLOR0; };
+                float4 MainPS(PS_IN IN) : SV_TARGET {
+                    float4 tex = SpriteTex.Sample(SpriteSamp, IN.UV) * IN.Color;
+                    return float4(tex.b, tex.r, tex.g, tex.a);
+                }
+                """;
+            ShaderAssetDocument proof = new() { Source = pixelSource, Passes = [new ShaderPassDefinition { Name = "Swap channels", Source = pixelSource, Entry = "MainPS" }] };
+            File.WriteAllText(proofPath, System.Text.Json.JsonSerializer.Serialize(proof));
+            string objectPath;
+            using (ShaderEditorControl creator = new(proofPath, project.RootPath))
+            {
+                HeadlessHarness.Assert(creator.ChoosePreviewAsset(previewImage), "The shader guide cannot choose the actual project Image.");
+                objectPath = creator.CreateShaderObject("Pixel proof sprite");
+            }
+            EcsWorld world = new();
+            Entity entity = PrefabSpawner.Spawn(world, JObject.Parse(File.ReadAllText(objectPath)));
+            HeadlessHarness.Assert(ObjectDrawAssetRegistry.TryGet(entity, out ObjectDrawAssetEntry entry)
+                && entry.Image == ResourceNames.Name(project.RootPath, previewImage, ResourceType.Image)
+                && entry.Shader == ResourceNames.Name(project.RootPath, proofPath, ResourceType.Shader),
+                "The Object created by Use in game did not load its Image and Shader into gameplay.");
+            string savedShader = entry.Shader;
+            Color Capture(IRenderController renderer, bool useShader, string backend)
+            {
+                renderer.ClearPreviewShaderOverride();
+                renderer.BeginFrame(); renderer.Set3DFrameActive(false);
+                renderer.SetViewport(0, 0, renderer.PixelWidth, renderer.PixelHeight);
+                renderer.SetCamera2D(renderer.PixelWidth / 2f, renderer.PixelHeight / 2f, 1, 0);
+                renderer.Clear(.02f, .03f, .05f, 1);
+                FrameRenderQueue queue = new();
+                entry.Shader = useShader ? savedShader : string.Empty;
+                ObjectDrawPass.QueueSprite2D(project.RootPath, queue, renderer,
+                    entry, world.GetRef<TransformComponent>(entity), world.GetRef<Draw2DComponent>(entity),
+                    entry.Image, 0, 1, 0, 0, 1, destination: new RectangleF(100, 100, 128, 128));
+                queue.Flush(renderer, includeMeshes: false); renderer.EndFrame();
+                HeadlessHarness.Assert(renderer.TryReadSubmittedFramePixels(out int width, out int height, out byte[] bytes), "The saved sprite shader has no actual frame readback.");
+                using Bitmap bitmap = new(width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                var data = bitmap.LockBits(new Rectangle(0, 0, width, height), System.Drawing.Imaging.ImageLockMode.WriteOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                for (int row = 0; row < height; row++) System.Runtime.InteropServices.Marshal.Copy(bytes, row * width * 4, data.Scan0 + row * data.Stride, width * 4);
+                bitmap.UnlockBits(data);
+                string file = "sprite-shader-" + backend + (useShader ? "-authored.png" : "-base.png");
+                bitmap.Save(Path.Combine(ctx.Captures, file), System.Drawing.Imaging.ImageFormat.Png);
+                var metrics = VisualCapture.Measure(bitmap);
+                ctx.Report.Images.Add(ImageResult.From((useShader ? "Saved Object shader · " : "Unshaded Object · ") + backend, file, metrics));
+                return bitmap.GetPixel(164, 164);
+            }
+            try
+            {
+                foreach (var backend in new[] { RenderBackendOption.SilkNetDx11, RenderBackendOption.Direct3D12, RenderBackendOption.Vulkan, RenderBackendOption.OpenGL, RenderBackendOption.Software })
+                {
+                    editor.Viewport.BackendOverride = backend;
+                    GateSuite.Pump(3, 20);
+                    using (Bitmap? warm = editor.Viewport.CaptureFrame(3)) { }
+                    IRenderController renderer = editor.Viewport.Host.Renderer ?? throw new InvalidOperationException("No live 2D renderer for " + backend);
+                    string expectedName = backend switch
+                    {
+                        RenderBackendOption.SilkNetDx11 => "Direct3D 11", RenderBackendOption.Direct3D12 => "Direct3D 12",
+                        RenderBackendOption.Vulkan => "Vulkan", RenderBackendOption.OpenGL => "OpenGL", _ => "Software",
+                    };
+                    HeadlessHarness.Assert(renderer.BackendName == expectedName, "A different backend rendered the saved shader Object: " + renderer.BackendName);
+                    Color original = Capture(renderer, false, backend.ToString()), shaded = Capture(renderer, true, backend.ToString());
+                    HeadlessHarness.Assert(Math.Abs(original.R - 40) < 4 && Math.Abs(original.G - 180) < 4 && Math.Abs(original.B - 220) < 4,
+                        backend + ": the authored Image did not reach the physical 2D frame: " + original);
+                    Color expected = backend == RenderBackendOption.Software ? original : Color.FromArgb(220, 40, 180);
+                    HeadlessHarness.Assert(Math.Abs(shaded.R - expected.R) < 4 && Math.Abs(shaded.G - expected.G) < 4 && Math.Abs(shaded.B - expected.B) < 4,
+                        backend + ": the saved Object shader did not render its expected physical pixels: " + shaded);
+                }
+            }
+            finally { ObjectDrawAssetRegistry.Remove(entity); editor.Viewport.BackendOverride = RenderBackendOption.SilkNetDx11; }
+        });
+
+        HeadlessHarness.Step("enlarged shader workspaces retain pass actions and editable parameters", () =>
+        {
+            try
+            {
+                var settings = new Genesis.Application.Core.Settings.GenesisSettings();
+                settings.Appearance.InterfaceScale = 2;
+                Genesis.Application.Studio.Theme.ThemeService.ApplySettings(settings);
+                Genesis.Application.Studio.Docking.SuiteChromeBridge.Push();
+                Genesis.Application.Studio.Theme.ThemeService.Apply(editor);
+                ToolStripMenuItem Mode(string name) => editor.CommandBar.Items.OfType<ToolStripDropDownButton>()
+                    .Single(item => item.Text == "Options").DropDownItems.OfType<ToolStripMenuItem>().Single(item => item.Tag as string == name);
+                Mode("Presets").PerformClick(); GateSuite.Pump(4, 10);
+                ListBox passes = SurfaceControls(editor).OfType<ListBox>().Single(list => list.AccessibleName == "Shader passes");
+                HeadlessHarness.Assert(passes.ClientSize.Height >= passes.Font.Height
+                    && passes.Parent!.Width > 200 && editor.CommandBar.Items.Cast<ToolStripItem>().Any(item => item.Text == "Quick setup"),
+                    "The enlarged Presets workspace hid its pass list or Preview mode.");
+                Button toggle = SurfaceControls(editor).OfType<Button>().Single(button => button.AccessibleName == "Toggle shader pass");
+                HeadlessHarness.Assert(toggle.Bottom <= toggle.Parent!.ClientSize.Height && toggle.Width > 200,
+                    "The enlarged pass toggle was clipped.");
+                Mode("Parameters").PerformClick(); GateSuite.Pump(4, 10);
+                foreach (Panel card in SurfaceControls(editor).OfType<Panel>().Where(panel => panel.Name == "ShaderParameterCard"))
+                    HeadlessHarness.Assert(card.Height >= 120, "An enlarged parameter card squeezed away its value controls.");
+                editor.SetTargetType(ShaderTargetType.Image);
+                HeadlessHarness.Assert(editor.ChoosePreviewAsset(previewImage), "The real Image preview target could not be selected.");
+                Mode("Buffers").PerformClick(); GateSuite.Pump(3, 10);
+                ShaderBufferCard[] buffers = SurfaceControls(editor).OfType<ShaderBufferCard>().ToArray();
+                HeadlessHarness.Assert(buffers.Length == 4 && buffers.All(card => card.Width >= 300 && card.Height >= 180)
+                    && buffers.Any(card => card.BufferName == "Albedo" && card.HasPreview)
+                    && buffers.Any(card => card.BufferName == "Depth" && !card.HasPreview && card.Binding.Contains("unavailable", StringComparison.Ordinal)),
+                    "Texture binding cards clipped enlarged text or fabricated an unavailable depth preview: "
+                    + string.Join("; ", buffers.Select(card => $"{card.BufferName}: {card.Size}, {card.HasPreview}, {card.Binding}")));
+            }
+            finally
+            {
+                Genesis.Application.Studio.Theme.ThemeService.ApplySettings(new());
+                Genesis.Application.Studio.Docking.SuiteChromeBridge.Push();
+                Genesis.Application.Studio.Theme.ThemeService.Apply(editor);
+            }
+        });
+
         host.Close();
 
-        HeadlessHarness.Step("live authored-shader golden/parity covers all seven backends", () =>
+        HeadlessHarness.Step("live authored-shader golden/parity covers all five backends", () =>
         {
             IReadOnlyList<ShaderAuthoredParityRunner.Capture> captures =
                 ShaderAuthoredParityRunner.RunAll(Path.Combine(ctx.Captures, "shader-parity"));
@@ -2681,6 +3267,9 @@ internal static class EditorGate
             Genesis.Application.Runtime.ImageMetrics dx11 = captures[0].Metrics;
             foreach (ShaderAuthoredParityRunner.Capture capture in captures)
             {
+                ctx.Report.Images.Add(new ImageResult("Authored mesh shader " + capture.Slug,
+                    Path.GetRelativePath(ctx.Captures, capture.File), capture.Metrics.Width, capture.Metrics.Height,
+                    capture.Metrics.UniqueSampledColors, capture.Metrics.AverageLuminance));
                 int minColors = capture.Slug == "software" ? 2 : 6;
                 HeadlessHarness.Assert(
                     capture.Metrics.UniqueSampledColors >= minColors,
@@ -2694,6 +3283,8 @@ internal static class EditorGate
 
             ShaderAuthoredParityRunner.Capture swapped = ShaderAuthoredParityRunner.RunCurrentBackend(
                 Path.Combine(ctx.Captures, "shader-parity"), "dx11", swapVariant: true);
+            ctx.Report.Images.Add(new ImageResult("Authored mesh shader variant", Path.GetRelativePath(ctx.Captures, swapped.File),
+                swapped.Metrics.Width, swapped.Metrics.Height, swapped.Metrics.UniqueSampledColors, swapped.Metrics.AverageLuminance));
             HeadlessHarness.Assert(
                 Genesis.Application.Runtime.ImageMetrics.MaxTileDelta(dx11, swapped.Metrics) > 4,
                 "The SWAP keyword variant rendered identically to the base authored shader.");
@@ -2721,7 +3312,7 @@ internal static class EditorGate
         HeadlessHarness.Step("particle properties use a sectioned inspector and responsive command bar", () =>
         {
             EditorCommandBar commandBar = editor.Controls.OfType<EditorCommandBar>().Single();
-            HeadlessHarness.Assert(editor.InspectorSections.SequenceEqual(new[] { "Emission", "Forces", "Material", "Curves", "Collision", "Renderer", "Effect Light" }),
+            HeadlessHarness.Assert(editor.InspectorSections.SequenceEqual(new[] { "Emission", "Forces", "Material", "Curves", "Collision", "Renderer", "Effect Light", "Events" }),
                 "Particle properties are not grouped into the expected inspector sections.");
             HeadlessHarness.Assert(
                 commandBar.IsDocumentBound && commandBar.IsSavePinned
@@ -2740,6 +3331,11 @@ internal static class EditorGate
                 "The particle timeline did not pause and scrub to the requested lifetime position.");
             editor.ToggleTimelinePlayback();
             editor.StepForTest(0.5f);
+            for (int frame = 0; frame < 40 && editor.LiveParticleCount == 0; frame++)
+            {
+                using (editor.Viewport.CaptureFrame(1)) { }
+                GateSuite.Pump(1, 10);
+            }
             HeadlessHarness.Assert(editor.LiveParticleCount > 0, "The runtime particle preview emitted nothing.");
             editor.Save();
 
@@ -2775,6 +3371,44 @@ internal static class EditorGate
                 "Saving a migrated particle did not replace the legacy schema.");
         });
 
+        HeadlessHarness.Step("enlarged particle properties fit their actual rows without duplicate playback", () =>
+        {
+            try
+            {
+                host.ClientSize = new Size(1480, 900);
+                var settings = new Genesis.Application.Core.Settings.GenesisSettings();
+                settings.Appearance.InterfaceScale = 2;
+                Genesis.Application.Studio.Theme.ThemeService.ApplySettings(settings);
+                Genesis.Application.Studio.Docking.SuiteChromeBridge.Push();
+                Genesis.Application.Studio.Theme.ThemeService.Apply(editor);
+                ToolStripDropDownButton panels = SurfaceControls(editor).OfType<ToolStrip>()
+                    .SelectMany(strip => strip.Items.OfType<ToolStripDropDownButton>()).Single(button => button.Text == "Options");
+                panels.DropDownItems.OfType<ToolStripMenuItem>().Single(item => item.Text == "Advanced properties").PerformClick();
+                GateSuite.Pump(4, 10);
+                TabControl tabs = SurfaceControls(editor).OfType<TabControl>()
+                    .Single(tab => tab.TabPages.Cast<TabPage>().Any(page => page.Text == "Emission"));
+                TableLayoutPanel first = SurfaceControls(tabs.SelectedTab!).OfType<TableLayoutPanel>().First();
+                Label caption = first.Controls.OfType<Label>().Single();
+                Control field = first.Controls.Cast<Control>().Single(control => control != caption);
+                int captionHeight = TextRenderer.MeasureText(caption.Text, caption.Font,
+                    new Size(caption.ClientSize.Width, int.MaxValue), TextFormatFlags.WordBreak).Height;
+                HeadlessHarness.Assert(first.Controls.Cast<Control>().All(control => first.ClientRectangle.Contains(control.Bounds))
+                    && caption.ClientSize.Height >= captionHeight && field.ClientSize.Height >= field.Font.Height
+                    && tabs.DrawMode == TabDrawMode.OwnerDrawFixed && tabs.Font.SizeInPoints >= 18,
+                    "The enlarged particle Inspector clipped its caption/field or retained unthemed tab captions. Row="
+                    + first.Bounds + "; caption=" + caption.Bounds + "; field=" + field.Bounds + "; draw=" + tabs.DrawMode + ".");
+                HeadlessHarness.Assert(!SurfaceControls(editor).OfType<Button>().Any(button => button.Visible
+                    && button.AccessibleName is "Play or pause particle preview" or "Restart particle timeline"),
+                    "The timeline duplicated the top playback command group.");
+            }
+            finally
+            {
+                Genesis.Application.Studio.Theme.ThemeService.ApplySettings(new());
+                Genesis.Application.Studio.Docking.SuiteChromeBridge.Push();
+                Genesis.Application.Studio.Theme.ThemeService.Apply(editor);
+            }
+        });
+
         host.Close();
     }
 
@@ -2782,6 +3416,99 @@ internal static class EditorGate
 
     private static void Physics(HeadlessContext ctx, GateSuite.GateFixture fixture)
     {
+        HeadlessHarness.Step("2D assets constrain real collisions and rotation in both physics worlds", () =>
+        {
+            using SandboxPhysicsWorld sandbox = new(enableThreadDispatcher: false, allowSleep: false)
+                { Dimension = PhysicsDimension.TwoD, AngularDamping = 0, LinearDamping = 0 };
+            sandbox.AddStaticBox(new Vector3(0, -.5f, 0), new Vector3(100, .5f, 10));
+            PhysicsBody previewBody = sandbox.AddDynamicBox(new Vector3(0, 3, 7), new Vector3(.5f));
+            sandbox.SetLinearVelocity(previewBody, new Vector3(2, 0, 10));
+            for (int i = 0; i < 180; i++)
+            {
+                sandbox.Step(1f / 60);
+                sandbox.GetPose(previewBody, out Vector3 p, out Quaternion q);
+                HeadlessHarness.Assert(Math.Abs(p.Z) < .01f && Math.Abs(q.X) + Math.Abs(q.Y) < .01f,
+                    $"2D preview escaped the plane during a collision: {p}, {q}.");
+            }
+            sandbox.GetPose(previewBody, out Vector3 resting, out _);
+            HeadlessHarness.Assert(resting.Y is > .35f and < .8f && resting.X > 1,
+                $"2D preview did not move or land on the real collider: {resting}.");
+            sandbox.Dimension = PhysicsDimension.ThreeD;
+            sandbox.SetLinearVelocity(previewBody, new Vector3(0, 0, 3));
+            for (int i = 0; i < 30; i++) sandbox.Step(1f / 60);
+            sandbox.GetPose(previewBody, out Vector3 threeD, out _);
+            HeadlessHarness.Assert(threeD.Z > .3f, "Switching to 3D retained the planar constraint.");
+
+            HeadlessHarness.Assert(PhysicsDeclarativeBinding.TryBuildRigidBody("2D Platformer", "Box", "Dynamic",
+                null, new Vector3(.5f), out RigidBodyComponent authored, out _)
+                && authored.PlanarTwoD, "A runtime body lost its asset's 2D dimension.");
+            using EcsWorld world = new();
+            using PhysicsWorld runtime = PhysicsWorld.Create(new PhysicsWorldAsset
+                { AllowSleep = false });
+            runtime.EnableThreadDispatcher = false;
+            Entity floor = world.CreateEntity();
+            world.Set(floor, RigidBodyComponent.StaticBox(new Vector3(100, .5f, 10)));
+            world.Set(floor, Transform3DComponent.Default);
+            world.GetRef<Transform3DComponent>(floor).Position = new Vector3(0, -.5f, 0);
+            runtime.RegisterEntity(world, floor, ref world.GetRef<RigidBodyComponent>(floor), ref world.GetRef<Transform3DComponent>(floor));
+            Entity moving = world.CreateEntity();
+            authored.Flags &= ~RigidBodyFlags.LockRotation;
+            world.Set(moving, authored);
+            world.Set(moving, Transform3DComponent.Default);
+            world.GetRef<Transform3DComponent>(moving).Position = new Vector3(0, 5, 2);
+            runtime.RegisterEntity(world, moving, ref world.GetRef<RigidBodyComponent>(moving), ref world.GetRef<Transform3DComponent>(moving));
+            int id = world.GetRef<RigidBodyComponent>(moving).RegistrationId;
+            var registeredHandles = (Dictionary<BepuPhysics.BodyHandle, int>)typeof(PhysicsWorld)
+                .GetField("_dynamicHandles", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(runtime)!;
+            var handle = registeredHandles.Single(pair => pair.Value == id).Key;
+            var physicalBody = runtime.Simulation.Bodies.GetBodyReference(handle);
+            physicalBody.Velocity.Angular = new Vector3(5, 7, 2);
+            runtime.SetLinearVelocity(world, id, new Vector3(2, 0, 15));
+            runtime.ApplyLinearImpulse(world, id, new Vector3(0, 0, 20));
+            bool rotated = false;
+            for (int i = 0; i < 180; i++)
+            {
+                runtime.Step(world, 1f / 60);
+                runtime.SyncTransforms(world);
+                Transform3DComponent t = world.GetRef<Transform3DComponent>(moving);
+                rotated |= Math.Abs(t.Rotation.Z) > .05f;
+                HeadlessHarness.Assert(Math.Abs(t.Position.Z - 2) < .01f && Math.Abs(t.Rotation.X) + Math.Abs(t.Rotation.Y) < .025f,
+                    $"Runtime 2D asset escaped its plane: {t.Position}, {t.Rotation}.");
+            }
+            HeadlessHarness.Assert(rotated && runtime.GetBodyPosition(id).Y is > .3f and < 1f,
+                "Runtime 2D asset did not rotate in-plane and land on a real collider.");
+            world.GetRef<RigidBodyComponent>(moving).Flags |= RigidBodyFlags.LockRotation;
+            runtime.Step(world, 1f / 60);
+            Quaternion locked = physicalBody.Pose.Orientation;
+            physicalBody.Velocity.Angular = new Vector3(0, 0, 10);
+            for (int i = 0; i < 30; i++) runtime.Step(world, 1f / 60);
+            HeadlessHarness.Assert(Math.Abs(Quaternion.Dot(locked, physicalBody.Pose.Orientation)) > .999f,
+                "A locked 2D body continued rotating.");
+            Entity second = world.CreateEntity();
+            world.Set(second, authored);
+            world.Set(second, Transform3DComponent.Default);
+            Vector3 firstPosition = runtime.GetBodyPosition(id);
+            world.GetRef<Transform3DComponent>(second).Position = firstPosition + new Vector3(0, 1.2f, 0);
+            runtime.RegisterEntity(world, second, ref world.GetRef<RigidBodyComponent>(second), ref world.GetRef<Transform3DComponent>(second));
+            int secondId = world.GetRef<RigidBodyComponent>(second).RegistrationId;
+            int joint = runtime.CreateBallJoint(id, secondId, firstPosition + new Vector3(0, .6f, 0));
+            HeadlessHarness.Assert(joint > 0, "A joint between 2D bodies could not be created.");
+            runtime.SetLinearVelocity(world, secondId, new Vector3(2, 0, 9));
+            for (int i = 0; i < 120; i++)
+            {
+                runtime.Step(world, 1f / 60);
+                runtime.SyncTransforms(world);
+                Transform3DComponent a = world.GetRef<Transform3DComponent>(moving);
+                Transform3DComponent b = world.GetRef<Transform3DComponent>(second);
+                Vector3 anchorA = a.Position + Vector3.Transform(new Vector3(0, .6f, 0), Quaternion.Conjugate(locked) * a.Rotation);
+                Vector3 anchorB = b.Position + Vector3.Transform(new Vector3(0, -.6f, 0), b.Rotation);
+                HeadlessHarness.Assert(Vector3.Distance(anchorA, anchorB) < .05f && Math.Abs(b.Position.Z - 2) < .01f,
+                    "A real 2D joint separated or escaped its plane.");
+            }
+            HeadlessHarness.Assert(runtime.DestroyScriptJoint(joint), "A 2D joint could not be removed.");
+            runtime.UnregisterEntity(world, second, ref world.GetRef<RigidBodyComponent>(second));
+            runtime.UnregisterEntity(world, moving, ref world.GetRef<RigidBodyComponent>(moving));
+        });
         ProjectSession project = fixture.Blank;
         ResourceService resources = fixture.Resources(project);
         string path = resources.CreateResource(
@@ -2793,21 +3520,172 @@ internal static class EditorGate
         GateSuite.ShowHost(host);
         GateSuite.Pump(6, 30);
 
-        HeadlessHarness.Step("save and reload a physics body", () =>
-        {
-            editor.Save();
-            JObject document = JObject.Parse(File.ReadAllText(path));
-            document["friction"] = 0.75;
-            document["restitution"] = 0.2;
-            File.WriteAllText(path, document.ToString());
+        HeadlessHarness.Step("saved Physics resources drive sprite bodies and solid Room tiles", () =>
+            CheckSpritePhysicsGameplay(ctx, fixture, editor));
 
-            using PhysicsEditorControl reopened = new(path, project.RootPath);
-            JObject reloaded = JObject.Parse(File.ReadAllText(path));
-            HeadlessHarness.Assert(
-                (double?)reloaded["friction"] == 0.75,
-                "The physics document did not keep its authored friction.");
+        HeadlessHarness.Step("Physics Quick setup and typed drafts have one document history", () =>
+        {
+            HeadlessHarness.Assert(editor.CommandBar.IsSaveVisible && editor.CommandBar.IsDocumentStateVisible
+                && !editor.CommandBar.Items.Cast<ToolStripItem>().Any(item => item.Text is "File" or "Edit" or "Type" or "Timeline"),
+                "The short Physics toolbar retains duplicate or advanced commands.");
+            FlowLayoutPanel quick = SurfaceControls(editor).OfType<FlowLayoutPanel>().Single(control => control.Name == "PhysicsQuickSetup");
+            HeadlessHarness.Assert(quick.Visible && quick.AutoScrollPosition.Y == 0, "Physics did not open at the Quick setup introduction.");
+            editor.SetAuthoringMode(PhysicsAuthoringMode.Code); string before = editor.DefinitionText;
+            CodeEditor code = SurfaceControls(editor).OfType<CodeEditor>().Single();
+            code.TextBox.Text = before.Replace("friction: 0.5", "friction: 0.6", StringComparison.Ordinal); editor.Undo();
+            HeadlessHarness.Assert(editor.DefinitionText == before, "Document Undo did not recover a typed Physics edit.");
+            editor.Redo(); editor.Save(); editor.Undo();
+            HeadlessHarness.Assert(editor.IsDirty, "Undoing through a Physics save retained a false clean state.");
+            editor.Redo(); HeadlessHarness.Assert(!editor.IsDirty, "Redoing to the saved Physics resource did not restore its clean state.");
+            editor.CommandBar.Items.OfType<ToolStripButton>().Single(item => item.Text == "Quick setup").PerformClick();
+            GateSuite.Pump(2, 10);
+            HeadlessHarness.Assert(quick.Visible && quick.AutoScrollPosition.Y == 0, "Back to Quick setup left the starting point hidden.");
         });
 
+        HeadlessHarness.Step("auxiliary physics controls follow history and code changes", () =>
+        {
+            NumericUpDown gravity = SurfaceControls(editor).OfType<NumericUpDown>().Single(control => control.AccessibleName == "Gravity X");
+            float beforeGravity = editor.Configuration.GravityDirX;
+            gravity.Value = 0.65m;
+            HeadlessHarness.Assert(Math.Abs(editor.Configuration.GravityDirX - .65f) < .001f, "Gravity control did not change the authored direction.");
+            editor.Undo();
+            HeadlessHarness.Assert(Math.Abs(editor.Configuration.GravityDirX - beforeGravity) < .001f
+                && gravity.Value == (decimal)beforeGravity, "Undo restored gravity data but retained a stale control value.");
+            editor.Redo();
+            HeadlessHarness.Assert(gravity.Value == .65m, $"Redo did not restore the gravity control: control={gravity.Value}, data={editor.Configuration.GravityDirX}, journal={editor.LastEditLabel}.");
+            editor.Undo();
+            CheckBox sleeping = SurfaceControls(editor).OfType<CheckBox>().Single(control => control.Text == "Allow sleeping");
+            bool beforeSleep = sleeping.Checked;
+            sleeping.Checked = !beforeSleep;
+            editor.Undo();
+            HeadlessHarness.Assert(sleeping.Checked == beforeSleep && editor.Configuration.AllowSleep == beforeSleep,
+                "Sleeping checkbox did not follow undo or generated another edit while restoring.");
+            ComboBox layer = SurfaceControls(editor).OfType<ComboBox>().Single(control => control.AccessibleName == "Collision layer");
+            int beforeLayer = layer.SelectedIndex;
+            layer.SelectedIndex = (beforeLayer + 3) % 7;
+            editor.Undo();
+            HeadlessHarness.Assert(layer.SelectedIndex == beforeLayer && editor.Configuration.CollisionLayer == beforeLayer,
+                "Collision-layer selection did not follow undo.");
+            PhysicsSceneConfig changed = editor.Configuration;
+            changed.LinearDamping = .8f;
+            changed.GravityDirX = -.45f;
+            changed.GravityModel = PhysicsGravityModel.Directional;
+            changed.AllowSleep = !beforeSleep;
+            changed.CollisionLayer = 4;
+            HeadlessHarness.Assert(editor.SetDefinition(PhysicsCodeCodec.Serialize(changed)), "Typed physics code did not apply.");
+            NumericUpDown damping = SurfaceControls(editor).OfType<NumericUpDown>().Single(control => control.AccessibleName == "Linear damping");
+            HeadlessHarness.Assert(Math.Abs((float)gravity.Value - editor.Configuration.GravityDirX) < .0001f
+                && editor.Configuration.GravityDirX < -.3f && damping.Value == .8m && sleeping.Checked == !beforeSleep
+                && layer.SelectedIndex == 4, "Applying valid code left auxiliary controls out of sync.");
+            editor.Undo();
+            HeadlessHarness.Assert(gravity.Value == (decimal)beforeGravity && sleeping.Checked == beforeSleep
+                && layer.SelectedIndex == beforeLayer, "Undoing code generated a second change from control events.");
+            editor.SetAuthoringMode(PhysicsAuthoringMode.Properties);
+        });
+
+        HeadlessHarness.Step("2D preview draws real collider pixels and moves the selected body", () =>
+        {
+            ComboBox target = SurfaceControls(editor).OfType<ComboBox>().Single(control => control.Items.Contains(EditorPreviewTargetChrome.PreviewTargetKind.None));
+            target.SelectedItem = EditorPreviewTargetChrome.PreviewTargetKind.None;
+            editor.SetPreview2D(true);
+            typeof(PhysicsEditorControl).GetMethod("SetPhysicsPaused", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.Invoke(editor, [true]);
+            PhysicsInteractionSession live = (PhysicsInteractionSession)typeof(PhysicsEditorControl)
+                .GetField("_session", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(editor)!;
+            for (int i = 0; i < live.PropCount; i++)
+                if (live.IsPropActive(i)) live.PhysicsWorld.SetBodyPose(live.GetPropBody(i), new Vector3(i == 0 ? 0 : 20 + i * 3, 3, 0), Quaternion.Identity);
+            using Bitmap? frame = editor.Viewport.CaptureFrame(3);
+            HeadlessHarness.Assert(frame is not null, "2D physics viewport could not be read back.");
+            int gold = 0;
+            for (int y = 0; y < frame!.Height; y += 2)
+            for (int x = 0; x < frame.Width; x += 2)
+            {
+                Color pixel = frame.GetPixel(x, y);
+                if (pixel.R > 90 && pixel.G > 65 && pixel.R > pixel.G * 1.08 && pixel.G > pixel.B * 1.3) gold++;
+            }
+            HeadlessHarness.Assert(gold > 40, $"2D physics submitted no visible collider: {gold} gold pixels.");
+            Vector2 surface = editor.Viewport.World2DToSurface(new Vector2(0, -96));
+            Point start = Point.Round(editor.Viewport.SurfaceToControl(new PointF(surface.X, surface.Y)));
+            var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+            typeof(PhysicsEditorControl).GetMethod("OnViewportMouseDown", flags)!.Invoke(editor, [null, new MouseEventArgs(MouseButtons.Left, 1, start.X, start.Y, 0)]);
+            HeadlessHarness.Assert((int)typeof(PhysicsEditorControl).GetField("_selectedPropIndex", flags)!.GetValue(editor)! == 0,
+                "The 2D collider could not be selected at its visible location.");
+            typeof(PhysicsEditorControl).GetMethod("OnViewportMouseMove", flags)!.Invoke(editor, [null, new MouseEventArgs(MouseButtons.Left, 0, start.X + 60, start.Y, 0)]);
+            typeof(PhysicsEditorControl).GetMethod("OnViewportMouseUp", flags)!.Invoke(editor, [null, new MouseEventArgs(MouseButtons.Left, 0, start.X + 60, start.Y, 0)]);
+            live.GetPropPose(0, out Vector3 moved, out _);
+            HeadlessHarness.Assert(moved.X > 1.7f && Math.Abs(moved.Y - 3) < .05f && Math.Abs(moved.Z) < .001f,
+                $"Dragging 2D artwork did not move the physical body: {moved}.");
+            const string capture = "physics-2d-authoring.png";
+            ctx.Report.Images.Add(ImageResult.From("Physics.2D.Authoring", capture,
+                VisualCapture.CaptureOpenForm(host, Path.Combine(ctx.Captures, capture))));
+        });
+
+        HeadlessHarness.Step("save and reload a physics body", () =>
+        {
+            editor.SetPreview2D(true);
+            HeadlessHarness.Assert(editor.TryApplyInspectorValue("friction", 0.75f)
+                && editor.TryApplyInspectorValue("restitution", 0.2f), "Physics material values could not be authored.");
+            editor.Undo();
+            HeadlessHarness.Assert(Math.Abs(editor.Configuration.Restitution - 0.2) > 0.01, "Undo did not restore the previous material.");
+            editor.Redo();
+            PhysicsInteractionSession live = (PhysicsInteractionSession)typeof(PhysicsEditorControl)
+                .GetField("_session", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(editor)!;
+            HeadlessHarness.Assert(Math.Abs(live.PhysicsWorld.FrictionCoefficient - .75f) < .001f
+                && Math.Abs(live.PhysicsWorld.Restitution - .2f) < .001f, "Authored material edits did not reach the actual preview simulation.");
+            editor.Save();
+
+            using PhysicsEditorControl reopened = new(path, project.RootPath);
+            PhysicsSceneConfig reloaded = PhysicsSceneConfig.LoadFromFile(path);
+            HeadlessHarness.Assert(
+                Math.Abs(reloaded.Friction - 0.75) < 0.0001 && Math.Abs(reloaded.Restitution - 0.2) < 0.0001
+                && Math.Abs(reloaded.GravityDirY - editor.Configuration.GravityDirY) < .0001f && reloaded.GravityDirY < -.9f
+                && reopened.Configuration.Dimension == PhysicsDimension.TwoD && reopened.Viewport.Mode2D,
+                "The editor or runtime loader lost the authored 2D material.");
+            string good = PhysicsCodeCodec.Serialize(reopened.Configuration);
+            HeadlessHarness.Assert(reopened.SetDefinition(good.Replace("friction: 0.75", "friction: 0.5", StringComparison.Ordinal)),
+                "A valid typed physics definition failed.");
+            HeadlessHarness.Assert(Math.Abs(reopened.Configuration.Friction - 0.5) < 0.0001, "Valid code did not update live configuration.");
+            string bytes = File.ReadAllText(path);
+            HeadlessHarness.Assert(!reopened.SetDefinition("physics_material \"Broken\" {\n friction: NaN\n}")
+                && reopened.DefinitionError is not null && reopened.IsDirty, "An invalid definition was silently accepted.");
+            bool refused = false;
+            try { reopened.Save(); } catch (InvalidDataException) { refused = true; }
+            HeadlessHarness.Assert(refused && File.ReadAllText(path) == bytes, "Invalid code overwrote the last saved physics resource.");
+            reopened.Undo();
+            HeadlessHarness.Assert(reopened.DefinitionError is null && Math.Abs(reopened.Configuration.Friction - 0.5) < 0.0001,
+                "Undo did not recover the retained material from an invalid code draft.");
+            reopened.Redo();
+            HeadlessHarness.Assert(reopened.DefinitionError is not null && reopened.DefinitionText.Contains("NaN", StringComparison.Ordinal), "Redo discarded the invalid Physics draft.");
+            reopened.Undo(); reopened.Undo();
+            HeadlessHarness.Assert(Math.Abs(reopened.Configuration.Friction - .75) < .0001 && !reopened.IsDirty,
+                "Undoing through a typed Physics edit did not recover the saved material and clean state.");
+        });
+
+        HeadlessHarness.Step("all physics modes and property rows remain reachable at enlarged scale", () =>
+        {
+            try
+            {
+                host.ClientSize = new Size(1480, 900);
+                GenesisSettings settings = new(); settings.Appearance.InterfaceScale = 2;
+                Genesis.Application.Studio.Theme.ThemeService.ApplySettings(settings);
+                SuiteChromeBridge.Push();
+                Genesis.Application.Studio.Theme.ThemeService.Apply(editor);
+                GateSuite.Pump(4, 10);
+                ToolStripDropDownButton options = editor.CommandBar.Items.OfType<ToolStripDropDownButton>().Single(item => item.Text == "Options");
+                options.DropDownItems.OfType<ToolStripMenuItem>().Single(item => item.Tag as string == "Properties").PerformClick();
+                GateSuite.Pump(4, 10);
+                HeadlessHarness.Assert(options.DropDownItems.OfType<ToolStripMenuItem>().Count(item => item.Tag is string) == 6
+                    && editor.CommandBar.IsSaveVisible && editor.CommandBar.IsDocumentStateVisible,
+                    "Enlarging text hid an advanced Physics page or the primary Save/state controls.");
+                NumericUpDown direction = SurfaceControls(editor).OfType<NumericUpDown>().Single(control => control.AccessibleName == "Gravity X");
+                HeadlessHarness.Assert(direction.Width >= 140 && direction.Parent!.Height >= 60,
+                    "The enlarged physics numeric row clipped its input.");
+            }
+            finally
+            {
+                Genesis.Application.Studio.Theme.ThemeService.ApplySettings(new()); SuiteChromeBridge.Push();
+                Genesis.Application.Studio.Theme.ThemeService.Apply(editor);
+            }
+        });
         host.Close();
     }
 
@@ -2836,15 +3714,164 @@ internal static class EditorGate
                 && commandBar.IsDocumentStateVisible,
                 "The Note Editor lost its view mode or shared document controls.");
             editor.SetViewMode(NoteEditorViewMode.Split);
+            editor.SetViewMode(NoteEditorViewMode.Source);
+            editor.SetViewMode(NoteEditorViewMode.Preview);
+            editor.SetViewMode(NoteEditorViewMode.Split);
+        });
+
+        HeadlessHarness.Step("theme refresh preserves rendered Markdown hierarchy and scaled fonts", () =>
+        {
+            editor.NoteText = "# Heading\n\nBody with **emphasis**.\n";
+            RichTextBox preview = SurfaceControls(editor).OfType<RichTextBox>().Single(text => text.ReadOnly);
+            preview.Select(0, 7);
+            float initialSize = preview.SelectionFont!.Size;
+            Genesis.Application.Studio.Theme.ThemeService.Apply(editor);
+            preview.Select(0, 7);
+            HeadlessHarness.Assert(preview.SelectionFont!.Bold && Math.Abs(preview.SelectionFont.Size - initialSize) < .01f,
+                "Applying the shell theme erased Markdown heading formatting.");
+            Genesis.Application.Core.Settings.GenesisSettings settings = new();
+            try
+            {
+                settings.Appearance.InterfaceScale = 2;
+                Genesis.Application.Studio.Theme.ThemeService.ApplySettings(settings);
+                Genesis.Application.Studio.Docking.SuiteChromeBridge.Push();
+                Genesis.Application.Studio.Theme.ThemeService.Apply(editor);
+                GateSuite.Pump(4, 10);
+                preview.Select(0, 7);
+                HeadlessHarness.Assert(preview.SelectionFont!.Bold && preview.SelectionFont.Size >= initialSize * 1.8f,
+                    "Enlarged interface fonts did not reach the formatted note preview.");
+                float headingSize = preview.SelectionFont.Size;
+                preview.Select(preview.Text.IndexOf("Body", StringComparison.Ordinal), 4);
+                HeadlessHarness.Assert(preview.SelectionFont!.Size < headingSize && !preview.SelectionFont.Bold,
+                    "Markdown body text lost its hierarchy relative to the heading.");
+            }
+            finally
+            {
+                Genesis.Application.Studio.Theme.ThemeService.ApplySettings(new());
+                Genesis.Application.Studio.Docking.SuiteChromeBridge.Push();
+                Genesis.Application.Studio.Theme.ThemeService.Apply(editor);
+            }
+        });
+        HeadlessHarness.Step("theme and view changes do not edit a saved tagged document", () =>
+        {
+            editor.NoteText = "<!-- genesis-note-tags: design, playtest -->\n# Saved note\n\nA saved **paragraph**.\n";
+            editor.Save();
+            string saved = editor.NoteText;
+            try
+            {
+                foreach (float scale in new[] { 1f, 1.25f, 1.5f, 2f })
+                {
+                    Genesis.Application.Core.Settings.GenesisSettings settings = new(); settings.Appearance.InterfaceScale = scale;
+                    Genesis.Application.Studio.Theme.ThemeService.ApplySettings(settings);
+                    Genesis.Application.Studio.Docking.SuiteChromeBridge.Push(); Genesis.Application.Studio.Theme.ThemeService.Apply(editor);
+                    editor.SetViewMode(NoteEditorViewMode.Preview); editor.SetViewMode(NoteEditorViewMode.Split);
+                    GateSuite.Pump(4, 80);
+                    HeadlessHarness.Assert(editor.NoteText == saved && !editor.IsDirty,
+                        "Formatting a saved note changed its source or document state at scale " + scale + ": " + editor.IsDirty + "; " + editor.NoteText);
+                }
+            }
+            finally
+            {
+                Genesis.Application.Studio.Theme.ThemeService.ApplySettings(new()); Genesis.Application.Studio.Docking.SuiteChromeBridge.Push();
+                Genesis.Application.Studio.Theme.ThemeService.Apply(editor);
+            }
+        });
+        HeadlessHarness.Step("tagged titles and wrapped preview tasks edit the correct source without losing content", () =>
+        {
+            editor.NoteText = "<!-- genesis-note-tags: design, playtest -->\n# Original title\n\n```pgsl\n# Code heading\n- [ ] Code checkbox\n```\n\n- [ ] "
+                + string.Join(' ', Enumerable.Repeat("wrapped task text", 12)) + "\n- [ ] Second task\n";
+            string original = editor.NoteText;
+            editor.TryApplyInspectorValue("Note.Title", "Revised title");
+            string revised = editor.NoteText;
+            HeadlessHarness.Assert(revised.StartsWith("<!-- genesis-note-tags: design, playtest -->\n# Revised title\n", StringComparison.Ordinal)
+                && !revised.Contains("# Original title", StringComparison.Ordinal) && revised.Contains("# Code heading", StringComparison.Ordinal),
+                "Editing a tagged note duplicated its heading or rewrote the code block.");
+            HeadlessHarness.Assert(editor.GetLiveInspectorValues().Any(value => value.PropertyPath == "Stats.Headings" && Equals(value.Value, 1)),
+                "A fenced code heading was added to the document outline.");
+            ListBox outline = (ListBox)typeof(NoteEditorControl).GetField("_outline", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(editor)!;
+            outline.SelectedIndex = 0;
+            typeof(NoteEditorControl).GetMethod("NavigateToSelectedHeading", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(editor, null);
+            RichTextBox navigationSource = SurfaceControls(editor).OfType<RichTextBox>().Single(text => !text.ReadOnly);
+            HeadlessHarness.Assert(navigationSource.SelectionStart == revised.IndexOf("# Revised title", StringComparison.Ordinal),
+                "Outline navigation counted CRLF characters that do not exist in the source.");
+            editor.Undo(); HeadlessHarness.Assert(editor.NoteText == original, "Title undo lost tagged content.");
+            editor.Redo();
+            RichTextBox preview = SurfaceControls(editor).OfType<RichTextBox>().Single(text => text.ReadOnly);
+            int character = preview.Text.IndexOf("Second task", StringComparison.Ordinal);
+            Point point = preview.GetPositionFromCharIndex(character);
+            typeof(NoteEditorControl).GetMethod("ToggleTaskFromPreview", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                .Invoke(editor, [point]);
+            HeadlessHarness.Assert(editor.NoteText.EndsWith("- [x] Second task\n", StringComparison.Ordinal)
+                && editor.NoteText.Contains("- [ ] Code checkbox", StringComparison.Ordinal)
+                && editor.NoteText.Contains("- [ ] wrapped task text", StringComparison.Ordinal),
+                "A preview task used displayed/wrapped line numbers instead of its original source line.");
+            editor.Undo(); HeadlessHarness.Assert(editor.NoteText == revised, "Preview task undo changed unrelated content.");
+            editor.SetViewMode(NoteEditorViewMode.Source);
+            RichTextBox source = SurfaceControls(editor).OfType<RichTextBox>().Single(text => !text.ReadOnly);
+            HeadlessHarness.Assert(source.Dock == DockStyle.Fill && source.ScrollBars == RichTextBoxScrollBars.Vertical
+                && source.Height == source.Parent!.ClientSize.Height && preview.Dock == DockStyle.Fill,
+                "The document still stops at a height calculated from unwrapped source lines.");
+            editor.NoteText = "No headings or links";
+            GateSuite.Pump(4, 80);
+            HeadlessHarness.Assert(editor.GetLiveInspectorValues().Any(value => value.PropertyPath == "Stats.Headings" && Equals(value.Value, 0))
+                && editor.GetLiveInspectorValues().Any(value => value.PropertyPath == "Links.Count" && Equals(value.Value, 0)),
+                "Placeholder entries were reported as real headings or references.");
+        });
+        HeadlessHarness.Step("note keyboard and native undo share the document journal", () =>
+        {
+            RichTextBox source = (RichTextBox)typeof(NoteEditorControl).GetField("_source", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(editor)!;
+            TextBox title = SurfaceControls(editor).OfType<TextBox>().Single(control => control.AccessibleName == "Note title");
+            EditorCommandBar bar = editor.Controls.OfType<EditorCommandBar>().Single();
+            HeadlessHarness.Assert(!bar.Items.Cast<ToolStripItem>().Any(item => item.Text is "File" or "Edit" or "View")
+                && bar.Items.OfType<ToolStripButton>().Count(button => button.Text == "Save") == 1,
+                "Notes repeats shell menus or its Save action.");
+            editor.NoteText = "# Journal\n\nHello world\n";
+            int start = editor.NoteText.IndexOf("world", StringComparison.Ordinal);
+            source.Select(start, 5);
+            bar.Items.OfType<ToolStripButton>().Single(button => button.ToolTipText == "Bold selection").PerformClick();
+            HeadlessHarness.Assert(editor.NoteText.Contains("Hello **world**", StringComparison.Ordinal) && source.SelectedText == "world",
+                "Formatting moved the selection into its delimiters.");
+            void Key(Control input, Keys key)
+            {
+                object[] args = [default(Message), key];
+                bool handled = (bool)input.GetType().GetMethod("ProcessCmdKey", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(input, args)!;
+                HeadlessHarness.Assert(handled, "The note text control routed undo to its private native history.");
+            }
+            Key(source, Keys.Control | Keys.Z);
+            HeadlessHarness.Assert(!editor.NoteText.Contains("**", StringComparison.Ordinal), "Keyboard undo did not revert the toolbar format action.");
+            Key(source, Keys.Control | Keys.Y);
+            HeadlessHarness.Assert(editor.NoteText.Contains("**world**", StringComparison.Ordinal), "Keyboard redo lost the format action.");
+            title.Text = "Journal revised";
+            Key(title, Keys.Control | Keys.Z);
+            HeadlessHarness.Assert(editor.NoteText.Contains("# Journal\n", StringComparison.Ordinal) && title.Text == "Journal", "Metadata undo split from the source journal.");
+            Key(title, Keys.Control | Keys.Y);
+            object[] native = [Message.Create(source.Handle, 0x0304, IntPtr.Zero, IntPtr.Zero)];
+            source.GetType().GetMethod("WndProc", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(source, native);
+            HeadlessHarness.Assert(title.Text == "Journal", "The native text menu bypassed shared undo.");
+            Key(source, Keys.Control | Keys.Shift | Keys.Z);
+            HeadlessHarness.Assert(title.Text == "Journal revised", "Shift+Ctrl+Z did not redo the shared metadata edit.");
+            editor.SetViewMode(NoteEditorViewMode.Source);
+            ToolStripDropDownButton options = bar.Items.OfType<ToolStripDropDownButton>().Single(button => button.Text == "Options");
+            ToolStripMenuItem library = options.DropDownItems.OfType<ToolStripMenuItem>().Single(item => item.Text == "Library");
+            ToolStripMenuItem details = options.DropDownItems.OfType<ToolStripMenuItem>().Single(item => item.Text == "Details");
+            details.PerformClick();
+            HeadlessHarness.Assert(details.Checked && !library.Checked && source.Width >= 360, "Narrow note metadata cannot be opened while retaining editing space.");
+            library.PerformClick();
+            HeadlessHarness.Assert(library.Checked && !details.Checked, "Narrow note panel toggles left both sidebars open.");
         });
 
         HeadlessHarness.Step("text round-trips through the file", () =>
         {
             editor.NoteText = "Gate note: the design decision that produced this room.";
+            editor.TryApplyInspectorValue("Note.Tags", "design, 2d");
+            editor.Undo();
+            HeadlessHarness.Assert(!editor.NoteText.Contains("genesis-note-tags", StringComparison.Ordinal), "Note tag undo failed.");
+            editor.Redo();
             editor.Save();
             using NoteEditorControl reopened = new(path, project.RootPath);
             HeadlessHarness.Assert(
-                reopened.NoteText.Contains("design decision", StringComparison.Ordinal),
+                reopened.NoteText.Contains("design decision", StringComparison.Ordinal)
+                && reopened.GetLiveInspectorValues().Any(value => value.PropertyPath == "Note.Tags" && Equals(value.Value, "design, 2d")),
                 "The note's text did not survive save and reload.");
         });
 

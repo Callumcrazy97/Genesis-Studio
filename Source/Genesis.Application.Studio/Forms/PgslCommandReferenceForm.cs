@@ -10,6 +10,9 @@ using Genesis.Shared.Scripting;
 
 namespace Genesis.Application.Studio.Forms;
 
+public sealed record CommandReferenceEntry(string Id, string Title, string Category, string Description,
+    string Shortcuts, bool Enabled, string DisabledReason);
+
 /// <summary>
 /// Help → Commands. PGSL and Engine catalogues, Auto-Test (includes registry cross-check),
 /// and Visual Test against a live 3D scene plus 2D HUD.
@@ -19,7 +22,7 @@ public sealed class PgslCommandReferenceForm : DpiAwareForm
     private const string AllCategories = "(all categories)";
     private const int VisualBudgetMs = 60_000;
 
-    private readonly TabControl _tabs = new();
+    private readonly CommandScopeSelector _tabs = new();
     private readonly ListView _list = new();
     private readonly ComboBox _category = new();
     private readonly ComboBox _dimension = new();
@@ -31,6 +34,8 @@ public sealed class PgslCommandReferenceForm : DpiAwareForm
     private readonly Label _summary = new();
     private readonly ProgressBar _progress = new();
     private readonly SplitContainer _split = new();
+    private readonly FlowLayoutPanel _filterBar;
+    private readonly Panel _statusBar;
     private CommandVisualTestPanel? _visual;
     private readonly Dictionary<string, PgslCommandTestResult> _pgslResults = new(StringComparer.Ordinal);
     private readonly Dictionary<string, EngineCommandTestResult> _engineResults = new(StringComparer.OrdinalIgnoreCase);
@@ -39,17 +44,26 @@ public sealed class PgslCommandReferenceForm : DpiAwareForm
     private IReadOnlyList<EngineCommandInfo> _engineCatalogue = [];
     private bool _testing;
     private bool _engineTab;
+    private readonly IReadOnlyList<CommandReferenceEntry> _editorCommands;
+    private readonly IReadOnlyList<CommandReferenceEntry> _shellCommands;
+    private bool IsWorkspaceTab => _tabs.SelectedIndex >= 2;
+    private IReadOnlyList<CommandReferenceEntry> WorkspaceCommands =>
+        _tabs.SelectedIndex == 2 ? _editorCommands : _shellCommands;
     private CancellationTokenSource? _visualCancel;
 
-    public PgslCommandReferenceForm()
+    public PgslCommandReferenceForm(IReadOnlyList<CommandReferenceEntry>? editorCommands = null,
+        IReadOnlyList<CommandReferenceEntry>? shellCommands = null)
     {
-        Text = "Commands — PGSL Game Code + Engine API";
+        _editorCommands = editorCommands ?? [];
+        _shellCommands = shellCommands ?? [];
+        Text = "Commands — PGSL, Engine, Editor and Shell";
         StartPosition = FormStartPosition.CenterParent;
         MinimumSize = new Size(980, 640);
         Size = new Size(1280, 860);
         BackColor = ThemeService.Palette.Canvas;
         ForeColor = ThemeService.Palette.Text;
         Font = ThemeService.InterfaceFont;
+        Tag = ThemeService.MeasuredLayoutTag;
 
         _list.Dock = DockStyle.Fill;
         _list.View = View.Details;
@@ -67,16 +81,22 @@ public sealed class PgslCommandReferenceForm : DpiAwareForm
         _list.Columns.Add("Time / sample", 140, HorizontalAlignment.Right);
 
         _tabs.Dock = DockStyle.Top;
-        _tabs.Height = 28;
-        _tabs.TabPages.Add(new TabPage("PGSL Game Code"));
-        _tabs.TabPages.Add(new TabPage("Engine API"));
+        _tabs.Height = 38;
         _tabs.SelectedIndexChanged += (_, _) =>
         {
             _engineTab = _tabs.SelectedIndex == 1;
-            _dimension.Visible = !_engineTab;
+            _dimension.Visible = !IsWorkspaceTab && !_engineTab;
+            _autoTest.Enabled = !IsWorkspaceTab && !_testing;
+            _visualTest.Enabled = !IsWorkspaceTab && !_testing;
+            _backend.Enabled = !IsWorkspaceTab;
+            _autoTest.Visible = _visualTest.Visible = _cancelVisualTest.Visible = _backend.Visible = !IsWorkspaceTab;
+            if (_filterBar is not null)
+                foreach (Label label in _filterBar.Controls.OfType<Label>()) label.Visible = !IsWorkspaceTab;
+            if (IsWorkspaceTab) _split.Panel2Collapsed = true;
             _visual?.SetVisualMode(_engineTab);
             PopulateFilters();
             RefreshList();
+            ApplyInterfaceLayout();
         };
 
         _split.Dock = DockStyle.Fill;
@@ -89,9 +109,11 @@ public sealed class PgslCommandReferenceForm : DpiAwareForm
         _split.HandleCreated += (_, _) => LayoutVisualSplit();
 
         Controls.Add(_split);
-        Controls.Add(BuildFilterBar());
+        _filterBar = (FlowLayoutPanel)BuildFilterBar();
+        Controls.Add(_filterBar);
         Controls.Add(_tabs);
-        Controls.Add(BuildStatusBar());
+        _statusBar = (Panel)BuildStatusBar();
+        Controls.Add(_statusBar);
 
         _pgslCatalogue = PgslCommandAutoTester.Catalogue();
         _engineCatalogue = EngineCommandAutoTester.Catalogue();
@@ -99,9 +121,27 @@ public sealed class PgslCommandReferenceForm : DpiAwareForm
         RefreshList();
 
         FormClosed += (_, _) => _visualCancel?.Cancel();
+        ClientSizeChanged += (_, _) => ApplyInterfaceLayout();
+        ThemeService.Apply(this);
+    }
+
+    public override void ApplyInterfaceLayout()
+    {
+        if (_filterBar is null || _statusBar is null) return;
+        _tabs.Height = Font.Height + 20;
+        _category.Width = Math.Max(200, TextRenderer.MeasureText(AllCategories, Font).Width + 34);
+        _dimension.Width = Math.Max(90, Font.Height * 3);
+        _search.Width = Math.Clamp(ClientSize.Width / 4, 260, 440);
+        _backend.Width = Math.Max(180, TextRenderer.MeasureText("Software Rasterizer", Font).Width + 30);
+        foreach (Button button in _filterBar.Controls.OfType<Button>()) ShellDialogLayout.FitButton(button);
+        foreach (Control control in _filterBar.Controls) control.Margin = new Padding(4, 4, 8, 4);
+        _statusBar.Height = ShellDialogLayout.TextHeight(_summary, Math.Max(1, ClientSize.Width - 24)) + 14;
+        _filterBar.PerformLayout();
     }
 
     public int VisibleCommandCount => _list.Items.Count;
+
+    internal IReadOnlyList<CommandReferenceEntry> EditorCommands => _editorCommands;
 
     public int CatalogueCount => _pgslCatalogue.Count;
 
@@ -112,13 +152,48 @@ public sealed class PgslCommandReferenceForm : DpiAwareForm
 
     public bool VisualViewportVisible => !_split.Panel2Collapsed && _visual is not null;
 
-    public string PgslTabCaption => _tabs.TabPages[0].Text;
+    public string PgslTabCaption => _tabs.Captions[0];
 
-    public string EngineTabCaption => _tabs.TabPages[1].Text;
+    public string EngineTabCaption => _tabs.Captions[1];
 
     public string ActiveCommandPathCaption => _engineTab
         ? "ENGINE BACKEND / API"
-        : "PGSL GAME CODE";
+        : IsWorkspaceTab ? (_tabs.SelectedIndex == 2 ? "EDITOR COMMANDS" : "SHELL COMMANDS") : "PGSL GAME CODE";
+
+    public void SelectEditorTab() => _tabs.SelectedIndex = 2;
+    public void SelectShellTab() => _tabs.SelectedIndex = 3;
+    public bool AutoTestEnabled => _autoTest.Enabled;
+    public IReadOnlyList<string> CommandScopes => _tabs.Captions;
+
+    private sealed class CommandScopeSelector : ToolStrip
+    {
+        private int _selectedIndex;
+        private readonly ToolStripButton[] _buttons;
+        public IReadOnlyList<string> Captions { get; } = ["PGSL Game Code", "Engine API", "Editor", "Shell"];
+        public event EventHandler? SelectedIndexChanged;
+        public CommandScopeSelector()
+        {
+            GripStyle = ToolStripGripStyle.Hidden; AutoSize = false;
+            _buttons = Captions.Select((caption, index) =>
+            {
+                ToolStripButton button = new(caption) { Checked = index == 0, AccessibleName = caption + " command scope" };
+                button.Click += (_, _) => SelectedIndex = index;
+                Items.Add(button); return button;
+            }).ToArray();
+        }
+        [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+        public int SelectedIndex
+        {
+            get => _selectedIndex;
+            set
+            {
+                if (value < 0 || value >= _buttons.Length || value == _selectedIndex) return;
+                _selectedIndex = value;
+                for (int index = 0; index < _buttons.Length; index++) _buttons[index].Checked = index == value;
+                SelectedIndexChanged?.Invoke(this, EventArgs.Empty);
+            }
+        }
+    }
 
     public int VisualDemoSubjectCount => _visual?.VisualDemoSubjectCount ?? 0;
 
@@ -217,11 +292,13 @@ public sealed class PgslCommandReferenceForm : DpiAwareForm
 
     private Control BuildFilterBar()
     {
-        Panel bar = new()
+        FlowLayoutPanel bar = new()
         {
             BackColor = ThemeService.Palette.Surface,
             Dock = DockStyle.Top,
-            Height = 78,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            WrapContents = true,
             Padding = new Padding(10, 8, 10, 8),
         };
 
@@ -295,6 +372,7 @@ public sealed class PgslCommandReferenceForm : DpiAwareForm
             _category, _dimension, _search, _autoTest, _visualTest, _cancelVisualTest,
             backendCaption, _backend, _progress,
         ]);
+        bar.SetFlowBreak(_cancelVisualTest, true);
         return bar;
     }
 
@@ -330,7 +408,7 @@ public sealed class PgslCommandReferenceForm : DpiAwareForm
     {
         _category.Items.Clear();
         _category.Items.Add(AllCategories);
-        IEnumerable<string> categories = _engineTab
+        IEnumerable<string> categories = IsWorkspaceTab ? WorkspaceCommands.Select(command => command.Category) : _engineTab
             ? _engineCatalogue.Select(command => command.Category)
             : _pgslCatalogue.Select(command => command.Category);
         foreach (string category in categories.Distinct(StringComparer.Ordinal).OrderBy(c => c, StringComparer.Ordinal))
@@ -348,7 +426,23 @@ public sealed class PgslCommandReferenceForm : DpiAwareForm
         try
         {
             _list.Items.Clear();
-            if (_engineTab)
+            if (IsWorkspaceTab)
+            {
+                foreach (CommandReferenceEntry command in WorkspaceCommands)
+                {
+                    if (!Matches(command.Title, command.Id, command.Description + " " + command.Shortcuts,
+                        command.Category, "All", category, "All", search)) continue;
+                    ListViewItem item = new(command.Title) { Tag = command, ToolTipText = command.Description };
+                    item.SubItems.Add(command.Description);
+                    item.SubItems.Add(command.Category);
+                    item.SubItems.Add(_tabs.SelectedIndex == 2 ? "EDITOR" : "SHELL");
+                    item.SubItems.Add(command.Enabled ? "available" : command.DisabledReason);
+                    item.SubItems.Add(command.Shortcuts);
+                    if (!command.Enabled) item.ForeColor = ThemeService.Palette.TextMuted;
+                    _list.Items.Add(item);
+                }
+            }
+            else if (_engineTab)
             {
                 foreach (EngineCommandInfo command in _engineCatalogue)
                 {
@@ -459,6 +553,14 @@ public sealed class PgslCommandReferenceForm : DpiAwareForm
 
     private void UpdateSummary()
     {
+        if (IsWorkspaceTab)
+        {
+            _summary.ForeColor = ThemeService.Palette.TextMuted;
+            _summary.Text = _tabs.SelectedIndex == 2
+                ? $"{WorkspaceCommands.Count} editor commands · shared editing plus currently open editor toolbars · showing {_list.Items.Count}"
+                : $"{WorkspaceCommands.Count} shell commands · Ctrl+Shift+P opens the command palette · showing {_list.Items.Count}";
+            return;
+        }
         if (_engineTab)
         {
             if (_engineResults.Count == 0)
@@ -516,7 +618,7 @@ public sealed class PgslCommandReferenceForm : DpiAwareForm
     /// </summary>
     public void RunAutoTest()
     {
-        if (_testing) return;
+        if (_testing || IsWorkspaceTab) return;
         _testing = true;
         _autoTest.Enabled = false;
         _visualTest.Enabled = false;
@@ -560,7 +662,7 @@ public sealed class PgslCommandReferenceForm : DpiAwareForm
 
     public async Task RunVisualTestAsync(int budgetMs = VisualBudgetMs)
     {
-        if (_testing) return;
+        if (_testing || IsWorkspaceTab) return;
         _testing = true;
         _autoTest.Enabled = false;
         _visualTest.Enabled = false;

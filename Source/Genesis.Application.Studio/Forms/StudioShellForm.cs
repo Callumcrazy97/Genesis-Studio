@@ -30,7 +30,7 @@ public sealed partial class StudioShellForm : DpiAwareForm
     private readonly WelcomeDocument _welcome;
     private readonly ToolStripStatusLabel _status;
     private readonly ToolStripStatusLabel _projectStatus;
-    private readonly ToolStripStatusLabel _renderBackendStatus;
+    private readonly ToolStripDropDownButton _renderBackendStatus;
     private ToolStripButton? _validateButton;
     private readonly DeserializeDockContent _deserializeDockContent;
     private readonly System.Windows.Forms.Timer _autoSaveTimer;
@@ -117,18 +117,14 @@ public sealed partial class StudioShellForm : DpiAwareForm
             ForeColor = ThemeService.Palette.TextMuted,
         };
         statusStrip.Items.Add(_status);
-        _renderBackendStatus = new ToolStripStatusLabel(
-            RenderingPreferencesBridge.BackendStatusText(_services.Settings.Current.Rendering))
-        {
-            ForeColor = ThemeService.Palette.Accent,
-        };
-        statusStrip.Items.Add(_renderBackendStatus);
+        _renderBackendStatus = CreateRendererSelector();
         statusStrip.Items.Add(_projectStatus);
         statusStrip.Items.Add(new ToolStripStatusLabel("H" + StudioBuildInfo.Revision)
         {
             Name = "StudioBuildIdentity", ToolTipText = StudioBuildInfo.DiagnosticText,
             ForeColor = ThemeService.Palette.TextMuted,
         });
+        statusStrip.Items.Add(_renderBackendStatus);
         Controls.Add(statusStrip);
 
         _dockPanel = new DockPanel
@@ -344,9 +340,7 @@ public sealed partial class StudioShellForm : DpiAwareForm
         foreach (string id in new[] { "tools.packages", "tools.profiler", "tools.frameDebugger" }) tools.DropDownItems.Add(CommandMenuItem(id));
         ToolStripMenuItem help = new("&Help");
         help.DropDownItems.Add(CommandMenuItem("help.documentation"));
-        help.DropDownItems.Add(CommandMenuItem("help.pgsl", "PGSL Command Reference"));
-        help.DropDownItems.Add(CommandMenuItem("studio.commands"));
-        help.DropDownItems.Add(CommandMenuItem("studio.commands", "Keyboard Shortcuts"));
+        help.DropDownItems.Add(CommandMenuItem("help.pgsl", "Commands…"));
         help.DropDownItems.Add(new ToolStripSeparator());
         help.DropDownItems.Add(CommandMenuItem("help.copyBuildInfo"));
         help.DropDownItems.Add(CommandMenuItem("help.about"));
@@ -448,9 +442,6 @@ public sealed partial class StudioShellForm : DpiAwareForm
         BindCommandButton(save, "project.saveAll");
         bar.Items.Add(save);
 
-        ToolStripButton commands = new("Commands…") { Alignment = ToolStripItemAlignment.Right };
-        BindCommandButton(commands, "studio.commands");
-        bar.Items.Add(commands);
         BuildFinderControls();
         return bar;
     }
@@ -1011,8 +1002,8 @@ public sealed partial class StudioShellForm : DpiAwareForm
         _dockPanel.SuspendLayout(true);
         _assetBrowser.Show(_dockPanel, DockState.DockLeft);
         _assetBrowser.DockHandler.Pane?.SetContentIndex(_assetBrowser, 0);
-        _inspector.Show(_dockPanel, DockState.DockRight);
-        _console.Show(_dockPanel, DockState.DockBottom);
+        _inspector.Show(_dockPanel, DockState.DockRightAutoHide);
+        _console.Show(_dockPanel, DockState.DockBottomAutoHide);
         _welcome.Show(_dockPanel, DockState.Document);
         _dockPanel.ResumeLayout(true, true);
     }
@@ -1194,7 +1185,17 @@ public sealed partial class StudioShellForm : DpiAwareForm
         }
 
         _editorRegistry.Register(ResourceKind.Room, resource => Wrap(
-            resource, (path, projectRoot) => new Genesis.Application.Editors.Suite.Rooms.RoomEditorControl(path, projectRoot), "Room Editor"));
+            resource, (path, projectRoot) =>
+            {
+                var editor = new Genesis.Application.Editors.Suite.Rooms.RoomEditorControl(path, projectRoot);
+                editor.StartingRoomRequested += (_, name) =>
+                {
+                    _project.Manifest.StartRoom = name;
+                    _services.Projects.Save(_project);
+                    SetStatus($"Starting Room set to '{name}'.");
+                };
+                return editor;
+            }, "Room Editor"));
         _editorRegistry.Register(ResourceKind.Terrain, resource => Wrap(
             resource, (path, projectRoot) => new Genesis.Application.Editors.Suite.Terrain.TerrainEditorControl(path, projectRoot), "Terrain Editor"));
         _editorRegistry.Register(ResourceKind.GameObject, resource => Wrap(
@@ -1253,6 +1254,7 @@ public sealed partial class StudioShellForm : DpiAwareForm
         }
 
         ImageEditorWindow editor = new(_services.Log, args.Resource, args.Session, args.Workspace);
+        editor.Editor.OpenLinkedResourceRequested += (_, path) => OpenLinkedResourceFromEditor(path);
         editor.SetProjectShortcutRouter(RouteSharedWindowShortcut);
         editor.FormClosed += (_, _) => _imageEditorWindows.Remove(identity);
         _imageEditorWindows[identity] = editor;
@@ -1556,13 +1558,11 @@ public sealed partial class StudioShellForm : DpiAwareForm
         ThemeService.Apply(_console);
         menuRendererRefresh();
 
-        // Live theme into open documents: suite editors restyle via the chrome bridge; every
-        // other docked document gets a targeted Apply pass (the shell-level walk stops at the
-        // DockPanel, so documents were previously skipped — NEXT gap "theme into documents").
-        SuiteChromeBridge.Push();
+        // The shell-level walk stops at DockPanel. Apply fonts and matching row geometry to
+        // each document explicitly, including Suite surfaces whose palette uses the bridge.
         foreach (WeifenLuo.WinFormsUI.Docking.IDockContent content in _dockPanel.Contents.ToArray())
         {
-            if (content is GenesisDockContent dock && dock is not SuiteEditorDocument && !dock.IsDisposed)
+            if (content is GenesisDockContent dock && !dock.IsDisposed)
             {
                 ThemeService.Apply(dock);
             }
@@ -1586,6 +1586,22 @@ public sealed partial class StudioShellForm : DpiAwareForm
 
         GenesisDockTheme.Remap(_dockPanel.Theme, ThemeService.Palette);
         _dockPanel.DockBackColor = ThemeService.Palette.Canvas;
+        foreach (DockPane pane in _dockPanel.Panes.ToArray())
+        {
+            // VS2015 measures document tabs using the previous overflow button height,
+            // then grows that button to fill the strip. Reset the native glyph size
+            // before remeasurement so a live font reduction can shrink the strip.
+            foreach (DockPaneStripBase strip in pane.Controls.OfType<DockPaneStripBase>())
+            {
+                strip.SuspendLayout();
+                foreach (Control button in strip.Controls)
+                    button.Size = _dockPanel.Theme.ImageService.DockPane_OptionOverflow.Size;
+                strip.ResumeLayout(false);
+            }
+            pane.PerformLayout();
+            pane.Invalidate(true);
+        }
+        _dockPanel.PerformLayout();
         _dockPanel.Invalidate(true);
     }
 
@@ -1999,7 +2015,7 @@ public sealed partial class StudioShellForm : DpiAwareForm
 
     private void ShowPgslCommandReference()
     {
-        using PgslCommandReferenceForm reference = new();
+        using PgslCommandReferenceForm reference = CreateCommandReference();
         reference.ShowDialog(this);
     }
 

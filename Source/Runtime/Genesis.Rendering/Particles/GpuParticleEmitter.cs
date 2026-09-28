@@ -155,7 +155,9 @@ public sealed class GpuParticleEmitter : IDisposable
     {
         if (IsDisposed) return;
         _gpu.UpdateConstantBuffer(_parametersConstants, _definition.Parameters);
-        _gpu.UpdateConstantBuffer(_drawConstants, draw);
+        GpuParticleDraw blendDraw = draw;
+        blendDraw.Mode.Z = blendMode;
+        _gpu.UpdateConstantBuffer(_drawConstants, blendDraw);
         _gpu.SetShaderProgram(_library.DrawProgram);
         _gpu.SetVertexLayout(_library.Layout);
         _gpu.SetVertexBuffer(0, mesh.Vertices, mesh.VertexStride);

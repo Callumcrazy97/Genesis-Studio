@@ -15,6 +15,30 @@ namespace Genesis.Runtime.Rendering;
 
 public sealed partial class ObjectCompositionSubsystem
 {
+    private readonly record struct SoftwareParticleBirth(Vector3 Position, Vector3 Velocity, int Count, float Inheritance);
+
+    private void QueueSoftwareBirths(ParticleState state, ParticleLayerState source, ParticleSimulation.ParticleEvent occurrence)
+    {
+        if (state.Effect.EventLinks is not { Count: > 0 }) return;
+        foreach (ParticleEventLink link in state.Effect.EventLinks)
+        {
+            double probability = Math.Clamp(link.Probability, 0, 1);
+            if (!string.Equals(link.SourceEmitterId, source.EmitterId, StringComparison.OrdinalIgnoreCase)
+                || (link.Trigger & occurrence.Trigger) == 0 || probability <= 0
+                || Random.Shared.NextDouble() >= probability) continue;
+            ParticleLayerState? target = state.Layers.FirstOrDefault(layer =>
+                string.Equals(layer.EmitterId, link.TargetEmitterId, StringComparison.OrdinalIgnoreCase));
+            if (target is null) continue;
+            int count = Math.Clamp(link.Count, 1, 32);
+            if (target.PendingSoftwareBirths.Count >= Math.Min(1024, Math.Max(1, target.Config.MaxParticles)))
+            {
+                target.DroppedSoftwareBirths += count;
+                continue;
+            }
+            target.PendingSoftwareBirths.Add(new SoftwareParticleBirth(occurrence.Position,
+                occurrence.Velocity, count, (float)Math.Clamp(link.InheritVelocity, 0, 4)));
+        }
+    }
     private sealed class DeferredParticleDraw : IDeferredDraw2D
     {
         private readonly ObjectCompositionSubsystem _owner;
@@ -55,9 +79,11 @@ public sealed partial class ObjectCompositionSubsystem
         float sx = MathF.Abs(transform.ScaleX) < 0.0001f ? 1f : transform.ScaleX;
         float sy = MathF.Abs(transform.ScaleY) < 0.0001f ? 1f : transform.ScaleY;
         float sz = MathF.Abs(transform.ScaleZ) < 0.0001f ? 1f : transform.ScaleZ;
-        float rx = transform.RotationX * (MathF.PI / 180f);
-        float ry = transform.RotationY * (MathF.PI / 180f);
-        float rz = (transform.RotationZ + transform.Rotation) * (MathF.PI / 180f);
+        float rx = config.IsPlanar2D ? 0 : transform.RotationX * (MathF.PI / 180f);
+        float ry = config.IsPlanar2D ? 0 : transform.RotationY * (MathF.PI / 180f);
+        // Authored 2D Objects store the same angle in Rotation and RotationZ for compatibility.
+        // Use the sprite/gameplay angle once, rather than rotating an effect twice.
+        float rz = (config.IsPlanar2D ? transform.Rotation : transform.RotationZ + transform.Rotation) * (MathF.PI / 180f);
 
         return Matrix4x4.CreateScale(sx, sy, sz)
             * Matrix4x4.CreateRotationX(rx)
@@ -206,6 +232,10 @@ public sealed partial class ObjectCompositionSubsystem
         if (layer.Simulation is null)
         {
             layer.Simulation = new ParticleSimulation();
+            if (layer.Config.IsPlanar2D) layer.Simulation.SetPlanarTransform(layer.World);
+            layer.Simulation.SetEmitterOrigin(new Vector3(layer.World.M41, layer.World.M42, layer.World.M43));
+            if (layer.Config.IsPlanar2D)
+                layer.Simulation.Occurred += occurrence => QueueSoftwareBirths(state, layer, occurrence);
             layer.Simulation.LoadConfig(layer.Config);
             layer.Simulation.SetMeshSurfaceSamples(layer.MeshSurfaceSamples);
         }
@@ -216,9 +246,19 @@ public sealed partial class ObjectCompositionSubsystem
 
         Vector3 origin = new(layer.World.M41, layer.World.M42, layer.World.M43);
         layer.Simulation.SetEmitterOrigin(origin);
+        if (layer.Config.IsPlanar2D) layer.Simulation.SetPlanarTransform(layer.World);
         layer.Simulation.UpdateCameraPosition(scene.Camera3D.Position);
 
-        if (layer.Config.CollisionMode != ParticleCollisionMode.None && scene.Physics is not null)
+        if (layer.PendingSoftwareBirths.Count > 0)
+        {
+            SoftwareParticleBirth[] pending = layer.PendingSoftwareBirths.ToArray();
+            layer.PendingSoftwareBirths.Clear();
+            foreach (SoftwareParticleBirth birth in pending)
+                layer.DroppedSoftwareBirths += birth.Count - layer.Simulation.BurstAt(
+                    birth.Count, birth.Position, birth.Velocity, birth.Inheritance);
+        }
+
+        if (!layer.Config.IsPlanar2D && layer.Config.CollisionMode != ParticleCollisionMode.None && scene.Physics is not null)
         {
             layer.Simulation.SetCollisionHeightProvider(position =>
             {
@@ -232,13 +272,18 @@ public sealed partial class ObjectCompositionSubsystem
             });
         }
 
-        float remaining = layer.PendingSeconds;
-        layer.PendingSeconds = 0f;
-        while (remaining > 0f)
+        int safety = 0;
+        while (layer.PendingSeconds >= 1f / 60f && safety++ < 16)
         {
-            float step = Math.Min(remaining, 0.25f);
+            const float step = 1f / 60f;
             layer.Simulation.Step(step);
-            remaining -= step;
+            layer.PendingSeconds -= step;
+        }
+        if (layer.PendingSeconds > 0 && safety == 0)
+        {
+            float step = Math.Min(layer.PendingSeconds, .25f);
+            layer.Simulation.Step(step);
+            layer.PendingSeconds -= step;
         }
     }
 
@@ -262,7 +307,7 @@ public sealed partial class ObjectCompositionSubsystem
             AdvanceGpuLayer(state, layer, gpuRenderer);
             if (layer.GpuEmitter is not null && layer.Frames.Length > 0 && layer.Frames[0].IsValid)
             {
-                float pixelScale = MathF.Max(4f, zoom * 12f);
+                float pixelScale = layer.Config.IsPlanar2D ? zoom : MathF.Max(4f, zoom * 12f);
                 gpuRenderer.SubmitParticles2D(layer.GpuEmitter, layer.Frames[0], layer.Texture,
                     centerX, centerY, zoom, pixelScale, 0, clip);
             }
@@ -279,7 +324,7 @@ public sealed partial class ObjectCompositionSubsystem
         AdvanceSoftwareLayer(state, layer, _lastScene);
         ParticleSimulation? simulation = layer.Simulation;
         if (simulation is null) return;
-        int capacity = Math.Max(1, simulation.Capacity);
+        int capacity = simulation.SpriteCapacity2D;
         if (layer.SpriteCalls.Length != capacity) layer.SpriteCalls = new SpriteDrawCall[capacity];
         int count = simulation.FillSpriteDrawCalls2D(layer.SpriteCalls, centerX, centerY, zoom, layer.Texture);
         if (count > 0) renderer.DrawSpriteBatch(layer.SpriteCalls.AsSpan(0, count));

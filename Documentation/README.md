@@ -1,35 +1,765 @@
 # Genesis Studio Master
 
-## Current acceptance programme — 2D game production, 27 September 2026
+## Current acceptance programme — 2D, then 3D game production, 28 September 2026
 
 This is the single authoritative completion document. The older hotfix ledgers below are historical
 evidence, not current acceptance results. README files are navigation; generated JSON, logs and
 captures are evidence. New editor work, findings, comparison results and acceptance decisions belong
 in this section. Finish one task at a time; do not use computer control or parallel agents. Complete
-2D production before outstanding 3D work.
+2D production before outstanding 3D work. The user's 28 September clarification authorises
+continuing through both programmes, in that order.
 
-**Overall state: NOT ACCEPTED.** A successful build or a source implementation does not establish
-editor usability, appearance, gameplay integration, export correctness or backend parity.
+**2D production contract: ACCEPTED for build `20260928-182030-ca6fb9c7`. Overall application/3D:
+NOT ACCEPTED.** The final hash-bound judge passed all twelve required surfaces and all 35 mandatory
+workflow/runtime/export requirements. A successful build alone does not establish editor usability,
+appearance, gameplay integration, export correctness or backend parity. The complete regression
+still has sixteen advanced 3D failures; Model and Terrain remain failed overall surfaces.
+
+### Accepted 2D checkpoint — 28 September 2026
+
+Quick Build `20260928-182030-ca6fb9c7` compiled and promoted matching Studio/Player with zero
+warnings/errors, eighteen focused 2D checks, exact DX11/DX12/Vulkan/OpenGL/Software smokes, startup,
+bundled DXC and package checks. Its frozen harness then ran the **complete 891-check regression:
+875 passed, sixteen advanced 3D checks failed**, producing 527 images. This is a completed complete
+regression run, **not a passing Full Build**. Build report:
+`TestResults/Builds/20260928-182030-ca6fb9c7/BuildSummary.json`.
+
+The same frozen product generated **379 populated layouts**. Every state was sequentially reviewed,
+including menus, dialog actions, optional panels, editor controls, narrow layouts and 125/150/200%
+interface scale. All twelve required surfaces received usability **4/5** and aesthetics **4/5**;
+their complete functional workflows passed and they have no automated capture findings. Model
+received **3/5** and Terrain **2/5**, with their advanced defects retained explicitly. The separate
+mandatory saved Model animation workflow passed: failed advanced Model children still correctly
+fail its overall surface rating.
+
+An additional **98 final pixel captures** were inspected: forty exported Mushroom Meadow title,
+play, pause, rig motion, win and restart states across five backends; ten authored/live-updated font
+frames; fifteen saved Model animation/live pivot frames; and thirty-three Room/gameplay origin,
+mirrored-transform and placement-ghost comparisons. Enemy feet and both flag bases agree between
+Room and gameplay. Exported runs completed through input, played audio, paused, animated, restarted
+and exited cleanly. Software's documented custom shader/lighting limits are not claimed as GPU
+feature parity. Vulkan Model originals contain visible RGB but transparent capture alpha; original
+PNGs were reviewed separately, and capture-alpha correctness remains in the 3D evidence queue.
+
+`TestResults/Readiness/Final2D20260928-182030/judge.json` records **Accepted2D: true**, all 35 mandatory
+requirements passed and no rejected evidence. `review.json` binds the subjective notes to every
+capture hash. `Regression/results.json`, `Captures/capture-manifest.json` and
+`PixelReviewAllBackends/review-map.json` retain the underlying evidence. Product fingerprint:
+`2738FED0BAB25A9F0268DA12633288047702AD4F79EEB30D6E8E870E1F22461D`.
+
+This is a bounded Windows x64 authoring/gameplay/export contract, with source-owned native tests
+and sequential visual review, no computer control or parallel agents. The rating is an informed
+inspection, not a timed independent novice study or a 5/5 claim. Native device DPI was 96 on one
+monitor; larger application interface scale does not establish high native DPI or monitor-transition
+acceptance. Source changes for 3D must generate fresh final evidence while preserving this checkpoint.
 
 ### Required outcomes and sequential queue
 
 | Order | Outcome | Current state |
 |---|---|---|
-| 1 | Review GitHub branches, preserve useful work and local edits, retain only `main` as a branch. | Selected H23 Phase 2 GPU particle implementation integrated locally; acceptance and remote cleanup recorded below. |
-| 2 | Click the bottom-right renderer indicator to choose DX11, DX12, Vulkan, OpenGL or Software; persist the preference and refresh live editor renderers. | Pending. |
-| 3 | One shell command palette. Help → Commands separates PGSL, Engine, Editor and Shell commands, with accurate scope and shortcuts. | Pending; existing View/Help/toolbar entries duplicate the palette. |
-| 4 | Create functionality, usability and aesthetics judges for every routed editor and the shell; record evidence and fix failures. | Pending. Missing evidence must remain unverified and cannot pass. |
-| 5 | Complete relevant 2D editors and live, interactive cross-editor authoring. | Pending current audit: Image, Object, Room, Audio, Particle, Physics, Pathing, Shader, Script, UI and Notes; Model/Terrain evaluated without prematurely expanding 3D scope. |
-| 6 | Every script-based surface provides type/member completion, call signatures, active argument and caret context in a bottom strip. | Existing shared CodeEditor support requires verification on every consumer. |
-| 7 | Saved Image rigs/animations and Model animations are usable from gameplay code, with visible animated output and cross-editor propagation. | Pending runtime and save/reopen evidence. Names, frame counts and metadata alone cannot pass. |
-| 8 | Complete Mushroom Meadow as a full playable platformer, with onboarding, start/pause/restart, progression, enemies/hazards, win/lose, sound and editable resources. | Existing showcase requires gameplay audit and completion. |
-| 9 | Export Mushroom Meadow, play the exported executable, switch all five backends explicitly and inspect the resulting pixels and behavior. | Pending; no fallback may count as a requested backend pass. |
-| 10 | Full build, all judges, all required 2D acceptance and fair comparisons pass before broad 3D completion starts. | Pending. |
+| 1 | Review GitHub branches, preserve useful work and local edits, retain only `main` as a branch. | Completed: integrated `f9791e5` published; only remote `main` remains. Five archive tags and the verified recovery bundle retain alternate work. |
+| 2 | Click the bottom-right renderer indicator to choose DX11, DX12, Vulkan, OpenGL or Software; persist the preference and refresh live editor renderers. | Implemented; shell persistence and viewport recreation passed again in `PathingBackendFoundation`. Actual Pathing sprite readbacks passed sequential DX11/DX12/Vulkan/OpenGL/Software recreation after fixing window pixel-format reuse. Exported gameplay verification remains a separate gate. |
+| 3 | One shell command palette. Help → Commands separates PGSL, Engine, Editor and Shell commands, with accurate scope and shortcuts. | Implemented; 46 Foundation checks passed in `TestResults/Readiness/StartInitialScroll`, including native editor actions, availability, four scopes after painting and one palette. |
+| 4 | Create functionality, usability and aesthetics judges for every routed editor and the shell; record evidence and fix failures. | Accepted 2D checkpoint above: nine integrity checks, complete workflows, all 379 reviewed hash-bound captures and twelve required surface passes. Failed advanced Model/Terrain children and ratings remain visible; extend the contract for 3D. |
+| 5 | Complete relevant 2D editors and live, interactive cross-editor authoring. | Accepted against the final shared product for Image, Object, Room, Audio, Particle, Physics, Pathing, Shader, Script, UI and Notes. Model/Terrain advanced workflows remain open for 3D. |
+| 6 | Every script-based surface provides type/member completion, call signatures, active argument and caret context in a bottom strip. | All six CodeEditor consumers have providers. All five assistance checks passed in final regression; code/argument states were visually inspected, including narrow and enlarged layouts. |
+| 7 | Saved Image rigs/animations and Model animations are usable from gameplay code, with visible animated output and cross-editor propagation. | Image rig workflow passed live pose edit, save/reopen, undo and invalid-replacement recovery; exported rig motion passed on all five backends with inspected pixels. Saved Model animation and live saved pivot edits passed in actual Object previews on all five backends; overall Model usability remains below acceptance for advanced 3D. |
+| 8 | Complete Mushroom Meadow as a full playable platformer, with onboarding, start/pause/restart, progression, enemies/hazards, win/lose, sound and editable resources. | Accepted final game contract: eleven checks cover collisions, life loss, checkpoints, timeout, restart and input-only completion; live rig authoring passed. |
+| 9 | Export Mushroom Meadow, play the exported executable, switch all five backends explicitly and inspect the resulting pixels and behavior. | Accepted final matching exports: six package/backend checks and all forty inspected captures passed on exact DX11, DX12, Vulkan, OpenGL and Software. |
+| 10 | Complete regression, all required 2D judges and fair comparisons; then finish advanced 3D and achieve a passing Full Build. | Required 2D contract and documented fair comparison complete. Complete regression executed; sixteen advanced 3D failures remain. Full Build pass and overall judges remain required for final application acceptance. |
+
+### Work outstanding for completion
+
+The accepted 2D checkpoint is frozen above. The active target is complete 3D production. These are
+remaining tasks, not a percentage estimate; old development notes below are superseded by the
+checkpoint only where it provides fresh evidence. New builds require new matching acceptance.
+
+| Sequence | Remaining work | Completion evidence |
+|---|---|---|
+| 1 | Publish the accepted 2D source checkpoint to `main`, preserving unrelated local work. | Review semantic changes, stage exact intended paths, check AutoSync is stopped and verify the remote commit. Only `main` remains a branch; alternate work is archived. |
+| 2 | Investigate and repair all sixteen recorded advanced 3D regression failures sequentially. | Retain meaningful assertions for resource lookup, transforms/raycast, current commands, terrain ownership/volume/placement, model intake/topology/import and animation fixtures. |
+| 3 | Finish Model and Terrain authoring usability and appearance. | Model viewer first, retained rigs/animation, clear topology tools and create/edit/use-in-game progression; readable enlarged actions and fewer primary commands. Terrain needs guided create/sculpt/paint/place and one menu structure. At least 4/5 from populated native captures. |
+| 4 | Audit and complete cross-editor 3D resource editing and live gameplay. | Model/material/rig/animation, terrain ownership/entities, room placement, physics, pathing, particles, shaders and Engine API save/reopen/live round trips with a playable 3D template. Re-audit historical roadmap before asserting completeness. |
+| 5 | Extend the judge to an explicit complete 3D contract. | Mandatory 3D workflows, all routed surfaces, failure integrity, exact renderer capabilities, complete exported 3D gameplay and fresh hash-bound reviews; 2D evidence cannot silently stand in for 3D. |
+| 6 | Repair Vulkan readback alpha and refresh cross-backend visual evidence. | Inspect original and composited captures; prove correct opaque/transparent output, lighting/material limits and requested-backend identity. |
+| 7 | Run passing Full Build and both final acceptance contracts, then publish the final application changes. | Zero build warnings/errors, no blocking complete-regression failures, all requested smokes/startup/package checks, matching exported Player, reviewed appearance and separately stated native DPI limits. |
+
+### Full regression findings and repairs — 28 September 2026
+
+Full Build `20260928-175235-17db64a6` completed **891 checks: 875 passed, 16 failed**, with
+527 images. Studio, Player and the harness compiled with zero warnings/errors; staged package and
+engine consistency checks passed. The build was not promoted and its renderer smokes/startup were
+skipped after regression failed. The prior Full Build had 41 failures. Report:
+`TestResults/Builds/20260928-175235-17db64a6/BuildSummary.json`.
+
+Every relevant 2D editor workflow, the resource Inspector and the required saved Model animation
+workflow passed. The 52 Foundation checks, nine judge-integrity checks, five code-assistance checks,
+2D PGSL runtime, script discovery, command auto-test, Room sprite origins, planar particle rendering,
+live Image rigging, complete Mushroom Meadow game, all five exported backends and all five authored
+font checks passed. The 40 export images still require the final shared-product visual review.
+
+Quick Build `20260928-174836-e1c8e70e` separately passed native 2D runtime, exact DX11/DX12/Vulkan/
+OpenGL/Software smokes, Studio startup, bundled DXC and package checks, and promoted its matching
+Studio/Player. This package predates the latest Notes toolbar cleanup. Final evidence must use a
+fresh matching package and capture fingerprint; neither build establishes final judge acceptance.
+
+Real defects repaired include hidden Room objects remaining pickable, browser collapse restoring a
+hidden selection and reopening its folder, and sibling image frame/cel paths being silently discarded
+while loading template resources. The image paths now survive loading and serialisation; strict
+validation remains on other image fields. The boot loader reports readiness only after critical
+assets and a presented warmup frame, and confirms a successfully loaded splash logo. Runtime tests
+now use their own project rather than an editor fixture that changes the starting Room.
+
+Updated regressions use actual visible menus, typed resource names, active Room authoring contexts,
+coalesced hierarchy updates, the public coordinate API, unified Inspector controls and batched tile
+entities. The native tests retain their behavioural assertions. `--test suite-2d` explicitly covers
+18 relevant checks; it does not replace the full suite's advanced Model/Terrain coverage.
+
+The sixteen remaining failures belong to the next 3D work, now explicitly authorised:
+
+- Terrain lake volume rendering and owned/legacy part loading.
+- 3D PGSL resource lookup, transforms/raycast and the playable template's asset paths.
+- Current View3D menu routes for Model Viewer, Model Editor, Room, Shader and Physics.
+- Model motion-import routes, Archer animation fixture, intake exterior rendering and face topology.
+- Room terrain placement context and Terrain entity grouping/edit/delete.
+
+These failures remain recorded and must be investigated, repaired and rerun. No Full Build pass,
+advanced 3D completion or overall application acceptance is claimed.
+
+### Fair comparison: the same small 2D platformer
+
+Assessed on 28 September 2026. The common task is to create an animated character, assemble a tiled
+level, add collisions/enemies/checkpoints, bind sound and UI, change a saved asset while iterating,
+and export a playable desktop game. Genesis has direct source, native workflow and capture evidence.
+The other applications have documentary assessments from their authors' manuals, not new hands-on
+timing, usability or DPI tests. They receive no invented numerical judge scores. Unreal's AAA
+rendering breadth, marketplace size, team size and photorealism are outside this comparison.
+
+| Application and source baseline | Relevant workflow and setup | Fair assessment for Genesis |
+|---|---|---|
+| GameMaker Studio 1.4; original YoYo Games manual, preserved on a third-party archive | Resource tree, sprite/sound/path/script/Object resources and Room instances provide a direct 2D vocabulary. The Room view is central, with surrounding tabs, snap and an information bar. GML Script and Object code editors share autocomplete and syntax feedback. | This is the closest interaction benchmark: make Image → Object → Room → Run similarly easy to discover. Genesis's integrated saved rig/model authoring is additional scope, not proof that its ordinary platformer workflow is easier. Do not attribute modern GameMaker's newer layer tools to 1.4. [Original GUI manual](https://www.hitscan.org/dadiospice/000_using%20gamemaker/004_the%20graphical%20user%20interface.html), [Room manual](https://www.hitscan.org/dadiospice/000_using%20gamemaker/rooms/index.html), [Script manual](https://www.hitscan.org/dadiospice/001_advanced%20use/006_scripts.html). |
+| Godot; stable 4.7 documentation at assessment time | Dedicated 2D rendering/physics, nodes/scenes, tilemaps, animation and particles; built-in code editing. Typed GDScript improves completion and call argument information. Runtime scene/script synchronisation and remote property inspection are documented. | A strong integrated 2D benchmark. Genesis must offer equally clear resource-to-game binding and honest reload feedback. Its separate resource editors can make specialised authoring discoverable but can also increase navigation. [2D overview](https://docs.godotengine.org/en/stable/tutorials/2d/index.html), [typed assistance](https://docs.godotengine.org/en/stable/tutorials/scripting/gdscript/static_typing.html), [runtime iteration](https://docs.godotengine.org/en/stable/tutorials/scripting/debug/overview_of_debugging_tools.html). |
+| Unity; 6.6 workflow/IDE documentation and 2D Animation 17.0 | GameObjects/components, Scene, sprites, tilemaps, Physics 2D, audio and UI form the documented workflow. Sprite skeletal authoring is available through the 2D Animation package. C# editing/completion/debugging normally uses an external supported IDE and integration. | Broad production tools are a substantive strength. Genesis can reduce the small game's setup/navigation through integrated Image, Script and use-in-game guidance; the existence of fewer windows does not establish faster authoring. Unity's hierarchy and Inspector organisation remain useful benchmarks. [2D workflow](https://docs.unity.com/en-us/engine/6000.6/manual/unity2d/2d-game-development/2d-game-creation-wokflow), [2D Animation](https://docs.unity3d.com/Packages/com.unity.2d.animation@17.0/manual/index.html), [IDE support](https://docs.unity3d.com/Manual/scripting-ide-support.html). |
+| Unreal; Epic's 5.8 Paper 2D and editor documentation | Paper 2D requires enabling its plugin and restarting. Sprites and Flipbooks support 2D and hybrid games inside the wider Level/Actor/material toolset. Its viewport, Outliner, Details and grouped toolbars serve that broader work. | Genesis should keep the simple platformer path shorter and more explicit. Unreal's wider toolset is a fair strength for hybrid projects, not a penalty or a feature-parity target for Genesis. [Paper 2D](https://dev.epicgames.com/documentation/unreal-engine/paper-2d-overview-in-unreal-engine?lang=en-US), [editor organisation](https://dev.epicgames.com/documentation/en-us/unreal-engine/unreal-editor-interface). |
+
+The GameMaker archive identifies its contents as the original 1.4 manual extracted from the product;
+it is not a new vendor-hosted manual. Godot's stable skeleton and particle tutorials explicitly warn
+that those pages have not yet been updated for 4.7, so their detailed current behaviour remains
+unverified here. [Archive provenance](https://www.hitscan.org/dadiospice/), [skeleton page](https://docs.godotengine.org/en/stable/tutorials/animation/2d_skeletons.html), [particle page](https://docs.godotengine.org/en/stable/tutorials/2d/particle_systems_2d.html).
+
+#### Aesthetics, density and duplication
+
+| Element | Documentary comparator | Genesis judgment and acceptance requirement |
+|---|---|---|
+| Editor structure | GameMaker 1.4 gives resources their own forms; Godot groups its main screens and docks; Unity uses distinct Scene/Hierarchy/Inspector/Project views; Unreal groups viewport, Outliner, Details and content controls. | Retain a predictable central preview, resource controls beside it and timeline/context below. Evaluate each populated editor, rather than judging only the attractive empty shell. [Godot interface](https://docs.godotengine.org/en/stable/getting_started/introduction/first_look_at_the_editor.html), [Unity views](https://docs.unity.com/en-us/engine/6000.5/manual/unity-editor/editor-windows-views-reference). |
+| Menu bars and repeated routes | The 1.4 manual explicitly documents multiple routes to an action. Unreal keeps some common menus across editor windows and changes other tools by mode. | Multiple shortcuts can be useful, but repeated File/Edit/View bars inside the same docked workspace and duplicate palette entries obscure ownership. Genesis now keeps one shell palette and uses focused editor actions/Options. Judge labels, enabled states and scope, not simply the number of buttons. |
+| Button placement and visual hierarchy | Unity's own design guidance groups its dense controls by hierarchy, spacing and backgrounds. Unreal groups transforms, camera and view settings. | Put the next authoring action near the preview; keep Save/history consistent; reveal specialist controls when needed. Check label contrast, focus, alignment, clickable size, overflow and the bottom renderer selector. [Unity design guidance](https://www.foundations.unity.com/patterns/content-organization). |
+| Size and scaling | No equivalent native multi-DPI captures were collected for competitors. | Genesis captures normal/narrow and 125/150/200 percent interface scale plus editor dialogs/menus. This is direct evidence only at the recorded 96 device DPI. Code font size is a separate preference. Native multi-monitor DPI and measured first-time-user completion remain separate validation; no comparative scaling winner is asserted. |
+| Live cross-editor usage | Godot documents runtime synchronisation; Unity's component/resource workflow and Unreal's integrated asset editors also connect authoring to gameplay. | Market this as a tested Genesis workflow, not an exclusive invention: saved Image rigs, Model animations, effects, UI and typed references must produce visible runtime behaviour and propagate valid edits. Stale/invalid replacements must remain recoverable. |
+
+The assessment supports a focused Genesis niche: integrated asset authoring and a straightforward
+Object/Room platformer workflow. It does not establish superiority over these mature applications.
+Final Genesis scores below must come from current capture hashes and complete functional workflows.
+
+### Notes toolbar and layout review
+
+Notes now presents Source/Split/Preview, Bold, Format and Options. Format contains occasional
+formatting; Options contains Library, Details and Markdown/PDF export. A repeated document name and
+nested File/Edit/View menus were removed. Save and shared history remain visible. The complete
+Notes formatting/history/metadata/panel workflow passed; fifteen populated normal/narrow/enlarged,
+source/preview/split and menu states were inspected without automatic layout findings. Final ratings
+still require the final matching product's capture hashes. Code text uses the independent code-font
+preference; rendered note text follows interface scale.
+
+### Starting a game and using editor resources
+
+Create a project with **Mushroom Meadow**, open its Room and press **F5** to play. A/D moves,
+Space jumps and Shift runs. Start/pause/restart UI and the goal provide a playable reference.
+Work from a copy of the template while learning; save and reopen edited resources.
+
+Image authors sprites, frames, clips and rigs. Object binds visuals, editable fields and events.
+Room places instances and tiles with the same saved sprite origins used by gameplay. Particle,
+Pathing, Physics, Shader and Audio provide focused previews and use-in-game guidance. Script
+supplies reusable gameplay code. The UI Editor is available through **New → User Interface** in
+the resource browser, for authored buttons/text/layout with gameplay bindings. Notes provides a
+source/preview playtest journal.
+
+Save validated edits to propagate them to open consumers. Use-in-game guides show executable PGSL
+bindings. Image rig and Model animation checks require visibly changing rendered output. Code
+surfaces provide type/member hints, call signatures, active argument and caret context in their
+bottom strip. Interface scale and code font size are separate Appearance preferences.
+
+Click the bottom-right renderer indicator to choose **DX11, DX12, Vulkan, OpenGL or Software**.
+The preference persists and recreates live editor renderers. Exported games are checked separately.
+Help → Commands provides PGSL, Engine, Editor and Shell scopes; the single shell Command Palette
+serves application actions. User-facing instances use Object terminology; legacy internal `prefab`
+fields remain load-compatible.
+
+### Source layout and repository hygiene
+
+Genesis is a Windows x64 C#/.NET 10 WinForms application with DockPanelSuite. Core owns projects,
+resources, validation and templates; Studio owns the shell. Image and Suite contain specialised
+editors. `Source/Runtime/` is the integrated Ember engine; `Source/Genesis.Player/` builds its Player.
+Runtime projects do not reference Studio. PGSL compiler/VM tooling lives under
+`Runtime/Genesis.Runtime/Scripting/`, with command contracts under `Runtime/Genesis.Shared/Commands/`.
+
+`Tests/Genesis.Application.Headless/` is an executable harness using `HeadlessHarness.RunCase`, not
+xUnit/NUnit. Themes, BuildTools and Installer own presentation/build/packaging inputs. Source owns
+authored code; `Genesis Application/`, `.build/`, `Dist/`, `TestResults/`, bin/obj and imported user
+projects are generated output. Ignore is legacy/reference material. Full AOT and the shared
+Image→Model painting session remain roadmap work.
+
+Run `DeveloperRequirementsInstaller.ps1 -CheckOnly` to audit prerequisites. Builds need .NET 10
+SDK x64 and the native dependencies reported by that audit; Vulkan validation needs its runtime/SDK.
+Inno Setup is needed only for installer compilation. Preserve the active `.gitignore` and review
+source/template additions explicitly. Do not commit generated binaries or test evidence. Git is
+already initialised on `main`; first-upload instructions and `git add .` are obsolete here. Preserve
+useful alternate work through inspected commits/archive tags/recovery bundles and stage intended
+paths only. Check GitHub AutoSync is stopped before publication and verify remote state afterward.
+
+### Build, validation and recovery
+
+Current source contract, checked 28 September 2026. These profiles build **Genesis Studio and its matching Windows x64
+Player**. They are separate from exporting a user's game. Run commands from the repository root.
+
+| Contract | Quick (default) | Full |
+|---|---|---|
+| Command | `Build.bat` or `Build.bat --quick` | `Build.bat --full` |
+| Configuration | Release; `--debug` available | Release only |
+| Compilation | Incremental publish, warnings as errors | Explicit restore and clean, warnings as errors |
+| Product | Self-contained Studio and `Player/GenesisEngine.exe` | Same |
+| Package validation | Required files, DXC, VC++ runtime, matching shared DLL hashes, retired dependency rejection | Same |
+| Regression | Skipped unless requested | Complete headless regression |
+| Renderer tests | Skipped unless requested | DX11, DX12, Vulkan, OpenGL, Software, each explicitly requested |
+| Startup | Staged Studio and bundled shader compiler smoke | Same |
+| Promotion | Only after requested checks pass | Only after all checks pass |
+
+No GPU test is silently counted as passed through fallback. A requested renderer failure fails the
+build. Software smoke coverage does not imply hardware-feature parity. `BuildSummary.json` separates
+requested checks, executed results and skipped renderer coverage.
+
+#### Additional commands
+
+```bat
+Build.bat --check
+Build.bat --test Room
+Build.bat --test 2d-pipeline
+Build.bat --test model-system
+Build.bat --backend vulkan
+Build.bat --full-tests
+Build.bat --full-smoke
+Build.bat --full --installer
+Build.bat --quick --run
+Build.bat --help
+```
+
+`--check` adds the 15-workflow gate and DX11/DX12 smokes to Quick. `--full-tests` adds the entire
+regression suite; `--full-smoke` adds all five renderer smokes; `--quick-smoke` adds DX11/DX12.
+`--skip-tests` is a legacy Quick alias and still runs package/startup checks. Full rejects Quick,
+skip-tests, Debug and focused-test combinations. The renderer selector accepts only `dx11`,
+`dx12`, `vulkan`, `opengl`, `software`; removed aliases produce an actionable error.
+
+#### Output and recovery
+
+Each run owns `.build/staging/<run>/`, `.build/tests/<run>/` and `TestResults/Builds/<run>/`.
+Studio and Player are published into fresh staging even during Quick; this prevents deleted
+backend DLLs from surviving in a previously published folder. Tests use the staged Player.
+
+The driver audits the package and writes a SHA-256 `PackageManifest.json`. The manifest covers
+the package payload before the manifest and final BuildSummary are written. It then moves the
+existing `Genesis Application/` to `.build/previous/<run>/`, promotes staging and restores the
+previous directory if that final move fails. These moves are restricted to the workspace.
+
+A running Studio/Player under the published directory prevents promotion and leaves the validated
+staging folder available. The build never force-stops those user processes. The isolated smoke
+process has a 60-second timeout and may be stopped by its own PID if it hangs.
+
+If a command fails, inspect the failed stage and log path in BuildSummary. Fix the cause and rerun.
+Staging and previous packages are retained for diagnosis/rollback; they currently require manual
+cleanup and can consume substantial disk space. Builds should be run one at a time in this workspace.
+
+#### Installer and scope
+
+`--installer` compiles `Dist/GenesisStudio-Setup.exe` from the validated staging directory before
+product promotion. Inno Setup and the existing redistribution scripts remain prerequisites.
+Installer execution, locked-output and cancellation drills remain additional release checks.
+
+Game Export is implemented: File → Export Game opens the release wizard. Choose title, Windows
+x64, display mode, optional icon, destination and folder/ZIP package. It cooks assets, compiles
+scripts/shaders and includes the matching standalone Player. The five Mushroom Meadow backend
+checks launch and play real exported packages. Non-Windows targets remain outside this contract.
+
+
+### Additional design agenda — user clarification, 27 September 2026
+
+The main issue is the design of Particle, Script, Shader, Terrain, Model and newer editors such as
+Pathing: the developer cannot tell how to use them. They must be easy to use. Passing technical
+checks alone cannot satisfy this requirement. Each editor needs a visible starting point, clear
+purpose, sensible defaults and a short guided workflow from creating a resource to using it in a
+game. Assess that workflow directly; do not assign a good usability score merely because controls
+exist or an experienced reviewer can operate them.
+
+Reduce the number of options on primary toolbars and menus. Prioritise the current authoring step,
+place occasional/advanced actions where they are discoverable, and remove duplicate commands.
+Make the UI Editor discoverable through new-project/resource creation and a clear explanation of
+how authored interfaces appear and respond in gameplay. Its presence must not remain a hidden
+feature.
+
+Remove Prefabs from the application's user-facing workflows, Inspector and menus. Investigate and
+repair Mushroom Meadow's Room Editor placement: flags and some enemies appear inside the floor
+while their gameplay placement is correct, and moving them visually upward makes gameplay too high.
+One authored position must produce consistent sprite/rig/pivot placement in both the room and game.
+Verify the same saved resources and coordinates in both renderings; do not compensate by editing
+the template positions separately for each view.
+
+Sequence after the current Note repair: fix room/gameplay placement; remove Prefabs; redesign and
+verify one editor's novice workflow at a time, beginning with the relevant 2D editors. Inspect Model
+and Terrain design now while retaining the rule that outstanding 3D implementation follows accepted
+2D production. Final usability and aesthetics acceptance includes this additional agenda.
+
+Room placement repair: the editor was ignoring saved Image origins and centering every sprite.
+Both flags and Acorn Walker now use the same saved bottom pivot as gameplay, including frame origin
+overrides, mirrored/nonuniform scale and rotation. Selection, picking, culling and placement ghosts
+use the resulting visible bounds. The original Meadow coordinates remain unchanged. Development
+check `Editor.Room.SpriteOrigins.MatchGameplayPixelsPickingGhostAndReopen` passed in
+`TestResults/Readiness/RoomOriginAcceptanceDevelopment9`: 43 physical captures, editor/runtime pixel
+comparisons for both flags and Acorn Walker on exact DX11/DX12/Vulkan/OpenGL/Software, mirrored and
+rotated parity, picking above the floor, ghost bounds, placement undo and save/reopen, plus ten
+editor/runtime colour-background captures across those same five backends. Representative
+flag/enemy/ghost captures were inspected. This check is mandatory in final 2D judge acceptance;
+it does not replace complete exported gameplay or final novice-workflow review.
+
+The same regression also verifies that Settings/Views retain selection while inactive object
+gestures are disabled, and that a real hierarchy drag can move a parented instance to another
+unlocked layer without moving it in world space. The destination becomes the active layer and the
+instance stays selected; one undo restores its original parent, layer, selection and world pose.
+`RoomWorkflowShellDevelopment10` passes all seventeen broader Room checks with twenty-one images.
+Inspector controls use the real unified surface, including separate case-sensitive instance fields,
+editable typed references, surface alignment actions, focus retention and save/reopen. Terrain rename
+targets the selected instance and hierarchy visibility tests use the current input path. Settings
+preserves selection and shows one settings panel. Final shared-build verification remains required.
+
+`RoomSharedPipelineDevelopment2` passes all eleven shared 2D checks with eight images. The visible
+tile-set selector arms painting, and the exposed tile picker is the one on screen. Tile selection,
+backgrounds, assembled Objects, room playback and the designated camera now survive the workflow.
+These are current development passes, not final exported-Player acceptance.
+
+Object terminology and duplication: removed the duplicate **Spawn Prefab** builder action. The
+palette presents one **Create Instance** action for an Object resource and omits raw command entries
+already covered by a friendly action. Old saved spawn blocks and presets display **Create Instance**
+without changing their executable command, resource references, source or preset files on opening.
+The read-only PGSL preview shows executable code and handwritten comments, hiding editor-owned
+action markers. The no-op Prefab Inspector button had already been removed; current Inspector and
+Room labels use Object resources. Historical/internal JSON `prefab` references remain compatible.
+`TestResults/Readiness/ObjectTerminologyDevelopment2` passed **47 Foundation checks**, including
+legacy load, palette uniqueness, unchanged source/files and undo. Its populated builder capture
+was inspected. Final consolidated application acceptance remains pending.
+
+Particle novice workflow: the default workspace now shows **Quick setup** beside the live preview.
+**Start with…** chooses a complete effect; everyday emission, lifetime, motion, size and colour
+controls use the existing validated fields and undo journal. A layer selector appears only for
+multi-emitter effects. **Options** holds detailed properties, the emitter definition, emitter stack,
+curves and occasional playback commands. Detailed properties and **Use in game** have a visible
+**Back to Quick setup** button. The primary toolbar retains Pause, Restart and the shared Save/state;
+preview settings no longer duplicate dimension and floor controls. New Particle resources open in
+2D while existing resources keep their saved dimension.
+
+**Use in game → Create effect Object** saves the current valid effect and creates an ordinary Object
+with a named Particle component reference and the matching 2D/3D dimension, then opens that Object.
+The panel also explains Room placement, attachment to an existing Object and the actual PGSL spawn
+command. A particle-only Object preview frames the effect without changing gameplay coordinates.
+Removed duplicate local File/Edit/History commands. The preview starts at an explicitly labelled
+4× zoom; its live viewport and render buffer fit the available space after resizing. Advanced tab
+headers use the editor palette and wrap at larger scales. The curve selector and instructions use
+the panel's full width. Preview seed now controls probabilistic emitter links as well as particles.
+
+The oversized Fire preview is repaired: authored size, motion, mesh samples, XY emission and forces
+use the same 12-pixel effect units in the editor and 2D gameplay, with upward authored Y mapped to
+upward screen motion. Placed Objects apply scale/rotation once, local particles follow their Object,
+and floor collision uses the placed effect's floor. Software and hardware render real animated
+textures, Alpha/Additive/Multiply blends, Trail/Ribbon/Beam shapes and linked-emitter births. Stick
+collision emits one impact rather than repeatedly firing while resting on the floor. Software trails
+retain and fade their tail after particle death.
+
+`TestResults/Readiness/ParticleWorkbenchDevelopment6` passed **73 workbench checks with 97 captures**,
+including the visible novice controls, preset undo, invalid-draft retention, save/reopen, seeded
+links and actual Object output on exact DX11/DX12/Vulkan/OpenGL/Software. Pixel checks require real
+placed output, changes after a live saved effect edit, animated texture frames and rendered child
+emitters in world/local space. The full editor workflow passed in `ParticleAdvancedWorkbenchDevelopment3`;
+five assistance checks passed in `ParticleAssistanceDevelopment2`. Particle GPU conformance passed
+**53 checks**, including shader compilation and WARP compute; this is not physical performance
+evidence. Fire/Rain/Portal captures from the current workbench run were inspected on all five backends.
+All 20 populated `ParticleLayoutsDevelopment12` states were visually inspected with zero automated
+findings: normal/narrow widths, 100/125/150/200% application scale, code, detailed tabs, curves,
+libraries and gameplay guidance. Its hash-bound development review rates usability **4/5** and
+aesthetics **4/5**, with the curve preview reframed to 2× when opening that shorter panel. Native
+monitor DPI remains a separate gate. Earlier `ParticleQuickSetupDevelopment3` was stopped and is
+incomplete evidence. These are development results; final product-wide acceptance
+and exported Player validation against the changed Particle runtime remain pending. The serialized
+legacy `ParticleConfig.Script` metadata has no runtime consumer; it is not a working attached-script
+feature and must not be counted as one.
+
+Script novice workflow: the primary toolbar now exposes **Builder**, **Code**, **Add action…**,
+**Use in game** and **Options**, with pinned Save/state. A visible hint explains reusable game logic.
+Named functions remain selectable when the outline is hidden; the optional outline and command
+reference are reachable at 200% scale. The command reference has the whole sidebar instead of
+competing with an empty toolbox. The enlarged function picker retains its caption and input.
+Initial graph framing waits for the settled layout, without recentering later user panning.
+
+Builder, typed Code and shell Undo/Redo share the document journal, including one transaction per
+node-drag gesture and the actual saved clean state. The function dialog explains inputs/return types,
+retains invalid drafts and rejects duplicate names/parameters and unknown types. **Use in game**
+shows the exact ScriptExecute/function call and creates an ordinary saved 2D Object caller with a
+real Create event. The guide explains Create/Step/Draw/Draw GUI and Room placement. The generated
+caller executes the selected saved function, and saving a changed Script updates subsequent calls.
+The sandbox now sets its actual ActiveVm context so ScriptExecute works there as in gameplay.
+
+`ScriptWorkflowDevelopment7` passed the complete Script workflow with five captures, including
+entries/functions, save/reopen, shared history, retained invalid drafts, a caller result changing
+from 7 to 9 after a saved library edit, initial enlarged framing and retained deliberate scrolling.
+`ScriptSharedObjectDevelopment1` passed the shared Object workflow with three captures;
+`ScriptWorkflowAssistanceDevelopment2` passed five assistance checks. All 18 populated
+`ScriptWorkflowLayoutsDevelopment3` states were inspected: normal/narrow and 100/125/150/200%, Code,
+gameplay guidance and its scrolled last steps, outline/reference, second function, Options menu and
+normal/enlarged/invalid function dialogs. Zero automated findings; the hash-bound development review
+rates usability and aesthetics **4/5**. Build: zero warnings/errors. These are development passes;
+native monitor DPI, final product-wide acceptance and refreshed exported Player remain pending.
+
+Shader novice workflow: **Quick setup**, **Code**, **Use in game** and **Options** form the primary
+toolbar, with pinned Save/state. Quick setup explains the editor, offers all fourteen effects and a
+real project preview resource, and shows exposed parameters beside the live preview. Advanced
+presets/passes, parameters/textures, bindings, preview type and compile settings remain under Options.
+Play/Restart stay with the preview. Duplicate File/Edit/History controls, the old mode rail and the
+unmeasured FPS caption are removed. Code retains the full editing width and typed argument/caret
+assistance. Compiler errors lead with the source location and message; full diagnostics remain
+available, and activation navigates to source. Invalid Save preserves both the draft and saved file.
+
+**Use in game** explains preview versus gameplay binding, creates a normal saved 2D Object with
+Image and Shader components, and explains Room placement and live editing. Physical checks load
+that generated Object through the gameplay spawner and verify actual pixels on all five exact
+backends: channel swaps on DX11/DX12/Vulkan/OpenGL, the original Image on Software as documented.
+The check exposed a released texture handle retained by gameplay after preview refresh. Gameplay
+now resolves it through the renderer asset cache again. Texture reference fields also refresh their
+display when the shared asset browser changes a binding.
+
+`ShaderWorkflowDevelopment7` passed the complete editor workflow with sixteen physical captures,
+including saved Object rendering, ordered pass enablement, history, invalid drafts and save/reopen.
+`ShaderSharedWorkspaceDevelopment3` passed ten wider checks with twenty-six captures, including all
+four hardware backends' texture changes and isolation of unrelated scene surfaces. Five assistance
+checks passed in `ShaderWorkflowAssistanceDevelopment3`. All twenty-one populated states in
+`ShaderWorkflowLayoutsDevelopment4` were inspected; zero automated findings and hash-bound
+development usability/aesthetics ratings of **4/5**. Release headless build: zero warnings/errors.
+These are development passes; final shared-build, native monitor DPI and exported Player acceptance
+remain pending.
+
+### Physics novice workflow and saved 2D gameplay — 28 September 2026
+
+Physics opens in **Quick setup**, with dimension, starting preset, body behaviour, a real saved
+sprite picker and material/collider controls. **Code**, **Use in game** and **Options** complete the
+short primary toolbar; Save and document state remain visible. Play/Step/Restart stay beside the
+preview. Detailed sandbox controls, joints, collision layers and telemetry remain optional. Duplicate
+shape/dimension choices and the old primary mode rail are removed. Enlarged fields use their actual
+container width; the preset dropdown retains readable height, and Quick setup opens at its introduction.
+
+**Use in game** creates an ordinary saved Object with canonical Image and Physics references and
+explains Room placement, solid tile collision and gameplay commands. Saved 2D Physics resources now
+attach actual bodies in gameplay. Sprite bounds and pivots map to solver metres at 32 pixels per metre;
+2D script positions and velocities remain pixels with positive Y down. Room tiles provide native static
+colliders. Physics-to-sprite synchronization preserves authored depth, scale and rotation. Scripted
+spawn/teleport/resize and velocity calls retain the same mapping. Static bodies remain fixed; Kinematic
+bodies follow velocity without gravity. Disabled bindings create neither a body nor an unnecessary world.
+Existing Objects without saved Physics bindings retain their previous movement behaviour.
+
+The preview draws the chosen saved Image on its simulated bodies and starts those props above the
+floor. Invalid Code retains its draft and last valid preview; undo/redo includes typed changes and
+invalid drafts, and failed Save preserves disk. Room Environment controls gameplay gravity; sandbox
+gravity, damping and sleeping settings are preview settings, as the guide states. Attached legacy
+`PhysicsSceneConfig.Script` metadata is not claimed as executed gameplay code.
+
+`PhysicsWorkflowDevelopment10` passed the complete workflow with seven actual captures, including
+the saved sprite preview and exact DX11/DX12/Vulkan/OpenGL/Software gameplay readbacks. Checks cover
+floor contact, material/mass, velocity, jumping, raycasts, scripted spawning/rotation/scale, Static and
+Kinematic bodies, disabled bindings, planar constraints, picking/dragging, history and save/reopen.
+Five assistance checks passed in `PhysicsWorkflowAssistanceDevelopment3`. All thirty-one populated
+`PhysicsWorkflowLayoutsDevelopment5` states were inspected, with zero automated findings and
+hash-bound development usability/aesthetics ratings of **4/5**. Release headless build: zero
+warnings/errors. Final shared-build, native monitor DPI and refreshed exported Player remain pending.
+
+### Pathing novice workflow and live 2D routes — 28 September 2026
+
+Pathing opens in **Quick setup** with a 2D route, two waypoints, one agent and speed in pixels per
+second. **Code**, **Use in game** and **Options** complete the short primary toolbar. Selected point
+fields edit position, wait and curve directly; advanced search, wander, follow and telemetry tools
+remain optional. Point selection survives undo. Typed comments and invalid drafts share document
+history, failed Save preserves disk, and save/reopen retains authored source. Full-width Code shows
+type suggestions, the active waypoint argument and caret location. Code font size is a separate
+preference from application InterfaceScale.
+
+**Use in game** creates an ordinary saved Object from the chosen sprite Object, attaches the
+canonical route and writes an actual Create event calling `PathFollow`. Placing it in a Room starts
+movement. Valid saved route edits update speed and geometry on the running agent; malformed edits
+retain the last valid route. Authored depth is preserved. Waypoint patrol needs no navigation bake;
+search routes use the Room's navigation mesh. Baking now includes actual solid Room tiles and
+projects saved native 2D Physics bodies from solver metres into Room pixel XY coordinates, so
+navigation avoids the same authored obstacles used by gameplay collision.
+
+`PathingWorkflowDevelopment12` passed the complete workflow with twelve actual images, including
+physical saved-Object gameplay readbacks on exact DX11/DX12/Vulkan/OpenGL/Software. Checks cover
+visual and typed history, invalid-draft recovery, save/reopen, real Create-event execution, live
+route reload, loop behaviour, obstacle baking, curve/drag interactions and F3 gameplay. Five
+assistance checks passed in `PathingWorkflowAssistanceDevelopment3`. All twenty-three populated
+`PathingWorkflowLayoutsDevelopment4` states were inspected: zero automated findings and hash-bound
+development usability/aesthetics ratings of **4/5**. Release headless build: zero warnings/errors.
+Final shared-build, native monitor DPI and refreshed exported Player acceptance remain pending.
+
+### UI novice workflow and real gameplay menus — 28 September 2026
+
+An empty User Interface opens a visible starting guide explaining where to create it and how to
+design and use it. **Score and health HUD**, **Title menu** and **Pause menu** create ordinary editable
+elements with one undoable action; they preserve existing layouts. The primary toolbar contains
+**Design**, **Add element**, **Use in game** and **Options**, with Save/document state pinned. Duplicate
+element buttons and primary File/Edit/History commands are removed. Hierarchy and contextual
+Inspector remain available under Options. Canvas size/Fit stay beside the canvas; the resolution
+selector now scales with its font. Enlarged guidance and properties scroll to their final controls.
+Corner resizing preserves the top-left for all ten anchors; Stretch adjusts right/bottom insets.
+
+**Use in game** creates an ordinary saved Object with executable Create, Step and Draw GUI events.
+One placed instance draws the saved UI independently of its world position. The Step event records
+the clicked element and changes the first Button label to `Clicked` as an editable working example.
+The guide explicitly explains that starting/resuming gameplay needs an authored action. Repeated
+creation with an existing name is rejected instead of silently producing another GUI Object.
+`UiSetText`, `UiSetValue` and `UiSetVisible` expose per-instance gameplay changes; saved layout and
+Image changes remain live. Invalid live UI replacements retain the last valid layout.
+
+UI drawing and hit testing now use the actual GUI dimensions rather than a potentially much larger
+Room. `UiMouseX()` / `UiMouseY()` map client mouse coordinates into render pixels. The runtime GUI
+dispatcher supplies actual render dimensions and the project asset root even without a HUD canvas.
+`UiWorkflowDevelopment8` passed the complete workflow with twelve actual captures, including five
+exact-backend readbacks of the created GUI Object's clicked label and saved live title. Checks also
+cover all anchored resize gestures, history, contextual properties, Image refresh, invalid-file
+preservation and save/reopen. Five assistance checks passed in `UiWorkflowAssistanceDevelopment1`.
+All thirty-three populated `UiWorkflowLayoutsDevelopment2` states were inspected: zero automated
+findings and hash-bound development usability/aesthetics ratings of **4/5**. Release headless build:
+zero warnings/errors. Final shared-build, native monitor DPI and refreshed exported Player acceptance
+remain pending.
+
+### Audio novice workflow and real gameplay playback — 28 September 2026
+
+The primary toolbar is **Quick setup / Use in game / Options**, with pinned Save and state. Play/Stop
+sit beside the waveform. Quick setup starts at the WAV source and import action, with short numbered
+instructions, Sound effect/Music presets, volume, repeat, trim/fades and mixing. Optional distance
+attenuation reveals its fields and curve; adaptive ambience and existing-resource clip reuse remain
+discoverable under Options. Opening at enlarged interface scales no longer scrolls past the source.
+The attenuation labels also measure their text rather than clipping at enlarged scales.
+
+WAV import validates and copies real samples without modifying the original file. Starting presets
+are single undoable edits. Trim/fades affect actual decoded PCM and audition uses the runtime mixer.
+Invalid numeric/role edits are rejected without mutation; invalid files and unreadable replacements
+are preserved. Save/reopen retains the same processed samples.
+
+**Use in game** creates a normal saved Object with real Create, Step and Destroy events: Create
+plays the saved Audio resource, Space stops and replays its own voice, and Destroy stops it. Repeated
+creation with the same name is rejected. The guide explains placing the Object, using PlaySound in
+existing coin/jump/damage events, and binding ambience through a Room rather than assuming the role
+alone attaches it. Saved Audio or WAV changes apply on the next playback; already-playing voices
+retain their original samples/settings. The runtime cache reloads changed resources at the same
+sound handle and retains the last good audio after a malformed replacement.
+
+`AudioWorkflowDevelopment4` passed the complete Editor.Audio workflow, including actual native
+mixer execution of the generated Object, stop/replay/Destroy, saved settings and WAV reload, invalid
+replacement recovery, history and save/reopen. All nineteen populated
+`AudioWorkflowLayoutsDevelopment2` states were inspected: zero automated findings and hash-bound
+development usability/aesthetics ratings of **4/5**. Release headless build: zero warnings/errors.
+Final shared-build, native monitor DPI and refreshed exported Player acceptance remain pending.
+
+### Image novice workflow and gameplay playback — 28 September 2026
+
+The primary bar is **Draw / Animate / Rig / Use in game / Options**, with pinned Save and state.
+Drawing instructions explain frames, bones and saving. Animate exposes the existing timeline; Rig
+has one route to each Rigging, Posing and Animation page. Advanced operations and exports remain
+under Options, without repeated Save, fit, zoom or rig-page commands. Explicit sidebar choices work
+at wide and narrow sizes. Image properties links to the shared viewer's origin and usage controls.
+
+**Use in game** explains bottom origins and one saved Image shared by viewers, Room and gameplay.
+It creates a normal saved Object with a real Create event for Still image, All frames, tagged clips
+or direct saved rig/pose animation. It binds the chosen rig explicitly and rejects duplicate Object
+names or unavailable playback choices before creating files. Existing Objects can use the same
+Sprite reference; the guide explains starting playback in Create and avoiding restarts every Step.
+
+`ImageWorkflowDevelopment5` passed the complete Editor.Image workflow with eleven captures,
+including four actual created Objects and visible rig movement on each of DX11, DX12, Vulkan,
+OpenGL and Software. The four hardware readbacks match; Software is independently verified and has
+different texture sampling. `ImageWorkflowAuthoringDevelopment1` passed 106 detailed authoring,
+interaction, rig/pose, layer/frame and canvas checks. All 31 populated
+`ImageWorkflowLayoutsDevelopment2` states were inspected: normal/narrow, 125/150/200% interface
+scale, actual rig/pose/animate dialogs, gameplay guidance and scrolled code, playback choices and
+nested menus. Zero automated findings; hash-bound development usability/aesthetics are **4/5**.
+Code and menus scale with the interface, and the capture harness composes nested offscreen popups
+at their logical owners. Release headless build: zero warnings/errors. Final shared-build, native
+monitor DPI and exported Player acceptance remain pending.
+### Object novice workflow and shared event history — 28 September 2026
+
+The primary toolbar contains **Builder**, **Code**, **Add event…**, **Add action…**, **Use in game**
+and **Options**, with pinned Save/state. The duplicate mode rail and secondary Add Event button are
+removed. Event instructions explain Create, Step, Draw and Draw GUI. A compact event picker appears
+when the properties sidebar is hidden. Optional properties, components, split authoring, preview,
+live variables and validation remain reachable under Options. Enlarged preview layouts keep space
+for the sprite and variables; the action toolbox yields to those panels when space is limited.
+
+Builder and Code share one saved document and undo journal, including event attachment/removal,
+component values, invalid drafts and the saved clean state. Code's actual Ctrl+Z uses that journal.
+The action dialog uses actual parameter types/defaults and clearly separates its searchable command
+list, scrollable arguments and insertion controls. The event dialog scales without overlapping its
+search, event tree, instructions or buttons. Component preview correctly indicates 2D and removes
+inactive gizmo controls. **Use in game** saves and opens a real Room and explains placement, origins,
+cross-editor resources and the isolated Object preview's limitations.
+
+`ObjectWorkflowDevelopment6` passed the complete workflow with four images, including save/reopen,
+Builder/Code history, typed defaults, event/component undo and live Create-event preview updates.
+`ObjectWorkflowAssistanceDevelopment1` passed five assistance checks; `ObjectSharedScriptDevelopment1`
+passed the complete shared Script workflow with five images. All twenty-four populated
+`ObjectWorkflowLayoutsDevelopment5` states were inspected, including normal/narrow and enlarged
+Builder/Code, the full gameplay guide and final steps, scrolled properties, preview, split authoring,
+Options and actual event/action/component dialogs at 100/200%. Zero automated findings; hash-bound
+development usability/aesthetics are **4/5**. Earlier visual passes exposed compressed graph space,
+stretched argument rows and clipped insertion controls; these are repaired in this reviewed build.
+Release headless build: zero warnings/errors. Native monitor DPI, final shared-build and refreshed
+exported Player acceptance remain pending.
+
+### Room novice workflow and background rendering — 28 September 2026
+
+Room's primary toolbar keeps Select, Move, Rotate, Scale, Use in game and Options, with pinned
+Save/state and Play. Occasional edit, view and camera commands live under Options. Contextual
+instructions explain Objects, Instances, tile painting, backgrounds, camera views and settings.
+The gameplay guide returns to the actual authoring panels and can save this Room as the project's
+starting Room. Settings shows one settings surface; Instances can inspect any supported scene node
+while locked nodes remain protected. Two-dimensional gravity uses horizontal/downward pixels per
+second squared, consistent with the gameplay solver.
+
+The visible tile selector now arms painting. Add/Delete tile-layer operations use real undo history.
+Background and camera fields scroll and scale without stretched buttons or inactive 3D fields.
+Colour backgrounds previously disappeared because both renderers required an Image asset; editor
+and runtime now render the saved colour and opacity through the same background layout path.
+
+`RoomWorkflowDevelopment4` passed the complete Room workflow with two images. Broader shell,
+pipeline and five-backend origin/background results are recorded above. All thirty-six populated
+`RoomWorkflowLayoutsDevelopment6` states were visually inspected, including normal/narrow,
+125/150/200% interface scale, each authoring panel, lower fields, full-width gameplay guidance,
+nested menus, actual rename dialogs and an empty Room. Zero automated findings; hash-bound
+development usability/aesthetics are **4/5**. Release headless build: zero warnings/errors.
+Native monitor DPI, global dock caption scaling and final shared-product/Player acceptance remain
+pending.
+
+### Editable resource Inspector — 28 September 2026
+
+The retained Studio document owns Inspector edits, undo history and Save. Image, Audio, Shader,
+Script, Object, Room, Particle, Physics, Pathing, UI and Note now have verified real-shell edit,
+editor-to-Inspector refresh, Undo/Redo and save/reopen round trips. Typed resource fields offer a
+filtered dropdown, None and the shared searchable picker; refreshing choices does not commit an
+edit. Exposed PGSL values use the runtime parser, preserving comments and adjacent declarations
+and excluding local variables. Exact variable names keep `Damage` and `damage` distinct. An empty
+optional reference can declare its type with `var hero = ""; // @resource Image`.
+
+The duplicate identity widget is removed. Fields use the current interface font, vectors and asset
+references receive full-width rows, and metadata captions and row heights remain readable. Particle
+labels stack above their fields in tight layouts. Shader quick setup scrolls as one panel, so the
+instructions cannot cover its parameter fields; narrow parameter cards retain a readable numeric
+input. Theme changes publish shared font tokens before refreshing live Inspector layouts.
+
+`ResourceInspectorWorkflowDevelopment8` passed thirteen checks with 25 inspected captures at
+100/200% InterfaceScale; Inspector development usability/aesthetics are **4/5**. Shared regression
+passed 41 checks in `ResourceInspectorAuditDevelopment3`, seventeen checks/21 images in
+`ResourceInspectorRoomShellDevelopment1`, ten checks/26 images in
+`ResourceInspectorShaderRegression1` and 73 checks/97 images in
+`ResourceInspectorParticleRegression1`. The expanded Shell collector produced 43 states with zero
+automated findings in `ResourceInspectorShellLayoutsDevelopment1`; this was before the final Shader
+scroll repair and is not a final Shell rating. Release headless build: zero warnings/errors.
+Model/Terrain context, native monitor DPI, global dock captions and final shared-product/Player
+acceptance remain pending.
+
+### Model basic workflow, gameplay and topology reference — 28 September 2026
+
+The viewer retains its left information panel, central view and bottom animation strip. One primary
+bar exposes Import / Replace, Edit Model, Frame and Use in game, with shared Save/state/history.
+The composer retains Create/Edit/Select/Texture/Rig/Outliner on the left, a central view and bottom
+animation playback. Occasional commands live under Options; Model details is an optional panel.
+Repaired the mode rail's actual page lookup: Texture, Rig and Outliner previously looked selectable
+but did not open their tools. Tool icons and names scale together, all six rail choices remain
+reachable, and the timeline reserves space for both changing frame previews and frame numbers.
+Transform gizmos no longer intercept sculpt/paint gestures. Model pivot fields retain history and
+an explicit Save boundary; live Inspector values follow asset and selected-animation changes.
+
+Use in game saves the canonical Model and creates an ordinary 3D Object with its selected clip
+started by real ModelSet/ModelAnimationPlay code in Create. The guide explains that sprite rigs for
+a 2D Room belong in Image Editor. Repeated guide opening preserves the viewer when returning.
+Software now applies the same bone palette to skinned vertices before rasterization, instead of
+leaving gameplay in its bind pose. Viewport captures explicitly retain opaque background pixels
+when saved or composited; undefined OpenGL/Vulkan swap-chain alpha must not hide visible content.
+Unreadable material thumbnails do not prevent the Model Editor from opening.
+
+`ModelWorkflowDevelopment7` passes the complete Editor.Model workflow with seventeen images:
+real rail buttons, pivot and animation history, save/reopen, changing saved mesh poses, generated
+Object code, actual first/later animation pixels on DX11/DX12/Vulkan/OpenGL/Software, and a live
+saved Model edit picked up by each already open Object preview. Saved PNGs are checked independently
+for opaque pixels. `ModelAuthoringRegressionDevelopment3` passes nine material/sculpt/paint/pose
+checks with seven images; `ModelViewerRegressionDevelopment1` passes four import/viewer checks with
+four images. The current Release headless build has zero warnings/errors. Final consolidated
+verification still remains necessary.
+
+Seventeen populated `ModelLayoutsDevelopment6` states were inspected, including empty/populated,
+narrow, 125/150/200% interface scale, Viewer, actual Texture/Rig/Outliner pages, Options, the optional
+details panel and both ends of the gameplay guide. The honest overall Model development review is
+**usability 3/5, aesthetics 3/5**. Basic viewing and saved gameplay animation work; optional enlarged
+detail text still needs a fluid layout, and deeper topology/material/rig authoring needs clearer
+novice instruction and separate dialog review. Model is not required to assemble a 2D game. These
+results do not declare all 3D modelling complete, nor prove native high monitor DPI behavior.
+
+The user-provided `C:\Users\Cal\Desktop\Model` reference is Genesis Modeler: independent vertex,
+polygon-face and loose-edge data, workplanes, line/profile drawing, push/pull, ear-clipped polygon
+rendering and topology operations. Its documentation explicitly records unverified Windows
+delivery and no rigging/animation. Keep it as a later 3D topology reference; assess its geometry and
+file conversion before importing code, preserving Studio's existing canonical meshes, rig and
+animation history. No replacement modeller or separate documentation programme was introduced.
+
+### Terrain inspection and deferred 3D gaps — 28 September 2026
+
+`TerrainWorkflowBaseline1` fails the complete Editor.Terrain workflow: an authored lake is rendered
+as a flat sheet rather than a filled volume. This remains a real failure, not a passed or skipped
+feature. All five populated `TerrainLayoutsBaseline1` states were inspected: normal/narrow and
+125/150/200% application scale. The honest development review rates **usability 2/5, aesthetics
+2/5**. The palette combines creation, selection, painting and sculpting; glyph-only modes, repeated
+editor menus, enlarged clipping and concealed narrow context panels still hinder novice use.
+
+The later 3D Terrain task must provide a short create/sculpt/paint/place/save workflow, labelled
+contextual modes, fewer primary commands and a visible use-in-game guide, while preserving world
+maps, ecology, paths, water and runtime collision. Inspect its populated context and wizard states,
+history/save/reopen and physical backend output after repairs. Terrain is the optional 3D
+heightfield editor; Mushroom Meadow's 2D floors and tile sets are authored in Room Editor. Do not
+expand the current 2D programme into lake-volume or other outstanding 3D implementation, and do not
+declare the whole application or Terrain complete when the relevant 2D gates pass.
+
+### Shell layout and scaling review — 28 September 2026
+
+ShellLayoutsDevelopment5 contains 86 populated states with zero inspection failures and zero
+automated findings. Sequential visual review covered menus, renderer selection, the command palette,
+all four command scopes, eleven resource Inspectors, Project Hub and template/recent cards, New
+Project, Export and every Preferences page, including lower pages at 200% application scale. It
+identified clipped secondary action captions and toggle labels despite the geometry check passing;
+those were repaired. Dock captions/tabs now follow live font changes and return to their original
+height when scale is reduced. Dialogs measure wrapped text, retain reachable primary actions and
+scroll their content. Room workspace initialization now hides inactive panels in the default 2D
+view. Text measurement now includes the label's drawing padding; this last adjustment still needs
+final consolidated captures. No shell acceptance score is assigned from automated geometry alone.
+
+Read-only native monitor inventory found one 1920×1080 display at 96×96 DPI. The harness now uses
+PerMonitorV2 like Studio. The 125/150/200% evidence exercises application InterfaceScale on that
+monitor; higher native Windows DPI and moving between monitors remain unverified. Final shared
+Studio/Player validation and capture-hash-matched ratings remain required.
 
 ### Judge contract
 
 Functionality uses production authoring operations, undo/redo, validation, save/reopen, runtime
-consumption and exported gameplay. A registered command or a nonblank preview is insufficient.
+consumption and exported gameplay. A registered command or a nonblank preview is insufficient. Each surface requires its exact complete workflow; passing children cannot replace it, and a failed child remains blocking. The complete shell workflow passed 50 checks in ShellDialogsFoundationDevelopment3; final shared-build verification also covers every Preferences category. Saved Model animation is also mandatory for the 2D gameplay highlight, independently of optional advanced 3D visual ratings.
 Usability judges the path from a new project to a running platformer, discoverability, clear labels,
 disabled reasons, selection/focus, keyboard routing, error recovery and the number of unnecessary
 steps. Aesthetics inspects populated captures of every editor, shell, menu, toolbar, dialog and
@@ -71,8 +801,164 @@ hosted Software particle preservation, hosted DX11 GPU particle preservation, hi
 protection and save/reopen. Outputs: `TestResults/Readiness/ParticleIntegration/results.json` and
 `.build/recovery/20260927-2d-readiness/particle-conformance.log`.
 
-Remote publication and branch cleanup: pending. Overall editor, aesthetics, DPI, complete game,
-export and physical backend acceptance remain unverified.
+Remote publication and branch cleanup: completed atomically with expected-tip guards. GitHub now
+has only the `main` branch at `f9791e5`; archive tags preserve each distinct reviewed implementation.
+Overall editor, aesthetics and DPI acceptance remain unverified. The later game/export evidence below
+records completed development checks and does not change the overall acceptance decision.
+
+### Current editor inspection and repairs
+
+The executable judge accepts only results and capture hashes matching the current product
+fingerprint: binaries, exported Player, templates, assets, themes, shaders and native dependencies.
+Six integrity checks passed in `TestResults/Readiness/JudgeContent`; changing templates or Player
+invalidates evidence, while transient logs do not. Missing workflows, altered pixels, unwired code assistance and render faults
+cannot pass. Manual scores require reviewer notes tied to every captured variant. Run the headless
+executable with `--judge-captures TestResults/Readiness/Current/Captures`, then `--judge
+TestResults/Readiness/Current --review <review.json>`. The report is `judge.json`; generated evidence
+does not replace this master acceptance decision. Scaled captures use the actual application
+InterfaceScale preference at device DPI 96; native monitor DPI on other displays remains unverified.
+Baseline results expire after product changes.
+
+Pathing now saves an explicit XY or XZ plane. XY routes edit and move actual X/Y coordinates while
+retaining an actor's depth; baked 2D navigation projects static Physics colliders into the XY grid.
+Preview and gameplay use shared Catmull-Rom segments and the same navigation agent. Speed keys
+change movement during a segment. The preview draws the bound Image's real sprite frames and live
+Image changes; path animation names include sprite tags. F3 route driving respects the saved plane
+and avoids advancing a preview actor twice. It does not replace game collision or movement code.
+
+Split-pane layout, field sizing and Tools/Telemetry preferences survive enlarged fonts and resizing.
+Code retains its own bottom assistance strip. The timeline labels actual seconds and distinguishes
+authored speed from measured movement. A complete waypoint drag occupies one undo entry, including
+gestures exceeding 100 pointer updates; code serialization preserves exact float coordinates so
+Save cannot add an accidental rounding edit. Invalid declarations preserve the last saved resource.
+Development evidence: `PathingAcceptanceDevelopment` passed one workflow and six images, including physical XY
+movement, curves/speed, stop, collider avoidance, F3 driving and exact sprite readbacks on all five
+backends. Twelve states in `PathingAcceptanceLayouts` have no inspection failures. Normal/enlarged 2D views, Code, Tools and Telemetry were inspected after the repairs;
+fresh final shared-build evidence remains required.
+
+The backend sequence exposed OpenGL failing after Vulkan with Win32 error 2000: a window's pixel
+format cannot be changed after it is set. Live viewports now recreate their native window when a
+backend changes while retaining editor state. The repaired sequence had no renderer faults, and
+`PathingBackendFoundation` passed all 46 shell checks. [Windows pixel-format contract](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-setpixelformat).
+`PathingAssistance` passed five assistance checks. `PathingRuntimeRegression` passed ten engine
+checks, including navigation, but failed `Runtime.PGSL.TransformsAndRaycast`: PGSL synchronization
+overwrote a 3D transform. This remains an outstanding 3D defect; it is not recorded as a passed gate.
+
+The shared code editor keeps line/column position visible and shows the active argument alongside
+typed signatures. Ctrl+Space requests completion; popup widths respect the editing area. PGSL
+completion uses live command metadata and local symbols; local function signatures explicitly show
+dynamic parameters. Shader assistance covers HLSL types, declared symbols/functions and common
+intrinsics. Particle, Physics and Pathing assistance follows their actual serialized declarations and
+enum types. This is contextual assistance, not a claim of a complete language server. Focused
+`code-assistance`: five passed during development; Release headless builds: zero warnings/errors.
+
+The UI Editor journals add/delete/reorder/property edits and entire move/resize gestures. Both its
+own properties panel and the live shared Inspector expose properties relevant to the selected type:
+text/font for Text and Button, image/scale/opacity for Image, values/border/accent for Progress Bar,
+and background for Panel. Typed Image picking, installed font suggestions and colour editing retain
+history and save/reopen. Stretch uses clearly labelled right/bottom insets and permits zero insets;
+custom saved canvas resolutions remain represented accurately in the resolution selector.
+
+The toolbar spans the workspace. Sidebar choices survive resizing; enlarged field pairs have gaps
+and actual-font dimensions, and the Image picker caption fits its row. Wheel zoom retains the design
+point beneath the pointer; middle dragging pans without editing the document, and Fit resets both.
+Dragging/resizing at any zoom uses design coordinates and one undo entry. The canvas shows actual
+sprite pixels and live Image saves. Preview includes image opacity, progress borders and centred
+button text; saved UI button/text placement now reaches the runtime HUD and every renderer.
+
+The portable serializer rejects duplicate IDs, parent cycles, missing parents, invalid dimensions,
+nonpositive image scale and non-finite values before atomic Save. Unreadable source cannot be
+overwritten by an empty fallback. Gameplay images fit their authored rectangle independently of
+their sprite origin. `UiAcceptanceDevelopment` passed one expanded workflow and six images,
+including exact DX11/DX12/Vulkan/OpenGL/Software readbacks of artwork, progress colour and centred
+button text. Twenty-two `UiAcceptanceLayouts2` states have no inspection failures; the populated
+layouts and scrolled 200% fields were inspected, including the repaired Image picker. UI and Pathing
+are included in the 15-workflow consolidated gate. Final shared-build and exported game acceptance
+remain required.
+
+Development verification below records the build used at the time of each repair. It is not a
+substitute for one final set of results matching the final assembly fingerprint.
+
+| Surface | Implemented repair | Recorded development evidence |
+|---|---|---|
+| Shell and Inspector | Inspector/Console default to auto-hide; fixed rows and mode rails follow InterfaceScale. Read-only mixed vector axes cannot mutate. Start page cards, headings and buttons scale without opening below the heading; theme refresh retains user scrolling. Popup menus have readable enabled text. Commands use a themed scope selector that preserves the matching list after painting. | Foundation: 46 checks in `TestResults/Readiness/StartInitialScroll`; 21 Shell captures inspected, including menu/dialog states and the repaired 200% heading. Polish: 41 and Project Hub: six earlier development checks passed. |
+| Image | Complete section geometry and wide sidebar widths follow interface scale. Responsive Tools/Properties toggles retain canvas room. Playback loop, clip picker, wrapped transport, frame durations and canvas status resize. Rig/Pose/Animate dialogs scale their sidebars, fields and keyframe rows; disabled action text is legible. | Image features: 132 checks passed again in `TestResults/Readiness/ImageWideScale`; 13 refreshed captures have no inspection failures, with the repaired 125% fields and 200% animation keys inspected. Final shared-build evidence remains required. |
+| Object and Script | Code mode preserves editing space. Object identity width/flags follow enlarged fonts; its thumbnail fits above a reserved, readable event list. Live Inspector edits reach the actual authored VM; reset restores authored state without rewriting event code. | Object passed again with three images in `TestResults/Readiness/ObjectEventsFinal2`, including 200% Create/Step selection. Seven refreshed Object layouts have no inspection failures. Script and five code-assistance focused checks passed during earlier development. |
+| Script entries and functions | Short Builder/Code/Add action/Use in game/Options toolbar, visible starting guidance and function picker; shared document history across modes and gestures; validated function dialog; actual saved Object caller observes subsequent saved library edits. Optional outline/reference and initial graph framing work at enlarged scale. | `ScriptWorkflowDevelopment7` passed with five captures, `ScriptSharedObjectDevelopment1` with three and `ScriptWorkflowAssistanceDevelopment2` five assistance checks. All 18 `ScriptWorkflowLayoutsDevelopment3` states inspected; hash-bound development usability/aesthetics are 4/5. Final shared-build/Player evidence remains required. |
+| Audio | WAV PCM/float decoding is shared with the runtime; regions and fades alter actual samples. Undo/redo, save/reopen and audition use those settings. Scaled sidebar fields, captions and scrolling occupy their actual docked width; curve labels retain space. Non-spatial clips hide the empty attenuation chart. Invalid numeric documents remain preserved. | Focused Audio passed again with actual mixer playback, region samples, persisted settings and enlarged/narrow fields in `TestResults/Readiness/AudioScaleFinal`. Five refreshed shell captures have no inspection failures; normal and 200% states were inspected. Compressed OGG/MP3 decoding is not claimed. |
+| Shader | Short Quick setup/Code/Use in game/Options toolbar, clear starting guidance and live effect/resource/parameter controls. Guide creates a real shaded 2D Object; Code history, retained invalid drafts and readable errors work. Advanced presets/passes, texture references/bindings and preview types remain reachable at enlarged scale. Released shared sprite handles and stale texture-reference captions are repaired. | `ShaderWorkflowDevelopment7`: complete workflow, sixteen physical captures, including the generated Object's exact five-backend pixels. `ShaderSharedWorkspaceDevelopment3`: ten broader checks, twenty-six captures; five assistance checks passed. All twenty-one `ShaderWorkflowLayoutsDevelopment4` states inspected; hash-bound development usability/aesthetics are 4/5. Software draws the original sprite without arbitrary shader execution. The selected pass previews independently of gameplay's ordered redraws. Final shared-build/Player acceptance remains pending. |
+| Particle | Quick setup is the default; detailed controls live under Options and Use in game creates an ordinary saved Object. Duplicate File/Edit/History actions are removed. Shared 2D units, placed motion/collision, animated textures, blends, strip renderers and linked emitters are implemented in real playback. | `ParticleWorkbenchDevelopment6`: 73 checks and 97 captures, including output on all five exact backends. Full workflow, five assistance checks and 53 GPU conformance checks passed. All 20 `ParticleLayoutsDevelopment12` states were inspected; hash-bound development usability/aesthetics ratings are 4/5. Exported Player and final shared-build acceptance remain pending. |
+| Physics | Short Quick setup/Code/Use in game/Options toolbar, clear starting guidance, actual sprite preview and ordinary saved Object creation. Saved 2D Physics resources drive native gameplay bodies and tile collisions with matching sprite pivots, physical mass and pixel-based script coordinates. Dynamic/Static/Kinematic behaviour, authored scale/rotation/depth and disabled bindings are respected. Typed history, invalid drafts and save/reopen are retained. Advanced controls remain reachable without duplicate shape/dimension choices. | `PhysicsWorkflowDevelopment10`: complete workflow, seven physical captures including saved sprite preview and five exact-backend gameplay readbacks; five assistance checks passed. All 31 `PhysicsWorkflowLayoutsDevelopment5` states inspected; zero automated findings and hash-bound development usability/aesthetics are 4/5. Sandbox world settings are preview settings. Native monitor DPI, final shared-build and refreshed Player acceptance remain pending. |
+| Pathing | Short Quick setup/Code/Use in game/Options toolbar; default 2D waypoints, direct point fields and optional advanced modes. Ordinary saved Object creation writes a real Create event; saved route edits update live gameplay while invalid replacements retain the last valid route. Shared typed/visual history, source comments, save/reopen and active argument hints. Room tile and saved native Physics obstacles bake in pixel XY coordinates. | `PathingWorkflowDevelopment12`: complete workflow, twelve actual images including five exact-backend saved-Object gameplay readbacks; five assistance checks passed. All 23 `PathingWorkflowLayoutsDevelopment4` states inspected, zero automated findings and hash-bound development usability/aesthetics 4/5. Final shared-build, native monitor DPI and refreshed exported Player acceptance remain pending. |
+| UI | Visible HUD/title/pause starting layouts and short Design/Add element/Use in game/Options toolbar. Contextual properties, live Image artwork, font-sized canvas selector, retained sidebar choices, zoom/pan/Fit and correct resizing for all ten anchors. Ordinary GUI Object creation writes real draw/click events; saved layouts refresh live while malformed replacements retain the last valid layout. Drawing/hit testing uses GUI dimensions and scaled mouse coordinates. | `UiWorkflowDevelopment8`: complete workflow, twelve actual images including five exact-backend created-Object readbacks; five assistance checks passed. All 33 `UiWorkflowLayoutsDevelopment2` states inspected, zero automated findings and hash-bound development usability/aesthetics 4/5. Final shared-build, native monitor DPI and refreshed exported Player acceptance remain pending. |
+| Note | Full-height source/preview with native scrolling; the toolbar spans the workspace. Font-sized metadata, statistics and scrollable sidebars preserve readable fields and headings. Tagged title edits replace the real H1; preview tasks map back to their original source even after wrapping or hidden tags. Outline excludes fenced code headings and uses actual source offsets. Text/title/tags share one bounded journal; Image/resource changes refresh previews and references. Markdown hierarchy survives theme changes. | `TestResults/Readiness/NoteSavedFormatting` passed the expanded workflow, including source/task/title/history checks and saved content remaining clean across 100/125/150/200% scale. Thirteen `NoteAcceptanceLayouts2` states have no inspection failures and unchanged source/dirty state. The populated layouts and enlarged scrolled sidebars were inspected. Final shared-build and novice-workflow redesign acceptance remain required. |
+| Room | Palette/Inspector widths follow interface scale and preserve dragged widths in logical coordinates. Enlarged object shelves retain readable asset names. Saved sprite/frame pivots now drive rendering, selection, picking, culling and placement ghosts, matching gameplay without moving floor-aligned actors. Room Settings/Views retain selection; cross-layer hierarchy moves retain world pose and selection with undo. | Focused Room passed after the 200% repair; five fresh Room captures have no geometry findings. `RoomOriginAcceptanceDevelopment7` passed actual pixels on all five backends, mirrored/rotated/nonuniform scale, picking, ghost placement, hierarchy drag, undo and save/reopen with 33 captures. Broader `RoomOriginShellDevelopment2` still has six failures described above. Final shared-build and novice-workflow acceptance remain pending. |
+| Terrain opening | Colour-only layers no longer request a file timestamp for an empty image reference. Hidden mode buttons no longer produce false duplicate-action findings. | Five fresh captures have no render faults. Focused Terrain still fails the separate authored lake volume-depth assertion; broader 3D acceptance remains failed. |
+
+### Complete game and exported backend evidence
+
+Mushroom Meadow now has a complete one-level game loop with title instructions, variable-height
+jumping, running, coin collection, single-use question blocks, enemies, invulnerability, lives,
+checkpoint/fall recovery, timeout, pause, win/game-over and clean restart. A low ceiling in the
+authored map was raised to provide actual player headroom. The time bonus calls the public
+`Time Bonus.pgsl` Script resource from an Object event, rather than duplicating the calculation.
+The production room switcher rebuilds the room on restart without duplicating its 47 actors.
+`Acceptance.MushroomMeadow.CompleteGame` passed eleven checks, including a complete input-only
+traversal. Evidence: `TestResults/Readiness/MushroomHud/results.json`.
+
+The export gate packages the project through `GameExportService`, verifies copied resource hashes
+and the Player runtime, and launches the actual exported executable sequentially on all five
+explicit backends. Its in-process acceptance driver supplies ordinary game input without editing
+positions, authored tuning or game variables. It verifies visible animation with differing sprite
+frame pixels, pause with an unchanged timer and actor positions, actual audio playback, checkpoint
+progression, win, restart and a clean process exit. Missing readback, backend fallback, script faults
+or absent HUD labels fail the gate. Each backend produced title, two animated running frames, pause,
+win and restarted captures. **Six checks and 30 images passed** in
+`TestResults/Readiness/MushroomExportFonts/results.json`; individual render evidence is under its
+`Images/Export/<backend>/acceptance.json`. This is correctness evidence, not a performance ranking.
+
+The checks exposed and repaired dropped public Script resources during export, cross-drive folder
+publication, a shutdown race, late sprite submissions using a stale GPU instance upload, and the
+exported Escape preference closing the game instead of pausing it. Existing output is replaced only
+after the staged package is complete. Inspection of all five win images confirms retained labels,
+game artwork and a readable win panel. A suspected Software title offset was a false visual finding:
+pixel-coordinate measurements place the original Segoe UI glyphs at y=34..49 and the authored
+Consolas glyphs at y=32..45, both within the title line at y=26. All HUD columns retain their authored
+positions. This finding is closed with measured evidence; no placement repair is claimed.
+
+`DrawSetFont` and saved UI font families now reach the buffered HUD, direct renderer and Object
+sandbox preview. Project-relative TTF/OTF payloads use the same glyph atlas and remain editable
+while running: the loader copies font bytes instead of locking the source file with a mapped section.
+Changed file timestamp/length invalidates font metrics and rasterised glyphs. The UI live Inspector
+provides an installed-family selector with undo/redo and persistence. `text-rendering` passed five
+backend checks and ten images in `TestResults/Readiness/TextRenderingUiFonts`: differing families
+produce differing pixels, an imported Consolas TTF matches the installed family, and live replacement
+with Segoe UI changes those pixels without recreating the viewport. The export gate passed again
+after this repair. `Editor.UI` also passed font editing, undo/redo, save/reopen and gameplay font
+consumption in `TestResults/Readiness/UiFonts`. Font payload support does not establish a standalone Font resource/editor, which
+remains a separate planned feature.
+
+The checkpoint now contains a saved Image Editor rig with Pole/Pennant bones, three poses and a
+keyed Flutter animation. Object Create/Step events bind and play it through `SpriteRigBind` and
+`SpriteRigPlay`; frozen gameplay stops rig playback. Rebinding checks the saved descriptor's version,
+replaces a changed binding while preserving playback/controls, and retains the last working binding
+if a replacement cannot load. `Acceptance.MushroomMeadow.ImageRigLiveAuthoring` passed actual Image
+pose editing, changed runtime pixels, save/reopen, undo/save propagation and malformed replacement
+recovery in `TestResults/Readiness/MeadowRigAuthoring` (12 total showcase checks).
+
+`TestResults/Readiness/MushroomRigExport2` passed six package/backend checks and 40 captures.
+Each exact backend includes two distinct deformed rig poses and differing submitted checkpoint
+pixels with the gold pennant visibly present. All five pairs were inspected. The first capture
+schedule selected the same artwork twice along a looping animation; the corrected gate waits for
+distinct sampled artwork and still independently requires changed renderer pixels. The pause
+snapshot includes rig frames as well as actor positions. These are development results; final
+shared-product judgement still requires refreshed editor and workflow evidence.
+
+Remaining acceptance work: inspect and rate the refreshed full capture set; repair any render faults
+or blocked controls; refresh Model animation gameplay evidence; repeat export checks after subsequent product
+changes; run the Full Build and final judges. Terrain's opening fault is repaired;
+its authored lake volume-depth assertion is still open while full 3D authoring is deferred. No passing
+aesthetic score or 2D-ready claim is made.
 
 ---
 
@@ -8487,4 +9373,3 @@ without review:
     changes and apply them through normal validation and undo. Preserve a fully usable non-AI
     workflow. This is a roadmap footnote, not an implemented feature or authorization to transmit
     project data, configure paid services or use credentials now.
-

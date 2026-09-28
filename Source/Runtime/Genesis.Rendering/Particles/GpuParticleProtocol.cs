@@ -100,7 +100,7 @@ public struct GpuParticleDraw
     public Vector4 CameraForward;
     // 2D offset xy, simulation-to-screen scale, particle size scale
     public Vector4 Screen;
-    // is2D, capacity, texture enabled, current time
+    // is2D, capacity, particle blend mode (0 alpha / 1 additive / 2 multiply), current time
     public Vector4 Mode;
 }
 
@@ -109,6 +109,7 @@ public struct GpuParticleState
 {
     public Vector4 PositionAge;
     public Vector4 VelocityLife;
+    // rotation, spin, previous speed scale (negative for Stick), colour jitter
     public Vector4 RotationSpeedScale;
     // birth serial, previous ribbon serial, previous ribbon slot, trail clock (uints bit-cast)
     public Vector4 Identity;

@@ -46,7 +46,9 @@ internal static class ResourceLibrarySuite
             TreeNode? selection = browser.SelectedNode; TreeNode? top = browser.BrowserTree.TopNode;
             browser.RefreshTree();
             Assert(!folder.IsExpanded && ReferenceEquals(selection, browser.SelectedNode)
-                && ReferenceEquals(top, browser.BrowserTree.TopNode), "Refresh reopened a collapsed folder or moved the view.");
+                && ReferenceEquals(top, browser.BrowserTree.TopNode), "Refresh reopened a collapsed folder or moved the view: "
+                + $"expanded={folder.IsExpanded}; selection='{selection?.Name}' -> '{browser.SelectedNode?.Name}'; "
+                + $"top='{top?.Name}' -> '{browser.BrowserTree.TopNode?.Name}'.");
         }));
         Check("Browser.FiltersUseSnapshotAndRestoreFolderExpansion", () => WithFixture(f =>
         {

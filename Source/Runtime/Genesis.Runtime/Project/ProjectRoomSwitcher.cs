@@ -138,7 +138,7 @@ namespace Genesis.Runtime.Project
                 scene.AddSubsystem(new RoomTerrainSubsystem(_projectPath, room, _context));
             if (RoomEnvironmentAudioSubsystem.ShouldRegister(room.Environment))
                 scene.AddSubsystem(new RoomEnvironmentAudioSubsystem(room.Environment, _context));
-            scene.AddSubsystem(new ObjectCompositionSubsystem(_projectPath, _context.Audio));
+            scene.AddSubsystem(new ObjectCompositionSubsystem(_projectPath, _context.Audio, room.Dimension == RoomDimension.TwoD));
             scene.AddSubsystem(new RoomRenderSubsystem(_projectPath, room));
             scene.AddSubsystem(new ObjectDrawSubsystem(_projectPath));
 
@@ -154,7 +154,7 @@ namespace Genesis.Runtime.Project
 
         private static bool KeepSubsystem(ISceneSubsystem sub) =>
             sub is ProjectRoomSwitcher or ProjectAssetLiveReloadSubsystem or ScriptHostSubsystem
-                or AutoshotSubsystem;
+                or AutoshotSubsystem or MushroomMeadowRuntimeAcceptance;
     }
 
     internal static class ProjectRoomPresentation

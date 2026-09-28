@@ -13,6 +13,8 @@ internal sealed class PathingPreviewAgent
     public Vector3 Steering;
     public Vector3 Destination;
     public int Waypoint;
+    public int PreviousWaypoint = -1;
+    public readonly NavMeshAgent Navigation = new();
     public int Direction = 1;
     public float Wait;
     public float DistanceRemaining;
@@ -46,7 +48,7 @@ internal sealed class PathingPreviewSimulation
             _query = mesh is null ? null : new NavMeshQuery(mesh);
         }
         PathingRoute route = asset.Route;
-        Vector3 origin = route.Waypoints.Count > 0 ? route.Waypoints[0].Position : Vector3.Zero;
+        Vector3 origin = route.Waypoints.Count > 0 ? asset.NavigationPosition(route.Waypoints[0].Position) : Vector3.Zero;
         int count = Math.Clamp(asset.PreviewAgentCount, 1, 128);
         for (int index = 0; index < count; index++)
         {
@@ -64,7 +66,7 @@ internal sealed class PathingPreviewSimulation
                 Direction = 1,
             });
         }
-        CollisionWarning = route.Waypoints.Any(point => !Walkable(mesh, point.Position));
+        CollisionWarning = route.Waypoints.Any(point => !Walkable(mesh, asset.NavigationPosition(point.Position)));
     }
 
     public void Step(PathingAsset asset, NavMeshData? mesh, float dt)
@@ -90,14 +92,40 @@ internal sealed class PathingPreviewSimulation
 
             Vector3 requestedDestination = Destination(asset, agent, index);
             agent.Destination = requestedDestination;
-            bool search = mesh is not null && route.Mode != PathingRouteMode.WaypointPatrol;
+            bool authoredSegment = route.Mode == PathingRouteMode.WaypointPatrol && agent.PreviousWaypoint >= 0;
+            bool search = authoredSegment || (mesh is not null && route.Mode != PathingRouteMode.WaypointPatrol);
             if (search && (agent.SearchPath.Count == 0
                 || Vector3.DistanceSquared(agent.RequestedDestination, requestedDestination) > .04f
                 || agent.SearchPoint >= agent.SearchPath.Count))
             {
-                agent.SearchPath = _query?.FindPath(agent.Position, requestedDestination).ToList() ?? [];
+                agent.SearchPath = authoredSegment
+                    ? route.SegmentPoints(agent.PreviousWaypoint, agent.Waypoint).Select(asset.NavigationPosition).ToList()
+                    : _query?.FindPath(agent.Position, requestedDestination).ToList() ?? [];
                 agent.SearchPoint = 0;
                 agent.RequestedDestination = requestedDestination;
+                agent.Navigation.SetPath(agent.SearchPath);
+            }
+            if (search)
+            {
+                Vector3 segmentStart = agent.Position;
+                agent.Navigation.Speed = route.SpeedAt(_elapsed);
+                agent.Navigation.StoppingDistance = route.StoppingDistance;
+                agent.Position = agent.Navigation.Update(segmentStart, dt, (from, to) =>
+                {
+                    bool travel = _query?.CanTravel(from, to) ?? true;
+                    if (!travel) CollisionWarning = true;
+                    return travel;
+                }, agent.Steering);
+                agent.Velocity = (agent.Position - segmentStart) / dt;
+                agent.SearchPoint = agent.Navigation.Waypoint;
+                agent.DistanceRemaining = MathF.Max(0, agent.Navigation.DistanceRemaining) + Remaining(route, agent.Waypoint, agent.Direction);
+                if (agent.Navigation.HasArrived)
+                {
+                    agent.Wait = route.Waypoints.Count > 0
+                        ? MathF.Max(route.DefaultWaitSeconds, route.Waypoints[agent.Waypoint].WaitSeconds) : route.DefaultWaitSeconds;
+                    Advance(route, agent); agent.SearchPath.Clear(); agent.SearchPoint = 0;
+                }
+                continue;
             }
             Vector3 destination = search && agent.SearchPoint < agent.SearchPath.Count
                 ? agent.SearchPath[agent.SearchPoint]
@@ -160,18 +188,19 @@ internal sealed class PathingPreviewSimulation
             {
                 float angle = Random01() * MathF.Tau;
                 float radius = MathF.Sqrt(Random01()) * route.WanderRadius;
-                Vector3 origin = route.Waypoints.Count > 0 ? route.Waypoints[0].Position : Vector3.Zero;
+                Vector3 origin = route.Waypoints.Count > 0 ? asset.NavigationPosition(route.Waypoints[0].Position) : Vector3.Zero;
                 agent.Destination = origin + new Vector3(MathF.Cos(angle) * radius, 0f, MathF.Sin(angle) * radius);
             }
             return agent.Destination;
         }
         if (route.Waypoints.Count == 0) return agent.Position;
         agent.Waypoint = Math.Clamp(agent.Waypoint, 0, route.Waypoints.Count - 1);
-        return route.Waypoints[agent.Waypoint].Position;
+        return asset.NavigationPosition(route.Waypoints[agent.Waypoint].Position);
     }
 
     private static void Advance(PathingRoute route, PathingPreviewAgent agent)
     {
+        agent.PreviousWaypoint = agent.Waypoint;
         if (route.Mode == PathingRouteMode.WanderRadius) { agent.Destination = agent.Position; return; }
         if (route.Waypoints.Count <= 1) return;
         int next = agent.Waypoint + agent.Direction;

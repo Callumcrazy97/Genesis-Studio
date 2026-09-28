@@ -67,10 +67,12 @@ internal static class GateSuite
             int startingTests = ctx.Report.Tests.Count;
 
             EditorGate.Run(ctx, fixture);
-            RuntimeGate.Run(ctx, fixture);
+            // Editor workflows intentionally change the starting Room and other saved resources.
+            // Stock-template assertions need their own project; editor round trips are checked above.
+            RuntimeGate.Run(ctx, new GateFixture(ctx, "RuntimeGate"));
             int gateTests = ctx.Report.Tests.Count - startingTests;
-            if (gateTests != 13)
-                throw new InvalidOperationException($"The build gate must report exactly 13 workflows, but reported {gateTests}.");
+            if (gateTests != 15)
+                throw new InvalidOperationException($"The build gate must report exactly 15 workflows, but reported {gateTests}.");
         }
         finally
         {
@@ -950,7 +952,7 @@ internal static class GateSuite
                             string log = File.ReadAllText(playerLog);
                             lastObservedLog = log;
                             if (log.Contains("AssetLiveReload watching", StringComparison.Ordinal)
-                                && log.Contains("Boot splash: shaders warmed.", StringComparison.Ordinal))
+                                && log.Contains("Runtime boot ready: critical assets prepared and graphics warmup presented.", StringComparison.Ordinal))
                             {
                                 ready = true;
                                 break;

@@ -267,7 +267,7 @@ public static partial class PgslCommands
             new Rectangle((int)x, (int)y, 4096, 4096));
     }
 
-    [PgslCommand("DrawTextScaled", "DrawTextScaled(x, y, text, size)", "Text at an explicit point size", "Drawing 2D")]
+    [PgslCommand("DrawTextScaled", "DrawTextScaled(x, y, text, size)", "Text at an explicit pixel size", "Drawing 2D")]
     public static void DrawTextScaled(double x, double y, string text, double size)
     {
         IPgslDrawSurface surface = Draw;
@@ -282,14 +282,14 @@ public static partial class PgslCommands
             new Rectangle((int)x, (int)y, 4096, 4096));
     }
 
-    [PgslCommand("DrawSetFont", "DrawSetFont(name)", "Font family for later text", "Drawing 2D")]
+    [PgslCommand("DrawSetFont", "DrawSetFont(name)", "Font family or project-relative TTF/OTF payload for later text", "Drawing 2D")]
     public static void DrawSetFont(string name)
     {
         PgslContext ctx = GetContext();
         if (ctx is not null && !string.IsNullOrWhiteSpace(name)) ctx.DrawFont = name;
     }
 
-    [PgslCommand("DrawSetFontSize", "DrawSetFontSize(size)", "Point size for later text", "Drawing 2D")]
+    [PgslCommand("DrawSetFontSize", "DrawSetFontSize(size)", "Pixel size for later text", "Drawing 2D")]
     public static void DrawSetFontSize(double size)
     {
         PgslContext ctx = GetContext();

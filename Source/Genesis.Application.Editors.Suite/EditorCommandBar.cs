@@ -136,6 +136,15 @@ public sealed class EditorCommandBar : ToolStrip
         RefreshDocumentState();
     }
 
+    /// <summary>Detach the old document chrome before replacing a workspace's commands.</summary>
+    internal void ResetItems()
+    {
+        if (_surface is not null) _surface.DirtyChanged -= OnSurfaceStateChanged;
+        _surface = null;
+        _saveButton = null; _stateLabel = null; _historyButton = null; _undoItem = null; _redoItem = null;
+        Items.Clear();
+    }
+
     /// <summary>Refreshes state after journal changes and is safe to call before binding.</summary>
     public void RefreshDocumentState()
     {

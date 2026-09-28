@@ -444,7 +444,6 @@ public sealed class RoomObjectsPanel : Panel
         RoomNode? parent = edge == 0 ? targetNode : _editor.Room.Nodes.FirstOrDefault(node => node.Id == targetNode?.ParentId);
         if (child is null || child == targetNode || !_editor.CanEditNodeInActiveContext(child)
             || targetNode is not null && !_editor.CanEditNodeInActiveContext(targetNode)
-            || target?.Tag is RoomLayer destination && !ReferenceEquals(destination, ActiveObjectLayer)
             || !CanParent(child, parent)) return;
         e.Effect = DragDropEffects.Move;
         _dropNode = target; _dropEdge = edge; _tree.Invalidate();

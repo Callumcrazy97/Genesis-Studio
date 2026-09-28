@@ -25,6 +25,7 @@ public sealed class CodeEditor : UserControl
     private readonly HashSet<int> _breakpoints = [];
     private int _currentExecutionLine;
     private bool _suppressChange;
+    private string _observedText = string.Empty;
 
     // IntelliSense & Signature Help
     private readonly ListBox _autoCompleteBox;
@@ -34,9 +35,17 @@ public sealed class CodeEditor : UserControl
     private int _completionReplacementStart;
     private int _completionReplacementLength;
     private Font? _signatureBoldFont;
+    private readonly Label _caretStatus;
+    private readonly ToolTip _assistanceTip;
+    private string _contextHint = string.Empty;
+    private string _languageName = "Code";
+    private int _activeParameterIndex = -1;
 
     public event EventHandler<CodeIntelligenceRequestEventArgs>? IntelligenceRequested;
     public event EventHandler? BreakpointsChanged;
+    public event EventHandler? ContextHelpRequested;
+    internal Action? DocumentUndoRequested { get; set; }
+    internal Action? DocumentRedoRequested { get; set; }
 
 
     public CodeEditor()
@@ -72,7 +81,11 @@ public sealed class CodeEditor : UserControl
         };
         _text.TextChanged += (_, _) =>
         {
-            if (_suppressChange)
+            string current = _text.Text;
+            bool changed = !string.Equals(current, _observedText, StringComparison.Ordinal);
+            _observedText = current;
+            // RichEdit also reports formatting changes. Theme/highlight updates do not edit code.
+            if (_suppressChange || !changed)
             {
                 return;
             }
@@ -90,6 +103,21 @@ public sealed class CodeEditor : UserControl
         // editor did nothing at all once the shell stopped claiming the key for the document.
         _text.KeyDown += (_, args) =>
         {
+            if (args.Control && args.KeyCode is Keys.Z or Keys.Y
+                && (args.KeyCode == Keys.Z ? DocumentUndoRequested : DocumentRedoRequested) is { } history)
+            {
+                history();
+                args.Handled = true;
+                args.SuppressKeyPress = true;
+                return;
+            }
+            if (args.Control && args.KeyCode == Keys.Space)
+            {
+                RefreshIntelligence(forceCompletion: true);
+                args.Handled = true;
+                args.SuppressKeyPress = true;
+                return;
+            }
             if (args.Control && args.KeyCode == Keys.Y && _text.CanRedo)
             {
                 _text.Redo();
@@ -148,6 +176,7 @@ public sealed class CodeEditor : UserControl
             BackColor = EditorChrome.Surface,
             ForeColor = EditorChrome.Muted,
             Font = EditorChrome.SmallFont,
+            Tag = EditorChrome.FormattedTextTag,
             BorderStyle = BorderStyle.None,
             ReadOnly = true,
             Multiline = true,
@@ -155,6 +184,17 @@ public sealed class CodeEditor : UserControl
         };
         _signatureStrip.Controls.Add(_signatureText);
         Controls.Add(_signatureStrip);
+
+        _caretStatus = new Label
+        {
+            Name = "CodeCaretStatus", BackColor = EditorChrome.Surface, ForeColor = EditorChrome.Muted,
+            Font = EditorChrome.SmallFont, TextAlign = ContentAlignment.MiddleLeft,
+            Padding = new Padding(8, 0, 8, 0), AutoEllipsis = true,
+            AccessibleName = "Code position and argument context",
+        };
+        _assistanceTip = new ToolTip();
+        Controls.Add(_caretStatus);
+        UpdateCaretStatus();
 
         // AutoComplete Box setup
         _autoCompleteBox = new ListBox
@@ -174,6 +214,11 @@ public sealed class CodeEditor : UserControl
         _text.Controls.Add(_autoCompleteBox);
 
         _autoCompleteBox.MouseClick += (_, _) => CommitAutoComplete();
+        _autoCompleteBox.SelectedIndexChanged += (_, _) =>
+        {
+            if (_autoCompleteBox.SelectedItem is CodeCompletionItem item)
+                _assistanceTip.SetToolTip(_autoCompleteBox, item.Description);
+        };
         
         _text.SelectionChanged += OnSelectionChanged;
 
@@ -190,6 +235,7 @@ public sealed class CodeEditor : UserControl
             EditorChrome.Changed -= OnChrome;
             _signatureBoldFont?.Dispose();
             _highlightTimer.Dispose();
+            _assistanceTip.Dispose();
         };
     }
 
@@ -200,9 +246,19 @@ public sealed class CodeEditor : UserControl
 
     public bool CompletionVisible => _autoCompleteBox.Visible;
 
+    public bool HasIntelligenceProvider => IntelligenceRequested is not null;
+
     public bool SignatureVisible => _signatureStrip.Visible;
 
     public string SignatureText => _signatureText.Text;
+
+    public string CaretStatusText => _caretStatus.Text;
+
+    public int ActiveParameterIndex => _activeParameterIndex;
+
+    public void SetLanguage(string name) { _languageName = name; UpdateCaretStatus(); }
+
+    public void SetContextHint(string hint) { _contextHint = hint; UpdateCaretStatus(); }
 
     public IReadOnlyList<CodeCompletionItem> CompletionItems =>
         _autoCompleteBox.Items.Cast<CodeCompletionItem>().ToArray();
@@ -250,7 +306,7 @@ public sealed class CodeEditor : UserControl
     }
 
     /// <summary>Re-evaluate completion and signature help for the current caret.</summary>
-    public void RefreshIntelligence()
+    public void RefreshIntelligence(bool forceCompletion = false)
     {
         if (_suppressChange || _suppressIntelligence || _text.SelectionLength != 0)
         {
@@ -259,6 +315,7 @@ public sealed class CodeEditor : UserControl
 
         string source = _text.Text;
         int caret = _text.SelectionStart;
+        UpdateCaretStatus();
 
         if (CodeContextAnalyzer.TryGetActiveCall(
                 source,
@@ -280,7 +337,7 @@ public sealed class CodeEditor : UserControl
                 caret,
                 out string prefix,
                 out int replacementStart,
-                out int replacementLength))
+                out int replacementLength) || forceCompletion)
         {
             IntelligenceRequested?.Invoke(
                 this,
@@ -290,6 +347,8 @@ public sealed class CodeEditor : UserControl
         {
             HideAutoComplete();
         }
+        ContextHelpRequested?.Invoke(this, EventArgs.Empty);
+        UpdateCaretStatus();
     }
 
     public void SetRules(IEnumerable<HighlightRule> rules)
@@ -435,6 +494,9 @@ public sealed class CodeEditor : UserControl
         _signatureStrip.BackColor = EditorChrome.Surface;
         _signatureText.BackColor = EditorChrome.Surface;
         _signatureText.ForeColor = EditorChrome.Muted;
+        _caretStatus.BackColor = EditorChrome.Surface;
+        _caretStatus.ForeColor = EditorChrome.Muted;
+        _caretStatus.Font = EditorChrome.SmallFont;
         _signatureBoldFont?.Dispose();
         _signatureBoldFont = null;
         
@@ -442,6 +504,8 @@ public sealed class CodeEditor : UserControl
         _autoCompleteBox.ForeColor = EditorChrome.Text;
         
         HighlightNow();
+        RefreshIntelligence();
+        PerformLayout();
     }
 
     public void ShowSignature(string signature, int activeParameterIndex, string description = "")
@@ -453,6 +517,7 @@ public sealed class CodeEditor : UserControl
         }
 
         _signatureStrip.Visible = true;
+        _activeParameterIndex = activeParameterIndex;
         _signatureText.Text = string.IsNullOrWhiteSpace(description)
             ? signature
             : signature + Environment.NewLine + description;
@@ -475,11 +540,12 @@ public sealed class CodeEditor : UserControl
 
         _signatureText.Select(0, 0);
         PerformLayout();
-        _text.Focus();
+        UpdateCaretStatus();
     }
 
     public void HideSignature()
     {
+        _activeParameterIndex = -1;
         if (!_signatureStrip.Visible)
         {
             return;
@@ -487,6 +553,7 @@ public sealed class CodeEditor : UserControl
 
         _signatureStrip.Visible = false;
         PerformLayout();
+        UpdateCaretStatus();
     }
 
     public void ShowAutoComplete(
@@ -510,6 +577,8 @@ public sealed class CodeEditor : UserControl
 
         if (_autoCompleteBox.Items.Count > 0)
         {
+            _autoCompleteBox.Width = Math.Max(1, Math.Min(440 * DeviceDpi / 96, _text.ClientSize.Width));
+            _autoCompleteBox.Height = Math.Max(1, Math.Min(168 * DeviceDpi / 96, _text.ClientSize.Height));
             _autoCompleteBox.SelectedIndex = 0;
             Point p = _text.GetPositionFromCharIndex(_text.SelectionStart);
             p.Y += (int)(_text.Font.Height * 1.5);
@@ -556,27 +625,46 @@ public sealed class CodeEditor : UserControl
 
     private void OnSelectionChanged(object? sender, EventArgs e)
     {
+        if (!_suppressChange) UpdateCaretStatus();
         RefreshIntelligence();
+    }
+
+    private void UpdateCaretStatus()
+    {
+        if (_caretStatus is null) return;
+        int caret = _text.SelectionStart;
+        int line = _text.GetLineFromCharIndex(caret);
+        int first = _text.GetFirstCharIndexFromLine(line);
+        string argument = _activeParameterIndex >= 0 ? " · Argument " + (_activeParameterIndex + 1) : string.Empty;
+        _caretStatus.Text = $"{_languageName} · Ln {line + 1}, Col {caret - Math.Max(0, first) + 1}{argument}"
+            + (string.IsNullOrWhiteSpace(_contextHint) ? string.Empty : " · " + _contextHint);
+        _assistanceTip?.SetToolTip(_caretStatus, _caretStatus.Text);
     }
 
     protected override void OnLayout(LayoutEventArgs e)
     {
         base.OnLayout(e);
-        if (_signatureStrip is null)
+        if (_signatureStrip is null || _caretStatus is null)
         {
             _editingHost.SetBounds(0, 0, ClientSize.Width, ClientSize.Height);
             return;
         }
 
+        int caretHeight = Math.Min(ClientSize.Height, Math.Max(24 * DeviceDpi / 96, _caretStatus.Font.Height + 8));
         int footerHeight = _signatureStrip.Visible
-            ? Math.Max(SignatureStripLogicalHeight, SignatureStripLogicalHeight * DeviceDpi / 96)
+            ? Math.Max(SignatureStripLogicalHeight * DeviceDpi / 96,
+                TextRenderer.MeasureText(_signatureText.Text, EditorChrome.SmallFont,
+                    new Size(Math.Max(60, ClientSize.Width - _signatureStrip.Padding.Horizontal - 16), int.MaxValue),
+                    TextFormatFlags.WordBreak).Height + 16)
             : 0;
-        _editingHost.SetBounds(0, 0, ClientSize.Width, Math.Max(0, ClientSize.Height - footerHeight));
+        footerHeight = Math.Min(footerHeight, Math.Max(0, ClientSize.Height - caretHeight));
+        _editingHost.SetBounds(0, 0, ClientSize.Width, Math.Max(0, ClientSize.Height - footerHeight - caretHeight));
         _signatureStrip.SetBounds(
             0,
-            Math.Max(0, ClientSize.Height - footerHeight),
+            Math.Max(0, ClientSize.Height - footerHeight - caretHeight),
             ClientSize.Width,
             footerHeight);
+        _caretStatus.SetBounds(0, Math.Max(0, ClientSize.Height - caretHeight), ClientSize.Width, caretHeight);
     }
 
     [DllImport("user32.dll")]

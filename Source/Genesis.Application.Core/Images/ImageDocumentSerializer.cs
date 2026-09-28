@@ -264,7 +264,7 @@ public static class ImageDocumentValidator
                 throw new InvalidDataException($"Frame '{frame.Id}' must have a positive duration.");
             }
 
-            ValidateRelativePath(frame.Source, $"frame '{frame.Id}' source");
+            ValidateRelativePath(frame.Source, $"frame '{frame.Id}' source", allowSibling: true);
         }
 
         foreach (ImageAnimationTag tag in document.Tags)
@@ -304,7 +304,7 @@ public static class ImageDocumentValidator
             foreach (ImageCel cel in layer.Cels)
             {
                 RequireReference(frameIds, cel.FrameId, "cel frame");
-                ValidateRelativePath(cel.Source, "cel source");
+                ValidateRelativePath(cel.Source, "cel source", allowSibling: true);
             }
         }
 
@@ -431,7 +431,7 @@ public static class ImageDocumentValidator
         }
     }
 
-    private static void ValidateRelativePath(string? path, string description)
+    private static void ValidateRelativePath(string? path, string description, bool allowSibling = false)
     {
         if (path is null)
         {
@@ -440,7 +440,7 @@ public static class ImageDocumentValidator
 
         string normalized = path.Replace('\\', '/');
         if (Path.IsPathRooted(path) ||
-            normalized.Split('/').Any(segment => segment == ".."))
+            (!allowSibling && normalized.Split('/').Any(segment => segment == "..")))
         {
             throw new InvalidDataException($"The {description} must be a resource-relative path.");
         }

@@ -20,6 +20,7 @@ public sealed partial class PhysicsWorld : IDisposable
 {
     private readonly BufferPool _pool = new();
     private readonly Simulation _simulation;
+    private readonly PlanarBodyConstraints _planarConstraints;
     private readonly Dictionary<BodyHandle, int> _dynamicHandles = new();
     private readonly Dictionary<StaticHandle, int> _staticHandles = new();
     private readonly Dictionary<BodyHandle, float> _dynamicFriction = new();
@@ -61,6 +62,7 @@ public sealed partial class PhysicsWorld : IDisposable
             new PhysicsNarrowPhaseCallbacks(this),
             new PhysicsPoseCallbacks(this),
             new SolveDescription(solverIterations, 2));
+        _planarConstraints = new PlanarBodyConstraints(_simulation);
     }
 
     public static PhysicsWorld Create(PhysicsWorldAsset asset)
@@ -122,12 +124,15 @@ public sealed partial class PhysicsWorld : IDisposable
             var activity = new BodyActivityDescription(
                 AllowSleep ? MathF.Max(SleepThreshold, 1e-5f) : -1f,
                 32);
-            var dynamic = BodyDescription.CreateDynamic(
+            var dynamic = body.Motion == SharedPhysicsMotionType.Kinematic
+                ? BodyDescription.CreateKinematic(pose, collidable, activity)
+                : BodyDescription.CreateDynamic(
                 pose,
                 inertia,
                 collidable,
                 activity);
             var handle = _simulation.Bodies.Add(dynamic);
+            _planarConstraints.Apply(handle, body.PlanarTwoD, body.LockRotation, transform.Position.Z);
             _dynamicFriction[handle] = ClampFriction(body.Friction);
             _dynamicRestitution[handle] = ClampRestitution(body.Restitution);
             _dynamicSensor[handle] = body.IsSensor;
@@ -139,6 +144,8 @@ public sealed partial class PhysicsWorld : IDisposable
                 Enabled = body.Collision && IsEntityEnabled(world, entity),
                 UseGravity = body.UseGravity,
                 LockRotation = body.LockRotation,
+                PlanarTwoD = body.PlanarTwoD,
+                PlanarDepth = transform.Position.Z,
                 Weight = body.Weight > 0f ? body.Weight : DefaultWeight,
                 // Issue 7: struct-default is 0f, but RigidBodyComponent factories now set this
                 // explicitly to 1f, so 0f here only happens for hand-built components that
@@ -175,6 +182,7 @@ public sealed partial class PhysicsWorld : IDisposable
 
         if (binding.DynamicHandle is BodyHandle dynamic)
         {
+            _planarConstraints.Remove(dynamic);
             _simulation.Bodies.Remove(dynamic);
             _dynamicHandles.Remove(dynamic);
             _dynamicBindingsByHandle.Remove(dynamic);
@@ -264,6 +272,12 @@ public sealed partial class PhysicsWorld : IDisposable
             binding.Enabled = body.Collision && IsEntityEnabled(world, binding.Entity);
             binding.UseGravity = body.UseGravity;
             binding.LockRotation = body.LockRotation;
+            if (binding.PlanarTwoD != body.PlanarTwoD)
+            {
+                binding.PlanarTwoD = body.PlanarTwoD;
+                binding.PlanarDepth = _simulation.Bodies.GetBodyReference(pair.Key).Pose.Position.Z;
+            }
+            _planarConstraints.Apply(pair.Key, binding.PlanarTwoD, body.LockRotation, binding.PlanarDepth);
             binding.Weight = body.Weight > 0f ? body.Weight : DefaultWeight;
             binding.GravityScale = body.GravityScale;
 
@@ -467,6 +481,8 @@ public sealed partial class PhysicsWorld : IDisposable
         public bool Enabled;
         public bool UseGravity;
         public bool LockRotation;
+        public bool PlanarTwoD;
+        public float PlanarDepth;
         public float Weight;
         /// <summary>Issue 7 (declarative physics): per-body multiplier on world gravity.</summary>
         public float GravityScale;

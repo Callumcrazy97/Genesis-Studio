@@ -459,7 +459,8 @@ namespace Genesis.Runtime.Rendering
             float camX,
             float camY,
             float zoom,
-            RenderColor? tint = null)
+            RenderColor? tint = null,
+            System.Drawing.RectangleF? destination = null)
         {
             if (alpha <= 0f || string.IsNullOrWhiteSpace(image)
                 || !TryGetTexture(renderer, projectPath, image, frameIndex,
@@ -472,6 +473,14 @@ namespace Genesis.Runtime.Rendering
             float height = textureHeight * SafeScale(transform.ScaleY) * zoom;
             ResolveSpriteDisplayPivot(projectPath, image, frameIndex, textureWidth, textureHeight,
                 width, height, out float originX, out float originY);
+            if (destination is System.Drawing.RectangleF bounds)
+            {
+                width = bounds.Width;
+                height = bounds.Height;
+                originX = originY = 0;
+                transform.X = bounds.X;
+                transform.Y = bounds.Y;
+            }
             // The debugger consumes the same resolved frame geometry as rendering. Keeping this
             // on the per-entity draw entry avoids guessing size, pivot, or collider from names.
             assets.SpritePixelWidth = textureWidth;
@@ -742,6 +751,7 @@ namespace Genesis.Runtime.Rendering
 
             if (cached is not null)
             {
+                cache.Shaders.Remove(key);
                 ShaderPreviewProfile cachedProfile = expectedPipeline == ShaderAssetPipeline.Mesh
                     ? ShaderPreviewProfile.MeshPipeline
                     : ShaderPreviewProfile.SpritePipeline;
@@ -800,8 +810,7 @@ namespace Genesis.Runtime.Rendering
                 }
             }
 
-            if (passHandles.Count == 0) return false;
-            RuntimeShaderHandle handle = passHandles[0];
+            RuntimeShaderHandle handle = passHandles.Count > 0 ? passHandles[0] : RuntimeShaderHandle.Invalid;
             result = new ShaderCacheEntry
             {
                 Handle = handle,
@@ -1002,14 +1011,18 @@ namespace Genesis.Runtime.Rendering
 
             string key = path + "|" + File.GetLastWriteTimeUtc(path).Ticks;
             Dictionary<string, TextureCacheEntry> textureCache = RenderCaches.GetOrCreateValue(renderer).Textures;
+            // Editor previews can release a shared texture while gameplay still has its draw
+            // entry. Resolve through the renderer's asset cache again so that entry cannot
+            // retain a released handle and turn a live cross-editor sprite white.
+            handle = renderer.LoadTexture(path);
+            if (!handle.IsValid) return false;
             if (!textureCache.TryGetValue(key, out TextureCacheEntry entry))
             {
-                handle = renderer.LoadTexture(path);
-                if (!handle.IsValid) return false;
                 entry = new TextureCacheEntry { Handle = handle };
                 TryReadImageSize(path, out entry.Width, out entry.Height);
                 textureCache[key] = entry;
             }
+            else entry.Handle = handle;
 
             handle = entry.Handle;
             width = entry.Width;
@@ -1036,22 +1049,7 @@ namespace Genesis.Runtime.Rendering
                 return Vector4.Zero;
 
             SpriteRuntimeAsset asset = SpriteAssetLoader.Load(spritePath);
-            if (frameIndex < 0 || frameIndex >= asset.Frames.Count)
-                return Vector4.Zero;
-
-            SpriteRuntimeRectangle rect = asset.Frames[frameIndex].SourceRectangle;
-            if (rect.Width <= 0 || rect.Height <= 0)
-                return Vector4.Zero;
-
-            if (rect.X <= 0 && rect.Y <= 0
-                && rect.Width >= textureWidth && rect.Height >= textureHeight)
-                return Vector4.Zero;
-
-            float u0 = rect.X / (float)Math.Max(1, textureWidth);
-            float v0 = rect.Y / (float)Math.Max(1, textureHeight);
-            float u1 = (rect.X + rect.Width) / (float)Math.Max(1, textureWidth);
-            float v1 = (rect.Y + rect.Height) / (float)Math.Max(1, textureHeight);
-            return new Vector4(u0, v0, u1, v1);
+            return SpriteOriginUtility.ResolveFrameUvRect(asset, frameIndex, textureWidth, textureHeight);
         }
 
         private static void ResolveSpriteDisplayPivot(

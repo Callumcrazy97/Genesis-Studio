@@ -17,14 +17,15 @@ public partial class ModelViewerControl
             int source = TextHeight(_sourceInfo, width), details = TextHeight(_details, width);
             int minimumTree = Math.Max(4 * _hierarchy.ItemHeight, 110);
             int materials = Math.Clamp(_materials.Items.Count * _materials.ItemHeight + 8, 2 * _materials.ItemHeight + 8, 6 * _materials.ItemHeight + 8);
-            _sourceSection.SetContentHeight(source);
-            _detailsSection.SetContentHeight(details);
-            _materialsSection.SetContentHeight(materials);
+            float scale = Math.Max(1, EditorChrome.BaseFont.SizeInPoints / 9.5f);
+            _sourceSection.SetContentHeight((int)Math.Ceiling(source / scale));
+            _detailsSection.SetContentHeight((int)Math.Ceiling(details / scale));
+            _materialsSection.SetContentHeight((int)Math.Ceiling(materials / scale));
             int fixedHeight = _sidebarFlow.Padding.Vertical + _sidebarFlow.Controls.Cast<Control>().Sum(c => c.Margin.Vertical)
                 + _sourceSection.Height + _detailsSection.Height + _materialsSection.Height
                 + (_hierarchySection.Height - _hierarchySection.Content.Height);
             int tree = Math.Max(minimumTree, _sidebarFlow.ClientSize.Height - fixedHeight);
-            _hierarchySection.SetContentHeight(tree);
+            _hierarchySection.SetContentHeight((int)Math.Ceiling(tree / scale));
         }
         finally { _sidebarFlow.ResumeLayout(); _layingOutSidebar = false; }
     }
@@ -59,6 +60,7 @@ public partial class ModelViewerControl
     public void SetSidebarWidth(int width)
     {
         Body.ColumnStyles[0].Width = Math.Clamp(width, 200, Math.Max(200, Body.Width / 2));
+        _sidebarLogicalWidth = Body.ColumnStyles[0].Width / ModelInterfaceScale;
         LayoutSidebar();
     }
 }

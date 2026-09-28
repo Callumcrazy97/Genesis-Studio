@@ -4,6 +4,7 @@ using System.Numerics;
 using System.Text;
 using Genesis.Runtime.Particles;
 using Genesis.Runtime.ECS.Components;
+using Genesis.Runtime.Scene;
 using Genesis.Shared.ECS;
 using Genesis.Shared.ECS.Components;
 using Genesis.Shared.Net;
@@ -205,6 +206,7 @@ public static partial class PgslCommands
         if (world is null) return;
 
         Vector3 direction = new((float)x, (float)y, (float)z);
+        if (ActiveGameContext?.Scene?.IsSpritePhysicsScene == true) { direction.Y = -direction.Y; direction.Z = 0; }
         // A zero direction would make gravity meaningless and NaN the normalisation downstream.
         world.GravityDirection = direction.LengthSquared() < 1e-8f
             ? new Vector3(0f, -1f, 0f)
@@ -212,13 +214,19 @@ public static partial class PgslCommands
     }
 
     [PgslCommand("PhysicsGetGravityX", "PhysicsGetGravityX() -> number", "X of the gravity acceleration", "Physics")]
-    public static double PhysicsGetGravityX() => PhysicsWorld?.GetGravityAcceleration().X ?? 0;
+    public static double PhysicsGetGravityX() => PhysicsGravity().X;
 
     [PgslCommand("PhysicsGetGravityY", "PhysicsGetGravityY() -> number", "Y of the gravity acceleration", "Physics")]
-    public static double PhysicsGetGravityY() => PhysicsWorld?.GetGravityAcceleration().Y ?? 0;
+    public static double PhysicsGetGravityY() => PhysicsGravity().Y;
 
     [PgslCommand("PhysicsGetGravityZ", "PhysicsGetGravityZ() -> number", "Z of the gravity acceleration", "Physics")]
-    public static double PhysicsGetGravityZ() => PhysicsWorld?.GetGravityAcceleration().Z ?? 0;
+    public static double PhysicsGetGravityZ() => PhysicsGravity().Z;
+
+    private static Vector3 PhysicsGravity()
+    {
+        Vector3 acceleration = PhysicsWorld?.GetGravityAcceleration() ?? Vector3.Zero;
+        return ActiveGameContext?.Scene?.IsSpritePhysicsScene == true ? SpritePhysicsBinding.ToPixels(acceleration) : acceleration;
+    }
 
     [PgslCommand("PhysicsSetAirDrag", "PhysicsSetAirDrag(drag)", "Global air resistance", "Physics")]
     public static void PhysicsSetAirDrag(double drag)
@@ -234,11 +242,11 @@ public static partial class PgslCommands
     public static void PhysicsSetMaxVelocity(double speed)
     {
         Genesis.Physics.PhysicsWorld world = PhysicsWorld;
-        if (world is not null) world.MaxVelocity = (float)Math.Max(0.01, speed);
+        if (world is not null) world.MaxVelocity = (float)Math.Max(0.01, speed) / (ActiveGameContext?.Scene?.IsSpritePhysicsScene == true ? SpritePhysicsBinding.PixelsPerMetre : 1);
     }
 
     [PgslCommand("PhysicsGetMaxVelocity", "PhysicsGetMaxVelocity() -> number", "Velocity ceiling", "Physics")]
-    public static double PhysicsGetMaxVelocity() => PhysicsWorld?.MaxVelocity ?? 0;
+    public static double PhysicsGetMaxVelocity() => (PhysicsWorld?.MaxVelocity ?? 0) * (ActiveGameContext?.Scene?.IsSpritePhysicsScene == true ? SpritePhysicsBinding.PixelsPerMetre : 1);
 
     [PgslCommand("PhysicsSetAllowSleep", "PhysicsSetAllowSleep(allow)", "Whether idle bodies may sleep", "Physics")]
     public static void PhysicsSetAllowSleep(bool allow)
@@ -277,27 +285,29 @@ public static partial class PgslCommands
         Entity entity = world.GetEntity((int)instanceId);
         if (entity.IsNull || !world.Has<RigidBodyComponent>(entity)) return;
         ref RigidBodyComponent body = ref world.GetRef<RigidBodyComponent>(entity);
+        if (body.RegistrationId == 0 && world.Has<SpritePhysicsBindingComponent>(entity))
+            physics.RegisterEntity(world, entity, ref body, ref world.GetRef<Transform3DComponent>(entity));
         if (body.RegistrationId == 0 || body.Motion != PhysicsMotionType.Dynamic) return;
 
         physics.ApplyLinearImpulse(
             world,
             body.RegistrationId,
-            new Vector3((float)x, (float)y, (float)z));
+            SpritePhysicsBinding.ToPhysics(world, (int)instanceId, new Vector3((float)x, (float)y, (float)z)));
     }
 
     [PgslCommand("PhysicsApplyForce", "PhysicsApplyForce(instanceId, x, y, z)", "Apply a force for the current frame", "Physics")]
     public static void PhysicsApplyForce(double instanceId, double x, double y, double z)
     {
         if (!TryGetDynamicBody((int)instanceId, out Genesis.Physics.PhysicsWorld physics,
-                out Genesis.Runtime.ECS.World world, out RigidBodyComponent body)) return;
+                out Genesis.Runtime.ECS.World world, out RigidBodyComponent body) || body.Motion != PhysicsMotionType.Dynamic) return;
         float delta = Math.Clamp(ActiveGameContext?.DeltaTime ?? (1f / 60f), 0f, 0.1f);
         physics.ApplyLinearImpulse(
             world,
             body.RegistrationId,
-            new Vector3((float)x, (float)y, (float)z) * delta);
+            SpritePhysicsBinding.ToPhysics(world, (int)instanceId, new Vector3((float)x, (float)y, (float)z)) * delta);
     }
 
-    [PgslCommand("PhysicsSetVelocity", "PhysicsSetVelocity(instanceId, x, y, z)", "Set a dynamic body's linear velocity", "Physics")]
+    [PgslCommand("PhysicsSetVelocity", "PhysicsSetVelocity(instanceId, x, y, z)", "Set Dynamic or Kinematic velocity; 2D sprite bodies use pixels/second with Y down, 3D uses metres/second", "Physics")]
     public static void PhysicsSetVelocity(double instanceId, double x, double y, double z)
     {
         if (!TryGetDynamicBody((int)instanceId, out Genesis.Physics.PhysicsWorld physics,
@@ -305,7 +315,7 @@ public static partial class PgslCommands
         physics.SetLinearVelocity(
             world,
             body.RegistrationId,
-            new Vector3((float)x, (float)y, (float)z));
+            SpritePhysicsBinding.ToPhysics(world, (int)instanceId, new Vector3((float)x, (float)y, (float)z)));
     }
 
     [PgslCommand("PhysicsGetVelocityX", "PhysicsGetVelocityX(instanceId) -> number", "Read linear velocity X", "Physics")]
@@ -322,7 +332,9 @@ public static partial class PgslCommands
     {
         if (!TryGetDynamicBody((int)instanceId, out Genesis.Physics.PhysicsWorld physics,
                 out Genesis.Runtime.ECS.World world, out RigidBodyComponent body)) return false;
-        return physics.IsGrounded(world, body.RegistrationId, (float)Math.Clamp(probeDistance, 0.001, 100));
+        float distance = (float)Math.Clamp(probeDistance, 0.001, 100);
+        if (world.Has<SpritePhysicsBindingComponent>(world.GetEntity((int)instanceId))) distance /= SpritePhysicsBinding.PixelsPerMetre;
+        return physics.IsGrounded(world, body.RegistrationId, distance);
     }
 
     [PgslCommand("PhysicsCreateJoint", "PhysicsCreateJoint(instanceA, instanceB, anchorX, anchorY, anchorZ) -> number", "Create a ball joint between two dynamic bodies", "Physics")]
@@ -330,14 +342,16 @@ public static partial class PgslCommands
         double instanceA, double instanceB, double anchorX, double anchorY, double anchorZ)
     {
         if (!TryGetDynamicBody((int)instanceA, out Genesis.Physics.PhysicsWorld physics,
-                out _, out RigidBodyComponent bodyA)
+                out Genesis.Runtime.ECS.World world, out RigidBodyComponent bodyA)
             || !TryGetDynamicBody((int)instanceB, out Genesis.Physics.PhysicsWorld secondPhysics,
                 out _, out RigidBodyComponent bodyB)
             || !ReferenceEquals(physics, secondPhysics)) return 0;
+        bool spriteA = world.Has<SpritePhysicsBindingComponent>(world.GetEntity((int)instanceA));
+        if (spriteA != world.Has<SpritePhysicsBindingComponent>(world.GetEntity((int)instanceB))) return 0;
         return physics.CreateBallJoint(
             bodyA.RegistrationId,
             bodyB.RegistrationId,
-            new Vector3((float)anchorX, (float)anchorY, (float)anchorZ));
+            SpritePhysicsBinding.ToPhysics(world, (int)instanceA, new Vector3((float)anchorX, (float)anchorY, (float)anchorZ)));
     }
 
     [PgslCommand("PhysicsDestroyJoint", "PhysicsDestroyJoint(jointId) -> bool", "Remove a script-created physics joint", "Physics")]
@@ -347,8 +361,8 @@ public static partial class PgslCommands
     private static Vector3 PhysicsVelocity(int instanceId)
     {
         return TryGetDynamicBody(instanceId, out Genesis.Physics.PhysicsWorld physics,
-            out _, out RigidBodyComponent body)
-            ? physics.GetLinearVelocity(body.RegistrationId)
+            out Genesis.Runtime.ECS.World world, out RigidBodyComponent body)
+            ? SpritePhysicsBinding.ToPixels(world, instanceId, physics.GetLinearVelocity(body.RegistrationId))
             : Vector3.Zero;
     }
 
@@ -364,8 +378,10 @@ public static partial class PgslCommands
         if (physics is null || world is null) return false;
         Entity entity = world.GetEntity(instanceId);
         if (entity.IsNull || !world.Has<RigidBodyComponent>(entity)) return false;
+        if (world.Has<SpritePhysicsBindingComponent>(entity) && world.GetRef<RigidBodyComponent>(entity).RegistrationId == 0)
+            physics.RegisterEntity(world, entity, ref world.GetRef<RigidBodyComponent>(entity), ref world.GetRef<Transform3DComponent>(entity));
         body = world.GetRef<RigidBodyComponent>(entity);
-        return body.RegistrationId != 0 && body.Motion == PhysicsMotionType.Dynamic;
+        return body.RegistrationId != 0 && body.Motion is PhysicsMotionType.Dynamic or PhysicsMotionType.Kinematic;
     }
 
     [PgslCommand("PhysicsRaycast", "PhysicsRaycast(x, y, z, dx, dy, dz, maxDistance) -> number", "Distance to the first hit, -1 for none", "Physics")]
@@ -379,12 +395,19 @@ public static partial class PgslCommands
         if (physics is null || world is null || maxDistance <= 0d || !float.IsFinite((float)maxDistance)
             || !Finite3(x, y, z) || !Finite3(dx, dy, dz)) return -1d;
 
+        bool spriteScene = ActiveGameContext?.Scene?.IsSpritePhysicsScene == true;
+        Vector3 origin = new((float)x, (float)y, (float)z), direction = new((float)dx, (float)dy, (float)dz);
+        float distance = (float)maxDistance;
+        if (spriteScene) { origin = SpritePhysicsBinding.ToPhysics(origin); direction.Y = -direction.Y; direction.Z = 0; distance /= SpritePhysicsBinding.PixelsPerMetre; }
         bool found = physics.Raycast(
             world,
-            new Vector3((float)x, (float)y, (float)z),
-            new Vector3((float)dx, (float)dy, (float)dz),
-            (float)maxDistance,
+            origin, direction, distance,
             out Genesis.Physics.PhysicsRaycastHit hit);
+        if (found && spriteScene) hit = new Genesis.Physics.PhysicsRaycastHit
+        {
+            Entity = hit.Entity, Point = SpritePhysicsBinding.ToPixels(hit.Point),
+            Normal = new Vector3(hit.Normal.X, -hit.Normal.Y, 0), Distance = hit.Distance * SpritePhysicsBinding.PixelsPerMetre, IsStatic = hit.IsStatic,
+        };
         if (found && context != null) context.LastPhysicsRaycast = hit;
         return found ? hit.Distance : -1d;
     }

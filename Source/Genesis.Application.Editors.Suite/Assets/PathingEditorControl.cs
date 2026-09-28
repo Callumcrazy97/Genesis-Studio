@@ -7,6 +7,7 @@ using Genesis.Application.Editors.Suite.Inspector;
 using Genesis.Application.Editors.Suite.Scripts;
 using Genesis.Application.Editors.Suite.UiKit;
 using Genesis.Runtime.Modeling;
+using Genesis.Runtime.Assets;
 using Genesis.Runtime.Navigation;
 using Genesis.Runtime.Scene;
 using Genesis.Shared.Assets;
@@ -24,7 +25,7 @@ public sealed class PathingDebugRequestedEventArgs(string targetRoom, string pat
 /// Visual and declarative authoring surface for reusable navigation routes. The editor previews
 /// project Rooms and Objects but does not encode NPC roles or game-specific behavior.
 /// </summary>
-public sealed class PathingEditorControl : EditorSurfaceControl, IResourceInspectorTarget, ILiveResourceInspectorTarget
+public sealed partial class PathingEditorControl : EditorSurfaceControl, IResourceInspectorTarget, ILiveResourceInspectorTarget
 {
     private sealed record AssetChoice(string Name, string Path)
     {
@@ -55,54 +56,72 @@ public sealed class PathingEditorControl : EditorSurfaceControl, IResourceInspec
     private readonly TextBox _followTarget = new();
     private readonly System.Windows.Forms.Timer _frameTimer;
     private readonly System.Windows.Forms.Timer _codeTimer;
-    private ToolStripComboBox? _roomPicker;
-    private ToolStripComboBox? _objectPicker;
+    private ComboBox? _roomPicker;
+    private ComboBox? _objectPicker;
     private ToolStripButton? _playButton;
-    private ToolStripButton? _pauseButton;
-    private ToolStripButton? _stopButton;
-    private ToolStripButton? _fastForwardButton;
-    private ToolStripLabel? _documentTitle;
     private ToolStripLabel? _timeScaleValue;
-    private TrackBar? _timeScale;
     private int _selectedWaypoint = -1;
     private bool _syncing;
     private bool _playing;
     private bool _paused;
     private bool _fastForward;
     private float _time;
+    private Panel? _toolsDock;
+    private Panel? _telemetryDock;
+    private SplitContainer? _previewSplit;
+    private SplitContainer? _timelineSplit;
+    private bool _showCode;
+    private bool _layingOut;
+    private bool _pathingLayoutQueued;
+    private bool _refreshingRoster;
+    private bool? _telemetryPreference;
+    private bool? _timelinePreference;
+    private FlowLayoutPanel? _toolsFields;
+    private readonly ToolStripDropDownButton _dimensionMenu = new("Plane");
+    private PathingEditSnapshot _journalState = new(string.Empty, string.Empty, string.Empty, -1);
+    private PathingEditSnapshot? _waypointDragBefore;
 
     public PathingEditorControl(string resourcePath, string projectRoot) : base(resourcePath, projectRoot)
     {
         Dock = DockStyle.Fill;
         _viewport = new PathingViewportControl(projectRoot);
         _asset = LoadAsset();
+        _selectedWaypoint = _asset.Route.Waypoints.Count > 0 ? 0 : -1;
         Controls.Add(BuildWorkspace());
         Controls.Add(BuildToolbar());
+        if (_commandBar?.HistoryCommand is { } history) history.Visible = false;
         Controls.Add(_status);
 
         _codeTimer = new System.Windows.Forms.Timer { Interval = 450 };
         _codeTimer.Tick += (_, _) => { _codeTimer.Stop(); ApplyCode(); };
         _code.SetRules(BuildRules());
+        AssetCodeIntelligenceProvider.AttachPathing(_code);
+        _code.DocumentUndoRequested = Undo; _code.DocumentRedoRequested = Redo;
         _code.TextChangedByUser += (_, _) =>
         {
             if (_syncing) return;
             _codeTimer.Stop(); _codeTimer.Start();
+            MarkDirty();
             _codeStatus.Text = "Editing…";
             _codeStatus.ForeColor = EditorChrome.Warning;
         };
         _frameTimer = new System.Windows.Forms.Timer { Interval = 16 };
         _frameTimer.Tick += (_, _) => AdvanceSimulation(1f / 60f);
-        _viewport.WaypointSelected += index => { _selectedWaypoint = index; RefreshInspector(); };
+        _viewport.WaypointSelected += index => SelectPathingPoint(index);
         _viewport.WaypointMoved += MoveWaypoint;
+        _viewport.WaypointDragStarted += () => _waypointDragBefore = _journalState;
+        _viewport.WaypointDragCompleted += () => { _waypointDragBefore = null; JournalDocumentChange(); };
         _viewport.WaypointDeleteRequested += index => { _selectedWaypoint = index; DeleteWaypoint(); };
         _timeline.TimeScrubbed += ScrubTo;
         _timeline.SpeedCurveChanged += () => CommitDocumentChange(resetSimulation: false);
         DirtyChanged += (_, _) => RefreshDocumentTitle();
-        SizeChanged += (_, _) => ApplyResponsiveLayout();
+        SizeChanged += (_, _) => { ApplyResponsiveLayout(); QueuePathingLayout(); };
         Disposed += (_, _) => { _frameTimer.Dispose(); _codeTimer.Dispose(); };
 
         PopulateTargets();
         SyncUiFromAsset(resetSimulation: true);
+        _journalState = CapturePathingEdit();
+        _savedPathingDocument = _journalState.Document;
         RefreshDocumentTitle();
         ApplyResponsiveLayout();
     }
@@ -110,13 +129,13 @@ public sealed class PathingEditorControl : EditorSurfaceControl, IResourceInspec
     public event EventHandler? InspectorStateChanged;
     public event EventHandler<PathingDebugRequestedEventArgs>? DebugRequested;
 
+    public CodeEditor Code => _code;
+
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
         if (keyData == Keys.F3)
         {
-            Save();
-            DebugRequested?.Invoke(this, new PathingDebugRequestedEventArgs(_asset.TargetRoom, ResourcePath));
-            _status.Text = "Launching room with F6 debugger focused on AI & Navigation…";
+            LaunchPathingDebug();
             return true;
         }
         return base.ProcessCmdKey(ref msg, keyData);
@@ -124,14 +143,19 @@ public sealed class PathingEditorControl : EditorSurfaceControl, IResourceInspec
 
     public override void Save()
     {
-        ApplyCode();
+        if (!ApplyCode()) throw new InvalidDataException(_codeStatus.Text);
+        Genesis.Application.Core.Projects.ResourceBackupService.BackupBeforeOverwrite(ResourcePath);
+        ProjectAssetWriteRegistry.MarkLocalWrite(ResourcePath);
         PathingAssetSerializer.Save(ResourcePath, _asset);
+        ResourceNames.Invalidate(ProjectRoot);
+        _savedPathingDocument = PathingAssetSerializer.Serialize(_asset);
         AcceptSave();
         _status.Text = $"Saved {ResourceDisplayName.Format(ResourcePath)}";
     }
 
     public IReadOnlyList<ResourceInspectorLiveValue> GetLiveInspectorValues() =>
     [
+        new("Pathing", "Pathing.Dimension", "Plane", _asset.Dimension.ToString(), Choices: Enum.GetNames<PathingDimension>()),
         new("Pathing", "Pathing.Mode", "Route mode", _asset.Route.Mode.ToString(), Choices: Enum.GetNames<PathingRouteMode>()),
         new("Pathing", "Pathing.Loop", "Loop mode", _asset.Route.LoopMode.ToString(), Choices: Enum.GetNames<PathingLoopMode>()),
         new("Pathing", "Pathing.Speed", "Movement speed", _asset.Route.Speed, Minimum: 0, Maximum: 10000, Increment: .1m, DecimalPlaces: 2),
@@ -148,19 +172,23 @@ public sealed class PathingEditorControl : EditorSurfaceControl, IResourceInspec
 
     public bool TryApplyLiveInspectorValue(string propertyPath, object? value)
     {
+        if (!ApplyCode()) return false;
         string text = Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;
         switch (propertyPath)
         {
-            case "Pathing.Mode" when Enum.TryParse(text, true, out PathingRouteMode mode): _asset.Route.Mode = mode; break;
-            case "Pathing.Loop" when Enum.TryParse(text, true, out PathingLoopMode loop): _asset.Route.LoopMode = loop; break;
-            case "Pathing.Speed" when float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out float speed): _asset.Route.Speed = speed; break;
-            case "Pathing.StoppingDistance" when float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out float stopping): _asset.Route.StoppingDistance = stopping; break;
-            case "Pathing.Wait" when float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out float wait): _asset.Route.DefaultWaitSeconds = wait; break;
+            case "Pathing.Dimension" when Enum.TryParse(text, true, out PathingDimension dimension) && Enum.IsDefined(dimension):
+                SetDimension(dimension); return _asset.Dimension == dimension;
+            case "Pathing.Mode" when Enum.TryParse(text, true, out PathingRouteMode mode) && Enum.IsDefined(mode): _asset.Route.Mode = mode; break;
+            case "Pathing.Loop" when Enum.TryParse(text, true, out PathingLoopMode loop) && Enum.IsDefined(loop): _asset.Route.LoopMode = loop; break;
+            case "Pathing.Speed" when float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out float speed) && float.IsFinite(speed) && speed is >= 0 and <= 10000: _asset.Route.Speed = speed; break;
+            case "Pathing.StoppingDistance" when float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out float stopping) && float.IsFinite(stopping) && stopping is >= 0 and <= 10000: _asset.Route.StoppingDistance = stopping; break;
+            case "Pathing.Wait" when float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out float wait) && float.IsFinite(wait) && wait is >= 0 and <= 86400: _asset.Route.DefaultWaitSeconds = wait; break;
             case "Pathing.Room": _asset.TargetRoom = text; break;
             case "Pathing.Object": _asset.TargetObject = text; break;
             default: return false;
         }
         CommitDocumentChange(contextChanged: propertyPath is "Pathing.Room" or "Pathing.Object");
+        SyncUiFromAsset(resetSimulation: true);
         return true;
     }
 
@@ -169,42 +197,24 @@ public sealed class PathingEditorControl : EditorSurfaceControl, IResourceInspec
         if (!string.IsNullOrWhiteSpace(_asset.TargetRoom) || !string.IsNullOrWhiteSpace(_asset.TargetObject))
         {
             LoadContext();
+            _viewport.Bind(_asset, _room, _navMesh, _simulation);
+            _viewport.RefreshContext();
             ResetSimulation();
         }
         base.OnAssetDependenciesChanged(changes);
     }
 
-    private Control BuildToolbar()
+    private Control BuildToolbar() => BuildPathingToolbar();
+
+    public PathingDimension Dimension => _asset.Dimension;
+
+    public void SetDimension(PathingDimension dimension)
     {
-        EditorCommandBar toolbar = EditorChrome.MakeToolbar();
-        toolbar.Items.Add(EditorDocumentMenuChrome.BuildFileMenu(this));
-        toolbar.Items.Add(EditorDocumentMenuChrome.BuildEditMenu(this));
-        toolbar.Items.Add(new ToolStripSeparator());
-        _documentTitle = new ToolStripLabel(ResourceDisplayName.Format(ResourcePath)) { ForeColor = EditorChrome.Text, Font = EditorChrome.HeadingFont, ToolTipText = ResourcePath };
-        toolbar.Items.Add(_documentTitle);
-        ToolStripButton save = EditorChrome.ToolButton("Save", "Save pathing resource (Ctrl+S)", Save); save.BackColor = EditorChrome.Accent; toolbar.Items.Add(save);
-        toolbar.Items.Add(new ToolStripSeparator());
-        toolbar.Items.Add(Caption("Target Room"));
-        _roomPicker = Picker(190, OnRoomSelected); toolbar.Items.Add(_roomPicker);
-        _roomPicker.Enabled = false;
-        toolbar.Items.Add(EditorChrome.ToolButton("Browse…", "Choose target Room", () => PickBinding(ResourceKind.Room)));
-        toolbar.Items.Add(Caption("Target Object"));
-        _objectPicker = Picker(180, OnObjectSelected); toolbar.Items.Add(_objectPicker);
-        _objectPicker.Enabled = false;
-        toolbar.Items.Add(EditorChrome.ToolButton("Browse…", "Choose preview Object", () => PickBinding(ResourceKind.GameObject)));
-        toolbar.Items.Add(new ToolStripSeparator());
-        _playButton = EditorChrome.ToolButton("▶", "Play simulation", Play); _playButton.BackColor = EditorChrome.Accent; toolbar.Items.Add(_playButton);
-        _pauseButton = EditorChrome.ToolButton("Ⅱ", "Pause simulation", Pause); toolbar.Items.Add(_pauseButton);
-        _stopButton = EditorChrome.ToolButton("■", "Stop and reset", Stop); toolbar.Items.Add(_stopButton);
-        toolbar.Items.Add(EditorChrome.ToolButton("Step", "Advance one 60 Hz frame", () => { if (!_playing) { _playing = true; _paused = true; } AdvanceSimulation(1f / 60f, force: true); }));
-        _fastForwardButton = EditorChrome.ToolButton("»", "Toggle 4× fast-forward", () => { _fastForward = !_fastForward; RefreshTransport(); }, toggle: true);
-        toolbar.Items.Add(_fastForwardButton);
-        toolbar.Items.Add(Caption("Speed"));
-        _timeScale = new TrackBar { Minimum = 1, Maximum = 40, Value = 10, TickStyle = TickStyle.None, Width = 105, Height = 24 };
-        _timeScale.ValueChanged += (_, _) => RefreshTransport();
-        toolbar.Items.Add(new ToolStripControlHost(_timeScale) { AutoSize = false, Size = new Size(112, 28), Margin = new Padding(0, 4, 4, 0) });
-        _timeScaleValue = Caption("1.0×"); toolbar.Items.Add(_timeScaleValue);
-        return toolbar;
+        if (_asset.Dimension == dimension || !ApplyCode()) return;
+        foreach (PathingWaypoint point in _asset.Route.Waypoints) (point.Y, point.Z) = (point.Z, point.Y);
+        _asset.Dimension = dimension;
+        CommitDocumentChange(resetSimulation: true);
+        _viewport.FrameContent();
     }
 
     private void PickBinding(ResourceKind kind)
@@ -223,27 +233,27 @@ public sealed class PathingEditorControl : EditorSurfaceControl, IResourceInspec
 
     private Control BuildWorkspace()
     {
-        Panel workspace = new() { Dock = DockStyle.Fill, BackColor = EditorChrome.Canvas, Padding = new Padding(1) };
-        Panel left = BuildLeftDock();
-        Panel right = BuildRightDock();
+        Panel workspace = _workspace = new() { Dock = DockStyle.Fill, BackColor = EditorChrome.Canvas, Padding = new Padding(1) };
+        Panel left = _toolsDock = BuildLeftDock();
+        Panel right = _telemetryDock = BuildRightDock();
         SplitContainer vertical = new()
         {
             Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterWidth = 4,
-            BackColor = EditorChrome.Border, Panel2MinSize = 120,
+            BackColor = EditorChrome.Border, Size = new Size(900, 600), SplitterDistance = 450,
         };
-        vertical.HandleCreated += (_, _) => vertical.SplitterDistance = Math.Max(240, vertical.Height - 170);
-        vertical.SizeChanged += (_, _) =>
-        {
-            if (vertical.Height > 300) vertical.SplitterDistance = Math.Clamp(vertical.Height - 170, 180, vertical.Height - 100);
-        };
+        _timelineSplit = vertical;
+        vertical.SizeChanged += (_, _) => LayoutPreview();
         SplitContainer center = new()
         {
             Dock = DockStyle.Fill, SplitterWidth = 4, BackColor = EditorChrome.Border,
-            Panel1MinSize = 280, Panel2MinSize = 260,
+            Size = new Size(900, 450), SplitterDistance = 520,
         };
-        center.HandleCreated += (_, _) => center.SplitterDistance = Math.Max(280, (int)(center.Width * .58f));
-        center.Panel1.Controls.Add(ChromePanel("3D NAVMESH VIEWPORT", _viewport));
-        center.Panel2.Controls.Add(ChromePanel("DECLARATIVE PGSL PATHING", BuildCodeSurface()));
+        _previewSplit = center;
+        center.SizeChanged += (_, _) => LayoutPreview();
+        Panel preview = ChromePanel("PATH PREVIEW", _viewport);
+        preview.Controls.Add(BuildPathingPreviewToolbar());
+        center.Panel1.Controls.Add(preview);
+        center.Panel2.Controls.Add(ChromePanel("PATH DEFINITION", BuildCodeSurface()));
         vertical.Panel1.Controls.Add(center);
         vertical.Panel2.Controls.Add(_timeline);
         workspace.Controls.Add(vertical);
@@ -252,46 +262,15 @@ public sealed class PathingEditorControl : EditorSurfaceControl, IResourceInspec
         return workspace;
     }
 
-    private Panel BuildLeftDock()
-    {
-        Panel host = EditorChrome.SidePanel(220, DockStyle.Left);
-        Panel scroll = new() { Dock = DockStyle.Fill, AutoScroll = true, Padding = new Padding(10), BackColor = EditorChrome.Surface };
-        FlowLayoutPanel flow = new()
-        {
-            Dock = DockStyle.Top, AutoSize = true, FlowDirection = FlowDirection.TopDown,
-            WrapContents = false, BackColor = EditorChrome.Surface, Padding = Padding.Empty,
-        };
-        flow.Controls.Add(Heading("ROUTE MODE"));
-        AddMode(flow, PathingRouteMode.WaypointPatrol, "⌁", "Waypoint Patrol", "Fixed authored route with loop, ping-pong or once playback.");
-        AddMode(flow, PathingRouteMode.NavMeshSearch, "⌕", "NavMesh A* Search", "Dynamic point-to-point travel constrained by the selected room NavMesh.");
-        AddMode(flow, PathingRouteMode.WanderRadius, "◉", "Wander Radius", "Roam inside an authored radius using deterministic preview targets.");
-        AddMode(flow, PathingRouteMode.FollowLeader, "⚑", "Follow Leader", "Trail another project entity using a configurable stopping offset.");
-        flow.Controls.Add(Heading("WAYPOINT TOOLS"));
-        flow.Controls.Add(ActionRow(("＋ Waypoint", AddWaypoint), ("⌁ Bezier", InsertCurvePoint)));
-        flow.Controls.Add(ActionRow(("Delete", DeleteWaypoint), ("Snap Floor", SnapWaypoint)));
-        flow.Controls.Add(Heading("PATH PARAMETERS"));
-        flow.Controls.Add(Field("Loop", _loopMode));
-        flow.Controls.Add(Field("Movement speed (m/s)", _speed));
-        flow.Controls.Add(Field("Stopping distance", _stopping));
-        flow.Controls.Add(Field("Wait at waypoints (s)", _wait));
-        flow.Controls.Add(Field("Wander radius", _wanderRadius));
-        flow.Controls.Add(Field("Follow offset", _followOffset));
-        flow.Controls.Add(Field("Follow target", _followTarget));
-        flow.Controls.Add(Field("Animation state", _animationState));
-        flow.Controls.Add(Field("Preview agents", _previewAgents));
-        WireParameterEvents();
-        scroll.Controls.Add(flow);
-        host.Controls.Add(scroll);
-        host.Controls.Add(EditorChrome.SectionHeader("Pathing Tool Palette"));
-        return host;
-    }
+    private Panel BuildLeftDock() => BuildPathingQuickDock();
 
     private Panel BuildRightDock()
     {
         Panel host = EditorChrome.SidePanel(244, DockStyle.Right);
-        TabControl tabs = new() { Dock = DockStyle.Fill };
+        TabControl tabs = new EditorTabControl { Dock = DockStyle.Fill };
+        EditorChrome.StyleTabs(tabs);
         TabPage active = new("Active") { BackColor = EditorChrome.Surface, Padding = new Padding(8) };
-        TabPage inspector = new("Inspector") { BackColor = EditorChrome.Surface, Padding = new Padding(10) };
+        TabPage inspector = new("Inspector") { BackColor = EditorChrome.Surface, Padding = new Padding(10), AutoScroll = true };
         _roster.Dock = DockStyle.Top; _roster.Height = 235; _roster.ReadOnly = true; _roster.AllowUserToAddRows = false;
         _roster.AllowUserToDeleteRows = false; _roster.AllowUserToResizeRows = false; _roster.RowHeadersVisible = false;
         _roster.SelectionMode = DataGridViewSelectionMode.FullRowSelect; _roster.BackgroundColor = EditorChrome.Surface;
@@ -301,21 +280,20 @@ public sealed class PathingEditorControl : EditorSurfaceControl, IResourceInspec
         _roster.EnableHeadersVisualStyles = false; _roster.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
         _roster.Columns.Add("Agent", "Agent");
         _roster.Columns.Add("Position", "Position");
-        _roster.Columns.Add("Destination", "Destination");
-        _roster.Columns.Add("Waypoint", "WP");
-        _roster.Columns.Add("Distance", "Remaining");
         _roster.Columns.Add("State", "State");
-        Label graphTitle = Heading("CROWD SPATIAL HASH NEIGHBORS"); graphTitle.Dock = DockStyle.Top;
+        _roster.SelectionChanged += (_, _) => { if (!_refreshingRoster) RefreshInspector(); };
+        Label graphTitle = Heading("NEIGHBOURS"); graphTitle.Dock = DockStyle.Top;
         Panel graphCard = new() { Dock = DockStyle.Fill, Padding = new Padding(5), BackColor = EditorChrome.Canvas };
         graphCard.Controls.Add(_crowdGraph);
         active.Controls.Add(graphCard); active.Controls.Add(graphTitle); active.Controls.Add(_roster);
 
-        _inspectorSummary.Dock = DockStyle.Fill; _inspectorSummary.ForeColor = EditorChrome.Text; _inspectorSummary.BackColor = EditorChrome.Surface;
+        _inspectorSummary.Dock = DockStyle.Top; _inspectorSummary.AutoSize = true;
+        _inspectorSummary.ForeColor = EditorChrome.Text; _inspectorSummary.BackColor = EditorChrome.Surface;
         _inspectorSummary.Font = EditorChrome.BaseFont; _inspectorSummary.Padding = new Padding(6); _inspectorSummary.TextAlign = ContentAlignment.TopLeft;
         inspector.Controls.Add(_inspectorSummary);
         tabs.TabPages.Add(active); tabs.TabPages.Add(inspector);
         host.Controls.Add(tabs);
-        host.Controls.Add(EditorChrome.SectionHeader("Agent Telemetry & Inspector"));
+        host.Controls.Add(EditorChrome.SectionHeader("Agents"));
         return host;
     }
 
@@ -354,12 +332,12 @@ public sealed class PathingEditorControl : EditorSurfaceControl, IResourceInspec
         {
             _roomPicker.Items.Clear(); _objectPicker.Items.Clear();
             _roomPicker.Items.Add(new AssetChoice("(select room)", string.Empty));
-            _objectPicker.Items.Add(new AssetChoice("(default capsule)", string.Empty));
+            _objectPicker.Items.Add(new AssetChoice("(agent marker)", string.Empty));
             foreach (ProjectAssetEntry entry in ProjectAssetIndex.Enumerate(ProjectRoot, ResourceKind.Room))
                 _roomPicker.Items.Add(new AssetChoice(entry.DisplayName, entry.Reference));
             foreach (ProjectAssetEntry entry in ProjectAssetIndex.Enumerate(ProjectRoot, ResourceKind.GameObject))
                 _objectPicker.Items.Add(new AssetChoice(entry.DisplayName, entry.Reference));
-            SelectChoice(_roomPicker, _asset.TargetRoom); SelectChoice(_objectPicker, _asset.TargetObject);
+            SelectChoice(_roomPicker, _asset.TargetRoom, ResourceKind.Room); SelectChoice(_objectPicker, _asset.TargetObject, ResourceKind.GameObject);
         }
         finally { _syncing = false; }
     }
@@ -410,6 +388,10 @@ public sealed class PathingEditorControl : EditorSurfaceControl, IResourceInspec
             if (File.Exists(objectPath))
             {
                 JObject root = JObject.Parse(File.ReadAllText(objectPath));
+                string sprite = (string?)root["sprite"] ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(sprite))
+                    foreach (string name in SpriteAssetLoader.Load(ProjectRoot, sprite).Tags.Select(tag => tag.Name))
+                        _animationState.Items.Add(name);
                 string model = (string?)root["model"] ?? string.Empty;
                 if (string.IsNullOrWhiteSpace(model) && root["components"] is JArray components)
                 {
@@ -428,8 +410,9 @@ public sealed class PathingEditorControl : EditorSurfaceControl, IResourceInspec
         finally { _animationState.Text = selected; _syncing = false; }
     }
 
-    private void SyncUiFromAsset(bool resetSimulation)
+    private void SyncUiFromAsset(bool resetSimulation, bool preserveSource = false)
     {
+        _dimensionMenu.Text = _asset.Dimension == PathingDimension.TwoD ? "Plane: XY" : "Plane: XZ";
         _syncing = true;
         try
         {
@@ -444,7 +427,14 @@ public sealed class PathingEditorControl : EditorSurfaceControl, IResourceInspec
             SetValue(_wait, _asset.Route.DefaultWaitSeconds); SetValue(_wanderRadius, _asset.Route.WanderRadius);
             SetValue(_followOffset, _asset.Route.FollowOffset); SetValue(_previewAgents, _asset.PreviewAgentCount);
             _followTarget.Text = _asset.Route.FollowTarget; _animationState.Text = _asset.Route.AnimationState;
-            _syncing = true; _code.CodeText = PathingCodeCodec.Encode(_asset);
+            _syncing = true;
+            if (!preserveSource)
+            {
+                string source = _asset.AuthoringSource ?? string.Empty;
+                _code.CodeText = PathingCodeCodec.TryDecode(source, _asset, out PathingAsset authored, out _)
+                    && PathingCodeCodec.Encode(authored) == PathingCodeCodec.Encode(_asset) ? source : PathingCodeCodec.Encode(_asset);
+            }
+            _asset.AuthoringSource = _code.CodeText;
             _codeStatus.Text = "Visual route and code are synchronized"; _codeStatus.ForeColor = EditorChrome.Success;
         }
         finally { _syncing = false; }
@@ -453,38 +443,108 @@ public sealed class PathingEditorControl : EditorSurfaceControl, IResourceInspec
         _timeline.Bind(_asset);
         if (resetSimulation) ResetSimulation();
         RefreshInspector();
+        RefreshPathingQuickFields();
     }
 
     private void CommitDocumentChange(bool contextChanged = false, bool resetSimulation = true)
     {
         if (_syncing) return;
-        MarkDirty();
+        _dimensionMenu.Text = _asset.Dimension == PathingDimension.TwoD ? "Plane: XY" : "Plane: XZ";
         if (contextChanged) { PopulateTargets(); LoadContext(); }
         SyncCodeFromVisual();
+        JournalDocumentChange();
         _viewport.Bind(_asset, _room, _navMesh, _simulation);
         _timeline.Bind(_asset);
         if (resetSimulation) ResetSimulation();
         RefreshInspector();
+        RefreshPathingQuickFields();
         InspectorStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private void SyncCodeFromVisual()
     {
         _syncing = true;
-        try { _code.CodeText = PathingCodeCodec.Encode(_asset); }
+        try
+        {
+            string[] comments = _code.CodeText.Replace("\r", string.Empty).Split('\n').Where(line => line.TrimStart().StartsWith("//", StringComparison.Ordinal)).ToArray();
+            _code.CodeText = (comments.Length > 0 ? string.Join(Environment.NewLine, comments) + Environment.NewLine : string.Empty) + PathingCodeCodec.Encode(_asset);
+            _asset.AuthoringSource = _code.CodeText;
+        }
         finally { _syncing = false; }
         _codeStatus.Text = "Visual route and code are synchronized"; _codeStatus.ForeColor = EditorChrome.Success;
     }
 
-    private void ApplyCode()
+    private bool ApplyCode()
     {
-        if (_syncing) return;
+        if (_syncing) return true;
+        _codeTimer.Stop();
         if (!PathingCodeCodec.TryDecode(_code.CodeText, _asset, out PathingAsset parsed, out string error))
         {
-            _codeStatus.Text = error; _codeStatus.ForeColor = EditorChrome.Error; return;
+            _codeStatus.Text = "Definition error: " + error; _codeStatus.ForeColor = EditorChrome.Error;
+            JournalDocumentChange(); MarkDirty();
+            _showCode = true; _showGameGuide = false; ApplyResponsiveLayout(); RefreshPathingQuickFields(); return false;
         }
-        _asset = parsed; MarkDirty(); PopulateTargets(); SyncUiFromAsset(resetSimulation: true);
+        parsed.AuthoringSource = _code.CodeText;
+        bool changed = PathingAssetSerializer.Serialize(parsed) != PathingAssetSerializer.Serialize(_asset);
+        _asset = parsed;
+        _codeStatus.Text = "Visual route and code are synchronized"; _codeStatus.ForeColor = EditorChrome.Success;
+        if (changed) { PopulateTargets(); SyncUiFromAsset(resetSimulation: true, preserveSource: true); }
+        JournalDocumentChange();
+        InspectorStateChanged?.Invoke(this, EventArgs.Empty);
+        return true;
     }
+
+    private sealed record PathingEditSnapshot(string Document, string Source, string Error, int Point);
+
+    private PathingEditSnapshot CapturePathingEdit() => new(PathingAssetSerializer.Serialize(_asset), _code.CodeText,
+        _codeStatus.ForeColor == EditorChrome.Error ? _codeStatus.Text : string.Empty, _selectedWaypoint);
+
+    private void JournalDocumentChange()
+    {
+        PathingEditSnapshot after = CapturePathingEdit(), before = _journalState;
+        if (before.Document == after.Document && before.Source == after.Source && before.Error == after.Error) return;
+        if (_waypointDragBefore is not null) { MarkDirty(); return; }
+        _journalState = after;
+        PushEdit("Edit pathing route", () => RestoreDocument(after), () => RestoreDocument(before), maximumEntries: 100);
+        RefreshPathingDirtyState();
+    }
+
+    private void RestoreDocument(PathingEditSnapshot snapshot)
+    {
+        _codeTimer.Stop();
+        _asset = System.Text.Json.JsonSerializer.Deserialize<PathingAsset>(snapshot.Document,
+            new System.Text.Json.JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true,
+                Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
+            }) ?? throw new InvalidDataException("Pathing undo document is empty.");
+        _selectedWaypoint = snapshot.Point; _journalState = snapshot;
+        PopulateTargets(); SyncUiFromAsset(resetSimulation: true);
+        _syncing = true;
+        try { _code.CodeText = snapshot.Source; }
+        finally { _syncing = false; }
+        if (snapshot.Error.Length > 0)
+        {
+            _codeStatus.Text = snapshot.Error; _codeStatus.ForeColor = EditorChrome.Error;
+            _showCode = true; _showGameGuide = false; ApplyResponsiveLayout();
+        }
+        RefreshPathingDirtyState(); RefreshPathingQuickFields();
+        InspectorStateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void RefreshPathingDirtyState()
+    {
+        if (_savedPathingDocument == PathingAssetSerializer.Serialize(_asset) && _codeStatus.ForeColor != EditorChrome.Error) AcceptSave();
+        else MarkDirty();
+    }
+
+    public override void Undo()
+    {
+        if (_codeTimer.Enabled || _code.CodeText != _journalState.Source) ApplyCode();
+        base.Undo(); RefreshPathingDirtyState();
+    }
+
+    public override void Redo() { _codeTimer.Stop(); base.Redo(); RefreshPathingDirtyState(); }
 
     private void AddMode(FlowLayoutPanel flow, PathingRouteMode mode, string glyph, string name, string tip)
     {
@@ -502,18 +562,22 @@ public sealed class PathingEditorControl : EditorSurfaceControl, IResourceInspec
 
     private void AddWaypoint()
     {
-        Vector3 position = _asset.Route.Waypoints.Count > 0 ? _asset.Route.Waypoints[^1].Position + new Vector3(2, 0, 2) : Vector3.Zero;
+        Vector3 offset = _asset.Dimension == PathingDimension.TwoD ? new Vector3(32, 32, 0) : new Vector3(2, 0, 2);
+        Vector3 position = _asset.Route.Waypoints.Count > 0 ? _asset.Route.Waypoints[^1].Position + offset : Vector3.Zero;
         position = Snap(position);
         _asset.Route.Waypoints.Add(new PathingWaypoint { Name = $"WP{_asset.Route.Waypoints.Count + 1}", Position = position });
         _selectedWaypoint = _asset.Route.Waypoints.Count - 1; CommitDocumentChange();
+        _viewport.FrameContent();
     }
 
     private void InsertCurvePoint()
     {
         int after = Math.Clamp(_selectedWaypoint, -1, _asset.Route.Waypoints.Count - 1);
-        Vector3 position = after >= 0 ? _asset.Route.Waypoints[after].Position + new Vector3(1, 0, 1) : Vector3.Zero;
+        Vector3 offset = _asset.Dimension == PathingDimension.TwoD ? new Vector3(16, 16, 0) : new Vector3(1, 0, 1);
+        Vector3 position = after >= 0 ? _asset.Route.Waypoints[after].Position + offset : Vector3.Zero;
         PathingWaypoint point = new() { Name = "Curve", Position = Snap(position), Curve = true };
         _asset.Route.Waypoints.Insert(after + 1, point); RenameWaypoints(); _selectedWaypoint = after + 1; CommitDocumentChange();
+        _viewport.FrameContent();
     }
 
     private void DeleteWaypoint()
@@ -521,6 +585,7 @@ public sealed class PathingEditorControl : EditorSurfaceControl, IResourceInspec
         if (_selectedWaypoint < 0 || _selectedWaypoint >= _asset.Route.Waypoints.Count) return;
         _asset.Route.Waypoints.RemoveAt(_selectedWaypoint); RenameWaypoints();
         _selectedWaypoint = Math.Min(_selectedWaypoint, _asset.Route.Waypoints.Count - 1); CommitDocumentChange();
+        _viewport.FrameContent();
     }
 
     private void SnapWaypoint()
@@ -533,18 +598,22 @@ public sealed class PathingEditorControl : EditorSurfaceControl, IResourceInspec
     {
         if (index < 0 || index >= _asset.Route.Waypoints.Count) return;
         _asset.Route.Waypoints[index].Position = position;
-        MarkDirty(); SyncCodeFromVisual(); ResetSimulation(); RefreshInspector(); InspectorStateChanged?.Invoke(this, EventArgs.Empty);
+        CommitDocumentChange();
     }
 
     private Vector3 Snap(Vector3 position)
     {
-        if (_navMesh is null) return new Vector3(MathF.Round(position.X), position.Y, MathF.Round(position.Z));
+        if (_navMesh is null) return _asset.Dimension == PathingDimension.TwoD
+            ? new Vector3(MathF.Round(position.X), MathF.Round(position.Y), position.Z)
+            : new Vector3(MathF.Round(position.X), position.Y, MathF.Round(position.Z));
+        Vector3 authored = position;
+        position = _asset.NavigationPosition(position);
         int cell = _navMesh.Cell(position);
-        if (cell >= 0) return _navMesh.Center(cell);
+        if (cell >= 0) return _asset.WorldPosition(_navMesh.Center(cell), authored.Z);
         float x = Math.Clamp(position.X, _navMesh.OriginX, _navMesh.OriginX + (_navMesh.Width - .5f) * _navMesh.CellSize);
         float z = Math.Clamp(position.Z, _navMesh.OriginZ, _navMesh.OriginZ + (_navMesh.Depth - .5f) * _navMesh.CellSize);
         cell = _navMesh.Cell(new Vector3(x, 0, z));
-        return cell >= 0 ? _navMesh.Center(cell) : position;
+        return cell >= 0 ? _asset.WorldPosition(_navMesh.Center(cell), authored.Z) : authored;
     }
 
     private void RenameWaypoints()
@@ -561,7 +630,7 @@ public sealed class PathingEditorControl : EditorSurfaceControl, IResourceInspec
     private void AdvanceSimulation(float dt, bool force = false)
     {
         if (!force && (!_playing || _paused)) return;
-        float scale = (_timeScale?.Value ?? 10) / 10f * (_fastForward ? 4f : 1f);
+        float scale = _fastForward ? 4f : 1f;
         dt *= scale; _time += dt;
         _simulation.Step(_asset, _navMesh, dt);
         _viewport.SetTime(_time);
@@ -576,29 +645,30 @@ public sealed class PathingEditorControl : EditorSurfaceControl, IResourceInspec
 
     private void RefreshTransport()
     {
-        if (_timeScaleValue is not null) _timeScaleValue.Text = $"{((_timeScale?.Value ?? 10) / 10f):0.0}×";
-        if (_playButton is not null) _playButton.BackColor = _playing && !_paused ? EditorChrome.Success : EditorChrome.Accent;
-        if (_pauseButton is not null) _pauseButton.BackColor = _paused ? EditorChrome.Warning : EditorChrome.Surface;
-        if (_fastForwardButton is not null)
-        {
-            _fastForwardButton.Checked = _fastForward;
-            _fastForwardButton.BackColor = _fastForward ? EditorChrome.Warning : EditorChrome.Surface;
-        }
-        _status.Text = _playing ? (_paused ? "Simulation paused" : $"Simulation running at {((_timeScale?.Value ?? 10) / 10f * (_fastForward ? 4 : 1)):0.0}×") : "Simulation stopped";
+        if (_timeScaleValue is not null) _timeScaleValue.Text = _fastForward ? "4×" : "1×";
+        if (_playButton is not null) _playButton.Text = _playing && !_paused ? "Pause" : "Play";
+        _status.Text = _playing ? (_paused ? "Preview paused" : $"Preview running at {(_fastForward ? 4 : 1)}×") : "Preview stopped";
     }
 
     private void RefreshRoster()
     {
-        _roster.Rows.Clear();
-        foreach (PathingPreviewAgent agent in _simulation.Agents.Take(128))
-            _roster.Rows.Add(
-                agent.Name,
-                Coordinates(agent.Position),
-                Coordinates(agent.Destination),
-                agent.Waypoint + 1,
-                agent.DistanceRemaining.ToString("0.00", CultureInfo.InvariantCulture),
-                agent.State);
+        _refreshingRoster = true;
+        try
+        {
+            while (_roster.Rows.Count > _simulation.Agents.Count) _roster.Rows.RemoveAt(_roster.Rows.Count - 1);
+            for (int index = 0; index < _simulation.Agents.Count; index++)
+            {
+                if (index >= _roster.Rows.Count) _roster.Rows.Add();
+                PathingPreviewAgent agent = _simulation.Agents[index];
+                Vector3 world = _asset.WorldPosition(agent.Position);
+                _roster.Rows[index].SetValues(agent.Name,
+                    _asset.Dimension == PathingDimension.TwoD ? $"{world.X:0.0}, {world.Y:0.0}" : $"{world.X:0.0}, {world.Z:0.0}", agent.State);
+            }
+            _roster.Columns[1].HeaderText = _asset.Dimension == PathingDimension.TwoD ? "Position XY" : "Position XZ";
+        }
+        finally { _refreshingRoster = false; }
         _crowdGraph.SetAgents(_simulation.Agents);
+        RefreshInspector();
     }
 
     private void ScrubTo(float time)
@@ -629,8 +699,7 @@ public sealed class PathingEditorControl : EditorSurfaceControl, IResourceInspec
 
     private void RefreshDocumentTitle()
     {
-        if (_documentTitle is not null)
-            _documentTitle.Text = ResourceDisplayName.Format(ResourcePath) + (IsDirty ? "  •" : string.Empty);
+        _commandBar?.RefreshDocumentState();
     }
 
     private void RefreshInspector()
@@ -638,14 +707,65 @@ public sealed class PathingEditorControl : EditorSurfaceControl, IResourceInspec
         string point = _selectedWaypoint >= 0 && _selectedWaypoint < _asset.Route.Waypoints.Count
             ? $"Selected: {_asset.Route.Waypoints[_selectedWaypoint].Name}\nPosition: ({_asset.Route.Waypoints[_selectedWaypoint].X:0.##}, {_asset.Route.Waypoints[_selectedWaypoint].Y:0.##}, {_asset.Route.Waypoints[_selectedWaypoint].Z:0.##})\nWait: {_asset.Route.Waypoints[_selectedWaypoint].WaitSeconds:0.##}s\nCurve: {_asset.Route.Waypoints[_selectedWaypoint].Curve}"
             : "Select a waypoint pin to inspect it.";
-        _inspectorSummary.Text = $"ROUTE\n{_asset.Name}\n\nMode: {_asset.Route.Mode}\nLoop: {_asset.Route.LoopMode}\nSpeed: {_asset.Route.Speed:0.##} m/s\nStopping: {_asset.Route.StoppingDistance:0.##} m\nAnimation: {(string.IsNullOrWhiteSpace(_asset.Route.AnimationState) ? "(unchanged)" : _asset.Route.AnimationState)}\n\nWAYPOINT\n{point}\n\nROOM CONTEXT\n{(_room?.Name ?? "No room selected")}\nNavMesh: {(_navMesh is null ? "Not baked" : $"{_navMesh.Count:N0} cells")}";
+        string agentText = _roster.CurrentRow is { Index: var index } && index < _simulation.Agents.Count
+            ? $"\n\nAGENT\n{_simulation.Agents[index].Name}\nPosition: {Coordinates(_asset.WorldPosition(_simulation.Agents[index].Position))}\nDestination: {Coordinates(_asset.WorldPosition(_simulation.Agents[index].Destination))}\nWaypoint: {_simulation.Agents[index].Waypoint + 1}\nRemaining: {_simulation.Agents[index].DistanceRemaining:0.00} units" : string.Empty;
+        _inspectorSummary.Text = $"ROUTE\n{_asset.Name}\n\nPlane: {_asset.Dimension}\nMode: {_asset.Route.Mode}\nLoop: {_asset.Route.LoopMode}\nSpeed: {_asset.Route.SpeedAt(_time):0.##} units/s\nStopping: {_asset.Route.StoppingDistance:0.##} units\nAnimation: {(string.IsNullOrWhiteSpace(_asset.Route.AnimationState) ? "(unchanged)" : _asset.Route.AnimationState)}\n\nWAYPOINT\n{point}\n\nROOM CONTEXT\n{(_room?.Name ?? "No room selected")}\nNavMesh: {(_navMesh is null ? "Not baked" : $"{_navMesh.Count:N0} cells")}{agentText}";
     }
 
     private void ApplyResponsiveLayout()
     {
-        // Side docks stay readable; WinForms hides them only at genuinely narrow embedded widths.
-        foreach (Control control in Controls)
-            if (control.Dock is DockStyle.Left or DockStyle.Right) control.Visible = Width >= 850;
+        bool visual = !_showCode && !_showGameGuide;
+        if (_toolsDock is not null) _toolsDock.Visible = visual;
+        if (_telemetryDock is not null) _telemetryDock.Visible = visual && (_telemetryPreference ?? false);
+        if (_timelineSplit is not null) _timelineSplit.Panel2Collapsed = !visual || !(_timelinePreference ?? false);
+        if (_timelineSplit is not null) _timelineSplit.Visible = !_showGameGuide;
+        if (_gameGuide is not null) { _gameGuide.Visible = _showGameGuide; if (_showGameGuide) _gameGuide.BringToFront(); }
+        LayoutPreview();
+    }
+
+    protected override void OnChromeChanged()
+    {
+        base.OnChromeChanged(); QueuePathingLayout();
+    }
+
+    private void QueuePathingLayout()
+    {
+        if (_pathingLayoutQueued || !IsHandleCreated || IsDisposed) return;
+        _pathingLayoutQueued = true;
+        BeginInvoke((Action)(() => { _pathingLayoutQueued = false; if (!IsDisposed) ApplyResponsiveLayout(); }));
+    }
+
+    private void LayoutPreview()
+    {
+        if (_previewSplit is null || _timelineSplit is null || _layingOut) return;
+        _layingOut = true;
+        try
+        {
+            float scale = Math.Max(1, DeviceDpi / 96f * EditorChrome.BaseFont.SizeInPoints / 9.5f);
+            if (_toolsDock is not null) _toolsDock.Width = (int)Math.Min(300 * scale, ClientSize.Width * .47f);
+            if (_telemetryDock is not null) _telemetryDock.Width = (int)Math.Min(300 * scale, ClientSize.Width * .30f);
+            _workspace?.PerformLayout();
+            _roster.Font = EditorChrome.SmallFont;
+            _roster.ColumnHeadersHeight = _roster.Font.Height + 14;
+            _roster.RowTemplate.Height = _roster.Font.Height + 10;
+            foreach (DataGridViewRow row in _roster.Rows) row.Height = _roster.RowTemplate.Height;
+            _roster.Height = Math.Min((int)(235 * scale), Math.Max(_roster.ColumnHeadersHeight + _roster.RowTemplate.Height,
+                (_roster.Parent?.ClientSize.Height ?? 500) / 2));
+            _inspectorSummary.Font = EditorChrome.SmallFont;
+            _inspectorSummary.MaximumSize = new Size(Math.Max(80, (_inspectorSummary.Parent?.ClientSize.Width ?? 300) - 32), 0);
+            _codeStatus.Font = EditorChrome.SmallFont;
+            _codeStatus.Height = TextRenderer.MeasureText(_codeStatus.Text, _codeStatus.Font, new Size(Math.Max(100, _codeStatus.Width - 16), int.MaxValue), TextFormatFlags.WordBreak).Height + 12;
+            if (_toolsFields is not null) LayoutPathingFields(_toolsFields);
+            if (_gameGuide is not null) LayoutPathingFields(_gameGuide);
+            _previewSplit.Panel1Collapsed = false;
+            _previewSplit.Panel2Collapsed = !_showCode;
+            if (_showCode) _previewSplit.Panel1Collapsed = true;
+            if (!_timelineSplit.Panel2Collapsed && _timelineSplit.Height > _timelineSplit.SplitterWidth)
+                _timelineSplit.SplitterDistance = Math.Clamp(_timelineSplit.Height - (int)Math.Min(Math.Max(150 * scale, EditorChrome.SmallFont.Height * 7 + 50), _timelineSplit.Height * .48f),
+                    0, _timelineSplit.Height - _timelineSplit.SplitterWidth);
+            _timelineSplit.PerformLayout(); _previewSplit.PerformLayout();
+        }
+        finally { _layingOut = false; }
     }
 
     private PathingAsset LoadAsset()
@@ -685,7 +805,7 @@ public sealed class PathingEditorControl : EditorSurfaceControl, IResourceInspec
 
     private static Panel Field(string label, Control control)
     {
-        Panel panel = new() { Width = 192, Height = 53, BackColor = EditorChrome.Surface, Margin = new Padding(0, 0, 0, 4) };
+        Panel panel = new() { Width = 192, Height = 53, BackColor = EditorChrome.Surface, Margin = new Padding(0, 0, 0, 4), Tag = "PathingField" };
         Label caption = new() { Text = label, ForeColor = EditorChrome.Muted, Location = new Point(0, 0), Size = new Size(192, 20) };
         control.Location = new Point(0, 21); control.Size = new Size(192, 28); control.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
         panel.Controls.Add(control); panel.Controls.Add(caption); return panel;
@@ -693,21 +813,23 @@ public sealed class PathingEditorControl : EditorSurfaceControl, IResourceInspec
 
     private static Panel ActionRow(params (string Text, Action Click)[] actions)
     {
-        Panel row = new() { Width = 192, Height = 36, Margin = new Padding(0, 0, 0, 4) };
-        int width = (192 - (actions.Length - 1) * 5) / actions.Length;
+        TableLayoutPanel row = new() { Width = 192, Height = 36, Margin = new Padding(0, 0, 0, 4), ColumnCount = actions.Length, RowCount = 1 };
+        row.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         for (int i = 0; i < actions.Length; i++)
         {
+            row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f / actions.Length));
             (string text, Action click) = actions[i];
-            Button button = new() { Text = text, Location = new Point(i * (width + 5), 0), Size = new Size(width, 34), BackColor = EditorChrome.Raised, ForeColor = EditorChrome.Text, FlatStyle = FlatStyle.Flat };
-            button.FlatAppearance.BorderColor = EditorChrome.Border; button.Click += (_, _) => click(); row.Controls.Add(button);
+            Button button = new() { Text = text, Dock = DockStyle.Fill, Margin = new Padding(0, 0, i == actions.Length - 1 ? 0 : 5, 0), BackColor = EditorChrome.Raised, ForeColor = EditorChrome.Text, FlatStyle = FlatStyle.Flat };
+            button.FlatAppearance.BorderColor = EditorChrome.Border; button.Click += (_, _) => click(); row.Controls.Add(button, i, 0);
         }
         return row;
     }
 
     private static ToolStripLabel Caption(string text) => new(text) { ForeColor = EditorChrome.Muted, Margin = new Padding(4, 0, 3, 0) };
-    private static ToolStripComboBox Picker(int width, Action changed)
+    private static ComboBox Picker(Action changed)
     {
-        ToolStripComboBox combo = new() { AutoSize = false, Width = width, DropDownStyle = ComboBoxStyle.DropDownList };
+        ComboBox combo = new ThemedComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
+        EditorChrome.StyleField(combo);
         combo.SelectedIndexChanged += (_, _) => changed(); return combo;
     }
     private static NumericUpDown Number(decimal min, decimal max, decimal value, decimal increment, int decimals) => new()
@@ -721,19 +843,23 @@ public sealed class PathingEditorControl : EditorSurfaceControl, IResourceInspec
         input.Value = Math.Clamp(converted, input.Minimum, input.Maximum);
     }
     private void SetNumber(NumericUpDown input, Action<float> apply) { if (!_syncing) { apply((float)input.Value); CommitDocumentChange(); } }
-    private static void SelectChoice(ToolStripComboBox combo, string path)
+    private void SelectChoice(ComboBox combo, string path, ResourceKind kind)
     {
         for (int index = 0; index < combo.Items.Count; index++)
-            if (combo.Items[index] is AssetChoice choice && string.Equals(choice.Path, path, StringComparison.OrdinalIgnoreCase)) { combo.SelectedIndex = index; return; }
-        combo.SelectedIndex = 0;
+            if (combo.Items[index] is AssetChoice choice && (string.Equals(choice.Path, path, StringComparison.OrdinalIgnoreCase)
+                || (!string.IsNullOrWhiteSpace(path) && !string.IsNullOrWhiteSpace(choice.Path)
+                    && string.Equals(ResolveReference(choice.Path, kind), ResolveReference(path, kind), StringComparison.OrdinalIgnoreCase))))
+            { combo.SelectedIndex = index; return; }
+        if (string.IsNullOrWhiteSpace(path)) combo.SelectedIndex = 0;
+        else { combo.Items.Add(new AssetChoice("(missing) " + path, path)); combo.SelectedIndex = combo.Items.Count - 1; }
     }
 
     private static List<HighlightRule> BuildRules() =>
     [
         new(new Regex("\"(?:[^\"\\\\]|\\\\.)*\"", RegexOptions.Compiled), Color.FromArgb(210, 180, 118)),
         new(new Regex(@"\b-?\d+(?:\.\d+)?\b", RegexOptions.Compiled), Color.FromArgb(181, 206, 168)),
-        new(new Regex(@"\b(pathing|WaypointPatrol|NavMeshSearch|WanderRadius|FollowLeader|Loop|PingPong|Once|waypoint|wait|curve|true|false)\b", RegexOptions.Compiled), Color.FromArgb(86, 156, 214), true),
-        new(new Regex(@"^[ \t]*(room|object|preview_agents|mode|loop|speed|stopping_distance|wait|wander_radius|follow_offset|follow_target|animation)(?=\s*:)", RegexOptions.Compiled | RegexOptions.Multiline), Color.FromArgb(78, 201, 176)),
+        new(new Regex(@"\b(pathing|TwoD|ThreeD|WaypointPatrol|NavMeshSearch|WanderRadius|FollowLeader|Loop|PingPong|Once|waypoint|wait|curve|true|false)\b", RegexOptions.Compiled), Color.FromArgb(86, 156, 214), true),
+        new(new Regex(@"^[ \t]*(dimension|room|object|preview_agents|mode|loop|speed|stopping_distance|wait|wander_radius|follow_offset|follow_target|animation)(?=\s*:)", RegexOptions.Compiled | RegexOptions.Multiline), Color.FromArgb(78, 201, 176)),
         new(new Regex(@"//[^\r\n]*", RegexOptions.Compiled), Color.FromArgb(98, 151, 85)),
     ];
 }

@@ -4,7 +4,9 @@ using System.Text;
 using System.Windows.Forms;
 using Genesis.Application.Core.Resources;
 using Genesis.Application.Editors.Suite.Assets;
+using Genesis.Runtime.Assets;
 using Genesis.Runtime.Scene;
+using Genesis.Shared.Assets;
 using Newtonsoft.Json.Linq;
 
 namespace Genesis.Application.Editors.Suite.Rooms;
@@ -25,7 +27,8 @@ public sealed partial class RoomEditorControl
     private readonly Dictionary<string, TileSetInfo?> _roomTilesetMetadata = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, JObject> _roomPrefabInspectorSources = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, IReadOnlyDictionary<string, object>> _roomPgslInspectorFields = new(StringComparer.OrdinalIgnoreCase);
-    private sealed record RoomImageMetadata(string? ImagePath, int Width, int Height);
+    private sealed record RoomImageMetadata(string? ImagePath, int Width, int Height,
+        float OriginX, float OriginY, Vector4 UvRect);
 
     public int RoomInspectorValueRefreshCount { get; private set; }
     public int RoomStructureRefreshCount { get; private set; }
@@ -77,8 +80,8 @@ public sealed partial class RoomEditorControl
                 RefreshOutliner();
                 RefreshWorkspaceTerrains();
                 ActiveRoomEditContextChanged();
-                if (_selection.Any(node => !CanInspectNodeInActiveContext(node)))
-                    SetSelection(_selection.Where(CanInspectNodeInActiveContext).ToArray());
+                if (_selection.Any(node => !CanRetainNodeSelection(node)))
+                    SetSelection(_selection.Where(CanRetainNodeSelection).ToArray());
                 SyncInspector();
             }
             else
@@ -115,6 +118,10 @@ public sealed partial class RoomEditorControl
     public bool CanInspectNodeInActiveContext(RoomNode node)
     {
         if (_navigation is null) return false;
+        // Instances deliberately presents the whole scene. Its selected node owns the
+        // Inspector; resource-specific tabs still require their explicit active layer.
+        if (_navigation.CurrentSection == RoomNavSection.Instances)
+            return _room.Nodes.Contains(node) && node.Supports(_room.Dimension);
         return node.Kind switch
         {
             RoomNodeKind.GameObject => _navigation.CurrentSection == RoomNavSection.Objects
@@ -132,6 +139,10 @@ public sealed partial class RoomEditorControl
 
     public bool CanEditNodeInActiveContext(RoomNode node) =>
         CanInspectNodeInActiveContext(node) && !IsNodeLocked(node);
+
+    private bool CanRetainNodeSelection(RoomNode node) => _room.Nodes.Contains(node)
+        && (_navigation.CurrentSection is RoomNavSection.Settings or RoomNavSection.Views
+            || CanInspectNodeInActiveContext(node));
 
     private bool CanPlaceInActiveContext(RoomNodeKind kind) => kind switch
     {
@@ -162,7 +173,7 @@ public sealed partial class RoomEditorControl
         if (_navigation.CurrentSection == RoomNavSection.Objects)
             _placement.TargetLayerId = _navigation.ObjectsPanel.ActiveObjectLayer?.Id;
         _hover = null;
-        if (_selected is not null && !CanInspectNodeInActiveContext(_selected)) SetSelection([]);
+        if (_selected is not null && !CanRetainNodeSelection(_selected)) SetSelection([]);
         _transformToolActive = false;
         ActiveTool = RoomTool.Select;
         SyncToolbar();
@@ -187,6 +198,7 @@ public sealed partial class RoomEditorControl
     private IEnumerable<RoomNode> EnumerateEditableHitNodes() => _room.Nodes.Where(node =>
         (node.Kind is RoomNodeKind.GameObject or RoomNodeKind.Background)
         && CanEditNodeInActiveContext(node) && node.Enabled && node.Supports(_room.Dimension)
+        && IsKindVisible(node.Kind)
         && LayerFor(node)?.Enabled != false);
 
     private bool HitTestEditableNode2D(RoomNode node, Vector2 world) => HitTest2D(node, world);
@@ -198,7 +210,24 @@ public sealed partial class RoomEditorControl
         string? path = ProjectAssetIndex.ResolveSpriteImage(ProjectRoot, reference);
         int width = 32, height = 32;
         if (path is not null && File.Exists(path)) ReadPngSize(path, out width, out height);
-        metadata = new RoomImageMetadata(path, Math.Max(1, width), Math.Max(1, height));
+        float originX = width * .5f, originY = height * .5f;
+        Vector4 uv = Vector4.Zero;
+        string descriptor = SpriteAssetLoader.ResolveDescriptorPath(ProjectRoot, reference);
+        if (SpriteAssetLoader.IsSpriteDescriptorPath(descriptor) && File.Exists(descriptor))
+        {
+            try
+            {
+                SpriteRuntimeAsset asset = SpriteAssetLoader.Load(descriptor);
+                (originX, originY) = SpriteOriginUtility.ResolvePixels(SpritePlayback.ResolveOrigin(asset, 0), width, height);
+                uv = SpriteOriginUtility.ResolveFrameUvRect(asset, 0, width, height);
+            }
+            catch (Exception exception) when (exception is IOException or System.Text.Json.JsonException)
+            {
+                // An unreadable image remains a placeholder until a valid dependency save arrives.
+                path = null;
+            }
+        }
+        metadata = new RoomImageMetadata(path, Math.Max(1, width), Math.Max(1, height), originX, originY, uv);
         _roomImageMetadata[reference] = metadata;
         return metadata;
     }
@@ -254,7 +283,15 @@ public sealed partial class RoomEditorControl
 
     private Vector2 NodeEditingCenter2D(RoomNode node, RoomTransform transform, float width, float height)
     {
-        if (node.Kind != RoomNodeKind.Background) return new Vector2(transform.X, transform.Y);
+        if (node.Kind != RoomNodeKind.Background)
+        {
+            NodeVisual visual = VisualFor(node);
+            float sx = width / visual.Width * MathF.Sign(transform.ScaleX == 0 ? 1 : transform.ScaleX);
+            float sy = height / visual.Height * MathF.Sign(transform.ScaleY == 0 ? 1 : transform.ScaleY);
+            Vector2 offset = new((visual.Width * .5f - visual.OriginX) * sx,
+                (visual.Height * .5f - visual.OriginY) * sy);
+            return new Vector2(transform.X, transform.Y) + RotateVector(offset, transform.RotationZ * MathF.PI / 180f);
+        }
         if (node.Background?.Layout == RoomBackgroundLayout.StretchView)
             return new Vector2(_viewport.Camera2DX, _viewport.Camera2DY);
         return new Vector2(transform.X + width * .5f, transform.Y + height * .5f);

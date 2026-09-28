@@ -154,6 +154,7 @@ public sealed partial class ModelEditorControl
 
     private void DrawMeshSelectionOverlay(IRenderController renderer)
     {
+        if (_mode is not (ModelEditorMode.Compose or ModelEditorMode.Mesh)) return;
         if (_pendingPrimitive is not null || SelectedMeshBounds() is not (Vector3 min, Vector3 max)) return;
         EditorBoundsOverlay.DrawAabb(Surface, renderer, min, max);
         Vector3 center = (min + max) * .5f;
@@ -183,6 +184,7 @@ public sealed partial class ModelEditorControl
 
     private bool TryBeginMeshGizmoDrag(Point client)
     {
+        if (_mode is not (ModelEditorMode.Compose or ModelEditorMode.Mesh)) return false;
         if (_pendingPrimitive is not null || SelectedMeshBounds() is not (Vector3 min, Vector3 max)) return false;
         Vector3 origin = (min + max) * .5f;
         float length = MeshGizmoLength(min, max);

@@ -416,18 +416,29 @@ internal sealed class ProjectTemplateCard : RoundedSurfacePanel
         int S(int logical) => DpiLayout.Scale(this, logical);
         int contentWidth = Math.Max(S(120), ClientSize.Width - S(28));
         _artwork.SetBounds(S(14), S(14), contentWidth, S(116));
-        _dimension.Location = new Point(S(16), S(143));
-        _name.SetBounds(S(16), S(176), contentWidth, S(28));
-        _tagline.SetBounds(S(16), S(207), contentWidth, S(38));
-
-        int y = S(253);
+        _dimension.Location = new Point(S(16), _artwork.Bottom + S(10));
+        _name.SetBounds(S(16), _dimension.Bottom + S(8), contentWidth,
+            Genesis.Application.Studio.Forms.ShellDialogLayout.TextHeight(_name, contentWidth) + S(4));
+        _tagline.SetBounds(S(16), _name.Bottom + S(6), contentWidth,
+            Genesis.Application.Studio.Forms.ShellDialogLayout.TextHeight(_tagline, contentWidth) + S(4));
+        int y = _tagline.Bottom + S(12);
         foreach (Label feature in _features)
         {
-            feature.SetBounds(S(17), y, contentWidth - S(2), S(22));
-            y += S(24);
+            feature.SetBounds(S(17), y, contentWidth - S(2),
+                Genesis.Application.Studio.Forms.ShellDialogLayout.TextHeight(feature, contentWidth - S(2)) + S(4));
+            y = feature.Bottom + S(4);
         }
+        int buttonHeight = Math.Max(S(38), _create.Font.Height + S(16));
+        Height = Math.Max(S(410), y + buttonHeight + S(28));
+        _create.SetBounds(S(16), ClientSize.Height - buttonHeight - S(14), contentWidth - S(4), buttonHeight);
+    }
 
-        _create.SetBounds(S(16), ClientSize.Height - S(52), contentWidth - S(4), S(38));
+    internal void ApplyInterfaceLayout()
+    {
+        if (Math.Abs(_name.Font.SizeInPoints - ThemeService.HeadingFont.SizeInPoints) > .1f) _name.Font = ThemeService.HeadingFont;
+        foreach (Label feature in _features) feature.Font = ThemeService.InterfaceFont;
+        _create.Font = ThemeService.InterfaceFont;
+        Arrange();
     }
 }
 

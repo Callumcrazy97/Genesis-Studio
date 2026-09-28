@@ -31,6 +31,8 @@ public sealed class WelcomeDocument : GenesisDockContent
     private readonly FlowLayoutPanel _recents;
     private readonly FlowLayoutPanel _stats;
     private readonly Label _recentsEmpty;
+    private readonly Panel _scroll;
+    private readonly Dictionary<Control, Action<float>> _scaledLayouts = [];
 
     public WelcomeDocument(ProjectSession project)
     {
@@ -44,10 +46,11 @@ public sealed class WelcomeDocument : GenesisDockContent
 
         TableLayoutPanel root = new()
         {
-            AutoScroll = true,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
             BackColor = ThemeService.Palette.Canvas,
             ColumnCount = 1,
-            Dock = DockStyle.Fill,
+            Dock = DockStyle.Top,
             Padding = new Padding(32, 28, 32, 24),
             RowCount = 6,
             Tag = "canvas",
@@ -58,7 +61,9 @@ public sealed class WelcomeDocument : GenesisDockContent
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         }
 
-        Controls.Add(root);
+        _scroll = new Panel { AutoScroll = true, Dock = DockStyle.Fill, Tag = "canvas" };
+        _scroll.Controls.Add(root);
+        Controls.Add(_scroll);
 
         root.Controls.Add(BuildHero(), 0, 0);
         root.Controls.Add(BuildActions(), 0, 1);
@@ -105,6 +110,19 @@ public sealed class WelcomeDocument : GenesisDockContent
 
     public event EventHandler<string>? ActionRequested;
 
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        // Dock activation can scroll to the first button while the document still has its
+        // provisional size. Finish initial layout before setting the new page's starting position.
+        BeginInvoke((Action)(() =>
+        {
+            if (IsDisposed) return;
+            ApplyInterfaceLayout();
+            _scroll.AutoScrollPosition = Point.Empty;
+        }));
+    }
+
     /// <summary>Rebuilds the recents strip and counters from the project on disk.</summary>
     /// <remarks>
     /// Public so the shell can refresh the page after resources change without recreating the
@@ -148,6 +166,35 @@ public sealed class WelcomeDocument : GenesisDockContent
         _stats.Controls.Add(BuildStat("Images", snapshot.CountOf(ResourceKind.Image).ToString()));
         _stats.Controls.Add(BuildStat("Scripts", snapshot.CountOf(ResourceKind.PgslScript).ToString()));
         _stats.ResumeLayout(true);
+        ApplyInterfaceLayout();
+    }
+
+    internal void ApplyInterfaceLayout()
+    {
+        TableLayoutPanel root = _scroll.Controls.OfType<TableLayoutPanel>().Single();
+        Point scroll = _scroll.AutoScrollPosition;
+        _scroll.SuspendLayout();
+        root.SuspendLayout();
+        float scale = ThemeService.InterfaceScale * DeviceDpi / 96f;
+        foreach (Control retired in _scaledLayouts.Keys.Where(control => control.IsDisposed).ToArray()) _scaledLayouts.Remove(retired);
+        foreach (var layout in _scaledLayouts)
+        {
+            layout.Key.SuspendLayout(); layout.Value(scale); layout.Key.ResumeLayout(true);
+        }
+        root.ResumeLayout(true);
+        _scroll.ResumeLayout(true);
+        _scroll.AutoScrollPosition = new Point(-scroll.X, -scroll.Y);
+    }
+
+    private static void Place(Control control, float scale, int x, int y, int width, int height) =>
+        control.SetBounds((int)Math.Round(x * scale), (int)Math.Round(y * scale), (int)Math.Round(width * scale), (int)Math.Round(height * scale));
+
+    private static void SetHeadingFont(Label label, float size, FontStyle style = FontStyle.Regular)
+    {
+        float scaled = size * ThemeService.InterfaceScale;
+        if (Math.Abs(label.Font.Size - scaled) > .01f || label.Font.Style != style
+            || label.Font.FontFamily.Name != ThemeService.InterfaceFont.FontFamily.Name)
+            label.Font = new Font(ThemeService.InterfaceFont.FontFamily, scaled, style);
     }
 
     private Control BuildHero()
@@ -205,12 +252,22 @@ public sealed class WelcomeDocument : GenesisDockContent
             UseMnemonic = false,
         };
         hero.Controls.Add(path);
-        hero.Resize += (_, _) =>
+        void ResizeText()
         {
             path.Width = Math.Max(DpiLayout.Scale(hero, 100),
                 hero.ClientSize.Width - path.Left - DpiLayout.Scale(hero, 24));
             title.Width = path.Width;
-        };
+        }
+        hero.Resize += (_, _) => ResizeText();
+        _scaledLayouts.Add(hero, scale =>
+        {
+            hero.MinimumSize = new Size((int)(320 * scale), (int)(146 * scale)); hero.Height = (int)(146 * scale);
+            Place(logo, scale, 22, 31, 66, 66); Place(eyebrow, scale, 110, 20, 760, 20);
+            SetHeadingFont(eyebrow, 8, FontStyle.Bold);
+            Place(title, scale, 108, 44, 760, 46); SetHeadingFont(title, 26, FontStyle.Bold);
+            Place(path, scale, 111, 96, 760, 22); path.Font = ThemeService.InterfaceFont;
+            ResizeText();
+        });
         return hero;
     }
 
@@ -259,6 +316,12 @@ public sealed class WelcomeDocument : GenesisDockContent
         };
         validate.Click += (_, _) => ActionRequested?.Invoke(this, "Validate");
         actions.Controls.Add(validate);
+        _scaledLayouts.Add(actions, scale =>
+        {
+            run.Size = new Size((int)(150 * scale), (int)(44 * scale));
+            room.Size = new Size((int)(168 * scale), (int)(44 * scale));
+            validate.Size = new Size((int)(150 * scale), (int)(44 * scale));
+        });
 
         return actions;
     }
@@ -338,6 +401,14 @@ public sealed class WelcomeDocument : GenesisDockContent
             UseMnemonic = false,
         };
         card.Controls.Add(pathLabel);
+        _scaledLayouts.Add(card, scale =>
+        {
+            card.Size = new Size((int)(210 * scale), (int)(100 * scale));
+            Place(glyph, scale, 14, 12, 34, 34); SetHeadingFont(glyph, 18);
+            Place(name, scale, 52, 16, 144, 20); name.Font = new Font(ThemeService.InterfaceFont, FontStyle.Bold);
+            Place(meta, scale, 52, 38, 144, 18); meta.Font = ThemeService.InterfaceFont;
+            Place(pathLabel, scale, 14, 70, 182, 18); pathLabel.Font = ThemeService.InterfaceFont;
+        });
 
         void Open(object? sender, EventArgs args) =>
             ActionRequested?.Invoke(this, "Open:" + recent.Name);
@@ -352,7 +423,7 @@ public sealed class WelcomeDocument : GenesisDockContent
         return card;
     }
 
-    private static Control BuildStat(string caption, string value)
+    private Control BuildStat(string caption, string value)
     {
         RoundedSurfacePanel tile = new()
         {
@@ -386,6 +457,12 @@ public sealed class WelcomeDocument : GenesisDockContent
             UseMnemonic = false,
         };
         tile.Controls.Add(valueLabel);
+        _scaledLayouts.Add(tile, scale =>
+        {
+            tile.Size = new Size((int)(132 * scale), (int)(62 * scale));
+            Place(captionLabel, scale, 14, 10, 108, 18); captionLabel.Font = ThemeService.InterfaceFont;
+            Place(valueLabel, scale, 13, 28, 108, 26); SetHeadingFont(valueLabel, 15, FontStyle.Bold);
+        });
 
         return tile;
     }

@@ -47,6 +47,7 @@ struct VSOut
     float2 UV       : TEXCOORD0;
     float4 Color    : COLOR;
     float  FogDepth : TEXCOORD1;
+    nointerpolation float Blend : TEXCOORD2;
 };
 
 VSOut VS(VSIn IN, uint instanceId : SV_InstanceID)
@@ -74,6 +75,7 @@ VSOut VS(VSIn IN, uint instanceId : SV_InstanceID)
     OUT.UV       = float2(lerp(uv.x, uv.z, IN.UV.x), lerp(uv.y, uv.w, IN.UV.y));
     OUT.Color    = inst.Color;
     OUT.FogDepth = inst.DepthPad.y;
+    OUT.Blend = inst.DepthPad.z;
     return OUT;
 }
 
@@ -95,6 +97,7 @@ float4 PS(VSOut IN) : SV_Target
         fogAmount = saturate((IN.FogDepth - FogParams.y) * FogParams.z) * saturate(FogParams.w);
 
     col.rgb = lerp(col.rgb, FogColor.rgb, fogAmount);
+    if (abs(IN.Blend - 2.0) < 0.5) col.rgb *= col.a;
     return col;
 }
 ";

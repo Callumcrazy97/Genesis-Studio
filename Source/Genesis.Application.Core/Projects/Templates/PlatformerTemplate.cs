@@ -218,7 +218,7 @@ public static class PlatformerTemplate
 
     private static string CreateCoinSprite(ResourceService resources, string folder)
     {
-        string path = resources.CreateResource(folder, ResourceKind.Image, "Coin");
+        string path = resources.CreateResource(folder, ResourceKind.Image, "Coin Sprite");
         const int size = 16;
 
         ImageDocument document = ImageDocument.CreateDefault(size, size);

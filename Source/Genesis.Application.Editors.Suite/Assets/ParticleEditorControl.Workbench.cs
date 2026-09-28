@@ -2,6 +2,7 @@ using System.Drawing;
 using System.Windows.Forms;
 using Genesis.Application.Core.Editing.Particles;
 using Genesis.Application.Core.Resources;
+using Genesis.Application.Editors.Suite.UiKit;
 using Genesis.Runtime.Particles;
 using Genesis.Shared.Assets;
 
@@ -18,11 +19,14 @@ public sealed partial class ParticleEditorControl
     private ToolStripButton? _moveEmitterUpButton;
     private ToolStripButton? _moveEmitterDownButton;
     private ToolStripDropDownButton? _addEmitterButton;
-    private CheckBox? _preview2DCheck;
-    private CheckBox? _previewFloorCheck;
     private Control? _meshSurfaceField;
     private Control? _meshParticleField;
     private Label? _selectedEmitterHeading;
+    private Action? _applyWorkbenchLayout;
+    private bool _sizingParticleInspector;
+    private TabControl? _particleLibraryTabs;
+    private FlowLayoutPanel? _particlePreviewOptions;
+    private Panel? _particleTimelinePanel;
 
     private void BuildParticleWorkbench(EditorCommandBar toolbar, Panel timelinePanel)
     {
@@ -31,42 +35,61 @@ public sealed partial class ParticleEditorControl
         // discarded them when it reconstructed its toolbar.
         int viewportStart = toolbar.Items.IndexOf(_loopButton) + 2;
         ToolStripItem[] viewportCommands = toolbar.Items.Cast<ToolStripItem>().Skip(viewportStart).ToArray();
-        ToolStripItem[] documentMenus = toolbar.Items.Cast<ToolStripItem>().Take(2).ToArray();
         toolbar.Items.Clear();
-        foreach (ToolStripItem item in documentMenus) toolbar.Items.Add(item);
-        toolbar.Items.Add(new ToolStripSeparator());
-        toolbar.Items.Add(new ToolStripLabel(ResourceDisplayName.Format(ResourcePath))
-        { ForeColor = EditorChrome.Accent, AccessibleName = "Current particle resource" });
-        toolbar.Items.Add(EditorChrome.ToolButton("Save copy…", "Create a new Particle resource without changing this resource", SaveEffectAs));
+        _presetMenu.Text = "Start with…";
+        _presetMenu.ToolTipText = "Choose a complete effect. Undo restores your previous effect.";
+        toolbar.Items.Add(_presetMenu);
         toolbar.Items.Add(new ToolStripSeparator());
         _topPlayButton = EditorChrome.ToolButton("Pause", "Pause or resume the preview (does not change emission mode)", ToggleTimelinePlayback);
         toolbar.Items.Add(_topPlayButton);
-        toolbar.Items.Add(EditorChrome.ToolButton("Stop", "Rewind and pause; also cancel a seek", StopPreview));
         toolbar.Items.Add(EditorChrome.ToolButton("Restart", "Restart with the same preview seed", Restart));
-        toolbar.Items.Add(EditorChrome.ToolButton("Step", "Pause and advance exactly one simulation frame", StepPreviewFrame));
-        toolbar.Items.Add(EditorChrome.ToolButton("Burst", "Preview a burst in every enabled emitter without changing the resource", BurstFromToolbar));
+        toolbar.Items.Add(EditorChrome.ToolButton("Use in game", "Create an Object that plays this saved effect, or see the gameplay code", ShowParticleGameGuide));
+        ToolStripDropDownButton options = new("Options") { AccessibleName = "Particle advanced options" };
+        _advancedPropertiesMenu = new ToolStripMenuItem("Advanced properties") { CheckOnClick = true };
+        _advancedPropertiesMenu.CheckedChanged += (_, _) => ShowAdvancedParticleProperties(_advancedPropertiesMenu.Checked);
+        options.DropDownItems.Add(_advancedPropertiesMenu);
+        _editDefinitionMenu = new ToolStripMenuItem("Edit emitter definition");
+        _editDefinitionMenu.Click += (_, _) => SetAuthoringMode(_authoringMode == ParticleAuthoringMode.Code
+            ? ParticleAuthoringMode.Properties : ParticleAuthoringMode.Code);
+        options.DropDownItems.Add(_editDefinitionMenu);
+        ToolStripMenuItem playback = new("Preview playback");
+        playback.DropDownItems.Add("Stop and rewind", null, (_, _) => StopPreview());
+        playback.DropDownItems.Add("Step one frame", null, (_, _) => StepPreviewFrame());
+        playback.DropDownItems.Add("Preview burst", null, (_, _) => BurstFromToolbar());
         _burstCount = new NumericUpDown { Minimum = 1, Maximum = 100000, Value = 150,
             Width = 70, ThousandsSeparator = true, AccessibleName = "Preview burst count" };
         EditorChrome.StyleField(_burstCount);
-        toolbar.Items.Add(new ToolStripControlHost(_burstCount) { AutoSize = false, Width = 74 });
+        playback.DropDownItems.Add(new ToolStripLabel("Particles in preview burst"));
+        playback.DropDownItems.Add(new ToolStripControlHost(_burstCount));
         _loopButton.Text = "Emit continuously";
         _loopButton.ToolTipText = "Authored emission mode for the selected emitter (saved and undoable)";
-        toolbar.Items.Add(_loopButton);
-        toolbar.Items.Add(new ToolStripSeparator());
         ToolStripComboBox speed = new() { AutoSize = false, Width = 68,
             DropDownStyle = ComboBoxStyle.DropDownList, AccessibleName = "Particle preview speed", ToolTipText = "Preview speed only" };
         speed.Items.AddRange(["0.25×", "0.5×", "1×", "2×"]); speed.SelectedIndex = 2;
         speed.SelectedIndexChanged += (_, _) => SetPreviewSpeed(new[] { .25, .5, 1, 2 }[Math.Max(0, speed.SelectedIndex)]);
-        toolbar.Items.Add(speed);
-        ToolStripButton advanced = EditorChrome.ToolButton("Advanced", "Show the selected emitter's optional text definition", () =>
-            SetAuthoringMode(_authoringMode == ParticleAuthoringMode.Code ? ParticleAuthoringMode.Properties : ParticleAuthoringMode.Code), toggle: false);
+        playback.DropDownItems.Add(new ToolStripLabel("Playback speed"));
+        playback.DropDownItems.Add(speed);
+        options.DropDownItems.Add(playback);
+        options.DropDownItems.Add("Save copy…", null, (_, _) => SaveEffectAs());
         _modeButtons.Clear();
-        _modeButtons[ParticleAuthoringMode.Code] = advanced;
-        toolbar.Items.Add(advanced);
-        foreach (ToolStripItem item in viewportCommands) toolbar.Items.Add(item);
+        toolbar.Items.Add(options);
+        foreach (ToolStripItem item in viewportCommands.Where(item => item is not ToolStripLabel || item.Text != "View")) toolbar.Items.Add(item);
+        if (toolbar.HistoryCommand is ToolStripItem history) history.Visible = false;
 
         Panel left = BuildParticleLibrary();
         Panel right = BuildModularInspectorDock();
+        _particleQuickSetup = BuildParticleQuickSetup();
+        _particleGameGuide = BuildParticleGameGuide();
+        right.Controls.Add(_particleQuickSetup);
+        right.Controls.Add(_particleGameGuide);
+        _inspectorTabs.Visible = false;
+        _particleGameGuide.Visible = false;
+        _particleQuickSetup.BringToFront();
+        _particleInspectorBack = MakeInspectorButton("Back to Quick setup", ShowParticleQuickSetup);
+        _particleInspectorBack.Name = "ParticleInspectorBack";
+        _particleInspectorBack.Dock = DockStyle.Top;
+        _particleInspectorBack.Visible = false;
+        right.Controls.Add(_particleInspectorBack);
         _selectedEmitterHeading = new Label { Dock = DockStyle.Top, Height = 32, Padding = new Padding(8, 4, 4, 4),
             TextAlign = ContentAlignment.MiddleLeft, ForeColor = EditorChrome.Accent, BackColor = EditorChrome.Surface };
         right.Controls.Add(_selectedEmitterHeading);
@@ -90,6 +113,7 @@ public sealed partial class ParticleEditorControl
         Panel curves = BuildCurveTimeline(timelinePanel);
         TableLayoutPanel middle = new() { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, BackColor = EditorChrome.Canvas,
             Margin = Padding.Empty, Padding = Padding.Empty };
+        middle.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         middle.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         middle.RowStyles.Add(new RowStyle(SizeType.Absolute, 220));
         middle.Controls.Add(_referenceAuthoringSplit, 0, 0); middle.Controls.Add(curves, 0, 1);
@@ -99,28 +123,183 @@ public sealed partial class ParticleEditorControl
         workspace.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         workspace.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 294));
         workspace.Controls.Add(left, 0, 0); workspace.Controls.Add(middle, 1, 0); workspace.Controls.Add(right, 2, 0);
-        ToolStripDropDownButton panels = new("Panels") { ToolTipText = "Preview space and authoring panels" };
-        ToolStripMenuItem emittersVisible = new("Emitters / Presets") { Checked = true, CheckOnClick = true };
+        ToolStripMenuItem emittersVisible = new("Emitters / Presets") { CheckOnClick = true };
         ToolStripMenuItem inspectorVisible = new("Properties") { Checked = true, CheckOnClick = true };
-        ToolStripMenuItem curvesVisible = new("Curves / timeline") { Checked = true, CheckOnClick = true };
-        emittersVisible.CheckedChanged += (_, _) => { left.Visible = emittersVisible.Checked; workspace.ColumnStyles[0].Width = emittersVisible.Checked ? 246 : 0; };
-        inspectorVisible.CheckedChanged += (_, _) => { right.Visible = inspectorVisible.Checked; workspace.ColumnStyles[2].Width = inspectorVisible.Checked ? 294 : 0; };
-        curvesVisible.CheckedChanged += (_, _) => { curves.Visible = curvesVisible.Checked; middle.RowStyles[1].Height = curvesVisible.Checked ? 220 : 0; };
-        panels.DropDownItems.AddRange([emittersVisible, inspectorVisible, curvesVisible]);
-        panels.DropDownItems.Add("Restore panels", null, (_, _) => { emittersVisible.Checked = true; inspectorVisible.Checked = true; curvesVisible.Checked = true; });
-        toolbar.Items.Add(panels);
+        ToolStripMenuItem curvesVisible = new("Curves / timeline") { CheckOnClick = true };
+        bool? emitterPreference = null, inspectorPreference = null, curvePreference = null;
+        bool updatingPanels = false;
+        _applyWorkbenchLayout = () =>
+        {
+            float scale = Math.Max(1, DeviceDpi / 96f * EditorChrome.BaseFont.SizeInPoints / 9.5f);
+            bool code = _authoringMode == ParticleAuthoringMode.Code;
+            bool showEmitters = emitterPreference ?? false;
+            bool showInspector = inspectorPreference ?? !code;
+            bool showCurves = curvePreference ?? false;
+            updatingPanels = true;
+            try
+            {
+                left.Visible = emittersVisible.Checked = showEmitters;
+                right.Visible = inspectorVisible.Checked = showInspector;
+                curves.Visible = curvesVisible.Checked = showCurves;
+                // Keep everyday authoring reachable at large interface scales. Optional panels
+                // yield space before the preview or Quick setup gets pushed outside the document.
+                float inspectorWidth = showInspector ? Math.Min(340 * scale, workspace.ClientSize.Width * .58f) : 0;
+                workspace.ColumnStyles[0].Width = showEmitters ? Math.Min(246 * scale,
+                    Math.Max(0, workspace.ClientSize.Width - inspectorWidth - 240 * scale)) : 0;
+                workspace.ColumnStyles[2].Width = inspectorWidth;
+                middle.RowStyles[1].Height = showCurves ? Math.Min(300 * scale, Math.Max(180, middle.ClientSize.Height * .70f)) : 0;
+                _referenceAuthoringSplit.Panel2Collapsed = code && LogicalClientWidth < 1200;
+                _referenceAuthoringSplit.Panel1Collapsed = !code;
+                _selectedEmitterHeading.Height = EditorChrome.BaseFont.Height + 16;
+                SizeParticleInspector();
+                SizeParticleQuickPages();
+            }
+            finally { updatingPanels = false; }
+        };
+        emittersVisible.CheckedChanged += (_, _) =>
+        {
+            if (updatingPanels) return;
+            emitterPreference = emittersVisible.Checked;
+            if (emittersVisible.Checked && LogicalClientWidth < 1000) inspectorPreference = false;
+            _applyWorkbenchLayout();
+        };
+        inspectorVisible.CheckedChanged += (_, _) =>
+        {
+            if (updatingPanels) return;
+            inspectorPreference = inspectorVisible.Checked;
+            if (inspectorVisible.Checked && LogicalClientWidth < 1000) emitterPreference = false;
+            _applyWorkbenchLayout();
+        };
+        curvesVisible.CheckedChanged += (_, _) =>
+        {
+            if (updatingPanels) return;
+            curvePreference = curvesVisible.Checked;
+            // Opening the timeline makes the preview shorter; keep the whole 2D effect readable.
+            if (curvesVisible.Checked && _effect.Preview2D) _viewport.Zoom2D = Math.Min(_viewport.Zoom2D, 2f);
+            _applyWorkbenchLayout();
+        };
+        options.DropDownItems.Add(new ToolStripSeparator());
+        options.DropDownItems.AddRange([emittersVisible, inspectorVisible, curvesVisible]);
+        options.DropDownItems.Add("Preview settings", null, (_, _) =>
+        {
+            emitterPreference = true;
+            if (LogicalClientWidth < 1000) inspectorPreference = false;
+            _particleLibraryTabs!.SelectedTab = _particleLibraryTabs.TabPages.Cast<TabPage>().Single(page => page.Text == "Preview");
+            _applyWorkbenchLayout();
+        });
+        options.DropDownItems.Add("Restore simple workspace", null, (_, _) =>
+        {
+            SetAuthoringMode(ParticleAuthoringMode.Properties);
+            if (_authoringMode != ParticleAuthoringMode.Properties) return;
+            _advancedPropertiesMenu.Checked = false;
+            ShowParticleQuickSetup();
+            emitterPreference = inspectorPreference = curvePreference = null;
+            _applyWorkbenchLayout();
+        });
+        _showParticleInspector = () =>
+        {
+            inspectorPreference = true;
+            if (LogicalClientWidth < 1000) emitterPreference = false;
+            _applyWorkbenchLayout();
+        };
+        workspace.SizeChanged += (_, _) => { if (!updatingPanels) _applyWorkbenchLayout?.Invoke(); };
         Controls.Clear();
         _authoringHost.Dispose(); _modeRail.Dispose();
         Controls.Add(workspace); Controls.Add(toolbar); Controls.Add(_statusLabel);
         workspace.BringToFront();
         RefreshEmitterStack(); RebuildEmitterPreview();
+        SizeChanged += (_, _) => _applyWorkbenchLayout();
+        _applyWorkbenchLayout();
         ResumeLayout(true);
+    }
+
+    protected override void OnChromeChanged()
+    {
+        base.OnChromeChanged(); _applyWorkbenchLayout?.Invoke();
+        if (IsHandleCreated) BeginInvoke(() => { if (!IsDisposed) SizeParticleInspector(); });
+    }
+
+    private void SizeParticleInspector()
+    {
+        if (_sizingParticleInspector) return;
+        _sizingParticleInspector = true;
+        try
+        {
+            float scale = Math.Max(1, DeviceDpi / 96f * EditorChrome.BaseFont.SizeInPoints / 9.5f);
+            _inspectorTabs.Font = EditorChrome.BaseFont;
+            if (_particleLibraryTabs is not null) _particleLibraryTabs.Font = EditorChrome.BaseFont;
+            foreach (TabPage tab in _inspectorTabs.TabPages)
+            foreach (FlowLayoutPanel page in tab.Controls.OfType<FlowLayoutPanel>())
+            {
+                page.Font = EditorChrome.BaseFont;
+                int width = Math.Max(200, page.ClientSize.Width - page.Padding.Horizontal
+                    - SystemInformation.VerticalScrollBarWidth - 6);
+                foreach (Control row in page.Controls)
+                {
+                    row.Width = width;
+                    if (row is TableLayoutPanel table)
+                    {
+                        ArrangeParticleFieldRow(table, width, 104 * scale);
+                    }
+                    foreach (Label label in row.Controls.OfType<Label>())
+                        label.Font = label.Font.Bold ? EditorChrome.HeadingFont : EditorChrome.SmallFont;
+                    if (row.Name == "ParticleInfoCard")
+                    {
+                        Label body = row.Controls.OfType<Label>().Single(label => label.Dock == DockStyle.Fill);
+                        Label heading = row.Controls.OfType<Label>().Single(label => label.Dock == DockStyle.Top);
+                        heading.Height = EditorChrome.HeadingFont.Height + 8;
+                        row.Height = row.Padding.Vertical + heading.Height + TextRenderer.MeasureText(body.Text,
+                            body.Font, new Size(Math.Max(1, width - row.Padding.Horizontal), int.MaxValue),
+                            TextFormatFlags.WordBreak).Height + 8;
+                    }
+                }
+            }
+            if (_presetGrid is not null)
+                foreach (Control tile in _presetGrid.Controls)
+                    tile.Size = new Size((int)(102 * scale), (int)(112 * scale));
+            if (_curveSelector is not null)
+                _curveSelector.Width = Math.Max(170, _curveSelector.Items.Cast<object>().Max(item =>
+                    TextRenderer.MeasureText(item.ToString(), _curveSelector.Font).Width + 32));
+            if (_particleTimelinePanel is not null)
+                _particleTimelinePanel.Height = Math.Max(44, EditorChrome.BaseFont.Height + 16);
+            if (_particleCurveHelp?.Parent is Control curveCanvas)
+            {
+                _particleCurveHelp.Font = EditorChrome.SmallFont;
+                _particleCurveHelp.Height = TextRenderer.MeasureText(_particleCurveHelp.Text, _particleCurveHelp.Font,
+                    new Size(Math.Max(1, curveCanvas.ClientSize.Width - curveCanvas.Padding.Horizontal), int.MaxValue),
+                    TextFormatFlags.WordBreak).Height + 8;
+            }
+            if (_eventList is not null)
+                foreach (ColumnHeader column in _eventList.Columns)
+                    column.Width = Math.Max(70, (_eventList.ClientSize.Width - 6) / 3);
+            if (_particlePreviewOptions is not null)
+            {
+                int width = Math.Max(210, _particlePreviewOptions.ClientSize.Width - _particlePreviewOptions.Padding.Horizontal - 24);
+                foreach (Label label in _particlePreviewOptions.Controls.OfType<Label>())
+                {
+                    label.Font = EditorChrome.SmallFont;
+                    label.MaximumSize = new Size(width, 0);
+                    if (!label.AutoSize)
+                    {
+                        label.Width = width;
+                        label.Height = TextRenderer.MeasureText(label.Text, label.Font, new Size(width, int.MaxValue),
+                            TextFormatFlags.WordBreak).Height + 8;
+                    }
+                }
+                if (_targetTypeCombo is not null)
+                    _targetTypeCombo.Width = _targetTypeCombo.Items.Cast<object>().Max(item =>
+                        TextRenderer.MeasureText(item.ToString(), _targetTypeCombo.Font).Width + 36);
+            }
+        }
+        finally { _sizingParticleInspector = false; }
     }
 
     private Panel BuildParticleLibrary()
     {
         Panel root = new() { Dock = DockStyle.Fill, BackColor = EditorChrome.Surface };
-        TabControl pages = new() { Dock = DockStyle.Fill, Font = EditorChrome.BaseFont };
+        TabControl pages = new EditorTabControl { Dock = DockStyle.Fill, Font = EditorChrome.BaseFont };
+        _particleLibraryTabs = pages;
+        EditorChrome.StyleTabs(pages);
         TabPage emitterPage = new("Emitters") { BackColor = EditorChrome.Surface };
         TabPage presetPage = new("Presets") { BackColor = EditorChrome.Surface };
         TabPage previewPage = new("Preview") { BackColor = EditorChrome.Surface };
@@ -192,6 +371,7 @@ public sealed partial class ParticleEditorControl
 
         TextBox search = new() { Dock = DockStyle.Top, PlaceholderText = "Find a preset…", AccessibleName = "Search particle presets" };
         _presetGrid = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = EditorChrome.Surface, Padding = new Padding(4) };
+        _presetGrid.HandleCreated += (_, _) => EditorScrollHost.ApplyDarkScrollTheme(_presetGrid);
         foreach (string preset in ParticlePresets.Names)
         {
             ParticlePresetTile tile = new(preset) { Margin = new Padding(3), Tag = preset };
@@ -215,11 +395,11 @@ public sealed partial class ParticleEditorControl
     {
         FlowLayoutPanel page = new() { Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown,
             WrapContents = false, Padding = new Padding(8), BackColor = EditorChrome.Surface };
-        _preview2DCheck = new CheckBox { AutoSize = true, Text = "2D preview", Checked = _effect.Preview2D, ForeColor = EditorChrome.Text };
-        _preview2DCheck.CheckedChanged += (_, _) => { if (!_syncing) SetPreview2D(_preview2DCheck.Checked); };
-        _previewFloorCheck = new CheckBox { AutoSize = true, Text = "Reference floor", Checked = _floorStyle.DrawsPlate(), ForeColor = EditorChrome.Text };
-        _previewFloorCheck.CheckedChanged += (_, _) => { if (!_syncing) SetEditorFloorVisible(_previewFloorCheck.Checked); };
-        page.Controls.Add(_preview2DCheck); page.Controls.Add(_previewFloorCheck);
+        _particlePreviewOptions = page;
+        page.HandleCreated += (_, _) => EditorScrollHost.ApplyDarkScrollTheme(page);
+        page.SizeChanged += (_, _) => SizeParticleInspector();
+        page.Controls.Add(new Label { Width = 210, Height = 48, ForeColor = EditorChrome.Muted,
+            Text = "Use 2D / 3D and View on the main toolbar to change the preview and its reference floor." });
         page.Controls.Add(new Label { AutoSize = true, Text = "Repeatable preview seed", ForeColor = EditorChrome.Muted, Margin = new Padding(0, 14, 0, 4) });
         NumericUpDown seed = new() { Minimum = 0, Maximum = int.MaxValue, Value = _previewSeed, Width = 200,
             AccessibleName = "Particle preview seed" };
@@ -227,6 +407,7 @@ public sealed partial class ParticleEditorControl
         seed.ValueChanged += (_, _) => SetPreviewSeed((int)seed.Value);
         page.Controls.Add(seed);
         Button shuffle = MakeInspectorButton("New preview seed", () => seed.Value = Random.Shared.Next());
+        shuffle.AutoSize = true; shuffle.AutoSizeMode = AutoSizeMode.GrowAndShrink;
         shuffle.Width = 200; page.Controls.Add(shuffle);
         page.Controls.Add(new Label { Width = 210, Height = 66, ForeColor = EditorChrome.Muted,
             Text = "Seed and playback speed affect preview only. Restart repeats the same emission. Scrubbing previews the first 60 seconds at most." });
@@ -247,7 +428,7 @@ public sealed partial class ParticleEditorControl
         };
         target.Items.Add(_targetTypeCombo);
         _targetAssetButton = EditorChrome.ToolButton("Choose target…", "Choose a named preview target resource", PickPreviewTarget);
-        _targetAssetButton.AutoSize = false; _targetAssetButton.Width = 212;
+        _targetAssetButton.AutoSize = true;
         EditorCommandBar targetPicker = EditorChrome.MakeToolbar(); targetPicker.Items.Add(_targetAssetButton);
         page.Controls.Add(target); page.Controls.Add(targetPicker);
         RefreshTargetButton();
@@ -279,6 +460,7 @@ public sealed partial class ParticleEditorControl
         finally { _emitterList.EndUpdate(); _syncingEmitterList = false; }
         if (_selectedEmitterHeading is not null)
             _selectedEmitterHeading.Text = "Editing: " + ParticleEffectEditing.Name(_effect, _selectedEmitterIndex);
+        RefreshParticleQuickEmitterChoice();
         RefreshParticleEventEditor();
         RefreshParticleCommands();
     }
@@ -322,7 +504,11 @@ public sealed partial class ParticleEditorControl
             if (_numericControls.TryGetValue(key, out NumericUpDown? field) && field.Parent is Control row) row.Visible = visible;
         }
         bool box = _config.Shape == ParticleEmitShape.Box;
-        Row("boxX", box); Row("boxY", box); Row("boxZ", box);
+        Row("boxX", box); Row("boxY", box); Row("boxZ", box && !_effect.Preview2D);
+        Row("gravityZ", !_effect.Preview2D); Row("windZ", !_effect.Preview2D);
+        Row("emissive", !_effect.Preview2D);
+        if (_advancedChecks.TryGetValue("followCamera", out CheckBox? cameraFollow))
+            cameraFollow.Parent!.Visible = !_effect.Preview2D;
         Row("emitRadius", _config.Shape is ParticleEmitShape.Disc or ParticleEmitShape.Ring);
         if (_meshSurfaceField?.Parent is Control sourceRow) sourceRow.Visible = _config.Shape == ParticleEmitShape.MeshSurface;
         if (_meshParticleField?.Parent is Control meshRow)
@@ -332,14 +518,16 @@ public sealed partial class ParticleEditorControl
         Row("ribbonMaxSegment", _config.RendererKind == ParticleRendererKind.Ribbon);
         Row("velocityStretch", _config.RendererKind == ParticleRendererKind.Billboard && _config.Alignment == ParticleAlignment.Velocity);
         bool beam = _config.RendererKind == ParticleRendererKind.Beam;
-        Row("beamEndX", beam); Row("beamEndY", beam); Row("beamEndZ", beam); Row("beamNoise", beam);
+        Row("beamEndX", beam); Row("beamEndY", beam); Row("beamEndZ", beam && !_effect.Preview2D); Row("beamNoise", beam);
         bool customBounds = _config.BoundsMode == ParticleBoundsMode.Custom;
-        Row("boundsCenterX", customBounds); Row("boundsCenterY", customBounds); Row("boundsCenterZ", customBounds);
-        Row("boundsSizeX", customBounds); Row("boundsSizeY", customBounds); Row("boundsSizeZ", customBounds);
+        Row("boundsCenterX", customBounds); Row("boundsCenterY", customBounds); Row("boundsCenterZ", customBounds && !_effect.Preview2D);
+        Row("boundsSizeX", customBounds); Row("boundsSizeY", customBounds); Row("boundsSizeZ", customBounds && !_effect.Preview2D);
         bool flipbook = _config.UseFlipbook && _config.RendererKind == ParticleRendererKind.Billboard;
         Row("flipColumns", flipbook); Row("flipRows", flipbook); Row("flipFps", flipbook);
         Row("collisionHeight", _config.CollisionMode != ParticleCollisionMode.None);
         Row("collisionBounce", _config.CollisionMode == ParticleCollisionMode.Bounce);
+        foreach (string key in new[] { "collideTerrain", "collideGeometry" })
+            if (_advancedChecks.TryGetValue(key, out CheckBox? collisionField)) collisionField.Parent!.Visible = !_effect.Preview2D;
         foreach (string key in new[] { "lightRadius", "lightPower", "lightFlicker", "lightFalloff", "lightFrequency", "lightY" })
             Row(key, _effect.Light.Enabled);
     }

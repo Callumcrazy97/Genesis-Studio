@@ -2,6 +2,9 @@ using System.Numerics;
 using Genesis.Application.Core.Resources;
 using Genesis.Rendering.Meshes;
 using Genesis.Runtime.ECS.Components;
+using Genesis.Runtime.Assets;
+using Genesis.Runtime.Scripting;
+using Genesis.Shared.Assets;
 using Genesis.Runtime.Modeling;
 using Genesis.Runtime.Navigation;
 using Genesis.Runtime.Project;
@@ -44,6 +47,16 @@ internal sealed class PathingViewportControl : UserControl
     private int _selectedWaypoint = -1;
     private float _time;
     private bool _hasFramed;
+    private string _boundObject = string.Empty;
+    private string _agentSprite = string.Empty;
+    private long _objectStamp;
+    private SpriteRuntimeAsset? _spriteAsset;
+    private SpriteComponent _spritePlayback;
+    private float _spriteTime;
+    private string _spriteState = string.Empty;
+    private bool _frameQueued;
+    private int _frameWidth;
+    private int _frameHeight;
 
     public PathingViewportControl(string projectRoot)
     {
@@ -64,11 +77,13 @@ internal sealed class PathingViewportControl : UserControl
         _viewport.Camera.MaximumDistance = 5000f;
         _viewport.FarPlane = 5000f;
         _viewport.DrawScene += DrawScene;
+        _viewport.DrawScene2D += DrawScene2D;
         _viewport.DrawOverlay += DrawOverlay;
         _viewport.Host.MouseDown += PointerDown;
         _viewport.Host.MouseMove += PointerMove;
         _viewport.Host.MouseUp += PointerUp;
         _viewport.Host.KeyDown += KeyPressed;
+        _viewport.Host.SizeChanged += (_, _) => QueueFrameContent();
         Controls.Add(_viewport);
         Disposed += (_, _) => ReleaseRuntimeResources();
     }
@@ -76,19 +91,25 @@ internal sealed class PathingViewportControl : UserControl
     public event Action<int, Vector3>? WaypointMoved;
     public event Action<int>? WaypointSelected;
     public event Action<int>? WaypointDeleteRequested;
+    public event Action? WaypointDragStarted;
+    public event Action? WaypointDragCompleted;
 
     public void Bind(PathingAsset asset, RoomAsset? room, NavMeshData? navMesh, PathingPreviewSimulation simulation)
     {
-        bool contextChanged = !ReferenceEquals(_room, room) || !ReferenceEquals(_navMesh, navMesh)
-            || !string.Equals(_asset.TargetObject, asset.TargetObject, StringComparison.OrdinalIgnoreCase);
+        bool dimensionChanged = _viewport.Mode2D != (asset.Dimension == PathingDimension.TwoD);
+        bool contextChanged = dimensionChanged || !ReferenceEquals(_room, room) || !ReferenceEquals(_navMesh, navMesh)
+            || !string.Equals(_boundObject, asset.TargetObject, StringComparison.OrdinalIgnoreCase);
         _asset = asset;
         _room = room;
         _navMesh = navMesh;
         _simulation = simulation;
+        _boundObject = asset.TargetObject;
+        _viewport.Mode2D = asset.Dimension == PathingDimension.TwoD;
         if (contextChanged)
         {
             RebuildContext();
             FrameContent();
+            QueueFrameContent();
         }
         else if (!_hasFramed)
         {
@@ -103,9 +124,22 @@ internal sealed class PathingViewportControl : UserControl
         _viewport.Host.Invalidate();
     }
 
+    public void RefreshContext()
+    {
+        RebuildContext();
+        _viewport.Invalidate(true);
+    }
+
     public void FrameContent()
     {
-        List<Vector3> points = _asset.Route.Waypoints.Select(point => point.Position).ToList();
+        List<Vector3> points = RouteSamples(_asset.Route.Waypoints).ToList();
+        if (_asset.Dimension == PathingDimension.TwoD)
+        {
+            FrameContent2D(_viewport.SurfaceWidth, _viewport.SurfaceHeight);
+            _hasFramed = true;
+            _viewport.Invalidate(true);
+            return;
+        }
         if (_navMesh is not null)
         {
             points.Add(new Vector3(_navMesh.OriginX, 0, _navMesh.OriginZ));
@@ -124,14 +158,46 @@ internal sealed class PathingViewportControl : UserControl
         Vector3 max = points.Aggregate(Vector3.Max);
         Vector3 center = (min + max) * .5f;
         float span = MathF.Max(8f, MathF.Max(max.X - min.X, max.Z - min.Z));
-        _viewport.Camera.Target = new Vector3(center.X, MathF.Max(.75f, center.Y), center.Z);
-        _viewport.Camera.Distance = Math.Clamp(span * .82f, 8f, 4500f);
+        _viewport.Camera.Target = center;
+        _viewport.Camera.Distance = Math.Clamp(span * 1.35f, 10f, 4500f);
         _hasFramed = true;
         _viewport.Host.Invalidate();
     }
 
+    private void FrameContent2D(int width, int height)
+    {
+        List<Vector3> points = RouteSamples(_asset.Route.Waypoints).ToList();
+        if (points.Count == 0) points.AddRange([new Vector3(-8, -8, 0), new Vector3(8, 8, 0)]);
+        Vector3 lower = points.Aggregate(Vector3.Min), upper = points.Aggregate(Vector3.Max);
+        if (!string.IsNullOrWhiteSpace(_agentSprite))
+        {
+            try
+            {
+                SpriteRuntimeAsset sprite = SpriteAssetLoader.Load(_projectRoot, _agentSprite);
+                (float x, float y) = SpriteOriginUtility.ResolvePixels(sprite.Origin, sprite.Canvas.Width, sprite.Canvas.Height);
+                lower -= new Vector3(x, y, 0);
+                upper += new Vector3(sprite.Canvas.Width - x, sprite.Canvas.Height - y, 0);
+            }
+            catch (Exception exception) when (IsAssetFailure(exception)) { }
+        }
+        _viewport.Camera2DX = (lower.X + upper.X) / 2;
+        _viewport.Camera2DY = (lower.Y + upper.Y) / 2;
+        _viewport.Zoom2D = Math.Clamp(Math.Min(width * .7f / Math.Max(8, upper.X - lower.X),
+            height * .7f / Math.Max(8, upper.Y - lower.Y)), .02f, 500);
+        _frameWidth = width; _frameHeight = height;
+    }
+
+    private void QueueFrameContent()
+    {
+        if (_frameQueued || !IsHandleCreated || IsDisposed) return;
+        _frameQueued = true;
+        BeginInvoke((Action)(() => { _frameQueued = false; if (!IsDisposed) FrameContent(); }));
+    }
+
     private void RebuildContext()
     {
+        _objectStamp = 0; _agentSprite = string.Empty; _spriteAsset = null;
+        RefreshSpriteReference();
         _roomVisuals.Clear();
         _terrain?.Dispose();
         _terrain = null;
@@ -151,7 +217,7 @@ internal sealed class PathingViewportControl : UserControl
 
     private void DrawScene(IRenderController renderer)
     {
-        _renderer = renderer;
+        UseRenderer(renderer);
         if (!_unitCube.IsValid) _unitCube = MeshGeometry.RegisterCube(renderer, RenderColor.White, 1f);
         _models.BeginFrame();
         try
@@ -235,10 +301,11 @@ internal sealed class PathingViewportControl : UserControl
 
     private void DrawOverlay(IRenderController renderer)
     {
+        if (_asset.Dimension == PathingDimension.TwoD) return;
         DrawNavMesh(renderer);
         DrawRoute(renderer);
         DrawAgents(renderer);
-        renderer.DrawText("NAVMESH VIEW · 60 FPS", 16, 14, 13, RenderColor.White);
+        renderer.DrawText("PATH PREVIEW · fixed 60 Hz simulation", 16, 14, EditorChrome.SmallFont.SizeInPoints, RenderColor.White);
         string room = _room is null ? "No room selected" : _room.Name;
         renderer.DrawText($"{room} · {_simulation.Agents.Count} simulated agent(s)", 16, 34, 10,
             new RenderColor(.62f, .7f, .76f));
@@ -337,29 +404,15 @@ internal sealed class PathingViewportControl : UserControl
 
     private IReadOnlyList<Vector3> RouteSamples(IReadOnlyList<PathingWaypoint> points)
     {
-        List<Vector3> samples = points.Select(point => point.Position + Vector3.UnitY * .055f).ToList();
-        if (_asset.Route.LoopMode == PathingLoopMode.Loop && samples.Count > 1) samples.Add(samples[0]);
-        if (!points.Any(point => point.Curve) || samples.Count < 3) return samples;
-        List<Vector3> curve = [];
-        for (int index = 0; index < samples.Count - 1; index++)
-        {
-            Vector3 p0 = samples[Math.Max(0, index - 1)];
-            Vector3 p1 = samples[index];
-            Vector3 p2 = samples[index + 1];
-            Vector3 p3 = samples[Math.Min(samples.Count - 1, index + 2)];
-            for (int step = 0; step < 10; step++)
-            {
-                float t = step / 10f;
-                float t2 = t * t, t3 = t2 * t;
-                curve.Add(.5f * ((2f * p1) + (-p0 + p2) * t
-                    + (2f * p0 - 5f * p1 + 4f * p2 - p3) * t2
-                    + (-p0 + 3f * p1 - 3f * p2 + p3) * t3));
-            }
-        }
-        curve.Add(samples[^1]);
-        return curve;
+        if (points.Count == 0) return [];
+        List<Vector3> samples = [points[0].Position];
+        for (int index = 1; index < points.Count; index++)
+            samples.AddRange(_asset.Route.SegmentPoints(index - 1, index));
+        if (_asset.Route.LoopMode == PathingLoopMode.Loop && points.Count > 1)
+            samples.AddRange(_asset.Route.SegmentPoints(points.Count - 1, 0));
+        return _asset.Dimension == PathingDimension.TwoD ? samples
+            : samples.Select(point => point + Vector3.UnitY * .055f).ToArray();
     }
-
     private void PointerDown(object? sender, MouseEventArgs args)
     {
         _viewport.Host.Focus();
@@ -367,6 +420,7 @@ internal sealed class PathingViewportControl : UserControl
         _dragWaypoint = HitWaypoint(args.Location);
         if (_dragWaypoint < 0) return;
         _selectedWaypoint = _dragWaypoint;
+        WaypointDragStarted?.Invoke();
         _viewport.NavigationEnabled = false;
         _viewport.Host.Capture = true;
         WaypointSelected?.Invoke(_dragWaypoint);
@@ -376,6 +430,12 @@ internal sealed class PathingViewportControl : UserControl
     private void PointerMove(object? sender, MouseEventArgs args)
     {
         if (_dragWaypoint < 0 || args.Button != MouseButtons.Left) return;
+        if (_asset.Dimension == PathingDimension.TwoD)
+        {
+            Vector2 xy = _viewport.ControlToWorld2D(args.Location);
+            WaypointMoved?.Invoke(_dragWaypoint, new Vector3(xy, _asset.Route.Waypoints[_dragWaypoint].Z));
+            return;
+        }
         float height = _asset.Route.Waypoints[_dragWaypoint].Y;
         if (!_viewport.RayToGround(args.Location, height, out Vector3 position)) return;
         int cell = _navMesh?.Cell(position) ?? -1;
@@ -386,6 +446,7 @@ internal sealed class PathingViewportControl : UserControl
     private void PointerUp(object? sender, MouseEventArgs args)
     {
         if (args.Button != MouseButtons.Left) return;
+        if (_dragWaypoint >= 0) WaypointDragCompleted?.Invoke();
         _dragWaypoint = -1;
         _viewport.NavigationEnabled = true;
         _viewport.Host.Capture = false;
@@ -404,11 +465,98 @@ internal sealed class PathingViewportControl : UserControl
         PointF surface = _viewport.ControlToSurface(client);
         for (int index = _asset.Route.Waypoints.Count - 1; index >= 0; index--)
         {
+            if (_asset.Dimension == PathingDimension.TwoD)
+            {
+                Vector3 world = _asset.Route.Waypoints[index].Position;
+                Vector2 xy = _viewport.World2DToSurface(new Vector2(world.X, world.Y));
+                if (Vector2.DistanceSquared(xy, new Vector2(surface.X, surface.Y)) <= 225) return index;
+                continue;
+            }
             Vector3 point = _viewport.WorldToSurface(_asset.Route.Waypoints[index].Position + Vector3.UnitY * .08f);
             float dx = surface.X - point.X, dy = surface.Y - point.Y;
             if (IsScreenVisible(point) && dx * dx + dy * dy <= 15f * 15f) return index;
         }
         return -1;
+    }
+
+    private void DrawScene2D(IRenderController renderer)
+    {
+        UseRenderer(renderer);
+        if (_frameWidth != renderer.PixelWidth || _frameHeight != renderer.PixelHeight)
+        {
+            FrameContent2D(renderer.PixelWidth, renderer.PixelHeight);
+            renderer.SetCamera2D(_viewport.Camera2DX, _viewport.Camera2DY, _viewport.Zoom2D, 0);
+        }
+        RefreshSpriteReference();
+        if (!string.IsNullOrWhiteSpace(_agentSprite))
+        {
+            try
+            {
+                SpriteRuntimeAsset sprite = SpriteAssetLoader.Load(_projectRoot, _agentSprite);
+                if (!ReferenceEquals(sprite, _spriteAsset) || _time < _spriteTime || _spriteState != _asset.Route.AnimationState)
+                {
+                    _spriteAsset = sprite; _spriteTime = 0; _spriteState = _asset.Route.AnimationState;
+                    _spritePlayback = new SpriteComponent { ImageSpeed = 1, AnimationTagIndex = sprite.Tags.FindIndex(tag =>
+                        string.Equals(tag.Name, _spriteState, StringComparison.OrdinalIgnoreCase)), AnimationLoopOverride = -1 };
+                }
+                SpritePlayback.Advance(ref _spritePlayback, sprite, Math.Max(0, _time - _spriteTime));
+                _spriteTime = _time;
+            }
+            catch (Exception exception) when (IsAssetFailure(exception)) { _spriteAsset = null; }
+        }
+        PgslRenderDrawSurface drawing = new(renderer, null!, renderer.PixelWidth, renderer.PixelHeight, projectPath: _projectRoot);
+        foreach (PathingPreviewAgent agent in _simulation.Agents)
+        {
+            Vector3 world = _asset.WorldPosition(agent.Position);
+            if (_spriteAsset is not null)
+                drawing.DrawSprite(_agentSprite, world.X, world.Y, _spritePlayback.ImageIndex, 1, 1, 0, Color.White, 1);
+            else
+                renderer.DrawRect(world.X - .2f, world.Y - .2f, .4f, .4f, new RenderColor(.3f, 1, .5f));
+        }
+        IReadOnlyList<Vector3> samples = RouteSamples(_asset.Route.Waypoints);
+        for (int index = 1; index < samples.Count; index++)
+            renderer.DrawLine(samples[index - 1].X, samples[index - 1].Y, samples[index].X, samples[index].Y,
+                new RenderColor(.08f, .9f, 1f), 2 / _viewport.Zoom2D);
+        for (int index = 0; index < _asset.Route.Waypoints.Count; index++)
+        {
+            Vector3 world = _asset.Route.Waypoints[index].Position;
+            float radius = 9 / _viewport.Zoom2D;
+            renderer.DrawRect(world.X - radius, world.Y - radius, radius * 2, radius * 2,
+                index == _selectedWaypoint ? new RenderColor(1, .72f, .16f) : new RenderColor(.08f, .7f, .8f));
+            Vector2 screen = _viewport.World2DToSurface(new Vector2(world.X, world.Y));
+            renderer.DrawText((index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture), screen.X - 4, screen.Y - 7, 10, RenderColor.White);
+        }
+        renderer.DrawText("2D XY · drag waypoints · fixed 60 Hz simulation", 16, 14, EditorChrome.SmallFont.SizeInPoints, RenderColor.White);
+        if (!string.IsNullOrWhiteSpace(_agentSprite) && _spriteAsset is null)
+            renderer.DrawText("Preview image unavailable: " + _agentSprite, 16, 40, EditorChrome.SmallFont.SizeInPoints, new RenderColor(1, .7f, .2f));
+    }
+
+    private void RefreshSpriteReference()
+    {
+        string file = ResolveReference(_boundObject, ResourceKind.GameObject);
+        if (!File.Exists(file)) return;
+        long stamp = File.GetLastWriteTimeUtc(file).Ticks;
+        if (_objectStamp == stamp) return;
+        _objectStamp = stamp;
+        try
+        {
+            JObject prefab = ObjectDefinitionResolver.PreviewPrefab(ObjectDefinitionResolver.Load(_projectRoot, file));
+            _agentSprite = (string?)prefab["sprite"] ?? string.Empty;
+            _spriteAsset = null;
+        }
+        catch (Exception exception) when (IsAssetFailure(exception)) { _agentSprite = string.Empty; }
+    }
+
+    private void UseRenderer(IRenderController renderer)
+    {
+        if (ReferenceEquals(_renderer, renderer)) return;
+        if (_renderer is not null)
+        {
+            _models.InvalidateAssets(_renderer);
+            if (_unitCube.IsValid) _renderer.ReleaseMesh(_unitCube);
+        }
+        _unitCube = MeshHandle.Invalid;
+        _renderer = renderer;
     }
 
     private SceneVisual VisualForNode(RoomNode node)

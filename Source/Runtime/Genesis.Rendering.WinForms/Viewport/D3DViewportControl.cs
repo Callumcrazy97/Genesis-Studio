@@ -305,36 +305,17 @@ namespace Genesis.Rendering.Viewport
 
         private void RecreateRenderer()
         {
-            if (!_handleReady || !IsHandleCreated)
-                return;
-
-            StopActiveDriver();
-            lock (_renderLock)
+            if (!IsHandleCreated || IsDisposed || Disposing) return;
+            // A window's pixel format is immutable. Vulkan or OpenGL can claim it, so each
+            // backend needs a fresh HWND. The handle events stop the driver, dispose the old
+            // renderer and initialize the replacement while retaining this control's state.
+            try { RecreateHandle(); }
+            catch (Exception ex)
             {
-                try
-                {
-                    _renderer?.Dispose();
-                    _renderer = CreateController();
-                    _renderer.Initialize(Handle, ClientWidth, ClientHeight);
-                    _renderer.SetVSync(_vsync);
-                    _settlingWidth = ClientWidth;
-                    _settlingHeight = ClientHeight;
-                    _resizeSettle = 0;
-                    _handleReady = true;
-                }
-                catch (Exception ex)
-                {
-                    RecordRenderFault("RecreateRenderer", ex);
-                    try { _renderer?.Dispose(); } catch { /* already failing */ }
-                    _renderer = null;
-                    _handleReady = false;
-                    return;
-                }
+                RecordRenderFault("RecreateRenderer", ex);
+                _handleReady = false;
             }
-            StartActiveDriver();
-            Invalidate();
         }
-
         private void OnEffectiveBackendChanged(object sender, EventArgs e)
         {
             if (IsDisposed || Disposing)
@@ -641,6 +622,10 @@ namespace Genesis.Rendering.Viewport
                     return null;
                 }
 
+                // A presented viewport is opaque. Some swap chains leave alpha undefined;
+                // treating those bytes as PNG transparency hides real rendered pixels when
+                // captures are composited into an editor review or a frame thumbnail.
+                for (int alpha = 3; alpha < bgra.Length; alpha += 4) bgra[alpha] = 255;
                 var bmp  = new Bitmap(w, h, PixelFormat.Format32bppArgb);
                 var rect = new Rectangle(0, 0, w, h);
                 var data = bmp.LockBits(rect, ImageLockMode.WriteOnly, bmp.PixelFormat);

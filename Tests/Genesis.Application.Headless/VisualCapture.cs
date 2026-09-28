@@ -266,7 +266,7 @@ internal static class VisualCapture
             + $"(need at least {MinWidth}x{MinHeight}).");
     }
 
-    private static ImageMetrics Measure(Bitmap bitmap)
+    internal static ImageMetrics Measure(Bitmap bitmap)
     {
         HashSet<int> colors = [];
         int samples = 0;

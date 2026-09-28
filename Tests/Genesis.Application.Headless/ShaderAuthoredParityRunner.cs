@@ -5,8 +5,8 @@ using RuntimeImageMetrics = Genesis.Application.Runtime.ImageMetrics;
 namespace Genesis.Application.Headless;
 
 /// <summary>
-/// Live authored-shader golden/parity across the seven production backends. Each backend compiles
-/// the same sprite shader, samples two bound textures, and is compared against Direct3D 11.
+/// Live authored mesh-shader golden/parity across the five production backends. Hardware captures
+/// are compared against Direct3D 11; Software supplies geometry without arbitrary shader execution.
 /// </summary>
 internal static class ShaderAuthoredParityRunner
 {

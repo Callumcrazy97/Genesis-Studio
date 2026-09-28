@@ -293,6 +293,16 @@ namespace Genesis.Shared.Overlay
             out float resolvedSize)
         {
             resolvedFamily = string.IsNullOrWhiteSpace(family) ? "Segoe UI" : family;
+            string requestedFamily = resolvedFamily;
+            bool isPayload = (requestedFamily.EndsWith(".ttf", StringComparison.OrdinalIgnoreCase)
+                || requestedFamily.EndsWith(".otf", StringComparison.OrdinalIgnoreCase))
+                && System.IO.File.Exists(requestedFamily);
+            if (isPayload)
+            {
+                var info = new System.IO.FileInfo(requestedFamily);
+                // A live replacement must invalidate both font metrics and already rasterised glyphs.
+                resolvedFamily += "|" + info.LastWriteTimeUtc.Ticks + "|" + info.Length;
+            }
             resolvedSize = size > 0.1f ? size : 12f;
 
             var key = (resolvedFamily, resolvedSize, bold);
@@ -301,8 +311,9 @@ namespace Genesis.Shared.Overlay
             var typefaceKey = (resolvedFamily, bold);
             if (!_typefaces.TryGetValue(typefaceKey, out SKTypeface typeface))
             {
-                typeface = SKTypeface.FromFamilyName(
-                    resolvedFamily,
+                typeface = (isPayload ? LoadFontPayload(requestedFamily) : null)
+                    ?? SKTypeface.FromFamilyName(
+                    requestedFamily,
                     bold ? SKFontStyleWeight.Bold : SKFontStyleWeight.Normal,
                     SKFontStyleWidth.Normal,
                     SKFontStyleSlant.Upright) ?? SKTypeface.CreateDefault();
@@ -316,6 +327,13 @@ namespace Genesis.Shared.Overlay
             };
             _fonts[key] = font;
             return font;
+        }
+
+        private static SKTypeface LoadFontPayload(string path)
+        {
+            // FromFile memory-maps and locks the source on Windows, preventing live authoring edits.
+            using SKData data = SKData.CreateCopy(System.IO.File.ReadAllBytes(path));
+            return SKTypeface.FromData(data);
         }
 
         private void ThrowIfDisposed()

@@ -356,6 +356,9 @@ namespace Genesis.Rendering.Primitives
             ulong sortKey = ((ulong)depthKey << 32) | seqKey;
 
             _pending.Add(new DrawEntry { Call = call, SortKey = sortKey });
+            // A caller may prepare instances before submitting another overlay or external draw.
+            // The uploaded snapshot is valid only until the pending list changes.
+            _gpuInstancesReady = false;
         }
 
         internal void SubmitExternal(int depth, Action<Matrix4x4, int, int> draw)
@@ -367,6 +370,7 @@ namespace Genesis.Rendering.Primitives
                 Call = new SpriteDrawCall { Depth = depth },
                 SortKey = ((ulong)depthKey << 32) | (uint)_seq++, External = draw,
             });
+            _gpuInstancesReady = false;
         }
 
         public void SubmitLine(
@@ -543,7 +547,13 @@ namespace Genesis.Rendering.Primitives
                 // An external GPU draw owns its state. Rebind ordinary sprites at each material
                 // boundary, including after particles, rather than relying on hidden inherited state.
                 _gpu.SetRasterState(SpriteRaster);
-                _gpu.SetBlendState(SpriteBlend);
+                _gpu.SetBlendState(current.Blend switch
+                {
+                    BlendMode.Additive => GpuBlendState.Additive,
+                    BlendMode.Multiply => GpuBlendState.Multiply,
+                    BlendMode.None => GpuBlendState.Opaque,
+                    _ => SpriteBlend,
+                });
                 _gpu.SetDepthState(GpuDepthState.Disabled);
                 _gpu.SetPrimitiveTopology(GpuPrimitiveTopology.TriangleList);
                 _gpu.SetVertexLayout(_layout);
@@ -641,6 +651,7 @@ namespace Genesis.Rendering.Primitives
         private static bool SameMaterial(in SpriteDrawCall a, in SpriteDrawCall b) =>
             a.Texture.Id == b.Texture.Id && a.Shader.Id == b.Shader.Id && a.ClipRect == b.ClipRect
             && a.SmoothSampling == b.SmoothSampling
+            && a.Blend == b.Blend
             && a.ShaderParams0 == b.ShaderParams0 && a.ShaderParams1 == b.ShaderParams1
             && a.ShaderParams2 == b.ShaderParams2 && a.ShaderParams3 == b.ShaderParams3
             && a.AuthoredTextures.SameBindings(b.AuthoredTextures);
@@ -681,7 +692,7 @@ namespace Genesis.Rendering.Primitives
             // x drives the orthographic clip-space Z. y preserves the authored 2D Z/layer
             // depth so fog can use the same conceptual depth axis as 3D without confusing it with
             // the renderer's normalized clip-depth encoding.
-            instance.DepthPad = new Vector4(DepthToWorldZ(call.Depth), call.Depth, 0f, 0f);
+            instance.DepthPad = new Vector4(DepthToWorldZ(call.Depth), call.Depth, (float)call.Blend, 0f);
             Vector4 uv = call.UvRect;
             if (uv.Z <= uv.X || uv.W <= uv.Y) uv = new Vector4(0f, 0f, 1f, 1f);
             instance.UvRect = uv;

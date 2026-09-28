@@ -42,6 +42,7 @@ public sealed class RoomBackgroundsPanel : Panel
 
         Label heading = new()
         {
+            Name = "BackgroundHeading",
             Text = "Backgrounds",
             Font = EditorChrome.HeadingFont,
             ForeColor = EditorChrome.Text,
@@ -68,6 +69,7 @@ public sealed class RoomBackgroundsPanel : Panel
         {
             _selectedSlot = _slotList.SelectedIndex;
             _editor.ActiveRoomEditContextChanged();
+            _editor.Select(ActiveBackgroundLayer);
             SyncFromSelectedSlot();
         };
 
@@ -81,6 +83,7 @@ public sealed class RoomBackgroundsPanel : Panel
 
         TableLayoutPanel table = new()
         {
+            Name = "BackgroundFields",
             Dock = DockStyle.Top,
             AutoSize = true,
             ColumnCount = 2,
@@ -111,6 +114,7 @@ public sealed class RoomBackgroundsPanel : Panel
             Text = "Select Image…",
             Dock = DockStyle.Fill,
             Height = 26,
+            AutoSize = true,
             FlatStyle = FlatStyle.Flat,
         };
         EditorChrome.StyleField(_btnPickAsset);
@@ -121,6 +125,7 @@ public sealed class RoomBackgroundsPanel : Panel
             Text = "Pick Colour…",
             Dock = DockStyle.Fill,
             Height = 26,
+            AutoSize = true,
             FlatStyle = FlatStyle.Flat,
             BackColor = Color.FromArgb(18, 23, 36),
         };
@@ -178,24 +183,28 @@ public sealed class RoomBackgroundsPanel : Panel
             Label lbl = new() { Text = labelText, ForeColor = EditorChrome.Muted, Font = EditorChrome.SmallFont, AutoSize = true, Anchor = AnchorStyles.Left };
             table.Controls.Add(lbl, 0, row);
             table.Controls.Add(field, 1, row);
+            table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             row++;
         }
 
         table.SetColumnSpan(_chkEnabled, 2);
         table.Controls.Add(_chkEnabled, 0, row++);
+        table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         AddRow("Source", _modeCombo);
         AddRow("Asset", _btnPickAsset);
         AddRow("Colour", _btnPickColor);
-        AddRow("Mode", _layoutCombo);
-        AddRow("H Speed", _numSpeedX);
-        AddRow("V Speed", _numSpeedY);
+        AddRow("Layout", _layoutCombo);
+        AddRow("Scroll X", _numSpeedX);
+        AddRow("Scroll Y", _numSpeedY);
         AddRow("Depth", _numDepth);
+        table.RowCount = row;
 
         configHost.Controls.Add(table);
         configHost.Controls.Add(_previewBox);
 
         Label previewLbl = new()
         {
+            Name = "BackgroundPreviewHeading",
             Text = "PREVIEW",
             Font = EditorChrome.HeadingFont,
             ForeColor = EditorChrome.Accent,
@@ -210,6 +219,30 @@ public sealed class RoomBackgroundsPanel : Panel
     }
 
     public void InvalidatePreview() => _previewKey = null;
+
+    public void ApplyInterfaceLayout()
+    {
+        foreach (Label heading in Controls.OfType<Label>().Concat(Controls.OfType<Panel>().SelectMany(panel => panel.Controls.OfType<Label>()))
+                     .Where(label => label.Name.EndsWith("Heading", StringComparison.Ordinal)))
+        { heading.Font = EditorChrome.HeadingFont; heading.Height = heading.Font.Height + 8; }
+        _slotList.Height = Math.Max(120, Math.Min(160, _slotList.ItemHeight * 4 + 8));
+        TableLayoutPanel table = Controls.OfType<Panel>().SelectMany(panel => panel.Controls.OfType<TableLayoutPanel>()).Single();
+        for (int row = 0; row < table.RowCount; row++)
+        {
+            Control[] fields = table.Controls.Cast<Control>().Where(control => table.GetRow(control) == row).ToArray();
+            bool image = _modeCombo.SelectedIndex == 0;
+            bool available = fields.Contains(_btnPickColor) ? !image
+                : fields.Any(control => ReferenceEquals(control, _btnPickAsset) || ReferenceEquals(control, _layoutCombo)
+                    || ReferenceEquals(control, _numSpeedX) || ReferenceEquals(control, _numSpeedY)) ? image : true;
+            foreach (Control control in fields) control.Visible = available;
+            int height = fields.Select(control => control switch
+            { ComboBox combo => combo.PreferredHeight, NumericUpDown numeric => numeric.PreferredHeight,
+                Button button => button.Font.Height + 16, _ => control.Font.Height + 6 }).DefaultIfEmpty(0).Max();
+            table.RowStyles[row].SizeType = SizeType.Absolute;
+            table.RowStyles[row].Height = available ? height + 10 : 0;
+        }
+        AutoScrollMinSize = new Size(0, Controls.Cast<Control>().Sum(control => control.Height) + Padding.Vertical + 24);
+    }
 
     private bool CanEditSlot => _editor.Navigation.CurrentSection == RoomNavSection.Backgrounds
         && (ActiveBackgroundLayer is not { } node || _editor.CanEditNodeInActiveContext(node));
@@ -277,6 +310,7 @@ public sealed class RoomBackgroundsPanel : Panel
         bool isImage = _modeCombo.SelectedIndex == 0;
         _btnPickAsset.Enabled = isImage;
         _btnPickColor.Enabled = !isImage;
+        ApplyInterfaceLayout();
     }
 
     private void UpdatePreview(RoomBackgroundData bg)
@@ -331,12 +365,18 @@ public sealed class RoomBackgroundsPanel : Panel
         using ColorDialog dialog = new() { Color = _btnPickColor.BackColor, FullOpen = true };
         int slot = _selectedSlot;
         if (dialog.ShowDialog(this) != DialogResult.OK || slot != _selectedSlot || !CanEditSlot) return;
-        ApplyBackgroundChange("Change background colour", node =>
-        {
-            node.Background ??= new RoomBackgroundData();
-            node.Background.TintArgb = dialog.Color.ToArgb();
-        });
+        AssignBackgroundColor(dialog.Color);
     }
+
+    public bool AssignBackgroundColor(Color color) => ApplyBackgroundChange("Change background colour", node =>
+        {
+            node.Enabled = true;
+            node.Background ??= new RoomBackgroundData();
+            node.Background.Mode = RoomBackgroundMode.TwoD;
+            node.Background.Asset = string.Empty;
+            node.Background.Layout = RoomBackgroundLayout.StretchView;
+            node.Background.TintArgb = color.ToArgb();
+        });
 
     private void CommitBackground()
     {

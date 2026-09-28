@@ -73,6 +73,7 @@ public sealed class PhysicsSceneConfig
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
+        PropertyNameCaseInsensitive = true,
         Converters = { new JsonStringEnumConverter() },
     };
 
@@ -151,6 +152,9 @@ public sealed class PhysicsSceneConfig
     public int SpawnCount { get; set; } = 8;
     public PhysicsSpawnLayout SpawnLayout { get; set; } = PhysicsSpawnLayout.Grid;
 
+    // Components are the persisted form. System.Text.Json otherwise writes Vector3 as {}, and
+    // deserialising that alias after GravityDirX/Y/Z overwrites the saved direction with zero.
+    [System.Text.Json.Serialization.JsonIgnore]
     public Vector3 GravityDirection
     {
         get => new(GravityDirX, GravityDirY, GravityDirZ);

@@ -6,6 +6,7 @@ using System.Windows.Forms;
 using Genesis.Application.Core.Projects;
 using Genesis.Application.Core.Resources;
 using Genesis.Application.Editors.Suite.Rooms;
+using Genesis.Application.Editors.Suite.Inspector;
 using Genesis.Application.Editors.Suite.UiKit;
 using Genesis.Application.Studio.Theme;
 using Genesis.Rendering.Meshes;
@@ -132,9 +133,9 @@ internal static class RoomContextInspectorSuite
         GateSuite.Pump(3, 20);
         RoomInspectorPanel inspector = editor.Inspector;
 
-        InspectorSection transform = Descendants(inspector).OfType<InspectorSection>()
-            .Single(section => section.Title == "Transform");
-        TableLayoutPanel transformTable = transform.Body.Controls.OfType<TableLayoutPanel>().Single();
+        TableLayoutPanel transform = Descendants(inspector).OfType<TableLayoutPanel>()
+            .Single(section => section.Name == "InspectorGroupTransform");
+        TableLayoutPanel transformTable = transform.Controls.OfType<TableLayoutPanel>().Single();
         Assert(transformTable.RowCount == 4,
             "The 3D Transform Inspector did not group position, rotation and scale into three vector rows plus Uniform.");
         foreach (string axisPath in new[]
@@ -144,34 +145,41 @@ internal static class RoomContextInspectorSuite
                      "Context.Selection.Transform.Position.Z",
                  })
         {
-            Control[] labels = inspector.Controls.Find("RoomInspectorAxis_" + SafeName(axisPath), true);
+            Control[] labels = inspector.Controls.Find("InspectorAxis_" + SafeName(axisPath), true);
             Assert(labels.Length == 1 && labels[0].Visible && labels[0].Width >= 18 && labels[0].Height >= 20
                    && labels[0].Text == axisPath[^1].ToString(),
-                "A vector axis label is missing, clipped or hidden for " + axisPath + ".");
+                "A vector axis label is missing, clipped or hidden for " + axisPath + ": "
+                + string.Join("; ", labels.Select(label => $"{label.Bounds}, visible={label.Visible}, text={label.Text}")));
         }
 
         Control modelField = Field(inspector, ModelPath);
         Control damageField = Field(inspector, DamagePath);
-        Assert(AssetText(modelField).Text == fixture.BaseModelReference,
+        Assert(AssetText(modelField).Text == ResourceNames.Name(fixture.Root, fixture.BaseModelReference),
             "The selected instance did not show its inherited model reference.");
         Assert(Numeric(damageField).Value == 4m,
             "The Room Inspector did not discover the inherited top-level PGSL variable.");
         Assert(Numeric(Field(inspector, LowerDamagePath)).Value == 6m,
             "Case-distinct PGSL field paths collapsed in the Room Inspector.");
         Assert(inspector.Controls.Find(
-                   "RoomInspectorProperty_" + SafeName("Context.Selection.Components[1].Properties.field:ExpressionValue"),
+                   "InspectorProperty_" + SafeName("Context.Selection.Components[1].Properties.field:ExpressionValue"),
                    true).Length == 0,
             "An expression initializer was presented as an editable literal PGSL field.");
-        Assert(WithinVisibleInspector(inspector, modelField) && WithinVisibleInspector(inspector, damageField),
-            "The selected object's model reference or instance variables are below the initial 900px Inspector view.");
         Assert(Field(inspector, "Context.Selection.Locked").Visible,
             "The selected instance lock control is not visible.");
+        ResourceInspectorPropertySurface surface = Descendants(inspector).OfType<ResourceInspectorPropertySurface>().Single();
+        surface.SetGroupExpanded("Instance", false);
+        surface.SetGroupExpanded("Transform", false);
+        surface.SetGroupExpanded("Object reference", true);
+        surface.SetGroupExpanded("Instance variables", true);
+        GateSuite.Pump(2, 15);
+        Assert(WithinVisibleInspector(inspector, modelField) && WithinVisibleInspector(inspector, damageField),
+            "Focusing reference and variable groups did not bring their real controls into the 900px Inspector view.");
         Editor3DInspectionSuite.Capture(ctx, host, "room-context-inspector-selected");
 
         ApplyContext(editor, first, ModelPath, fixture.OverrideModelReference);
         inspector.RefreshInspector();
-        Assert(AssetText(Field(inspector, ModelPath)).Text == fixture.OverrideModelReference,
-            "A model reference override did not refresh in the selected Inspector.");
+        Assert(AssetText(Field(inspector, ModelPath)).Text == ResourceNames.Name(fixture.Root, fixture.OverrideModelReference),
+            $"A model reference override did not refresh in the selected Inspector: shown='{AssetText(Field(inspector, ModelPath)).Text}', expected='{fixture.OverrideModelReference}'.");
         (Vector3 firstMin, Vector3 firstMax) = NodeBounds(editor, first);
         (Vector3 secondMin, Vector3 secondMax) = NodeBounds(editor, second);
         Vector3 firstSize = firstMax - firstMin;
@@ -219,12 +227,12 @@ internal static class RoomContextInspectorSuite
 
         editor.Select(second);
         GateSuite.Pump(2, 15);
-        Assert(AssetText(Field(inspector, ModelPath)).Text == fixture.BaseModelReference
+        Assert(AssetText(Field(inspector, ModelPath)).Text == ResourceNames.Name(fixture.Root, fixture.BaseModelReference)
                && Numeric(Field(inspector, DamagePath)).Value == 4m,
             "Selecting the second shared-prefab instance leaked the first instance's overrides.");
         editor.Select(first);
         GateSuite.Pump(2, 15);
-        Assert(AssetText(Field(inspector, ModelPath)).Text == fixture.OverrideModelReference
+        Assert(AssetText(Field(inspector, ModelPath)).Text == ResourceNames.Name(fixture.Root, fixture.OverrideModelReference)
                && Numeric(Field(inspector, DamagePath)).Value == 9m,
             "Returning to the overridden instance lost its effective values.");
 
@@ -279,12 +287,13 @@ internal static class RoomContextInspectorSuite
         RoomNode savedSecond = reopened.Room.Nodes.Single(node => node.Id == second.Id);
         RoomComponentOverride savedModel = Override(savedFirst, "cmp-model");
         RoomComponentOverride savedScript = Override(savedFirst, "cmp-script");
-        Assert(savedModel.Properties["ModelAsset"].ToString() == fixture.OverrideModelReference
+        Assert(ResourceNames.Name(fixture.Root, savedModel.Properties["ModelAsset"].ToString())
+                   == ResourceNames.Name(fixture.Root, fixture.OverrideModelReference)
                && savedScript.Properties["field:Damage"].ToString() == "9"
                && savedScript.Properties["field:damage"].ToString() == "12"
                && savedModel.Properties["ScaleX"].ToString() == "2"
                && savedSecond.GameObject.ComponentOverrides.Count == 0,
-            "Save/reopen lost the typed override or copied it to the other prefab instance.");
+            "Save/reopen lost the typed override or copied it to the other Object instance.");
         (Vector3 reopenedMin, Vector3 reopenedMax) = NodeBounds(reopened, savedFirst);
         (Vector3 inheritedMin, Vector3 inheritedMax) = NodeBounds(reopened, savedSecond);
         Assert((reopenedMax - reopenedMin).Y > (inheritedMax - inheritedMin).Y * 2.5f,
@@ -304,9 +313,8 @@ internal static class RoomContextInspectorSuite
         editor.Inspector.ShowRoomSettings();
         GateSuite.Pump(3, 20);
 
-        InspectorSection physics = Descendants(editor.Inspector).OfType<InspectorSection>()
-            .Single(section => section.Title == "Physics");
-        physics.Expanded = true;
+        ResourceInspectorPropertySurface properties = Descendants(editor.Inspector).OfType<ResourceInspectorPropertySurface>().Single();
+        Assert(properties.SetGroupExpanded("Physics", true), "The Physics group was not available.");
         Numeric(Field(editor.Inspector, "Context.Room.GravityX")).Value = 3m;
         Numeric(Field(editor.Inspector, "Context.Room.GravityY")).Value = -4m;
         Numeric(Field(editor.Inspector, "Context.Room.GravityZ")).Value = 0m;
@@ -450,7 +458,7 @@ internal static class RoomContextInspectorSuite
 
     private static Control Field(RoomInspectorPanel inspector, string propertyPath)
     {
-        string name = "RoomInspectorProperty_" + SafeName(propertyPath);
+        string name = "InspectorProperty_" + SafeName(propertyPath);
         Control[] controls = Descendants(inspector)
             .Where(control => control.Name.Equals(name, StringComparison.Ordinal))
             .ToArray();
@@ -461,7 +469,7 @@ internal static class RoomContextInspectorSuite
     private static NumericUpDown Numeric(Control root) => root as NumericUpDown
         ?? Descendants(root).OfType<NumericUpDown>().Single();
 
-    private static TextBox AssetText(Control root) => Descendants(root).OfType<TextBox>().Single();
+    private static ComboBox AssetText(Control root) => Descendants(root).OfType<ComboBox>().Single();
 
     private static JObject ModelProperties(JObject document)
     {

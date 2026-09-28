@@ -78,6 +78,7 @@ public sealed partial class ObjectEditorControl
                     VMEngine.Bridge.SetContext(context);
                     PgslCommands.ActiveGameContext = new NullGameContext { ProjectPath = ProjectRoot };
                     PgslCommands.ProjectPath = ProjectRoot;
+                    vm.LoadUserFunctions(compiled.UserFunctions);
                     vm.Execute(compiled.Instructions, compiled.Constants, clearVariables: true);
                 }
                 finally

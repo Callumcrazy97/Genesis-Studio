@@ -5,6 +5,7 @@ using System.Windows.Forms;
 using Genesis.Application.Core.Projects;
 using Genesis.Application.Core.Resources;
 using Genesis.Application.Editors.Suite.Rooms;
+using Genesis.Application.Editors.Suite.Inspector;
 using Genesis.Application.Editors.Suite.UiKit;
 using Genesis.Application.Studio.Theme;
 using Genesis.Runtime.Scene;
@@ -158,10 +159,14 @@ internal static class RoomSurfaceAlignmentSuite
         editor.Undo(); Assert(MatrixNear(RoomHierarchyTransforms.Matrix(node.Transform), RoomHierarchyTransforms.Matrix(before)),
             "Selected alignment undo did not restore parent-local pose."); editor.Redo();
         RoomTransform lockedPose = Clone(node.Transform);
-        editor.SetNodeLocked(node, true);
-        Assert(!Field(editor.Inspector, "Context.Placement.AlignSelected").Enabled && !editor.AlignSelectionToTerrain()
+        Assert(editor.SetNodeLocked(node, true), "The selected instance did not accept the lock command.");
+        GateSuite.Pump(2, 20);
+        editor.FlushPendingRoomUiRefresh();
+        bool buttonEnabled = Field(editor.Inspector, "Context.Placement.AlignSelected").Enabled;
+        bool alignedLocked = editor.AlignSelectionToTerrain();
+        Assert(!buttonEnabled && !alignedLocked
             && MatrixNear(RoomHierarchyTransforms.Matrix(node.Transform), RoomHierarchyTransforms.Matrix(lockedPose)),
-            "Surface alignment changed a locked instance.");
+            $"Surface alignment changed a locked instance: locked={node.Locked}, buttonEnabled={buttonEnabled}, aligned={alignedLocked}.");
         editor.Save();
         RoomAsset saved = RoomAssetLoader.Parse(roomPath);
         Assert(saved.Settings.PlacementRandomSequence == 1 && saved.Settings.RandomYaw
@@ -173,13 +178,14 @@ internal static class RoomSurfaceAlignmentSuite
 
     private static void ShowSurfaceGroups(RoomInspectorPanel panel)
     {
-        foreach (InspectorSection section in Descendants(panel).OfType<InspectorSection>())
-            section.Expanded = section.Title is "Surface alignment" or "Future placement";
+        ResourceInspectorPropertySurface properties = Descendants(panel).OfType<ResourceInspectorPropertySurface>().Single();
+        foreach (string group in properties.GroupNames)
+            properties.SetGroupExpanded(group, group is "Surface alignment" or "Future placement");
         GateSuite.Pump(2, 15);
     }
 
     private static Control Field(RoomInspectorPanel panel, string path) => panel.Controls.Find(
-        "RoomInspectorProperty_" + Regex.Replace(path, "[^A-Za-z0-9_]", "_"), true).Single();
+        "InspectorProperty_" + Regex.Replace(path, "[^A-Za-z0-9_]", "_"), true).Single();
     private static IEnumerable<Control> Descendants(Control parent)
     {
         foreach (Control child in parent.Controls)

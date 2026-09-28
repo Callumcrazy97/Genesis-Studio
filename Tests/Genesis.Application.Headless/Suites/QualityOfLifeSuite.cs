@@ -206,7 +206,7 @@ internal static class QualityOfLifeSuite
                 ResourceItem assetsRoot = new ResourceService(session).BuildTree();
                 inspector.Inspect(assetsRoot);
                 string copiedRootPath = WaitForClipboardText(
-                    "Assets", () => FindButton(inspector, "Copy path").PerformClick());
+                    "Assets", () => FindButton(inspector, "Copy name").PerformClick());
                 HeadlessHarness.Assert(
                     copiedRootPath == "Assets",
                     "Copy path did not use the Inspector's displayed 'Assets' value for the root; "
@@ -299,7 +299,7 @@ internal static class QualityOfLifeSuite
             Directory.CreateDirectory(fixtureDirectory);
 
             const string shaderBody = "float4 SecretBodyMarker() : SV_Target {\n    return 1;\n}";
-            string shaderPath = Path.Combine(fixtureDirectory, "Summary.shader.json");
+            string shaderPath = Path.Combine(fixtureDirectory, "SummaryShader.shader.json");
             File.WriteAllText(shaderPath, System.Text.Json.JsonSerializer.Serialize(new
             {
                 pipeline = "Forward",
@@ -309,7 +309,7 @@ internal static class QualityOfLifeSuite
                 parameters = new[] { "Tint" },
             }));
 
-            string modelPath = Path.Combine(fixtureDirectory, "Summary.model.json");
+            string modelPath = Path.Combine(fixtureDirectory, "SummaryModel.model.json");
             File.WriteAllText(modelPath, System.Text.Json.JsonSerializer.Serialize(new
             {
                 parts = new[] { new { name = "Body" }, new { name = "Head" } },
@@ -338,14 +338,14 @@ internal static class QualityOfLifeSuite
                 },
                 new
                 {
-                    Item = InspectorResource(session, "Images/Player Idle.image.json", ResourceKind.Image),
+                    Item = InspectorResource(session, "Sprites/Player Idle.image.json", ResourceKind.Image),
                     Includes = new[] { "32", "px", "frame", "layer" },
                     Excludes = Array.Empty<string>(),
                 },
                 new
                 {
                     Item = InspectorResource(session, "Objects/Player.object.json", ResourceKind.GameObject),
-                    Includes = new[] { "TwoD", "3 components", "6 events", "Player Idle.image.json" },
+                    Includes = new[] { "TwoD", "3 components", "6 events", "Player Idle" },
                     Excludes = Array.Empty<string>(),
                 },
                 new
@@ -526,7 +526,7 @@ internal static class QualityOfLifeSuite
                 "The Shader Editor did not retain and save typed Inspector-routed values.");
 
             string shaderConsumerPath = new ResourceService(session).CreateResource(
-                fixtureDirectory,
+                ResourceFolderPolicy.RootFor(session, ResourceKind.GameObject),
                 ResourceKind.GameObject,
                 "Shader Consumer");
             string relativeShader = Path.GetRelativePath(session.RootPath, shaderPath).Replace('\\', '/');
@@ -576,7 +576,7 @@ internal static class QualityOfLifeSuite
                 "Typed ShaderComponent overrides did not survive Object save.");
 
             inspector.LiveValueProvider = null;
-            string scriptPath = Path.Combine(fixtureDirectory, "Inspectable.pgsl");
+            string scriptPath = Path.Combine(fixtureDirectory, "InspectableScript.pgsl");
             File.WriteAllText(scriptPath,
                 "var moveSpeed = 3.5;\nvar godMode = false;\nevent Step {\n    var privateCounter = 4;\n}\n");
             using PgslScriptEditorControl scriptEditor = new(scriptPath, session.RootPath);
@@ -590,7 +590,7 @@ internal static class QualityOfLifeSuite
             inspector.Inspect(LooseResource(session, scriptPath, ResourceKind.PgslScript));
             HeadlessHarness.Assert(
                 inspector.EditablePropertyGroups.Contains(
-                    "Inspectable · SCRIPT VARIABLES", StringComparer.OrdinalIgnoreCase)
+                    "InspectableScript · SCRIPT VARIABLES", StringComparer.OrdinalIgnoreCase)
                 && inspector.EditablePropertyPaths.Contains("Variables.moveSpeed", StringComparer.OrdinalIgnoreCase)
                 && inspector.EditablePropertyPaths.Contains("Variables.godMode", StringComparer.OrdinalIgnoreCase)
                 && !inspector.EditablePropertyPaths.Contains("Variables.privateCounter", StringComparer.OrdinalIgnoreCase),
@@ -605,7 +605,7 @@ internal static class QualityOfLifeSuite
                 File.ReadAllText(scriptPath).Contains("var moveSpeed = 7.75;", StringComparison.Ordinal),
                 "The live PGSL Inspector value did not survive the Script Editor save.");
 
-            string objectPath = Path.Combine(fixtureDirectory, "Inspectable.object.json");
+            string objectPath = Path.Combine(fixtureDirectory, "InspectableObject.object.json");
             File.WriteAllText(objectPath,
                 """
                 {
@@ -695,7 +695,7 @@ internal static class QualityOfLifeSuite
             string fixtureDirectory = Path.Combine(session.AssetsPath, "InspectorLiveEditors");
             Directory.CreateDirectory(fixtureDirectory);
 
-            string roomPath = Path.Combine(fixtureDirectory, "Live.room.json");
+            string roomPath = Path.Combine(fixtureDirectory, "LiveRoom.room.json");
             RoomAsset room = RoomAsset.Create("Live Inspector Room", RoomDimension.ThreeD);
             RoomNode campfire = new()
             {
@@ -778,7 +778,7 @@ internal static class QualityOfLifeSuite
                 "Room Inspector edits did not survive the Room Editor save.");
             roomHost.Close();
 
-            string imagePath = Path.Combine(fixtureDirectory, "Live.image.json");
+            string imagePath = Path.Combine(fixtureDirectory, "LiveImage.image.json");
             ImageDocument image = ImageDocument.CreateDefault(32, 24);
             ImageDocumentSerializer.SaveAtomic(imagePath, image);
             ResourceItem imageResource = LooseResource(session, imagePath, ResourceKind.Image);
@@ -890,14 +890,14 @@ internal static class QualityOfLifeSuite
                 summary.Text.Contains("Details unavailable", StringComparison.OrdinalIgnoreCase),
                 $"A stale row did not degrade to an unavailable summary: {summary.Text}");
 
-            string largeNote = Path.Combine(fixtureDirectory, "Large.md");
+            string largeNote = Path.Combine(fixtureDirectory, "LargeNote.md");
             SetSparseLength(largeNote, (1024 * 1024) + 1);
             inspector.Inspect(LooseResource(session, largeNote, ResourceKind.Note));
             HeadlessHarness.Assert(
                 summary.Text.Contains("1 MB text summary limit", StringComparison.OrdinalIgnoreCase),
                 $"Oversized text was read or reported unclearly: {summary.Text}");
 
-            string largeShader = Path.Combine(fixtureDirectory, "Large.shader.json");
+            string largeShader = Path.Combine(fixtureDirectory, "LargeShader.shader.json");
             SetSparseLength(largeShader, (4 * 1024 * 1024) + 1);
             inspector.Inspect(LooseResource(session, largeShader, ResourceKind.Shader));
             HeadlessHarness.Assert(
@@ -1114,7 +1114,7 @@ internal static class QualityOfLifeSuite
     private static Button[] InspectorButtons(Control root) =>
     [
         FindButton(root, "Reveal"),
-        FindButton(root, "Copy path"),
+        FindButton(root, "Copy name"),
         FindButton(root, "Copy GUID"),
     ];
 
@@ -1905,8 +1905,10 @@ internal static class QualityOfLifeSuite
                 Descendants(editor).OfType<CheckBox>().All(box => box.Text is not "Uses physics" and not "3D object"),
                 "Physics and 3D toggles still appear on the compact Object Editor left panel.");
             HeadlessHarness.Assert(
-                Descendants(editor).OfType<Button>().Any(button => button.Text.Contains("Add Event", StringComparison.Ordinal)),
-                "The Object Editor left panel is missing Add Event.");
+                Descendants(editor).OfType<ToolStrip>().SelectMany(strip => strip.Items.Cast<ToolStripItem>())
+                    .Count(item => item.Text == "Add event…") == 1
+                && !Descendants(editor).OfType<Button>().Any(button => button.Text == "Add Event"),
+                "The primary Add event command is absent or duplicated in the sidebar.");
             HeadlessHarness.Assert(
                 !Descendants(editor).OfType<Button>().Any(button => button.Text.Contains("Remove selected event", StringComparison.Ordinal)),
                 "Remove selected event should not live on the compact left panel.");

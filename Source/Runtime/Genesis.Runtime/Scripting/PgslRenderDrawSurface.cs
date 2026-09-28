@@ -4,6 +4,7 @@ using System.Numerics;
 using Genesis.Runtime.ECS.Components;
 using Genesis.Runtime.Modeling;
 using Genesis.Runtime.Rendering;
+using Genesis.Shared.Assets;
 using Genesis.Shared.Interfaces;
 
 namespace Genesis.Runtime.Scripting
@@ -57,6 +58,7 @@ namespace Genesis.Runtime.Scripting
         }
 
         public bool Is3DActive => _is3DActive;
+        public Size GuiSize => _isGui ? new Size(_width, _height) : Size.Empty;
 
         /// <summary>GUI sprites share the primitive layer, preserving authored panel/icon order.</summary>
         public int SpriteDepth => _isGui ? -10000 : 0;
@@ -113,10 +115,39 @@ namespace Genesis.Runtime.Scripting
         public void DrawText(string text, string font, float size, Color color, Rectangle bounds)
         {
             if (string.IsNullOrEmpty(text)) return;
+            font = ResolveFont(font);
             if (_hud is not null)
-                _hud.Text(text, bounds.X, bounds.Y, size <= 0f ? 12f : size, ToVector(color));
+                _hud.Text(text, bounds.X, bounds.Y, size <= 0f ? 12f : size, ToVector(color), font);
             else
-                _renderer?.DrawText(text, bounds.X, bounds.Y, size <= 0f ? 12f : size, ToRender(color));
+                _renderer?.DrawText(text, bounds.X, bounds.Y, size <= 0f ? 12f : size, ToRender(color), font);
+        }
+
+        public void DrawUiText(string text, string font, float size, Color color, Rectangle bounds, bool centered)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            font = ResolveFont(font);
+            size = MathF.Max(1, size);
+            float y = bounds.Y + MathF.Max(0, (bounds.Height - size * 1.2f) / 2);
+            if (!centered)
+            {
+                if (_hud is not null) _hud.Text(text, bounds.X, y, size, ToVector(color), font);
+                else _renderer?.DrawText(text, bounds.X, y, size, ToRender(color), font);
+            }
+            else
+            {
+                float center = bounds.X + bounds.Width / 2f;
+                if (_hud is not null) _hud.TextCentered(text, center, y, bounds.Width, size, ToVector(color), font);
+                else _renderer?.DrawTextCentered(text, center, y, bounds.Width, size, ToRender(color), font);
+            }
+        }
+
+        private string ResolveFont(string font)
+        {
+            if (string.IsNullOrWhiteSpace(font)) return "Segoe UI";
+            if (!font.EndsWith(".ttf", StringComparison.OrdinalIgnoreCase)
+                && !font.EndsWith(".otf", StringComparison.OrdinalIgnoreCase)) return font;
+            string project = _projectPath ?? PgslCommands.ProjectPath;
+            return string.IsNullOrWhiteSpace(project) ? font : ResourceNames.ResolveFile(project, font);
         }
 
         public void DrawText3D(
@@ -138,7 +169,7 @@ namespace Genesis.Runtime.Scripting
             if (ndcZ < 0f || ndcZ > 1f || MathF.Abs(ndcX) > 1.1f || MathF.Abs(ndcY) > 1.1f) return;
             float screenX = (ndcX * 0.5f + 0.5f) * _width;
             float screenY = (-ndcY * 0.5f + 0.5f) * _height;
-            _renderer.DrawText(text, screenX, screenY, MathF.Max(1f, size), ToRender(color));
+            _renderer.DrawText(text, screenX, screenY, MathF.Max(1f, size), ToRender(color), ResolveFont(font));
         }
 
         public void DrawSprite(string spriteName, float x, float y, int frame,
@@ -149,6 +180,17 @@ namespace Genesis.Runtime.Scripting
             ObjectDrawPass.QueueSprite2D(_projectPath ?? PgslCommands.ProjectPath, queue, _renderer,
                 new ObjectDrawAssetEntry(), new TransformComponent { X = x, Y = y, ScaleX = xscale, ScaleY = yscale, ScaleZ = 1, Rotation = angle },
                 new Draw2DComponent { Visible = true, Depth = SpriteDepth }, spriteName, frame, alpha, 0, 0, 1, ToRender(blend));
+            if (_commands == null) ((FrameRenderQueue)queue).Flush(_renderer, includeMeshes: false);
+        }
+
+        public void DrawSpriteRectangle(string spriteName, RectangleF destination, int frame, Color blend, float alpha)
+        {
+            if (_renderer == null) return;
+            var queue = _commands ?? new FrameRenderQueue();
+            ObjectDrawPass.QueueSprite2D(_projectPath ?? PgslCommands.ProjectPath, queue, _renderer,
+                new ObjectDrawAssetEntry(), new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 },
+                new Draw2DComponent { Visible = true, Depth = SpriteDepth }, spriteName, frame, alpha, 0, 0, 1,
+                ToRender(blend), destination);
             if (_commands == null) ((FrameRenderQueue)queue).Flush(_renderer, includeMeshes: false);
         }
 

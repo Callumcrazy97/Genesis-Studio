@@ -1,3 +1,4 @@
+#nullable enable annotations
 using System;
 using System.Numerics;
 using Genesis.Rendering.Primitives;
@@ -16,8 +17,10 @@ namespace Genesis.Runtime.Particles;
 /// a direct call beats the old Task.Run/Wait path, which added per-frame allocation and
 /// thread-pool latency with no real GPU overlap.
 /// </summary>
-public sealed class ParticleSimulation
+public sealed partial class ParticleSimulation
 {
+    public readonly record struct ParticleEvent(ParticleEventTrigger Trigger, Vector3 Position, Vector3 Velocity);
+    public event Action<ParticleEvent>? Occurred;
     private struct ParticleState
     {
         public Vector3 Position;
@@ -28,6 +31,10 @@ public sealed class ParticleSimulation
         public float RotationVelocity;  // degrees/second
         public float PreviousSpeedScale;
         public float ColorJitter;
+        public uint Serial;
+        public uint PreviousSerial;
+        public float TrailClock;
+        public bool Stuck;
     }
 
     private ParticleConfig _config = new();
@@ -48,6 +55,10 @@ public sealed class ParticleSimulation
     // ParticleConfig.FollowCameraXZ is set, in which case UpdateCameraPosition keeps it pinned
     // to the camera's XZ position so weather (rain/snow) always falls around the player.
     private Vector3 _originOffset = Vector3.Zero;
+    private Matrix4x4 _planarTransform = Matrix4x4.Identity;
+
+    /// <summary>Pixel placement for the planar simulation, including authored rotation and scale.</summary>
+    public void SetPlanarTransform(Matrix4x4 transform) => _planarTransform = transform;
 
     public int ActiveCount => _count;
     public int Capacity    => _particles.Length;
@@ -82,6 +93,7 @@ public sealed class ParticleSimulation
     {
         _count = 0;
         _emitAccumulator = 0f;
+        _lastBirthSerial = 0; _nextBirthSerial = 0; _planarSeconds = 0;
         if (!_config.Loop && _config.BurstCount > 0)
             Burst();
     }
@@ -130,12 +142,22 @@ public sealed class ParticleSimulation
             Emit();
     }
 
+    /// <summary>Spawns linked particles at a source event's world position with inherited motion.</summary>
+    public int BurstAt(int requestedCount, Vector3 worldPosition, Vector3 worldVelocity, float inheritedVelocity)
+    {
+        int count = Math.Min(Math.Max(0, requestedCount), _particles.Length - _count);
+        for (int index = 0; index < count; index++)
+            Emit(worldPosition, worldVelocity, inheritedVelocity);
+        return count;
+    }
+
     // ── Simulation step ──────────────────────────────────────────────────────
 
     /// <summary>Synchronous step — safe to call from any thread at any time.</summary>
     public void Step(float dt)
     {
         if (dt <= 0f) return;
+        _planarSeconds += dt;
 
         Vector3 gravity = new((float)_config.GravityX, (float)_config.Gravity, (float)_config.GravityZ);
         float damping    = MathF.Max(0f, 1f - (float)_config.Drag * dt);
@@ -146,14 +168,21 @@ public sealed class ParticleSimulation
         for (int i = 0; i < _count; i++)
         {
             ref ParticleState p = ref _particles[i];
+            Vector3 previousPosition = p.Position;
+            float previousAge = p.Age;
             p.Age += dt;
-            if (p.Age >= p.Life)
+            if (previousAge < p.Life && p.Age >= p.Life)
+                Notify(p, ParticleEventTrigger.Death);
+            bool trail = _config.IsPlanar2D && _config.RendererKind == ParticleRendererKind.Trail;
+            if (p.Age >= p.Life + (trail ? (float)_config.TrailDuration : 0))
             {
-                _count--;
-                if (i < _count) _particles[i] = _particles[_count];
+                RemoveParticle(i);
                 i--;
                 continue;
             }
+            if (p.Age >= p.Life) continue;
+            if (p.Stuck && _config.CollisionMode == ParticleCollisionMode.Stick) continue;
+            p.Stuck = false;
 
             p.Velocity += gravity * dt;
 
@@ -161,7 +190,7 @@ public sealed class ParticleSimulation
             {
                 p.Velocity.X += RandSym() * turbulence * dt;
                 p.Velocity.Y += RandSym() * turbulence * 0.25f * dt;
-                p.Velocity.Z += RandSym() * turbulence * dt;
+                if (!_config.IsPlanar2D) p.Velocity.Z += RandSym() * turbulence * dt;
             }
 
             float lifeTime = p.Life > 0f ? Math.Clamp(p.Age / p.Life, 0f, 1f) : 1f;
@@ -180,6 +209,18 @@ public sealed class ParticleSimulation
             p.Position.Z += windZ * dt;
             p.Rotation   += p.RotationVelocity * dt;
 
+            if (_config.IsPlanar2D)
+            {
+                CollidePlanar(ref p, previousPosition, dt);
+                if (trail) UpdatePlanarTrail(i, ref p, dt);
+                if (p.Age >= p.Life && !trail)
+                {
+                    RemoveParticle(i);
+                    i--;
+                }
+                continue;
+            }
+
             float collisionHeight = (float)_config.CollisionPlaneHeight;
             if (_collisionHeightProvider != null && (_config.CollideWithTerrain || _config.CollideWithGeometry))
             {
@@ -187,9 +228,11 @@ public sealed class ParticleSimulation
                 if (float.IsFinite(sampled)) collisionHeight = sampled;
             }
             if (_config.CollisionMode != ParticleCollisionMode.None
-                && p.Position.Y <= collisionHeight)
+                && (_config.IsPlanar2D ? p.Position.Y >= collisionHeight : p.Position.Y <= collisionHeight))
             {
                 p.Position.Y = collisionHeight;
+                Notify(p, _config.CollisionMode == ParticleCollisionMode.Die
+                    ? ParticleEventTrigger.Collision | ParticleEventTrigger.Death : ParticleEventTrigger.Collision);
                 switch (_config.CollisionMode)
                 {
                     case ParticleCollisionMode.Die:
@@ -197,9 +240,11 @@ public sealed class ParticleSimulation
                         break;
                     case ParticleCollisionMode.Stick:
                         p.Velocity = Vector3.Zero;
+                        p.Stuck = true;
                         break;
                     case ParticleCollisionMode.Bounce:
-                        p.Velocity.Y = MathF.Abs(p.Velocity.Y) * (float)Math.Clamp(_config.CollisionBounce, 0d, 1.5d);
+                        p.Velocity.Y = (_config.IsPlanar2D ? -1 : 1) * MathF.Abs(p.Velocity.Y)
+                            * (float)Math.Clamp(_config.CollisionBounce, 0d, 1.5d);
                         p.Velocity.X *= 0.8f;
                         p.Velocity.Z *= 0.8f;
                         break;
@@ -220,6 +265,48 @@ public sealed class ParticleSimulation
                 }
             }
         }
+    }
+
+    private void CollidePlanar(ref ParticleState particle, Vector3 previousPosition, float dt)
+    {
+        if (_config.CollisionMode == ParticleCollisionMode.None) return;
+        bool local = _config.SimulationSpace == ParticleSimulationSpace.Local;
+        Vector3 start = local ? Vector3.Transform(previousPosition, _planarTransform) : previousPosition;
+        Vector3 end = local ? Vector3.Transform(particle.Position, _planarTransform) : particle.Position;
+        float floor = Vector3.Transform(new Vector3(0, (float)_config.CollisionPlaneHeight, 0), _planarTransform).Y;
+        float radius = MathF.Max(.001f, (float)Math.Min(_config.StartSize, Math.Max(_config.EndSize, .001)) * .25f);
+        floor -= radius;
+        if (end.Y <= floor) return;
+
+        float fraction = start.Y >= floor ? 0 : Math.Clamp((floor - start.Y) / MathF.Max(1e-8f, end.Y - start.Y), 0, 1);
+        Vector3 position = Vector3.Lerp(start, end, fraction);
+        position.Y = floor - .0005f;
+        Vector3 velocity = local ? Vector3.TransformNormal(particle.Velocity, _planarTransform) : particle.Velocity;
+        switch (_config.CollisionMode)
+        {
+            case ParticleCollisionMode.Die:
+                particle.Age = particle.Life;
+                velocity = Vector3.Zero;
+                break;
+            case ParticleCollisionMode.Stick:
+                velocity = Vector3.Zero;
+                particle.Stuck = true;
+                break;
+            case ParticleCollisionMode.Bounce:
+                velocity.Y = -MathF.Abs(velocity.Y);
+                velocity *= (float)Math.Clamp(_config.CollisionBounce, 0, 1.5);
+                position += velocity * dt * (1 - fraction);
+                break;
+        }
+        if (local && Matrix4x4.Invert(_planarTransform, out Matrix4x4 inverse))
+        {
+            position = Vector3.Transform(position, inverse);
+            velocity = Vector3.TransformNormal(velocity, inverse);
+        }
+        particle.Position = position;
+        particle.Velocity = velocity;
+        Notify(particle, _config.CollisionMode == ParticleCollisionMode.Die
+            ? ParticleEventTrigger.Collision | ParticleEventTrigger.Death : ParticleEventTrigger.Collision);
     }
 
     // ── Render ───────────────────────────────────────────────────────────────
@@ -445,12 +532,19 @@ public sealed class ParticleSimulation
     {
         if (_count <= 0 || buffer.Length == 0)
             return 0;
+        if (_config.IsPlanar2D && _config.RendererKind != ParticleRendererKind.Billboard)
+            return FillPlanarSegments(buffer, centerX, centerY, zoom, texture);
 
         float startSize  = (float)_config.StartSize;
         float endSize    = (float)_config.EndSize;
         float sizeXScale = (float)_config.SizeXScale;
         float sizeYScale = (float)_config.SizeYScale;
-        float pixelScale = MathF.Max(4f, zoom * 12f);
+        float pixelScale = _config.IsPlanar2D ? zoom : MathF.Max(4f, zoom * 12f);
+        if (_config.IsPlanar2D)
+        {
+            sizeXScale *= new Vector2(_planarTransform.M11, _planarTransform.M12).Length();
+            sizeYScale *= new Vector2(_planarTransform.M21, _planarTransform.M22).Length();
+        }
 
         ParticleColor sc = _config.StartColor ?? new ParticleColor();
         ParticleColor mc = _config.MidColor;
@@ -466,20 +560,48 @@ public sealed class ParticleSimulation
                 ? _config.SizeOverLifetime?.Evaluate(t) ?? t
                 : ParticleCurveMath.Evaluate(_config.SizeCurve, t);
             float size = Lerp(startSize, endSize, sizeTime);
-            float w = size * (sizeXScale > 0f ? sizeXScale : 1f) * pixelScale;
-            float h = size * (sizeYScale > 0f ? sizeYScale : 1f) * pixelScale;
+            float w = MathF.Max(2f, size * (sizeXScale > 0f ? sizeXScale : 1f) * pixelScale);
+            float h = MathF.Max(2f, size * (sizeYScale > 0f ? sizeYScale : 1f) * pixelScale);
             RenderColor col = ApplyColorJitter(EvaluateGradient(t, sc, mc, ec, midPt, _config.AlphaCurve), p.ColorJitter);
+            Vector3 position = _config.IsPlanar2D && _config.SimulationSpace == ParticleSimulationSpace.Local
+                ? Vector3.Transform(p.Position, _planarTransform) : p.Position;
+
+            float rotation = p.Rotation;
+            if (_config.Alignment == ParticleAlignment.Velocity || _config.DownwardEmit)
+            {
+                Vector3 direction = _config.SimulationSpace == ParticleSimulationSpace.Local && _config.IsPlanar2D
+                    ? Vector3.TransformNormal(p.Velocity, _planarTransform) : p.Velocity;
+                if (direction.X * direction.X + direction.Y * direction.Y > 1e-8)
+                    rotation += MathF.Atan2(direction.X, -direction.Y) * (180f / MathF.PI);
+            }
+            if (_config.Alignment == ParticleAlignment.Velocity)
+                h *= 1 + p.Velocity.Length() * (float)Math.Max(0, _config.VelocityStretch);
+            Vector4 uv = default;
+            if (_config.UseFlipbook)
+            {
+                int columns = Math.Clamp(_config.FlipbookColumns, 1, 64), rows = Math.Clamp(_config.FlipbookRows, 1, 64);
+                int frame = (int)(p.Age * Math.Max(0, _config.FlipbookFps)) % (columns * rows);
+                int column = frame % columns, row = frame / columns;
+                uv = new Vector4(column / (float)columns, row / (float)rows,
+                    (column + 1) / (float)columns, (row + 1) / (float)rows);
+            }
 
             buffer[i] = new SpriteDrawCall
             {
+                Blend = _config.BlendMode switch
+                {
+                    ParticleBlendMode.Additive => BlendMode.Additive, ParticleBlendMode.Multiply => BlendMode.Multiply, _ => BlendMode.Alpha,
+                },
+                SmoothSampling = true,
                 Texture  = texture,
-                X        = centerX + p.Position.X * zoom,
-                Y        = centerY + p.Position.Y * zoom,
+                X        = centerX + position.X * zoom,
+                Y        = centerY + position.Y * zoom,
                 Width    = MathF.Max(2f, w),
                 Height   = MathF.Max(2f, h),
                 OriginX  = w * 0.5f,
                 OriginY  = h * 0.5f,
-                Rotation = p.Rotation,
+                Rotation = rotation,
+                UvRect = uv,
                 Alpha    = col.A,
                 Tint     = new RenderColor(col.R, col.G, col.B, 1f),
             };
@@ -646,7 +768,17 @@ public sealed class ParticleSimulation
 
     // ── Emission ─────────────────────────────────────────────────────────────
 
-    private void Emit()
+    private void Notify(in ParticleState particle, ParticleEventTrigger trigger)
+    {
+        if (Occurred is null) return;
+        Vector3 position = _config.IsPlanar2D && _config.SimulationSpace == ParticleSimulationSpace.Local
+            ? Vector3.Transform(particle.Position, _planarTransform) : particle.Position;
+        Vector3 velocity = _config.IsPlanar2D && _config.SimulationSpace == ParticleSimulationSpace.Local
+            ? Vector3.TransformNormal(particle.Velocity, _planarTransform) : particle.Velocity;
+        Occurred(new ParticleEvent(trigger, position, velocity));
+    }
+
+    private void Emit(Vector3? eventWorldPosition = null, Vector3? eventWorldVelocity = null, float inheritedVelocity = 0)
     {
         if (_count >= _particles.Length) return;
 
@@ -669,7 +801,9 @@ public sealed class ParticleSimulation
             {
                 float ang = _rng.NextSingle() * MathF.Tau;
                 float rad = MathF.Sqrt(_rng.NextSingle()) * emitR;
-                pos = new Vector3(MathF.Cos(ang) * rad, 0f, MathF.Sin(ang) * rad);
+                pos = _config.IsPlanar2D
+                    ? new Vector3(MathF.Cos(ang) * rad, MathF.Sin(ang) * rad, 0)
+                    : new Vector3(MathF.Cos(ang) * rad, 0f, MathF.Sin(ang) * rad);
                 dir = ConeDirection(MathF.PI / 180f * (float)_config.SpreadDegrees * 0.5f);
                 break;
             }
@@ -677,11 +811,15 @@ public sealed class ParticleSimulation
             case ParticleEmitShape.Ring:
             {
                 float ang        = _rng.NextSingle() * MathF.Tau;
-                pos = new Vector3(MathF.Cos(ang) * emitR, 0f, MathF.Sin(ang) * emitR);
+                pos = _config.IsPlanar2D
+                    ? new Vector3(MathF.Cos(ang) * emitR, MathF.Sin(ang) * emitR, 0)
+                    : new Vector3(MathF.Cos(ang) * emitR, 0f, MathF.Sin(ang) * emitR);
                 float radialBias = (float)_config.SpreadDegrees / 180f - 1f;
-                var tangent  = Vector3.Normalize(new Vector3(-MathF.Sin(ang), 0f,  MathF.Cos(ang)));
-                var radial   = new Vector3(MathF.Cos(ang), 0f, MathF.Sin(ang));
-                dir = Vector3.Normalize(tangent + Vector3.UnitY * 0.6f + radial * radialBias * 0.5f);
+                var tangent = _config.IsPlanar2D ? new Vector3(-MathF.Sin(ang), MathF.Cos(ang), 0)
+                    : new Vector3(-MathF.Sin(ang), 0, MathF.Cos(ang));
+                var radial = Vector3.Normalize(pos);
+                dir = Vector3.Normalize(tangent + (_config.IsPlanar2D ? Vector3.Zero : Vector3.UnitY * .6f)
+                    + radial * radialBias * .5f);
                 break;
             }
 
@@ -698,6 +836,7 @@ public sealed class ParticleSimulation
                 if (_meshSurfaceSamples.Length > 0)
                 {
                     pos = _meshSurfaceSamples[_rng.Next(_meshSurfaceSamples.Length)];
+                    if (_config.IsPlanar2D) pos = new Vector3(pos.X, pos.Y, 0) * Particle2DLayout.PixelsPerUnit;
                     dir = Vector3.Normalize(pos.LengthSquared() > 1e-6f ? pos : Vector3.UnitY);
                     break;
                 }
@@ -732,7 +871,13 @@ public sealed class ParticleSimulation
         }
 
         // Precipitation falls from the sky: flip the launch so it points downward.
-        if (_config.DownwardEmit) dir.Y = -MathF.Abs(dir.Y);
+        if (_config.IsPlanar2D)
+        {
+            pos.Y = -pos.Y;
+            dir.Y = -dir.Y;
+            pos.Z = 0; dir.Z = 0;
+        }
+        if (_config.DownwardEmit) dir.Y = (_config.IsPlanar2D ? 1 : -1) * MathF.Abs(dir.Y);
 
         float startRot = RandSym() * (float)_config.RotationVariance * 180f;
         float rotVel   = (float)_config.RotationSpeed * (1f + RandSym() * 0.3f);
@@ -740,25 +885,59 @@ public sealed class ParticleSimulation
         // Recentre the spawn point under the tracked origin (camera XZ for precipitation
         // presets, Vector3.Zero otherwise — see UpdateCameraPosition). In-flight particles are
         // unaffected; only new spawns shift, so existing motion stays exactly as it was.
-        pos += _originOffset;
+        Vector3 velocity = dir * speed;
+        if (_config.IsPlanar2D)
+        {
+            if (_config.SimulationSpace == ParticleSimulationSpace.World)
+            {
+                pos = Vector3.Transform(pos, _planarTransform);
+                velocity = Vector3.TransformNormal(velocity, _planarTransform);
+            }
+        }
+        else pos += _originOffset;
+        if (eventWorldPosition is Vector3 eventPosition)
+        {
+            if (_config.IsPlanar2D && _config.SimulationSpace == ParticleSimulationSpace.Local
+                && Matrix4x4.Invert(_planarTransform, out Matrix4x4 inverse))
+            {
+                pos += Vector3.Transform(eventPosition, inverse);
+                if (eventWorldVelocity is Vector3 inherited)
+                    velocity += Vector3.TransformNormal(inherited, inverse) * inheritedVelocity;
+            }
+            else
+            {
+                pos += eventPosition - new Vector3(_planarTransform.M41, _planarTransform.M42, _planarTransform.M43);
+                if (eventWorldVelocity is Vector3 inherited) velocity += inherited * inheritedVelocity;
+            }
+        }
 
         _particles[_count++] = new ParticleState
         {
             Position         = pos,
-            Velocity         = dir * speed,
+            Velocity         = velocity,
             Age              = 0f,
             Life             = life,
             Rotation         = startRot,
             RotationVelocity = rotVel,
             PreviousSpeedScale = 1f,
             ColorJitter      = RandSym() * (float)Math.Clamp(_config.ColorJitter, 0d, 1d),
+            Serial           = ++_nextBirthSerial,
+            PreviousSerial   = _lastBirthSerial,
         };
+        _lastBirthSerial = _nextBirthSerial;
+        InitialisePlanarTrail(_count - 1);
+        Notify(_particles[_count - 1], ParticleEventTrigger.Birth);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private Vector3 ConeDirection(float halfAngle)
     {
+        if (_config.IsPlanar2D)
+        {
+            float angle = RandSym() * Math.Clamp(halfAngle, 0f, MathF.PI);
+            return new Vector3(MathF.Sin(angle), MathF.Cos(angle), 0);
+        }
         float cosA     = MathF.Cos(Math.Clamp(halfAngle, 0f, MathF.PI));
         float cosTheta = Lerp(cosA, 1f, _rng.NextSingle());
         float sinTheta = MathF.Sqrt(MathF.Max(0f, 1f - cosTheta * cosTheta));
@@ -768,6 +947,11 @@ public sealed class ParticleSimulation
 
     private Vector3 RandomOnSphere()
     {
+        if (_config.IsPlanar2D)
+        {
+            float angle = _rng.NextSingle() * MathF.Tau;
+            return new Vector3(MathF.Cos(angle), MathF.Sin(angle), 0);
+        }
         float z   = RandSym();
         float phi = _rng.NextSingle() * MathF.Tau;
         float r   = MathF.Sqrt(MathF.Max(0f, 1f - z * z));
@@ -777,7 +961,7 @@ public sealed class ParticleSimulation
     private void EnsureCapacity()
     {
         int cap = Math.Max(1, _config.MaxParticles);
-        if (_particles.Length == cap) return;
+        if (_particles.Length == cap) { EnsurePlanarTrails(); return; }
         var resized = new ParticleState[cap];
         int keep = Math.Min(_count, cap);
         Array.Copy(_particles, resized, keep);
@@ -786,6 +970,7 @@ public sealed class ParticleSimulation
         _frameIndexBuffer = new int[cap];
         _groupScratch = new MeshInstanceData[cap];
         _count = keep;
+        EnsurePlanarTrails();
     }
 
     private float RandSym() => _rng.NextSingle() * 2f - 1f;

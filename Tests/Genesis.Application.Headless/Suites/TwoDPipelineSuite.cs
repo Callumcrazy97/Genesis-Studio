@@ -282,7 +282,8 @@ internal static class TwoDPipelineSuite
             HeadlessHarness.Assert(room.Backgrounds.Count == 1, "The background layer was not added.");
 
             // (b) Tile painting — including choosing WHICH tile from the sheet.
-            room.BeginTilePainting(tileImage);
+            room.Navigation.SetSection(RoomNavSection.Tilesets);
+            HeadlessHarness.Assert(room.Navigation.TilesetsPanel.SelectTileset(tileImage), "The visible tile-set selector did not start painting.");
             HeadlessHarness.Assert(room.IsTilePainting, "Selecting a tile set did not arm tile painting.");
             HeadlessHarness.Assert(
                 room.ActiveTileIndex == 0,
@@ -406,7 +407,8 @@ internal static class TwoDPipelineSuite
             RoomEditorControl room = (RoomEditorControl)host.Controls[0];
             Pump(10, 30);
 
-            room.BeginTilePainting(tileImage);
+            room.Navigation.SetSection(RoomNavSection.Tilesets);
+            HeadlessHarness.Assert(room.Navigation.TilesetsPanel.SelectTileset(tileImage), "The visible tile-set selector did not resume painting.");
             HeadlessHarness.Assert(
                 room.TilePicker.HasSheet,
                 "The picker did not load the armed sheet. " + room.TilePicker.LoadDiagnostic);
@@ -582,7 +584,7 @@ internal static class TwoDPipelineSuite
                          "Assets/Sprites/Sky.image.json",
                          "Assets/Sprites/Player Idle.image.json",
                          "Assets/Sprites/Player Run.image.json",
-                         "Assets/Sprites/Coin.image.json",
+                         "Assets/Sprites/Coin Sprite.image.json",
                          "Assets/Audio/Pickup.wav",
                          "Assets/Objects/Player.object.json",
                          "Assets/Objects/Coin.object.json",
@@ -593,6 +595,11 @@ internal static class TwoDPipelineSuite
                     File.Exists(Path.Combine(root, expected.Replace('/', Path.DirectorySeparatorChar))),
                     $"The 2D template did not create '{expected}'.");
             }
+
+            string coinDefinition = Path.Combine(root, "Assets", "Objects", "Coin.object.json");
+            var coinEvents = ObjectEventStore.Load(coinDefinition);
+            HeadlessHarness.Assert(coinEvents.ContainsKey("Create") && coinEvents.ContainsKey("Step"),
+                "The coin's image name displaced its Object or detached its event folder.");
 
             // The art must be real pixels the room can draw, not empty documents.
             string tileSheet = Path.Combine(root, "Assets", "Sprites", "Tiles.image.json");
@@ -824,6 +831,7 @@ internal static class TwoDPipelineSuite
     /// </summary>
     private static void PlaceAtWorld(RoomEditorControl room, string objectPath, Vector2 world)
     {
+        room.Navigation.SetSection(RoomNavSection.Objects);
         room.BeginPlacement(objectPath);
         Point at = room.ClientFromWorld2D(world);
         room.EditorPointerDown(at, MouseButtons.Left, Keys.None);

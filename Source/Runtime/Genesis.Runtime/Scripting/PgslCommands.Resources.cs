@@ -18,12 +18,12 @@ public static partial class PgslCommands
     [PgslCommand("ResourceTypeOf", "ResourceTypeOf(name) -> string", "Return the resource type for a project name, or an empty string when absent", "Resources")]
     public static string ResourceTypeOf(string name) => string.IsNullOrWhiteSpace(ProjectPath) ? string.Empty
         : ResourceNames.For(ProjectPath).Find(name)?.Type.ToString() ?? string.Empty;
-    [PgslCommand("ScriptExecute", "ScriptExecute(name, ...) -> value", "Execute a named PGSL Script resource; supports spaces in resource names", "Resources")]
+    [PgslCommand("ScriptExecute", "ScriptExecute(name, ...) -> value", "Execute a named PGSL Script resource; supports spaces in resource names. Returns 0 when no Script VM is active", "Resources")]
     public static object ScriptExecute(string name, params object[] arguments)
     {
-        ScriptAssetRegistry.EnsureProjectLoaded(ProjectPath);
         if (GetContext()?.ActiveVm is not PgslVm vm)
-            throw new InvalidOperationException("ScriptExecute requires an active Object event or Script execution context.");
+            return 0;
+        ScriptAssetRegistry.EnsureProjectLoaded(ProjectPath);
         string canonical = ResourceNames.For(ProjectPath).Find(name, ResourceType.Script)?.Name;
         if (string.IsNullOrEmpty(canonical)) throw new InvalidOperationException($"Unknown Script resource '{name}'.");
         return ScriptAssetRegistry.ExecuteWithReturn(vm, canonical, arguments ?? Array.Empty<object>()) ?? 0;

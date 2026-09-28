@@ -13,6 +13,7 @@ public sealed partial class VisualActionGraphCanvas
     private BlueprintLayout _layout = new([], []);
     private string _eventCaption = "Create";
     private bool _routineEntry;
+    private bool _scriptEntry;
     private string _routineReturnType = "Void";
     private readonly List<(string Name, BlueprintValueType Type)> _routineParameters = [];
     private readonly Dictionary<(string Id, string Name), RectangleF> _fieldHits = [];
@@ -49,9 +50,10 @@ public sealed partial class VisualActionGraphCanvas
         UpdateExtent(); Invalidate();
     }
 
-    internal void SetRoutineHeader(string name, IEnumerable<(string Name, BlueprintValueType Type)> parameters, string returnType)
+    internal void SetRoutineHeader(string name, IEnumerable<(string Name, BlueprintValueType Type)> parameters, string returnType, bool scriptEntry = false)
     {
         _routineEntry = true;
+        _scriptEntry = scriptEntry;
         _eventCaption = name;
         _routineReturnType = string.IsNullOrWhiteSpace(returnType) ? "Void" : returnType;
         _routineParameters.Clear();
@@ -63,6 +65,7 @@ public sealed partial class VisualActionGraphCanvas
     public void ClearRoutineHeader()
     {
         _routineEntry = false;
+        _scriptEntry = false;
         _routineParameters.Clear();
         Invalidate();
     }
@@ -90,7 +93,7 @@ public sealed partial class VisualActionGraphCanvas
     public IReadOnlyList<CommentFrame> CommentFrames => _layout.Comments;
     private RectangleF BlueprintBounds(VisualActionBlock block, int index)
     {
-        var position = _layout.Nodes.GetValueOrDefault(block.Id) ?? new NodePosition(230 + index % 2 * 270, 150 + index / 2 * (NodeHeight + 80));
+        var position = _layout.Nodes.GetValueOrDefault(block.Id) ?? new NodePosition((_routineEntry ? 360 : 230) + index % 2 * 270, 150 + index / 2 * (NodeHeight + 80));
         var bounds = new RectangleF(position.X, position.Y, NodeWidth, 86 + Math.Max(1, block.Parameters.Count) * 29 + (block.Body.Length > 0 ? 64 : 0));
         if (!_layout.Nodes.ContainsKey(block.Id))
         {
@@ -143,14 +146,14 @@ public sealed partial class VisualActionGraphCanvas
         DrawCommentFrames(g);
         var start = EventBounds;
         using (var path = Rounded(start, 7)) { using var fill = new SolidBrush(Color.FromArgb(89, 35, 40)); g.FillPath(fill, path); }
-        DrawText(g, _routineEntry ? "Function  " + _eventCaption : "On " + _eventCaption,
+        DrawText(g, _routineEntry ? (_scriptEntry ? "Script  " : "Function  ") + _eventCaption : "On " + _eventCaption,
             new(start.X + 12, start.Y + 9, start.Width - 20, 28), Color.White, true);
         float executionY = start.Y + 48;
         DrawExecutionPin(g, new(start.Right, executionY));
         _outputPins["$event"] = new(start.Right, executionY);
         if (_routineEntry)
         {
-            DrawText(g, "Returns " + _routineReturnType, new(start.X + 12, start.Y + 34, start.Width - 30, 22), Color.LightSteelBlue);
+            DrawText(g, _scriptEntry ? "Entry code · arguments supplied by caller" : "Returns " + _routineReturnType, new(start.X + 12, start.Y + 34, start.Width - 30, 22), Color.LightSteelBlue);
             float parameterY = start.Y + 68;
             foreach ((string name, BlueprintValueType type) in _routineParameters)
             {

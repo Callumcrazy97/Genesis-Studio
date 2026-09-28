@@ -10,8 +10,16 @@ namespace Genesis.Application.Headless.Suites;
 /// texture, custom metadata, a two-joint skin and one visibly deforming clip.</summary>
 internal static class AnimatedGlbFixture
 {
-    private static readonly byte[] PixelPng = Convert.FromBase64String(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+XwM7WQAAAABJRU5ErkJggg==");
+    private static readonly byte[] PixelPng = CreatePixelPng();
+
+    private static byte[] CreatePixelPng()
+    {
+        using System.Drawing.Bitmap pixel = new(1, 1);
+        pixel.SetPixel(0, 0, System.Drawing.Color.White);
+        using MemoryStream stream = new();
+        pixel.Save(stream, System.Drawing.Imaging.ImageFormat.Png);
+        return stream.ToArray();
+    }
 
     public static string Write(string directory)
     {

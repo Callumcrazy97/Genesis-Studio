@@ -123,7 +123,14 @@ public sealed class RoomSceneBuilder
     {
         if (scene == null) throw new ArgumentNullException(nameof(scene));
         ApplySceneSettings(scene, asset);
+        if (asset.Dimension == RoomDimension.TwoD && asset.Nodes.Any(node => node.Kind == RoomNodeKind.GameObject
+                && node.GameObject != null && RoomHierarchyTransforms.IsActive(asset, node)
+                && SpritePhysicsBinding.UsesSavedTwoDAsset(_projectPath, ApplyOverrides(ResolvePrefab(node.GameObject.Prefab), node.GameObject.ComponentOverrides))))
+            SpritePhysicsBinding.EnsureScene(scene, asset, _projectPath);
         RoomBuildResult result = Build(scene.World, asset);
+        bool spritePhysics = false;
+        scene.World.Query<SpritePhysicsBindingComponent>((Entity entity, ref SpritePhysicsBindingComponent binding) => spritePhysics = true);
+        if (asset.Dimension == RoomDimension.TwoD && spritePhysics) SpritePhysicsBinding.EnsureScene(scene, asset, _projectPath);
         ApplyActiveGameCamera(scene, asset);
         return result;
     }
@@ -284,6 +291,7 @@ public sealed class RoomSceneBuilder
             });
             AttachAuthoredPhysics(world, entity, prefab, transform);
         }
+        else SpritePhysicsBinding.Attach(world, entity, _projectPath, prefab, transform);
         if (world.Has<WildlifeComponent>(entity))
         {
             ref WildlifeComponent wildlife = ref world.GetRef<WildlifeComponent>(entity);

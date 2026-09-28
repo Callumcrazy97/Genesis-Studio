@@ -1,9 +1,22 @@
 using System;
+using System.Numerics;
 
 namespace Genesis.Shared.Assets;
 
 public static class SpriteOriginUtility
 {
+    /// <summary>The authored frame crop used by both Room Editor and gameplay draws.</summary>
+    public static Vector4 ResolveFrameUvRect(SpriteRuntimeAsset asset, int frameIndex, int textureWidth, int textureHeight)
+    {
+        if (frameIndex < 0 || frameIndex >= asset.Frames.Count) return Vector4.Zero;
+        SpriteRuntimeRectangle rect = asset.Frames[frameIndex].SourceRectangle;
+        if (rect.Width <= 0 || rect.Height <= 0
+            || (rect.X <= 0 && rect.Y <= 0 && rect.Width >= textureWidth && rect.Height >= textureHeight))
+            return Vector4.Zero;
+        return new Vector4(rect.X / (float)Math.Max(1, textureWidth), rect.Y / (float)Math.Max(1, textureHeight),
+            (rect.X + rect.Width) / (float)Math.Max(1, textureWidth), (rect.Y + rect.Height) / (float)Math.Max(1, textureHeight));
+    }
+
     /// <summary>
     /// True when an origin declares itself normalized but carries values no normalized origin could
     /// have, which in practice means pixel values wearing the wrong label (NEXT-092).

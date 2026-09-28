@@ -194,6 +194,7 @@ public sealed class SuiteEditorDocument : GenesisDockContent, IStudioDocument
         Control control = surface.AsControl;
         control.Dock = DockStyle.Fill;
         Controls.Add(control);
+        ThemeService.Apply(control);
         surface.DirtyChanged += SurfaceDirtyChanged;
         if (surface is EditorSurfaceControl editor)
         {

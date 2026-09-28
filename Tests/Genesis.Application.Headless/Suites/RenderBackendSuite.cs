@@ -2671,7 +2671,9 @@ internal static class RenderBackendSuite
             {
                 // The factory is allowed to name it, and so is its own definition.
                 string name = Path.GetFileName(file);
-                if (name is "RenderControllerFactory.cs" or "GpuRenderController.cs") continue;
+                if (name == "RenderControllerFactory.cs"
+                    || Path.GetDirectoryName(file) == Path.Combine(root, "Source", "Runtime", "Genesis.Rendering", "Core")
+                    && (name == "GpuRenderController.cs" || name.StartsWith("GpuRenderController.", StringComparison.Ordinal))) continue;
                 string text = File.ReadAllText(file);
                 if (!text.Contains("SilkNetDx11RenderController", StringComparison.Ordinal)
                     && !text.Contains("GpuRenderController", StringComparison.Ordinal))
@@ -2688,8 +2690,9 @@ internal static class RenderBackendSuite
             // for native render-target views in six places, which is unimplementable on an explicit
             // API — a pass has to be declared up front for its resource states to be known. Until
             // this held, a second backend meant a second copy of the whole frame orchestration.
-            string controllerSource = File.ReadAllText(Path.Combine(
-                root, "Source", "Runtime", "Genesis.Rendering", "Core", "GpuRenderController.cs"));
+            string controllerDirectory = Path.Combine(root, "Source", "Runtime", "Genesis.Rendering", "Core");
+            string controllerSource = string.Join("\n", Directory.EnumerateFiles(controllerDirectory, "GpuRenderController*.cs")
+                .Select(File.ReadAllText));
             string[] backendTypes =
             {
                 "ID3D11", "Silk.NET.Direct3D11", "ID3D12", "Silk.NET.Direct3D12",

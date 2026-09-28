@@ -21,6 +21,15 @@ public sealed partial class ShaderEditorControl
     private Panel? _shaderSideHost;
     private Panel? _shaderModeRail;
     private bool _syncingShaderPass;
+    private Button? _shaderPassToggle;
+    private readonly Dictionary<string, Button> _shaderPassActions = [];
+    private TableLayoutPanel? _shaderBody;
+    private Control? _shaderPresetDock;
+    private Control? _shaderPassButtons;
+    private bool _applyingShaderLayout;
+    private bool _shaderLayoutQueued;
+    private string _shaderWorkspaceMode = "Preview";
+    public string WorkspaceMode => _shaderWorkspaceMode;
 
     private void EnsureShaderPasses()
     {
@@ -73,6 +82,7 @@ public sealed partial class ShaderEditorControl
             Dock = DockStyle.Fill,
             RowCount = 1,
         };
+        _shaderBody = body;
         body.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 358));
         body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         body.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -81,10 +91,12 @@ public sealed partial class ShaderEditorControl
         Control code = BuildShaderCodeDock();
         Control viewport = BuildShaderViewportDock();
         Control buffers = BuildShaderBufferDock();
+        Control quick = BuildShaderQuickSetup();
 
         _propertiesPanel.Controls.Remove(_presetLibrary);
         _propertiesPanel.Controls.Remove(_presetHeader);
         _propertiesPanel.Controls.Remove(_presetDescription);
+        foreach (Label label in _propertiesPanel.Controls.OfType<Label>().ToArray()) label.Dispose();
         _propertiesPanel.Padding = new Padding(8);
         _propertiesPanel.Dock = DockStyle.Fill;
         _propertiesPanel.Controls.Add(EditorChrome.SectionLabel("MODULAR SHADER PARAMETERS"));
@@ -94,6 +106,8 @@ public sealed partial class ShaderEditorControl
         _shaderSideHost = new Panel { Dock = DockStyle.Fill, BackColor = EditorChrome.Surface };
         _shaderSidePages["Presets"] = presets;
         _shaderSidePages["Parameters"] = _propertiesPanel;
+        _shaderSidePages["Quick setup"] = quick;
+        _shaderSidePages["Preview settings"] = BuildShaderPreviewSettings();
         foreach (Control page in _shaderSidePages.Values)
         {
             page.Dock = DockStyle.Fill;
@@ -110,6 +124,8 @@ public sealed partial class ShaderEditorControl
         _shaderWorkspacePages["Preview"] = viewport;
         _shaderWorkspacePages["Code"] = code;
         _shaderWorkspacePages["Buffers"] = buffers;
+        _shaderGameGuide = MakeShaderWorkflowPage("ShaderUseInGame");
+        _shaderWorkspacePages["Use in game"] = _shaderGameGuide;
         foreach (Control page in _shaderWorkspacePages.Values)
         {
             page.Dock = DockStyle.Fill;
@@ -123,47 +139,37 @@ public sealed partial class ShaderEditorControl
 
         Controls.Add(body);
         Controls.Add(_toolbar);
+        if (_referenceDiagnosticsHost is not null) Controls.Add(_referenceDiagnosticsHost);
         Controls.Add(_statusLabel);
         body.BringToFront();
-        SelectShaderWorkspaceMode("Preview");
+        SelectShaderWorkspaceMode(_document.AuthoringMode == ShaderAuthoringMode.Code ? "Code" : "Preview");
         RefreshShaderPassList();
         RefreshShaderBufferCards();
     }
 
     private Panel BuildShaderModeRail()
     {
-        Panel rail = new() { Dock = DockStyle.Left, Width = 72, BackColor = EditorChrome.Canvas };
-        string[] modes = ["Preview", "Code", "Parameters", "Presets", "Buffers"];
-        string[] glyphs = ["◉", "</>", "☷", "▦", "▤"];
-        for (int index = modes.Length - 1; index >= 0; index--)
-        {
-            string mode = modes[index];
-            Button button = new()
-            {
-                Dock = DockStyle.Top,
-                Height = 64,
-                FlatStyle = FlatStyle.Flat,
-                BackColor = index == 0 ? EditorChrome.Hover : EditorChrome.Canvas,
-                ForeColor = index == 0 ? EditorChrome.Accent : EditorChrome.Muted,
-                Tag = mode,
-                Text = glyphs[index] + Environment.NewLine + mode,
-            };
-            button.FlatAppearance.BorderSize = 0;
-            button.Click += (_, _) => SelectShaderWorkspaceMode(mode);
-            rail.Controls.Add(button);
-        }
-        return rail;
+        return new Panel { Dock = DockStyle.Left, Width = 0, Visible = false };
     }
 
     private void SelectShaderWorkspaceMode(string mode)
     {
+        _shaderWorkspaceMode = mode;
         string workspace = mode switch
         {
             "Code" => "Code",
             "Buffers" => "Buffers",
+            "Use in game" => "Use in game",
             _ => "Preview",
         };
-        string side = mode == "Parameters" ? "Parameters" : "Presets";
+        string side = mode switch { "Parameters" => "Parameters", "Presets" => "Presets",
+            "Preview settings" => "Preview settings", _ => "Quick setup" };
+        Control parameterOwner = mode == "Parameters" ? _propertiesPanel : _shaderQuickSetup!;
+        if (_parameters.Parent != parameterOwner) parameterOwner.Controls.Add(_parameters);
+        _parameters.Dock = mode == "Parameters" ? DockStyle.Fill : DockStyle.Top;
+        _parameters.AutoScroll = mode == "Parameters";
+        _parameters.BringToFront();
+        _document.AuthoringMode = workspace == "Code" ? ShaderAuthoringMode.Code : ShaderAuthoringMode.Preset;
         foreach ((string key, Control page) in _shaderWorkspacePages)
             page.Visible = string.Equals(key, workspace, StringComparison.OrdinalIgnoreCase);
         foreach ((string key, Control page) in _shaderSidePages)
@@ -179,45 +185,116 @@ public sealed partial class ShaderEditorControl
         }
         if (workspace == "Code") _code.Focus();
         else if (workspace == "Preview") _viewport.Invalidate(true);
+        if (_shaderQuickButton is not null) _shaderQuickButton.Checked = mode == "Preview";
+        if (_shaderCodeButton is not null) _shaderCodeButton.Checked = mode == "Code";
+        ApplyReferenceShaderLayout();
+    }
+
+    private void ApplyReferenceShaderLayout()
+    {
+        if (_shaderBody is null || _shaderSideHost is null || _applyingShaderLayout) return;
+        _applyingShaderLayout = true;
+        try
+        {
+            _narrowLayout = LogicalClientWidth < 1050;
+            _narrowPreviewActive = _narrowLayout && _shaderWorkspacePages["Preview"].Visible;
+            bool sidebar = _shaderWorkspaceMode is "Parameters" or "Presets" or "Preview" or "Preview settings";
+            _shaderSideHost.Visible = sidebar;
+            float scale = Math.Max(1, DeviceDpi / 96f * EditorChrome.BaseFont.SizeInPoints / 9.5f);
+            _shaderBody.ColumnStyles[0].Width = sidebar ? Math.Min(340 * scale, ClientSize.Width * .45f) : 0;
+            if (_shaderModeRail is not null)
+                foreach (Button button in _shaderModeRail.Controls.OfType<Button>())
+                    button.Height = Math.Max(48, EditorChrome.BaseFont.Height * 2 + 14);
+            _shaderBody.PerformLayout();
+            _shaderSideHost.Parent?.PerformLayout();
+            _shaderSideHost.PerformLayout();
+            UpdateShaderQuickFields();
+            foreach (FlowLayoutPanel page in _shaderSidePages.Values.OfType<FlowLayoutPanel>()) SizeShaderWorkflowPage(page);
+            if (_shaderGameGuide is not null) SizeShaderWorkflowPage(_shaderGameGuide);
+            if (_referenceDiagnosticsHost is not null)
+                _referenceDiagnosticsHost.Height = Math.Min((int)(150 * scale), Math.Max(90, ClientSize.Height / 3));
+            if (_shaderPresetDock is not null)
+            {
+                int headingHeight = Math.Max(27, EditorChrome.HeadingFont.Height + 8);
+                foreach (Label heading in _shaderPresetDock.Controls.OfType<Label>().Where(label => label != _presetDescription))
+                    heading.Height = headingHeight;
+                foreach (Label heading in _shaderPassList.Parent!.Controls.OfType<Label>()) heading.Height = headingHeight;
+                _presetDescription.Font = EditorChrome.SmallFont;
+                _presetDescription.Height = Math.Max(48, EditorChrome.SmallFont.Height * 2 + 12);
+                int available = _shaderPresetDock.ClientSize.Height - _shaderPresetDock.Padding.Vertical
+                    - headingHeight - _presetDescription.Height;
+                _presetLibrary.Height = Math.Min((int)(230 * scale), Math.Max(100, available / 2));
+                foreach (FlowLayoutPanel buttons in _presetLibrary.Controls.OfType<FlowLayoutPanel>())
+                    buttons.Height = Math.Max(40, EditorChrome.BaseFont.Height + 20);
+                if (_shaderPassButtons is not null) _shaderPassButtons.Height = Math.Max(70, (EditorChrome.BaseFont.Height + 12) * 2);
+                _shaderPresetDock.PerformLayout();
+            }
+            ResizeParameterCards();
+            foreach (ShaderBufferCard card in _shaderBufferCards)
+            {
+                card.Size = new Size((int)(188 * scale), (int)(108 * scale));
+                card.Invalidate();
+            }
+        }
+        finally { _applyingShaderLayout = false; }
+    }
+
+    private void QueueShaderLayout()
+    {
+        if (_shaderLayoutQueued || !IsHandleCreated || IsDisposed) return;
+        _shaderLayoutQueued = true;
+        BeginInvoke(() =>
+        {
+            _shaderLayoutQueued = false;
+            if (!IsDisposed) ApplyReferenceShaderLayout();
+        });
+    }
+
+    protected override void OnChromeChanged()
+    {
+        base.OnChromeChanged();
+        if (_referenceShaderLayout) ApplyReferenceShaderLayout();
+        QueueShaderLayout();
     }
 
     private void RebuildReferenceShaderCommandBar()
     {
-        _toolbar.Items.Clear();
+        _toolbar.ResetItems();
         _toolbar.Height = 44;
-        _toolbar.Items.Add(new ToolStripLabel(ResourceDisplayName.Format(ResourcePath)) { ForeColor = EditorChrome.Text, Font = EditorChrome.HeadingFont, ToolTipText = ResourcePath });
         ToolStripButton save = EditorChrome.ToolButton("Save", "Save shader (Ctrl+S)", Save);
         save.BackColor = EditorChrome.Accent; _toolbar.Items.Add(save);
-        _toolbar.Items.Add(new ToolStripSeparator());
-
-        ThemedComboBox presets = new() { Width = 156, DropDownStyle = ComboBoxStyle.DropDownList };
-        presets.Items.AddRange(_presets.Select(candidate => (object)candidate.Name).ToArray());
-        presets.SelectedItem = _document.Preset;
-        presets.SelectedIndexChanged += (_, _) =>
+        _shaderQuickButton = EditorChrome.ToolButton("Quick setup", "Choose an effect and tune its live preview", () => SelectShaderWorkspaceMode("Preview"), toggle: true);
+        _shaderCodeButton = EditorChrome.ToolButton("</> Code", "Edit this shader's HLSL source", () => SetAuthoringMode(ShaderAuthoringMode.Code), toggle: true);
+        _toolbar.Items.Add(_shaderQuickButton); _toolbar.Items.Add(_shaderCodeButton);
+        _toolbar.Items.Add(EditorChrome.ToolButton("Use in game", "Create a shaded Object or see how to attach the saved Shader", ShowShaderGameGuide));
+        ToolStripDropDownButton options = new("Options") { AccessibleName = "Shader advanced options" };
+        foreach ((string label, string mode) in new[] { ("Presets and passes", "Presets"), ("Parameters and textures", "Parameters"), ("Texture bindings", "Buffers"), ("Preview settings", "Preview settings") })
         {
-            if (_updatingUi || presets.SelectedItem is not string name) return;
-            ShaderPresetDefinition? preset = _presets.FirstOrDefault(candidate => candidate.Name == name);
-            if (preset is not null) RecordDocumentEdit($"Apply shader preset '{name}'", () => ApplyPreset(preset));
-        };
-        _toolbar.Items.Add(new ToolStripLabel("Preset") { ForeColor = EditorChrome.Muted });
-        _toolbar.Items.Add(new ToolStripControlHost(presets) { AutoSize = false, Width = 156, Height = 28 });
-        _toolbar.Items.Add(new ToolStripSeparator());
-        _toolbar.Items.Add(new ToolStripLabel("Target") { ForeColor = EditorChrome.Muted });
-        _targetTypeCombo.Width = 108;
-        _targetAssetCombo.Width = 220;
-        _targetAssetCombo.Enabled = false;
-        _toolbar.Items.Add(new ToolStripControlHost(_targetTypeCombo) { AutoSize = false, Width = 108, Height = 28 });
-        _toolbar.Items.Add(new ToolStripControlHost(_targetAssetCombo) { AutoSize = false, Width = 220, Height = 28 });
-        _toolbar.Items.Add(EditorChrome.ToolButton("Browse…", "Choose from compatible project resources", PickTargetAsset));
-        _toolbar.Items.Add(new ToolStripSeparator());
-        _playPauseButton = new Button { Text = _playing ? "Pause" : "Play", Width = 68, Height = 28 };
+            ToolStripMenuItem item = new(label) { Tag = mode };
+            item.Click += (_, _) => SelectShaderWorkspaceMode(mode); options.DropDownItems.Add(item);
+        }
+        options.DropDownItems.Add(new ToolStripSeparator());
+        options.DropDownItems.Add("Compile now", null, (_, _) => CompileNow()).ToolTipText = "Compile the current pass (F7)";
+        options.DropDownItems.Add(_autoCompile);
+        _toolbar.Items.Add(options);
+        _playPauseButton = new Button { Text = _playing ? "Pause" : "Play", AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink, MinimumSize = new Size(68, 28) };
         EditorChrome.StyleField(_playPauseButton); _playPauseButton.Click += (_, _) => TogglePlayback();
-        _toolbar.Items.Add(new ToolStripControlHost(_playPauseButton) { AutoSize = false, Width = 68, Height = 28 });
-        _toolbar.Items.Add(EditorChrome.ToolButton("Stop", "Stop and rewind shader animation", StopPreview));
-        _toolbar.Items.Add(EditorChrome.ToolButton("Compile", "Compile current pass now (F7)", CompileNow));
-        _toolbar.Items.Add(_autoCompile);
         _compileIndicator.Alignment = ToolStripItemAlignment.Right;
         _toolbar.Items.Add(_compileIndicator);
+        if (_toolbar.HistoryCommand is { } history) history.Visible = false;
+    }
+
+    private void SizeShaderTargetPicker()
+    {
+        int width = Math.Max(108, _targetTypeCombo.Items.Cast<object>()
+            .Select(item => TextRenderer.MeasureText(item.ToString(), _targetTypeCombo.Font).Width + 32)
+            .DefaultIfEmpty(108).Max());
+        ToolStripControlHost? host = _toolbar.Items.OfType<ToolStripControlHost>()
+            .FirstOrDefault(item => item.Control == _targetTypeCombo);
+        if (host is not null) host.Width = width;
+        _targetTypeCombo.Width = width;
+        _targetTypeCombo.DropDownWidth = width;
     }
 
     private void PickTargetAsset()
@@ -234,36 +311,36 @@ public sealed partial class ShaderEditorControl
     private Control BuildShaderPresetDock()
     {
         Panel root = new() { BackColor = EditorChrome.Surface, Dock = DockStyle.Fill, Padding = new Padding(8) };
-        FlowLayoutPanel cards = new()
-        {
-            AutoScroll = true, BackColor = EditorChrome.Surface, Dock = DockStyle.Top, Height = 330,
-            FlowDirection = FlowDirection.LeftToRight, Padding = new Padding(2), WrapContents = true,
-        };
-        string[] featured = ["Water", "Dissolve", "Hologram", "Forcefield", "Rim Light", "Lava", "Toon", "Glitch"];
-        foreach (string name in featured)
-        {
-            ShaderPresetDefinition? preset = _presets.FirstOrDefault(candidate => candidate.Name == name);
-            if (preset is null) continue;
-            ShaderPresetCard card = new(name) { Width = 124, Height = 90, Margin = new Padding(3) };
-            card.Click += (_, _) => RecordDocumentEdit($"Apply shader preset '{name}'", () => ApplyPreset(preset));
-            cards.Controls.Add(card);
-        }
+        root.Name = "ShaderPresetWorkspace";
+        _shaderPresetDock = root;
+        root.SizeChanged += (_, _) => QueueShaderLayout();
+        _presetLibrary.Visible = true;
 
-        Panel stack = new() { Dock = DockStyle.Fill, BackColor = EditorChrome.Surface, Padding = new Padding(0, 34, 0, 38) };
+        Panel stack = new() { Dock = DockStyle.Fill, BackColor = EditorChrome.Surface };
+        stack.Name = "ShaderPassStack";
         _shaderPassList.Dock = DockStyle.Fill; _shaderPassList.BorderStyle = BorderStyle.None; _shaderPassList.BackColor = EditorChrome.Raised;
         _shaderPassList.ForeColor = EditorChrome.Text; _shaderPassList.IntegralHeight = false; _shaderPassList.ItemHeight = 28;
+        _shaderPassList.AccessibleName = "Shader passes";
+        _shaderPassList.AccessibleDescription = "Enabled passes draw in order during gameplay. The viewport previews the selected pass.";
         _shaderPassList.SelectedIndexChanged += (_, _) => SelectShaderPass(_shaderPassList.SelectedIndex);
         _shaderPassList.DoubleClick += (_, _) => ToggleShaderPass();
         stack.Controls.Add(_shaderPassList);
         stack.Controls.Add(EditorChrome.SectionLabel("PASS STACK"));
-        FlowLayoutPanel actions = new() { Dock = DockStyle.Bottom, Height = 36, WrapContents = false, BackColor = EditorChrome.Surface };
-        foreach ((string text, Action action) in new[] { ("+", (Action)AddShaderPass), ("−", RemoveShaderPass), ("↑", () => MoveShaderPass(-1)), ("↓", () => MoveShaderPass(1)) })
+        TableLayoutPanel actions = new() { Dock = DockStyle.Bottom, Height = 70, ColumnCount = 4, RowCount = 2, BackColor = EditorChrome.Surface };
+        _shaderPassButtons = actions;
+        for (int column = 0; column < 4; column++) actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
+        actions.RowStyles.Add(new RowStyle(SizeType.Percent, 50)); actions.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+        foreach ((string text, string name, Action action) in new[] { ("+", "Add shader pass", (Action)AddShaderPass), ("−", "Remove shader pass", RemoveShaderPass), ("↑", "Move shader pass up", () => MoveShaderPass(-1)), ("↓", "Move shader pass down", () => MoveShaderPass(1)), ("Disable", "Toggle shader pass", ToggleShaderPass) })
         {
-            Button button = new() { Text = text, Width = 48, Height = 29, Margin = new Padding(2) }; EditorChrome.StyleField(button); button.Click += (_, _) => action(); actions.Controls.Add(button);
+            Button button = new() { Text = text, AccessibleName = name, Dock = DockStyle.Fill, AutoEllipsis = true, Margin = new Padding(2) }; EditorChrome.StyleField(button); button.Click += (_, _) => action();
+            if (name == "Toggle shader pass") { _shaderPassToggle = button; actions.Controls.Add(button, 0, 1); actions.SetColumnSpan(button, 4); }
+            else actions.Controls.Add(button, actions.Controls.Count, 0);
+            _shaderPassActions[name] = button;
         }
         stack.Controls.Add(actions);
         root.Controls.Add(stack);
-        root.Controls.Add(cards);
+        root.Controls.Add(_presetDescription);
+        root.Controls.Add(_presetLibrary);
         root.Controls.Add(EditorChrome.SectionLabel("SHADER PRESETS"));
         return root;
     }
@@ -279,6 +356,8 @@ public sealed partial class ShaderEditorControl
         stages.Controls.Add(new Label { Text = "Vertex entry", AutoSize = true, ForeColor = EditorChrome.Muted, Margin = new Padding(12, 7, 3, 0) });
         _vertexEntryBox.Text = _document.VertexEntry;
         EditorChrome.StyleField(_vertexEntryBox);
+        _vertexEntryBox.FontChanged += (_, _) => _vertexEntryBox.Width = Math.Max(88,
+            TextRenderer.MeasureText("engine", _vertexEntryBox.Font).Width + 20);
         _vertexEntryBox.Margin = new Padding(2, 1, 2, 0);
         _vertexEntryBox.TextChanged += (_, _) =>
         {
@@ -294,15 +373,15 @@ public sealed partial class ShaderEditorControl
         stages.Controls.Add(_vertexEntryBox);
         void AddStage(string name, Action action)
         {
-            Button button = new() { Text = name, Width = 92, Height = 28, Margin = new Padding(2, 0, 2, 0) }; EditorChrome.StyleField(button); button.Click += (_, _) => action(); stages.Controls.Add(button);
+            Button button = new() { Text = name, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                MinimumSize = new Size(92, 28), Margin = new Padding(2, 0, 2, 0) }; EditorChrome.StyleField(button); button.Click += (_, _) => action(); stages.Controls.Add(button);
             _shaderStageButtons[name] = button;
         }
         _referenceDiagnosticsHost = new Panel { Dock = DockStyle.Bottom, Height = 120, Visible = false, BackColor = EditorChrome.Surface };
         _referenceDiagnosticsHost.Controls.Add(_diagnosticsPanel);
         host.Controls.Add(_code);
-        host.Controls.Add(_referenceDiagnosticsHost);
         host.Controls.Add(stages);
-        host.Controls.Add(EditorChrome.SectionLabel("PGSL / HLSL CODE EDITOR"));
+        host.Controls.Add(EditorChrome.SectionLabel("HLSL CODE"));
         _code.BringToFront();
         SelectShaderStage("Fragment");
         return host;
@@ -347,10 +426,13 @@ public sealed partial class ShaderEditorControl
     {
         Panel host = new() { Dock = DockStyle.Fill, BackColor = EditorChrome.Canvas };
         EditorCommandBar chrome = EditorChrome.MakeToolbar();
-        chrome.Items.Add(new ToolStripLabel("3D LIVE VIEWPORT · 60 FPS") { ForeColor = EditorChrome.Text });
+        chrome.Items.Add(new ToolStripLabel("Preview") { ForeColor = EditorChrome.Text,
+            ToolTipText = "The selected pass is previewed here. Enabled passes draw in order during gameplay." });
         chrome.Items.Add(EditorChrome.ToolButton("Frame", "Frame selected target", FramePreviewTarget));
         chrome.Items.Add(EditorChrome.ToolButton("Grid", "Toggle reference grid", () => { _showGrid = !_showGrid; _viewport.Invalidate(true); }, toggle: true));
         chrome.Items.Add(_diagnosticsToggle);
+        chrome.Items.Add(new ToolStripControlHost(_playPauseButton));
+        chrome.Items.Add(EditorChrome.ToolButton("Restart", "Rewind shader preview time", StopPreview));
         Panel transport = new() { Dock = DockStyle.Bottom, Height = 42, BackColor = EditorChrome.Surface, Padding = new Padding(8, 5, 8, 5) };
         _frameStatus.Dock = DockStyle.Fill; transport.Controls.Add(_frameStatus);
         host.Controls.Add(_viewport); host.Controls.Add(transport); host.Controls.Add(chrome);
@@ -361,13 +443,13 @@ public sealed partial class ShaderEditorControl
     private Control BuildShaderBufferDock()
     {
         Panel root = new() { Dock = DockStyle.Fill, BackColor = EditorChrome.Surface, Padding = new Padding(8, 32, 8, 8) };
-        FlowLayoutPanel cards = new() { Dock = DockStyle.Fill, BackColor = EditorChrome.Surface, WrapContents = false, AutoScroll = true };
+        FlowLayoutPanel cards = new() { Dock = DockStyle.Fill, BackColor = EditorChrome.Surface, WrapContents = true, AutoScroll = true };
         foreach (string name in new[] { "Albedo", "Normal", "Noise", "Depth" })
         {
             ShaderBufferCard card = new(name) { Size = new Size(188, 108), Margin = new Padding(4) };
             _shaderBufferCards.Add(card); cards.Controls.Add(card);
         }
-        root.Controls.Add(cards); root.Controls.Add(EditorChrome.SectionLabel("LIVE TEXTURE BUFFER PREVIEWS"));
+        root.Controls.Add(cards); root.Controls.Add(EditorChrome.SectionLabel("TEXTURE BINDINGS"));
         return root;
     }
 
@@ -381,41 +463,65 @@ public sealed partial class ShaderEditorControl
     private void SelectShaderPass(int index)
     {
         if (_syncingShaderPass || index < 0 || index >= _document.Passes.Count || index == _document.ActivePassIndex) return;
-        SyncActiveShaderPass();
-        _document.ActivePassIndex = index;
-        ShaderPassDefinition pass = _document.Passes[index];
-        _syncingShaderPass = _updatingUi = true;
-        try { _document.Source = pass.Source; _document.Entry = pass.Entry; _document.VertexEntry = pass.VertexEntry; _code.CodeText = pass.Source; _entryBox.Text = pass.Entry; _vertexEntryBox.Text = pass.VertexEntry; }
-        finally { _updatingUi = false; _syncingShaderPass = false; }
-        MarkDirty(); CompileNow();
+        RecordDocumentEdit("Select shader pass", () =>
+        {
+            SyncActiveShaderPass();
+            _document.ActivePassIndex = index;
+            LoadActiveShaderPass();
+            RefreshShaderPassList();
+        });
+        CompileNow();
     }
 
     private void AddShaderPass()
     {
-        SyncActiveShaderPass(); int index = _document.Passes.Count;
-        _document.Passes.Add(new ShaderPassDefinition { Name = $"Pass {index}: Effect", Source = _document.Source, Entry = _document.Entry, VertexEntry = _document.VertexEntry });
-        _document.ActivePassIndex = index; RefreshShaderPassList(); MarkDirty();
+        RecordDocumentEdit("Add shader pass", () =>
+        {
+            SyncActiveShaderPass(); int index = _document.Passes.Count;
+            _document.Passes.Add(new ShaderPassDefinition { Name = $"Pass {index}: Effect", Source = _document.Source, Entry = _document.Entry, VertexEntry = _document.VertexEntry });
+            _document.ActivePassIndex = index; RefreshShaderPassList();
+        });
     }
 
     private void RemoveShaderPass()
     {
         if (_document.Passes.Count <= 1) return;
         int index = Math.Clamp(_shaderPassList.SelectedIndex, 0, _document.Passes.Count - 1);
-        _document.Passes.RemoveAt(index); _document.ActivePassIndex = Math.Clamp(index - 1, 0, _document.Passes.Count - 1);
-        ShaderPassDefinition pass = _document.Passes[_document.ActivePassIndex]; _code.CodeText = _document.Source = pass.Source; _entryBox.Text = _document.Entry = pass.Entry; _vertexEntryBox.Text = _document.VertexEntry = pass.VertexEntry;
-        RefreshShaderPassList(); MarkDirty(); CompileNow();
+        RecordDocumentEdit("Remove shader pass", () =>
+        {
+            SyncActiveShaderPass();
+            _document.Passes.RemoveAt(index); _document.ActivePassIndex = Math.Clamp(index - 1, 0, _document.Passes.Count - 1);
+            LoadActiveShaderPass(); RefreshShaderPassList();
+        });
+        CompileNow();
     }
 
     private void ToggleShaderPass()
     {
         int index = _shaderPassList.SelectedIndex; if (index < 0 || index >= _document.Passes.Count) return;
-        _document.Passes[index].Enabled = !_document.Passes[index].Enabled; RefreshShaderPassList(); MarkDirty();
+        RecordDocumentEdit("Toggle shader pass", () =>
+        {
+            _document.Passes[index].Enabled = !_document.Passes[index].Enabled; RefreshShaderPassList();
+        });
+        _statusLabel.Text = _document.Passes[index].Enabled ? "Pass enabled in gameplay." : "Pass disabled in gameplay · selected source remains available to inspect.";
     }
 
     private void MoveShaderPass(int delta)
     {
         int from = _shaderPassList.SelectedIndex, to = from + delta; if (from < 0 || to < 0 || to >= _document.Passes.Count) return;
-        SyncActiveShaderPass(); ShaderPassDefinition pass = _document.Passes[from]; _document.Passes.RemoveAt(from); _document.Passes.Insert(to, pass); _document.ActivePassIndex = to; RefreshShaderPassList(); MarkDirty();
+        RecordDocumentEdit("Move shader pass", () =>
+        {
+            SyncActiveShaderPass(); ShaderPassDefinition pass = _document.Passes[from]; _document.Passes.RemoveAt(from); _document.Passes.Insert(to, pass); _document.ActivePassIndex = to; RefreshShaderPassList();
+        });
+    }
+
+    private void LoadActiveShaderPass()
+    {
+        ShaderPassDefinition pass = _document.Passes[_document.ActivePassIndex];
+        bool wasUpdating = _updatingUi, wasSyncing = _syncingShaderPass;
+        _updatingUi = _syncingShaderPass = true;
+        try { _document.Source = pass.Source; _document.Entry = pass.Entry; _document.VertexEntry = pass.VertexEntry; _code.CodeText = pass.Source; _entryBox.Text = pass.Entry; _vertexEntryBox.Text = pass.VertexEntry; }
+        finally { _updatingUi = wasUpdating; _syncingShaderPass = wasSyncing; }
     }
 
     private void RefreshShaderPassList()
@@ -423,6 +529,10 @@ public sealed partial class ShaderEditorControl
         if (!_referenceShaderLayout) return; EnsureShaderPasses(); _syncingShaderPass = true;
         try { _shaderPassList.Items.Clear(); foreach (ShaderPassDefinition pass in _document.Passes) _shaderPassList.Items.Add((pass.Enabled ? "●  " : "○  ") + pass.Name); _shaderPassList.SelectedIndex = _document.ActivePassIndex; }
         finally { _syncingShaderPass = false; }
+        if (_shaderPassToggle is not null) _shaderPassToggle.Text = _document.Passes[_document.ActivePassIndex].Enabled ? "Disable" : "Enable";
+        if (_shaderPassActions.TryGetValue("Remove shader pass", out Button? remove)) remove.Enabled = _document.Passes.Count > 1;
+        if (_shaderPassActions.TryGetValue("Move shader pass up", out Button? up)) up.Enabled = _document.ActivePassIndex > 0;
+        if (_shaderPassActions.TryGetValue("Move shader pass down", out Button? down)) down.Enabled = _document.ActivePassIndex < _document.Passes.Count - 1;
     }
 
     private void RefreshShaderBufferCards()
@@ -432,7 +542,9 @@ public sealed partial class ShaderEditorControl
         {
             string binding = _document.Resources.FirstOrDefault(resource => resource.Name.Contains(card.BufferName, StringComparison.OrdinalIgnoreCase))?.Binding ?? string.Empty;
             if (card.BufferName == "Albedo" && string.IsNullOrWhiteSpace(binding)) binding = _document.PreviewAsset;
-            card.Binding = string.IsNullOrWhiteSpace(binding) ? "Generated preview" : ResourceDisplayName.Format(binding);
+            card.Binding = string.IsNullOrWhiteSpace(binding)
+                ? card.BufferName == "Depth" ? "Runtime preview unavailable" : "No texture bound"
+                : ResourceDisplayName.Format(binding);
             card.SetPreview(ProjectAssetIndex.ResolveSpriteImage(ProjectRoot, binding));
             card.Invalidate();
         }
@@ -462,7 +574,8 @@ internal sealed class ShaderBufferCard(string bufferName) : Control
     private string _previewPath = string.Empty;
     private long _previewStamp;
     public string BufferName { get; } = bufferName;
-    public string Binding { get; set; } = "Generated preview";
+    public string Binding { get; set; } = "No texture bound";
+    internal bool HasPreview => _previewImage is not null;
     public ShaderBufferCard() : this("Buffer") { }
 
     public void SetPreview(string? path)
@@ -497,17 +610,21 @@ internal sealed class ShaderBufferCard(string bufferName) : Control
     {
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
         using SolidBrush background = new(EditorChrome.Raised); e.Graphics.FillRectangle(background, ClientRectangle);
-        Rectangle preview = new(8, 8, 72, Height - 16);
+        float scale = Math.Max(1, DeviceDpi / 96f * EditorChrome.BaseFont.SizeInPoints / 9.5f);
+        Rectangle preview = new((int)(8 * scale), (int)(8 * scale), (int)(72 * scale), Height - (int)(16 * scale));
         if (_previewImage is not null)
             e.Graphics.DrawImage(_previewImage, preview);
         else
         {
-            Color first = BufferName switch { "Normal" => Color.FromArgb(96, 112, 235), "Depth" => Color.Black, "Noise" => Color.FromArgb(70, 70, 76), _ => Color.FromArgb(70, 125, 185) };
-            Color second = BufferName switch { "Normal" => Color.FromArgb(128, 205, 255), "Depth" => Color.White, "Noise" => Color.FromArgb(205, 205, 210), _ => Color.FromArgb(215, 150, 74) };
-            using LinearGradientBrush gradient = new(preview, first, second, 35f); e.Graphics.FillRectangle(gradient, preview);
+            using SolidBrush empty = new(EditorChrome.Canvas); e.Graphics.FillRectangle(empty, preview);
+            TextRenderer.DrawText(e.Graphics, "—", EditorChrome.BaseFont, preview, EditorChrome.Muted,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         }
-        TextRenderer.DrawText(e.Graphics, BufferName, EditorChrome.HeadingFont, new Rectangle(90, 18, Width - 96, 24), EditorChrome.Text, TextFormatFlags.EndEllipsis);
-        TextRenderer.DrawText(e.Graphics, Binding, EditorChrome.SmallFont, new Rectangle(90, 48, Width - 96, 44), EditorChrome.Muted, TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis);
+        int left = (int)(90 * scale);
+        TextRenderer.DrawText(e.Graphics, BufferName, EditorChrome.HeadingFont,
+            new Rectangle(left, (int)(18 * scale), Width - left - 6, (int)(24 * scale)), EditorChrome.Text, TextFormatFlags.EndEllipsis);
+        TextRenderer.DrawText(e.Graphics, Binding, EditorChrome.SmallFont,
+            new Rectangle(left, (int)(48 * scale), Width - left - 6, (int)(52 * scale)), EditorChrome.Muted, TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis);
         using Pen border = new(EditorChrome.Border); e.Graphics.DrawRectangle(border, 0, 0, Width - 1, Height - 1);
     }
 

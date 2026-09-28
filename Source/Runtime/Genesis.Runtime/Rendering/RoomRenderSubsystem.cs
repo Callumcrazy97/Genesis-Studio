@@ -26,6 +26,8 @@ public sealed partial class RoomRenderSubsystem : ISceneSubsystem
     private readonly Dictionary<string, (int Width, int Height)> _imageSizes = new(StringComparer.OrdinalIgnoreCase);
     private int _drawAreaWidth, _drawAreaHeight;
     private IRenderController _renderer;
+    private IRenderController _backgroundFillRenderer;
+    private TextureHandle _backgroundFillTexture = TextureHandle.Invalid;
     private MeshHandle _quad;
     private float _roomTime;
     public bool IsTwoD => _room.Dimension == RoomDimension.TwoD;
@@ -235,7 +237,18 @@ public sealed partial class RoomRenderSubsystem : ISceneSubsystem
         foreach (RoomNode node in Active(RoomNodeKind.Background)
             .OrderByDescending(n => LayerDepth(n) + n.Background.Depth))
         {
-            RoomTransform nodeWorld = RoomHierarchyTransforms.World(_room, node); RoomBackgroundData bg = node.Background; if (bg.Mode != RoomBackgroundMode.TwoD || !Texture(renderer, bg.Asset, out TextureHandle tex, out int iw, out int ih)) continue;
+            RoomTransform nodeWorld = RoomHierarchyTransforms.World(_room, node); RoomBackgroundData bg = node.Background;
+            if (bg.Mode != RoomBackgroundMode.TwoD) continue;
+            TextureHandle tex; int iw, ih;
+            if (string.IsNullOrWhiteSpace(bg.Asset))
+            {
+                if (!ReferenceEquals(_backgroundFillRenderer, renderer))
+                { _backgroundFillRenderer = renderer; _backgroundFillTexture = TextureHandle.Invalid; }
+                if (!_backgroundFillTexture.IsValid) _backgroundFillTexture = renderer.CreateTexture(1, 1, [255, 255, 255, 255]);
+                tex = _backgroundFillTexture; iw = Math.Max(1, _room.Settings.Width); ih = Math.Max(1, _room.Settings.Height);
+                if (!tex.IsValid) continue;
+            }
+            else if (!Texture(renderer, bg.Asset, out tex, out iw, out ih)) continue;
             float w = iw * nodeWorld.ScaleX, h = ih * nodeWorld.ScaleY;
             float scrollX = bg.Scroll is { Length: > 0 } ? bg.Scroll[0] * _roomTime : 0f;
             float scrollY = bg.Scroll is { Length: > 1 } ? bg.Scroll[1] * _roomTime : 0f;
@@ -260,7 +273,7 @@ public sealed partial class RoomRenderSubsystem : ISceneSubsystem
                     Rotation = nodeWorld.RotationZ, Alpha = bg.Opacity, Tint = Tint(bg.TintArgb),
                     Depth = LayerDepth(node) + bg.Depth, UvRect = new Vector4(0f, 0f, 1f, 1f),
                 };
-                RemapAtlas(bg.Asset, ref call);
+                if (!string.IsNullOrWhiteSpace(bg.Asset)) RemapAtlas(bg.Asset, ref call);
                 commands.DrawSprite(call);
             }
         }
@@ -441,5 +454,5 @@ public sealed partial class RoomRenderSubsystem : ISceneSubsystem
     private static int ReadBe(byte[] b, int i) => (b[i] << 24) | (b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3];
     private static RenderColor Tint(int argb) => new(((argb >> 16) & 255) / 255f, ((argb >> 8) & 255) / 255f, (argb & 255) / 255f, Math.Clamp(((argb >> 24) & 255) / 255f, 0, 1));
     private static float Deg(float value) => value * MathF.PI / 180f;
-    public void Dispose() { RoomEffects2D.For(_room)?.Dispose(); ReleaseViewportTargets(); if (_renderer != null) { if (_quad.IsValid) _renderer.ReleaseMesh(_quad); foreach (TextureHandle t in _textures.Values) if (t.IsValid) _renderer.ReleaseTexture(t); } _textures.Clear(); _resolvedImages.Clear(); _imageSizes.Clear(); }
+    public void Dispose() { RoomEffects2D.For(_room)?.Dispose(); ReleaseViewportTargets(); if (_backgroundFillTexture.IsValid && _backgroundFillRenderer?.IsInitialized == true) _backgroundFillRenderer.ReleaseTexture(_backgroundFillTexture); if (_renderer != null) { if (_quad.IsValid) _renderer.ReleaseMesh(_quad); foreach (TextureHandle t in _textures.Values) if (t.IsValid) _renderer.ReleaseTexture(t); } _textures.Clear(); _resolvedImages.Clear(); _imageSizes.Clear(); }
 }

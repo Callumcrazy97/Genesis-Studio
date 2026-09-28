@@ -23,7 +23,7 @@ public partial class ModelViewerControl : EditorSurfaceControl
     protected readonly TableLayoutPanel Body = new() { Name = "ModelViewerBody", Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
     protected readonly Panel LeftPanel = new() { Name = "ModelViewerLeftPanel", Dock = DockStyle.Fill };
     protected readonly ToolStrip Menus = Strip("ModelViewerMenus", 32);
-    protected readonly ToolStrip Commands = Strip("ModelViewerCommands", 44);
+    protected readonly EditorCommandBar Commands = MakeModelCommands();
     protected readonly Label Status = new() { Dock = DockStyle.Fill, Padding = new Padding(12, 5, 8, 2), AutoEllipsis = true };
     protected readonly RuntimeModelRenderSystem PreviewRenderer = new();
     private readonly TreeView _hierarchy = new() { Dock = DockStyle.Fill, BorderStyle = BorderStyle.None, HideSelection = false, FullRowSelect = true, ItemHeight = 26 };
@@ -67,14 +67,15 @@ public partial class ModelViewerControl : EditorSurfaceControl
     {
         Dock = DockStyle.Fill;
         Asset = StudioModelResourceLoader.Load(resourcePath);
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 5, Padding = Padding.Empty };
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 6, Padding = Padding.Empty };
+        _viewerRoot = root;
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        foreach (var row in new[] { new RowStyle(SizeType.Absolute, 32), new RowStyle(SizeType.Absolute, 44), new RowStyle(SizeType.Percent, 100), new RowStyle(SizeType.Absolute, 210), new RowStyle(SizeType.Absolute, 27) }) root.RowStyles.Add(row);
+        foreach (var row in new[] { new RowStyle(SizeType.Absolute, 0), new RowStyle(SizeType.Absolute, 44), new RowStyle(SizeType.Absolute, 54), new RowStyle(SizeType.Percent, 100), new RowStyle(SizeType.Absolute, 180), new RowStyle(SizeType.Absolute, 27) }) root.RowStyles.Add(row);
         Body.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 270)); Body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         Body.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         Body.Controls.Add(LeftPanel, 0, 0); Body.Controls.Add(Surface, 1, 0);
-        root.Controls.Add(Menus, 0, 0); root.Controls.Add(Commands, 0, 1); root.Controls.Add(Body, 0, 2);
-        root.Controls.Add(BuildPlayback(), 0, 3); root.Controls.Add(Status, 0, 4);
+        root.Controls.Add(Menus, 0, 0); root.Controls.Add(Commands, 0, 1); root.Controls.Add(_workflowHint, 0, 2); root.Controls.Add(Body, 0, 3);
+        root.Controls.Add(BuildPlayback(), 0, 4); root.Controls.Add(Status, 0, 5);
         foreach (Control control in root.Controls) control.Margin = Padding.Empty;
         foreach (Control control in Body.Controls) control.Margin = Padding.Empty;
         Controls.Add(root);
@@ -92,7 +93,8 @@ public partial class ModelViewerControl : EditorSurfaceControl
         Surface.Controls.Add(_empty); _empty.BringToFront();
         Surface.SizeChanged += (_, _) => { _orientation.Location = new Point(Math.Max(0, Surface.Width - 108), 10); _empty.Location = new Point(Math.Max(0, (Surface.Width - 300) / 2), Math.Max(0, (Surface.Height - 72) / 2)); };
         _clock.Tick += (_, _) => TickPreview();
-        HandleCreated += (_, _) => { _lastTick = Stopwatch.GetTimestamp(); _clock.Start(); BeginInvoke(FrameModel); };
+        HandleCreated += (_, _) => { ConfigureModelWorkflow(); ApplyInterfaceLayout(); _lastTick = Stopwatch.GetTimestamp(); _clock.Start(); BeginInvoke(FrameModel); };
+        SizeChanged += (_, _) => ApplyInterfaceLayout();
         Disposed += (_, _) => { _clock.Stop(); _clock.Dispose(); if (Surface.Host.Renderer is { } renderer) { PreviewRenderer.InvalidateAssets(renderer); if (_gridMesh.IsValid) renderer.ReleaseMesh(_gridMesh); } };
         RefreshAssetPresentation(); ApplyTheme();
     }
@@ -214,10 +216,13 @@ public partial class ModelViewerControl : EditorSurfaceControl
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 40)); panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         var transport = Strip("ModelViewerTransport", 40);
         transport.Items.Add(new ToolStripLabel("ANIMATION")); transport.Items.Add(_clips);
-        transport.Items.Add(Button("|◀", () => SetFrame(0))); transport.Items.Add(Button("◀", () => SetFrame(CurrentFrame - 1)));
+        var frame = new ToolStripDropDownButton("Frame") { ToolTipText = "Go to the first, previous or next animation frame" };
+        frame.DropDownItems.Add("First", null, (_, _) => SetFrame(0));
+        frame.DropDownItems.Add("Previous", null, (_, _) => SetFrame(CurrentFrame - 1));
+        frame.DropDownItems.Add("Next", null, (_, _) => SetFrame(CurrentFrame + 1));
         transport.Items.Add(_play); _play.Click += (_, _) => SetPlaying(!_playing);
         transport.Items.Add(Button("Stop", () => { SetPlaying(false); SetFrame(0); }));
-        transport.Items.Add(Button("▶", () => SetFrame(CurrentFrame + 1))); transport.Items.Add(_loopButton);
+        transport.Items.Add(_loopButton); transport.Items.Add(frame);
         _clips.SelectedIndexChanged += (_, _) => { if (!_syncing) SelectClip(_clips.SelectedIndex <= 0 ? "" : _clips.Text); };
         _timeline.ValueChanged += (_, _) => { if (!_syncing) SetFrame(_timeline.Value); };
         panel.Controls.Add(transport, 0, 0); panel.SetColumnSpan(transport, 2);
@@ -317,6 +322,7 @@ public partial class ModelViewerControl : EditorSurfaceControl
         _clip = Asset.Animations.Any(c => c.Name == name) ? name : ""; _time = 0; SetPlaying(false);
         _syncing = true; _clips.SelectedIndex = string.IsNullOrEmpty(_clip) ? 0 : _clips.Items.IndexOf(_clip); _syncing = false;
         UpdatePlayback();
+        InspectorStateChanged?.Invoke(this, EventArgs.Empty);
     }
     public void SetPlaying(bool playing) { _playing = playing && SelectedClip is { Frames.Count: > 0 }; _play.Text = _playing ? "Pause" : "Play"; _lastTick = Stopwatch.GetTimestamp(); }
     public void SetFrame(int frame) { _time = Math.Clamp(frame, 0, Math.Max(0, (SelectedClip?.Frames.Count ?? 1) - 1)) / Math.Max(1, SelectedClip?.Fps ?? 30); UpdatePlayback(); Surface.Invalidate(true); }
@@ -489,6 +495,8 @@ public partial class ModelViewerControl : EditorSurfaceControl
         Commands.BackColor = EditorChrome.Raised; Commands.ForeColor = EditorChrome.Text; Commands.Font = EditorChrome.BaseFont;
         foreach (Control control in new Control[] { LeftPanel, _hierarchy, _materials, _details, Status }) { control.BackColor = EditorChrome.Surface; control.ForeColor = EditorChrome.Text; control.Font = EditorChrome.BaseFont; }
         _timeline.BackColor = EditorChrome.Surface;
+        _timeline.Font = _frameLabel.Font = _sourceInfo.Font = EditorChrome.BaseFont;
+        ApplyInterfaceLayout();
     }
     protected override void OnAssetDependenciesChanged(ProjectAssetChangeSet changes) { base.OnAssetDependenciesChanged(changes); Asset = StudioModelResourceLoader.Load(ResourcePath); RefreshAssetPresentation(); }
     protected static ToolStrip Strip(string name, int height)

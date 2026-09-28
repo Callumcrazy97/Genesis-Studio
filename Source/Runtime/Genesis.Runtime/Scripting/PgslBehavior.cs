@@ -347,6 +347,7 @@ namespace Genesis.Runtime.Scripting
                 PgslCommands.ActiveGameContext = Game;
                 PgslCommands.ProjectPath = Game.ResolveAssetPath(".");
 
+                _vm.LoadUserFunctions(asset.CompileResult.UserFunctions);
                 _vm.Execute(asset.CompileResult.Instructions, asset.CompileResult.Constants, clearVariables: false);
             }
             catch (ReturnException)
@@ -585,21 +586,35 @@ namespace Genesis.Runtime.Scripting
             {
                 ref var t = ref GetComponent<TransformComponent>();
                 var previousPosition = new System.Numerics.Vector3(t.X, t.Y, t.Z);
+                float previousAngle = t.Rotation;
+                float previousScaleX = t.ScaleX, previousScaleY = t.ScaleY;
                 t.X = (float)_ctx.X;
                 t.Y = (float)_ctx.Y;
                 t.Z = (float)_ctx.Z;
                 t.Rotation = (float)_ctx.ImageAngle;
                 t.ScaleX = (float)_ctx.ImageXScale;
                 t.ScaleY = (float)_ctx.ImageYScale;
-                if (previousPosition != new System.Numerics.Vector3(t.X, t.Y, t.Z)
+                bool spriteBody = World.Has<Genesis.Runtime.Scene.SpritePhysicsBindingComponent>(Entity);
+                if ((previousPosition != new System.Numerics.Vector3(t.X, t.Y, t.Z)
+                        || spriteBody && (previousAngle != t.Rotation || previousScaleX != t.ScaleX || previousScaleY != t.ScaleY))
                     && World.Has<Genesis.Shared.ECS.Components.Transform3DComponent>(Entity))
                 {
                     // Plain x/y/z assignments are teleports too. Keep the physics pose in
                     // step with PGSL so its next update cannot restore the previous position.
                     ref var pose = ref World.GetRef<Genesis.Shared.ECS.Components.Transform3DComponent>(Entity);
-                    pose.Position = new(t.X, t.Y, t.Z); pose.PoseHistoryValid = 0;
+                    System.Numerics.Vector3 scaleRatio = System.Numerics.Vector3.One;
+                    if (spriteBody)
+                    {
+                        float ratioX = Math.Abs(previousScaleX) > .0001f ? t.ScaleX / previousScaleX : 1;
+                        float ratioY = Math.Abs(previousScaleY) > .0001f ? t.ScaleY / previousScaleY : 1;
+                        ref var binding = ref World.GetRef<Genesis.Runtime.Scene.SpritePhysicsBindingComponent>(Entity);
+                        binding.CentreOffset *= new System.Numerics.Vector2(ratioX, ratioY);
+                        pose = Genesis.Runtime.Scene.SpritePhysicsBinding.Pose(binding, t);
+                        scaleRatio = new(Math.Abs(ratioX), Math.Abs(ratioY), 1);
+                    }
+                    else { pose.Position = new(t.X, t.Y, t.Z); pose.PoseHistoryValid = 0; }
                     if (Game is Genesis.Runtime.Project.ProjectGameContext project)
-                        project.Scene.Physics?.SynchronizeEntityTransform(World, Entity, System.Numerics.Vector3.One);
+                        project.Scene.Physics?.SynchronizeEntityTransform(World, Entity, scaleRatio);
                 }
             }
 

@@ -42,8 +42,15 @@ public sealed partial class VisualActionBuilderControl : UserControl
     private bool _blueprintWorkspace;
     private bool _routineWorkspace;
     private string _routineReturnType = "Void";
+    private bool _scriptEntry;
     private readonly Dictionary<string, BlueprintValueType> _routineParameters = new(StringComparer.OrdinalIgnoreCase);
     private bool _groupingEdit, _groupUndoPushed;
+    private IEditorSurface? _documentHistory;
+    internal bool IsGroupingEdit => _groupingEdit;
+    internal event Action? EditGroupCompleted;
+    internal void UseDocumentHistory(IEditorSurface surface) { _documentHistory = surface; RefreshCommands(); }
+    internal void RefreshDocumentHistory() => RefreshCommands();
+    public void ApplyInterfaceLayout() => ApplyResponsiveLayout();
 
     public void UseBlueprintWorkspace()
     {
@@ -53,15 +60,16 @@ public sealed partial class VisualActionBuilderControl : UserControl
         _summary.Visible = false;
     }
 
-    internal void ConfigureRoutineHeader(string name, IEnumerable<(string Name, BlueprintValueType Type)> parameters, string returnType)
+    internal void ConfigureRoutineHeader(string name, IEnumerable<(string Name, BlueprintValueType Type)> parameters, string returnType, bool scriptEntry = false)
     {
         _routineWorkspace = true;
+        _scriptEntry = scriptEntry;
         _routineReturnType = string.IsNullOrWhiteSpace(returnType) ? "Void" : returnType;
         _routineParameters.Clear();
         foreach ((string parameterName, BlueprintValueType type) in parameters)
             _routineParameters[parameterName] = type;
         _groupName = name;
-        _graph.SetRoutineHeader(name, _routineParameters.Select(pair => (pair.Key, pair.Value)), _routineReturnType);
+        _graph.SetRoutineHeader(name, _routineParameters.Select(pair => (pair.Key, pair.Value)), _routineReturnType, _scriptEntry);
     }
 
     public Control TakeActionToolbox()
@@ -98,8 +106,8 @@ public sealed partial class VisualActionBuilderControl : UserControl
     public VisualActionGraphCanvas Graph => _graph;
     public string? SelectedBlockId => _graph.SelectedBlockId;
     public VisualActionBlock? SelectedBlock => Blocks.FirstOrDefault(block => block.Id == SelectedBlockId);
-    public bool CanUndo => _undoSources.Count > 0;
-    public bool CanRedo => _redoSources.Count > 0;
+    public bool CanUndo => _documentHistory?.CanUndo ?? _undoSources.Count > 0;
+    public bool CanRedo => _documentHistory?.CanRedo ?? _redoSources.Count > 0;
     public bool CanPaste => _clipboard is not null;
 
     public void LoadSource(string source, int caret = 0, string? groupName = null)
@@ -123,12 +131,14 @@ public sealed partial class VisualActionBuilderControl : UserControl
 
     public bool OpenWizard(IWin32Window? owner = null, string? preselectCommand = null)
     {
-        using VisualActionWizardDialog wizard = new(_projectRoot, _presetStore, preselectCommand);
+        using VisualActionWizardDialog wizard = CreateWizardDialog(preselectCommand);
         if (wizard.ShowDialog(owner ?? FindForm()) != DialogResult.OK || wizard.SelectedTemplate is null) return false;
         ApplyMutation(VisualActionSyntax.Insert(_source, wizard.SelectedTemplate, wizard.Placement, _caret), selectNewest: true);
         RefreshPalette();
         return true;
     }
+
+    public VisualActionWizardDialog CreateWizardDialog(string? preselectCommand = null) => new(_projectRoot, _presetStore, preselectCommand);
 
     public bool InsertPreset(string presetId, int actionIndex = int.MaxValue)
     {
@@ -278,6 +288,7 @@ public sealed partial class VisualActionBuilderControl : UserControl
 
     public void Undo()
     {
+        if (_documentHistory is not null) { EndGroupedEdit(); _documentHistory.Undo(); return; }
         if (_undoSources.Count == 0) return;
         _redoSources.Push(_source);
         _source = _undoSources.Pop();
@@ -287,6 +298,7 @@ public sealed partial class VisualActionBuilderControl : UserControl
 
     public void Redo()
     {
+        if (_documentHistory is not null) { EndGroupedEdit(); _documentHistory.Redo(); return; }
         if (_redoSources.Count == 0) return;
         _undoSources.Push(_source);
         _source = _redoSources.Pop();
@@ -436,7 +448,20 @@ public sealed partial class VisualActionBuilderControl : UserControl
 
     private void ApplyResponsiveLayout()
     {
-        if (_blueprintWorkspace) return;
+        if (_blueprintWorkspace)
+        {
+            if (_workspaceSplit is null || _applyingResponsiveLayout) return;
+            _applyingResponsiveLayout = true;
+            try
+            {
+                _workspaceSplit.Panel1MinSize = _workspaceSplit.Panel2MinSize = 0;
+                if (_workspaceSplit.Panel1.ClientSize != _workspaceSplit.ClientSize) _workspaceSplit.Panel2Collapsed = false;
+                _workspaceSplit.Panel2Collapsed = true;
+                _workspaceSplit.PerformLayout(); _workspaceSplit.Panel1.PerformLayout();
+            }
+            finally { _applyingResponsiveLayout = false; }
+            return;
+        }
         if (_applyingResponsiveLayout) return;
         _applyingResponsiveLayout = true;
         try
@@ -463,10 +488,12 @@ public sealed partial class VisualActionBuilderControl : UserControl
     {
         string query = _search.Text.Trim();
         List<VisualActionPaletteItem> items = [];
-        items.AddRange(_presetStore.All.Select(preset => new VisualActionPaletteItem(preset.Id, preset.Name,
+        items.AddRange(_presetStore.All.Select(preset => new VisualActionPaletteItem(preset.Id, preset.ToTemplate().Name,
             preset.BuiltIn ? "Starter Presets" : "My Presets", preset.Description, preset.ToTemplate(), !preset.BuiltIn)));
         items.InsertRange(0, BlueprintActions.Templates.Select(template => new VisualActionPaletteItem("blueprint:" + template.Name, template.Name, template.Category, template.Description, template, false)));
-        items.AddRange(VisualActionCatalog.GetCommands().Select(command => new VisualActionPaletteItem("command:" + command.Name,
+        HashSet<string> curatedCommands = BlueprintActions.Templates.Select(template => template.CommandName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        items.AddRange(VisualActionCatalog.GetCommands().Where(command => !curatedCommands.Contains(command.Name))
+            .Select(command => new VisualActionPaletteItem("command:" + command.Name,
             ShortName(command.Name), command.Category, command.Description, ToTemplate(command), false)));
         if (query.Length > 0)
             items = items.Where(item => item.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
@@ -493,8 +520,8 @@ public sealed partial class VisualActionBuilderControl : UserControl
         _graph.SetDocument(blocks, Flows, _graph.SelectedBlockId);
         _graph.SetBlueprintSource(_source, _groupName);
         if (_routineWorkspace)
-            _graph.SetRoutineHeader(_groupName, _routineParameters.Select(pair => (pair.Key, pair.Value)), _routineReturnType);
-        _preview.Text = _source;
+            _graph.SetRoutineHeader(_groupName, _routineParameters.Select(pair => (pair.Key, pair.Value)), _routineReturnType, _scriptEntry);
+        _preview.Text = VisualActionSyntax.ExecutionPreview(_source);
         int rawLines = RawCodeLineCount(blocks);
         _summary.ForeColor = EditorChrome.Muted;
         _summary.Text = rawLines > 0
@@ -547,7 +574,7 @@ public sealed partial class VisualActionBuilderControl : UserControl
     private bool ApplyMutation(string source, string? selectedId = null, bool selectNewest = false)
     {
         if (source == _source) return false;
-        if (!_groupingEdit || !_groupUndoPushed) { _undoSources.Push(_source); _groupUndoPushed = true; }
+        if (_documentHistory is null && (!_groupingEdit || !_groupUndoPushed)) { _undoSources.Push(_source); _groupUndoPushed = true; }
         _redoSources.Clear();
         _source = source;
         RaiseSourceChanged();

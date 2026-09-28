@@ -23,6 +23,7 @@ internal sealed class ObjectPreviewDrawRecording : IPgslDrawSurface
     public void DrawCircle(Color color, float x, float y, float radius, float thickness = 1) => Record(surface => surface.DrawCircle(color, x, y, radius, thickness));
     public void DrawText(string text, string font, float size, Color color, Rectangle bounds) => Record(surface => surface.DrawText(text, font, size, color, bounds));
     public void DrawSprite(string name, float x, float y, int frame, float sx, float sy, float angle, Color color, float alpha) => Record(surface => surface.DrawSprite(name, x, y, frame, sx, sy, angle, color, alpha));
+    public void DrawSpriteRectangle(string name, RectangleF destination, int frame, Color color, float alpha) => Record(surface => surface.DrawSpriteRectangle(name, destination, frame, color, alpha));
     public void QueueCube3D(float x, float y, float z, float sx, float sy, float sz, Color color, float alpha) => Record(surface => surface.QueueCube3D(x, y, z, sx, sy, sz, color, alpha));
     public void QueueSphere3D(float x, float y, float z, float radius, Color color, float alpha) => Record(surface => surface.QueueSphere3D(x, y, z, radius, color, alpha));
     public void QueueModel3D(string model, float x, float y, float z, float scale, Color color, float alpha) => Record(surface => surface.QueueModel3D(model, x, y, z, scale, color, alpha));

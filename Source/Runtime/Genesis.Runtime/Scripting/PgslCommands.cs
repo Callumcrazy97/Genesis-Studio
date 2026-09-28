@@ -407,6 +407,8 @@ public static partial class PgslCommands
                                 Scale = new(transform.ScaleX, transform.ScaleY, transform.ScaleZ) });
                             new Scene.RoomSceneBuilder(ProjectPath).AttachAuthoredPhysics(ActiveGameContext.World, entity, definition.Prefab, transform);
                         }
+                        else if (Scene.SpritePhysicsBinding.Attach(ActiveGameContext.World, entity, ProjectPath, definition.Prefab, transform))
+                            Scene.SpritePhysicsBinding.EnsureScene(ActiveGameContext.Scene, (ActiveGameContext as Project.ProjectGameContext)?.Room, ProjectPath);
                         if (definition.Events.Count > 0 && host != null && host.FindBehaviorForEntity(entity) == null)
                             host.Attach(ActiveGameContext.World, entity, ResourceNames.Name(ProjectPath, path, ResourceType.Object));
                         var assets = Rendering.ObjectDrawAssetRegistry.TryGet(entity, out var entry) ? entry : new Rendering.ObjectDrawAssetEntry();

@@ -36,7 +36,8 @@ internal static class TwoDShowcaseSuite
         HeadlessHarness.RunCase(ctx.Report, "Showcase.CreateNativeTemplate", () =>
         {
             project = new ProjectService().CreateProject(parent, "Mushroom Meadow", TwoDShowcaseTemplate.TemplateId);
-            Assert(project.Manifest.StartRoom == TwoDShowcaseTemplate.StartRoom, "Start room was not installed.");
+            Assert(ResourceNames.Resolve(project.RootPath, project.Manifest.StartRoom)
+                == Path.Combine(project.RootPath, TwoDShowcaseTemplate.StartRoom.Replace('/', Path.DirectorySeparatorChar)), "Start room was not installed.");
             Assert(!project.Manifest.Runtime.AllowEscapeToClose, "Escape must pause, not close the showcase.");
             Assert(Directory.GetFiles(project.AssetsPath, "*.cs", SearchOption.AllDirectories).Length == 0,
                 "Showcase gameplay must be PGSL, not an alternate C# game.");
@@ -254,11 +255,11 @@ internal static class TwoDShowcaseSuite
                 Assert(built.SpawnedEntities.Count == 47 && scene.World.LivingEntityCount == 47,
                     "Expected 47 authored objects, not hundreds of invisible tile instances.");
                 Entity hero = built.EntitiesByNodeId[room.Nodes.Single(node => node.Name == "Explorer").Id];
-                Entity acorn = built.EntitiesByNodeId[room.Nodes.First(node => node.Name.StartsWith("Acorn Walker", StringComparison.Ordinal)).Id];
+                Entity acorn = built.EntitiesByNodeId[room.Nodes.First(node => node.Name == "Acorn 1").Id];
                 Assert(scene.World.Has<SpriteComponent>(hero) && scene.World.Has<SpriteComponent>(acorn),
                     "Prefab-level sprites were not materialised as runtime SpriteComponents.");
                 Assert(ObjectDrawAssetRegistry.TryGet(acorn, out ObjectDrawAssetEntry acornAssets)
-                    && acornAssets.Image.EndsWith("Acorn Walker.image.json", StringComparison.OrdinalIgnoreCase),
+                    && ResourceNames.Resolve(p.RootPath, acornAssets.Image) == Path.Combine(p.AssetsPath, "Sprites", "Acorn Walker.image.json"),
                     "Acorn root sprite was not retained as its authoritative runtime image.");
                 float initial = scene.World.GetRef<TransformComponent>(hero).X;
                 void Frame() { scene.GameTime.Advance(1f / 60f); host.Update(1f / 60f); scene.World.FlushDeferred(); scene.Input.NextFrame(); }
@@ -271,7 +272,7 @@ internal static class TwoDShowcaseSuite
                 ref SpriteComponent heroSprite = ref scene.World.GetRef<SpriteComponent>(hero);
                 Assert(heroSprite.ImageSpeed > 0f, "Moving hero did not publish live animation speed.");
                 Assert(ObjectDrawAssetRegistry.TryGet(hero, out ObjectDrawAssetEntry heroAssets)
-                    && heroAssets.Image.EndsWith("Explorer Run.image.json", StringComparison.OrdinalIgnoreCase),
+                    && ResourceNames.Resolve(p.RootPath, heroAssets.Image) == Path.Combine(p.AssetsPath, "Sprites", "Explorer Run.image.json"),
                     "Moving hero did not switch to the authored run sprite.");
                 Assert(Math.Abs(scene.World.GetRef<TransformComponent>(hero).Y - 288) < .01, "Player fell through authored ground.");
                 scene.Input.OnKeyDown(Key.P); Frame(); scene.Input.OnKeyUp(Key.P);
@@ -286,6 +287,7 @@ internal static class TwoDShowcaseSuite
                 ObjectDrawAssetRegistry.Clear(); ScriptAssetRegistry.ClearCache();
             }
         });
+        MushroomMeadowAcceptanceSuite.Run(ctx, Require(project));
     }
 
     private static ProjectSession Require(ProjectSession? project) => project ?? throw new InvalidOperationException("Template creation failed; dependent case cannot run.");

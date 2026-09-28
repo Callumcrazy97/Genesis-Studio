@@ -141,6 +141,7 @@ public sealed partial class ModelEditorControl
                 Bounds = new Rectangle(6 + index % 3 * 87, 4 + index / 3 * 54, 83, 50),
             };
             ImageEditorChrome.StyleButton(add);
+            add.Height = 50;
             add.Click += (_, _) => ArmPrimitivePlacement(kind);
             _primitivesSection.Content.Controls.Add(add);
             _primitiveButtons[kind] = add;
@@ -314,6 +315,7 @@ public sealed partial class ModelEditorControl
                 Bounds = new Rectangle(6 + index % 3 * 87, 4 + index / 3 * 54, 83, 50),
             };
             ImageEditorChrome.StyleButton(button);
+            button.Height = 50;
             button.Click += (_, _) => SelectTool(tool);
             section.Content.Controls.Add(button);
             _toolButtons[tool] = button;
@@ -325,7 +327,7 @@ public sealed partial class ModelEditorControl
     {
         CancelPrimitivePlacement();
         CancelPushPull();
-        if (_toolPageHost?.ShowMode(nameof(page)) != true) return;
+        if (_toolPageHost?.ShowMode(page.ToString()) != true) return;
         foreach ((ModelToolPage candidate, ToolStripButton button) in _toolPageButtons)
             button.Checked = candidate == page;
         switch (page)
@@ -353,6 +355,22 @@ public sealed partial class ModelEditorControl
                 break;
         }
         UpdateToolHeader();
+    }
+
+    internal void LayoutToolNavigation()
+    {
+        ToolStrip? rail = _toolPageButtons.Values.FirstOrDefault()?.Owner;
+        if (rail is null) return;
+        int width = _toolPageButtons.Values.Max(button => TextRenderer.MeasureText(button.Text?.Split('\n').Last(), EditorChrome.SmallFont).Width) + 20;
+        rail.Width = width;
+        foreach (ToolStripButton button in _toolPageButtons.Values)
+        {
+            button.Font = EditorChrome.SmallFont; button.Width = width - 2;
+            int available = (rail.ClientSize.Height - rail.Padding.Vertical) / _toolPageButtons.Count - button.Margin.Vertical - 2;
+            button.Height = Math.Max(EditorChrome.SmallFont.Height * 2 + 2, Math.Min(EditorChrome.SmallFont.Height * 2 + 18, available));
+        }
+        _currentTool.Font = EditorChrome.BaseFont;
+        if (_currentTool.Parent is { } header) header.Height = _currentTool.Font.Height * 2 + header.Padding.Vertical + 8;
     }
 
     private static CheckBox Check(string text, bool value, Action<bool> changed, int y)
@@ -779,7 +797,8 @@ public sealed partial class ModelEditorControl
             box.Image = new Bitmap(source);
             box.Tag = path;
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException
+            or System.Runtime.InteropServices.ExternalException)
         {
             box.Tag = exception.Message;
         }
@@ -809,7 +828,9 @@ internal sealed class ModelToolButton(ModelAuthoringTool tool) : Button
         string label=Text;using(var background=new SolidBrush(BackColor))e.Graphics.FillRectangle(background,ClientRectangle);
         using(var border=new Pen(ImageEditorChrome.Border))e.Graphics.DrawRectangle(border,0,0,Width-1,Height-1);
         var g=e.Graphics;g.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        using var pen=new Pen(ForeColor,1.6f);float x=Width/2f;
+        float scale = Math.Max(1, Font.SizeInPoints / 9.5f);
+        var iconState = g.Save(); g.ScaleTransform(scale, scale);
+        using var pen=new Pen(ForeColor,1.6f);float x=Width/scale/2f;
         if(tool is ModelAuthoringTool.Region or ModelAuthoringTool.Wand or ModelAuthoringTool.Lasso)pen.DashStyle=System.Drawing.Drawing2D.DashStyle.Dash;
         if(tool is ModelAuthoringTool.Sphere or ModelAuthoringTool.CircleFace or ModelAuthoringTool.Lasso)g.DrawEllipse(pen,x-8,6,16,16);
         else if(tool is ModelAuthoringTool.SquareFace or ModelAuthoringTool.Cube or ModelAuthoringTool.Region)g.DrawRectangle(pen,x-8,6,16,16);
@@ -817,7 +838,9 @@ internal sealed class ModelToolButton(ModelAuthoringTool tool) : Button
         else if(tool==ModelAuthoringTool.Cylinder){g.DrawEllipse(pen,x-8,6,16,6);g.DrawLine(pen,x-8,9,x-8,22);g.DrawLine(pen,x+8,9,x+8,22);g.DrawArc(pen,x-8,18,16,6,0,180);}
         else if(tool is ModelAuthoringTool.Push or ModelAuthoringTool.Pull){int sign=tool==ModelAuthoringTool.Pull?-1:1;float y=15+sign*8;g.DrawLine(pen,x,15-sign*8,x,y);g.DrawLines(pen,new PointF[]{new(x-5,y-sign*5),new(x,y),new(x+5,y-sign*5)});}
         else {g.DrawLine(pen,x-8,23,x+8,6);g.DrawLine(pen,x-4,24,x+10,9);}
-        TextRenderer.DrawText(g,label,Font,new Rectangle(1,27,Width-2,21),ForeColor,TextFormatFlags.HorizontalCenter|TextFormatFlags.EndEllipsis);
+        g.Restore(iconState);
+        TextRenderer.DrawText(g,label,Font,new Rectangle(1,Height-Font.Height-7,Width-2,Font.Height+6),ForeColor,
+            TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis);
     }
 }
 
@@ -828,7 +851,9 @@ internal sealed class ModelPrimitiveButton(ModelPrimitiveKind primitive) : Butto
         using SolidBrush background = new(BackColor); e.Graphics.FillRectangle(background, ClientRectangle);
         using Pen border = new(ImageEditorChrome.Border); e.Graphics.DrawRectangle(border, 0, 0, Width - 1, Height - 1);
         e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        using Pen pen = new(ForeColor, 1.5f); float x = Width / 2f;
+        float scale = Math.Max(1, Font.SizeInPoints / 9.5f);
+        var iconState = e.Graphics.Save(); e.Graphics.ScaleTransform(scale, scale);
+        using Pen pen = new(ForeColor, 1.5f); float x = Width / scale / 2f;
         if (primitive is ModelPrimitiveKind.Sphere or ModelPrimitiveKind.Capsule)
         {
             RectangleF ellipse = primitive == ModelPrimitiveKind.Sphere ? new(x - 9, 5, 18, 18) : new(x - 7, 4, 14, 21);
@@ -846,6 +871,8 @@ internal sealed class ModelPrimitiveButton(ModelPrimitiveKind primitive) : Butto
         {
             e.Graphics.DrawRectangle(pen, x - 9, 6, 16, 16); e.Graphics.DrawLine(pen, x - 9, 6, x - 4, 2); e.Graphics.DrawLine(pen, x + 7, 6, x + 12, 2);
         }
-        TextRenderer.DrawText(e.Graphics, Text, Font, new Rectangle(1, 27, Width - 2, 21), ForeColor, TextFormatFlags.HorizontalCenter | TextFormatFlags.EndEllipsis);
+        e.Graphics.Restore(iconState);
+        TextRenderer.DrawText(e.Graphics, Text, Font, new Rectangle(1, Height - Font.Height - 7, Width - 2, Font.Height + 6), ForeColor,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
     }
 }

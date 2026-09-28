@@ -94,50 +94,20 @@ namespace Genesis.Audio
 
         // ── Factory: WAV file ─────────────────────────────────────────────────────
 
-        public static SoundEffect? FromWavFile(string path)
+        public static SoundEffect? FromWavFile(string path, Genesis.Shared.Audio.AudioAssetSettings? settings = null)
         {
-            if (!File.Exists(path)) return null;
             try
             {
-                using var stream = File.OpenRead(path);
-                using var reader = new BinaryReader(stream);
-
-                // RIFF header
-                if (new string(reader.ReadChars(4)) != "RIFF") return null;
-                reader.ReadInt32(); // file size
-                if (new string(reader.ReadChars(4)) != "WAVE") return null;
-
-                WaveFormat? fmt   = null;
-                byte[]?     data  = null;
-
-                while (stream.Position < stream.Length - 8)
-                {
-                    string chunk = new string(reader.ReadChars(4));
-                    int    size  = reader.ReadInt32();
-                    long   next  = stream.Position + size;
-
-                    if (chunk == "fmt ")
-                    {
-                        short audioFmt = reader.ReadInt16();
-                        short channels = reader.ReadInt16();
-                        int   rate     = reader.ReadInt32();
-                        reader.ReadInt32(); // byte rate
-                        reader.ReadInt16(); // block align
-                        short bits = reader.ReadInt16();
-                        fmt = new WaveFormat(rate, bits, channels);
-                    }
-                    else if (chunk == "data")
-                    {
-                        data = reader.ReadBytes(size);
-                    }
-
-                    stream.Position = next;
-                }
-
-                if (fmt == null || data == null) return null;
-                return new SoundEffect(fmt, data);
+                var clip = Genesis.Shared.Audio.PcmAudioClip.LoadWave(path);
+                if (settings is not null) clip = clip.ApplyRegion(settings);
+                byte[] data = new byte[clip.Samples.Length * 2];
+                Buffer.BlockCopy(clip.Samples, 0, data, 0, data.Length);
+                return new SoundEffect(new WaveFormat(clip.SampleRate, 16, clip.Channels), data);
             }
-            catch { return null; }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or OverflowException)
+            {
+                return null;
+            }
         }
     }
 }

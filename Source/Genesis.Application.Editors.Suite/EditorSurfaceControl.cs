@@ -108,6 +108,10 @@ public abstract class EditorSurfaceControl : UserControl, IEditorSurface
 
     public string ProjectRoot { get; }
 
+    /// <summary>Available width in authored coordinates, including DPI and the interface-font preference.</summary>
+    protected int LogicalClientWidth => (int)(ClientSize.Width / Math.Max(1f,
+        DeviceDpi / 96f * EditorChrome.BaseFont.SizeInPoints / 9.5f));
+
     public bool IsDirty => _dirty;
 
     public bool CanUndo => _undoStack.Count > 0;
@@ -262,6 +266,9 @@ public abstract class EditorSurfaceControl : UserControl, IEditorSurface
         ForeColor = EditorChrome.Text;
         Invalidate(true);
     }
+
+    /// <summary>Recomputes content-sized geometry after the shell has themed the complete control tree.</summary>
+    public virtual void ApplyInterfaceLayout() { }
 
     private void OnChromeChangedInternal(object? sender, EventArgs e)
     {

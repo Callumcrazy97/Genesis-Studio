@@ -138,9 +138,12 @@ bool Collide(inout float3 p, float3 old, inout float3 velocity) {
     if (Collision.x < 0.5) return false;
     float3 a=ToWorld(old), b=ToWorld(p), delta=b-a;
     float radius=max(0,Collision.w), nearest=1.0;
-    float3 hitNormal=float3(0,1,0); bool hit=false;
-    if (Options.y > 0.5 && b.y < Collision.y+radius) {
-        nearest = a.y <= Collision.y+radius ? 0 : saturate((Collision.y+radius-a.y)/min(-1e-8,delta.y));
+    bool planar=Wind.w>0.5;
+    float3 hitNormal=float3(0,planar?-1:1,0); bool hit=false;
+    float floor=Collision.y+(planar?-radius:radius);
+    if (Options.y > 0.5 && (planar?b.y>floor:b.y<floor)) {
+        nearest = planar ? (a.y>=floor?0:saturate((floor-a.y)/max(1e-8,delta.y)))
+            : (a.y<=floor?0:saturate((floor-a.y)/min(-1e-8,delta.y)));
         hit=true;
     }
     uint node=0, nodes=(uint)Geometry.z, root=(uint)Geometry.y, triangles=(uint)Geometry.w;
@@ -160,7 +163,7 @@ bool Collide(inout float3 p, float3 old, inout float3 velocity) {
     if(!hit) return false;
     float3 worldVelocity=DirectionWorld(velocity);
     b=a+delta*nearest+hitNormal*0.0005;
-    if(Options.y>0.5) b.y=max(b.y,Collision.y+radius);
+    if(Options.y>0.5) b.y=planar?min(b.y,floor):max(b.y,floor);
     if(Collision.x<1.5) {
         worldVelocity=reflect(worldVelocity,hitNormal)*max(0,Collision.z);
         // Finish the remaining fraction after reflection, avoiding one-frame hovering.
@@ -182,14 +185,16 @@ void UpdateScan(uint3 tid : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint la
         if(occupied) {
             p.positionAge.w += Timing.x;
             if(wasAlive && p.positionAge.w>=p.velocityLife.w) { eventFlag|=2; InterlockedAdd(Pool[5],1); }
-            if(p.positionAge.w<p.velocityLife.w) {
+            // A negative previous speed scale marks a particle attached by Stick collision.
+            bool stuck=p.rotationSpeedScale.z<0 && Collision.x>=2.5;
+            if(p.positionAge.w<p.velocityLife.w && !stuck) {
                 float t=saturate(p.positionAge.w/p.velocityLife.w);
                 float4 curve=Curve(t,0);
                 float3 v=p.velocityLife.xyz+Forces.xyz*Timing.x;
                 uint rng=Seed ^ Hash(asuint(p.identity.x)+Sequence*31337);
-                v+=float3(Sym(rng),Sym(rng)*0.25,Sym(rng))*Wind.z*Timing.x;
+                v+=float3(Sym(rng),Sym(rng)*0.25,Wind.w>0.5?0:Sym(rng))*Wind.z*Timing.x;
                 float speedScale=max(0.001,curve.y);
-                v*=speedScale/max(0.001,p.rotationSpeedScale.z);
+                v*=speedScale/max(0.001,abs(p.rotationSpeedScale.z));
                 p.rotationSpeedScale.z=speedScale;
                 v*=max(0,1-Forces.w*Timing.x);
                 float3 pos=p.positionAge.xyz+v*Timing.x*max(0,curve.w)+float3(Wind.x,0,Wind.y)*Timing.x;
@@ -198,6 +203,7 @@ void UpdateScan(uint3 tid : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint la
                     if(Collision.x>1.5 && Collision.x<2.5) {
                         p.positionAge.w=p.velocityLife.w; eventFlag|=2; InterlockedAdd(Pool[5],1);
                     }
+                    if(Collision.x>=2.5) p.rotationSpeedScale.z=-speedScale;
                 }
                 p.positionAge.xyz=pos; p.velocityLife.xyz=v;
                 p.rotationSpeedScale.x+=p.rotationSpeedScale.y*Timing.x;
@@ -256,6 +262,7 @@ void PrefixGroups(uint3 tid : SV_DispatchThreadID) {
 }
 
 float3 Cone(float angle,inout uint seed) {
+    if(Wind.w>0.5) { float a=Sym(seed)*clamp(angle,0,3.141593);return float3(sin(a),cos(a),0); }
     float y=lerp(cos(clamp(angle,0,3.141593)),1,Random01(seed));
     float r=sqrt(max(0,1-y*y)),a=Random01(seed)*6.283185;
     return float3(cos(a)*r,y,sin(a)*r);
@@ -265,15 +272,20 @@ Particle Spawn(uint i,uint birth) {
     uint rng=Hash(Seed ^ serial*747796405u);
     float3 p=0,d=float3(0,1,0); uint shape=(uint)Emission.x;
     float speed=Motion.x*(1+Sym(rng)*Motion.y),life=max(0.05,Motion.z*(1+Sym(rng)*Motion.w));
-    if(shape==2) { float y=Sym(rng),a=Random01(rng)*6.283185,r=sqrt(max(0,1-y*y)); d=float3(cos(a)*r,y,sin(a)*r); }
+    if(shape==2) {
+        if(Wind.w>0.5) { float a=Random01(rng)*6.283185;d=float3(cos(a),sin(a),0); }
+        else { float y=Sym(rng),a=Random01(rng)*6.283185,r=sqrt(max(0,1-y*y)); d=float3(cos(a)*r,y,sin(a)*r); }
+    }
     else if(shape==3 || shape==4) {
         float a=Random01(rng)*6.283185,r=Emission.y*(shape==3?sqrt(Random01(rng)):1);
-        p=float3(cos(a)*r,0,sin(a)*r);
-        d=shape==3?Cone(Emission.z*0.5,rng):SafeNormal(float3(-sin(a),0.6,cos(a))+SafeNormal(p,0)*(Emission.z/3.141593-1)*0.5,float3(0,1,0));
+        p=Wind.w>0.5?float3(cos(a)*r,sin(a)*r,0):float3(cos(a)*r,0,sin(a)*r);
+        float3 tangent=Wind.w>0.5?float3(-sin(a),cos(a),0):float3(-sin(a),0.6,cos(a));
+        d=shape==3?Cone(Emission.z*0.5,rng):SafeNormal(tangent+SafeNormal(p,0)*(Emission.z/3.141593-1)*0.5,float3(0,1,0));
     } else if(shape==5) { p=float3(Sym(rng),Sym(rng),Sym(rng))*Box.xyz*0.5; d=Cone(Emission.z,rng); }
     else if(shape==6 && Box.w>0) { p=Lookup[(uint)Geometry.x+min((uint)(Random01(rng)*Box.w),(uint)Box.w-1)].xyz; d=SafeNormal(p,float3(0,1,0)); }
     else d=Cone(shape==0?0.06981317:Emission.z,rng);
-    if(Emission.w>0.5) d.y=-abs(d.y);
+    if(Wind.w>0.5) { p.y=-p.y;d.y=-d.y;p.z=0;d.z=0; }
+    if(Emission.w>0.5) d.y=Wind.w>0.5?abs(d.y):-abs(d.y);
     float3 velocity=d*speed;
     if(Options.x<0.5) { p=mul(float4(p,1),World).xyz; velocity=mul(float4(velocity,0),World).xyz; }
     if(birth>=Pool[11]) {
@@ -382,7 +394,7 @@ VertexOutput VS(VertexInput input,uint vertex:SV_VertexID,uint instance:SV_Insta
         }
         float3 along=SafeNormal(next-previous,CameraUp.xyz);
         right=SafeNormal(cross(CameraForward.xyz,along),CameraRight.xyz);
-        centre=samplePosition;offset=right*side*size*Options.z;
+        centre=samplePosition;offset=right*side*size*Options.z*(Wind.w>0.5?Sizes.z:1);
         uv=float2(side+0.5,sample/(float)(TRAIL_SAMPLES-1));
     } else if(kind==2) {
         uint prior=asuint(p.identity.z);bool valid=prior<capacity;
@@ -394,7 +406,7 @@ VertexOutput VS(VertexInput input,uint vertex:SV_VertexID,uint instance:SV_Insta
         float3 along=SafeNormal(end-centre,CameraUp.xyz);
         right=SafeNormal(cross(CameraForward.xyz,along),CameraRight.xyz);
         centre=lerp(centre,end,input.uv.y);
-        offset=right*(input.uv.x-0.5)*size*Options.z;
+        offset=right*(input.uv.x-0.5)*size*Options.z*(Wind.w>0.5?Sizes.z:1);
     } else if(alignment==3) {
         float a=p.rotationSpeedScale.x,s=sin(a),c=cos(a);
         float3 pos=input.position*float3(size*Sizes.z,size*Sizes.w,size*Sizes.z);
@@ -406,10 +418,15 @@ VertexOutput VS(VertexInput input,uint vertex:SV_VertexID,uint instance:SV_Insta
         } else if(alignment==2) {right=float3(1,0,0);up=float3(0,0,1);}
         float a=p.rotationSpeedScale.x,s=sin(a),c=cos(a);
         float3 r=right*c-up*s,u=right*s+up*c;
-        float stretch=alignment==4?1+length(p.velocityLife.xyz)*Options.w:1;
-        offset=r*(input.uv.x-0.5)*size*Sizes.z+u*(0.5-input.uv.y)*size*Sizes.w*stretch;
+        float stretch=alignment==1 || alignment==4?1+length(p.velocityLife.xyz)*Options.w:1;
+        float width=size*Sizes.z,height=size*Sizes.w;
+        if(Mode.x>0.5) {width=max(2,width);height=max(2,height);}
+        offset=r*(input.uv.x-0.5)*width+u*(0.5-input.uv.y)*height*stretch;
     }
-    color.rgb=saturate(color.rgb*(1+p.rotationSpeedScale.w))*max(0,1+Rotation.w);
+    // Planar particles use their authored unlit colour, like ordinary sprites. Emission
+    // brightness belongs to the 3D lighting path; applying it here dims rain and clips hue.
+    color.rgb=saturate(color.rgb*(1+p.rotationSpeedScale.w));
+    if(Mode.x<0.5)color.rgb*=max(0,1+Rotation.w);
     if(Mode.x>0.5){centre=ScreenPosition(centre);offset.xy*=Screen.w;offset.z=0;}
     VertexOutput output;output.position=mul(float4(centre+offset,1),ViewProjection);
     if(Mode.x>0.5)output.position.z=0;
@@ -423,6 +440,7 @@ VertexOutput VS(VertexInput input,uint vertex:SV_VertexID,uint instance:SV_Insta
 float4 PS(VertexOutput input):SV_Target0 {
     float4 pixel=ParticleTexture.Sample(LinearSampler,input.uv);
     float4 color=pixel*input.color;
+    if(Mode.z>1.5)color.rgb*=color.a;
     clip(color.a-0.0001);return color;
 }
 """;

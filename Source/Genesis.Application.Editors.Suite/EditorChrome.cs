@@ -10,6 +10,7 @@ namespace Genesis.Application.Editors.Suite;
 /// </summary>
 public static class EditorChrome
 {
+    public const string FormattedTextTag = "formatted-text";
     public static Color Canvas { get; private set; } = FromHex("#14161D");
     public static Color Surface { get; private set; } = FromHex("#1C1F28");
     public static Color Raised { get; private set; } = FromHex("#252934");
@@ -99,6 +100,46 @@ public static class EditorChrome
     }
 
     // ── Small control factory helpers shared by every editor surface ──────────────
+
+    public static void StyleTabs(TabControl tabs)
+    {
+        tabs.DrawMode = TabDrawMode.OwnerDrawFixed;
+        tabs.DrawItem += (_, args) =>
+        {
+            bool selected = args.Index == tabs.SelectedIndex;
+            using SolidBrush fill = new(selected ? Raised : Surface);
+            args.Graphics.FillRectangle(fill, args.Bounds);
+            TextRenderer.DrawText(args.Graphics, tabs.TabPages[args.Index].Text, tabs.Font, args.Bounds,
+                selected ? Text : Muted, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            if (selected)
+            {
+                using Pen accent = new(Accent, 2);
+                args.Graphics.DrawLine(accent, args.Bounds.Left + 2, args.Bounds.Bottom - 2,
+                    args.Bounds.Right - 2, args.Bounds.Bottom - 2);
+            }
+        };
+    }
+
+    public static void StyleDetailsList(ListView list)
+    {
+        list.OwnerDraw = true;
+        list.DrawColumnHeader += (_, args) =>
+        {
+            using SolidBrush fill = new(Raised); args.Graphics.FillRectangle(fill, args.Bounds);
+            Rectangle text = Rectangle.Inflate(args.Bounds, -6, 0);
+            TextRenderer.DrawText(args.Graphics, args.Header!.Text, list.Font, text, Text,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+        };
+        list.DrawItem += (_, args) => args.DrawDefault = list.View != View.Details;
+        list.DrawSubItem += (_, args) =>
+        {
+            using SolidBrush fill = new(args.Item!.Selected ? Hover : Surface);
+            args.Graphics.FillRectangle(fill, args.Bounds);
+            TextRenderer.DrawText(args.Graphics, args.SubItem!.Text, list.Font,
+                Rectangle.Inflate(args.Bounds, -6, 0), Text,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+        };
+    }
 
     public static EditorCommandBar MakeToolbar()
     {

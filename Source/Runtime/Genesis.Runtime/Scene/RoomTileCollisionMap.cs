@@ -29,6 +29,7 @@ public sealed class RoomTileCollisionMap
     public static void Invalidate(RoomAsset room) { if (room != null) Cache.Remove(room); }
     public static void ClearCache() => Cache.Clear();
     public int SolidCount => _solids.Count;
+    public IReadOnlyList<RectangleF> Solids => _solids;
 
     public RoomTileCollisionMap(RoomAsset room, string project,
         Func<string, SpriteRuntimeAsset> resolve = null)

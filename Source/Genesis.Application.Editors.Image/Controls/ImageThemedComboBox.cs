@@ -31,6 +31,12 @@ public sealed class ImageThemedComboBox : ComboBox
 
     private void OnChromeChanged(object? sender, EventArgs e) => ApplyChrome();
 
+    protected override void OnFontChanged(EventArgs e)
+    {
+        base.OnFontChanged(e);
+        ItemHeight = Math.Max(24, TextRenderer.MeasureText("Ag", Font).Height + 8);
+    }
+
     private void ApplyChrome()
     {
         BackColor = ImageEditorChrome.Raised;

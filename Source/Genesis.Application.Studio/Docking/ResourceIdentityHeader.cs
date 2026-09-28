@@ -14,7 +14,7 @@ internal sealed class ResourceIdentityHeader : Panel
     private readonly CheckBox _static = new() { Text = "Static", Width = 62 };
     private readonly ComboBox _tag = new() { DropDownStyle = ComboBoxStyle.DropDown };
     private readonly ComboBox _layer = new() { DropDownStyle = ComboBoxStyle.DropDown };
-    private readonly Panel _prefab = new();
+    private readonly Panel _actions = new();
     private ResourceInspectorPropertySurface? _surface;
     private ResourceItem? _resource;
     private bool _binding;
@@ -50,34 +50,26 @@ internal sealed class ResourceIdentityHeader : Panel
         title.Controls.Add(_static, 2, 0);
 
         TableLayoutPanel classification = new() { ColumnCount = 4, Dock = DockStyle.Fill, RowCount = 1 };
-        classification.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 34));
+        classification.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         classification.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        classification.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 42));
+        classification.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        _tag.Dock = DockStyle.Fill;
+        _layer.Dock = DockStyle.Fill;
         classification.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         classification.Controls.Add(Caption("Tag"), 0, 0);
         classification.Controls.Add(_tag, 1, 0);
         classification.Controls.Add(Caption("Layer"), 2, 0);
         classification.Controls.Add(_layer, 3, 0);
 
-        _prefab.Dock = DockStyle.Fill;
-        Label prefabLabel = Caption("Prefab:");
-        prefabLabel.Dock = DockStyle.Left;
-        prefabLabel.Width = 50;
-        Button open = Button("Open", 58);
-        Button select = Button("Select", 62);
-        Button overrides = Button("Overrides ▾", 96);
+        _actions.Dock = DockStyle.Fill;
+        Button open = Button("Open editor", 120);
+        open.Dock = DockStyle.Fill;
         open.Click += (_, _) => { if (_resource is not null) OpenRequested?.Invoke(this, _resource); };
-        select.Click += (_, _) => _name.Focus();
-        overrides.Enabled = false;
-        _prefab.Controls.Add(overrides);
-        _prefab.Controls.Add(select);
-        _prefab.Controls.Add(open);
-        _prefab.Controls.Add(prefabLabel);
-        overrides.Dock = select.Dock = open.Dock = DockStyle.Left;
+        _actions.Controls.Add(open);
 
         rows.Controls.Add(title, 0, 0);
         rows.Controls.Add(classification, 0, 1);
-        rows.Controls.Add(_prefab, 0, 2);
+        rows.Controls.Add(_actions, 0, 2);
         Controls.Add(rows);
 
         _active.CheckedChanged += (_, _) => Commit("active", _active.Checked);
@@ -112,7 +104,6 @@ internal sealed class ResourceIdentityHeader : Panel
             _static.Checked = BoolValue(root, "static", false);
             SetChoice(_tag, TextValue(root, "tag", "Untagged"));
             SetChoice(_layer, TextValue(root, "layer", "Default"));
-            _prefab.Visible = resource.Kind == ResourceKind.GameObject;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
         {
@@ -148,6 +139,7 @@ internal sealed class ResourceIdentityHeader : Panel
 
     private static Label Caption(string text) => new()
     {
+        AutoSize = true,
         Dock = DockStyle.Fill,
         Text = text,
         TextAlign = ContentAlignment.MiddleLeft,

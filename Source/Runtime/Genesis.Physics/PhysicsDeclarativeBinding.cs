@@ -78,12 +78,13 @@ public static class PhysicsDeclarativeBinding
 
         bool isSensor = asset.IsSensor || resolvedType is PhysicsType.Trigger or PhysicsType.Sensor;
         bool lockRotation = asset.LockRotation || resolvedType == PhysicsType.Character;
-        bool useGravity = motion != PhysicsMotionType.Static && asset.GravityScale != 0f;
+        bool useGravity = motion == PhysicsMotionType.Dynamic && asset.GravityScale != 0f;
 
         var flags = RigidBodyFlags.Collision;
         if (useGravity) flags |= RigidBodyFlags.UseGravity;
         if (lockRotation) flags |= RigidBodyFlags.LockRotation;
         if (isSensor) flags |= RigidBodyFlags.Sensor;
+        if (asset.Dimension == PhysicsDimension.TwoD) flags |= RigidBodyFlags.PlanarTwoD;
 
         int collisionLayer = Math.Clamp(asset.CollisionLayer, 0, 6);
         bool[][] layerMatrix = asset.CollisionLayerMatrix ?? PhysicsSceneConfig.CreateDefaultCollisionLayerMatrix();

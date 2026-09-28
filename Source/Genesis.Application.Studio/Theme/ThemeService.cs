@@ -1,5 +1,6 @@
 using System.Drawing;
 using System.Windows.Forms;
+using System.Runtime.CompilerServices;
 using Genesis.Application.Core.Settings;
 using WeifenLuo.WinFormsUI.Docking;
 using WinFormsApplication = System.Windows.Forms.Application;
@@ -11,6 +12,7 @@ public static class ThemeService
     static ThemeService() => Genesis.Application.Editors.Image.Dialogs.ThemeMessageBox.ApplyTheme = Apply;
     internal const string BorderlessCanvasTextTag = "borderless-canvas-text";
     internal const string DenseToolStripTag = "dense-tool-strip";
+    internal const string MeasuredLayoutTag = "font-measured-layout";
 
     private static Font _interfaceFont =
         new("Segoe UI Variable Text", 9.5f, FontStyle.Regular, GraphicsUnit.Point);
@@ -34,6 +36,13 @@ public static class ThemeService
     public static string Density { get; private set; } = "Comfortable";
 
     public static bool UseAnimations { get; private set; } = true;
+
+    private sealed class AppliedScale
+    {
+        public float Value = 1f;
+        public bool IsModeRail;
+    }
+    private static readonly ConditionalWeakTable<Control, AppliedScale> AppliedScales = new();
 
     public static event EventHandler? ThemeChanged;
 
@@ -79,6 +88,7 @@ public static class ThemeService
             // Default font can only be set before the first window in some hosts.
         }
 
+        Genesis.Application.Studio.Docking.SuiteChromeBridge.Push();
         ThemeChanged?.Invoke(null, EventArgs.Empty);
     }
 
@@ -114,6 +124,15 @@ public static class ThemeService
     {
         ArgumentNullException.ThrowIfNull(root);
         ApplyControl(root);
+        if (root is ToolStrip strip)
+        {
+            strip.Renderer = CreateToolStripRenderer();
+            foreach (ToolStripControlHost host in strip.Items.OfType<ToolStripControlHost>())
+            {
+                host.Font = InterfaceFont;
+                Apply(host.Control);
+            }
+        }
 
         // DockPanel owns a deep internal control tree; walking it during theme apply
         // can re-enter layout and hang the STA thread.
@@ -126,6 +145,9 @@ public static class ThemeService
         {
             Apply(child);
         }
+        if (root is Genesis.Application.Studio.Docking.WelcomeDocument welcome) welcome.ApplyInterfaceLayout();
+        if (root is Genesis.Application.Editors.Suite.EditorSurfaceControl editor) editor.ApplyInterfaceLayout();
+        if (root is Genesis.Application.Core.UI.DpiAwareForm form) form.ApplyInterfaceLayout();
     }
 
     public static GenesisToolStripRenderer CreateToolStripRenderer() =>
@@ -146,6 +168,7 @@ public static class ThemeService
 
     private static void ApplyControl(Control control)
     {
+        ApplyInterfaceGeometry(control);
         switch (control)
         {
             case Form:
@@ -176,19 +199,22 @@ public static class ThemeService
                     BorderlessCanvasTextTag,
                     StringComparison.OrdinalIgnoreCase);
                 textBox.BackColor = borderlessCanvas ? Palette.Canvas : Palette.SurfaceRaised;
-                textBox.ForeColor = Palette.Text;
+                bool formatted = textBox is RichTextBox && textBox.Tag as string == Genesis.Application.Editors.Suite.EditorChrome.FormattedTextTag;
+                if (!formatted) textBox.ForeColor = Palette.Text;
                 // Never FixedSingle: WinForms paints that border with a system colour that ignores
                 // the palette, so every field read as a bright white box against the dark chrome.
                 // The SurfaceRaised fill is what separates a field from its panel.
                 textBox.BorderStyle = BorderStyle.None;
-                textBox.Font = textBox is RichTextBox ? CodeFont : InterfaceFont;
+                // Authored rich text owns per-run fonts and colours; assigning a base Font or
+                // ForeColor here erases markdown heading/inline formatting after each refresh.
+                if (!formatted) textBox.Font = textBox is RichTextBox ? CodeFont : InterfaceFont;
                 break;
             case TreeView tree:
                 tree.BackColor = Palette.Surface;
                 tree.ForeColor = Palette.Text;
                 tree.BorderStyle = BorderStyle.None;
                 tree.LineColor = Palette.BorderStrong;
-                tree.ItemHeight = DpiLayout.Scale(tree, TreeItemHeight);
+                tree.ItemHeight = DpiLayout.Scale(tree, (int)Math.Ceiling(TreeItemHeight * InterfaceScale));
                 tree.Font = InterfaceFont;
                 break;
             case ListBox list:
@@ -249,6 +275,47 @@ public static class ThemeService
         }
     }
 
+    private static void ApplyInterfaceGeometry(Control control)
+    {
+        for (Control? owner = control; owner is not null; owner = owner.Parent)
+            if (owner.Tag as string == MeasuredLayoutTag) return;
+        if (control is Genesis.Application.Editors.Image.Controls.CollapsibleSection section)
+        {
+            section.ApplyInterfaceScale(InterfaceScale);
+            return;
+        }
+        for (Control? parent = control.Parent; parent is not null; parent = parent.Parent)
+            if (parent is Genesis.Application.Editors.Image.Controls.CollapsibleSection) return;
+        // InterfaceScale changes point-sized fonts independently of monitor DPI. Match fixed
+        // rows and mode rails to that preference without scaling a viewport's working area.
+        AppliedScale applied = AppliedScales.GetValue(control, static item => new AppliedScale
+        {
+            IsModeRail = item is Panel && item.Dock is DockStyle.Left or DockStyle.Right && item.Width <= 150,
+        });
+        if (applied.IsModeRail && control is Panel rail) rail.AutoScroll = true;
+        float ratio = InterfaceScale / applied.Value;
+        applied.Value = InterfaceScale;
+        if (Math.Abs(ratio - 1f) < .001f) return;
+        if (!control.AutoSize && control is ToolStrip or Label or Button or CheckBox or RadioButton
+            || !control.AutoSize && control is Panel && control.Dock is DockStyle.Top or DockStyle.Bottom)
+            control.Height = Math.Max(1, (int)Math.Round(control.Height * ratio));
+        if (applied.IsModeRail)
+            control.Width = Math.Max(1, (int)Math.Round(control.Width * ratio));
+        if (control is TableLayoutPanel table)
+        {
+            table.SuspendLayout();
+            try
+            {
+                // Responsive layout may replace the styles when their dimensions change.
+                foreach (RowStyle row in table.RowStyles.Cast<RowStyle>().ToArray())
+                    if (row.SizeType == SizeType.Absolute) row.Height *= ratio;
+                foreach (ColumnStyle column in table.ColumnStyles.Cast<ColumnStyle>().ToArray())
+                    if (column.SizeType == SizeType.Absolute) column.Width *= ratio;
+            }
+            finally { table.ResumeLayout(performLayout: true); }
+        }
+    }
+
     private static void ApplyPanelSurface(Control control)
     {
         string? tag = control.Tag as string;
@@ -300,14 +367,28 @@ public sealed class GenesisColorTable(ThemePalette palette) : ProfessionalColorT
     public override Color ButtonSelectedGradientEnd => palette.SurfaceHover;
     public override Color ButtonPressedGradientBegin => palette.Accent;
     public override Color ButtonPressedGradientEnd => palette.Accent;
+    public override Color OverflowButtonGradientBegin => palette.SurfaceRaised;
+    public override Color OverflowButtonGradientMiddle => palette.SurfaceRaised;
+    public override Color OverflowButtonGradientEnd => palette.SurfaceRaised;
 }
 
 public sealed class GenesisToolStripRenderer(ThemePalette palette)
     : ToolStripProfessionalRenderer(new GenesisColorTable(palette))
 {
+    protected override void OnRenderOverflowButtonBackground(ToolStripItemRenderEventArgs e)
+    {
+        using SolidBrush background = new(e.Item.Selected ? palette.SurfaceHover : palette.SurfaceRaised);
+        e.Graphics.FillRectangle(background, new Rectangle(Point.Empty, e.Item.Size));
+        TextRenderer.DrawText(e.Graphics, "⋯", e.Item.Font, new Rectangle(Point.Empty, e.Item.Size),
+            palette.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+    }
+
     protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
     {
-        e.TextColor = e.Item.Enabled ? palette.Text : palette.TextMuted;
+        Color authored = e.Item.ForeColor;
+        e.TextColor = e.Item.Enabled
+            ? authored == SystemColors.ControlText || authored == Color.Black ? palette.Text : authored
+            : palette.TextMuted;
         base.OnRenderItemText(e);
     }
 

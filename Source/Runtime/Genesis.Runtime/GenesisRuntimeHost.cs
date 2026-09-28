@@ -259,7 +259,8 @@ namespace Genesis.Runtime
             // Per-frame host hook (audio voice recycling, network pump, etc.).
             FrameUpdate?.Invoke(fdt);
 
-            if (_scene.Input?.WasPressed(Key.F12) == true && !string.IsNullOrWhiteSpace(ScreenshotProjectPath))
+            // A stop requested from FrameUpdate may close/dispose the scene synchronously.
+            if (_scene?.Input?.WasPressed(Key.F12) == true && !string.IsNullOrWhiteSpace(ScreenshotProjectPath))
                 _screenshotPending = true;
         }
 
@@ -571,15 +572,17 @@ namespace Genesis.Runtime
             {
                 public readonly Kind Type;
                 public readonly string Value;
+                public readonly string Font;
                 public readonly float A, B, C, D, E;
                 public readonly Vector4 Color;
                 public readonly bool Filled;
 
                 public Command(Kind type, string value, float a, float b, float c, float d, float e,
-                    Vector4 color, bool filled = true)
+                    Vector4 color, bool filled = true, string font = null)
                 {
                     Type = type;
                     Value = value;
+                    Font = font;
                     A = a; B = b; C = c; D = d; E = e;
                     Color = color;
                     Filled = filled;
@@ -599,8 +602,13 @@ namespace Genesis.Runtime
             public void Text(string text, float x, float y, float size, Vector4 color) =>
                 _commands.Add(new Command(Kind.Text, text, x, y, size, 0f, 0f, color));
 
+            public void Text(string text, float x, float y, float size, Vector4 color, string font) =>
+                _commands.Add(new Command(Kind.Text, text, x, y, size, 0f, 0f, color, font: font));
+
             public void TextCentered(string text, float centerX, float y, float width, float size, Vector4 color) =>
                 _commands.Add(new Command(Kind.TextCentered, text, centerX, y, width, size, 0f, color));
+            public void TextCentered(string text, float centerX, float y, float width, float size, Vector4 color, string font) =>
+                _commands.Add(new Command(Kind.TextCentered, text, centerX, y, width, size, 0f, color, font: font));
 
             public void Rect(float x, float y, float w, float h, Vector4 color, bool filled = true) =>
                 _commands.Add(new Command(Kind.Rect, null, x, y, w, h, 0f, color, filled));
@@ -616,10 +624,10 @@ namespace Genesis.Runtime
                     switch (command.Type)
                     {
                         case Kind.Text:
-                            destination.Text(command.Value, command.A, command.B, command.C, command.Color);
+                            destination.Text(command.Value, command.A, command.B, command.C, command.Color, command.Font);
                             break;
                         case Kind.TextCentered:
-                            destination.TextCentered(command.Value, command.A, command.B, command.C, command.D, command.Color);
+                            destination.TextCentered(command.Value, command.A, command.B, command.C, command.D, command.Color, command.Font ?? "Segoe UI");
                             break;
                         case Kind.Rect:
                             destination.Rect(command.A, command.B, command.C, command.D, command.Color, command.Filled);

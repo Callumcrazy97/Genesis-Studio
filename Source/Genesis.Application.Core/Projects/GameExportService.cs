@@ -52,7 +52,7 @@ public static class GameExportService
     private static readonly HashSet<string> ExcludedDirectories = new(StringComparer.OrdinalIgnoreCase)
     {
         ".git", ".genesis", ".vs", "bin", "obj", "Library", "Logs", "Temp",
-        "TestResults", "ProjectSettings", "Scripts", "Editor",
+        "TestResults", "ProjectSettings", "Editor",
     };
 
     public static GameExportResult Export(
@@ -72,14 +72,16 @@ public static class GameExportService
         if (request.Platform != GameExportPlatform.WindowsX64)
             return new GameExportResult(false, outputPath, executableName, 0, 0, "This Genesis release currently supports Windows x64 exports.");
 
-        string staging = Path.Combine(
-            Path.GetTempPath(),
-            "GenesisStudio-Export",
-            Guid.NewGuid().ToString("N"));
+        // Directory.Move cannot cross volumes. Stage beside the requested release so promotion
+        // is a rename on the destination drive, including exports outside the system drive.
+        string outputParent = Path.GetDirectoryName(outputPath)
+            ?? throw new InvalidOperationException("Choose a named export folder or archive.");
+        string staging = Path.Combine(outputParent, ".genesis-export-" + Guid.NewGuid().ToString("N"));
         int shaderCount = 0;
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
+            Directory.CreateDirectory(outputParent);
             progress?.Report("Cooking models…");
             ProjectModelCooker.Result models = ProjectModelCooker.CookProject(projectRoot);
             if (!models.Success)
@@ -131,7 +133,7 @@ public static class GameExportService
                 shaderCount = CookShaders(projectRoot, Path.Combine(staging, ".genesis-shaders"));
             }
 
-            WriteGameSettings(staging, gameTitle, request.WindowMode, packagedIcon);
+            WriteGameSettings(staging, gameTitle, request.WindowMode, packagedIcon, request.Project.Manifest.Runtime.AllowEscapeToClose);
             WriteLaunchFile(staging, gameTitle, executableName);
             cancellationToken.ThrowIfCancellationRequested();
             progress?.Report(request.Format == GameExportFormat.Zip
@@ -287,7 +289,8 @@ public static class GameExportService
         string output,
         string gameTitle,
         GameExportWindowMode windowMode,
-        string packagedIcon)
+        string packagedIcon,
+        bool allowEscapeToClose)
     {
         File.WriteAllText(
             Path.Combine(output, "GenesisGame.json"),
@@ -298,6 +301,7 @@ public static class GameExportService
                 platform = "Windows x64",
                 windowMode = windowMode.ToString(),
                 icon = packagedIcon,
+                allowEscapeToClose,
             }, new JsonSerializerOptions { WriteIndented = true }));
     }
 
@@ -392,23 +396,37 @@ public static class GameExportService
         if (format == GameExportFormat.Zip)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(output) ?? ".");
-            if (File.Exists(output))
+            if (File.Exists(output) && !replaceExisting) throw new IOException("The export archive already exists.");
+            string archive = output + ".new-" + Guid.NewGuid().ToString("N");
+            try
             {
-                if (!replaceExisting) throw new IOException("The export archive already exists.");
-                File.Delete(output);
+                ZipFile.CreateFromDirectory(staging, archive, CompressionLevel.Optimal, includeBaseDirectory: false);
+                File.Move(archive, output, overwrite: replaceExisting);
             }
-            ZipFile.CreateFromDirectory(staging, output, CompressionLevel.Optimal, includeBaseDirectory: false);
+            finally { if (File.Exists(archive)) File.Delete(archive); }
             TryDeleteDirectory(staging);
             return;
         }
 
-        if (Directory.Exists(output))
-        {
-            if (!replaceExisting) throw new IOException("The export folder already exists.");
-            Directory.Delete(output, recursive: true);
-        }
         Directory.CreateDirectory(Path.GetDirectoryName(output) ?? ".");
-        Directory.Move(staging, output);
+        string previous = output + ".previous-" + Guid.NewGuid().ToString("N");
+        bool movedPrevious = false;
+        try
+        {
+            if (Directory.Exists(output))
+            {
+                if (!replaceExisting) throw new IOException("The export folder already exists.");
+                Directory.Move(output, previous);
+                movedPrevious = true;
+            }
+            Directory.Move(staging, output);
+        }
+        catch
+        {
+            if (movedPrevious && !Directory.Exists(output)) Directory.Move(previous, output);
+            throw;
+        }
+        if (movedPrevious) TryDeleteDirectory(previous);
     }
 
     private static void ValidateDestination(string projectRoot, string output)

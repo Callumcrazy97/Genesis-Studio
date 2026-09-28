@@ -17,7 +17,12 @@ namespace Genesis.Shared.Interfaces
         /// <summary>Circle outline of the given stroke thickness.</summary>
         void DrawCircle(Color color, float centerX, float centerY, float radius, float thickness = 1f);
         void DrawText(string text, string font, float size, Color color, Rectangle bounds);
+        /// <summary>UI text is vertically centred in its authored bounds; buttons also centre horizontally.</summary>
+        void DrawUiText(string text, string font, float size, Color color, Rectangle bounds, bool centered)
+            => DrawText(text, font, size, color, bounds);
         void DrawSprite(string spriteName, float x, float y, int frame, float xscale, float yscale, float angle, Color blend, float alpha);
+        /// <summary>Draw an image into a GUI rectangle, independent of its gameplay sprite origin.</summary>
+        void DrawSpriteRectangle(string spriteName, RectangleF destination, int frame, Color blend, float alpha);
         bool Is3DActive { get; }
         void QueueCube3D(float x, float y, float z, float sx, float sy, float sz, Color color, float alpha);
         void QueueSphere3D(float x, float y, float z, float radius, Color color, float alpha);

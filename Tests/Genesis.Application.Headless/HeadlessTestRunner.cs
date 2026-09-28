@@ -42,7 +42,7 @@ internal static class HeadlessTestRunner
         string profile = focusedTarget is not null
             ? $"Focused Test ({focusedTarget})"
             : fastBuildGate
-                ? "Build Gate (11 editor workflows + 2 PGSL runtime workflows)"
+                ? "Build Gate (13 editor workflows + 2 PGSL runtime workflows)"
                 : "Full Regression (build gate, then every detailed regression)";
 
         TestReport report = new()
@@ -82,7 +82,7 @@ internal static class HeadlessTestRunner
         }
 
         // The build gate: one consolidated test per editor and one PGSL runtime workflow per
-        // dimension. It is self-contained and reports exactly 13 outcomes.
+        // dimension. It is self-contained and reports exactly 15 outcomes.
         // It is self-contained — it builds its own projects — so it is also what runs alone under
         // --fast-tests, and it runs first in a full pass so a broken fundamental fails in seconds
         // rather than three minutes into the detailed regressions.
@@ -260,8 +260,12 @@ internal static class HeadlessTestRunner
             string renamed = resourceService.Rename(imported, "Hero Sprite");
             string renamedData = ResourceAssociates.GetSpriteDataDirectory(renamed);
             string renamedMedia = Path.Combine(renamedData, "frame-0000.png");
-            Assert(!Directory.Exists(spriteData), "Old sprite data directory was not renamed.");
-            Assert(File.Exists(renamedMedia), "Associate was not renamed with the resource.");
+            Assert(renamed == imported && renamedData == spriteData,
+                "Changing a public resource name must preserve private storage and sidecars.");
+            Assert(ResourceNames.Name(resourceService.Project.RootPath, renamed) == "Hero Sprite"
+                && ResourceNames.Resolve(resourceService.Project.RootPath, "Hero Sprite") == renamed,
+                "The imported Image's new public name did not resolve to its existing storage.");
+            Assert(File.Exists(renamedMedia), "Renaming the resource lost its image associate.");
 
             string folder = resourceService.CreateFolder(Path.Combine(resourceService.AssetsRoot, "Sprites"), "Imported");
             string moved = resourceService.Move(renamed, folder);
@@ -544,7 +548,7 @@ internal static class HeadlessTestRunner
             ProjectSession session = Require(project, "Project fixture");
             ResourceFixture resourceFixture = Require(fixture, "Resource fixture");
             ResourceService resourceService = Require(resources, "Resource service");
-            string spritePath = Path.Combine(resourceFixture.DestinationFolder, "Sample Image.image.json");
+            string spritePath = ResourceNames.Resolve(session.RootPath, "Sample Image");
             Assert(File.Exists(spritePath), "Sample image fixture is missing.");
 
             using StudioShellForm studio = new(services, session, persistLayout: false);
@@ -839,10 +843,10 @@ internal static class HeadlessTestRunner
                 ProjectTemplateCatalog.All.All(template => !template.Available || template.Contents.Count > 0),
                 "An available template lists no contents, so its card would be blank.");
 
-            ImageMetrics metrics = VisualCapture.Capture(
+            ImageMetrics metrics = VisualCapture.CaptureOpenForm(
                 hub,
                 Path.Combine(captures, "02b-project-hub-templates.png"),
-                captureFromScreen: true);
+                includeViewports: true);
             report.Images.Add(ImageResult.From("Project Hub — Templates", "02b-project-hub-templates.png", metrics));
 
             hub.ShowSection(HubSection.Projects);
@@ -953,6 +957,9 @@ internal static class HeadlessTestRunner
                 "Duplicate is not routed through the shared command catalog.");
 
             ResourceFixture resourceFixture = Require(fixture, "Resource fixture");
+            ResourceService resourceService = Require(resources, "Resource service");
+            string pasteDestination = resourceService.CreateFolder(Path.Combine(session.AssetsPath, "Notes"), "Pasted Notes");
+            studio.AssetBrowser.RefreshTree();
             Assert(
                 studio.AssetBrowser.SelectPath(resourceFixture.Note),
                 "The resource tree could not select a resource by path.");
@@ -960,15 +967,15 @@ internal static class HeadlessTestRunner
                 studio.AssetBrowser.ExecuteShortcut(Keys.Control | Keys.C),
                 "Ctrl+C was not handled by the resource tree.");
             Assert(
-                studio.AssetBrowser.SelectPath(resourceFixture.DestinationFolder),
+                studio.AssetBrowser.SelectPath(pasteDestination),
                 "The resource tree could not select the paste destination.");
             Assert(
                 studio.AssetBrowser.ExecuteShortcut(Keys.Control | Keys.V),
                 "Ctrl+V was not handled by the resource tree.");
-            string expectedCopy = Path.Combine(
-                resourceFixture.DestinationFolder,
-                Path.GetFileName(resourceFixture.Note));
-            Assert(File.Exists(expectedCopy), "Keyboard copy/paste did not create the resource.");
+            string expectedCopy = studio.AssetBrowser.SelectedResource?.FullPath ?? string.Empty;
+            Assert(File.Exists(expectedCopy) && Path.GetDirectoryName(expectedCopy) == pasteDestination
+                && expectedCopy != resourceFixture.Note && File.ReadAllText(expectedCopy) == File.ReadAllText(resourceFixture.Note),
+                "Keyboard copy/paste did not create a uniquely named Note in the correct folder.");
 
             ImageMetrics metrics = VisualCapture.Capture(
                 studio,
@@ -1037,6 +1044,7 @@ internal static class HeadlessTestRunner
         ctx.Fixture = fixture;
         Suites.ImageEditorSuite.RunFeatureSections(ctx);
         Suites.QualityOfLifeSuite.Run(ctx);
+        Suites.ResourceInspectorSuite.Run(ctx);
         Suites.EditorVisualCompatSuite.Run(ctx);
         Suites.ShaderWorkspaceSuite.Run(ctx);
         Suites.ShaderTerrainPreviewSuite.Run(ctx);
@@ -1045,11 +1053,14 @@ internal static class HeadlessTestRunner
         Suites.RoomTerrainPreviewSuite.Run(ctx);
         Suites.RoomWorkspaceSuite.Run(ctx);
         Suites.RoomHierarchyTransformsSuite.Run(ctx);
+        Suites.RoomSpritePlacementSuite.Run(ctx);
         Suites.RoomMetricGridToolsSuite.Run(ctx);
         Suites.RoomContextInspectorSuite.Run(ctx);
         Suites.EditorInteractionSuite.Run(ctx);
         Suites.ResourceNamesSuite.Run(ctx);
         Suites.StudioFoundationSuite.Run(ctx);
+        Suites.CodeAssistanceSuite.Run(ctx);
+        Suites.ReadinessJudgeSuite.Run(ctx);
         Suites.StudioPolishSuite.Run(ctx);
         Suites.ResourceLibrarySuite.Run(ctx);
         Suites.ResourceTagsSuite.Run(ctx);
@@ -1064,6 +1075,8 @@ internal static class HeadlessTestRunner
         Suites.SuiteEditorSuite.Run(ctx);
         Suites.TwoDPipelineSuite.Run(ctx);
         Suites.TwoDShowcaseSuite.Run(ctx);
+        Suites.MushroomMeadowExportSuite.Run(ctx);
+        Suites.TextRenderingSuite.Run(ctx);
         Suites.LuigisMansionSuite.Run(ctx);
 
         return Finish(report, outputRoot, fastBuildGate: false);
@@ -1074,6 +1087,9 @@ internal static class HeadlessTestRunner
         string normalized = target.Trim().TrimStart('-').Replace('_', '-').ToLowerInvariant();
         switch (normalized)
         {
+            case "particle-planar":
+                Suites.ParticleWorkbenchSuite.RunPlanar(ctx);
+                break;
             case "particle-workbench":
             case "editor-h21":
                 Suites.ParticleWorkbenchSuite.Run(ctx);
@@ -1093,6 +1109,12 @@ internal static class HeadlessTestRunner
             case "studio-foundation":
             case "editor-h12":
                 Suites.StudioFoundationSuite.Run(ctx);
+                break;
+            case "judge-core":
+                Suites.ReadinessJudgeSuite.Run(ctx);
+                break;
+            case "code-assistance":
+                Suites.CodeAssistanceSuite.Run(ctx);
                 break;
             case "resource-names":
             case "editor-h11":
@@ -1129,6 +1151,9 @@ internal static class HeadlessTestRunner
                     new StudioLog(Path.Combine(ctx.Logs, "focused-qol-studio.log")));
                 Suites.QualityOfLifeSuite.Run(ctx);
                 break;
+            case "resource-inspector":
+                Suites.ResourceInspectorSuite.Run(ctx);
+                break;
             case "editor-compat":
             case "editor-visual-compat":
                 PrepareFocusedProject(ctx, requireStudioServices: false);
@@ -1139,6 +1164,10 @@ internal static class HeadlessTestRunner
                 PrepareFocusedProject(ctx, requireStudioServices: true);
                 Suites.SuiteEditorSuite.Run(ctx);
                 break;
+            case "suite-2d":
+                PrepareFocusedProject(ctx, requireStudioServices: true);
+                Suites.SuiteEditorSuite.Run(ctx, twoDOnly: true);
+                break;
             case "walkthrough":
             case "terrain-walkthrough":
                 PrepareFocusedProject(ctx, requireStudioServices: true);
@@ -1147,6 +1176,10 @@ internal static class HeadlessTestRunner
             case "image-features":
                 PrepareFocusedProject(ctx, requireStudioServices: false);
                 Suites.ImageEditorSuite.RunFeatureSections(ctx);
+                break;
+            case "image-authoring":
+                PrepareFocusedProject(ctx, requireStudioServices: false);
+                Suites.ImageAuthoringSuite.Run(ctx);
                 break;
             case "model-viewer":
                 PrepareFocusedProject(ctx, requireStudioServices: true);
@@ -1181,6 +1214,9 @@ internal static class HeadlessTestRunner
                 Suites.RoomObjectsPanelSuite.Run(ctx);
                 Suites.RoomPalettePlacementSuite.Run(ctx);
                 Suites.RoomMetricGridToolsSuite.Run(ctx);
+                break;
+            case "room-sprite-placement":
+                Suites.RoomSpritePlacementSuite.Run(ctx);
                 break;
             case "room-completion":
                 Suites.RoomCompletionSuite.Run(ctx);
@@ -1257,6 +1293,12 @@ internal static class HeadlessTestRunner
             case "2d-showcase":
             case "resource-folders":
                 Suites.TwoDShowcaseSuite.Run(ctx);
+                break;
+            case "mushroom-export":
+                Suites.MushroomMeadowExportSuite.Run(ctx);
+                break;
+            case "text-rendering":
+                Suites.TextRenderingSuite.Run(ctx);
                 break;
             case "2d-pipeline":
                 PrepareFocusedProject(ctx, requireStudioServices: false);

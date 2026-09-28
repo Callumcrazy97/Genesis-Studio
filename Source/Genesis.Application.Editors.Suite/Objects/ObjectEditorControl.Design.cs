@@ -26,11 +26,22 @@ public sealed partial class ObjectEditorControl
     private string? _thumbnailAsset;
     private readonly Label _identityModelLabel = new() { Dock = DockStyle.Fill, ForeColor = EditorChrome.Text, TextAlign = ContentAlignment.MiddleLeft };
     private IReadOnlyDictionary<string, object> _watchedValues = new Dictionary<string, object>();
+    private Panel? _objectPropertiesPanel;
+    private SplitContainer? _objectPreviewPanel;
+    private SplitContainer? _objectPreviewDetails;
+    private Panel? _identityScroll;
+    private TableLayoutPanel? _identityStack;
+    private bool? _propertiesPanelChoice;
+    private bool? _previewPanelChoice;
+    private bool _applyingObjectLayout;
+    private enum SandboxInspectorSource { Authored, Diagnostic, Embedded }
+    private SandboxInspectorSource _sandboxInspectorSource;
     public ObjectWorkspaceMode WorkspaceMode { get; private set; }
     public ObjectCompositionPreviewControl RuntimePreview => _runtimePreview;
 
     public void SetWorkspaceMode(ObjectWorkspaceMode mode)
     {
+        _showObjectGameGuide = false;
         WorkspaceMode = mode;
         _authoringSplit.SuspendLayout();
         _authoringSplit.Panel1Collapsed = false; _authoringSplit.Panel2Collapsed = false;
@@ -44,21 +55,25 @@ public sealed partial class ObjectEditorControl
 
     private Panel BuildDesignModeBar()
     {
-        var bar = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 48, Padding = new Padding(8, 7, 4, 7),
-            WrapContents = false, BackColor = Color.FromArgb(22, 27, 34) };
-        ConfigureModeButton(_actionsModeButton, "Blueprint Graph", ShowVisualActions);
-        ConfigureModeButton(_codeModeButton, "</> PGSL Code", () => ShowCodeEditor());
-        ConfigureModeButton(_splitModeButton, "Split View", () => SetWorkspaceMode(ObjectWorkspaceMode.Split));
-        _actionsModeButton.Width = 150; _codeModeButton.Width = 138; _splitModeButton.Width = 108;
-        foreach (var button in new[] { _actionsModeButton, _codeModeButton, _splitModeButton }) button.Height = 34;
-        bar.Controls.AddRange([_actionsModeButton, _codeModeButton, _splitModeButton]);
+        var bar = new TableLayoutPanel { Dock = DockStyle.Top, Height = 48, Padding = new Padding(8, 7, 4, 7),
+            ColumnCount = 3, RowCount = 1, BackColor = EditorChrome.Surface };
+        bar.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        ConfigureModeButton(_actionsModeButton, "Graph", ShowVisualActions);
+        ConfigureModeButton(_codeModeButton, "Code", () => ShowCodeEditor());
+        ConfigureModeButton(_splitModeButton, "Split", () => SetWorkspaceMode(ObjectWorkspaceMode.Split));
+        foreach (var button in new[] { _actionsModeButton, _codeModeButton, _splitModeButton })
+        {
+            bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f / 3));
+            button.Dock = DockStyle.Fill;
+            bar.Controls.Add(button);
+        }
         return bar;
     }
 
     private Panel BuildDesignIdentity()
     {
         var panel = new Panel { Dock = DockStyle.Top, Height = 414, BackColor = Color.FromArgb(22, 27, 34), Padding = new Padding(12) };
-        var stack = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 9 };
+        var stack = _identityStack = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 9 };
         foreach (int height in new[] { 30, 126, 30, 28, 55, 30, 30, 30, 28 }) stack.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
         var choose = new Button { Text = "Choose Sprite / Model…", Dock = DockStyle.Fill, FlatStyle = FlatStyle.Flat };
         EditorChrome.StyleField(choose);
@@ -102,7 +117,7 @@ public sealed partial class ObjectEditorControl
         {
             var row = new Panel { Dock = DockStyle.Fill };
             row.Controls.Add(field); field.Dock = DockStyle.Fill;
-            row.Controls.Add(new Label { Text = label, Dock = DockStyle.Left, Width = 58, ForeColor = EditorChrome.Muted, TextAlign = ContentAlignment.MiddleLeft });
+            row.Controls.Add(new Label { Text = label, Dock = DockStyle.Left, AutoSize = true, Padding = new Padding(0, 0, 8, 0), ForeColor = EditorChrome.Muted, TextAlign = ContentAlignment.MiddleLeft });
             EditorChrome.StyleField(field); return row;
         }
         _depthInput.Minimum = -100000; _depthInput.Maximum = 100000;
@@ -159,7 +174,7 @@ public sealed partial class ObjectEditorControl
 
     private Control BuildDesignRightPanel()
     {
-        var right = new SplitContainer { Dock = DockStyle.Right, Width = 326, Orientation = Orientation.Horizontal,
+        var right = _objectPreviewPanel = new SplitContainer { Dock = DockStyle.Right, Width = 326, Orientation = Orientation.Horizontal,
             BackColor = EditorChrome.Border, SplitterWidth = 5, FixedPanel = FixedPanel.Panel1 };
         _runtimePreview = new ObjectCompositionPreviewControl(ProjectRoot, compact: true) { Playing = false };
         var sandbox = new Panel { Dock = DockStyle.Fill, BackColor = EditorChrome.Surface };
@@ -169,12 +184,14 @@ public sealed partial class ObjectEditorControl
         bar.Items.Add(EditorChrome.ToolButton("Frame", "Fit the complete asset in the preview", () => _runtimePreview.FrameAsset(VisualPreviewPrefab(_document), force: true)));
         _runtimeStatus.Dock = DockStyle.Bottom; _runtimeStatus.Height = 25; _runtimeStatus.ForeColor = EditorChrome.Muted; _runtimeStatus.Text = "Ready · 60 Hz simulation";
         sandbox.Controls.Add(_runtimePreview); sandbox.Controls.Add(_runtimeStatus); sandbox.Controls.Add(bar);
-        sandbox.Controls.Add(DesignHeading("2D / 3D Sandbox Preview")); right.Panel1.Controls.Add(sandbox);
-        var lower = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterWidth = 5, BackColor = EditorChrome.Border };
+        sandbox.Controls.Add(DesignHeading("Object preview")); right.Panel1.Controls.Add(sandbox);
+        var lower = _objectPreviewDetails = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterWidth = 5, BackColor = EditorChrome.Border };
         var watch = new Panel { Dock = DockStyle.Fill, BackColor = EditorChrome.Surface };
         _variableWatch.Dock = DockStyle.Fill; _variableWatch.BackgroundColor = EditorChrome.Surface; _variableWatch.BorderStyle = BorderStyle.None;
         _variableWatch.AllowUserToAddRows = false; _variableWatch.AllowUserToDeleteRows = false; _variableWatch.RowHeadersVisible = false;
         _variableWatch.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill; _variableWatch.EnableHeadersVisualStyles = false;
+        _variableWatch.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.AllCellsExceptHeaders;
+        _variableWatch.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
         _variableWatch.ColumnHeadersDefaultCellStyle.BackColor = EditorChrome.Raised; _variableWatch.ColumnHeadersDefaultCellStyle.ForeColor = EditorChrome.Text;
         _variableWatch.DefaultCellStyle.BackColor = EditorChrome.Surface; _variableWatch.DefaultCellStyle.ForeColor = EditorChrome.Text; _variableWatch.GridColor = EditorChrome.Border;
         _variableWatch.HandleCreated += (_, _) => EditorScrollHost.ApplyDarkScrollTheme(_variableWatch);
@@ -211,13 +228,70 @@ public sealed partial class ObjectEditorControl
 
     private static Label DesignHeading(string text) => new() { Dock = DockStyle.Top, Height = 32, Text = text, Padding = new Padding(10, 7, 2, 0), ForeColor = EditorChrome.Text, BackColor = Color.FromArgb(22, 27, 34) };
 
+    protected override void OnResize(EventArgs e)
+    {
+        base.OnResize(e);
+        ApplyObjectLayout();
+    }
+
+    protected override void OnChromeChanged()
+    {
+        base.OnChromeChanged();
+        ApplyObjectLayout();
+    }
+
+    public override void ApplyInterfaceLayout() => ApplyObjectLayout();
+
+    private void ApplyObjectLayout()
+    {
+        if (_applyingObjectLayout || _objectPropertiesPanel is null || _objectPreviewPanel is null || _identityScroll is null) return;
+        _applyingObjectLayout = true;
+        try
+        {
+            float scale = DeviceDpi / 96f * EditorChrome.BaseFont.SizeInPoints / 9.5f;
+            _objectPropertiesPanel.Width = (int)Math.Ceiling(262 * scale);
+            foreach (CheckBox flag in _identityFlags.Values)
+            {
+                flag.Width = (int)Math.Ceiling(106 * scale);
+                flag.Height = (int)Math.Ceiling(24 * scale);
+            }
+            _objectPreviewPanel.Width = Math.Min((int)Math.Ceiling(326 * scale), Math.Max(240, (int)(ClientSize.Width * .40f)));
+            _objectPropertiesPanel.Visible = ShouldShowObjectProperties;
+            _objectPreviewPanel.Visible = _previewPanelChoice ?? LogicalClientWidth >= 1000;
+            bool compactPreview = _objectPreviewPanel.ClientSize.Height / scale < 500;
+            if (_objectPreviewDetails is not null) _objectPreviewDetails.Panel2Collapsed = compactPreview;
+            if (_objectPreviewPanel.ClientSize.Height > 250)
+                _objectPreviewPanel.SplitterDistance = Math.Clamp((int)(_objectPreviewPanel.ClientSize.Height * (compactPreview ? .65f : .50f)), 140,
+                    _objectPreviewPanel.ClientSize.Height - _objectPreviewPanel.SplitterWidth - 100);
+            int fixedHeight = _objectPropertiesPanel.Controls.Cast<Control>()
+                .Where(control => control != _identityScroll && control.Visible && control.Dock is DockStyle.Top or DockStyle.Bottom)
+                .Sum(control => control.Height);
+            int identityBudget = Math.Max(40, _objectPropertiesPanel.ClientSize.Height - fixedHeight - (int)Math.Ceiling(80 * scale));
+            _identityScroll.Height = Math.Min(identityBudget, Math.Min((int)(414 * scale),
+                Math.Max(120, (int)(_objectPropertiesPanel.ClientSize.Height * .55f))));
+            if (_identityStack is not null)
+            {
+                int[] rows = [30, 126, 30, 28, 55, 30, 30, 30, 28];
+                for (int row = 0; row < rows.Length; row++) _identityStack.RowStyles[row].Height = (int)Math.Ceiling(rows[row] * scale);
+                _identityStack.RowStyles[4].Height = Math.Max(_identityStack.RowStyles[4].Height,
+                    _identityFlags.Values.Max(flag => flag.Height + flag.Margin.Vertical) * 2);
+                _identityStack.RowStyles[1].Height = Math.Max(56 * DeviceDpi / 96f,
+                    Math.Min(126 * scale, _identityScroll.Height - 30 * scale - 36 * DeviceDpi / 96f));
+                _identityStack.Parent!.Height = (int)Math.Ceiling(_identityStack.RowStyles.Cast<RowStyle>().Sum(row => row.Height)) + _identityStack.Parent.Padding.Vertical;
+            }
+        }
+        finally { _applyingObjectLayout = false; }
+        LayoutObjectWorkflow();
+    }
+
     private void InitializeDesignPreview()
     {
         DirtyChanged += (_, _) => { _previewPending = true; _sandboxNeedsReload = true; _previewChange = DateTime.UtcNow; };
         void StartPreview()
         {
             if (IsDisposed || _watchTimer.Enabled) return;
-            ResetLiveSandbox(); _watchTimer.Start();
+            if (_sandboxInspectorSource == SandboxInspectorSource.Authored && !_liveStarted) ResetLiveSandbox();
+            _watchTimer.Start();
         }
         HandleCreated += (_, _) => BeginInvoke(StartPreview);
         // Binding native fields can create our handle before this final initialization runs.
@@ -252,6 +326,9 @@ public sealed partial class ObjectEditorControl
 
     public void RunLiveSandbox()
     {
+        _showObjectGameGuide = false;
+        _previewPanelChoice = true;
+        ApplyObjectLayout();
         _previewPending = false;
         // Compare the current source on explicit resume as well as on live edit notifications.
         if (!_liveStarted || _sandboxNeedsReload || !_runtimePreview.Playing)
@@ -271,12 +348,17 @@ public sealed partial class ObjectEditorControl
             catch (IOException exception) { _runtimeStatus.Text = exception.Message; return; }
         }
         _runtimePreview.Playing = true;
+        _sandboxInspectorSource = SandboxInspectorSource.Embedded;
+        RefreshLiveWatch();
+        InspectorStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
     public void ResetLiveSandbox()
     {
         _previewPending = false;
         _liveStarted = false; _runtimePreview.Playing = false; _runtimePreview.EventSources = null; ReloadStaticPreview(); RefreshLiveWatch();
+        _sandboxInspectorSource = SandboxInspectorSource.Authored;
+        InspectorStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private void ReloadStaticPreview()

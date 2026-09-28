@@ -26,7 +26,7 @@ public sealed partial class NoteEditorControl
             nodes.Add(new TreeNode(entry.DisplayName) { Tag = entry.FullPath, ToolTipText = entry.Reference });
         }
         if (root.Nodes.Count == 0) root.Nodes.Add(new TreeNode("No matching notes") { ForeColor = EditorChrome.Muted });
-        _noteLibrary.Nodes.Add(root); root.Expand(); _noteLibrary.EndUpdate();
+        _noteLibrary.Nodes.Add(root); _noteLibrary.ExpandAll(); _noteLibrary.EndUpdate();
     }
 
     private void CreateProjectNote()
@@ -86,7 +86,9 @@ public sealed partial class NoteEditorControl
     private void ToggleTaskFromPreview(Point location)
     {
         int previewCharacter = _preview.GetCharIndexFromPosition(location);
-        int lineIndex = _preview.GetLineFromCharIndex(previewCharacter);
+        var task = _previewTasks.FirstOrDefault(task => previewCharacter >= task.Start && previewCharacter < task.End);
+        if (task.End <= task.Start) return;
+        int lineIndex = task.SourceLine;
         string[] lines = _source.Text.Replace("\r\n", "\n").Split('\n');
         if (lineIndex < 0 || lineIndex >= lines.Length) return;
         if (lines[lineIndex].StartsWith("- [ ] ", StringComparison.Ordinal)) lines[lineIndex] = "- [x] " + lines[lineIndex][6..];

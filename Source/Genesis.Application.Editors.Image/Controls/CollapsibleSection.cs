@@ -12,6 +12,8 @@ public sealed class CollapsibleSection : Panel
     private int _expandedHeight;
     private int _collapsedHeight = HeaderHeight;
     private const int HeaderHeight = ImageEditorChrome.SectionHeaderHeight;
+    private float _interfaceScale = 1f;
+    public float InterfaceScale => _interfaceScale;
 
     public event EventHandler? StateChanged;
 
@@ -26,7 +28,7 @@ public sealed class CollapsibleSection : Panel
 
     public void SetContentHeight(int height)
     {
-        _contentHeight = height; _expandedHeight = HeaderHeight + height;
+        _contentHeight = height; _expandedHeight = _header.Height + (int)Math.Ceiling(height * _interfaceScale);
         if (_expanded) Height = _expandedHeight;
     }
 
@@ -85,7 +87,26 @@ public sealed class CollapsibleSection : Panel
         _header.ForeColor = ImageEditorChrome.SectionTitle;
         _header.Font = ImageEditorChrome.HeadingFont;
         _content.BackColor = ImageEditorChrome.Surface;
+        ApplyInterfaceScale(ImageEditorChrome.BaseFont.SizeInPoints / 9.5f);
         Invalidate();
+    }
+
+    /// <summary>Scale the complete authored section, including manually positioned fields.</summary>
+    public void ApplyInterfaceScale(float scale)
+    {
+        scale = Math.Max(.5f, scale);
+        float ratio = scale / _interfaceScale;
+        if (Math.Abs(ratio - 1) < .001f) return;
+        _interfaceScale = scale;
+        SuspendLayout();
+        _content.Scale(new SizeF(ratio, ratio));
+        Width = (int)Math.Round(Width * ratio);
+        _header.Height = (int)Math.Round(_header.Height * ratio);
+        _collapsedHeight = _header.Height;
+        _expandedHeight = _header.Height + (int)Math.Ceiling(_contentHeight * scale);
+        Height = _expanded ? _expandedHeight : _collapsedHeight;
+        ResumeLayout(true);
+        LayoutContent();
     }
 
     protected override void OnResize(EventArgs eventargs)
@@ -93,11 +114,16 @@ public sealed class CollapsibleSection : Panel
         base.OnResize(eventargs);
         if (_content == null)
             return;
+        LayoutContent();
+    }
+
+    private void LayoutContent()
+    {
         _content.Bounds = new Rectangle(
             0,
-            HeaderHeight,
+            _header.Height,
             Width,
-            Math.Max(0, Height - HeaderHeight));
+            Math.Max(0, Height - _header.Height));
     }
 
     protected override void OnPaint(PaintEventArgs e)

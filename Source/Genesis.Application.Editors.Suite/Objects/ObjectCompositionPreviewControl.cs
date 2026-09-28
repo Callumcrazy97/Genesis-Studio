@@ -12,6 +12,7 @@ using Genesis.Runtime.ECS.Components;
 using Genesis.Runtime.Modeling;
 using Genesis.Runtime.Assets;
 using Genesis.Runtime.Input;
+using Genesis.Runtime.Particles;
 using Genesis.Physics;
 using Genesis.Shared.Assets;
 using Genesis.Shared.ECS.Components;
@@ -36,6 +37,7 @@ public sealed class ObjectCompositionPreviewControl : UserControl
     private readonly ObjectPreviewDrawRecording _worldDrawRecording = new(), _guiDrawRecording = new();
     private readonly ObjectPreviewHud _hud = new();
     private readonly InputState _input = new();
+    private EditorDimensionChrome.DimensionToggle? _dimension;
     private readonly IAudioSystem _audio;
     private readonly IDisposable? _audioOwner;
     private RuntimeScene? _scene;
@@ -98,33 +100,31 @@ public sealed class ObjectCompositionPreviewControl : UserControl
             return state;
         };
         _viewport.SelectionWorldPoint = () => Vector3.Zero;
-        EditorViewportChrome.Attach(
+        _dimension = EditorViewportChrome.Attach(
             toolbar,
             new EditorViewportChrome.Options
             {
                 Viewport = _viewport,
+                DimensionCaption = "Preview",
                 GetIs2D = () => _viewport.Mode2D,
                 SetIs2D = is2D =>
                 {
                     _viewport.Mode2D = is2D;
+                    _dimension?.Sync(is2D);
                     _viewport.Invalidate(true);
                 },
                 ViewTooltip = "Grid and reference-floor options for the Object preview",
                 FloorStyle = new EditorViewMenuChrome.FloorStyleBinding
                 {
-                    Read = () => EditorFloorStyle.Checkerboard,
-                    Write = _ => { },
+                    Read = () => _viewport.FloorStyle,
+                    Write = style => _viewport.FloorStyle = style,
                     Invalidate = () => _viewport.Invalidate(true),
                 },
-                GizmoTooltip = "Transform gizmo for the composed Object preview",
-                ReadGizmoMode = () => EditorGizmoMode.Move,
-                WriteGizmoMode = _ => { },
-                ReadGizmoSpace = () => EditorGizmoSpace.World,
-                WriteGizmoSpace = _ => { },
+                IncludeGizmo = false,
                 Invalidate = () => _viewport.Invalidate(true),
                 IncludeRotateGizmo = false,
                 IncludeScaleGizmo = false,
-            });
+            }).Dimension;
         Controls.Add(_viewport);
         Controls.Add(toolbar);
         toolbar.Visible = !compact;
@@ -160,7 +160,8 @@ public sealed class ObjectCompositionPreviewControl : UserControl
         JObject clone = (JObject)(prefab ?? new JObject()).DeepClone();
         _input.ClearHeld(); _input.NextFrame();
         _scene = new RuntimeScene("Object Composition Preview") { Input = _input };
-        _composition = _scene.AddSubsystem(new ObjectCompositionSubsystem(_projectRoot, _audio));
+        _composition = _scene.AddSubsystem(new ObjectCompositionSubsystem(_projectRoot, _audio,
+            !string.Equals((string?)clone["dimension"], "ThreeD", StringComparison.OrdinalIgnoreCase)));
         _entity = PrefabSpawner.Spawn(_scene.World, clone);
         if (string.Equals((string?)clone["dimension"], "ThreeD", StringComparison.OrdinalIgnoreCase))
         {
@@ -186,6 +187,7 @@ public sealed class ObjectCompositionPreviewControl : UserControl
         }
         _accumulator = 0; SimulationFrames = 0;
         _viewport.Mode2D = !string.Equals((string?)clone["dimension"], "ThreeD", StringComparison.OrdinalIgnoreCase);
+        _dimension?.Sync(_viewport.Mode2D);
         _viewport.Background2D = () => (0.055f, 0.07f, 0.11f);
         _lastTicks = _clock.ElapsedTicks;
         _scene.UpdateVariable(1f / 60f);
@@ -229,6 +231,22 @@ public sealed class ObjectCompositionPreviewControl : UserControl
                 }
             }
             catch (IOException exception) { _audioStatus = exception.Message; }
+        }
+        else if (_viewport.Mode2D && _scene.World.Has<ParticleComponent>(_entity))
+        {
+            // A particle-only Object has no sprite bounds to fit. Frame the real effect's
+            // travel and billboard sizes without changing its authored gameplay coordinates.
+            ParticleConfig effect = ParticleAssetLoader.Load(_projectRoot,
+                _scene.World.GetRef<ParticleComponent>(_entity).Asset);
+            double radius = ParticleAssetLoader.EnumerateEnabledEmitters(effect)
+                .Select(layer => (Math.Max(layer.Config.StartSize, layer.Config.EndSize)
+                    + layer.Config.EmitRadius + layer.Config.Speed * layer.Config.Lifetime
+                    + .5 * Math.Abs(layer.Config.Gravity) * layer.Config.Lifetime * layer.Config.Lifetime)
+                    * Particle2DLayout.PixelsPerUnit)
+                .DefaultIfEmpty(12).Max();
+            float extent = (float)Math.Clamp(radius * 2, 12, 100000);
+            extent *= Math.Max(.01f, Math.Max(Math.Abs(transform.ScaleX), Math.Abs(transform.ScaleY)));
+            _viewport.Zoom2D = Math.Clamp(Math.Min(_viewport.Width, _viewport.Height) * .7f / extent, .05f, 32f);
         }
         if (!_viewport.Mode2D && !string.IsNullOrWhiteSpace(assetKey))
         {

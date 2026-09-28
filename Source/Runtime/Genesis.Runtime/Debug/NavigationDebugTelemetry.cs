@@ -55,6 +55,7 @@ public static class NavigationDebugTelemetry
         public int Waypoint = -1;
         public int Direction = 1;
         public float Wait;
+        public bool SegmentActive;
         public uint RandomState;
     }
     private sealed class PreviewDriver
@@ -130,6 +131,10 @@ public static class NavigationDebugTelemetry
     public static NavigationDebugSnapshot? Get(RuntimeScene? scene) =>
         scene is not null && Snapshots.TryGetValue(scene, out NavigationDebugSnapshot? snapshot) ? snapshot : null;
 
+    internal static bool IsPreviewDriven(RuntimeScene scene, int entityId) => Enabled
+        && SceneStates.TryGetValue(scene, out SceneDebugState? state)
+        && state.Preview?.Agents.Any(agent => agent.EntityId == entityId) == true;
+
     internal static void AdvanceDebugPreview(RuntimeScene? scene, float dt)
     {
         if (!Enabled || scene is null || !float.IsFinite(dt) || dt <= 0f) return;
@@ -168,22 +173,37 @@ public static class NavigationDebugTelemetry
             }
 
             Vector3 position = new(transform.X, transform.Y, transform.Z);
+            if (agent.HasArrived && previewAgent.SegmentActive)
+            {
+                previewAgent.SegmentActive = false;
+                previewAgent.Wait = route.Waypoints.Count > 0 && previewAgent.Waypoint >= 0
+                    ? MathF.Max(route.DefaultWaitSeconds, route.Waypoints[previewAgent.Waypoint].WaitSeconds) : route.DefaultWaitSeconds;
+                agent.SetPath([]);
+                continue;
+            }
             if (!agent.HasPath || agent.HasArrived)
             {
+                int previousWaypoint = previewAgent.Waypoint;
                 if (!TryChoosePreviewDestination(scene, preview, previewAgent, entity, position, out Vector3 destination))
                 {
                     SetCrowdMotion(scene, entity, Vector3.Zero, Vector3.Zero);
                     continue;
                 }
-                IReadOnlyList<Vector3> path = preview.Query?.FindPath(position, destination) ?? [destination];
-                agent.SetPath(path.Count > 0 ? path : [destination]);
+                if (agent.PlanarXY) destination.Z = position.Z;
+                IReadOnlyList<Vector3> path = route.Mode == PathingRouteMode.WaypointPatrol
+                    ? route.SegmentPoints(previousWaypoint, previewAgent.Waypoint).Select(point => agent.PlanarXY
+                        ? new Vector3(point.X, point.Y, position.Z) : point).ToArray()
+                    : preview.Query?.FindPath(preview.Asset.NavigationPosition(position), preview.Asset.NavigationPosition(destination))
+                        .Select(point => preview.Asset.WorldPosition(point, position.Z)).ToArray() ?? [destination];
+                agent.SetPath(path);
+                previewAgent.SegmentActive = agent.HasPath;
             }
 
             Vector3 steering = PreviewSteering(scene, preview, previewAgent, position);
             Vector3 next = agent.Update(position, dt,
-                preview.Query is null ? null : (from, to) => preview.Query.CanTravel(from, to), steering);
-            int cell = preview.NavMesh?.Cell(next) ?? -1;
-            if (preview.NavMesh is not null && cell >= 0) next.Y = preview.NavMesh.Heights[cell];
+                preview.Query is null ? null : (from, to) => preview.Query.CanTravel(preview.Asset.NavigationPosition(from), preview.Asset.NavigationPosition(to)), steering);
+            int cell = preview.NavMesh?.Cell(preview.Asset.NavigationPosition(next)) ?? -1;
+            if (!agent.PlanarXY && preview.NavMesh is not null && cell >= 0) next.Y = preview.NavMesh.Heights[cell];
             transform.X = next.X;
             transform.Y = next.Y;
             transform.Z = next.Z;
@@ -223,7 +243,7 @@ public static class NavigationDebugTelemetry
             if (!ObjectDrawAssetRegistry.TryGet(entity, out ObjectDrawAssetEntry? draw)
                 || !MatchesReference(draw.Prefab, asset.TargetObject)
                 || scene.World.Has<NavMeshAgentComponent>(entity)) return;
-            scene.World.Set(entity, new NavMeshAgentComponent { Agent = new NavMeshAgent() });
+            scene.World.Set(entity, new NavMeshAgentComponent { Agent = new NavMeshAgent { PlanarXY = asset.Dimension == PathingDimension.TwoD } });
             if (!scene.World.Has<CrowdAgentComponent>(entity))
                 scene.World.Set(entity, DefaultCrowd());
             PreviewAgent previewAgent = new() { EntityId = entity.Id, RandomState = unchecked((uint)(entity.Id * 747796405) + 2891336453u) };
@@ -243,13 +263,15 @@ public static class NavigationDebugTelemetry
             float angle = NextRandom(agent) * MathF.Tau;
             float radius = MathF.Sqrt(NextRandom(agent)) * route.WanderRadius;
             Vector3 origin = route.Waypoints.Count > 0 ? route.Waypoints[0].Position : position;
-            destination = origin + new Vector3(MathF.Cos(angle) * radius, 0f, MathF.Sin(angle) * radius);
-            agent.Wait = route.DefaultWaitSeconds;
+            destination = origin + (preview.Asset.Dimension == PathingDimension.TwoD
+                ? new Vector3(MathF.Cos(angle) * radius, MathF.Sin(angle) * radius, 0)
+                : new Vector3(MathF.Cos(angle) * radius, 0f, MathF.Sin(angle) * radius));
             return true;
         }
         if (route.Mode == PathingRouteMode.FollowLeader)
         {
             if (!TryFindEntity(scene, route.FollowTarget, entity, out Vector3 target)) return false;
+            if (preview.Asset.Dimension == PathingDimension.TwoD) target.Z = position.Z;
             Vector3 delta = target - position;
             if (delta.LengthSquared() <= route.FollowOffset * route.FollowOffset) return false;
             destination = target - Vector3.Normalize(delta) * route.FollowOffset;
@@ -259,7 +281,6 @@ public static class NavigationDebugTelemetry
         if (agent.Waypoint < 0) agent.Waypoint = 0;
         else if (!AdvancePreviewWaypoint(agent, route)) return false;
         destination = route.Waypoints[agent.Waypoint].Position;
-        agent.Wait = MathF.Max(route.DefaultWaitSeconds, route.Waypoints[agent.Waypoint].WaitSeconds);
         return true;
     }
 
@@ -293,7 +314,8 @@ public static class NavigationDebugTelemetry
             if (!scene.World.IsAlive(entity) || !scene.World.Has<TransformComponent>(entity)) continue;
             ref TransformComponent transform = ref scene.World.GetRef<TransformComponent>(entity);
             Vector3 delta = position - new Vector3(transform.X, transform.Y, transform.Z);
-            delta.Y = 0f;
+            if (preview.Asset.Dimension == PathingDimension.TwoD) delta = new Vector3(delta.X, 0, delta.Y);
+            else delta.Y = 0f;
             float length = delta.Length();
             if (length > .001f && length < 1.2f) steering += delta / length * (1f - length / 1.2f);
         }

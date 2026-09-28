@@ -90,9 +90,11 @@ public sealed partial class ObjectEditorControl : EditorSurfaceControl, ILiveRes
         }
 
         ExposeLegacyModelBinding();
-        Controls.Add(BuildCentre());
-        Controls.Add(BuildDesignRightPanel());
-        Controls.Add(BuildLeftPanel());
+        _objectWorkspaceHost = new Panel { Dock = DockStyle.Fill, BackColor = EditorChrome.Canvas };
+        _objectWorkspaceHost.Controls.Add(BuildCentre());
+        _objectWorkspaceHost.Controls.Add(BuildDesignRightPanel());
+        _objectWorkspaceHost.Controls.Add(BuildLeftPanel());
+        Controls.Add(_objectWorkspaceHost);
         Controls.Add(BuildToolbar());
         Controls.Add(BuildStatus());
 
@@ -104,6 +106,7 @@ public sealed partial class ObjectEditorControl : EditorSurfaceControl, ILiveRes
         SelectFirstEventWithCode();
         ShowVisualActions();
         InitializeDesignPreview();
+        ApplyObjectLayout();
         if (_visualBindingMigrated) MarkDirty();
         if (_activeEvent is not null
             && _events.TryGetValue(_activeEvent, out string? initialSource)
@@ -111,6 +114,7 @@ public sealed partial class ObjectEditorControl : EditorSurfaceControl, ILiveRes
         {
             ShowVisualActions();
         }
+        InitializeObjectWorkflow();
     }
 
     // ── Public surface (headless tests drive these) ──────────────────────────────
@@ -234,6 +238,7 @@ public sealed partial class ObjectEditorControl : EditorSurfaceControl, ILiveRes
         SelectTreeNode(eventId);
         RefreshEventTabs();
         ValidateActiveEvent();
+        RefreshObjectWorkflow();
         return true;
     }
 
@@ -244,15 +249,29 @@ public sealed partial class ObjectEditorControl : EditorSurfaceControl, ILiveRes
 
     public IReadOnlyList<ResourceInspectorLiveValue> GetLiveInspectorValues()
     {
-        if (_runtimePreview?.LiveBehavior is not null)
+        if (_sandboxInspectorSource == SandboxInspectorSource.Embedded && _runtimePreview?.LiveBehavior is { } live)
         {
-            List<ResourceInspectorLiveValue> current = _watchedValues.Select(pair => new ResourceInspectorLiveValue(
-                "LIVE SANDBOX", "Runtime.Variables." + pair.Key, pair.Key, pair.Value,
-                Description: "Current VM value; live edits are not saved to the Object.")).ToList();
+            Dictionary<string, string> declarations = new(StringComparer.OrdinalIgnoreCase);
+            foreach ((string eventId, string source) in _events.OrderBy(pair => OrderOf(pair.Key)))
+            foreach (Match declaration in Regex.Matches(source, @"(?m)^[\t ]*(?:var[\t ]+)?(?<name>[A-Za-z_]\w*)[\t ]*=(?!=)"))
+                declarations.TryAdd(declaration.Groups["name"].Value, eventId);
+            List<ResourceInspectorLiveValue> current = live.GetVariablesSnapshot()
+                .Where(pair => !pair.Key.StartsWith("__", StringComparison.Ordinal))
+                .Select(pair => new ResourceInspectorLiveValue(
+                    declarations.TryGetValue(pair.Key, out string? owner) ? HumanizeRuntimeName(owner).ToUpperInvariant() + " EVENT" : "OBJECT VARIABLES",
+                    "Runtime.Variables." + pair.Key, HumanizeRuntimeName(pair.Key), pair.Value,
+                    Description: "Current value in the embedded gameplay VM; live edits are not saved to the Object.")).ToList();
+            foreach ((string name, object value) in new (string, object)[]
+            {
+                ("x", live.Context.X), ("y", live.Context.Y), ("z", live.Context.Z),
+                ("hspeed", live.Context.HSpeed), ("vspeed", live.Context.VSpeed),
+            })
+                current.Add(new("INSTANCE FIELDS", "Runtime.Instance." + name, HumanizeRuntimeName(name), value,
+                    Description: "Live embedded gameplay instance field; this edit is not saved to the Object."));
             if (_visualActions.Visible) current.AddRange(_visualActions.GetSelectedInspectorValues());
             return current;
         }
-        if (!_sandbox.HasLiveInstance)
+        if (_sandboxInspectorSource != SandboxInspectorSource.Diagnostic || !_sandbox.HasLiveInstance)
         {
             return GetAuthoredEventInspectorValues();
         }
@@ -306,14 +325,14 @@ public sealed partial class ObjectEditorControl : EditorSurfaceControl, ILiveRes
                      .OrderBy(pair => OrderOf(pair.Key)))
         {
             string eventLabel = ObjectEventCatalog.Find(eventId)?.Label ?? HumanizeRuntimeName(eventId);
-            foreach (PgslInspectableVariables.Variable variable in PgslInspectableVariables.Reflect(source))
+            foreach (PgslInspectableVariables.Variable variable in PgslInspectableVariables.Reflect(source, ProjectRoot))
             {
                 values.Add(new ResourceInspectorLiveValue(
                     $"{eventLabel.ToUpperInvariant()} EVENT",
                     $"Events.{eventId}.Variables.{variable.Name}",
-                    HumanizeRuntimeName(variable.Name),
+                    variable.Name,
                     variable.Value,
-                    Description: $"Authored variable in the {eventLabel} event; saved with this Object."));
+                    Description: $"Authored variable in the {eventLabel} event; saved with this Object.", AssetKind: variable.AssetKind));
             }
         }
         if (_visualActions.Visible)
@@ -330,8 +349,12 @@ public sealed partial class ObjectEditorControl : EditorSurfaceControl, ILiveRes
             : propertyPath.StartsWith(variablePrefix, StringComparison.OrdinalIgnoreCase)
                 ? propertyPath[variablePrefix.Length..]
                 : null;
-        return name is { Length: > 0 } && (_runtimePreview?.LiveBehavior is { } live
-            ? live.TrySetLiveValue(name, value) : _sandbox.TrySetLiveValue(name, value));
+        if (name is not { Length: > 0 }) return false;
+        bool changed = _sandboxInspectorSource == SandboxInspectorSource.Embedded && _runtimePreview?.LiveBehavior is { } live
+            ? live.TrySetLiveValue(name, value!)
+            : _sandboxInspectorSource == SandboxInspectorSource.Diagnostic && _sandbox.TrySetLiveValue(name, value);
+        if (changed) InspectorStateChanged?.Invoke(this, EventArgs.Empty);
+        return changed;
     }
 
     /// <summary>
@@ -522,33 +545,7 @@ public sealed partial class ObjectEditorControl : EditorSurfaceControl, ILiveRes
     private ToolStrip BuildToolbar()
     {
         Disposed += (_, _) => StopDebugging();
-        ToolStrip toolbar = EditorChrome.MakeToolbar();
-        EditorViewportChrome.AttachDocumentMenus(toolbar, this);
-        var objectMenu = new ToolStripDropDownButton("Object");
-        objectMenu.DropDownItems.Add("Check event", null, (_, _) => TestEvent());
-        objectMenu.DropDownItems.Add("Check all events", null, (_, _) => TestObject());
-        objectMenu.DropDownItems.Add("Debug current event", null, (_, _) => DebugActiveEvent());
-        objectMenu.DropDownItems.Add("Components…", null, (_, _) => ShowComposition());
-        toolbar.Items.Add(objectMenu);
-        toolbar.Items.Add(new ToolStripSeparator());
-        toolbar.Items.Add(EditorChrome.ToolButton(
-            "Run Sandbox (F5)",
-            "Run this Object in the embedded runtime",
-            RunLiveSandbox));
-        toolbar.Items.Add(EditorChrome.ToolButton(
-            "Debug Event",
-            "Run the selected event with breakpoints and step-through execution",
-            DebugActiveEvent));
-        toolbar.Items.Add(EditorChrome.ToolButton(
-            "Stop Debug",
-            "Stop the active PGSL debug session",
-            StopDebugging));
-        toolbar.Items.Add(new ToolStripSeparator());
-        toolbar.Items.Add(EditorChrome.ToolButton(
-            "Components…",
-            "Edit the ordered runtime component stack and preview the composed Object",
-            ShowComposition));
-        return toolbar;
+        return BuildObjectWorkflowToolbar();
     }
 
     /// <summary>
@@ -558,7 +555,7 @@ public sealed partial class ObjectEditorControl : EditorSurfaceControl, ILiveRes
     /// </summary>
     private Panel BuildLeftPanel()
     {
-        Panel panel = new()
+        Panel panel = _objectPropertiesPanel = new()
         {
             BackColor = EditorChrome.Surface,
             Dock = DockStyle.Left,
@@ -566,6 +563,7 @@ public sealed partial class ObjectEditorControl : EditorSurfaceControl, ILiveRes
         };
 
         _eventList.Dock = DockStyle.Fill;
+        _eventList.SizeChanged += (_, _) => ApplyObjectLayout();
         _eventList.EventSelected += id => SelectEvent(id);
         _eventList.EventRemoveRequested += id =>
         {
@@ -591,21 +589,11 @@ public sealed partial class ObjectEditorControl : EditorSurfaceControl, ILiveRes
         EditorChrome.StyleField(_eventSearch);
         eventSearchHost.Controls.Add(_eventSearch);
 
-        Panel actions = new() { BackColor = EditorChrome.Surface, Dock = DockStyle.Bottom, Height = 46, Padding = new Padding(12, 8, 12, 8) };
-
-        Button add = new() { Dock = DockStyle.Fill, FlatStyle = FlatStyle.Flat, Height = 30, Text = "＋   Add Event" };
-        add.FlatAppearance.BorderSize = 0;
-        add.BackColor = EditorChrome.Accent;
-        add.ForeColor = Color.White;
-        add.Font = new Font(EditorChrome.BaseFont, FontStyle.Bold);
-        add.Click += (_, _) => AddEventViaWizard();
-
-        actions.Controls.Add(add);
-
         panel.Controls.Add(_eventList);
-        panel.Controls.Add(actions);
         panel.Controls.Add(eventSearchHost);
-        panel.Controls.Add(BuildProperties());
+        _identityScroll = new EditorScrollHost(EditorChrome.Surface) { Name = "ObjectIdentityScroll", Dock = DockStyle.Top, Height = 414 };
+        _identityScroll.Controls.Add(BuildProperties());
+        panel.Controls.Add(_identityScroll);
         panel.Controls.Add(BuildIdentityHeader());
         return panel;
     }
@@ -646,7 +634,7 @@ public sealed partial class ObjectEditorControl : EditorSurfaceControl, ILiveRes
     /// <summary>Open the event wizard and add whatever it returns.</summary>
     public bool AddEventViaWizard(string? preselect = null)
     {
-        using AddEventDialog dialog = new(ActiveEvents);
+        using AddEventDialog dialog = CreateAddEventDialog();
         if (preselect is not null)
         {
             // Headless path: choose and confirm without showing the dialog.
@@ -662,6 +650,8 @@ public sealed partial class ObjectEditorControl : EditorSurfaceControl, ILiveRes
         SetEventBody(id, dialog.UseStarterCode ? StarterFor(id) : string.Empty);
         return true;
     }
+
+    public AddEventDialog CreateAddEventDialog() => new(_events.Keys.ToArray());
 
     /// <summary>Set the physics preset directly. Public so a headless test skips the dialog.</summary>
     public void SetPhysicsPreset(string? presetId)
@@ -736,12 +726,13 @@ public sealed partial class ObjectEditorControl : EditorSurfaceControl, ILiveRes
     /// </summary>
     private Control BuildCentre()
     {
-        Panel centre = new() { BackColor = EditorChrome.Canvas, Dock = DockStyle.Fill };
+        Panel centre = _objectAuthoringPanel = new() { BackColor = EditorChrome.Canvas, Dock = DockStyle.Fill };
         Panel authoringHost = new() { BackColor = EditorChrome.Canvas, Dock = DockStyle.Fill };
 
         _code.Dock = DockStyle.Fill;
         _code.SetRules(PgslScriptEditorControl.BuildRules());
         _code.IntelligenceRequested += OnIntelligenceRequested;
+        _code.SetLanguage("PGSL");
         _code.TextChangedByUser += (_, _) =>
         {
             if (_syncing || _activeEvent is null) return;
@@ -778,8 +769,6 @@ public sealed partial class ObjectEditorControl : EditorSurfaceControl, ILiveRes
         authoringHost.Controls.Add(_authoringSplit);
         _visualActions.UseBlueprintWorkspace();
 
-        Panel modeBar = BuildAuthoringModeBar();
-
         _eventHint.Dock = DockStyle.Top;
         _eventHint.Height = 24;
         _eventHint.BackColor = EditorChrome.Canvas;
@@ -808,7 +797,7 @@ public sealed partial class ObjectEditorControl : EditorSurfaceControl, ILiveRes
 
         centre.Controls.Add(authoringHost);
         centre.Controls.Add(_problems);
-        centre.Controls.Add(modeBar);
+        BuildObjectWorkflowHint(centre);
         centre.Controls.Add(_eventHint);
         _eventTabs.Visible = false;
         authoringHost.BringToFront();
@@ -836,6 +825,7 @@ public sealed partial class ObjectEditorControl : EditorSurfaceControl, ILiveRes
         StyleModeButton(_actionsModeButton, WorkspaceMode == ObjectWorkspaceMode.Graph);
         StyleModeButton(_codeModeButton, WorkspaceMode == ObjectWorkspaceMode.Code);
         StyleModeButton(_splitModeButton, WorkspaceMode == ObjectWorkspaceMode.Split);
+        RefreshObjectWorkflow();
     }
 
     private static void StyleModeButton(Button button, bool active)
@@ -890,6 +880,7 @@ public sealed partial class ObjectEditorControl : EditorSurfaceControl, ILiveRes
         var ids = _events.Keys.Concat(_inheritedEvents.Keys).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         _eventList.SetEvents(ids, _activeEvent, [.. ids.Where(HasCode)]);
         RefreshEventTabs();
+        RefreshObjectWorkflow();
     }
 
     private string SourceForEvent(string eventId) => _events.GetValueOrDefault(eventId) ?? _inheritedEvents.GetValueOrDefault(eventId) ?? "";
@@ -1320,11 +1311,13 @@ public sealed partial class ObjectEditorControl : EditorSurfaceControl, ILiveRes
     /// <summary>Open the complete component stack and its runtime-path preview.</summary>
     public void ShowComposition()
     {
-        using ObjectCompositionDialog dialog = new(_document, ProjectRoot);
+        using ObjectCompositionDialog dialog = CreateCompositionDialog();
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
 
         ApplyComposition(dialog.Document);
     }
+
+    public ObjectCompositionDialog CreateCompositionDialog() => new(_document, ProjectRoot);
 
     /// <summary>Commit the component dialog's working document.</summary>
     public void ApplyComposition(JObject document)
@@ -1478,8 +1471,11 @@ public sealed partial class ObjectEditorControl : EditorSurfaceControl, ILiveRes
         });
     }
 
-    private void OnSandboxLiveStateChanged(object? sender, EventArgs e) =>
+    private void OnSandboxLiveStateChanged(object? sender, EventArgs e)
+    {
+        _sandboxInspectorSource = SandboxInspectorSource.Diagnostic;
         InspectorStateChanged?.Invoke(this, EventArgs.Empty);
+    }
 
     private static int RuntimeInstanceOrder(string name) => name.ToLowerInvariant() switch
     {
@@ -1522,4 +1518,3 @@ public sealed partial class ObjectEditorControl : EditorSurfaceControl, ILiveRes
     private void UpdateStatus(string? message) =>
         _statusLabel.Text = message ?? $"{ActiveEvents.Count} event(s) with code.";
 }
-

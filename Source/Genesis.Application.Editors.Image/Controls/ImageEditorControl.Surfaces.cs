@@ -11,7 +11,10 @@ public sealed partial class ImageEditorControl
     private readonly CheckBox _layerVisible = new() { Text = "Visible", AutoSize = true };
     private readonly CheckBox _layerLocked = new() { Text = "Locked", AutoSize = true };
     private readonly Label _canvasDimensions = new() { AutoSize = true };
-    private void OnSessionChanged(object? sender, EventArgs e) => DirtyChanged?.Invoke(this, EventArgs.Empty);
+    private void OnSessionChanged(object? sender, EventArgs e)
+    {
+        RefreshImageWorkflow(); DirtyChanged?.Invoke(this, EventArgs.Empty);
+    }
     private void OnCanvasViewChanged(object? sender, EventArgs e) => RefreshStatus();
     private void RefreshStatus() => _status.Text = $"{_workspace.Width} × {_workspace.Height} px  ·  {DisplayName(_activeTool)}  ·  Zoom {_canvas.Zoom:P0}  ·  Frame {_workspace.SelectedFrameIndex + 1}/{_workspace.Frames.Count}";
 
@@ -26,6 +29,10 @@ public sealed partial class ImageEditorControl
             Padding = new Padding(10),
             BackColor = ImageEditorChrome.Surface
         };
+        Label starting = new() { Name = "ImageStartingSteps", Text = "1. Draw on the canvas or import a frame in Options → File.\n2. Animate frames below; Rig creates bone poses.\n3. Save, then Use in game.",
+            AutoSize = true, ForeColor = ImageEditorChrome.Muted, Font = ImageEditorChrome.BaseFont, Margin = new Padding(0, 0, 0, 12) };
+        container.Controls.Add(starting);
+        container.SizeChanged += (_, _) => starting.MaximumSize = new Size(Math.Max(120, container.ClientSize.Width - container.Padding.Horizontal - 20), 0);
         _currentToolSection = new CollapsibleSection("Current Tool · Pencil", 224);
         var current = _currentToolSection.Content;
         _brushSize.SetBounds(170, 8, 90, 26); _brushHardness.SetBounds(170, 40, 90, 26); _brushOpacity.SetBounds(170, 72, 90, 26);
@@ -73,6 +80,8 @@ public sealed partial class ImageEditorControl
     private void LayoutCurrentTool()
     {
         if (_currentToolSection == null) return;
+        _currentToolSection.ApplyInterfaceScale(ImageEditorChrome.BaseFont.SizeInPoints / 9.5f);
+        float scale = _currentToolSection.InterfaceScale;
         bool paint = _activeTool is ImageToolKind.Pencil or ImageToolKind.Brush or ImageToolKind.Eraser;
         bool shape = _activeTool is ImageToolKind.Line or ImageToolKind.Rectangle or ImageToolKind.Ellipse or ImageToolKind.Polygon or ImageToolKind.Bezier;
         var rows = new (string Label, Control Field, bool Visible)[] {
@@ -84,12 +93,12 @@ public sealed partial class ImageEditorControl
         {
             var label=_currentToolSection.Content.Controls.OfType<Label>().First(l=>l.Text==row.Label);
             label.Visible=row.Field.Visible=row.Visible;
-            if(!row.Visible)continue;label.Top=y+4;row.Field.Top=y;y+=30;
+            if(!row.Visible)continue;label.Top=(int)((y+4)*scale);row.Field.Top=(int)(y*scale);y+=30;
         }
         _filledShape.Visible=_activeTool is ImageToolKind.Rectangle or ImageToolKind.Ellipse or ImageToolKind.Polygon;
-        if(_filledShape.Visible){_filledShape.Top=y;y+=28;}
-        _foreground.Top=_background.Top=y;
-        _currentToolSection.Content.Controls["SwapColours"]!.Top=y;
+        if(_filledShape.Visible){_filledShape.Top=(int)(y*scale);y+=28;}
+        _foreground.Top=_background.Top=(int)(y*scale);
+        _currentToolSection.Content.Controls["SwapColours"]!.Top=(int)(y*scale);
         _currentToolSection.SetContentHeight(y+35);
     }
     private void SwapColours() => (_foreground.Colour, _background.Colour) = (_background.Colour, _foreground.Colour);
@@ -138,13 +147,13 @@ public sealed partial class ImageEditorControl
         bool selected = (e.State & DrawItemState.Selected) != 0 || (_rangeStart >= 0 && frameIndex >= Math.Min(_rangeStart,_rangeEnd) && frameIndex <= Math.Max(_rangeStart,_rangeEnd));
         using var fill = new SolidBrush(selected ? ImageEditorChrome.Hover : ImageEditorChrome.Surface);
         e.Graphics.FillRectangle(fill, e.Bounds);
-        var thumbnail = new Rectangle(e.Bounds.X + 10, e.Bounds.Y + 5, 60, 60);
+        var thumbnail = new Rectangle(e.Bounds.X + (e.Bounds.Width - 60) / 2, e.Bounds.Y + 5, 60, 60);
         var frame = _workspace.Frames[frameIndex];
         DrawThumbnail(e.Graphics, thumbnail, frame.Id.ToString(), () => _workspace.CompositeCurrentFrameFor(frameIndex).Pixels);
         using Pen border = new(selected ? ImageEditorChrome.Accent : ImageEditorChrome.Border, selected ? 2 : 1);
         e.Graphics.DrawRectangle(border, thumbnail);
         TextRenderer.DrawText(e.Graphics, $"{frameIndex + 1} · {frame.DurationMilliseconds} ms", ImageEditorChrome.BaseFont,
-            new Rectangle(e.Bounds.X + 2, e.Bounds.Y + 69, 78, 23), ImageEditorChrome.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.EndEllipsis);
+            new Rectangle(e.Bounds.X + 2, e.Bounds.Y + 69, e.Bounds.Width - 4, e.Bounds.Height - 69), ImageEditorChrome.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
     }
 
     private void DrawLayerRow(object? sender, DrawItemEventArgs e)

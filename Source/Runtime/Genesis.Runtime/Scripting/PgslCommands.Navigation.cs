@@ -9,6 +9,7 @@ using Genesis.Runtime.Debugger;
 using Genesis.Runtime.ECS.Components;
 using Genesis.Runtime.Navigation;
 using Genesis.Runtime.Project;
+using Genesis.Runtime.Scene;
 using Genesis.Shared.ECS.Components;
 using Genesis.Shared.Scripting;
 
@@ -57,9 +58,11 @@ public static partial class PgslCommands
     {
         var game = ActiveGameContext;
         if (game?.Room == null) return;
-        Vector3 min = Vector3.Zero, max = new(game.Room.Settings.Width, 0, game.Room.Settings.Depth);
+        Vector3 min = Vector3.Zero, max = new(game.Room.Settings.Width, 0,
+            game.Room.Dimension == Genesis.Runtime.Scene.RoomDimension.TwoD ? game.Room.Settings.Height : game.Room.Settings.Depth);
         var terrain = game.Scene?.Subsystems.OfType<RoomTerrainSubsystem>().FirstOrDefault();
-        if (terrain != null && terrain.TryGetNavigationBounds(out var terrainMin, out var terrainMax)) { min = terrainMin; max = terrainMax; }
+        if (game.Room.Dimension != Genesis.Runtime.Scene.RoomDimension.TwoD && terrain != null
+            && terrain.TryGetNavigationBounds(out var terrainMin, out var terrainMax)) { min = terrainMin; max = terrainMax; }
         float cell = MathF.Max(1, MathF.Max(max.X - min.X, max.Z - min.Z) / 512);
         NavMeshBakeGrid(min.X, min.Z, Math.Ceiling((max.X - min.X) / cell), Math.Ceiling((max.Z - min.Z) / cell), cell);
     }
@@ -73,6 +76,7 @@ public static partial class PgslCommands
             || widthCells != Math.Truncate(widthCells) || depthCells != Math.Truncate(depthCells))
             throw new ArgumentOutOfRangeException(nameof(widthCells), "Invalid navigation grid dimensions.");
         var obstacles = new List<NavigationObstacle>();
+        bool planarXY = game.Room?.Dimension == Genesis.Runtime.Scene.RoomDimension.TwoD;
         game.World.Query<RigidBodyComponent, Transform3DComponent>((entity, ref body, ref transform) =>
         {
             if (!body.Collision || body.IsSensor || body.Motion != PhysicsMotionType.Static) return;
@@ -81,10 +85,22 @@ public static partial class PgslCommands
             Vector3 extent = new(Math.Abs(rotation.M11) * half.X + Math.Abs(rotation.M21) * half.Y + Math.Abs(rotation.M31) * half.Z,
                 Math.Abs(rotation.M12) * half.X + Math.Abs(rotation.M22) * half.Y + Math.Abs(rotation.M32) * half.Z,
                 Math.Abs(rotation.M13) * half.X + Math.Abs(rotation.M23) * half.Y + Math.Abs(rotation.M33) * half.Z);
-            obstacles.Add(new(transform.Position - extent, transform.Position + extent));
+            Vector3 lower = transform.Position - extent, upper = transform.Position + extent;
+            if (planarXY && game.World.Has<SpritePhysicsBindingComponent>(entity))
+            {
+                Vector3 pixelLower = SpritePhysicsBinding.ToPixels(lower), pixelUpper = SpritePhysicsBinding.ToPixels(upper);
+                obstacles.Add(new(new Vector3(pixelLower.X, -1, pixelUpper.Y), new Vector3(pixelUpper.X, 2, pixelLower.Y)));
+                return;
+            }
+            obstacles.Add(planarXY
+                ? new(new Vector3(lower.X, -1, lower.Y), new Vector3(upper.X, 2, upper.Y))
+                : new(lower, upper));
         });
+        if (planarXY && game.Room is not null)
+            foreach (var tile in new RoomTileCollisionMap(game.Room, ProjectPath).Solids)
+                obstacles.Add(new(new Vector3(tile.Left, -1, tile.Top), new Vector3(tile.Right, 2, tile.Bottom)));
         var data = NavMeshBuilder.Build((float)originX, (float)originZ, (int)widthCells, (int)depthCells, (float)cellSize,
-            game.GetTerrainHeight, obstacles);
+            planarXY ? (_, _) => 0f : game.GetTerrainHeight, obstacles);
         session.Query = new NavMeshQuery(data); session.Paths.Clear();
         game.World.Query<NavMeshAgentComponent>((entity, ref agent) => agent.Agent?.SetPath([]));
         string? file = NavigationFile();
@@ -95,7 +111,8 @@ public static partial class PgslCommands
     {
         var session = Navigation();
         if (session?.Query == null || !Finite3(startX, startY, startZ) || !Finite3(endX, endY, endZ)) return -1;
-        var path = session.Query.FindPath(new((float)startX, (float)startY, (float)startZ), new((float)endX, (float)endY, (float)endZ));
+        var path = FindPath(session, new((float)startX, (float)startY, (float)startZ),
+            new((float)endX, (float)endY, (float)endZ), ActiveGameContext?.Room?.Dimension == Genesis.Runtime.Scene.RoomDimension.TwoD);
         if (path.Count == 0) return -1;
         if (session.Paths.Count >= 4096) throw new InvalidOperationException("Free unused navigation paths before requesting more.");
         int id = checked(session.NextPath++); session.Paths[id] = path; return id;
@@ -120,7 +137,8 @@ public static partial class PgslCommands
         if (ctx == null || world == null) return null;
         var entity = world.GetEntity(ctx.InstanceId);
         if (!world.IsAlive(entity)) return null;
-        if (!world.Has<NavMeshAgentComponent>(entity)) world.Set(entity, new NavMeshAgentComponent { Agent = new NavMeshAgent() });
+        if (!world.Has<NavMeshAgentComponent>(entity)) world.Set(entity, new NavMeshAgentComponent
+            { Agent = new NavMeshAgent { PlanarXY = ActiveGameContext?.Room?.Dimension == Genesis.Runtime.Scene.RoomDimension.TwoD } });
         return world.GetRef<NavMeshAgentComponent>(entity).Agent;
     }
     [PgslCommand("NavMeshAgentSetDestination", "NavMeshAgentSetDestination(x, y, z)", "Attach a navigation agent and request a destination on the current mesh", "Navigation")]
@@ -128,7 +146,8 @@ public static partial class PgslCommands
     {
         var ctx = GetContext(); var agent = Agent(); var session = Navigation();
         if (ctx == null || agent == null || !Finite3(x, y, z)) return;
-        agent.SetPath(session?.Query?.FindPath(new((float)ctx.X, (float)ctx.Y, (float)ctx.Z), new((float)x, (float)y, (float)z)) ?? []);
+        agent.SetPath(session is null || session.Query is null ? [] : FindPath(session,
+            new((float)ctx.X, (float)ctx.Y, (float)ctx.Z), new((float)x, (float)y, agent.PlanarXY ? (float)ctx.Z : (float)z), agent.PlanarXY));
     }
     [PgslCommand("NavMeshAgentSetSpeed", "NavMeshAgentSetSpeed(speed)", "Set movement speed in world units per second", "Navigation")]
     public static void NavMeshAgentSetSpeed(double speed) { if (Agent() is { } agent && double.IsFinite(speed)) agent.Speed = (float)Math.Clamp(speed, 0, 10000); }
@@ -218,6 +237,7 @@ public static partial class PgslCommands
         Vector3 camera = scene.Camera3D.Position;
         scene.World.Query<TransformComponent, NavMeshAgentComponent>((entity, ref transform, ref component) =>
         {
+            if (NavigationDebugTelemetry.IsPreviewDriven(scene, entity.Id)) return;
             if (component.Agent == null || !scene.World.Has<CrowdAgentComponent>(entity)) return;
             ref CrowdAgentComponent crowd = ref scene.World.GetRef<CrowdAgentComponent>(entity);
             NormalizeCrowd(ref crowd);
@@ -241,8 +261,8 @@ public static partial class PgslCommands
             }
             session.CrowdSamples.Add(new CrowdAgentSample(
                 entity.Id,
-                position,
-                crowd.Velocity,
+                component.Agent.PlanarXY ? new Vector3(position.X, 0, position.Y) : position,
+                component.Agent.PlanarXY ? new Vector3(crowd.Velocity.X, 0, crowd.Velocity.Y) : crowd.Velocity,
                 crowd.Radius,
                 crowd.NeighborDistance,
                 crowd.AvoidanceStrength,
@@ -254,6 +274,7 @@ public static partial class PgslCommands
 
         scene.World.Query<TransformComponent, NavMeshAgentComponent>((entity, ref transform, ref component) =>
         {
+            if (NavigationDebugTelemetry.IsPreviewDriven(scene, entity.Id)) return;
             if (component.Agent == null) return;
             Vector3 from = new(transform.X, transform.Y, transform.Z);
             Vector3 avoidance = Vector3.Zero;
@@ -265,15 +286,18 @@ public static partial class PgslCommands
                     crowd.Steering = steering;
                 avoidance = crowd.Enabled ? crowd.Steering : Vector3.Zero;
             }
+            bool planarXY = component.Agent.PlanarXY;
             Vector3 to = component.Agent.Update(from, dt, (a, b) =>
             {
-                if (session.Query != null && !session.Query.CanTravel(a, b)) return false;
+                Vector3 navA = planarXY ? new Vector3(a.X, 0, a.Y) : a;
+                Vector3 navB = planarXY ? new Vector3(b.X, 0, b.Y) : b;
+                if (session.Query != null && !session.Query.CanTravel(navA, navB)) return false;
                 Vector3 delta = b - a; float length = delta.Length();
-                return length < 1e-5f || scene.Physics?.Raycast(scene.World, a + Vector3.UnitY * .9f, delta,
+                return length < 1e-5f || scene.Physics?.Raycast(scene.World, a + (planarXY ? Vector3.Zero : Vector3.UnitY * .9f), delta,
                     length + .35f, out _, entity) != true;
             }, avoidance);
-            int cell = session.Query?.Data.Cell(to) ?? -1;
-            if (session.Query != null && cell >= 0) to.Y = session.Query.Data.Heights[cell];
+            int cell = session.Query?.Data.Cell(component.Agent.PlanarXY ? new Vector3(to.X, 0, to.Y) : to) ?? -1;
+            if (!component.Agent.PlanarXY && session.Query != null && cell >= 0) to.Y = session.Query.Data.Heights[cell];
             transform.X = to.X; transform.Y = to.Y; transform.Z = to.Z;
             if (hasCrowd)
             {

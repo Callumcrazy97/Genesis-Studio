@@ -1,6 +1,7 @@
 using System.Drawing;
 using System.Windows.Forms;
 using Genesis.Application.Core.Resources;
+using Genesis.Application.Core.Diagnostics;
 using Genesis.Application.Core.Settings;
 using Genesis.Application.Studio.Forms;
 using Genesis.Application.Studio.Resources;
@@ -342,6 +343,8 @@ public sealed partial class ResourceBrowserDock : GenesisDockContent
 
         void Apply()
         {
+            box.Font = ThemeService.InterfaceFont;
+            box.TextBox.Font = ThemeService.InterfaceFont;
             box.BackColor = ThemeService.Palette.SurfaceRaised;
             box.ForeColor = ThemeService.Palette.Text;
             box.TextBox.BackColor = ThemeService.Palette.SurfaceRaised;
@@ -386,9 +389,8 @@ public sealed partial class ResourceBrowserDock : GenesisDockContent
             ResourceBrowserCommand.UndoLibraryTags => _tagHistory.CanUndo,
             ResourceBrowserCommand.RedoLibraryTags => _tagHistory.CanRedo,
             ResourceBrowserCommand.NewFolder => ResourceFolderPolicy.GetRoot(_resources.Project, SelectedFolder()) is not null,
-            // This is an inexpensive availability hint. Paste itself performs full transfer validation.
             ResourceBrowserCommand.Paste => _resources.Clipboard.HasItems
-                && ResourceFolderPolicy.GetRoot(_resources.Project, SelectedFolder()) is not null,
+                && _resources.Clipboard.SourcePaths.All(source => _resources.CanTransfer(source, SelectedFolder())),
             ResourceBrowserCommand.Cut or ResourceBrowserCommand.Copy or ResourceBrowserCommand.Duplicate
                 or ResourceBrowserCommand.Rename or ResourceBrowserCommand.Delete => selected is not null && !IsAssetsRoot(selected),
             _ => false,
@@ -1038,6 +1040,11 @@ public sealed partial class ResourceBrowserDock : GenesisDockContent
             exception is IOException or UnauthorizedAccessException or ArgumentException or
             InvalidOperationException or InvalidDataException or System.Text.Json.JsonException)
         {
+            if (UnattendedSession.IsActive)
+            {
+                StatusMessage?.Invoke(this, exception.Message);
+                throw;
+            }
             MessageBox.Show(
                 this,
                 exception.Message,

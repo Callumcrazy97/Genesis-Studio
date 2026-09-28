@@ -38,7 +38,7 @@ public sealed partial class RoomEditorControl
         view.DropDownItems.Add(palette);
         view.DropDownItems.Add(inspector);
         view.DropDownOpening += (_, _) => { palette.Checked = _palettePanelVisible; inspector.Checked = _inspectorPanelVisible; };
-        _editorToolbar.AttachTo(toolbar, [file, edit, view], [_selectToolButton, _moveGizmoButton, _rotateGizmoButton, _scaleGizmoButton, _localGizmoButton]);
+        _editorToolbar.AttachTo(toolbar, [file, edit, view], [_selectToolButton, _moveGizmoButton, _rotateGizmoButton, _scaleGizmoButton, _localGizmoButton], ShowRoomGameGuide);
         _localGizmoButton.Text = "World";
         _editorToolbar.TerrainSnapChanged += SetSnapToTerrain;
         EnableRoomAssetDrop();
@@ -117,14 +117,14 @@ public sealed partial class RoomEditorControl
         _mainSplit.SplitterMoved += (_, _) =>
         {
             bool moved = _movingRoomPalette;
-            if (_movingRoomPalette && !_arrangingRoomPanels && !_mainSplit.Panel1Collapsed) _preferredRoomPaletteWidth = _mainSplit.SplitterDistance;
+            if (_movingRoomPalette && !_arrangingRoomPanels && !_mainSplit.Panel1Collapsed) _preferredRoomPaletteWidth = (int)(_mainSplit.SplitterDistance / Math.Max(1f, DeviceDpi / 96f * EditorChrome.BaseFont.SizeInPoints / 9.5f));
             _movingRoomPalette = false;
             if (moved && !_arrangingRoomPanels) ApplyResponsiveLayout();
         };
         _centerSplit.SplitterMoved += (_, _) =>
         {
             bool moved = _movingRoomInspector;
-            if (_movingRoomInspector && !_arrangingRoomPanels && !_centerSplit.Panel2Collapsed) _preferredRoomInspectorWidth = _centerSplit.Width - _centerSplit.SplitterDistance - _centerSplit.SplitterWidth;
+            if (_movingRoomInspector && !_arrangingRoomPanels && !_centerSplit.Panel2Collapsed) _preferredRoomInspectorWidth = (int)((_centerSplit.Width - _centerSplit.SplitterDistance - _centerSplit.SplitterWidth) / Math.Max(1f, DeviceDpi / 96f * EditorChrome.BaseFont.SizeInPoints / 9.5f));
             _movingRoomInspector = false;
             if (moved && !_arrangingRoomPanels) ApplyResponsiveLayout();
         };
@@ -167,6 +167,8 @@ public sealed partial class RoomEditorControl
     private void ActivateRoomWorkspaceSection(RoomNavSection section)
     {
         if (!_workspaceReady) return;
+        RefreshRoomWorkflowHint();
+        ApplyResponsiveLayout();
         ActiveRoomEditContextChanged();
         if (section == RoomNavSection.Settings) _workspaceSettings?.RefreshInspector();
         if (section == RoomNavSection.Tilesets)
@@ -180,6 +182,7 @@ public sealed partial class RoomEditorControl
         {
             SetPaletteMode(PaletteMode.Backgrounds);
             SyncRoomSettings();
+            if (!ViewMode3D) Select(_navigation.BackgroundsPanel.ActiveBackgroundLayer);
         }
     }
 
@@ -198,6 +201,15 @@ public sealed partial class RoomEditorControl
         _viewportMargin[2].Enabled = editable && threeD;
         _viewportSpeed[2].Enabled = editable && threeD;
         foreach (Control field in _viewportFrustum) field.Enabled = editable && threeD;
+        foreach (Control field in new[] { _viewportSource[2], _viewportSource[5], _viewportMargin[2], _viewportSpeed[2] }.Concat(_viewportFrustum))
+        {
+            if (field.Parent is not TableLayoutPanel table) continue;
+            int row = table.GetRow(field);
+            foreach (Control sibling in table.Controls.Cast<Control>().Where(control => table.GetRow(control) == row)) sibling.Visible = threeD;
+            table.RowStyles[row].SizeType = threeD ? SizeType.AutoSize : SizeType.Absolute;
+            table.RowStyles[row].Height = 0;
+            if (_viewportFrustum.Contains(field) && table.Parent?.Parent is InspectorSection projection) projection.Visible = threeD;
+        }
     }
 
     private void SyncWorkspaceSceneCameras()

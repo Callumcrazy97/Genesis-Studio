@@ -1,195 +1,70 @@
 using System.Globalization;
-using System.Text;
 using System.Text.RegularExpressions;
+using Genesis.Application.Core.Resources;
+using Genesis.Runtime.Scripting;
+using Genesis.Shared.Assets;
 
 namespace Genesis.Application.Editors.Suite.Scripts;
 
-/// <summary>
-/// Discovers PGSL file-scope variables for Unity-style Inspector authoring. PGSL has no
-/// public/private field modifier, so file-scope <c>var</c> declarations are the inspectable
-/// contract; declarations inside events/functions remain implementation details.
-/// </summary>
+/// <summary>Shares the runtime's file-scope literal contract with Inspector authoring.</summary>
 public static partial class PgslInspectableVariables
 {
-    public sealed record Variable(string Name, object Value, string Literal);
+    public sealed record Variable(string Name, object Value, string Literal, ResourceKind? AssetKind = null);
 
-    public static IReadOnlyList<Variable> Reflect(string source)
+    public static IReadOnlyList<Variable> Reflect(string source, string? projectRoot = null)
     {
         List<Variable> variables = [];
-        foreach ((Match Match, int Depth) declaration in Declarations(source))
+        foreach (PgslExposedVariables.Variable declaration in PgslExposedVariables.Reflect(source))
         {
-            if (declaration.Depth != 0) continue;
-            Match match = declaration.Match;
-            string literal = match.Groups["literal"].Value.Trim();
-            if (TryParseLiteral(literal, out object? value) && value is not null)
+            ResourceKind? kind = null;
+            if (declaration.Value is string reference)
             {
-                variables.Add(new Variable(match.Groups["name"].Value, value, literal));
+                int end = declaration.LiteralStart + declaration.LiteralLength;
+                int lineEnd = source.IndexOf('\n', end);
+                if (lineEnd < 0) lineEnd = source.Length;
+                Match annotation = ResourceAnnotation().Match(source[end..lineEnd]);
+                if (annotation.Success)
+                {
+                    string type = annotation.Groups["kind"].Value;
+                    type = type.Equals("Object", StringComparison.OrdinalIgnoreCase) ? "GameObject"
+                        : type.Equals("Script", StringComparison.OrdinalIgnoreCase) ? "PgslScript"
+                        : type.Equals("UI", StringComparison.OrdinalIgnoreCase) ? "UserInterface" : type;
+                    if (Enum.TryParse(type, true, out ResourceKind parsed)
+                        && parsed is not (ResourceKind.Unknown or ResourceKind.Folder)) kind = parsed;
+                }
+                else if (!string.IsNullOrWhiteSpace(projectRoot) && !string.IsNullOrWhiteSpace(reference))
+                {
+                    NamedResource? asset = ResourceCatalog.For(projectRoot).Find(reference);
+                    if (asset is not null)
+                    {
+                        kind = asset.Type switch
+                        {
+                            ResourceType.Object => ResourceKind.GameObject,
+                            ResourceType.Script => ResourceKind.PgslScript,
+                            _ => Enum.TryParse(asset.Type.ToString(), out ResourceKind parsed) ? parsed : null,
+                        };
+                    }
+                }
             }
+            variables.Add(new(declaration.Name, declaration.Value, declaration.Literal, kind));
         }
-
         return variables;
     }
 
-    public static bool TrySetValue(
-        string source,
-        string variableName,
-        object? value,
-        out string updated)
+    public static bool TrySetValue(string source, string variableName, object? value, out string updated)
     {
         updated = source;
-        foreach ((Match Match, int Depth) declaration in Declarations(source))
-        {
-            Match match = declaration.Match;
-            if (declaration.Depth != 0
-                || !string.Equals(match.Groups["name"].Value, variableName,
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            string literal = FormatLiteral(value);
-            Group group = match.Groups["literal"];
-            updated = source[..group.Index] + literal + source[(group.Index + group.Length)..];
-            return true;
-        }
-
-        return false;
+        PgslExposedVariables.Variable? variable = PgslExposedVariables.Reflect(source)
+            .FirstOrDefault(item => string.Equals(item.Name, variableName, StringComparison.Ordinal));
+        if (variable is null || value is null) return false;
+        if (variable.Value is string && value is not string) return false;
+        string serialized = Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;
+        updated = PgslExposedVariables.ApplyOverrides(source,
+            new Dictionary<string, string>(StringComparer.Ordinal) { [variableName] = serialized });
+        return updated != source || Equals(variable.Value, value);
     }
 
-    private static IEnumerable<(Match Match, int Depth)> Declarations(string source)
-    {
-        source ??= string.Empty;
-        int depth = 0;
-        int scan = 0;
-        foreach (Match match in DeclarationPattern().Matches(source))
-        {
-            depth = ScanDepth(source, scan, match.Index, depth);
-            yield return (match, depth);
-            scan = match.Index + match.Length;
-        }
-    }
-
-    private static int ScanDepth(string source, int start, int end, int depth)
-    {
-        bool lineComment = false;
-        bool blockComment = false;
-        bool quoted = false;
-        char quote = '\0';
-        for (int index = start; index < end; index++)
-        {
-            char current = source[index];
-            char next = index + 1 < end ? source[index + 1] : '\0';
-            if (lineComment)
-            {
-                if (current is '\r' or '\n') lineComment = false;
-                continue;
-            }
-            if (blockComment)
-            {
-                if (current == '*' && next == '/')
-                {
-                    blockComment = false;
-                    index++;
-                }
-                continue;
-            }
-            if (quoted)
-            {
-                if (current == '\\')
-                {
-                    index++;
-                    continue;
-                }
-                if (current == quote) quoted = false;
-                continue;
-            }
-            if (current == '/' && next == '/')
-            {
-                lineComment = true;
-                index++;
-            }
-            else if (current == '/' && next == '*')
-            {
-                blockComment = true;
-                index++;
-            }
-            else if (current is '\'' or '"')
-            {
-                quoted = true;
-                quote = current;
-            }
-            else if (current == '{') depth++;
-            else if (current == '}') depth = Math.Max(0, depth - 1);
-        }
-
-        return depth;
-    }
-
-    private static bool TryParseLiteral(string literal, out object? value)
-    {
-        if (bool.TryParse(literal, out bool flag))
-        {
-            value = flag;
-            return true;
-        }
-        if (double.TryParse(literal, NumberStyles.Float, CultureInfo.InvariantCulture,
-                out double number))
-        {
-            value = number;
-            return true;
-        }
-        if (literal.Length >= 2 && literal[0] == '"' && literal[^1] == '"')
-        {
-            value = Unescape(literal[1..^1]);
-            return true;
-        }
-
-        value = null;
-        return false;
-    }
-
-    private static string FormatLiteral(object? value) => value switch
-    {
-        bool flag => flag ? "true" : "false",
-        string text => $"\"{Escape(text)}\"",
-        byte or sbyte or short or ushort or int or uint or long or ulong or float or double or decimal =>
-            Convert.ToString(value, CultureInfo.InvariantCulture) ?? "0",
-        _ => throw new ArgumentException("PGSL Inspector variables support numbers, booleans and strings.",
-            nameof(value)),
-    };
-
-    private static string Escape(string value) => value
-        .Replace("\\", "\\\\", StringComparison.Ordinal)
-        .Replace("\"", "\\\"", StringComparison.Ordinal)
-        .Replace("\r", "\\r", StringComparison.Ordinal)
-        .Replace("\n", "\\n", StringComparison.Ordinal);
-
-    private static string Unescape(string value)
-    {
-        StringBuilder result = new(value.Length);
-        for (int index = 0; index < value.Length; index++)
-        {
-            char current = value[index];
-            if (current != '\\' || index + 1 >= value.Length)
-            {
-                result.Append(current);
-                continue;
-            }
-
-            char escaped = value[++index];
-            result.Append(escaped switch
-            {
-                'n' => '\n',
-                'r' => '\r',
-                't' => '\t',
-                _ => escaped,
-            });
-        }
-        return result.ToString();
-    }
-
-    [GeneratedRegex(
-        """(?m)^[\t ]*var[\t ]+(?<name>[A-Za-z_]\w*)[\t ]*=[\t ]*(?<literal>true|false|[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?|"(?:\\.|[^"\\])*")[\t ]*;""",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-    private static partial Regex DeclarationPattern();
+    // An ordinary PGSL comment provides a picker even before an optional reference is assigned.
+    [GeneratedRegex(@"^\s*;\s*//\s*@resource\s+(?<kind>[A-Za-z]+)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex ResourceAnnotation();
 }

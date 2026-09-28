@@ -38,6 +38,7 @@ public sealed partial class ParticleEditorControl
     private readonly List<(Button Button, Func<string> Read)> _assetClearButtons = [];
     private FlowLayoutPanel? _presetGrid;
     private ParticleCurveEditor? _curveEditor;
+    private Label? _particleCurveHelp;
     private ThemedComboBox? _curveSelector;
     private ToolStripComboBox? _targetTypeCombo;
     private ToolStripButton? _targetAssetButton;
@@ -73,11 +74,12 @@ public sealed partial class ParticleEditorControl
         }
 
         _inspectorTabs.Multiline = true;
-        _inspectorTabs.SizeMode = TabSizeMode.FillToRight;
+        EditorChrome.StyleTabs(_inspectorTabs);
+        _inspectorTabs.SizeMode = TabSizeMode.Fixed;
         _inspectorTabs.Dock = DockStyle.Fill;
         _inspectorTabs.Visible = true;
         root.Controls.Add(_inspectorTabs);
-        root.Controls.Add(EditorChrome.SectionLabel("PARTICLE PROPERTIES"));
+        root.Controls.Add(EditorChrome.SectionLabel("PARTICLE EFFECT"));
         _inspectorTabs.BringToFront();
         return root;
     }
@@ -112,7 +114,7 @@ public sealed partial class ParticleEditorControl
         AddNumeric(motion, "Spin speed", "rotationSpeed", _config.RotationSpeed, -720, 720, value => _config.RotationSpeed = value, 1);
         AddNumeric(motion, "Spin variation", "rotationVariance", _config.RotationVariance, 0, 720, value => _config.RotationVariance = value, 1);
         AddInspectorRow(motion, "Emit down", BoundCheckBox("downward", () => _config.DownwardEmit, value => _config.DownwardEmit = value));
-        AddInspectorRow(emission, "Follow camera", BoundCheckBox("followCamera", () => _config.FollowCameraXZ, value => _config.FollowCameraXZ = value));
+        AddInspectorRow(emission, "Follow 3D camera", BoundCheckBox("followCamera", () => _config.FollowCameraXZ, value => _config.FollowCameraXZ = value));
         AddNumeric(motion, "Gravity X", "gravityX", _config.GravityX, -100, 100, value => _config.GravityX = value, 2);
         AddNumeric(motion, "Gravity Z", "gravityZ", _config.GravityZ, -100, 100, value => _config.GravityZ = value, 2);
         AddNumeric(motion, "Wind X", "windX", _config.WindX, -100, 100, value => _config.WindX = value, 2);
@@ -125,7 +127,7 @@ public sealed partial class ParticleEditorControl
         AddNumeric(collision, "Bounce", "collisionBounce", _config.CollisionBounce, 0, 1.5, value => _config.CollisionBounce = value, 2);
         AddInspectorRow(collision, "Terrain", BoundCheckBox("collideTerrain", () => _config.CollideWithTerrain, value => _config.CollideWithTerrain = value));
         AddInspectorRow(collision, "Geometry", BoundCheckBox("collideGeometry", () => _config.CollideWithGeometry, value => _config.CollideWithGeometry = value));
-        AddInfoCard(collision, "Preview collision", "Bounce / Die / Stick use the height plane or the selected terrain height. Arbitrary model-surface collision is not a full physics preview.");
+        AddInfoCard(collision, "Collision plane", "Bounce / Die / Stick use Plane height. In 2D, the plane is relative to the effect Object; negative height puts the floor below it. Room walls and tiles do not collide with these particles. In 3D, a selected terrain can supply the preview height.");
 
         FlowLayoutPanel renderer = InspectorPage("Renderer");
         AddInspectorRow(renderer, "Renderer", EnumCombo("rendererKind", _config.RendererKind, value => _config.RendererKind = (ParticleRendererKind)value));
@@ -133,13 +135,14 @@ public sealed partial class ParticleEditorControl
         AddInspectorRow(renderer, "Blend", EnumCombo("blend", _config.BlendMode, value => _config.BlendMode = (ParticleBlendMode)value));
         AddInspectorRow(renderer, "Alignment", EnumCombo("alignment", _config.Alignment, value => _config.Alignment = (ParticleAlignment)value));
         AddNumeric(renderer, "Trail duration", "trailDuration", _config.TrailDuration, 0.01, 60, value => _config.TrailDuration = value, 2);
-        AddNumeric(renderer, "Trail / ribbon width", "trailWidth", _config.TrailWidth, 0.01, 100, value => _config.TrailWidth = value, 2);
+        AddNumeric(renderer, "Strip width × size", "trailWidth", _config.TrailWidth, 0.01, 100, value => _config.TrailWidth = value, 2);
         AddNumeric(renderer, "Ribbon max segment", "ribbonMaxSegment", _config.RibbonMaxSegmentLength, 0.01, 1000, value => _config.RibbonMaxSegmentLength = value, 2);
         AddNumeric(renderer, "Velocity stretch", "velocityStretch", _config.VelocityStretch, 0, 100, value => _config.VelocityStretch = value, 2);
         AddNumeric(renderer, "Beam end X", "beamEndX", _config.BeamEndX, -10000, 10000, value => _config.BeamEndX = value, 2);
         AddNumeric(renderer, "Beam end Y", "beamEndY", _config.BeamEndY, -10000, 10000, value => _config.BeamEndY = value, 2);
         AddNumeric(renderer, "Beam end Z", "beamEndZ", _config.BeamEndZ, -10000, 10000, value => _config.BeamEndZ = value, 2);
         AddNumeric(renderer, "Beam noise", "beamNoise", _config.BeamNoise, 0, 1000, value => _config.BeamNoise = value, 2);
+        AddInfoCard(renderer, "Trail, Ribbon, Beam", "Trail follows a moving particle; Ribbon joins recent live particles; Beam joins each particle to an end offset from its Object. For a stationary beam, set Speed to 0. Strip width multiplies Start size. In 2D, End X/Y are effect units (12 pixels each).");
         AddInspectorRow(renderer, "Bounds", EnumCombo("boundsMode", _config.BoundsMode, value => _config.BoundsMode = (ParticleBoundsMode)value));
         AddNumeric(renderer, "Bounds centre X", "boundsCenterX", _config.BoundsCenterX, -100000, 100000, value => _config.BoundsCenterX = value, 2);
         AddNumeric(renderer, "Bounds centre Y", "boundsCenterY", _config.BoundsCenterY, -100000, 100000, value => _config.BoundsCenterY = value, 2);
@@ -311,16 +314,19 @@ public sealed partial class ParticleEditorControl
     private Panel BuildCurveTimeline(Panel oldTimeline)
     {
         EnsureGradientStopsFromLegacy(_config);
+        _particleTimelinePanel = oldTimeline;
         oldTimeline.Dock = DockStyle.Top;
         oldTimeline.Height = 44;
         oldTimeline.Padding = new Padding(8, 3, 8, 3);
         _curveSelector = new ThemedComboBox
         {
-            Dock = DockStyle.Left,
+            Dock = DockStyle.Top,
             Width = 170,
             DropDownStyle = ComboBoxStyle.DropDownList,
         };
         _curveSelector.Items.AddRange(["Size over lifetime", "Speed over lifetime", "Alpha over lifetime", "Velocity over lifetime"]);
+        _curveSelector.FontChanged += (_, _) => _curveSelector.Width = Math.Max(170,
+            _curveSelector.Items.Cast<object>().Max(item => TextRenderer.MeasureText(item.ToString(), _curveSelector.Font).Width + 32));
         _curveSelector.SelectedIndex = 0;
         _curveSelector.SelectedIndexChanged += (_, _) => _curveEditor?.Invalidate();
         EditorChrome.StyleField(_curveSelector);
@@ -340,15 +346,16 @@ public sealed partial class ParticleEditorControl
         Panel canvas = new() { Dock = DockStyle.Fill, BackColor = EditorChrome.Surface, Padding = new Padding(8, 0, 8, 8) };
         canvas.Controls.Add(_curveEditor);
         canvas.Controls.Add(_curveSelector);
-        canvas.Controls.Add(new Label
+        _particleCurveHelp = new Label
         {
             Dock = DockStyle.Bottom,
             Height = 20,
             ForeColor = EditorChrome.Muted,
-            Text = "Drag handles / keys · double-click bar adds, key edits colour · right-click removes · wheel = alpha",
-            TextAlign = ContentAlignment.MiddleRight,
-        });
-        canvas.Controls.Add(EditorChrome.SectionLabel("TIMELINE  ·  BEZIER CURVE  ·  COLOUR / ALPHA GRADIENT"));
+            Text = "Drag a key · Double-click: add\nColour strip: click to edit · Right-click: remove · Wheel: opacity",
+            TextAlign = ContentAlignment.MiddleLeft,
+        };
+        canvas.Controls.Add(_particleCurveHelp);
+        canvas.Controls.Add(EditorChrome.SectionLabel("CURVES AND COLOUR"));
         Panel root = new() { Dock = DockStyle.Fill, BackColor = EditorChrome.Surface };
         root.Controls.Add(canvas);
         root.Controls.Add(oldTimeline);
@@ -380,25 +387,32 @@ public sealed partial class ParticleEditorControl
     {
         DisposeGpuPreviewEmitters();
         ReleaseEmitterPreviewResources();
+        if (_primaryPreviewEventSink is not null) _simulation.Occurred -= _primaryPreviewEventSink;
+        _primaryPreviewEventSink = null;
+        _pendingPreviewBirths.Clear(); _droppedPreviewBirths = 0;
         _previewSimulations.Clear();
         _previewEmitterConfigs.Clear();
         _previewEmitterIds.Clear(); _previewKeys.Clear(); _previewSurfaceKeys.Clear();
-        _simulation.LoadConfig(_effect);
-        ConfigureMeshSurfacePreview(_simulation, _effect);
+        ParticleConfig primary = PreviewSimulationConfig(_effect);
+        if (_effect.EmitterEnabled) BindSoftwarePreviewEvents(_simulation, _effect.EmitterId);
+        _simulation.LoadConfig(primary);
+        ConfigureMeshSurfacePreview(_simulation, primary);
         if (_effect.EmitterEnabled)
         {
             _previewSimulations.Add(_simulation);
-            _previewEmitterConfigs.Add(_effect);
+            _previewEmitterConfigs.Add(primary);
             _previewEmitterIds.Add(_effect.EmitterId);
         }
         foreach (ParticleEmitterLayer layer in _effect.Emitters)
         {
             if (!layer.Enabled) continue;
+            ParticleConfig previewConfig = PreviewSimulationConfig(layer.Config);
             ParticleSimulation simulation = new();
-            simulation.LoadConfig(layer.Config);
-            ConfigureMeshSurfacePreview(simulation, layer.Config);
+            BindSoftwarePreviewEvents(simulation, layer.Id);
+            simulation.LoadConfig(previewConfig);
+            ConfigureMeshSurfacePreview(simulation, previewConfig);
             _previewSimulations.Add(simulation);
-            _previewEmitterConfigs.Add(layer.Config);
+            _previewEmitterConfigs.Add(previewConfig);
             _previewEmitterIds.Add(layer.Id);
         }
         if (_terrainTarget is not null) ConfigureTerrainEmitterPreview(_terrainTarget, reset: false);
@@ -409,6 +423,9 @@ public sealed partial class ParticleEditorControl
         }
         ResetParticlePreview(_timelinePlaying);
     }
+
+    private ParticleConfig PreviewSimulationConfig(ParticleConfig authored) =>
+        _effect.Preview2D ? Particle2DLayout.ForSimulation(authored) : authored;
 
     private void ConfigureMeshSurfacePreview(ParticleSimulation simulation, ParticleConfig config)
     {
@@ -438,7 +455,11 @@ public sealed partial class ParticleEditorControl
         bool renderChanged = false;
         for (int i = 0; i < _previewSimulations.Count; i++)
         {
-            ParticleConfig config = _previewEmitterConfigs[i];
+            string id = _previewEmitterIds[i];
+            ParticleConfig authored = id == _effect.EmitterId ? _effect
+                : _effect.Emitters.Single(layer => layer.Id == id).Config;
+            ParticleConfig config = PreviewSimulationConfig(authored);
+            _previewEmitterConfigs[i] = config;
             _previewSimulations[i].UpdateConfig(config);
             ParticlePreviewKey key = ParticlePreviewKey.From(config);
             if (_previewKeys[i] != key) { _previewKeys[i] = key; renderChanged = true; }
@@ -921,7 +942,8 @@ public sealed partial class ParticleEditorControl
             Rectangle card = new(1, 1, Width - 3, Height - 3);
             e.Graphics.FillRectangle(background, card);
             e.Graphics.DrawRectangle(border, card);
-            Rectangle preview = new(7, 7, Width - 14, 76);
+            float scale = Math.Max(1, DeviceDpi / 96f * EditorChrome.BaseFont.SizeInPoints / 9.5f);
+            Rectangle preview = new((int)(7 * scale), (int)(7 * scale), Width - (int)(14 * scale), (int)(76 * scale));
             using LinearGradientBrush glow = new(preview, PresetColor(_name, true), PresetColor(_name, false), LinearGradientMode.Vertical);
             e.Graphics.FillRectangle(glow, preview);
             using SolidBrush mote = new(Color.FromArgb(220, 255, 215, 120));
@@ -932,7 +954,8 @@ public sealed partial class ParticleEditorControl
                 int y = preview.Top + 8 + (seed / 7 + i * 17) % Math.Max(1, preview.Height - 16);
                 e.Graphics.FillEllipse(mote, x, y, 3 + i % 3, 3 + i % 3);
             }
-            TextRenderer.DrawText(e.Graphics, _name, EditorChrome.SmallFont, new Rectangle(4, 86, Width - 8, 22), EditorChrome.Text,
+            TextRenderer.DrawText(e.Graphics, _name, EditorChrome.SmallFont,
+                new Rectangle(4, (int)(86 * scale), Width - 8, (int)(22 * scale)), EditorChrome.Text,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.VerticalCenter);
         }
 

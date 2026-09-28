@@ -8,8 +8,9 @@ namespace Genesis.Application.Editors.Suite.Rooms;
 public sealed class RoomEditorToolbar : Panel
 {
     private ToolStrip _strip = new() { Dock = DockStyle.Fill, GripStyle = ToolStripGripStyle.Hidden };
-    private readonly ToolStripButton _btn2D = new("2D");
-    private readonly ToolStripButton _btn3D = new("3D");
+    private readonly ToolStripMenuItem _btn2D = new("2D");
+    private readonly ToolStripMenuItem _btn3D = new("3D");
+    private readonly ToolStripDropDownButton _options = new("Options");
     private readonly ToolStripButton _btnGrid = new("Grid") { CheckOnClick = true };
     private readonly ToolStripButton _btnSnap = new("Snap") { CheckOnClick = true };
     private readonly ToolStripComboBox _snapSize = new() { AutoSize = false, Width = 74, DropDownStyle = ComboBoxStyle.DropDown };
@@ -65,18 +66,46 @@ public sealed class RoomEditorToolbar : Panel
     public ToolStrip Strip => _strip;
     public ToolStripDropDownButton CameraDropdown => _btnCamera;
     public ToolStripComboBox SnapSizePicker => _snapSize;
+    public ToolStripMenuItem Dimension3DCommand => _btn3D;
+    public ToolStripDropDownButton OptionsDropdown => _options;
 
-    public void AttachTo(ToolStrip commandBar, ToolStripItem[] menus, ToolStripItem[] transforms)
+    public void ApplyInterfaceLayout()
+    {
+        _snapSize.Font = EditorChrome.BaseFont;
+        _snapSize.ComboBox.Font = EditorChrome.BaseFont;
+        _snapSize.Width = Math.Max(74, TextRenderer.MeasureText("32 px", EditorChrome.BaseFont).Width + 38);
+        _snapSize.Height = _snapSize.ComboBox.PreferredHeight;
+    }
+
+    public void AttachTo(ToolStrip commandBar, ToolStripItem[] menus, ToolStripItem[] transforms, Action showGameGuide)
     {
         ToolStrip orphan = _strip;
         _strip = commandBar;
         _strip.Items.Clear();
-        _strip.Items.AddRange(menus);
-        _strip.Items.Add(new ToolStripSeparator());
-        _strip.Items.AddRange([_btn2D, _btn3D, new ToolStripSeparator()]);
-        _strip.Items.AddRange(transforms);
-        _strip.Items.AddRange([new ToolStripSeparator(), _btnGrid, _btnSnap, _snapSize, _terrain, _btnCamera,
-            _btnStop, _btnPause, _btnPlay]);
+        _strip.Items.AddRange(transforms.Take(4).ToArray());
+        _strip.Items.Add(EditorChrome.ToolButton("Use in game", "Build a Room, configure its camera and test gameplay", showGameGuide));
+        ToolStripDropDownItem edit = (ToolStripDropDownItem)menus[1];
+        foreach (ToolStripItem duplicate in edit.DropDownItems.Cast<ToolStripItem>()
+                     .Where(item => item.Text is "Paint tiles (2D)" or "Frame contents").ToArray())
+            edit.DropDownItems.Remove(duplicate);
+        _options.DropDownItems.Add(edit);
+        ToolStripDropDownItem view = (ToolStripDropDownItem)menus[2];
+        view.DropDownItems.Add(new ToolStripSeparator());
+        view.DropDownItems.Add(new ToolStripLabel("Grid step"));
+        view.DropDownItems.Add(_snapSize);
+        view.DropDownItems.Add(_terrain);
+        _options.DropDownItems.Add(view);
+        view.DropDownOpened += (_, _) => ApplyInterfaceLayout();
+        _options.DropDownItems.Add(_btnCamera);
+        ToolStripMenuItem dimension = new("Room dimension");
+        dimension.DropDownItems.AddRange([_btn2D, _btn3D]);
+        _options.DropDownItems.Add(dimension);
+        ToolStripMenuItem local = new("Local transform axes") { CheckOnClick = true };
+        local.Click += (_, _) => ((ToolStripButton)transforms[4]).PerformClick();
+        _options.DropDownOpening += (_, _) => local.Checked = ((ToolStripButton)transforms[4]).Checked;
+        _options.DropDownItems.Add(local);
+        _strip.Items.Add(_options);
+        _strip.Items.AddRange([_btnStop, _btnPause, _btnPlay]);
         foreach (ToolStripItem item in _strip.Items)
         {
             item.ForeColor = EditorChrome.Text;
@@ -99,6 +128,10 @@ public sealed class RoomEditorToolbar : Panel
         {
             _btn2D.Checked = is2D;
             _btn3D.Checked = !is2D;
+            foreach (ToolStripDropDownItem menu in _options.DropDownItems.OfType<ToolStripDropDownItem>())
+                foreach (ToolStripItem item in menu.DropDownItems)
+                    if (item.Text is "Normals" or "Wireframe" or "Shadows" or "Lighting" or "Depth" or "Fog" or "Fog settings…" or "Floor" or "Snap to floor")
+                        item.Available = !is2D;
             _btnGrid.Checked = gridVisible;
             _btnSnap.Checked = snapEnabled;
             if (_snapSize.Items.Count == 0 || _is2D != is2D)
@@ -115,6 +148,7 @@ public sealed class RoomEditorToolbar : Panel
             _btnPause.Enabled = isSimulating && !isPaused;
             _btnPause.ForeColor = EditorChrome.Warning;
             _btnStop.Enabled = isSimulating;
+            _btnStop.Available = isSimulating;
             _btnStop.ForeColor = isSimulating ? EditorChrome.Error : EditorChrome.Muted;
         }
         finally { _syncing = false; }

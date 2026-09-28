@@ -161,7 +161,7 @@ internal static class RoomWorkspaceSuite
         editor.Dock = DockStyle.Fill; host.Controls.Add(editor); ThemeService.Apply(host);
         UnattendedWindowing.ShowWithoutFocus(host);
         editor.Navigation.SetSection(RoomNavSection.Tilesets);
-        ToolStripButton threeD = editor.EditorToolbar.Strip.Items.OfType<ToolStripButton>().Single(button => button.Text == "3D");
+        ToolStripMenuItem threeD = editor.EditorToolbar.Dimension3DCommand;
         threeD.PerformClick(); Warm(editor);
         AssertTerrainPalette();
         editor.Undo(); Warm(editor);
@@ -174,7 +174,7 @@ internal static class RoomWorkspaceSuite
         instances.SelectedIndex = 8; instances.TopIndex = 6;
         string selectedId = ((RoomNode)instances.SelectedItem!).Id;
         int top = instances.TopIndex;
-        RoomNode renamed = editor.Room.Nodes[0]; string previousName = renamed.Name;
+        RoomNode renamed = (RoomNode)instances.SelectedItem!; string previousName = renamed.Name;
         Assert(editor.SetNodeName(renamed, "Renamed terrain patch"), "Terrain rename did not apply.");
         Assert(instances.GetItemText(instances.Items.Cast<RoomNode>().Single(node => node.Id == renamed.Id)) == "Renamed terrain patch"
             && ((RoomNode)instances.SelectedItem!).Id == selectedId && instances.TopIndex == top,
@@ -192,18 +192,20 @@ internal static class RoomWorkspaceSuite
         Point drop = editor.ClientFromWorld3D(new Vector3(0, 0, 5));
         editor.EditorPointerDown(drop, MouseButtons.Left, Keys.None);
         editor.EditorPointerUp(drop, MouseButtons.Left, Keys.None);
+        editor.FlushPendingRoomUiRefresh();
         Assert(editor.Room.Nodes.Count == 13 && instances.Items.Count == 13,
             "Placing terrain did not update its visible instance list immediately.");
         RoomNode placed = editor.Room.Nodes[^1];
         Assert(instances.Items.Cast<RoomNode>().Any(node => ReferenceEquals(node, placed)),
             "Terrain list retained detached instances instead of current room nodes.");
-        editor.Undo(); Assert(instances.Items.Count == 12 && !instances.Items.Cast<RoomNode>().Any(node => node.Id == placed.Id),
+        editor.Undo(); editor.FlushPendingRoomUiRefresh(); Assert(instances.Items.Count == 12 && !instances.Items.Cast<RoomNode>().Any(node => node.Id == placed.Id),
             "Placement undo left a deleted terrain row.");
-        editor.Redo(); Assert(instances.Items.Count == 13, "Placement redo did not restore the terrain row.");
-        editor.Select(placed); editor.DeleteSelected();
+        editor.Redo(); editor.FlushPendingRoomUiRefresh(); Assert(instances.Items.Count == 13, "Placement redo did not restore the terrain row.");
+        instances.SelectedItem = placed;
+        editor.Select(placed); editor.DeleteSelected(); editor.FlushPendingRoomUiRefresh();
         Assert(instances.Items.Count == 12 && !instances.Items.Cast<RoomNode>().Any(node => node.Id == placed.Id),
             "Delete left the removed terrain selectable in the active list.");
-        editor.Undo(); Assert(instances.Items.Count == 13 && instances.Items.Cast<RoomNode>().All(editor.Room.Nodes.Contains),
+        editor.Undo(); editor.FlushPendingRoomUiRefresh(); Assert(instances.Items.Count == 13 && instances.Items.Cast<RoomNode>().All(editor.Room.Nodes.Contains),
             "Delete undo restored stale terrain references.");
         editor.Save();
         RoomAsset saved = RoomAssetLoader.Parse(roomPath);
@@ -286,7 +288,7 @@ internal static class RoomWorkspaceSuite
         Assert(editor.Navigation.SectionTitles.SequenceEqual(new[] { "Objects", "Instances", "Settings", "Views", "Backgrounds", "Tilesets" }), "2D rail is not the required six-section navigation.");
         Capture("room-workspace-2d");
         ToolStrip strip = editor.EditorToolbar.Strip;
-        ToolStripButton dimension = strip.Items.OfType<ToolStripButton>().Single(button => button.Text == "3D");
+        ToolStripMenuItem dimension = editor.EditorToolbar.Dimension3DCommand;
         dimension.PerformClick(); Warm(editor);
         Assert(editor.ViewMode3D && editor.Navigation.SectionTitles.SequenceEqual(new[] { "Objects", "Instances", "Settings", "Views", "Skybox", "Terrain" }), "Dimension button did not adapt all six navigation entries.");
         editor.Undo(); Warm(editor);
@@ -332,9 +334,9 @@ internal static class RoomWorkspaceSuite
         RoomNode marker = editor.Room.Nodes.Single(node => node.Name == "Camp marker");
         editor.Select(marker); editor.SnapSelectionToTerrain(); Warm(editor); Capture("room-workspace-3d");
         editor.Navigation.SetSection(RoomNavSection.Settings);
-        Assert(editor.SelectedNode == marker && editor.Inspector.Visible
+        Assert(editor.SelectedNode == marker && !editor.Inspector.Visible
             && Descendants(editor.Navigation).Any(control => control.Name == "RoomSettingsFields" && control.Visible),
-            "Settings should edit the room in its own panel while preserving the selected instance.");
+            "Settings should preserve selection and provide one settings panel without a duplicate Inspector.");
 
         SplitContainer outer = Descendants(editor).OfType<SplitContainer>().Single(split => split.Panel1.Controls.Contains(editor.Navigation));
         int initial = outer.SplitterDistance;

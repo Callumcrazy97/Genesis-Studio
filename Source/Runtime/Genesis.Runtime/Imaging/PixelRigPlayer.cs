@@ -82,6 +82,17 @@ public sealed class PixelRigPlayer
 
     public void Stop() => Playing = false;
 
+    internal void RestorePlaybackFrom(PixelRigPlayer previous)
+    {
+        if (previous._animation is not null && Play(previous.AnimationName, previous._speed, previous._loop)) Seek(previous.Frame);
+        else if (previous.PoseName.Length > 0) SetPose(previous.PoseName);
+        foreach (var rotation in previous._rotations)
+            RotateBone(rotation.Key, rotation.Value.Degrees, rotation.Value.Follow);
+        foreach (var joint in previous._jointPositions) MoveJoint(joint.Key, joint.Value.X, joint.Value.Y);
+        FillJointGaps = previous.FillJointGaps;
+        if (!previous.Playing) Stop();
+    }
+
     public bool Seek(int frame)
     {
         if (_animation is null || frame < 1) return false;

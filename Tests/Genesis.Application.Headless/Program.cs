@@ -17,9 +17,21 @@ internal static class Program
         Console.SetError(stderr);
 
         Genesis.Application.Core.Diagnostics.UnattendedSession.Enable();
-        System.Windows.Forms.Application.SetHighDpiMode(System.Windows.Forms.HighDpiMode.SystemAware);
+        System.Windows.Forms.Application.SetHighDpiMode(System.Windows.Forms.HighDpiMode.PerMonitorV2);
         System.Windows.Forms.Application.EnableVisualStyles();
         System.Windows.Forms.Application.SetCompatibleTextRenderingDefault(false);
+        if (args.Length >= 2 && args[0] == "--judge-captures")
+        {
+            int surfaceIndex = Array.IndexOf(args, "--surface");
+            int variantIndex = Array.IndexOf(args, "--variant");
+            return ReadinessJudgeRunner.Capture(args[1], surfaceIndex >= 0 && surfaceIndex + 1 < args.Length ? args[surfaceIndex + 1] : null,
+                variantIndex >= 0 && variantIndex + 1 < args.Length ? args[variantIndex + 1] : null);
+        }
+        if (args.Length >= 2 && args[0] == "--judge")
+        {
+            int reviewIndex = Array.IndexOf(args, "--review");
+            return ReadinessJudgeRunner.Evaluate(args[1], reviewIndex >= 0 && reviewIndex + 1 < args.Length ? args[reviewIndex + 1] : null);
+        }
         if (args.Length>=3 && args[0]=="--rig-review") return RigReviewCaptureRunner.Run(Path.GetFullPath(args[1]),Path.GetFullPath(args[2]));
         if (args.Length>=2 && args[0]=="--layer-frame-review") return LayerFrameCaptureRunner.Run(Path.GetFullPath(args[1]));
         if (args.Length>=2 && args[0]=="--model-workspace-review") return ModelWorkspaceCaptureRunner.Run(Path.GetFullPath(args[1]));

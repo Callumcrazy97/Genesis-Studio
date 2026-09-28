@@ -539,7 +539,8 @@ public sealed class ObjectSandboxPanel : Panel
             {
                 PointF at = Map(text.X, text.Y);
                 using SolidBrush brush = new(text.Color);
-                using Font font = new(EditorChrome.BaseFont.FontFamily, Math.Max(6f, text.Size * scale));
+                using Font font = new(string.IsNullOrWhiteSpace(text.Font) ? "Segoe UI" : text.Font,
+                    Math.Max(6f, text.Size * scale), GraphicsUnit.Pixel);
                 g.DrawString(text.Text, font, brush, at);
             }
         }

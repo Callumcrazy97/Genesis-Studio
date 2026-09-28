@@ -259,6 +259,7 @@ public static class ObjectSandbox
             // One VM for the whole run, so variables persist across events and frames exactly as they
             // do for a real instance.
             PgslVm vm = VMEngine.CreateVm(debug: false);
+            ctx.ActiveVm = vm;
             Dictionary<string, string> variableOwners = new(StringComparer.OrdinalIgnoreCase);
             bool cleared = false;
 
@@ -270,6 +271,7 @@ public static class ObjectSandbox
                 {
                     HashSet<string> variablesBefore = vm.GetVariables().Keys
                         .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    vm.LoadUserFunctions(result.UserFunctions);
                     vm.Execute(result.Instructions, result.Constants, clearVariables: !cleared);
                     cleared = true;
                     fired.Add(id);

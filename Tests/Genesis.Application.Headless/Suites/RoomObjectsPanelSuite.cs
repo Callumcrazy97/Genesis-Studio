@@ -124,9 +124,12 @@ internal static class RoomObjectsPanelSuite
             {
                 item.EnsureVisible(); GateSuite.Pump(1, 10);
                 int x = panel.InstanceHierarchy.ClientSize.Width - (padlock ? 14 : 42);
-                var args = new TreeNodeMouseClickEventArgs(item, MouseButtons.Left, 1, x, item.Bounds.Top + 16);
-                typeof(TreeView).GetMethod("OnNodeMouseClick", BindingFlags.Instance | BindingFlags.NonPublic)!
-                    .Invoke(panel.InstanceHierarchy, [args]);
+                nint position = (nint)((item.Bounds.Top + panel.InstanceHierarchy.ItemHeight / 2) << 16 | x & 0xffff);
+                Message down = Message.Create(panel.InstanceHierarchy.Handle, 0x0201, 1, position);
+                Message up = Message.Create(panel.InstanceHierarchy.Handle, 0x0202, 0, position);
+                MethodInfo input = panel.InstanceHierarchy.GetType().GetMethod("WndProc", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                input.Invoke(panel.InstanceHierarchy, [down]);
+                input.Invoke(panel.InstanceHierarchy, [up]);
             }
         });
     }

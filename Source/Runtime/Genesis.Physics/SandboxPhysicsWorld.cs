@@ -17,6 +17,9 @@ namespace Genesis.Physics;
 public sealed class SandboxPhysicsWorld : IDisposable
 {
     private readonly Simulation _sim;
+    private readonly PlanarBodyConstraints _planarConstraints;
+    private PhysicsDimension _dimension;
+    private bool _lockRotation;
     private readonly BufferPool _pool;
     private readonly List<TrackedBody> _dynamicBodies = new();
     private readonly List<TrackedStatic> _staticBodies = new();
@@ -39,6 +42,34 @@ public sealed class SandboxPhysicsWorld : IDisposable
     public byte DefaultCollisionLayer { get; set; }
     public uint DefaultCollisionMask { get; set; } = 0x7Fu;
 
+    public PhysicsDimension Dimension
+    {
+        get => _dimension;
+        set
+        {
+            if (_dimension == value) return;
+            _dimension = value;
+            RefreshPlanarConstraints();
+        }
+    }
+
+    public bool LockRotation
+    {
+        get => _lockRotation;
+        set
+        {
+            if (_lockRotation == value) return;
+            _lockRotation = value;
+            RefreshPlanarConstraints();
+        }
+    }
+
+    private void RefreshPlanarConstraints()
+    {
+        foreach (TrackedBody body in _dynamicBodies)
+            _planarConstraints.Apply(body.Handle, _dimension == PhysicsDimension.TwoD, _lockRotation, 0f);
+    }
+
     public int DynamicBodyCount => _dynamicBodies.Count;
     public int StaticBodyCount => _staticBodies.Count;
 
@@ -53,6 +84,7 @@ public sealed class SandboxPhysicsWorld : IDisposable
             new SandboxNarrowPhaseCallbacks(this),
             new SandboxPoseCallbacks(this),
             new SolveDescription(8, 1));
+        _planarConstraints = new PlanarBodyConstraints(_sim);
     }
 
     public PhysicsBody AddDynamicBox(Vector3 position, Vector3 halfExtents, float mass = 1f)
@@ -71,6 +103,7 @@ public sealed class SandboxPhysicsWorld : IDisposable
         _dynamicBodies.Add(new TrackedBody(handle, halfExtents, mass));
         _dynamicIndices[handle] = slot;
         _dynamicCollisionFilter[handle] = (DefaultCollisionLayer, DefaultCollisionMask);
+        _planarConstraints.Apply(handle, Dimension == PhysicsDimension.TwoD, LockRotation, 0f);
         return new PhysicsBody(handle, halfExtents, slot);
     }
 
@@ -91,6 +124,7 @@ public sealed class SandboxPhysicsWorld : IDisposable
         _dynamicBodies.Add(new TrackedBody(handle, halfExtents, mass));
         _dynamicIndices[handle] = slot;
         _dynamicCollisionFilter[handle] = (DefaultCollisionLayer, DefaultCollisionMask);
+        _planarConstraints.Apply(handle, Dimension == PhysicsDimension.TwoD, LockRotation, 0f);
         return new PhysicsBody(handle, halfExtents, slot);
     }
 
@@ -111,6 +145,7 @@ public sealed class SandboxPhysicsWorld : IDisposable
         _dynamicBodies.Add(new TrackedBody(handle, halfExtents, mass));
         _dynamicIndices[handle] = slot;
         _dynamicCollisionFilter[handle] = (DefaultCollisionLayer, DefaultCollisionMask);
+        _planarConstraints.Apply(handle, Dimension == PhysicsDimension.TwoD, LockRotation, 0f);
         return new PhysicsBody(handle, halfExtents, slot);
     }
 
@@ -131,6 +166,7 @@ public sealed class SandboxPhysicsWorld : IDisposable
         _dynamicBodies.Add(new TrackedBody(handle, halfExtents, mass));
         _dynamicIndices[handle] = slot;
         _dynamicCollisionFilter[handle] = (DefaultCollisionLayer, DefaultCollisionMask);
+        _planarConstraints.Apply(handle, Dimension == PhysicsDimension.TwoD, LockRotation, 0f);
         return new PhysicsBody(handle, halfExtents, slot);
     }
 
@@ -253,6 +289,7 @@ public sealed class SandboxPhysicsWorld : IDisposable
 
     public void SetLinearVelocity(PhysicsBody body, Vector3 velocity)
     {
+        if (Dimension == PhysicsDimension.TwoD) velocity.Z = 0;
         BodyReference bodyRef = _sim.Bodies.GetBodyReference(body.Handle);
         bodyRef.Awake = true;
         bodyRef.Velocity.Linear = velocity;
@@ -297,17 +334,24 @@ public sealed class SandboxPhysicsWorld : IDisposable
 
         BodyReference bodyRef = _sim.Bodies.GetBodyReference(body.Handle);
         bodyRef.Awake = true;
-        bodyRef.Pose.Orientation = new System.Numerics.Quaternion(rotation.X, rotation.Y, rotation.Z, rotation.W);
+        bodyRef.Pose.Orientation = Dimension == PhysicsDimension.TwoD
+            ? PlanarBodyConstraints.RotationInPlane(rotation) : rotation;
         bodyRef.Velocity.Angular = default;
     }
 
     public void SetBodyPose(PhysicsBody body, Vector3 position, Quaternion rotation)
     {
+        if (Dimension == PhysicsDimension.TwoD)
+        {
+            position.Z = 0;
+            rotation = PlanarBodyConstraints.RotationInPlane(rotation);
+        }
         BodyReference bodyRef = _sim.Bodies.GetBodyReference(body.Handle);
         bodyRef.Awake = true;
         bodyRef.Pose.Position = position;
         bodyRef.Pose.Orientation = new System.Numerics.Quaternion(rotation.X, rotation.Y, rotation.Z, rotation.W);
         bodyRef.Velocity = default;
+        _planarConstraints.Reanchor(body.Handle, 0);
     }
 
     /// <summary>Removes a dynamic body from the simulation. Do not use on the player body.</summary>
@@ -316,6 +360,7 @@ public sealed class SandboxPhysicsWorld : IDisposable
         if (!body.IsValid || body.IsStatic)
             return;
 
+        _planarConstraints.Remove(body.Handle);
         _sim.Bodies.Remove(body.Handle);
 
         if (!_dynamicIndices.TryGetValue(body.Handle, out int slot))

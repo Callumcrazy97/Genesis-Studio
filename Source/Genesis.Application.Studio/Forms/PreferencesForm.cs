@@ -16,6 +16,7 @@ namespace Genesis.Application.Studio.Forms;
 public sealed class PreferencesForm : DpiAwareForm
 {
     private readonly SettingsService _settings;
+    private Action? _layoutMeasured;
     private readonly Panel _contentHost;
     private readonly ListBox _categories;
     private readonly TextBox _categoryFilter = new() { Name = "PreferencesCategoryFilter" };
@@ -118,6 +119,7 @@ public sealed class PreferencesForm : DpiAwareForm
         StartPosition = FormStartPosition.CenterParent;
         Text = "Genesis Studio — Preferences";
         BackColor = ThemeService.Palette.Canvas;
+        Tag = ThemeService.MeasuredLayoutTag;
 
         _allCategories = _project is null
             ? ["General", "Appearance", "Editing", "Runtime", "Rendering", "Shortcuts"]
@@ -183,7 +185,7 @@ public sealed class PreferencesForm : DpiAwareForm
         _categoryFilter.BorderStyle = BorderStyle.None;
         _categoryFilter.Dock = DockStyle.Fill;
         _categoryFilter.ForeColor = ThemeService.Palette.Text;
-        _categoryFilter.PlaceholderText = "Filter settings…";
+        _categoryFilter.PlaceholderText = "Filter…";
         _categoryFilter.TextChanged += (_, _) => FilterCategories();
         filterHost.Controls.Add(_categoryFilter);
         filterHost.Paint += (_, e) =>
@@ -209,7 +211,7 @@ public sealed class PreferencesForm : DpiAwareForm
         _categories.DrawItem += DrawCategory;
         _categories.SelectedIndexChanged += (_, _) => ShowSelectedPage();
         navigation.Controls.Add(_categories);
-        filterHost.BringToFront();
+        _categories.BringToFront();
         layout.Controls.Add(navigation, 0, 1);
 
         Panel footer = new()
@@ -282,8 +284,39 @@ public sealed class PreferencesForm : DpiAwareForm
         BuildPages();
         LoadValues(_settings.Current);
         _categories.SelectedIndex = 0;
+        bool arranging = false;
+        _layoutMeasured = () =>
+        {
+            if (arranging || IsDisposed) return;
+            arranging = true;
+            try
+            {
+                layout.SuspendLayout();
+                title.Font = ThemeService.HeadingFont;
+                subtitle.Font = ThemeService.InterfaceFont;
+                title.Location = new Point(24, 18);
+                subtitle.AutoSize = false;
+                subtitle.Bounds = new Rectangle(24, title.Bottom + 6, Math.Max(1, ClientSize.Width - 48),
+                    ShellDialogLayout.TextHeight(subtitle, Math.Max(1, ClientSize.Width - 48)));
+                layout.RowStyles[0].Height = subtitle.Bottom + 16;
+                using Font categoryFont = new(Font, FontStyle.Bold);
+                layout.ColumnStyles[0].Width = Math.Clamp(TextRenderer.MeasureText("Appearance", categoryFont).Width + 64, 186, 300);
+                filterHost.Height = _categoryFilter.Font.Height + 24;
+                _categories.ItemHeight = Math.Max(36, Font.Height + 16);
+                foreach (Button button in footer.Controls.OfType<Button>()) ShellDialogLayout.FitButton(button);
+                layout.RowStyles[2].Height = Font.Height + 48;
+                _contentHost.Padding = new Padding(20, 12, 20, 12);
+                foreach (FlowLayoutPanel page in _pages.Values.OfType<FlowLayoutPanel>()) ResizePageChildren(page);
+                layout.ResumeLayout(true);
+            }
+            finally { arranging = false; }
+        };
+        ClientSizeChanged += (_, _) => ApplyInterfaceLayout();
+        Shown += (_, _) => { _categories.TopIndex = 0; ApplyInterfaceLayout(); };
         ThemeService.Apply(this);
     }
+
+    public override void ApplyInterfaceLayout() => _layoutMeasured?.Invoke();
 
     private void BuildPages()
     {
@@ -369,8 +402,12 @@ public sealed class PreferencesForm : DpiAwareForm
 
     private Control BuildThemeModePicker()
     {
-        Panel picker = new()
+        FlowLayoutPanel picker = new()
         {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = true,
             BackColor = Color.Transparent,
             Margin = new Padding(0, 0, 0, 12),
             Size = new Size(560, 34),
@@ -401,11 +438,16 @@ public sealed class PreferencesForm : DpiAwareForm
         _imageThemeGallery.Location = new Point(0, 27);
         _imageThemeGallery.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         label.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-        field.Resize += (_, _) =>
+        void ArrangeGallery()
         {
             label.Width = Math.Max(1, field.ClientSize.Width);
+            label.Height = ShellDialogLayout.TextHeight(label, label.Width) + 4;
+            _imageThemeGallery.Top = label.Bottom + 4;
             _imageThemeGallery.Width = Math.Max(1, field.ClientSize.Width);
-        };
+            field.Height = _imageThemeGallery.Bottom + 8;
+        }
+        field.Resize += (_, _) => ArrangeGallery();
+        label.FontChanged += (_, _) => ArrangeGallery();
         field.Controls.Add(label);
         field.Controls.Add(_imageThemeGallery);
         return field;
@@ -413,12 +455,13 @@ public sealed class PreferencesForm : DpiAwareForm
 
     private static void ConfigureThemeMode(RadioButton mode, string text, Point location)
     {
-        mode.AutoSize = false;
+        mode.AutoSize = true;
         mode.BackColor = Color.Transparent;
         mode.ForeColor = ThemeService.Palette.Text;
         mode.Location = location;
         mode.Size = new Size(170, 30);
         mode.Text = text;
+        mode.Margin = new Padding(0, 4, 20, 4);
     }
 
     private Control BuildEditingPage()
@@ -604,12 +647,10 @@ public sealed class PreferencesForm : DpiAwareForm
         page.Controls.Add(Field("Draw calls", _drawCallMode));
         page.Controls.Add(Field("World draw budget", _worldDrawBudget));
         page.Controls.Add(Note(
-            "Instance caps name GPU buffer uploads, not ECS objects or textures. Local lights fill "
-            + "a clustered buffer up to the scene cap; each screen tile evaluates at most 32 "
-            + "(R7.5). Omni-shadow budget is a bounded number of cubemap slots (AF1.3) — "
-            + "independent of the scene local light cap, never a map per torch. Manual draw "
-            + "calls budget variable world batches only — shadows, post, HUD and the environment "
-            + "floor/sun stay outside that budget."));
+            "Instance limits control how much geometry is uploaded to the renderer. The light limit "
+            + "applies to the whole scene; each screen tile considers up to 32 lights. Shadow maps "
+            + "have a separate limit. The world draw budget excludes shadows, post-processing, "
+            + "the HUD and the environment."));
 
         ModernButton testBackendsBtn = new()
         {
@@ -683,6 +724,8 @@ public sealed class PreferencesForm : DpiAwareForm
         };
 
         var pickIconBtn = new ModernButton { Text = "Set Icon..." };
+        pickIconBtn.FontChanged += (_, _) => ShellDialogLayout.FitButton(pickIconBtn);
+        ShellDialogLayout.FitButton(pickIconBtn);
         pickIconBtn.Click += (_, _) =>
         {
             var menu = new ContextMenuStrip();
@@ -933,18 +976,23 @@ public sealed class PreferencesForm : DpiAwareForm
 
         int scrollbar = page.VerticalScroll.Visible ? SystemInformation.VerticalScrollBarWidth : 0;
         int available = Math.Max(
-            DpiLayout.Scale(page, 280),
+            1,
             page.ClientSize.Width - page.Padding.Horizontal - scrollbar - DpiLayout.Scale(page, 4));
         foreach (Control child in page.Controls)
         {
             // Command buttons keep a deliberate compact action width; content surfaces use the
             // whole Preferences page when the dialog is resized or maximized.
-            if (child is Button)
+            if (child is Button button)
             {
+                ShellDialogLayout.FitButton(button);
                 continue;
             }
 
             child.Width = Math.Max(1, available - child.Margin.Horizontal);
+            if (child is Label label)
+                label.Height = ShellDialogLayout.TextHeight(label, label.Width) + 4;
+            else if (child is CheckBox check)
+                check.Height = ShellDialogLayout.TextHeight(check, Math.Max(1, check.Width - 24)) + 12;
         }
     }
 
@@ -991,6 +1039,24 @@ public sealed class PreferencesForm : DpiAwareForm
         row.Controls.Add(_fogColorSwatch);
         row.Controls.Add(_fogColor);
         row.Controls.Add(hint);
+        void ArrangeColour()
+        {
+            _fogColorSwatch.Height = Math.Max(32, _fogColor.Height);
+            _fogColor.Width = TextRenderer.MeasureText("#FFFFFF", _fogColor.Font).Width + 24;
+            hint.Left = _fogColor.Right + 12;
+            hint.Top = 0;
+            if (row.ClientSize.Width - hint.Left < TextRenderer.MeasureText(hint.Text, hint.Font).Width)
+            {
+                hint.Left = 0;
+                hint.Top = Math.Max(_fogColor.Bottom, _fogColorSwatch.Bottom) + 6;
+            }
+            hint.Width = Math.Max(1, row.ClientSize.Width - hint.Left);
+            hint.Height = ShellDialogLayout.TextHeight(hint, hint.Width) + 4;
+            row.Height = Math.Max(hint.Bottom, _fogColorSwatch.Bottom) + 4;
+        }
+        row.Resize += (_, _) => ArrangeColour();
+        hint.FontChanged += (_, _) => ArrangeColour();
+        _fogColor.FontChanged += (_, _) => ArrangeColour();
         return row;
     }
 
@@ -1050,11 +1116,17 @@ public sealed class PreferencesForm : DpiAwareForm
         editor.Location = new Point(0, 27);
         label.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         editor.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-        field.Resize += (_, _) =>
+        void ArrangeField()
         {
             label.Width = Math.Max(1, field.ClientSize.Width);
+            label.Height = ShellDialogLayout.TextHeight(label, label.Width) + 4;
+            editor.Top = label.Bottom + 4;
             editor.Width = Math.Max(1, field.ClientSize.Width);
-        };
+            field.Height = editor.Bottom + 8;
+        }
+        field.Resize += (_, _) => ArrangeField();
+        label.FontChanged += (_, _) => ArrangeField();
+        editor.FontChanged += (_, _) => ArrangeField();
         field.Controls.Add(label);
         field.Controls.Add(editor);
         return field;
@@ -1083,11 +1155,15 @@ public sealed class PreferencesForm : DpiAwareForm
         toggle.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         row.Controls.Add(text);
         row.Controls.Add(toggle);
-        row.Resize += (_, _) =>
+        void ArrangeToggle()
         {
-            text.Width = Math.Max(120, row.ClientSize.Width - toggle.Width - 16);
+            text.Width = Math.Max(1, row.ClientSize.Width - toggle.Width - 16);
+            text.Height = ShellDialogLayout.TextHeight(text, text.Width) + 4;
             toggle.Location = new Point(row.ClientSize.Width - toggle.Width, 6);
-        };
+            row.Height = Math.Max(text.Bottom, toggle.Bottom) + 8;
+        }
+        row.Resize += (_, _) => ArrangeToggle();
+        text.FontChanged += (_, _) => ArrangeToggle();
         toggle.Location = new Point(row.Width - toggle.Width, 6);
         return row;
     }
@@ -1546,6 +1622,7 @@ public sealed class PreferencesForm : DpiAwareForm
         }
 
         _addThemeImage.Visible = imageMode;
+        _themePreview.Height = DpiLayout.Scale(this, imageMode ? 220 : 60);
     }
 
     private void RefreshThemePreview() => _themePreview.Invalidate();
@@ -1776,4 +1853,3 @@ public sealed class PreferencesForm : DpiAwareForm
         combo.SelectedIndex = index >= 0 ? index : 0;
     }
 }
-

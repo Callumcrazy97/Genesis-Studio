@@ -344,6 +344,7 @@ namespace Genesis.Rendering.Software
             float tintG = inst.Color.Y;
             float tintB = inst.Color.Z;
             float tintA = inst.Color.W;
+            int blend = (int)inst.DepthPad.Z;
 
             float x0 = -ox, y0 = -oy;
             float x1 = w - ox, y1 = -oy;
@@ -462,10 +463,25 @@ namespace Genesis.Rendering.Software
                         float dstG = framePixels[dstIdx + 1] / 255f;
                         float dstR = framePixels[dstIdx + 2] / 255f;
 
-                        // Non-premultiplied SrcAlpha blend
                         float outR = finalR * finalA + dstR * (1f - finalA);
                         float outG = finalG * finalA + dstG * (1f - finalA);
                         float outB = finalB * finalA + dstB * (1f - finalA);
+                        if (blend == 1)
+                        {
+                            outR = finalR * finalA + dstR;
+                            outG = finalG * finalA + dstG;
+                            outB = finalB * finalA + dstB;
+                        }
+                        else if (blend == 2)
+                        {
+                            outR = dstR * (finalR * finalA + 1 - finalA);
+                            outG = dstG * (finalG * finalA + 1 - finalA);
+                            outB = dstB * (finalB * finalA + 1 - finalA);
+                        }
+                        else if (blend == 3)
+                        {
+                            outR = finalR; outG = finalG; outB = finalB;
+                        }
 
                         framePixels[dstIdx + 0] = (byte)(Math.Clamp(outB, 0f, 1f) * 255f);
                         framePixels[dstIdx + 1] = (byte)(Math.Clamp(outG, 0f, 1f) * 255f);

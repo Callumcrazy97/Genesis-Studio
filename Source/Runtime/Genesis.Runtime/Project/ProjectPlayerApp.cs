@@ -64,6 +64,11 @@ namespace Genesis.Runtime.Project
                     return customExit;
 
                 ParseArgs(args, out string roomArg, out float autoshotSeconds, out string perfLabel, out bool debugMode);
+                int acceptanceIndex = Array.IndexOf(args, "--acceptance-meadow");
+                string acceptanceOutput = acceptanceIndex >= 0 && acceptanceIndex + 1 < args.Length
+                    ? Path.GetFullPath(args[acceptanceIndex + 1]) : null;
+                if (acceptanceIndex >= 0 && acceptanceOutput == null)
+                    throw new ArgumentException("--acceptance-meadow requires an evidence directory.");
                 PgslProfiler.Reset();
                 PgslProfiler.Enabled = debugMode;
 
@@ -222,9 +227,16 @@ namespace Genesis.Runtime.Project
                     if (RoomEnvironmentAudioSubsystem.ShouldRegister(loaded.Environment))
                         scene.AddSubsystem(new RoomEnvironmentAudioSubsystem(loaded.Environment, gameContext));
 
-                    scene.AddSubsystem(new ObjectCompositionSubsystem(projectPath, gameContext.Audio));
+                    scene.AddSubsystem(new ObjectCompositionSubsystem(projectPath, gameContext.Audio, loaded.Dimension == RoomDimension.TwoD));
                     scene.AddSubsystem(new RoomRenderSubsystem(projectPath, loaded));
                     scene.AddSubsystem(new ObjectDrawSubsystem(projectPath));
+                    if (acceptanceOutput != null)
+                    {
+                        var acceptance = scene.AddSubsystem(new MushroomMeadowRuntimeAcceptance(
+                            acceptanceOutput, projectPath, gameContext, scriptHost,
+                            () => bootSplash.IsComplete, result => { _exitCode = result; RequestStop(); }));
+                        host.EndFrame += acceptance.CaptureFrame;
+                    }
                     scene.AddSubsystem(new ScriptHostSubsystem(scriptHost, () => bootSplash.IsComplete));
                     ProjectRoomSwitcher roomSwitcher = scene.AddSubsystem(new ProjectRoomSwitcher(
                         projectPath, gameContext, scriptHost, window, renderer, logger, roomName));
@@ -271,7 +283,8 @@ namespace Genesis.Runtime.Project
                 // Absent means allowed: a game you cannot quit is the worse default.
                 string escapeSetting = Environment.GetEnvironmentVariable(
                     Genesis.Rendering.Core.EngineRenderingDefaults.AllowEscapeEnvironmentVariable);
-                bool allowEscapeToClose = string.IsNullOrWhiteSpace(escapeSetting) || escapeSetting != "0";
+                bool allowEscapeToClose = string.IsNullOrWhiteSpace(escapeSetting)
+                    ? launchSettings.AllowEscapeToClose : escapeSetting != "0";
                 logger.Line($"allowEscapeToClose={allowEscapeToClose}");
 
                 using (host)
@@ -338,6 +351,7 @@ namespace Genesis.Runtime.Project
             public string Title { get; set; } = string.Empty;
             public string WindowMode { get; set; } = "Windowed";
             public string Icon { get; set; } = string.Empty;
+            public bool AllowEscapeToClose { get; set; } = true;
         }
 
         private static GameLaunchSettings LoadPackagedLaunchSettings()

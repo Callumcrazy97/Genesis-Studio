@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Windows.Forms;
+using Genesis.Application.Core.Resources;
 
 namespace Genesis.Application.Editors.Suite.Inspector;
 
@@ -12,7 +13,7 @@ namespace Genesis.Application.Editors.Suite.Inspector;
 public static class PropertyDrawerRegistry
 {
     private static readonly List<IPropertyDrawer> Drawers = [];
-    private sealed class RefreshState { public bool Updating; }
+    private sealed class RefreshState { public bool Updating; public string? AssetProjectRoot; }
     private static readonly ConditionalWeakTable<Control, RefreshState> RefreshStates = new();
 
     static PropertyDrawerRegistry()
@@ -60,6 +61,7 @@ public static class PropertyDrawerRegistry
         Action<object?> changed = context.ValueChanged;
         context = context with { ValueChanged = value => { if (!state.Updating) changed(value); } };
         IPropertyDrawer? drawer = Resolve(context);
+        if (drawer is AssetReferenceDrawer) state.AssetProjectRoot = context.ProjectRoot;
         Control control;
         if (drawer is not null)
         {
@@ -99,12 +101,17 @@ public static class PropertyDrawerRegistry
         state.Updating = true;
         try
         {
+            if (state.AssetProjectRoot is { Length: > 0 } root && value is string reference)
+                value = ResourceNames.Name(root, reference);
             if (value is Vector2 vector2)
                 return SetAxes(control, [vector2.X, vector2.Y]);
             if (value is Vector3 vector3)
                 return SetAxes(control, [vector3.X, vector3.Y, vector3.Z]);
             switch (control)
             {
+                case AssetReferenceField asset when value is string assetReference:
+                    asset.RefreshReference(assetReference);
+                    return true;
                 case NumericUpDown number:
                     decimal next = DrawerTypes.DecimalValue(value, number.Value, number.Minimum, number.Maximum);
                     if (number.Value != next) number.Value = next;

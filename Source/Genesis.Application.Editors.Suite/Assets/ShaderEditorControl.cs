@@ -207,7 +207,10 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
 
         _code = new CodeEditor { Dock = DockStyle.Fill };
         _code.SetRules(BuildHlslRules());
+        AssetCodeIntelligenceProvider.AttachHlsl(_code);
         _code.CodeText = _document.Source;
+        _code.DocumentUndoRequested = Undo;
+        _code.DocumentRedoRequested = Redo;
         _codeSurface = new Panel { Name = "ShaderCodeSurface", BackColor = EditorChrome.Canvas, Dock = DockStyle.Fill };
         _codeSurface.Controls.Add(_code);
         FlowLayoutPanel codeSettings = new()
@@ -261,6 +264,11 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
         _applyPresetButton.Text = "Use preset";
         presetActions.Controls.Add(_applyPresetButton);
         Button presetMore = PresetButton("More…", () => ShowPresetActions(savePresetButton));
+        foreach (Button button in new[] { _applyPresetButton, presetMore })
+        {
+            button.AutoSize = true;
+            button.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        }
         presetActions.Controls.Add(presetMore);
         // Project actions remain available through a single menu rather than five permanent buttons.
         _presetLibrary = new Panel { Dock = DockStyle.Top, Height = 230, Padding = new Padding(12, 0, 12, 8), BackColor = EditorChrome.Surface };
@@ -437,6 +445,7 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
             ForeColor = EditorChrome.Text,
             FullRowSelect = true,
             HeaderStyle = ColumnHeaderStyle.None,
+            ShowItemToolTips = true,
             View = View.Details,
         };
         _output.Columns.Add("Output", 1100);
@@ -579,6 +588,8 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
         _playbackTimer.Start();
         CompileNow();
         ApplyResponsiveLayout();
+        _savedShaderSnapshot = CaptureDocument();
+        if (_toolbar.HistoryCommand is { } history) history.Visible = false;
     }
 
     public bool LastCompileSucceeded { get; private set; }
@@ -617,7 +628,7 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
             string.Equals(parameter.Name, name, StringComparison.OrdinalIgnoreCase))?.Value.ToArray()
         ?? [];
 
-    public bool PreviewVisible => !_main.Panel2Collapsed;
+    public bool PreviewVisible => _referenceShaderLayout ? _shaderWorkspacePages["Preview"].Visible : !_main.Panel2Collapsed;
 
     public bool DiagnosticsVisible => _referenceShaderLayout
         ? _referenceDiagnosticsHost?.Visible == true
@@ -1027,6 +1038,11 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
     public void SetPreviewVisible(bool visible)
     {
         _widePreviewVisible = visible;
+        if (_referenceShaderLayout)
+        {
+            SelectShaderWorkspaceMode(visible ? "Preview" : "Code");
+            return;
+        }
         if (!visible)
             SetAuthoringMode(ShaderAuthoringMode.Code, markDirty: false);
         ApplyResponsiveLayout();
@@ -1117,6 +1133,12 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
         if (resource is null) return false;
         if (ShaderResourceReflection.IsPipelineOwned(_document.Pipeline, resource)) return false;
         string next = (binding ?? string.Empty).Replace('\\', '/').Trim();
+        if (ShaderResourceReflection.IsTextureKind(resource.Kind) && next.Length > 0)
+        {
+            string resolved = ResourceNames.Resolve(ProjectRoot, next, ResourceType.Image);
+            if (resolved.Length == 0) return false;
+            next = ResourceNames.Name(ProjectRoot, resolved);
+        }
         if (resource.Kind == ShaderResourceKind.SamplerState)
         {
             if (next.Length == 0) next = "Linear";
@@ -1141,10 +1163,9 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
             try
             {
                 foreach (Control card in _parameters.Controls)
-                foreach (ThemedComboBox picker in card.Controls.OfType<ThemedComboBox>())
+                foreach (TableLayoutPanel picker in card.Controls.OfType<TableLayoutPanel>())
                     if (string.Equals(picker.Tag as string, resource.Name, StringComparison.OrdinalIgnoreCase))
-                        picker.SelectedIndex = _imageAssets.FindIndex(asset =>
-                            string.Equals(asset, next, StringComparison.OrdinalIgnoreCase)) + 1;
+                        picker.Controls.OfType<TextBox>().Single().Text = next.Length == 0 ? "(none)" : ResourceDisplayName.Format(next);
             }
             finally { _updatingUi = wasUpdating; }
             InvalidatePreviewTarget();
@@ -1345,16 +1366,21 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
     {
         CommitPendingSourceEdit();
         base.Undo();
+        RefreshShaderDirtyState();
     }
 
     public override void Redo()
     {
         CommitPendingSourceEdit();
         base.Redo();
+        RefreshShaderDirtyState();
     }
 
     public override void Save()
     {
+        CommitPendingSourceEdit();
+        CompileNow();
+        if (!LastCompileSucceeded) return;
         _document.SchemaVersion = 6;
         _document.Source = _code.CodeText;
         _document.Entry = _entryBox.Text;
@@ -1363,6 +1389,7 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
         _document.Profile = _profileCombo.SelectedItem?.ToString() ?? "ps_5_0";
         if (!TrySynchronizeParameters(showDiagnostics: true)) return;
         SaveJson(_document);
+        _savedShaderSnapshot = CaptureDocument();
         AcceptSave();
         InspectorStateChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -1438,11 +1465,24 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
             _pendingPreviewApply = false;
             foreach (string line in exception.Message.Split('\n'))
             {
-                if (!string.IsNullOrWhiteSpace(line))
+                string raw = line.Trim('\r', '\n', ' ', '\t', '\0');
+                if (raw.Length > 0 && !raw.StartsWith("(HRESULT:", StringComparison.OrdinalIgnoreCase))
                 {
-                    _output.Items.Add(new ListViewItem("✕ " + line.Trim())
+                    string diagnostic = raw.Replace(ResourcePath, Path.GetFileName(ResourcePath), StringComparison.OrdinalIgnoreCase);
+                    Match location = Regex.Match(diagnostic, @"\((?<line>\d+),(?<column>\d+)\):\s*(?<detail>.*)");
+                    if (location.Success)
                     {
-                        ForeColor = EditorChrome.Error,
+                        string detail = location.Groups["detail"].Value;
+                        int separator = detail.IndexOf(": ", StringComparison.Ordinal);
+                        AddOutput($"Line {location.Groups["line"].Value}, column {location.Groups["column"].Value} · "
+                            + (separator >= 0 ? detail[..separator] : "Compile error"));
+                        AddOutput(separator >= 0 ? detail[(separator + 2)..] : detail);
+                    }
+                    else AddOutput(diagnostic);
+
+                    void AddOutput(string message) => _output.Items.Add(new ListViewItem("✕ " + message)
+                    {
+                        ForeColor = EditorChrome.Error, ToolTipText = exception.Message, Tag = raw,
                     });
                 }
             }
@@ -1584,6 +1624,7 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
     {
         if (_referenceShaderLayout)
         {
+            ApplyReferenceShaderLayout();
             ResizeParameterCards();
             return;
         }
@@ -1666,7 +1707,7 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
     private void NavigateToSelectedDiagnostic()
     {
         if (_output.SelectedItems.Count == 0) return;
-        string text = _output.SelectedItems[0].Text;
+        string text = _output.SelectedItems[0].Tag as string ?? _output.SelectedItems[0].Text;
         Match match = Regex.Match(
             text,
             @"(?:\(|\bline\s+)(?<line>\d+)(?:,\d+)?(?:\)|\b)",
@@ -1720,7 +1761,7 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
     {
         if (_frameStatus is null || _speedSlider is null) return;
         string state = _playing && _speedSlider.Value > 0 ? "Playing" : "Paused";
-        _frameStatus.Text = $"{state} · {_speedSlider.Value} fps · frame {_previewFrame}";
+        _frameStatus.Text = $"{state} · frame {_previewFrame}";
     }
 
     private void SetAuthoringMode(ShaderAuthoringMode mode, bool markDirty)
@@ -1748,6 +1789,7 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
         }
 
         if (markDirty && !_updatingUi) MarkDirty();
+        if (_referenceShaderLayout) SelectShaderWorkspaceMode(mode == ShaderAuthoringMode.Code ? "Code" : "Preview");
         ApplyResponsiveLayout();
     }
 
@@ -2015,7 +2057,7 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
         PushEdit(
             label,
             () => RestoreDocument(after),
-            () => RestoreDocument(before));
+            () => RestoreDocument(before), maximumEntries: 100);
         InspectorStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -2029,7 +2071,7 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
         PushEdit(
             "Edit shader source",
             () => RestoreDocument(after),
-            () => RestoreDocument(before));
+            () => RestoreDocument(before), maximumEntries: 100);
         InspectorStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -2037,6 +2079,7 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
 
     private void RestoreDocument(string snapshot)
     {
+        string workspace = _shaderWorkspaceMode;
         ShaderAssetDocument restored = JsonSerializer.Deserialize<ShaderAssetDocument>(snapshot)
             ?? throw new InvalidDataException("Shader history snapshot is empty.");
         _pendingSourceSnapshot = null;
@@ -2046,6 +2089,7 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
         {
             _document = restored;
             EnsureShaderPasses();
+            RefreshShaderPassList();
             _code.CodeText = _document.Source;
             _entryBox.Text = _document.Entry;
             _vertexEntryBox.Text = _document.VertexEntry;
@@ -2069,6 +2113,8 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
         UpdatePreviewContext();
         CompileNow();
         ApplyResponsiveLayout();
+        if (_referenceShaderLayout && workspace is "Presets" or "Parameters" or "Buffers" or "Preview settings")
+            SelectShaderWorkspaceMode(workspace);
         InspectorStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -2591,6 +2637,7 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
             ? " · " + (_terrainComponentCombo.SelectedItem?.ToString() ?? "All")
             : string.Empty;
         _previewContext.Text = $"{_document.TargetType} · {target}{component}";
+        UpdateShaderQuickFields();
         _dimensionLabel.Text = _document.Pipeline == ShaderAssetPipeline.Mesh ? "3D Preview" : "2D Preview";
         if (LastCompileSucceeded && _previewApplied)
             _statusLabel.Text = _previewContext.Text;
@@ -2605,6 +2652,7 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
         _loadedPreviewPath = null;
         _loadedTerrainResource = null;
         _loadedTerrainComponent = null;
+        RefreshShaderBufferCards();
         _viewport.Invalidate(true);
     }
 
@@ -2752,6 +2800,7 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
             Height = componentCount == 1 ? 82 : 44 + componentCount * 34,
             Margin = new Padding(0, 0, 0, EditorChrome.SectionGap),
             Name = "ShaderParameterCard",
+            Tag = componentCount,
             Padding = EditorChrome.CompactInsets,
             Width = Math.Max(220, _parameters.ClientSize.Width - 30),
         };
@@ -2788,7 +2837,7 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
             Panel booleanRow = new()
             {
                 Dock = DockStyle.Fill,
-                Padding = new Padding(0, 28, 0, 0),
+                Padding = Padding.Empty,
             };
             CheckBox toggle = new()
             {
@@ -2818,7 +2867,7 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
             Panel integerRow = new()
             {
                 Dock = DockStyle.Fill,
-                Padding = new Padding(0, 26, 0, 0),
+                Padding = Padding.Empty,
             };
             NumericUpDown integer = ParameterNumeric(parameter.Value[0], descriptor);
             integer.Dock = DockStyle.Fill;
@@ -2840,7 +2889,7 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
             ColumnCount = 2,
             Dock = DockStyle.Fill,
             Margin = Padding.Empty,
-            Padding = new Padding(0, 24, 0, 0),
+            Padding = Padding.Empty,
             RowCount = 1,
         };
         row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -2952,13 +3001,46 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
         MarkDirty();
     }
 
+    private bool _resizingParameterCards;
+
     private void ResizeParameterCards()
     {
-        int width = Math.Max(220, _parameters.ClientSize.Width - _parameters.Padding.Horizontal - 20);
-        foreach (Control control in _parameters.Controls)
+        if (_resizingParameterCards) return;
+        _resizingParameterCards = true;
+        try
         {
-            control.Width = width;
-        }
+            float scale = Math.Max(1, DeviceDpi / 96f * EditorChrome.BaseFont.SizeInPoints / 9.5f);
+            int width = Math.Max(120, _parameters.ClientSize.Width - _parameters.Padding.Horizontal - 20);
+            foreach (Control control in _parameters.Controls)
+            {
+                control.Width = width;
+                if (control.Name == "ShaderParameterCard" && control.Tag is int components)
+                    control.Height = (int)((components == 1 ? 82 : 44 + components * 34) * scale);
+                else if (control.Name == "ShaderResourceCard") control.Height = (int)(82 * scale);
+                foreach (Label label in control.Controls.OfType<Label>())
+                {
+                    label.Font = EditorChrome.HeadingFont;
+                    label.Height = (int)(22 * scale);
+                }
+                foreach (TableLayoutPanel row in control.Controls.OfType<TableLayoutPanel>())
+                {
+                    TrackBar? slider = row.Controls.OfType<TrackBar>().FirstOrDefault();
+                    NumericUpDown? numeric = row.Controls.OfType<NumericUpDown>().FirstOrDefault();
+                    if (slider is null || numeric is null) continue;
+                    int numericWidth = TextRenderer.MeasureText("0000.00", numeric.Font).Width + 36;
+                    bool showSlider = row.ClientSize.Width >= numericWidth + 80 * scale;
+                    slider.Visible = showSlider;
+                    row.ColumnStyles[0].SizeType = showSlider ? SizeType.Percent : SizeType.Absolute;
+                    row.ColumnStyles[0].Width = showSlider ? 100 : 0;
+                    row.ColumnStyles[1].SizeType = showSlider ? SizeType.Absolute : SizeType.Percent;
+                    row.ColumnStyles[1].Width = showSlider ? numericWidth : 100;
+                }
+            }
+            if (_parameters.Parent == _shaderQuickSetup)
+                _parameters.Height = _parameters.Padding.Vertical + _parameters.Controls.Cast<Control>()
+                    .Sum(control => control.Height + control.Margin.Vertical);
+            }
+        finally { _resizingParameterCards = false; }
     }
 
     private static int SliderValue(float value, ShaderParameterDescriptor descriptor) =>
@@ -3054,5 +3136,3 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
         ];
     }
 }
-
-

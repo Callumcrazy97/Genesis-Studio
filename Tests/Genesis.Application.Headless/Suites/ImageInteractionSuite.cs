@@ -140,15 +140,15 @@ internal static class ImageInteractionSuite
         });
         Check("MenuCommandsAreUniqueAndToolGroupsExist",e =>
         {
-            var menu=Descendants(e).OfType<MenuStrip>().Single();
+            var menu=e.CommandBar.Items.OfType<ToolStripDropDownButton>().Single(item => item.Text == "Options");
             var paths=new List<string>(); void Walk(ToolStripItemCollection items,string prefix) { foreach (ToolStripItem item in items) if(item is ToolStripMenuItem m) { string path=prefix+m.Text; if(m.DropDownItems.Count>0) Walk(m.DropDownItems,path+" / "); else paths.Add(path); } }
-            Walk(menu.Items,"");
+            Walk(menu.DropDownItems,"");
             var leaves=paths.Select(p=>p.Split(" / ").Last().TrimEnd('…')).ToArray();
             HeadlessHarness.Assert(leaves.Distinct().Count()==leaves.Length,"Top menus repeat commands.");
-            var topMenus=menu.Items.Cast<ToolStripItem>().Select(item=>item.Text).ToArray();
-            HeadlessHarness.Assert(!topMenus.Contains("Rigging")
-                && new[]{"Animation / Rigging…","Animation / Posing…","Animation / Animation…"}.All(paths.Contains),
-                "Rigging, Posing and Animation must share the Animation top menu.");
+            var rig=e.CommandBar.Items.OfType<ToolStripDropDownButton>().Single(item => item.Text == "Rig");
+            HeadlessHarness.Assert(rig.DropDownItems.Cast<ToolStripItem>().Select(item => item.Text).SequenceEqual(new[]{"Rigging…","Posing…","Animation…"})
+                && !paths.Any(path => path.EndsWith("Rigging…", StringComparison.Ordinal) || path.EndsWith("Posing…", StringComparison.Ordinal) || path.EndsWith("Animation…", StringComparison.Ordinal)),
+                "Rig pages must have one discoverable primary menu without duplicated advanced entries.");
             File.WriteAllLines(Path.Combine(Path.GetDirectoryName(e.Session.DocumentPath!)!,"image-menu-inventory.txt"),paths);
             var groups=Descendants(e).OfType<CollapsibleSection>().Select(s=>s.HeaderText).ToArray();
             HeadlessHarness.Assert(new[]{"Brushes","Shapes","Tools","Selections"}.All(groups.Contains)&&!groups.Contains("Rigging")&&!groups.Contains("Animation"),"Tool groups or removed rig panels are wrong.");

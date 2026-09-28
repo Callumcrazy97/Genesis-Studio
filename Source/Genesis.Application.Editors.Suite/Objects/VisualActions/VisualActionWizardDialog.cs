@@ -2,6 +2,9 @@ using System.Drawing;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
 using Genesis.Application.Editors.Suite.Inspector;
+using Genesis.Application.Editors.Suite.Scripts;
+using Genesis.Runtime.Scripting;
+using Genesis.Shared.Scripting;
 
 namespace Genesis.Application.Editors.Suite.Objects.VisualActions;
 
@@ -18,6 +21,7 @@ public sealed class VisualActionWizardDialog : DpiAwareForm
     private readonly Label _signature = new();
     private readonly Label _description = new();
     private readonly TableLayoutPanel _parameters = new();
+    private readonly Panel _parameterScroll = new() { Dock = DockStyle.Fill, AutoScroll = true };
     private readonly TextBox _actionName = new();
     private readonly ComboBox _placement = new();
     private readonly CheckBox _savePreset = new();
@@ -26,6 +30,12 @@ public sealed class VisualActionWizardDialog : DpiAwareForm
     private readonly Label _validation = new();
     private readonly Dictionary<string, string> _values = new(StringComparer.OrdinalIgnoreCase);
     private VisualActionCommand? _selected;
+    private Panel _headerPanel = null!;
+    private Panel _optionPanel = null!;
+    private TableLayoutPanel _optionGrid = null!;
+    private FlowLayoutPanel _presetRow = null!;
+    private FlowLayoutPanel _buttonRow = null!;
+    private bool _layingOut;
 
     public VisualActionWizardDialog(
         string projectRoot,
@@ -46,9 +56,14 @@ public sealed class VisualActionWizardDialog : DpiAwareForm
 
         SplitContainer split = new()
         {
+            Size = ClientSize,
             Dock = DockStyle.Fill,
             SplitterDistance = 360,
             SplitterWidth = 5,
+        };
+        split.SizeChanged += (_, _) =>
+        {
+            if (split.ClientSize.Width >= 400) split.SplitterDistance = (int)(split.ClientSize.Width * .38f);
         };
         BuildSearch(split.Panel1);
         BuildConfiguration(split.Panel2);
@@ -57,6 +72,7 @@ public sealed class VisualActionWizardDialog : DpiAwareForm
         PopulateCategories();
         FilterCommands();
         if (!string.IsNullOrWhiteSpace(preselectCommand)) SelectCommand(preselectCommand);
+        SizeChanged += (_, _) => ApplyInterfaceLayout();
     }
 
     public VisualActionTemplate? SelectedTemplate { get; private set; }
@@ -197,7 +213,7 @@ public sealed class VisualActionWizardDialog : DpiAwareForm
         parent.BackColor = EditorChrome.Canvas;
         parent.Padding = new Padding(18);
 
-        Panel header = new() { Dock = DockStyle.Top, Height = 112 };
+        Panel header = _headerPanel = new() { Dock = DockStyle.Top, Height = 112 };
         _title.Dock = DockStyle.Top;
         _title.Height = 32;
         _title.Font = new Font(EditorChrome.BaseFont.FontFamily, 13f, FontStyle.Bold);
@@ -214,21 +230,23 @@ public sealed class VisualActionWizardDialog : DpiAwareForm
         header.Controls.Add(_signature);
         header.Controls.Add(_title);
 
-        _parameters.AutoScroll = true;
-        _parameters.AutoSize = false;
+        _parameters.AutoScroll = false;
+        _parameters.AutoSize = true;
+        _parameters.AutoSizeMode = AutoSizeMode.GrowAndShrink;
         _parameters.ColumnCount = 2;
-        _parameters.Dock = DockStyle.Fill;
+        _parameters.Dock = DockStyle.Top;
         _parameters.Padding = new Padding(0, 8, 8, 8);
         _parameters.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
         _parameters.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        _parameterScroll.Controls.Add(_parameters);
 
-        Panel options = new()
+        Panel options = _optionPanel = new()
         {
             Dock = DockStyle.Bottom,
             Height = 164,
             Padding = new Padding(0, 10, 0, 0),
         };
-        TableLayoutPanel optionGrid = new()
+        TableLayoutPanel optionGrid = _optionGrid = new()
         {
             ColumnCount = 2,
             Dock = DockStyle.Top,
@@ -243,12 +261,15 @@ public sealed class VisualActionWizardDialog : DpiAwareForm
         _placement.Items.AddRange(Enum.GetValues<VisualActionPlacement>().Cast<object>().ToArray());
         _placement.SelectedItem = VisualActionPlacement.Bottom;
         EditorChrome.StyleField(_placement);
+        optionGrid.RowCount = 2;
+        optionGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+        optionGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
         optionGrid.Controls.Add(Caption("Action name"), 0, 0);
         optionGrid.Controls.Add(_actionName, 1, 0);
         optionGrid.Controls.Add(Caption("Insert"), 0, 1);
         optionGrid.Controls.Add(_placement, 1, 1);
 
-        FlowLayoutPanel presetRow = new()
+        FlowLayoutPanel presetRow = _presetRow = new()
         {
             Dock = DockStyle.Top,
             Height = 34,
@@ -268,7 +289,7 @@ public sealed class VisualActionWizardDialog : DpiAwareForm
         presetRow.Controls.Add(_savePreset);
         presetRow.Controls.Add(_presetName);
 
-        FlowLayoutPanel buttons = new()
+        FlowLayoutPanel buttons = _buttonRow = new()
         {
             Dock = DockStyle.Bottom,
             FlowDirection = FlowDirection.RightToLeft,
@@ -293,10 +314,10 @@ public sealed class VisualActionWizardDialog : DpiAwareForm
         options.Controls.Add(presetRow);
         options.Controls.Add(optionGrid);
 
-        parent.Controls.Add(_parameters);
+        parent.Controls.Add(_parameterScroll);
         parent.Controls.Add(options);
         parent.Controls.Add(header);
-        _parameters.BringToFront();
+        _parameterScroll.BringToFront();
         AcceptButton = _create;
         CancelButton = cancel;
     }
@@ -372,7 +393,9 @@ public sealed class VisualActionWizardDialog : DpiAwareForm
         }
 
         _title.Text = _selected.Name;
-        _signature.Text = _selected.Signature;
+        PgslCommandInfo? command = PgslCommandRegistry.GetFullCatalog().FirstOrDefault(command =>
+            command.QualifiedName.Equals(_selected.Name, StringComparison.OrdinalIgnoreCase) || command.Name.Equals(_selected.Name, StringComparison.OrdinalIgnoreCase));
+        _signature.Text = command is null ? _selected.Signature : PgslCodeIntelligenceProvider.TypedSignature(command) ?? _selected.Signature;
         _description.Text = _selected.Description;
         _actionName.Text = Humanize(_selected.Name);
         _create.Enabled = true;
@@ -382,7 +405,8 @@ public sealed class VisualActionWizardDialog : DpiAwareForm
             _values[parameter.Name] = parameter.Value;
             _parameters.RowCount++;
             _parameters.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
-            Label label = Caption(Humanize(parameter.Name));
+            string type = parameter.DataType switch { BlueprintValueType.Float => "number", BlueprintValueType.Int => "integer", var value => value?.ToString().ToLowerInvariant() ?? "expression" };
+            Label label = Caption(Humanize(parameter.Name) + " · " + type);
             Control drawer = PropertyDrawerRegistry.CreateControl(new PropertyDrawerContext(
                 parameter.Name,
                 typeof(string),
@@ -416,6 +440,34 @@ public sealed class VisualActionWizardDialog : DpiAwareForm
             _parameters.SetColumnSpan(noParameters, 2);
         }
         _parameters.ResumeLayout(true);
+        ApplyInterfaceLayout();
+    }
+
+    public override void ApplyInterfaceLayout()
+    {
+        if (_layingOut || _headerPanel is null || _optionPanel is null || _headerPanel.Parent is null) return;
+        _layingOut = true;
+        try
+        {
+            int width = Math.Max(180, _headerPanel.Parent.ClientSize.Width - _headerPanel.Parent.Padding.Horizontal);
+            float codeSize = Math.Max(EditorChrome.CodeFont.SizeInPoints, EditorChrome.BaseFont.SizeInPoints * .85f);
+            if (Math.Abs(_signature.Font.SizeInPoints - codeSize) > .01f) _signature.Font = new Font(EditorChrome.CodeFont.FontFamily, codeSize);
+            _parameters.ColumnStyles[0].Width = Math.Min(width * .42f, TextRenderer.MeasureText("Animation · string", EditorChrome.BaseFont).Width + 18);
+            _optionGrid.ColumnStyles[0].Width = Math.Min(width * .35f, TextRenderer.MeasureText("Action name", EditorChrome.BaseFont).Width + 18);
+            foreach (RowStyle row in _parameters.RowStyles) row.Height = Math.Max(42, EditorChrome.BaseFont.Height + 14);
+            _title.Height = Math.Max(32, _title.Font.Height + 8);
+            _signature.Height = TextRenderer.MeasureText(_signature.Text, _signature.Font, new Size(width, int.MaxValue), TextFormatFlags.WordBreak).Height + 10;
+            _headerPanel.Height = _title.Height + _signature.Height + TextRenderer.MeasureText(_description.Text, _description.Font,
+                new Size(width, int.MaxValue), TextFormatFlags.WordBreak).Height + 12;
+            int optionHeight = Math.Max(42, EditorChrome.BaseFont.Height + 16);
+            foreach (RowStyle row in _optionGrid.RowStyles) row.Height = optionHeight;
+            _optionGrid.Height = 2 * optionHeight;
+            _presetRow.Height = EditorChrome.BaseFont.Height + 14;
+            _presetName.Width = Math.Max(60, width - _savePreset.PreferredSize.Width - 20);
+            _buttonRow.Height = Math.Max(40, _buttonRow.Controls.Cast<Control>().Select(control => control.PreferredSize.Height + control.Margin.Vertical).DefaultIfEmpty(40).Max());
+            _optionPanel.Height = _optionGrid.Height + _presetRow.Height + _buttonRow.Height + _optionPanel.Padding.Vertical + 8;
+        }
+        finally { _layingOut = false; }
     }
 
     private static Label Caption(string text) => new()

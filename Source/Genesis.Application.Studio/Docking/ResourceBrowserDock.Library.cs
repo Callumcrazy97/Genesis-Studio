@@ -169,7 +169,20 @@ public sealed partial class ResourceBrowserDock
 
     private void RememberDisclosure(TreeNode? node, bool expanded)
     {
-        if (_updatingTree || _scope != ResourceBrowserScope.All || _kindFilter is not null
+        if (_updatingTree) return;
+        // Native collapse can move the caret to the parent without a managed AfterSelect event.
+        // Keep the retained identity and Inspector on that visible parent, not its hidden child.
+        if (!expanded && node is not null)
+        {
+            for (TreeNode? selected = _tree.SelectedNode; selected is not null; selected = selected.Parent)
+            {
+                if (!ReferenceEquals(selected, node)) continue;
+                _tree.SelectedNode = node;
+                OnSelectionChanged(node);
+                break;
+            }
+        }
+        if (_scope != ResourceBrowserScope.All || _kindFilter is not null
             || _requiredLibraryTag is not null || _untaggedOnly
             || _search.Text.Trim().Length > 0 || _finderTerm.Length > 0 || node?.Tag is not ResourceItem item) return;
         string key = ResourceBrowserProjection.Key(item);

@@ -6,6 +6,7 @@ using Genesis.Application.Core.Projects;
 using Genesis.Application.Core.Resources;
 using Genesis.Application.Editors.Suite;
 using Genesis.Application.Editors.Suite.Assets;
+using Genesis.Application.Editors.Suite.Inspector;
 using Genesis.Application.Studio.Theme;
 using Genesis.Rendering.Core;
 using Genesis.Shared.Interfaces;
@@ -191,15 +192,38 @@ internal static class ShaderTerrainPreviewSuite
             editor.SetSource(textured); editor.CompileNow();
             Assert(editor.LastCompileSucceeded && editor.SetResourceBinding("PreviewTexture", pinkImage),
                 "The reflected vegetation texture control was unavailable: " + editor.DiagnosticText);
-            ComboBox texturePicker = (ComboBox)editor.Controls.Find("ShaderResourcePicker_PreviewTexture", true).Single();
-            Assert(texturePicker.SelectedItem?.ToString() == "Pink shader texture",
+            TableLayoutPanel texturePicker = (TableLayoutPanel)editor.Controls.Find("ShaderResourcePicker_PreviewTexture", true).Single();
+            Assert(texturePicker.Controls.OfType<TextBox>().Single().Text == "Pink shader texture",
                 "The texture picker did not reflect the current binding.");
             Warm(editor);
             using Bitmap pink = editor.Viewport.CaptureFrame(3) ?? throw new InvalidOperationException("Texture preview returned no frame.");
             int pinkPixels = CountPixels(pink, Magenta);
             Assert(pinkPixels > 25, "The selected instanced vegetation did not receive its authored texture binding.");
-            texturePicker.SelectedItem = "Cyan shader texture";
-            Assert(editor.ResourceBinding("PreviewTexture") == cyanImage, "The GUI texture picker did not update its binding.");
+            Exception? pickerError = null;
+            using (System.Windows.Forms.Timer choose = new() { Interval = 40 })
+            {
+                int ticks = 0;
+                choose.Tick += (_, _) =>
+                {
+                    AssetPickerModal? modal = System.Windows.Forms.Application.OpenForms.OfType<AssetPickerModal>().SingleOrDefault();
+                    if (modal is null && ++ticks < 125) return;
+                    choose.Stop();
+                    try
+                    {
+                        Assert(modal is not null, "The Shader texture browser did not open.");
+                        modal!.SetFilter("Cyan shader texture");
+                        ListView results = Descendants(modal).OfType<ListView>().Single(control => control.AccessibleName == "Resource results");
+                        Assert(results.VirtualListSize == 1, "The Image browser did not find the authored texture.");
+                        results.Items[0].Selected = true;
+                        ((Button)modal.AcceptButton!).PerformClick();
+                    }
+                    catch (Exception exception) { pickerError = exception; modal?.Close(); }
+                };
+                choose.Start();
+                texturePicker.Controls.OfType<Button>().Single().PerformClick();
+            }
+            if (pickerError is not null) throw pickerError;
+            Assert(editor.ResourceBinding("PreviewTexture") == ResourceNames.Name(project.RootPath, cyanImage), "The GUI texture picker did not update its binding.");
             Warm(editor);
             using (Bitmap cyan = editor.Viewport.CaptureFrame(3) ?? throw new InvalidOperationException("Changed texture returned no frame."))
             {
@@ -240,6 +264,15 @@ internal static class ShaderTerrainPreviewSuite
                     "The reference isolation check did not visibly change the selected pond shader.");
             }
             editor.SetSource(MagentaShader); editor.CompileNow(); Warm(editor);
+        }
+
+        static IEnumerable<Control> Descendants(Control root)
+        {
+            foreach (Control child in root.Controls)
+            {
+                yield return child;
+                foreach (Control nested in Descendants(child)) yield return nested;
+            }
         }
 
         void Overview()

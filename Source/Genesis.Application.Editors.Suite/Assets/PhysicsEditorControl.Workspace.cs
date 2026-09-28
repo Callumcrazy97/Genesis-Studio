@@ -22,7 +22,6 @@ public sealed partial class PhysicsEditorControl
     private TrackBar? _simulationTimeline;
     private ToolStripLabel? _toolbarSpeed;
     private ToolStripButton? _toolbarPlay;
-    private ToolStripButton? _toolbarPause;
     private Label? _computedMass;
     private float _simulationSeconds;
     private bool _seekingTimeline;
@@ -38,6 +37,17 @@ public sealed partial class PhysicsEditorControl
     private Panel? _physicsLeftPageHost;
     private Panel? _physicsRail;
     private readonly Dictionary<string, Control> _physicsLeftPages = new(StringComparer.OrdinalIgnoreCase);
+    private TableLayoutPanel? _physicsWorkspace;
+    private TableLayoutPanel? _physicsCentre;
+    private Panel? _physicsLeft;
+    private Panel? _physicsRight;
+    private Panel? _physicsBottom;
+    private string _physicsWorkspaceMode = "Preview";
+    private bool? _physicsTimelinePreference;
+    private readonly List<Action> _physicsControlSync = [];
+    private FlowLayoutPanel? _physicsInspectorStack;
+    private bool _applyingPhysicsLayout;
+    private bool _physicsLayoutQueued;
 
     private void BuildReferenceWorkspace(EditorCommandBar toolbar, FlowLayoutPanel properties)
     {
@@ -46,14 +56,16 @@ public sealed partial class PhysicsEditorControl
         Panel left = BuildPhysicsLeftDock();
         Panel right = BuildPhysicsInspector(properties);
         Panel bottom = BuildPhysicsBottomDock();
+        BuildPhysicsWorkflow();
 
         _codeSurface.Visible = false;
         _codeSurface.Dock = DockStyle.Fill;
-        _codeSurface.Controls.Add(EditorChrome.SectionLabel("PGSL PHYSICS CODE EDITOR"));
+        _codeSurface.Controls.Add(EditorChrome.SectionLabel("PHYSICS DEFINITION"));
 
         Panel viewportPanel = new() { Dock = DockStyle.Fill, BackColor = EditorChrome.Canvas };
         viewportPanel.Controls.Add(_viewport);
-        viewportPanel.Controls.Add(EditorChrome.SectionLabel("3D PHYSICS VIEWPORT  ·  BEPUPHYSICS 2.4  ·  LIVE 60 FPS"));
+        viewportPanel.Controls.Add(EditorChrome.SectionLabel("PHYSICS PREVIEW"));
+        viewportPanel.Controls.Add(BuildPhysicsPreviewToolbar());
 
         _physicsAuthoringSplit = new SplitContainer
         {
@@ -95,6 +107,9 @@ public sealed partial class PhysicsEditorControl
         workspace.Controls.Add(left, 0, 0);
         workspace.Controls.Add(centre, 1, 0);
         workspace.Controls.Add(right, 2, 0);
+        _physicsWorkspace = workspace; _physicsCentre = centre;
+        _physicsLeft = left; _physicsRight = right; _physicsBottom = bottom;
+        SizeChanged += (_, _) => QueuePhysicsLayout();
 
         Controls.Clear();
         Controls.Add(workspace);
@@ -103,69 +118,148 @@ public sealed partial class PhysicsEditorControl
         // A fill-docked child must be first in z-order so WinForms reserves the
         // top command bar and bottom status strip before laying out the workspace.
         workspace.BringToFront();
+        ApplyPhysicsLayout();
+    }
+
+    private void ApplyPhysicsLayout()
+    {
+        if (_physicsWorkspace is null || _physicsCentre is null || _physicsLeft is null || _physicsRight is null || _physicsBottom is null || _applyingPhysicsLayout) return;
+        _applyingPhysicsLayout = true;
+        try
+        {
+            bool code = _authoringMode == PhysicsAuthoringMode.Code;
+            float scale = Math.Max(1, DeviceDpi / 96f * EditorChrome.BaseFont.SizeInPoints / 9.5f);
+            bool guide = _physicsWorkspaceMode == "Use in game";
+            bool library = !code && !guide;
+            bool inspector = false;
+            bool timeline = _physicsTimelinePreference == true && !code && !guide;
+            _physicsLeftPageHost!.Visible = library || guide;
+            _physicsRight.Visible = inspector; _physicsBottom.Visible = timeline;
+            _physicsWorkspace.ColumnStyles[0].Width = guide ? ClientSize.Width : library ? Math.Min(340 * scale, ClientSize.Width * .45f) : 0;
+            _physicsWorkspace.ColumnStyles[2].Width = inspector ? 292 * scale : 0;
+            _physicsCentre.RowStyles[1].Height = timeline ? Math.Min(190 * scale, _physicsCentre.Height * .45f) : 0;
+            _physicsRail!.Width = 0;
+            foreach (Button mode in _physicsRail.Controls.OfType<Button>()) mode.Height = Math.Max(48, mode.Font.Height * 2 + 14);
+            _physicsWorkspace.PerformLayout();
+            _physicsLeft.PerformLayout();
+            _physicsRight.PerformLayout();
+            _physicsInspectorStack?.Parent?.PerformLayout();
+            SizePhysicsInspector(scale);
+            if (_physicsQuickSetup is not null) SizePhysicsWorkflowPage(_physicsQuickSetup);
+            if (_physicsGameGuide is not null) SizePhysicsWorkflowPage(_physicsGameGuide);
+            UpdatePhysicsQuickFields();
+            foreach (Control page in _physicsLeftPages.Values)
+            {
+                foreach (Label label in page.Controls.OfType<Label>().Where(label => label.Tag as string == "PhysicsPageDescription"))
+                {
+                    label.Font = EditorChrome.BaseFont;
+                    label.Height = TextRenderer.MeasureText(label.Text, label.Font, new Size(Math.Max(80, page.ClientSize.Width - page.Padding.Horizontal), int.MaxValue), TextFormatFlags.WordBreak).Height + (int)(16 * scale);
+                }
+                foreach (RichTextBox reference in page.Controls.OfType<RichTextBox>())
+                {
+                    reference.Font = EditorChrome.CodeFont;
+                    reference.Height = Math.Min(reference.Font.Height * 10 + 8,
+                        Math.Max(reference.Font.Height * 3, page.ClientSize.Height - page.Padding.Vertical - page.Controls.OfType<Label>().Sum(label => label.Height)));
+                }
+            }
+            foreach (PhysicsPresetTile tile in _physicsLeftPages["Presets"].Controls.OfType<FlowLayoutPanel>().SelectMany(flow => flow.Controls.OfType<PhysicsPresetTile>()))
+                tile.Size = new Size((int)(100 * scale), (int)(82 * scale));
+            Panel spawner = _physicsLeftPages["Presets"].Controls.OfType<Panel>().Single(panel => panel.Name == "PhysicsSpawner");
+            TableLayoutPanel shapes = spawner.Controls.OfType<TableLayoutPanel>().Single();
+            shapes.Height = (int)(56 * scale) + EditorChrome.BaseFont.Height + 8;
+            Button spawn = spawner.Controls.OfType<Button>().Single();
+            spawn.Height = EditorChrome.BaseFont.Height + (int)(12 * scale);
+            spawner.Height = shapes.Height + spawn.Height + spawner.Controls.OfType<Label>().Single().Height + 8;
+            if (_physicsAuthoringSplit is not null)
+            {
+                _physicsAuthoringSplit.Panel2Collapsed = code;
+                _physicsAuthoringSplit.Panel1Collapsed = !code;
+            }
+        }
+        finally { _applyingPhysicsLayout = false; }
+    }
+
+    private void QueuePhysicsLayout()
+    {
+        if (_physicsLayoutQueued || !IsHandleCreated || IsDisposed) return;
+        _physicsLayoutQueued = true;
+        BeginInvoke((Action)(() => { _physicsLayoutQueued = false; if (!IsDisposed) ApplyPhysicsLayout(); }));
+    }
+
+    private void SizePhysicsInspector(float scale)
+    {
+        if (_physicsInspectorStack is null) return;
+        foreach (CollapsibleSection section in _physicsInspectorStack.Controls.OfType<CollapsibleSection>()
+                     .Concat(_physicsQuickSetup?.Controls.OfType<CollapsibleSection>() ?? []))
+        {
+            Control parent = section.Parent!;
+            int width = Math.Max(120, parent.ClientSize.Width - parent.Padding.Horizontal - SystemInformation.VerticalScrollBarWidth);
+            section.Width = width;
+            FlowLayoutPanel fields = section.Content.Controls.OfType<FlowLayoutPanel>().Single();
+            fields.Padding = new Padding((int)(8 * scale), (int)(4 * scale), (int)(8 * scale), (int)(4 * scale));
+            int fieldWidth = Math.Max(80, width - fields.Padding.Horizontal - 6);
+            foreach (Control field in fields.Controls)
+            {
+                field.Width = fieldWidth;
+                if (field is Label label)
+                {
+                    label.AutoSize = false;
+                    label.Font = ReferenceEquals(label, _computedMass) ? EditorChrome.BaseFont : EditorChrome.SmallFont;
+                    label.Height = TextRenderer.MeasureText(label.Text, label.Font, new Size(fieldWidth, int.MaxValue), TextFormatFlags.WordBreak).Height + 12;
+                }
+                else if (field is TrackBar) field.Height = (int)(30 * scale);
+                else if (field is Panel row && row.Tag as string == "PhysicsNumber")
+                {
+                    row.Height = Math.Max((int)(36 * scale), EditorChrome.BaseFont.Height + 12);
+                    Label caption = row.Controls.OfType<Label>().Single();
+                    NumericUpDown input = row.Controls.OfType<NumericUpDown>().Single();
+                    caption.Font = EditorChrome.SmallFont;
+                    int captionWidth = Math.Min(fieldWidth / 2, TextRenderer.MeasureText(caption.Text, caption.Font).Width + 10);
+                    caption.Bounds = new Rectangle(0, 4, captionWidth, row.Height - 8);
+                    input.Bounds = new Rectangle(captionWidth + 6, 4, Math.Max(60, fieldWidth - captionWidth - 6), row.Height - 8);
+                }
+            }
+            int height = fields.Padding.Vertical + fields.Controls.Cast<Control>().Sum(field => field.Height + field.Margin.Vertical);
+            section.SetContentHeight((int)Math.Ceiling(height / section.InterfaceScale));
+        }
+    }
+
+    protected override void OnChromeChanged()
+    {
+        base.OnChromeChanged(); ApplyPhysicsLayout(); QueuePhysicsLayout();
     }
 
     private void RebuildPhysicsCommandBar(EditorCommandBar toolbar)
     {
-        ToolStripItem[] menus = toolbar.Items.Cast<ToolStripItem>().Take(2).ToArray();
-        ToolStripControlHost? targetHost = toolbar.Items.OfType<ToolStripControlHost>()
-            .FirstOrDefault(host => ReferenceEquals(host.Control, _previewTargetControls.KindCombo));
-        ToolStripControlHost? presetHost = toolbar.Items.OfType<ToolStripControlHost>()
-            .FirstOrDefault(host => ReferenceEquals(host.Control, _presetCombo));
-        toolbar.Items.Clear();
-        toolbar.Items.Add(new ToolStripLabel("◆  " + ResourceDisplayName.Format(ResourcePath))
+        ToolStripDropDownButton[] viewportMenus = toolbar.Items.OfType<ToolStripDropDownButton>().Skip(2).ToArray();
+        toolbar.ResetItems();
+        toolbar.Items.Add(EditorChrome.ToolButton("Save", "Save this Physics resource (Ctrl+S)", Save));
+        _physicsQuickButton = EditorChrome.ToolButton("Quick setup", "Choose a sprite body and test its material", () => SelectPhysicsWorkspaceMode("Preview", _physicsRail!), toggle: true);
+        _physicsCodeButton = EditorChrome.ToolButton("</> Code", "Edit the typed Physics definition with field hints", () => SelectPhysicsWorkspaceMode("Code", _physicsRail!), toggle: true);
+        toolbar.Items.Add(_physicsQuickButton); toolbar.Items.Add(_physicsCodeButton);
+        toolbar.Items.Add(EditorChrome.ToolButton("Use in game", "Create a sprite Object with this Physics resource", ShowPhysicsGameGuide));
+        ToolStripDropDownButton options = new("Options") { AccessibleName = "Physics advanced options" };
+        foreach ((string label, string mode) in new[] { ("Preset library and spawning", "Presets"), ("Sandbox settings", "Properties"), ("Colliders", "Colliders"), ("Joints in gameplay", "Joints"), ("Body and sleeping settings", "Settings"), ("Preview resource", "Preview resource") })
         {
-            Font = new Font(EditorChrome.BaseFont, FontStyle.Bold),
-            ForeColor = EditorChrome.Text,
-            ToolTipText = ResourcePath,
-        });
-        foreach (ToolStripItem menu in menus) toolbar.Items.Add(menu);
-        toolbar.Items.Add(new ToolStripSeparator());
-        toolbar.Items.Add(new ToolStripLabel("Type") { ForeColor = EditorChrome.Muted });
-        if (targetHost is not null) toolbar.Items.Add(targetHost);
-        toolbar.Items.Add(_previewTargetControls.PathLabel);
-        toolbar.Items.Add(_previewTargetControls.BrowseButton);
-        toolbar.Items.Add(new ToolStripSeparator());
-        toolbar.Items.Add(new ToolStripLabel("Preset") { ForeColor = EditorChrome.Muted });
-        if (presetHost is not null) toolbar.Items.Add(presetHost);
-        toolbar.Items.Add(new ToolStripSeparator());
-        _toolbarPlay = EditorChrome.ToolButton("▶", "Run the live physics sandbox", () => SetPhysicsPaused(false));
-        _toolbarPause = EditorChrome.ToolButton("⏸", "Pause the live physics sandbox", () => SetPhysicsPaused(true));
-        toolbar.Items.Add(_toolbarPlay);
-        toolbar.Items.Add(_toolbarPause);
-        toolbar.Items.Add(EditorChrome.ToolButton("⏭", "Advance exactly one 60 Hz physics frame", () => { SetPhysicsPaused(true); StepSandbox(1f / 60f); }));
-        toolbar.Items.Add(EditorChrome.ToolButton("↺", "Restart the sandbox", RebuildSandbox));
-        toolbar.Items.Add(EditorChrome.ToolButton("½×", "Run slower", () => SetPhysicsSpeed(_simulationSpeed * 0.5f)));
-        toolbar.Items.Add(EditorChrome.ToolButton("2×", "Run faster", () => SetPhysicsSpeed(_simulationSpeed * 2f)));
-        _toolbarSpeed = new ToolStripLabel("Speed: 1.0×") { ForeColor = EditorChrome.Text };
-        toolbar.Items.Add(_toolbarSpeed);
+            ToolStripMenuItem item = new(label) { Tag = mode };
+            item.Click += (_, _) => SelectPhysicsWorkspaceMode(mode, _physicsRail!); options.DropDownItems.Add(item);
+        }
+        ToolStripMenuItem telemetry = new("Show telemetry and collision layers") { CheckOnClick = true };
+        telemetry.CheckedChanged += (_, _) => { _physicsTimelinePreference = telemetry.Checked; ApplyPhysicsLayout(); };
+        options.DropDownItems.Add(telemetry);
+        options.DropDownItems.Add("Slower preview", null, (_, _) => SetPhysicsSpeed(_simulationSpeed * .5f));
+        options.DropDownItems.Add("Faster preview", null, (_, _) => SetPhysicsSpeed(_simulationSpeed * 2));
+        foreach (ToolStripDropDownButton menu in viewportMenus)
+            options.DropDownItems.Add(new ToolStripMenuItem(menu.Text) { DropDown = menu.DropDown });
+        toolbar.Items.Add(options);
     }
 
     private Panel BuildPhysicsLeftDock()
     {
         Panel root = new() { Dock = DockStyle.Fill, BackColor = EditorChrome.Surface };
         _physicsLeftPages.Clear();
-        Panel rail = new() { Dock = DockStyle.Left, Width = 72, BackColor = EditorChrome.Canvas };
+        Panel rail = new() { Dock = DockStyle.Left, Width = 0, Visible = false, BackColor = EditorChrome.Canvas };
         _physicsRail = rail;
-        string[] items = ["Presets", "Code", "Properties", "Colliders", "Joints", "Settings"];
-        string[] glyphs = ["▦", "</>", "☷", "⬡", "⛓", "⚙"];
-        for (int i = items.Length - 1; i >= 0; i--)
-        {
-            string name = items[i];
-            Button button = new()
-            {
-                Dock = DockStyle.Top,
-                Height = 64,
-                Text = glyphs[i] + Environment.NewLine + name,
-                FlatStyle = FlatStyle.Flat,
-                BackColor = i == 0 ? EditorChrome.Hover : EditorChrome.Canvas,
-                ForeColor = i == 0 ? EditorChrome.Accent : EditorChrome.Muted,
-                Tag = name,
-            };
-            button.FlatAppearance.BorderSize = 0;
-            button.Click += (_, _) => SelectPhysicsWorkspaceMode(name, rail);
-            rail.Controls.Add(button);
-        }
 
         Panel content = new() { Dock = DockStyle.Fill, BackColor = EditorChrome.Surface, Padding = new Padding(8) };
         FlowLayoutPanel presets = new()
@@ -176,18 +270,20 @@ public sealed partial class PhysicsEditorControl
             BackColor = EditorChrome.Surface,
             Padding = new Padding(0, 4, 0, 4),
         };
-        foreach (string name in new[] { "Heavy Rock", "Rubber Ball", "Slick Ice", "Hard Wood", "Steel", "Water Basin", "Mini-Planet" })
+        foreach (string name in PhysicsScenePresets.Names)
         {
             PhysicsPresetTile tile = new(name) { Margin = new Padding(3) };
             tile.Click += (_, _) => ApplyPreset(name);
             presets.Controls.Add(tile);
         }
 
-        Panel spawner = new() { Dock = DockStyle.Bottom, Height = 174, BackColor = EditorChrome.Surface };
-        FlowLayoutPanel shapes = new() { Dock = DockStyle.Top, Height = 82, WrapContents = false, BackColor = EditorChrome.Surface };
+        Panel spawner = new() { Dock = DockStyle.Bottom, Height = 174, BackColor = EditorChrome.Surface, Name = "PhysicsSpawner" };
+        TableLayoutPanel shapes = new() { Dock = DockStyle.Top, Height = 82, ColumnCount = 3, RowCount = 1, BackColor = EditorChrome.Surface };
+        shapes.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         foreach (PhysicsBodyShape shape in new[] { PhysicsBodyShape.Box, PhysicsBodyShape.Sphere, PhysicsBodyShape.Capsule })
         {
-            PhysicsShapeButton button = new(shape) { Margin = new Padding(3) };
+            shapes.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f / 3));
+            PhysicsShapeButton button = new(shape) { Dock = DockStyle.Fill, Margin = new Padding(3) };
             button.Click += (_, _) => SelectPhysicsSpawnShape(shape);
             shapes.Controls.Add(button);
         }
@@ -241,6 +337,7 @@ public sealed partial class PhysicsEditorControl
             ForeColor = EditorChrome.Muted,
             Font = EditorChrome.BaseFont,
             Text = description,
+            Tag = "PhysicsPageDescription",
         });
         page.Controls.Add(EditorChrome.SectionLabel(title));
         return page;
@@ -248,39 +345,24 @@ public sealed partial class PhysicsEditorControl
 
     private Panel BuildPhysicsColliderPage()
     {
-        Panel page = BuildPhysicsRailPage("COLLIDERS", "Choose the reusable body shape, then spawn it into the sandbox to inspect contacts, mass and motion.");
-        FlowLayoutPanel shapes = new()
-        {
-            Dock = DockStyle.Top,
-            Height = 190,
-            FlowDirection = FlowDirection.TopDown,
-            WrapContents = false,
-            Padding = new Padding(8),
-        };
-        foreach (PhysicsBodyShape shape in Enum.GetValues<PhysicsBodyShape>())
-        {
-            Button button = new() { Width = 188, Height = 30, Text = shape.ToString(), TextAlign = ContentAlignment.MiddleLeft };
-            EditorChrome.StyleField(button);
-            button.Click += (_, _) => SelectPhysicsSpawnShape(shape);
-            shapes.Controls.Add(button);
-        }
-        page.Controls.Add(shapes);
-        shapes.BringToFront();
-        return page;
+        return BuildPhysicsRailPage("COLLISION SHAPES", "Choose Collider shape in Quick setup. Box covers the sprite's saved collision bounds. Circle fits inside those bounds (Sphere in Code). Capsule rounds a tall character's ends. The sprite's saved pivot determines placement, and density determines mass from the 2D shape area.\n\nThe preset library spawns sample shapes for testing; it does not create game Objects. Use in game creates the saved Image and Physics links.");
     }
 
     private Panel BuildPhysicsJointPage()
     {
-        Panel page = BuildPhysicsRailPage("JOINTS", "Runtime joints are generic entity constraints. Use the command names below from an Object or Script routine, with two physics body ids and an anchor.");
-        ListBox commands = new()
+        Panel page = BuildPhysicsRailPage("JOINTS IN GAMEPLAY", "Assign a physics asset to each Object, then create the joint from an Object or Script routine. Use instance ids and a world-space anchor. A joint between two 2D bodies acts as an in-plane pivot.");
+        RichTextBox commands = new()
         {
             Dock = DockStyle.Top,
-            Height = 126,
+            Height = 172,
             BackColor = EditorChrome.Canvas,
             ForeColor = EditorChrome.Text,
             BorderStyle = BorderStyle.FixedSingle,
+            ReadOnly = true,
+            Font = EditorChrome.CodeFont,
+            WordWrap = true,
+            Text = "// Create event: keep the returned id\nvar joint = PhysicsCreateJoint(\n    instanceA, instanceB,\n    anchorX, anchorY, anchorZ);\n\n// Remove when no longer needed\nPhysicsDestroyJoint(joint);",
         };
-        commands.Items.AddRange(["physics_create_joint", "physics_destroy_joint", "Ball socket", "Hinge / constrained rotation"]);
         page.Controls.Add(commands);
         commands.BringToFront();
         return page;
@@ -288,14 +370,16 @@ public sealed partial class PhysicsEditorControl
 
     private Panel BuildPhysicsSettingsPage()
     {
-        Panel page = BuildPhysicsRailPage("SANDBOX SETTINGS", "Preview settings control editor simulation only. The authored physics asset remains reusable for any compatible target.");
-        FlowLayoutPanel settings = new() { Dock = DockStyle.Top, Height = 120, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(8) };
-        CheckBox twoD = new() { AutoSize = true, ForeColor = EditorChrome.Text, Text = "2D simulation", Checked = _document.Dimension == PhysicsDimension.TwoD };
-        twoD.CheckedChanged += (_, _) => SetPreview2D(twoD.Checked);
+        Panel page = BuildPhysicsRailPage("BODY AND PREVIEW SETTINGS", "Lock rotation applies to the game body and preview. Allow sleeping tunes the sandbox's resting sample bodies. Set the body dimension in Quick setup.");
+        FlowLayoutPanel settings = new() { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(8) };
         CheckBox sleeping = new() { AutoSize = true, ForeColor = EditorChrome.Text, Text = "Allow sleeping", Checked = _document.AllowSleep };
         sleeping.CheckedChanged += (_, _) => SetPhysicsValue(() => _document.AllowSleep = sleeping.Checked);
-        settings.Controls.Add(twoD);
+        _physicsControlSync.Add(() => { if (!sleeping.IsDisposed) sleeping.Checked = _document.AllowSleep; });
         settings.Controls.Add(sleeping);
+        CheckBox rotationLock = new() { AutoSize = true, ForeColor = EditorChrome.Text, Text = "Lock rotation", Checked = _document.LockRotation };
+        rotationLock.CheckedChanged += (_, _) => SetPhysicsValue(() => _document.LockRotation = rotationLock.Checked);
+        _physicsControlSync.Add(() => { if (!rotationLock.IsDisposed) rotationLock.Checked = _document.LockRotation; });
+        settings.Controls.Add(rotationLock);
         page.Controls.Add(settings);
         settings.BringToFront();
         return page;
@@ -303,6 +387,10 @@ public sealed partial class PhysicsEditorControl
 
     private void SelectPhysicsWorkspaceMode(string mode, Panel rail)
     {
+        SetAuthoringMode(mode == "Code" ? PhysicsAuthoringMode.Code : PhysicsAuthoringMode.Properties);
+        if (mode != "Code" && _authoringMode == PhysicsAuthoringMode.Code) return;
+        _physicsWorkspaceMode = mode;
+        if (mode == "Preview") ResetPhysicsQuickScroll();
         foreach (Button button in rail.Controls.OfType<Button>())
         {
             bool selected = string.Equals(button.Tag as string, mode, StringComparison.OrdinalIgnoreCase);
@@ -311,6 +399,9 @@ public sealed partial class PhysicsEditorControl
         }
         foreach ((string key, Control page) in _physicsLeftPages)
             page.Visible = string.Equals(key, mode, StringComparison.OrdinalIgnoreCase);
+        if (_physicsGameGuide is not null) _physicsGameGuide.Visible = mode == "Use in game";
+        if (_physicsQuickButton is not null) _physicsQuickButton.Checked = mode == "Preview";
+        if (_physicsCodeButton is not null) _physicsCodeButton.Checked = mode == "Code";
 
         if (string.Equals(mode, "Code", StringComparison.OrdinalIgnoreCase))
         {
@@ -321,9 +412,14 @@ public sealed partial class PhysicsEditorControl
         {
             SetAuthoringMode(PhysicsAuthoringMode.Properties);
             if (string.Equals(mode, "Properties", StringComparison.OrdinalIgnoreCase))
-                _computedMass?.Focus();
+            {
+                _frictionSlider?.Focus();
+                _physicsInspectorStack!.AutoScrollPosition = Point.Empty;
+            }
         }
-        _physicsLeftPageHost?.PerformLayout();
+        _physicsLeftPageHost!.Visible = true;
+        _physicsLeftPageHost.PerformLayout();
+        ApplyPhysicsLayout();
     }
 
     private Panel BuildPhysicsInspector(FlowLayoutPanel properties)
@@ -343,9 +439,11 @@ public sealed partial class PhysicsEditorControl
             Padding = new Padding(8),
             BackColor = EditorChrome.Surface,
         };
+        _physicsInspectorStack = stack;
+        stack.SizeChanged += (_, _) => ApplyPhysicsLayout();
         CollapsibleSection material = PhysicsSection("Material Properties", 192, out FlowLayoutPanel materialFields);
         AddInspectorSlider(materialFields, "Friction", (float)_document.Friction, SetFriction, out _frictionSlider);
-        AddInspectorSlider(materialFields, "Restitution", (float)_document.Restitution, SetRestitution, out _restitutionSlider);
+        AddInspectorSlider(materialFields, "Bounce", (float)_document.Restitution, SetRestitution, out _restitutionSlider);
         AddInspectorNumeric(materialFields, "Density", (float)_document.Density, 0.01f, 100f, SetDensity, out _densityInput);
         stack.Controls.Add(material);
 
@@ -359,20 +457,22 @@ public sealed partial class PhysicsEditorControl
 
         CollapsibleSection world = PhysicsSection("World & Gravity", 370, out FlowLayoutPanel worldFields);
         AddInspectorNumeric(worldFields, "Gravity strength", _document.GravityStrength, 0f, 100f, SetGravityStrength, out _gravityInput);
-        worldFields.Controls.Add(PhysicsNumber("Gravity X", _document.GravityDirX, -100, 100, value => SetGravityDirection(0, value)));
-        worldFields.Controls.Add(PhysicsNumber("Gravity Y", _document.GravityDirY, -100, 100, value => SetGravityDirection(1, value)));
-        worldFields.Controls.Add(PhysicsNumber("Gravity Z", _document.GravityDirZ, -100, 100, value => SetGravityDirection(2, value)));
-        worldFields.Controls.Add(PhysicsNumber("Linear damping", _document.LinearDamping, 0, 100, value => SetPhysicsValue(() => _document.LinearDamping = value)));
-        worldFields.Controls.Add(PhysicsNumber("Angular damping", _document.AngularDamping, 0, 100, value => SetPhysicsValue(() => _document.AngularDamping = value)));
-        worldFields.Controls.Add(PhysicsNumber("Sleep threshold", _document.SleepThreshold, 0, 10, value => SetPhysicsValue(() => _document.SleepThreshold = value)));
-        ThemedComboBox collisionLayer = new() { Width = 244, DropDownStyle = ComboBoxStyle.DropDownList };
+        worldFields.Controls.Add(PhysicsNumber("Gravity X", () => _document.GravityDirX, -100, 100, value => SetGravityDirection(0, value)));
+        worldFields.Controls.Add(PhysicsNumber("Gravity Y", () => _document.GravityDirY, -100, 100, value => SetGravityDirection(1, value)));
+        worldFields.Controls.Add(PhysicsNumber("Gravity Z", () => _document.GravityDirZ, -100, 100, value => SetGravityDirection(2, value)));
+        worldFields.Controls.Add(PhysicsNumber("Linear damping", () => _document.LinearDamping, 0, 100, value => SetPhysicsValue(() => _document.LinearDamping = value)));
+        worldFields.Controls.Add(PhysicsNumber("Angular damping", () => _document.AngularDamping, 0, 100, value => SetPhysicsValue(() => _document.AngularDamping = value)));
+        worldFields.Controls.Add(PhysicsNumber("Sleep threshold", () => _document.SleepThreshold, 0, 10, value => SetPhysicsValue(() => _document.SleepThreshold = value)));
+        ThemedComboBox collisionLayer = new() { Width = 244, DropDownStyle = ComboBoxStyle.DropDownList, AccessibleName = "Collision layer" };
         collisionLayer.Items.AddRange(["A", "B", "C", "D", "E", "F", "G"]);
         collisionLayer.SelectedIndex = Math.Clamp(_document.CollisionLayer, 0, 6);
         collisionLayer.SelectedIndexChanged += (_, _) =>
         {
+            if (_syncing) return;
             SetPhysicsValue(() => _document.CollisionLayer = collisionLayer.SelectedIndex);
             RebuildSandbox();
         };
+        _physicsControlSync.Add(() => { if (!collisionLayer.IsDisposed) collisionLayer.SelectedIndex = Math.Clamp(_document.CollisionLayer, 0, 6); });
         worldFields.Controls.Add(FieldCaption("DEFAULT COLLISION LAYER"));
         worldFields.Controls.Add(collisionLayer);
         stack.Controls.Add(world);
@@ -415,7 +515,7 @@ public sealed partial class PhysicsEditorControl
         telemetry.Controls.Add(EditorChrome.SectionLabel("KINETIC ENERGY TELEMETRY"));
         _collisionMatrix = new CollisionLayerMatrixControl(
             () => NormalizeCollisionMatrix(_document.CollisionLayerMatrix),
-            matrix => { _document.CollisionLayerMatrix = matrix; MarkDirty(); PushCodeFromConfig(); RebuildSandbox(); }) { Dock = DockStyle.Fill };
+            matrix => { _document.CollisionLayerMatrix = matrix; RecordPhysicsChange(); PushCodeFromConfig(); RebuildSandbox(); }) { Dock = DockStyle.Fill };
         Panel matrixPanel = new() { Dock = DockStyle.Fill, BackColor = EditorChrome.Surface, Padding = new Padding(8) };
         matrixPanel.Controls.Add(_collisionMatrix);
         matrixPanel.Controls.Add(EditorChrome.SectionLabel("COLLISION LAYER MATRIX"));
@@ -429,8 +529,7 @@ public sealed partial class PhysicsEditorControl
     {
         _paused = paused;
         if (_playPauseButton is { IsDisposed: false }) _playPauseButton.Text = paused ? "Play" : "Pause";
-        if (_toolbarPlay is { IsDisposed: false }) _toolbarPlay.Checked = !paused;
-        if (_toolbarPause is { IsDisposed: false }) _toolbarPause.Checked = paused;
+        if (_toolbarPlay is { IsDisposed: false }) { _toolbarPlay.Checked = !paused; _toolbarPlay.Text = paused ? "Play" : "Pause"; }
         UpdateStatus();
     }
 
@@ -450,14 +549,14 @@ public sealed partial class PhysicsEditorControl
         RefreshComputedMass();
         MarkCustom();
         PushCodeFromConfig();
-        MarkDirty();
+        RecordPhysicsChange();
     }
 
     private void SpawnPhysicsBodyNow()
     {
         if (_session is null) return;
         Func<float, float, float> ground = _physicsTargetTerrain is null
-            ? (_, _) => 0f
+            ? (_, _) => .5f
             : (x, z) => _physicsTargetTerrain.SampleHeight(x, z);
         Vector3 origin = _physicsTargetSpawnOrigin + Vector3.UnitY * 4f;
         _session.SpawnBulkProps(MapSpawnShape(_document.SpawnShape), 1, ground, origin, 0f, _document.SpawnMass);
@@ -476,17 +575,18 @@ public sealed partial class PhysicsEditorControl
 
     private void SetPhysicsValue(Action update)
     {
+        if (_syncing) return;
         update();
         _session?.ApplyPhysicsSceneConfig(_document);
         MarkCustom();
         PushCodeFromConfig();
-        MarkDirty();
+        RecordPhysicsChange();
         UpdateStatus();
     }
 
-    private Control PhysicsNumber(string label, float value, float minimum, float maximum, Action<float> changed)
+    private Control PhysicsNumber(string label, Func<float> read, float minimum, float maximum, Action<float> changed)
     {
-        Panel row = new() { Width = 244, Height = 38, BackColor = EditorChrome.Surface };
+        Panel row = new() { Width = 244, Height = 38, BackColor = EditorChrome.Surface, Tag = "PhysicsNumber" };
         Label caption = new() { Text = label, ForeColor = EditorChrome.Muted, Location = new Point(0, 8), Size = new Size(122, 24) };
         NumericUpDown input = new()
         {
@@ -494,12 +594,14 @@ public sealed partial class PhysicsEditorControl
             Increment = 0.05m,
             Minimum = (decimal)minimum,
             Maximum = (decimal)maximum,
-            Value = Math.Clamp((decimal)value, (decimal)minimum, (decimal)maximum),
+            Value = Math.Clamp((decimal)read(), (decimal)minimum, (decimal)maximum),
+            AccessibleName = label,
             Location = new Point(126, 5),
             Size = new Size(112, 27),
         };
         EditorChrome.StyleField(input);
         input.ValueChanged += (_, _) => { if (!_syncing) changed((float)input.Value); };
+        _physicsControlSync.Add(() => { if (!input.IsDisposed) input.Value = Math.Clamp((decimal)read(), input.Minimum, input.Maximum); });
         row.Controls.Add(caption);
         row.Controls.Add(input);
         return row;
@@ -514,6 +616,14 @@ public sealed partial class PhysicsEditorControl
     private void RefreshComputedMass()
     {
         if (_computedMass is null) return;
+        if (_document.Dimension == PhysicsDimension.TwoD)
+        {
+            var image = Genesis.Runtime.Spatial.SpriteCollisionBounds.Load(ProjectRoot, _document.PreviewAssetPath);
+            RectangleF bounds = Genesis.Runtime.Spatial.SpriteCollisionBounds.Resolve(image, 0, 0, 0, 1, 1);
+            Vector3 size = SpritePhysicsBinding.SizeFor(_document, bounds);
+            _computedMass.Text = $"Game body: {SpritePhysicsBinding.MassFor(_document, size):0.###} kg · sample props: {_document.SpawnMass:0.###} kg";
+            return;
+        }
         double volume = _document.Shape switch
         {
             PhysicsBodyShape.Sphere => 4d / 3d * Math.PI * 0.75d * 0.75d * 0.75d,
@@ -521,8 +631,7 @@ public sealed partial class PhysicsEditorControl
             _ => 1d,
         };
         double mass = Math.Max(0.001, _document.Density * volume);
-        _document.SpawnMass = (float)mass;
-        _computedMass.Text = $"Computed mass   {mass:0.###} kg";
+        _computedMass.Text = $"Density estimate: {mass:0.###} kg · spawn: {_document.SpawnMass:0.###} kg";
     }
 
     private void RecordPhysicsTelemetry(float dt)
@@ -810,7 +919,7 @@ public sealed partial class PhysicsEditorControl
         {
             e.Graphics.Clear(EditorChrome.Surface);
             bool[][] matrix = read();
-            const int cell = 13, left = 22, top = 12;
+            int cell = Math.Max(18, EditorChrome.SmallFont.Height + 6), left = cell + 8, top = cell;
             using SolidBrush text = new(EditorChrome.Muted);
             for (int i = 0; i < 7; i++)
             {
@@ -827,7 +936,8 @@ public sealed partial class PhysicsEditorControl
 
         protected override void OnMouseDown(MouseEventArgs e)
         {
-            const int cell = 13, left = 22, top = 12;
+            int cell = Math.Max(18, EditorChrome.SmallFont.Height + 6), left = cell + 8, top = cell;
+            if (e.X < left || e.Y < top) return;
             int x = (e.X - left) / cell, y = (e.Y - top) / cell;
             if (x is < 0 or >= 7 || y is < 0 or >= 7) return;
             bool[][] matrix = read();
@@ -867,7 +977,8 @@ public sealed partial class PhysicsEditorControl
                 _ => Color.Gray,
             };
             using SolidBrush brush = new(tint);
-            e.Graphics.FillEllipse(brush, Width / 2 - 18, 8, 36, 36);
+            float scale = EditorChrome.BaseFont.SizeInPoints / 9.5f;
+            e.Graphics.FillEllipse(brush, Width / 2f - 18 * scale, 8 * scale, 36 * scale, 36 * scale);
         }
     }
 
@@ -888,8 +999,9 @@ public sealed partial class PhysicsEditorControl
         {
             base.OnPaint(e);
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            using Pen pen = new(EditorChrome.Warning, 2f);
-            Rectangle box = new(Width / 2 - 13, 8, 26, 30);
+            float scale = EditorChrome.BaseFont.SizeInPoints / 9.5f;
+            using Pen pen = new(EditorChrome.Warning, 2f * scale);
+            Rectangle box = new((int)(Width / 2f - 13 * scale), (int)(8 * scale), (int)(26 * scale), (int)(30 * scale));
             if (_shape == PhysicsBodyShape.Sphere) e.Graphics.DrawEllipse(pen, box);
             else if (_shape == PhysicsBodyShape.Capsule)
             {

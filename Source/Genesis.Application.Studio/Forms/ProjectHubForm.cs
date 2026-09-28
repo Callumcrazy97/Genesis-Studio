@@ -37,6 +37,9 @@ public sealed class ProjectHubForm : DpiAwareForm
     private readonly FlowLayoutPanel _recentList;
     private readonly FlowLayoutPanel _templateGallery;
     private readonly TextBox _recentSearch = new() { PlaceholderText = "Search recent projects by name or location…", Dock = DockStyle.Top, AccessibleName = "Search recent projects" };
+    private readonly TableLayoutPanel _shellLayout;
+    private readonly Control _navigation;
+    private bool _arranging;
     private HubSection _section = HubSection.Projects;
 
     public ProjectHubForm(StudioServices services)
@@ -44,6 +47,7 @@ public sealed class ProjectHubForm : DpiAwareForm
         _services = services ?? throw new ArgumentNullException(nameof(services));
         AutoScaleMode = AutoScaleMode.Dpi;
         BackColor = ThemeService.Palette.Canvas;
+        Tag = ThemeService.MeasuredLayoutTag;
         ClientSize = new Size(1280, 780);
         DoubleBuffered = true;
         ForeColor = ThemeService.Palette.Text;
@@ -65,8 +69,9 @@ public sealed class ProjectHubForm : DpiAwareForm
         shell.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
         shell.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
         Controls.Add(shell);
-
-        shell.Controls.Add(BuildNavigation(), 0, 0);
+        _shellLayout = shell;
+        _navigation = BuildNavigation();
+        shell.Controls.Add(_navigation, 0, 0);
 
         Panel pageHost = new()
         {
@@ -400,7 +405,6 @@ public sealed class ProjectHubForm : DpiAwareForm
             Text = "START",
         });
         navigation.Controls.Add(NavigationLabel("⌂", "Recent Projects", 124, HubSection.Projects));
-        navigation.Controls.Add(NavigationAction("＋", "New Project", 172, () => CreateProject()));
         navigation.Controls.Add(NavigationLabel("▦", "Templates", 220, HubSection.Templates));
 
         Panel buildIdentityHost = new()
@@ -484,21 +488,59 @@ public sealed class ProjectHubForm : DpiAwareForm
 
     private void LayoutResponsiveSurfaces()
     {
-        _projectsLayout.RowStyles[0].Height = DpiLayout.Scale(this, 56);
-        _projectsLayout.RowStyles[1].Height = DpiLayout.Scale(this, 40);
-        _templatesLayout.RowStyles[0].Height = DpiLayout.Scale(this, 124);
+        if (_arranging || _projectsLayout is null) return;
+        _arranging = true;
+        try
+        {
+        NavigationBrandControl brand = _navigation.Controls.OfType<NavigationBrandControl>().Single();
+        int navigationWidth = Math.Max(DpiLayout.Scale(this, NavigationWidth),
+            Math.Max(brand.Title.PreferredSize.Width, brand.Edition.PreferredSize.Width) + brand.Logo.Width + 64);
+        _shellLayout.ColumnStyles[0].Width = navigationWidth;
+        brand.Width = navigationWidth - 40;
+        brand.Height = Math.Max(brand.Logo.Height, brand.Title.Height + brand.Edition.Height + 12);
+        Label start = _navigation.Controls.OfType<Label>().Single(label => label.Text == "START");
+        start.Top = brand.Bottom + 20;
+        int navY = start.Bottom + 12;
+        foreach (NavigationItem item in _navigationItems)
+        {
+            item.Bounds = new Rectangle(18, navY, navigationWidth - 36, Math.Max(40, Font.Height + 18));
+            navY = item.Bottom + 8;
+        }
+        Panel identityHost = _navigation.Controls.OfType<Panel>().Single(panel => panel.Dock == DockStyle.Bottom);
+        Control identity = identityHost.Controls[0];
+        ShellDialogLayout.StackLabels(identity, 14, 12, 6);
+        identityHost.Height = identity.Controls.Cast<Control>().Max(control => control.Bottom) + identityHost.Padding.Vertical + 12;
+        Panel projectHeader = (Panel)_projectsLayout.GetControlFromPosition(0, 0)!;
+        Label projectTitle = projectHeader.Controls.OfType<Label>().Single();
+        projectTitle.Font = ThemeService.HeadingFont;
+        FlowLayoutPanel topActions = projectHeader.Controls.OfType<FlowLayoutPanel>().Single();
+        topActions.Dock = DockStyle.None;
+        foreach (Button button in topActions.Controls.OfType<Button>()) ShellDialogLayout.FitButton(button);
+        topActions.Size = new Size(topActions.Controls.Cast<Control>().Sum(control => control.Width + control.Margin.Horizontal), Font.Height + 22);
+        bool stackedHeader = projectTitle.Width + topActions.Width + 24 > projectHeader.ClientSize.Width;
+        topActions.Location = new Point(stackedHeader ? 0 : Math.Max(0, projectHeader.ClientSize.Width - topActions.Width),
+            stackedHeader ? projectTitle.Bottom + 8 : 4);
+        _projectsLayout.RowStyles[0].Height = Math.Max(projectTitle.Bottom, topActions.Bottom) + 12;
+        _projectsLayout.RowStyles[1].Height = _recentSearch.Font.Height + 16;
+        Control templatesHeader = _templatesLayout.GetControlFromPosition(0, 0)!;
+        ShellDialogLayout.StackLabels(templatesHeader, 2, 0, 8);
+        _templatesLayout.RowStyles[0].Height = templatesHeader.Controls.Cast<Control>().Max(control => control.Bottom) + 16;
 
         int visibleContentWidth = Math.Max(
             DpiLayout.Scale(this, 240),
             ClientSize.Width
-                - DpiLayout.Scale(this, NavigationWidth)
+                - navigationWidth
                 - DpiLayout.Scale(this, 38 + 38)
                 - DpiLayout.Scale(this, 18));
-        LayoutFlowCards(_templateGallery, 254, 4, 410, DeviceDpi, visibleContentWidth);
+        LayoutFlowCards(_templateGallery, (int)Math.Ceiling(254 * Math.Max(1, ThemeService.InterfaceScale * .8f)), 4, 410, DeviceDpi, visibleContentWidth);
         LayoutRecentCards(visibleContentWidth);
         _templateGallery.PerformLayout();
         _recentList.PerformLayout();
+        }
+        finally { _arranging = false; }
     }
+
+    public override void ApplyInterfaceLayout() => LayoutResponsiveSurfaces();
 
     private void LayoutRecentCards(int visibleContentWidth)
     {
@@ -515,13 +557,18 @@ public sealed class ProjectHubForm : DpiAwareForm
             foreach (Control empty in _recentList.Controls)
             {
                 empty.Width = emptyWidth;
+                if (empty is Panel)
+                {
+                    ShellDialogLayout.StackLabels(empty, 20, 16, 10);
+                    empty.Height = empty.Controls.Cast<Control>().Max(control => control.Bottom) + 16;
+                }
             }
 
             return;
         }
 
         int minimumWidth = DpiLayout.Scale(280, DeviceDpi);
-        int height = DpiLayout.Scale(210, DeviceDpi);
+        int height = Math.Max(DpiLayout.Scale(210, DeviceDpi), DpiLayout.Scale(112, DeviceDpi) + Font.Height * 4 + 72);
         int viewport = Math.Max(
             minimumWidth,
             Math.Min(_recentList.ClientSize.Width, visibleContentWidth)
@@ -534,6 +581,17 @@ public sealed class ProjectHubForm : DpiAwareForm
         {
             card.Margin = new Padding(0, 0, gap, gap);
             card.Size = new Size(width, height);
+            int y = DpiLayout.Scale(120, DeviceDpi);
+            foreach (Label label in card.Controls.OfType<Label>().OrderBy(label => label.Top).ToArray())
+            {
+                label.Bounds = new Rectangle(12, y, Math.Max(1, width - 24), label.Font.Height + 4);
+                y = label.Bottom + 6;
+            }
+            foreach (Button button in card.Controls.OfType<Button>())
+            {
+                ShellDialogLayout.FitButton(button); button.Location = new Point(12, y);
+                card.Height = Math.Max(card.Height, button.Bottom + 12);
+            }
         }
     }
 
@@ -559,6 +617,7 @@ public sealed class ProjectHubForm : DpiAwareForm
         {
             card.Margin = new Padding(0, 0, gap, gap);
             card.Size = new Size(width, height);
+            if (card is ProjectTemplateCard template) template.ApplyInterfaceLayout();
         }
         return columns;
     }

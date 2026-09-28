@@ -17,6 +17,8 @@ internal static class PhysicsCodeCodec
         Line(text, "friction", config.Friction);
         Line(text, "restitution", config.Restitution);
         Line(text, "body", config.BodyType);
+        Line(text, "dimension", config.Dimension);
+        Line(text, "rotation.locked", config.LockRotation);
         Line(text, "shape", config.Shape);
         Line(text, "sensor", config.IsSensor);
         Line(text, "gravity", $"{N(gravity.X)}, {N(gravity.Y)}, {N(gravity.Z)}");
@@ -38,6 +40,8 @@ internal static class PhysicsCodeCodec
 
     public static PhysicsSceneConfig Parse(string source, PhysicsSceneConfig baseline)
     {
+        if (!source.TrimStart().StartsWith("physics_material ", StringComparison.OrdinalIgnoreCase)
+            || !source.TrimEnd().EndsWith('}')) throw new FormatException("Expected a complete physics_material definition ending with }.");
         PhysicsSceneConfig config = baseline.Clone();
         foreach (string raw in source.Replace("\r", string.Empty, StringComparison.Ordinal).Split('\n'))
         {
@@ -51,7 +55,7 @@ internal static class PhysicsCodeCodec
                 continue;
             }
             int colon = line.IndexOf(':');
-            if (colon <= 0) continue;
+            if (colon <= 0) throw new FormatException("Expected field: value, found " + line);
             string key = line[..colon].Trim().ToLowerInvariant();
             string value = line[(colon + 1)..].Trim().TrimEnd(';');
             switch (key)
@@ -60,6 +64,8 @@ internal static class PhysicsCodeCodec
                 case "friction": config.Friction = Number(value); break;
                 case "restitution": config.Restitution = Number(value); break;
                 case "body": config.BodyType = EnumValue<PhysicsBodyKind>(value); break;
+                case "dimension": config.Dimension = EnumValue<PhysicsDimension>(value); break;
+                case "rotation.locked": config.LockRotation = Boolean(value); break;
                 case "shape": config.Shape = EnumValue<PhysicsBodyShape>(value); break;
                 case "sensor": config.IsSensor = Boolean(value); break;
                 case "gravity": SetGravity(config, Triple(value)); break;
@@ -75,6 +81,7 @@ internal static class PhysicsCodeCodec
                 case "spawn.mass": config.SpawnMass = Float(value); break;
                 case "spawn.count": config.SpawnCount = Integer(value); break;
                 case "spawn.layout": config.SpawnLayout = EnumValue<PhysicsSpawnLayout>(value); break;
+                default: throw new FormatException("Unknown physics field: " + key);
             }
         }
         return config;
@@ -98,11 +105,11 @@ internal static class PhysicsCodeCodec
         text.Append("    ").Append(key).Append(": ").AppendLine(Convert.ToString(value, CultureInfo.InvariantCulture));
     private static string N(float value) => value.ToString("0.###", CultureInfo.InvariantCulture);
     private static string Escape(string value) => (value ?? "Physics").Replace("\"", "\\\"", StringComparison.Ordinal);
-    private static double Number(string value) => double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double result) ? result : throw new FormatException("Invalid number: " + value);
+    private static double Number(string value) => double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double result) && double.IsFinite(result) ? result : throw new FormatException("Invalid finite number: " + value);
     private static float Float(string value) => (float)Number(value);
     private static int Integer(string value) => int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int result) ? result : throw new FormatException("Invalid integer: " + value);
     private static bool Boolean(string value) => bool.TryParse(value, out bool result) ? result : throw new FormatException("Invalid Boolean: " + value);
-    private static T EnumValue<T>(string value) where T : struct, Enum => Enum.TryParse(value.Trim(), true, out T result) ? result : throw new FormatException($"Invalid {typeof(T).Name}: {value}");
+    private static T EnumValue<T>(string value) where T : struct, Enum => Enum.TryParse(value.Trim(), true, out T result) && Enum.IsDefined(result) ? result : throw new FormatException($"Invalid {typeof(T).Name}: {value}");
     private static int ParseLayer(string value)
     {
         string layer = value.Trim();

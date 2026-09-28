@@ -30,8 +30,13 @@ namespace Genesis.Runtime.Project
         public void Text(string text, float x, float y, float size, Vector4 color)
             => _overlay.DrawText(text, new Vector2(x, y), size, color);
 
+        public void Text(string text, float x, float y, float size, Vector4 color, string font)
+            => _overlay.DrawText(text, new Vector2(x, y), size, color, fontFamily: font);
+
         public void TextCentered(string text, float centerX, float y, float width, float size, Vector4 color)
             => _overlay.DrawTextCentered(text, centerX, y, width, size, color);
+        public void TextCentered(string text, float centerX, float y, float width, float size, Vector4 color, string font)
+            => _overlay.DrawTextCentered(text, centerX, y, width, size, color, fontFamily: font);
 
         public void Rect(float x, float y, float w, float h, Vector4 color, bool filled = true)
             => _overlay.DrawRect(x, y, w, h, color, filled: filled);

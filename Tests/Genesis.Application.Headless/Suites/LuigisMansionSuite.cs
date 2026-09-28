@@ -53,7 +53,9 @@ internal static class LuigisMansionSuite
         {
             ProjectSession created = new ProjectService().CreateProject(parent, "Mansion Regression", LuigisMansionTemplate.TemplateId);
             project = created;
-            Assert(created.Manifest.StartRoom == LuigisMansionTemplate.StartRoom, "Wrong campaign entry room.");
+            Assert(ResourceNames.Resolve(created.RootPath, created.Manifest.StartRoom, ResourceType.Room)
+                == Path.Combine(created.RootPath, LuigisMansionTemplate.StartRoom.Replace('/', Path.DirectorySeparatorChar)),
+                "Wrong campaign entry room.");
             Assert(!created.Manifest.Runtime.AllowEscapeToClose, "Escape must pause, not close the process.");
             Assert(ResourceFolderPolicy.Roots.All(root =>
                 Directory.Exists(Path.Combine(created.AssetsPath, root.Name))
@@ -96,6 +98,12 @@ internal static class LuigisMansionSuite
                 "An aliased money frame opened blank in the Image Editor workspace.");
             Assert(ImageWorkspaceStorage.ResolveSessionImagePath(session) is { } resolved && File.Exists(resolved),
                 "Image Viewer could not resolve the alias source path.");
+            ImageDocument roundTrip = ImageDocumentSerializer.Deserialize(ImageDocumentSerializer.Serialize(document)).Document;
+            ImageWorkspace reopened = ImageWorkspaceStorage.Load(new ImageDocumentSession(roundTrip, billPath, ImageDocumentAccess.Editor));
+            Assert(reopened.Frames.Count == workspace.Frames.Count
+                && reopened.Frames.SelectMany(frame => frame.Layers).Zip(workspace.Frames.SelectMany(frame => frame.Layers))
+                    .All(pair => pair.First.Pixels.SequenceEqual(pair.Second.Pixels)),
+                "Saving an aliased image discarded its shared pixels.");
         });
         HeadlessHarness.RunCase(ctx.Report, "Mansion.RestoredGameMakerBehavioursRemainAuthored", () =>
         {
@@ -247,8 +255,13 @@ internal static class LuigisMansionSuite
                 Assert(scene.World.GetRef<SpriteComponent>(hero).ImageSpeed > 5, "Running-start feet are not faster than normal running.");
                 for (int i = 0; i < 18; i++) Frame();
                 Assert(scene.World.GetRef<TransformComponent>(hero).X - start > 20, "Luigi never accelerated.");
+                // This fixture has no window/pointer mapping. Use the game's keyboard
+                // facing input to select the horizontal running animation explicitly.
+                scene.Input.OnKeyDown(Key.Z); Frame(); scene.Input.OnKeyUp(Key.Z);
                 Assert(ObjectDrawAssetRegistry.TryGet(hero, out ObjectDrawAssetEntry assets)
-                    && assets.Image.EndsWith("Luigi Torch Run.image.json", StringComparison.Ordinal), "Run animation did not reach the renderer.");
+                    && ResourceNames.Resolve(p.RootPath, assets.Image, ResourceType.Image)
+                        == Path.Combine(p.AssetsPath, "Sprites", "Gameplay", "Luigi Torch Run.image.json"),
+                    "Run animation did not reach the renderer: " + assets?.Image);
                 Assert(Math.Abs(scene.World.GetRef<TransformComponent>(hero).Y - 224) < .01f, "Ground collision failed.");
                 scene.Input.OnKeyUp(Key.D); scene.Input.OnKeyDown(Key.W); Frame(); scene.Input.OnKeyUp(Key.W);
                 for (int i = 0; i < 6; i++) Frame();

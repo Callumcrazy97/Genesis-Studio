@@ -49,7 +49,7 @@ public sealed partial class PhysicsEditorControl : EditorSurfaceControl, IResour
     private NumericUpDown? _spawnCountInput;
     private Button? _playPauseButton;
     private TrackBar? _speedSlider;
-    private bool _paused;
+    private bool _paused = true;
     private float _simulationSpeed = 1f;
     private PhysicsAuthoringMode _authoringMode = PhysicsAuthoringMode.Properties;
     private bool _syncing;
@@ -65,12 +65,26 @@ public sealed partial class PhysicsEditorControl : EditorSurfaceControl, IResour
     private Vector3 _gizmoDragAxisWorld;
     private Vector2 _gizmoDragAxisScreenDir;
     private float _gizmoDragWorldPerPixel;
+    private string? _physicsCheckpoint;
+    private string? _savedPhysicsSnapshot;
+    private sealed record PhysicsEditSnapshot(string Configuration, string Source, string? Error);
+    private string? _definitionError;
+    private bool _restoringPhysics;
+    public PhysicsSceneConfig Configuration => _document.Clone();
+    public string DefinitionText => _code.CodeText;
+    public EditorCommandBar CommandBar => Controls.OfType<EditorCommandBar>().Single();
+    public string? DefinitionError => _definitionError;
 
     public PhysicsEditorControl(string resourcePath, string projectRoot)
         : base(resourcePath, projectRoot)
     {
         Dock = DockStyle.Fill;
         _document = LoadDocument(resourcePath);
+        if (File.Exists(resourcePath))
+        {
+            try { using JsonDocument authored = JsonDocument.Parse(File.ReadAllText(resourcePath)); }
+            catch (Exception exception) when (exception is IOException or JsonException) { LoadWarning = exception.Message; }
+        }
         _activePreset = ResolvePresetName(_document);
 
         EditorCommandBar toolbar = EditorChrome.MakeToolbar();
@@ -94,12 +108,6 @@ public sealed partial class PhysicsEditorControl : EditorSurfaceControl, IResour
             if (_syncing || _presetCombo.SelectedItem is not string name || name == "Custom") return;
             ApplyPreset(name);
         };
-        toolbar.Items.Add(new ToolStripControlHost(_presetCombo)
-        {
-            AutoSize = false,
-            Margin = new Padding(0, 4, 6, 0),
-            Size = new Size(148, 28),
-        });
         toolbar.Items.Add(EditorChrome.ToolButton("Play/Pause", "Pause or resume the physics sandbox", TogglePlayback));
         toolbar.Items.Add(EditorChrome.ToolButton("Step", "Advance the sandbox by one frame", () => StepSandbox(1f / 60f)));
         toolbar.Items.Add(EditorChrome.ToolButton("Reset", "Rebuild the sandbox from the current scene config", RebuildSandbox));
@@ -163,6 +171,8 @@ public sealed partial class PhysicsEditorControl : EditorSurfaceControl, IResour
         _shapeCombo.SelectedItem = _document.SpawnShape is PhysicsBodyShape.Mesh or PhysicsBodyShape.Cylinder
             ? PhysicsBodyShape.Box
             : _document.SpawnShape;
+        _shapeCombo.FormattingEnabled = true;
+        _shapeCombo.Format += (_, args) => { if (_document.Dimension == PhysicsDimension.TwoD && args.ListItem is PhysicsBodyShape.Sphere) args.Value = "Circle"; };
         EditorChrome.StyleField(_shapeCombo);
         _shapeCombo.SelectedIndexChanged += (_, _) =>
         {
@@ -172,7 +182,7 @@ public sealed partial class PhysicsEditorControl : EditorSurfaceControl, IResour
             RefreshComputedMass();
             MarkCustom();
             SyncCodeFromProperties();
-            MarkDirty();
+            RecordPhysicsChange();
         };
         AddInspectorRow(properties, "Spawn shape", _shapeCombo);
         foreach (PhysicsSpawnLayout layout in Enum.GetValues<PhysicsSpawnLayout>())
@@ -184,7 +194,7 @@ public sealed partial class PhysicsEditorControl : EditorSurfaceControl, IResour
             if (_syncing || _spawnLayoutCombo.SelectedItem is not PhysicsSpawnLayout layout) return;
             _document.SpawnLayout = layout;
             MarkCustom();
-            MarkDirty();
+            RecordPhysicsChange();
         };
         AddInspectorRow(properties, "Spawn layout", _spawnLayoutCombo);
         AddInspectorNumeric(properties, "Spawn count", _document.SpawnCount, 0f, 128f, SetSpawnCount, out _spawnCountInput, decimals: 0);
@@ -205,7 +215,10 @@ public sealed partial class PhysicsEditorControl : EditorSurfaceControl, IResour
         _propertiesSurface.Controls.Add(EditorChrome.SectionLabel("Physics Scene"));
 
         _code = new CodeEditor { Dock = DockStyle.Fill };
+        _code.DocumentUndoRequested = Undo;
+        _code.DocumentRedoRequested = Redo;
         _code.SetRules(BuildPhysicsRules());
+        AssetCodeIntelligenceProvider.AttachPhysics(_code);
         _codeSurface = new Panel
         {
             BackColor = EditorChrome.Canvas,
@@ -222,6 +235,7 @@ public sealed partial class PhysicsEditorControl : EditorSurfaceControl, IResour
         _code.TextChangedByUser += (_, _) =>
         {
             if (_syncingCode) return;
+            MarkDirty();
             _codeApplyTimer.Stop();
             _codeApplyTimer.Start();
         };
@@ -262,12 +276,16 @@ public sealed partial class PhysicsEditorControl : EditorSurfaceControl, IResour
             _timer.Dispose();
             _codeApplyTimer.Dispose();
             _session?.Dispose();
+            ReleasePhysics2DTextures();
             InvalidatePhysicsTargetRenderer();
         };
 
         RebuildSandbox();
         PushCodeFromConfig();
         SetAuthoringMode(PhysicsAuthoringMode.Properties);
+        _physicsCheckpoint = CapturePhysicsEdit();
+        _savedPhysicsSnapshot = _physicsCheckpoint;
+        if (toolbar.HistoryCommand is { } history) history.Visible = false;
         SyncDimensionUi();
         UpdateStatus();
     }
@@ -281,6 +299,7 @@ public sealed partial class PhysicsEditorControl : EditorSurfaceControl, IResour
         {
             Mode2D = _document.Dimension == PhysicsDimension.TwoD,
             Background2D = () => (0.05f, 0.06f, 0.10f),
+            Camera2DY = -3 * PhysicsPixelsPerMetre,
             SceneStateFactory = () => EditorSceneLighting.Create(
                 showFloor: _floorStyle.DrawsPlate() && _document.Dimension != PhysicsDimension.TwoD),
             FloorStyle = _floorStyle,
@@ -308,16 +327,26 @@ public sealed partial class PhysicsEditorControl : EditorSurfaceControl, IResour
         if (mode == PhysicsAuthoringMode.Code && _authoringMode == PhysicsAuthoringMode.Properties)
             PushCodeFromConfig();
         if (mode == PhysicsAuthoringMode.Properties && _authoringMode == PhysicsAuthoringMode.Code)
-            ApplyCodeFromEditor(force: true);
+            if (!ApplyCodeFromEditor(force: true)) return;
 
         _authoringMode = mode;
+        if (mode == PhysicsAuthoringMode.Code)
+        {
+            _physicsWorkspaceMode = "Code";
+            if (_physicsQuickButton is not null) _physicsQuickButton.Checked = false;
+            if (_physicsCodeButton is not null) _physicsCodeButton.Checked = true;
+        }
+        else if (_physicsWorkspaceMode == "Code") _physicsWorkspaceMode = "Preview";
         bool code = mode == PhysicsAuthoringMode.Code;
         if (_referencePhysicsLayout)
         {
             _propertiesSurface.Visible = false;
             _codeSurface.Visible = code;
             if (_physicsAuthoringSplit is not null)
+            {
+                _physicsAuthoringSplit.Panel2Collapsed = false;
                 _physicsAuthoringSplit.Panel1Collapsed = !code;
+            }
         }
         else
         {
@@ -328,15 +357,26 @@ public sealed partial class PhysicsEditorControl : EditorSurfaceControl, IResour
         foreach ((PhysicsAuthoringMode key, ToolStripButton button) in _modeButtons)
             button.Checked = key == mode;
         UpdateStatus();
+        ApplyPhysicsLayout();
     }
 
     public void SetPreview2D(bool enabled)
     {
+        bool changed = _document.Dimension != (enabled ? PhysicsDimension.TwoD : PhysicsDimension.ThreeD);
         _document.Dimension = enabled ? PhysicsDimension.TwoD : PhysicsDimension.ThreeD;
+        _session?.ApplyPhysicsSceneConfig(_document);
         _viewport.Mode2D = enabled;
         SyncDimensionUi();
-        MarkCustom();
-        MarkDirty();
+        bool wasSyncing = _syncing;
+        _syncing = true;
+        try { foreach (Action sync in _physicsControlSync) sync(); }
+        finally { _syncing = wasSyncing; }
+        if (changed)
+        {
+            MarkCustom();
+            PushCodeFromConfig();
+            RecordPhysicsChange();
+        }
         UpdateStatus();
         _viewport.Invalidate(true);
     }
@@ -348,7 +388,7 @@ public sealed partial class PhysicsEditorControl : EditorSurfaceControl, IResour
         if (kind != EditorPreviewTargetChrome.PreviewTargetKind.None && !string.IsNullOrWhiteSpace(path))
             _document.BackdropSprite = ResourceDisplayName.Format(path);
         MarkCustom();
-        MarkDirty();
+        RecordPhysicsChange();
         InvalidatePhysicsTarget();
         RebuildSandbox();
         UpdateStatus();
@@ -374,7 +414,7 @@ public sealed partial class PhysicsEditorControl : EditorSurfaceControl, IResour
         SetPreview2D(_document.Dimension == PhysicsDimension.TwoD);
         RebuildSandbox();
         PushCodeFromConfig();
-        MarkDirty();
+        RecordPhysicsChange();
         UpdateStatus();
     }
 
@@ -388,7 +428,7 @@ public sealed partial class PhysicsEditorControl : EditorSurfaceControl, IResour
         if (!hasTarget)
         {
             _session.BuildStressPlayground();
-            sampleGround = (_, _) => 0f;
+            sampleGround = (_, _) => .5f;
             spawnOrigin = Vector3.Zero;
         }
         SandboxPropShape shape = MapSpawnShape(_document.SpawnShape);
@@ -563,29 +603,83 @@ public sealed partial class PhysicsEditorControl : EditorSurfaceControl, IResour
         DrawPhysicsTelemetryOverlay(renderer);
     }
 
+    private const float PhysicsPixelsPerMetre = 32f;
+    private IRenderController? _physics2DRenderer;
+    private readonly Dictionary<(SandboxPropShape, float, float), TextureHandle> _physics2DTextures = [];
+    private bool _physics2DDragging;
+    private bool _physics2DWasPaused;
+    private Vector2 _physics2DGrabOffset;
+    private float _physics2DStartAngle;
+    private Quaternion _physics2DStartRotation;
+
+    private void ReleasePhysics2DTextures()
+    {
+        foreach (TextureHandle texture in _physics2DTextures.Values) _physics2DRenderer?.ReleaseTexture(texture);
+        _physics2DTextures.Clear();
+        _physics2DRenderer = null;
+    }
+
+    private TextureHandle PhysicsColliderTexture(IRenderController renderer, SandboxPropShape shape, Vector3 half)
+    {
+        if (!ReferenceEquals(renderer, _physics2DRenderer))
+        {
+            ReleasePhysics2DTextures();
+            _physics2DRenderer = renderer;
+        }
+        var key = (shape, half.X, half.Y);
+        if (_physics2DTextures.TryGetValue(key, out TextureHandle existing)) return existing;
+        const int width = 64;
+        int height = Math.Clamp((int)MathF.Round(width * half.Y / half.X), 16, 512);
+        byte[] rgba = new byte[width * height * 4];
+        for (int y = 0; y < height; y++)
+        for (int x = 0; x < width; x++)
+        {
+            float localX = (x + .5f) / width * half.X * 2 - half.X;
+            float localY = (y + .5f) / height * half.Y * 2 - half.Y;
+            float roundY = shape == SandboxPropShape.Capsule ? Math.Max(0, Math.Abs(localY) - (half.Y - half.X)) : localY;
+            bool inside = shape == SandboxPropShape.Box || localX * localX + roundY * roundY <= half.X * half.X;
+            int pixel = (y * width + x) * 4;
+            rgba[pixel] = rgba[pixel + 1] = rgba[pixel + 2] = 255;
+            rgba[pixel + 3] = inside ? (byte)255 : (byte)0;
+        }
+        TextureHandle texture = renderer.CreateTexture(width, height, rgba);
+        _physics2DTextures.Add(key, texture);
+        return texture;
+    }
+
     private void DrawSandbox2D(IRenderController renderer)
     {
         if (_session is null) return;
-        // Ortho 2D preview: project XZ onto the 2D plane as XY sprites via unit cubes flattened.
+        // Convert the solver's metre-based, Y-up poses to the shared pixel-based sprite camera.
         for (int i = 0; i < _session.PropCount; i++)
         {
             if (!_session.IsPropActive(i)) continue;
-            _session.GetPropPose(i, out Vector3 position, out _);
+            _session.GetPropPose(i, out Vector3 position, out Quaternion rotation);
             PhysicsBody body = _session.GetPropBody(i);
-            float size = MathF.Max(body.HalfExtents.X, body.HalfExtents.Z) * 2f;
-            Matrix4x4 world =
-                Matrix4x4.CreateScale(size, size, 1f) *
-                Matrix4x4.CreateTranslation(position.X, position.Y, 0f);
-            renderer.DrawMesh(new MeshDrawCall
+            float width = body.HalfExtents.X * 2 * PhysicsPixelsPerMetre;
+            float height = body.HalfExtents.Y * 2 * PhysicsPixelsPerMetre;
+            if (DrawPhysicsSpritePreview(renderer, position, rotation, width, height, i == _selectedPropIndex)) continue;
+            renderer.DrawSprite(new SpriteDrawCall
             {
-                Mesh = renderer.GetBuiltinMesh(BuiltinMeshKind.Cube),
-                World = world,
-                Tint = i == _selectedPropIndex
-                    ? new RenderColor(0.45f, 0.72f, 1f)
-                    : new RenderColor(0.78f, 0.62f, 0.32f),
-                Alpha = 1f,
+                Texture = PhysicsColliderTexture(renderer, _session.GetPropShape(i), body.HalfExtents),
+                X = position.X * PhysicsPixelsPerMetre, Y = -position.Y * PhysicsPixelsPerMetre,
+                Width = width, Height = height, OriginX = width / 2, OriginY = height / 2,
+                Rotation = -2 * MathF.Atan2(rotation.Z, rotation.W) * 180 / MathF.PI,
+                ScaleX = 1, ScaleY = 1, Alpha = 1, SmoothSampling = true,
+                Tint = i == _selectedPropIndex ? new RenderColor(.45f, .72f, 1) : new RenderColor(.78f, .62f, .32f),
+                Depth = -100,
             });
         }
+        renderer.DrawLine(-3200, -.5f * PhysicsPixelsPerMetre, 3200, -.5f * PhysicsPixelsPerMetre,
+            new RenderColor(.55f, .7f, .55f), 2f, -8000);
+        renderer.DrawText("XY plane · metres · Click and drag a body", 12, 12, EditorChrome.SmallFont.SizeInPoints,
+            new RenderColor(.7f, .75f, .85f));
+    }
+
+    private Vector2 PhysicsPoint2D(Point point)
+    {
+        Vector2 world = _viewport.ControlToWorld2D(point) / PhysicsPixelsPerMetre;
+        return new Vector2(world.X, -world.Y);
     }
 
     private void DrawOverlay(IRenderController renderer)
@@ -619,6 +713,25 @@ public sealed partial class PhysicsEditorControl : EditorSurfaceControl, IResour
     private void OnViewportMouseDown(object? sender, MouseEventArgs e)
     {
         if (e.Button != MouseButtons.Left || _session is null) return;
+        if (_document.Dimension == PhysicsDimension.TwoD)
+        {
+            Vector2 point = PhysicsPoint2D(e.Location);
+            _selectedPropIndex = -1;
+            if (_session.PhysicsWorld.Raycast(new Vector3(point, 10), -Vector3.UnitZ, 20, out PhysicsBody picked) && !picked.IsStatic)
+                for (int i = 0; i < _session.PropCount; i++)
+                    if (_session.IsPropActive(i) && _session.GetPropBody(i).Handle == picked.Handle) { _selectedPropIndex = i; break; }
+            if (_selectedPropIndex >= 0)
+            {
+                _session.GetPropPose(_selectedPropIndex, out Vector3 position, out _physics2DStartRotation);
+                _physics2DGrabOffset = new Vector2(position.X, position.Y) - point;
+                _physics2DStartAngle = MathF.Atan2(point.Y - position.Y, point.X - position.X);
+                _physics2DWasPaused = _paused;
+                SetPhysicsPaused(true);
+                _physics2DDragging = true;
+            }
+            UpdateStatus(); _viewport.Invalidate(true);
+            return;
+        }
         if (_document.Dimension != PhysicsDimension.TwoD &&
             _selectedPropIndex >= 0 &&
             _session.IsPropActive(_selectedPropIndex))
@@ -676,6 +789,18 @@ public sealed partial class PhysicsEditorControl : EditorSurfaceControl, IResour
 
     private void OnViewportMouseMove(object? sender, MouseEventArgs e)
     {
+        if (_physics2DDragging && _session is not null && _selectedPropIndex >= 0)
+        {
+            Vector2 point = PhysicsPoint2D(e.Location);
+            PhysicsBody selected = _session.GetPropBody(_selectedPropIndex);
+            _session.GetPropPose(_selectedPropIndex, out Vector3 position, out Quaternion planarRotation);
+            if (_gizmoMode == EditorGizmoMode.Rotate)
+                planarRotation = Quaternion.CreateFromAxisAngle(Vector3.UnitZ, MathF.Atan2(point.Y - position.Y, point.X - position.X) - _physics2DStartAngle) * _physics2DStartRotation;
+            else position = new Vector3(point + _physics2DGrabOffset, 0);
+            _session.PhysicsWorld.SetBodyPose(selected, position, planarRotation);
+            _viewport.Invalidate(true);
+            return;
+        }
         if (!_gizmoDragging || _gizmoAxis < 0 || _session is null || _selectedPropIndex < 0) return;
         PointF surface = _viewport.ControlToSurface(e.Location);
         Vector3 originSurface = _viewport.WorldToSurface(_gizmoDragStartPose);
@@ -692,15 +817,22 @@ public sealed partial class PhysicsEditorControl : EditorSurfaceControl, IResour
     private void OnViewportMouseUp(object? sender, MouseEventArgs e)
     {
         if (e.Button != MouseButtons.Left) return;
+        if (_physics2DDragging)
+        {
+            _physics2DDragging = false;
+            SetPhysicsPaused(_physics2DWasPaused);
+        }
         _gizmoDragging = false;
         _gizmoAxis = -1;
     }
 
     public override void Save()
     {
-        if (_authoringMode == PhysicsAuthoringMode.Code)
-            ApplyCodeFromEditor(force: true);
-        _document.SaveToFile(ResourcePath);
+        if (LoadWarning is not null) throw new InvalidDataException("The unreadable physics document was preserved: " + LoadWarning);
+        if (_authoringMode == PhysicsAuthoringMode.Code && !ApplyCodeFromEditor(force: true))
+            throw new InvalidDataException("Physics definition is invalid: " + _definitionError);
+        WriteResourceText(JsonSerializer.Serialize(_document, JsonOptions));
+        _savedPhysicsSnapshot = CapturePhysicsEdit();
         AcceptSave();
     }
 
@@ -770,12 +902,13 @@ public sealed partial class PhysicsEditorControl : EditorSurfaceControl, IResour
         value = Math.Clamp(value, 0f, 1f);
         if (MathF.Abs((float)_document.Friction - value) < 0.0001f) return;
         _document.Friction = value;
+        _session?.ApplyPhysicsSceneConfig(_document);
         if (_frictionSlider is not null)
             _frictionSlider.Value = (int)Math.Clamp(value * 100f, 0f, 100f);
         MarkCustom();
         SyncCodeFromProperties();
         UpdateStatus();
-        MarkDirty();
+        RecordPhysicsChange();
         InspectorStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -784,12 +917,13 @@ public sealed partial class PhysicsEditorControl : EditorSurfaceControl, IResour
         value = Math.Clamp(value, 0f, 1f);
         if (MathF.Abs((float)_document.Restitution - value) < 0.0001f) return;
         _document.Restitution = value;
+        _session?.ApplyPhysicsSceneConfig(_document);
         if (_restitutionSlider is not null)
             _restitutionSlider.Value = (int)Math.Clamp(value * 100f, 0f, 100f);
         MarkCustom();
         SyncCodeFromProperties();
         UpdateStatus();
-        MarkDirty();
+        RecordPhysicsChange();
         InspectorStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -804,20 +938,20 @@ public sealed partial class PhysicsEditorControl : EditorSurfaceControl, IResour
         MarkCustom();
         SyncCodeFromProperties();
         UpdateStatus();
-        MarkDirty();
+        RecordPhysicsChange();
         InspectorStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private void SetGravityStrength(float value)
     {
-        value = Math.Clamp(value, 0f, 10f);
+        value = Math.Clamp(value, 0f, 100f);
         if (MathF.Abs(_document.GravityStrength - value) < 0.0001f) return;
         _document.GravityStrength = value;
         _session?.ApplyPhysicsSceneConfig(_document);
         MarkCustom();
         SyncCodeFromProperties();
         UpdateStatus();
-        MarkDirty();
+        RecordPhysicsChange();
     }
 
     private void SetSpawnCount(float value)
@@ -827,7 +961,7 @@ public sealed partial class PhysicsEditorControl : EditorSurfaceControl, IResour
         _document.SpawnCount = count;
         MarkCustom();
         SyncCodeFromProperties();
-        MarkDirty();
+        RecordPhysicsChange();
     }
 
     private void MarkCustom()
@@ -835,9 +969,10 @@ public sealed partial class PhysicsEditorControl : EditorSurfaceControl, IResour
         _activePreset = "Custom";
         if (_presetCombo.Items.Contains("Custom"))
         {
+            bool wasSyncing = _syncing;
             _syncing = true;
             try { _presetCombo.SelectedItem = "Custom"; }
-            finally { _syncing = false; }
+            finally { _syncing = wasSyncing; }
         }
     }
 
@@ -860,15 +995,28 @@ public sealed partial class PhysicsEditorControl : EditorSurfaceControl, IResour
         }
     }
 
-    private void ApplyCodeFromEditor(bool force = false)
+    public bool SetDefinition(string source)
     {
-        if (_syncingCode && !force) return;
+        SetAuthoringMode(PhysicsAuthoringMode.Code);
+        _code.CodeText = source;
+        MarkDirty();
+        return ApplyCodeFromEditor(force: true);
+    }
+
+    private bool ApplyCodeFromEditor(bool force = false)
+    {
+        if (_syncingCode && !force) return false;
         try
         {
             PhysicsSceneConfig? parsed = _code.CodeText.TrimStart().StartsWith('{')
                 ? JsonSerializer.Deserialize<PhysicsSceneConfig>(_code.CodeText, JsonOptions)
                 : PhysicsCodeCodec.Parse(_code.CodeText, _document);
-            if (parsed is null) return;
+            if (parsed is null) throw new FormatException("Empty physics definition.");
+            if (!double.IsFinite(parsed.Density) || parsed.Density <= 0 || !double.IsFinite(parsed.Friction)
+                || parsed.Friction is < 0 or > 1 || !double.IsFinite(parsed.Restitution) || parsed.Restitution is < 0 or > 1
+                || !float.IsFinite(parsed.SpawnMass) || parsed.SpawnMass <= 0 || parsed.SpawnCount is < 0 or > 100000
+                || parsed.SolverIterations is < 1 or > 128 || parsed.SubstepCount is < 1 or > 128)
+                throw new FormatException("Material, mass, count or solver values are outside their valid ranges.");
             _document = parsed;
             _activePreset = ResolvePresetName(_document);
             _syncing = true;
@@ -879,15 +1027,84 @@ public sealed partial class PhysicsEditorControl : EditorSurfaceControl, IResour
                 EditorPreviewTargetChrome.ParseKind(_document.PreviewAssetKind),
                 _document.PreviewAssetPath ?? string.Empty);
             _session?.ApplyPhysicsSceneConfig(_document);
-            MarkDirty();
+            _definitionError = null;
+            RecordPhysicsChange();
             InspectorStateChanged?.Invoke(this, EventArgs.Empty);
             UpdateStatus();
             _viewport.Invalidate(true);
+            _definitionError = null;
+            _code.SetContextHint("Physics definition · Ctrl+Space for fields and values");
+            return true;
         }
         catch (Exception exception) when (exception is JsonException or FormatException)
         {
-            // Leave previous live document while typing.
+            _definitionError = exception.Message;
+            _statusLabel.Text = "Definition error: " + exception.Message;
+            _code.SetContextHint("Draft retained · preview uses the last valid definition");
+            RecordPhysicsChange();
+            MarkDirty();
+            return false;
         }
+    }
+
+    private void RecordPhysicsChange()
+    {
+        if (_restoringPhysics || _physicsCheckpoint is null) return;
+        if (_authoringMode != PhysicsAuthoringMode.Code) PushCodeFromConfig();
+        string after = CapturePhysicsEdit();
+        string before = _physicsCheckpoint;
+        if (before == after) return;
+        _physicsCheckpoint = after;
+        PushEdit("physics settings", () => RestorePhysics(after), () => RestorePhysics(before), maximumEntries: 100);
+        RefreshPhysicsDirtyState();
+        InspectorStateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void RestorePhysics(string snapshot)
+    {
+        _restoringPhysics = _syncing = true;
+        try
+        {
+            PhysicsEditSnapshot state = JsonSerializer.Deserialize<PhysicsEditSnapshot>(snapshot, JsonOptions)
+                ?? throw new InvalidDataException("Invalid physics undo snapshot.");
+            _document = JsonSerializer.Deserialize<PhysicsSceneConfig>(state.Configuration, JsonOptions)
+                ?? throw new InvalidDataException("Invalid physics undo snapshot.");
+            _physicsCheckpoint = snapshot;
+            _definitionError = state.Error;
+            _activePreset = ResolvePresetName(_document);
+            SyncPropertyControls();
+            _viewport.Mode2D = _document.Dimension == PhysicsDimension.TwoD;
+            SyncDimensionUi(); RebuildSandbox();
+            _syncingCode = true;
+            try { _code.CodeText = state.Source; }
+            finally { _syncingCode = false; }
+            if (state.Error is not null)
+            {
+                _authoringMode = PhysicsAuthoringMode.Code; _physicsWorkspaceMode = "Code"; _codeSurface.Visible = true;
+            }
+            UpdateStatus(); ApplyPhysicsLayout();
+            InspectorStateChanged?.Invoke(this, EventArgs.Empty);
+        }
+        finally { _restoringPhysics = _syncing = false; }
+    }
+
+    private string CapturePhysicsEdit() => JsonSerializer.Serialize(new PhysicsEditSnapshot(JsonSerializer.Serialize(_document, JsonOptions), _code.CodeText, _definitionError), JsonOptions);
+
+    private void RefreshPhysicsDirtyState()
+    {
+        if (_savedPhysicsSnapshot == CapturePhysicsEdit()) AcceptSave(); else MarkDirty();
+    }
+
+    public override void Undo()
+    {
+        _codeApplyTimer.Stop();
+        if (_authoringMode == PhysicsAuthoringMode.Code) ApplyCodeFromEditor(force: true);
+        base.Undo(); RefreshPhysicsDirtyState();
+    }
+
+    public override void Redo()
+    {
+        _codeApplyTimer.Stop(); base.Redo(); RefreshPhysicsDirtyState();
     }
 
     private void SyncPropertyControls()
@@ -910,6 +1127,10 @@ public sealed partial class PhysicsEditorControl : EditorSurfaceControl, IResour
             _presetCombo.SelectedItem = _activePreset;
         else if (!_presetCombo.IsDisposed)
             _presetCombo.SelectedItem = "Custom";
+        foreach (Action sync in _physicsControlSync) sync();
+        _previewTargetControls.Sync(EditorPreviewTargetChrome.ParseKind(_document.PreviewAssetKind), _document.PreviewAssetPath ?? string.Empty);
+        _collisionMatrix?.Invalidate();
+        RefreshComputedMass();
     }
 
     private void SyncDimensionUi() =>
@@ -1091,16 +1312,10 @@ public sealed partial class PhysicsEditorControl : EditorSurfaceControl, IResour
 
     private void UpdateStatus()
     {
-        string mode = _authoringMode == PhysicsAuthoringMode.Code ? "Code" : "Properties";
+        if (_definitionError is not null) { _statusLabel.Text = "Definition error: " + _definitionError; return; }
         string dim = _document.Dimension == PhysicsDimension.TwoD ? "2D" : "3D";
-        string selection = _selectedPropIndex >= 0 ? $"prop {_selectedPropIndex}" : "no selection";
-        string target = string.IsNullOrWhiteSpace(_document.PreviewAssetPath)
-            ? "no target"
-            : ResourceDisplayName.Format(_document.PreviewAssetPath);
-        string gizmo = EditorTransformGizmo.StatusHint(_gizmoMode, _gizmoSpace, snap: false);
-        _statusLabel.Text =
-            $"{mode} · {dim} · {_activePreset} · {selection} · {target} · {gizmo} · " +
-            $"μ {_document.Friction:0.00}  e {_document.Restitution:0.00}  ρ {_document.Density:0.00} · " +
-            $"{(_paused ? "paused" : "playing")} {_simulationSpeed:0.00}×";
+        string selection = _selectedPropIndex >= 0 ? $" · Selected sample {_selectedPropIndex + 1}" : string.Empty;
+        _statusLabel.Text = $"{dim} · {_document.BodyType} · {_document.Shape}{selection} · {(_paused ? "Paused" : "Playing")} {_simulationSpeed:0.##}×";
+        UpdatePhysicsQuickFields();
     }
 }

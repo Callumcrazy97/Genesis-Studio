@@ -17,7 +17,7 @@ namespace Genesis.Runtime.Project
         private IRenderController _renderer;
         private TextureHandle _logo;
         private MeshHandle _cube;
-        private bool _submitted, _presented, _initialized;
+        private bool _submitted, _presented, _initialized, _readinessLogged;
         public bool IsComplete => _initialized && _presented && _warm.JobsDone == _warm.JobsTotal;
         public int JobsDone => _warm.JobsDone + (_presented ? 1 : 0);
         public int JobsTotal => _warm.JobsTotal + 1;
@@ -34,7 +34,11 @@ namespace Genesis.Runtime.Project
             if (renderer == null) throw new ArgumentNullException(nameof(renderer));
             _renderer = renderer;
             string logo = GenesisBranding.ResolveSplashPath();
-            if (!string.IsNullOrEmpty(logo) && File.Exists(logo)) _logo = renderer.LoadTexture(logo);
+            if (!string.IsNullOrEmpty(logo) && File.Exists(logo))
+            {
+                _logo = renderer.LoadTexture(logo);
+                if (_logo.IsValid) _logger?.Line("Boot splash logo: " + Path.GetFullPath(logo));
+            }
             _warm.BuildCriticalList(_projectPath, _startRoom);
             _initialized = true;
             _logger?.Line($"Measured runtime preload: {_warm.JobsTotal} asset jobs + one presented graphics warmup.");
@@ -43,6 +47,7 @@ namespace Genesis.Runtime.Project
         {
             if (!_initialized || IsComplete) return;
             _warm.WarmStep(renderer, maxItems: 4);
+            LogReadiness();
         }
         public void DrawLogo(IRenderController renderer)
         {
@@ -65,7 +70,17 @@ namespace Genesis.Runtime.Project
             renderer.DrawSprite(sprite);
         }
         /// <summary>Called only after Present returned successfully, never after a swallowed exception.</summary>
-        public void NotifyPresented() { if (_submitted) _presented = true; }
+        public void NotifyPresented()
+        {
+            if (_submitted) _presented = true;
+            LogReadiness();
+        }
+        private void LogReadiness()
+        {
+            if (!IsComplete || _readinessLogged) return;
+            _readinessLogged = true;
+            _logger?.Line("Runtime boot ready: critical assets prepared and graphics warmup presented.");
+        }
         public void DrawOverlay(IOverlayCanvas canvas, int width, int height)
         {
             if (IsComplete || canvas == null) return;

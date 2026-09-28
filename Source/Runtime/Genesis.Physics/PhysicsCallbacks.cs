@@ -103,10 +103,13 @@ internal struct PhysicsPoseCallbacks : IPoseIntegratorCallbacks
                 GetFloatLane(in velocity.Linear.Z, lane));
 
             if (binding.UseGravity)
+            {
                 // Gravity is acceleration and therefore independent of mass/weight. Weight only
                 // affects authored drag/inertia behavior; multiplying gravity by it made a 75 kg
                 // character accelerate downward at 735 m/s² and defeated jumping/buoyancy.
                 linear += _gravity * binding.GravityScale * laneDt;
+                if (binding.PlanarTwoD) linear.Z = 0;
+            }
 
             if (_airDrag > 0f)
             {

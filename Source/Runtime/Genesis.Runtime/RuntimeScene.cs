@@ -112,6 +112,8 @@ namespace Genesis.Runtime
         /// <summary>Dedicated 60Hz physics worker (R7.12). Null only after dispose.</summary>
         public PhysicsMotorway PhysicsMotorway => _physicsMotorway ??= new PhysicsMotorway();
 
+        public bool IsSpritePhysicsScene { get; internal set; }
+
         public PhysicsWorld Physics
         {
             get => _physics;
@@ -464,6 +466,7 @@ namespace Genesis.Runtime
             RemovePhysicsSystems();
             _physics?.Dispose();
             _physics = null;
+            IsSpritePhysicsScene = false;
             _physicsSystemsRegistered = false;
             _waterVolumes.Clear();
 
@@ -511,6 +514,11 @@ namespace Genesis.Runtime
             {
                 if (!World.Has<Genesis.Runtime.ECS.Components.TransformComponent>(entity)) return;
                 ref Genesis.Runtime.ECS.Components.TransformComponent transform = ref World.GetRef<Genesis.Runtime.ECS.Components.TransformComponent>(entity);
+                if (World.Has<Scene.SpritePhysicsBindingComponent>(entity))
+                {
+                    Scene.SpritePhysicsBinding.SyncSprite(World.GetRef<Scene.SpritePhysicsBindingComponent>(entity), transform3D, ref transform);
+                    return;
+                }
                 transform.X = transform3D.Position.X;
                 transform.Y = transform3D.Position.Y;
                 transform.Z = transform3D.Position.Z;

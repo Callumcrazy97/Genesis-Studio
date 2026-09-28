@@ -62,8 +62,8 @@ public sealed class ResourceInspectorPropertySurface : Panel
 
     private readonly TableLayoutPanel _groups;
     private readonly Dictionary<string, Action<object?>> _setters =
-        new(StringComparer.OrdinalIgnoreCase);
-    private readonly HashSet<string> _livePropertyPaths = new(StringComparer.OrdinalIgnoreCase);
+        new(StringComparer.Ordinal);
+    private readonly HashSet<string> _livePropertyPaths = new(StringComparer.Ordinal);
     private readonly List<string> _groupNames = [];
     private readonly List<GroupView> _groupViews = [];
     private readonly Dictionary<string, bool> _groupExpansion = new(StringComparer.OrdinalIgnoreCase);
@@ -75,10 +75,11 @@ public sealed class ResourceInspectorPropertySurface : Panel
     private string _liveSchema = string.Empty;
     private bool _includeResourceDocument;
     private bool _refreshingValues;
-    private readonly Dictionary<string, object?> _lastLiveValues = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, object?> _lastLiveValues = new(StringComparer.Ordinal);
     private (long Ticks, long Length) _documentStamp;
     private bool _documentSchemaDirty;
-    private readonly Dictionary<string, (Control Control, object Initial)> _drawers = new(StringComparer.OrdinalIgnoreCase);
+    private bool _arrangingFields;
+    private readonly Dictionary<string, (Control Control, object Initial)> _drawers = new(StringComparer.Ordinal);
 
     /// <summary>Diagnostics used by regression tests: scalar edits must not increase this counter.</summary>
     public int LayoutBuildCount { get; private set; }
@@ -106,6 +107,7 @@ public sealed class ResourceInspectorPropertySurface : Panel
         };
         _groups.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         Controls.Add(_groups);
+        _groups.SizeChanged += (_, _) => ApplyInterfaceLayout();
     }
 
     [Browsable(false)]
@@ -117,6 +119,14 @@ public sealed class ResourceInspectorPropertySurface : Panel
     public IReadOnlyList<string> EditablePropertyPaths => _setters.Keys.ToArray();
 
     public IReadOnlyList<string> GroupNames => _groupNames.ToArray();
+
+    public bool SetGroupExpanded(string title, bool expanded)
+    {
+        GroupView? group = _groupViews.FirstOrDefault(group => group.Title.Equals(title, StringComparison.OrdinalIgnoreCase));
+        if (group is null) return false;
+        if (group.Expanded != expanded) group.Header.PerformClick();
+        return true;
+    }
 
     public bool HasContent => _groups.RowCount > 0;
 
@@ -234,10 +244,13 @@ public sealed class ResourceInspectorPropertySurface : Panel
 
     public void ApplyTheme()
     {
+        Font = EditorChrome.BaseFont;
         BackColor = EditorChrome.Canvas;
         _groups.BackColor = EditorChrome.Canvas;
-        foreach (Control control in Descendants(this))
+        foreach (Control control in Descendants(this).ToArray())
         {
+            control.Font = control is Button { Name: var name } && name.StartsWith("InspectorGroup", StringComparison.Ordinal)
+                ? EditorChrome.HeadingFont : EditorChrome.BaseFont;
             switch (control)
             {
                 case Button button when button.Name.StartsWith("InspectorGroup", StringComparison.Ordinal):
@@ -285,6 +298,42 @@ public sealed class ResourceInspectorPropertySurface : Panel
                     break;
             }
         }
+        ApplyInterfaceLayout();
+    }
+
+    public void ApplyInterfaceLayout()
+    {
+        if (_arrangingFields || IsDisposed) return;
+        _arrangingFields = true;
+        try
+        {
+            foreach (GroupView group in _groupViews.ToArray())
+            {
+                if (group.Container.IsDisposed) continue;
+                if (group.Container is TableLayoutPanel card)
+                    card.RowStyles[0].Height = Math.Max(36, TextRenderer.MeasureText("Ag", group.Header.Font).Height + 16);
+                if (group.Body is not TableLayoutPanel body) continue;
+                for (int row = 0; row < body.RowCount; row++)
+                {
+                    Control? field = body.GetControlFromPosition(0, row);
+                    if (field is Panel { Name: "InspectorStackField" } stack)
+                    {
+                        Label label = stack.Controls.OfType<Label>().Single();
+                        Control editor = stack.Controls.Cast<Control>().Single(control => control != label);
+                        label.Height = TextRenderer.MeasureText("Ag", label.Font).Height + 4;
+                        editor.Height = TextRenderer.MeasureText("Ag", editor.Font).Height + 14;
+                        body.RowStyles[row].Height = label.Height + editor.Height + 10;
+                    }
+                    else if (field is Label label)
+                    {
+                        int available = Math.Max(80, (int)(body.ClientSize.Width * .48f) - label.Margin.Horizontal);
+                        int height = TextRenderer.MeasureText(label.Text, label.Font, new Size(available, int.MaxValue), TextFormatFlags.WordBreak).Height;
+                        body.RowStyles[row].Height = Math.Max(36, height + 16);
+                    }
+                }
+            }
+        }
+        finally { _arrangingFields = false; }
     }
 
     private void BuildJson(string text, ResourceKind kind)
@@ -826,10 +875,10 @@ public sealed class ResourceInspectorPropertySurface : Panel
     private void BuildPgsl(string source)
     {
         List<FieldSpec> fields = [];
-        foreach (PgslInspectableVariables.Variable variable in PgslInspectableVariables.Reflect(source))
+        foreach (PgslInspectableVariables.Variable variable in PgslInspectableVariables.Reflect(source, _projectRoot))
         {
             string path = "Variables." + variable.Name;
-            fields.Add(new FieldSpec(Humanize(variable.Name), path, variable.Value, newValue =>
+            fields.Add(new FieldSpec(variable.Name, path, variable.Value, newValue =>
             {
                 if (_resource is null) return;
                 string current = File.Exists(_resource.FullPath)
@@ -841,7 +890,7 @@ public sealed class ResourceInspectorPropertySurface : Panel
                     return;
                 }
                 CommitText(path, newValue, updated);
-            }, null));
+            }, null, AssetKind: variable.AssetKind));
             _setters[path] = fields[^1].Set;
             _fieldCount++;
         }
@@ -866,7 +915,7 @@ public sealed class ResourceInspectorPropertySurface : Panel
         {
             List<FieldSpec> fields = [];
             List<ResourceInspectorLiveValue> groupValues = group.ToList();
-            HashSet<string> consumed = new(StringComparer.OrdinalIgnoreCase);
+            HashSet<string> consumed = new(StringComparer.Ordinal);
             foreach (ResourceInspectorLiveValue value in groupValues)
             {
                 if (consumed.Contains(value.PropertyPath)) continue;
@@ -891,8 +940,10 @@ public sealed class ResourceInspectorPropertySurface : Panel
             if (fields.Count > 0)
             {
                 bool importantRuntimeGroup = group.Key.Equals("INSTANCE FIELDS", StringComparison.OrdinalIgnoreCase)
+                                             || group.Key.Equals("Instance variables", StringComparison.OrdinalIgnoreCase)
                                              || group.Key.EndsWith(" EVENT", StringComparison.OrdinalIgnoreCase);
-                AddGroup(group.Key, fields, expanded: groupIndex == 0 || importantRuntimeGroup);
+                AddGroup(group.Key, fields, expanded: groupIndex == 0 || importantRuntimeGroup
+                    || _resource?.Kind == ResourceKind.Room && group.Key is "Transform" or "Object reference");
                 groupIndex++;
             }
         }
@@ -913,10 +964,17 @@ public sealed class ResourceInspectorPropertySurface : Panel
         ResourceInspectorLiveValue? zValue = values.FirstOrDefault(candidate =>
             candidate.PropertyPath.Equals(prefix + ".Z", StringComparison.OrdinalIgnoreCase));
         if (yValue is null || !TryNumber(yValue.Value, out float y)) return false;
-        string label = Regex.Replace(first.Label, @"\s+X$", string.Empty, RegexOptions.IgnoreCase);
+        // Mixed read-only axes need separate drawers; a grouped vector would otherwise expose
+        // writes to the protected axis or hide edits to the other axes.
+        if (first.ReadOnly != yValue.ReadOnly || zValue is not null && first.ReadOnly != zValue.ReadOnly) return false;
+        string label = first.Label == "X" ? prefix == "Ui" ? "Position" : Humanize(PathLeaf(prefix))
+            : Regex.Replace(first.Label, @"\s+X(?=\s*(?:\(|$))", string.Empty, RegexOptions.IgnoreCase);
         if (zValue is not null && TryNumber(zValue.Value, out float z))
         {
             consumed.UnionWith([first.PropertyPath, yValue.PropertyPath, zValue.PropertyPath]);
+            RegisterLiveAxis(first);
+            RegisterLiveAxis(yValue);
+            RegisterLiveAxis(zValue);
             field = new FieldSpec(label, prefix, new Vector3(x, y, z), newValue =>
             {
                 if (newValue is not Vector3 vector) return;
@@ -927,6 +985,8 @@ public sealed class ResourceInspectorPropertySurface : Panel
             return true;
         }
         consumed.UnionWith([first.PropertyPath, yValue.PropertyPath]);
+        RegisterLiveAxis(first);
+        RegisterLiveAxis(yValue);
         field = new FieldSpec(label, prefix, new Vector2(x, y), newValue =>
         {
             if (newValue is not Vector2 vector) return;
@@ -934,6 +994,12 @@ public sealed class ResourceInspectorPropertySurface : Panel
             CommitLive(yValue.PropertyPath, ConvertLike(yValue.Value, vector.Y));
         }, null, first.ReadOnly && yValue.ReadOnly, first.Description);
         return true;
+    }
+
+    private void RegisterLiveAxis(ResourceInspectorLiveValue value)
+    {
+        if (!value.ReadOnly)
+            _setters[value.PropertyPath] = newValue => CommitLive(value.PropertyPath, ConvertLike(value.Value, newValue));
     }
 
     private static bool TryNumber(object value, out float number)
@@ -961,7 +1027,7 @@ public sealed class ResourceInspectorPropertySurface : Panel
             groups[group] = fields;
         }
         fields.Add(field);
-        _setters[field.Path] = field.Set;
+        if (!field.ReadOnly) _setters[field.Path] = field.Set;
         _fieldCount++;
     }
 
@@ -969,7 +1035,7 @@ public sealed class ResourceInspectorPropertySurface : Panel
     {
         if (register)
         {
-            foreach (FieldSpec field in fields) _setters[field.Path] = field.Set;
+            foreach (FieldSpec field in fields.Where(field => !field.ReadOnly)) _setters[field.Path] = field.Set;
         }
         _groupNames.Add(title);
         string caption = FormatGroupCaption(title);
@@ -1036,6 +1102,7 @@ public sealed class ResourceInspectorPropertySurface : Panel
             {
                 AccessibleName = $"{title} active",
                 Checked = (bool)enabledField.Initial,
+                Enabled = !enabledField.ReadOnly,
                 Dock = DockStyle.Right,
                 Text = string.Empty,
                 Width = 28,
@@ -1065,7 +1132,8 @@ public sealed class ResourceInspectorPropertySurface : Panel
         {
             FieldSpec field = bodyFields[row];
             bool compactVector = field.Initial is Vector2 or Vector3;
-            body.RowStyles.Add(new RowStyle(SizeType.Absolute, compactVector ? 36 : 42));
+            bool stackedField = compactVector || (field.AssetKind ?? AssetKindFor(field.Path)).HasValue;
+            body.RowStyles.Add(new RowStyle(SizeType.Absolute, stackedField ? 64 : 42));
             Label label = new()
             {
                 AutoEllipsis = true,
@@ -1078,9 +1146,31 @@ public sealed class ResourceInspectorPropertySurface : Panel
             Control editor = MakeEditor(field);
             editor.Enabled = !field.ReadOnly;
             editor.Dock = DockStyle.Fill;
+            if (editor is NumericUpDown or ComboBox or TextBoxBase)
+            {
+                editor.Dock = DockStyle.None;
+                editor.Anchor = AnchorStyles.Left | AnchorStyles.Right;
+            }
             editor.Margin = new Padding(0, 3, 0, 3);
-            body.Controls.Add(label, 0, row);
-            body.Controls.Add(editor, 1, row);
+            if (field.Initial is Genesis.Application.Editors.Suite.Rooms.RoomInspectorAction)
+            {
+                body.Controls.Add(editor, 0, row); body.SetColumnSpan(editor, 2);
+                label.Dispose();
+            }
+            else if (stackedField)
+            {
+                Panel vector = new() { Dock = DockStyle.Fill, Margin = new Padding(0, 3, 0, 3), Name = "InspectorStackField" };
+                label.Dock = DockStyle.Top; label.Height = 22; label.Margin = Padding.Empty;
+                editor.Dock = DockStyle.Bottom;
+                editor.Margin = Padding.Empty;
+                vector.Controls.Add(editor); vector.Controls.Add(label);
+                body.Controls.Add(vector, 0, row); body.SetColumnSpan(vector, 2);
+            }
+            else
+            {
+                body.Controls.Add(label, 0, row);
+                body.Controls.Add(editor, 1, row);
+            }
         }
         string expansionKey = (_resource?.FullPath ?? string.Empty) + "|" + title;
         if (_groupExpansion.TryGetValue(expansionKey, out bool remembered)) expanded = remembered;
@@ -1109,7 +1199,7 @@ public sealed class ResourceInspectorPropertySurface : Panel
         ToolStripMenuItem reset = new("Reset visible values");
         reset.Click += (_, _) =>
         {
-            foreach (FieldSpec field in fields) field.Set(field.Initial);
+            foreach (FieldSpec field in fields.Where(field => !field.ReadOnly)) field.Set(field.Initial);
         };
         menu.Items.Add(reset);
 
@@ -1139,6 +1229,19 @@ public sealed class ResourceInspectorPropertySurface : Panel
 
     private Control MakeEditor(FieldSpec field)
     {
+        if (field.Initial is Genesis.Application.Editors.Suite.Rooms.RoomInspectorAction action)
+        {
+            Button button = new() { Text = action.Text, Name = "InspectorProperty_" + SafeName(field.Path),
+                AutoEllipsis = true, UseMnemonic = false, Enabled = !field.ReadOnly };
+            EditorChrome.StyleField(button);
+            button.Click += (_, _) =>
+            {
+                if (_resource is not null && !field.ReadOnly
+                    && EditRouter?.Invoke(new ResourceInspectorEditRequest(_resource, field.Path, action)) == true)
+                    ResourceEdited?.Invoke(this, new ResourceInspectorEditedEventArgs(_resource, field.Path, action, true));
+            };
+            return button;
+        }
         NumericRange? range = field.Range ?? RangeFor(field.Path);
         Control control = PropertyDrawerRegistry.CreateControl(new PropertyDrawerContext(
             field.Label,
@@ -1156,6 +1259,17 @@ public sealed class ResourceInspectorPropertySurface : Panel
             FindForm(),
             "InspectorProperty_" + SafeName(field.Path),
             field.Description));
+        if (field.Initial is Vector2 or Vector3)
+        {
+            NumericUpDown[] axes = Descendants(control).OfType<NumericUpDown>().ToArray();
+            string[] names = ["X", "Y", "Z"];
+            for (int axis = 0; axis < axes.Length && axis < names.Length; axis++)
+            {
+                axes[axis].Name = "InspectorProperty_" + SafeName(field.Path + "." + names[axis]);
+                foreach (Label label in axes[axis].Parent!.Controls.OfType<Label>())
+                    label.Name = "InspectorAxis_" + SafeName(field.Path + "." + names[axis]);
+            }
+        }
         _drawers[field.Path] = (control, field.Initial);
         return control;
     }
@@ -1170,7 +1284,7 @@ public sealed class ResourceInspectorPropertySurface : Panel
                 .Append(value.ReadOnly).Append('|').Append(value.AssetKind).Append('|')
                 .Append(value.Minimum).Append('|').Append(value.Maximum).Append('|')
                 .Append(value.Increment).Append('|').Append(value.DecimalPlaces).Append('|')
-                .Append(value.Description).Append('|').AppendJoin('\t', value.Choices ?? []).AppendLine();
+                .AppendJoin('\t', value.Choices ?? []).AppendLine();
         }
         return schema.ToString();
     }
@@ -1178,9 +1292,12 @@ public sealed class ResourceInspectorPropertySurface : Panel
     private void RefreshLiveValues(IReadOnlyList<ResourceInspectorLiveValue> values)
     {
         ValueRefreshCount++;
-        Dictionary<string, object?> current = new(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, object?> current = new(StringComparer.Ordinal);
         foreach (ResourceInspectorLiveValue value in values)
-        { current[value.PropertyPath] = value.Value; _lastLiveValues[value.PropertyPath] = value.Value; }
+        {
+            current[value.PropertyPath] = value.Value; _lastLiveValues[value.PropertyPath] = value.Value;
+            if (_drawers.TryGetValue(value.PropertyPath, out var drawer)) drawer.Control.AccessibleDescription = value.Description;
+        }
         _refreshingValues = true;
         try
         {
@@ -1190,10 +1307,10 @@ public sealed class ResourceInspectorPropertySurface : Panel
                 if (entry.Value.Initial is Vector2 or Vector3
                     && !current.TryGetValue(entry.Key, out value))
                 {
-                    if (!current.TryGetValue(entry.Key + ".X", out object? x)
-                        || !current.TryGetValue(entry.Key + ".Y", out object? y)) continue;
+                    if (!TryAxis(entry.Key, 'X', out object? x)
+                        || !TryAxis(entry.Key, 'Y', out object? y)) continue;
                     float vx = Convert.ToSingle(x, CultureInfo.InvariantCulture), vy = Convert.ToSingle(y, CultureInfo.InvariantCulture);
-                    value = entry.Value.Initial is Vector3 && current.TryGetValue(entry.Key + ".Z", out object? z)
+                    value = entry.Value.Initial is Vector3 && TryAxis(entry.Key, 'Z', out object? z)
                         ? new Vector3(vx, vy, Convert.ToSingle(z, CultureInfo.InvariantCulture))
                         : new Vector2(vx, vy);
                 }
@@ -1202,6 +1319,8 @@ public sealed class ResourceInspectorPropertySurface : Panel
             }
         }
         finally { _refreshingValues = false; }
+        bool TryAxis(string prefix, char axis, out object? value) => current.TryGetValue(prefix + "." + axis, out value)
+            || current.TryGetValue(prefix + "." + char.ToLowerInvariant(axis), out value);
     }
 
     private static (long Ticks, long Length) DocumentStamp(string path)
@@ -1391,7 +1510,8 @@ public sealed class ResourceInspectorPropertySurface : Panel
 
     private static bool IsInspectableLiveValue(object value) =>
         value is bool or string or byte or sbyte or short or ushort or int or uint or long or ulong
-            or float or double or decimal or Vector2 or Vector3 or Color;
+            or float or double or decimal or Vector2 or Vector3 or Color
+            or Genesis.Application.Editors.Suite.Rooms.RoomInspectorAction;
 
     private static bool IsMetadata(string name) => name.Equals("schemaVersion", StringComparison.OrdinalIgnoreCase)
                                                     || name.Equals("version", StringComparison.OrdinalIgnoreCase)

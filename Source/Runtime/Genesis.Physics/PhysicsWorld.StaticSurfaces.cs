@@ -18,6 +18,24 @@ public sealed partial class PhysicsWorld
 
     private readonly Dictionary<int, ExternalStatic> _externalStatics = new();
 
+    /// <summary>Scene-owned collision geometry, without creating gameplay instances for tiles.</summary>
+    public int RegisterStaticBox(Vector3 position, Vector3 halfExtents, string label, float friction = .9f)
+    {
+        if (halfExtents.X <= 0 || halfExtents.Y <= 0 || halfExtents.Z <= 0
+            || !float.IsFinite(halfExtents.LengthSquared()) || !float.IsFinite(position.LengthSquared()))
+            throw new ArgumentException("Static box position and extents must be finite and positive.");
+        TypedIndex shape = _simulation.Shapes.Add(new Box(halfExtents.X * 2, halfExtents.Y * 2, halfExtents.Z * 2));
+        StaticHandle handle = _simulation.Statics.Add(new StaticDescription(position, Quaternion.Identity, shape));
+        int registrationId = _nextRegistrationId++;
+        _staticHandles[handle] = registrationId;
+        _staticFriction[handle] = ClampFriction(friction);
+        _staticRestitution[handle] = 0;
+        _staticSensor[handle] = false;
+        _staticCollisionFilter[handle] = (0, 0x7Fu);
+        _externalStatics[registrationId] = new ExternalStatic { Handle = handle, Shape = shape, Label = label ?? string.Empty };
+        return registrationId;
+    }
+
     /// <summary>Registers a static triangle mesh owned by a scene subsystem.</summary>
     public int RegisterStaticTriangleMesh(
         IReadOnlyList<Vector3> vertices,

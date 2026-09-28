@@ -21,8 +21,8 @@ public sealed class PgslRecordingDrawSurface : IPgslDrawSurface
     public readonly record struct RectRecord(float X, float Y, float W, float H, bool Filled, Color Color);
     public readonly record struct CircleRecord(float X, float Y, float Radius, bool Filled, Color Color);
     public readonly record struct LineRecord(float X1, float Y1, float X2, float Y2, float Thickness, Color Color);
-    public readonly record struct TextRecord(string Text, float X, float Y, float Size, Color Color);
-    public readonly record struct SpriteRecord(string Sprite, float X, float Y, int Frame, float Angle, float Alpha);
+    public readonly record struct TextRecord(string Text, float X, float Y, float Size, Color Color, string Font = "Segoe UI", Rectangle? UiBounds = null, bool Centered = false);
+    public readonly record struct SpriteRecord(string Sprite, float X, float Y, int Frame, float Angle, float Alpha, RectangleF? Destination = null);
     public readonly record struct CubeRecord(float X, float Y, float Z, float SX, float SY, float SZ, Color Color);
     public readonly record struct SphereRecord(float X, float Y, float Z, float Radius, Color Color);
     public readonly record struct ModelRecord(string Name, float X, float Y, float Z, float Scale, Color Color);
@@ -88,11 +88,16 @@ public sealed class PgslRecordingDrawSurface : IPgslDrawSurface
         Circles.Add(new CircleRecord(centerX, centerY, radius, false, color));
 
     public void DrawText(string text, string font, float size, Color color, Rectangle bounds) =>
-        Texts.Add(new TextRecord(text, bounds.X, bounds.Y, size, color));
+        Texts.Add(new TextRecord(text, bounds.X, bounds.Y, size, color, font));
+    public void DrawUiText(string text, string font, float size, Color color, Rectangle bounds, bool centered) =>
+        Texts.Add(new TextRecord(text, bounds.X, bounds.Y, size, color, font, bounds, centered));
 
     public void DrawSprite(
         string spriteName, float x, float y, int frame, float xscale, float yscale, float angle, Color blend, float alpha) =>
         Sprites.Add(new SpriteRecord(spriteName, x, y, frame, angle, alpha));
+
+    public void DrawSpriteRectangle(string spriteName, RectangleF destination, int frame, Color blend, float alpha) =>
+        Sprites.Add(new SpriteRecord(spriteName, destination.X, destination.Y, frame, 0, alpha, destination));
 
     public void QueueCube3D(float x, float y, float z, float sx, float sy, float sz, Color color, float alpha) =>
         Cubes.Add(new CubeRecord(x, y, z, sx, sy, sz, color));

@@ -27,13 +27,21 @@ public sealed partial class ImageEditorControl
     private void OpenRigStudio(int tab)
     {
         if (Genesis.Application.Core.Diagnostics.UnattendedSession.IsActive || _workspace.CurrentLayer == null || _workspace.CurrentFrame == null) return;
+        using var dialog = CreateRigStudioDialog(tab);
+        dialog.ShowDialog(this);
+    }
+
+    public PixelRigStudioDialog CreateRigStudioDialog(int tab)
+    {
+        if (_workspace.CurrentLayer == null || _workspace.CurrentFrame == null)
+            throw new InvalidOperationException("Select a frame and layer before opening Rig.");
         CommitFloatingSelection(); StopPlayback();
         ImageFrameTargetControl? target=null;
-        using var dialog = new PixelRigStudioDialog(_session.Document.PixelRigs, _workspace.CurrentLayer.Pixels,
+        var dialog = new PixelRigStudioDialog(_session.Document.PixelRigs, _workspace.CurrentLayer.Pixels,
             _workspace.Width,_workspace.Height,_workspace.CurrentLayer.Id.ToString("N"),_workspace.CurrentFrame.Id.ToString("N"),
             SavePixelRig,DeletePixelRig,pixels=>InFrameScope(target!.FrameIndices,()=>ApplyPixelRigPose(pixels)),GeneratePoseAnimationAsync,tab);
         target=AttachFrameTargets(dialog,"Apply pose uses these existing frames. Generate frames uses the pose assignments on the Animate page.");
-        dialog.ShowDialog(this);
+        return dialog;
     }
 
     public void ApplyPixelRigPose(byte[] pixels)

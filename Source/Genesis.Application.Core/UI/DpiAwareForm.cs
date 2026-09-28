@@ -22,6 +22,8 @@ public class DpiAwareForm : Form
         AutoScaleMode = AutoScaleMode.Dpi;
     }
 
+    public virtual void ApplyInterfaceLayout() { }
+
     protected override void OnLoad(EventArgs e)
     {
         ApplyInitialDpiScale();
@@ -33,6 +35,7 @@ public class DpiAwareForm : Form
     {
         base.OnDpiChanged(e);
         DpiLayout.ConstrainToWorkingArea(this);
+        ApplyInterfaceLayout();
     }
 
     protected override void OnShown(EventArgs e)
@@ -42,6 +45,7 @@ public class DpiAwareForm : Form
         // handlers calculate responsive columns. Without this pass, a 200%-DPI Project Hub could
         // retain its pre-constraint content width and draw the third action card off-window.
         PerformLayout();
+        ApplyInterfaceLayout();
         base.OnShown(e);
         PerformLayout();
     }

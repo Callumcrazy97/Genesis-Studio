@@ -47,6 +47,7 @@ internal static class VectorDrawerRow
             Margin = Padding.Empty,
             RowCount = 1,
         };
+        row.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         float[] values = components.Select(component => component.Value).ToArray();
         bool syncing = false;
         for (int index = 0; index < components.Count; index++)
@@ -60,6 +61,7 @@ internal static class VectorDrawerRow
                 Margin = new Padding(index == 0 ? 0 : 3, 0, 0, 0),
                 RowCount = 1,
             };
+            axis.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             axis.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 18));
             axis.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             Label label = new()
@@ -70,11 +72,12 @@ internal static class VectorDrawerRow
                 ForeColor = components[index].Colour,
                 Text = components[index].Axis,
                 TextAlign = ContentAlignment.MiddleCenter,
+                Margin = Padding.Empty,
             };
             NumericUpDown number = new()
             {
                 DecimalPlaces = 3,
-                Dock = DockStyle.Fill,
+                Anchor = AnchorStyles.Left | AnchorStyles.Right,
                 Increment = 0.05m,
                 Minimum = -1_000_000m,
                 Maximum = 1_000_000m,
@@ -185,6 +188,7 @@ public sealed class RangedNumericDrawer : IPropertyDrawer
         };
         row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 86));
+        row.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         TrackBar slider = new()
         {
             AutoSize = false,
@@ -199,7 +203,7 @@ public sealed class RangedNumericDrawer : IPropertyDrawer
         NumericUpDown number = new()
         {
             DecimalPlaces = integral ? 0 : Math.Clamp(context.DecimalPlaces ?? 3, 0, 8),
-            Dock = DockStyle.Fill,
+            Anchor = AnchorStyles.Left | AnchorStyles.Right,
             Increment = integral ? Math.Max(1m, context.Increment ?? 1m) : Math.Max(0.00000001m, context.Increment ?? 0.05m),
             Maximum = maximum,
             Minimum = minimum,
@@ -359,25 +363,53 @@ public sealed class AssetReferenceDrawer : IPropertyDrawer
 
     public Control CreateDrawer(PropertyDrawerContext context)
     {
-        TableLayoutPanel row = new()
+        return new AssetReferenceField(context);
+    }
+}
+
+internal sealed class AssetReferenceField : TableLayoutPanel
+{
+    private sealed record Choice(string Reference, string Caption)
+    {
+        public override string ToString() => Caption;
+    }
+
+    private readonly PropertyDrawerContext _context;
+    private readonly ComboBox _choices;
+    private string _reference = string.Empty;
+    private bool _refreshing;
+
+    public AssetReferenceField(PropertyDrawerContext context)
+    {
+        _context = context;
+        ColumnCount = 2;
+        RowCount = 1;
+        Margin = Padding.Empty;
+        ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 34));
+        RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        FontChanged += (_, _) => ColumnStyles[1].Width = Math.Max(34, TextRenderer.MeasureText("…", Font).Width + 16);
+        _choices = new ComboBox
         {
-            ColumnCount = 2,
+            Anchor = AnchorStyles.Left | AnchorStyles.Right,
+            DropDownStyle = ComboBoxStyle.DropDownList,
             Margin = Padding.Empty,
-            RowCount = 1,
+            AccessibleName = "Choose " + ResourceDefinitions.Get(context.AssetKind!.Value).DisplayName,
+            FlatStyle = FlatStyle.Flat,
         };
-        row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 34));
-        TextBox value = new()
+        _choices.DropDown += (_, _) => RefreshReference(_reference);
+        _choices.SelectedIndexChanged += (_, _) =>
         {
-            Dock = DockStyle.Fill,
-            ReadOnly = true,
-            Text = ResourceNames.Name(context.ProjectRoot!, Convert.ToString(context.InitialValue, CultureInfo.InvariantCulture) ?? string.Empty),
+            if (_refreshing || _choices.SelectedItem is not Choice choice) return;
+            _reference = choice.Reference;
+            _context.ValueChanged(_reference);
         };
         Button browse = new()
         {
             Dock = DockStyle.Fill,
             Margin = new Padding(3, 0, 0, 0),
             Text = "…",
+            AccessibleName = "Browse " + ResourceDefinitions.Get(context.AssetKind!.Value).DisplayName + " resources",
         };
         browse.Click += (_, _) =>
         {
@@ -385,15 +417,38 @@ public sealed class AssetReferenceDrawer : IPropertyDrawer
                 new AssetPickerRequest(
                     context.ProjectRoot!,
                     context.AssetKind!.Value,
-                    value.Text),
+                    _reference, AllowNone: true),
                 context.DialogOwner ?? browse.FindForm());
             if (selected is null) return;
-            value.Text = selected.Reference;
-            context.ValueChanged(value.Text);
+            RefreshReference(selected.Reference);
+            context.ValueChanged(_reference);
         };
-        row.Controls.Add(value, 0, 0);
-        row.Controls.Add(browse, 1, 0);
-        return row;
+        Controls.Add(_choices, 0, 0);
+        Controls.Add(browse, 1, 0);
+        RefreshReference(Convert.ToString(context.InitialValue, CultureInfo.InvariantCulture) ?? string.Empty);
+    }
+
+    public void RefreshReference(string reference)
+    {
+        _refreshing = true;
+        try
+        {
+            _reference = ResourceNames.Name(_context.ProjectRoot!, reference);
+            _choices.BeginUpdate();
+            _choices.Items.Clear();
+            _choices.Items.Add(new Choice(string.Empty, "None"));
+            foreach (ProjectAssetEntry asset in ProjectAssetIndex.Enumerate(_context.ProjectRoot!, _context.AssetKind!.Value))
+                _choices.Items.Add(new Choice(asset.Reference, asset.DisplayName));
+            Choice? selected = _choices.Items.Cast<Choice>().FirstOrDefault(item =>
+                string.Equals(item.Reference, _reference, StringComparison.OrdinalIgnoreCase));
+            if (selected is null)
+            {
+                selected = new Choice(_reference, "Missing: " + _reference);
+                _choices.Items.Add(selected);
+            }
+            _choices.SelectedItem = selected;
+        }
+        finally { _choices.EndUpdate(); _refreshing = false; }
     }
 }
 

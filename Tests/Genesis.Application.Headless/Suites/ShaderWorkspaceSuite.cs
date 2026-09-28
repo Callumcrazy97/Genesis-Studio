@@ -28,7 +28,7 @@ internal static class ShaderWorkspaceSuite
         string object3D = resources.CreateResource(resources.AssetsRoot, ResourceKind.GameObject, "3D object");
         WriteObject(object2D, "TwoD", "SpriteComponent", new JObject { ["Sprite"] = Relative(picture) });
         WriteObject(object3D, "ThreeD", "ModelRendererComponent", new JObject { ["ModelAsset"] = Relative(model), ["ScaleX"] = 2, ["ScaleY"] = 1, ["ScaleZ"] = 1 });
-        string terrainEntity = Path.Combine(resources.AssetsRoot, "Terrain model.terrainentity.json");
+        string terrainEntity = resources.CreateResource(resources.AssetsRoot, ResourceKind.GameObject, "Terrain model");
         WriteObject(terrainEntity, "ThreeD", "Model", new JObject { ["Model"] = Relative(model) });
         JObject terrainDocument = JObject.Parse(File.ReadAllText(terrain));
         terrainDocument["entities"] = new JArray(Relative(terrainEntity));
@@ -87,7 +87,8 @@ internal static class ShaderWorkspaceSuite
                     Assert(editor.ChoosePreviewAsset(terrain), "Cannot choose a terrain resource.");
                     Assert(editor.TryApplyInspectorValue("TargetComponent", "entity:" + Relative(terrainEntity)), "Cannot choose the terrain's model entity.");
                     Warm(editor);
-                    Assert(editor.PreviewObjectModel == Relative(model) && editor.LastCompileSucceeded, "Terrain entity did not preview its model.");
+                    Assert(editor.PreviewObjectModel == ResourceNames.Name(project.RootPath, model, ResourceType.Model) && editor.LastCompileSucceeded,
+                        "Terrain entity did not preview its model: " + editor.PreviewObjectModel + " · " + editor.DiagnosticText);
                     editor.SelectPreset("Model Rainbow");
                     editor.SetTargetType(ShaderTargetType.Object);
                     Console.WriteLine("  Preview: 2D Object");
@@ -99,7 +100,7 @@ internal static class ShaderWorkspaceSuite
                     editor.CompileNow();
                     Warm(editor);
                     Assert(editor.Pipeline == ShaderAssetPipeline.Mesh && !editor.Viewport.Mode2D && editor.LastCompileSucceeded, "3D Object did not choose a working model preview: " + editor.DiagnosticText);
-                    Assert(editor.PreviewObjectModel == Relative(model), "The Object model component was not resolved.");
+                    Assert(editor.PreviewObjectModel == ResourceNames.Name(project.RootPath, model, ResourceType.Model), "The Object model component was not resolved.");
                     Assert(!editor.IsPreviewPlaying, "Changing targets unexpectedly started playback.");
                     editor.SetPlayback(true); GateSuite.Pump(3, 30);
                     Assert(editor.IsPreviewPlaying && editor.PreviewFrame > 0, "Play did not advance shader time.");
@@ -112,7 +113,7 @@ internal static class ShaderWorkspaceSuite
                     editor.Save();
                     Console.WriteLine("  Save/reopen Object target");
                     using (var reopened = new ShaderEditorControl(shader, project.RootPath))
-                        Assert(reopened.TargetType == ShaderTargetType.Object && reopened.PreviewAsset == Relative(object3D) && reopened.Pipeline == ShaderAssetPipeline.Mesh, "Object preview did not survive save/reopen.");
+                        Assert(reopened.TargetType == ShaderTargetType.Object && reopened.PreviewAsset == ResourceNames.Name(project.RootPath, object3D, ResourceType.Object) && reopened.Pipeline == ShaderAssetPipeline.Mesh, "Object preview did not survive save/reopen.");
                     ValidateLayout(editor, compact: backend == RenderBackendOption.Software);
                     Capture(host, "shader-object-" + backend);
                     if (backend != RenderBackendOption.OpenGL) return;
@@ -138,7 +139,7 @@ internal static class ShaderWorkspaceSuite
                     editor.SetFloorStyle(EditorFloorStyle.Plain);
                     Warm(editor); Capture(host, "shader-model-grounded");
                     editor.SetFloorStyle(EditorFloorStyle.GridOnly);
-                    editor.Controls.Find("ShaderPresetsToggle", true).OfType<Button>().Single().PerformClick();
+                    OpenOptionsPage(editor, "Presets");
                     Capture(host, "shader-presets");
                     editor.SetAuthoringMode(ShaderAuthoringMode.Code);
                     Warm(editor); Capture(host, "shader-code-model");
@@ -147,11 +148,11 @@ internal static class ShaderWorkspaceSuite
                         host.ClientSize = size;
                         Warm(editor);
                         ValidateLayout(editor, stackedCode: true);
-                        Control source = editor.Controls.Find("ShaderCodeSurface", true).Single();
+                        Control source = Controls(editor).OfType<Genesis.Application.Editors.Suite.Scripts.CodeEditor>().Single();
                         Assert(source.Visible && source.Width >= 600 && source.Height >= 160,
                             "Narrow code workspace hid or crowded out the source editor.");
-                        Assert(editor.PreviewVisible && editor.Viewport.Visible,
-                            "Narrow code workspace hid the shader's live preview.");
+                        Assert(!editor.PreviewVisible && source.Width >= editor.Width - 8,
+                            "Narrow code workspace did not retain the whole width for source and assistance.");
                         Capture(host, "shader-code-" + size.Width);
                     }
                     host.ClientSize = new Size(1440, 900);
@@ -169,7 +170,7 @@ internal static class ShaderWorkspaceSuite
                     editor.CompileNow();
                     Assert(editor.SetParameterValue("Tint", 1f, .8f, .6f, 1f), "Vector parameter was not exposed.");
                     editor.SetAuthoringMode(ShaderAuthoringMode.Preset);
-                    editor.Controls.Find("ShaderPresetsToggle", true).OfType<Button>().Single().PerformClick();
+                    OpenOptionsPage(editor, "Parameters");
                     Warm(editor);
                     Control tintCard = editor.Controls.Find("ShaderParameterCard", true).Single(card =>
                         card.Controls.OfType<Label>().Any(label => label.Text == "Tint"));
@@ -208,15 +209,31 @@ internal static class ShaderWorkspaceSuite
 
     private static void ValidateLayout(ShaderEditorControl editor, bool compact = false, bool stackedCode = false)
     {
-        var menus = (ToolStrip)editor.Controls.Find("ShaderMenus", true).Single();
-        Assert(menus.Items.Cast<ToolStripItem>().All(item => item.Height >= item.Font.Height + 4), "File/Edit menu text is clipped vertically.");
-        Control setup = editor.Controls.Find("ShaderPreviewSetup", true).Single();
-        foreach (Control control in setup.Controls.Cast<Control>().Where(c => c.Visible))
-            Assert(setup.ClientRectangle.Contains(control.Bounds), "Target control is clipped: " + control.Name);
-        Control transport = editor.Controls.Find("ShaderTransport", true).Single();
-        Assert(editor.Viewport.Width >= (compact ? 320 : 420) && editor.Viewport.Height >= (compact || stackedCode ? 160 : 280), "Controls crowded out the shader preview.");
-        Assert(transport.Visible && transport.Height >= 40, "Playback controls are clipped.");
-        Assert(transport.Controls.OfType<Button>().Select(b => b.Text).Order().SequenceEqual(new[] { "Play", "Stop" }), "Transport contains unexpected controls.");
+        Assert(editor.CommandBar.IsSaveVisible && editor.CommandBar.IsDocumentStateVisible,
+            "Shader Save or document state is inaccessible.");
+        if (stackedCode)
+        {
+            var code = Controls(editor).OfType<Genesis.Application.Editors.Suite.Scripts.CodeEditor>().Single();
+            Assert(code.Visible && code.Width >= editor.Width - 8 && code.Height >= 160,
+                "Code lost its full editing area.");
+            return;
+        }
+        Assert(editor.Viewport.Width >= (compact ? 260 : 420) && editor.Viewport.Height >= (compact ? 160 : 280),
+            "Quick setup crowded out the shader preview.");
+        Control quick = editor.Controls.Find("ShaderQuickSetup", true).Single();
+        Assert(quick.Visible && quick.Width >= 240, "Quick setup has no usable starting panel.");
+        ComboBox effect = Controls(editor).OfType<ComboBox>().Single(control => control.Name == "ShaderQuickPreset");
+        Assert(effect.Visible && effect.Width >= 200 && effect.Height >= effect.Font.Height,
+            "The effect selector is clipped.");
+    }
+
+    private static void OpenOptionsPage(ShaderEditorControl editor, string page) => editor.CommandBar.Items
+        .OfType<ToolStripDropDownButton>().Single(item => item.Text == "Options").DropDownItems.OfType<ToolStripMenuItem>()
+        .Single(item => item.Tag as string == page).PerformClick();
+
+    private static IEnumerable<Control> Controls(Control root)
+    {
+        foreach (Control child in root.Controls) { yield return child; foreach (Control nested in Controls(child)) yield return nested; }
     }
 
     private static void Assert(bool condition, string message) => HeadlessHarness.Assert(condition, message);

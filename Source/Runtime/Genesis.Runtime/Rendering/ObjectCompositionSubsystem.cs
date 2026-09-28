@@ -58,6 +58,8 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem
         public uint Sequence;
         public Matrix4x4 World = Matrix4x4.Identity;
         public ParticleDiagnostics LastDiagnostics;
+        public readonly List<SoftwareParticleBirth> PendingSoftwareBirths = [];
+        public long DroppedSoftwareBirths;
     }
 
     private sealed class AudioState
@@ -67,6 +69,7 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem
     }
 
     private readonly string _projectPath;
+    private readonly bool _particles2D;
     private readonly IAudioSystem _audio;
     private readonly Dictionary<int, ParticleState> _particles = [];
     private readonly Dictionary<int, AudioState> _audioStates = [];
@@ -79,10 +82,11 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem
     private readonly ModelGpuCache _particleModelGpu = new();
     private float _totalTime;
 
-    public ObjectCompositionSubsystem(string projectPath, IAudioSystem? audio = null)
+    public ObjectCompositionSubsystem(string projectPath, IAudioSystem? audio = null, bool particles2D = false)
     {
         _projectPath = projectPath ?? string.Empty;
         _audio = audio ?? NullAudioSystem.Instance;
+        _particles2D = particles2D;
     }
 
     public int ParticleEmitterCount => _particles.Count;
@@ -249,7 +253,7 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem
     {
         if (commands == null) return;
         foreach (ParticleState state in _particles.Values)
-            foreach (ParticleLayerState layer in state.Layers)
+            foreach (ParticleLayerState layer in EventOrderedLayers(state))
                 commands.DrawDeferred2D(new DeferredParticleDraw(this, state, layer, offsetX, offsetY, zoom));
     }
 
@@ -383,7 +387,7 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem
                 state.Layers.Add(new ParticleLayerState
                 {
                     EmitterId = emitterId,
-                    Config = emitter,
+                    Config = _particles2D ? Particle2DLayout.ForSimulation(emitter) : emitter,
                     MeshSurfaceSamples = LoadMeshSurfaceSamples(emitter),
                     PendingBurst = !emitter.Loop ? Math.Max(0, emitter.BurstCount) : 0,
                 });

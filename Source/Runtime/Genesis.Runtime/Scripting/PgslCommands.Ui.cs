@@ -38,8 +38,9 @@ public static partial class PgslCommands
         PgslContext context = GetContext();
         if (surface is null || context is null || !TryLoadUi(uiAsset, out UiAssetDocument document)) return;
 
-        float targetWidth = (float)Math.Max(1d, context.RoomWidth);
-        float targetHeight = (float)Math.Max(1d, context.RoomHeight);
+        SizeF target = UiTargetSize(context);
+        float targetWidth = target.Width;
+        float targetHeight = target.Height;
         float scaleX = targetWidth / Math.Max(1, document.DesignWidth);
         float scaleY = targetHeight / Math.Max(1, document.DesignHeight);
         UiLayoutCache layout = GetUiLayout(document);
@@ -64,17 +65,18 @@ public static partial class PgslCommands
                     surface.FillRectangle(background, rect);
                     break;
                 case UiElementType.Text:
-                    surface.DrawText(text, element.Font, element.FontSize * MathF.Min(scaleX, scaleY), foreground, Rectangle.Round(rect));
+                    surface.DrawUiText(text, element.Font, element.FontSize * MathF.Min(scaleX, scaleY), foreground, Rectangle.Round(rect), centered: false);
                     break;
                 case UiElementType.Image:
                     if (!string.IsNullOrWhiteSpace(element.Image))
-                        surface.DrawSprite(element.Image, rect.X, rect.Y, 0,
-                            element.ImageScaleX * scaleX, element.ImageScaleY * scaleY, 0f, Color.White, foreground.A / 255f);
+                        surface.DrawSpriteRectangle(element.Image,
+                            new RectangleF(rect.X, rect.Y, rect.Width * element.ImageScaleX, rect.Height * element.ImageScaleY),
+                            0, Color.White, foreground.A / 255f);
                     break;
                 case UiElementType.Button:
                     surface.FillRectangle(background, rect);
                     surface.DrawRectangle(accent, rect);
-                    surface.DrawText(text, element.Font, element.FontSize * MathF.Min(scaleX, scaleY), foreground, Rectangle.Round(rect));
+                    surface.DrawUiText(text, element.Font, element.FontSize * MathF.Min(scaleX, scaleY), foreground, Rectangle.Round(rect), centered: true);
                     break;
                 case UiElementType.ProgressBar:
                     surface.FillRectangle(background, rect);
@@ -100,13 +102,22 @@ public static partial class PgslCommands
     public static void UiSetVisible(string uiAsset, string elementId, bool visible) =>
         SetUiOverride(uiAsset, elementId, "visible", visible);
 
+    [PgslCommand("UiMouseX", "UiMouseX() -> number", "Mouse X in GUI pixels, including window scaling", "User Interface")]
+    public static double UiMouseX() => (ActiveGameContext?.Input?.MousePosition.X ?? 0)
+        * (ActiveGameContext?.RenderWidth > 0 && ActiveGameContext.ClientWidth > 0 ? (double)ActiveGameContext.RenderWidth / ActiveGameContext.ClientWidth : 1);
+
+    [PgslCommand("UiMouseY", "UiMouseY() -> number", "Mouse Y in GUI pixels, including window scaling", "User Interface")]
+    public static double UiMouseY() => (ActiveGameContext?.Input?.MousePosition.Y ?? 0)
+        * (ActiveGameContext?.RenderHeight > 0 && ActiveGameContext.ClientHeight > 0 ? (double)ActiveGameContext.RenderHeight / ActiveGameContext.ClientHeight : 1);
+
     [PgslCommand("UiHitTest", "UiHitTest(uiAsset, x, y) -> string", "Topmost visible UI element at a GUI point", "User Interface")]
     public static string UiHitTest(string uiAsset, double x, double y)
     {
         PgslContext context = GetContext();
         if (context is null || !TryLoadUi(uiAsset, out UiAssetDocument document)) return string.Empty;
-        float scaleX = (float)Math.Max(1d, context.RoomWidth) / Math.Max(1, document.DesignWidth);
-        float scaleY = (float)Math.Max(1d, context.RoomHeight) / Math.Max(1, document.DesignHeight);
+        SizeF target = UiTargetSize(context);
+        float scaleX = target.Width / Math.Max(1, document.DesignWidth);
+        float scaleY = target.Height / Math.Max(1, document.DesignHeight);
         UiLayoutCache layout = GetUiLayout(document);
         foreach (UiElement element in layout.ReverseOrdered)
         {
@@ -116,6 +127,14 @@ public static partial class PgslCommands
             if (rect.Contains((float)x, (float)y)) return element.Id;
         }
         return string.Empty;
+    }
+
+    private static SizeF UiTargetSize(PgslContext context)
+    {
+        if (context.DrawSurface is PgslRenderDrawSurface { GuiSize.IsEmpty: false } surface) return surface.GuiSize;
+        if (ActiveGameContext?.RenderWidth > 0 && ActiveGameContext.RenderHeight > 0)
+            return new SizeF(ActiveGameContext.RenderWidth, ActiveGameContext.RenderHeight);
+        return new SizeF((float)Math.Max(1d, context.RoomWidth), (float)Math.Max(1d, context.RoomHeight));
     }
 
     private static RectangleF ResolveUiRect(
@@ -213,7 +232,12 @@ public static partial class PgslCommands
             or System.Text.Json.JsonException
             or UnauthorizedAccessException
             or NotSupportedException
-            or ArgumentException) { return false; }
+            or ArgumentException)
+        {
+            lock (UiCacheGate)
+                if (UiDocumentCache.TryGetValue(path, out UiDocumentCacheEntry cached)) { document = cached.Document; return true; }
+            return false;
+        }
     }
 
     private static UiLayoutCache GetUiLayout(UiAssetDocument document) =>

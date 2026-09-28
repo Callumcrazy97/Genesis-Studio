@@ -34,6 +34,10 @@ public static partial class PgslCommands
         public uint RandomState;
         public float RepathCountdown;
         public float Elapsed;
+        public string AssetPath = string.Empty;
+        public long AssetStamp;
+        public float ReloadCountdown;
+        public bool UsesAssetLoop;
     }
 
     [PgslCommand("PathFollow", "PathFollow(routeAsset, loopMode)",
@@ -62,6 +66,7 @@ public static partial class PgslCommands
         if (!world.IsAlive(entity)) return;
         PathingLoopMode resolvedLoop = Enum.TryParse(loopMode, true, out PathingLoopMode parsed)
             ? parsed : asset.Route.LoopMode;
+        agent.PlanarXY = asset.Dimension == PathingDimension.TwoD;
         agent.Speed = asset.Route.SpeedAt(0f);
         agent.StoppingDistance = asset.Route.StoppingDistance;
         agent.SetPath([]);
@@ -69,6 +74,9 @@ public static partial class PgslCommands
         {
             Kind = PathingRoutineKind.Route,
             Asset = asset,
+            AssetPath = path,
+            AssetStamp = File.GetLastWriteTimeUtc(path).Ticks,
+            UsesAssetLoop = string.IsNullOrWhiteSpace(loopMode),
             LoopMode = resolvedLoop,
             Origin = new Vector3((float)context.X, (float)context.Y, (float)context.Z),
             RandomState = Seed(entity.Id),
@@ -150,8 +158,15 @@ public static partial class PgslCommands
             ref NavMeshAgentComponent component = ref scene.World.GetRef<NavMeshAgentComponent>(entity);
             if (component.Agent is null) { (remove ??= []).Add(entityId); continue; }
             ref TransformComponent transform = ref scene.World.GetRef<TransformComponent>(entity);
+            RefreshPathingRoutine(state, component.Agent, scene, entityId, dt);
             Vector3 position = new(transform.X, transform.Y, transform.Z);
+            bool planarXY = component.Agent.PlanarXY;
             state.Elapsed += MathF.Max(0f, dt);
+            if (state.Asset is not null)
+            {
+                component.Agent.Speed = state.Asset.Route.SpeedAt(state.Elapsed);
+                component.Agent.StoppingDistance = state.Asset.Route.StoppingDistance;
+            }
             if (state.WaitRemaining > 0f)
             {
                 state.WaitRemaining = MathF.Max(0f, state.WaitRemaining - MathF.Max(0f, dt));
@@ -163,7 +178,7 @@ public static partial class PgslCommands
                 state.WaitRemaining = WaitAfterArrival(state);
                 continue;
             }
-            if (state.SegmentActive && component.Agent.HasPath) continue;
+            if (state.SegmentActive && component.Agent.HasPath && state.Asset?.Route.Mode != PathingRouteMode.FollowLeader) continue;
 
             if (state.Kind == PathingRoutineKind.Wander)
             {
@@ -193,13 +208,15 @@ public static partial class PgslCommands
                 if (state.RepathCountdown > 0f) continue;
                 state.RepathCountdown = .2f;
                 if (!TryFindNamedEntity(scene, route.FollowTarget, entity, out Vector3 target)) continue;
+                if (component.Agent.PlanarXY) target.Z = position.Z;
                 Vector3 delta = target - position;
                 if (delta.Length() <= MathF.Max(route.FollowOffset, route.StoppingDistance)) continue;
                 Vector3 end = target - Vector3.Normalize(delta) * route.FollowOffset;
-                component.Agent.SetPath(FindPath(session, position, end));
+                component.Agent.SetPath(FindPath(session, position, end, component.Agent.PlanarXY));
                 state.SegmentActive = component.Agent.HasPath;
                 continue;
             }
+            int previousWaypoint = state.Waypoint;
             if (!AdvanceWaypoint(state, route))
             {
                 (remove ??= []).Add(entityId);
@@ -207,7 +224,11 @@ public static partial class PgslCommands
                 continue;
             }
             Vector3 destination = route.Waypoints[state.Waypoint].Position;
-            component.Agent.SetPath(FindPath(session, position, destination));
+            if (component.Agent.PlanarXY) destination.Z = position.Z;
+            component.Agent.SetPath(route.Mode == PathingRouteMode.WaypointPatrol
+                ? route.SegmentPoints(previousWaypoint, state.Waypoint).Select(point => planarXY
+                    ? new Vector3(point.X, point.Y, position.Z) : point).ToArray()
+                : FindPath(session, position, destination, component.Agent.PlanarXY));
             state.SegmentActive = component.Agent.HasPath;
         }
         if (remove is not null)
@@ -217,6 +238,39 @@ public static partial class PgslCommands
                 session.Routines.Remove(id);
                 NavigationDebugTelemetry.ClearRoutine(scene, id);
             }
+        }
+    }
+
+    private static void RefreshPathingRoutine(PathingRoutineState state, NavMeshAgent agent, RuntimeScene scene, int entityId, float dt)
+    {
+        if (state.AssetPath.Length == 0) return;
+        state.ReloadCountdown -= MathF.Max(0, dt);
+        if (state.ReloadCountdown > 0) return;
+        state.ReloadCountdown = .25f;
+        try
+        {
+            long stamp = File.GetLastWriteTimeUtc(state.AssetPath).Ticks;
+            if (stamp == state.AssetStamp || !File.Exists(state.AssetPath)) return;
+            state.AssetStamp = stamp;
+            PathingAsset next = PathingAssetSerializer.Load(state.AssetPath);
+            PathingAsset? before = state.Asset;
+            bool geometryChanged = before is null || before.Dimension != next.Dimension || before.Route.Mode != next.Route.Mode
+                || before.Route.Waypoints.Count != next.Route.Waypoints.Count
+                || before.Route.Waypoints.Where((point, index) => point.Position != next.Route.Waypoints[index].Position || point.Curve != next.Route.Waypoints[index].Curve).Any();
+            state.Asset = next;
+            if (state.UsesAssetLoop) state.LoopMode = next.Route.LoopMode;
+            agent.PlanarXY = next.Dimension == PathingDimension.TwoD;
+            if (geometryChanged)
+            {
+                state.Kind = PathingRoutineKind.Route;
+                state.Waypoint = Math.Clamp(state.Waypoint, 0, Math.Max(0, next.Route.Waypoints.Count - 1)) - state.Direction;
+                state.SegmentActive = false; state.WaitRemaining = 0; agent.SetPath([]);
+            }
+            NavigationDebugTelemetry.SetRoutine(scene, entityId, next.Name, next.Route.Waypoints.Count);
+        }
+        catch (Exception exception) when (exception is IOException or InvalidDataException or System.Text.Json.JsonException)
+        {
+            ActiveGameContext?.Log("Pathing edit could not be applied; keeping the last valid route: " + exception.Message);
         }
     }
 
@@ -252,8 +306,9 @@ public static partial class PgslCommands
         {
             float angle = NextRandom(state) * MathF.Tau;
             float radius = MathF.Sqrt(NextRandom(state)) * state.Radius;
-            Vector3 target = state.Origin + new Vector3(MathF.Cos(angle) * radius, 0f, MathF.Sin(angle) * radius);
-            IReadOnlyList<Vector3> path = FindPath(session, position, target);
+            Vector3 target = state.Origin + (agent.PlanarXY ? new Vector3(MathF.Cos(angle) * radius, MathF.Sin(angle) * radius, 0)
+                : new Vector3(MathF.Cos(angle) * radius, 0f, MathF.Sin(angle) * radius));
+            IReadOnlyList<Vector3> path = FindPath(session, position, target, agent.PlanarXY);
             if (path.Count == 0) continue;
             agent.SetPath(path);
             return true;
@@ -261,8 +316,13 @@ public static partial class PgslCommands
         return false;
     }
 
-    private static IReadOnlyList<Vector3> FindPath(NavigationSession session, Vector3 from, Vector3 to) =>
-        session.Query is null ? [to] : session.Query.FindPath(from, to);
+    private static IReadOnlyList<Vector3> FindPath(NavigationSession session, Vector3 from, Vector3 to, bool planarXY = false)
+    {
+        if (session.Query is null) return [to];
+        if (!planarXY) return session.Query.FindPath(from, to);
+        return session.Query.FindPath(new Vector3(from.X, 0, from.Y), new Vector3(to.X, 0, to.Y))
+            .Select(point => new Vector3(point.X, point.Z, from.Z)).ToArray();
+    }
 
     private static bool TryFindNamedEntity(RuntimeScene scene, string name, Entity self, out Vector3 position)
     {

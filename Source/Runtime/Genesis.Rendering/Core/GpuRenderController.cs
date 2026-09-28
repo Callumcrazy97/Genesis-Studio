@@ -697,13 +697,23 @@ namespace Genesis.Rendering.Core
         /// the overlay is composed, or at <see cref="Present"/> if the caller never composes one.
         /// </summary>
         public void DrawText(string text, float x, float y, float size, RenderColor color)
+            => DrawText(text, x, y, size, color, "Segoe UI");
+
+        public void DrawText(string text, float x, float y, float size, RenderColor color, string font)
         {
             if (string.IsNullOrEmpty(text) || !EnsureOverlayFrame()) return;
             _overlayCommands.DrawText(
                 text,
                 new Vector2(x, y),
                 size > 0.1f ? size : 12f,
-                new Vector4(color.R, color.G, color.B, color.A));
+                new Vector4(color.R, color.G, color.B, color.A), fontFamily: font);
+        }
+
+        public void DrawTextCentered(string text, float centerX, float y, float width, float size, RenderColor color, string font)
+        {
+            if (string.IsNullOrEmpty(text) || !EnsureOverlayFrame()) return;
+            _overlayCommands.DrawTextCentered(text, centerX, y, width, size > .1f ? size : 12,
+                new Vector4(color.R, color.G, color.B, color.A), fontFamily: font);
         }
 
         // ── 3D ───────────────────────────────────────────────────────────────────

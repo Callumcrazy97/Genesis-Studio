@@ -90,7 +90,7 @@ public sealed class AddEventDialog : DpiAwareForm
             TextAlign = ContentAlignment.MiddleLeft,
         });
         _template.DropDownStyle = ComboBoxStyle.DropDownList;
-        _template.Items.AddRange(["Helpful starter", "Empty event"]);
+        _template.Items.AddRange(["Event instructions", "Empty event"]);
         _template.SelectedIndex = 0;
         _template.Location = new Point(142, 468);
         _template.Size = new Size(190, 30);
@@ -118,6 +118,36 @@ public sealed class AddEventDialog : DpiAwareForm
         CancelButton = cancel;
 
         Populate();
+        BuildResponsiveLayout(heading, cancel);
+        string? first = ObjectEventCatalog.All.FirstOrDefault(definition => !_existing.Contains(definition.Id))?.Id;
+        if (first is not null) Select(first);
+    }
+
+    private void BuildResponsiveLayout(Label heading, Button cancel)
+    {
+        Label content = Controls.OfType<Label>().Single(label => label.Text == "Starting content");
+        Controls.Clear();
+        TableLayoutPanel root = new() { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 6, Padding = new Padding(18) };
+        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        foreach (SizeType size in new[] { SizeType.AutoSize, SizeType.AutoSize, SizeType.Percent, SizeType.AutoSize, SizeType.AutoSize, SizeType.AutoSize })
+            root.RowStyles.Add(new RowStyle(size, size == SizeType.Percent ? 100 : 0));
+        heading.Font = new Font(EditorChrome.BaseFont, FontStyle.Bold); heading.Dock = DockStyle.Fill; heading.Margin = new Padding(0, 0, 0, 10);
+        _search.Dock = DockStyle.Fill; _search.Margin = new Padding(0, 0, 0, 8);
+        _tree.Dock = DockStyle.Fill; _tree.Margin = Padding.Empty;
+        _description.AutoSize = true; _description.Dock = DockStyle.Fill; _description.Margin = new Padding(0, 8, 0, 8);
+        TableLayoutPanel start = new() { AutoSize = true, Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0, 4, 0, 8) };
+        start.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); start.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        start.RowStyles.Add(new RowStyle(SizeType.AutoSize)); content.AutoSize = true; content.Anchor = AnchorStyles.Left; content.Margin = new Padding(0, 0, 12, 0);
+        _template.Dock = DockStyle.Fill; start.Controls.Add(content, 0, 0); start.Controls.Add(_template, 1, 0);
+        FlowLayoutPanel buttons = new() { AutoSize = true, Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, WrapContents = false, Margin = Padding.Empty };
+        foreach (Button button in new[] { cancel, _add })
+        {
+            button.AutoSize = true; button.MinimumSize = new Size(105, 34); button.Padding = new Padding(8, 4, 8, 4);
+            button.Margin = new Padding(8, 8, 0, 0); buttons.Controls.Add(button);
+        }
+        root.Controls.Add(heading, 0, 0); root.Controls.Add(_search, 0, 1); root.Controls.Add(_tree, 0, 2);
+        root.Controls.Add(_description, 0, 3); root.Controls.Add(start, 0, 4); root.Controls.Add(buttons, 0, 5);
+        Controls.Add(root);
     }
 
     /// <summary>The chosen event id, once the dialog closes with OK.</summary>

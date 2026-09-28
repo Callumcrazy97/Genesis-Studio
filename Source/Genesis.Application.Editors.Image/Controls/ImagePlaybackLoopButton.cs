@@ -16,9 +16,28 @@ public sealed class ImagePlaybackLoopButton : CheckBox
         _session = session; _clipIndex = clipIndex; _allowAllFrames = allowAllFrames;
         Name = "ImagePlaybackLoop"; Text = "Loop"; AccessibleName = "Loop animation playback";
         Appearance = Appearance.Button; FlatStyle = FlatStyle.Flat; TextAlign = ContentAlignment.MiddleCenter;
-        Size = new Size(58,28); Margin = new Padding(0,0,8,0);
+        SetStyle(ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer, true);
+        AutoSize = true; MinimumSize = new Size(58,28); Padding = new Padding(8,4,8,4);
+        Margin = new Padding(0,0,8,0);
         CheckedChanged += (_,_) => ChangeLoop(); _session.Changed += SessionChanged;
         RefreshState();
+    }
+
+    public override Size GetPreferredSize(Size proposedSize)
+    {
+        Size text = TextRenderer.MeasureText(Text, Font);
+        return new Size(Math.Max(58, text.Width + Padding.Horizontal + 12), Math.Max(28, text.Height + Padding.Vertical + 8));
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        e.Graphics.Clear(Checked ? ImageEditorChrome.Hover : ImageEditorChrome.Raised);
+        using Pen border = new(Checked ? ImageEditorChrome.Accent : ImageEditorChrome.Border);
+        e.Graphics.DrawRectangle(border, 0, 0, Width - 1, Height - 1);
+        TextRenderer.DrawText(e.Graphics, Text, Font, ClientRectangle,
+            Enabled ? ImageEditorChrome.Text : ImageEditorChrome.Muted,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
+        if (Focused) ControlPaint.DrawFocusRectangle(e.Graphics, Rectangle.Inflate(ClientRectangle, -4, -4));
     }
 
     private ImageAnimationTag? TagForClip => _clipIndex() > 0 && _clipIndex() <= _session.Document.Tags.Count

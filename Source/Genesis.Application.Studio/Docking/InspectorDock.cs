@@ -47,7 +47,6 @@ public sealed class InspectorDock : GenesisDockContent
     private readonly Label _kindSummary;
     private readonly Label _propertiesHeading;
     private readonly ResourceInspectorPropertySurface _propertySurface;
-    private readonly ResourceIdentityHeader _resourceIdentity;
     private readonly TableLayoutPanel _actions;
     private readonly ModernButton _reveal;
     private readonly ModernButton _copyPath;
@@ -197,11 +196,9 @@ public sealed class InspectorDock : GenesisDockContent
         // script fields without making the user scroll past path/GUID bookkeeping first.
         _propertiesHeading = SectionHeading("EDITABLE PROPERTIES", "InspectorPropertiesHeading");
         _propertySurface = new ResourceInspectorPropertySurface();
-        _propertySurface.ShowIdentityGroup = false;
         _propertySurface.ResourceEdited += OnResourcePropertyEdited;
-        _resourceIdentity = new ResourceIdentityHeader();
-        _resourceIdentity.OpenRequested += (_, resource) => ResourceOpenRequested?.Invoke(this, resource);
-        AddContent(_resourceIdentity);
+        _name.Cursor = Cursors.Hand;
+        _name.DoubleClick += (_, _) => { if (_resource is not null) ResourceOpenRequested?.Invoke(this, _resource); };
         AddContent(_propertiesHeading);
         AddContent(_propertySurface);
 
@@ -310,7 +307,6 @@ public sealed class InspectorDock : GenesisDockContent
     internal void ClearSelection()
     {
         _resource = null;
-        _resourceIdentity.ClearSelection();
         _propertySurface.ClearSelection();
         _modelPreview?.Dispose(); _modelPreview = null;
         _modelPreviewHost.Controls.Clear(); _modelPreviewCard.Visible = false;
@@ -344,7 +340,6 @@ public sealed class InspectorDock : GenesisDockContent
         _kindSummary.Text = ResourceSummary(resource);
         IReadOnlyList<ResourceInspectorLiveValue> liveValues = LiveValueProvider?.Invoke(resource) ?? [];
         _propertySurface.Inspect(resource, liveValues);
-        _resourceIdentity.Bind(resource, _propertySurface);
         bool hasRuntimeValues = liveValues.Any(value =>
             value.PropertyPath.StartsWith("Runtime.", StringComparison.OrdinalIgnoreCase));
         _propertiesHeading.Text = hasRuntimeValues
@@ -353,7 +348,7 @@ public sealed class InspectorDock : GenesisDockContent
         _propertiesHeading.Visible = !resource.IsFolder;
         _propertySurface.Visible = !resource.IsFolder;
 
-        _toolTip.SetToolTip(_name, resource.Name);
+        _toolTip.SetToolTip(_name, resource.Name + " · Double-click to open the editor");
         _toolTip.SetToolTip(_path, resource.Name);
         _toolTip.SetToolTip(_guid, _guid.Text);
         _toolTip.SetToolTip(_kindSummary, _kindSummary.Text);
@@ -569,6 +564,7 @@ public sealed class InspectorDock : GenesisDockContent
 
     private void ApplyVisualTheme()
     {
+        _name.Font = new Font(ThemeService.InterfaceFont, FontStyle.Bold);
         ThemePalette palette = ThemeService.Palette;
         BackColor = palette.Canvas;
         ForeColor = palette.Text;
@@ -601,7 +597,6 @@ public sealed class InspectorDock : GenesisDockContent
         _kindSummary.BackColor = palette.Surface;
         _kindSummary.ForeColor = palette.Text;
         _propertySurface.ApplyTheme();
-        _resourceIdentity.ApplyTheme();
         _actions.BackColor = palette.Canvas;
         _emptyState.BackColor = palette.Canvas;
         _emptyState.Invalidate();
@@ -609,6 +604,7 @@ public sealed class InspectorDock : GenesisDockContent
         foreach (Label heading in _content.Controls.OfType<Label>()
                      .Where(label => label != _kindSummary))
         {
+            heading.Font = Genesis.Application.Editors.Suite.EditorChrome.HeadingFont;
             heading.ForeColor = palette.TextMuted;
         }
 
@@ -625,6 +621,8 @@ public sealed class InspectorDock : GenesisDockContent
 
     private void ApplyDensity()
     {
+        foreach (Control identity in new Control[] { _pathCaption, _guidCaption, _modifiedCaption, _sizeCaption,
+                     _path, _guid, _modified, _size }) identity.Font = ThemeService.InterfaceFont;
         InspectorMetrics metrics = CurrentMetrics();
         _header.Height = metrics.HeaderHeight + metrics.SearchHeight;
         _searchHost.Height = metrics.SearchHeight;
@@ -650,9 +648,9 @@ public sealed class InspectorDock : GenesisDockContent
         _actions.Margin = Padding.Empty;
         foreach (ModernButton action in new[] { _reveal, _copyPath, _copyGuid })
         {
-            if (Math.Abs(action.Font.SizeInPoints - 8.25f) > 0.01f)
+            if (!action.Font.Equals(ThemeService.InterfaceFont))
             {
-                action.Font = new Font(ThemeService.InterfaceFont.FontFamily, 8.25f, FontStyle.Regular);
+                action.Font = ThemeService.InterfaceFont;
             }
         }
         _reveal.Height = metrics.ActionHeight;
@@ -871,7 +869,7 @@ public sealed class InspectorDock : GenesisDockContent
             caption.Text,
             caption.Font,
             Size.Empty,
-            TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width;
+            TextFormatFlags.SingleLine).Width;
 
     private void OnResourcePropertyEdited(object? sender, ResourceInspectorEditedEventArgs args)
     {
@@ -887,7 +885,15 @@ public sealed class InspectorDock : GenesisDockContent
     private InspectorMetrics CurrentMetrics()
     {
         InspectorMetrics metrics = InspectorMetrics.For(ThemeService.Density);
-        return _dpiLayoutReady ? metrics.AtDpi(DeviceDpi) : metrics;
+        metrics = _dpiLayoutReady ? metrics.AtDpi(DeviceDpi) : metrics;
+        int textHeight = TextRenderer.MeasureText("Ag", ThemeService.InterfaceFont).Height;
+        return metrics with
+        {
+            CaptionHeight = Math.Max(metrics.CaptionHeight, textHeight + 4),
+            FieldHeight = Math.Max(metrics.FieldHeight, textHeight + 2 * metrics.SmallGap + 8),
+            MetadataHeight = Math.Max(metrics.MetadataHeight, textHeight + 2 * metrics.SmallGap),
+            ActionHeight = Math.Max(metrics.ActionHeight, textHeight + 10),
+        };
     }
 
     private void SetThumbnail(ResourceItem resource)

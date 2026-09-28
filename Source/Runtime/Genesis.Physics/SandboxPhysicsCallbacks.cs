@@ -59,6 +59,7 @@ internal struct SandboxPoseCallbacks : IPoseIntegratorCallbacks
     public void PrepareForIntegration(float dt)
     {
         _gravity = _world.Gravity;
+        if (_world.Dimension == PhysicsDimension.TwoD) _gravity.Z = 0;
         _maxVelocity = MathF.Max(0f, _world.MaxVelocity);
         _maxVelocitySq = _maxVelocity * _maxVelocity;
     }

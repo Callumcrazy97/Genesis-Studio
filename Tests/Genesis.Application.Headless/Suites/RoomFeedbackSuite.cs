@@ -71,7 +71,8 @@ internal static class RoomFeedbackSuite
         editor.SetFogPreview(true, 3, 24, .05f);
         Assert(editor.Viewport.InspectionState.FogEnabled && editor.Viewport.InspectionState.FogEnd == 24, "Fog controls did not reach the renderer.");
         editor.SetFogPreview(false);
-        ToolStripDropDownButton viewMenu = editor.EditorToolbar.Strip.Items.OfType<ToolStripDropDownButton>().Single(item => item.Text == "View");
+        ToolStripDropDownItem viewMenu = editor.EditorToolbar.OptionsDropdown.DropDownItems
+            .OfType<ToolStripDropDownItem>().Single(item => item.Text == "View");
         var fogToggle = viewMenu.DropDownItems.OfType<ToolStripMenuItem>().Single(item => item.Name == "RoomViewFog");
         fogToggle.PerformClick(); Assert(editor.FogPreviewEnabled, "View/Fog did not enable fog.");
         fogToggle.PerformClick(); Assert(!editor.FogPreviewEnabled, "View/Fog did not disable fog.");
@@ -138,8 +139,15 @@ internal static class RoomFeedbackSuite
         foreach (RoomNavSection section in new[] { RoomNavSection.Instances, RoomNavSection.Settings, RoomNavSection.Views })
         {
             editor.Navigation.SetSection(section); editor.Select(editor.Room.Nodes[0]); editor.RefreshSceneViews(); Warm(editor);
-            Assert(editor.IsGameCameraPreview && editor.SceneViewNode == camera && editor.Viewport.CameraOverrideFactory!().Equals(preview),
-                "Refreshing controls changed the active game-camera preview.");
+            EditorCameraOverride? current = editor.Viewport.CameraOverrideFactory?.Invoke();
+            Matrix4x4 expectedProjection = Genesis.Runtime.Core.MathUtil.PerspectiveFovLH(72 * MathF.PI / 180,
+                editor.Viewport.SurfaceWidth / (float)Math.Max(1, editor.Viewport.SurfaceHeight), .25f, 900);
+            Assert(editor.IsGameCameraPreview && editor.SceneViewNode == camera
+                && current?.View == preview.View && current?.Eye == preview.Eye && current?.Forward == preview.Forward
+                && current?.Projection == expectedProjection,
+                $"Refreshing {section} changed the active game-camera preview: active={editor.IsGameCameraPreview}, "
+                + $"camera='{editor.SceneViewNode?.Name}', expected='{camera.Name}', viewEqual={current?.View == preview.View}, "
+                + $"projectionEqual={current?.Projection == preview.Projection}, eye={current?.Eye}, expectedEye={preview.Eye}.");
         }
         editor.ExitGameCameraPreview();
         Assert(editor.Viewport.Camera.Target == freeTarget && editor.Viewport.Camera.Distance == freeDistance,
@@ -219,7 +227,7 @@ internal static class RoomFeedbackSuite
         if (failure is not null) throw failure;
         Assert(observed, "Soundscape did not open the project resource picker.");
         dialog.ApplyTo(environment);
-        Assert(environment.WindAudio == Path.GetRelativePath(project.RootPath, audio).Replace('\\', '/'),
+        Assert(ResourceNames.Resolve(project.RootPath, environment.WindAudio) == audio,
             "Soundscape did not retain the selected project audio reference.");
         Capture(ctx, dialog, "room-feedback-soundscape");
         dialog.Close();

@@ -81,8 +81,11 @@ public sealed partial class ParticleEditorControl
 
         if (execution.Target == ParticleExecutionTarget.CpuSoftware)
         {
-            foreach (ParticleSimulation simulation in _previewSimulations)
-                simulation.Step(step);
+            foreach (int index in PreviewEventOrder())
+            {
+                DrainPreviewBirths(index);
+                _previewSimulations[index].Step(step);
+            }
             return;
         }
 
@@ -137,6 +140,8 @@ public sealed partial class ParticleEditorControl
 
         if (execution.Target == ParticleExecutionTarget.CpuSoftware)
         {
+            _pendingPreviewBirths.Clear(); _droppedPreviewBirths = 0;
+            _previewEventRandom = new Random(_previewSeed);
             for (int i = 0; i < _previewSimulations.Count; i++)
                 _previewSimulations[i].Reset(
                     ParticlePreviewClock.SeedForEmitter(_previewSeed, _previewEmitterIds[i]));
@@ -148,8 +153,10 @@ public sealed partial class ParticleEditorControl
         ParticleExecutionDecision execution = ParticleExecutionPolicy.Resolve(_particlePreviewRenderer);
         if (execution.Target == ParticleExecutionTarget.CpuSoftware)
         {
-            foreach (ParticleSimulation simulation in _previewSimulations)
+            for (int i = 0; i < _previewSimulations.Count; i++)
             {
+                if (IsLinkedPreviewTarget(i)) continue;
+                ParticleSimulation simulation = _previewSimulations[i];
                 if (explicitCount is int count) simulation.Burst(count);
                 else simulation.Burst();
             }
@@ -159,6 +166,7 @@ public sealed partial class ParticleEditorControl
         EnsureGpuPreviewStateLists();
         for (int i = 0; i < _gpuPreviewPendingBursts.Count; i++)
         {
+            if (IsLinkedPreviewTarget(i)) continue;
             int count = explicitCount ?? (_previewEmitterConfigs[i].BurstCount > 0
                 ? _previewEmitterConfigs[i].BurstCount
                 : 200);
@@ -243,8 +251,8 @@ public sealed partial class ParticleEditorControl
                     texture,
                     0f,
                     0f,
-                    12f,
-                    MathF.Max(4f, 12f * 12f),
+                    1f,
+                    1f,
                     0,
                     default);
             }
@@ -258,7 +266,7 @@ public sealed partial class ParticleEditorControl
         }
 
         int capacity = Math.Max(1, _previewSimulations
-            .Select(simulation => simulation.Capacity)
+            .Select(simulation => simulation.SpriteCapacity2D)
             .DefaultIfEmpty(1)
             .Max());
         if (_spriteCalls.Length < capacity) _spriteCalls = new SpriteDrawCall[capacity];
@@ -268,7 +276,7 @@ public sealed partial class ParticleEditorControl
                 ? _previewTextures[i]
                 : TextureHandle.Invalid;
             int count = _previewSimulations[i].FillSpriteDrawCalls2D(
-                _spriteCalls, 0f, 0f, 12f, texture);
+                _spriteCalls, 0f, 0f, 1f, texture);
             if (count > 0) renderer.DrawSpriteBatch(_spriteCalls.AsSpan(0, count));
         }
     }

@@ -260,6 +260,9 @@ public sealed class ParticleEmitterLayer
 /// </summary>
 public sealed class ParticleConfig
 {
+    /// <summary>Host-derived planar pixel simulation; never written into the authored resource.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsPlanar2D { get; set; }
     // The root config remains the first emitter for compatibility with existing .particle files.
     public string EffectName { get; set; } = "Particle Effect";
     public string EmitterId { get; set; } = "primary";
@@ -440,6 +443,7 @@ public sealed class ParticleConfig
 
     internal ParticleConfig Clone(bool includeEmitters) => new()
     {
+        IsPlanar2D       = IsPlanar2D,
         EffectName        = EffectName,
         EmitterId         = EmitterId,
         EmitterName       = EmitterName,

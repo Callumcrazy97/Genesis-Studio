@@ -78,7 +78,11 @@ namespace Genesis.Application.Headless.Suites
         public void SetCamera2D(float x, float y, float zoom, float rotation) => throw new NotSupportedException("Unexpected test-renderer operation.");
         public void SetCamera3D(Matrix4x4 view, Matrix4x4 projection) => throw new NotSupportedException("Unexpected test-renderer operation.");
 
-        public TextureHandle LoadTexture(string path) => throw new NotSupportedException("Unexpected test-renderer operation.");
+        public TextureHandle LoadTexture(string path)
+        {
+            byte[] rgba = Genesis.Shared.Assets.ImageAssetDecoder.DecodeToRgba(path, out int width, out int height);
+            return CreateTexture(width, height, rgba);
+        }
         public TextureHandle CreateTexture(int width, int height, ReadOnlySpan<byte> rgba)
         { if (rgba.Length != width*height*4) throw new ArgumentException("Texture size");
           var handle = new TextureHandle(++_nextId); Textures.Add(handle.Id,rgba.ToArray()); Created++; return handle; }

@@ -2,6 +2,7 @@ using System.Drawing;
 using System.Numerics;
 using System.Windows.Forms;
 using Genesis.Application.Core.Resources;
+using Genesis.Application.Editors.Suite;
 using Genesis.Application.Editors.Suite.Assets;
 using Genesis.Application.Studio.Theme;
 using Genesis.Runtime.Modeling;
@@ -66,7 +67,15 @@ internal static class ModelEditorResetSuite
             foreach (int width in new[] { 1440, 1100 })
             {
                 host.ClientSize = new Size(width, 920); System.Windows.Forms.Application.DoEvents(); editor.FrameModel();
-                Assert(editor.Controls.Find("ModelEditorTools", true).Single().Visible && editor.Controls.Find("ModelEditorInspector", true).Single().Visible, "Editor lost its left tools or right inspector.");
+                Assert(editor.Controls.Find("ModelEditorModeShell", true).Single().Visible
+                    && !editor.Controls.Find("ModelEditorInspector", true).Single().Visible,
+                    "The default Editor must retain its tool rail and leave the optional details panel closed.");
+                var options = editor.Controls.OfType<System.Windows.Forms.TableLayoutPanel>().SelectMany(root => root.Controls.OfType<EditorCommandBar>())
+                    .Single().Items.OfType<ToolStripDropDownButton>().Single(item => item.Text == "Options");
+                ToolStripMenuItem details = options.DropDownItems.OfType<ToolStripMenuItem>().Single(item => item.Text == "Model details panel");
+                details.PerformClick();
+                Assert(editor.Controls.Find("ModelEditorInspector", true).Single().Visible, "The retained details panel did not open from Options.");
+                details.PerformClick();
                 Assert(editor.Viewport.Width >= 450 && editor.Viewport.Height >= 350, "Editor panels leave insufficient canvas space.");
                 using (var ready = editor.Viewport.CaptureFrame(8)) { }
                 string name = "model-editor-reset-" + width;

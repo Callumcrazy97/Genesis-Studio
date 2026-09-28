@@ -43,6 +43,7 @@ public sealed class RoomInspectorPanel : Panel
     private bool _committing;
     private bool _refreshPending;
     private bool _refreshQueued;
+    private bool _updatingScrollExtent;
     private string _cardVisualKey = string.Empty;
 
     public event Action? CloseRequested;
@@ -193,6 +194,7 @@ public sealed class RoomInspectorPanel : Panel
             close.Visible = false;
             _cardPanel.Visible = false;
         }
+        _unifiedSurface.SizeChanged += (_, _) => UpdateScrollExtent();
         EditorChrome.Changed += OnChromeChanged;
         ApplyChrome();
     }
@@ -647,11 +649,30 @@ public sealed class RoomInspectorPanel : Panel
 
     private void UpdateScrollExtent()
     {
-        if (_scroll.IsDisposed) return;
-        int height = _scroll.Content.Padding.Vertical + _scroll.Content.Controls.Cast<Control>()
-            .Where(control => control.Visible)
-            .Sum(control => control.Height + control.Margin.Vertical);
-        _scroll.SetContentHeight(height);
+        if (_scroll.IsDisposed || _updatingScrollExtent) return;
+        _updatingScrollExtent = true;
+        try
+        {
+            int height = _scroll.Content.Padding.Vertical + _scroll.Content.Controls.Cast<Control>()
+                .Where(control => control.Visible)
+                .Sum(control => control.Height + control.Margin.Vertical);
+            _scroll.SetContentHeight(height);
+        }
+        finally { _updatingScrollExtent = false; }
+    }
+
+    public void ApplyInterfaceLayout()
+    {
+        Label title = _headerBar.Controls.OfType<Label>().Single();
+        title.Font = EditorChrome.HeadingFont;
+        _headerBar.Height = title.Font.Height + _headerBar.Padding.Vertical + 8;
+        _cardTitle.Height = _cardTitle.Font.Height + 4;
+        _cardSubtitle.Height = _cardSubtitle.Font.Height + 4;
+        _cardPanel.Height = _cardTitle.Height + _cardSubtitle.Height + _cardPanel.Padding.Vertical + 6;
+        _cardIcon.Width = Math.Min(_cardPanel.Height - _cardPanel.Padding.Vertical, 64);
+        _cardButton.Width = _cardButton.Font.Height + 16;
+        if (_filter.Parent is { } filterHost) filterHost.Height = _filter.PreferredHeight + filterHost.Padding.Vertical + 4;
+        UpdateScrollExtent();
     }
 
     private void OnChromeChanged(object? sender, EventArgs e)

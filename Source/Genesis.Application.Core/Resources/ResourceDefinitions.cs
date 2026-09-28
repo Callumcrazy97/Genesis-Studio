@@ -57,6 +57,7 @@ public static class ResourceDefinitions
         new(ResourceKind.Particle, "Particle System", ".particle.json", "✦",
             """
             {
+              "preview2D": true,
               "maxParticles": 1000,
               "emitRate": 60.0,
               "burstCount": 0,
@@ -79,7 +80,7 @@ public static class ResourceDefinitions
             }
             """),
         new(ResourceKind.Physics, "Physics Material", ".physics.json", "◉",
-            """{"schemaVersion":1,"friction":0.5,"restitution":0.0,"density":1.0}"""),
+            """{"schemaVersion":1,"Dimension":"TwoD","friction":0.5,"restitution":0.0,"density":1.0}"""),
         new(ResourceKind.Terrain, "Terrain", ".terrain.json", "⌁",
             """
             {
@@ -117,13 +118,14 @@ public static class ResourceDefinitions
             {
               "schemaVersion": 1,
               "name": "Pathing Route",
+              "dimension": "TwoD",
               "targetRoom": "",
               "targetObject": "",
-              "previewAgentCount": 3,
+              "previewAgentCount": 1,
               "route": {
                 "mode": "WaypointPatrol",
-                "loopMode": "Loop",
-                "speed": 3.8,
+                "loopMode": "PingPong",
+                "speed": 80.0,
                 "stoppingDistance": 0.15,
                 "defaultWaitSeconds": 0.0,
                 "wanderRadius": 8.0,
@@ -135,10 +137,8 @@ public static class ResourceDefinitions
                   { "time": 12.0, "multiplier": 1.0 }
                 ],
                 "waypoints": [
-                  { "name": "WP1", "x": -4.0, "y": 0.0, "z": -3.0, "waitSeconds": 0.0, "curve": true },
-                  { "name": "WP2", "x": 4.0, "y": 0.0, "z": -3.0, "waitSeconds": 0.0, "curve": true },
-                  { "name": "WP3", "x": 4.0, "y": 0.0, "z": 3.0, "waitSeconds": 0.0, "curve": true },
-                  { "name": "WP4", "x": -4.0, "y": 0.0, "z": 3.0, "waitSeconds": 0.0, "curve": true }
+                  { "name": "Start", "x": 64.0, "y": 96.0, "z": 0.0, "waitSeconds": 0.0, "curve": false },
+                  { "name": "End", "x": 320.0, "y": 96.0, "z": 0.0, "waitSeconds": 0.0, "curve": false }
                 ]
               }
             }

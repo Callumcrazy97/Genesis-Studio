@@ -175,9 +175,10 @@ internal static class RuntimeSuite
                     "Script discovery must load nested project assets and exclude generated output copies.");
 
                 string empty = Path.Combine(root, "Empty");
-                Directory.CreateDirectory(empty);
+                string emptyScripts = Path.Combine(empty, "Assets", "Scripts");
+                Directory.CreateDirectory(emptyScripts);
                 ScriptAssetRegistry.LoadFromProject(empty);
-                File.WriteAllText(Path.Combine(empty, "Later.pgsl"), "return 2;");
+                File.WriteAllText(Path.Combine(emptyScripts, "Later.pgsl"), "return 2;");
                 ScriptAssetRegistry.EnsureProjectLoaded(empty);
                 HeadlessHarness.Assert(ScriptAssetRegistry.GetScriptNames().Count == 0,
                     "An empty project was rescanned during per-behaviour initialization.");

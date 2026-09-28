@@ -99,6 +99,15 @@ public sealed partial class RoomEditorControl
             values.Add(SimpleNumber("Physics", ContextRoomPrefix + "GravityY", "Gravity Y (m/s²)", gravity[1], 0.1m, 2));
             values.Add(SimpleNumber("Physics", ContextRoomPrefix + "GravityZ", "Gravity Z (m/s²)", gravity[2], 0.1m, 2));
         }
+        else
+        {
+            float[] gravity = ContextVector3(_room.Environment.Gravity, 0f, -9.81f, 0f);
+            values.Add(SimpleNumber("Physics", ContextRoomPrefix + "GravityHorizontal2D", "Horizontal gravity (px/s²)",
+                gravity[0] * SpritePhysicsBinding.PixelsPerMetre, 10m, 2));
+            values.Add(new("Physics", ContextRoomPrefix + "GravityDown2D", "Downward gravity (px/s²)",
+                -gravity[1] * SpritePhysicsBinding.PixelsPerMetre, Increment: 10m, DecimalPlaces: 2,
+                Description: "Positive values pull Physics2D bodies down. Scripted movement can use its own gravity."));
+        }
     }
 
     private void AddContextSelectionValues(List<ResourceInspectorLiveValue> values, RoomNode node)
@@ -256,6 +265,8 @@ public sealed partial class RoomEditorControl
             case "gravityx": return SetContextGravity(0, value);
             case "gravityy": return SetContextGravity(1, value);
             case "gravityz": return SetContextGravity(2, value);
+            case "gravityhorizontal2d": return SetContextGravity(0, Convert.ToSingle(value, CultureInfo.InvariantCulture) / SpritePhysicsBinding.PixelsPerMetre);
+            case "gravitydown2d": return SetContextGravity(1, -Convert.ToSingle(value, CultureInfo.InvariantCulture) / SpritePhysicsBinding.PixelsPerMetre);
             default: return false;
         }
     }
@@ -415,6 +426,7 @@ public sealed partial class RoomEditorControl
         float[] before = ContextVector3(_room.Environment.Gravity, 0f, -9.81f, 0f);
         float[] after = (float[])before.Clone();
         after[axis] = Convert.ToSingle(value, CultureInfo.InvariantCulture);
+        if (!float.IsFinite(after[axis])) return false;
         if (before.SequenceEqual(after)) return true;
         void Apply(float[] gravity)
         {

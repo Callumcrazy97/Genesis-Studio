@@ -40,6 +40,7 @@ public sealed partial class PhysicsWorld
 
         var body = _simulation.Bodies.GetBodyReference(handle);
         body.Awake = true;
+        if (_planarConstraints.Contains(handle)) velocity.Z = 0;
         body.Velocity.Linear = velocity;
     }
 
@@ -50,6 +51,7 @@ public sealed partial class PhysicsWorld
 
         var body = _simulation.Bodies.GetBodyReference(handle);
         body.Awake = true;
+        if (_planarConstraints.Contains(handle)) impulse.Z = 0;
         body.Velocity.Linear += impulse * body.LocalInertia.InverseMass;
     }
 
@@ -60,9 +62,17 @@ public sealed partial class PhysicsWorld
 
         var body = _simulation.Bodies.GetBodyReference(handle);
         body.Awake = true;
+        if (_planarConstraints.Contains(handle))
+        {
+            orientation = PlanarBodyConstraints.RotationInPlane(orientation);
+            BodyBinding planar = _dynamicBindingsByHandle[handle];
+            planar.PlanarDepth = position.Z;
+            _planarConstraints.Apply(handle, true, planar.LockRotation, position.Z);
+        }
         body.Pose.Position = position;
         body.Pose.Orientation = orientation;
         body.Velocity = default;
+        _planarConstraints.Reanchor(handle, position.Z);
 
         if (TryGetBinding(registrationId, out var binding) && world.Has<Transform3DComponent>(binding.Entity))
         {

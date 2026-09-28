@@ -121,7 +121,12 @@ namespace Genesis.Runtime.Scripting
         int Height { get; }
 
         void Text(string text, float x, float y, float size, Vector4 color);
+        /// <summary>Authored font family or project font payload; legacy canvases retain their default font.</summary>
+        void Text(string text, float x, float y, float size, Vector4 color, string font)
+            => Text(text, x, y, size, color);
         void TextCentered(string text, float centerX, float y, float width, float size, Vector4 color);
+        void TextCentered(string text, float centerX, float y, float width, float size, Vector4 color, string font)
+            => TextCentered(text, centerX, y, width, size, color);
         void Rect(float x, float y, float w, float h, Vector4 color, bool filled = true);
         void Line(float x1, float y1, float x2, float y2, Vector4 color, float thickness = 1.5f);
     }

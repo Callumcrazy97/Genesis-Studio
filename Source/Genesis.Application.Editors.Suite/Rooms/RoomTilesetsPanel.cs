@@ -1,6 +1,7 @@
 using System.Drawing;
 using System.Windows.Forms;
 using Genesis.Application.Core.Resources;
+using Genesis.Application.Core.UI;
 using Genesis.Application.Editors.Suite.Assets;
 using Genesis.Application.Editors.Suite.UiKit;
 using Genesis.Runtime.Scene;
@@ -38,6 +39,7 @@ public sealed class RoomTilesetsPanel : Panel
 
         Label heading = new()
         {
+            Name = "TileSetHeading",
             Text = "Tilesets",
             Font = EditorChrome.HeadingFont,
             ForeColor = EditorChrome.Text,
@@ -48,6 +50,7 @@ public sealed class RoomTilesetsPanel : Panel
         // Top Layer section
         Panel layerSection = new()
         {
+            Name = "TileLayerSection",
             Dock = DockStyle.Top,
             Height = 100,
             BackColor = Color.Transparent,
@@ -90,6 +93,7 @@ public sealed class RoomTilesetsPanel : Panel
         btnTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.3f));
         btnTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.4f));
         btnTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.3f));
+        btnTable.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
         _btnAddLayer = new Button { Text = "+ Add", Dock = DockStyle.Fill, FlatStyle = FlatStyle.Flat, Margin = new Padding(0, 1, 2, 1) };
         _btnRenameLayer = new Button { Text = "Rename", Dock = DockStyle.Fill, FlatStyle = FlatStyle.Flat, Margin = new Padding(2, 1, 2, 1) };
@@ -129,6 +133,7 @@ public sealed class RoomTilesetsPanel : Panel
         // Tileset Asset selector section
         Panel assetSection = new()
         {
+            Name = "TileAssetSection",
             Dock = DockStyle.Top,
             Height = 64,
             BackColor = Color.Transparent,
@@ -137,6 +142,7 @@ public sealed class RoomTilesetsPanel : Panel
 
         Label lblTileset = new()
         {
+            Name = "TileAssetHeading",
             Text = "Active Tileset:",
             ForeColor = EditorChrome.Accent,
             Font = EditorChrome.HeadingFont,
@@ -158,6 +164,10 @@ public sealed class RoomTilesetsPanel : Panel
             }
         };
         _tilesetCombo.SelectedIndexChanged += OnTilesetAssetChanged;
+        _tilesetCombo.SelectionChangeCommitted += (_, _) =>
+        {
+            if (!_editor.IsTilePainting) OnTilesetAssetChanged(this, EventArgs.Empty);
+        };
 
         _tilesetInfoLabel = new Label
         {
@@ -175,7 +185,7 @@ public sealed class RoomTilesetsPanel : Panel
 
         _promptLabel = new Label
         {
-            Text = "No tile layer found. Click '+ Add' above to start painting tiles.",
+            Text = "Choose a tile set above to create a layer and start painting.",
             ForeColor = EditorChrome.Warning,
             Font = EditorChrome.SmallFont,
             Dock = DockStyle.Top,
@@ -214,6 +224,17 @@ public sealed class RoomTilesetsPanel : Panel
 
     public TilePickerPanel TilePicker => _tilePicker;
 
+    /// <summary>Chooses through the same commit path as the visible tile-set selector.</summary>
+    public bool SelectTileset(string fullPath)
+    {
+        ProjectAssetEntry? entry = _tilesetEntries.FirstOrDefault(candidate =>
+            string.Equals(candidate.FullPath, fullPath, StringComparison.OrdinalIgnoreCase));
+        if (entry is null) return false;
+        if (ReferenceEquals(_tilesetCombo.SelectedItem, entry)) OnTilesetAssetChanged(this, EventArgs.Empty);
+        else _tilesetCombo.SelectedItem = entry;
+        return _editor.IsTilePainting;
+    }
+
     public void RefreshTilesets(IReadOnlyList<ProjectAssetEntry> images)
     {
         _previewTilesetPath = null;
@@ -232,10 +253,6 @@ public sealed class RoomTilesetsPanel : Panel
                 }
             }
 
-            if (_tilesetCombo.Items.Count > 0 && _tilesetCombo.SelectedIndex < 0)
-            {
-                _tilesetCombo.SelectedIndex = 0;
-            }
         }
         finally
         {
@@ -329,9 +346,8 @@ public sealed class RoomTilesetsPanel : Panel
     {
         if (_syncing) return;
         LoadTilesetPreview();
-        if (_tilesetCombo.SelectedItem is ProjectAssetEntry entry && ActiveTileLayer is { } node)
-            _editor.ConfigureTileLayerTileset(node,
-                ResourceNames.Name(_editor.ProjectRoot, entry.FullPath), _previewTileset);
+        if (_tilesetCombo.SelectedItem is ProjectAssetEntry entry)
+            _editor.BeginTilePainting(entry.FullPath);
     }
 
     private void LoadTilesetPreview()
@@ -349,23 +365,13 @@ public sealed class RoomTilesetsPanel : Panel
     private void AddLayerPrompt()
     {
         if (_editor.Navigation.CurrentSection != RoomNavSection.Tilesets) return;
-        string name = $"TileLayer {_layerCombo.Items.Count + 1}";
-        RoomNode node = new()
-        {
-            Kind = RoomNodeKind.TileLayer,
-            Name = name,
-            LayerId = _editor.Room.Layers.FirstOrDefault()?.Id ?? "default",
-            TileLayer = new RoomTileLayerData
-            {
-                Depth = 100 - _layerCombo.Items.Count * 10,
-                CellWidth = 32,
-                CellHeight = 32,
-            },
-        };
-        _editor.Room.Nodes.Add(node);
-        _editor.MarkDirty();
+        ProjectAssetEntry? entry = _tilesetCombo.SelectedItem as ProjectAssetEntry ?? _tilesetEntries.FirstOrDefault();
+        if (entry is null) return;
+        _syncing = true;
+        try { _tilesetCombo.SelectedItem = entry; }
+        finally { _syncing = false; }
+        _editor.BeginTilePainting(entry.FullPath, createNewLayer: true);
         RefreshLayers();
-        _layerCombo.SelectedItem = node;
     }
 
     private void DeleteActiveLayerPrompt()
@@ -382,8 +388,8 @@ public sealed class RoomTilesetsPanel : Panel
             if (res != DialogResult.Yes) return;
         }
 
-        _editor.Room.Nodes.Remove(node);
-        _editor.MarkDirty();
+        _editor.Select(node);
+        _editor.DeleteSelection();
         RefreshLayers();
     }
 
@@ -391,38 +397,82 @@ public sealed class RoomTilesetsPanel : Panel
     {
         if (_layerCombo.SelectedItem is not RoomNode node || !_editor.CanEditNodeInActiveContext(node)) return;
 
-        using Form prompt = new()
+        using DpiAwareForm prompt = CreateRenameLayerDialog(node);
+        TextBox txt = prompt.Controls.Find("TileLayerName", true).OfType<TextBox>().Single();
+        if (prompt.ShowDialog(this) == DialogResult.OK && !string.IsNullOrWhiteSpace(txt.Text))
+        {
+            _editor.SetNodeName(node, txt.Text.Trim());
+            RefreshLayers();
+        }
+    }
+
+    public DpiAwareForm CreateRenameLayerDialog(RoomNode node)
+    {
+        TileLayerNameDialog prompt = new()
         {
             Text = "Rename Tile Layer",
             StartPosition = FormStartPosition.CenterParent,
-            ClientSize = new Size(320, 110),
+            ClientSize = new Size(440, 150),
             BackColor = EditorChrome.Surface,
             ForeColor = EditorChrome.Text,
             FormBorderStyle = FormBorderStyle.FixedDialog,
             MaximizeBox = false,
             MinimizeBox = false,
         };
-        TextBox txt = new() { Text = node.Name, Dock = DockStyle.Top, BackColor = EditorChrome.Canvas, ForeColor = EditorChrome.Text };
-        Button ok = new() { Text = "OK", DialogResult = DialogResult.OK, Dock = DockStyle.Right, Width = 64 };
-        Button cancel = new() { Text = "Cancel", DialogResult = DialogResult.Cancel, Dock = DockStyle.Right, Width = 64 };
+        TextBox txt = new() { Name = "TileLayerName", Text = node.Name, Dock = DockStyle.Top, BackColor = EditorChrome.Canvas, ForeColor = EditorChrome.Text };
+        Button ok = new() { Text = "Rename", DialogResult = DialogResult.OK, AutoSize = true };
+        Button cancel = new() { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };
         EditorChrome.StyleField(txt);
         EditorChrome.StyleField(ok);
         EditorChrome.StyleField(cancel);
 
-        Panel btnPanel = new() { Dock = DockStyle.Bottom, Height = 32 };
+        FlowLayoutPanel btnPanel = new() { Dock = DockStyle.Bottom, AutoSize = true, FlowDirection = FlowDirection.RightToLeft, WrapContents = false };
         btnPanel.Controls.Add(ok);
         btnPanel.Controls.Add(cancel);
 
         prompt.Controls.Add(txt);
         prompt.Controls.Add(btnPanel);
+        prompt.Controls.Add(new Label { Text = "Tile layer name", Dock = DockStyle.Top, AutoSize = true });
+        prompt.Padding = new Padding(12);
         prompt.AcceptButton = ok;
         prompt.CancelButton = cancel;
 
-        if (prompt.ShowDialog(this) == DialogResult.OK && !string.IsNullOrWhiteSpace(txt.Text))
+        prompt.ApplyInterfaceLayout();
+        return prompt;
+    }
+
+    private sealed class TileLayerNameDialog : DpiAwareForm
+    {
+        public override void ApplyInterfaceLayout()
         {
-            _editor.SetNodeName(node, txt.Text.Trim());
-            RefreshLayers();
+            foreach (Button button in Controls.OfType<FlowLayoutPanel>().SelectMany(panel => panel.Controls.OfType<Button>()))
+                button.MinimumSize = new Size(TextRenderer.MeasureText(button.Text, button.Font).Width + 24, button.Font.Height + 16);
+            int height = Controls.OfType<Label>().Sum(label => label.PreferredHeight)
+                + Controls.OfType<TextBox>().Sum(text => text.PreferredHeight)
+                + Controls.OfType<FlowLayoutPanel>().Sum(panel => panel.GetPreferredSize(new Size(ClientSize.Width, 0)).Height) + Padding.Vertical + 20;
+            ClientSize = new Size(Math.Max(ClientSize.Width, 440), height);
         }
+    }
+
+    public void ApplyInterfaceLayout()
+    {
+        Label heading = Controls.OfType<Label>().Single(label => label.Name == "TileSetHeading");
+        heading.Font = EditorChrome.HeadingFont; heading.Height = heading.Font.Height + 8;
+        Panel layer = Controls.OfType<Panel>().Single(panel => panel.Name == "TileLayerSection");
+        TableLayoutPanel fields = layer.Controls.OfType<TableLayoutPanel>().Single();
+        fields.ColumnStyles[0].Width = TextRenderer.MeasureText("Depth:", EditorChrome.SmallFont).Width + 10;
+        fields.RowStyles[0].Height = _layerCombo.PreferredHeight + 6;
+        fields.RowStyles[1].Height = _btnAddLayer.Font.Height + 18;
+        fields.RowStyles[2].Height = _numLayerDepth.PreferredHeight + 6;
+        _numLayerDepth.Width = Math.Max(84, TextRenderer.MeasureText("-100000", _numLayerDepth.Font).Width + 28);
+        layer.Height = fields.RowStyles.Cast<RowStyle>().Sum(row => (int)row.Height) + layer.Padding.Vertical;
+        Panel asset = Controls.OfType<Panel>().Single(panel => panel.Name == "TileAssetSection");
+        Label assetHeading = asset.Controls.OfType<Label>().Single(label => label.Name == "TileAssetHeading");
+        assetHeading.Font = EditorChrome.HeadingFont; assetHeading.Height = assetHeading.Font.Height + 6;
+        _tilesetInfoLabel.Height = _tilesetInfoLabel.Font.Height + 4;
+        asset.Height = assetHeading.Height + _tilesetCombo.PreferredHeight + _tilesetInfoLabel.Height + asset.Padding.Vertical;
+        _promptLabel.Height = TextRenderer.MeasureText(_promptLabel.Text, _promptLabel.Font,
+            new Size(Math.Max(80, ClientSize.Width - Padding.Horizontal), int.MaxValue), TextFormatFlags.WordBreak).Height + 12;
     }
 
     private static NumericUpDown MakeNumeric(decimal min, decimal max, int decimals)

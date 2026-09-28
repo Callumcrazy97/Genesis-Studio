@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Genesis.Rendering.Abstractions;
+using Genesis.Shared.Interfaces;
 
 namespace Genesis.Rendering.Software
 {
@@ -12,6 +15,7 @@ namespace Genesis.Rendering.Software
             public byte[] Bytes;
             public GpuBufferUsage Usage;
             public int Stride;
+            public byte[] SkinnedBytes;
         }
 
         private sealed class TextureData
@@ -612,7 +616,7 @@ namespace Genesis.Rendering.Software
                 DepthBuffer = activeDepth,
                 ScreenW = curW,
                 ScreenH = curH,
-                VbBytes = vbBuf.Bytes,
+                VbBytes = ResolveSkinnedVertices(vbBuf, drawCbBytes),
                 VertexStride = _boundVertexStride,
                 IbBytes = ibBytes,
                 IndexFormat = _boundIndexFormat,
@@ -648,6 +652,51 @@ namespace Genesis.Rendering.Software
             };
 
             SoftwareRasterizerCore.RasterizeMesh3D(in draw);
+        }
+
+        private byte[] ResolveSkinnedVertices(BufferData vertices, byte[] drawConstants)
+        {
+            // Match ForwardShaders.SkinLocal. The software pipeline consumes ordinary
+            // MeshVertex prefixes, so apply the bound bone palette before rasterization.
+            const int skinOffset = 192, skinFlag = 196;
+            int stride = _boundVertexStride;
+            byte[] palette = TryGetBufferBytes(_vsStructuredBuffers[12]);
+            if (stride < Unsafe.SizeOf<SkinnedMeshVertex>() || drawConstants == null
+                || drawConstants.Length < skinFlag + sizeof(float)
+                || BitConverter.ToSingle(drawConstants, skinFlag) <= .5f || palette == null)
+                return vertices.Bytes;
+
+            if (vertices.SkinnedBytes == null || vertices.SkinnedBytes.Length != vertices.Bytes.Length)
+                vertices.SkinnedBytes = new byte[vertices.Bytes.Length];
+            vertices.Bytes.CopyTo(vertices.SkinnedBytes, 0);
+            uint matrixOffset = BitConverter.ToUInt32(drawConstants, skinOffset);
+            for (int offset = 0; offset + Unsafe.SizeOf<SkinnedMeshVertex>() <= vertices.Bytes.Length; offset += stride)
+            {
+                SkinnedMeshVertex vertex = MemoryMarshal.Read<SkinnedMeshVertex>(vertices.Bytes.AsSpan(offset));
+                float total = vertex.JointWeights.X + vertex.JointWeights.Y + vertex.JointWeights.Z + vertex.JointWeights.W;
+                if (total <= .0001f) continue;
+                Vector3 position = Vector3.Zero, normal = Vector3.Zero;
+                for (int influence = 0; influence < 4; influence++)
+                {
+                    float weight = vertex.JointWeights[influence];
+                    if (weight <= .0001f) continue;
+                    float joint = vertex.JointIndices[influence];
+                    long paletteOffset = ((long)MathF.Round(joint) + matrixOffset) * Unsafe.SizeOf<Matrix4x4>();
+                    if (!float.IsFinite(joint) || paletteOffset < 0 || paletteOffset + Unsafe.SizeOf<Matrix4x4>() > palette.Length)
+                        continue;
+                    Matrix4x4 skin = MemoryMarshal.Read<Matrix4x4>(palette.AsSpan((int)paletteOffset));
+                    position += Vector3.Transform(vertex.Position, skin) * weight;
+                    normal += Vector3.TransformNormal(vertex.Normal, skin) * weight;
+                }
+                MeshVertex posed = new()
+                {
+                    Position = position / total,
+                    Normal = normal.LengthSquared() > .000001f ? Vector3.Normalize(normal) : vertex.Normal,
+                    Color = vertex.Color, UV = vertex.UV
+                };
+                MemoryMarshal.Write(vertices.SkinnedBytes.AsSpan(offset), in posed);
+            }
+            return vertices.SkinnedBytes;
         }
 
         private byte[] TryGetBufferBytes(GpuBufferHandle handle) =>

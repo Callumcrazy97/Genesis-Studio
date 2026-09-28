@@ -34,6 +34,7 @@ public sealed partial class ParticleEditorControl
         _eventList.Columns.Add("Source", 74);
         _eventList.Columns.Add("Event", 66);
         _eventList.Columns.Add("Target", 74);
+        EditorChrome.StyleDetailsList(_eventList);
         _eventList.SelectedIndexChanged += (_, _) =>
         {
             if (_syncingEventEditor) return;
@@ -49,8 +50,8 @@ public sealed partial class ParticleEditorControl
             WrapContents = false,
             Margin = new Padding(0, 4, 0, 8),
         };
-        Button add = new() { Text = "Add link", Width = 116, Height = 28 };
-        _removeEventButton = new Button { Text = "Remove", Width = 116, Height = 28 };
+        Button add = new() { Text = "Add link", AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, MinimumSize = new Size(116, 28) };
+        _removeEventButton = new Button { Text = "Remove", AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, MinimumSize = new Size(116, 28) };
         EditorChrome.StyleField(add);
         EditorChrome.StyleField(_removeEventButton);
         add.Click += (_, _) => AddParticleEventLink();

@@ -41,20 +41,37 @@ namespace Genesis.Application.Headless.Suites;
 /// </summary>
 internal static class SuiteEditorSuite
 {
-    public static void Run(HeadlessContext ctx)
+    public static void Run(HeadlessContext ctx, bool twoDOnly = false)
     {
-        Editor3DInspectionSuite.Run(ctx);
-        ModelBranchSidebarSuite.Run(ctx);
-        ModelRigEditingSuite.Run(ctx);
-        ModelRigWizardSuite.Run(ctx);
-        ModelMotionImportSuite.Run(ctx);
-        ModelArcherAnimationSuite.Run(ctx);
-        ModelPoseWorkflowSuite.Run(ctx);
-        ModelIntakeSuite.Run(ctx);
-        ModelViewerSuite.Run(ctx);
-        ModelEditorResetSuite.Run(ctx);
-        ModelRefinementSuite.Run(ctx);
-        ModelRigPlacementSuite.Run(ctx);
+        if (!twoDOnly)
+        {
+            Editor3DInspectionSuite.Run(ctx);
+            ModelBranchSidebarSuite.Run(ctx);
+            ModelRigEditingSuite.Run(ctx);
+            ModelRigWizardSuite.Run(ctx);
+            ModelMotionImportSuite.Run(ctx);
+            ModelArcherAnimationSuite.Run(ctx);
+            ModelPoseWorkflowSuite.Run(ctx);
+            ModelIntakeSuite.Run(ctx);
+            ModelViewerSuite.Run(ctx);
+            ModelEditorResetSuite.Run(ctx);
+            ModelRefinementSuite.Run(ctx);
+            ModelRigPlacementSuite.Run(ctx);
+        }
+        void RunCase(string name, Action action)
+        {
+            if (twoDOnly && (name.Contains(".Terrain", StringComparison.Ordinal)
+                || name.Contains(".Model.", StringComparison.Ordinal)
+                || name is "Editor.Suite.Room.Toggle3DPlaceAxisGizmo"
+                    or "Editor.Suite.Room.PlaceTerrain3DOnly"
+                    or "Editor.Suite.Room.CameraFrustumOverlay"
+                    or "Editor.Suite.Acceptance.WaterfallModelInTerrainScene"))
+            {
+                Console.WriteLine("Outside focused 2D coverage: " + name);
+                return;
+            }
+            HeadlessHarness.RunCase(ctx.Report, name, action);
+        }
         HeadlessHarness.BeginMajor(ctx.Report, "Editor.Suite");
         ProjectSession project = HeadlessHarness.Require(ctx.Project, "Project fixture");
         ResourceService resources = HeadlessHarness.Require(ctx.Resources, "Resource service");
@@ -68,7 +85,7 @@ internal static class SuiteEditorSuite
         string heroObject = string.Empty;
         string arenaRoom = string.Empty;
 
-        HeadlessHarness.RunCase(ctx.Report, "Editor.Suite.Room.PlaceSelectMoveUndo2D", () =>
+        RunCase("Editor.Suite.Room.PlaceSelectMoveUndo2D", () =>
         {
             heroObject = resources.CreateResource(objectsFolder, ResourceKind.GameObject, "SuiteHero");
             arenaRoom = resources.CreateResource(roomsFolder, ResourceKind.Room, "SuiteArena");
@@ -158,7 +175,7 @@ internal static class SuiteEditorSuite
             SaveCapture(ctx, frame!, "20-room-editor-2d.png", "Room Editor 2D", minColors: 5);
         });
 
-        HeadlessHarness.RunCase(ctx.Report, "Editor.Suite.Room.Toggle3DPlaceAxisGizmo", () =>
+        RunCase("Editor.Suite.Room.Toggle3DPlaceAxisGizmo", () =>
         {
             // Independent room fixture: arenaRoom's 2D-placed nodes carry pixel-scale
             // coordinates (hundreds of units) that would dwarf a 3D scene at meter scale.
@@ -215,7 +232,7 @@ internal static class SuiteEditorSuite
             SaveCapture(ctx, frame!, "21-room-editor-3d.png", "Room Editor 3D", minColors: 24);
         });
 
-        HeadlessHarness.RunCase(ctx.Report, "Editor.Suite.Room.SaveSpawnsInRuntime", () =>
+        RunCase("Editor.Suite.Room.SaveSpawnsInRuntime", () =>
         {
             RoomAsset parsed = RoomAssetLoader.Parse(arenaRoom);
             int gameObjectNodes = parsed.Nodes.Count(n => n.Kind == RoomNodeKind.GameObject);
@@ -229,7 +246,7 @@ internal static class SuiteEditorSuite
                 $"Runtime spawned {build.SpawnedEntities.Count}/{gameObjectNodes} room instances — prefab resolution broke.");
         });
 
-        HeadlessHarness.RunCase(ctx.Report, "Editor.Suite.Room.PlaceTerrain3DOnly", () =>
+        RunCase("Editor.Suite.Room.PlaceTerrain3DOnly", () =>
         {
             string terrainFolder = Path.Combine(resources.AssetsRoot, "Terrain");
             Directory.CreateDirectory(terrainFolder);
@@ -265,6 +282,7 @@ internal static class SuiteEditorSuite
             Pump(4, 25);
 
             int before = editor.Room.Nodes.Count;
+            editor.Navigation.SetSection(RoomNavSection.Tilesets);
             editor.BeginPlacementTerrain(terrainAsset);
             HeadlessHarness.Assert(editor.ActiveTool == RoomEditorControl.RoomTool.Place, "3D Terrain placement should arm the Place tool.");
 
@@ -317,7 +335,7 @@ internal static class SuiteEditorSuite
             SaveCapture(ctx, frame!, "36-room-editor-terrain.png", "Room Editor Terrain Placement", minColors: 40);
         });
 
-        HeadlessHarness.RunCase(ctx.Report, "Editor.Suite.Room.RunRequiresRoom", () =>
+        RunCase("Editor.Suite.Room.RunRequiresRoom", () =>
         {
             // A separate project so this doesn't disturb the shared fixture. CreateProject
             // always seeds one starter Room ("Start") — trash it so the project is genuinely
@@ -340,7 +358,7 @@ internal static class SuiteEditorSuite
                 "Running a project with zero Rooms must log a clear 'no Room' error instead of falling through to launch.");
         });
 
-        HeadlessHarness.RunCase(ctx.Report, "Editor.Suite.Terrain.SculptPaintUndoCapture", () =>
+        RunCase("Editor.Suite.Terrain.SculptPaintUndoCapture", () =>
         {
             string terrain = resources.CreateResource(
                 Path.Combine(resources.AssetsRoot, "Terrain"), ResourceKind.Terrain, "SuiteTerrain");
@@ -420,7 +438,7 @@ internal static class SuiteEditorSuite
                 $"Terrain shading looks flat ({metrics.UniqueSampledColors} colours — expected the lit, non-Lambert rig).");
         });
 
-        HeadlessHarness.RunCase(ctx.Report, "Editor.Suite.Room.TilePainting2D", () =>
+        RunCase("Editor.Suite.Room.TilePainting2D", () =>
         {
             // Authored tile cells remain room data; this exercises the tile painting UI.
             string tileSetsFolder = Path.Combine(resources.AssetsRoot, "Sprites", "TileSets");
@@ -438,6 +456,7 @@ internal static class SuiteEditorSuite
 
             HeadlessHarness.Assert(!editor.ViewMode3D, "Tile painting needs the room in 2D mode.");
             EnableTileSet(tileSet);
+            editor.Navigation.SetSection(RoomNavSection.Tilesets);
             editor.BeginTilePainting(tileSet);
             HeadlessHarness.Assert(editor.IsTilePainting, "Selecting a tile set did not arm tile painting.");
             HeadlessHarness.Assert(editor.ActiveTileLayer is not null, "No TileLayer node was created for the tile set.");
@@ -554,7 +573,7 @@ internal static class SuiteEditorSuite
             SaveCapture(ctx, frame!, "48-room-tile-painting.png", "Room Editor — tiles + backgrounds", minColors: 5);
         });
 
-        HeadlessHarness.RunCase(ctx.Report, "Editor.Suite.Room.SettingsAndViewports", () =>
+        RunCase("Editor.Suite.Room.SettingsAndViewports", () =>
         {
             // Room settings and viewports had no authoring surface at all. Everything below drives
             // the panels' own fields rather than the room model, because writing to the model would
@@ -642,18 +661,19 @@ internal static class SuiteEditorSuite
                 "Switching slots did not reload the selected viewport's own settings.");
 
             // ── Visibility toolbar ───────────────────────────────────────────────
+            editor.Navigation.SetSection(RoomNavSection.Objects);
             editor.BeginPlacement(heroObject);
             editor.PlaceObjectAtWorld2D(200f, 200f);
             RoomNode placed = editor.Room.Nodes[^1];
 
             editor.SetKindVisible(RoomNodeKind.GameObject, false);
             HeadlessHarness.Assert(
-                editor.HitTestNode(editor.ClientFromWorld2D(new Vector2(200f, 200f))) is null,
+                !editor.HitTestNodes(editor.ClientFromWorld2D(new Vector2(200f, 200f))).Contains(placed),
                 "A hidden object can still be picked. Draw and hit testing must share one filter, "
                 + "or you can select something you cannot see.");
             editor.SetKindVisible(RoomNodeKind.GameObject, true);
             HeadlessHarness.Assert(
-                editor.HitTestNode(editor.ClientFromWorld2D(new Vector2(200f, 200f))) is not null,
+                editor.HitTestNodes(editor.ClientFromWorld2D(new Vector2(200f, 200f))).Contains(placed),
                 "Re-showing objects did not restore hit testing.");
 
             editor.SetGridVisible(false);
@@ -686,7 +706,7 @@ internal static class SuiteEditorSuite
             SaveCapture(ctx, frame!, "49-room-viewports.png", "Room Editor — viewport regions", minColors: 4);
         });
 
-        HeadlessHarness.RunCase(ctx.Report, "Editor.Suite.Room.CameraFrustumOverlay", () =>
+        RunCase("Editor.Suite.Room.CameraFrustumOverlay", () =>
         {
             // CAM-2: Room 3D frustum wires face play-camera forward (−Z / follow / Engine yaw),
             // and a marker click drives the existing second-camera inset.
@@ -752,6 +772,9 @@ internal static class SuiteEditorSuite
                 editor.TryHitCameraMarker(marker, out int hitIndex, out bool hitGame) && hitIndex == 6 && !hitGame,
                 "Camera marker was not pickable at the frustum eye.");
 
+            editor.Navigation.SetSection(RoomNavSection.Views);
+            Pump(4, 20);
+            marker = editor.ClientFromWorld3D(eye);
             editor.EditorPointerDown(marker, MouseButtons.Left, Keys.None);
             editor.EditorPointerUp(marker, MouseButtons.Left, Keys.None);
             HeadlessHarness.Assert(
@@ -763,7 +786,7 @@ internal static class SuiteEditorSuite
             SaveCapture(ctx, frame!, "49b-room-camera-frustum.png", "Room Editor — CAM-2 frustum overlay", minColors: 4);
         });
 
-        HeadlessHarness.RunCase(ctx.Report, "Editor.Suite.Room.ViewsHierarchyAndOverrides", () =>
+        RunCase("Editor.Suite.Room.ViewsHierarchyAndOverrides", () =>
         {
             // The last three Track D gaps. All were runtime-ready (ApplyActiveGameCamera,
             // ResolveWorldTransform parent chains, ApplyOverrides) but had no authoring surface.
@@ -829,7 +852,7 @@ internal static class SuiteEditorSuite
                 $"Parented child world X should be parent+local, got {childWorld.X}.");
         });
 
-        HeadlessHarness.RunCase(ctx.Report, "Editor.Suite.Room.DenseSceneClipboardLayers", () =>
+        RunCase("Editor.Suite.Room.DenseSceneClipboardLayers", () =>
         {
             string roomPath = resources.CreateResource(roomsFolder, ResourceKind.Room, "SuiteDenseWorkflow");
             using Form host = NewHost();
@@ -914,8 +937,14 @@ internal static class SuiteEditorSuite
                 "Hidden layer remained viewport-selectable.");
             editor.SetLayerVisibility(gameplay, true);
 
-            HeadlessHarness.Assert(editor.SceneOutliner.Items.Count == editor.Room.Nodes.Count,
-                $"Outliner shows {editor.SceneOutliner.Items.Count}/{editor.Room.Nodes.Count} nodes.");
+            editor.Navigation.SetSection(RoomNavSection.Instances);
+            Pump(4, 20);
+            TreeNode[] instanceRows = editor.Navigation.ObjectsPanel.InstanceHierarchy.Nodes
+                .Cast<TreeNode>().SelectMany(FlattenTree).Where(row => row.Tag is RoomNode).ToArray();
+            HeadlessHarness.Assert(instanceRows.Length == editor.Room.Nodes.Count
+                && instanceRows.Select(row => ((RoomNode)row.Tag!).Id).ToHashSet()
+                    .SetEquals(editor.Room.Nodes.Select(node => node.Id)),
+                $"Hierarchy shows {instanceRows.Length}/{editor.Room.Nodes.Count} nodes.");
             editor.Save();
             RoomAsset saved = RoomAssetLoader.Parse(roomPath);
             RoomLayer savedLayer = saved.Layers.First(layer => layer.Id == gameplay.Id);
@@ -942,7 +971,7 @@ internal static class SuiteEditorSuite
                 "Room Phase 4 — dense scene outliner and inspector", minColors: 8);
         });
 
-        HeadlessHarness.RunCase(ctx.Report, "Editor.Suite.Room.BackgroundTileInspectorRoundTrip", () =>
+        RunCase("Editor.Suite.Room.BackgroundTileInspectorRoundTrip", () =>
         {
             string tileSet = resources.CreateResource(resources.AssetsRoot, ResourceKind.Image, "Phase4Tiles");
             EnableTileSet(tileSet);
@@ -953,6 +982,7 @@ internal static class SuiteEditorSuite
             GateSuite.ShowHost(host);
             Pump(8, 25);
 
+            editor.Navigation.SetSection(RoomNavSection.Tilesets);
             editor.BeginTilePainting(tileSet, createNewLayer: true);
             RoomNode firstTiles = HeadlessHarness.Require(editor.ActiveTileLayer, "First Phase 4 tile layer");
             Point strokeStart = editor.ClientFromWorld2D(new Vector2(4f, 132f));
@@ -976,12 +1006,10 @@ internal static class SuiteEditorSuite
 
             // Drive the real PropertyGrid model, not just direct data APIs, then verify its setters
             // reach the document and undo journal.
-            PropertyGrid grid = (PropertyGrid)editor.Controls.Find("RoomNodePropertyGrid", true).Single();
-            object tileInspector = HeadlessHarness.Require(grid.SelectedObject, "Tile inspector model");
-            PropertyDescriptorCollection tileProperties = TypeDescriptor.GetProperties(tileInspector);
-            HeadlessHarness.Require(tileProperties["CellWidth"], "Tile CellWidth inspector property").SetValue(tileInspector, 48);
-            HeadlessHarness.Require(tileProperties["CellHeight"], "Tile CellHeight inspector property").SetValue(tileInspector, 24);
-            HeadlessHarness.Require(tileProperties["CollisionEnabled"], "Tile collision inspector property").SetValue(tileInspector, true);
+            HeadlessHarness.Assert(editor.TryApplyInspectorValue("Selection.TileLayer.CellWidth", 48)
+                && editor.TryApplyInspectorValue("Selection.TileLayer.CellHeight", 24)
+                && editor.TryApplyInspectorValue("Selection.TileLayer.CollisionEnabled", true),
+                "The typed Inspector did not accept tile layer edits.");
             editor.SetNodeDepth(secondTiles, -350);
             HeadlessHarness.Assert(
                 secondTiles.TileLayer!.CellWidth == 48 && secondTiles.TileLayer.CellHeight == 24 && secondTiles.TileLayer.CollisionEnabled,
@@ -990,13 +1018,11 @@ internal static class SuiteEditorSuite
             string skyAsset = resources.CreateResource(resources.AssetsRoot, ResourceKind.Image, "Phase4Sky");
             string cloudAsset = resources.CreateResource(resources.AssetsRoot, ResourceKind.Image, "Phase4Clouds");
             RoomNode sky = editor.AddBackground(skyAsset);
-            PropertyGrid backgroundGrid = (PropertyGrid)editor.Controls.Find("RoomNodePropertyGrid", true).Single();
-            object backgroundInspector = HeadlessHarness.Require(backgroundGrid.SelectedObject, "Background inspector model");
-            PropertyDescriptorCollection backgroundProperties = TypeDescriptor.GetProperties(backgroundInspector);
-            HeadlessHarness.Require(backgroundProperties["Layout"], "Background Layout inspector property")
-                .SetValue(backgroundInspector, RoomBackgroundLayout.StretchView);
-            HeadlessHarness.Require(backgroundProperties["Opacity"], "Background Opacity inspector property")
-                .SetValue(backgroundInspector, .55f);
+            editor.Navigation.SetSection(RoomNavSection.Backgrounds);
+            editor.Select(sky);
+            HeadlessHarness.Assert(editor.TryApplyInspectorValue("Selection.Background.Layout", RoomBackgroundLayout.StretchView)
+                && editor.TryApplyInspectorValue("Selection.Background.Opacity", .55f),
+                "The typed Inspector did not accept background edits.");
             editor.SetBackgroundRepeat(sky, true, false);
             editor.SetBackgroundScroll(sky, 8f, -2f);
             editor.SetBackgroundTint(sky, unchecked((int)0xffb8d8ff));
@@ -1008,6 +1034,8 @@ internal static class SuiteEditorSuite
 
             RoomLayer lockedDefault = editor.Room.Layers[0];
             editor.SetLayerLocked(lockedDefault, true);
+            editor.Navigation.SetSection(RoomNavSection.Tilesets);
+            editor.Navigation.TilesetsPanel.SelectLayer(secondTiles);
             int cellsBeforeLockAttempt = secondTiles.TileLayer.Cells.Count;
             HeadlessHarness.Assert(!editor.PaintTileAtWorld(4f, 4f), "Locked tile layer accepted paint.");
             HeadlessHarness.Assert(secondTiles.TileLayer.Cells.Count == cellsBeforeLockAttempt, "Locked paint changed tile data.");
@@ -1032,7 +1060,7 @@ internal static class SuiteEditorSuite
             HeadlessHarness.Assert(saved.Layers[0].Locked, "Layer lock did not survive the inspector round-trip save.");
         });
 
-        HeadlessHarness.RunCase(ctx.Report, "Editor.Suite.Room.GameCameraPreviewParity", () =>
+        RunCase("Editor.Suite.Room.GameCameraPreviewParity", () =>
         {
             static bool MatrixClose(Matrix4x4 left, Matrix4x4 right)
             {
@@ -1147,8 +1175,11 @@ internal static class SuiteEditorSuite
             HeadlessHarness.Assert(MatrixClose(actual.View, runtimeCamera.ViewMatrix), "Studio preview view matrix differs from runtime Camera3D.");
             HeadlessHarness.Assert(MatrixClose(actual.Projection, runtimeCamera.ProjectionMatrix), "Studio preview projection differs from runtime Camera3D.");
 
+            editor.Navigation.SetSection(RoomNavSection.Instances);
             editor.Select(camera);
-            editor.MoveSelectionBy(new Vector3(2f, 1f, -3f));
+            HeadlessHarness.Assert(editor.MoveSelectionBy(new Vector3(2f, 1f, -3f)),
+                "The active camera instance could not be moved.");
+            Pump(4, 20);
             RoomCameraState movedPreview = HeadlessHarness.Require(editor.GameCameraPreviewState, "Updated 3D preview state");
             HeadlessHarness.Assert(
                 MathF.Abs(movedPreview.Position.X - 7f) < .01f
@@ -1169,7 +1200,7 @@ internal static class SuiteEditorSuite
                 "Room Phase 4 — exact Game Camera preview", minColors: 5);
         });
 
-        HeadlessHarness.RunCase(ctx.Report, "Editor.Suite.Terrain.CreationWizard", () =>
+        RunCase("Editor.Suite.Terrain.CreationWizard", () =>
         {
             // Presets are distinct landscapes, not just re-seeds: Mountains must be far more rugged
             // than Flatlands at the same seed.
@@ -1298,7 +1329,7 @@ internal static class SuiteEditorSuite
             SaveCapture(ctx, frame!, "37-terrain-wizard.png", "Terrain Creation Wizard", minColors: 40);
         });
 
-        HeadlessHarness.RunCase(ctx.Report, "Editor.Suite.Model.PrimitiveWindingConsistency", () =>
+        RunCase("Editor.Suite.Model.PrimitiveWindingConsistency", () =>
         {
             // Renderer-independent guard for the NEXT-024 / NEXT-031 bug class: every horizontal
             // face must wind consistently across primitives, or it renders solid black. The cube's
@@ -1339,7 +1370,7 @@ internal static class SuiteEditorSuite
         // The removed model shell's kitbash/topology/flow controls are intentionally retired.
         // Replacement authoring behaviour is covered by ModelEditorResetSuite.
 
-        HeadlessHarness.RunCase(ctx.Report, "Editor.Shell.PgslCommandReference", () =>
+        RunCase("Editor.Shell.PgslCommandReference", () =>
         {
             // Help → Commands. Drives the dialog's own Auto-Test button rather than the engine
             // underneath it, so the button wiring is covered too — the engine already has its own
@@ -1350,11 +1381,12 @@ internal static class SuiteEditorSuite
             Pump(6, 25);
 
             HeadlessHarness.Assert(
-                reference.Text == "Commands — PGSL Game Code + Engine API",
+                reference.Text == "Commands — PGSL, Engine, Editor and Shell",
                 $"Help → Commands window title is '{reference.Text}'.");
             HeadlessHarness.Assert(
                 reference.PgslTabCaption == "PGSL Game Code"
-                && reference.EngineTabCaption == "Engine API",
+                && reference.EngineTabCaption == "Engine API"
+                && reference.CommandScopes.SequenceEqual(new[] { "PGSL Game Code", "Engine API", "Editor", "Shell" }),
                 $"Help → Commands tabs are not explicit: '{reference.PgslTabCaption}' / '{reference.EngineTabCaption}'.");
             HeadlessHarness.Assert(
                 reference.CatalogueCount > 250,
@@ -1449,7 +1481,7 @@ internal static class SuiteEditorSuite
                 "Visual-test controls were not restored after cancellation.");
         });
 
-        HeadlessHarness.RunCase(ctx.Report, "Editor.Suite.Acceptance.TwoDGameEndToEnd", () =>
+        RunCase("Editor.Suite.Acceptance.TwoDGameEndToEnd", () =>
         {
             // ACCEPTANCE TARGET #1: author a whole 2D game in the editors, then run it through the
             // runtime's OWN scene builder and script host — not a simulation of them — and assert it
@@ -1509,12 +1541,14 @@ internal static class SuiteEditorSuite
                 Pump(2, 25);
 
                 EnableTileSet(gameTiles);
+                gameLevel.Navigation.SetSection(RoomNavSection.Tilesets);
                 gameLevel.BeginTilePainting(gameTiles);
                 for (int column = 0; column < 8; column++)
                 {
                     gameLevel.PaintTileAtWorld(column * 32f, 320f);
                 }
 
+                gameLevel.Navigation.SetSection(RoomNavSection.Objects);
                 gameLevel.BeginPlacement(playerObject);
                 Point spawn = TranslateToViewport(gameLevel, new Point(gameLevel.Viewport.Width / 3, gameLevel.Viewport.Height / 2));
                 gameLevel.EditorPointerDown(spawn, MouseButtons.Left, Keys.None);
@@ -1571,8 +1605,14 @@ internal static class SuiteEditorSuite
                 RoomBuildResult built = builder.Build(world, level);
 
                 HeadlessHarness.Assert(
-                    built.SpawnedEntities.Count > 8,
-                    $"The level spawned only {built.SpawnedEntities.Count} entities — the tilemap did not become game objects.");
+                    built.SpawnedEntities.Count == 1
+                    && level.Nodes.Single(node => node.Kind == RoomNodeKind.TileLayer).TileLayer!.Cells.Count == 8,
+                    "The saved level must retain eight batched tiles and spawn exactly one player.");
+                RoomNode floor = level.Nodes.Single(node => node.Kind == RoomNodeKind.TileLayer);
+                RoomTileCollisionMap tileMap = new(level, project.RootPath, _ => null);
+                HeadlessHarness.Assert(Enumerable.Range(0, 8).All(column =>
+                    tileMap.TryCell(column * 32f + 4f, 324f, floor.Name, out _, out _, out _)),
+                    "The runtime could not query all eight saved floor tiles.");
 
                 Entity player = built.EntitiesByNodeId.Values.First();
                 HeadlessHarness.Assert(
@@ -1621,7 +1661,7 @@ internal static class SuiteEditorSuite
             }
         });
 
-        HeadlessHarness.RunCase(ctx.Report, "Editor.Suite.Acceptance.WaterfallModelInTerrainScene", () =>
+        RunCase("Editor.Suite.Acceptance.WaterfallModelInTerrainScene", () =>
         {
             // ACCEPTANCE TARGET #2: a 3D terrain scene containing a waterfall that was modelled in
             // the Model Editor. Proves the whole chain: author a model → place it in a 3D room
@@ -1712,11 +1752,13 @@ internal static class SuiteEditorSuite
 
             room.ViewMode3D = true;
             Pump(4, 25);
+            room.Navigation.SetSection(RoomNavSection.Tilesets);
             room.BeginPlacementTerrain(sceneTerrain);
             Point centre = TranslateToViewport(room, new Point(room.Viewport.Width / 2, (int)(room.Viewport.Height * 0.62f)));
             room.EditorPointerDown(centre, MouseButtons.Left, Keys.None);
             room.EditorPointerUp(centre, MouseButtons.Left, Keys.None);
 
+            room.Navigation.SetSection(RoomNavSection.Objects);
             room.BeginPlacement(waterfallObject);
             room.EditorPointerDown(centre, MouseButtons.Left, Keys.None);
             room.EditorPointerUp(centre, MouseButtons.Left, Keys.None);
@@ -1777,7 +1819,7 @@ internal static class SuiteEditorSuite
         string terrainEntitiesFolder = Path.Combine(resources.AssetsRoot, "TerrainEntities");
         Directory.CreateDirectory(terrainEntitiesFolder);
 
-        HeadlessHarness.RunCase(ctx.Report, "Editor.Suite.TerrainEntity.WizardCreateComponentsAndGenerateAsset", () =>
+        RunCase("Editor.Suite.TerrainEntity.WizardCreateComponentsAndGenerateAsset", () =>
         {
             string entityPath = Path.Combine(terrainEntitiesFolder, "SuiteFern.terrainentity.json");
             File.WriteAllText(entityPath, ResourceDefinitions.Get(ResourceKind.TerrainEntity).DefaultContent);
@@ -1849,7 +1891,7 @@ internal static class SuiteEditorSuite
             HeadlessHarness.Assert(File.ReadAllText(entityPath).Contains("Suite Fern"), "Saved terrain entity JSON lost the name.");
         });
 
-        HeadlessHarness.RunCase(ctx.Report, "Editor.Suite.TerrainEntity.ListPanelGroupingEditDelete", () =>
+        RunCase("Editor.Suite.TerrainEntity.ListPanelGroupingEditDelete", () =>
         {
             string rockPath = Path.Combine(terrainEntitiesFolder, "SuiteRock.terrainentity.json");
             File.WriteAllText(rockPath, ResourceDefinitions.Get(ResourceKind.TerrainEntity).DefaultContent);
@@ -1912,7 +1954,7 @@ internal static class SuiteEditorSuite
             ctx.Report.Images.Add(ImageResult.From("Terrain Entity Library", "35-terrain-entity-list.png", metrics));
         });
 
-        HeadlessHarness.RunCase(ctx.Report, "Editor.Suite.Script.DiagnosticsLive", () =>
+        RunCase("Editor.Suite.Script.DiagnosticsLive", () =>
         {
             string script = resources.CreateResource(
                 Path.Combine(resources.AssetsRoot, "Scripts"), ResourceKind.PgslScript, "SuiteScript");
@@ -1938,7 +1980,7 @@ internal static class SuiteEditorSuite
             CaptureForm(ctx, host, "23-pgsl-editor.png", "PGSL Editor");
         });
 
-        HeadlessHarness.RunCase(ctx.Report, "Editor.Suite.Object.EventsExportForPlay", () =>
+        RunCase("Editor.Suite.Object.EventsExportForPlay", () =>
         {
             using Form host = NewHost();
             ObjectEditorControl editor = new(heroObject, project.RootPath);
@@ -2088,7 +2130,7 @@ internal static class SuiteEditorSuite
             CaptureForm(ctx, host, "24-object-editor.png", "Object Editor — events, code and sandbox");
         });
 
-        HeadlessHarness.RunCase(ctx.Report, "Editor.Suite.Assets.TileSetAudioShaderPhysics", () =>
+        RunCase("Editor.Suite.Assets.TileSetAudioShaderPhysics", () =>
         {
             string tileset = resources.CreateResource(resources.AssetsRoot, ResourceKind.Image, "SuiteTiles");
             string audio = resources.CreateResource(Path.Combine(resources.AssetsRoot, "Audio"), ResourceKind.Audio, "SuiteAudio");
@@ -2166,7 +2208,7 @@ internal static class SuiteEditorSuite
             }
         });
 
-        HeadlessHarness.RunCase(ctx.Report, "Editor.Suite.Assets.AudioPlaybackSettings", () =>
+        RunCase("Editor.Suite.Assets.AudioPlaybackSettings", () =>
         {
             // Track M regression: the editor wrote "Volume"/"Loop"/"Spatial" while XAudioSystem
             // read "gain"/"loop"/"spatial", and JsonElement.TryGetProperty is case-sensitive — so
@@ -2246,7 +2288,7 @@ internal static class SuiteEditorSuite
             CaptureForm(ctx, host, "26b-audio-falloff.png", "Audio Editor — spatial falloff");
         });
 
-        HeadlessHarness.RunCase(ctx.Report, "Editor.Suite.Assets.ModelParticleNote", () =>
+        RunCase("Editor.Suite.Assets.ModelParticleNote", () =>
         {
             string model = resources.CreateResource(Path.Combine(resources.AssetsRoot, "Models"), ResourceKind.Model, "SuiteModel");            string particle = resources.CreateResource(Path.Combine(resources.AssetsRoot, "Particles"), ResourceKind.Particle, "SuiteParticle");            string note = resources.CreateResource(resources.AssetsRoot, ResourceKind.Note, "SuiteNote");
             using (Form host = NewHost())
@@ -2294,7 +2336,7 @@ internal static class SuiteEditorSuite
 
         });
 
-        HeadlessHarness.RunCase(ctx.Report, "Editor.Suite.ThemeReachesOpenEditors", () =>
+        RunCase("Editor.Suite.ThemeReachesOpenEditors", () =>
         {
             SuiteChromeBridge.Push();
             using Form host = NewHost();
@@ -2325,7 +2367,7 @@ internal static class SuiteEditorSuite
             Pump(2, 20);
         });
 
-        HeadlessHarness.RunCase(ctx.Report, "Editor.Suite.PlayerLauncherResolves", () =>
+        RunCase("Editor.Suite.PlayerLauncherResolves", () =>
         {
             string? runtimeDir = Genesis.Runtime.RuntimePaths.ResolveRuntimeDir();
             HeadlessHarness.Assert(
@@ -2571,6 +2613,14 @@ internal static class SuiteEditorSuite
 
     private static float AxisLength(RoomEditorControl editor) =>
         MathF.Max(0.6f, editor.Viewport.Camera.Distance * 0.14f);
+
+    private static IEnumerable<TreeNode> FlattenTree(TreeNode row)
+    {
+        yield return row;
+        foreach (TreeNode child in row.Nodes)
+            foreach (TreeNode descendant in FlattenTree(child))
+                yield return descendant;
+    }
 
     private static Point TranslateToViewport(RoomEditorControl editor, Point editorPoint)
     {

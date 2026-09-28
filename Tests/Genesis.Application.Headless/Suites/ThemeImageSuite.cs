@@ -1807,8 +1807,11 @@ internal static class ThemeImageSuite
                 HeadlessHarness.Assert(
                     Descendants(host).OfType<ThemedComboBox>()
                         .Count(c => c.Name is "ShaderTargetTypePicker" or "ShaderTargetAssetPicker"
-                            or "ShaderTerrainComponentPicker" or "ShaderProfilePicker") >= 4,
-                    "Shader target/profile pickers must remain ThemedComboBox instances.");
+                            or "ShaderTerrainComponentPicker") == 3,
+                    "Shader preview pickers must remain ThemedComboBox instances.");
+                var profile = editor.GetLiveInspectorValues().Single(value => value.PropertyPath == "Profile");
+                HeadlessHarness.Assert(!profile.ReadOnly && profile.Choices?.Contains(editor.CompilerProfile) == true,
+                    "The shared Inspector lost the editable compiler profile after removing duplicate code settings.");
                 ListBox presets = HeadlessHarness.Require(
                     Descendants(host).OfType<ListBox>().FirstOrDefault(list => list.Name == "ShaderPresetList"),
                     "ShaderPresetList");

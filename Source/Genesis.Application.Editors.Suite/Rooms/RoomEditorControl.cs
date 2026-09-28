@@ -70,8 +70,9 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
         public string? ImagePath;
         public int Width = 32;
         public int Height = 32;
-        public float OriginX;
-        public float OriginY;
+        public float OriginX = 16;
+        public float OriginY = 16;
+        public Vector4 UvRect;
         public bool HasModel;
         public bool HasFlow;
         /// <summary>Resolved <c>.model.json</c> path, so the placed object can be drawn with its
@@ -159,6 +160,8 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
     private readonly NumericUpDown _roomHeight;
 
     private readonly ViewportTextureCache _textures = new();
+    private IRenderController? _roomBackgroundFillRenderer;
+    private TextureHandle _roomBackgroundFillTexture = TextureHandle.Invalid;
     private readonly Dictionary<string, NodeVisual> _visualCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, TerrainPreview> _terrainPreviewCache = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>
@@ -318,9 +321,6 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
             frameContent.Click += (_, _) => FrameContent();
             _editorToolbar.CameraDropdown.DropDownItems.Add(frameContent);
 
-            ToolStripMenuItem resetCamera = new("Reset camera view");
-            resetCamera.Click += (_, _) => ResetViewportView();
-            _editorToolbar.CameraDropdown.DropDownItems.Add(resetCamera);
         };
 
         _navigation.ObjectsPanel.ObjectArmed += path => BeginPlacement(path);
@@ -334,6 +334,7 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
             _activeTileSetPath = info.ImagePath;
             _activeTileIndex = index;
             ActiveTool = RoomTool.Paint;
+            SyncToolbar();
             UpdateStatus($"Painting with tile {index}" + (_activeTileSet.IsSolid(index) ? " (solid)" : string.Empty));
         };
         _inspector.CloseRequested += () => SetInspectorVisible(false);
@@ -683,7 +684,7 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
         left.Visible = false;
         _mainSplit.Panel2.Controls.Add(_centerSplit);
 
-        Controls.Add(_mainSplit);
+        BuildRoomWorkflowHost(_mainSplit);
         Controls.Add(_placementLabel);
         BuildRoomWorkspace(toolbar, viewportHost);
         Controls.Add(toolbar);
@@ -947,6 +948,7 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
 
     public void SetTool(RoomTool tool)
     {
+        ShowRoomAuthoring();
         if (tool != ActiveTool) CancelActiveRoomGesture();
         ActiveTool = tool;
         _transformToolActive = false;
@@ -2186,10 +2188,11 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
     {
         _activeTileIndex = Math.Max(0, index);
         _tilePicker.Select(_activeTileIndex);
+        _navigation.TilesetsPanel.TilePicker.Select(_activeTileIndex);
     }
 
     /// <summary>The tile picker, so tests can drive the same path a click takes.</summary>
-    public TilePickerPanel TilePicker => _tilePicker;
+    public TilePickerPanel TilePicker => _navigation.TilesetsPanel.TilePicker;
 
     public int ActiveTileIndex => _activeTileIndex;
 
@@ -2525,7 +2528,9 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
                 case DragKind.Rotate:
                 {
                     (float width, float height) = NodeSize2D(_selected);
-                    Vector2 center = NodeEditingCenter2D(_selected, start, width, height);
+                    Vector2 center = _selected.Kind == RoomNodeKind.GameObject
+                        ? new Vector2(start.X, start.Y)
+                        : NodeEditingCenter2D(_selected, start, width, height);
                     float startAngle = MathF.Atan2(_dragStartWorld.Y - center.Y, _dragStartWorld.X - center.X);
                     float nowAngle = MathF.Atan2(world.Y - center.Y, world.X - center.X);
                     float degrees = start.RotationZ + (nowAngle - startAngle) * 180f / MathF.PI;
@@ -2574,6 +2579,15 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
 
                     transform.ScaleX = scaleX;
                     transform.ScaleY = scaleY;
+                    if (_selected.Kind == RoomNodeKind.GameObject)
+                    {
+                        // This gesture scales symmetrically about the visible bounds' center.
+                        // Keep that center fixed even when the sprite's authored pivot is elsewhere.
+                        Vector2 offset = RotateVector(new Vector2((baseW * .5f - visual.OriginX) * scaleX,
+                            (baseH * .5f - visual.OriginY) * scaleY), angle);
+                        transform.X = center.X - offset.X;
+                        transform.Y = center.Y - offset.Y;
+                    }
                     if (_selected.Kind == RoomNodeKind.Background)
                     {
                         transform.X = center.X - baseW * MathF.Abs(scaleX) * .5f;
@@ -2835,13 +2849,15 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
                     visual.AnimationLoop = (bool?)animatorProps["Loop"] ?? true;
                 }
 
-                string? image = ProjectAssetIndex.ResolveSpriteImage(ProjectRoot, sprite);
-                if (image is not null)
+                if (!string.IsNullOrWhiteSpace(sprite))
                 {
-                    visual.ImagePath = image;
-                    ReadPngSize(image, out visual.Width, out visual.Height);
-                    visual.OriginX = visual.Width * 0.5f;
-                    visual.OriginY = visual.Height * 0.5f;
+                    RoomImageMetadata image = GetRoomImageMetadata(sprite);
+                    visual.ImagePath = image.ImagePath;
+                    visual.Width = image.Width;
+                    visual.Height = image.Height;
+                    visual.OriginX = image.OriginX;
+                    visual.OriginY = image.OriginY;
+                    visual.UvRect = image.UvRect;
                 }
 
                 int hash = prefabReference.GetHashCode(StringComparison.OrdinalIgnoreCase);
@@ -2912,8 +2928,8 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
             return (_viewport.SurfaceWidth / MathF.Max(.0001f, _viewport.Zoom2D),
                 _viewport.SurfaceHeight / MathF.Max(.0001f, _viewport.Zoom2D));
         return (
-            MathF.Max(2f, visual.Width * MathF.Abs(transform.ScaleX)),
-            MathF.Max(2f, visual.Height * MathF.Abs(transform.ScaleY)));
+            visual.Width * MathF.Abs(transform.ScaleX == 0 ? 1 : transform.ScaleX),
+            visual.Height * MathF.Abs(transform.ScaleY == 0 ? 1 : transform.ScaleY));
     }
 
     private Vector2[] NodeCorners2D(RoomNode node)
@@ -3210,7 +3226,8 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
             NodeVisual visual = VisualFor(node);
             RoomTransform nodeWorld = GetNodeWorldTransform(node);
             (float width, float height) = NodeSize2D(node);
-            if (!IsRoomRectVisible(nodeWorld.X, nodeWorld.Y, width, height, nodeWorld.RotationZ)) continue;
+            Vector2 center = NodeEditingCenter2D(node, nodeWorld, width, height);
+            if (!IsRoomRectVisible(center.X, center.Y, width, height, nodeWorld.RotationZ)) continue;
             if (visual.ImagePath is not null
                 && _textures.TryGet(renderer, visual.ImagePath, out TextureHandle texture, out _, out _))
             {
@@ -3219,14 +3236,13 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
                     Texture = texture,
                     X = nodeWorld.X,
                     Y = nodeWorld.Y,
-                    Width = width,
-                    Height = height,
-                    OriginX = width * 0.5f,
-                    OriginY = height * 0.5f,
+                    Width = width * MathF.Sign(nodeWorld.ScaleX == 0 ? 1 : nodeWorld.ScaleX),
+                    Height = height * MathF.Sign(nodeWorld.ScaleY == 0 ? 1 : nodeWorld.ScaleY),
+                    OriginX = visual.OriginX * (nodeWorld.ScaleX == 0 ? 1 : nodeWorld.ScaleX),
+                    OriginY = visual.OriginY * (nodeWorld.ScaleY == 0 ? 1 : nodeWorld.ScaleY),
                     Rotation = nodeWorld.RotationZ,
-                    ScaleX = MathF.Sign(nodeWorld.ScaleX == 0f ? 1f : nodeWorld.ScaleX),
-                    ScaleY = MathF.Sign(nodeWorld.ScaleY == 0f ? 1f : nodeWorld.ScaleY),
-                    Alpha = 1f,
+                    UvRect = visual.UvRect,
+                    Alpha = visual.Alpha,
                     Tint = RenderColor.White,
                     Depth = EffectiveNodeDepth(node),
                 });
@@ -3234,8 +3250,8 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
             else
             {
                 renderer.DrawRect(
-                    nodeWorld.X - width * 0.5f,
-                    nodeWorld.Y - height * 0.5f,
+                    center.X - width * 0.5f,
+                    center.Y - height * 0.5f,
                     width,
                     height,
                     new RenderColor(visual.Tint.R, visual.Tint.G, visual.Tint.B, 0.85f),
@@ -3277,8 +3293,18 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
                 continue;   // Sky/Billboard/WorldPlane are 3D-only presentations
             }
 
-            string? image = GetRoomImageMetadata(background.Asset).ImagePath;
-            if (image is null || !_textures.TryGet(renderer, image, out TextureHandle texture, out int imageW, out int imageH))
+            TextureHandle texture;
+            int imageW, imageH;
+            if (string.IsNullOrWhiteSpace(background.Asset))
+            {
+                if (!ReferenceEquals(_roomBackgroundFillRenderer, renderer))
+                { _roomBackgroundFillRenderer = renderer; _roomBackgroundFillTexture = TextureHandle.Invalid; }
+                if (!_roomBackgroundFillTexture.IsValid) _roomBackgroundFillTexture = renderer.CreateTexture(1, 1, [255, 255, 255, 255]);
+                texture = _roomBackgroundFillTexture;
+                imageW = Math.Max(1, _room.Settings.Width); imageH = Math.Max(1, _room.Settings.Height);
+                if (!texture.IsValid) continue;
+            }
+            else if (!_textures.TryGet(renderer, GetRoomImageMetadata(background.Asset).ImagePath, out texture, out imageW, out imageH))
             {
                 continue;
             }
@@ -3456,8 +3482,8 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
         NodeVisual visual = GhostVisual();
         float w = visual.Width;
         float h = visual.Height;
-        float left = centre.X - (w * 0.5f);
-        float top = centre.Y - (h * 0.5f);
+        float left = centre.X - visual.OriginX;
+        float top = centre.Y - visual.OriginY;
 
         if (visual.ImagePath is not null
             && _textures.TryGet(renderer, visual.ImagePath, out TextureHandle texture, out _, out _))
@@ -3469,12 +3495,12 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
                 Y = centre.Y,
                 Width = w,
                 Height = h,
-                OriginX = w * 0.5f,
-                OriginY = h * 0.5f,
+                OriginX = visual.OriginX,
+                OriginY = visual.OriginY,
                 ScaleX = 1f,
                 ScaleY = 1f,
-                UvRect = new Vector4(0f, 0f, 1f, 1f),
-                Alpha = 0.55f,
+                UvRect = visual.UvRect,
+                Alpha = visual.Alpha * 0.55f,
                 Tint = RenderColor.White,
                 Depth = -600,
             });
@@ -4216,7 +4242,7 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
     {
         if (IsDisposed || _arrangingRoomPanels || _movingRoomPalette || _movingRoomInspector
             || ClientSize.Width <= 0 || ClientSize.Height <= 0) return;
-        bool narrow = ClientSize.Width < 1000;
+        bool narrow = LogicalClientWidth < 1000;
         if (narrow && !_narrowLayout)
         {
             _inspectorPanelVisible = false;
@@ -4236,7 +4262,7 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
             _centerSplit.Panel1MinSize = 0;
             _centerSplit.Panel2MinSize = 0;
             _mainSplit.Panel1Collapsed = !_palettePanelVisible;
-            _centerSplit.Panel2Collapsed = !_inspectorPanelVisible;
+            _centerSplit.Panel2Collapsed = !_inspectorPanelVisible || _navigation.CurrentSection == RoomNavSection.Settings;
             _mainSplit.IsSplitterFixed = _mainSplit.Panel1Collapsed;
             _centerSplit.IsSplitterFixed = _centerSplit.Panel2Collapsed;
             _mainSplit.SplitterWidth = 4;
@@ -4252,19 +4278,21 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
 
     private void SetWideSplitters()
     {
+        float scale = Math.Max(1f, DeviceDpi / 96f * EditorChrome.BaseFont.SizeInPoints / 9.5f);
         int available = _mainSplit.ClientSize.Width;
         if (!_mainSplit.Panel1Collapsed && available > 400)
         {
-            int desired = Math.Min(_preferredRoomPaletteWidth, narrowPaletteWidth());
-            _mainSplit.SplitterDistance = Math.Clamp(desired, 280, Math.Max(280, available - 320));
+            int desired = (int)(Math.Min(_preferredRoomPaletteWidth, _narrowLayout ? 320 : 520) * scale);
+            int maximum = Math.Max(1, available - Math.Min(360, available / 2));
+            _mainSplit.SplitterDistance = Math.Clamp(desired, Math.Min((int)(280 * scale), maximum), maximum);
         }
         int center = _centerSplit.ClientSize.Width;
         if (!_centerSplit.Panel2Collapsed && center > 500)
         {
-            int desired = Math.Clamp(_preferredRoomInspectorWidth, 264, Math.Max(264, center - 320));
+            int maximum = Math.Max(1, center - 320);
+            int desired = Math.Clamp((int)(_preferredRoomInspectorWidth * scale), Math.Min((int)(264 * scale), maximum), maximum);
             _centerSplit.SplitterDistance = Math.Max(0, center - desired - _centerSplit.SplitterWidth);
         }
-        int narrowPaletteWidth() => _narrowLayout ? 320 : 520;
     }
 
     private void SyncToolbar()
@@ -4332,5 +4360,6 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
         _kindInspector.ViewBackColor = EditorChrome.Surface;
         _kindInspector.ViewForeColor = EditorChrome.Text;
         UpdatePaletteModeButtonStyles();
+        ApplyResponsiveLayout();
     }
 }

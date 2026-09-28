@@ -1242,10 +1242,14 @@ internal static class RuntimeGateChecks
                     .First(behavior => behavior.Entity == playerEntity);
                 HeadlessHarness.Assert(playerBehavior.Context.Alarm0 == 240 && playerBehavior.Context.Alarm7 == 60,
                     "Create did not arm two independent alarm slots.");
+                bool IsPlayerImage(string reference, string name) => string.Equals(
+                    ResourceNames.Resolve(project.RootPath, reference, ResourceType.Image),
+                    Path.Combine(project.AssetsPath, "Sprites", name + ".image.json"),
+                    StringComparison.OrdinalIgnoreCase);
                 HeadlessHarness.Assert(
                     ObjectDrawAssetRegistry.TryGet(playerEntity, out ObjectDrawAssetEntry startingAssets)
-                    && startingAssets.Image.EndsWith("Player Idle.image.json", StringComparison.OrdinalIgnoreCase),
-                    "The placed Player did not begin on its authored idle Image asset.");
+                    && IsPlayerImage(startingAssets.Image, "Player Idle"),
+                    $"The placed Player did not begin on its authored idle Image asset: '{startingAssets?.Image ?? "(none)"}'.");
 
                 float playerStartX = world.GetRef<TransformComponent>(playerEntity).X;
                 input.OnKeyDown(Key.Right);
@@ -1257,7 +1261,7 @@ internal static class RuntimeGateChecks
                 HeadlessHarness.Assert(
                     world.GetRef<TransformComponent>(playerEntity).X > playerStartX
                     && hasRunningAssets
-                    && runningAssets.Image.EndsWith("Player Run.image.json", StringComparison.OrdinalIgnoreCase)
+                    && IsPlayerImage(runningAssets.Image, "Player Run")
                     && runningSprite.AnimationTagIndex == 0 && runningSprite.ImageSpeed > 0.6f
                     && runningDust.Emitting && runningDust.EmitRate > 28f,
                     "Held input did not complete the Player integration: "
@@ -1272,7 +1276,7 @@ internal static class RuntimeGateChecks
                 input.NextFrame();
                 HeadlessHarness.Assert(
                     ObjectDrawAssetRegistry.TryGet(playerEntity, out ObjectDrawAssetEntry idleAssets)
-                    && idleAssets.Image.EndsWith("Player Idle.image.json", StringComparison.OrdinalIgnoreCase)
+                    && IsPlayerImage(idleAssets.Image, "Player Idle")
                     && !world.GetRef<ParticleComponent>(playerEntity).Emitting,
                     "Releasing input did not restore the idle Image and stop the attached effect.");
 

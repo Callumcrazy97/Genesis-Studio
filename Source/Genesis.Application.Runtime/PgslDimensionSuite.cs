@@ -41,6 +41,8 @@ public sealed class RecordingDrawSurface : IPgslDrawSurface
     public void DrawSprite(
         string spriteName, float x, float y, int frame, float xscale, float yscale, float angle, Color blend, float alpha) =>
         Sprites.Add((spriteName, x, y));
+    public void DrawSpriteRectangle(string spriteName, RectangleF destination, int frame, Color blend, float alpha) =>
+        Sprites.Add((spriteName, destination.X, destination.Y));
     public void QueueCube3D(float x, float y, float z, float sx, float sy, float sz, Color color, float alpha) =>
         Cubes.Add((x, y, z, sx, sy, sz));
     public void QueueSphere3D(float x, float y, float z, float radius, Color color, float alpha) =>

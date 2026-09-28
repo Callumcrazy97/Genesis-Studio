@@ -17,6 +17,7 @@ namespace Genesis.Audio
         private readonly string _projectPath;
         private readonly Dictionary<string, int> _pathToId = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<int, SoundEntry> _sounds = new();
+        private readonly Dictionary<int, (string Path, long Stamp, long Length)[]> _soundVersions = new();
         private readonly Dictionary<int, ChannelState> _channels = new();
         private int _nextSoundId = 1;
         private int _nextChannelId = 1;
@@ -50,6 +51,7 @@ namespace Genesis.Audio
             public string Bus = "sfx";
             public AudioAssetSettings Settings = new();
             public IXAudio2SourceVoice? Voice;
+            public SoundEffect Effect = null!;
         }
 
         public XAudioSystem(string projectPath)
@@ -81,12 +83,18 @@ namespace Genesis.Audio
             RefreshChannelVolumes();
         }
 
-        public int LoadSound(string projectRelativePath)
+        public int LoadSound(string projectRelativePath) => LoadSound(projectRelativePath, null);
+
+        public int LoadSound(string projectRelativePath, AudioAssetSettings? auditionSettings)
         {
             if (string.IsNullOrEmpty(projectRelativePath)) return 0;
-            if (_pathToId.TryGetValue(projectRelativePath, out int cached)) return cached;
+            int cached = 0;
+            if (auditionSettings is null && _pathToId.TryGetValue(projectRelativePath, out cached)
+                && _soundVersions.TryGetValue(cached, out var versions)
+                && Array.TrueForAll(versions, version => CaptureVersion(version.Path) == version)) return cached;
 
             string abs = ResolvePath(projectRelativePath);
+            string resourcePath = abs;
 
             // A .audio.json resource may be handed to us directly (that is what the Audio
             // Editor saves, and what PGSL PlaySound receives from an asset field); resolve
@@ -95,22 +103,48 @@ namespace Genesis.Audio
             if (abs.EndsWith(".audio.json", StringComparison.OrdinalIgnoreCase))
             {
                 authored = AudioAssetSettings.Load(abs);
-                if (authored?.Source is not { Length: > 0 } source) return 0;
+                if (authored?.Source is not { Length: > 0 } source) return cached;
                 abs = ResolvePath(source);
             }
 
-            var effect = SoundEffect.FromWavFile(abs);
-            if (effect == null) return 0;
+            authored = auditionSettings ?? authored;
+            if (authored is null)
+                authored = AudioAssetSettings.Load(Path.ChangeExtension(abs, ".audio.json"))
+                    ?? AudioAssetSettings.Load(abs + ".audio.json");
+            if (authored is not null && !ValidPlaybackSettings(authored)) return cached;
+            var effect = SoundEffect.FromWavFile(abs, authored);
+            if (effect == null) return cached;
 
             var entry = new SoundEntry { Effect = effect };
             entry.Bus = effect.DurationInSeconds > 10f ? "music" : "sfx";
             ApplyAudioMeta(abs, entry, authored);
 
-            int id = _nextSoundId++;
+            int id = cached != 0 ? cached : _nextSoundId++;
             _sounds[id] = entry;
-            _pathToId[projectRelativePath] = id;
+            if (auditionSettings is null)
+            {
+                _pathToId[projectRelativePath] = id;
+                _soundVersions[id] = Array.ConvertAll(new[] { resourcePath, abs, Path.ChangeExtension(abs, ".audio.json"), abs + ".audio.json" }, CaptureVersion);
+            }
             return id;
         }
+
+        private static (string Path, long Stamp, long Length) CaptureVersion(string path)
+        {
+            try { FileInfo file = new(path); return (path, file.Exists ? file.LastWriteTimeUtc.Ticks : 0, file.Exists ? file.Length : 0); }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { return (path, -1, -1); }
+        }
+
+        private static bool ValidPlaybackSettings(AudioAssetSettings settings) =>
+            float.IsFinite(settings.Volume) && settings.Volume is >= 0 and <= 1
+            && float.IsFinite(settings.Pitch) && settings.Pitch is >= .1f and <= 4
+            && float.IsFinite(settings.MinDistance) && settings.MinDistance >= 0
+            && float.IsFinite(settings.MaxDistance) && settings.MaxDistance > 0
+            && float.IsFinite(settings.Falloff) && settings.Falloff > 0
+            && float.IsFinite(settings.TrimStart) && settings.TrimStart >= 0
+            && float.IsFinite(settings.TrimEnd) && settings.TrimEnd >= 0
+            && float.IsFinite(settings.FadeIn) && settings.FadeIn >= 0
+            && float.IsFinite(settings.FadeOut) && settings.FadeOut >= 0;
 
         public AudioChannel Play(int soundId, float volume = 1f, float pitch = 1f, bool loop = false)
         {
@@ -132,6 +166,7 @@ namespace Genesis.Audio
                 Bus = entry.Bus,
                 Settings = entry.Settings,
                 Voice = voice,
+                Effect = entry.Effect,
                 Position = _listenerPos,
             };
             ApplySpatial(channelId);

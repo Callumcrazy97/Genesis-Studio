@@ -80,7 +80,8 @@ internal static class EditorInteractionSuite
             var room=editor.Room;RoomNode first=room.Nodes.Single(n=>n.Name=="First"),second=room.Nodes.Single(n=>n.Name=="Second");
             Assert(editor.CanEditNodeInActiveContext(first)&&!editor.CanInspectNodeInActiveContext(second),"Objects on an inactive object layer are editable.");
             editor.Select(first);editor.Navigation.SetSection(RoomNavSection.Backgrounds);
-            Assert(!editor.CanInspectNodeInActiveContext(first)&&editor.SelectedNode is null,"Changing tabs retained an object Inspector/selection.");
+            Assert(!editor.CanInspectNodeInActiveContext(first)&&!editor.CanEditNodeInActiveContext(first)
+                &&editor.SelectedNode?.Kind==RoomNodeKind.Background,"Backgrounds retained inactive Object editing or failed to select its active slot.");
             RoomNode background=room.Nodes.Single(n=>n.Name=="Background 1");Assert(editor.CanEditNodeInActiveContext(background),"Selected background slot is not editable.");
             editor.Navigation.SetSection(RoomNavSection.Tilesets);var tiles=room.Nodes.Where(n=>n.Kind==RoomNodeKind.TileLayer).ToArray();
             editor.Navigation.TilesetsPanel.SelectLayer(tiles[1]);
@@ -111,7 +112,7 @@ internal static class EditorInteractionSuite
             RoomNode tile=editor.Room.Nodes.First(n=>n.Kind==RoomNodeKind.TileLayer);editor.Navigation.SetSection(RoomNavSection.Tilesets);editor.Navigation.TilesetsPanel.SelectLayer(tile);
             RoomTileCell cell=tile.TileLayer!.Cells[0];Call(editor,"SelectTileCell",tile,cell);editor.FlushPendingRoomUiRefresh();int trees=editor.RoomStructureRefreshCount,values=editor.RoomInspectorValueRefreshCount;
             Type drag=typeof(RoomEditorControl).GetNestedType("TileDragKind",BindingFlags.NonPublic)!;
-            Point origin=(Point)Call(editor,"ClientFromWorld2D",new Vector2(16,16))!;
+            Point origin=editor.ClientFromWorld2D(new Vector2(16,16));
             Call(editor,"BeginTileDrag",Enum.Parse(drag,"Move"),origin,-1);
             for(int i=1;i<=240;i++) Call(editor,"UpdateTileDrag",new Point(origin.X+i,origin.Y),Keys.Shift);
             Assert(editor.RoomStructureRefreshCount==trees&&editor.RoomInspectorValueRefreshCount==values,"Pointer events synchronously refreshed navigation/Inspector.");
@@ -123,7 +124,7 @@ internal static class EditorInteractionSuite
         {
             RoomNode tile=editor.Room.Nodes.First(n=>n.Kind==RoomNodeKind.TileLayer);editor.Navigation.SetSection(RoomNavSection.Tilesets);editor.Navigation.TilesetsPanel.SelectLayer(tile);
             RoomTileCell cell=tile.TileLayer!.Cells[0];Call(editor,"SelectTileCell",tile,cell);
-            Type drag=typeof(RoomEditorControl).GetNestedType("TileDragKind",BindingFlags.NonPublic)!;Point origin=(Point)Call(editor,"ClientFromWorld2D",new Vector2(16,16))!;
+            Type drag=typeof(RoomEditorControl).GetNestedType("TileDragKind",BindingFlags.NonPublic)!;Point origin=editor.ClientFromWorld2D(new Vector2(16,16));
             Call(editor,"BeginTileDrag",Enum.Parse(drag,"Move"),origin,-1);Call(editor,"UpdateTileDrag",new Point(origin.X+100,origin.Y),Keys.Shift);
             editor.Navigation.SetSection(RoomNavSection.Objects);
             Assert(cell.X==0&&cell.OffsetX==0&&editor.SelectedTileCell is null,"Tab switch kept an uncommitted drag or stale tile capability.");

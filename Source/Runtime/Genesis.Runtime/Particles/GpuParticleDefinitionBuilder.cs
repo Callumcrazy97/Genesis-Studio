@@ -33,7 +33,11 @@ public static class GpuParticleDefinitionBuilder
         int meshOffset = lookup.Count;
         int meshCount = Math.Min(meshSurfaceSamples.Length, 100_000);
         for (int i = 0; i < meshCount; i++)
-            lookup.Add(new Vector4(meshSurfaceSamples[i], 0f));
+        {
+            Vector3 sample = meshSurfaceSamples[i];
+            if (config.IsPlanar2D) sample = new Vector3(sample.X, sample.Y, 0) * Particle2DLayout.PixelsPerUnit;
+            lookup.Add(new Vector4(sample, 0f));
+        }
 
         int collisionRoot = 0;
         int collisionNodeCount = 0;
@@ -99,12 +103,12 @@ public static class GpuParticleDefinitionBuilder
                 (float)config.WindX,
                 (float)config.WindZ,
                 (float)Math.Max(0d, config.TurbulenceStrength),
-                0f),
+                config.IsPlanar2D ? 1f : 0f),
             Sizes = new Vector4(
                 (float)Math.Max(0d, config.StartSize),
                 (float)Math.Max(0d, config.EndSize),
-                (float)Math.Max(0.001d, config.SizeXScale),
-                (float)Math.Max(0.001d, config.SizeYScale)),
+                (float)Math.Max(0.001d, config.SizeXScale) * (config.IsPlanar2D ? new Vector2(world.M11, world.M12).Length() : 1),
+                (float)Math.Max(0.001d, config.SizeYScale) * (config.IsPlanar2D ? new Vector2(world.M21, world.M22).Length() : 1)),
             Rotation = new Vector4(
                 DegreesToRadians((float)config.RotationSpeed),
                 (float)Math.Clamp(config.RotationVariance, 0d, 4d) * MathF.PI,
@@ -112,7 +116,9 @@ public static class GpuParticleDefinitionBuilder
                 (float)Math.Max(0d, config.Emissive) - 1f),
             Collision = new Vector4(
                 collisionMode,
-                (float)config.CollisionPlaneHeight,
+                config.IsPlanar2D
+                    ? Vector3.Transform(new Vector3(0, (float)config.CollisionPlaneHeight, 0), world).Y
+                    : (float)config.CollisionPlaneHeight,
                 (float)Math.Clamp(config.CollisionBounce, 0d, 1.5d),
                 MathF.Max(0.001f, (float)Math.Min(config.StartSize, Math.Max(config.EndSize, 0.001)) * 0.25f)),
             Render = new Vector4(

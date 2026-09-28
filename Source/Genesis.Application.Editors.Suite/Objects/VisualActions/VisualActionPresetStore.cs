@@ -14,10 +14,10 @@ public sealed record VisualActionPreset(
     bool BuiltIn = false,
     string ResultVariable = "")
 {
-    public string DisplayName => $"{Category} — {Name}";
+    public string DisplayName => $"{Category} — {VisualActionSyntax.ActionDisplayName(Name, CommandName)}";
 
     public VisualActionTemplate ToTemplate() =>
-        new(Name, CommandName, Category, Description, Parameters, Body, ResultVariable);
+        new(VisualActionSyntax.ActionDisplayName(Name, CommandName), CommandName, Category, Description, Parameters, Body, ResultVariable);
 
     public static VisualActionPreset FromTemplate(VisualActionTemplate template, string? id = null) =>
         new(

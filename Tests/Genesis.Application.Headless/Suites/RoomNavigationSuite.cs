@@ -93,6 +93,7 @@ internal static class RoomNavigationSuite
         Vector3 after = Position(editor, selected);
         Check(after.Y > before.Y, "Shift-wheel did not move up.");
         Check(MathF.Abs(after.X - before.X) < .001f && MathF.Abs(after.Z - before.Z) < .001f, "Parent transform changed the world movement axis.");
+        editor.Navigation.SetSection(RoomNavSection.Instances);
         editor.Select(terrain); before = Position(editor, terrain);
         editor.Viewport.NavigateWheel(Point.Empty, -120, Keys.Shift);
         Check(Position(editor, terrain).Y < before.Y, "Terrain cannot be moved down with Shift-wheel.");

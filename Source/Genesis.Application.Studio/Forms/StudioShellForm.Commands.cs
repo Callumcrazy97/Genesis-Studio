@@ -78,7 +78,7 @@ public sealed partial class StudioShellForm
         Register("tools.profiler", "Profiler", "Tools", "Open runtime profiling diagnostics.", _ => ShowRuntimeDiagnostics(false));
         Register("tools.frameDebugger", "Frame Debugger", "Tools", "Inspect render-frame diagnostics.", _ => ShowRuntimeDiagnostics(true));
         Register("help.documentation", "Genesis Documentation", "Help", "Show the current Genesis master document in Explorer.", _ => OpenDocumentation(), Keys.F1);
-        Register("help.pgsl", "PGSL Command Reference", "Help", "Browse PGSL and Engine gameplay APIs.", _ => ShowPgslCommandReference());
+        Register("help.pgsl", "Commands…", "Help", "Browse PGSL, Engine, Editor and Shell commands and shortcuts.", _ => ShowPgslCommandReference());
         Register("help.copyBuildInfo", "Copy Build Information", "Help",
             "Copy the loaded Studio build identity, executable location and runtime details.",
             _ => { Clipboard.SetText(StudioBuildInfo.DiagnosticText); SetStatus("Build information copied."); });

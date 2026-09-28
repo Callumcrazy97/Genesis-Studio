@@ -169,10 +169,11 @@ internal static class ShellLayoutSuite
         HeadlessHarness.Assert(
             hub.TemplateCards.Count == expectedIds.Length
             && hub.TemplateCards.Select(card => card.Template.Id).SequenceEqual(expectedIds),
-            "The visible gallery does not contain exactly the four production-ready templates.");
+            "The visible gallery does not contain the complete available template catalog.");
         HeadlessHarness.Assert(
-            hub.TemplateCards.Select(card => card.Top).Distinct().Count() == 1,
-            "All four template cards do not share one row at desktop/fullscreen width.");
+            hub.TemplateCards.GroupBy(card => card.Top).First().Count() == 4
+            && hub.TemplateCards.Select(card => card.Top).Distinct().Count() == 2,
+            "The six-template gallery should form a readable four-card row and a second row at desktop width.");
         AssertCardsFitViewport(hub.TemplateGallery, hub.TemplateCards, "desktop template gallery");
 
         hub.ClientSize = new Size(

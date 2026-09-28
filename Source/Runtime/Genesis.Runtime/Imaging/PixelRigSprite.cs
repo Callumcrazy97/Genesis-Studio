@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Runtime.CompilerServices;
 using Genesis.Shared.Interfaces;
 using Genesis.Shared.Rendering;
@@ -18,13 +19,19 @@ public sealed class PixelRigSprite : IDisposable
     public PixelRigPlayer Player { get; }
     public string DescriptorPath { get; }
     public string RequestedRig { get; }
+    internal long DescriptorWriteTicks { get; }
+    internal long DescriptorLength { get; }
     public float OriginX { get; }
     public float OriginY { get; }
     public bool IsDisposed { get; private set; }
     public long UploadCount { get; private set; }
 
     public PixelRigSprite(PixelRigPlayer player, string descriptorPath, string requestedRig, float originX, float originY, PixelRigLayerStack? layers = null)
-    { _layers = layers; Player = player; DescriptorPath = descriptorPath; RequestedRig = requestedRig; OriginX = originX; OriginY = originY; }
+    {
+        _layers = layers; Player = player; DescriptorPath = descriptorPath; RequestedRig = requestedRig; OriginX = originX; OriginY = originY;
+        FileInfo descriptor = new(descriptorPath);
+        if (descriptor.Exists) { DescriptorWriteTicks = descriptor.LastWriteTimeUtc.Ticks; DescriptorLength = descriptor.Length; }
+    }
 
     public TextureHandle GetTexture(IRenderController renderer)
     {

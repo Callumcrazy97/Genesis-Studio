@@ -417,7 +417,7 @@ namespace Genesis.Runtime.Scripting
             // Either sink is enough. HUD text goes to the D2D canvas, not the renderer (whose
             // DrawText is a stub — NEXT-033), so requiring a renderer here dropped every
             // HUD-only Draw event whenever one was absent.
-            if (_instances.Count == 0 || (renderer == null && hud == null)) return;
+            if (_instances.Count == 0 || (renderer == null && hud == null && surfaceOverride == null)) return;
 
             IPgslDrawSurface surface = surfaceOverride;
             FillDispatchSnapshot();
@@ -428,8 +428,9 @@ namespace Genesis.Runtime.Scripting
                 surface ??= new PgslRenderDrawSurface(
                     renderer,
                     hud,
-                    hud?.Width > 0 ? hud.Width : 1280,
-                    hud?.Height > 0 ? hud.Height : 720,
+                    hud?.Width > 0 ? hud.Width : renderer?.PixelWidth > 0 ? renderer.PixelWidth : 1280,
+                    hud?.Height > 0 ? hud.Height : renderer?.PixelHeight > 0 ? renderer.PixelHeight : 720,
+                    projectPath: _context.ResolveAssetPath("."),
                     isGui: true);
                 try { pgsl.OnDrawGuiFrame(surface); }
                 catch (Exception ex) { LogBehaviorError(b, "PGSL DrawGui", ex); }

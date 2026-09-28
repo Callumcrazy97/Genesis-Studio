@@ -59,6 +59,12 @@ namespace Genesis.Shared.Audio
         /// <summary>Curve shaping between min and max distance. 1 = linear, &gt;1 = quieter sooner.</summary>
         public float Falloff { get; set; } = 1f;
 
+        /// <summary>Non-destructive source region in seconds. End zero means the end of the clip.</summary>
+        public float TrimStart { get; set; }
+        public float TrimEnd { get; set; }
+        public float FadeIn { get; set; }
+        public float FadeOut { get; set; }
+
         /// <summary>
         /// Attenuation multiplier for a spatial source at <paramref name="distance"/> from the
         /// listener. Returns 1 for non-spatial sounds so callers can apply it unconditionally.
@@ -101,6 +107,10 @@ namespace Genesis.Shared.Audio
                 settings.MinDistance = ReadFloat(root, "MinDistance", "minDistance") ?? settings.MinDistance;
                 settings.MaxDistance = ReadFloat(root, "MaxDistance", "maxDistance") ?? settings.MaxDistance;
                 settings.Falloff = ReadFloat(root, "Falloff", "falloff") ?? settings.Falloff;
+                settings.TrimStart = ReadFloat(root, "TrimStart", "trimStart") ?? 0f;
+                settings.TrimEnd = ReadFloat(root, "TrimEnd", "trimEnd") ?? 0f;
+                settings.FadeIn = ReadFloat(root, "FadeIn", "fadeIn") ?? 0f;
+                settings.FadeOut = ReadFloat(root, "FadeOut", "fadeOut") ?? 0f;
                 return settings;
             }
             catch (JsonException)

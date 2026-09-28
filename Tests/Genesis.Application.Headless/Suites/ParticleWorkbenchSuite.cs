@@ -16,18 +16,26 @@ using Genesis.Shared.Interfaces;
 namespace Genesis.Application.Headless.Suites;
 
 /// <summary>Production document, simulator and WinForms control tests. No generated config replicas.</summary>
-internal static class ParticleWorkbenchSuite
+internal static partial class ParticleWorkbenchSuite
 {
     private const BindingFlags Private = BindingFlags.Instance | BindingFlags.NonPublic;
     private static readonly JsonSerializerOptions Json = new()
     { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, PropertyNameCaseInsensitive = true,
         Converters = { new JsonStringEnumConverter() } };
 
+    public static void RunPlanar(HeadlessContext context)
+    {
+        HeadlessHarness.BeginMajor(context.Report, "Particle 2D placement and gameplay");
+        RunPlanarCases(context, (name, test) => HeadlessHarness.RunCase(context.Report, "Editor.ParticleWorkbench." + name, test));
+    }
+
     public static void Run(HeadlessContext context)
     {
         HeadlessHarness.BeginMajor(context.Report, "Particle Editor H21 Workbench");
         void Check(string name, Action test) => HeadlessHarness.RunCase(context.Report, "Editor.ParticleWorkbench." + name, test);
         ParticleClockCoreCases.Run(Check);
+        RunQuickSetupCases(context, Check);
+        RunPlanarCases(context, Check);
         Check("Stack.AddClonesWithoutChangingOriginal", () =>
         {
             ParticleConfig original = Envelope(); string before = Text(original);
@@ -188,8 +196,11 @@ internal static class ParticleWorkbenchSuite
         {
             EditorCommandBar bar = editor.Controls.OfType<EditorCommandBar>().Single();
             Assert(bar.IsDocumentBound && bar.IsSavePinned && bar.SaveCommand is not null, "Workspace discarded shared Save/history chrome.");
-            foreach (string caption in new[] { "Pause", "Stop", "Restart", "Step", "Burst", "Advanced", "Panels" })
+            foreach (string caption in new[] { "Start with…", "Pause", "Restart", "Use in game", "Options" })
                 Assert(bar.Items.Cast<ToolStripItem>().Any(item => item.Text == caption), "Missing transport/workspace command " + caption);
+            ToolStripDropDownButton options = bar.Items.OfType<ToolStripDropDownButton>().Single(button => button.Text == "Options");
+            foreach (string caption in new[] { "Advanced properties", "Edit emitter definition", "Emitters / Presets", "Curves / timeline" })
+                Assert(options.DropDownItems.Cast<ToolStripItem>().Any(item => item.Text == caption), "Missing advanced workspace command " + caption);
             Assert(editor.InspectorSections.SequenceEqual(new[] { "Emission", "Forces", "Material", "Curves", "Collision", "Renderer", "Effect Light", "Events" }),
                 "The inspector contract disagrees with the actual property sections.");
         }));

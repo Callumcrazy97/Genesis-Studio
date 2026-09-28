@@ -9,6 +9,15 @@ internal sealed class RoomInstanceTreeView : TreeView
 {
     internal Func<Point, bool, bool>? HandleAdornment { get; set; }
     private bool _adornmentMouseDown;
+    private bool _focusingAdornment;
+
+    protected override void OnBeforeSelect(TreeViewCancelEventArgs e)
+    {
+        // Native focus chooses the first row when nothing is selected. Expanding an adornment
+        // should give the tree keyboard focus without clearing the Room Editor's selection.
+        if (_focusingAdornment) { e.Cancel = true; return; }
+        base.OnBeforeSelect(e);
+    }
 
     internal static Point ClientPoint(nint value)
     {
@@ -24,7 +33,9 @@ internal sealed class RoomInstanceTreeView : TreeView
             Point point = ClientPoint(message.LParam);
             if (HandleAdornment?.Invoke(point, message.Msg == leftDouble) == true)
             {
-                Focus();
+                _focusingAdornment = true;
+                try { Focus(); }
+                finally { _focusingAdornment = false; }
                 _adornmentMouseDown = true;
                 message.Result = 0;
                 return;

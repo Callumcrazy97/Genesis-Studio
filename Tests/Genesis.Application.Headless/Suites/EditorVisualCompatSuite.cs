@@ -391,6 +391,8 @@ internal static class EditorVisualCompatSuite
             editor.ApplyPreset("Portal");
             editor.SetPreview2D(true);
             editor.StepForTest(0.35f);
+            using (editor.Viewport.CaptureFrame(settleFrames: 4)) { }
+            GateSuite.Pump(8, 25);
             HeadlessHarness.Assert(editor.LiveParticleCount > 0, "The Portal preset emitted no particles.");
             editor.Save();
 
@@ -804,6 +806,7 @@ internal static class EditorVisualCompatSuite
             GateSuite.Pump(8, 25);
             room.ViewMode3D = true;
             GateSuite.Pump(4, 25);
+            room.Navigation.SetSection(RoomNavSection.Tilesets);
             room.BeginPlacementTerrain(terrainPath);
             Point centre = new(room.Viewport.Width / 2, (int)(room.Viewport.Height * 0.62f));
             room.EditorPointerDown(centre, MouseButtons.Left, Keys.None);

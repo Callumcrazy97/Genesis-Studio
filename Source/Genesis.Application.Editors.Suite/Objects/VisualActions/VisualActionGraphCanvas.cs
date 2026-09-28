@@ -21,6 +21,7 @@ public sealed partial class VisualActionGraphCanvas : ScrollableControl
     private string? _dragId;
     private Point _dragOrigin;
     private float _zoom = 1f;
+    private bool _focusStartPending;
 
     public VisualActionGraphCanvas()
     {
@@ -78,7 +79,7 @@ public sealed partial class VisualActionGraphCanvas : ScrollableControl
 
     public void SetZoom(float zoom)
     {
-        _zoom = Math.Clamp(zoom, .25f, 1.6f);
+        _zoom = Math.Clamp(zoom, .25f, 3.2f);
         UpdateExtent();
         Invalidate();
     }
@@ -96,6 +97,14 @@ public sealed partial class VisualActionGraphCanvas : ScrollableControl
         float fit = ClientSize.Height <= 0 ? 1f : (ClientSize.Height - 36f) / contentHeight;
         SetZoom(Math.Clamp(fit, .65f, 1.15f));
         AutoScrollPosition = Point.Empty;
+    }
+
+    internal void FocusStartNode()
+    {
+        // Parent docking and initial handle creation can reset a scroll assigned while loading.
+        // Frame the start after layout settles, once, so subsequent user panning is retained.
+        _focusStartPending = true;
+        Invalidate();
     }
 
     protected override void OnMouseWheel(MouseEventArgs e)
@@ -183,6 +192,12 @@ public sealed partial class VisualActionGraphCanvas : ScrollableControl
 
     protected override void OnPaint(PaintEventArgs e)
     {
+        if (_focusStartPending)
+        {
+            _focusStartPending = false;
+            AutoScrollPosition = new Point(Math.Max(0, (int)(EventBounds.Left * _zoom) - 28),
+                Math.Max(0, (int)(EventBounds.Top * _zoom) - 28));
+        }
         _connections.Clear(); _fieldHits.Clear(); _inputPins.Clear(); _outputPins.Clear();
         if (_flows.Count == 0) { DrawBlueprint(e.Graphics); return; }
         base.OnPaint(e);
@@ -211,7 +226,7 @@ public sealed partial class VisualActionGraphCanvas : ScrollableControl
         float y = 28;
         RectangleF start = new(x + 52, y, NodeWidth - 104, TerminalHeight);
         _structuredEventBounds = start;
-        DrawTerminal(g, start, _routineEntry ? "Function " + _eventCaption + " → " + _routineReturnType : "On " + _eventCaption, Color.IndianRed);
+        DrawTerminal(g, start, _routineEntry ? (_scriptEntry ? "Script " + _eventCaption : "Function " + _eventCaption + " → " + _routineReturnType) : "On " + _eventCaption, Color.IndianRed);
         y += TerminalHeight + Gap;
 
         RectangleF previous = start;

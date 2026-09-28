@@ -23,6 +23,8 @@ public enum PathingLoopMode
     Once,
 }
 
+public enum PathingDimension { ThreeD, TwoD }
+
 public sealed class PathingWaypoint
 {
     public string Name { get; set; } = string.Empty;
@@ -85,6 +87,29 @@ public sealed class PathingRoute
         }
         return Speed * SpeedCurve[^1].Multiplier;
     }
+
+    /// <summary>Shared Catmull-Rom segment used by the editor preview and gameplay agent.</summary>
+    public IReadOnlyList<Vector3> SegmentPoints(int start, int end)
+    {
+        if (end < 0 || end >= Waypoints.Count) return [];
+        if (start < 0 || start >= Waypoints.Count || start == end) return [Waypoints[end].Position];
+        Vector3 p1 = Waypoints[start].Position, p2 = Waypoints[end].Position;
+        if (!Waypoints[start].Curve && !Waypoints[end].Curve) return [p2];
+        int direction = end == start + 1 || (LoopMode == PathingLoopMode.Loop && start == Waypoints.Count - 1 && end == 0) ? 1 : -1;
+        Vector3 p0 = Point(start - direction), p3 = Point(end + direction);
+        List<Vector3> samples = new(16);
+        for (int step = 1; step <= 16; step++)
+        {
+            float t = step / 16f, t2 = t * t, t3 = t2 * t;
+            samples.Add(.5f * ((2 * p1) + (-p0 + p2) * t
+                + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2
+                + (-p0 + 3 * p1 - 3 * p2 + p3) * t3));
+        }
+        return samples;
+
+        Vector3 Point(int index) => Waypoints[LoopMode == PathingLoopMode.Loop
+            ? (index + Waypoints.Count) % Waypoints.Count : Math.Clamp(index, 0, Waypoints.Count - 1)].Position;
+    }
 }
 
 /// <summary>
@@ -95,15 +120,25 @@ public sealed class PathingAsset
 {
     public int SchemaVersion { get; set; } = 1;
     public string Name { get; set; } = "Pathing Route";
+    public PathingDimension Dimension { get; set; }
     public string TargetRoom { get; set; } = string.Empty;
     public string TargetObject { get; set; } = string.Empty;
     public int PreviewAgentCount { get; set; } = 3;
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public string? AuthoringSource { get; set; }
     public PathingRoute Route { get; set; } = new();
+
+    public Vector3 NavigationPosition(Vector3 world) => Dimension == PathingDimension.TwoD
+        ? new Vector3(world.X, 0, world.Y) : world;
+    public Vector3 WorldPosition(Vector3 navigation, float depth = 0) => Dimension == PathingDimension.TwoD
+        ? new Vector3(navigation.X, navigation.Z, depth) : navigation;
 
     public void Validate()
     {
         if (SchemaVersion != 1) throw new InvalidDataException($"Unsupported pathing schema {SchemaVersion}.");
+        if (!Enum.IsDefined(Dimension)) throw new InvalidDataException("Unsupported pathing dimension.");
         Route ??= new PathingRoute();
+        if (!Enum.IsDefined(Route.Mode) || !Enum.IsDefined(Route.LoopMode)) throw new InvalidDataException("Unsupported pathing movement or repeat mode.");
         Route.Waypoints ??= [];
         Route.SpeedCurve ??= [];
         Route.Speed = Finite(Route.Speed) ? Math.Clamp(Route.Speed, 0f, 10_000f) : 3.8f;

@@ -171,7 +171,7 @@ public sealed class PhysicsInteractionSession : IDisposable
             float x = origin.X + MathF.Cos(angle) * radius;
             float z = origin.Z + MathF.Sin(angle) * radius;
             float ground = sampleGroundY(x, z);
-            float y = ground + 0.55f + (spawned % 4) * 0.45f;
+            float y = ground + (shape == SandboxPropShape.Capsule ? .9f : .55f) + (spawned % 4) * .45f;
             var position = new Vector3(x, y, z);
             float mass = authoredMass is > 0f ? authoredMass.Value : 1f + (float)_rng.NextDouble();
 
@@ -399,6 +399,8 @@ public sealed class PhysicsInteractionSession : IDisposable
             return;
 
         ApplyPhysicsConfig(config.ToLegacyPhysicsConfig());
+        _world.LockRotation = config.LockRotation;
+        _world.Dimension = config.Dimension;
         _world.Gravity = config.ResolveGravityVector();
         _world.FrictionCoefficient = (float)config.Friction;
         _world.Restitution = (float)config.Restitution;

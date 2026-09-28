@@ -101,6 +101,7 @@ public sealed class RenderParityHarness : IDisposable
 
     /// <summary>Draw statistics from the most recent capture, for assertions about culling/batching.</summary>
     public RenderStats LastStats => _lastStats;
+    public string ActiveBackend => _viewport.Renderer?.BackendName ?? string.Empty;
 
     /// <summary>
     /// Creates the hidden viewport used by performance sampling. Window/device startup is harness

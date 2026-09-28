@@ -84,9 +84,6 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
         _simulation.LoadConfig(_config);
 
         EditorCommandBar toolbar = EditorChrome.MakeToolbar();
-        toolbar.Items.Add(EditorDocumentMenuChrome.BuildFileMenu(this));
-        toolbar.Items.Add(EditorDocumentMenuChrome.BuildEditMenu(this));
-        toolbar.Items.Add(new ToolStripSeparator());
         _presetMenu.ForeColor = EditorChrome.Text;
         _presetMenu.ToolTipText = "Apply a runtime particle preset";
         _presetMenu.AccessibleName = "Particle preset";
@@ -117,7 +114,7 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
             BackColor = EditorChrome.Surface,
             Dock = DockStyle.Fill,
         };
-        _inspectorTabs = new TabControl
+        _inspectorTabs = new EditorTabControl
         {
             Dock = DockStyle.Fill,
             Font = EditorChrome.BaseFont,
@@ -133,6 +130,7 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
 
         _code = new CodeEditor { Dock = DockStyle.Fill };
         _code.SetRules(BuildJsonRules());
+        AssetCodeIntelligenceProvider.AttachParticle(_code);
         _codeSurface = new Panel
         {
             BackColor = EditorChrome.Canvas,
@@ -245,6 +243,7 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
         _viewport = new EditorViewport3D
         {
             Mode2D = _config.Preview2D,
+            Zoom2D = _config.Preview2D ? 4f : 1f,
             Background2D = () => (0.05f, 0.06f, 0.10f),
             SceneStateFactory = () => EditorSceneLighting.Create(
                 showFloor: _floorStyle.DrawsPlate() && !_effect.Preview2D),
@@ -314,6 +313,8 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
             TextAlign = ContentAlignment.MiddleRight,
             Width = 92,
         };
+        _timelineLabel.FontChanged += (_, _) => _timelineLabel.Width = Math.Max(92,
+            TextRenderer.MeasureText("60.00 / 60.00s", _timelineLabel.Font).Width + 12);
         _timeline = new TrackBar
         {
             AutoSize = false,
@@ -328,6 +329,9 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
         timelinePanel.Controls.Add(_timelineLabel);
         timelinePanel.Controls.Add(timelineRestart);
         timelinePanel.Controls.Add(_playPauseButton);
+        // Playback has one command group at the top; the timeline retains scrubbing only.
+        _playPauseButton.Visible = false;
+        timelineRestart.Visible = false;
 
         Controls.Add(_viewport);
         Controls.Add(_authoringHost);
@@ -431,16 +435,13 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
     public void SetPreview2D(bool enabled)
     {
         if (!PrepareParticleOperation()) return;
+        bool changed = _effect.Preview2D != enabled;
         _effect.Preview2D = enabled;
         _viewport.Mode2D = enabled;
+        if (changed && enabled && Math.Abs(_viewport.Zoom2D - 1f) < .001f)
+            _viewport.Zoom2D = 4f;
         _dimensionToggle.Sync(enabled);
-        if (_preview2DCheck is not null && _preview2DCheck.Checked != enabled)
-        {
-            bool wasSyncing = _syncing;
-            _syncing = true;
-            try { _preview2DCheck.Checked = enabled; }
-            finally { _syncing = wasSyncing; }
-        }
+        if (changed) RebuildEmitterPreview();
         CommitParticleEdit("Change particle preview dimension");
         _viewport.Invalidate(true);
         UpdateStatus();
@@ -453,10 +454,6 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
     {
         _floorStyle = style;
         _viewport.FloorStyle = style;
-        bool wasSyncing = _syncing;
-        _syncing = true;
-        try { if (_previewFloorCheck is not null) _previewFloorCheck.Checked = style.DrawsPlate(); }
-        finally { _syncing = wasSyncing; }
         _viewport.Host.Invalidate();
         UpdateStatus();
     }
@@ -476,7 +473,8 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
             ? "Free preview"
             : ResourceDisplayName.Format(_effect.PreviewTargetAsset);
         renderer.DrawRect(9, 9, Math.Min(330, renderer.PixelWidth - 18), 28, new RenderColor(0.03f, 0.045f, 0.065f, 0.78f), true);
-        renderer.DrawText($"{renderer.BackendName} · 60 Hz simulation · {target}", 18, 15, 13, new RenderColor(0.82f, 0.88f, 0.96f));
+        string view = _effect.Preview2D ? $"2D preview {_viewport.Zoom2D:0.#}×" : "3D preview";
+        renderer.DrawText($"{renderer.BackendName} · {view} · {target}", 18, 15, 13, new RenderColor(0.82f, 0.88f, 0.96f));
 
         if (_effect.Preview2D) return;
         float cx = renderer.PixelWidth * 0.5f;
@@ -582,12 +580,17 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
         bool codeVisible = mode == ParticleAuthoringMode.Code;
         _codeSurface.Visible = codeVisible;
         if (_referenceAuthoringSplit is not null)
+        {
+            _referenceAuthoringSplit.Panel2Collapsed = false;
             _referenceAuthoringSplit.Panel1Collapsed = !codeVisible;
+        }
         if (mode == ParticleAuthoringMode.Code) _code.Focus();
         else _inspectorTabs.Focus();
         foreach ((ParticleAuthoringMode key, ToolStripButton button) in _modeButtons)
             button.Checked = key == mode;
+        if (_editDefinitionMenu is not null) _editDefinitionMenu.Checked = codeVisible;
         UpdateStatus();
+        _applyWorkbenchLayout?.Invoke();
     }
 
     private void PushCodeFromConfig()
@@ -671,6 +674,9 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
             WrapContents = false,
         };
         page.Controls.Add(content);
+        content.HandleCreated += (_, _) => EditorScrollHost.ApplyDarkScrollTheme(content);
+        content.SizeChanged += (_, _) => SizeParticleInspector();
+        content.FontChanged += (_, _) => SizeParticleInspector();
         _inspectorTabs.TabPages.Add(page);
         return content;
     }
@@ -682,12 +688,14 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
             AutoSize = false,
             BackColor = Color.Transparent,
             ColumnCount = 2,
+            RowCount = 1,
             Height = 36,
             Margin = new Padding(0, 0, 0, 4),
             Width = 254,
         };
         row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 104f));
         row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        row.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
         Label label = new()
         {
             AutoSize = false,
@@ -707,6 +715,7 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
     {
         Panel card = new()
         {
+            Name = "ParticleInfoCard",
             BackColor = EditorChrome.Raised,
             Height = 82,
             Margin = new Padding(0, 0, 0, 8),
@@ -959,7 +968,6 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
             _loopButton.Checked = _config.Loop;
             _dimensionToggle.Sync(_effect.Preview2D);
             _viewport.Mode2D = _effect.Preview2D;
-            if (_preview2DCheck is not null) _preview2DCheck.Checked = _effect.Preview2D;
             _lifetimePreview.Invalidate();
             UpdateTimelineVisual();
             RefreshTargetButton();
@@ -1086,19 +1094,16 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
     private void UpdateStatus()
     {
         string preview = _effect.Preview2D ? "2D" : "3D";
-        string floor = _effect.Preview2D ? "floor n/a" : _floorStyle.StatusLabel();
-        string mode = _authoringMode == ParticleAuthoringMode.Code ? "Code" : "Properties";
         ParticleExecutionDecision execution = ParticleExecutionPolicy.Resolve(_particlePreviewRenderer);
-        string executionText = execution.Target == ParticleExecutionTarget.Pending
-            ? "particle backend pending"
-            : $"{execution.BackendName}: {execution.StatusText}";
+        string backend = execution.Target == ParticleExecutionTarget.Pending
+            ? "Backend pending"
+            : execution.BackendName + (execution.Target == ParticleExecutionTarget.Gpu ? " GPU" : "");
         _statusLabel.Text =
-            $"{_activePreset} · {mode} · {preview} · {executionText} · "
-            + $"{LiveParticleCount}/{PreviewParticleCapacity} live · "
-            + $"{_config.Shape} · {_config.EmitRate:0.#}/s · life {_config.Lifetime:0.##}s · "
-            + $"{_config.BlendMode} · {floor} · {_previewClock.Speed:0.##}×"
-            + (string.IsNullOrEmpty(PreviewGpuDiagnostics) ? "" : " · " + PreviewGpuDiagnostics)
+            $"{_activePreset} · {preview} · {backend} · {LiveParticleCount}/{PreviewParticleCapacity} live · {_previewClock.Speed:0.##}×"
+            + (_droppedPreviewBirths > 0 ? $" · linked drops {_droppedPreviewBirths:N0}" : "")
             + (_previewClock.Seeking ? " · Seeking (Stop cancels)" : "");
+        _statusLabel.AccessibleDescription = string.IsNullOrEmpty(PreviewGpuDiagnostics)
+            ? _statusLabel.Text : _statusLabel.Text + " · " + PreviewGpuDiagnostics;
     }
 
     private static void NormaliseConfig(ParticleConfig config)

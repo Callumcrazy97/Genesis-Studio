@@ -38,15 +38,22 @@ public static class SpriteRigRuntime
         try
         {
             descriptor = Path.GetFullPath(descriptor);
+            FileInfo source = new(descriptor);
+            PixelRigSprite? existing = null;
             if (world.Has<PixelRigSpriteComponent>(entity))
             {
-                PixelRigSprite? existing = world.GetRef<PixelRigSpriteComponent>(entity).Binding;
+                existing = world.GetRef<PixelRigSpriteComponent>(entity).Binding;
                 if (existing is not null && !existing.IsDisposed
                     && string.Equals(existing.DescriptorPath, descriptor, StringComparison.OrdinalIgnoreCase)
-                    && string.Equals(existing.RequestedRig, rig, StringComparison.OrdinalIgnoreCase)) return true;
+                    && string.Equals(existing.RequestedRig, rig, StringComparison.OrdinalIgnoreCase)
+                    && source.Exists && existing.DescriptorWriteTicks == source.LastWriteTimeUtc.Ticks
+                    && existing.DescriptorLength == source.Length) return true;
             }
             // Load first. A bad replacement must not destroy a previously working live rig.
             PixelRigSprite binding = PixelRigAssetLoader.LoadFile(descriptor, rig);
+            if (existing is not null && !existing.IsDisposed
+                && string.Equals(existing.DescriptorPath, descriptor, StringComparison.OrdinalIgnoreCase))
+                binding.Player.RestorePlaybackFrom(existing.Player);
             Clear(world, entity);
             world.Set(entity, new PixelRigSpriteComponent { Binding = binding });
             if (!world.Has<Draw2DComponent>(entity)) world.Set(entity, new Draw2DComponent { Visible = true });

@@ -1,12 +1,22 @@
 using Genesis.Application.Core.Resources;
 using Genesis.Shared.Commands;
 using Genesis.Shared.Scripting;
+using System.Reflection;
+using System.Text.RegularExpressions;
 
 namespace Genesis.Application.Editors.Suite.Scripts;
 
 /// <summary>PGSL-specific completion and signature data shared by every PGSL editing surface.</summary>
 public static class PgslCodeIntelligenceProvider
 {
+    static PgslCodeIntelligenceProvider()
+    {
+        if (PgslCommandRegistry.GetCatalog().Count == 0)
+            PgslCommandRegistry.Build(typeof(Genesis.Runtime.Scripting.PgslCommands));
+    }
+    private static readonly IReadOnlyDictionary<string, MethodInfo> CommandMethods = typeof(Genesis.Runtime.Scripting.PgslCommands)
+        .GetMethods(BindingFlags.Public | BindingFlags.Static).GroupBy(method => method.Name)
+        .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
     public static IReadOnlyList<string> Keywords { get; } =
     [
         "event", "if", "else", "while", "for", "foreach", "switch", "case", "default",
@@ -19,11 +29,6 @@ public static class PgslCodeIntelligenceProvider
         string source,
         string prefix)
     {
-        if (string.IsNullOrWhiteSpace(prefix))
-        {
-            return [];
-        }
-
         Dictionary<string, RankedCompletion> unique = new(StringComparer.OrdinalIgnoreCase);
 
         foreach (PgslCommandInfo command in PgslCommandRegistry.GetFullCatalog())
@@ -39,7 +44,7 @@ public static class PgslCodeIntelligenceProvider
                     candidate,
                     candidate,
                     string.IsNullOrWhiteSpace(command.Category) ? "Command" : $"Command · {command.Category}",
-                    command.Description),
+                    command.Description + (TypedSignature(command) is string typed ? " " + typed : string.Empty)),
                 kindRank: 0);
         }
 
@@ -144,7 +149,8 @@ public static class PgslCodeIntelligenceProvider
             return;
         }
 
-        if (TryGetSignature(request.CommandName, out string signature, out string description))
+        if (TryGetSignature(request.CommandName, out string signature, out string description)
+            || TryGetLocalSignature(source, request.CommandName, out signature, out description))
         {
             editor.ShowSignature(signature, request.ActiveParameterIndex, description);
         }
@@ -182,8 +188,31 @@ public static class PgslCodeIntelligenceProvider
         signature = string.IsNullOrWhiteSpace(command.Signature)
             ? command.QualifiedName + "()"
             : command.Signature;
+        signature = TypedSignature(command) ?? signature;
         description = command.Description ?? string.Empty;
         return true;
+    }
+
+    internal static string? TypedSignature(PgslCommandInfo command)
+    {
+        string name = command.CSharpMember?.Split('.').Last() ?? command.Name;
+        if (!CommandMethods.TryGetValue(name, out MethodInfo? method)) return null;
+        string parameters = string.Join(", ", method.GetParameters().Select(parameter =>
+            TypeHint(parameter.ParameterType) + " " + parameter.Name + (parameter.IsOptional ? " = " + Convert.ToString(parameter.DefaultValue, System.Globalization.CultureInfo.InvariantCulture) : string.Empty)));
+        return command.QualifiedName + "(" + parameters + ")"
+            + (method.ReturnType == typeof(void) ? string.Empty : " -> " + TypeHint(method.ReturnType));
+    }
+
+    private static string TypeHint(Type type) => type == typeof(string) ? "string" : type == typeof(bool) ? "boolean"
+        : type == typeof(double) || type == typeof(float) || type == typeof(int) || type == typeof(long) ? "number" : type.Name;
+
+    private static bool TryGetLocalSignature(string source, string name, out string signature, out string description)
+    {
+        Match function = Regex.Match(source, @"\bfunction\s+" + Regex.Escape(name) + @"\s*\((?<args>[^)]*)\)");
+        signature = function.Success ? name + "(" + string.Join(", ", function.Groups["args"].Value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Select(argument => "any " + argument)) + ")" : string.Empty;
+        description = function.Success ? "Function declared in this file; PGSL parameters are dynamically typed." : string.Empty;
+        return function.Success;
     }
 
     private static void AddIfMatch(

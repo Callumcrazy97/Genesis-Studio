@@ -36,7 +36,7 @@ internal static class StudioPolishSuite
         }));
         Check("Picker.CurrentNameSelectedAndEmittedWithoutExtension", () => WithProject(fixture =>
         {
-            using AssetPickerModal picker = fixture.Picker("Night Sky"); GateSuite.ShowHost(picker);
+            using AssetPickerModal picker = fixture.Picker("Night Sky"); ShowPicker(picker);
             Assert(picker.SelectButton.Enabled && picker.ResultsControl.SelectedIndices.Count == 1, "Current image was not selected.");
             picker.SelectButton.PerformClick();
             Assert(picker.SelectedAsset?.Reference == "Night Sky", "Picker returned a storage filename instead of a name.");
@@ -79,19 +79,19 @@ internal static class StudioPolishSuite
         {
             using (AssetPickerModal picker = fixture.Picker("Morning Sky"))
             {
-                GateSuite.ShowHost(picker); picker.FavouriteButton.PerformClick();
+                ShowPicker(picker); picker.FavouriteButton.PerformClick();
                 picker.FolderTree.SelectedNode = picker.FolderTree.Nodes["$favourites"];
                 Assert(picker.FilteredAssets.Single().Reference == "Morning Sky", "Favourite scope did not show the bookmarked name."); picker.Close();
             }
-            using AssetPickerModal reopened = fixture.Picker(); GateSuite.ShowHost(reopened);
+            using AssetPickerModal reopened = fixture.Picker(); ShowPicker(reopened);
             reopened.FolderTree.SelectedNode = reopened.FolderTree.Nodes["$favourites"];
             Assert(reopened.FilteredAssets.Single().Reference == "Morning Sky", "Favourite was only kept by the old dialog."); reopened.Close();
         }));
         Check("Picker.SelectionCreatesPersistentRecent", () => WithProject(fixture =>
         {
             using (AssetPickerModal picker = fixture.Picker("Night Sky"))
-            { GateSuite.ShowHost(picker); picker.SelectButton.PerformClick(); }
-            using AssetPickerModal reopened = fixture.Picker(); GateSuite.ShowHost(reopened);
+            { ShowPicker(picker); picker.SelectButton.PerformClick(); }
+            using AssetPickerModal reopened = fixture.Picker(); ShowPicker(reopened);
             reopened.FolderTree.SelectedNode = reopened.FolderTree.Nodes["$recent"];
             Assert(reopened.FilteredAssets.Single().Reference == "Night Sky", "Recent scope depends on process-only service history."); reopened.Close();
         }));
@@ -119,11 +119,12 @@ internal static class StudioPolishSuite
         {
             RoomObjectsPanel panel = fixture.Editor!.Navigation.ObjectsPanel; fixture.Editor.Navigation.SetSection(RoomNavSection.Instances);
             TreeView tree = panel.InstanceHierarchy; TreeNode layer = tree.Nodes[0].Nodes[0]; layer.Expand();
+            Assert(tree.ClientSize.Width >= 180, "The instance hierarchy did not receive its deferred responsive layout.");
             int refreshes = panel.HierarchyRefreshCount, structures = panel.HierarchyStructureUpdateCount;
             TreeNode? selection = tree.SelectedNode; IntPtr handle = layer.Handle;
             SendTreeMouse(tree, 0x0201, Arrow(layer)); SendTreeMouse(tree, 0x0202, Arrow(layer));
             Assert(!layer.IsExpanded && ReferenceEquals(selection, tree.SelectedNode) && layer.Handle == handle,
-                "Single disclosure click selected a row or did not collapse.");
+                $"Single disclosure click selected a row or did not collapse. Bounds={layer.Bounds}; Tree={tree.ClientSize}; visible={tree.Visible}; hit={tree.HitTest(Arrow(layer)).Node?.Text}; expanded={layer.IsExpanded}; selection={selection?.Text}->{tree.SelectedNode?.Text}");
             Assert(panel.HierarchyRefreshCount == refreshes && panel.HierarchyStructureUpdateCount == structures,
                 "Disclosure rebuilt the room hierarchy.");
             SendTreeMouse(tree, 0x0201, Arrow(layer)); SendTreeMouse(tree, 0x0202, Arrow(layer));
@@ -134,7 +135,7 @@ internal static class StudioPolishSuite
             RoomObjectsPanel panel = fixture.Editor!.Navigation.ObjectsPanel; fixture.Editor.Navigation.SetSection(RoomNavSection.Instances);
             TreeView tree = panel.InstanceHierarchy; TreeNode layer = tree.Nodes[0].Nodes[0]; layer.Expand(); Point point = Arrow(layer);
             foreach (int message in new[] { 0x0201, 0x0202, 0x0203, 0x0202 }) SendTreeMouse(tree, message, point);
-            Assert(!layer.IsExpanded, "Native double-click handling undid the first disclosure action.");
+            Assert(!layer.IsExpanded, $"Native double-click handling undid the first disclosure action. Bounds={layer.Bounds}; Tree={tree.ClientSize}; visible={tree.Visible}; hit={tree.HitTest(point).Node?.Text}");
         }));
         Check("Hierarchy.ValueAndSelectionRetainNativeNodes", () => WithRoom(fixture =>
         {
@@ -155,12 +156,19 @@ internal static class StudioPolishSuite
             panel.SetSearch("Actor"); Assert(layer.IsExpanded, "Filtered results are not reachable.");
             panel.SetSearch(""); Assert(!layer.IsExpanded, "Search destroyed the user's collapsed-layer state.");
         }));
-        Check("Hierarchy.ReadOnlyInstancesCannotStealObjectSelection", () => WithRoom(fixture =>
+        Check("Hierarchy.InstancesSelectObjectsAndRetainInactiveEditBoundaries", () => WithRoom(fixture =>
         {
             RoomEditorControl editor = fixture.Editor!; editor.Navigation.SetSection(RoomNavSection.Instances);
-            TreeView tree = editor.Navigation.ObjectsPanel.InstanceHierarchy; TreeNode actor = Find(tree, editor.Room.Nodes.Single(n => n.Name == "Actor").Id);
+            RoomNode instance = editor.Room.Nodes.Single(n => n.Name == "Actor");
+            TreeView tree = editor.Navigation.ObjectsPanel.InstanceHierarchy; TreeNode actor = Find(tree, instance.Id);
             tree.SelectedNode = actor;
-            Assert(editor.SelectedNode is null && tree.SelectedNode != actor, "Instances navigation bypassed the Objects-tab edit boundary.");
+            Assert(ReferenceEquals(editor.SelectedNode, instance) && tree.SelectedNode == actor
+                && editor.CanEditNodeInActiveContext(instance) && editor.SetNodeName(instance, "Renamed actor"),
+                "Instances did not select and edit the actual Object through its real hierarchy.");
+            editor.Undo(); Assert(instance.Name == "Actor", "The hierarchy edit was not undoable.");
+            editor.Navigation.SetSection(RoomNavSection.Tilesets);
+            Assert(!editor.CanInspectNodeInActiveContext(instance) && !editor.CanEditNodeInActiveContext(instance)
+                && !editor.SetNodeName(instance, "Inactive edit"), "Tilesets retained an inactive Object edit route.");
         }));
         Check("Hierarchy.TreeMouseCoordinatesRemainSigned", () =>
         {
@@ -297,14 +305,20 @@ internal static class StudioPolishSuite
             Assert(shell.Text.Contains(StudioBuildInfo.BuildId) && shell.Text.Contains($"H{StudioBuildInfo.Revision}"), "Workspace lacks loaded build identity.");
             ToolStripMenuItem[] entries = shell.MainMenuStrip!.Items.OfType<ToolStripMenuItem>()
                 .SelectMany(menu => menu.DropDownItems.OfType<ToolStripMenuItem>()).ToArray();
-            Assert(entries.Count(item => item.Name == "studio.commands") >= 2
+            Assert(entries.Count(item => item.Name == "studio.commands") == 1
                 && shell.CommandCatalog.FindShortcut((int)(Keys.Control | Keys.Shift | Keys.P)) == "studio.commands"
                 && entries.Any(item => item.Name == "help.copyBuildInfo"), "Palette/build commands are hidden or not registered.");
-            Assert(entries.Any(item => (item.Text ?? string.Empty).Contains("PGSL Command Reference")), "PGSL help is still confused with the action palette.");
+            Assert(entries.Any(item => item.Name == "help.pgsl" && item.Text == "Commands…"), "Help command reference is missing.");
         }));
     }
 
     private static Point Arrow(TreeNode node) => new(node.Bounds.Left - 10, node.Bounds.Top + node.TreeView!.ItemHeight / 2);
+    private static void ShowPicker(AssetPickerModal picker)
+    {
+        GateSuite.ShowHost(picker);
+        // Form.Shown is posted by WinForms. Selection is initialized there after native lists exist.
+        GateSuite.Pump(2, 10);
+    }
     private static TreeNode Find(TreeView tree, string id) => tree.Nodes.Find(id, true).Single();
     private static void SendTreeMouse(TreeView tree, int kind, Point point)
     {
@@ -347,6 +361,8 @@ internal static class StudioPolishSuite
                 Background = new RoomBackgroundData { Asset = "Morning Sky", Layout = RoomBackgroundLayout.StretchRoom } });
             RoomAssetLoader.Save(room, path); Editor = new(path, Project.RootPath) { Dock = DockStyle.Fill };
             _host = new Form { ClientSize = new Size(1200, 800) }; _host.Controls.Add(Editor); GateSuite.ShowHost(_host);
+            // Room splitters intentionally initialize through the normal posted layout callback.
+            GateSuite.Pump(3, 10);
             Editor.FlushPendingRoomUiRefresh();
         }
         public void Dispose()

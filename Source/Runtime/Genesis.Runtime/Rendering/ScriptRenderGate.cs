@@ -69,6 +69,10 @@ namespace Genesis.Runtime.Rendering
         // Text is a HUD element, so it follows DrawLine/DrawRect rather than the blocked mesh path.
         public void DrawText(string text, float x, float y, float size, RenderColor color)
             => _inner.DrawText(text, x, y, size, color);
+        public void DrawText(string text, float x, float y, float size, RenderColor color, string font)
+            => _inner.DrawText(text, x, y, size, color, font);
+        public void DrawTextCentered(string text, float centerX, float y, float width, float size, RenderColor color, string font)
+            => _inner.DrawTextCentered(text, centerX, y, width, size, color, font);
 
         public bool ComposeOverlay(Action<IOverlayCanvas> draw) => _inner.ComposeOverlay(draw);
 

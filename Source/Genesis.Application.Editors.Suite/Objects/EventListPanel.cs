@@ -18,6 +18,7 @@ public sealed class EventListPanel : ScrollableControl
 {
     private const int RowHeight = 34;
     private const int HeaderHeight = 24;
+    private int ScaledRowHeight => Math.Max(DpiLayout.Scale(this, RowHeight), EditorChrome.BaseFont.Height + DpiLayout.Scale(this, 14));
 
     private sealed record Row(string? EventId, string Text, bool IsHeader, bool HasCode = false);
 
@@ -35,6 +36,7 @@ public sealed class EventListPanel : ScrollableControl
         AutoScroll = true;
         HandleCreated += (_, _) => EditorScrollHost.ApplyDarkScrollTheme(this);
         SetStyle(ControlStyles.ResizeRedraw, true);
+        FontChanged += (_, _) => RebuildRows();
         BackColor = EditorChrome.Surface;
         ContextMenuStrip menu = new();
         ToolStripMenuItem remove = new("Remove event");
@@ -105,7 +107,7 @@ public sealed class EventListPanel : ScrollableControl
                 _rows.Add(new Row(definition.Id, definition.Label, IsHeader: false, hasCode));
             }
         }
-        AutoScrollMinSize = new Size(0, _rows.Count * DpiLayout.Scale(this, RowHeight) + 12);
+        AutoScrollMinSize = new Size(0, _rows.Count * ScaledRowHeight + DpiLayout.Scale(this, 12));
         Invalidate();
     }
 
@@ -142,7 +144,7 @@ public sealed class EventListPanel : ScrollableControl
 
     private int IndexAt(Point point)
     {
-        int rowHeight = DpiLayout.Scale(this, RowHeight);
+        int rowHeight = ScaledRowHeight;
         int headerHeight = DpiLayout.Scale(this, HeaderHeight);
         int y = DpiLayout.Scale(this, 6) + AutoScrollPosition.Y;
         for (int index = 0; index < _rows.Count; index++)
@@ -192,7 +194,7 @@ public sealed class EventListPanel : ScrollableControl
             using SolidBrush muted = new(EditorChrome.Muted);
             using StringFormat centre = new() { Alignment = StringAlignment.Center };
             g.DrawString(
-                "No events yet.\nAdd one below.",
+                "No events yet.\nChoose Add event above.",
                 EditorChrome.SmallFont,
                 muted,
                 new RectangleF(
@@ -204,7 +206,7 @@ public sealed class EventListPanel : ScrollableControl
             return;
         }
 
-        int rowHeight = DpiLayout.Scale(this, RowHeight);
+        int rowHeight = ScaledRowHeight;
         int headerHeight = DpiLayout.Scale(this, HeaderHeight);
         int y = DpiLayout.Scale(this, 6) + AutoScrollPosition.Y;
         for (int index = 0; index < _rows.Count; index++)

@@ -12,8 +12,10 @@ internal sealed class PathingTimelineControl : Control
     private bool _collisionWarning;
     private Rectangle _graph;
     private PathingSpeedKey? _dragSpeedKey;
-    private const float CurveDuration = 12f;
-    private const float CurveMaximum = 2.5f;
+    private float CurveDuration => MathF.Max(12f, MathF.Max(_time,
+        _asset.Route.SpeedCurve.Count == 0 ? 0 : _asset.Route.SpeedCurve.Max(key => key.Time)));
+    private float CurveMaximum => MathF.Max(2.5f,
+        _asset.Route.SpeedCurve.Count == 0 ? 0 : _asset.Route.SpeedCurve.Max(key => key.Multiplier));
 
     public PathingTimelineControl()
     {
@@ -48,19 +50,26 @@ internal sealed class PathingTimelineControl : Control
         g.SmoothingMode = SmoothingMode.AntiAlias;
         using SolidBrush bg = new(EditorChrome.Surface);
         g.FillRectangle(bg, ClientRectangle);
-        using Font title = new(Font.FontFamily, 9f, FontStyle.Bold);
-        using Font small = new(Font.FontFamily, 8f);
+        Font title = EditorChrome.HeadingFont;
+        Font small = EditorChrome.SmallFont;
         using SolidBrush text = new(EditorChrome.Text);
         using SolidBrush muted = new(EditorChrome.Muted);
-        g.DrawString("PATH SIMULATION", title, text, 12, 9);
-        g.DrawString($"{_time:0.00}s · {_asset.Route.Speed:0.##} m/s", small, muted, Math.Max(150, Width - 150), 10);
-        Rectangle graph = _graph = new(18, 38, Math.Max(20, Width - 36), Math.Max(28, Height - 54));
+        string stats = $"{_time:0.00}s · {_asset.Route.SpeedAt(_time):0.##} {(_asset.Dimension == PathingDimension.TwoD ? "px/s" : "m/s")}";
+        float statsWidth = g.MeasureString(stats, small).Width;
+        bool stackHeading = g.MeasureString("PATH SIMULATION", title).Width + statsWidth + 48 > Width;
+        g.DrawString("PATH SIMULATION", title, text, 12, 6);
+        g.DrawString(stats, small, muted, Math.Max(12, Width - statsWidth - 12), stackHeading ? title.Height + 8 : 8);
+        int top = title.Height + small.Height + 20 + (stackHeading ? small.Height + 2 : 0);
+        int footer = small.Height * 3 + 16;
+        Rectangle graph = _graph = new(30, top, Math.Max(20, Width - 60), Math.Max(10, Height - top - footer));
         using Pen grid = new(Color.FromArgb(65, 83, 101, 116), 1f);
-        for (int i = 0; i <= 12; i++)
+        int divisions = Math.Clamp(graph.Width / Math.Max(50, small.Height * 3), 2, 12);
+        for (int i = 0; i <= divisions; i++)
         {
-            float x = graph.Left + graph.Width * i / 12f;
+            float x = graph.Left + graph.Width * i / (float)divisions;
             g.DrawLine(grid, x, graph.Top, x, graph.Bottom);
-            g.DrawString((i * 10).ToString(System.Globalization.CultureInfo.InvariantCulture), small, muted, x - 5, graph.Top - 14);
+            string tick = (CurveDuration * i / divisions).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+            g.DrawString(tick, small, muted, x - g.MeasureString(tick, small).Width / 2, graph.Top - small.Height - 2);
         }
         for (int i = 0; i <= 3; i++)
         {
@@ -70,12 +79,10 @@ internal sealed class PathingTimelineControl : Control
 
         if (_samples.Count >= 2)
         {
-            float visibleEnd = MathF.Max(12f, _time);
-            float visibleStart = MathF.Max(0f, visibleEnd - 12f);
-            float maxSpeed = MathF.Max(1f, MathF.Max(_asset.Route.Speed, _samples.Max(sample => sample.Speed)));
-            PointF[] curve = _samples.Where(sample => sample.Time >= visibleStart)
+            float maxSpeed = MathF.Max(.001f, _asset.Route.Speed * CurveMaximum);
+            PointF[] curve = _samples
                 .Select(sample => new PointF(
-                    graph.Left + graph.Width * (sample.Time - visibleStart) / MathF.Max(.001f, visibleEnd - visibleStart),
+                    graph.Left + graph.Width * Math.Clamp(sample.Time / CurveDuration, 0, 1),
                     graph.Bottom - graph.Height * Math.Clamp(sample.Speed / maxSpeed, 0f, 1f))).ToArray();
             if (curve.Length >= 2)
             {
@@ -87,22 +94,16 @@ internal sealed class PathingTimelineControl : Control
 
         DrawAuthoredSpeedCurve(g, graph, small, muted);
 
-        int count = Math.Max(1, _asset.Route.Waypoints.Count);
-        for (int index = 0; index < count; index++)
-        {
-            float x = graph.Left + graph.Width * index / Math.Max(1f, count - 1f);
-            float y = graph.Bottom - graph.Height * .84f;
-            using SolidBrush key = new(Color.FromArgb(245, 246, 183, 76));
-            g.FillEllipse(key, x - 4, y - 4, 8, 8);
-        }
-        float playhead = graph.Left + graph.Width * ((_time % 12f) / 12f);
+        float playhead = graph.Left + graph.Width * Math.Clamp(_time / CurveDuration, 0, 1);
         using Pen head = new(Color.FromArgb(245, 82, 205, 245), 2f);
         g.DrawLine(head, playhead, graph.Top - 6, playhead, graph.Bottom);
         if (_collisionWarning)
         {
             using SolidBrush warning = new(Color.FromArgb(225, 244, 78, 89));
-            g.FillRectangle(warning, new RectangleF(graph.Right - 176, 5, 168, 24));
-            g.DrawString("UN-WALKABLE PATH", small, Brushes.White, graph.Right - 164, 10);
+            string message = "UN-WALKABLE PATH";
+            SizeF extent = g.MeasureString(message, small);
+            g.FillRectangle(warning, new RectangleF(graph.Right - extent.Width - 12, graph.Top + 4, extent.Width + 8, small.Height + 4));
+            g.DrawString(message, small, Brushes.White, graph.Right - extent.Width - 8, graph.Top + 6);
         }
     }
 
@@ -131,7 +132,9 @@ internal sealed class PathingTimelineControl : Control
                 graphics.DrawEllipse(outline, point.X - 5, point.Y - 5, 10, 10);
             }
         }
-        graphics.DrawString("Drag amber speed keys · click to add · right-click to remove · Ctrl-drag to scrub", small, muted, graph.Left + 6, graph.Bottom - 17);
+        graphics.DrawString("Amber: speed × · cyan: actual speed", small, muted, 12, graph.Bottom + 4);
+        graphics.DrawString("Drag: move key · click: add", small, muted, 12, graph.Bottom + small.Height + 4);
+        graphics.DrawString("Right click: remove · Ctrl-drag: scrub time", small, muted, 12, graph.Bottom + small.Height * 2 + 4);
 
         PointF KeyPoint(PathingSpeedKey key) => new(
             graph.Left + graph.Width * Math.Clamp(key.Time / CurveDuration, 0f, 1f),
@@ -208,7 +211,7 @@ internal sealed class PathingTimelineControl : Control
     private void Scrub(int x, int y)
     {
         if (_graph.Width <= 0 || !_graph.Contains(x, y)) return;
-        float time = Math.Clamp((x - _graph.Left) / (float)_graph.Width, 0f, 1f) * 12f;
+        float time = Math.Clamp((x - _graph.Left) / (float)_graph.Width, 0f, 1f) * CurveDuration;
         TimeScrubbed?.Invoke(time);
     }
 }

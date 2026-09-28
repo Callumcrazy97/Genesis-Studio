@@ -9,7 +9,6 @@ public sealed partial class RoomEditorControl
         RoomNode? neighbour = null, bool after = false)
     {
         if (node.Kind != RoomNodeKind.GameObject || !CanEditNodeInActiveContext(node)
-            || !ReferenceEquals(layer, _navigation.ObjectsPanel.ActiveObjectLayer)
             || parent is not null && (parent.Kind != RoomNodeKind.GameObject || !CanEditNodeInActiveContext(parent))
             || neighbour is not null && !CanEditNodeInActiveContext(neighbour)
             || !_room.Nodes.Contains(node) || !_room.Layers.Contains(layer) || layer.Locked || IsNodeLocked(node)
@@ -37,7 +36,15 @@ public sealed partial class RoomEditorControl
         {
             _room.Nodes.Clear(); _room.Nodes.AddRange(order);
             node.ParentId = nextParent; node.LayerId = nextLayer;
-            CopyTransform(transform, node.Transform); RefreshPhase4Ui();
+            CopyTransform(transform, node.Transform);
+            if (previousLayer != layer.Id)
+            {
+                _placement.TargetLayerId = nextLayer;
+                _navigation.ObjectsPanel.RefreshLayers();
+                ActiveRoomEditContextChanged();
+                Select(node);
+            }
+            RefreshPhase4Ui();
         }
         Apply(afterOrder, parentId, layer.Id, localAfter);
         PushEdit($"Move '{node.Name}' in hierarchy",

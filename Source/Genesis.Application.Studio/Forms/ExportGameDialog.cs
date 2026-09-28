@@ -21,18 +21,21 @@ public sealed class ExportGameDialog : DpiAwareForm
     private readonly Button _export;
     private readonly Button _cancel;
     private CancellationTokenSource? _cancellation;
+    private Action? _layoutMeasured;
 
     public ExportGameDialog(ProjectSession project)
     {
         _project = project ?? throw new ArgumentNullException(nameof(project));
         Text = "Export Game";
         StartPosition = FormStartPosition.CenterParent;
-        FormBorderStyle = FormBorderStyle.FixedDialog;
-        MaximizeBox = false;
+        FormBorderStyle = FormBorderStyle.Sizable;
+        MaximizeBox = true;
         MinimizeBox = false;
         ClientSize = new Size(680, 570);
         BackColor = ThemeService.Palette.Canvas;
         ForeColor = ThemeService.Palette.Text;
+        MinimumSize = new Size(660, 570);
+        Tag = ThemeService.MeasuredLayoutTag;
 
         TableLayoutPanel layout = new()
         {
@@ -89,7 +92,8 @@ public sealed class ExportGameDialog : DpiAwareForm
         StyleField(_windowMode);
         layout.Controls.Add(LabeledRow("Default display", _windowMode), 0, 3);
 
-        TableLayoutPanel iconRow = new() { Dock = DockStyle.Fill, ColumnCount = 3 };
+        TableLayoutPanel iconRow = new() { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1 };
+        iconRow.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         iconRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 112));
         iconRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         iconRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 104));
@@ -102,7 +106,8 @@ public sealed class ExportGameDialog : DpiAwareForm
         iconRow.Controls.Add(browseIcon, 2, 0);
         layout.Controls.Add(iconRow, 0, 4);
 
-        TableLayoutPanel pathRow = new() { Dock = DockStyle.Fill, ColumnCount = 2 };
+        TableLayoutPanel pathRow = new() { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
+        pathRow.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         pathRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         pathRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 104));
         _destination = new TextBox
@@ -118,7 +123,7 @@ public sealed class ExportGameDialog : DpiAwareForm
         browse.Click += (_, _) => Browse();
         pathRow.Controls.Add(_destination, 0, 0);
         pathRow.Controls.Add(browse, 1, 0);
-        layout.Controls.Add(pathRow, 0, 5);
+        layout.Controls.Add(LabeledRow("Output folder", pathRow), 0, 5);
 
         GroupBox package = new()
         {
@@ -139,7 +144,7 @@ public sealed class ExportGameDialog : DpiAwareForm
         {
             Text = "Precompile built-in and project shaders for Direct3D, Vulkan and OpenGL",
             Checked = true,
-            AutoSize = true,
+            AutoSize = false,
             ForeColor = ThemeService.Palette.Text,
             Margin = new Padding(4, 10, 0, 0),
         };
@@ -186,9 +191,66 @@ public sealed class ExportGameDialog : DpiAwareForm
         buttons.Controls.Add(_cancel);
         layout.Controls.Add(buttons, 0, 11);
 
-        Controls.Add(layout);
+        Panel scroll = new() { Dock = DockStyle.Fill, AutoScroll = true };
+        layout.Dock = DockStyle.Top;
+        scroll.Controls.Add(layout);
+        Controls.Add(scroll);
+        layout.Controls.Remove(buttons);
+        buttons.Dock = DockStyle.Bottom;
+        buttons.Padding = new Padding(16, 8, 24, 8);
+        Controls.Add(buttons);
+        scroll.BringToFront();
+        bool arranging = false;
+        _layoutMeasured = () =>
+        {
+            if (arranging || IsDisposed) return;
+            arranging = true;
+            try
+            {
+                layout.SuspendLayout();
+                int width = Math.Max(1, scroll.ClientSize.Width - layout.Padding.Horizontal - SystemInformation.VerticalScrollBarWidth - 6);
+                heading.Controls.OfType<Label>().First().Font = ThemeService.HeadingFont;
+                heading.Width = width;
+                ShellDialogLayout.StackLabels(heading, 0, 0, 6);
+                layout.RowStyles[0].Height = heading.Controls.Cast<Control>().Max(control => control.Bottom) + 12;
+                int labelWidth = Math.Max(112, TextRenderer.MeasureText("Target platform", Font).Width + 16);
+                int fieldHeight = Math.Max(54, Font.Height + 32);
+                for (int rowIndex = 1; rowIndex <= 5; rowIndex++)
+                {
+                    layout.RowStyles[rowIndex].Height = fieldHeight;
+                    if (layout.GetControlFromPosition(0, rowIndex) is TableLayoutPanel row) row.ColumnStyles[0].Width = labelWidth;
+                }
+                ShellDialogLayout.FitButton(browseIcon); ShellDialogLayout.FitButton(browse);
+                iconRow.ColumnStyles[2].Width = Math.Max(104, TextRenderer.MeasureText(browseIcon.Text, browseIcon.Font).Width + browseIcon.Margin.Horizontal + 28);
+                pathRow.ColumnStyles[1].Width = Math.Max(104, TextRenderer.MeasureText(browse.Text, browse.Font).Width + browse.Margin.Horizontal + 28);
+                int optionY = Font.Height + 8;
+                _folder.Location = new Point(12, optionY);
+                _zip.Location = new Point(_folder.Right + 20, optionY);
+                if (_zip.Right > width - 12) _zip.Location = new Point(12, _folder.Bottom + 8);
+                layout.RowStyles[6].Height = Math.Max(_folder.Bottom, _zip.Bottom) + 12;
+                _shaders.MaximumSize = new Size(width, 0);
+                _shaders.AutoSize = false;
+                _shaders.Size = new Size(width, ShellDialogLayout.TextHeight(_shaders, width - 24) + 12);
+                layout.RowStyles[7].Height = _shaders.Height + 12;
+                layout.RowStyles[8].Height = ShellDialogLayout.TextHeight(_status, width) + 16;
+                layout.RowStyles[9].SizeType = SizeType.Absolute;
+                layout.RowStyles[9].Height = 12;
+                layout.RowStyles[10].Height = 18;
+                layout.RowStyles[11].Height = 0;
+                ShellDialogLayout.FitButton(_export); ShellDialogLayout.FitButton(_cancel);
+                buttons.Height = _export.Height + buttons.Padding.Vertical + 8;
+                layout.Height = (int)Math.Ceiling(layout.RowStyles.Cast<RowStyle>().Sum(row => row.Height)) + layout.Padding.Vertical;
+                layout.ResumeLayout(true);
+            }
+            finally { arranging = false; }
+        };
+        ClientSizeChanged += (_, _) => ApplyInterfaceLayout();
+        _export.TextChanged += (_, _) => ApplyInterfaceLayout();
+        _status.TextChanged += (_, _) => ApplyInterfaceLayout();
         ThemeService.Apply(this);
     }
+
+    public override void ApplyInterfaceLayout() => _layoutMeasured?.Invoke();
 
     public GameExportResult? Result { get; private set; }
 
@@ -328,7 +390,8 @@ public sealed class ExportGameDialog : DpiAwareForm
 
     private static Control LabeledRow(string label, Control field)
     {
-        TableLayoutPanel row = new() { Dock = DockStyle.Fill, ColumnCount = 2 };
+        TableLayoutPanel row = new() { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
+        row.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 112));
         row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         row.Controls.Add(FieldLabel(label), 0, 0);

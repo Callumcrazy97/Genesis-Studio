@@ -9,10 +9,13 @@ using Genesis.Application.Core.Settings;
 using Genesis.Application.Editors;
 using Genesis.Application.Editors.Image.Imaging;
 using Genesis.Application.Editors.Suite;
+using Genesis.Application.Editors.Suite.Objects.VisualActions;
 using Genesis.Application.Studio;
 using Genesis.Application.Studio.Docking;
 using Genesis.Application.Studio.Forms;
 using WeifenLuo.WinFormsUI.Docking;
+using Genesis.Rendering.Core;
+using Genesis.Rendering.Viewport;
 
 namespace Genesis.Application.Headless.Suites;
 
@@ -21,8 +24,177 @@ internal static class StudioFoundationSuite
     public static void Run(HeadlessContext context)
     {
         HeadlessHarness.BeginMajor(context.Report, "Studio foundation");
+        int firstFoundationCase = context.Report.Tests.Count;
         void Check(string name, Action test) => HeadlessHarness.RunCase(context.Report, "Studio.Foundation." + name, test);
         StudioFoundationCoreCases.Run(Check);
+        Check("Authoring.ObjectActionsHaveOneSpawnChoiceAndReadLegacyBlocks", () =>
+        {
+            ProjectSession project = new ProjectService().CreateProject(context.Workspace, "Object terminology", "Blank");
+            new ResourceService(project).CreateResource(project.AssetsPath, ResourceKind.GameObject, "Marker");
+            VisualActionTemplate legacy = new("Spawn Prefab", "CreateInstance", "Instances", "Spawn an Object resource",
+                [new("obj", "Marker", VisualActionValueKind.Asset, ResourceKind.GameObject), new("x", "10"), new("y", "20"), new("z", "0")]);
+            string source = "// Keep this handwritten comment\n" + VisualActionSyntax.CreateBlock(legacy, "legacy_spawn");
+            string presetFile = Path.Combine(project.RootPath, ".genesis", "Editor", "ActionPresets.json");
+            new VisualActionPresetStore(project.RootPath).Save(legacy);
+            string savedPresets = File.ReadAllText(presetFile);
+            using Form host = GateSuite.NewHost(1280, 780);
+            using VisualActionBuilderControl builder = new(project.RootPath);
+            int changes = 0; builder.SourceChanged += (_, _) => changes++;
+            builder.LoadSource(source, groupName: "Create"); host.Controls.Add(builder); GateSuite.ShowHost(host); GateSuite.Pump(3, 15);
+            VisualActionBlock oldBlock = builder.Blocks.Single();
+            Assert(oldBlock.Name == "Create Instance" && oldBlock.CommandName == "CreateInstance"
+                && oldBlock.Parameters.Single(parameter => parameter.Name == "obj").Value == "Marker"
+                && builder.Source == source && !builder.CanUndo && changes == 0 && File.ReadAllText(presetFile) == savedPresets,
+                "Opening a legacy spawn action changed its code, reference, history or preset file.");
+            RichTextBox preview = (RichTextBox)typeof(VisualActionBuilderControl).GetField("_preview",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(builder)!;
+            Assert(preview.Text.Contains("Keep this handwritten comment", StringComparison.Ordinal)
+                && preview.Text.Contains("CreateInstance(\"Marker\", 10, 20, 0);", StringComparison.Ordinal)
+                && !preview.Text.Contains("<action", StringComparison.Ordinal) && !preview.Text.Contains("Prefab", StringComparison.Ordinal),
+                "The readable code preview leaks editor markers or hides handwritten PGSL.");
+            TreeView palette = (TreeView)typeof(VisualActionBuilderControl).GetField("_palette",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(builder)!;
+            VisualActionPaletteItem[] items = Nodes(palette.Nodes).Select(node => node.Tag).OfType<VisualActionPaletteItem>().ToArray();
+            Assert(items.All(item => !item.Name.Contains("Prefab", StringComparison.OrdinalIgnoreCase))
+                && items.Count(item => !item.IsUserPreset && item.Template.CommandName == "CreateInstance") == 1,
+                "The Object action palette still exposes Prefabs or duplicate spawn commands.");
+            Assert(!builder.InsertBlueprintAction("Spawn Prefab") && builder.InsertBlueprintAction("Create Instance"),
+                "The single Create Instance action is unavailable or the removed alias remains insertable.");
+            Assert(builder.Blocks.Count == 2 && builder.Blocks.All(block => block.CommandName == "CreateInstance"),
+                "Terminology cleanup changed the executable spawn command.");
+            builder.Undo(); Assert(builder.Source == source, "Undo did not restore the unchanged legacy source.");
+            foreach (TreeNode category in palette.Nodes)
+            { if (category.Text == "INSTANCES") category.Expand(); else category.Collapse(); }
+            palette.TopNode = palette.Nodes[0]; GateSuite.Pump(2, 15);
+            string imageFile = "object-actions-create-instance.png";
+            context.Report.Images.Add(ImageResult.From("Object actions use Create Instance", imageFile,
+                VisualCapture.CaptureOpenForm(host, Path.Combine(context.Captures, imageFile))));
+            host.Close();
+
+            static IEnumerable<TreeNode> Nodes(TreeNodeCollection collection)
+            {
+                foreach (TreeNode node in collection)
+                { yield return node; foreach (TreeNode child in Nodes(node.Nodes)) yield return child; }
+            }
+        });
+        Check("Inspector.MixedReadOnlyAxesKeepIndependentEditRoutes", () =>
+        {
+            using Genesis.Application.Editors.Suite.Inspector.ResourceInspectorPropertySurface surface = new();
+            surface.ShowIdentityGroup = false;
+            surface.InspectLive(new ResourceItem
+            {
+                Name = "Live fixture", FullPath = Path.Combine(Path.GetTempPath(), "Live fixture.object.json"),
+                RelativePath = "Live fixture.object.json", Kind = ResourceKind.GameObject, IsFolder = false,
+            },
+            [
+                new("Instance", "Runtime.Instance.x", "X", 10f),
+                new("Instance", "Runtime.Instance.y", "Y", 20f, ReadOnly: true),
+                new("Instance", "Runtime.Instance.z", "Z", 30f),
+            ]);
+            Assert(surface.SetValue("Runtime.Instance.x", 15f) && surface.SetValue("Runtime.Instance.z", 35f),
+                "Editable axes lost their individual setters.");
+            Assert(!surface.SetValue("Runtime.Instance.y", 25f)
+                && !surface.EditablePropertyPaths.Contains("Runtime.Instance.y"),
+                "A read-only live axis registered an edit route.");
+        });
+        Check("Theme.InterfaceScaleKeepsRowsLegibleAndRestoresGeometry", () =>
+        {
+            GenesisSettings appearance = new();
+            try
+            {
+                using Form host = GateSuite.NewHost(600, 400);
+                Panel rail = new() { Dock = DockStyle.Left, Width = 96 };
+                Label footer = new() { Dock = DockStyle.Bottom, Height = 22, Text = "Saved resource" };
+                ToolStrip commands = new() { Dock = DockStyle.Top, AutoSize = false, Height = 44 };
+                commands.Items.Add("Save");
+                host.Controls.Add(rail);
+                host.Controls.Add(footer);
+                host.Controls.Add(commands);
+                appearance.Appearance.InterfaceScale = 2;
+                Genesis.Application.Studio.Theme.ThemeService.ApplySettings(appearance);
+                Genesis.Application.Studio.Theme.ThemeService.Apply(host);
+                GateSuite.ShowHost(host);
+                Assert(footer.Height >= TextRenderer.MeasureText(footer.Text, footer.Font).Height
+                    && commands.Height >= TextRenderer.MeasureText("Save", commands.Font).Height + commands.Padding.Vertical,
+                    "Enlarged application fonts are clipped by fixed-height rows.");
+                int height = commands.Height;
+                Genesis.Application.Studio.Theme.ThemeService.Apply(host);
+                Assert(commands.Height == height && rail.Width == 192, "Repeated theme application compounds scaling.");
+                appearance.Appearance.InterfaceScale = 1;
+                Genesis.Application.Studio.Theme.ThemeService.ApplySettings(appearance);
+                Genesis.Application.Studio.Theme.ThemeService.Apply(host);
+                Assert(commands.Height == 44 && rail.Width == 96 && footer.Height == 22,
+                    "Restoring interface scale did not restore row and mode-rail dimensions.");
+            }
+            finally
+            {
+                Genesis.Application.Studio.Theme.ThemeService.ApplySettings(new GenesisSettings());
+            }
+        });
+        Check("Shell.RendererDropdownPersistsAndRecreatesLiveViewport", () =>
+        {
+            RenderBackendOption previous = RenderBackendSelection.RequestedBackend;
+            try
+            {
+                using StudioFixture fixture = new();
+                StatusStrip status = fixture.Shell.Controls.OfType<StatusStrip>().Single();
+                ToolStripDropDownButton selector = status.Items.OfType<ToolStripDropDownButton>().Single();
+                Assert(selector.Name == "RendererSelector" && ReferenceEquals(status.Items[status.Items.Count - 1], selector),
+                    "Renderer dropdown is not at the bottom right.");
+                Assert(selector.DropDownItems.Count == RenderBackendCatalog.All.Count,
+                    "Renderer selector does not cover the active backend registry.");
+                using Form host = new() { ClientSize = new System.Drawing.Size(320, 240) };
+                using D3DViewportControl viewport = new() { Dock = DockStyle.Fill };
+                host.Controls.Add(viewport);
+                GateSuite.ShowHost(host);
+                viewport.RenderFrame();
+                object originalRenderer = viewport.Renderer;
+                ToolStripMenuItem software = selector.DropDownItems.OfType<ToolStripMenuItem>()
+                    .Single(item => item.Name == "renderer.Software");
+                software.PerformClick();
+                viewport.RenderFrame();
+                Assert(RenderBackendSelection.RequestedBackend == RenderBackendOption.Software
+                    && viewport.Renderer.BackendName.Contains("Software", StringComparison.OrdinalIgnoreCase)
+                    && !ReferenceEquals(originalRenderer, viewport.Renderer), "Selecting Software did not recreate the live viewport.");
+                SettingsService reopened = new(Path.Combine(Path.GetDirectoryName(fixture.Project.RootPath)!, "settings.json"));
+                Assert(reopened.Current.Rendering.Backend == RenderBackendCatalog.Describe(RenderBackendOption.Software).SettingsValue,
+                    "Renderer choice was not persisted.");
+                selector.DropDownItems.OfType<ToolStripMenuItem>().Single(item => item.Name == "renderer.DX11").PerformClick();
+                viewport.RenderFrame();
+                Assert(RenderBackendSelection.RequestedBackend == RenderBackendOption.SilkNetDx11
+                    && !viewport.Renderer.BackendName.Contains("Software", StringComparison.OrdinalIgnoreCase),
+                    "Switching back to DX11 left the old renderer active.");
+            }
+            finally { RenderBackendSelection.Configure(previous); }
+        });
+        Check("Theme.OpenSuiteEditorsApplyInterfaceGeometry", () =>
+        {
+            try
+            {
+                using StudioFixture fixture = new();
+                GenesisSettings appearance = new();
+                appearance.Appearance.InterfaceScale = 2;
+                Genesis.Application.Studio.Theme.ThemeService.ApplySettings(appearance);
+                SuiteChromeBridge.Push();
+                GateSuite.ShowHost(fixture.Shell);
+                ResourceItem resource = fixture.Create(ResourceKind.Room, "Rooms", "Scaled Room");
+                SuiteEditorDocument document = (SuiteEditorDocument)fixture.Shell.OpenStudioResource(resource);
+                GateSuite.Pump(3, 10);
+                Control editor = document.Surface.AsControl;
+                Label footer = Descendants(editor).OfType<Label>().FirstOrDefault(label => label.Dock == DockStyle.Bottom)
+                    ?? throw new InvalidOperationException("No status row in " + editor.GetType().Name + ": "
+                        + string.Join(", ", editor.Controls.Cast<Control>().Select(control => control.GetType().Name + " " + control.Dock)));
+                Assert(footer.Height >= TextRenderer.MeasureText(footer.Text, footer.Font).Height,
+                    "A newly opened Suite editor bypassed scaled row geometry.");
+                Assert(((Genesis.Application.Editors.Suite.Rooms.RoomEditorControl)editor).IsNarrowLayout,
+                    "The room retained a crowded wide layout at an enlarged interface scale.");
+            }
+            finally
+            {
+                Genesis.Application.Studio.Theme.ThemeService.ApplySettings(new GenesisSettings());
+                SuiteChromeBridge.Push();
+            }
+        });
         Check("Shell.AllMenuCommandsShareTheCatalog", () =>
         {
             using StudioFixture fixture = new();
@@ -44,8 +216,176 @@ internal static class StudioFoundationSuite
             ToolStripButton[] buttons = Descendants(fixture.Shell).OfType<ToolStrip>()
                 .SelectMany(strip => strip.Items.OfType<ToolStripButton>()).Where(button => (button.Name ?? string.Empty).StartsWith("project.")
                     || (button.Name ?? string.Empty).StartsWith("edit.") || button.Name == "studio.commands").ToArray();
-            Assert(buttons.Length >= 7 && buttons.All(button => fixture.Shell.CommandCatalog.Find(button.Name ?? string.Empty) is not null),
+            Assert(buttons.Length >= 6 && buttons.All(button => fixture.Shell.CommandCatalog.Find(button.Name ?? string.Empty) is not null),
                 "Shell toolbar lost its shared command bindings.");
+        });
+        Check("Shell.CommandReferenceUsesFourRealScopesAndOnePalette", () =>
+        {
+            using StudioFixture fixture = new();
+            ToolStripMenuItem[] menuEntries = fixture.Shell.MainMenuStrip!.Items.OfType<ToolStripMenuItem>()
+                .SelectMany(menu => menu.DropDownItems.OfType<ToolStripMenuItem>()).ToArray();
+            Assert(menuEntries.Count(item => item.Name == "studio.commands") == 1
+                && !Descendants(fixture.Shell).OfType<ToolStrip>().SelectMany(strip => strip.Items.OfType<ToolStripButton>())
+                    .Any(button => button.Name == "studio.commands"), "The shell advertises duplicate command palettes.");
+            fixture.Shell.OpenStudioResource(fixture.Create(ResourceKind.PgslScript, "Scripts", "Behavior"));
+            using PgslCommandReferenceForm reference = fixture.Shell.CreateCommandReference();
+            GateSuite.ShowHost(reference);
+            Assert(reference.CommandScopes.SequenceEqual(new[] { "PGSL Game Code", "Engine API", "Editor", "Shell" }),
+                "Help does not distinguish all four command scopes.");
+            reference.SelectEditorTab();
+            Assert(reference.VisibleCommandCount > 8 && !reference.AutoTestEnabled,
+                "Editor help is missing the actual open editor commands or can execute destructive auto-tests.");
+            reference.SelectShellTab();
+            Genesis.Application.Studio.Theme.ThemeService.Apply(reference);
+            GateSuite.Pump(4, 10);
+            Assert(reference.VisibleCommandCount == fixture.Shell.CommandCatalog.Commands.Count && !reference.AutoTestEnabled,
+                "Shell help diverges from the real command palette catalog.");
+            reference.SelectPgslTab();
+            Assert(reference.VisibleCommandCount == reference.CatalogueCount && reference.AutoTestEnabled,
+                "Returning from Shell help lost PGSL command diagnostics.");
+            reference.SelectEngineTab(); GateSuite.Pump(4, 10);
+            Assert(reference.ActiveCommandPathCaption == "ENGINE BACKEND / API"
+                && reference.VisibleCommandCount == reference.EngineCatalogueCount,
+                "Engine scope selection did not survive painting and message processing.");
+        });
+        Check("Shell.ProjectHubNavigationRemainsUsableAcrossHiddenPagesAndScaleChanges", () =>
+        {
+            try
+            {
+                using StudioFixture fixture = new();
+                using ProjectHubForm hub = new(fixture.Services);
+                GateSuite.ShowHost(hub);
+                foreach (float scale in new[] { 1f, 2f, 1f })
+                {
+                    GenesisSettings appearance = new(); appearance.Appearance.InterfaceScale = scale;
+                    Genesis.Application.Studio.Theme.ThemeService.ApplySettings(appearance);
+                    foreach (HubSection section in new[] { HubSection.Templates, HubSection.Projects, HubSection.Templates })
+                    {
+                        Assert(hub.ClickNavigation(section) && hub.CurrentSection == section,
+                            "The real Project Hub navigation did not open " + section + " at interface scale " + scale);
+                        GateSuite.Pump(2, 15);
+                        hub.ApplyResponsiveLayoutForTest();
+                    }
+                }
+                hub.Close();
+            }
+            finally { Genesis.Application.Studio.Theme.ThemeService.ApplySettings(new GenesisSettings()); }
+        });
+        Check("Shell.StartPageOpensAtTopAndKeepsEnlargedProjectHeadingVisible", () =>
+        {
+            try
+            {
+                foreach (float scale in new[] { 1f, 2f })
+                {
+                    GenesisSettings appearance = new(); appearance.Appearance.InterfaceScale = scale;
+                    Genesis.Application.Studio.Theme.ThemeService.ApplySettings(appearance);
+                    using StudioFixture fixture = new();
+                    fixture.Shell.ClientSize = new System.Drawing.Size(1480, 900);
+                    GateSuite.Pump(6, 20);
+                    WelcomeDocument start = fixture.Shell.DockPanel.Contents.OfType<WelcomeDocument>().Single();
+                    Panel scroll = start.Controls.OfType<Panel>().Single();
+                    Label eyebrow = Descendants(start).OfType<Label>().Single(label => label.Text == "CURRENT PROJECT");
+                    System.Drawing.Rectangle heading = scroll.RectangleToClient(eyebrow.RectangleToScreen(eyebrow.ClientRectangle));
+                    Assert(scroll.AutoScrollPosition.Y == 0 && scroll.ClientRectangle.Contains(heading),
+                        "The Start page opens part way down its project heading at interface scale " + scale);
+                    if (scale == 2)
+                    {
+                        scroll.AutoScrollPosition = new System.Drawing.Point(0, 140);
+                        int position = scroll.AutoScrollPosition.Y;
+                        Genesis.Application.Studio.Theme.ThemeService.Apply(start); GateSuite.Pump(4, 10);
+                        Assert(position < 0 && scroll.AutoScrollPosition.Y == position,
+                            "Refreshing the theme discards the Start page's user scroll position.");
+                    }
+                }
+            }
+            finally { Genesis.Application.Studio.Theme.ThemeService.ApplySettings(new GenesisSettings()); }
+        });
+        Check("Shell.DockCaptionsAndTabsFollowLiveInterfaceScale", () =>
+        {
+            try
+            {
+                Genesis.Application.Studio.Theme.ThemeService.ApplySettings(new GenesisSettings());
+                using StudioFixture fixture = new();
+                fixture.Shell.OpenStudioResource(fixture.Create(ResourceKind.Note, "Notes", "Game notes"));
+                GateSuite.Pump(4, 15);
+                DockPane documentPane = fixture.Shell.DockPanel.Panes.Single(pane => pane.DockState == DockState.Document);
+                Control tabs = documentPane.Controls.OfType<DockPaneStripBase>().Single();
+                Control caption = fixture.Shell.AssetBrowser.DockHandler.Pane.Controls.OfType<DockPaneCaptionBase>().Single();
+                int normalTabs = tabs.Height, normalCaption = caption.Height;
+                GenesisSettings enlarged = new(); enlarged.Appearance.InterfaceScale = 2f;
+                Genesis.Application.Studio.Theme.ThemeService.ApplySettings(enlarged);
+                GateSuite.Pump(4, 15);
+                var skin = fixture.Shell.DockPanel.Theme.Skin;
+                Assert(skin.DockPaneStripSkin.TextFont.SizeInPoints >= 18
+                    && skin.AutoHideStripSkin.TextFont.SizeInPoints >= 18,
+                    "Dock and auto-hide captions ignored the enlarged interface font.");
+                Assert(tabs.Height > normalTabs && caption.Height > normalCaption
+                    && tabs.Height >= skin.DockPaneStripSkin.TextFont.Height
+                    && caption.Height >= skin.DockPaneStripSkin.TextFont.Height,
+                    "Live dock chrome did not remeasure enough space for enlarged text.");
+                Genesis.Application.Studio.Theme.ThemeService.ApplySettings(new GenesisSettings());
+                GateSuite.Pump(4, 15);
+                Assert(tabs.Height == normalTabs && caption.Height == normalCaption,
+                    "Returning to normal scale retained enlarged dock geometry.");
+            }
+            finally { Genesis.Application.Studio.Theme.ThemeService.ApplySettings(new GenesisSettings()); }
+        });
+        Check("Shell.DialogActionsRemainReadableAndReachableAtEnlargedScale", () =>
+        {
+            try
+            {
+                GenesisSettings enlarged = new(); enlarged.Appearance.InterfaceScale = 2f;
+                Genesis.Application.Studio.Theme.ThemeService.ApplySettings(enlarged);
+                using StudioFixture fixture = new();
+                using NewProjectDialog create = new("2DShowcase");
+                using ExportGameDialog export = new(fixture.Project);
+                using PreferencesForm preferences = new(fixture.Services.Settings, fixture.Project);
+                foreach (Form dialog in new Form[] { create, export, preferences })
+                {
+                    GateSuite.ShowHost(dialog);
+                    GateSuite.Pump(3, 15);
+                    ListBox? categories = dialog is PreferencesForm
+                        ? Descendants(dialog).OfType<ListBox>().Single(list => list.Items.Contains("Appearance")) : null;
+                    foreach (object category in categories?.Items.Cast<object>().ToArray() ?? [string.Empty])
+                    {
+                        if (categories is not null) { categories.SelectedItem = category; GateSuite.Pump(2, 15); }
+                        foreach (Button button in Descendants(dialog).OfType<Button>().Where(button => button.Visible))
+                        {
+                            string text = button is Genesis.Application.Studio.Controls.ModernButton modern && modern.Glyph.Length > 0
+                                ? modern.Glyph + "  " + button.Text : button.Text;
+                            int needed = TextRenderer.MeasureText(text, button.Font).Width;
+                            Assert(button.Width >= needed && button.Height >= button.Font.Height,
+                                dialog.Text + ": " + text + " needs " + needed + "px at " + button.Font.SizeInPoints
+                                + "pt; button is " + button.Bounds + ".");
+                        }
+                    }
+                    Button[] actions = Descendants(dialog).OfType<Button>().Where(button => button.Text is "Create" or "Export Game" or "Cancel" or "Apply" or "OK").ToArray();
+                    Assert(actions.Length > 0 && actions.All(button => dialog.ClientRectangle.Contains(
+                        dialog.RectangleToClient(button.RectangleToScreen(button.ClientRectangle)))),
+                        "A primary dialog action cannot be reached without scrolling.");
+                    dialog.Close();
+                }
+            }
+            finally { Genesis.Application.Studio.Theme.ThemeService.ApplySettings(new GenesisSettings()); }
+        });
+        Check("Shell.EditorCommandHelpIncludesNativeActionsAndAvailability", () =>
+        {
+            using StudioFixture fixture = new();
+            fixture.Shell.OpenStudioResource(fixture.Create(ResourceKind.Shader, "Shaders", "Sprite Colour"));
+            GateSuite.Pump(3, 30);
+            SuiteEditorDocument document = fixture.Shell.DockPanel.Contents.OfType<SuiteEditorDocument>().Single();
+            Button[] actions = Descendants(document).OfType<Button>().Where(button =>
+                (button.AccessibleName ?? string.Empty).Contains("shader pass", StringComparison.OrdinalIgnoreCase)).ToArray();
+            Assert(actions.Length >= 5, "The fixture did not open the shader's native pass actions.");
+            using PgslCommandReferenceForm reference = fixture.Shell.CreateCommandReference();
+            foreach (Button action in actions)
+            {
+                CommandReferenceEntry entry = reference.EditorCommands.Single(command => command.Title == action.AccessibleName);
+                Assert(entry.Enabled == action.Enabled && (entry.Enabled || entry.DisabledReason.Length > 0),
+                    "Editor help changed the native action's availability: " + action.AccessibleName);
+            }
+            Assert(reference.EditorCommands.Select(command => command.Id).Distinct().Count() == reference.EditorCommands.Count,
+                "The same editor action appears more than once in command help.");
         });
         Check("Shell.ResourceCommandsRequireBrowserAndMutableSelection", () =>
         {
@@ -61,6 +401,25 @@ internal static class StudioFoundationSuite
             foreach (string id in new[] { "edit.delete", "resource.rename", "resource.duplicate" })
                 Assert(!fixture.Shell.CommandCatalog.GetAvailability(id, root).Enabled, "Protected root became editable: " + id);
             Assert(File.Exists(note.FullPath), "Availability checking modified a resource.");
+        });
+        Check("Shell.PasteValidatesResourceTypeAndPreservesContent", () =>
+        {
+            using StudioFixture fixture = new();
+            ResourceItem note = fixture.Create(ResourceKind.Note, "Notes", "Paste example");
+            fixture.Shell.AssetBrowser.RefreshTree();
+            Assert(fixture.Shell.AssetBrowser.SelectPath(note.FullPath)
+                && fixture.Shell.AssetBrowser.ExecuteShortcut(Keys.Control | Keys.C), "Could not copy a real Note.");
+            Assert(fixture.Shell.AssetBrowser.SelectPath(Path.Combine(fixture.Project.AssetsPath, "Objects")), "Objects root is missing.");
+            Assert(!fixture.Shell.AssetBrowser.CanExecute(ResourceBrowserCommand.Paste), "Paste was available for the wrong resource type.");
+            int originalFiles = Directory.GetFiles(fixture.Project.AssetsPath, "*", SearchOption.AllDirectories).Length;
+            fixture.Shell.AssetBrowser.ExecuteShortcut(Keys.Control | Keys.V);
+            Assert(Directory.GetFiles(fixture.Project.AssetsPath, "*", SearchOption.AllDirectories).Length == originalFiles,
+                "A consumed shortcut still pasted a Note into Objects.");
+            Assert(fixture.Shell.AssetBrowser.SelectPath(Path.Combine(fixture.Project.AssetsPath, "Notes"))
+                && fixture.Shell.AssetBrowser.ExecuteShortcut(Keys.Control | Keys.V), "Paste was unavailable in the matching resource folder.");
+            ResourceItem copy = fixture.Shell.AssetBrowser.SelectedResource ?? throw new InvalidOperationException("Paste lost the new selection.");
+            Assert(copy.FullPath != note.FullPath && File.Exists(copy.FullPath)
+                && File.ReadAllText(copy.FullPath) == File.ReadAllText(note.FullPath), "Paste lost content or overwrote the original Note.");
         });
         Check("Shell.EditCommandsRespectChangingEditorScope", () =>
         {
@@ -230,6 +589,19 @@ internal static class StudioFoundationSuite
                     "Palette lost its search/results when resized.");
             }
             palette.Close();
+        });
+        Check("Shell", () =>
+        {
+            TestCaseResult[] cases = context.Report.Tests.Skip(firstFoundationCase).ToArray();
+            string[] required = ["Shell.RendererDropdownPersistsAndRecreatesLiveViewport",
+                "Shell.AllMenuCommandsShareTheCatalog", "Shell.ToolbarCommandsShareCatalogIdentities",
+                "Shell.CommandReferenceUsesFourRealScopesAndOnePalette",
+                "Shell.StartPageOpensAtTopAndKeepsEnlargedProjectHeadingVisible",
+                "Shell.EditorCommandHelpIncludesNativeActionsAndAvailability", "Palette.LayoutRemainsUsableWhenResized"];
+            Assert(required.All(name => cases.Any(test => test.Name == "Studio.Foundation." + name)),
+                "The complete shell workflow is missing a required shell check.");
+            Assert(cases.All(test => test.Passed), "Shell foundation failed: "
+                + string.Join("; ", cases.Where(test => !test.Passed).Select(test => test.Name + ": " + test.Error)));
         });
     }
 

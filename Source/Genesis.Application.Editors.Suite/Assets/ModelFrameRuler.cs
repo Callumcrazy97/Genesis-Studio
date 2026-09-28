@@ -107,7 +107,7 @@ internal sealed class ModelFrameRuler : Control
             AccessibleDescription = _error; return;
         }
         int first = _scroll.Value / CardWidth, last = Math.Min(Maximum, first + Width / CardWidth + 1);
-        int size = Math.Min(ModelFramePreviews.Size, Math.Max(20, Height - _scroll.Height - 26));
+        int size = Math.Min(ModelFramePreviews.Size, Math.Max(20, Height - _scroll.Height - Font.Height - 14));
         for (int frame = first; frame <= last; frame++)
         {
             int x = frame * CardWidth - _scroll.Value + 4;
@@ -117,7 +117,7 @@ internal sealed class ModelFrameRuler : Control
             using var border = new Pen(frame == Value ? ImageEditorChrome.Accent : ImageEditorChrome.Border, frame == Value ? 2 : 1);
             g.DrawRectangle(border, rectangle);
             string label = $"{frame + 1}" + (PoseFrames.Contains(frame) ? "  ◆" : "");
-            TextRenderer.DrawText(g, label, Font, new Rectangle(x, size + 7, ModelFramePreviews.Size, 20),
+            TextRenderer.DrawText(g, label, Font, new Rectangle(x, size + 7, ModelFramePreviews.Size, Font.Height + 4),
                 frame == Value ? ImageEditorChrome.Text : ImageEditorChrome.Muted, TextFormatFlags.HorizontalCenter);
         }
         AccessibleDescription = _error.Length > 0 ? _error : $"Frame {Value + 1} of {Maximum + 1}. Click or drag a preview; use arrow keys to step.";

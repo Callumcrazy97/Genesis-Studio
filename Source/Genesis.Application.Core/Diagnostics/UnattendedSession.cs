@@ -12,8 +12,8 @@ namespace Genesis.Application.Core.Diagnostics;
 /// Code that would ask a question checks this first and takes the conservative answer instead —
 /// which for unsaved work means <i>saving it</i>, never discarding it — and logs what it decided so
 /// the run's output still says what happened. This is deliberately not a "suppress all dialogs"
-/// switch: an error someone needs to see is still shown, because the alternative is a run that
-/// passes while hiding the thing that went wrong.
+/// switch: errors must remain visible as failures. Automated paths can propagate them to their
+/// caller instead of opening a modal error dialog; they must never silently turn them into success.
 /// </remarks>
 public static class UnattendedSession
 {

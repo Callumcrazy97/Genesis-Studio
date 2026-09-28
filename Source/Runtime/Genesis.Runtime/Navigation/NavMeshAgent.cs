@@ -29,6 +29,7 @@ public struct CrowdAgentComponent : IComponent
 
 public sealed class NavMeshAgent
 {
+    public bool PlanarXY { get; set; }
     public float Speed { get; set; } = 3.8f;
     public float StoppingDistance { get; set; } = .1f;
     public IReadOnlyList<Vector3> Path { get; private set; } = [];
@@ -58,7 +59,8 @@ public sealed class NavMeshAgent
             if (budget <= 0) break;
             float step = MathF.Min(budget, distance);
             Vector3 forward = delta / distance;
-            Vector3 desired = forward + new Vector3(localAvoidance.X, 0f, localAvoidance.Z);
+            Vector3 desired = forward + (PlanarXY ? new Vector3(localAvoidance.X, localAvoidance.Z, 0)
+                : new Vector3(localAvoidance.X, 0f, localAvoidance.Z));
             if (desired.LengthSquared() < 1e-8f) desired = forward;
             else desired = Vector3.Normalize(desired);
             Vector3 next = position + desired * step;
@@ -66,7 +68,7 @@ public sealed class NavMeshAgent
             {
                 // Try deterministic forward/side probes so a newly-arrived dynamic obstacle does
                 // not freeze the agent until somebody performs another full path query.
-                Vector3 side = Vector3.Cross(Vector3.UnitY, forward);
+                Vector3 side = Vector3.Cross(PlanarXY ? Vector3.UnitZ : Vector3.UnitY, forward);
                 if (side.LengthSquared() < 1e-6f) break;
                 side = Vector3.Normalize(side);
                 Vector3 right = position + Vector3.Normalize(forward * .35f + side * .94f) * step;

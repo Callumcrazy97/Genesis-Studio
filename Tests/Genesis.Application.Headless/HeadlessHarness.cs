@@ -5,6 +5,7 @@ namespace Genesis.Application.Headless;
 
 internal sealed class TestReport
 {
+    public string ProductFingerprint { get; set; } = ReadinessJudgeRunner.ProductFingerprint();
     public DateTime StartedUtc { get; set; }
     public DateTime CompletedUtc { get; set; }
     public required string MachineName { get; set; }

@@ -318,7 +318,7 @@ public sealed partial class RoomEditorControl
         // intentionally calls this first and then establishes its cell selection.
         ClearTileCellSelection();
         List<RoomNode> next = nodes
-            .Where(node => _room.Nodes.Contains(node) && CanInspectNodeInActiveContext(node))
+            .Where(CanRetainNodeSelection)
             .DistinctBy(node => node.Id, StringComparer.OrdinalIgnoreCase)
             .ToList();
         _selection.Clear();

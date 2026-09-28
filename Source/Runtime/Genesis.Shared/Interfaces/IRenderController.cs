@@ -63,6 +63,10 @@ namespace Genesis.Shared.Interfaces
         /// at <see cref="ComposeOverlay"/> or, failing that, before <see cref="Present"/>.
         /// </summary>
         void DrawText(string text, float x, float y, float size, RenderColor color);
+        void DrawText(string text, float x, float y, float size, RenderColor color, string font)
+            => DrawText(text, x, y, size, color);
+        void DrawTextCentered(string text, float centerX, float y, float width, float size, RenderColor color, string font)
+            => DrawText(text, centerX - width / 2, y, size, color, font);
 
         // ── Overlay ─────────────────────────────────────────────────────────────
         /// <summary>

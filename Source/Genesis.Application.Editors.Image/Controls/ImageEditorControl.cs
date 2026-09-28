@@ -79,6 +79,8 @@ public sealed partial class ImageEditorControl : UserControl, IEditCommandTarget
     private bool _leftPanelVisible = true;
     private bool _rightPanelVisible = true;
     private bool _timelinePanelVisible = true;
+    private TableLayoutPanel? _timelinePanel;
+    private FlowLayoutPanel? _timelineTransport;
 
     public ImageEditorControl(ImageDocumentSession session, ImageWorkspace workspace)
     {
@@ -110,6 +112,7 @@ public sealed partial class ImageEditorControl : UserControl, IEditCommandTarget
             BackColor = ImageEditorChrome.Canvas;
             ForeColor = ImageEditorChrome.Text;
             ApplyChromeSurfaces();
+            ApplyResponsiveLayout();
             Invalidate(true);
         }
 
@@ -197,6 +200,7 @@ public sealed partial class ImageEditorControl : UserControl, IEditCommandTarget
     {
         CommitFloatingSelection();
         SaveOnionSettings();
+        if (_session.DocumentPath is { } path) Genesis.Shared.Assets.ProjectAssetWriteRegistry.MarkLocalWrite(path);
         ImageWorkspaceStorage.Save(_session, _workspace);
     }
 
@@ -409,26 +413,21 @@ public sealed partial class ImageEditorControl : UserControl, IEditCommandTarget
 
     private Control BuildLayout()
     {
-        Panel root = new()
+        Panel root = _imageRoot = new()
         {
             Dock = DockStyle.Fill,
             BackColor = ImageEditorChrome.Canvas,
             Padding = Padding.Empty,
         };
 
-        Panel header = new()
+        Panel header = _imageHeader = new()
         {
             Dock = DockStyle.Top,
-            Height = ImageEditorChrome.CommandBarHeight + ImageEditorChrome.MenuBarHeight,
+            Height = ImageEditorChrome.CommandBarHeight,
             BackColor = ImageEditorChrome.Raised,
             Padding = Padding.Empty,
         };
-        MenuStrip menu = BuildMenu();
-        menu.Dock = DockStyle.Top;
-        menu.AutoSize = false;
-        menu.Height = ImageEditorChrome.MenuBarHeight;
-        header.Controls.Add(menu);
-        ToolStrip commandBar = BuildCommandBar(); commandBar.Dock = DockStyle.Bottom; header.Controls.Add(commandBar);
+        ToolStrip commandBar = BuildCommandBar(); commandBar.Dock = DockStyle.Fill; header.Controls.Add(commandBar);
 
         _rightSplit = ImageEditorChrome.MakeSplit(Orientation.Vertical, fixedSecondPanel: true);
         _rightSplit.Panel1.Controls.Add(BuildCanvasPanel());
@@ -443,37 +442,15 @@ public sealed partial class ImageEditorControl : UserControl, IEditCommandTarget
         _workspaceSplit.Panel2.Controls.Add(BuildTimeline());
         _workspaceSplit.Panel2MinSize = 96;
 
-        root.Controls.Add(_workspaceSplit);
+        _imageWorkspaceHost.Controls.Add(_workspaceSplit);
+        root.Controls.Add(_imageWorkspaceHost);
         root.Controls.Add(header);
         return root;
     }
 
     private ToolStrip BuildCommandBar()
     {
-        ToolStrip bar = ImageEditorChrome.MakeCommandStrip();
-        bar.Items.Add(ImageEditorChrome.MakeButton("Save", (_, _) => Save()));
-        bar.Items.Add(ImageEditorChrome.MakeButton("Undo", (_, _) => Undo()));
-        bar.Items.Add(ImageEditorChrome.MakeButton("Redo", (_, _) => Redo()));
-        bar.Items.Add(new ToolStripSeparator());
-        bar.Items.Add(ImageEditorChrome.MakeButton("Fit", (_, _) => _canvas.FitToView()));
-        bar.Items.Add(ImageEditorChrome.MakeButton("Zoom −", (_, _) => _canvas.ZoomAt(new Point(_canvas.Width/2,_canvas.Height/2),false)));
-        bar.Items.Add(ImageEditorChrome.MakeButton("Zoom +", (_, _) => _canvas.ZoomAt(new Point(_canvas.Width/2,_canvas.Height/2),true)));
-        bar.Items.Add(ImageEditorChrome.MakeButton("1:1", (_, _) => _canvas.ActualPixels()));
-        ToolStripButton checker = ImageEditorChrome.MakeToggle("Checker", initialChecked: true);
-        checker.CheckedChanged += (_, _) => _canvas.SetCheckerboard(checker.Checked);
-        bar.Items.Add(checker);
-        ToolStripButton grid = ImageEditorChrome.MakeToggle("Grid", initialChecked: false);
-        grid.CheckedChanged += (_, _) =>
-        {
-            _canvas.Overlay.ShowGrid = grid.Checked;
-            RefreshCanvas();
-        };
-        bar.Items.Add(grid);
-        bar.Items.Add(new ToolStripSeparator());
-        bar.Items.Add(ImageEditorChrome.MakeButton("Trim", (_, _) => PromptRemoveBlankSpace()));
-        bar.Items.Add(ImageEditorChrome.MakeButton("Rotate…", (_, _) => PromptRotateCanvas()));
-        bar.Items.Add(ImageEditorChrome.MakeButton("9-slice…", (_, _) => PromptNineSlice()));
-        bar.Items.Add(new ToolStripSeparator { Alignment = ToolStripItemAlignment.Right });
+        ToolStrip bar = _imageCommandBar = BuildImageWorkflowToolbar();
         _leftToggle = ImageEditorChrome.MakeToggle("Tools", initialChecked: true);
         _leftToggle.Alignment = ToolStripItemAlignment.Right;
         _leftToggle.Overflow = ToolStripItemOverflow.Never;
@@ -513,7 +490,8 @@ public sealed partial class ImageEditorControl : UserControl, IEditCommandTarget
     private void ApplyResponsiveLayout()
     {
         if (IsDisposed || ClientSize.Width <= 0 || ClientSize.Height <= 0) return;
-        bool narrow = ClientSize.Width < ImageEditorChrome.ResponsiveBreakpoint;
+        float interfaceScale = Math.Max(.5f, ImageEditorChrome.BaseFont.SizeInPoints / 9.5f);
+        bool narrow = ClientSize.Width / interfaceScale < ImageEditorChrome.ResponsiveBreakpoint;
         _narrowLayout = narrow;
         if (narrow && !_lastNarrowLayout)
         {
@@ -534,9 +512,8 @@ public sealed partial class ImageEditorControl : UserControl, IEditCommandTarget
         _rightToggle.Checked = _rightPanelVisible;
         _timelineToggle.Checked = _timelinePanelVisible;
         _syncingResponsiveToggles = false;
-        _leftToggle.Visible = narrow;
-        _rightToggle.Visible = narrow;
-        _timelineToggle.Visible = narrow;
+        _leftToggle.Visible = _rightToggle.Visible = _timelineToggle.Visible = false;
+        RefreshImageWorkflow();
 
         try
         {
@@ -550,6 +527,7 @@ public sealed partial class ImageEditorControl : UserControl, IEditCommandTarget
 
             if (narrow)
             {
+                if (_leftPanelVisible && _rightPanelVisible) _rightPanelVisible = false;
                 _mainSplit.Panel1Collapsed = !_leftPanelVisible;
                 _rightSplit.Panel2Collapsed = !_rightPanelVisible;
                 _workspaceSplit.Panel2Collapsed = !_timelinePanelVisible;
@@ -558,13 +536,16 @@ public sealed partial class ImageEditorControl : UserControl, IEditCommandTarget
                 _workspaceSplit.IsSplitterFixed = _workspaceSplit.Panel2Collapsed;
                 if (!_workspaceSplit.Panel2Collapsed)
                     SetNarrowTimelineSplitter();
+                int available = Math.Max(1, ClientSize.Width - ImageEditorChrome.MinimumCanvasWidth);
+                if (_leftPanelVisible) _mainSplit.SplitterDistance = Math.Min((int)(ImageEditorChrome.LeftPanelWidth * interfaceScale), available);
+                if (_rightPanelVisible) _rightSplit.SplitterDistance = Math.Max(0, _rightSplit.ClientSize.Width - Math.Min((int)(ImageEditorChrome.RightPanelWidth * interfaceScale), available));
             }
             else
             {
-                _mainSplit.Panel1Collapsed = false;
-                _rightSplit.Panel2Collapsed = false;
-                _workspaceSplit.Panel2Collapsed = false;
-                _mainSplit.IsSplitterFixed = false;
+                _mainSplit.Panel1Collapsed = !_leftPanelVisible;
+                _rightSplit.Panel2Collapsed = !_rightPanelVisible;
+                _workspaceSplit.Panel2Collapsed = !_timelinePanelVisible;
+                _mainSplit.IsSplitterFixed = _mainSplit.Panel1Collapsed;
                 _rightSplit.IsSplitterFixed = true;
                 _workspaceSplit.IsSplitterFixed = true;
                 SetWideSplitters();
@@ -589,7 +570,7 @@ public sealed partial class ImageEditorControl : UserControl, IEditCommandTarget
         int maximumTimelineHeight = Math.Max(
             _workspaceSplit.Panel2MinSize,
             _workspaceSplit.ClientSize.Height - 160);
-        int timelineHeight = Math.Clamp(232, _workspaceSplit.Panel2MinSize, maximumTimelineHeight);
+        int timelineHeight = Math.Clamp(PreferredTimelineHeight(), _workspaceSplit.Panel2MinSize, maximumTimelineHeight);
         _workspaceSplit.SplitterDistance = Math.Max(
             120,
             _workspaceSplit.ClientSize.Height - timelineHeight - _workspaceSplit.SplitterWidth);
@@ -597,31 +578,33 @@ public sealed partial class ImageEditorControl : UserControl, IEditCommandTarget
 
     private void SetWideSplitters()
     {
-        if (_workspaceSplit.ClientSize.Height > _workspaceSplit.Panel2MinSize + 120)
+        float interfaceScale = Math.Max(.5f, ImageEditorChrome.BaseFont.SizeInPoints / 9.5f);
+        int sideMinimum = (int)Math.Ceiling(ImageEditorChrome.CompactSidePanelWidth * interfaceScale);
+        if (!_workspaceSplit.Panel2Collapsed && _workspaceSplit.ClientSize.Height > _workspaceSplit.Panel2MinSize + 120)
         {
             int timelineHeight = Math.Clamp(
-                ImageEditorChrome.BottomTimelineHeight,
+                PreferredTimelineHeight(),
                 96,
-                Math.Max(96, _workspaceSplit.ClientSize.Height / 4));
+                Math.Max(96, _workspaceSplit.ClientSize.Height - 200));
             _workspaceSplit.SplitterDistance = Math.Max(
                 160,
                 _workspaceSplit.ClientSize.Height - timelineHeight - _workspaceSplit.SplitterWidth);
         }
 
-        if (_mainSplit.ClientSize.Width > 520)
+        if (!_mainSplit.Panel1Collapsed && _mainSplit.ClientSize.Width > 520)
         {
-            int leftWidth = ImageEditorChrome.LeftPanelWidth;
-            _mainSplit.Panel1MinSize = ImageEditorChrome.CompactSidePanelWidth;
+            int leftWidth = (int)Math.Ceiling(ImageEditorChrome.LeftPanelWidth * interfaceScale);
+            _mainSplit.Panel1MinSize = sideMinimum;
             _mainSplit.SplitterDistance = Math.Clamp(
                 leftWidth,
-                ImageEditorChrome.CompactSidePanelWidth,
-                Math.Max(ImageEditorChrome.CompactSidePanelWidth, _mainSplit.ClientSize.Width - 420));
+                sideMinimum,
+                Math.Max(sideMinimum, _mainSplit.ClientSize.Width - ImageEditorChrome.MinimumCanvasWidth));
         }
 
-        if (_rightSplit.ClientSize.Width > 520)
+        if (!_rightSplit.Panel2Collapsed && _rightSplit.ClientSize.Width > 520)
         {
-            int rightWidth = ImageEditorChrome.RightPanelWidth;
-            _rightSplit.Panel2MinSize = ImageEditorChrome.CompactSidePanelWidth;
+            int rightWidth = (int)Math.Ceiling(ImageEditorChrome.RightPanelWidth * interfaceScale);
+            _rightSplit.Panel2MinSize = sideMinimum;
             int centerMinimum = Math.Min(
                 ImageEditorChrome.MinimumCanvasWidth,
                 Math.Max(0, _rightSplit.ClientSize.Width - _rightSplit.Panel2MinSize));
@@ -762,7 +745,7 @@ public sealed partial class ImageEditorControl : UserControl, IEditCommandTarget
         menu.Items.Add(Menu("Help",
             Item("Image Editor Guide", (_, _) => Genesis.Application.Editors.Image.Dialogs.ThemeMessageBox.Show(
                 this,
-                "Tools are grouped into Brushes, Shapes, Tools and Selections. B: Pencil, E: Eraser, G: Fill, I: Pick colour, M: Select, V: Move, X: Swap colours, [ / ]: Size. Middle-drag pans; scroll zooms at the pointer. Shift fills shapes. Ctrl adds to selections; Shift subtracts. Drag inside a selection to move it; Escape clears it. Enter applies a move or closes a polygon; Escape cancels. Bezier: click start, end and two control handles. Drag Gradient from its first colour to its last.\n\nPreview is above Layers. Shift-click timeline frames to select a range, then Tag range. Drag frames to reorder. File contains exports; Tools / Canvas contains Crop, Remove Blank Space, Scale Artwork, Resize, Mirror, Rotate and 9-slice; Effects contains Stamp Tile. Edit / Palette manages saved RGBA palettes.\n\nAnimation / Rigging, Posing and Animation open the three pages of the shared rig workspace. Draw bones, click Rig pixels, then drag bones and Save Pose. Assign poses to frame numbers and Generate frames. Escape cancels a bone drag, stops bone creation, then closes when idle.",
+                "Tools are grouped into Brushes, Shapes, Tools and Selections. B: Pencil, E: Eraser, G: Fill, I: Pick colour, M: Select, V: Move, X: Swap colours, [ / ]: Size. Middle-drag pans; scroll zooms at the pointer. Shift fills shapes. Ctrl adds to selections; Shift subtracts. Drag inside a selection to move it; Escape clears it. Enter applies a move or closes a polygon; Escape cancels. Bezier: click start, end and two control handles. Drag Gradient from its first colour to its last.\n\nPreview is above Layers. Shift-click timeline frames to select a range, then Tag range. Drag frames to reorder. Options / File contains exports; Options / Tools / Canvas contains Crop, Remove Blank Space, Scale Artwork, Resize, Mirror, Rotate and 9-slice; Options / Effects contains Stamp Tile. Options / Edit / Palette manages saved RGBA palettes.\n\nThe Rig button opens Rigging, Posing and Animation, the three pages of the shared rig workspace. Draw bones, click Rig pixels, then drag bones and Save Pose. Assign poses to frame numbers and Generate frames. Escape cancels a bone drag, stops bone creation, then closes when idle.",
                 "Image Editor Guide",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Information))));
@@ -895,15 +878,23 @@ public sealed partial class ImageEditorControl : UserControl, IEditCommandTarget
 
     private Control BuildCanvasPanel()
     {
-        Panel panel = new() { Dock = DockStyle.Fill, BackColor = ImageEditorChrome.Canvas };
-        _status.Dock = DockStyle.Bottom;
+        TableLayoutPanel panel = new() { Dock = DockStyle.Fill, BackColor = ImageEditorChrome.Canvas,
+            ColumnCount = 1, RowCount = 3, Margin = Padding.Empty, Padding = Padding.Empty };
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+        _status.Dock = DockStyle.Fill;
+        _status.Margin = Padding.Empty;
         _status.Height = 24; _status.AutoEllipsis = true;
         _status.Padding = new Padding(7, 4, 0, 0);
         _status.BackColor = ImageEditorChrome.Raised;
         _status.ForeColor = ImageEditorChrome.Muted;
         _canvas.Dock = DockStyle.Fill;
-        panel.Controls.Add(_canvas);
-        panel.Controls.Add(_status);
+        _canvas.Margin = Padding.Empty;
+        panel.Controls.Add(BuildImagePreviewToolbar(), 0, 0);
+        panel.Controls.Add(_canvas, 0, 1);
+        panel.Controls.Add(_status, 0, 2);
         return panel;
     }
 
@@ -1081,6 +1072,8 @@ public sealed partial class ImageEditorControl : UserControl, IEditCommandTarget
             Padding = new Padding(10, 9, 8, 8),
             WrapContents = true,
         };
+        _timelinePanel = panel;
+        _timelineTransport = transport;
 
         Button first = SmallButton("|◀");
         Button previous = SmallButton("◀");
@@ -1135,7 +1128,8 @@ public sealed partial class ImageEditorControl : UserControl, IEditCommandTarget
         var tagRange = SmallButton("Tag range…"); tagRange.Click += (_,_) => PromptAnimationTag(false); transport.Controls.Add(tagRange);
         transport.Controls.Add(_playbackStatus);
         panel.Controls.Add(transport, 0, 1);
-        panel.SizeChanged += (_,_) => panel.RowStyles[1].Height = panel.Width < 1250 ? 78 : 44;
+        panel.SizeChanged += (_,_) => UpdateTimelineMetrics();
+        transport.FontChanged += (_,_) => UpdateTimelineMetrics();
 
         _timeline.Dock = DockStyle.Fill;
         StyleAccentListBox(_timeline, DpiLayout.Scale(this, 96));
@@ -1148,6 +1142,26 @@ public sealed partial class ImageEditorControl : UserControl, IEditCommandTarget
         _timeline.MouseUp += OnTimelineMouseUp;
         panel.Controls.Add(_timeline, 0, 2);
         return panel;
+    }
+
+    private void UpdateTimelineMetrics()
+    {
+        if (_timelinePanel == null || _timelineTransport == null) return;
+        int textHeight = TextRenderer.MeasureText("100 · 60000 ms", ImageEditorChrome.BaseFont).Height;
+        float scale = ImageEditorChrome.BaseFont.SizeInPoints / 9.5f;
+        _clip.Width = Math.Max(150, (int)Math.Ceiling(150 * scale));
+        _frameDuration.Width = Math.Max(86, TextRenderer.MeasureText("60000", ImageEditorChrome.BaseFont).Width + 28);
+        _timeline.ItemHeight = Math.Max(96, 77 + textHeight);
+        _timeline.ColumnWidth = Math.Max(82, TextRenderer.MeasureText("100 · 60000 ms", ImageEditorChrome.BaseFont).Width + 12);
+        int transportHeight = _timelineTransport.GetPreferredSize(new Size(Math.Max(1, _timelinePanel.ClientSize.Width), 0)).Height;
+        _timelinePanel.RowStyles[1].Height = Math.Max(46, transportHeight + 2);
+    }
+
+    private int PreferredTimelineHeight()
+    {
+        UpdateTimelineMetrics();
+        if (_timelinePanel == null) return ImageEditorChrome.BottomTimelineHeight;
+        return (int)Math.Ceiling(_timelinePanel.RowStyles[0].Height + _timelinePanel.RowStyles[1].Height) + _timeline.ItemHeight + 22;
     }
 
     private static void StyleAccentListBox(ListBox list, int itemHeight)

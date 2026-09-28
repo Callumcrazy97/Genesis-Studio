@@ -8,7 +8,7 @@ public sealed partial class VisualActionBuilderControl
     private void WireBlueprintEditing(ToolStrip tools)
     {
         _graph.EditStarted += BeginGroupedEdit;
-        _graph.EditCompleted += () => _groupingEdit = false;
+        _graph.EditCompleted += () => EndGroupedEdit();
         _graph.ParameterEdited += (id, parameter, value) => SetArgument(id, parameter, value);
         _graph.BodyEdited += (id, body) => SetCustomBody(id, body);
         _graph.ConditionEdited += (id, condition) => SetCondition(id, condition);
@@ -29,7 +29,7 @@ public sealed partial class VisualActionBuilderControl
         {
             BeginGroupedEdit();
             try { if (ConnectData(source, target, parameter)) DisconnectData(old.Target, old.Parameter); }
-            finally { _groupingEdit = false; }
+            finally { EndGroupedEdit(); }
         };
         _graph.ExecutionConnectionRequested += (from, to) => ConnectExecution(from, to);
         _graph.ConnectionDeleteRequested += connection =>
@@ -45,7 +45,13 @@ public sealed partial class VisualActionBuilderControl
             if (dialog.ShowDialog(FindForm()) == DialogResult.OK) _graph.AddComment(text.Text);
         }));
     }
-    private void BeginGroupedEdit() { _groupingEdit = true; _groupUndoPushed = false; }
+    private void BeginGroupedEdit() { if (!_groupingEdit) { _groupingEdit = true; _groupUndoPushed = false; } }
+    private void EndGroupedEdit(bool resume = false)
+    {
+        bool ending = _groupingEdit && !resume;
+        _groupingEdit = resume;
+        if (ending) EditGroupCompleted?.Invoke();
+    }
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
@@ -116,7 +122,7 @@ public sealed partial class VisualActionBuilderControl
             };
             return ApplyMutation(VisualActionSyntax.Replace(_source, current, replacement), targetId);
         }
-        finally { _groupingEdit = alreadyGrouped; }
+        finally { EndGroupedEdit(alreadyGrouped); }
     }
     public bool ConnectExecution(string sourceId, string targetId)
     {

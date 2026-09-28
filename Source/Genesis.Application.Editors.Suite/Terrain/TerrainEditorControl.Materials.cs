@@ -150,7 +150,7 @@ public sealed partial class TerrainEditorControl
         if (_materialPreparation is not null || DateTime.UtcNow < _nextMaterialCheck) return;
         _nextMaterialCheck = DateTime.UtcNow.AddSeconds(1);
         var layers = CloneLayers(_settings.Layers.Take(4));
-        string signature = string.Join('|', layers.Select(layer => $"{layer.Image}:{layer.Tiling}:{layer.Addressing}:{layer.Resolution}:{string.Join(',', layer.Color)}:{File.GetLastWriteTimeUtc(ResourceNames.Resolve(ProjectRoot, layer.Image, ResourceType.Image)).Ticks}"))
+        string signature = string.Join('|', layers.Select(layer => $"{layer.Image}:{layer.Tiling}:{layer.Addressing}:{layer.Resolution}:{string.Join(',', layer.Color)}:{MaterialSourceTimestamp(layer.Image)}"))
             + $"|{System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(_terrain)}:{_terrain.ResolutionX}:{_terrain.ResolutionZ}:{_terrain.CellSize}";
         if (signature == _materialSignature) return;
         _pendingMaterialSignature = signature;
@@ -159,6 +159,13 @@ public sealed partial class TerrainEditorControl
         MaterialPreviewStatus = "Preparing terrain material…";
         float worldWidth = (width - 1) * _terrain.CellSize, worldHeight = (height - 1) * _terrain.CellSize;
         _materialPreparation = Task.Run(() => BakeSurface(layers, splats, width, height, worldWidth, worldHeight));
+    }
+
+    private long MaterialSourceTimestamp(string? image)
+    {
+        if (string.IsNullOrWhiteSpace(image)) return 0;
+        string path = ResourceNames.Resolve(ProjectRoot, image, ResourceType.Image);
+        return string.IsNullOrWhiteSpace(path) || !File.Exists(path) ? 0 : File.GetLastWriteTimeUtc(path).Ticks;
     }
 
     private SurfacePixels? BakeSurface(List<TerrainLayerDocument> layers, byte[] splats, int width, int height, float worldWidth, float worldHeight)

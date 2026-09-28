@@ -21,6 +21,7 @@ public sealed partial class PixelRigStudioDialog : DpiAwareForm
     private readonly CheckBox _loop = new() { Text = "Loop", Checked = true, AutoSize = true };
     private readonly Label _status = new() { Dock = DockStyle.Bottom, Height = 52, Padding = new Padding(10), AutoEllipsis = true };
     private readonly ImageRigPages _tabs = new() { Dock = DockStyle.Fill };
+    private readonly SplitContainer _workspaceSplit;
     private readonly byte[] _source;
     private readonly int _width, _height;
     private readonly string _layerId, _frameId;
@@ -61,7 +62,7 @@ public sealed partial class PixelRigStudioDialog : DpiAwareForm
         StartPosition = FormStartPosition.CenterParent;
         _source = (byte[])source.Clone(); _width = width; _height = height; _layerId = layerId; _frameId = frameId;
         _save = save; _delete = delete; _apply = apply; _generate = generate;
-        var split = new SplitContainer { Dock = DockStyle.Fill, Size = ClientSize, SplitterDistance = 750, FixedPanel = FixedPanel.Panel2 };
+        var split = _workspaceSplit = new SplitContainer { Dock = DockStyle.Fill, Size = ClientSize, SplitterDistance = 750, FixedPanel = FixedPanel.Panel2 };
         split.Panel1.Controls.Add(_canvas); split.Panel2.Controls.Add(_tabs); Controls.Add(split);
         BuildPoseControls(split.Panel1);
         var footer = new Panel { Dock = DockStyle.Bottom, Height = 62 };
@@ -86,7 +87,7 @@ public sealed partial class PixelRigStudioDialog : DpiAwareForm
             _keys.DefaultCellStyle.BackColor = ImageEditorChrome.Surface; _keys.DefaultCellStyle.ForeColor = ImageEditorChrome.Text;
             _keys.DefaultCellStyle.SelectionBackColor = ImageEditorChrome.Hover; _keys.DefaultCellStyle.SelectionForeColor = ImageEditorChrome.Text;
             _keys.ColumnHeadersDefaultCellStyle.BackColor = ImageEditorChrome.Raised; _keys.ColumnHeadersDefaultCellStyle.ForeColor = ImageEditorChrome.Text;
-            _keys.RowTemplate.Height = 30;
+            LayoutWorkspace();
         };
         _keys.DataError += (_,e) => { e.ThrowException = false; _status.Text = "Choose an existing saved pose for this frame."; };
         animationTab.Controls.Add(_keys); _keys.BringToFront();
@@ -102,7 +103,10 @@ public sealed partial class PixelRigStudioDialog : DpiAwareForm
         _canvas.CanvasPointerMove += (_, e) => PointerMove(e);
         _canvas.CanvasPointerUp += (_, e) => PointerUp(e);
         _canvas.HandleCreated += (_, _) => { _fitPending = true; _canvas.FitToView(); };
-        Shown += (_,_) => { split.SplitterDistance = Math.Max(400,split.Width-370); _fitPending = true; RenderPose(); };
+        Shown += (_,_) => { LayoutWorkspace(); _fitPending = true; RenderPose(); };
+        FontChanged += (_, _) => LayoutWorkspace();
+        _keys.FontChanged += (_, _) => LayoutWorkspace();
+        ClientSizeChanged += (_, _) => LayoutWorkspace();
         _canvas.Overlay.ShowOrigin = false; _canvas.Overlay.ShowCollision = false;
         _playback.Tick += (_, _) =>
         {
@@ -139,8 +143,41 @@ public sealed partial class PixelRigStudioDialog : DpiAwareForm
     }
     private static Button Action(string title, System.Action action)
     {
-        var button = new Button { Text = title, AutoSize = true, MinimumSize = new Size(80,30) };
+        var button = new RigActionButton { Text = title, AutoSize = true, MinimumSize = new Size(80,30) };
         ImageEditorChrome.StyleButton(button); button.Click += (_, _) => action(); return button;
+    }
+
+    private void LayoutWorkspace()
+    {
+        if (_workspaceSplit.Width < 300) return;
+        float scale = Font.Size / (SystemFonts.MessageBoxFont?.Size ?? 9f);
+        int side = Math.Clamp((int)Math.Round(370 * scale), 300, Math.Max(300, Math.Min(620, _workspaceSplit.Width / 2)));
+        _workspaceSplit.SplitterDistance = Math.Max(180, _workspaceSplit.Width - side - _workspaceSplit.SplitterWidth);
+        foreach (TextBox field in new[] { _name, _poseName, _animationName }) field.Width = (int)Math.Round(180 * scale);
+        foreach ((Control field, int width) in new (Control, int)[]
+        {
+            (_fps, 70), (_poseMode, 135), (_followChildren, 145), (_bonePicker, 140),
+            (_boneLength, 75), (_boneAngle, 70), (_jointRadius, 65),
+        }) field.Width = (int)Math.Round(width * scale);
+        _selectionHint.MaximumSize = new Size(Math.Max(180, _workspaceSplit.Panel1.Width - 20), 0);
+        _keys.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
+        _keys.ColumnHeadersHeight = Math.Max(28, _keys.Font.Height + 12);
+        _keys.RowTemplate.Height = Math.Max(30, _keys.Font.Height + 10);
+        foreach (DataGridViewRow row in _keys.Rows) row.Height = _keys.RowTemplate.Height;
+        if (_keys.Columns.Count > 0) _keys.Columns[0].Width = (int)Math.Round(65 * scale);
+        _animations.Height = Math.Min(140, (int)Math.Round(90 * scale));
+    }
+
+    private sealed class RigActionButton : Button
+    {
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            using SolidBrush background = new(BackColor); e.Graphics.FillRectangle(background, ClientRectangle);
+            using Pen border = new(FlatAppearance.BorderColor); e.Graphics.DrawRectangle(border, 0, 0, Math.Max(0, Width - 1), Math.Max(0, Height - 1));
+            TextRenderer.DrawText(e.Graphics, Text, Font, ClientRectangle, Enabled ? ForeColor : ImageEditorChrome.Muted,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            if (Focused && ShowFocusCues) ControlPaint.DrawFocusRectangle(e.Graphics, Rectangle.Inflate(ClientRectangle, -4, -4), ForeColor, BackColor);
+        }
     }
     private void Describe() => _status.Text = _createJoints
         ? "Click a joint centre, drag outward to set its circumference, then release. Esc returns to Select / pose."

@@ -111,6 +111,7 @@ public sealed class RoomEditorNavigation : Panel
             _subpanelHost.Controls.Add(panel);
         }
         SetDimension(_editor.Room.Dimension == Genesis.Runtime.Scene.RoomDimension.ThreeD);
+        ShowSection();
     }
 
     public void SetDimension(bool threeD)

@@ -13,11 +13,13 @@ public sealed class NewProjectDialog : DpiAwareForm
     private readonly TextBox _locationBox;
     private readonly Label _validation;
     private readonly Label _destinationPreview;
+    private Action? _layoutMeasured;
 
     public NewProjectDialog(string? templateId = null)
     {
         AutoScaleMode = AutoScaleMode.Dpi;
         BackColor = ThemeService.Palette.Canvas;
+        Tag = ThemeService.MeasuredLayoutTag;
         ClientSize = new Size(920, 560);
         FormBorderStyle = FormBorderStyle.Sizable;
         MinimumSize = new Size(760, 580);
@@ -49,9 +51,12 @@ public sealed class NewProjectDialog : DpiAwareForm
         {
             BackColor = Color.Transparent,
             Dock = DockStyle.Fill,
-            Margin = new Padding(30, 2, 0, 0),
+            Margin = Padding.Empty,
+            AutoScroll = true,
         };
-        shell.Controls.Add(form, 1, 0);
+        Panel formHost = new() { Dock = DockStyle.Fill, Margin = new Padding(24, 2, 0, 0) };
+        formHost.Controls.Add(form);
+        shell.Controls.Add(formHost, 1, 0);
 
         form.Controls.Add(new Label
         {
@@ -88,7 +93,8 @@ public sealed class NewProjectDialog : DpiAwareForm
         {
             Location = new Point(0, 160),
             Size = new Size(510, 34),
-            Text = template is null ? "My Genesis Game" : "My " + template.Name,
+            Text = template is null ? "My Genesis Game"
+                : Genesis.Application.Core.Projects.ProjectService.SanitizeProjectName("My " + template.Name),
         };
         form.Controls.Add(_nameBox);
 
@@ -166,40 +172,80 @@ public sealed class NewProjectDialog : DpiAwareForm
         };
         create.Click += (_, _) => Confirm();
         form.Controls.Add(create);
+        FlowLayoutPanel actions = new() { Dock = DockStyle.Bottom, FlowDirection = FlowDirection.RightToLeft,
+            WrapContents = false, Padding = new Padding(0, 8, 0, 0) };
+        actions.Controls.Add(create); actions.Controls.Add(cancel);
+        formHost.Controls.Add(actions);
+        form.BringToFront();
 
         _nameBox.TextChanged += (_, _) => UpdateDestinationPreview();
         _locationBox.TextChanged += (_, _) => UpdateDestinationPreview();
         AcceptButton = create;
         CancelButton = cancel;
+        Control[] fields = form.Controls.Cast<Control>().Where(control => control != browse).OrderBy(control => control.Top).ToArray();
+        Control[] summaryRows = summary.Controls.Cast<Control>().OrderBy(control => control.Top).ToArray();
+        bool arranging = false;
         void LayoutFields()
         {
+            if (arranging) return;
+            arranging = true;
+            try
+            {
             int Scale(int value) => DpiLayout.Scale(this, value);
-            shell.ColumnStyles[0].Width = Scale(ClientSize.Width < Scale(880) ? 260 : 330);
-            int width = Math.Max(Scale(260), form.ClientSize.Width);
-            foreach (Control control in form.Controls)
+            shell.ColumnStyles[0].Width = Scale(ClientSize.Width < Scale(880) ? 240 : 310);
+            int width = Math.Max(1, form.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - Scale(4));
+            int y = 0;
+            foreach (Control control in fields)
             {
-                if (control is Label { AutoSize: false }) control.Width = width;
+                if (control is Label label)
+                {
+                    if (label.Text == "Create your project") label.Font = ThemeService.HeadingFont;
+                    label.AutoSize = false;
+                    label.Bounds = new Rectangle(0, y, width, ShellDialogLayout.TextHeight(label, width) + Scale(4));
+                }
+                else if (control == _nameBox || control == _locationBox)
+                    control.Bounds = new Rectangle(0, y, width, control.GetPreferredSize(Size.Empty).Height);
+                else if (control == destination)
+                {
+                    destination.Bounds = new Rectangle(0, y, width, Font.Height * 2 + Scale(36));
+                    ShellDialogLayout.StackLabels(destination, Scale(12), Scale(10), Scale(6));
+                    _destinationPreview.AutoEllipsis = true;
+                    _destinationPreview.Height = _destinationPreview.Font.Height + Scale(4);
+                }
+                y = control.Bottom + Scale(control is TextBox || control == destination ? 16 : 6);
             }
-            _nameBox.Width = width;
-            browse.Width = Scale(94);
+            ShellDialogLayout.FitButton(browse);
             browse.Left = width - browse.Width;
+            browse.Top = _locationBox.Top;
             _locationBox.Width = Math.Max(Scale(100), browse.Left - Scale(10));
-            destination.Width = width;
-            _destinationPreview.Width = Math.Max(Scale(100), width - Scale(30));
-            create.Left = Math.Max(0, width - create.Width);
-            cancel.Left = Math.Max(0, create.Left - cancel.Width - Scale(10));
-            create.Top = cancel.Top = Math.Max(Scale(454), form.ClientSize.Height - Scale(42));
-            foreach (Control control in summary.Controls)
+            form.AutoScrollMinSize = new Size(0, y);
+            ShellDialogLayout.FitButton(create); ShellDialogLayout.FitButton(cancel);
+            actions.Height = create.Height + Scale(16);
+            int summaryY = Scale(18), summaryWidth = Math.Max(1, summary.ClientSize.Width - Scale(40));
+            foreach (Control control in summaryRows)
             {
-                if (!control.AutoSize) control.Width = Math.Max(Scale(100), summary.ClientSize.Width - control.Left - Scale(20));
+                control.Width = summaryWidth;
+                control.Location = new Point(Scale(20), summaryY);
+                if (control is Label summaryLabel)
+                {
+                    summaryLabel.AutoSize = false;
+                    summaryLabel.Height = ShellDialogLayout.TextHeight(summaryLabel, summaryWidth) + Scale(4);
+                }
+                summaryY = control.Bottom + Scale(12);
             }
+            if (summary is ScrollableControl summaryScroll) summaryScroll.AutoScrollMinSize = new Size(0, summaryY + Scale(16));
+            }
+            finally { arranging = false; }
         }
+        _layoutMeasured = LayoutFields;
         form.SizeChanged += (_, _) => LayoutFields();
         Shown += (_, _) => LayoutFields();
         ThemeService.Apply(this);
         LayoutFields();
         UpdateDestinationPreview();
     }
+
+    public override void ApplyInterfaceLayout() => _layoutMeasured?.Invoke();
 
     public string ProjectName => _nameBox.Text.Trim();
 
@@ -221,6 +267,7 @@ public sealed class NewProjectDialog : DpiAwareForm
             Dock = DockStyle.Fill,
             Margin = Padding.Empty,
             Raised = true,
+            AutoScroll = true,
         };
         ProjectTemplateArtworkControl artwork = new()
         {

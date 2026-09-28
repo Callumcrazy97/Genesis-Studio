@@ -13,6 +13,7 @@ internal static partial class PathingCodeCodec
         PathingRoute route = asset.Route;
         StringBuilder code = new();
         code.Append("pathing \"").Append(Escape(asset.Name)).AppendLine("\" {");
+        code.Append("    dimension: ").AppendLine(asset.Dimension.ToString());
         code.Append("    room: \"").Append(Escape(asset.TargetRoom)).AppendLine("\"");
         code.Append("    object: \"").Append(Escape(asset.TargetObject)).AppendLine("\"");
         code.Append("    preview_agents: ").AppendLine(asset.PreviewAgentCount.ToString(CultureInfo.InvariantCulture));
@@ -109,6 +110,7 @@ internal static partial class PathingCodeCodec
         error = string.Empty;
         switch (key)
         {
+            case "dimension" when Enum.TryParse(value, true, out PathingDimension dimension) && Enum.IsDefined(dimension): asset.Dimension = dimension; return true;
             case "room": asset.TargetRoom = Quoted(value); return true;
             case "object": asset.TargetObject = Quoted(value); return true;
             case "follow_target": route.FollowTarget = Quoted(value); return true;
@@ -129,6 +131,7 @@ internal static partial class PathingCodeCodec
     {
         SchemaVersion = asset.SchemaVersion,
         Name = asset.Name,
+        Dimension = asset.Dimension,
         TargetRoom = asset.TargetRoom,
         TargetObject = asset.TargetObject,
         PreviewAgentCount = asset.PreviewAgentCount,
@@ -150,7 +153,7 @@ internal static partial class PathingCodeCodec
         },
     };
 
-    private static string Number(float value) => value.ToString("0.###", CultureInfo.InvariantCulture);
+    private static string Number(float value) => value.ToString("R", CultureInfo.InvariantCulture);
     private static bool Number(string value, out float result) => float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out result) && float.IsFinite(result);
     private static bool Float(Match match, string group, out float result) => Number(match.Groups[group].Value, out result);
     private static string Quoted(string value)

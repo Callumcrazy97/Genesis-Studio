@@ -25,6 +25,11 @@ internal static class GenesisDockTheme
         }
 
         ArgumentNullException.ThrowIfNull(palette);
+        // VS2015 chrome measures and paints with its skin fonts, independently of the
+        // WinForms control Font. Keep dock captions, tabs and auto-hide labels in step
+        // with the application's live interface size.
+        theme.Skin.DockPaneStripSkin.TextFont = ThemeService.InterfaceFont;
+        theme.Skin.AutoHideStripSkin.TextFont = ThemeService.InterfaceFont;
         DockPanelColorPalette colors = theme.ColorPalette;
 
         Color canvas = palette.Canvas;

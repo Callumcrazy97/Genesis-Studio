@@ -891,6 +891,8 @@ namespace Genesis.Shared.Interfaces
 
     public struct SpriteDrawCall
     {
+        /// <summary>Per-command compositing, retained by deferred batches. The default is ordinary alpha.</summary>
+        public BlendMode Blend;
         /// <summary>Force smooth sampling for this call, without changing a pixel-art room's sampler.
         /// Default false preserves the inherited room/global sampling contract.</summary>
         public bool SmoothSampling;

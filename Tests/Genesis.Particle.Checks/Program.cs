@@ -66,6 +66,18 @@ try
         child.Execute(0,0,1,definition,[new ParticleEventConnection(emitter,1,1,2,0)]);
         ReadCounters(child,device);
         Check(child.Diagnostics.Alive==50,"GPU-to-GPU birth sub-emitter without event readback");
+        parameters.Motion=new Vector4(0,0,4,0);
+        parameters.Forces=new Vector4(0,100,0,0);
+        parameters.Wind=new Vector4(0,0,0,1);
+        parameters.Collision=new Vector4(3,1,1,0);
+        parameters.Options=new Vector4(0,1,1,0);
+        var stickDefinition=new GpuParticleDefinition { Capacity=1, Parameters=parameters, Lookup=table };
+        using var stuck=library.Create(stickDefinition,789);
+        stuck.Execute(0,1,1,stickDefinition,[]);
+        for(uint sequence=2;sequence<=12;sequence++) stuck.Execute(.2f,0,sequence,stickDefinition,[]);
+        ReadCounters(stuck,device);
+        Check(stuck.Diagnostics.Alive==1 && stuck.Diagnostics.Collisions==1,
+            "GPU Stick collision stays attached and reports one impact");
     }
     Console.WriteLine($"{passed} particle checks passed.");
     return 0;

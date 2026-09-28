@@ -17,6 +17,8 @@ namespace Genesis.Shared.ECS.Components
         /// <c>"Sensor"</c> authoring.
         /// </summary>
         Sensor       = 8,
+        /// <summary>Constrain the body's simulation to its authored XY plane.</summary>
+        PlanarTwoD   = 16,
     }
 
     public struct RigidBodyComponent : IComponent
@@ -54,6 +56,7 @@ namespace Genesis.Shared.ECS.Components
         public bool UseGravity => (Flags & RigidBodyFlags.UseGravity) != 0;
         public bool LockRotation => (Flags & RigidBodyFlags.LockRotation) != 0;
         public bool IsSensor => (Flags & RigidBodyFlags.Sensor) != 0;
+        public bool PlanarTwoD => (Flags & RigidBodyFlags.PlanarTwoD) != 0;
 
         public Vector3 HalfExtents => Shape switch
         {

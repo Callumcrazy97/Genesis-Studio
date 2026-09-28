@@ -42,6 +42,7 @@ namespace Genesis.Runtime.Scripting
         _byName.Clear();
         _byHash.Clear();
         if (string.IsNullOrEmpty(projectPath)) return;
+        ResourceNames.Invalidate(projectPath);
 
         // Index public Script resources only. Object event programs are private implementation,
         // not globally visible modules that can shadow a named Script.
