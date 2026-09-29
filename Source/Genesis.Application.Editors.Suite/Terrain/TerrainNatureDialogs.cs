@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Text.Json;
 using Genesis.Application.Editors.Suite.UiKit;
 using Genesis.World.Foliage;
 using Genesis.World.Terrain;
@@ -11,32 +12,18 @@ public sealed class TerrainPathDialog : DpiAwareForm
 
     public TerrainPathDialog(TerrainPathSettings current)
     {
-        Settings = current ?? new TerrainPathSettings();
+        Settings = current is null ? new TerrainPathSettings() : JsonSerializer.Deserialize<TerrainPathSettings>(JsonSerializer.Serialize(current))!;
         Text = "Generate Connected Terrain Paths";
         StartPosition = FormStartPosition.CenterParent;
-        FormBorderStyle = FormBorderStyle.FixedDialog;
-        ClientSize = new Size(430, 320);
+        FormBorderStyle = FormBorderStyle.Sizable;
+        ClientSize = new Size(640, 740);
+        MinimumSize = new Size(540, 560);
+        Tag = "font-measured-layout";
         MaximizeBox = false; MinimizeBox = false;
         BackColor = EditorChrome.Surface;
         
-        var form = Genesis.Application.Editors.Suite.Inspector.InspectorBuilder.BuildForObject(Settings, "Generation is deterministic and grades/paints the terrain with full Undo support.");
-        Controls.Add(form);
-        
-        // Find Ok and Cancel buttons
-        foreach (Control c in form.Controls)
-        {
-            if (c is FlowLayoutPanel flow)
-            {
-                foreach (Control b in flow.Controls)
-                {
-                    if (b is Button btn)
-                    {
-                        if (btn.DialogResult == DialogResult.OK) AcceptButton = btn;
-                        if (btn.DialogResult == DialogResult.Cancel) CancelButton = btn;
-                    }
-                }
-            }
-        }
+        TerrainDialogLayout.Settings(this, Settings,
+            "Generation is deterministic and grades/paints the terrain with full undo support. Cancel keeps the previous settings.", "Generate paths");
     }
 
     internal static NumericUpDown Number(decimal min, decimal max, decimal value) => new() { Minimum = min, Maximum = max, Value = value };
@@ -54,31 +41,18 @@ public sealed class FoliageScatterDialog : DpiAwareForm
 
     public FoliageScatterDialog(FoliageScatterSettings current)
     {
-        Settings = current ?? new FoliageScatterSettings();
+        Settings = current is null ? new FoliageScatterSettings() : JsonSerializer.Deserialize<FoliageScatterSettings>(JsonSerializer.Serialize(current))!;
         Text = "Scatter Ecological Foliage";
         StartPosition = FormStartPosition.CenterParent; 
-        FormBorderStyle = FormBorderStyle.FixedDialog;
-        ClientSize = new Size(500, 650); 
+        FormBorderStyle = FormBorderStyle.Sizable;
+        ClientSize = new Size(640, 760);
+        MinimumSize = new Size(540, 560);
+        Tag = "font-measured-layout";
         MaximizeBox = false; MinimizeBox = false;
         BackColor = EditorChrome.Surface;
 
-        var form = Genesis.Application.Editors.Suite.Inspector.InspectorBuilder.BuildForObject(Settings, "The same deterministic cell streaming, LOD and performance budgets run in this preview and in gameplay.");
-        Controls.Add(form);
-        
-        foreach (Control c in form.Controls)
-        {
-            if (c is FlowLayoutPanel flow)
-            {
-                foreach (Control b in flow.Controls)
-                {
-                    if (b is Button btn)
-                    {
-                        if (btn.DialogResult == DialogResult.OK) AcceptButton = btn;
-                        if (btn.DialogResult == DialogResult.Cancel) CancelButton = btn;
-                    }
-                }
-            }
-        }
+        TerrainDialogLayout.Settings(this, Settings,
+            "The same deterministic cell streaming, LOD and performance budgets run in this preview and in gameplay. Cancel keeps the previous settings.", "Scatter foliage");
     }
 }
 
@@ -86,7 +60,7 @@ public sealed class TerrainWaterDialog : DpiAwareForm
 {
     private readonly List<TerrainWaterDefinition> _waters;
     private readonly ListBox _list = new() { Dock = DockStyle.Fill };
-    private readonly TextBox _name = new();
+    private readonly TextBox _name = new() { Name = "TerrainWaterBodyName" };
     private readonly ThemedComboBox _kind = WaterKindCombo();
     private readonly NumericUpDown _x = TerrainPathDialog.DecimalNumber(-100000m, 100000m, 0m);
     private readonly NumericUpDown _z = TerrainPathDialog.DecimalNumber(-100000m, 100000m, 0m);
@@ -107,44 +81,54 @@ public sealed class TerrainWaterDialog : DpiAwareForm
     private readonly NumericUpDown _buoyancy = TerrainPathDialog.DecimalNumber(0m, 4m, 1m);
     private readonly NumericUpDown _linearDrag = TerrainPathDialog.DecimalNumber(0m, 20m, 2.5m);
     private readonly NumericUpDown _angularDrag = TerrainPathDialog.DecimalNumber(0m, 20m, 1m);
-    private readonly ThemedComboBox _physicsMode = new() { DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly ThemedComboBox _physicsMode = new() { Name = "TerrainWaterPhysicsMode", DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly CheckBox _damaging = new() { Text = "Damages occupants", AutoSize = true };
     private bool _syncing;
     private readonly Vector3 _defaultCenter;
 
-    public TerrainWaterDialog(IEnumerable<TerrainWaterDefinition> waters, Vector3 defaultCenter)
+    public TerrainWaterDialog(IEnumerable<TerrainWaterDefinition> waters, Vector3 defaultCenter, string? selectedId = null)
     {
         _physicsMode.Items.AddRange(new object[] { "None — decorative water", "Shallow — drag, no swimming", "Swimmable volume — buoyancy and swimming" });
         _defaultCenter = defaultCenter;
         _waters = (waters ?? Array.Empty<TerrainWaterDefinition>()).Select(Clone).ToList();
         Text = "Water Bodies"; StartPosition = FormStartPosition.CenterParent;
-        ClientSize = new Size(720, 520); MinimumSize = new Size(680, 500);
-        SplitContainer split = new() { Dock = DockStyle.Fill, SplitterDistance = 205, FixedPanel = FixedPanel.Panel1 };
+        ClientSize = new Size(1100, 760); MinimumSize = new Size(960, 640);
+        Tag = "font-measured-layout";
+        SplitContainer split = new() { Dock = DockStyle.Fill, Size = new Size(1100, 700), SplitterDistance = 260, FixedPanel = FixedPanel.Panel1 };
         Panel left = new() { Dock = DockStyle.Fill, Padding = new Padding(10) };
-        FlowLayoutPanel listButtons = new() { Dock = DockStyle.Bottom, Height = 38 };
+        FlowLayoutPanel listButtons = new() { Dock = DockStyle.Bottom, AutoSize = true };
         Button add = new() { Text = "+ Add", AutoSize = true }; Button remove = new() { Text = "Remove", AutoSize = true };
         listButtons.Controls.Add(add); listButtons.Controls.Add(remove); left.Controls.Add(_list); left.Controls.Add(listButtons);
         split.Panel1.Controls.Add(left);
-        (string, Control)[] rows = [
-            ("Name", _name), ("Type", _kind), ("Centre X", _x), ("Centre Z", _z), ("Surface height", _height),
-            ("Size X", _sizeX), ("Size Z", _sizeZ), ("", _simulation), ("Simulation resolution", _resolution),
-            ("Damping", _damping), ("Rain coupling", _rain), ("Wave amplitude", _waves), ("Flow speed", _flow),
-            ("Flow direction X", _flowX), ("Flow direction Z", _flowZ), ("", _conform),
-            ("Water physics", _physicsMode), ("Physics depth", _physicsDepth), ("Fluid density", _density), ("Buoyancy", _buoyancy),
-            ("Linear drag", _linearDrag), ("Angular drag", _angularDrag), ("", _damaging)];
-        TableLayoutPanel form = new() { Dock = DockStyle.Fill, ColumnCount = 2, Padding = new Padding(12), AutoScroll = true };
-        form.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 160)); form.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        for (int i = 0; i < rows.Length; i++)
+        TabControl tabs = new() { Name = "TerrainWaterSettingsTabs", Dock = DockStyle.Fill };
+        EditorChrome.StyleTabs(tabs);
+        void AddPage(string title, (string, Control)[] rows)
         {
-            form.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
-            form.Controls.Add(new Label { Text = rows[i].Item1, AutoSize = true, Anchor = AnchorStyles.Left }, 0, i);
-            rows[i].Item2.Dock = DockStyle.Fill; form.Controls.Add(rows[i].Item2, 1, i);
+            TabPage page = new(title) { AutoScroll = true, BackColor = EditorChrome.Surface };
+            TerrainDialogLayout.Fields(page, rows);
+            tabs.TabPages.Add(page);
         }
-        FlowLayoutPanel actions = new() { Dock = DockStyle.Bottom, Height = 44, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(5) };
-        Button ok = new() { Text = "Apply", DialogResult = DialogResult.OK, AutoSize = true };
-        Button cancel = new() { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };
-        actions.Controls.Add(ok); actions.Controls.Add(cancel); split.Panel2.Controls.Add(form); split.Panel2.Controls.Add(actions);
-        Controls.Add(split); AcceptButton = ok; CancelButton = cancel;
+        AddPage("Surface", [("Name", _name), ("Type", _kind), ("Centre X (m)", _x), ("Centre Z (m)", _z),
+            ("Surface height (m)", _height), ("Width (m)", _sizeX), ("Length (m)", _sizeZ), ("", _conform)]);
+        AddPage("Flow and waves", [("", _simulation), ("Simulation resolution", _resolution), ("Damping", _damping),
+            ("Rain coupling", _rain), ("Wave amplitude", _waves), ("Flow speed", _flow),
+            ("Flow direction X", _flowX), ("Flow direction Z", _flowZ)]);
+        AddPage("Gameplay", [("Water physics", _physicsMode), ("Physics depth (m)", _physicsDepth),
+            ("Fluid density", _density), ("Buoyancy", _buoyancy), ("Linear drag", _linearDrag),
+            ("Angular drag", _angularDrag), ("", _damaging)]);
+        split.Panel2.Controls.Add(tabs);
+        Controls.Add(split);
+        TerrainDialogLayout.Actions(this);
+        foreach (Button button in new[] { add, remove })
+        {
+            EditorChrome.StyleField(button);
+            button.MinimumSize = new Size(0, button.Font.Height + 18);
+            button.FontChanged += (_, _) => button.MinimumSize = new Size(0, button.Font.Height + 18);
+        }
+        _list.BackColor = EditorChrome.Surface;
+        _list.ForeColor = EditorChrome.Text;
+        _list.BorderStyle = BorderStyle.None;
+        _list.FontChanged += (_, _) => _list.ItemHeight = _list.Font.Height + 10;
         add.Click += (_, _) => AddWater(); remove.Click += (_, _) => RemoveWater(); _list.SelectedIndexChanged += (_, _) => LoadSelected();
         foreach (Control control in new Control[] { _name, _kind, _x, _z, _height, _sizeX, _sizeZ, _simulation, _resolution, _damping, _rain, _waves, _flow, _flowX, _flowZ, _conform, _physicsDepth, _density, _buoyancy, _linearDrag, _angularDrag, _physicsMode, _damaging })
         {
@@ -153,7 +137,9 @@ public sealed class TerrainWaterDialog : DpiAwareForm
             else if (control is NumericUpDown number) number.ValueChanged += (_, _) => StoreSelected();
             else if (control is CheckBox check) check.CheckedChanged += (_, _) => StoreSelected();
         }
-        RefreshList(); if (_waters.Count == 0) AddWater(); else _list.SelectedIndex = 0;
+        RefreshList();
+        if (_waters.Count == 0) AddWater();
+        else _list.SelectedIndex = Math.Max(0, _waters.FindIndex(water => water.Id == selectedId));
     }
 
     public IReadOnlyList<TerrainWaterDefinition> WaterBodies => _waters.Select(Clone).ToArray();

@@ -235,6 +235,7 @@ namespace Genesis.Shared.Assets
             {
                 AddFile(resource + ".gterrain", direct);
                 AddFile(resource + ".nature.json", direct);
+                AddSidecarFiles(resource + ".parts", direct);
             }
 
             static void AddSidecarFiles(string directory, HashSet<string> dependencies)

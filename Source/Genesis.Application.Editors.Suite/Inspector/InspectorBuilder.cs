@@ -13,7 +13,8 @@ public static class InspectorBuilder
         object target,
         string note = "",
         string? projectRoot = null,
-        IWin32Window? dialogOwner = null)
+        IWin32Window? dialogOwner = null,
+        bool inline = false)
     {
         ArgumentNullException.ThrowIfNull(target);
         PropertyInfo[] properties = target.GetType()
@@ -67,6 +68,44 @@ public static class InspectorBuilder
             rows.Add(BuilderRow.Property(label, drawer, description));
         }
 
+        if (inline)
+        {
+            TableLayoutPanel stack = new()
+            {
+                AutoSize = true, ColumnCount = 1, Dock = DockStyle.Top,
+                BackColor = EditorChrome.Surface, Padding = new Padding(4),
+            };
+            stack.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            foreach (BuilderRow row in rows)
+            {
+                Label label = new()
+                {
+                    Text = row.IsGroup ? row.Label.ToUpperInvariant() : row.Label,
+                    AutoSize = true, Dock = DockStyle.Top,
+                    ForeColor = row.IsGroup ? EditorChrome.Text : EditorChrome.Muted,
+                    Margin = new Padding(0, row.IsGroup ? 12 : 6, 0, 4),
+                };
+                stack.Controls.Add(label);
+                if (row.Editor is { } editor)
+                {
+                    editor.Dock = DockStyle.Top;
+                    editor.Margin = new Padding(0, 0, 0, 10);
+                    stack.Controls.Add(editor);
+                }
+            }
+            if (!string.IsNullOrWhiteSpace(note))
+                stack.Controls.Add(new Label { Text = note, AutoSize = true, Dock = DockStyle.Top, ForeColor = EditorChrome.Muted });
+            void Fit()
+            {
+                foreach (Label label in stack.Controls.OfType<Label>())
+                    label.MaximumSize = new Size(Math.Max(140, stack.ClientSize.Width - stack.Padding.Horizontal), 0);
+                foreach (Control editor in stack.Controls.Cast<Control>().Where(control => control is not Label))
+                    editor.Height = Math.Max(editor.PreferredSize.Height, editor.Font.Height + 12);
+            }
+            stack.SizeChanged += (_, _) => Fit();
+            stack.FontChanged += (_, _) => Fit();
+            return stack;
+        }
         TableLayoutPanel form = new()
         {
             AutoScroll = true,

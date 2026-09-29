@@ -23,7 +23,11 @@ internal static class ModelMotionImportSuite
             string path = NewModel(ctx, "Animation import viewer");
             using var viewer = new ModelViewerControl(path, ctx.Project!.RootPath); viewer.ImportExternalModel(source);
             using var host = Host(viewer);
-            var options = viewer.Controls.Find("ModelViewerCommands", true).OfType<ToolStrip>().Single().Items.OfType<ToolStripDropDownButton>().Single(b => b.Name == "ModelMoreOptions");
+            var options = Editor3DInspectionSuite.MenuItems(viewer).OfType<ToolStripDropDownButton>()
+                .Single(button => button.Name == "ModelMoreOptions");
+            Assert(viewer.Controls.Find("ModelViewerCommands", true).OfType<ToolStrip>().Single().Items
+                .OfType<ToolStripDropDownButton>().Count(button => button.Name == "ModelWorkflowOptions") == 1,
+                "Motion import has no single discoverable Options entry point.");
             Assert(options.Enabled && options.Overflow == ToolStripItemOverflow.Never && options.DropDownItems.Cast<ToolStripItem>().Select(i => i.Text)
                 .SequenceEqual(["Import Rig From Model", "Import Model as animation"]), "More Options has missing, hidden or incorrect actions.");
             options.ShowDropDown(); Editor3DInspectionSuite.Pump(); options.HideDropDown();

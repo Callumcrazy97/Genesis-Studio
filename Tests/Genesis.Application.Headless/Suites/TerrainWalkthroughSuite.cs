@@ -242,14 +242,12 @@ internal static class TerrainWalkthroughSuite
                     editor.Terrain.SampleHeight(pondX, pondZ) < surfaceBefore - 0.4f,
                     "The pond basin was not carved before fill.");
 
-                WaterBody visual = pond.ToWaterBody();
-                float span = WaterSurfaceMesh.VerticalSpan(WaterSurfaceMesh.BuildVisual(visual, Vector3.Zero));
-                HeadlessHarness.Assert(
-                    span >= pond.PhysicsDepth * 0.85f,
-                    $"Pond visual is a flat sheet (vertical span {span:0.00} vs physics depth {pond.PhysicsDepth:0.00}).");
+                WaterWorkflowAssertions.SurfaceAndVolume(pond);
 
-                string shaderRelative = Path.GetRelativePath(project.RootPath, shaderPath).Replace('\\', '/');
+                string shaderRelative = ResourceNames.Name(project.RootPath, shaderPath, ResourceType.Shader);
                 editor.SelectTerrainComponent(TerrainComponentsPanel.ComponentKind.Water, pond.Id);
+                HeadlessHarness.Assert(editor.SelectedShaderTargetId == "water:" + pond.Id,
+                    "Selecting water did not update the active component while its inventory panel was hidden.");
                 string targetId = editor.SelectedShaderTargetId ?? string.Empty;
                 editor.SetComponentShader(targetId, shaderRelative);
                 pondId = pond.Id;
@@ -268,6 +266,20 @@ internal static class TerrainWalkthroughSuite
                             TerrainWaterDefinition.FoliageExclusionPadding)) == 0,
                     "Meadow grass is still growing inside the pond footprint.");
 
+                editor.SelectTerrainComponent(TerrainComponentsPanel.ComponentKind.Water, pond.Id);
+                HeadlessHarness.Assert(editor.GetLiveInspectorValues().Any(value =>
+                    value.PropertyPath == "Water.PhysicsMode" && Equals(value.Value, "None"))
+                    && editor.TryApplyLiveInspectorValue("Water.PhysicsMode", "SwimmableVolume")
+                    && !editor.TryApplyLiveInspectorValue("Water.PhysicsMode", "999")
+                    && !editor.TryApplyLiveInspectorValue("Water.PhysicsDepth", double.NaN),
+                    "Selected-water Inspector did not expose an explicit valid physics-mode edit.");
+                editor.Undo();
+                HeadlessHarness.Assert(editor.Nature.WaterBodies.Single(body => body.Id == pond.Id).PhysicsMode == WaterPhysicsMode.None,
+                    "Undo did not restore decorative water.");
+                editor.Redo();
+                pond = editor.Nature.WaterBodies.Single(body => body.Id == pond.Id);
+                HeadlessHarness.Assert(pond.PhysicsMode == WaterPhysicsMode.SwimmableVolume && pond.Swimmable,
+                    "Redo did not restore the explicit swimming opt-in.");
                 editor.RebuildPhysicsPreview();
                 editor.DropPlayableIntoWater(pond.Id);
                 editor.StepPhysicsPreview(1f / 60f, 180);

@@ -153,7 +153,7 @@ namespace Genesis.World.Water
         /// <summary>
         /// Issue 6 Stage 1 ("lake mist for free"): builds the auto-spawned <see cref="FogVolume"/>
         /// for a water body's surface, if <see cref="WaterBody.GroundMistEnabled"/> is set. A flat
-        /// HeightSlab centred on SurfaceY reads as mist sitting on the water without needing the
+        /// bounded box centred on SurfaceY reads as mist sitting on the water without needing the
         /// caller to hand-author a separate volume. Rivers/waterfalls are skipped for Stage 1 — a
         /// flat slab doesn't fit a ribbon/sheet footprint well; that's left to manual placement.
         /// </summary>
@@ -175,7 +175,7 @@ namespace Genesis.World.Water
                 Color = body.GroundMistColor,
                 Density = body.GroundMistDensity,
                 FalloffCurve = 1.5f,
-                Shape = FogVolumeShape.HeightSlab,
+                Shape = FogVolumeShape.Box,
                 Kind = FogVolumeKind.GroundMist,
             };
             return true;

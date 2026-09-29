@@ -196,6 +196,9 @@ internal static class RoomWorkspaceSuite
         Assert(editor.Room.Nodes.Count == 13 && instances.Items.Count == 13,
             "Placing terrain did not update its visible instance list immediately.");
         RoomNode placed = editor.Room.Nodes[^1];
+        Assert(ReferenceEquals(editor.SelectedNode, placed) && ReferenceEquals(instances.SelectedItem, placed)
+            && editor.CanEditNodeInActiveContext(placed),
+            "Placing terrain did not select its active row for immediate editing.");
         Assert(instances.Items.Cast<RoomNode>().Any(node => ReferenceEquals(node, placed)),
             "Terrain list retained detached instances instead of current room nodes.");
         editor.Undo(); editor.FlushPendingRoomUiRefresh(); Assert(instances.Items.Count == 12 && !instances.Items.Cast<RoomNode>().Any(node => node.Id == placed.Id),
@@ -211,6 +214,24 @@ internal static class RoomWorkspaceSuite
         RoomAsset saved = RoomAssetLoader.Parse(roomPath);
         Assert(saved.Nodes.Count == 13 && saved.Nodes.Any(node => node.Name == "Renamed terrain patch"),
             "Terrain list edits did not persist.");
+
+        int beforeRepeat = editor.Room.Nodes.Count;
+        editor.BeginPlacementTerrain(terrainPath);
+        foreach (float x in new[] { -5f, 5f })
+        {
+            Point repeat = editor.ClientFromWorld3D(new Vector3(x, 0, 5));
+            editor.EditorPointerDown(repeat, MouseButtons.Left, Keys.Control);
+            editor.EditorPointerUp(repeat, MouseButtons.Left, Keys.Control);
+            editor.FlushPendingRoomUiRefresh();
+            Assert(editor.ActiveTool == RoomEditorControl.RoomTool.Place
+                && ReferenceEquals(instances.SelectedItem, editor.Room.Nodes[^1])
+                && ReferenceEquals(editor.SelectedNode, editor.Room.Nodes[^1]),
+                "Selecting the placed terrain cancelled Ctrl placement or lost the active instance.");
+        }
+        Assert(editor.Room.Nodes.Count == beforeRepeat + 2, "Ctrl placement did not add both terrain instances.");
+        editor.CancelPlacement(); editor.Undo(); editor.Undo(); editor.FlushPendingRoomUiRefresh();
+        Assert(editor.Room.Nodes.Count == beforeRepeat && instances.Items.Count == beforeRepeat,
+            "Repeated terrain placement did not undo cleanly.");
 
         void AssertTerrainPalette()
         {

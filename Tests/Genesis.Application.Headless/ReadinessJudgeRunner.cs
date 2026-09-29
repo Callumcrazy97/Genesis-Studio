@@ -18,12 +18,15 @@ using Genesis.Application.Editors.Suite.UiKit;
 using Genesis.Application.Editors.Suite.Assets;
 using Genesis.Application.Editors.Suite.Scripts;
 using Genesis.Application.Editors.Suite.Objects;
+using Genesis.Application.Editors.Suite.Objects.VisualActions;
+using Genesis.Application.Editors.Suite.Terrain;
 using Genesis.Application.Headless.Suites;
 using Genesis.Application.Studio;
 using Genesis.Application.Studio.Docking;
 using Genesis.Application.Studio.Forms;
 using Genesis.Application.Studio.Theme;
 using Genesis.Rendering.Viewport;
+using Genesis.Runtime.Modeling;
 using Genesis.Shared.Assets;
 using WeifenLuo.WinFormsUI.Docking;
 
@@ -40,7 +43,7 @@ internal sealed record JudgeDecision(string Surface, bool RequiredFor2D, string 
     string Aesthetics, int? UsabilityScore, int? AestheticsScore, IReadOnlyList<string> Findings);
 
 /// <summary>Serial, evidence-based acceptance. Missing evidence can never manufacture a pass.</summary>
-internal static class ReadinessJudgeRunner
+internal static partial class ReadinessJudgeRunner
 {
     internal static readonly JudgeSurface[] Surfaces =
     [
@@ -89,7 +92,7 @@ internal static class ReadinessJudgeRunner
         }
     }
 
-    public static int Evaluate(string root, string? reviewFile)
+    public static int Evaluate(string root, string? reviewFile, JudgeScope scope = JudgeScope.All)
     {
         root = Path.GetFullPath(root);
         Directory.CreateDirectory(root);
@@ -114,6 +117,7 @@ internal static class ReadinessJudgeRunner
         JudgeReview? review = reviewFile is not null
             ? JsonSerializer.Deserialize<JudgeReview>(File.ReadAllText(Path.GetFullPath(reviewFile))) : null;
         List<JudgeDecision> decisions = [];
+        List<JudgeDecision> threeDDecisions = [];
         foreach (JudgeSurface surface in Surfaces)
         {
             TestCaseResult[] evidence = tests.Where(test => test.Name == surface.Workflow
@@ -123,6 +127,7 @@ internal static class ReadinessJudgeRunner
             JudgeRating? rating = review?.ProductFingerprint == fingerprint && !string.IsNullOrWhiteSpace(review.ReviewedBy)
                 ? review.Ratings.FirstOrDefault(item => item.Surface == surface.Name) : null;
             decisions.Add(Decide(surface, evidence, captures, rating, root));
+            threeDDecisions.Add(Decide(surface, evidence, captures, rating, root, ThreeDVariants(surface.Name)));
         }
         string[] mandatory = ["Editor.ResourceInspector", "Editor.Model", "Runtime.PGSL.TwoD",
             "Runtime.Pgsl.ScriptDiscoveryExcludesOutputsAndCachesEmptyProjects", "Runtime.Pgsl.CommandAutoTest",
@@ -147,25 +152,32 @@ internal static class ReadinessJudgeRunner
             "Acceptance.MushroomMeadow.Export.OpenGL", "Acceptance.MushroomMeadow.Export.Software",
             "Acceptance.Text.AuthoredFont.DX11", "Acceptance.Text.AuthoredFont.DX12",
             "Acceptance.Text.AuthoredFont.Vulkan", "Acceptance.Text.AuthoredFont.OpenGL", "Acceptance.Text.AuthoredFont.Software"];
-        var requirements = mandatory.Select(name => new
-        {
-            Name = name,
-            State = tests.Any(test => test.Name == name && !test.Passed) ? "Failed"
-                : tests.Any(test => test.Name == name && test.Passed) ? "Passed" : "Unverified",
-        }).ToArray();
+        JudgeRequirement[] requirements = Requirements(mandatory, tests);
+        JudgeRequirement[] threeDRequirements = Requirements(ThreeDRequirements, tests);
         bool accepted = decisions.Where(item => item.RequiredFor2D).All(item => item.Functionality == "Passed"
             && item.Usability == "Passed" && item.Aesthetics == "Passed") && requirements.All(item => item.State == "Passed");
-        var report = new { CreatedUtc = DateTime.UtcNow, ProductFingerprint = fingerprint, Accepted2D = accepted,
-            Surfaces = decisions, Requirements = requirements, RejectedEvidence = rejectedEvidence,
+        JudgeBuildGate fullBuild = InspectFullBuild(root, fingerprint);
+        bool accepted3D = Complete(threeDDecisions, threeDRequirements) && fullBuild.State == "Passed";
+        bool requestedAccepted = (scope == JudgeScope.ThreeD || accepted) && (scope == JudgeScope.TwoD || accepted3D);
+        var report = new { CreatedUtc = DateTime.UtcNow, ProductFingerprint = fingerprint, Scope = scope.ToString(),
+            Accepted = requestedAccepted, Accepted2D = accepted, Accepted3D = accepted3D,
+            Surfaces = decisions, Requirements = requirements, ThreeDSurfaces = threeDDecisions,
+            ThreeDRequirements = threeDRequirements, FullBuild = fullBuild, RejectedEvidence = rejectedEvidence,
             ScaleLimit = "125/150/200 percent captures exercise the application InterfaceScale preference at the recorded device DPI; native monitor DPI acceptance remains separate." };
         File.WriteAllText(Path.Combine(root, "judge.json"), JsonSerializer.Serialize(report, HeadlessHarness.JsonOptions));
-        Console.WriteLine(accepted ? "JUDGES PASSED: 2D acceptance evidence complete." : "JUDGES NOT ACCEPTED: inspect judge.json for failed and unverified requirements.");
-        return accepted ? 0 : decisions.Any(item => item.Functionality == "Failed" || item.Usability == "Failed"
-            || item.Aesthetics == "Failed") || requirements.Any(item => item.State == "Failed") ? 1 : 2;
+        Console.WriteLine(requestedAccepted ? "JUDGES PASSED: " + scope + " acceptance evidence complete."
+            : "JUDGES NOT ACCEPTED: inspect judge.json for failed and unverified requirements.");
+        IEnumerable<JudgeDecision> requestedDecisions = scope == JudgeScope.TwoD ? decisions.Where(item => item.RequiredFor2D)
+            : scope == JudgeScope.ThreeD ? threeDDecisions : decisions.Concat(threeDDecisions);
+        IEnumerable<JudgeRequirement> requestedRequirements = scope == JudgeScope.TwoD ? requirements
+            : scope == JudgeScope.ThreeD ? threeDRequirements : requirements.Concat(threeDRequirements);
+        return requestedAccepted ? 0 : requestedDecisions.Any(item => item.Functionality == "Failed" || item.Usability == "Failed"
+            || item.Aesthetics == "Failed") || requestedRequirements.Any(item => item.State == "Failed")
+            || (scope != JudgeScope.TwoD && fullBuild.State == "Failed") ? 1 : 2;
     }
 
     internal static JudgeDecision Decide(JudgeSurface surface, IReadOnlyList<TestCaseResult> evidence,
-        IReadOnlyList<JudgeCapture> captures, JudgeRating? rating, string root)
+        IReadOnlyList<JudgeCapture> captures, JudgeRating? rating, string root, IReadOnlyList<string>? requiredVariants = null)
     {
         List<string> findings = evidence.Where(test => !test.Passed).Select(test => test.Name + ": " + test.Error).ToList();
         findings.AddRange(captures.SelectMany(capture => capture.Findings.Select(finding => capture.Variant + ": " + finding)));
@@ -178,7 +190,8 @@ internal static class ReadinessJudgeRunner
             || finding.StartsWith("Preview is wider", StringComparison.Ordinal)
             || finding.StartsWith("Code surface lacks", StringComparison.Ordinal)));
         if (blocking) functional = "Failed";
-        string[] variants = ["normal", "narrow", "scale125", "scale150", "scale200"];
+        bool visualBlocking = captures.Any(capture => capture.Findings.Count > 0);
+        IReadOnlyList<string> variants = requiredVariants ?? ["normal", "narrow", "scale125", "scale150", "scale200"];
         bool complete = variants.All(variant => captures.Any(capture => capture.Variant == variant))
             && captures.All(capture => File.Exists(Path.Combine(root, capture.File))
                 && Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(root, capture.File)))) == capture.Sha256);
@@ -188,8 +201,8 @@ internal static class ReadinessJudgeRunner
         if (!complete) findings.Add("Missing or altered captures; visual evidence cannot pass.");
         if (!reviewed) findings.Add("Usability and aesthetics require a review tied to all current capture hashes.");
         return new(surface.Name, surface.RequiredFor2D, functional,
-            blocking ? "Failed" : reviewed ? rating!.Usability >= 4 ? "Passed" : "Failed" : "Unverified",
-            reviewed ? rating!.Aesthetics >= 4 ? "Passed" : "Failed" : "Unverified",
+            visualBlocking ? "Failed" : reviewed ? rating!.Usability >= 4 ? "Passed" : "Failed" : "Unverified",
+            visualBlocking ? "Failed" : reviewed ? rating!.Aesthetics >= 4 ? "Passed" : "Failed" : "Unverified",
             reviewed ? rating!.Usability : null, reviewed ? rating!.Aesthetics : null, findings);
     }
 
@@ -208,6 +221,8 @@ internal static class ReadinessJudgeRunner
             || surface.Name.Equals(surfaceFilter, StringComparison.OrdinalIgnoreCase)))
         {
             ResourceItem? resource = null;
+            ResourceItem? threeDRoom = null;
+            string? threeDRouteObject = null;
             if (surface.Kind is ResourceKind kind)
             {
                 resource = Flatten(resources.BuildTree()).FirstOrDefault(item => item.Kind == kind);
@@ -240,6 +255,56 @@ internal static class ReadinessJudgeRunner
                 using ModelViewerControl importer = new(resource!.FullPath, project.RootPath);
                 importer.ImportExternalModel(AnimatedGlbFixture.Write(Path.Combine(workspace, "Model review source")));
             }
+            if(surface.Kind==ResourceKind.Terrain)
+            {
+                string terrainModel=resources.CreateResource(ResourceFolderPolicy.RootFor(project,ResourceKind.Model),ResourceKind.Model,"Judge terrain prop");
+                using ModelViewerControl importer=new(terrainModel,project.RootPath);
+                importer.ImportExternalModel(AnimatedGlbFixture.Write(Path.Combine(workspace,"Terrain object review source")));
+                string terrainScript=resources.CreateResource(ResourceFolderPolicy.RootFor(project,ResourceKind.PgslScript),ResourceKind.PgslScript,"Judge terrain behavior");
+                File.WriteAllText(terrainScript,"var speed = 2;\nvar active = true;\nvar label = \"Forest patrol\";\n");
+                ResourceNames.Invalidate(project.RootPath);
+                foreach (ResourceKind assetKind in new[] { ResourceKind.Physics, ResourceKind.Particle, ResourceKind.Shader })
+                    if (!Flatten(resources.BuildTree()).Any(item => item.Kind == assetKind))
+                        resources.CreateResource(ResourceFolderPolicy.RootFor(project, assetKind), assetKind, "Judge terrain " + assetKind);
+                string pineModel = resources.CreateResource(ResourceFolderPolicy.RootFor(project, ResourceKind.Model), ResourceKind.Model, "Review conifer");
+                using (ModelEditorControl pine = new(pineModel, project.RootPath))
+                {
+                    pine.ApplyFixtureTree(new ProceduralTreeOptions
+                    {
+                        Preset = ProceduralTreePreset.StylisedConifer, Quality = ProceduralModelQuality.Draft, Seed = 8102,
+                    });
+                    pine.Save();
+                }
+                string pinePart = Path.Combine(resource!.FullPath + ".parts", "Review pine.terrainpart.json");
+                Directory.CreateDirectory(Path.GetDirectoryName(pinePart)!);
+                using (TerrainEntityWizardDialog pine = new(pinePart, project.RootPath, TerrainEntityType.Tree))
+                {
+                    pine.SetName("Meadow pine");
+                    pine.AddComponent(TerrainEntityComponentKinds.Model);
+                    pine.SetComponentProperty(0, "Model", ResourceNames.Name(project.RootPath, pineModel));
+                    pine.SaveAndCloseForTest();
+                }
+                using (TerrainEditorControl landscape = new(resource.FullPath, project.RootPath))
+                {
+                    landscape.ApplyGeneration(new TerrainGenParams
+                    {
+                        Preset = TerrainPreset.Flatlands, ResolutionX = 65, ResolutionZ = 65,
+                        CellSize = 1, MinHeight = -8, MaxHeight = 16, Seed = 2401,
+                    });
+                    float centerX = landscape.Terrain.OriginX + 32, centerZ = landscape.Terrain.OriginZ + 32;
+                    landscape.GeneratePaths(new Genesis.World.Terrain.TerrainPathSettings { Seed = 2403, PathCount = 2, Width = 3 });
+                    landscape.FillBasinPond(centerX + 8, centerZ + 5, 18, 14, 4);
+                    landscape.ScatterFoliage(new Genesis.World.Foliage.FoliageScatterSettings
+                    {
+                        Seed = 2402, Preset = Genesis.World.Foliage.FoliagePreset.Meadow,
+                        MaximumInstances = 1200, Density = .65f, MinimumSpacing = .75f,
+                    });
+                    foreach ((float x, float z) in new[] { (-12f, -8f), (-7f, -13f), (-16f, 2f) })
+                        landscape.PlaceTerrainEntity(pinePart, centerX + x, centerZ + z);
+                    landscape.Nature.PointsOfInterest.Add(new() { Name = "Meadow overlook", Position = new(centerX, landscape.Terrain.SampleHeight(centerX, centerZ), centerZ) });
+                    landscape.Save();
+                }
+            }
             if (surface.Kind == ResourceKind.PgslScript)
             {
                 using PgslScriptEditorControl authoring = new(resource!.FullPath, project.RootPath);
@@ -254,10 +319,14 @@ internal static class ReadinessJudgeRunner
                 authoring.Builder.SetArgument(print.Id, print.Parameters[0].Name, "score");
                 authoring.Save();
             }
+            if (surface.Name is "Room" or "Pathing" or "Physics")
+                (threeDRoom, threeDRouteObject) = CreateThreeDInspectionResources(surface, resources, project, workspace);
             List<(string Variant, Size Size, float Scale)> variants = new()
                 { ("normal", new Size(1480, 900), 1f), ("narrow", new Size(1080, 700), 1f),
                   ("scale125", new Size(1480, 900), 1.25f), ("scale150", new Size(1480, 900), 1.5f),
                   ("scale200", new Size(1480, 900), 2f) };
+            if (surface.Name is "Room" or "Pathing")
+                variants.AddRange(variants.Select(item => ("3d-" + item.Variant, item.Size, item.Scale)).ToArray());
             if (surface.Name is "Script" or "Object" or "Shader" or "Physics" or "Particle" or "Pathing")
             {
                 variants.Add(("code", new Size(1480, 900), 1f));
@@ -372,9 +441,70 @@ internal static class ReadinessJudgeRunner
                     variants.Add((state + "-scale200", new Size(1480, 900), 2f));
             }
             if (surface.Name == "Model")
-                foreach (string state in new[] { "viewer", "viewer-narrow", "viewer-scale200", "use-in-game", "use-in-game-scale200",
-                    "game-steps-scale200", "options-scale200", "details-scale200", "texture-scale200", "rig-scale200", "outliner-scale200", "empty" })
+            {
+                foreach (string state in new[] { "tube", "tube-narrow", "tube-scale200" })
                     variants.Add((state, new Size(state.EndsWith("narrow", StringComparison.Ordinal) ? 1080 : 1480, 900), state.EndsWith("scale200", StringComparison.Ordinal) ? 2f : 1f));
+                foreach (string state in new[] { "from-image-dialog", "from-image-dialog-narrow", "from-image-dialog-scale200", "from-image-lower-dialog-scale200",
+                    "texture-paint-dialog", "texture-paint-dialog-narrow", "texture-paint-dialog-scale200" })
+                    variants.Add((state, new Size(state.EndsWith("narrow", StringComparison.Ordinal) ? 1080 : 1480, 900), state.EndsWith("scale200", StringComparison.Ordinal) ? 2f : 1f));
+                foreach (string state in new[] { "viewer", "viewer-narrow", "viewer-scale200", "use-in-game", "use-in-game-scale200",
+                    "game-steps-scale200", "options-scale200", "details-scale200", "details-lower-scale200", "texture-scale200", "rig-scale200", "outliner-scale200", "empty" })
+                    variants.Add((state, new Size(state.EndsWith("narrow", StringComparison.Ordinal) ? 1080 : 1480, 900), state.EndsWith("scale200", StringComparison.Ordinal) ? 2f : 1f));
+                foreach (string page in new[] { "create", "edit", "select", "texture", "rig", "outliner" })
+                {
+                    if (page is "edit" or "select") variants.Add((page + "-scale200", new Size(1480, 900), 2f));
+                    variants.Add((page + "-lower-scale200", new Size(1480, 900), 2f));
+                }
+                foreach (string page in new[] { "rig", "pose", "animate" })
+                {
+                    variants.Add((page + "-dialog", new Size(1440, 900), 1f));
+                    variants.Add((page + "-dialog-scale200", new Size(1480, 900), 2f));
+                }
+                variants.Add(("auto-rig-dialog", new Size(1480, 900), 1f));
+                variants.Add(("auto-rig-dialog-scale200", new Size(1480, 900), 2f));
+                foreach (string step in new[] { "orient", "review", "bind", "animate" })
+                {
+                    variants.Add(("auto-rig-" + step + "-dialog", new Size(1480, 900), 1f));
+                    variants.Add(("auto-rig-" + step + "-dialog-scale200", new Size(1480, 900), 2f));
+                    if (step is "orient" or "review" or "animate")
+                        variants.Add(("auto-rig-" + step + "-lower-dialog-scale200", new Size(1480, 900), 2f));
+                }
+            }
+            if (surface.Name == "Terrain")
+            {
+                foreach (string mode in new[] { "create", "sculpt", "paint", "paths", "foliage", "water", "water-river", "water-preview", "environment", "objects" })
+                {
+                    variants.Add((mode, new Size(1480, 900), 1f));
+                    variants.Add((mode + "-scale200", new Size(1480, 900), 2f));
+                    variants.Add((mode + "-lower-scale200", new Size(1480, 900), 2f));
+                }
+                foreach (string state in new[] { "use-in-game", "use-in-game-scale200", "game-steps-scale200", "inspector-scale200",
+                    "options-scale200", "view-options-scale200", "camera-options-scale200", "more-tools-scale200", "panels-scale200",
+                    "create-dialog", "create-dialog-scale200", "create-lower-dialog-scale200",
+                    "scatter-dialog", "scatter-dialog-scale200", "scatter-lower-dialog-scale200" })
+                    variants.Add((state, new Size(1480, 900), state.EndsWith("scale200", StringComparison.Ordinal) ? 2f : 1f));
+                foreach (string state in new[] { "paths-edit", "foliage-generate", "material", "landmark",
+                    "water-properties-surface", "water-properties-flow", "water-properties-gameplay" })
+                {
+                    variants.Add((state + "-dialog", new Size(1480, 900), 1f));
+                    variants.Add((state + "-dialog-scale200", new Size(1480, 900), 2f));
+                    if (state != "landmark") variants.Add((state + "-lower-dialog-scale200", new Size(1480, 900), 2f));
+                }
+                foreach (string state in new[] { "water-inspector-scale200", "objects-inspector-scale200" })
+                    variants.Add((state, new Size(1480, 900), 2f));
+                foreach(string state in new[]{"source-code","source-settings","source-heightmap","source-cave","source-error",
+                    "part-identity","part-category","part-review","part-model","part-texture","part-physics","part-script","part-shader","part-particle","part-audio","part-condition"})
+                {
+                    variants.Add((state+"-dialog",new Size(1480,900),1f));
+                    variants.Add((state+"-dialog-scale200",new Size(1480,900),2f));
+                    if(state is "source-settings" or "part-model" or "part-texture" or "part-physics" or "part-condition")
+                        variants.Add((state+"-lower-dialog-scale200",new Size(1480,900),2f));
+                }
+            }
+            foreach (string state in ThreeDVariants(surface.Name))
+                if (!variants.Any(item => item.Variant == state))
+                    variants.Add((state, new Size(state.EndsWith("narrow", StringComparison.Ordinal) ? 1080 : 1480, 900),
+                        state.EndsWith("scale200", StringComparison.Ordinal) ? 2f : 1f));
             foreach ((string variant, Size size, float scale) in variants)
             {
                 if (variantFilter is not null && !variant.Equals(variantFilter, StringComparison.OrdinalIgnoreCase)) continue;
@@ -419,13 +549,67 @@ internal static class ReadinessJudgeRunner
                         ? new ModelViewerControl(resource!.FullPath, project.RootPath)
                         : new ModelEditorControl(variant == "empty" ? resources.CreateResource(ResourceFolderPolicy.RootFor(project, ResourceKind.Model), ResourceKind.Model, "Empty Model Review") : resource!.FullPath, project.RootPath);
                     host.Controls.Add(inspected);
+                    if (variant.Contains("-dialog", StringComparison.Ordinal) && inspected is ModelEditorControl modelEditor)
+                    {
+                        editorHost = host;
+                        if (variant.StartsWith("texture-paint", StringComparison.Ordinal))
+                        {
+                            ResourceItem image = Flatten(resources.BuildTree()).First(item => item.Kind == ResourceKind.Image
+                                && Path.GetFileName(item.FullPath) == "Checkpoint.image.json");
+                            using ModelImageDialog creation = modelEditor.CreateImageDialog(image.FullPath);
+                            modelEditor.AddImageGeometry(creation.Result!);
+                            host = modelEditor.CreateTexturePaintDialog();
+                        }
+                        else if (variant.StartsWith("from-image", StringComparison.Ordinal))
+                        {
+                            ResourceItem image = Flatten(resources.BuildTree()).First(item => item.Kind == ResourceKind.Image
+                                && Path.GetFileName(item.FullPath) == "Checkpoint.image.json");
+                            host = modelEditor.CreateImageDialog(image.FullPath);
+                            if (variant.Contains("lower", StringComparison.Ordinal))
+                                host.Shown += (_, _) => ((ModelImageDialog)host).ShowGameSteps();
+                        }
+                        else if (variant.StartsWith("auto-rig", StringComparison.Ordinal))
+                        {
+                            ModelRigWizardDialog wizard = new(resource!.FullPath, project.RootPath,
+                                ModelRigWizardSuite.Fixture(Genesis.Runtime.Modeling.GModelBodyPlan.Humanoid, 1));
+                            int step = variant.Split('-')[2] switch { "orient" => 1, "review" => 2, "bind" => 3, "animate" => 4, _ => 0 };
+                            wizard.Setup.Body = Genesis.Runtime.Modeling.GModelBodyPlan.Humanoid;
+                            wizard.Setup.OrientationConfirmed = true; wizard.Setup.ReuseExistingRig = false;
+                            if (step >= 2) WaitModelOperation(wizard.DetectAsync());
+                            if (step >= 3)
+                            {
+                                foreach (var joint in wizard.Setup.Joints) joint.Reviewed = true;
+                                WaitModelOperation(wizard.BindAsync());
+                            }
+                            if (step >= 4) WaitModelOperation(wizard.GenerateAsync([new() { Name = "Walk", Duration = 1.4f }]));
+                            wizard.GoToStep(step); host = wizard;
+                        }
+                        else
+                        {
+                            modelEditor.ApplyAnimationWorkspace(ModelPoseWorkflowSuite.Fixture(), "");
+                            ModelAnimationStudioDialog animation = modelEditor.CreateAnimationStudio(1);
+                            var rest = animation.SaveCurrentPose("Rest");
+                            animation.Preview.SelectAnimationNode("Shoulder");
+                            animation.Preview.RotateSelectedAnimationNode(new System.Numerics.Vector3(0, 0, 55));
+                            var raised = animation.SaveCurrentPose("Arm raised");
+                            animation.GoToPage(2);
+                            DataGridView keys = (DataGridView)animation.Controls.Find("ModelPoseAssignments", true).Single();
+                            keys.Rows.Add(1, rest.Id, "Smooth"); keys.Rows.Add(30, raised.Id, "Smooth"); keys.Rows.Add(60, rest.Id, "Linear");
+                            animation.GenerateFrames();
+                            animation.GoToPage(variant.StartsWith("animate", StringComparison.Ordinal) ? 2 : variant.StartsWith("pose", StringComparison.Ordinal) ? 1 : 0);
+                            host = animation;
+                        }
+                        inspected = host;
+                    }
                 }
                 else if (resource is not null)
                 {
-                    IStudioDocument opened = shell.OpenStudioResource(resource);
+                    ResourceItem openedResource = surface.Name == "Room" && variant.StartsWith("3d-", StringComparison.Ordinal)
+                        ? threeDRoom! : resource;
+                    IStudioDocument opened = shell.OpenStudioResource(openedResource);
                     inspected = opened is Genesis.Application.Studio.Docking.SuiteEditorDocument suite
                         ? suite.Surface.AsControl : (Control)opened;
-                    shell.Inspector.Inspect(resource);
+                    shell.Inspector.Inspect(openedResource);
                 }
                 if (variant.StartsWith("code", StringComparison.Ordinal))
                 {
@@ -464,11 +648,21 @@ internal static class ReadinessJudgeRunner
                 }
                 if (inspected is RoomEditorControl roomWorkflow)
                 {
+                    if (variant.StartsWith("3d-", StringComparison.Ordinal))
+                    {
+                        if (roomWorkflow.Room.Dimension != Genesis.Runtime.Scene.RoomDimension.ThreeD)
+                            throw new InvalidOperationException("3D Room evidence opened a 2D document.");
+                        roomWorkflow.FrameContentForTest();
+                    }
                     string page = variant.Split('-')[0];
                     RoomNavSection section = page switch { "instances" => RoomNavSection.Instances, "tilesets" or "rename" => RoomNavSection.Tilesets,
                         "backgrounds" or "background" => RoomNavSection.Backgrounds, "views" or "view" or "follow" or "output" or "camera" => RoomNavSection.Views,
                         "settings" or "physics" => RoomNavSection.Settings, _ => RoomNavSection.Objects };
                     roomWorkflow.Navigation.SetSection(section);
+                    if (variant.StartsWith("3d-camera-list", StringComparison.Ordinal))
+                    { roomWorkflow.Navigation.SetSection(RoomNavSection.Views); roomWorkflow.RefreshSceneViews(); }
+                    if (variant.StartsWith("3d-physics-overlay", StringComparison.Ordinal))
+                    { roomWorkflow.SetPhysicsOverlayVisible(true); roomWorkflow.StepPhysicsPreview(); }
                     if (variant == "background-color-scale200")
                         Descendants(roomWorkflow.Navigation.BackgroundsPanel).OfType<ComboBox>().Single(combo => combo.Items.Cast<object>().Any(item => item.ToString() == "Colour")).SelectedItem = "Colour";
                     if (variant is "follow-scale200" or "output-scale200" or "camera-guides-scale200")
@@ -658,7 +852,16 @@ internal static class ReadinessJudgeRunner
                 if (inspected is PhysicsEditorControl physicsSurface)
                 {
                     ToolStripDropDownButton options = physicsSurface.CommandBar.Items.OfType<ToolStripDropDownButton>().Single(item => item.Text == "Options");
-                    if (variant.StartsWith("2d", StringComparison.Ordinal))
+                    if (variant.StartsWith("3d-", StringComparison.Ordinal))
+                    {
+                        physicsSurface.SetPreview2D(false);
+                        string objectFile = ResourceNames.Resolve(project.RootPath, threeDRouteObject, ResourceType.Object);
+                        string modelReference = (string)Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(objectFile))["components"]![0]!["props"]!["ModelAsset"]!;
+                        if (!physicsSurface.ChooseModel(modelReference)) throw new InvalidOperationException("Physics could not preview the saved 3D Model.");
+                        if (variant.StartsWith("3d-use-in-game", StringComparison.Ordinal) || variant == "3d-game-steps-scale200")
+                            physicsSurface.CommandBar.Items.OfType<ToolStripButton>().Single(item => item.Text == "Use in game").PerformClick();
+                    }
+                    else if (variant.StartsWith("2d", StringComparison.Ordinal))
                     {
                         physicsSurface.SetPreview2D(true);
                         var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
@@ -685,6 +888,90 @@ internal static class ReadinessJudgeRunner
                         Descendants(physicsSurface).OfType<ComboBox>().Single(control => control.Name == "PhysicsBodyChoice").SelectedItem =
                             variant == "body-static" ? Genesis.Physics.PhysicsBodyKind.Static : Genesis.Physics.PhysicsBodyKind.Kinematic;
                 }
+                if (inspected is TerrainEditorControl terrainSurface)
+                {
+                    EditorCommandBar commands = Descendants(terrainSurface).OfType<EditorCommandBar>().Single(bar => bar.Name == "TerrainCommands");
+                    ToolStripDropDownButton options = commands.Items.OfType<ToolStripDropDownButton>().Single(item => item.Text == "Options");
+                    TerrainEditorControl.TerrainEditorMode? mode = variant.Split('-')[0] switch
+                    {
+                        "create" => TerrainEditorControl.TerrainEditorMode.Generate,
+                        "sculpt" => TerrainEditorControl.TerrainEditorMode.Sculpt,
+                        "paint" => TerrainEditorControl.TerrainEditorMode.Paint,
+                        "paths" => TerrainEditorControl.TerrainEditorMode.Paths,
+                        "foliage" => TerrainEditorControl.TerrainEditorMode.Foliage,
+                        "water" => TerrainEditorControl.TerrainEditorMode.Water,
+                        "environment" => TerrainEditorControl.TerrainEditorMode.Environment,
+                        "objects" => TerrainEditorControl.TerrainEditorMode.Entities,
+                        _ => null,
+                    };
+                    if (mode is { } active) terrainSurface.SetMode(active);
+                    if (variant.StartsWith("use-in-game", StringComparison.Ordinal) || variant == "game-steps-scale200")
+                        commands.Items.OfType<ToolStripButton>().Single(button => button.Text == "Use in game").PerformClick();
+                    if (variant.EndsWith("inspector-scale200", StringComparison.Ordinal))
+                        options.DropDownItems.OfType<ToolStripMenuItem>().Single(item => item.Text == "Panels").DropDownItems.OfType<ToolStripMenuItem>()
+                            .Single(item => item.Text == "Objects and Inspector").PerformClick();
+                    if (variant.StartsWith("water-inspector", StringComparison.Ordinal))
+                        Descendants(terrainSurface).OfType<TerrainComponentsPanel>().Single()
+                            .Select(TerrainComponentsPanel.ComponentKind.Water, terrainSurface.Nature.WaterBodies[0].Id);
+                    if (variant.StartsWith("objects-inspector", StringComparison.Ordinal))
+                        Descendants(terrainSurface).OfType<TerrainComponentsPanel>().Single()
+                            .Select(TerrainComponentsPanel.ComponentKind.Entity, terrainSurface.Nature.PlacedEntities[0].Id);
+                    if (variant == "options-scale200") openMenu = options;
+                    if (variant is "view-options-scale200" or "camera-options-scale200" or "more-tools-scale200" or "panels-scale200")
+                        openMenu = options.DropDownItems.OfType<ToolStripDropDownItem>().Single(item => item.Text == (variant.Split('-')[0] switch
+                            { "view" => "View", "camera" => "Camera", "more" => "More terrain tools", _ => "Panels" }));
+                    if (variant.Contains("-dialog", StringComparison.Ordinal))
+                    {
+                        if (variant.StartsWith("water-properties-", StringComparison.Ordinal))
+                            host = new TerrainWaterDialog(terrainSurface.Nature.WaterBodies, System.Numerics.Vector3.Zero);
+                        else if (variant.StartsWith("paths-edit-", StringComparison.Ordinal)) host = new TerrainPathDialog(terrainSurface.Nature.PathSettings);
+                        else if (variant.StartsWith("foliage-generate-", StringComparison.Ordinal)) host = new FoliageScatterDialog(terrainSurface.Nature.FoliageSettings);
+                        else if (variant.StartsWith("material-", StringComparison.Ordinal)) host = terrainSurface.CreateLayerMaterialDialog(0);
+                        else if (variant.StartsWith("landmark-", StringComparison.Ordinal)) host = terrainSurface.CreatePointOfInterestDialog(terrainSurface.Nature.PointsOfInterest[0].Id);
+                        else if (variant.StartsWith("scatter-", StringComparison.Ordinal)) host = terrainSurface.CreateScatterSettingsDialog();
+                        else if(variant.StartsWith("source-",StringComparison.Ordinal))
+                            host=new TerrainSourceWizard(new TerrainCreationRecipe {Name="Review landscape",Source=TerrainCreationSource.Code,
+                                Width=160,Length=160,Spacing=4,MinHeight=-8,MaxHeight=55},project.RootPath);
+                        else if(variant.StartsWith("part-",StringComparison.Ordinal))
+                        {
+                            string partPath=Path.Combine(workspace,"Review.terrainpart.json");
+                            if(File.Exists(partPath))File.Delete(partPath);
+                            var part=new TerrainEntityWizardDialog(partPath,project.RootPath,TerrainEntityType.Object);
+                            part.SetName("Forest prop");
+                            string partKind=variant.Split('-')[1] switch
+                            {
+                                "model"=>TerrainEntityComponentKinds.Model,"texture"=>TerrainEntityComponentKinds.Texture,
+                                "physics"=>TerrainEntityComponentKinds.Physics,"script"=>TerrainEntityComponentKinds.Script,
+                                "shader"=>TerrainEntityComponentKinds.Shader,"particle"=>TerrainEntityComponentKinds.ParticleEmitter,
+                                "audio"=>TerrainEntityComponentKinds.AudioEmitter,"condition"=>TerrainEntityComponentKinds.Condition,_=>""
+                            };
+                            if(partKind.Length>0)
+                            {
+                                part.AddComponent(partKind);
+                                (ResourceKind Kind,string Property)? binding=partKind switch
+                                {
+                                    TerrainEntityComponentKinds.Model=>(ResourceKind.Model,"Model"),TerrainEntityComponentKinds.Texture=>(ResourceKind.Image,"Texture"),
+                                    TerrainEntityComponentKinds.Physics=>(ResourceKind.Physics,"Physics"),TerrainEntityComponentKinds.Script=>(ResourceKind.PgslScript,"Script"),
+                                    TerrainEntityComponentKinds.Shader=>(ResourceKind.Shader,"Shader"),TerrainEntityComponentKinds.ParticleEmitter=>(ResourceKind.Particle,"Particle"),
+                                    TerrainEntityComponentKinds.AudioEmitter=>(ResourceKind.Audio,"Audio"),_=>null
+                                };
+                                if(binding is { } reference)
+                                {
+                                    ResourceItem[] matching=Flatten(resources.BuildTree()).Where(item=>item.Kind==reference.Kind).ToArray();
+                                    ResourceItem? linked=matching.FirstOrDefault(item=>item.Name.StartsWith("Judge terrain",StringComparison.Ordinal))??matching.FirstOrDefault();
+                                    if(linked is not null)part.SetComponentProperty(0,reference.Property,ResourceNames.Name(project.RootPath,linked.FullPath));
+                                }
+                                if(partKind==TerrainEntityComponentKinds.Model)part.SetComponentProperty(0,"AnimationClip","Wave");
+                                if(partKind==TerrainEntityComponentKinds.Condition)part.SetComponentProperty(0,"If","PointDistance(0, 0, x, y) < 10");
+                                part.GoToPage(2);
+                            }
+                            else part.GoToPage(variant.StartsWith("part-category",StringComparison.Ordinal)?1:variant.StartsWith("part-review",StringComparison.Ordinal)?3:0);
+                            host=part;
+                        }
+                        else host = new TerrainCreationWizardDialog("Review landscape");
+                        inspected = host; dialog = true;
+                    }
+                }
                 if (inspected is AudioEditorControl audioSurface)
                 {
                     ToolStripDropDownButton options = audioSurface.CommandBar.Items.OfType<ToolStripDropDownButton>().Single(item => item.Text == "Options");
@@ -709,8 +996,13 @@ internal static class ReadinessJudgeRunner
                         ResourceItem previewObject = Flatten(resources.BuildTree()).First(item => item.Kind == ResourceKind.GameObject
                             && Path.GetFileName(item.FullPath) == "Explorer.object.json");
                         string reference = Path.GetRelativePath(project.RootPath, previewObject.FullPath).Replace('\\', '/');
-                        pathingSurface.Code.CodeText = "pathing \"Sprite patrol\" {\n dimension: TwoD\n object: \"" + reference + "\"\n preview_agents: 1\n mode: WaypointPatrol\n loop: PingPong\n speed: 80\n animation: \"Run\"\n waypoint \"Start\" (64, 64, 0) wait 0 curve false\n waypoint \"Bend\" (160, 192, 0) wait 0 curve true\n waypoint \"End\" (320, 96, 0) wait 0 curve false\n}\n";
+                        pathingSurface.Code.CodeText = variant.StartsWith("3d-", StringComparison.Ordinal)
+                            ? "pathing \"Model patrol\" {\n dimension: ThreeD\n object: \"" + threeDRouteObject + "\"\n preview_agents: 1\n mode: WaypointPatrol\n loop: PingPong\n speed: 2\n animation: \"Wave\"\n waypoint \"Start\" (-4, 0, -4) wait 0 curve false\n waypoint \"Bend\" (0, 0, 4) wait 0 curve true\n waypoint \"End\" (4, 0, -4) wait 0 curve false\n}\n"
+                            : "pathing \"Sprite patrol\" {\n dimension: TwoD\n object: \"" + reference + "\"\n preview_agents: 1\n mode: WaypointPatrol\n loop: PingPong\n speed: 80\n animation: \"Run\"\n waypoint \"Start\" (64, 64, 0) wait 0 curve false\n waypoint \"Bend\" (160, 192, 0) wait 0 curve true\n waypoint \"End\" (320, 96, 0) wait 0 curve false\n}\n";
                         pathingSurface.Save();
+                        if (variant.StartsWith("3d-", StringComparison.Ordinal)
+                            && pathingSurface.Dimension != Genesis.Runtime.Navigation.PathingDimension.ThreeD)
+                            throw new InvalidOperationException("3D Pathing evidence remained on the XY plane.");
                         var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
                         typeof(PathingEditorControl).GetMethod("ScrubTo", flags)!.Invoke(pathingSurface, [1.5f]);
                     }
@@ -725,7 +1017,8 @@ internal static class ReadinessJudgeRunner
                     }
                     if (variant == "telemetry-scale200") options.DropDownItems.OfType<ToolStripMenuItem>().Single(item => item.Text == "Agent telemetry").PerformClick();
                     if (variant == "timeline-scale200") options.DropDownItems.OfType<ToolStripMenuItem>().Single(item => item.Text == "Speed timeline").PerformClick();
-                    if (variant.StartsWith("use-in-game", StringComparison.Ordinal) || variant == "game-steps-scale200")
+                    if (variant.StartsWith("use-in-game", StringComparison.Ordinal) || variant.StartsWith("3d-use-in-game", StringComparison.Ordinal)
+                        || variant is "game-steps-scale200" or "3d-game-steps-scale200")
                         pathingSurface.CommandBar.Items.OfType<ToolStripButton>().Single(item => item.Text == "Use in game").PerformClick();
                     if (variant == "options-scale200") openMenu = options;
                     if (variant == "code-error-scale200") { pathingSurface.Code.CodeText += "\nunknown: broken"; try { pathingSurface.Save(); } catch (InvalidDataException) { } }
@@ -817,20 +1110,97 @@ internal static class ReadinessJudgeRunner
                     if (!dialog) host.ClientSize = size;
                     if (host != shell) ThemeService.Apply(host);
                     GateSuite.ShowHost(host);
+                    if(host is TerrainSourceWizard sourceWizard)
+                    {
+                        TabControl tabs=Descendants(sourceWizard).OfType<TabControl>().Single(tab=>tab.Name=="TerrainRecipeTabs");
+                        if(variant.StartsWith("source-settings",StringComparison.Ordinal))tabs.SelectedIndex=1;
+                        else if(variant.StartsWith("source-heightmap",StringComparison.Ordinal))
+                        {
+                            var heightmap=Genesis.Application.Editors.Image.Imaging.ImageWorkspace.CreateBlank(64,64,Color.FromArgb(128,128,128));
+                            WaitModelOperation(sourceWizard.UpdateHeightmapAsync(heightmap));
+                        }
+                        else
+                        {
+                            if(variant.StartsWith("source-cave",StringComparison.Ordinal))
+                                Descendants(sourceWizard).OfType<Button>().Single(button=>button.Text=="Cave").PerformClick();
+                            if(variant.StartsWith("source-error",StringComparison.Ordinal))sourceWizard.Code.CodeText="height = missing_function(x);";
+                            WaitModelOperation(sourceWizard.GeneratePreviewAsync());
+                            if(variant.StartsWith("source-code",StringComparison.Ordinal))
+                            {
+                                sourceWizard.Code.CodeText += "\n// Continue editing the next sample here.\nheight = clamp(noise(x, z), ";
+                                sourceWizard.Code.MoveCaret(sourceWizard.Code.CodeText.Length);
+                            }
+                        }
+                        sourceWizard.ApplyInterfaceLayout();GateSuite.Pump(3,20);
+                    }
+                    if (host is TerrainWaterDialog waterDialog)
+                        Descendants(waterDialog).OfType<TabControl>().Single(tabs => tabs.Name == "TerrainWaterSettingsTabs").SelectedIndex =
+                            variant.StartsWith("water-properties-flow", StringComparison.Ordinal) ? 1 : variant.StartsWith("water-properties-gameplay", StringComparison.Ordinal) ? 2 : 0;
+                    if(host is TerrainEntityWizardDialog||host is TerrainSourceWizard||host is TerrainCreationWizardDialog
+                        ||host is TerrainWaterDialog||host is TerrainPathDialog||host is FoliageScatterDialog
+                        ||variant.StartsWith("scatter-", StringComparison.Ordinal)||variant.StartsWith("material-", StringComparison.Ordinal))
+                    {
+                        if(variant.Contains("-lower-",StringComparison.Ordinal))
+                        {
+                            ScrollableControl scroll=Descendants(host).OfType<ScrollableControl>().First(control=>control.Visible&&control.AutoScroll);
+                            scroll.AutoScrollPosition=new Point(0,int.MaxValue);GateSuite.Pump(3,20);
+                        }
+                        if(host is TerrainEntityWizardDialog&&variant.StartsWith("part-condition",StringComparison.Ordinal))
+                        {
+                            CodeEditor condition=Descendants(host).OfType<CodeEditor>().Single(code=>code.Name=="TerrainConditionCode");
+                            condition.CodeText="PointDistance(0, ";condition.MoveCaret(condition.CodeText.Length);
+                        }
+                    }
+                    if (host is ModelRigWizardDialog framedWizard) framedWizard.Preview.FrameModelForTest();
+                    if (host is ModelAnimationStudioDialog framedAnimation) framedAnimation.Preview.FrameModelForTest();
                     if (inspected is ModelViewerControl modelView)
                     {
+                        if (modelView is ModelEditorControl pullEditor && variant.StartsWith("push-pull", StringComparison.Ordinal))
+                        {
+                            GModelAsset pulled = GModelPrimitiveFactory.CreateCube("Face pull example", 1);
+                            ModelPartBuilder.ExtrudeFaces(pulled.Meshes[0], [8], .35f);
+                            pullEditor.ApplyAnimationWorkspace(pulled, "");
+                            Descendants(pullEditor).OfType<ToolStrip>().SelectMany(strip => strip.Items.OfType<ToolStripButton>())
+                                .Single(button => button.Text?.EndsWith("Edit", StringComparison.Ordinal) == true).PerformClick();
+                            pullEditor.SelectTool(ModelAuthoringTool.Push); pullEditor.FrameModel();
+                            pullEditor.Viewport.Camera.Yaw = MathF.PI - .55f; pullEditor.Viewport.Camera.Pitch = -.2f;
+                        }
+                        if (modelView is ModelEditorControl tubeEditor && variant.StartsWith("tube", StringComparison.Ordinal))
+                        {
+                            tubeEditor.ApplyAnimationWorkspace(new Genesis.Runtime.Modeling.GModelAsset(), "");
+                            tubeEditor.CreateTube(Enumerable.Range(0, 40).Select(i => new System.Numerics.Vector3(-1.8f + i * .09f, MathF.Sin(i * .13f) * .8f, 0)).ToArray(), .22f, .75f);
+                            tubeEditor.SelectTool(ModelAuthoringTool.Tube); tubeEditor.ConfigureTube(.22f, .75f);
+                            tubeEditor.SetCameraView("Front"); tubeEditor.FrameModel();
+                            Control guide = Descendants(tubeEditor).Single(control => control.Name == "ModelTubeGuide");
+                            ((ScrollableControl)guide.Parent!.Parent!.Parent!).ScrollControlIntoView(guide.Parent.Parent);
+                        }
                         modelView.SelectClip("Wave"); modelView.SetFrame(0);
                         if (variant.StartsWith("use-in-game", StringComparison.Ordinal) || variant == "game-steps-scale200")
                             Descendants(modelView).OfType<EditorCommandBar>().Single().Items.OfType<ToolStripButton>().Single(item => item.Text == "Use in game").PerformClick();
                         if (variant == "options-scale200") openMenu = Descendants(modelView).OfType<EditorCommandBar>().Single().Items.OfType<ToolStripDropDownButton>().Single(item => item.Text == "Options");
-                        if (variant == "details-scale200")
+                        if (variant.StartsWith("details-", StringComparison.Ordinal))
+                        {
                             Descendants(modelView).OfType<EditorCommandBar>().Single().Items.OfType<ToolStripDropDownButton>().Single(item => item.Text == "Options")
                                 .DropDownItems.OfType<ToolStripMenuItem>().Single(item => item.Text == "Model details panel").PerformClick();
-                        if (modelView is ModelEditorControl modelTools && variant is "texture-scale200" or "rig-scale200" or "outliner-scale200")
+                            if (variant.Contains("-lower-", StringComparison.Ordinal))
+                            {
+                                FlowLayoutPanel details = Descendants(modelView).OfType<FlowLayoutPanel>().Single(panel => panel.Name == "ModelEditorInspector");
+                                details.AutoScrollPosition = new Point(0, Math.Max(0, details.DisplayRectangle.Height - details.ClientSize.Height));
+                            }
+                        }
+                        if (modelView is ModelEditorControl modelTools && variant.EndsWith("scale200", StringComparison.Ordinal)
+                            && variant.Split('-')[0] is "create" or "edit" or "select" or "texture" or "rig" or "outliner")
                         {
-                            string target = variant == "texture-scale200" ? "Texture" : variant == "rig-scale200" ? "Rig" : "Outliner";
-                            Descendants(modelTools).OfType<ToolStrip>().SelectMany(strip => strip.Items.OfType<ToolStripButton>()).Single(button => button.Text!.Contains(target, StringComparison.Ordinal)).PerformClick();
+                            string target = variant.Split('-')[0];
+                            Descendants(modelTools).OfType<ToolStrip>().SelectMany(strip => strip.Items.OfType<ToolStripButton>())
+                                .Single(button => button.Text!.Split('\n').Last().Equals(target, StringComparison.OrdinalIgnoreCase)).PerformClick();
                             modelView.SelectClip("Wave"); modelView.SetFrame(0);
+                            if (variant.Contains("-lower-", StringComparison.Ordinal))
+                            {
+                                FlowLayoutPanel page = Descendants(modelTools).OfType<FlowLayoutPanel>().Single(panel => panel.Visible && panel.AutoScroll);
+                                page.AutoScrollPosition = new Point(0, Math.Max(0, page.DisplayRectangle.Height - page.ClientSize.Height));
+                                GateSuite.Pump(3, 20);
+                            }
                         }
                         if (variant == "game-steps-scale200")
                             Descendants(modelView).OfType<FlowLayoutPanel>().Single(page => page.Name == "ModelUseInGame").AutoScrollPosition = new Point(0, 10000);
@@ -858,6 +1228,30 @@ internal static class ReadinessJudgeRunner
                     if (openMenu?.OwnerItem is ToolStripDropDownItem parentMenu) parentMenu.ShowDropDown();
                     openMenu?.ShowDropDown();
                     GateSuite.Pump(6, 20);
+                    if (inspected is TerrainEditorControl terrainLayout)
+                    {
+                        if (variant.StartsWith("water-river", StringComparison.Ordinal) || variant.StartsWith("water-preview", StringComparison.Ordinal))
+                            Descendants(terrainLayout).OfType<ComboBox>().Single(combo => combo.Name == "TerrainWaterWorkflow")
+                                .SelectedIndex = variant.StartsWith("water-river", StringComparison.Ordinal) ? 1 : 2;
+                        terrainLayout.ApplyInterfaceLayout(); GateSuite.Pump(3, 20);
+                        if (variant.Contains("-lower-", StringComparison.Ordinal) || variant == "game-steps-scale200")
+                        {
+                            FlowLayoutPanel page = Descendants(terrainLayout).OfType<FlowLayoutPanel>().Single(panel => panel.Visible && panel.AutoScroll
+                                && (panel.Name.StartsWith("TerrainMode", StringComparison.Ordinal) || panel.Name == "TerrainUseInGame"));
+                            page.AutoScrollPosition = new Point(0, int.MaxValue); GateSuite.Pump(3, 20);
+                        }
+                    }
+                    if (host is ModelRigWizardDialog && variant.Contains("-lower-", StringComparison.Ordinal))
+                    {
+                        FlowLayoutPanel fields = Descendants(host).OfType<FlowLayoutPanel>().Single(panel => panel.Name == "ModelRigWizardFields");
+                        Control last = fields.Controls.Cast<Control>().Last();
+                        fields.ScrollControlIntoView(last);
+                        GateSuite.Pump(3, 20);
+                        fields.AutoScrollPosition = new Point(0, int.MaxValue);
+                        GateSuite.Pump(3, 20);
+                        if (!fields.ClientRectangle.Contains(last.Bounds))
+                            throw new InvalidOperationException($"The wizard's final settings cannot be scrolled into view: {last.Bounds} within {fields.ClientRectangle}; position {fields.AutoScrollPosition}, display {fields.DisplayRectangle}, range {fields.VerticalScroll.Maximum}, page {fields.VerticalScroll.LargeChange}.");
+                    }
                     if (surface.Name == "Script" && variant == "function-error-scale200")
                     {
                         Descendants(host).OfType<TextBox>().Single(control => control.Name == "ScriptFunctionName").Text = "Bad name";
@@ -911,16 +1305,16 @@ internal static class ReadinessJudgeRunner
                         scroll.AutoScrollPosition = new Point(0, Math.Max(0, scroll.DisplayRectangle.Height - scroll.ClientSize.Height));
                         GateSuite.Pump(2, 10);
                     }
-                    if (inspected is PhysicsEditorControl && variant is "game-steps-scale200" or "quick-fields-scale200")
+                    if (inspected is PhysicsEditorControl && variant is "game-steps-scale200" or "3d-game-steps-scale200" or "quick-fields-scale200")
                     {
-                        string name = variant == "game-steps-scale200" ? "PhysicsUseInGame" : "PhysicsQuickSetup";
+                        string name = variant is "game-steps-scale200" or "3d-game-steps-scale200" ? "PhysicsUseInGame" : "PhysicsQuickSetup";
                         FlowLayoutPanel scroll = Descendants(inspected).OfType<FlowLayoutPanel>().Single(control => control.Name == name);
                         scroll.AutoScrollPosition = new Point(0, Math.Max(0, scroll.DisplayRectangle.Height - scroll.ClientSize.Height));
                         GateSuite.Pump(2, 10);
                     }
-                    if (inspected is PathingEditorControl && variant is "game-steps-scale200" or "quick-points-scale200" or "advanced" or "advanced-scale200" or "mode-search-scale200" or "mode-wander-scale200" or "mode-follow-scale200")
+                    if (inspected is PathingEditorControl && variant is "game-steps-scale200" or "3d-game-steps-scale200" or "quick-points-scale200" or "advanced" or "advanced-scale200" or "mode-search-scale200" or "mode-wander-scale200" or "mode-follow-scale200")
                     {
-                        if (variant == "game-steps-scale200")
+                        if (variant is "game-steps-scale200" or "3d-game-steps-scale200")
                         {
                             ScrollableControl guide = Descendants(inspected).OfType<ScrollableControl>().Single(control => control.Name == "PathingUseInGame");
                             guide.AutoScrollPosition = new Point(0, Math.Max(0, guide.DisplayRectangle.Height - guide.ClientSize.Height));
@@ -1095,8 +1489,11 @@ internal static class ReadinessJudgeRunner
                 }
             }
         }
-        File.WriteAllText(Path.Combine(output, "capture-manifest.json"), JsonSerializer.Serialize(
-            new JudgeCaptureManifest(ProductFingerprint(), captures), HeadlessHarness.JsonOptions));
+        string manifestFile = Path.Combine(output, "capture-manifest.json");
+        JudgeCaptureManifest? previous = File.Exists(manifestFile)
+            ? JsonSerializer.Deserialize<JudgeCaptureManifest>(File.ReadAllText(manifestFile)) : null;
+        File.WriteAllText(manifestFile, JsonSerializer.Serialize(
+            MergeCaptures(ProductFingerprint(), previous, captures), HeadlessHarness.JsonOptions));
         int failed = captures.Count(capture => string.IsNullOrEmpty(capture.File));
         Console.WriteLine($"Captured {captures.Count - failed} populated layouts; {failed} inspection failures. Subjective ratings remain unverified.");
         return failed == 0 ? 0 : 1;
@@ -1106,7 +1503,31 @@ internal static class ReadinessJudgeRunner
     {
         List<string> findings = [];
         foreach (CodeEditor editor in Descendants(root).OfType<CodeEditor>())
+        {
             if (!editor.HasIntelligenceProvider) findings.Add("Code surface lacks a completion/signature provider.");
+            if (editor.Visible && editor.Parent is TableLayoutPanel parent
+                && (editor.Left < parent.ClientRectangle.Left || editor.Right > parent.ClientRectangle.Right))
+                findings.Add("Code area exceeds its field width.");
+        }
+        foreach (VisualActionBuilderControl builder in Descendants(root).OfType<VisualActionBuilderControl>())
+        foreach (TreeView tree in Descendants(builder).OfType<TreeView>().Where(tree => tree.Visible))
+            if (tree.ClientSize.Height < tree.Font.Height * 3)
+                findings.Add("Action toolbox has insufficient space to choose actions.");
+        foreach (RichTextBox help in Descendants(root).OfType<RichTextBox>()
+                     .Where(help => help.Name == "CodeSignatureHelp" && help.Visible && help.IsHandleCreated && help.TextLength > 0))
+        {
+            for (int index = 0; index < help.TextLength; index++)
+            {
+                if (index + 1 < help.TextLength && help.Text[index + 1] != '\n') continue;
+                int visibleEnd = index > 0 && help.Text[index] == '\r' ? index - 1 : index;
+                Point end = help.GetPositionFromCharIndex(visibleEnd);
+                Size glyph = TextRenderer.MeasureText(help.Text[visibleEnd].ToString(), EditorChrome.SmallFont,
+                    Size.Empty, TextFormatFlags.NoPadding);
+                if (end.X + glyph.Width <= help.ClientSize.Width && end.Y + glyph.Height <= help.ClientSize.Height + 4) continue;
+                findings.Add("Call signature or description is clipped.");
+                break;
+            }
+        }
         foreach (ToolStrip strip in Descendants(root).OfType<ToolStrip>())
         foreach (IGrouping<string, ToolStripItem> group in strip.Items.Cast<ToolStripItem>()
                      .Where(item => item.Available && item is ToolStripButton && !string.IsNullOrWhiteSpace(item.Text))
@@ -1119,6 +1540,14 @@ internal static class ReadinessJudgeRunner
                 && !parent.ClientRectangle.Contains(button.Bounds)) findings.Add("Clipped button: " + button.Text);
         }
         return findings.Distinct(StringComparer.Ordinal).ToList();
+    }
+
+    private static void WaitModelOperation(Task task)
+    {
+        long deadline = Environment.TickCount64 + 30000;
+        while (!task.IsCompleted && Environment.TickCount64 < deadline) GateSuite.Pump(1, 5);
+        if (!task.IsCompleted) throw new TimeoutException("Model wizard operation did not finish in 30 seconds.");
+        task.GetAwaiter().GetResult();
     }
 
     private static IEnumerable<Control> Descendants(Control root)

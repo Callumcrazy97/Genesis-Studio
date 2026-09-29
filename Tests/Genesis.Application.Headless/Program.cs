@@ -30,7 +30,16 @@ internal static class Program
         if (args.Length >= 2 && args[0] == "--judge")
         {
             int reviewIndex = Array.IndexOf(args, "--review");
-            return ReadinessJudgeRunner.Evaluate(args[1], reviewIndex >= 0 && reviewIndex + 1 < args.Length ? args[reviewIndex + 1] : null);
+            int scopeIndex = Array.IndexOf(args, "--scope");
+            JudgeScope scope = JudgeScope.All;
+            if (scopeIndex >= 0)
+            {
+                string value = scopeIndex + 1 < args.Length ? args[scopeIndex + 1].ToLowerInvariant() : "";
+                if (value is not ("2d" or "3d" or "all"))
+                { Console.Error.WriteLine("Judge scope must be 2d, 3d or all."); return 2; }
+                scope = value == "2d" ? JudgeScope.TwoD : value == "3d" ? JudgeScope.ThreeD : JudgeScope.All;
+            }
+            return ReadinessJudgeRunner.Evaluate(args[1], reviewIndex >= 0 && reviewIndex + 1 < args.Length ? args[reviewIndex + 1] : null, scope);
         }
         if (args.Length>=3 && args[0]=="--rig-review") return RigReviewCaptureRunner.Run(Path.GetFullPath(args[1]),Path.GetFullPath(args[2]));
         if (args.Length>=2 && args[0]=="--layer-frame-review") return LayerFrameCaptureRunner.Run(Path.GetFullPath(args[1]));

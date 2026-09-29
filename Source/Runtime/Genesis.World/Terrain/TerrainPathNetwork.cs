@@ -145,6 +145,8 @@ public sealed class TerrainPathDefinition
     public TerrainPathKind Kind { get; set; } = TerrainPathKind.Trail;
     public float Width { get; set; } = 4f;
     public List<Vector3> Points { get; set; } = new();
+    /// <summary>The visible surface is already in terrain paint; retain route data without a duplicate ribbon.</summary>
+    public bool SurfacePainted { get; set; }
 
     public float Length
     {

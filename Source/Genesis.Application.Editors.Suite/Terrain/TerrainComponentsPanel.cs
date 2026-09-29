@@ -31,6 +31,7 @@ public sealed class TerrainComponentsPanel : Panel
     };
     private TerrainComponentInventory _inventory = new([], [], [], "No foliage", [], []);
     private string _filterText = "";
+    private int _selectionNotificationVersion;
     private readonly ImageList _icons = new() { ImageSize = new Size(24, 24), ColorDepth = ColorDepth.Depth32Bit };
     private readonly List<Bitmap> _iconSources = [];
 
@@ -58,6 +59,7 @@ public sealed class TerrainComponentsPanel : Panel
         _tree.ShowRootLines = true;
         _tree.AfterSelect += (_, _) =>
         {
+            _selectionNotificationVersion++;
             if (_tree.SelectedNode?.Tag is ComponentSelection selection)
             {
                 SelectionChanged?.Invoke(this, selection);
@@ -123,28 +125,31 @@ public sealed class TerrainComponentsPanel : Panel
         _tools.Dock = DockStyle.Top;
         _tools.Items.Add(_add);
         _add.Text = "+ Add";
-        _tools.Items.Add(EditorChrome.ToolButton("/", "Edit the selected terrain object", RequestEdit));
-        _tools.Items.Add(EditorChrome.ToolButton("−", "Delete the selected terrain object", RequestDelete));
-        _add.Text = "+";
-        _tools.AutoSize = false; _tools.Height = 38; _tools.Padding = new Padding(3);
+        _tools.Items.Add(EditorChrome.ToolButton("Edit", "Edit the selected terrain object", RequestEdit));
+        _tools.Items.Add(EditorChrome.ToolButton("Delete", "Delete the selected terrain object", RequestDelete));
+        _add.Text = "Add";
+        _tools.AutoSize = true;
         _tools.BackColor = BackColor;
         foreach (ToolStripItem action in _tools.Items)
         {
-            action.AutoSize = false; action.Width = 82; action.Height = 30;
-            action.Font = new Font("Segoe UI", 12f); action.ForeColor = Color.White;
+            action.AutoSize = true;
+            action.Font = EditorChrome.BaseFont; action.ForeColor = Color.White;
             action.Margin = new Padding(2, 0, 2, 0);
-            action.BackColor = action == _add ? Color.FromArgb(44, 112, 155) : action.Text == "−" ? Color.FromArgb(146, 53, 47) : Color.FromArgb(57, 61, 65);
+            action.BackColor = action == _add ? EditorChrome.Accent : EditorChrome.Raised;
         }
 
         Label header = EditorChrome.SectionLabel("Terrain Wizard");
-        header.Text = "Available Assets & Instances";
-        header.Height = 30; header.Font = new Font("Segoe UI", 10.5f); header.BackColor = BackColor; header.ForeColor = Color.WhiteSmoke;
+        header.Text = "Objects and assets";
+        header.AutoSize = true; header.Font = EditorChrome.HeadingFont; header.BackColor = BackColor; header.ForeColor = Color.WhiteSmoke;
         Affects.Visible = false;
         Controls.Add(_tree);
         Controls.Add(Affects);
         Controls.Add(_tools);
         Controls.Add(search);
         Controls.Add(header);
+        searchLabel.AutoSize = true;
+        searchLabel.Font = EditorChrome.SmallFont;
+        _filter.FontChanged += (_, _) => search.Height = _filter.PreferredHeight + search.Padding.Vertical;
     }
 
     public TerrainAffectsStrip Affects { get; }
@@ -264,7 +269,15 @@ public sealed class TerrainComponentsPanel : Panel
         TreeNode? match = FindNode(_tree.Nodes, kind, id);
         if (match is not null)
         {
+            int beforeNotification = _selectionNotificationVersion;
             _tree.SelectedNode = match;
+            // A hidden tree may not have an HWND yet, so assigning SelectedNode does not
+            // raise AfterSelect. Viewport picking must still update the authoritative selection.
+            if (_selectionNotificationVersion == beforeNotification && match.Tag is ComponentSelection selection)
+            {
+                _selectionNotificationVersion++;
+                SelectionChanged?.Invoke(this, selection);
+            }
         }
     }
 

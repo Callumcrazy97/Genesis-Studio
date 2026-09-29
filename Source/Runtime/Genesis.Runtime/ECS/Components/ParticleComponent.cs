@@ -8,6 +8,7 @@ namespace Genesis.Runtime.ECS.Components
         public string Asset;
         public int   ParticleTypeId;  // index into the particle-type registry; -1 = none
         public float EmitRate;        // particles spawned per second
+        public bool  HasEmitRateOverride; // distinguishes an explicit scripted zero from the asset's rate
         public float RateScale;       // multiplier applied to the asset's authored rate
         public bool  FollowEntity;    // new particles originate at the owning entity
         public bool  Emitting;

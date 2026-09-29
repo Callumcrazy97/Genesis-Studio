@@ -111,6 +111,8 @@ public sealed partial class ModelRigViewportControl
             Width = 180,
         };
         EditorChrome.StyleField(_animationClipBox);
+        _animationClipBox.Width = Math.Max(180, (int)Math.Ceiling(180 * _animationClipBox.Font.SizeInPoints / 9.5f));
+        _animationClipBox.FontChanged += (_, _) => _animationClipBox.Width = Math.Max(180, (int)Math.Ceiling(180 * _animationClipBox.Font.SizeInPoints / 9.5f));
         _animationClipBox.SelectedIndexChanged += (_, _) =>
         {
             if (_syncingAnimation || _animationClipBox.SelectedItem is not string name) return;
@@ -207,7 +209,7 @@ public sealed partial class ModelRigViewportControl
             Padding = Padding.Empty,
         };
         timelineLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        timelineLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
+        timelineLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         timelineLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
         timelineLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
@@ -215,15 +217,18 @@ public sealed partial class ModelRigViewportControl
         _modelFrameStrip.FrameSelected += frame => _animationTimeline.Value = Math.Clamp(frame, 0, _animationTimeline.Maximum);
 
         FlowLayoutPanel curveHeader = AnimationRow(28);
-        curveHeader.Dock = DockStyle.Fill;
+        curveHeader.Dock = DockStyle.Top;
+        curveHeader.Margin = Padding.Empty;
         curveHeader.Controls.Add(AnimationCaption("BONE CURVE", 78));
-        _curveChannelBox = new ThemedComboBox { Width = 132 };
+        _curveChannelBox = new ThemedComboBox { Name = "ModelCurveChannel", Width = 132 };
         foreach (string channel in ModelCurveChannels.Names) _curveChannelBox.Items.Add(channel);
         _curveChannelBox.SelectedIndex = 0;
         EditorChrome.StyleField(_curveChannelBox);
+        _curveChannelBox.Width = Math.Max(132, (int)Math.Ceiling(132 * _curveChannelBox.Font.SizeInPoints / 9.5f));
+        _curveChannelBox.FontChanged += (_, _) => _curveChannelBox.Width = Math.Max(132, (int)Math.Ceiling(132 * _curveChannelBox.Font.SizeInPoints / 9.5f));
         _curveChannelBox.SelectedIndexChanged += (_, _) => _boneCurveView?.Invalidate();
         curveHeader.Controls.Add(_curveChannelBox);
-        curveHeader.Controls.Add(AnimationCaption("Drag a point to edit the selected bone", 260));
+        curveHeader.Controls.Add(AnimationCaption("Drag points to edit", 160));
 
         _boneCurveView = new ModelBoneCurveView(ReadSelectedBoneCurve)
         {
@@ -239,11 +244,16 @@ public sealed partial class ModelRigViewportControl
         timelineLayout.Controls.Add(_boneCurveView, 0, 2);
         timelineHost.Controls.Add(timelineLayout);
         timelineLayout.BringToFront();
+        curveHeader.SizeChanged += (_, _) => LayoutAnimationPresentation();
+        timelineLayout.SizeChanged += (_, _) => LayoutAnimationPresentation();
 
         _animationPanel.Controls.Add(timelineHost);
         _animationPanel.Controls.Add(tools);
         _animationPanel.Controls.Add(primary);
         _animationPanel.SizeChanged += (_, _) => LayoutAnimationPresentation();
+        _animationPanel.VisibleChanged += (_, _) => LayoutAnimationPresentation();
+        primary.SizeChanged += (_, _) => LayoutAnimationPresentation();
+        tools.SizeChanged += (_, _) => LayoutAnimationPresentation();
 
         BuildAnimationInspector();
         SyncAnimationAuthoringUi();
@@ -341,7 +351,7 @@ public sealed partial class ModelRigViewportControl
     private static Label AnimationCaption(string text, int width = 38)
         => new()
         {
-            AutoSize = false,
+            AutoSize = true,
             Font = EditorChrome.SmallFont,
             ForeColor = EditorChrome.Muted,
             Height = 26,
@@ -565,7 +575,7 @@ public sealed partial class ModelRigViewportControl
         _syncingAnimation = true;
         try
         {
-            _animationPanel.Visible = true;
+            _animationPanel.Visible = !_animationDraft || _draftTimelineVisible;
             if (_animationPoseTools is not null)
             {
                 _animationPoseTools.Visible = !_animationDraft && IsComposer && _mode == ModelEditorMode.Animate;

@@ -71,18 +71,6 @@ internal struct SandboxPoseCallbacks : IPoseIntegratorCallbacks
         velocity.Linear.X += new Vector<float>(_gravity.X) * dt;
         velocity.Linear.Y += new Vector<float>(_gravity.Y) * dt;
         velocity.Linear.Z += new Vector<float>(_gravity.Z) * dt;
-        Vector<float> linearDrag = Vector.Max(Vector<float>.Zero, new Vector<float>(1f) - new Vector<float>(_world.LinearDamping) * dt);
-        Vector<float> angularDrag = Vector.Max(Vector<float>.Zero, new Vector<float>(1f) - new Vector<float>(_world.AngularDamping) * dt);
-        velocity.Linear.X *= linearDrag;
-        velocity.Linear.Y *= linearDrag;
-        velocity.Linear.Z *= linearDrag;
-        velocity.Angular.X *= angularDrag;
-        velocity.Angular.Y *= angularDrag;
-        velocity.Angular.Z *= angularDrag;
-
-        if (_maxVelocity <= 0f)
-            return;
-
         for (int lane = 0; lane < Vector<int>.Count; lane++)
         {
             if (GetIntLane(in integrationMask, lane) == 0)
@@ -92,14 +80,18 @@ internal struct SandboxPoseCallbacks : IPoseIntegratorCallbacks
                 GetFloatLane(in velocity.Linear.X, lane),
                 GetFloatLane(in velocity.Linear.Y, lane),
                 GetFloatLane(in velocity.Linear.Z, lane));
+            float laneDt = GetFloatLane(in dt, lane);
+            linear *= PhysicsDamping.Factor(_world.LinearDamping, laneDt);
+            float angular = PhysicsDamping.Factor(_world.AngularDamping, laneDt);
+            SetFloatLane(ref velocity.Angular.X, lane, GetFloatLane(in velocity.Angular.X, lane) * angular);
+            SetFloatLane(ref velocity.Angular.Y, lane, GetFloatLane(in velocity.Angular.Y, lane) * angular);
+            SetFloatLane(ref velocity.Angular.Z, lane, GetFloatLane(in velocity.Angular.Z, lane) * angular);
 
-            if (linear.LengthSquared() > _maxVelocitySq)
-            {
+            if (_maxVelocity > 0f && linear.LengthSquared() > _maxVelocitySq)
                 linear = Vector3.Normalize(linear) * _maxVelocity;
-                SetFloatLane(ref velocity.Linear.X, lane, linear.X);
-                SetFloatLane(ref velocity.Linear.Y, lane, linear.Y);
-                SetFloatLane(ref velocity.Linear.Z, lane, linear.Z);
-            }
+            SetFloatLane(ref velocity.Linear.X, lane, linear.X);
+            SetFloatLane(ref velocity.Linear.Y, lane, linear.Y);
+            SetFloatLane(ref velocity.Linear.Z, lane, linear.Z);
         }
     }
 

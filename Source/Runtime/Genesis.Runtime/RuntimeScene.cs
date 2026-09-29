@@ -245,6 +245,9 @@ namespace Genesis.Runtime
 
             Physics?.SyncTransforms(World);
             SyncPhysicsTransforms();
+            for (int i = 0; i < _subsystems.Count; i++)
+                if (_subsystems[i] is IPostPhysicsSceneSubsystem postPhysics)
+                    postPhysics.AfterPhysics(this, fixedDelta);
         }
 
         public void UpdateVariable(float dt)

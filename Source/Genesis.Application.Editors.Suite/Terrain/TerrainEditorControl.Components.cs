@@ -51,7 +51,7 @@ public sealed partial class TerrainEditorControl
         });
         ApplyLayers(before, after, $"Add paint layer '{after[^1].Name}'");
         SetMode(TerrainEditorMode.Paint);
-        _layerListBox.SelectedIndex = _layerListBox.Items.Count - 1;
+        SelectPaintLayer(_settings.Layers.Count - 1);
         _componentsPanel.Select(TerrainComponentsPanel.ComponentKind.Layer, (after.Count - 1).ToString());
     }
 
@@ -115,16 +115,16 @@ public sealed partial class TerrainEditorControl
     public string PlaceTerrainEntity(string entityPath, float worldX, float worldZ)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(entityPath);
-        string relative = ResourceNames.Name(ProjectRoot, entityPath);
+        string relative = EntityReference(entityPath);
         if (!_settings.Entities.Contains(relative, StringComparer.OrdinalIgnoreCase))
         {
             _settings.Entities.Add(relative);
         }
 
         TerrainEntityDocument? document = TryLoadEntityDocument(entityPath);
-        string clip = document?.Components
-            .FirstOrDefault(component => component.Type == TerrainEntityComponentKinds.Model)
-            ?.Get("AnimationClip") ?? string.Empty;
+        TerrainEntityComponent? model = document?.Components
+            .FirstOrDefault(component => component.Enabled && component.Type == TerrainEntityComponentKinds.Model);
+        string clip = model?.Get("AnimationClip") ?? string.Empty;
         TerrainEntityComponent? rule = document?.Components
             .FirstOrDefault(component => component.Type == TerrainEntityComponentKinds.Condition);
 
@@ -134,6 +134,11 @@ public sealed partial class TerrainEditorControl
             Entity = relative,
             Position = new Vector3(worldX, _terrain.SampleHeight(worldX, worldZ), worldZ),
             AnimationClip = clip,
+            AnimationFps = float.TryParse(model?.Get("AnimationFps"), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out float fps) ? fps : 60,
+            AnimationLoop = !bool.TryParse(model?.Get("Loop"), out bool loop) || loop,
+            CastShadows = !bool.TryParse(model?.Get("CastShadows"), out bool cast) || cast,
+            ReceiveShadows = !bool.TryParse(model?.Get("ReceiveShadows"), out bool receive) || receive,
             IfExpression = rule?.Get("If") ?? string.Empty,
             ThenClip = rule?.Get("ThenClip") ?? string.Empty,
             ElseClip = rule?.Get("ElseClip") ?? string.Empty,
@@ -340,11 +345,8 @@ public sealed partial class TerrainEditorControl
 
     private void RebuildLayerList()
     {
-        _layerListBox.Items.Clear();
-        foreach (TerrainLayerDocument layer in _settings.Layers)
-        {
-            _layerListBox.Items.Add(layer.Name);
-        }
+        _selectedPaintLayer = Math.Clamp(_selectedPaintLayer, 0, Math.Max(0, _settings.Layers.Count - 1));
+        RebuildPaintLayerGrid();
     }
 
     private void TickPreviewIfPlaying()
@@ -472,7 +474,19 @@ public sealed partial class TerrainEditorControl
 
     private string ResolveEntityFullPath(string relative)
     {
-        return ResourceNames.Resolve(ProjectRoot, relative);
+        return ResourceNames.ResolveFile(ProjectRoot, relative);
+    }
+
+    private string EntityReference(string path)
+    {
+        string publicResource = ResourceNames.Resolve(ProjectRoot, path);
+        if (!string.IsNullOrEmpty(publicResource)) return ResourceNames.Name(ProjectRoot, publicResource);
+        // Terrain parts and generated meshes are private payloads owned by this terrain.
+        // Keep their project-relative storage paths so duplicate/rename/move can rebind them.
+        string fullPath = Path.GetFullPath(path);
+        if (!ResourceNames.IsInside(fullPath, ProjectRoot))
+            throw new ArgumentException("Terrain assets must belong to the project.", nameof(path));
+        return Path.GetRelativePath(ProjectRoot, fullPath).Replace('\\', '/');
     }
 
     private TerrainEntityDocument? TryLoadEntityDocument(string path)

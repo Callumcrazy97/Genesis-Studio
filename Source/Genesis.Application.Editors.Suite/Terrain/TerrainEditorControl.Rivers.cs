@@ -76,18 +76,17 @@ public sealed partial class TerrainEditorControl
 
     private static Panel MakeRiverField(string caption, NumericUpDown field)
     {
-        Panel panel = new() { BackColor = Color.Transparent, Height = 54, Margin = new Padding(0, 0, 0, 4), Width = 244 };
-        panel.Controls.Add(field);
-        field.Dock = DockStyle.Bottom;
+        var panel = new TableLayoutPanel { BackColor = Color.Transparent, AutoSize=true, ColumnCount=1, Margin = new Padding(0, 0, 0, 4), Width = 244 };
         panel.Controls.Add(new Label
         {
             BackColor = Color.Transparent,
             Dock = DockStyle.Top,
             Font = EditorChrome.SmallFont,
             ForeColor = EditorChrome.Muted,
-            Height = 20,
+            AutoSize = true,
             Text = caption,
         });
+        field.Dock=DockStyle.Top;panel.Controls.Add(field);
         return panel;
     }
 
@@ -206,7 +205,7 @@ public sealed partial class TerrainEditorControl
         _riverDropBox.Value = Math.Clamp((decimal)selected.WaterfallDropThreshold, _riverDropBox.Minimum, _riverDropBox.Maximum);
         _waterTool = WaterAuthoringTool.River;
         _pendingWaterKind = TerrainWaterKind.River;
-        _waterKindCombo.SelectedItem = nameof(TerrainWaterKind.River);
+        if (_waterWorkflowCombo is not null) _waterWorkflowCombo.SelectedIndex = 1;
         SyncRiverFields();
         SyncToolbar();
         UpdateStatus();

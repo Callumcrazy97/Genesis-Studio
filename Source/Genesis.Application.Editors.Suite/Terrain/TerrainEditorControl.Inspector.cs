@@ -243,6 +243,16 @@ public sealed partial class TerrainEditorControl
                 DecimalPlaces: 0),
         ];
 
+        if (_selectedComponentKind == TerrainComponentsPanel.ComponentKind.Water && SelectedWater() is { } selectedWater)
+        {
+            values.Add(new ResourceInspectorLiveValue("Selected water", "Water.PhysicsMode", "Water physics",
+                selectedWater.PhysicsMode.ToString(), Choices: Enum.GetNames<WaterPhysicsMode>(),
+                Description: "None is decorative. Shallow slows movement. SwimmableVolume enables buoyancy and swimming."));
+            values.Add(new ResourceInspectorLiveValue("Selected water", "Water.PhysicsDepth", "Physics depth",
+                selectedWater.PhysicsDepth, Minimum: .1m, Maximum: 10_000m, Increment: .1m, DecimalPlaces: 1,
+                Description: "Depth below the saved water surface, in world units."));
+        }
+
         if (_selectedComponentKind == TerrainComponentsPanel.ComponentKind.Entity
             && SelectedPlacedEntity() is { } selectedPlaced)
         {
@@ -312,6 +322,28 @@ public sealed partial class TerrainEditorControl
         string text = Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;
         try
         {
+            if ((propertyPath.Equals("Water.PhysicsMode", StringComparison.OrdinalIgnoreCase)
+                    || propertyPath.Equals("Water.PhysicsDepth", StringComparison.OrdinalIgnoreCase))
+                && SelectedWater() is { } selectedWater)
+            {
+                List<TerrainWaterDefinition> changed = Clone(_nature.WaterBodies);
+                TerrainWaterDefinition target = changed.Single(water => water.Id == selectedWater.Id);
+                if (propertyPath.Equals("Water.PhysicsMode", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!Enum.TryParse(text, true, out WaterPhysicsMode mode) || !Enum.IsDefined(mode)) return false;
+                    target.PhysicsMode = mode;
+                }
+                else
+                {
+                    float depth = Convert.ToSingle(value, CultureInfo.InvariantCulture);
+                    if (!float.IsFinite(depth) || depth < .1f || depth > 10_000f) return false;
+                    target.PhysicsDepth = depth;
+                }
+                SetWaterBodies(changed);
+                NotifyInspectorStateChanged();
+                return true;
+            }
+
             if (propertyPath.Equals("culling", StringComparison.OrdinalIgnoreCase)
                 && Enum.TryParse(text, true, out FaceCullingOverride culling))
             {
@@ -434,6 +466,8 @@ public sealed partial class TerrainEditorControl
             {
                 _nature.PathSettings.Width = Convert.ToSingle(value, CultureInfo.InvariantCulture);
                 _nature.PathSettings.Normalize();
+                _pathSettingsSource = null;
+                RefreshTerrainSettingsBindings();
                 MarkDirty();
                 UpdateStatus();
                 NotifyInspectorStateChanged();
@@ -444,6 +478,8 @@ public sealed partial class TerrainEditorControl
             {
                 _nature.PathSettings.GradeStrength = Convert.ToSingle(value, CultureInfo.InvariantCulture);
                 _nature.PathSettings.Normalize();
+                _pathSettingsSource = null;
+                RefreshTerrainSettingsBindings();
                 MarkDirty();
                 UpdateStatus();
                 NotifyInspectorStateChanged();
@@ -454,6 +490,8 @@ public sealed partial class TerrainEditorControl
             {
                 _nature.PathSettings.Seed = Convert.ToInt32(value, CultureInfo.InvariantCulture);
                 _nature.PathSettings.Normalize();
+                _pathSettingsSource = null;
+                RefreshTerrainSettingsBindings();
                 MarkDirty();
                 UpdateStatus();
                 NotifyInspectorStateChanged();
@@ -464,6 +502,8 @@ public sealed partial class TerrainEditorControl
             {
                 _nature.PathSettings.PathCount = Convert.ToInt32(value, CultureInfo.InvariantCulture);
                 _nature.PathSettings.Normalize();
+                _pathSettingsSource = null;
+                RefreshTerrainSettingsBindings();
                 MarkDirty();
                 UpdateStatus();
                 NotifyInspectorStateChanged();
@@ -483,6 +523,8 @@ public sealed partial class TerrainEditorControl
             {
                 _nature.PathSettings.Kind = kind;
                 _nature.PathSettings.Normalize();
+                _pathSettingsSource = null;
+                RefreshTerrainSettingsBindings();
                 MarkDirty();
                 UpdateStatus();
                 NotifyInspectorStateChanged();

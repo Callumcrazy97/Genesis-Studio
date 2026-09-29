@@ -24,6 +24,7 @@ public sealed class TerrainCreationPanel : UserControl
     private readonly Dictionary<TerrainPreset, Panel> _presetCards = [];
     private readonly TextBox _nameBox;
     private readonly ThemedComboBox _resolutionCombo;
+    private readonly ThemedComboBox _presetPicker;
     private readonly NumericUpDown _cellSize;
     private readonly NumericUpDown _minHeight;
     private readonly NumericUpDown _maxHeight;
@@ -37,6 +38,8 @@ public sealed class TerrainCreationPanel : UserControl
     private readonly Label _presetDescription;
     private readonly Random _random = new();
     private bool _suppressPreview;
+    private Action? _fitCreation;
+    public void ApplyInterfaceLayout() => _fitCreation?.Invoke();
     public event EventHandler? PreviewChanged;
 
     public TerrainCreationPanel(string suggestedName)
@@ -50,48 +53,21 @@ public sealed class TerrainCreationPanel : UserControl
         _suppressPreview = true;
         _params.Seed = 1337;
 
-        FlowLayoutPanel presets = new()
-        {
-            AutoScroll = true,
-            BackColor = EditorChrome.Surface,
-            Dock = DockStyle.Left,
-            FlowDirection = FlowDirection.TopDown,
-            Padding = new Padding(10),
-            Width = 200,
-            WrapContents = false,
-        };
-        foreach (TerrainPreset preset in Enum.GetValues<TerrainPreset>())
-        {
-            Panel card = BuildPresetCard(preset);
-            _presetCards[preset] = card;
-            presets.Controls.Add(card);
-        }
-
-        Panel right = new() { BackColor = EditorChrome.Canvas, Dock = DockStyle.Fill, Padding = new Padding(12), AutoScroll = true };
-
-        _presetDescription = new Label
-        {
-            BackColor = Color.Transparent,
-            Dock = DockStyle.Top,
-            ForeColor = EditorChrome.Muted,
-            Font = EditorChrome.SmallFont,
-            Height = 36,
-            Text = TerrainGenerator.Describe(_params.Preset),
-        };
-
-        _nameBox = new TextBox { Text = suggestedName, Width = 240 };
+        Panel right = new() { Name = "TerrainCreationFields", BackColor = EditorChrome.Canvas, Dock = DockStyle.Fill, Padding = new Padding(12), AutoScroll = true };
+        ThemedComboBox presets = _presetPicker = new() { Name = "TerrainPresetPicker", Dock = DockStyle.Fill };
+        EditorChrome.StyleField(presets);
+        foreach (TerrainPreset preset in Enum.GetValues<TerrainPreset>()) presets.Items.Add(preset);
+        presets.SelectedItem = _params.Preset;
+        presets.SelectedIndexChanged += (_, _) => { if (presets.SelectedItem is TerrainPreset preset) SetPreset(preset); };
+        _presetDescription = new Label { BackColor = Color.Transparent, Dock = DockStyle.Top, ForeColor = EditorChrome.Muted,
+            Font = EditorChrome.SmallFont, Padding = new Padding(0, 4, 0, 8), Text = TerrainGenerator.Describe(_params.Preset) };
+        _nameBox = new TextBox { Text = suggestedName, Dock = DockStyle.Fill };
         EditorChrome.StyleField(_nameBox);
-
-        _resolutionCombo = new ThemedComboBox { Name = "TerrainResolutionPicker", Width = 200 };
+        _resolutionCombo = new ThemedComboBox { Name = "TerrainResolutionPicker", Dock = DockStyle.Fill };
         EditorChrome.StyleField(_resolutionCombo);
-        foreach ((int _, string label) in ResolutionOptions)
-        {
-            _resolutionCombo.Items.Add(label);
-        }
-
+        foreach ((int _, string label) in ResolutionOptions) _resolutionCombo.Items.Add(label);
         _resolutionCombo.SelectedIndex = 1;
         _resolutionCombo.SelectedIndexChanged += (_, _) => { ApplyResolution(); QueuePreview(); };
-
         _cellSize = MakeNumeric(0.1m, 32m, 2, (decimal)_params.CellSize);
         _minHeight = MakeNumeric(-512m, 0m, 1, (decimal)_params.MinHeight);
         _maxHeight = MakeNumeric(1m, 1024m, 1, (decimal)_params.MaxHeight);
@@ -110,67 +86,54 @@ public sealed class TerrainCreationPanel : UserControl
         _terraceStrength.ValueChanged += (_, _) => { _params.TerraceStrength = (float)_terraceStrength.Value; QueuePreview(); };
         _riverCount.ValueChanged += (_, _) => { _params.RiverCount = (int)_riverCount.Value; QueuePreview(); };
         _riverDepth.ValueChanged += (_, _) => { _params.RiverDepth = (float)_riverDepth.Value; QueuePreview(); };
-
-        Button randomize = new() { Text = "Randomize seed", Width = 110, Height = 26 };
-        EditorChrome.StyleField(randomize);
-        randomize.Click += (_, _) => { _seed.Value = _random.Next(0, 100000); };
-
-        _thumbnail = new PictureBox
-        {
-            BackColor = EditorChrome.Canvas,
-            BorderStyle = BorderStyle.None,
-            Size = new Size(200, 200),
-            SizeMode = PictureBoxSizeMode.Zoom,
-        };
-
-        TableLayoutPanel form = new()
-        {
-            BackColor = Color.Transparent,
-            ColumnCount = 2,
-            Dock = DockStyle.Top,
-            AutoSize = true,
-            Padding = new Padding(0, 8, 0, 0),
-        };
-        form.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
+        Button randomize = new() { Text = "New seed", AutoSize = true };
+        EditorChrome.StyleField(randomize); randomize.Click += (_, _) => _seed.Value = _random.Next(0, 100000);
+        _thumbnail = new PictureBox { BackColor = EditorChrome.Canvas, Size = new Size(200, 200), SizeMode = PictureBoxSizeMode.Zoom };
+        TableLayoutPanel form = new() { Name = "TerrainCreationForm", BackColor = Color.Transparent, ColumnCount = 2, Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(0, 8, 0, 0) };
+        form.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
         form.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        AddRow(form, "Landscape preset", presets);
         AddRow(form, "Name", _nameBox);
         AddRow(form, "Resolution", _resolutionCombo);
         AddRow(form, "Cell size (m)", _cellSize);
         AddRow(form, "Min height", _minHeight);
         AddRow(form, "Max height", _maxHeight);
-        Panel seedRow = new() { BackColor = Color.Transparent, Dock = DockStyle.Fill, Height = 30 };
-        _seed.Location = new Point(0, 2);
-        randomize.Location = new Point(90, 1);
-        seedRow.Controls.Add(_seed);
-        seedRow.Controls.Add(randomize);
+        FlowLayoutPanel seedRow = new() { BackColor = Color.Transparent, AutoSize = true, Dock = DockStyle.Fill };
+        _seed.Dock = DockStyle.None; seedRow.Controls.Add(_seed); seedRow.Controls.Add(randomize);
         AddRow(form, "Seed", seedRow);
         AddRow(form, "Erosion passes", _erosionIterations);
         AddRow(form, "Erosion strength", _erosionStrength);
         AddRow(form, "Terracing", _terraceStrength);
         AddRow(form, "River count", _riverCount);
         AddRow(form, "River depth", _riverDepth);
-
-        Label thumbCaption = new()
-        {
-            BackColor = Color.Transparent,
-            Dock = DockStyle.Top,
-            ForeColor = EditorChrome.Muted,
-            Font = EditorChrome.SmallFont,
-            Height = 20,
-            Text = "PREVIEW (top-down)",
-        };
-        Panel thumbHost = new() { BackColor = Color.Transparent, Dock = DockStyle.Top, Height = 242, MinimumSize = new Size(200, 220) };
-        _thumbnail.Location = new Point(0, 26);
-        thumbHost.Controls.Add(_thumbnail);
-        thumbHost.Controls.Add(thumbCaption);
-
-        right.Controls.Add(thumbHost);
-        right.Controls.Add(form);
-        right.Controls.Add(_presetDescription);
-
+        Panel thumbHost = new() { BackColor = Color.Transparent, Dock = DockStyle.Top, Height = 240 };
+        Label thumbCaption = new() { Text = "Heightfield preview", Dock = DockStyle.Top, AutoSize = true, ForeColor = EditorChrome.Muted };
+        _thumbnail.Dock = DockStyle.Fill; thumbHost.Controls.Add(_thumbnail); thumbHost.Controls.Add(thumbCaption);
+        right.Controls.Add(thumbHost); right.Controls.Add(form); right.Controls.Add(_presetDescription);
         Controls.Add(right);
-        Controls.Add(presets);
-
+        Tag = "font-measured-layout";
+        bool fitting = false;
+        _fitCreation = () =>
+        {
+            if (fitting || IsDisposed) return;
+            fitting = true;
+            try
+            {
+                form.ColumnStyles[0].Width = form.Controls.OfType<Label>().Select(label => TextRenderer.MeasureText(label.Text, label.Font).Width + 18).Max();
+                foreach (Control field in form.Controls.Cast<Control>().Where(control => control is not Label))
+                    field.Margin = new Padding(0, 4, 0, 8);
+                _seed.Width = Math.Max(84, _seed.Font.Height * 5);
+                randomize.MinimumSize = new Size(0, randomize.Font.Height + 18);
+                _presetDescription.Height = TextRenderer.MeasureText(_presetDescription.Text, _presetDescription.Font,
+                    new Size(Math.Max(120, right.ClientSize.Width - right.Padding.Horizontal), int.MaxValue), TextFormatFlags.WordBreak).Height + _presetDescription.Padding.Vertical;
+                right.AutoScrollMinSize = new Size(0, _presetDescription.Height + form.PreferredSize.Height + thumbHost.Height + right.Padding.Vertical + 24);
+            }
+            finally { fitting = false; }
+        };
+        FontChanged += (_, _) => ApplyInterfaceLayout();
+        SizeChanged += (_, _) => ApplyInterfaceLayout();
+        right.Layout += (_, _) => ApplyInterfaceLayout();
+        HandleCreated += (_, _) => BeginInvoke(() => { if (!IsDisposed) ApplyInterfaceLayout(); });
         _suppressPreview = false;
         RefreshPresetSelection();
         Regenerate();
@@ -185,6 +148,7 @@ public sealed class TerrainCreationPanel : UserControl
     public void SetPreset(TerrainPreset preset)
     {
         _params.Preset = preset;
+        if (!Equals(_presetPicker.SelectedItem, preset)) _presetPicker.SelectedItem = preset;
         _presetDescription.Text = TerrainGenerator.Describe(preset);
         RefreshPresetSelection();
         QueuePreview();
@@ -339,20 +303,19 @@ public sealed class TerrainCreationPanel : UserControl
     private static void AddRow(TableLayoutPanel table, string label, Control field)
     {
         int row = table.RowCount++;
-        table.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
+        table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         table.Controls.Add(new Label
         {
             BackColor = Color.Transparent,
             ForeColor = EditorChrome.Muted,
             Font = EditorChrome.SmallFont,
-            Dock = DockStyle.Fill,
-            Text = label.ToUpperInvariant(),
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+            Text = label,
             TextAlign = ContentAlignment.MiddleLeft,
         }, 0, row);
-        Panel host = new() { BackColor = Color.Transparent, Dock = DockStyle.Fill };
-        field.Location = new Point(0, 2);
-        host.Controls.Add(field);
-        table.Controls.Add(host, 1, row);
+        field.Dock = DockStyle.Fill;
+        table.Controls.Add(field, 1, row);
     }
 
     protected override void Dispose(bool disposing)

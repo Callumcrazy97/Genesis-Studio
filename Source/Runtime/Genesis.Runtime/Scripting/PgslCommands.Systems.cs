@@ -141,6 +141,7 @@ public static partial class PgslCommands
         if (entity.IsNull || !world.Has<ParticleComponent>(entity)) return;
         ref ParticleComponent component = ref world.GetRef<ParticleComponent>(entity);
         component.EmitRate = (float)Math.Clamp(perSecond, 0, 10_000);
+        component.HasEmitRateOverride = true;
     }
 
     [PgslCommand("ParticleAttachedGetRate", "ParticleAttachedGetRate() -> number", "This object's attached particle rate", "Particles")]
@@ -278,16 +279,8 @@ public static partial class PgslCommands
     [PgslCommand("PhysicsApplyImpulse", "PhysicsApplyImpulse(instanceId, x, y, z)", "Push one body", "Physics")]
     public static void PhysicsApplyImpulse(double instanceId, double x, double y, double z)
     {
-        Genesis.Physics.PhysicsWorld physics = PhysicsWorld;
-        Genesis.Runtime.ECS.World world = ActiveGameContext?.World;
-        if (physics is null || world is null) return;
-
-        Entity entity = world.GetEntity((int)instanceId);
-        if (entity.IsNull || !world.Has<RigidBodyComponent>(entity)) return;
-        ref RigidBodyComponent body = ref world.GetRef<RigidBodyComponent>(entity);
-        if (body.RegistrationId == 0 && world.Has<SpritePhysicsBindingComponent>(entity))
-            physics.RegisterEntity(world, entity, ref body, ref world.GetRef<Transform3DComponent>(entity));
-        if (body.RegistrationId == 0 || body.Motion != PhysicsMotionType.Dynamic) return;
+        if (!TryGetDynamicBody((int)instanceId, out Genesis.Physics.PhysicsWorld physics,
+                out Genesis.Runtime.ECS.World world, out RigidBodyComponent body) || body.Motion != PhysicsMotionType.Dynamic) return;
 
         physics.ApplyLinearImpulse(
             world,
@@ -378,7 +371,8 @@ public static partial class PgslCommands
         if (physics is null || world is null) return false;
         Entity entity = world.GetEntity(instanceId);
         if (entity.IsNull || !world.Has<RigidBodyComponent>(entity)) return false;
-        if (world.Has<SpritePhysicsBindingComponent>(entity) && world.GetRef<RigidBodyComponent>(entity).RegistrationId == 0)
+        if (world.GetRef<RigidBodyComponent>(entity).RegistrationId == 0 && world.Has<Transform3DComponent>(entity)
+            && (!world.Has<EntityLifecycleComponent>(entity) || world.GetRef<EntityLifecycleComponent>(entity).Enabled))
             physics.RegisterEntity(world, entity, ref world.GetRef<RigidBodyComponent>(entity), ref world.GetRef<Transform3DComponent>(entity));
         body = world.GetRef<RigidBodyComponent>(entity);
         return body.RegistrationId != 0 && body.Motion is PhysicsMotionType.Dynamic or PhysicsMotionType.Kinematic;

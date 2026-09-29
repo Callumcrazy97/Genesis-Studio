@@ -26,8 +26,18 @@ public static class ModelSurfaceBrush
     /// <summary>Möller–Trumbore ray/mesh intersection; returns the nearest hit point.</summary>
     public static bool Raycast(
         MeshVertex[] vertices, ushort[] indices, Vector3 origin, Vector3 direction, out Vector3 hit)
+        => RaycastUv(vertices, indices, origin, direction, out hit, out _);
+
+    public static bool RaycastUv(
+        MeshVertex[] vertices, ushort[] indices, Vector3 origin, Vector3 direction, out Vector3 hit, out Vector2 uv)
+        => RaycastUv(vertices, indices, origin, direction, out hit, out uv, out _);
+
+    public static bool RaycastUv(
+        MeshVertex[] vertices, ushort[] indices, Vector3 origin, Vector3 direction, out Vector3 hit, out Vector2 uv, out int triangle)
     {
         hit = Vector3.Zero;
+        uv = Vector2.Zero;
+        triangle = -1;
         float best = float.MaxValue;
         bool found = false;
 
@@ -57,6 +67,8 @@ public static class ModelSurfaceBrush
             {
                 best = distance;
                 found = true;
+                triangle = i / 3;
+                uv = vertices[indices[i]].UV * (1 - u - v) + vertices[indices[i + 1]].UV * u + vertices[indices[i + 2]].UV * v;
             }
         }
 

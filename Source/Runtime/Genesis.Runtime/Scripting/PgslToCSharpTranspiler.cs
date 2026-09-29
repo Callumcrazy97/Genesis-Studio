@@ -44,6 +44,9 @@ namespace Genesis.Runtime.Scripting
         // These read/write ECS components by ref, exactly like a hand-written EntityBehavior.
         private static readonly Dictionary<string, string> InstanceVars = new(StringComparer.OrdinalIgnoreCase)
         {
+            ["id"]             = "Entity.Id",
+            ["instance_id"]    = "Entity.Id",
+            ["self"]           = "Entity.Id",
             // Position — backed by the ECS Transform2DComponent (read/written by ref).
             ["x"]              = "Transform_X",
             ["y"]              = "Transform_Y",

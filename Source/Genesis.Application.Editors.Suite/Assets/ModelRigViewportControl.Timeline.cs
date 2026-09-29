@@ -6,13 +6,42 @@ namespace Genesis.Application.Editors.Suite.Assets;
 
 public sealed partial class ModelRigViewportControl
 {
+    private bool _layingOutAnimation;
 
     private void LayoutAnimationPresentation()
     {
-        if (_animationPrimaryRow is null || _animationPoseTools is null) return;
-        int height = _animationPrimaryRow.GetPreferredSize(new Size(Math.Max(1, _animationPanel.Width - 16), 0)).Height
-            + (_animationPoseTools.Visible ? _animationPoseTools.GetPreferredSize(new Size(Math.Max(1, _animationPanel.Width - 16), 0)).Height : 0) + 158;
-        if (_animationPanel.Parent is TableLayoutPanel layout) layout.RowStyles[2].Height = Math.Clamp(height, 210, 340);
+        if (_layingOutAnimation || _animationPrimaryRow is null || _animationPoseTools is null
+            || _animationPanel.Parent is not TableLayoutPanel layout) return;
+        _layingOutAnimation = true;
+        try
+        {
+            if (_animationDraft && !_animationPanel.Visible)
+            {
+                layout.RowStyles[2].Height = 0;
+                return;
+            }
+            int rows = _animationPrimaryRow.Height + (_animationPoseTools.Visible ? _animationPoseTools.Height : 0);
+            int timelineHeight = 124;
+            if (_modelFrameStrip?.Parent is TableLayoutPanel timeline)
+            {
+                timeline.RowStyles[1].Height = Math.Max(48, _modelFrameStrip.Font.Height + 24);
+                Control header = timeline.GetControlFromPosition(0, 0)!;
+                int headerHeight = header.GetPreferredSize(new Size(timeline.ClientSize.Width, 0)).Height;
+                timelineHeight = headerHeight + (int)timeline.RowStyles[1].Height + Math.Max(70, _modelFrameStrip.Font.Height * 2 + 36);
+            }
+            int minimum = rows + timelineHeight;
+            int available = layout.ClientSize.Height - (int)layout.RowStyles[0].Height - 280;
+            int height = Math.Clamp(minimum + 34, minimum, Math.Max(minimum, Math.Min(400, available)));
+            if (Math.Abs(layout.RowStyles[2].Height - height) > 1)
+            {
+                layout.RowStyles[2].Height = height;
+                // SizeChanged can run inside the table's current layout pass. Apply the
+                // new absolute row after that pass instead of retaining its old cell size.
+                if (layout.IsHandleCreated && !layout.IsDisposed && !layout.Disposing)
+                    layout.BeginInvoke(() => { if (!layout.IsDisposed && !layout.Disposing) layout.PerformLayout(); });
+            }
+        }
+        finally { _layingOutAnimation = false; }
     }
 
     /// <summary>A frame ruler using the existing clip/transport state; it does not invent keyframes.</summary>
@@ -45,7 +74,7 @@ public sealed partial class ModelRigViewportControl
             using var accent = new Pen(EditorChrome.Accent, 2);
             using var fill = new SolidBrush(EditorChrome.Accent);
             int left = 12, right = Math.Max(13, Width - 16);
-            int y = Math.Max(30, Height - 13);
+            int y = Math.Max(EditorChrome.SmallFont.Height + 12, Height - 13);
             e.Graphics.DrawLine(border, left, y, right, y);
             int step = Math.Max(1, (int)Math.Ceiling(FrameCount / Math.Max(1d, (right - left) / 48d)));
             for (int frame = 0; frame < FrameCount; frame += step)
@@ -53,7 +82,7 @@ public sealed partial class ModelRigViewportControl
                 int x = FrameX(frame);
                 e.Graphics.DrawLine(border, x, 26, x, y + 3);
                 TextRenderer.DrawText(e.Graphics, (frame + 1).ToString(), EditorChrome.SmallFont,
-                    new Rectangle(x - 5, 5, 48, 19), EditorChrome.Muted);
+                    new Rectangle(x - 5, 5, 48, Math.Max(19, EditorChrome.SmallFont.Height + 3)), EditorChrome.Muted);
             }
             int selected = FrameX(SelectedFrame);
             foreach (int frame in PoseFrames.Where(f => f >= 0 && f < FrameCount))
@@ -103,10 +132,10 @@ public sealed partial class ModelRigViewportControl
     /// </summary>
     private sealed class ModelBoneCurveView(Func<ModelCurveSnapshot> read) : Control
     {
-        private const int LeftInset = 42;
+        private static int LeftInset => Math.Max(42, TextRenderer.MeasureText("0.000", EditorChrome.SmallFont).Width + 6);
         private const int RightInset = 10;
         private const int TopInset = 8;
-        private const int BottomInset = 20;
+        private static int BottomInset => Math.Max(20, EditorChrome.SmallFont.Height + 6);
         private bool _editing;
         private int _editFrame = -1;
         private float _editMinimum;
@@ -158,14 +187,15 @@ public sealed partial class ModelRigViewportControl
                     points[i].X - radius, points[i].Y - radius, radius * 2f, radius * 2f);
             }
             int selectedFrame = Math.Clamp(snapshot.SelectedFrame, 0, snapshot.Values.Length - 1);
+            int captionHeight = Math.Max(18, EditorChrome.SmallFont.Height + 2);
             using Pen playhead = new(Color.FromArgb(150, EditorChrome.Accent), 1.2f);
             e.Graphics.DrawLine(playhead, points[selectedFrame].X, plot.Top, points[selectedFrame].X, plot.Bottom);
             TextRenderer.DrawText(e.Graphics, maximum.ToString("0.###"), EditorChrome.SmallFont,
-                new Rectangle(2, plot.Top - 2, LeftInset - 5, 18), EditorChrome.Muted, TextFormatFlags.Right);
+                new Rectangle(2, plot.Top - 2, LeftInset - 5, captionHeight), EditorChrome.Muted, TextFormatFlags.Right);
             TextRenderer.DrawText(e.Graphics, minimum.ToString("0.###"), EditorChrome.SmallFont,
-                new Rectangle(2, plot.Bottom - 14, LeftInset - 5, 18), EditorChrome.Muted, TextFormatFlags.Right);
+                new Rectangle(2, plot.Bottom - captionHeight + 2, LeftInset - 5, captionHeight), EditorChrome.Muted, TextFormatFlags.Right);
             TextRenderer.DrawText(e.Graphics, $"{snapshot.Channel}  ·  {snapshot.Values[selectedFrame]:0.###}", EditorChrome.SmallFont,
-                new Rectangle(plot.Left, plot.Bottom + 1, plot.Width, 18), EditorChrome.Muted,
+                new Rectangle(plot.Left, plot.Bottom + 1, plot.Width, captionHeight), EditorChrome.Muted,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.EndEllipsis);
         }
 

@@ -20,7 +20,11 @@ public partial class ModelViewerControl : IResourceInspectorTarget, ILiveResourc
     private float _sidebarLogicalWidth;
     private FlowLayoutPanel? _modelGameGuide;
     private readonly Dictionary<Control, bool> _beforeGameGuide = [];
-    private float ModelInterfaceScale => Math.Max(1, DeviceDpi / 96f * EditorChrome.BaseFont.SizeInPoints / 9.5f);
+    // Font sizes are capped for readability, while section geometry still follows the
+    // full interface scale. Never narrow a scaled section back to the capped font ratio.
+    private float ModelInterfaceScale => Math.Max(1, DeviceDpi / 96f * Math.Max(
+        EditorChrome.BaseFont.SizeInPoints / 9.5f,
+        ModelDescendants(LeftPanel).OfType<CollapsibleSection>().Select(section => section.InterfaceScale).DefaultIfEmpty(1).Max()));
 
     public event EventHandler? InspectorStateChanged;
 
@@ -39,18 +43,19 @@ public partial class ModelViewerControl : IResourceInspectorTarget, ILiveResourc
         ToolStripItem[] previous = Commands.Items.Cast<ToolStripItem>().ToArray();
         Commands.ResetItems();
         ToolStripDropDownButton options = new("Options") { Name = "ModelWorkflowOptions" };
-        ToolStripMenuItem viewing = new("View and camera");
+        ToolStripDropDownItem viewing = Menus.Items.OfType<ToolStripDropDownButton>().Single(menu => menu.Text == "View");
         foreach (ToolStripDropDownButton menu in Menus.Items.OfType<ToolStripDropDownButton>().ToArray())
         {
-            ToolStripMenuItem destination = menu.Text == "View" ? viewing : new(menu.Text);
+            ToolStripDropDownItem destination = menu == viewing ? viewing : new ToolStripMenuItem(menu.Text);
             foreach (ToolStripItem item in menu.DropDownItems.Cast<ToolStripItem>().ToArray())
             {
                 if (item.Text is "Save" or "Import Model…" or "Open Model Editor" or "Frame model"
                     || !composer && menu.Text == "Animation") { menu.DropDownItems.Remove(item); item.Dispose(); continue; }
-                destination.DropDownItems.Add(item);
+                if (destination != menu) destination.DropDownItems.Add(item);
             }
             if (destination != viewing && destination.DropDownItems.Count > 0) options.DropDownItems.Add(destination);
         }
+        viewing.Text = "View and camera";
         Menus.Visible = false;
         ToolStripItem import = previous.Single(item => item.Name == "ImportModelFiles");
         Commands.Items.Add(import);
@@ -58,7 +63,7 @@ public partial class ModelViewerControl : IResourceInspectorTarget, ILiveResourc
         {
             foreach (ToolStripItem item in previous.Where(item => item.Name?.StartsWith("ModelGizmo", StringComparison.Ordinal) == true))
                 Commands.Items.Add(item);
-            _workflowHint.Text = "1. Choose Create, Edit, Texture or Rig on the left. 2. Work in the central view. 3. Save and Use in game. Animation playback stays below.";
+            _workflowHint.Text = "1. Choose a tool on the left. 2. Work in the view. 3. Save and Use in game. Play animations below.";
         }
         else if (_openModelEditor is not null) Commands.Items.Add(_openModelEditor);
         ToolStripItem? selectionFrame = composer ? previous.FirstOrDefault(item => item.Text == "Frame  F") : null;
@@ -95,16 +100,26 @@ public partial class ModelViewerControl : IResourceInspectorTarget, ILiveResourc
             _workflowHint.ForeColor = EditorChrome.Muted; _workflowHint.BackColor = EditorChrome.Surface;
             _viewerRoot.RowStyles[2].Height = TextRenderer.MeasureText(_workflowHint.Text, _workflowHint.Font,
                 new Size(Math.Max(120, ClientSize.Width - _workflowHint.Padding.Horizontal), int.MaxValue), TextFormatFlags.WordBreak).Height + _workflowHint.Padding.Vertical;
-            _viewerRoot.RowStyles[4].Height = Math.Max(180, 120 + EditorChrome.BaseFont.Height * 4);
+            _viewerRoot.RowStyles[4].Height = AnimationFrameCount > 0
+                ? Math.Max(180, 120 + EditorChrome.BaseFont.Height * 4)
+                : Math.Max(94 * scale, EditorChrome.BaseFont.Height * 2 + 48);
             _viewerRoot.RowStyles[5].Height = EditorChrome.SmallFont.Height + 14;
             bool composer = this is ModelEditorControl { IsComposer: true };
             float desired = (_sidebarLogicalWidth > 0 ? _sidebarLogicalWidth : composer ? 356 : 270) * scale;
             Body.ColumnStyles[0].Width = Math.Min(desired, Math.Max(200, Body.ClientSize.Width * (composer ? .6f : .45f)));
             if (Body.ColumnCount == 3)
             {
-                Control? details = Body.GetControlFromPosition(2, 0);
+                // The gameplay guide spans every column. Position lookup can return that guide
+                // while the details panel is hidden, so target the panel's own column instead.
+                Control? details = Body.Controls.Cast<Control>().FirstOrDefault(control => control != _modelGameGuide
+                    && Body.GetColumn(control) == 2 && Body.GetColumnSpan(control) == 1);
                 if (details is not null) details.Visible = _showModelDetails && _modelGameGuide?.Visible != true;
-                Body.ColumnStyles[2].Width = _showModelDetails ? Math.Min(292 * scale, Body.Width * .3f) : 0;
+                Body.ColumnStyles[2].Width = _showModelDetails ? Math.Min(292 * scale, Math.Max(200, Body.Width - 420)) : 0;
+                if (_modelGameGuide?.Visible != true)
+                {
+                    LeftPanel.Visible = !_showModelDetails;
+                    if (_showModelDetails) Body.ColumnStyles[0].Width = 0;
+                }
             }
             _hierarchy.ItemHeight = _materials.ItemHeight = EditorChrome.BaseFont.Height + 12;
             _sourceInfo.Font = _details.Font = EditorChrome.BaseFont;

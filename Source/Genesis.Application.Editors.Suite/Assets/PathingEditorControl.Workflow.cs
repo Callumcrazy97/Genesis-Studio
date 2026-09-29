@@ -236,8 +236,12 @@ public sealed partial class PathingEditorControl
         foreach (Control control in _gameGuide.Controls.Cast<Control>().ToArray()) control.Dispose();
         Button back = new() { Text = "Back to Quick setup" }; EditorChrome.StyleField(back); back.Click += (_, _) => SelectPathingSurface("Quick setup");
         _gameGuide.Controls.Add(back);
-        _gameGuide.Controls.Add(WorkflowText("Use this route in a 2D game", true));
-        _gameGuide.Controls.Add(WorkflowText("1. Choose a 2D preview Object in Quick setup. Edit the points and speed, then Play. Points use Room coordinates in pixels, with positive Y down. The placed Object's depth is preserved. Select an animation state under Options to play a saved Image clip or Model animation."));
+        bool twoD = _asset.Dimension == PathingDimension.TwoD;
+        _gameGuide.Controls.Add(WorkflowText(twoD ? "Use this route in a 2D game" : "Use this route in a 3D game", true));
+        _gameGuide.Controls.Add(WorkflowText(twoD
+            ? "1. Choose a sprite preview Object in Quick setup. Edit the points and speed, then Play. Points use Room coordinates in pixels, with positive Y down. The placed Object's depth is preserved."
+            : "1. Choose a Model preview Object in Quick setup. Edit the points and speed, then Play. Points use Room coordinates in metres: X and Z move across the ground; Y sets height. Choose a Room context to see its saved terrain and props."));
+        _gameGuide.Controls.Add(WorkflowText("Select an animation state under Options to play a saved Image clip or Model animation while moving."));
         _gameGuide.Controls.Add(WorkflowText("2. Create a moving Object", true));
         TextBox name = new() { Text = ResourceDisplayName.Format(ResourcePath) + " patrol", Name = "PathingObjectName" }; EditorChrome.StyleField(name);
         _gameGuide.Controls.Add(Field("Object name", name));
@@ -251,7 +255,10 @@ public sealed partial class PathingEditorControl
         };
         _gameGuide.Controls.Add(create); _gameGuide.Controls.Add(result);
         _gameGuide.Controls.Add(WorkflowText("3. Drag the new Object from Assets into a Room and Run", true));
-        _gameGuide.Controls.Add(WorkflowText("The new Object reuses the preview Object's saved sprite. Its Create event starts this route; it has no competing movement code. Patrol follows points directly and does not need a baked mesh. Navigation search uses a baked Room mesh; NavMeshBake() can create one. Follow targets name a Room instance. Save route edits to update an active routine; Image saves update the linked sprite."));
+        _gameGuide.Controls.Add(WorkflowText((twoD
+            ? "The new Object reuses the preview Object's saved sprite. "
+            : "The new Object reuses the preview Object's saved Model, scale, materials and animation settings. ")
+            + "Its Create event starts this route. Patrol follows points directly and does not need a baked mesh. Navigation search uses a baked Room mesh; NavMeshBake() can create one. Follow targets name a Room instance. Save route edits to update an active routine; Image and Model saves update linked visuals."));
         _gameGuide.Controls.Add(WorkflowText("For an existing Object's Create event", true));
         TextBox example = new() { ReadOnly = true, Multiline = true, ScrollBars = ScrollBars.Horizontal, WordWrap = false,
             Text = $"PathFollow({PgslString(ResourceNames.Name(ProjectRoot, ResourcePath))}, \"\");\r\n// Empty loop mode uses Repeat from the route.\r\n// PathStop(); stops this instance.", Name = "PathingGameplayExample" };
@@ -265,20 +272,32 @@ public sealed partial class PathingEditorControl
     public string CreatePathingObject(string name)
     {
         string validName = ResourceNames.ValidateName(name);
-        if (_asset.Dimension != PathingDimension.TwoD) throw new InvalidOperationException("Choose 2D in Quick setup to create a sprite patrol Object.");
+        bool twoD = _asset.Dimension == PathingDimension.TwoD;
         string source = ResolveReference(_asset.TargetObject, ResourceKind.GameObject);
-        if (!File.Exists(source)) throw new InvalidOperationException("Choose a preview Object with a saved sprite in Quick setup.");
+        if (!File.Exists(source)) throw new InvalidOperationException(twoD
+            ? "Choose a preview Object with a saved sprite in Quick setup."
+            : "Choose a preview Object with a saved Model in Quick setup.");
         JObject preview = JObject.Parse(File.ReadAllText(source));
         ObjectCompositionModel previewComposition = new(preview);
-        string sprite = (string?)previewComposition.Find("SpriteComponent")?["props"]?["Sprite"] ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(sprite)) sprite = (string?)preview["sprite"] ?? string.Empty;
-        string spritePath = ProjectAssetIndex.ResolveReference(ProjectRoot, sprite, ResourceKind.Image);
-        if (!File.Exists(spritePath)) throw new InvalidOperationException("The preview Object needs a saved sprite Image.");
+        string visualType = twoD ? "SpriteComponent" : "ModelRendererComponent";
+        string visualProperty = twoD ? "Sprite" : "ModelAsset";
+        string visual = (string?)previewComposition.Find(visualType)?["props"]?[visualProperty] ?? string.Empty;
+        string visualPath = ProjectAssetIndex.ResolveReference(ProjectRoot, visual, twoD ? ResourceKind.Image : ResourceKind.Model);
+        if (!File.Exists(visualPath)) throw new InvalidOperationException(twoD
+            ? "The preview Object needs a saved sprite Image." : "The preview Object needs a saved Model.");
         if (_asset.Route.Waypoints.Count == 0) throw new InvalidOperationException("Add at least one route point before creating the patrol Object.");
         Save();
         JObject document = JObject.Parse(ResourceDefinitions.Get(ResourceKind.GameObject).DefaultContent);
-        document["schemaVersion"] = 3; document["dimension"] = "TwoD"; document["solid"] = false;
-        ObjectCompositionModel composition = new(document); composition.SetAsset("SpriteComponent", ResourceNames.Name(ProjectRoot, spritePath));
+        document["schemaVersion"] = 3; document["dimension"] = twoD ? "TwoD" : "ThreeD"; document["solid"] = false;
+        ObjectCompositionModel composition = new(document);
+        foreach (string type in twoD ? new[] { visualType } : new[] { visualType, "ModelAnimatorComponent", "ModelMorphComponent", "MaterialComponent", "ShaderComponent" })
+        {
+            if (previewComposition.Find(type) is not JObject component) continue;
+            JObject copy = composition.Ensure(type);
+            copy["props"] = component["props"]?.DeepClone() ?? new JObject();
+            copy["enabled"] = component["enabled"]?.DeepClone() ?? true;
+        }
+        composition.SetAsset(visualType, ResourceNames.Name(ProjectRoot, visualPath));
         composition.SetProperty("ScriptComponent", "ScriptClass", validName);
         document["events"] = new JArray("Create");
         string invocation = $"PathFollow({PgslString(ResourceNames.Name(ProjectRoot, ResourcePath))}, \"\");";

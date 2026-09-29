@@ -313,10 +313,14 @@ namespace Genesis.Runtime.Modeling
                 SafeScale(transform.ScaleX) * SafeScale(model.ScaleX),
                 SafeScale(transform.ScaleY) * SafeScale(model.ScaleY),
                 SafeScale(transform.ScaleZ) * SafeScale(model.ScaleZ));
+            // Room loading mirrors yaw into the legacy angle for script compatibility.
+            // Only angle-only legacy transforms should interpret that value as roll.
+            float roll = transform.RotationX == 0f && transform.RotationY == 0f && transform.RotationZ == 0f
+                ? transform.Rotation : transform.RotationZ;
             Matrix4x4 rotation = Matrix4x4.CreateFromYawPitchRoll(
                 Deg(transform.RotationY),
                 Deg(transform.RotationX),
-                Deg(transform.RotationZ != 0f ? transform.RotationZ : transform.Rotation));
+                Deg(roll));
             return Matrix4x4.CreateScale(scale)
                  * rotation
                  * Matrix4x4.CreateTranslation(transform.X, transform.Y, transform.Z);
@@ -334,12 +338,12 @@ namespace Genesis.Runtime.Modeling
         private static RenderColor ToRenderColor(Vector4 c)
             => new(c.X, c.Y, c.Z, c.W <= 0f ? 1f : c.W);
 
-        private static float MaterialUvScale(GModelMaterial material)
+        public static float MaterialUvScale(GModelMaterial material)
         {
             if (material?.Metadata is null
                 || !material.Metadata.TryGetValue("UvScale", out string text)
                 || !float.TryParse(text, System.Globalization.NumberStyles.Float,
-                    System.Globalization.CultureInfo.InvariantCulture, out float value))
+                    System.Globalization.CultureInfo.InvariantCulture, out float value) || !float.IsFinite(value))
             {
                 return 1f;
             }

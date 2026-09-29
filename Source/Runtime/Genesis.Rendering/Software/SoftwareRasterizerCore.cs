@@ -96,6 +96,7 @@ namespace Genesis.Rendering.Software
         public int TexHeight;
         public int TexArrayLayers;
         public GpuFormat TexFormat;
+        public GpuSamplerDesc AlbedoSampler;
         public float[] ShadowFarDepth;
         public int ShadowFarW;
         public int ShadowFarH;
@@ -1072,6 +1073,15 @@ namespace Genesis.Rendering.Software
         {
             r = g = b = a = 1f;
             int layer = atlasLayer > 0.5f ? Math.Clamp((int)MathF.Round(atlasLayer), 0, Math.Max(0, draw.TexArrayLayers - 1)) : 0;
+            if (draw.AlbedoSampler.Filter != GpuFilter.Point)
+            {
+                float x = u * draw.TexWidth - .5f, y = v * draw.TexHeight - .5f;
+                int left = (int)MathF.Floor(x), top = (int)MathF.Floor(y);
+                Vector4 upper = Vector4.Lerp(AlbedoTexel(draw, layer, left, top), AlbedoTexel(draw, layer, left + 1, top), x - left);
+                Vector4 lower = Vector4.Lerp(AlbedoTexel(draw, layer, left, top + 1), AlbedoTexel(draw, layer, left + 1, top + 1), x - left);
+                Vector4 sampled = Vector4.Lerp(upper, lower, y - top);
+                r = sampled.X; g = sampled.Y; b = sampled.Z; a = sampled.W; return;
+            }
             int tx = Math.Clamp((int)(u * draw.TexWidth), 0, draw.TexWidth - 1);
             int ty = Math.Clamp((int)(v * draw.TexHeight), 0, draw.TexHeight - 1);
             int tOffset = ((layer * draw.TexHeight + ty) * draw.TexWidth + tx) * 4;
@@ -1092,6 +1102,27 @@ namespace Genesis.Rendering.Software
                 b = texPixels[tOffset + 2] / 255f;
                 a = texPixels[tOffset + 3] / 255f;
             }
+        }
+
+        private static Vector4 AlbedoTexel(in SoftwareMeshDraw draw, int layer, int x, int y)
+        {
+            static int Address(int value, int size, GpuAddressMode mode) => mode switch
+            {
+                GpuAddressMode.Wrap => (value % size + size) % size,
+                GpuAddressMode.Mirror => Math.Min((value % (size * 2) + size * 2) % (size * 2), size * 2 - 1 - (value % (size * 2) + size * 2) % (size * 2)),
+                _ => Math.Clamp(value, 0, size - 1),
+            };
+            GpuSamplerDesc sampler = draw.AlbedoSampler;
+            if ((sampler.AddressU == GpuAddressMode.Border && (x < 0 || x >= draw.TexWidth))
+                || (sampler.AddressV == GpuAddressMode.Border && (y < 0 || y >= draw.TexHeight)))
+                return new(sampler.BorderColorR, sampler.BorderColorG, sampler.BorderColorB, sampler.BorderColorA);
+            x = Address(x, draw.TexWidth, sampler.AddressU); y = Address(y, draw.TexHeight, sampler.AddressV);
+            int offset = ((layer * draw.TexHeight + y) * draw.TexWidth + x) * 4;
+            byte[] pixels = draw.TexPixels;
+            if (offset + 3 >= pixels.Length) return Vector4.One;
+            return draw.TexFormat == GpuFormat.B8G8R8A8UNorm
+                ? new Vector4(pixels[offset + 2], pixels[offset + 1], pixels[offset], pixels[offset + 3]) / 255f
+                : new Vector4(pixels[offset], pixels[offset + 1], pixels[offset + 2], pixels[offset + 3]) / 255f;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

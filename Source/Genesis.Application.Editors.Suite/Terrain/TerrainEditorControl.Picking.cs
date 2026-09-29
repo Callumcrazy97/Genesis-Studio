@@ -1,5 +1,6 @@
 using System.Numerics;
 using Genesis.Runtime.Modeling;
+using Genesis.Runtime.Rendering;
 
 namespace Genesis.Application.Editors.Suite.Terrain;
 
@@ -7,11 +8,16 @@ public sealed partial class TerrainEditorControl
 {
     private readonly RuntimeModelAssetRegistry _pickModels = new();
     private static float? TriangleHit(Vector3 origin, Vector3 direction, Vector3 a, Vector3 b, Vector3 c)
+        => TriangleHit(origin, direction, a, b, c, out _);
+
+    private static float? TriangleHit(Vector3 origin, Vector3 direction, Vector3 a, Vector3 b, Vector3 c, out Vector2 barycentric)
     {
+        barycentric = Vector2.Zero;
         Vector3 edge = b - a, edge2 = c - a, p = Vector3.Cross(direction, edge2);
         float det = Vector3.Dot(edge, p); if (Math.Abs(det) < 1e-8f) return null;
         Vector3 offset = origin - a; float u = Vector3.Dot(offset, p) / det; if (u < 0 || u > 1) return null;
         Vector3 q = Vector3.Cross(offset, edge); float v = Vector3.Dot(direction, q) / det; if (v < 0 || u + v > 1) return null;
+        barycentric = new(u, v);
         float distance = Vector3.Dot(edge2, q) / det; return distance > 0 ? distance : null;
     }
     private (TerrainComponentsPanel.ComponentKind? Kind, string? Id) PickScene(Point point)
@@ -35,12 +41,24 @@ public sealed partial class TerrainEditorControl
                 var sprite = document?.Components.FirstOrDefault(c => c.Enabled && c.Type == TerrainEntityComponentKinds.Texture);
                 if (sprite is null) continue;
                 float spriteScale = float.TryParse(sprite.Get("Scale", "1"), System.Globalization.CultureInfo.InvariantCulture, out float s) ? s : 1;
-                Vector3 toward = _viewport.Camera.Eye - placed.Position;
-                var facing = sprite.Get("Mode") == nameof(TerrainEntityTextureMode.Billboard2D) ? Matrix4x4.CreateRotationY(MathF.Atan2(toward.X, toward.Z)) : Matrix4x4.Identity;
-                var transform = Matrix4x4.CreateScale(placed.Scale * spriteScale) * facing * Matrix4x4.CreateFromYawPitchRoll(placed.Yaw * MathF.PI / 180, placed.Pitch * MathF.PI / 180, placed.Roll * MathF.PI / 180) * Matrix4x4.CreateTranslation(placed.Position);
-                Vector3 P(float x, float y) => Vector3.Transform(new(x, y, 0), transform);
-                foreach (var t in new[] { TriangleHit(ray.Origin, ray.Direction, P(-.5f, 0), P(.5f, 0), P(.5f, 1)), TriangleHit(ray.Origin, ray.Direction, P(-.5f, 0), P(.5f, 1), P(-.5f, 1)) })
-                    if (t is { } distance && distance < nearest) { nearest = distance; kind = TerrainComponentsPanel.ComponentKind.Entity; id = placed.Id; }
+                int frame = EntityTextureFrame(sprite);
+                if (_entityImages.CpuGeometry(ProjectRoot, sprite.Get("Texture"), frame, sprite.Get("Mode")) is not { } geometry) continue;
+                Matrix4x4 placement = Matrix4x4.CreateScale(placed.Scale)
+                    * Matrix4x4.CreateFromYawPitchRoll(placed.Yaw * MathF.PI / 180, placed.Pitch * MathF.PI / 180, placed.Roll * MathF.PI / 180)
+                    * Matrix4x4.CreateTranslation(placed.Position);
+                Matrix4x4 transform = Matrix4x4.CreateScale(spriteScale) * TerrainTextureGeometry.Facing(sprite.Get("Mode"), placement, _viewport.Camera.Eye) * placement;
+                if (!Matrix4x4.Invert(transform, out Matrix4x4 spriteInverse)) continue;
+                Vector3 spriteOrigin = Vector3.Transform(ray.Origin, spriteInverse), spriteDirection = Vector3.TransformNormal(ray.Direction, spriteInverse);
+                for (int triangle = 0; triangle < geometry.Indices.Length; triangle += 3)
+                {
+                    var a = geometry.Vertices[geometry.Indices[triangle]];
+                    var b = geometry.Vertices[geometry.Indices[triangle + 1]];
+                    var c = geometry.Vertices[geometry.Indices[triangle + 2]];
+                    if (TriangleHit(spriteOrigin, spriteDirection, a.Position, b.Position, c.Position, out Vector2 uv) is not { } distance || distance >= nearest) continue;
+                    Vector2 imageUv = a.UV * (1 - uv.X - uv.Y) + b.UV * uv.X + c.UV * uv.Y;
+                    if (!_entityImages.OpaqueAt(ProjectRoot, sprite.Get("Texture"), frame, imageUv)) continue;
+                    nearest = distance; kind = TerrainComponentsPanel.ComponentKind.Entity; id = placed.Id;
+                }
                 continue;
             }
             string path = component.Get("Model"); if (string.IsNullOrWhiteSpace(path)) continue;
@@ -53,7 +71,7 @@ public sealed partial class TerrainEditorControl
             foreach (var mesh in model.Meshes)
             {
                 var indices = mesh.Indices;
-                Vector3 P(int i) => mesh.IsSkinned ? mesh.SkinnedVertices[i].Position : mesh.Vertices[i].Position;
+                Vector3 P(int i) => (mesh.IsSkinned ? mesh.SkinnedVertices[i].Position : mesh.Vertices[i].Position) - (model.Pivot?.Position ?? Vector3.Zero);
                 for (int i = 0; i + 2 < indices.Length; i += 3)
                     if (TriangleHit(origin, direction, P(indices[i]), P(indices[i + 1]), P(indices[i + 2])) is { } t && t < nearest)
                     { nearest = t; kind = TerrainComponentsPanel.ComponentKind.Entity; id = placed.Id; }

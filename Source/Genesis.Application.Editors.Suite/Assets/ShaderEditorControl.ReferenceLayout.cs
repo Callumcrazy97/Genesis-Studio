@@ -276,6 +276,9 @@ public sealed partial class ShaderEditorControl
         options.DropDownItems.Add(new ToolStripSeparator());
         options.DropDownItems.Add("Compile now", null, (_, _) => CompileNow()).ToolTipText = "Compile the current pass (F7)";
         options.DropDownItems.Add(_autoCompile);
+        ToolStripMenuItem inspection = new("3D inspection") { Name = "Shader3DInspectionOptions" };
+        Editor3DViewMenu.AddTo(inspection, () => _viewport);
+        options.DropDownItems.Add(inspection);
         _toolbar.Items.Add(options);
         _playPauseButton = new Button { Text = _playing ? "Pause" : "Play", AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink, MinimumSize = new Size(68, 28) };

@@ -122,7 +122,14 @@ namespace Genesis.Runtime.ECS
                     return;
                 }
 
-                SpritePlayback.Advance(ref sprite, asset, dt);
+                if (assets.TerrainTextureMode != null)
+                {
+                    int available = Math.Max(1, asset.Frames.Count);
+                    int count = assets.TerrainTextureFrameCount <= 0 ? available : Math.Min(available, assets.TerrainTextureFrameCount);
+                    sprite.PlaybackElapsedMs += MathF.Max(0, dt) * 1000;
+                    sprite.ImageIndex = (int)(sprite.PlaybackElapsedMs * assets.TerrainTextureFps / 1000) % count;
+                }
+                else SpritePlayback.Advance(ref sprite, asset, dt);
             }
 
             public void OnSerialize(Dictionary<string, object> props) { }

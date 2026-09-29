@@ -206,7 +206,7 @@ public static class PgslCodeIntelligenceProvider
     private static string TypeHint(Type type) => type == typeof(string) ? "string" : type == typeof(bool) ? "boolean"
         : type == typeof(double) || type == typeof(float) || type == typeof(int) || type == typeof(long) ? "number" : type.Name;
 
-    private static bool TryGetLocalSignature(string source, string name, out string signature, out string description)
+    internal static bool TryGetLocalSignature(string source, string name, out string signature, out string description)
     {
         Match function = Regex.Match(source, @"\bfunction\s+" + Regex.Escape(name) + @"\s*\((?<args>[^)]*)\)");
         signature = function.Success ? name + "(" + string.Join(", ", function.Groups["args"].Value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)

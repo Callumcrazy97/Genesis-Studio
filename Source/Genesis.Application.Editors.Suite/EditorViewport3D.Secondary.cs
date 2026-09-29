@@ -7,6 +7,7 @@ public sealed partial class EditorViewport3D
 {
     private EditorSecondaryViewportHost? _secondaryHost;
     private EditorCameraSlot? _secondarySlot;
+    private Func<(float X, float Y, float Zoom)>? _authoredCamera2D;
     private readonly Stopwatch _secondaryMotionClock = new();
 
     /// <summary>Optional world point for Look-at / follow / orbit-target commands.</summary>
@@ -21,6 +22,7 @@ public sealed partial class EditorViewport3D
     /// <summary>Creates or updates the top-right inset from the current editor orbit view.</summary>
     public void PinSecondaryFromCurrentView(string? label = null)
     {
+        _authoredCamera2D = null;
         EditorCameraSlot slot = EnsureSecondarySlot(EditorCameraSlotKind.PinnedSecondary, label ?? "Pinned view");
         slot.CopyViewFrom(this);
         ShowSecondaryInset();
@@ -29,6 +31,7 @@ public sealed partial class EditorViewport3D
     /// <summary>Keeps the existing inset, but snaps it to the current editor camera.</summary>
     public void MoveSecondaryToCurrentView()
     {
+        _authoredCamera2D = null;
         if (_secondarySlot is null)
         {
             PinSecondaryFromCurrentView();
@@ -44,10 +47,20 @@ public sealed partial class EditorViewport3D
     /// <summary>Shows an authored/game camera in the inset without replacing the editor orbit rig.</summary>
     public void ShowAuthoredSecondaryCamera(Func<EditorCameraOverride> overrideFactory, string label = "Game camera")
     {
+        _authoredCamera2D = null;
         ArgumentNullException.ThrowIfNull(overrideFactory);
         EditorCameraSlot slot = EnsureSecondarySlot(EditorCameraSlotKind.AuthoredGame, label);
         slot.OverrideFactory = overrideFactory;
         slot.Motion = EditorCameraMotionMode.Pinned;
+        ShowSecondaryInset();
+    }
+
+    public void ShowAuthoredSecondaryCamera2D(Func<(float X, float Y, float Zoom)> pose, string label = "Game camera")
+    {
+        ArgumentNullException.ThrowIfNull(pose);
+        EditorCameraSlot slot = EnsureSecondarySlot(EditorCameraSlotKind.AuthoredGame, label);
+        slot.OverrideFactory = null; slot.Motion = EditorCameraMotionMode.Pinned; _authoredCamera2D = pose;
+        var current = pose(); slot.Camera2DX = current.X; slot.Camera2DY = current.Y; slot.Zoom2D = current.Zoom;
         ShowSecondaryInset();
     }
 
@@ -131,6 +144,7 @@ public sealed partial class EditorViewport3D
 
     public void ClearSecondaryCamera()
     {
+        _authoredCamera2D = null;
         if (_secondaryHost is not null)
         {
             _secondaryHost.Viewport.ViewChanged -= OnSecondaryViewChanged;
@@ -236,7 +250,11 @@ public sealed partial class EditorViewport3D
 
         if (Mode2D)
         {
-            ApplySecondaryMotion2D(dt);
+            if (_authoredCamera2D is { } pose)
+            {
+                var current = pose(); _secondarySlot.Camera2DX = current.X; _secondarySlot.Camera2DY = current.Y; _secondarySlot.Zoom2D = current.Zoom;
+            }
+            else ApplySecondaryMotion2D(dt);
             ApplySlotViewToSecondary();
             return;
         }

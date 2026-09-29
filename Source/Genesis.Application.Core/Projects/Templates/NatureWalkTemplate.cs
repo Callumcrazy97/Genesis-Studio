@@ -217,7 +217,7 @@ public static class NatureWalkTemplate
         CreatePhysicsMaterial(resources, physics, "ForestWood", 0.62f, 0.12f, 0.82f);
 
         // 6. Terrain
-        string terrain = CreateTerrain(resources, terrains, grassTex);
+        string terrain = CreateTerrain(resources, terrains, session.RootPath, grassTex, soilTex, rockTex);
 
         // 7. Objects (Prefabs)
         string player = CreatePlayer(resources, objects);
@@ -425,8 +425,9 @@ public static class NatureWalkTemplate
             return path;
         }
 
-        document.Canvas.Width = 512;
-        document.Canvas.Height = 512;
+        using var imported = System.Drawing.Image.FromFile(sourcePath);
+        document.Canvas.Width = imported.Width;
+        document.Canvas.Height = imported.Height;
         document.Usage.Allowed = ImageUsage.Texture;
 
         string dataDirectory = Path.ChangeExtension(path, null);
@@ -923,7 +924,8 @@ public static class NatureWalkTemplate
         return t * t * (3f - 2f * t);
     }
 
-    private static string CreateTerrain(ResourceService resources, string folder, string grassAlbedo)
+    private static string CreateTerrain(ResourceService resources, string folder, string projectRoot,
+        string grassAlbedo, string soilAlbedo, string rockAlbedo)
     {
         string path = resources.CreateResource(folder, ResourceKind.Terrain, TerrainName);
 
@@ -940,9 +942,9 @@ public static class NatureWalkTemplate
             ["fogEnabled"] = true,
             ["fogDensity"] = 0.0012,
             ["layers"] = new JsonArray(
-                Layer("ForestGrass", 0.18, 0.48, 0.19),
-                Layer("ForestSoil", 0.38, 0.26, 0.16),
-                Layer("MountainRock", 0.45, 0.48, 0.52),
+                Layer("ForestGrass", 0.18, 0.48, 0.19, ResourceNames.Name(projectRoot, grassAlbedo, ResourceType.Image)),
+                Layer("ForestSoil", 0.38, 0.26, 0.16, ResourceNames.Name(projectRoot, soilAlbedo, ResourceType.Image)),
+                Layer("MountainRock", 0.45, 0.48, 0.52, ResourceNames.Name(projectRoot, rockAlbedo, ResourceType.Image)),
                 Layer("AlpineMoss", 0.28, 0.42, 0.24)),
             ["entities"] = new JsonArray(),
         };
@@ -953,10 +955,13 @@ public static class NatureWalkTemplate
         return path;
     }
 
-    private static JsonObject Layer(string name, double r, double g, double b) => new()
+    private static JsonObject Layer(string name, double r, double g, double b, string image = "") => new()
     {
         ["name"] = name,
         ["color"] = new JsonArray(r, g, b),
+        ["image"] = image,
+        ["addressing"] = "Tile",
+        ["tiling"] = 8,
     };
 
     private static void WriteHeightfield(string path)
@@ -994,7 +999,7 @@ public static class NatureWalkTemplate
                 float slope = 1f - normalY;
 
                 // Four authored routes are baked into splat channel 1, matching the editable
-                // path records used by the Terrain Editor and runtime ribbon geometry.
+                // path records used by the Terrain Editor and runtime route queries.
                 float trailDist = TrailDistance(wx, wz);
                 float trailPath = 1f - Smoothstep(1.6f, 5.2f, trailDist);
 
@@ -1157,6 +1162,7 @@ public static class NatureWalkTemplate
         {
             ["id"] = NewId(), ["name"] = trail.Name, ["kind"] = "Trail",
             ["width"] = trail.Width, ["points"] = points, ["length"] = length,
+            ["surfacePainted"] = true,
         };
     }
 
@@ -1889,11 +1895,11 @@ public static class NatureWalkTemplate
                 ["terrain"] = new JsonObject
                 {
                     ["asset"] = Relative(projectRoot, terrain),
-                    ["albedo"] = Relative(projectRoot, grassAlbedo),
-                    ["uvScale"] = 0.06,
+                    ["albedo"] = "",
+                    ["uvScale"] = 1,
                 },
             },
-            MakeNode(projectRoot, player, "Nature Explorer", -18, SampleAlpineHeight(-18, -238), -238, "gameplay"),
+            MakeNode(projectRoot, player, "Nature Explorer", -18, SampleAlpineHeight(-18, -238) + 0.6f, -238, "gameplay"),
             MakeNode(projectRoot, campfire, "South Trail Campfire", -18, SampleAlpineHeight(-18, -214), -214, "landmarks", yaw: 18),
             MakeNode(projectRoot, watchtower, "Broken Watchtower", 214, SampleAlpineHeight(214, -260), -260, "landmarks", yaw: -24, scale: 1.2f),
             MakeNode(projectRoot, stoneArch, "Weathered Arch", 126, SampleAlpineHeight(126, 118), 118, "landmarks", yaw: 38, scale: 1.15f),
@@ -2167,13 +2173,10 @@ public static class NatureWalkTemplate
 
     private const string PlayerCreateEvent = """
         // ── 1st Person 3D Nature Walker ────────────────────────────────────────────
-        eyeHeight = 1.72;
-        walkSpeed = 0.16;
-        sprintSpeed = 0.28;
-        jumpPower = 0.34;
-        gravityStep = 0.016;
-        verticalSpeed = 0;
-        onGround = 1;
+        // The saved Object character motor owns movement, gravity, jumping and swimming.
+        // x/y/z are its live body centre; the capsule's half height is 0.6 m.
+        eyeHeight = 1.12;
+        onGround = 0;
 
         bobTime = 0;
         bobAmount = 0;
@@ -2182,17 +2185,13 @@ public static class NatureWalkTemplate
         lookPitch = -4;
         lookSensitivity = 0.16;
 
-        x = -18;
-        z = -238;
-        y = GetTerrainHeight(x, z);
-
         SetMouseCaptured(true);
         Engine.SetCameraFov(72);
         Engine.SetCameraNearPlane(0.12);
         Engine.SetCameraFarPlane(2000);
         dust = ParticleCreate(180, 20, 1.2);
 
-        showHelp = 0;
+        showHelp = 1;
         helpTimer = 0;
         inWater = 0;
         travelState = "SOUTH TRAIL CAMP";
@@ -2210,69 +2209,16 @@ public static class NatureWalkTemplate
         lookPitch = Clamp(lookPitch - (GetMouseLookDeltaY() * lookSensitivity), -85, 85);
         lookYaw = AngleNormalise(lookYaw);
 
-        var forwardX = ForwardX(lookYaw, 0);
-        var forwardZ = ForwardZ(lookYaw, 0);
-        var rightX = RightX(lookYaw);
-        var rightZ = RightZ(lookYaw);
-
-        // ── Movement ─────────────────────────────────────────────────────────────
-        var moveF = 0;
-        var moveR = 0;
-        if (KeyCheck("W") || KeyCheck("Up")) { moveF = moveF + 1; }
-        if (KeyCheck("S") || KeyCheck("Down")) { moveF = moveF - 1; }
-        if (KeyCheck("D") || KeyCheck("Right")) { moveR = moveR + 1; }
-        if (KeyCheck("A") || KeyCheck("Left")) { moveR = moveR - 1; }
-
-        var currentSpeed = walkSpeed;
-        if (KeyCheck("Shift")) { currentSpeed = sprintSpeed; }
-
-        var diagonal = 1;
-        if (moveF != 0 && moveR != 0) { diagonal = 0.70710678; }
-
-        var moving = 0;
-        if (moveF != 0 || moveR != 0) { moving = 1; }
-
-        var deltaX = ((forwardX * moveF) + (rightX * moveR)) * currentSpeed * diagonal;
-        var deltaZ = ((forwardZ * moveF) + (rightZ * moveR)) * currentSpeed * diagonal;
-
-        var nextX = Clamp(x + deltaX, -495, 495);
-        var nextZ = Clamp(z + deltaZ, -495, 495);
-
-        if (PlaceFree3D(nextX, z, 0.8)) { x = nextX; }
-        if (PlaceFree3D(x, nextZ, 0.8)) { z = nextZ; }
-
-        // ── Terrain Height & Water Snapping ──────────────────────────────────────
-        var ground = GetTerrainHeight(x, z);
-        inWater = WaterIsSwimmable(x, y + 0.5, z);
-
+        // Physics runs before Step and supplies the saved character motor's live pose.
+        // Keep gameplay presentation here; assigning x/y/z would teleport that body.
+        onGround = CharacterIsGrounded();
+        inWater = CharacterIsSwimming();
+        var moving = KeyCheck("W") || KeyCheck("S") || KeyCheck("A") || KeyCheck("D")
+            || KeyCheck("Up") || KeyCheck("Down") || KeyCheck("Left") || KeyCheck("Right");
         travelState = "VERDANT LOOP";
         if (inWater) { travelState = "SWIMMING"; }
         if (x > 175 && z < -200) { travelState = "BROKEN WATCHTOWER"; }
         if (x > 250 && z > -20) { travelState = "THE GROVE"; }
-
-        if (inWater == 1) {
-            onGround = 0;
-            verticalSpeed = verticalSpeed * 0.82;
-            if (KeyCheck("Space")) { verticalSpeed = verticalSpeed + 0.025; }
-            if (KeyCheck("Control")) { verticalSpeed = verticalSpeed - 0.02; }
-            y = y + verticalSpeed;
-            if (y < ground + 0.4) { y = ground + 0.4; verticalSpeed = 0; }
-        } else if (onGround == 1) {
-            y = ground;
-            verticalSpeed = 0;
-            if (KeyPressed("Space")) {
-                verticalSpeed = jumpPower;
-                onGround = 0;
-            }
-        } else {
-            verticalSpeed = verticalSpeed - gravityStep;
-            y = y + verticalSpeed;
-            if (y <= ground) {
-                y = ground;
-                verticalSpeed = 0;
-                onGround = 1;
-            }
-        }
 
         // ── Head Bobbing ─────────────────────────────────────────────────────────
         if (moving == 1 && onGround == 1) {
@@ -2302,8 +2248,8 @@ public static class NatureWalkTemplate
             eyeZ + ForwardZ(lookYaw, lookPitch));
         SetAudioListener(eyeX, eyeY, eyeZ);
 
-        if (helpTimer < 120) { helpTimer = helpTimer + 1; }
-        if (helpTimer >= 120) { showHelp = 0; }
+        if (helpTimer < 8) { helpTimer = helpTimer + DeltaTime; }
+        if (helpTimer >= 8) { showHelp = 0; }
         if (KeyPressed("H")) { showHelp = 1 - showHelp; helpTimer = 0; }
         """;
 
@@ -2311,7 +2257,7 @@ public static class NatureWalkTemplate
         // Soft 1st Person shadow
         DrawSetColorRgb(15, 20, 15);
         DrawSetAlpha(0.28);
-        DrawBox3D(x, y + 0.02, z, 0.7, 0.02, 0.7);
+        DrawBox3D(x, GetTerrainHeight(x, z) + 0.02, z, 0.7, 0.02, 0.7);
         DrawSetAlpha(1.0);
         """;
 
@@ -2422,4 +2368,3 @@ public static class NatureWalkTemplate
     private static string Relative(string projectRoot, string fullPath) =>
         Path.GetRelativePath(projectRoot, fullPath).Replace(Path.DirectorySeparatorChar, '/');
 }
-

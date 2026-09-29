@@ -145,6 +145,9 @@ internal static class ModelPoseWorkflowSuite
         dialog.Preview.SetAnimationTime(29 / 30f);
         Capture(dialog, dialog.Preview.Viewport, ctx, "model-pose-workflow-animate");
         dialog.ClientSize = new Size(1080, 740); Capture(dialog, dialog.Preview.Viewport, ctx, "model-pose-workflow-narrow");
+        dialog.MinimumSize = new Size(900, 500);
+        dialog.ClientSize = new Size(1300, 634);
+        Capture(dialog, dialog.Preview.Viewport, ctx, "model-pose-workflow-short");
         var result = dialog.Result;
         Assert(result.Animations.All(c => !c.Name.StartsWith("Working pose")), "Transient pose escaped into the result.");
         editor.ApplyAnimationWorkspace(result, dialog.SelectedClip);
@@ -168,6 +171,9 @@ internal static class ModelPoseWorkflowSuite
     private static void Capture(Form form, Genesis.Application.Editors.Suite.EditorViewport3D viewport, HeadlessContext ctx, string name)
     {
         ThemeService.Apply(form); System.Windows.Forms.Application.DoEvents();
+        var channel = form.Controls.Find("ModelCurveChannel", true).SingleOrDefault();
+        if (channel?.Visible == true)
+            Assert(channel.Parent!.ClientRectangle.Contains(channel.Bounds), "The bone curve channel selector is clipped.");
         using (var frame = viewport.CaptureFrame(8))
         {
             Assert(frame is not null, "Animation viewport did not render a frame.");
@@ -186,7 +192,15 @@ internal static class ModelPoseWorkflowSuite
         }
         var metrics = VisualCapture.CaptureOpenForm(form, Path.Combine(ctx.Captures, name + ".png"), includeViewports: true);
         ctx.Report.Images.Add(ImageResult.From(name, name + ".png", metrics));
-        Assert(viewport.Width >= 420 && viewport.Height >= 280, "Animation panels leave too little viewport space.");
+        Assert(viewport.Width >= 420 && viewport.Height >= 280,
+            $"Animation panels leave too little viewport space ({name}: viewport {viewport.Size}, form {form.ClientSize}, parent {viewport.Parent?.ClientSize}; "
+            + (viewport.Parent is TableLayoutPanel table
+                ? string.Join("; ", table.Controls.Cast<Control>().Select(control => control.GetType().Name + "=" + control.Bounds))
+                    + "; rows=" + string.Join(",", table.RowStyles.Cast<RowStyle>().Select(row => row.Height))
+                    + "; transport=" + string.Join("; ", (table.GetControlFromPosition(0, 2)?.Controls.OfType<FlowLayoutPanel>() ?? [])
+                        .Select(row => row.Size + " visible=" + row.Visible + " "
+                            + string.Join(",", row.Controls.Cast<Control>().Select(control => control.Text + ":" + control.Visible))))
+                : "No layout table") + ").");
     }
 
     internal static GModelAsset Fixture()

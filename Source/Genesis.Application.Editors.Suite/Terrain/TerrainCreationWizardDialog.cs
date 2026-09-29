@@ -12,6 +12,8 @@ public sealed class TerrainCreationWizardDialog : DpiAwareForm
     private readonly TerrainAssetPreview _live = new("");
     private readonly CheckBox _manual = new() { Text = "Place manually", AutoSize = true };
     private readonly NumericUpDown[] _coordinates = Enumerable.Range(0, 3).Select(_ => new NumericUpDown { Minimum = -100000, Maximum = 100000, DecimalPlaces = 2, Width = 90 }).ToArray();
+    private Action? _fitWizard;
+    public override void ApplyInterfaceLayout() => _fitWizard?.Invoke();
     public TerrainCreationResult? PreviewResult { get; private set; }
     public bool PlaceManually => _manual.Checked;
     public System.Numerics.Vector3 PlacementPosition => new((float)_coordinates[0].Value, (float)_coordinates[1].Value, (float)_coordinates[2].Value);
@@ -22,6 +24,7 @@ public sealed class TerrainCreationWizardDialog : DpiAwareForm
         BackColor = EditorChrome.Canvas;
         ForeColor = EditorChrome.Text;
         Font = EditorChrome.BaseFont;
+        Tag = "font-measured-layout";
         FormBorderStyle = FormBorderStyle.Sizable;
         StartPosition = FormStartPosition.CenterParent;
         MaximizeBox = false;
@@ -43,13 +46,30 @@ public sealed class TerrainCreationWizardDialog : DpiAwareForm
 
         var split = new SplitContainer { Dock = DockStyle.Fill, Size = new Size(1240, 730), SplitterDistance = 760, Panel1MinSize = 700, Panel2MinSize = 300 };
         split.Panel1.Controls.Add(_panel); split.Panel2.Controls.Add(_live);
-        var placement = new FlowLayoutPanel { Dock = DockStyle.Left, Width = 670, Padding = new Padding(8) };
+        var placement = new FlowLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(8), WrapContents = true };
         for (int i = 0; i < 3; i++) { placement.Controls.Add(new Label { Text = "XYZ"[i] + " (m)", AutoSize = true }); placement.Controls.Add(_coordinates[i]); EditorChrome.StyleField(_coordinates[i]); }
         placement.Controls.Add(_manual); footer.Controls.Add(placement);
         void Preview() { if (_panel.PreviewAsset is { } terrain) { PreviewResult = TerrainHeightfieldBridge.FromHeightfield(terrain, _panel.TerrainName); _live.SetMesh(PreviewResult.Model); } }
         _panel.PreviewChanged += (_, _) => Preview(); Shown += (_, _) => Preview();
         Controls.Add(split);
         Controls.Add(footer);
+        bool fitting = false;
+        _fitWizard = () =>
+        {
+            if (fitting || IsDisposed) return;
+            fitting = true;
+            try
+            {
+                create.Width = cancel.Width = Math.Max(110, TextRenderer.MeasureText("Cancel", cancel.Font).Width + 48);
+                foreach (NumericUpDown coordinate in _coordinates) coordinate.Width = Math.Max(90, coordinate.Font.Height * 5);
+                int fieldHeight = Math.Max(placement.Controls.Cast<Control>().Max(control => control.PreferredSize.Height), create.Font.Height + 18);
+                footer.Height = Math.Max(fieldHeight + 16, placement.GetPreferredSize(new Size(Math.Max(120, footer.Width - create.Width - cancel.Width), int.MaxValue)).Height + 8);
+                _panel.ApplyInterfaceLayout();
+            }
+            finally { fitting = false; }
+        };
+        footer.SizeChanged += (_, _) => ApplyInterfaceLayout();
+        Shown += (_, _) => { ApplyInterfaceLayout(); BeginInvoke(() => { if (!IsDisposed) ApplyInterfaceLayout(); }); };
     }
 
     public string TerrainName => _panel.TerrainName;

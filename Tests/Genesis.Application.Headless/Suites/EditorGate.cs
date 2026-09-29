@@ -1650,10 +1650,17 @@ internal static partial class EditorGate
             editor.SetMode(TerrainEditorControl.TerrainEditorMode.Paths);
             HeadlessHarness.Assert(editor.ActiveMode == TerrainEditorControl.TerrainEditorMode.Paths,
                 "The Terrain Editor did not switch to Paths mode.");
-            HeadlessHarness.Assert(
-                commandBar.Items.OfType<ToolStripDropDownItem>().Any(item => item.Text == "Wizard"
-                    || item.DropDownItems.OfType<ToolStripDropDownItem>().Any(child => child.Text == "Wizard")),
-                "The Terrain Editor command bar must expose Wizard directly or through View.");
+            string[] primaryModes = ["Select", "Create", "Sculpt", "Paint", "Objects"];
+            HeadlessHarness.Assert(SurfaceControls(editor).OfType<ToolStrip>()
+                .SelectMany(strip => strip.Items.OfType<ToolStripButton>())
+                .Count(button => button.Available && primaryModes.Contains(button.AccessibleName)) == primaryModes.Length,
+                "Terrain must keep its five labelled primary modes visible.");
+            editor.SetMode(TerrainEditorControl.TerrainEditorMode.Generate);
+            HeadlessHarness.Assert(SurfaceControls(editor).OfType<Button>().Any(button => button.Visible
+                    && button.Text.StartsWith("Create terrain", StringComparison.Ordinal)),
+                "Create mode must expose the guided terrain creation action.");
+            HeadlessHarness.Assert(commandBar.Items.OfType<ToolStripDropDownItem>().Count(item => item.Text == "Options") == 1,
+                "Terrain must expose one Options menu for its secondary workflows.");
             editor.SetMode(TerrainEditorControl.TerrainEditorMode.Sculpt);
         });
 
@@ -1739,13 +1746,10 @@ internal static partial class EditorGate
                         instance.Position.Z,
                         TerrainWaterDefinition.FoliageExclusionPadding)) == 0,
                 "Adding a lake left grass inside the water footprint.");
-            HeadlessHarness.Assert(
-                WaterSurfaceMesh.VerticalSpan(WaterSurfaceMesh.BuildVisual(lake.ToWaterBody(), Vector3.Zero))
-                >= lake.PhysicsDepth * 0.85f,
-                "Authored lake visual is a flat sheet instead of a filled volume.");
+            WaterWorkflowAssertions.SurfaceAndVolume(lake);
             string shaderPath = resources.CreateResource(
                 fixture.Folder(project, "Shaders"), ResourceKind.Shader, "Gate Lake Shader");
-            componentShader = Path.GetRelativePath(project.RootPath, shaderPath).Replace('\\', '/');
+            componentShader = ResourceNames.Name(project.RootPath, shaderPath, ResourceType.Shader);
             editor.SelectTerrainComponent(TerrainComponentsPanel.ComponentKind.Water, lake.Id);
             waterTargetId = editor.SelectedShaderTargetId ?? string.Empty;
             HeadlessHarness.Assert(
@@ -1978,10 +1982,9 @@ internal static partial class EditorGate
                 "Inspector Preview.Wind is not a writable preview variable for If expressions.");
             editor.SetPreviewVariable("Wind", 0);
 
-            string entityPath = resources.CreateResource(
-                fixture.Folder(project, "TerrainEntities"), ResourceKind.TerrainEntity, "Gate Windmill");
-            using TerrainEntityWizardDialog wizard = new(entityPath, project.RootPath, TerrainEntityType.Object);
-            GateSuite.ShowHost(wizard);
+            string entityPath = editor.CreateTerrainEntity(TerrainEntityType.Object);
+            TerrainEntityWizardPanel wizard = editor.ActiveEntityWizard
+                ?? throw new InvalidOperationException("Terrain did not open its owned-part authoring wizard.");
             GateSuite.Pump(2, 20);
             wizard.SetName("Gate Windmill");
             wizard.GoToPage(1);
@@ -2086,6 +2089,11 @@ internal static partial class EditorGate
 
         HeadlessHarness.Step("the lit viewport renders", () =>
         {
+            // This fixture intentionally streams grass only within 72 m. Test the batches from
+            // inside that range; fitting the whole terrain can legitimately cull every grass cell.
+            editor.Viewport.Camera.Distance = Math.Min(editor.Viewport.Camera.Distance,
+                editor.Nature.FoliageSettings.FarDistance * .6f);
+            editor.Viewport.Invalidate();
             using Bitmap? frame = editor.Viewport.CaptureFrame(settleFrames: 3);
             HeadlessHarness.Assert(frame is not null, "The terrain viewport produced no frame.");
             HeadlessHarness.Assert(

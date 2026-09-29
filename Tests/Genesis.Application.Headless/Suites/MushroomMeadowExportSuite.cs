@@ -21,6 +21,9 @@ internal static class MushroomMeadowExportSuite
         GameExportResult? export = null;
         HeadlessHarness.RunCase(context.Report, "Acceptance.MushroomMeadow.Package", () =>
         {
+            string runtime = RuntimePaths.ResolveRuntimeDir() ?? throw new InvalidOperationException("No current Player payload.");
+            Check(Hash(typeof(RuntimePaths).Assembly.Location) == Hash(Path.Combine(runtime, "Genesis.Runtime.dll")),
+                "The selected Player differs from the source-built harness. Use Build.bat --quick --test mushroom-export to stage a matching Player.");
             project = new ProjectService().CreateProject(parent, "Mushroom Meadow", TwoDShowcaseTemplate.TemplateId);
             string directory = Path.Combine(context.OutputRoot, "ExportedGame");
             Directory.CreateDirectory(directory);
@@ -29,7 +32,6 @@ internal static class MushroomMeadowExportSuite
             Check(export.Success, "Game export failed: " + export.ErrorMessage);
             Check(File.Exists(Path.Combine(directory, export.ExecutableName)), "Export omitted the game executable.");
             Check(!File.Exists(Path.Combine(directory, "previous-release.txt")), "The previous export was mixed with the new release.");
-            string runtime = RuntimePaths.ResolveRuntimeDir() ?? throw new InvalidOperationException("No current Player payload.");
             Check(Hash(Path.Combine(runtime, "Genesis.Runtime.dll")) == Hash(Path.Combine(directory, "Genesis.Runtime.dll")),
                 "Export did not use the selected Player payload.");
             Check(!Directory.GetFiles(directory, "Genesis.Application*.dll").Any(), "Export leaked Studio assemblies.");
@@ -48,7 +50,7 @@ internal static class MushroomMeadowExportSuite
             HeadlessHarness.RunCase(context.Report, "Acceptance.MushroomMeadow.Export." + backend.ShortName, () =>
             {
                 Check(project != null && export?.Success == true, "Packaging failed; cannot run an exported game.");
-                string output = Path.Combine(context.Captures, "Export", backend.ShortName);
+                string output = Path.Combine(context.Captures, "MushroomMeadowExport", backend.ShortName);
                 Directory.CreateDirectory(output);
                 string directory = export!.OutputPath;
                 ProcessStartInfo start = new(Path.Combine(directory, export.ExecutableName))

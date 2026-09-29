@@ -70,7 +70,8 @@ public sealed partial class TerrainEditorControl
             return;
         }
 
-        TerrainPathSettings settings = _nature.PathSettings;
+        TerrainPathSettings oldSettings = Clone(_nature.PathSettings);
+        TerrainPathSettings settings = Clone(_pathAuthoringSettings);
         List<TerrainPathDefinition> oldPaths = Clone(_nature.Paths);
         ushort[] oldHeights = (ushort[])_terrain.HeightsData.Clone();
         byte[] oldSplat = (byte[])_terrain.SplatmapData.Clone();
@@ -99,9 +100,10 @@ public sealed partial class TerrainEditorControl
         ushort[] nextHeights = (ushort[])_terrain.HeightsData.Clone();
         byte[] nextSplat = (byte[])_terrain.SplatmapData.Clone();
 
-        void ApplyPaths(List<TerrainPathDefinition> paths, ushort[] heights, byte[] splat)
+        void ApplyPaths(TerrainPathSettings pathSettings, List<TerrainPathDefinition> paths, ushort[] heights, byte[] splat)
         {
             _terrain.RestoreState(heights, splat);
+            _nature.PathSettings = Clone(pathSettings);
             _nature.Paths = Clone(paths);
             _pathNetwork = new TerrainPathNetwork(_nature.Paths);
             _meshDirty = true;
@@ -112,14 +114,15 @@ public sealed partial class TerrainEditorControl
         }
 
         _nature.Paths = Clone(nextPaths);
+        _nature.PathSettings = Clone(settings);
         _pathNetwork = network;
         _meshDirty = true;
         _natureMeshDirty = true;
         MarkDirty();
         PushEdit(
             $"Paint path '{path.Name}'",
-            () => ApplyPaths(nextPaths, nextHeights, nextSplat),
-            () => ApplyPaths(oldPaths, oldHeights, oldSplat));
+            () => ApplyPaths(settings, nextPaths, nextHeights, nextSplat),
+            () => ApplyPaths(oldSettings, oldPaths, oldHeights, oldSplat));
         RefreshComponentsPanel();
         _componentsPanel.Select(TerrainComponentsPanel.ComponentKind.Path, path.Id);
         _pathStrokePoints.Clear();
@@ -151,7 +154,7 @@ public sealed partial class TerrainEditorControl
 
         if (_cursorValid && ActiveMode == TerrainEditorMode.Paths)
         {
-            float halfWidth = MathF.Max(0.5f, _nature.PathSettings.Width * 0.5f);
+            float halfWidth = MathF.Max(0.5f, _pathAuthoringSettings.Width * 0.5f);
             const int segments = 32;
             Vector3 centre = _cursorWorld;
             Vector3 prevRing = default;

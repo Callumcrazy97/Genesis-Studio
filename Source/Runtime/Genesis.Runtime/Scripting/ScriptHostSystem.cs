@@ -482,6 +482,29 @@ namespace Genesis.Runtime.Scripting
             }
         }
 
+        public void DispatchPhysicsContact(Genesis.Physics.PhysicsContactChange contact)
+        {
+            FillDispatchSnapshot();
+            foreach (EntityBehavior behavior in _dispatchSnapshot)
+            {
+                if (behavior.World == null || !behavior.World.IsAlive(behavior.Entity)) continue;
+                Entity other;
+                if (behavior.Entity == contact.A) other = contact.B;
+                else if (behavior.Entity == contact.B) other = contact.A;
+                else continue;
+                try
+                {
+                    if (contact.Phase == Genesis.Physics.PhysicsContactPhase.Exit) behavior.OnCollisionExit(other);
+                    else
+                    {
+                        if (contact.Phase == Genesis.Physics.PhysicsContactPhase.Enter) behavior.OnCollisionEnter(other);
+                        if (behavior.World.IsAlive(behavior.Entity)) behavior.OnCollision(other);
+                    }
+                }
+                catch (Exception ex) { LogBehaviorError(behavior, "Collision" + contact.Phase, ex); }
+            }
+        }
+
         public void Detach(Entity entity)
         {
             for (int i = _instances.Count - 1; i >= 0; i--)

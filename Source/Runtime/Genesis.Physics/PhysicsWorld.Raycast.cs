@@ -69,7 +69,7 @@ public sealed partial class PhysicsWorld
             planar.PlanarDepth = position.Z;
             _planarConstraints.Apply(handle, true, planar.LockRotation, position.Z);
         }
-        body.Pose.Position = position;
+        body.Pose.Position = position + Vector3.Transform(_dynamicBindingsByHandle[handle].LocalOffset, orientation);
         body.Pose.Orientation = orientation;
         body.Velocity = default;
         _planarConstraints.Reanchor(handle, position.Z);
@@ -91,10 +91,14 @@ public sealed partial class PhysicsWorld
 
     public Vector3 GetBodyPosition(int registrationId)
     {
-        if (!TryGetDynamicHandle(registrationId, out BodyHandle handle))
-            return Vector3.Zero;
-
-        return _simulation.Bodies.GetBodyReference(handle).Pose.Position;
+        if (!TryGetBinding(registrationId, out var binding)) return Vector3.Zero;
+        RigidPose pose;
+        if (binding.DynamicHandle is BodyHandle dynamic)
+            pose = _simulation.Bodies.GetBodyReference(dynamic).Pose;
+        else if (binding.StaticHandle is StaticHandle stat)
+            pose = _simulation.Statics.GetStaticReference(stat).Pose;
+        else return Vector3.Zero;
+        return pose.Position - Vector3.Transform(binding.LocalOffset, pose.Orientation);
     }
 
     public Vector3 GetLinearVelocity(int registrationId)
@@ -116,8 +120,12 @@ public sealed partial class PhysicsWorld
 
         ref var body = ref world.GetRef<RigidBodyComponent>(binding.Entity);
         Vector3 half = body.HalfExtents;
-        Vector3 origin = GetBodyPosition(registrationId) - new Vector3(0f, half.Y - 0.05f, 0f);
-        return RaycastDown(world, origin, extraDistance, out hit, binding.Entity);
+        Quaternion rotation = world.GetRef<Transform3DComponent>(binding.Entity).Rotation;
+        Vector3 centre = GetBodyPosition(registrationId) + Vector3.Transform(binding.LocalOffset, rotation);
+        // A capsule's bottom can penetrate a slope slightly while the contact solver settles.
+        // Starting at its feet then puts a one-sided terrain ray below the surface.
+        Vector3 origin = centre + Vector3.UnitY * 0.05f;
+        return RaycastDown(world, origin, half.Y + extraDistance + 0.05f, out hit, binding.Entity);
     }
 
     private bool TryGetDynamicHandle(int registrationId, out BodyHandle handle)
@@ -191,7 +199,7 @@ public sealed partial class PhysicsWorld
                 Point = ray.Origin + ray.Direction * t,
                 Normal = surfaceNormal,
                 Distance = t,
-                IsStatic = collidable.Mobility != CollidableMobility.Dynamic,
+                IsStatic = collidable.Mobility == CollidableMobility.Static,
             };
         }
     }

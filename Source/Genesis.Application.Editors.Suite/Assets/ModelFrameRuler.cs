@@ -54,7 +54,7 @@ internal sealed class ModelFrameRuler : Control
     public void SetSource(GModelAsset asset, GModelAnimationClip? clip, string root)
     {
         if (ReferenceEquals(_asset, asset) && ReferenceEquals(_clip, clip) && _root == root) return;
-        _asset = asset; _clip = clip; _root = root; _scroll.Value = 0; ResetPreviews();
+        _asset = asset; _clip = clip; _root = root; _scroll.Value = 0; ResetPreviews(); UpdateScroll();
     }
 
     public void ResetPreviews()
@@ -127,7 +127,8 @@ internal sealed class ModelFrameRuler : Control
     {
         _scroll.LargeChange = Math.Max(1, Width);
         _scroll.Maximum = Math.Max(0, (Maximum + 1) * CardWidth - 1);
-        _scroll.Enabled = _scroll.Maximum + 1 > Width;
+        _scroll.Visible = _clip is { Frames.Count: > 0 } && _scroll.Maximum + 1 > Width;
+        _scroll.Enabled = _scroll.Visible;
         _scroll.Value = Math.Min(_scroll.Value, Math.Max(0, _scroll.Maximum - _scroll.LargeChange + 1));
     }
     private void RevealFrame()

@@ -22,6 +22,13 @@ namespace Genesis.Runtime.Modeling
                 return "";
 
             string name = modelName.Trim().Replace('/', Path.DirectorySeparatorChar);
+            // Terrain sections own canonical models beside their .terrainpart.json files.
+            // Resolve those existing private payloads inside the project before the legacy Models folder.
+            if (name.EndsWith(".gmodel", StringComparison.OrdinalIgnoreCase))
+            {
+                string privatePath = global::Genesis.Shared.Assets.ResourceCatalog.ResolveFile(projectPath, modelName);
+                if (privatePath.Length > 0) return privatePath;
+            }
             if (Path.IsPathRooted(name))
                 return Path.ChangeExtension(name, ".gmodel");
 

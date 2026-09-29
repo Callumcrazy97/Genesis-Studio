@@ -197,13 +197,15 @@ public sealed partial class ModelEditorControl : ModelViewerControl
         Asset.Meshes[mesh].TriangleMaterialIndices = [];
         return material;
     }
-    private int NeutralMaterialIndex()
+    private int NeutralMaterialIndex(bool doubleSided = false)
     {
         string name = "Default_PBR";
         int suffix = 2;
         while (Asset.Materials.Any(material => string.Equals(material.Name, name, StringComparison.OrdinalIgnoreCase)))
             name = "Default_PBR " + suffix++;
-        Asset.Materials.Add(CreateNeutralMaterial(name));
+        var material = CreateNeutralMaterial(name);
+        material.DoubleSided = doubleSided;
+        Asset.Materials.Add(material);
         return Asset.Materials.Count - 1;
     }
     private static bool IsNeutralMaterial(GModelMaterial material) =>
@@ -218,23 +220,9 @@ public sealed partial class ModelEditorControl : ModelViewerControl
         MetallicFactor = 0f,
         RoughnessFactor = .72f,
     };
-    private static ushort[] MakeDoubleSided(IReadOnlyList<ushort> source)
-    {
-        ushort[] result = new ushort[source.Count * 2];
-        for (int index = 0; index + 2 < source.Count; index += 3)
-        {
-            result[index] = source[index];
-            result[index + 1] = source[index + 1];
-            result[index + 2] = source[index + 2];
-            int reverse = source.Count + index;
-            result[reverse] = source[index];
-            result[reverse + 1] = source[index + 2];
-            result[reverse + 2] = source[index + 1];
-        }
-        return result;
-    }
     public void SetMode(ModelEditorMode mode)
     {
+        CancelPushPull();
         FinishStroke(); AllowSpin(mode is not (ModelEditorMode.Paint or ModelEditorMode.Sculpt)); _mode = mode; SelectClip("");
         if (mode == ModelEditorMode.Paint) SetShading(ModelPreviewShading.Textured);
         RefreshToolboxVisibility(mode);
@@ -311,12 +299,12 @@ public sealed partial class ModelEditorControl : ModelViewerControl
     {
         if (button != MouseButtons.Left || IsOrientationHit(point)) return;
         if (TryCommitPrimitivePlacement(point)) return;
-        if (TryBeginMeshGizmoDrag(point)) return;
         if (_mode == ModelEditorMode.Mesh && _tool is ModelAuthoringTool.Push or ModelAuthoringTool.Pull)
         {
             BeginPushPull(point);
             return;
         }
+        if (TryBeginMeshGizmoDrag(point)) return;
         if (BeginAuthoringGesture(point)) return;
         if (_mode == ModelEditorMode.Mesh)
         {
@@ -439,11 +427,10 @@ public sealed partial class ModelEditorControl : ModelViewerControl
         };
         ChangeAsset("Create " + kind, () =>
         {
-            int material = NeutralMaterialIndex();
+            int material = NeutralMaterialIndex(doubleSided: kind == ModelPrimitiveKind.Quad);
             var (vertices, sourceIndices) = ModelPartBuilder.Bake([part]);
             for (int index = 0; index < vertices.Length; index++) vertices[index].Position += position;
-            ushort[] indices = kind == ModelPrimitiveKind.Quad ? MakeDoubleSided(sourceIndices) : sourceIndices;
-            Asset.Meshes.Add(new GModelMesh { Name = part.Name, Vertices = vertices, Indices = indices, MaterialIndex = material });
+            Asset.Meshes.Add(new GModelMesh { Name = part.Name, Vertices = vertices, Indices = sourceIndices, MaterialIndex = material });
             _parts.Add(part);
         });
         SelectPart(Asset.Meshes.Count - 1);
@@ -466,10 +453,16 @@ public sealed partial class ModelEditorControl : ModelViewerControl
     {
         string clip = ActiveClip;
         var beforeParts = _parts.ToArray(); var before = ModelPoseWorkflow.Copy(Asset);
+        Vector3[] beforeChain = [.. _openEdgeChain]; string beforePlane = _openEdgePlane;
         change(); Asset.RecalculateBounds(); var after = ModelPoseWorkflow.Copy(Asset); var afterParts = _parts.ToArray();
+        Vector3[] afterChain = [.. _openEdgeChain]; string afterPlane = _openEdgePlane;
         ReplaceAsset(after); MarkDirty();
-        PushEdit(label, () => Restore(after, afterParts), () => Restore(before, beforeParts));
-        void Restore(GModelAsset asset, ModelPart[] parts) { _parts.Clear(); _parts.AddRange(parts); _hiddenGroups.Clear(); ReplaceAsset(ModelPoseWorkflow.Copy(asset)); SelectClip(clip); }
+        PushEdit(label, () => Restore(after, afterParts, afterChain, afterPlane), () => Restore(before, beforeParts, beforeChain, beforePlane));
+        void Restore(GModelAsset asset, ModelPart[] parts, Vector3[] chain, string plane)
+        {
+            _openEdgeChain.Clear(); _openEdgeChain.AddRange(chain); _openEdgePlane = plane;
+            _parts.Clear(); _parts.AddRange(parts); _hiddenGroups.Clear(); ReplaceAsset(ModelPoseWorkflow.Copy(asset)); SelectClip(clip);
+        }
     }
     private void ReplaceAsset(GModelAsset asset) { Asset = asset; _previewChanged = true; _filteredPreview = null; RefreshAssetPresentation(); if (IsComposer) { RefreshGroups(); RefreshMorphInspector(); RefreshSocketInspector(); RefreshOrganicInspector(); } }
     public GModelAsset CaptureAnimationAsset() => ModelPoseWorkflow.Copy(Asset);

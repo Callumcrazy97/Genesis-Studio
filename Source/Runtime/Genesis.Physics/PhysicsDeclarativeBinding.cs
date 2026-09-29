@@ -103,6 +103,8 @@ public static class PhysicsDeclarativeBinding
             Friction          = (float)asset.Friction,
             Restitution       = (float)asset.Restitution,
             GravityScale      = asset.GravityScale,
+            LinearDamping     = PhysicsDamping.Clamp(asset.LinearDamping),
+            AngularDamping    = PhysicsDamping.Clamp(asset.AngularDamping),
             SpeculativeMargin = shape is CollisionShape.Capsule or CollisionShape.Cylinder ? 0.15f : 0.06f,
             Flags             = flags,
             RegistrationId    = 0,

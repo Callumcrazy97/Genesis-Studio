@@ -234,10 +234,10 @@ public sealed partial class PhysicsEditorControl
         ToolStripDropDownButton[] viewportMenus = toolbar.Items.OfType<ToolStripDropDownButton>().Skip(2).ToArray();
         toolbar.ResetItems();
         toolbar.Items.Add(EditorChrome.ToolButton("Save", "Save this Physics resource (Ctrl+S)", Save));
-        _physicsQuickButton = EditorChrome.ToolButton("Quick setup", "Choose a sprite body and test its material", () => SelectPhysicsWorkspaceMode("Preview", _physicsRail!), toggle: true);
+        _physicsQuickButton = EditorChrome.ToolButton("Quick setup", "Choose a sprite or Model body and test its material", () => SelectPhysicsWorkspaceMode("Preview", _physicsRail!), toggle: true);
         _physicsCodeButton = EditorChrome.ToolButton("</> Code", "Edit the typed Physics definition with field hints", () => SelectPhysicsWorkspaceMode("Code", _physicsRail!), toggle: true);
         toolbar.Items.Add(_physicsQuickButton); toolbar.Items.Add(_physicsCodeButton);
-        toolbar.Items.Add(EditorChrome.ToolButton("Use in game", "Create a sprite Object with this Physics resource", ShowPhysicsGameGuide));
+        toolbar.Items.Add(EditorChrome.ToolButton("Use in game", "Create a sprite or Model Object with this Physics resource", ShowPhysicsGameGuide));
         ToolStripDropDownButton options = new("Options") { AccessibleName = "Physics advanced options" };
         foreach ((string label, string mode) in new[] { ("Preset library and spawning", "Presets"), ("Sandbox settings", "Properties"), ("Colliders", "Colliders"), ("Joints in gameplay", "Joints"), ("Body and sleeping settings", "Settings"), ("Preview resource", "Preview resource") })
         {
@@ -250,7 +250,7 @@ public sealed partial class PhysicsEditorControl
         options.DropDownItems.Add("Slower preview", null, (_, _) => SetPhysicsSpeed(_simulationSpeed * .5f));
         options.DropDownItems.Add("Faster preview", null, (_, _) => SetPhysicsSpeed(_simulationSpeed * 2));
         foreach (ToolStripDropDownButton menu in viewportMenus)
-            options.DropDownItems.Add(new ToolStripMenuItem(menu.Text) { DropDown = menu.DropDown });
+            options.DropDownItems.Add(menu);
         toolbar.Items.Add(options);
     }
 
@@ -622,6 +622,11 @@ public sealed partial class PhysicsEditorControl
             RectangleF bounds = Genesis.Runtime.Spatial.SpriteCollisionBounds.Resolve(image, 0, 0, 0, 1, 1);
             Vector3 size = SpritePhysicsBinding.SizeFor(_document, bounds);
             _computedMass.Text = $"Game body: {SpritePhysicsBinding.MassFor(_document, size):0.###} kg · sample props: {_document.SpawnMass:0.###} kg";
+            return;
+        }
+        if (_document.PreviewAssetKind == "Model")
+        {
+            _computedMass.Text = "Game mass: density × fitted Model volume · placed scale applies in Room";
             return;
         }
         double volume = _document.Shape switch

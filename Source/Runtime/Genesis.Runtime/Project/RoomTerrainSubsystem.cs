@@ -24,7 +24,7 @@ namespace Genesis.Runtime.Project;
 /// Runtime terrain placement plus its Genesis-native natural-world sidecar: routes, resident
 /// instanced foliage, water simulation, manifest/query and map-discovery foundations.
 /// </summary>
-public sealed class RoomTerrainSubsystem : ISceneSubsystem, IStreamingProvider
+public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingProvider
 {
     private sealed class WaterRuntime
     {
@@ -39,6 +39,8 @@ public sealed class RoomTerrainSubsystem : ISceneSubsystem, IStreamingProvider
         public RoomAsset Room;
         public RoomNode Node;
         public string BinaryPath;
+        public string ResourcePath;
+        public TerrainMaterialState Material = new();
         public AuthoredTerrainGround Ground;
         public TerrainAsset Terrain;
         public int ColliderRegistrationId;
@@ -102,6 +104,7 @@ public sealed class RoomTerrainSubsystem : ISceneSubsystem, IStreamingProvider
                 Room = room,
                 Node = node,
                 BinaryPath = binaryPath,
+                ResourcePath = resourcePath,
                 Terrain = terrain,
                 Ground = new AuthoredTerrainGround(terrain),
                 Nature = nature,
@@ -241,6 +244,9 @@ public sealed class RoomTerrainSubsystem : ISceneSubsystem, IStreamingProvider
         return capacity;
     }
 
+    /// <summary>Visible legacy/unpainted route ribbons; painted routes use the ground surface.</summary>
+    public int VisiblePathMeshCount => _entries.Sum(entry => entry.PathMeshes.Count);
+
     /// <summary>Draws the F5 terrain composition from an editor camera. This does not register
     /// physics, run object scripts, or alter the authored room/terrain resources.</summary>
     public void SubmitPreviewMeshes(Vector3 camera, Matrix4x4 viewProjection,
@@ -326,6 +332,7 @@ public sealed class RoomTerrainSubsystem : ISceneSubsystem, IStreamingProvider
                 foreach (MeshHandle mesh in entry.FoliageMeshes.Values) if (mesh.IsValid) entry.Renderer.ReleaseMesh(mesh);
             }
             entry.WaterCache?.Dispose();
+            ReleaseMaterial(entry);
             if (_game?.Scene is { } activeScene) DestroyWaterImpactEntities(activeScene, entry);
             entry.PathMeshes.Clear(); entry.FoliageMeshes.Clear(); entry.Waters.Clear();
         }
@@ -346,6 +353,7 @@ public sealed class RoomTerrainSubsystem : ISceneSubsystem, IStreamingProvider
                 continue;
             UnregisterPhysics(scene, entry);
             ReleaseBoundMeshes(entry);
+            entry.Material = new();
             entry.Terrain = TerrainAsset.Load(entry.BinaryPath);
             entry.Ground = new AuthoredTerrainGround(entry.Terrain);
             string resourcePath = ResolveTerrainResourcePath(entry.BinaryPath);
@@ -440,11 +448,18 @@ public sealed class RoomTerrainSubsystem : ISceneSubsystem, IStreamingProvider
         entry.Ground?.Dispose();
         entry.WaterCache?.Dispose();
         entry.WaterCache = null;
+        ReleaseMaterial(entry);
         entry.Bound = false;
     }
 
     private void BindEntry(Entry entry, IRenderController renderer)
     {
+        if (entry.Bound && !ReferenceEquals(entry.Renderer, renderer))
+        {
+            foreach (MeshHandle mesh in entry.FoliageMeshes.Values) if (mesh.IsValid) entry.Renderer.ReleaseMesh(mesh);
+            entry.FoliageMeshes.Clear(); ReleaseBoundMeshes(entry);
+        }
+        UpdateMaterial(entry, renderer);
         if (entry.Bound) return;
         string albedo = string.IsNullOrWhiteSpace(entry.Node.Terrain.Albedo) ? "Textures/Terrain_ForestGround.png" : entry.Node.Terrain.Albedo;
         TextureHandle texture = _game?.LoadTexture(albedo) ?? TextureHandle.Invalid;
@@ -453,11 +468,17 @@ public sealed class RoomTerrainSubsystem : ISceneSubsystem, IStreamingProvider
             string path = Genesis.Runtime.Assets.SpriteAssetLoader.ResolveFrameTexturePath(_projectPath, albedo, 0);
             if (File.Exists(path)) texture = renderer.LoadTexture(path);
         }
-        entry.Ground.Bind(renderer, texture, Math.Max(.01f, entry.Node.Terrain.UvScale));
+        if (entry.Material.Draw.HasValue)
+        {
+            entry.Ground.SurfaceMaterial = entry.Material.Draw;
+            entry.Ground.Bind(renderer, entry.Material.Draw.Value.Texture, 1);
+        }
+        else entry.Ground.Bind(renderer, texture, Math.Max(.01f, entry.Node.Terrain.UvScale));
         entry.Renderer = renderer;
         entry.WaterCache = new WaterMeshCache(renderer);
         foreach (TerrainPathDefinition path in entry.Nature.Paths)
         {
+            if (path.SurfacePainted) continue;
             MeshData data = TerrainPathGeometry.BuildRibbon(
                 path,
                 entry.Terrain.SampleHeight,

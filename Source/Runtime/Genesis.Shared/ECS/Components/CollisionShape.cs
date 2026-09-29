@@ -5,19 +5,14 @@ namespace Genesis.Shared.ECS.Components
         Box,
         Sphere,
         Capsule,
-        /// <summary>Approximated with a capsule in the physics backend.</summary>
+        /// <summary>A native cylinder shape in the physics backend.</summary>
         Cylinder,
         /// <summary>
-        /// Issue 7 (declarative physics): arbitrary triangle mesh collider, for terrain/props
-        /// authored with <c>RigidBody = "Mesh"</c>. <see cref="Genesis.Physics.PhysicsWorld"/>
-        /// does not yet build a true mesh shape for this — it falls back to a bounding box
-        /// until a mesh-collider builder lands — but the tag round-trips correctly so content
-        /// can be authored ahead of that work.
+        /// Triangle mesh collider, using the saved geometry in <see cref="MeshColliderComponent"/>.
         /// </summary>
         Mesh,
         /// <summary>
-        /// Issue 7 (declarative physics): convex-hull collider, for <c>RigidBody = "ConvexHull"</c>.
-        /// Same fallback caveat as <see cref="Mesh"/> applies until a hull builder lands.
+        /// Native convex hull computed from <see cref="MeshColliderComponent"/> vertices.
         /// </summary>
         ConvexHull,
     }

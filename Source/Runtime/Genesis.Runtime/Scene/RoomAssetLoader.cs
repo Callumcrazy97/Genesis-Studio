@@ -87,6 +87,7 @@ public sealed class RoomBuildResult
     public RoomAsset Asset { get; internal set; }
     public Dictionary<string, Entity> EntitiesByNodeId { get; } = new(StringComparer.OrdinalIgnoreCase);
     public List<Entity> SpawnedEntities { get; } = new();
+    internal List<(Entity Entity, RoomNode Terrain, RoomTransform Local)> TerrainParts { get; } = new();
 }
 
 /// <summary>
@@ -136,6 +137,14 @@ public sealed class RoomSceneBuilder
     }
 
     public RoomBuildResult Build(EcsWorld world, RoomAsset asset)
+        => Build(world, asset, terrainOnly: false);
+
+    /// <summary>Loads the authored terrain placements for a visual editor preview. No script
+    /// host is needed; a preview must not execute gameplay or start sound/physics subsystems.</summary>
+    public RoomBuildResult BuildTerrainParts(EcsWorld world, RoomAsset asset)
+        => Build(world, asset, terrainOnly: true);
+
+    private RoomBuildResult Build(EcsWorld world, RoomAsset asset, bool terrainOnly)
     {
         if (world == null) throw new ArgumentNullException(nameof(world));
         asset.Normalize(); RoomAssetLoader.Validate(asset);
@@ -151,7 +160,7 @@ public sealed class RoomSceneBuilder
             foreach (RoomNode node in asset.Nodes.OrderBy(n => LayerOrder(asset, n)).ThenBy(n => n.Order))
             {
                 if (!RoomHierarchyTransforms.IsActive(asset, node)) continue;
-                if (node.Kind == RoomNodeKind.GameObject && node.GameObject != null)
+                if (!terrainOnly && node.Kind == RoomNodeKind.GameObject && node.GameObject != null)
                     SpawnGameObject(world, asset, node, result);
                 // Tile layers are rendered as batches and collide through RoomTileCollisionMap.
                 // They are not gameplay instances: no per-cell ECS transforms or phantom query hits.
@@ -181,19 +190,48 @@ public sealed class RoomSceneBuilder
         var terrainTransform = ResolveWorldTransform(room, terrain);
         foreach (var placed in nature.PlacedEntities)
         {
-            if (ResourceNames.Resolve(_projectPath, placed.Entity, ResourceType.Object).Length == 0) continue;
-            var transform = RoomHierarchyTransforms.Compose(terrainTransform, new RoomTransform
+            bool isObject = ResourceNames.Resolve(_projectPath, placed.Entity, ResourceType.Object).Length > 0;
+            TerrainPartDefinition part = isObject ? null : TerrainPartBinding.Load(_projectPath, placed);
+            if (!isObject && part == null) continue;
+            var local = new RoomTransform
             {
                 X = placed.Position.X, Y = placed.Position.Y, Z = placed.Position.Z,
                 RotationX = placed.Pitch, RotationY = placed.Yaw, RotationZ = placed.Roll,
                 ScaleX = placed.Scale, ScaleY = placed.Scale, ScaleZ = placed.Scale,
-            });
-            SpawnGameObject(world, room, new RoomNode
+            };
+            var transform = RoomHierarchyTransforms.Compose(terrainTransform, local);
+            var node = new RoomNode
             {
-                Id = terrain.Id + ":" + placed.Id, Name = ResourceNames.Name(_projectPath, placed.Entity, ResourceType.Object),
+                Id = terrain.Id + ":" + placed.Id,
+                Name = part?.Name ?? ResourceNames.Name(_projectPath, placed.Entity, ResourceType.Object),
                 Kind = RoomNodeKind.GameObject, LayerId = terrain.LayerId, Transform = transform,
                 GameObject = new RoomGameObjectData { Prefab = placed.Entity },
-            }, result);
+            };
+            if (isObject) SpawnGameObject(world, room, node, result);
+            else SpawnResolvedObject(world, room, node, result, part.Definition, part.Events);
+            if (result.EntitiesByNodeId.TryGetValue(node.Id, out Entity entity))
+                result.TerrainParts.Add((entity, terrain, local));
+        }
+    }
+
+    /// <summary>Follows live Room placement edits without rebuilding assets or simulating game logic.</summary>
+    public static void UpdateTerrainPartPreviewTransforms(EcsWorld world, RoomBuildResult preview)
+    {
+        foreach (var part in preview.TerrainParts)
+        {
+            RoomTransform placement = RoomHierarchyTransforms.Compose(RoomHierarchyTransforms.World(preview.Asset, part.Terrain), part.Local);
+            ref TransformComponent transform = ref world.GetRef<TransformComponent>(part.Entity);
+            transform.X = placement.X; transform.Y = placement.Y; transform.Z = placement.Z;
+            transform.ScaleX = SafeScale(placement.ScaleX); transform.ScaleY = SafeScale(placement.ScaleY); transform.ScaleZ = SafeScale(placement.ScaleZ);
+            transform.RotationX = placement.RotationX; transform.RotationY = placement.RotationY; transform.RotationZ = placement.RotationZ;
+            transform.Rotation = placement.RotationY;
+            world.Set(part.Entity, new Transform3DComponent
+            {
+                Position = new Vector3(transform.X, transform.Y, transform.Z),
+                Rotation = Quaternion.CreateFromYawPitchRoll(transform.RotationY * MathF.PI / 180,
+                    transform.RotationX * MathF.PI / 180, transform.RotationZ * MathF.PI / 180),
+                Scale = new Vector3(transform.ScaleX, transform.ScaleY, transform.ScaleZ),
+            });
         }
     }
 
@@ -260,6 +298,12 @@ public sealed class RoomSceneBuilder
         // PgslBehavior compiles from the object's folder instead of resolving a global script name
         // (NEXT-044). The scope clears itself so one object's events cannot leak onto the next.
         IReadOnlyDictionary<string, string> events = ResolveObjectEvents(node.GameObject.Prefab);
+        SpawnResolvedObject(world, room, node, result, prefab, events);
+    }
+
+    private void SpawnResolvedObject(EcsWorld world, RoomAsset room, RoomNode node, RoomBuildResult result,
+        JObject prefab, IReadOnlyDictionary<string, string> events)
+    {
         Entity entity;
         if (events is { Count: > 0 } && _scriptHost != null)
         {
@@ -333,7 +377,14 @@ public sealed class RoomSceneBuilder
 
     public void AttachAuthoredPhysics(EcsWorld world, Entity entity, JObject prefab, TransformComponent transform)
     {
-        if ((bool?)prefab["solid"] == false) return;
+        if (prefab["terrainPhysics"] is JObject terrainPhysics)
+        {
+            TerrainPartBinding.AttachPhysics(world, entity, _projectPath, terrainPhysics, transform);
+            return;
+        }
+        if ((bool?)prefab["solid"] == false || (prefab["components"] as JArray)?.OfType<JObject>()
+            .Any(component => (string)component["type"] == "PhysicsComponent" && (bool?)component["enabled"] == false) == true) return;
+        if (ModelPhysicsBinding.Attach(world, entity, _projectPath, prefab, transform)) return;
         string preset = (string)prefab["physics"];
         if (string.IsNullOrWhiteSpace(preset))
         {
@@ -395,14 +446,24 @@ public sealed class RoomSceneBuilder
     private void AttachModelCollider(EcsWorld world, Entity entity, TransformComponent transform)
     {
         if (!world.Has<ModelRendererComponent>(entity)) return;
-        string modelName = world.GetRef<ModelRendererComponent>(entity).ModelAsset;
+        ModelRendererComponent renderer = world.GetRef<ModelRendererComponent>(entity);
+        string modelName = renderer.ModelAsset;
         if (string.IsNullOrWhiteSpace(modelName)) return;
         GModelAsset model = new RuntimeModelAssetRegistry().Load(_projectPath, modelName);
         if (!GModelProductionTools.TryCreateRigidBody(model, out RigidBodyComponent rigid)) return;
-        rigid.Size *= new Vector3(
-            MathF.Max(0.01f, MathF.Abs(transform.ScaleX)),
-            MathF.Max(0.01f, MathF.Abs(transform.ScaleY)),
-            MathF.Max(0.01f, MathF.Abs(transform.ScaleZ)));
+        Vector3 scale = new Vector3(SafeScale(transform.ScaleX), SafeScale(transform.ScaleY), SafeScale(transform.ScaleZ))
+            * new Vector3(SafeScale(renderer.ScaleX), SafeScale(renderer.ScaleY), SafeScale(renderer.ScaleZ));
+        Vector3 absolute = Vector3.Abs(scale);
+        rigid.Size = rigid.Shape switch
+        {
+            Genesis.Shared.ECS.Components.CollisionShape.Sphere => new Vector3(rigid.Size.X * MathF.Max(absolute.X, MathF.Max(absolute.Y, absolute.Z))),
+            Genesis.Shared.ECS.Components.CollisionShape.Capsule or Genesis.Shared.ECS.Components.CollisionShape.Cylinder
+                => new Vector3(rigid.Size.X * MathF.Max(absolute.X, absolute.Z), rigid.Size.Y * absolute.Y, rigid.Size.Z * absolute.Z),
+            _ => rigid.Size * absolute,
+        };
+        if (rigid.Shape is Genesis.Shared.ECS.Components.CollisionShape.Mesh or Genesis.Shared.ECS.Components.CollisionShape.ConvexHull)
+            ModelColliderBinding.AttachGeometry(world, entity, model, scale);
+        else rigid.LocalOffset = (model.Colliders[0].Center - (model.Pivot?.Position ?? Vector3.Zero)) * scale;
         world.Set(entity, rigid);
     }
 
@@ -473,7 +534,10 @@ public sealed class RoomSceneBuilder
         if (_prefabs.TryGetValue(name, out JObject cached)) return cached;
         string path = ResolvePrefabPath(_projectPath, name);
         if (path == null || !File.Exists(path)) return null;
-        JObject prefab = ObjectDefinitionResolver.Load(_projectPath, path).Prefab;
+        // The Object editor exposes a Model binding as ordinary Create-event PGSL. Resolve its
+        // literal initial visual before body attachment, so Physics uses the same Model/pivot
+        // as authoring previews even after the Object's hidden compatibility fields are cleared.
+        JObject prefab = ObjectDefinitionResolver.PreviewPrefab(ObjectDefinitionResolver.Load(_projectPath, path));
         _prefabs[name] = prefab;
         return prefab;
     }
@@ -518,7 +582,7 @@ public sealed class RoomSceneBuilder
     }
 
     private static float PropFloat(JObject props, string name, float fallback) =>
-        float.TryParse(props[name]?.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out float value) ? value : fallback;
+        float.TryParse(props?[name]?.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out float value) && float.IsFinite(value) ? value : fallback;
 
     public static JObject ApplyOverrides(JObject source, List<RoomComponentOverride> overrides)
     {

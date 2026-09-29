@@ -493,13 +493,13 @@ public sealed partial class ImageEditorControl : UserControl, IEditCommandTarget
         float interfaceScale = Math.Max(.5f, ImageEditorChrome.BaseFont.SizeInPoints / 9.5f);
         bool narrow = ClientSize.Width / interfaceScale < ImageEditorChrome.ResponsiveBreakpoint;
         _narrowLayout = narrow;
-        if (narrow && !_lastNarrowLayout)
+        if (!_linkedMaterialPainting && narrow && !_lastNarrowLayout)
         {
             _leftPanelVisible = false;
             _rightPanelVisible = false;
             _timelinePanelVisible = true;
         }
-        else if (!narrow && _lastNarrowLayout)
+        else if (!_linkedMaterialPainting && !narrow && _lastNarrowLayout)
         {
             _leftPanelVisible = true;
             _rightPanelVisible = true;

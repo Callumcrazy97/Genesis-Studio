@@ -391,7 +391,7 @@ namespace Genesis.Rendering.Primitives
             {
                 Texture = TextureHandle.Invalid,
                 X = x1,
-                Y = y1 - (thickness * 0.5f),
+                Y = y1,
                 Width = length,
                 Height = thickness,
                 OriginX = 0,
@@ -399,7 +399,7 @@ namespace Genesis.Rendering.Primitives
                 Rotation = MathF.Atan2(dy, dx) * (180f / MathF.PI),
                 ScaleX = 1,
                 ScaleY = 1,
-                Alpha = color.A,
+                Alpha = 1f,
                 Tint = color,
                 Depth = depth,
             });
@@ -433,7 +433,7 @@ namespace Genesis.Rendering.Primitives
                 Height = height,
                 ScaleX = 1,
                 ScaleY = 1,
-                Alpha = color.A,
+                Alpha = 1f,
                 Tint = color,
                 Depth = depth,
             });

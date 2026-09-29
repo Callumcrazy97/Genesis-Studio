@@ -37,10 +37,7 @@ public sealed class TerrainAssetPreview : UserControl
     private readonly List<ParticleSimulation> _particles = [];
     private ParticleConfig? _particleEffect;
     private readonly Dictionary<string, (DateTime Stamp, ShaderAssetDocument Asset)> _shaders = [];
-    private string _imagePath = "";
-    private DateTime _imageStamp, _nextImageCheck;
-    private Task<TerrainImageMaterial>? _imageLoad;
-    private MeshDrawCall _imageMaterial;
+    private readonly TerrainImagePreviewCache _images = new();
     private float _lastTime;
     private bool _disposed;
     public EditorViewport3D Viewport { get; } = new() { Dock = DockStyle.Fill, ControlMethod = EditorCameraControlMethod.Orbit };
@@ -52,6 +49,16 @@ public sealed class TerrainAssetPreview : UserControl
         _project = projectRoot; _getDocument = document; Dock = DockStyle.Fill; BackColor = EditorChrome.Canvas;
         var title = new Label { Text = "LIVE PREVIEW · Playing", Dock = DockStyle.Top, Height = 32, Padding = new Padding(10, 6, 0, 0), ForeColor = EditorChrome.Text };
         Controls.Add(Viewport); Controls.Add(_status); Controls.Add(title);
+        void FitLabels()
+        {
+            title.Height = title.Font.Height + title.Padding.Vertical + 8;
+            _status.Height = TextRenderer.MeasureText(_status.Text, _status.Font,
+                new Size(Math.Max(120, ClientSize.Width - _status.Padding.Horizontal), int.MaxValue), TextFormatFlags.WordBreak).Height + _status.Padding.Vertical;
+        }
+        title.FontChanged += (_, _) => FitLabels();
+        _status.FontChanged += (_, _) => FitLabels();
+        _status.TextChanged += (_, _) => FitLabels();
+        SizeChanged += (_, _) => FitLabels();
         Viewport.Camera.Target = new Vector3(0, .5f, 0); Viewport.Camera.Distance = 3;
         Viewport.DrawScene += Draw;
         _timer.Tick += (_, _) => { if (Visible) { Viewport.Host.AdvanceSceneTime(.033f); Viewport.Invalidate(); } };
@@ -76,47 +83,6 @@ public sealed class TerrainAssetPreview : UserControl
         MeshVertex V(float x, float y, float u, float v) => new() { Position = new(x, y, 0), Normal = Vector3.UnitZ, UV = new(u, v), Color = Vector4.One };
         _quad = renderer.RegisterMesh(new[] { V(-.5f, 0, 0, 1), V(.5f, 0, 1, 1), V(.5f, 1, 1, 0), V(-.5f, 1, 0, 0) }, new ushort[] { 0, 1, 2, 0, 2, 3 });
     }
-    private TextureHandle Texture(IRenderController renderer, string reference, int frame)
-    {
-        if (string.IsNullOrWhiteSpace(reference)) return TextureHandle.Invalid;
-        string path = SpriteAssetLoader.ResolveFrameTexturePath(_project, reference, frame);
-        if (!File.Exists(path)) return TextureHandle.Invalid;
-        // Renderer owns file-backed texture caching and freshness.
-        return renderer.LoadTexture(path);
-    }
-    private void ApplyImage(IRenderController renderer, string reference, int frame, ref MeshDrawCall draw)
-    {
-        if (string.IsNullOrWhiteSpace(reference)) return;
-        if (_imageLoad is { IsCompleted: true } load)
-        {
-            if (load.IsCompletedSuccessfully)
-            {
-                ReleaseImage(renderer);
-                var pixels = load.Result;
-                _imageMaterial = new MeshDrawCall { Texture = renderer.CreateTexture(pixels.Width, pixels.Height, pixels.Albedo),
-                    NormalMap = renderer.CreateTexture(pixels.Width, pixels.Height, pixels.Normal), OrmMap = renderer.CreateTexture(pixels.Width, pixels.Height, pixels.Orm),
-                    SurfaceParams = new Vector4(1, 0, 0, 0), DetailParams = new Vector4(0, 0, 0, 1) };
-            }
-            else { _ = load.Exception; }
-            _imageLoad = null;
-        }
-        if (_imageLoad is null && DateTime.UtcNow > _nextImageCheck)
-        {
-            _nextImageCheck = DateTime.UtcNow.AddMilliseconds(500); DateTime stamp = File.GetLastWriteTimeUtc(PathOf(reference));
-            if (_imagePath != reference || _imageStamp != stamp) { _imagePath = reference; _imageStamp = stamp; _imageLoad = Task.Run(() => TerrainImageMaterial.Load(_project, reference)); }
-        }
-        if (_imageMaterial.Texture.IsValid)
-        {
-            draw.Texture = _imageMaterial.Texture; draw.NormalMap = _imageMaterial.NormalMap; draw.OrmMap = _imageMaterial.OrmMap;
-            draw.SurfaceParams = _imageMaterial.SurfaceParams; draw.DetailParams = _imageMaterial.DetailParams;
-        }
-        if (frame > 0) draw.Texture = Texture(renderer, reference, frame);
-    }
-    private void ReleaseImage(IRenderController? renderer)
-    {
-        if (renderer is not null) foreach (var handle in new[] { _imageMaterial.Texture, _imageMaterial.NormalMap, _imageMaterial.OrmMap }) if (handle.IsValid) renderer.ReleaseTexture(handle);
-        _imageMaterial = default;
-    }
     private void Draw(IRenderController renderer)
     {
         try
@@ -134,6 +100,15 @@ public sealed class TerrainAssetPreview : UserControl
             var shader = document.Components.FirstOrDefault(c => c.Enabled && c.Type == TerrainEntityComponentKinds.Shader);
             _draws.Items.Clear();
             string modelPath = model?.Get("Model") ?? "";
+            int frame = 0;
+            if (texture is not null && !string.IsNullOrWhiteSpace(texture.Get("Texture")))
+            {
+                var sprite = SpriteAssetLoader.Load(PathOf(texture.Get("Texture")));
+                int available = Math.Max(1, sprite.Frames.Count), requested = (int)Number(texture, "FrameCount", 0);
+                int count = requested <= 0 ? available : Math.Min(available, requested);
+                frame = (int)(time * Math.Max(0, Number(texture, "AnimationFps", 0))) % Math.Max(1, count);
+            }
+            MeshDrawCall? image = texture is null ? null : _images.Material(renderer, _project, texture.Get("Texture"), frame);
             if (!string.IsNullOrWhiteSpace(modelPath))
             {
                 if (modelPath.EndsWith(".gmodel", StringComparison.OrdinalIgnoreCase)) modelPath = PathOf(modelPath);
@@ -146,30 +121,27 @@ public sealed class TerrainAssetPreview : UserControl
             }
             else if (texture is not null || shader is not null || document.Type is TerrainEntityType.Fluid or TerrainEntityType.Terrain)
             {
-                EnsureQuad(renderer);
                 float scale = Math.Max(.001f, Number(texture, "Scale", 1));
                 string mode = texture?.Get("Mode") ?? nameof(TerrainEntityTextureMode.Plane3D);
-                Matrix4x4 rotation = mode == nameof(TerrainEntityTextureMode.Plane3D) ? Matrix4x4.Identity
-                    : Matrix4x4.CreateRotationY(MathF.Atan2(Viewport.Camera.Eye.X, Viewport.Camera.Eye.Z));
-                _draws.Items.Add(new MeshDrawCall { Mesh = _quad, World = Matrix4x4.CreateScale(scale) * rotation, Tint = RenderColor.White, Alpha = 1,
-                    Flags = MeshRasterDefaults.ApplyOverride(MeshDrawFlags.Transparent, FaceCullingOverride.None, FrontFaceWindingOverride.Default) });
-            }
-            int frame = 0;
-            if (texture is not null)
-            {
-                string path = texture.Get("Texture");
-                if (!string.IsNullOrWhiteSpace(path))
+                MeshHandle geometry;
+                if (image.HasValue)
+                    geometry = _images.Geometry(renderer, _project, texture!.Get("Texture"), frame, mode);
+                else
                 {
-                    var sprite = SpriteAssetLoader.Load(PathOf(path));
-                    int available = Math.Max(1, sprite.Frames.Count), requested = (int)Number(texture, "FrameCount", 0);
-                    int count = requested <= 0 ? available : Math.Min(available, requested);
-                    frame = (int)(time * Number(texture, "AnimationFps", 0)) % Math.Max(1, count);
+                    EnsureQuad(renderer); geometry = _quad;
                 }
+                Matrix4x4 rotation = TerrainTextureGeometry.Facing(mode, Matrix4x4.Identity, Viewport.Camera.Eye);
+                _draws.Items.Add(new MeshDrawCall { Mesh = geometry, World = Matrix4x4.CreateScale(scale) * rotation, Tint = RenderColor.White, Alpha = 1,
+                    Flags = MeshRasterDefaults.ApplyOverride(MeshDrawFlags.Transparent, FaceCullingOverride.None, document.WindingOrder) });
             }
-            foreach (var item in _draws.Items)
+            for (int drawIndex = 0; drawIndex < _draws.Items.Count; drawIndex++)
             {
-                var draw = item;
-                if (texture is not null) ApplyImage(renderer, texture.Get("Texture"), frame, ref draw);
+                var draw = _draws.Items[drawIndex];
+                if (image is { } material)
+                {
+                    draw.Texture = material.Texture; draw.NormalMap = material.NormalMap; draw.OrmMap = material.OrmMap;
+                    draw.SurfaceParams = material.SurfaceParams; draw.DetailParams = material.DetailParams;
+                }
                 if (shader is not null && !string.IsNullOrWhiteSpace(shader.Get("Shader")) && ObjectDrawPass.TryApplyMeshShader(renderer, _project, shader.Get("Shader"), ref draw))
                 {
                     string path = PathOf(shader.Get("Shader")); DateTime stamp = File.GetLastWriteTimeUtc(path);
@@ -186,6 +158,7 @@ public sealed class TerrainAssetPreview : UserControl
                     }
                     ShaderParameterReflection.Pack(asset, overrides, out draw.ShaderParams0, out draw.ShaderParams1, out draw.ShaderParams2, out draw.ShaderParams3);
                 }
+                _draws.Items[drawIndex] = draw;
                 renderer.DrawMesh(draw);
             }
             var particle = document.Components.FirstOrDefault(c => c.Enabled && c.Type == TerrainEntityComponentKinds.ParticleEmitter);
@@ -224,6 +197,7 @@ public sealed class TerrainAssetPreview : UserControl
             }
             _status.Text = _draws.Count == 0 && string.IsNullOrEmpty(particlePath) ? "Add a Model, Texture or Particle System to preview your asset."
                 : $"Playing · frame {frame + 1} · {_particles.Sum(simulation => simulation.ActiveCount)} particles · RMB orbit";
+            if (!string.IsNullOrEmpty(_images.Error)) _status.Text = "Preview: " + _images.Error;
         }
         catch (Exception exception) { _status.Text = "Preview: " + exception.Message; }
     }
@@ -235,7 +209,7 @@ public sealed class TerrainAssetPreview : UserControl
             _timer.Stop(); _timer.Dispose();
             var renderer = Viewport.Host.Renderer; _models.InvalidateAssets(renderer);
             if (_quad.IsValid && renderer is not null) renderer.ReleaseMesh(_quad);
-            ReleaseImage(renderer);
+            _images.Dispose();
         }
         base.Dispose(disposing);
     }

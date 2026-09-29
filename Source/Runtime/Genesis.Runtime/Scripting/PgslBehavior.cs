@@ -34,6 +34,8 @@ namespace Genesis.Runtime.Scripting
         private CompiledScriptAsset _onMouseEnterScript;
         private CompiledScriptAsset _onMouseLeaveScript;
         private CompiledScriptAsset _onCollisionScript;
+        private CompiledScriptAsset _onCollisionEnterScript;
+        private CompiledScriptAsset _onCollisionExitScript;
         private CompiledScriptAsset _onRoomEndScript;
         private CompiledScriptAsset _onGameEndScript;
         private CompiledScriptAsset _onDestroyScript;
@@ -151,6 +153,17 @@ namespace Genesis.Runtime.Scripting
             SyncFromContext();
         }
 
+        public override void OnCollisionEnter(Entity other) => ExecuteContact(_onCollisionEnterScript, "CollisionEnter", other);
+        public override void OnCollisionExit(Entity other) => ExecuteContact(_onCollisionExitScript, "CollisionExit", other);
+
+        private void ExecuteContact(CompiledScriptAsset script, string eventName, Entity other)
+        {
+            SyncToContext();
+            _ctx.Variables["Other"] = other;
+            ExecuteScript(script, eventName);
+            SyncFromContext();
+        }
+
         public override void OnDestroy()
         {
             SyncToContext();
@@ -258,6 +271,8 @@ namespace Genesis.Runtime.Scripting
                     _onMouseEnterScript = CompileInline("MouseEnter");
                     _onMouseLeaveScript = CompileInline("MouseLeave");
                     _onCollisionScript = CompileInline("Collision");
+                    _onCollisionEnterScript = CompileInline("CollisionEnter");
+                    _onCollisionExitScript = CompileInline("CollisionExit");
                     _onRoomEndScript = CompileInline("RoomEnd");
                     _onGameEndScript = CompileInline("GameEnd");
                     _onDestroyScript = CompileInline("Destroy");
@@ -291,6 +306,8 @@ namespace Genesis.Runtime.Scripting
                 ScriptAssetRegistry.TryGet(_scriptName + "_MouseEnter", out _onMouseEnterScript);
                 ScriptAssetRegistry.TryGet(_scriptName + "_MouseLeave", out _onMouseLeaveScript);
                 ScriptAssetRegistry.TryGet(_scriptName + "_Collision", out _onCollisionScript);
+                ScriptAssetRegistry.TryGet(_scriptName + "_CollisionEnter", out _onCollisionEnterScript);
+                ScriptAssetRegistry.TryGet(_scriptName + "_CollisionExit", out _onCollisionExitScript);
                 ScriptAssetRegistry.TryGet(_scriptName + "_RoomEnd", out _onRoomEndScript);
                 ScriptAssetRegistry.TryGet(_scriptName + "_GameEnd", out _onGameEndScript);
                 ScriptAssetRegistry.TryGet(_scriptName + "_Destroy", out _onDestroyScript);

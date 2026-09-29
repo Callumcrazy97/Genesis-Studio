@@ -40,6 +40,7 @@ public sealed partial class TerrainEditorControl
         Name = "TerrainWaterKindPicker",
         Width = 244,
     };
+    private ComboBox? _waterWorkflowCombo;
     private readonly TrackBar _waterSprayRadiusSlider = MakeSlider(1, 40, 6);
     private readonly NumericUpDown _waterLevelBox = TerrainPathDialog.DecimalNumber(-10000m, 10000m, 0m);
 
@@ -176,6 +177,7 @@ public sealed partial class TerrainEditorControl
 
     private void RefreshComponentsPanel()
     {
+        RefreshTerrainSettingsBindings();
         List<(string Id, string Label)> layers = [];
         for (int i = 0; i < _settings.Layers.Count; i++)
         {
@@ -214,12 +216,13 @@ public sealed partial class TerrainEditorControl
         Dictionary<string, string> icons = new();
         foreach (string definition in _settings.Entities.Select(ResolveEntityFullPath)
             .Concat(Directory.Exists(ResourcePath + ".parts") ? Directory.EnumerateFiles(ResourcePath + ".parts", "*.terrainpart.json") : [])
+            .Where(File.Exists)
             .Select(Path.GetFullPath)
             .Distinct(StringComparer.OrdinalIgnoreCase))
         {
             TerrainEntityDocument? document = TryLoadEntityDocument(definition);
             if (document is null || definition == _pendingEntityPath) continue;
-            string relative = ResourceNames.Name(ProjectRoot, definition);
+            string relative = EntityReference(definition);
             entities.Add((relative, document.Name, document.Type));
         }
         foreach (var entry in entities)
@@ -286,10 +289,10 @@ public sealed partial class TerrainEditorControl
             case TerrainComponentsPanel.ComponentKind.Layer:
                 if (int.TryParse(selection.Id, out int layerIndex)
                     && layerIndex >= 0
-                    && layerIndex < _layerListBox.Items.Count)
+                    && layerIndex < _settings.Layers.Count)
                 {
                     SetMode(TerrainEditorMode.Paint);
-                    _layerListBox.SelectedIndex = layerIndex;
+                    SelectPaintLayer(layerIndex);
                     OpenLayerMaterial(layerIndex);
                 }
                 break;
@@ -344,46 +347,43 @@ public sealed partial class TerrainEditorControl
 
     private void EditPointOfInterest(string id)
     {
-        TerrainPointOfInterest? point = _nature.PointsOfInterest.FirstOrDefault(candidate =>
-            string.Equals(candidate.Id, id, StringComparison.OrdinalIgnoreCase));
-        if (point is null) return;
+        using DpiAwareForm dialog = CreatePointOfInterestDialog(id);
+        dialog.ShowDialog(this);
+    }
 
-        using Form dialog = new()
+    public DpiAwareForm CreatePointOfInterestDialog(string id)
+    {
+        TerrainPointOfInterest point = _nature.PointsOfInterest.First(candidate =>
+            string.Equals(candidate.Id, id, StringComparison.OrdinalIgnoreCase));
+        DpiAwareForm dialog = new()
         {
             BackColor = EditorChrome.Surface,
-            ClientSize = new Size(360, 170),
-            FormBorderStyle = FormBorderStyle.FixedDialog,
+            ClientSize = new Size(640, 330),
+            MinimumSize = new Size(540, 300),
+            Tag = "font-measured-layout",
+            FormBorderStyle = FormBorderStyle.Sizable,
             MaximizeBox = false,
             MinimizeBox = false,
             StartPosition = FormStartPosition.CenterParent,
             Text = "Point of Interest",
         };
-        TextBox name = new() { Location = new Point(96, 16), Width = 240 };
-        name.Text = point.Name;
-        EditorChrome.StyleField(name);
+        TextBox name = new() { Name = "TerrainLandmarkName", Text = point.Name };
         NumericUpDown radius = TerrainPathDialog.DecimalNumber(1m, 1000m, (decimal)point.DiscoveryRadius);
-        radius.Location = new Point(96, 52);
-        radius.Width = 120;
-        dialog.Controls.Add(new Label { AutoSize = true, ForeColor = EditorChrome.Muted, Location = new Point(16, 20), Text = "Name" });
-        dialog.Controls.Add(new Label { AutoSize = true, ForeColor = EditorChrome.Muted, Location = new Point(16, 56), Text = "Discovery" });
-        dialog.Controls.Add(name);
-        dialog.Controls.Add(radius);
-        Button ok = new() { DialogResult = DialogResult.OK, Location = new Point(256, 112), Text = "Apply" };
-        Button cancel = new() { DialogResult = DialogResult.Cancel, Location = new Point(170, 112), Text = "Cancel" };
-        EditorChrome.StyleField(ok);
-        EditorChrome.StyleField(cancel);
-        dialog.Controls.Add(ok);
-        dialog.Controls.Add(cancel);
-        dialog.AcceptButton = ok;
-        dialog.CancelButton = cancel;
-        if (dialog.ShowDialog(this) != DialogResult.OK) return;
-
-        List<TerrainPointOfInterest> before = ClonePoints(_nature.PointsOfInterest);
-        List<TerrainPointOfInterest> after = ClonePoints(before);
-        TerrainPointOfInterest edited = after.First(candidate => string.Equals(candidate.Id, id, StringComparison.OrdinalIgnoreCase));
-        edited.Name = string.IsNullOrWhiteSpace(name.Text) ? edited.Name : name.Text.Trim();
-        edited.DiscoveryRadius = (float)radius.Value;
-        ApplyPointsOfInterest(before, after, $"Edit point '{edited.Name}'");
+        Panel scroll = new() { Dock = DockStyle.Fill, AutoScroll = true };
+        TerrainDialogLayout.Fields(scroll, [("Name", name), ("Discovery radius (m)", radius)]);
+        dialog.Controls.Add(scroll);
+        TerrainDialogLayout.Actions(dialog);
+        dialog.FormClosed += (_, _) =>
+        {
+            if (dialog.DialogResult != DialogResult.OK) return;
+            List<TerrainPointOfInterest> before = ClonePoints(_nature.PointsOfInterest);
+            List<TerrainPointOfInterest> after = ClonePoints(before);
+            TerrainPointOfInterest edited = after.First(candidate => string.Equals(candidate.Id, id, StringComparison.OrdinalIgnoreCase));
+            edited.Name = string.IsNullOrWhiteSpace(name.Text) ? edited.Name : name.Text.Trim();
+            edited.DiscoveryRadius = (float)radius.Value;
+            ApplyPointsOfInterest(before, after, $"Edit point '{edited.Name}'");
+        };
+        return dialog;
     }
 
     private void ApplyPointsOfInterest(
@@ -416,7 +416,6 @@ public sealed partial class TerrainEditorControl
         if (_waterKindCombo.Items.Count == 0)
         {
             _waterKindCombo.Items.Add(nameof(TerrainWaterKind.Water));
-            _waterKindCombo.Items.Add(nameof(TerrainWaterKind.River));
             _waterKindCombo.Items.Add(nameof(TerrainWaterKind.Waterfall));
             _waterKindCombo.SelectedIndex = 0;
             EditorChrome.StyleField(_waterKindCombo);
@@ -443,10 +442,28 @@ public sealed partial class TerrainEditorControl
         }
 
         FlowLayoutPanel page = MakeContextPage();
-        page.Controls.Add(_waterSummary);
-        page.Controls.Add(MakeContextCaption("Kind"));
-        page.Controls.Add(_waterKindCombo);
-        page.Controls.Add(MakeContextCaption("Mask Tools"));
+        ComboBox workflow = new ThemedComboBox
+        {
+            Name = "TerrainWaterWorkflow", DropDownStyle = ComboBoxStyle.DropDownList,
+            AccessibleName = "Water workflow",
+        };
+        _waterWorkflowCombo = workflow;
+        workflow.Items.AddRange(["Surface water", "Rivers", "Playable preview"]);
+        EditorChrome.StyleField(workflow);
+        page.Controls.Add(workflow);
+        FlowLayoutPanel surface = MakeWaterGroup("TerrainSurfaceWater");
+        FlowLayoutPanel river = MakeWaterGroup("TerrainRiverWater");
+        FlowLayoutPanel preview = MakeWaterGroup("TerrainWaterPreview");
+        page.Controls.Add(surface);
+        page.Controls.Add(river);
+        page.Controls.Add(preview);
+        surface.Controls.Add(MakeContextCaption("Water type"));
+        surface.Controls.Add(_waterKindCombo);
+        TableLayoutPanel maskTools = new() { AutoSize = true, ColumnCount = 2, RowCount = 3, Width = 244 };
+        maskTools.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        maskTools.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        for (int row = 0; row < 3; row++) maskTools.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        surface.Controls.Add(maskTools);
         foreach (WaterAuthoringTool tool in Enum.GetValues<WaterAuthoringTool>())
         {
             WaterAuthoringTool captured = tool;
@@ -485,50 +502,78 @@ public sealed partial class TerrainEditorControl
                 UpdateStatus();
             });
             _waterToolButtons.Add(tool, button);
-            page.Controls.Add(button);
+            if (tool == WaterAuthoringTool.River)
+            {
+                button.Text = "Draw river";
+                river.Controls.Add(button);
+            }
+            else
+            {
+                button.Dock = DockStyle.Fill;
+                button.Margin = new Padding(0, 0, 6, 4);
+                maskTools.Controls.Add(button, maskTools.Controls.Count % 2, maskTools.Controls.Count / 2);
+            }
         }
 
-        page.Controls.Add(MakeSliderPanel("Spray radius", _waterSprayRadiusSlider));
-        page.Controls.Add(_waterSquareRegionCheck);
-        page.Controls.Add(MakeContextCaption("Level"));
-        page.Controls.Add(_waterLevelBox);
-        page.Controls.Add(MakeContextAction(
-            "Invert",
-            "Flip the mask inside the current region, or the painted footprint if no region is set",
-            InvertWaterSelection));
-        page.Controls.Add(MakeContextAction(
-            "Fill",
+        surface.Controls.Add(MakeSliderPanel("Spray radius", _waterSprayRadiusSlider));
+        surface.Controls.Add(_waterSquareRegionCheck);
+        surface.Controls.Add(MakeRiverField("Water surface height", _waterLevelBox));
+        surface.Controls.Add(MakeContextAction(
+            "Fill water",
             "Commit selected free cells as Water or a Waterfall at the current level",
             () => FillWaterSelection(_carveBasinCheck.Checked)));
-        page.Controls.Add(MakeContextAction(
-            "Clear Mask",
+        surface.Controls.Add(MakeContextAction(
+            "Clear selection",
             "Discard the in-progress spray and region selection",
             ClearWaterMask));
-        page.Controls.Add(_carveBasinCheck);
-        AddRiverAuthoringControls(page);
+        surface.Controls.Add(MakeContextAction(
+            "Invert selection",
+            "Flip the mask inside the current region, or the painted footprint if no region is set",
+            InvertWaterSelection));
+        surface.Controls.Add(_carveBasinCheck);
+        AddRiverAuthoringControls(river);
         page.Controls.Add(MakeContextAction(
-            "Configure Selected…",
+            "Edit selected water…",
             "Open the full water-body property sheet for the selected body",
             () => OpenWaterDialog(_selectedComponentId)));
-        page.Controls.Add(MakeContextAction(
-            "Legacy Water Dialog…",
-            "Edit all water bodies in one dialog",
-            () => OpenWaterDialog(null)));
-        page.Controls.Add(MakeContextCaption("Playable Preview"));
-        page.Controls.Add(MakeContextAction(
-            "Drop into Water",
+        preview.Controls.Add(_waterSummary);
+        preview.Controls.Add(MakeContextAction(
+            "Drop into water",
             "Drop a capsule into the selected or first water body on the live collider",
             () => DropPlayableIntoWater()));
-        page.Controls.Add(MakeContextAction(
-            "Pause Preview",
+        preview.Controls.Add(MakeContextAction(
+            "Pause preview",
             "Pause the playable capsule simulation",
             () => _physicsPlaying = false));
-        page.Controls.Add(MakeContextAction(
-            "Reset Preview",
+        preview.Controls.Add(MakeContextAction(
+            "Reset preview",
             "Remove the playable capsule from the viewport",
             ResetPlayablePreview));
+        workflow.SelectedIndex = 0;
+        river.Visible = preview.Visible = false;
+        workflow.SelectedIndexChanged += (_, _) =>
+        {
+            surface.Visible = workflow.SelectedIndex == 0;
+            river.Visible = workflow.SelectedIndex == 1;
+            preview.Visible = workflow.SelectedIndex == 2;
+            _waterTool = workflow.SelectedIndex == 1 ? WaterAuthoringTool.River : WaterAuthoringTool.Select;
+            if (workflow.SelectedIndex == 1) _pendingWaterKind = TerrainWaterKind.River;
+            else if (workflow.SelectedIndex == 0 && _pendingWaterKind == TerrainWaterKind.River)
+                _waterKindCombo.SelectedItem = nameof(TerrainWaterKind.Water);
+            page.AutoScrollPosition = Point.Empty;
+            SyncToolbar();
+            QueueTerrainLayout();
+            RefreshTerrainWorkflowHint();
+            UpdateStatus();
+        };
         return page;
     }
+
+    private static FlowLayoutPanel MakeWaterGroup(string name) => new()
+    {
+        Name = name, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false,
+        Margin = Padding.Empty, Padding = Padding.Empty,
+    };
 
     private ToolStripDropDownButton BuildWizardMenu()
     {
@@ -1328,7 +1373,7 @@ public sealed partial class TerrainEditorControl
         Vector3 center = _cursorValid
             ? _cursorWorld
             : new(centerX, _terrain.SampleHeight(centerX, centerZ) + 0.35f, centerZ);
-        using TerrainWaterDialog dialog = new(_nature.WaterBodies, center);
+        using TerrainWaterDialog dialog = new(_nature.WaterBodies, center, selectedId);
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
         SetWaterBodies(dialog.WaterBodies);
         RefreshComponentsPanel();

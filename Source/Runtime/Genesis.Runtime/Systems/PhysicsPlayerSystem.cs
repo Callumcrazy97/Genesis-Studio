@@ -52,21 +52,35 @@ namespace Genesis.Runtime.Systems
                 if (jumpOut) swimming = false;
                 bool grounded = physics.TryGetGroundContact(world, body.RegistrationId, motor.StepHeight + 0.12f, out PhysicsRaycastHit ground);
                 float slopeCos = MathF.Cos(Math.Clamp(motor.MaximumSlopeDegrees, 0f, 89f) * MathF.PI / 180f);
-                bool walkable = grounded && ground.Normal.Y >= slopeCos;
                 Vector3 velocity = physics.GetLinearVelocity(body.RegistrationId);
+                if (velocity.Y <= 0f || swimming) motor.JumpAscending = false;
+                motor.JumpBufferRemaining = MathF.Max(0f, motor.JumpBufferRemaining - fixedDelta);
+                if (input.WasPressed(Key.Space) && !motor.JumpAscending)
+                    motor.JumpBufferRemaining = 0.16f;
+                bool risingAway = motor.JumpAscending;
+                bool walkable = grounded && ground.Normal.Y >= slopeCos && !risingAway;
 
                 Vector3 wish = Vector3.Zero;
-                if (input.IsDown(Key.W)) wish += camera.Forward;
-                if (input.IsDown(Key.S)) wish -= camera.Forward;
-                if (input.IsDown(Key.D)) wish += camera.Right;
-                if (input.IsDown(Key.A)) wish -= camera.Right;
+                if (input.IsDown(Key.W) || input.IsDown(Key.Up)) wish += camera.Forward;
+                if (input.IsDown(Key.S) || input.IsDown(Key.Down)) wish -= camera.Forward;
+                if (input.IsDown(Key.D) || input.IsDown(Key.Right)) wish += camera.Right;
+                if (input.IsDown(Key.A) || input.IsDown(Key.Left)) wish -= camera.Right;
                 wish.Y = 0f;
                 if (wish != Vector3.Zero)
                     wish = Vector3.Normalize(wish);
 
+                if (walkable)
+                {
+                    bool supported = ground.Distance <= SupportHeight(body, ground.Normal.Y) + 0.05f + 0.08f;
+                    bool snapped = SnapToWalkableSurface(world, physics, entity, body, transform, wish, motor, slopeCos, ref velocity);
+                    walkable = supported || snapped;
+                }
+                motor.GroundGraceRemaining = walkable ? 0.08f : MathF.Max(0f, motor.GroundGraceRemaining - fixedDelta);
+
                 float speed = MathF.Max(0f, motor.WalkSpeed) * (input.IsDown(Key.Shift) ? MathF.Max(1f, motor.SprintMultiplier) : 1f);
                 if (swimming)
                 {
+                    motor.JumpBufferRemaining = 0f;
                     Vector3 swimWish = wish;
                     if (input.IsDown(Key.Space)) swimWish += Vector3.UnitY;
                     if (input.IsDown(Key.Control)) swimWish -= Vector3.UnitY;
@@ -85,22 +99,32 @@ namespace Genesis.Runtime.Systems
                     velocity.X = horizontal.X; velocity.Z = horizontal.Y;
                     if (walkable)
                     {
-                        SnapToWalkableSurface(world, physics, entity, body, transform, wish, motor, slopeCos, ref velocity);
-                        if (input.WasPressed(Key.Space) && motor.JumpSpeed > 0f)
-                            velocity.Y = motor.JumpSpeed;
-                        else if (velocity.Y < 0f)
-                            velocity.Y = 0f;
+                        if (velocity.Y < 0f) velocity.Y = 0f;
                         motor.State = CharacterMotorState.Grounded;
                     }
                     else
                     {
                         if (jumpOut)
+                        {
                             velocity.Y = MathF.Max(velocity.Y, motor.JumpSpeed);
-                        if (grounded)
+                            motor.JumpAscending = true;
+                            motor.JumpBufferRemaining = 0f;
+                            motor.GroundGraceRemaining = 0f;
+                        }
+                        if (grounded && ground.Normal.Y < slopeCos)
                         {
                             Vector3 downhill = Vector3.Normalize(new Vector3(ground.Normal.X, 0f, ground.Normal.Z));
                             velocity += downhill * 9.81f * fixedDelta;
                         }
+                        motor.State = CharacterMotorState.Falling;
+                    }
+                    if (motor.JumpBufferRemaining > 0f && motor.JumpSpeed > 0f
+                        && (walkable || motor.GroundGraceRemaining > 0f))
+                    {
+                        velocity.Y = motor.JumpSpeed;
+                        motor.JumpAscending = true;
+                        motor.JumpBufferRemaining = 0f;
+                        motor.GroundGraceRemaining = 0f;
                         motor.State = CharacterMotorState.Falling;
                     }
                 }
@@ -129,7 +153,15 @@ namespace Genesis.Runtime.Systems
             return length <= maximumDelta || length < 1e-6f ? target : current + delta / length * maximumDelta;
         }
 
-        private static void SnapToWalkableSurface(
+        private static float SupportHeight(RigidBodyComponent body, float normalY)
+        {
+            float support = body.HalfExtents.Y;
+            if (body.Shape is SharedCollisionShape.Capsule or SharedCollisionShape.Sphere)
+                support += body.Size.X * (1f / MathF.Max(.01f, normalY) - 1f);
+            return support;
+        }
+
+        private static bool SnapToWalkableSurface(
             IEcsWorld world,
             PhysicsWorld physics,
             Entity entity,
@@ -140,17 +172,24 @@ namespace Genesis.Runtime.Systems
             float slopeCos,
             ref Vector3 velocity)
         {
-            if (wish == Vector3.Zero || motor.StepHeight <= 0f || velocity.Y > 0.1f) return;
-            Vector3 current = physics.GetBodyPosition(body.RegistrationId);
+            if (wish == Vector3.Zero || motor.StepHeight <= 0f) return false;
+            Vector3 localOffset = Vector3.Transform(body.LocalOffset, transform.Rotation);
+            Vector3 current = physics.GetBodyPosition(body.RegistrationId) + localOffset;
             float reach = MathF.Max(body.HalfExtents.X, body.HalfExtents.Z) + 0.12f;
             Vector3 probe = current + wish * reach + Vector3.UnitY * motor.StepHeight;
-            if (!physics.RaycastDown(world, probe, motor.StepHeight * 2f + 0.2f, out PhysicsRaycastHit step, entity)) return;
-            if (step.Normal.Y < slopeCos) return;
-            float targetY = step.Point.Y + body.HalfExtents.Y;
+            if (!physics.RaycastDown(world, probe, body.HalfExtents.Y + motor.StepHeight * 2f + 0.2f, out PhysicsRaycastHit step, entity)) return false;
+            if (step.Normal.Y < slopeCos) return false;
+            // Project the probed plane back to the body's current XZ. Using the height at the
+            // look-ahead point makes an uphill character hover and pushes a downhill one below
+            // the surface. A flat raised step still retains its actual top height.
+            float surfaceY = step.Point.Y + (step.Normal.X * (step.Point.X - current.X)
+                + step.Normal.Z * (step.Point.Z - current.Z)) / step.Normal.Y;
+            float targetY = surfaceY + SupportHeight(body, step.Normal.Y);
             float delta = targetY - current.Y;
-            if (delta < -motor.StepHeight || delta > motor.StepHeight) return;
-            physics.SetBodyPose(world, body.RegistrationId, new Vector3(current.X, targetY, current.Z), transform.Rotation);
+            if (delta < -motor.StepHeight || delta > motor.StepHeight) return false;
+            physics.SetBodyPose(world, body.RegistrationId, new Vector3(current.X, targetY, current.Z) - localOffset, transform.Rotation);
             velocity.Y = 0f;
+            return true;
         }
 
         private bool _isThirdPerson = true;

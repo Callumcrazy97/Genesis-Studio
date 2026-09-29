@@ -82,23 +82,27 @@ namespace Genesis.Rendering.SilkNet.DX12
 
         private void CreateUploadRing()
         {
-            _uploadRing = new ComPtr<ID3D12Resource>[Dx12FrameRing.FramesInFlight];
-            _uploadCursorBase = new byte*[Dx12FrameRing.FramesInFlight];
-            _uploadUsed = new int[Dx12FrameRing.FramesInFlight];
+            _uploadFramePages = new List<int>[Dx12FrameRing.FramesInFlight];
 
             for (int i = 0; i < Dx12FrameRing.FramesInFlight; i++)
             {
-                _uploadRing[i] = CreateCommittedBuffer(
-                    UploadRingBytes, HeapType.Upload, ResourceStates.GenericRead, ResourceFlags.None);
+                _uploadFramePages[i] = new List<int> { CreateUploadPage(UploadRingBytes) };
+            }
+        }
 
-                // Mapped once for the life of the device. An upload heap is CPU-visible and
-                // persistent mapping is the documented pattern; unmapping per write would cost more
-                // than the writes.
+        private int CreateUploadPage(int capacity)
+        {
+            ComPtr<ID3D12Resource> resource = CreateCommittedBuffer(
+                capacity, HeapType.Upload, ResourceStates.GenericRead, ResourceFlags.None);
+            try
+            {
                 void* mapped = null;
                 var empty = new Silk.NET.Direct3D12.Range();
-                SilkMarshal.ThrowHResult(_uploadRing[i].Handle->Map(0u, &empty, &mapped));
-                _uploadCursorBase[i] = (byte*)mapped;
+                SilkMarshal.ThrowHResult(resource.Handle->Map(0u, &empty, &mapped));
+                _uploadPages.Add(new UploadPage { Resource = resource, Cursor = (byte*)mapped, Capacity = capacity });
+                return _uploadPages.Count - 1;
             }
+            catch { resource.Dispose(); throw; }
         }
 
         /// <summary>
@@ -110,21 +114,31 @@ namespace Genesis.Rendering.SilkNet.DX12
         private void* AllocateUpload(
             int size, int alignment, out ulong gpuAddress, out int ringSlot, out ulong ringOffset)
         {
-            int slot = _frames.FrameIndex;
-            int offset = Align(_uploadUsed[slot], alignment);
-
-            if (offset + size > UploadRingBytes)
+            List<int> pages = _uploadFramePages[_frames.FrameIndex];
+            int slot = -1;
+            int offset = 0;
+            foreach (int candidate in pages)
             {
-                throw new InvalidOperationException(
-                    $"Direct3D 12 upload ring exhausted: {UploadRingBytes / (1024 * 1024)} MiB per frame "
-                    + $"and this frame asked for {offset + size} bytes. Raise UploadRingBytes.");
+                UploadPage existing = _uploadPages[candidate];
+                int aligned = Align(existing.Used, alignment);
+                if ((long)aligned + size > existing.Capacity) continue;
+                slot = candidate; offset = aligned; break;
             }
 
-            _uploadUsed[slot] = offset + size;
-            gpuAddress = _uploadRing[slot].Handle->GetGPUVirtualAddress() + (ulong)offset;
+            if (slot < 0)
+            {
+                // Retain old pages: earlier draws and copies still reference their addresses.
+                // Oversized uploads get their own page; ordinary overflow grows by one base page.
+                slot = CreateUploadPage(Math.Max(UploadRingBytes, size));
+                pages.Add(slot);
+            }
+
+            UploadPage page = _uploadPages[slot];
+            page.Used = checked(offset + size);
+            gpuAddress = page.Resource.Handle->GetGPUVirtualAddress() + (ulong)offset;
             ringSlot = slot;
             ringOffset = (ulong)offset;
-            return _uploadCursorBase[slot] + offset;
+            return page.Cursor + offset;
         }
 
         /// <summary>
@@ -173,16 +187,13 @@ namespace Genesis.Rendering.SilkNet.DX12
             if (data.IsEmpty) return;
 
             EnsureRecording();
-            void* staging = AllocateUpload(data.Length, 4, out _);
+            void* staging = AllocateUpload(data.Length, 4, out _, out int slot, out ulong sourceOffset);
             data.CopyTo(new Span<byte>(staging, data.Length));
-
-            int slot = _frames.FrameIndex;
-            ulong sourceOffset = (ulong)((byte*)staging - _uploadCursorBase[slot]);
 
             TransitionResource(buffer.Resource, ref buffer.State, ResourceStates.CopyDest);
             _frames.List->CopyBufferRegion(
                 buffer.Resource, (ulong)byteOffset,
-                _uploadRing[slot], sourceOffset, (ulong)data.Length);
+                _uploadPages[slot].Resource, sourceOffset, (ulong)data.Length);
             TransitionResource(buffer.Resource, ref buffer.State, ResourceStates.GenericRead);
         }
 
@@ -296,9 +307,7 @@ namespace Genesis.Rendering.SilkNet.DX12
             int rowCount = (int)rows;
             int uploadBytes = (int)Math.Max(totalBytes, (ulong)(paddedRow * Math.Max(1, rowCount)));
 
-            void* staging = AllocateUpload(uploadBytes, TexturePlacementAlignment, out _);
-            int slot = _frames.FrameIndex;
-            ulong sourceOffset = (ulong)((byte*)staging - _uploadCursorBase[slot]);
+            void* staging = AllocateUpload(uploadBytes, TexturePlacementAlignment, out _, out int slot, out ulong sourceOffset);
             new Span<byte>(staging, uploadBytes).Clear();
 
             fixed (byte* source = data)
@@ -325,7 +334,7 @@ namespace Genesis.Rendering.SilkNet.DX12
             layout.Offset = sourceOffset;
             var source2 = new TextureCopyLocation
             {
-                PResource = _uploadRing[slot],
+                PResource = _uploadPages[slot].Resource,
                 Type = TextureCopyType.PlacedFootprint,
             };
             source2.Anonymous.PlacedFootprint = layout;
@@ -794,7 +803,7 @@ namespace Genesis.Rendering.SilkNet.DX12
                     // data vanished: three instances drawn, every one of them at the origin with
                     // zero size, and a blank frame that reported successful draw calls.
                     ID3D12Resource* resource = dynamic
-                        ? (buffer.DynamicRingSlot >= 0 ? _uploadRing[buffer.DynamicRingSlot].Handle : null)
+                        ? (buffer.DynamicRingSlot >= 0 ? _uploadPages[buffer.DynamicRingSlot].Resource.Handle : null)
                         : buffer.Resource.Handle;
 
                     if (resource == null)

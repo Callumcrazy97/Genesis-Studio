@@ -153,9 +153,9 @@ public sealed partial class TerrainEditorControl
     {
         string folder=Path.GetFullPath(ResourcePath+".parts");Directory.CreateDirectory(folder);
         string stem="section-"+Guid.NewGuid().ToString("N"),modelPath=Path.Combine(folder,stem+".gmodel"),entityPath=Path.Combine(folder,stem+".terrainpart.json");
-        var model=new TerrainEntityComponent {Type=TerrainEntityComponentKinds.Model};model.Set("Model",ResourceNames.Name(ProjectRoot, modelPath));model.Set("Scale","1");
+        var model=new TerrainEntityComponent {Type=TerrainEntityComponentKinds.Model};model.Set("Model",EntityReference(modelPath));model.Set("Scale","1");
         var document=new TerrainEntityDocument {Name=result.Recipe.Name,Type=TerrainEntityType.Terrain,Creation=result.Recipe,Components=[model]};
-        string relative=ResourceNames.Name(ProjectRoot, entityPath);
+        string relative=EntityReference(entityPath);
         byte[] entityBytes=JsonSerializer.SerializeToUtf8Bytes(document,new JsonSerializerOptions {WriteIndented=true});
         byte[] modelBytes=System.Text.Encoding.UTF8.GetBytes(Newtonsoft.Json.JsonConvert.SerializeObject(result.Model));
         var before=ClonePlaced(_nature.PlacedEntities);var after=ClonePlaced(before);

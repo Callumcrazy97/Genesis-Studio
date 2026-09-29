@@ -147,6 +147,7 @@ internal static class EngineSystemsSuite
         HeadlessHarness.RunCase(ctx.Report, "Runtime.PGSL.TransformsAndRaycast", () => WithScene(ctx, (scene, context, game) =>
         {
             var world = scene.World; Entity entity = world.CreateEntity();
+            Check(entity.Id > 0, "Live instance zero collides with the no-instance sentinel.");
             context.InstanceId = entity.Id;
             world.Set(entity, new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
             world.Set(entity, Transform3DComponent.Default);
@@ -166,17 +167,34 @@ internal static class EngineSystemsSuite
             PgslCommands.InstanceSetScale3D(entity.Id, double.NaN, 1, 1);
             Check(PgslCommands.InstanceGetScaleZ(entity.Id) == 4, "Invalid transform input corrupted an entity.");
             VMEngine.Initialize(); var host = new ScriptHostSystem(); host.SetContext(game);
+            List<PgslRuntimeNote> transformNotes = [];
+            using var collectTransformNotes = PgslRuntimeDiagnostics.Collect(transformNotes);
             using (host.UseEventSources(new Dictionary<string, string>
             {
-                ["Create"] = "InstanceSetScale3D(id, 5, 6, 7); InstanceSetRotation3D(id, 10, 20, 30);",
+                ["Create"] = "caller = id; alias = instance_id; same = self; InstanceSetScale3D(id, 5, 6, 7); InstanceSetRotation3D(id, 10, 20, 30);",
             })) host.Attach(world, entity, "TransformProbe");
+            var transformScript = (PgslBehavior)host.Instances.Single();
+            Check(new[] { "caller", "alias", "same" }.All(name =>
+                Convert.ToDouble(transformScript.GetVariablesSnapshot()[name]) == entity.Id)
+                && transformNotes.All(note => note.Kind != PgslNoteKind.UnresolvedRead && note.Kind != PgslNoteKind.ReadFailed),
+                "Instance identity aliases returned a sentinel or an unresolved read.");
             Check(Near(world.GetRef<TransformComponent>(entity).ScaleX, 5) && Near(world.GetRef<TransformComponent>(entity).ScaleZ, 7)
-                && Near(world.GetRef<TransformComponent>(entity).RotationZ, 30), "PGSL synchronization overwrote the 3D transform.");
+                && Near(world.GetRef<TransformComponent>(entity).RotationZ, 30),
+                "PGSL synchronization overwrote the 3D transform: "
+                + $"scale=({world.GetRef<TransformComponent>(entity).ScaleX}, "
+                + $"{world.GetRef<TransformComponent>(entity).ScaleY}, {world.GetRef<TransformComponent>(entity).ScaleZ}), "
+                + $"roll={world.GetRef<TransformComponent>(entity).RotationZ}, "
+                + $"diagnostics={string.Join("; ", host.RecentDiagnostics.Select(diagnostic => diagnostic.Message))}.");
             Entity animated = world.CreateEntity(); world.Set(animated, new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
             using (host.UseEventSources(new Dictionary<string, string>
             {
-                ["Create"] = "var tree = AnimationBlendTreeCreate1D(\"Speed\"); AnimationBlendTreeAddClip(tree, \"Idle\", 0); AnimationBlendTreeAddClip(tree, \"Run\", 8); AnimationStateCreate(\"Move\", tree); AnimationSetParameter(\"Speed\", 4);",
+                ["Create"] = "InstanceSetScale3D(self, 8, 9, 10); InstanceSetRotation3D(instance_id, 0, 45, 0); var tree = AnimationBlendTreeCreate1D(\"Speed\"); AnimationBlendTreeAddClip(tree, \"Idle\", 0); AnimationBlendTreeAddClip(tree, \"Run\", 8); AnimationStateCreate(\"Move\", tree); AnimationSetParameter(\"Speed\", 4);",
             })) host.Attach(world, animated, "GraphProbe");
+            Check(Near(world.GetRef<TransformComponent>(animated).ScaleZ, 10)
+                && Near(world.GetRef<TransformComponent>(animated).RotationY, 45)
+                && Near(world.GetRef<TransformComponent>(entity).ScaleX, 5)
+                && Near(world.GetRef<TransformComponent>(entity).RotationZ, 30),
+                "A second script changed another object's transform or could not resolve itself.");
             Check(host.RecentDiagnostics.Count == 0 && world.Has<ModelAnimatorComponent>(animated)
                 && Near(world.GetRef<ModelAnimatorComponent>(animated).Controller.Evaluate(Asset())[0].Translation.X, 4), "PGSL graph creation did not reach the ECS animator.");
         }));

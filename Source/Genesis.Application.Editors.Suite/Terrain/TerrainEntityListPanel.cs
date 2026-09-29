@@ -58,7 +58,7 @@ public sealed class TerrainEntityListPanel : Panel
         };
         Controls.Add(_scroll);
         EditorChrome.Changed += (_, _) => { if (!IsDisposed) Rebuild(); };
-        Rebuild();
+        RefreshEntities();
     }
 
     /// <summary>Raised when a group's [+] is clicked — the caller opens the creation wizard.</summary>
@@ -67,7 +67,13 @@ public sealed class TerrainEntityListPanel : Panel
     /// <summary>Raised when an item's Edit is clicked with the entity's resource path.</summary>
     public event EventHandler<string>? EditRequested;
 
-    public void RefreshEntities() => Rebuild();
+    public void RefreshEntities()
+    {
+        // A library refresh also discovers assets created outside ResourceService,
+        // including files arriving through project synchronisation.
+        if (_ownedPaths is null) ResourceNames.Invalidate(_projectRoot);
+        Rebuild();
+    }
 
     private void Rebuild()
     {

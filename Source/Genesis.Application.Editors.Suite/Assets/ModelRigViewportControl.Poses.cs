@@ -7,6 +7,7 @@ namespace Genesis.Application.Editors.Suite.Assets;
 public sealed partial class ModelRigViewportControl
 {
     private bool _animationDraft;
+    private bool _draftTimelineVisible = true;
     private GModelAsset? _rigLayoutPreview;
     internal bool PreviewRigLayout { get; set; }
     private bool _animationFollowChildren = true;
@@ -83,6 +84,19 @@ public sealed partial class ModelRigViewportControl
         SetSpin(false);
         SetOnionSkin(false);
         SetMotionTrail(false);
+        // Animation recipes already own FPS and looping on the dialog's Animate page.
+        // Keep one transport below the canvas rather than a second settings surface.
+        foreach (Label caption in _animationPrimaryRow.Controls.OfType<Label>().Where(label => label.Text == "FPS")) caption.Visible = false;
+        _animationFps.Visible = false;
+        _animationLoop.Visible = false;
+    }
+
+    internal void ShowDraftTimeline(bool visible)
+    {
+        if (!_animationDraft) return;
+        _draftTimelineVisible = visible;
+        _animationPanel.Visible = visible;
+        LayoutAnimationPresentation();
     }
 
     internal Control TakePoseInspector()

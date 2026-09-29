@@ -1,6 +1,7 @@
 using System.Drawing;
 using System.Numerics;
 using Genesis.Application.Editors.Image;
+using Genesis.Application.Editors.Suite.UiKit;
 using Genesis.Runtime.Modeling;
 using Genesis.Shared.Interfaces;
 
@@ -12,7 +13,8 @@ public sealed partial class ModelRigWizardDialog : DpiAwareForm
     private readonly GModelAsset _source;
     private GModelAsset _draft;
     private readonly ModelRigViewportControl _preview;
-    private readonly FlowLayoutPanel _fields = new() { Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new(12) };
+    private readonly FlowLayoutPanel _fields = new() { Name = "ModelRigWizardFields", Dock = DockStyle.Fill, AutoScroll = true,
+        AutoScrollMargin = new Size(0, 32), FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new(12) };
     private readonly FlowLayoutPanel _steps = new() { Dock = DockStyle.Top, Height = 46, Padding = new(8), WrapContents = false };
     private readonly Label _status = new() { Dock = DockStyle.Fill, Padding = new(12, 8, 6, 2), AutoEllipsis = true };
     private readonly ProgressBar _progress = new() { Dock = DockStyle.Bottom, Height = 4, Style = ProgressBarStyle.Marquee, Visible = false };
@@ -21,6 +23,7 @@ public sealed partial class ModelRigWizardDialog : DpiAwareForm
     private CancellationTokenSource? _operation;
     private bool _busy, _updating;
     private bool _cancelled;
+    private bool _measuringScrollExtent;
     private string _selectedRole = "Pelvis";
     private ListBox? _landmarks;
     private bool _mirror, _bendMode, _dragging;
@@ -49,6 +52,7 @@ public sealed partial class ModelRigWizardDialog : DpiAwareForm
         ClientSize = new(1440, 920); MinimumSize = new(1080, 740); StartPosition = FormStartPosition.CenterParent;
         BackColor = EditorChrome.Canvas; ForeColor = EditorChrome.Text; Font = EditorChrome.BaseFont;
         _preview = new(resourcePath, projectRoot); _preview.ConfigureAnimationDraft(); _preview.PoseEditingEnabled = false;
+        _fields.Layout += (_, _) => MeasureScrollExtent();
         _preview.PreviewWorldTransform = time =>
         {
             if (!_showTravel || CurrentStep < 3 || _preview.RiggedAsset is not { } model) return Matrix4x4.Identity;
@@ -82,6 +86,7 @@ public sealed partial class ModelRigWizardDialog : DpiAwareForm
         if (_busy) return;
         if (step >= 3 && Setup.Joints.Count == 0) throw new InvalidOperationException("Detect and review the joints first.");
         CurrentStep = Math.Clamp(step, 0, 4); _preview.PauseAnimation();
+        _preview.ShowDraftTimeline(CurrentStep >= 3);
         _updating = true;
         try
         {
@@ -169,16 +174,42 @@ public sealed partial class ModelRigWizardDialog : DpiAwareForm
         button.Click += async (_, _) => { try { await action(); } catch (OperationCanceledException) { } catch (Exception ex) { if (!IsDisposed) ShowError(ex); } }; return button;
     }
     private void ShowError(Exception ex) { _status.Text = ex.Message; MessageBox.Show(this, ex.Message, "Rigging wizard", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
-    private void Heading(string text) => _fields.Controls.Add(new Label { Text = text, Width = 332, Height = 32, Font = new Font(Font, FontStyle.Bold) });
-    private void Hint(string text) => _fields.Controls.Add(new Label { Text = text, Width = 332, AutoSize = false, Height = Math.Max(42, (text.Length / 43 + 1) * 19), ForeColor = EditorChrome.Muted });
+    private void Heading(string text) => _fields.Controls.Add(new Label { Text = text, AutoSize = true, Font = new Font(Font, FontStyle.Bold) });
+    private void MeasureScrollExtent()
+    {
+        if (_measuringScrollExtent || _fields.Controls.Count == 0) return;
+        _measuringScrollExtent = true;
+        try
+        {
+            // FlowLayout's preferred height can lag a native field's font-driven resize.
+            // Include the actual final row so the scroll range reaches every action.
+            int bottom = _fields.Controls.Cast<Control>().Max(control => control.Bottom + control.Margin.Bottom);
+            _fields.AutoScrollMinSize = new Size(0, bottom - _fields.AutoScrollPosition.Y + _fields.Padding.Bottom + 16);
+        }
+        finally { _measuringScrollExtent = false; }
+    }
+    private static void FitWizardField(Control field, int width)
+    {
+        void Fit() => field.Width = (int)Math.Ceiling(width * Math.Max(1, EditorChrome.BaseFont.SizeInPoints / 9.5f));
+        field.FontChanged += (_, _) => Fit();
+        Fit();
+    }
+    private void Hint(string text)
+    {
+        var hint = new Label { Text = text, MaximumSize = new(332, 0), AutoSize = true, ForeColor = EditorChrome.Muted };
+        hint.FontChanged += (_, _) => hint.MaximumSize = new((int)Math.Ceiling(332 * Math.Max(1, hint.Font.SizeInPoints / 9.5f)), 0);
+        _fields.Controls.Add(hint);
+    }
     private void Row(params Control[] controls)
     {
         var row = new FlowLayoutPanel { Width = 332, AutoSize = true, WrapContents = true, Margin = new(0, 3, 0, 5) };
+        row.FontChanged += (_, _) => row.Width = (int)Math.Ceiling(332 * Math.Max(1, row.Font.SizeInPoints / 9.5f));
         row.Controls.AddRange(controls); _fields.Controls.Add(row);
     }
     private ComboBox Choice(IEnumerable<string> values, int index, Action<int> changed)
     {
-        var combo = new ComboBox { Width = 260, DropDownStyle = ComboBoxStyle.DropDownList, BackColor = EditorChrome.Raised, ForeColor = EditorChrome.Text, FlatStyle = FlatStyle.Flat };
+        var combo = new ThemedComboBox { Width = 260 };
+        FitWizardField(combo, 260);
         combo.Items.AddRange(values.Cast<object>().ToArray()); combo.SelectedIndex = Math.Clamp(index, -1, combo.Items.Count - 1);
         combo.SelectedIndexChanged += (_, _) => { if (!_updating && combo.SelectedIndex >= 0) changed(combo.SelectedIndex); }; return combo;
     }
@@ -186,7 +217,7 @@ public sealed partial class ModelRigWizardDialog : DpiAwareForm
     {
         var input = new NumericUpDown { Width = 110, Minimum = min, Maximum = max, DecimalPlaces = decimals, Increment = decimals == 0 ? 1 : .01m, Value = Math.Clamp((decimal)value, min, max), BackColor = EditorChrome.Raised, ForeColor = EditorChrome.Text };
         input.ValueChanged += (_, _) => { if (!_updating) changed((float)input.Value); };
-        Row(new Label { Text = label, Width = 190, Height = 28, Padding = new(0, 5, 0, 0) }, input);
+        Row(new Label { Text = label, AutoSize = true, Padding = new(0, 5, 0, 0) }, input);
     }
     private CheckBox Check(string text, bool value, Action<bool> changed)
     {

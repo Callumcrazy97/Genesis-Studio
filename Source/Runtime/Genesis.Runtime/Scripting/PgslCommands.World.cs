@@ -312,6 +312,9 @@ public static partial class PgslCommands
             world.GetRef<CharacterMotorComponent>(entity).State == CharacterMotorState.Swimming;
     }
 
+    [PgslCommand("CharacterIsGrounded", "CharacterIsGrounded() -> bool", "True when this character motor stands on a walkable physics surface", "Physics")]
+    public static bool CharacterIsGrounded() => CurrentCharacterMotor()?.State == CharacterMotorState.Grounded;
+
     [PgslCommand("CharacterSubmerged", "CharacterSubmerged() -> number", "Submerged fraction of this character from 0 to 1", "Physics")]
     public static double CharacterSubmerged()
     {

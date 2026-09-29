@@ -84,8 +84,8 @@ public sealed class PhysicsSceneConfig
     public string Name { get; set; } = "Default";
     public string Notes { get; set; } = string.Empty;
 
-    /// <summary>Optional PGSL script attached to this physics asset. Authoring is wired through the
-    /// unified code editor; runtime execution of attached physics scripts is pending (see ToDo.md).</summary>
+    /// <summary>Legacy stored script text. Current Physics code edits body declarations;
+    /// gameplay scripts are saved Object events or Script resources.</summary>
     public string Script { get; set; } = string.Empty;
     public PhysicsDimension Dimension { get; set; } = PhysicsDimension.ThreeD;
     /// <summary>Sprite shown in 2D editor preview (e.g. Player).</summary>

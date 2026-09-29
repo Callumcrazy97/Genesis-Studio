@@ -1,4 +1,3 @@
-using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using Genesis.Application.Core.Resources;
@@ -47,7 +46,7 @@ public sealed record GameExportResult(
     string ErrorMessage = "");
 
 /// <summary>Creates a Player-only, self-contained Windows release from a Studio project.</summary>
-public static class GameExportService
+public static partial class GameExportService
 {
     private static readonly HashSet<string> ExcludedDirectories = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -139,7 +138,7 @@ public static class GameExportService
             progress?.Report(request.Format == GameExportFormat.Zip
                 ? "Creating release archive…"
                 : "Publishing release folder…");
-            Publish(staging, outputPath, request.Format, request.ReplaceExisting);
+            Publish(staging, outputPath, request.Format, request.ReplaceExisting, progress, cancellationToken);
             staging = string.Empty;
             progress?.Report("Export complete.");
             return new GameExportResult(
@@ -389,44 +388,6 @@ public static class GameExportService
         private static extern bool UpdateResource(IntPtr update, IntPtr type, IntPtr name, ushort language, byte[] data, uint size);
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool EndUpdateResource(IntPtr update, bool discard);
-    }
-
-    private static void Publish(string staging, string output, GameExportFormat format, bool replaceExisting)
-    {
-        if (format == GameExportFormat.Zip)
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(output) ?? ".");
-            if (File.Exists(output) && !replaceExisting) throw new IOException("The export archive already exists.");
-            string archive = output + ".new-" + Guid.NewGuid().ToString("N");
-            try
-            {
-                ZipFile.CreateFromDirectory(staging, archive, CompressionLevel.Optimal, includeBaseDirectory: false);
-                File.Move(archive, output, overwrite: replaceExisting);
-            }
-            finally { if (File.Exists(archive)) File.Delete(archive); }
-            TryDeleteDirectory(staging);
-            return;
-        }
-
-        Directory.CreateDirectory(Path.GetDirectoryName(output) ?? ".");
-        string previous = output + ".previous-" + Guid.NewGuid().ToString("N");
-        bool movedPrevious = false;
-        try
-        {
-            if (Directory.Exists(output))
-            {
-                if (!replaceExisting) throw new IOException("The export folder already exists.");
-                Directory.Move(output, previous);
-                movedPrevious = true;
-            }
-            Directory.Move(staging, output);
-        }
-        catch
-        {
-            if (movedPrevious && !Directory.Exists(output)) Directory.Move(previous, output);
-            throw;
-        }
-        if (movedPrevious) TryDeleteDirectory(previous);
     }
 
     private static void ValidateDestination(string projectRoot, string output)

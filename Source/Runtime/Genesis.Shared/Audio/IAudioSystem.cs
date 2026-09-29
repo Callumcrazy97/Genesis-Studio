@@ -66,6 +66,9 @@ namespace Genesis.Shared.Audio
         /// <summary>Move a live spatial channel in world space.</summary>
         void SetChannelPosition(AudioChannel channel, Vector3 position);
 
+        /// <summary>Override spatial mode and distance falloff for this emitter's live channel.</summary>
+        void SetChannelSpatialSettings(AudioChannel channel, bool spatial, AudioSpatialSettings settings) { }
+
         /// <summary>
         /// Set the spatial listener (camera/ear) for 3D positional audio. For 2D
         /// games, call once with the room centre and forward = -Z.

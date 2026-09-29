@@ -32,6 +32,7 @@ public sealed partial class ModelAnimationStudioDialog : DpiAwareForm
     private Matrix4x4[] _poseLocals = [];
     private bool _refreshing, _settingPreview, _layoutDirty;
     private int _selectedPage = -1;
+    private FlowLayoutPanel _poseActions = null!;
     public string SelectedClip { get; private set; } = "";
     public ModelRigViewportControl Preview => _preview;
     public string StatusText => _status.Text;
@@ -75,7 +76,9 @@ public sealed partial class ModelAnimationStudioDialog : DpiAwareForm
         for (int i = 0; i < 3; i++) { _page[i].Text = new[] { "1 · Rig", "2 · Pose", "3 · Animate" }[i]; _tabs.AddPage(_page[i]); }
         _tabs.SelectedIndexChanged += (_, _) => { if (_tabs.SelectedIndex != _selectedPage) Run(() => GoToPage(_tabs.SelectedIndex)); };
 
-        var tools = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 78, WrapContents = true, Padding = new Padding(8), BackColor = ImageEditorChrome.Surface };
+        var tools = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            WrapContents = true, Padding = new Padding(8), BackColor = ImageEditorChrome.Surface };
+        _poseActions = tools;
         var action = Combo(126); action.Name = "RigTransformMode"; action.Items.AddRange(["Move / rotate", "Move", "Rotate", "Resize"]); action.SelectedIndex = 0;
         action.SelectedIndexChanged += (_, _) => _preview.DirectPoseMode = action.SelectedIndex;
         var affect = Combo(145); affect.Name = "RigPropagation"; affect.Items.AddRange(["Only this bone", "Connected chain"]); affect.SelectedIndex = 0;
@@ -151,6 +154,8 @@ public sealed partial class ModelAnimationStudioDialog : DpiAwareForm
         if (_layoutDirty && index != 0) { _tabs.SelectedIndex = _selectedPage; throw new InvalidOperationException("Click Bind To Mesh to finish the skeleton layout first."); }
         if (_selectedPage == 2 && index != 2 && _keys.Rows.Count > 0) SaveAnimation();
         _selectedPage = index;
+        _poseActions.Visible = index != 2;
+        _preview.ShowDraftTimeline(index == 2);
         _preview.DrawChildJoints = false;
         _preview.PoseEditingEnabled = index != 2;
         _preview.PreviewRigLayout = index == 0;
@@ -176,31 +181,35 @@ public sealed partial class ModelAnimationStudioDialog : DpiAwareForm
         _page[0] = Page();
         var flow = Stack();
         flow.Name = "ModelRigOptions";
-        flow.Controls.Add(RigSection("Rig Management", 202,
+        flow.Controls.Add(RigSection("Rig Management",
             Row(Button("New", NewSkeleton), Button("Load", UseSavedRig), Button("Save Rig", () =>
             {
                 if (!_asset.Rig.IsValid) throw new InvalidOperationException("Draw a bone or joint before saving a rig.");
                 SaveRig();
                 SetStatus($"Rig saved as '{_rigName.Text}'. Apply to model to keep it with this model.");
             }), Button("Delete", DeleteRig)), Row(Button("Templates…", OpenRigWizard)), _rigs));
-        flow.Controls.Add(RigSection("Drawing", 54,
+        flow.Controls.Add(RigSection("Drawing",
             Row(Button("Draw Bone", BeginDrawingBones), Button("Draw Joint", BeginDrawingJoints),
                 Button("Select", () => { _preview.CancelJointDrawing(); SetStatus("Select a bone or joint. Delete removes the selected element; drag to adjust it."); }))));
-        flow.Controls.Add(RigSection("Binding", 54, Row(Button("Bind To Mesh", BindMesh), Button("Unbind", UnbindMesh))));
+        flow.Controls.Add(RigSection("Binding", Row(Button("Bind To Mesh", BindMesh), Button("Unbind", UnbindMesh))));
         _page[0].Controls.Add(flow);
     }
 
-    private static CollapsibleSection RigSection(string title, int height, params Control[] children)
+    private static Control RigSection(string title, params Control[] children)
     {
-        var section = new CollapsibleSection(title, height, 332) { Name = "ModelRig" + title.Replace(" ", "") };
-        var stack = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = children.Length, Padding = new Padding(4) };
+        var stack = new TableLayoutPanel { Name = "ModelRig" + title.Replace(" ", ""), AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink, ColumnCount = 1, RowCount = children.Length + 1, Padding = new Padding(4), Margin = new Padding(0, 0, 0, 10) };
+        ScaleFieldWidth(stack, 332);
         stack.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        stack.Controls.Add(Caption(title.ToUpperInvariant()), 0, 0);
         for (int i = 0; i < children.Length; i++)
         {
-            stack.RowStyles.Add(children[i] is FlowLayoutPanel ? new RowStyle(SizeType.Absolute, 40) : new RowStyle(SizeType.Percent, 100));
-            children[i].Dock = DockStyle.Fill; stack.Controls.Add(children[i], 0, i);
+            stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            if (children[i] is ListBox list) { list.Dock = DockStyle.None; list.Height = Math.Max(96, list.Font.Height * 4); ScaleFieldWidth(list, 326); }
+            stack.Controls.Add(children[i], 0, i + 1);
         }
-        section.Content.Controls.Add(stack); return section;
+        return stack;
     }
 
     public void BeginDrawingBones()
@@ -250,10 +259,18 @@ public sealed partial class ModelAnimationStudioDialog : DpiAwareForm
         _keys.DefaultCellStyle.SelectionBackColor = EditorChrome.Hover; _keys.DefaultCellStyle.SelectionForeColor = EditorChrome.Text;
         _keys.ColumnHeadersDefaultCellStyle.BackColor = EditorChrome.Raised; _keys.ColumnHeadersDefaultCellStyle.ForeColor = EditorChrome.Text;
         _keys.RowTemplate.Height = 30;
+        _keys.FontChanged += (_, _) =>
+        {
+            int height = Math.Max(30, _keys.Font.Height + 12);
+            _keys.ColumnHeadersHeight = height;
+            _keys.RowTemplate.Height = height;
+            foreach (DataGridViewRow row in _keys.Rows) row.Height = height;
+            _keys.Columns[0].Width = TextRenderer.MeasureText("Frame", _keys.Font).Width + 22;
+            _keys.Columns[2].Width = TextRenderer.MeasureText("Smooth", _keys.Font).Width + 32;
+        };
         _keys.DataError += (_, e) => { e.ThrowException = false; SetStatus("Choose an existing pose and a valid frame number."); };
         var bottom = Stack(); bottom.Dock = DockStyle.Bottom;
         bottom.Controls.Add(Row(Button("Save animation", SaveAnimation), Button("Generate frames", GenerateFrames)));
-        bottom.Controls.Add(Row(Button("Play / pause", TogglePlayback), Button("Stop", () => _preview.PlayClip(SelectedClip, false))));
         bottom.Controls.Add(Hint("Linear and Smooth blend XYZ and quaternion rotation. Hold keeps a pose until the next key. Regenerate replaces this clip's baked frames."));
         _page[2].Controls.Add(_keys); _page[2].Controls.Add(top); _page[2].Controls.Add(bottom);
     }
@@ -566,13 +583,19 @@ public sealed partial class ModelAnimationStudioDialog : DpiAwareForm
         var button = new Button { Name = "ModelAction" + text.Replace(" ", ""), Text = text, AutoSize = true, Height = 30, MinimumSize = new Size(65, 30), Margin = new Padding(2, 3, 4, 3) };
         EditorChrome.StyleField(button); button.Click += (_, _) => Run(action); return button;
     }
-    private static TextBox Field(string text) { var box = new TextBox { Width = 326, Text = text }; EditorChrome.StyleField(box); return box; }
-    private static ThemedComboBox Combo(int width) { var combo = new ThemedComboBox { Width = width }; EditorChrome.StyleField(combo); return combo; }
-    private static NumericUpDown Number(int min, int max, int value) { var number = new NumericUpDown { Minimum = min, Maximum = max, Value = value, Width = 62 }; EditorChrome.StyleField(number); return number; }
+    private static TextBox Field(string text) { var box = new TextBox { Width = 326, Text = text }; EditorChrome.StyleField(box); ScaleFieldWidth(box, 326); return box; }
+    private static ThemedComboBox Combo(int width) { var combo = new ThemedComboBox { Width = width }; EditorChrome.StyleField(combo); ScaleFieldWidth(combo, width); return combo; }
+    private static NumericUpDown Number(int min, int max, int value) { var number = new NumericUpDown { Minimum = min, Maximum = max, Value = value, Width = 62 }; EditorChrome.StyleField(number); ScaleFieldWidth(number, 62); return number; }
+    private static void ScaleFieldWidth(Control field, int width)
+    {
+        void Fit() => field.Width = Math.Max(width, (int)Math.Ceiling(width * field.Font.SizeInPoints / 9.5f));
+        field.FontChanged += (_, _) => Fit();
+        Fit();
+    }
     private static ListBox List(string name) => new() { Name = name, Dock = DockStyle.Fill, BorderStyle = BorderStyle.None, BackColor = EditorChrome.Canvas, ForeColor = EditorChrome.Text, IntegralHeight = false };
-    private static Panel Page() => new() { Padding = new Padding(10, 0, 10, 6), BackColor = EditorChrome.Surface };
+    private static Panel Page() => new() { AutoScroll = true, Padding = new Padding(10, 0, 10, 6), BackColor = EditorChrome.Surface };
     private static FlowLayoutPanel Stack() => new() { Dock = DockStyle.Top, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = Padding.Empty };
-    private static FlowLayoutPanel Row(params Control[] controls) { var row = new FlowLayoutPanel { AutoSize = true, Width = 332, WrapContents = true, Margin = Padding.Empty }; row.Controls.AddRange(controls); return row; }
-    private static Label Caption(string text, int width = 320) => new() { Text = text, Width = width, Height = 26, TextAlign = ContentAlignment.MiddleLeft, ForeColor = EditorChrome.Muted, Font = EditorChrome.SmallFont };
+    private static FlowLayoutPanel Row(params Control[] controls) { var row = new FlowLayoutPanel { AutoSize = true, Width = 332, WrapContents = true, Margin = Padding.Empty }; ScaleFieldWidth(row, 332); row.Controls.AddRange(controls); return row; }
+    private static Label Caption(string text, int width = 320) => new() { Text = text, AutoSize = true, TextAlign = ContentAlignment.MiddleLeft, ForeColor = EditorChrome.Muted, Font = EditorChrome.SmallFont, Margin = new Padding(3, 5, 3, 3) };
     private static Label Hint(string text) => new() { Text = text, Width = 326, Height = 54, ForeColor = EditorChrome.Muted, Font = EditorChrome.SmallFont, Padding = new Padding(2, 5, 2, 0) };
 }

@@ -63,6 +63,7 @@ public sealed partial class TerrainEntityWizardPanel : UserControl
         ForeColor = EditorChrome.Text;
         Font = EditorChrome.BaseFont;
         Dock = DockStyle.Fill;
+        Tag = "font-measured-layout";
         MinimumSize = new Size(640, 420);
 
         Panel headerBar = new() { BackColor = EditorChrome.Surface, Dock = DockStyle.Top, Height = 40 };
@@ -130,6 +131,16 @@ public sealed partial class TerrainEntityWizardPanel : UserControl
         Controls.Add(footer);
         Controls.Add(headerBar);
         ThemeSelfOnLoad();
+
+        void FitChrome()
+        {
+            headerBar.Height=_pageLabel.Font.Height+20;
+            footer.Height=_nextButton.Font.Height+24;
+            foreach(Button button in footer.Controls)button.Width=Math.Max(96,TextRenderer.MeasureText(button.Text,button.Font).Width+30);
+            foreach(ThemedComboBox combo in EnumerateControls(this).OfType<ThemedComboBox>())combo.ItemHeight=combo.Font.Height+8;
+        }
+        FontChanged+=(_,_)=>FitChrome();SizeChanged+=(_,_)=>FitChrome();
+        HandleCreated+=(_,_)=>BeginInvoke(()=>{if(!IsDisposed)FitChrome();});
 
         GoToPage(0);
     }
@@ -254,13 +265,17 @@ public sealed partial class TerrainEntityWizardPanel : UserControl
 
         UpdateIconPreview();
 
-        page.Controls.Add(nameLabel);
-        page.Controls.Add(_nameBox);
+        var fields=new TableLayoutPanel {Dock=DockStyle.Top,AutoSize=true,ColumnCount=1,Padding=new Padding(16)};
+        nameLabel.Dock=DockStyle.Top;_nameBox.Dock=DockStyle.Top;
+        fields.Controls.Add(nameLabel);
+        fields.Controls.Add(_nameBox);
         typeLabel.Dispose();
-        page.Controls.Add(iconLabel);
-        page.Controls.Add(_iconCombo);
-        page.Controls.Add(_iconPreview);
-        page.Controls.Add(newIconButton);
+        iconLabel.Dock=DockStyle.Top;fields.Controls.Add(iconLabel);
+        var iconRow=new TableLayoutPanel {Dock=DockStyle.Top,AutoSize=true,ColumnCount=2};
+        iconRow.ColumnStyles.Add(new(SizeType.AutoSize));iconRow.ColumnStyles.Add(new(SizeType.Percent,100));
+        iconRow.Controls.Add(_iconPreview);_iconCombo.Dock=DockStyle.Top;iconRow.Controls.Add(_iconCombo);fields.Controls.Add(iconRow);
+        var actions=new FlowLayoutPanel {Dock=DockStyle.Top,AutoSize=true};
+        newIconButton.AutoSize=true;actions.Controls.Add(newIconButton);
         Button browseIcon = new() { Location = new Point(224, 164), Size = new Size(148, 30), Text = "Browse Images…" };
         EditorChrome.StyleField(browseIcon);
         browseIcon.Click += (_, _) =>
@@ -269,7 +284,9 @@ public sealed partial class TerrainEntityWizardPanel : UserControl
             if (entry is null) return;
             SetIcon(entry.Reference);
         };
-        page.Controls.Add(browseIcon);
+        browseIcon.AutoSize=true;actions.Controls.Add(browseIcon);fields.Controls.Add(actions);page.Controls.Add(fields);
+        fields.SizeChanged+=(_,_)=>iconLabel.MaximumSize=new Size(Math.Max(200,fields.ClientSize.Width-fields.Padding.Horizontal),0);
+        foreach(Button button in actions.Controls)button.FontChanged+=(_,_)=>button.MinimumSize=new Size(0,button.Font.Height+18);
         return page;
     }
 
@@ -297,7 +314,7 @@ public sealed partial class TerrainEntityWizardPanel : UserControl
             BackColor = EditorChrome.Raised,
             Cursor = Cursors.Hand,
             Margin = new Padding(0, 0, 12, 0),
-            Size = new Size(150, 110),
+            Size = new Size(180, 110),
             Tag = type,
         };
         Label glyph = new()
@@ -334,6 +351,8 @@ public sealed partial class TerrainEntityWizardPanel : UserControl
         glyph.Click += (_, _) => Select();
         label.Click += (_, _) => Select();
         _typeCards[type] = card;
+        void FitCard(){glyph.Height=glyph.Font.Height+12;card.Height=glyph.Height+label.Font.Height+24;card.Width=Math.Max(180,TextRenderer.MeasureText(label.Text,label.Font).Width+30);}
+        glyph.FontChanged+=(_,_)=>FitCard();label.FontChanged+=(_,_)=>FitCard();FitCard();
         return card;
     }
 
@@ -351,6 +370,7 @@ public sealed partial class TerrainEntityWizardPanel : UserControl
     {
         TerrainEntityType.Terrain => "⌁",
         TerrainEntityType.Foliage => "❋",
+        TerrainEntityType.Tree => "♧",
         TerrainEntityType.Object => "⬡",
         TerrainEntityType.Fluid => "≈",
         TerrainEntityType.Environment => "☀",
@@ -430,8 +450,8 @@ public sealed partial class TerrainEntityWizardPanel : UserControl
     {
         Panel page = new() { Dock = DockStyle.Fill };
 
-        Panel toolbar = new() { BackColor = EditorChrome.Surface, Dock = DockStyle.Top, Height = 40 };
-        ThemedComboBox kindCombo = new() { Location = new Point(10, 7), Width = 160 };
+        FlowLayoutPanel toolbar = new() { BackColor = EditorChrome.Surface, Dock = DockStyle.Top, AutoSize=true, Padding=new Padding(8) };
+        ThemedComboBox kindCombo = new() { Width = 250 };
         EditorChrome.StyleField(kindCombo);
         foreach (string kind in TerrainEntityComponentKinds.All)
         {
@@ -439,11 +459,13 @@ public sealed partial class TerrainEntityWizardPanel : UserControl
         }
 
         kindCombo.SelectedIndex = 0;
-        Button addButton = new() { Location = new Point(178, 6), Size = new Size(150, 28), Text = "+ Add component" };
+        Button addButton = new() { AutoSize=true, Text = "Add component" };
         EditorChrome.StyleField(addButton);
         addButton.Click += (_, _) => AddComponent(TerrainEntityComponentKinds.All[kindCombo.SelectedIndex]);
         toolbar.Controls.Add(kindCombo);
         toolbar.Controls.Add(addButton);
+        kindCombo.FontChanged+=(_,_)=>kindCombo.Width=Math.Max(250,TextRenderer.MeasureText("Animation condition",kindCombo.Font).Width+50);
+        addButton.FontChanged+=(_,_)=>addButton.MinimumSize=new Size(0,addButton.Font.Height+18);
 
         _componentList = new FlowLayoutPanel
         {
@@ -570,38 +592,35 @@ public sealed partial class TerrainEntityWizardPanel : UserControl
             MinimumSize = new Size(220, 0),
         };
 
-        Panel header = new() { BackColor = Color.Transparent, Dock = DockStyle.Top, Height = 28 };
+        FlowLayoutPanel header = new() { BackColor = Color.Transparent, Dock = DockStyle.Top, AutoSize=true, WrapContents=true };
         Label title = new()
         {
-            AutoSize = false,
+            AutoSize = true,
             BackColor = Color.Transparent,
-            Dock = DockStyle.Left,
             Font = EditorChrome.HeadingFont,
             ForeColor = EditorChrome.Text,
             Text = TerrainEntityComponentKinds.DisplayName(component.Type),
             TextAlign = ContentAlignment.MiddleLeft,
-            Width = 170,
         };
         CheckBox enabled = new()
         {
             AutoSize = true,
             BackColor = Color.Transparent,
             Checked = component.Enabled,
-            Dock = DockStyle.Left,
             ForeColor = EditorChrome.Text,
             Text = "Enabled",
         };
         enabled.CheckedChanged += (_, _) => component.Enabled = enabled.Checked;
-        Button remove = new() { Dock = DockStyle.Right, Text = "Remove", Width = 84 };
+        Button remove = new() { AutoSize=true, Text = "Remove" };
         EditorChrome.StyleField(remove);
         remove.Click += (_, _) =>
         {
             _document.Components.Remove(component);
             RefreshComponentList();
         };
-        header.Controls.Add(remove);
-        header.Controls.Add(enabled);
         header.Controls.Add(title);
+        header.Controls.Add(enabled);
+        header.Controls.Add(remove);
 
         Control fields = BuildComponentFields(component);
         fields.Dock = DockStyle.Top;
@@ -611,6 +630,8 @@ public sealed partial class TerrainEntityWizardPanel : UserControl
         outer.Controls.Add(header);
         fields.SizeChanged += (_, _) => outer.Height = header.Height + (_collapsedComponents.Contains(component) ? 0 : fields.Height) + 30;
         outer.Height = header.Height + (_collapsedComponents.Contains(component) ? 0 : fields.Height) + 30;
+        header.SizeChanged+=(_,_)=>outer.Height=header.Height+(_collapsedComponents.Contains(component)?0:fields.Height)+outer.Padding.Vertical;
+        remove.FontChanged+=(_,_)=>remove.MinimumSize=new Size(0,remove.Font.Height+18);
         return outer;
     }
 
@@ -647,7 +668,7 @@ public sealed partial class TerrainEntityWizardPanel : UserControl
     {
         Panel panel = new() { Height = 34, Width = 800 };
         panel.Controls.Add(BuildAssetFieldRow(component, propKey, label, kind, folder, makeEditor, y: 0));
-        return panel;
+        return ArrangeAuthoredFields(panel);
     }
 
     private Control BuildModelFields(TerrainEntityComponent component)
@@ -766,7 +787,10 @@ public sealed partial class TerrainEntityWizardPanel : UserControl
         panel.Controls.Add(receiveShadows);
         panel.Height += 62;
         panel.Controls.Add(NumberSetting(component, "Scale", "Scale", 1, .001m, 1000, 132));
-        return panel;
+        void ModelChanged(TerrainEntityComponent sender,string key){if(sender==component&&key=="Model")RefreshClips();}
+        Control arranged=ArrangeAuthoredFields(panel);
+        ComponentAssetChanged+=ModelChanged;arranged.Disposed+=(_,_)=>ComponentAssetChanged-=ModelChanged;
+        return arranged;
     }
 
     private Control BuildConditionFields(TerrainEntityComponent component)
@@ -781,9 +805,11 @@ public sealed partial class TerrainEntityWizardPanel : UserControl
             Location = new Point(0, 0),
             Text = "IF (PGSL)",
         };
-        TextBox ifBox = new() { Location = new Point(0, 18), Width = 780, Text = component.Get("If") };
-        EditorChrome.StyleField(ifBox);
-        ifBox.TextChanged += (_, _) => component.Set("If", ifBox.Text);
+        var ifBox = new Genesis.Application.Editors.Suite.Scripts.CodeEditor { Location = new Point(0, 18), Width = 780, Height=180,
+            CodeText=component.Get("If"),Name="TerrainConditionCode" };
+        ifBox.SetLanguage("PGSL");
+        ifBox.IntelligenceRequested+=(_,request)=>Genesis.Application.Editors.Suite.Scripts.PgslCodeIntelligenceProvider.ApplyRequest(ifBox,_projectRoot,ifBox.CodeText,request);
+        ifBox.TextChangedByUser += (_, _) => component.Set("If", ifBox.CodeText);
 
         panel.Controls.Add(ifLabel);
         panel.Controls.Add(ifBox);
@@ -791,7 +817,7 @@ public sealed partial class TerrainEntityWizardPanel : UserControl
             component, "THEN", "ThenSource", "ThenClip", 48));
         panel.Controls.Add(BuildBranchHost(
             component, "ELSE", "ElseSource", "ElseClip", 238));
-        return panel;
+        return ArrangeAuthoredFields(panel);
     }
 
     private Control BuildBranchHost(
@@ -835,6 +861,13 @@ public sealed partial class TerrainEntityWizardPanel : UserControl
         host.Controls.Add(builder);
         host.Controls.Add(label);
         builder.BringToFront();
+        void FitBranch()
+        {
+            label.Height = label.Font.Height + 8;
+            // Keep the searchable action tree usable after its heading, hints and buttons scale.
+            host.Height = Math.Max(420, label.Font.Height * 24);
+        }
+        label.FontChanged+=(_,_)=>FitBranch();FitBranch();
         return host;
     }
 
@@ -910,15 +943,29 @@ public sealed partial class TerrainEntityWizardPanel : UserControl
             y: 0));
 
         Label modeLabel = new() { AutoSize = true, BackColor = Color.Transparent, ForeColor = EditorChrome.Muted, Font = EditorChrome.SmallFont, Location = new Point(0, 38), Text = "MODE" };
-        ThemedComboBox modeCombo = new() { Location = new Point(0, 56), Width = 180 };
+        ThemedComboBox modeCombo = new() { Name = "TerrainTextureMode", Location = new Point(0, 56), Width = 180 };
         EditorChrome.StyleField(modeCombo);
-        foreach (TerrainEntityTextureMode mode in new[] { TerrainEntityTextureMode.Billboard2D, TerrainEntityTextureMode.Plane3D })
+        foreach (TerrainEntityTextureMode mode in Enum.GetValues<TerrainEntityTextureMode>())
         {
             modeCombo.Items.Add(mode);
         }
 
         modeCombo.SelectedItem = Enum.TryParse(component.Get("Mode"), out TerrainEntityTextureMode current) ? current : TerrainEntityTextureMode.Billboard2D;
-        modeCombo.SelectedIndexChanged += (_, _) => component.Set("Mode", ((TerrainEntityTextureMode)modeCombo.SelectedItem!).ToString());
+        Label modeHelp = new() { AutoSize = true, MaximumSize = new Size(760, 0), Location = new Point(0, 222), ForeColor = EditorChrome.Muted };
+        void ExplainMode()
+        {
+            if (modeCombo.SelectedItem is not TerrainEntityTextureMode mode) return;
+            component.Set("Mode", mode.ToString());
+            modeHelp.Text = mode switch
+            {
+                TerrainEntityTextureMode.Billboard2D => "Faces the camera. Useful for trees, grass and sprite characters in a 3D scene.",
+                TerrainEntityTextureMode.Diagonal2D => "A flat sprite turned 45 degrees. Its angle stays fixed when the camera moves.",
+                TerrainEntityTextureMode.Extruded2D => "Adds shallow depth around the image silhouette and holes. Large images use up to 48 cells per axis.",
+                _ => "A flat image with a fixed angle. Rotate the placed asset to make a sign, wall or ground panel.",
+            };
+        }
+        modeCombo.SelectedIndexChanged += (_, _) => ExplainMode(); ExplainMode();
+        panel.Controls.Add(modeHelp);
         panel.Controls.Add(NumberSetting(component, "Scale", "Scale", 1, .001m, 1000, 98));
         var frameCount = NumberSetting(component, "FrameCount", "Frame count (0 = all)", 0, 0, 4096, 98); frameCount.Left = 200; panel.Controls.Add(frameCount);
         foreach (NumericUpDown number in frameCount.Controls.OfType<NumericUpDown>()) { number.DecimalPlaces = 0; number.Increment = 1; }
@@ -934,7 +981,7 @@ public sealed partial class TerrainEntityWizardPanel : UserControl
         panel.Controls.Add(modeCombo);
         panel.Controls.Add(fpsLabel);
         panel.Controls.Add(fpsField);
-        return panel;
+        return ArrangeAuthoredFields(panel);
     }
 
     private Control BuildAudioFields(TerrainEntityComponent component)
@@ -995,7 +1042,7 @@ public sealed partial class TerrainEntityWizardPanel : UserControl
         panel.Controls.Add(maxField);
         panel.Controls.Add(falloffLabel);
         panel.Controls.Add(falloffCombo);
-        return panel;
+        return ArrangeAuthoredFields(panel);
     }
 
     private Control BuildPhysicsFields(TerrainEntityComponent component)
@@ -1051,9 +1098,9 @@ public sealed partial class TerrainEntityWizardPanel : UserControl
             path => MakeSurfaceEditor(new Genesis.Application.Editors.Suite.Scripts.PgslScriptEditorControl(path, _projectRoot)), 180));
         panel.Controls.Add(BuildAssetFieldRow(component, "OnExitScript", "On exit", ResourceKind.PgslScript, "Scripts",
             path => MakeSurfaceEditor(new Genesis.Application.Editors.Suite.Scripts.PgslScriptEditorControl(path, _projectRoot)), 226));
-        panel.Controls.Add(new Label { Text = "Attach PGSL handlers for custom contact responses. Runtime terrain event dispatch is pending.",
+        panel.Controls.Add(new Label { Text = "Choose saved PGSL scripts for contact enter and exit in gameplay. Trigger events detect overlap without pushing bodies.",
             Left = 0, Top = 275, AutoSize = true, ForeColor = EditorChrome.Muted });
-        return panel;
+        return ArrangeAuthoredFields(panel);
     }
 
     /// <summary>
@@ -1071,8 +1118,9 @@ public sealed partial class TerrainEntityWizardPanel : UserControl
         Func<string, (Control Editor, Action OnSave)> makeEditor,
         int y)
     {
-        Panel row = new() { Height = 34, Location = new Point(0, y), Width = 800, Anchor = AnchorStyles.Left | AnchorStyles.Top | AnchorStyles.Right };
-        Label caption = new() { AutoSize = false, BackColor = Color.Transparent, Font = EditorChrome.SmallFont, ForeColor = EditorChrome.Muted, Location = new Point(0, 6), Size = new Size(96, 20), Text = label };
+        var row = new TableLayoutPanel { AutoSize=true, ColumnCount=3, Location = new Point(0, y), Width = 800, Anchor = AnchorStyles.Left | AnchorStyles.Top | AnchorStyles.Right };
+        row.ColumnStyles.Add(new(SizeType.Percent,100));row.ColumnStyles.Add(new(SizeType.AutoSize));row.ColumnStyles.Add(new(SizeType.AutoSize));
+        Label caption = new() { AutoSize = true, BackColor = Color.Transparent, Font = EditorChrome.SmallFont, ForeColor = EditorChrome.Muted, Dock=DockStyle.Top, Text = label };
         ThemedComboBox combo = new() { Location = new Point(104, 0), Width = 460, DisplayMember = nameof(ProjectAssetEntry.DisplayName) };
         combo.Enabled = false;
         EditorChrome.StyleField(combo);
@@ -1157,16 +1205,12 @@ public sealed partial class TerrainEntityWizardPanel : UserControl
                 ComponentAssetChanged?.Invoke(component, propKey);
             });
 
-        row.Controls.Add(caption);
-        row.Controls.Add(combo);
-        row.Controls.Add(browseButton);
-        row.Controls.Add(newButton);
-        row.SizeChanged += (_, _) =>
-        {
-            newButton.Left = Math.Max(310, row.ClientSize.Width - 84);
-            browseButton.Left = newButton.Left - 78;
-            combo.Width = Math.Max(110, browseButton.Left - combo.Left - 8);
-        };
+        row.Controls.Add(caption,0,0);row.SetColumnSpan(caption,3);
+        combo.Dock=DockStyle.Top;row.Controls.Add(combo,0,1);
+        browseButton.AutoSize=newButton.AutoSize=true;browseButton.Dock=newButton.Dock=DockStyle.Top;
+        row.Controls.Add(browseButton,1,1);row.Controls.Add(newButton,2,1);
+        foreach(Button button in new[]{browseButton,newButton})button.FontChanged+=(_,_)=>button.MinimumSize=new Size(0,button.Font.Height+18);
+        combo.FontChanged+=(_,_)=>combo.ItemHeight=combo.Font.Height+8;
         return row;
     }
 
@@ -1284,4 +1328,3 @@ internal static class PanelSelectionExtensions
         e.Graphics.DrawRectangle(pen, 1, 1, panel.Width - 3, panel.Height - 3);
     }
 }
-

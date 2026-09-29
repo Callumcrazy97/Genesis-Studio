@@ -104,6 +104,9 @@ public static partial class PgslCommands
 
     #region Instance variables
 
+    [PgslCommand("Id", "Id -> number (read-only)", "The calling object's live instance ID; also readable as id, instance_id or self", "Instance Variables")]
+    public static double Id => GetContext()?.InstanceId ?? 0;
+
     [PgslCommand("X", "X", "Position X", "Instance Variables")]
     public static double X { get => Ctx.X; set => Ctx.X = value; }
 
@@ -391,23 +394,24 @@ public static partial class PgslCommands
                 if (System.IO.File.Exists(path))
                 {
                     var definition = Scene.ObjectDefinitionResolver.Load(ProjectPath, path);
+                    var prefab = Scene.ObjectDefinitionResolver.PreviewPrefab(definition);
                     var host = (ActiveGameContext as Project.ProjectGameContext)?.ScriptHost;
                     bool wasDeferring = host?.DeferCreateEvents ?? false;
                     if (host != null) host.DeferCreateEvents = true;
                     try
                     {
                         using var events = host?.UseEventSources(definition.Events);
-                        var entity = Scene.PrefabSpawner.Spawn(ActiveGameContext.World, definition.Prefab, host, (float)x, (float)y);
+                        var entity = Scene.PrefabSpawner.Spawn(ActiveGameContext.World, prefab, host, (float)x, (float)y);
                         ref var transform = ref ActiveGameContext.World.GetRef<TransformComponent>(entity);
                         transform.X = (float)x; transform.Y = (float)y; transform.Z = (float)z;
-                        if (string.Equals((string)definition.Prefab["dimension"], "ThreeD", StringComparison.OrdinalIgnoreCase))
+                        if (string.Equals((string)prefab["dimension"], "ThreeD", StringComparison.OrdinalIgnoreCase))
                         {
                             ActiveGameContext.World.Set(entity, new Genesis.Shared.ECS.Components.Transform3DComponent
                             { Position = new((float)x, (float)y, (float)z), Rotation = System.Numerics.Quaternion.Identity,
                                 Scale = new(transform.ScaleX, transform.ScaleY, transform.ScaleZ) });
-                            new Scene.RoomSceneBuilder(ProjectPath).AttachAuthoredPhysics(ActiveGameContext.World, entity, definition.Prefab, transform);
+                            new Scene.RoomSceneBuilder(ProjectPath).AttachAuthoredPhysics(ActiveGameContext.World, entity, prefab, transform);
                         }
-                        else if (Scene.SpritePhysicsBinding.Attach(ActiveGameContext.World, entity, ProjectPath, definition.Prefab, transform))
+                        else if (Scene.SpritePhysicsBinding.Attach(ActiveGameContext.World, entity, ProjectPath, prefab, transform))
                             Scene.SpritePhysicsBinding.EnsureScene(ActiveGameContext.Scene, (ActiveGameContext as Project.ProjectGameContext)?.Room, ProjectPath);
                         if (definition.Events.Count > 0 && host != null && host.FindBehaviorForEntity(entity) == null)
                             host.Attach(ActiveGameContext.World, entity, ResourceNames.Name(ProjectPath, path, ResourceType.Object));

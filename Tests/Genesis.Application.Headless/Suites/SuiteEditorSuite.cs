@@ -27,6 +27,7 @@ using Genesis.Runtime.Scripting.VM;
 using Genesis.Shared.Audio;
 using Genesis.Shared.Interfaces;
 using Genesis.World.Terrain;
+using Genesis.World.Foliage;
 using Newtonsoft.Json.Linq;
 using WinFormsApplication = System.Windows.Forms.Application;
 using RuntimeImageMetrics = Genesis.Application.Runtime.ImageMetrics;
@@ -41,9 +42,9 @@ namespace Genesis.Application.Headless.Suites;
 /// </summary>
 internal static class SuiteEditorSuite
 {
-    public static void Run(HeadlessContext ctx, bool twoDOnly = false)
+    public static void Run(HeadlessContext ctx, bool twoDOnly = false, string? focusedPrefix = null)
     {
-        if (!twoDOnly)
+        if (!twoDOnly && focusedPrefix is null)
         {
             Editor3DInspectionSuite.Run(ctx);
             ModelBranchSidebarSuite.Run(ctx);
@@ -60,6 +61,7 @@ internal static class SuiteEditorSuite
         }
         void RunCase(string name, Action action)
         {
+            if (focusedPrefix is not null && !name.StartsWith(focusedPrefix, StringComparison.Ordinal)) return;
             if (twoDOnly && (name.Contains(".Terrain", StringComparison.Ordinal)
                 || name.Contains(".Model.", StringComparison.Ordinal)
                 || name is "Editor.Suite.Room.Toggle3DPlaceAxisGizmo"
@@ -370,6 +372,11 @@ internal static class SuiteEditorSuite
             Pump(12, 30);
 
             HeadlessHarness.Assert(!editor.FogEnabled, "Fog must default to off on a new terrain.");
+            HeadlessHarness.Assert(MathF.Abs(editor.Viewport.Camera.Target.X
+                    - (editor.Terrain.OriginX + (editor.Terrain.ResolutionX - 1) * editor.Terrain.CellSize * .5f)) < .01f
+                && MathF.Abs(editor.Viewport.Camera.Target.Z
+                    - (editor.Terrain.OriginZ + (editor.Terrain.ResolutionZ - 1) * editor.Terrain.CellSize * .5f)) < .01f,
+                "Opening Terrain must frame its centre rather than a corner at the world origin.");
             editor.FogEnabled = true;
             HeadlessHarness.Assert(editor.IsDirty, "Toggling fog must mark the terrain dirty.");
 
@@ -399,7 +406,10 @@ internal static class SuiteEditorSuite
             // low starting point is guaranteed near-zero on that channel before painting —
             // unlike layer 0 (Grass), which the generator can already saturate to 100% at a
             // flat low spot, making "any byte changed" flaky depending on the noise seed.
-            editor.SelectPaintLayer(3);
+            editor.SetMode(TerrainEditorControl.TerrainEditorMode.Paint);
+            TableLayoutPanel layerGrid = Descendants(editor).OfType<TableLayoutPanel>().Single(grid => grid.Name == "TerrainPaintLayers");
+            layerGrid.Controls.OfType<Button>().Single(button => button.Name == "TerrainPaintLayer3").PerformClick();
+            HeadlessHarness.Assert(editor.SelectedLayer == 3, "Clicking the Snow tile must select its actual paint channel.");
             byte[] beforeSplat = (byte[])editor.Terrain.SplatmapData.Clone();
             editor.BeginStroke(4f, 4f);
             editor.ApplyBrushAt(4f, 4f, TerrainEditorControl.TerrainBrush.Paint);
@@ -407,6 +417,68 @@ internal static class SuiteEditorSuite
             HeadlessHarness.Assert(
                 !beforeSplat.AsSpan().SequenceEqual(editor.Terrain.SplatmapData),
                 "Paint brush did not change the splat map.");
+
+            editor.SetMode(TerrainEditorControl.TerrainEditorMode.Water);
+            ComboBox waterWorkflow = Descendants(editor).OfType<ComboBox>().Single(combo => combo.Name == "TerrainWaterWorkflow");
+            FlowLayoutPanel surfaceWater = Descendants(editor).OfType<FlowLayoutPanel>().Single(page => page.Name == "TerrainSurfaceWater");
+            FlowLayoutPanel riverWater = Descendants(editor).OfType<FlowLayoutPanel>().Single(page => page.Name == "TerrainRiverWater");
+            FlowLayoutPanel waterPreview = Descendants(editor).OfType<FlowLayoutPanel>().Single(page => page.Name == "TerrainWaterPreview");
+            HeadlessHarness.Assert(surfaceWater.Visible && !riverWater.Visible && !waterPreview.Visible,
+                "Surface editing must show only its own water controls.");
+            waterWorkflow.SelectedIndex = 1;
+            HeadlessHarness.Assert(!surfaceWater.Visible && riverWater.Visible && !waterPreview.Visible,
+                "River editing must replace the surface controls.");
+            waterWorkflow.SelectedIndex = 2;
+            HeadlessHarness.Assert(!surfaceWater.Visible && !riverWater.Visible && waterPreview.Visible,
+                "Playable preview must replace the authoring controls.");
+            Pump(2, 20);
+            HeadlessHarness.Assert(!surfaceWater.AutoScroll && !riverWater.AutoScroll && !waterPreview.AutoScroll,
+                "Water groups must not create nested scrollbars; the tool page owns scrolling.");
+            Control retainedScatterPage;
+            using (Form scatter = editor.CreateScatterSettingsDialog())
+            {
+                GateSuite.ShowHost(scatter);
+                Pump(2, 20);
+                retainedScatterPage = Descendants(scatter).Single(control => control.Name == "TerrainScatterSettings");
+                InspectorNumber(retainedScatterPage, "Seed").Value = 93;
+                HeadlessHarness.Assert(scatter.AcceptButton is Button { Text: "Done", DialogResult: DialogResult.OK },
+                    "Live scatter settings need a clear Done action.");
+            }
+            using (Form reopenedScatter = editor.CreateScatterSettingsDialog())
+                HeadlessHarness.Assert(!retainedScatterPage.IsDisposed
+                    && ReferenceEquals(retainedScatterPage, Descendants(reopenedScatter).Single(control => control.Name == "TerrainScatterSettings"))
+                    && InspectorNumber(retainedScatterPage, "Seed").Value == 93,
+                    "Closing scatter settings must retain its authoring controls and edited values for reopening.");
+
+            editor.SetMode(TerrainEditorControl.TerrainEditorMode.Paths);
+            FlowLayoutPanel pathsPage = Descendants(editor).OfType<FlowLayoutPanel>().Single(page => page.Name == "TerrainModePaths");
+            InspectorNumber(pathsPage, "Seed").Value = 71;
+            pathsPage.Controls.OfType<Button>().Single(button => button.Text == "Generate Connected Paths").PerformClick();
+            HeadlessHarness.Assert(editor.Nature.PathSettings.Seed == 71, "Path generation ignored the visible draft settings.");
+            InspectorNumber(pathsPage, "Seed").Value = 72;
+            pathsPage.Controls.OfType<Button>().Single(button => button.Text == "Generate Connected Paths").PerformClick();
+            HeadlessHarness.Assert(editor.Nature.PathSettings.Seed == 72, "Repeated Path generation used stale field bindings.");
+            editor.Undo();
+            HeadlessHarness.Assert(editor.Nature.PathSettings.Seed == 71 && InspectorNumber(pathsPage, "Seed").Value == 71,
+                "Undo must restore both saved path settings and their visible controls.");
+            editor.Redo();
+            HeadlessHarness.Assert(editor.Nature.PathSettings.Seed == 72 && InspectorNumber(pathsPage, "Seed").Value == 72,
+                "Redo must restore the second path generation without editing its history snapshot.");
+            using (Form scatter = editor.CreateScatterSettingsDialog())
+            {
+                GateSuite.ShowHost(scatter);
+                InspectorNumber(scatter, "MaximumInstances").Value = 300;
+                InspectorNumber(scatter, "Seed").Value = 81;
+                Descendants(scatter).OfType<Button>().Single(button => button.Text == "Scatter Foliage").PerformClick();
+                InspectorNumber(scatter, "Seed").Value = 82;
+                Descendants(scatter).OfType<Button>().Single(button => button.Text == "Scatter Foliage").PerformClick();
+                HeadlessHarness.Assert(editor.Nature.FoliageSettings.Seed == 82 && editor.Foliage.Instances.Count <= 300,
+                    "Repeated Foliage generation ignored the current draft settings or budget.");
+                editor.Undo();
+                HeadlessHarness.Assert(editor.Nature.FoliageSettings.Seed == 81 && InspectorNumber(scatter, "Seed").Value == 81,
+                    "Foliage undo must refresh the retained settings window.");
+                editor.Redo();
+            }
 
             editor.Save();
             HeadlessHarness.Assert(File.Exists(terrain + ".gterrain"), "Terrain save did not write the binary heights sidecar.");
@@ -708,6 +780,9 @@ internal static class SuiteEditorSuite
 
         RunCase("Editor.Suite.Room.CameraFrustumOverlay", () =>
         {
+            using EngineCameraRegistryScope cameras = new();
+            if (string.IsNullOrEmpty(heroObject))
+                heroObject = resources.CreateResource(objectsFolder, ResourceKind.GameObject, "SuiteHero");
             // CAM-2: Room 3D frustum wires face play-camera forward (−Z / follow / Engine yaw),
             // and a marker click drives the existing second-camera inset.
             string roomPath = resources.CreateResource(roomsFolder, ResourceKind.Room, "SuiteFrustumOverlay");
@@ -1314,6 +1389,15 @@ internal static class SuiteEditorSuite
 
             editor.Save();
             HeadlessHarness.Assert(File.Exists(terrain + ".gterrain"), "Wizard terrain did not write its binary sidecar.");
+            string? openedRoom = null;
+            editor.OpenLinkedResourceRequested += (_, path) => openedRoom = path;
+            string gameplayRoom = editor.CreateTerrainRoom("Wizard terrain gameplay");
+            RoomAsset savedRoom = RoomAssetLoader.Parse(gameplayRoom);
+            RoomNode savedTerrain = savedRoom.Nodes.Single(node => node.Kind == RoomNodeKind.Terrain);
+            HeadlessHarness.Assert(openedRoom == gameplayRoom && savedRoom.Dimension == RoomDimension.ThreeD
+                && !savedTerrain.EnabledIn2D && ResourceNames.Resolve(project.RootPath, savedTerrain.Terrain!.Asset) == terrain,
+                "Use in game did not save, open and reference the real Terrain in a 3D Room.");
+            HeadlessHarness.Assert(!editor.IsDirty && File.Exists(terrain + ".gterrain"), "Room creation left the terrain unsaved.");
 
             using (Form reloadHost = NewHost())
             {
@@ -1327,6 +1411,29 @@ internal static class SuiteEditorSuite
             Bitmap? frame = editor.Viewport.CaptureFrame(settleFrames: 4);
             HeadlessHarness.Assert(frame is not null, "Terrain wizard viewport readback failed.");
             SaveCapture(ctx, frame!, "37-terrain-wizard.png", "Terrain Creation Wizard", minColors: 40);
+        });
+
+        RunCase("Editor.Suite.Terrain.DialogDraftsPreserveSettingsAndSelectedWater", () =>
+        {
+            TerrainPathSettings pathSettings = new() { Seed = 61, Width = 3 };
+            using (TerrainPathDialog paths = new(pathSettings)) paths.Settings.Width = 9;
+            HeadlessHarness.Assert(pathSettings.Width == 3, "Cancelling the Path dialog must preserve the existing settings.");
+            FoliageScatterSettings foliageSettings = new() { Seed = 62, Density = .4f };
+            using (FoliageScatterDialog foliage = new(foliageSettings)) foliage.Settings.Density = .8f;
+            HeadlessHarness.Assert(foliageSettings.Density == .4f, "Cancelling the Foliage dialog must preserve the existing settings.");
+            TerrainWaterDefinition first = new() { Id = "first", Name = "First pond", PhysicsMode = WaterPhysicsMode.None };
+            TerrainWaterDefinition selected = new() { Id = "selected", Name = "Selected pond", PhysicsMode = WaterPhysicsMode.None };
+            using TerrainWaterDialog water = new([first, selected], Vector3.Zero, selected.Id);
+            TextBox name = Descendants(water).OfType<TextBox>().Single(control => control.Name == "TerrainWaterBodyName");
+            HeadlessHarness.Assert(name.Text == selected.Name, "Edit selected water must open that body rather than the first entry.");
+            name.Text = "Swimming pond";
+            Descendants(water).OfType<ComboBox>().Single(combo => combo.Name == "TerrainWaterPhysicsMode").SelectedIndex = 2;
+            HeadlessHarness.Assert(water.WaterBodies[1].Name == "Swimming pond"
+                && water.WaterBodies[1].PhysicsMode == WaterPhysicsMode.SwimmableVolume
+                && water.WaterBodies[0].Name == first.Name,
+                "Water controls must edit only the selected body and retain the typed physics mode.");
+            HeadlessHarness.Assert(selected.Name == "Selected pond" && selected.PhysicsMode == WaterPhysicsMode.None,
+                "The original water definition must remain unchanged until Apply.");
         });
 
         RunCase("Editor.Suite.Model.PrimitiveWindingConsistency", () =>
@@ -1948,10 +2055,24 @@ internal static class SuiteEditorSuite
                 string.Equals(editRequested, rockPath, StringComparison.OrdinalIgnoreCase),
                 "Edit did not raise EditRequested with the row's resource path.");
 
+            string syncedPath = Path.Combine(terrainEntitiesFolder, "Synced tree.terrainentity.json");
+            File.WriteAllText(syncedPath,
+                """{"schemaVersion":1,"name":"Synced Tree","type":"Foliage","icon":"","components":[]}""");
+            panel.RefreshEntities();
+            HeadlessHarness.Assert(FindDescendant<Label>(panel, label => label.Text == "Synced Tree") is not null,
+                "Explicit library refresh did not discover an externally created terrain entity.");
+
             GateSuite.ShowHost(host);
             WinFormsApplication.DoEvents();
             ImageMetrics metrics = VisualCapture.Capture(host, Path.Combine(captures, "35-terrain-entity-list.png"));
             ctx.Report.Images.Add(ImageResult.From("Terrain Entity Library", "35-terrain-entity-list.png", metrics));
+
+            resources.MoveToTrash(syncedPath); panel.RefreshEntities();
+            HeadlessHarness.Assert(!File.Exists(syncedPath)
+                && FindDescendant<Label>(panel, label => label.Text == "Synced Tree") is null
+                && Directory.EnumerateFiles(Path.Combine(project.RootPath, ".genesis", "Trash"),
+                    "Synced tree.terrainentity.json", SearchOption.AllDirectories).Any(),
+                "A trashed terrain entity remained in the library or lost its recoverable file.");
         });
 
         RunCase("Editor.Suite.Script.DiagnosticsLive", () =>
@@ -2766,6 +2887,21 @@ internal static class SuiteEditorSuite
             double envelope = 1.0 - (sample / (double)sampleCount);
             double value = Math.Sin(2.0 * Math.PI * frequency * sample / sampleRate) * envelope;
             writer.Write((short)(value * short.MaxValue * 0.8));
+        }
+    }
+
+    private static NumericUpDown InspectorNumber(Control scope, string property)
+    {
+        Control drawer = Descendants(scope).Single(control => control.Name == "InspectorDrawer_" + property);
+        return drawer as NumericUpDown ?? Descendants(drawer).OfType<NumericUpDown>().Single();
+    }
+
+    private static IEnumerable<Control> Descendants(Control root)
+    {
+        foreach (Control child in root.Controls)
+        {
+            yield return child;
+            foreach (Control nested in Descendants(child)) yield return nested;
         }
     }
 

@@ -99,8 +99,9 @@ public sealed partial class PhysicsWorld : IDisposable
             body.Weight = DefaultWeight;
 
         int registrationId = _nextRegistrationId++;
-        var pose = new RigidPose(transform.Position, transform.Rotation);
-        var (shape, inertia) = CreateShape(body);
+        var (shape, inertia, center) = CreateAuthoredShape(world, entity, body);
+        Vector3 localOffset = body.LocalOffset + center;
+        var pose = new RigidPose(transform.Position + Vector3.Transform(localOffset, transform.Rotation), transform.Rotation);
 
         if (body.Motion == SharedPhysicsMotionType.Static)
         {
@@ -115,6 +116,9 @@ public sealed partial class PhysicsWorld : IDisposable
             {
                 Entity = entity,
                 StaticHandle = staticHandle,
+                Shape = shape,
+                LocalOffset = localOffset,
+                Enabled = IsEntityEnabled(world, entity),
             };
             _staticRegistrationIds.Add(registrationId);
         }
@@ -140,6 +144,8 @@ public sealed partial class PhysicsWorld : IDisposable
             var binding = new BodyBinding
             {
                 Entity = entity,
+                Shape = shape,
+                LocalOffset = localOffset,
                 DynamicHandle = handle,
                 Enabled = body.Collision && IsEntityEnabled(world, entity),
                 UseGravity = body.UseGravity,
@@ -151,6 +157,8 @@ public sealed partial class PhysicsWorld : IDisposable
                 // explicitly to 1f, so 0f here only happens for hand-built components that
                 // opted out of gravity entirely — treat that as "no gravity", not "normal gravity".
                 GravityScale = body.GravityScale,
+                LinearDamping = PhysicsDamping.Clamp(body.LinearDamping),
+                AngularDamping = PhysicsDamping.Clamp(body.AngularDamping),
             };
             _bindings[registrationId] = binding;
             _dynamicHandles[handle] = registrationId;
@@ -203,6 +211,7 @@ public sealed partial class PhysicsWorld : IDisposable
             _staticCollisionFilter.Remove(stat);
         }
 
+        _simulation.Shapes.RemoveAndDispose(binding.Shape, _pool);
         _bindings.Remove(body.RegistrationId);
         body.RegistrationId = 0;
     }
@@ -225,7 +234,7 @@ public sealed partial class PhysicsWorld : IDisposable
             transform.PreviousPosition = transform.Position;
             transform.PreviousRotation = transform.Rotation;
             transform.PoseHistoryValid = 1;
-            transform.Position = pose.Position;
+            transform.Position = pose.Position - Vector3.Transform(binding.LocalOffset, pose.Orientation);
             transform.Rotation = pose.Orientation;
         }
     }
@@ -235,11 +244,15 @@ public sealed partial class PhysicsWorld : IDisposable
         if (fixedDelta <= 0f)
             return;
 
+        RemoveMissingBodyBindings(world);
         RefreshDynamicBindingCache(world);
+        RefreshContactSettings(world);
+        _reportedContacts.Clear();
         if (EnableThreadDispatcher)
             _simulation.Timestep(fixedDelta, _threadDispatcher);
         else
             _simulation.Timestep(fixedDelta);
+        FinishContacts(world);
     }
 
     /// <summary>
@@ -280,6 +293,8 @@ public sealed partial class PhysicsWorld : IDisposable
             _planarConstraints.Apply(pair.Key, binding.PlanarTwoD, body.LockRotation, binding.PlanarDepth);
             binding.Weight = body.Weight > 0f ? body.Weight : DefaultWeight;
             binding.GravityScale = body.GravityScale;
+            binding.LinearDamping = PhysicsDamping.Clamp(body.LinearDamping);
+            binding.AngularDamping = PhysicsDamping.Clamp(body.AngularDamping);
 
             if (body.Weight <= 0f)
                 body.Weight = DefaultWeight;
@@ -288,7 +303,7 @@ public sealed partial class PhysicsWorld : IDisposable
 
     internal float GetCollidableFriction(CollidableReference collidable)
     {
-        if (collidable.Mobility == CollidableMobility.Dynamic)
+        if (collidable.Mobility != CollidableMobility.Static)
         {
             if (_dynamicFriction.TryGetValue(collidable.BodyHandle, out float friction))
                 return friction;
@@ -316,7 +331,7 @@ public sealed partial class PhysicsWorld : IDisposable
     /// </summary>
     internal float GetCollidableRestitution(CollidableReference collidable)
     {
-        if (collidable.Mobility == CollidableMobility.Dynamic)
+        if (collidable.Mobility != CollidableMobility.Static)
         {
             if (_dynamicRestitution.TryGetValue(collidable.BodyHandle, out float restitution))
                 return restitution;
@@ -344,7 +359,7 @@ public sealed partial class PhysicsWorld : IDisposable
     /// </summary>
     internal bool IsCollidableSensor(CollidableReference collidable)
     {
-        if (collidable.Mobility == CollidableMobility.Dynamic)
+        if (collidable.Mobility != CollidableMobility.Static)
             return _dynamicSensor.TryGetValue(collidable.BodyHandle, out bool sensor) && sensor;
 
         return _staticSensor.TryGetValue(collidable.StaticHandle, out bool staticSensor) && staticSensor;
@@ -352,6 +367,7 @@ public sealed partial class PhysicsWorld : IDisposable
 
     internal bool ShouldCollide(CollidableReference a, CollidableReference b)
     {
+        if (!CollidableEnabled(a) || !CollidableEnabled(b)) return false;
         (byte Layer, uint Mask) filterA = GetCollisionFilter(a);
         (byte Layer, uint Mask) filterB = GetCollisionFilter(b);
         return (filterA.Mask & (1u << filterB.Layer)) != 0 &&
@@ -360,10 +376,10 @@ public sealed partial class PhysicsWorld : IDisposable
 
     private (byte Layer, uint Mask) GetCollisionFilter(CollidableReference collidable)
     {
-        if (collidable.Mobility == CollidableMobility.Dynamic &&
+        if (collidable.Mobility != CollidableMobility.Static &&
             _dynamicCollisionFilter.TryGetValue(collidable.BodyHandle, out var dynamicFilter))
             return dynamicFilter;
-        if (collidable.Mobility != CollidableMobility.Dynamic &&
+        if (collidable.Mobility == CollidableMobility.Static &&
             _staticCollisionFilter.TryGetValue(collidable.StaticHandle, out var staticFilter))
             return staticFilter;
         return (0, 0x7Fu);
@@ -402,7 +418,8 @@ public sealed partial class PhysicsWorld : IDisposable
         {
             SharedCollisionShape.Box => CreateBox(body, simulation),
             SharedCollisionShape.Sphere => CreateSphere(body, simulation),
-            SharedCollisionShape.Capsule or SharedCollisionShape.Cylinder => CreateCapsuleShape(body, simulation),
+            SharedCollisionShape.Capsule => CreateCapsuleShape(body, simulation),
+            SharedCollisionShape.Cylinder => CreateCylinderShape(body, simulation),
             _ => CreateBox(body, simulation),
         };
     }
@@ -427,6 +444,12 @@ public sealed partial class PhysicsWorld : IDisposable
 
     private (TypedIndex Shape, BodyInertia Inertia) CreateShape(RigidBodyComponent body) =>
         CreateShape(body, _simulation);
+
+    private static (TypedIndex, BodyInertia) CreateCylinderShape(RigidBodyComponent body, Simulation simulation)
+    {
+        var cylinder = new Cylinder(body.Size.X, body.Size.Y * 2);
+        return (simulation.Shapes.Add(cylinder), cylinder.ComputeInertia(body.Mass));
+    }
 
     private static Capsule CreateCapsule(float radius, float halfHeight)
     {
@@ -455,7 +478,7 @@ public sealed partial class PhysicsWorld : IDisposable
 
     internal bool TryGetRegistrationId(CollidableReference collidable, out int registrationId)
     {
-        if (collidable.Mobility == CollidableMobility.Dynamic)
+        if (collidable.Mobility != CollidableMobility.Static)
             return _dynamicHandles.TryGetValue(collidable.BodyHandle, out registrationId);
         return _staticHandles.TryGetValue(collidable.StaticHandle, out registrationId);
     }
@@ -476,6 +499,8 @@ public sealed partial class PhysicsWorld : IDisposable
     internal sealed class BodyBinding
     {
         public Entity Entity;
+        public TypedIndex Shape;
+        public Vector3 LocalOffset;
         public BodyHandle? DynamicHandle;
         public StaticHandle? StaticHandle;
         public bool Enabled;
@@ -486,5 +511,7 @@ public sealed partial class PhysicsWorld : IDisposable
         public float Weight;
         /// <summary>Issue 7 (declarative physics): per-body multiplier on world gravity.</summary>
         public float GravityScale;
+        public float LinearDamping;
+        public float AngularDamping;
     }
 }

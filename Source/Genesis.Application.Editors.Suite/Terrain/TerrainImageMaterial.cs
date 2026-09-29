@@ -53,24 +53,9 @@ internal sealed record TerrainImageMaterial(int Width, int Height, byte[] Albedo
         ImageWorkspaceStorage.Save(session, workspace);
     }
 
-    public static TerrainImageMaterial Load(string root, string reference)
+    public static TerrainImageMaterial Load(string root, string reference, int frameIndex = 0)
     {
-        var workspace = Open(root, reference, out _);
-        var layers = workspace.Frames.First().Layers;
-        byte[] albedo = workspace.CompositeCurrentFrameFor(0).Pixels;
-        byte[] Channel(ImageMaterialChannel kind, byte red, byte green, byte blue)
-        {
-            if (layers.Any(layer => layer.Channel == kind)) return workspace.CompositeCurrentFrameFor(0, channel: kind).Pixels;
-            byte[] pixels = new byte[albedo.Length];
-            for (int i = 0; i < pixels.Length; i += 4) { pixels[i] = red; pixels[i + 1] = green; pixels[i + 2] = blue; pixels[i + 3] = 255; }
-            return pixels;
-        }
-        byte[] normals = Channel(ImageMaterialChannel.Normal, 128, 128, 255);
-        byte[] roughness = Channel(ImageMaterialChannel.Roughness, 184, 184, 184);
-        byte[] ao = Channel(ImageMaterialChannel.Occlusion, 255, 255, 255);
-        byte[] metallic = Channel(ImageMaterialChannel.Metallic, 0, 0, 0);
-        byte[] orm = new byte[albedo.Length];
-        for (int i = 0; i < orm.Length; i += 4) { orm[i] = ao[i]; orm[i + 1] = roughness[i]; orm[i + 2] = metallic[i]; orm[i + 3] = 255; }
-        return new(workspace.Width, workspace.Height, albedo, normals, orm);
+        var pixels = Genesis.Runtime.Assets.ImageMaterialAssetLoader.Load(root, reference, frameIndex);
+        return new(pixels.Width, pixels.Height, pixels.Albedo, pixels.Normal, pixels.Orm);
     }
 }

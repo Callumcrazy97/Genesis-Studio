@@ -12,6 +12,8 @@ public sealed partial class TerrainSourceWizard
     private readonly CheckBox _manual = new() { Text = "Place manually in the viewport", AutoSize = true };
     private readonly NumericUpDown _x = Number(-100000, 100000, 0), _y = Number(-100000, 100000, 0), _z = Number(-100000, 100000, 0);
     private float[,]? _editedHeightmap;
+    private Action? _fitAuthoring;
+    private void FitAuthoringPreview() => _fitAuthoring?.Invoke();
     public TerrainAssetPreview LivePreview => _livePreview;
     public bool ReplaceBase => _replaceBase.Checked && Result?.Heights is not null;
     public bool PlaceManually => _manual.Checked;
@@ -20,20 +22,43 @@ public sealed partial class TerrainSourceWizard
     private void InstallAuthoringPreview(SplitContainer split, TableLayoutPanel fields)
     {
         var tabs = new TabControl { Dock = DockStyle.Fill };
+        EditorChrome.StyleTabs(tabs);
         var terrain = new TabPage("3D terrain") { BackColor = EditorChrome.Canvas };
         var heightmap = new TabPage("Heightmap / cross-section") { BackColor = EditorChrome.Canvas };
         terrain.Controls.Add(_livePreview); heightmap.Controls.Add(_preview);
-        tabs.TabPages.AddRange([terrain, heightmap]); split.Panel2.Controls.Add(tabs); tabs.BringToFront();
+        tabs.TabPages.AddRange([terrain, heightmap]);
+        var right = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
+        right.ColumnStyles.Add(new(SizeType.Percent,100));
+        right.RowStyles.Add(new(SizeType.Percent,100)); right.RowStyles.Add(new(SizeType.AutoSize)); right.RowStyles.Add(new(SizeType.AutoSize));
+        right.Controls.Add(tabs,0,0); right.Controls.Add(_summary,0,1); split.Panel2.Controls.Add(right);
         var edit = new Button { Text = "Create / edit heightmap in Image Editor…", Height = 36, Dock = DockStyle.Top };
         EditorChrome.StyleField(edit); fields.Controls.Add(edit); edit.Click += async (_, _) => await OpenHeightmapEditorAsync();
         var title = new Label { Text = "PLACEMENT · X / Y / Z (metres)", AutoSize = true, Margin = new Padding(0, 20, 0, 8) };
-        var placement = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 132, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(12, 0, 12, 6), BackColor = EditorChrome.Surface };
+        var placement = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(12, 0, 12, 6), BackColor = EditorChrome.Surface };
         title.Margin = new Padding(0, 6, 0, 6); placement.Controls.Add(title);
-        var coordinates = new TableLayoutPanel { ColumnCount = 3, Dock = DockStyle.Top, Height = 34 };
-        foreach (var value in new[] { _x, _y, _z }) { coordinates.ColumnStyles.Add(new(SizeType.Percent, 33.33f)); value.Dock = DockStyle.Fill; EditorChrome.StyleField(value); coordinates.Controls.Add(value); }
+        var coordinates = new TableLayoutPanel { ColumnCount = 3, AutoSize = true, Dock = DockStyle.Top };
+        int coordinateIndex=0;
+        foreach (var value in new[] { _x, _y, _z })
+        {
+            coordinates.ColumnStyles.Add(new(SizeType.Percent, 33.33f));
+            var group=new TableLayoutPanel {ColumnCount=1,AutoSize=true,Dock=DockStyle.Top};
+            group.Controls.Add(new Label {Text="XYZ"[coordinateIndex++] + " (m)",AutoSize=true});
+            value.Dock=DockStyle.Top;EditorChrome.StyleField(value);group.Controls.Add(value);coordinates.Controls.Add(group);
+        }
         coordinates.Width = 390; placement.Controls.Add(coordinates); placement.Controls.Add(_manual); placement.Controls.Add(_replaceBase);
-        split.Panel2.Controls.Add(placement); placement.SendToBack();
-        _summary.Height = 65;
+        right.Controls.Add(placement,0,2);
+        _summary.Dock=DockStyle.Top;_summary.AutoSize=true;
+        _fitAuthoring=()=>
+        {
+            int width=Math.Max(250,right.ClientSize.Width-8);
+            _summary.MaximumSize=new Size(width,0);
+            coordinates.Width=width-placement.Padding.Horizontal;
+            foreach(CheckBox check in new[]{_manual,_replaceBase})check.MaximumSize=new Size(width-placement.Padding.Horizontal,0);
+            title.MaximumSize=new Size(width-placement.Padding.Horizontal,0);
+            edit.MinimumSize=new Size(0,edit.Font.Height+18);
+            _livePreview.PerformLayout();
+        };
+        right.SizeChanged += (_, _) => FitAuthoringPreview();
         _replaceBase.Checked = _source.SelectedIndex == 1;
         _manual.CheckedChanged += (_, _) => coordinates.Enabled = !_manual.Checked;
         _summary.Text = "Generate and inspect the 3D terrain and heightmap before creating. Cancel keeps your current terrain.";

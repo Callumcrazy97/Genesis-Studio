@@ -122,7 +122,7 @@ namespace Genesis.Rendering.SilkNet.OpenGL
 
         public int VersionMinor { get; }
 
-        /// <summary>GLSL version SPIRV-Cross should emit, matching the granted context.</summary>
+        /// <summary>Maximum core GLSL version of the granted context; shared shaders use the 4.5 baseline.</summary>
         public uint GlslVersion => (uint)((VersionMajor * 100) + (VersionMinor * 10));
 
         public string Vendor { get; }

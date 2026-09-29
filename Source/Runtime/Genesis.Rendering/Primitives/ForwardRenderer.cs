@@ -593,6 +593,7 @@ namespace Genesis.Rendering.Primitives
 
         // Samplers
         private GpuSamplerHandle _albedoSampler;
+        private GpuSamplerHandle _materialSampler;
         private GpuSamplerHandle _shadowSampler;
         private GpuSamplerHandle _linearSampler;
         private GpuSamplerHandle _pointClampSampler;
@@ -1188,7 +1189,7 @@ namespace Genesis.Rendering.Primitives
 
         private void CreateSamplers()
         {
-            // Albedo: linear wrap
+            // Pixel textures retain point sampling; PBR surfaces use linear sampling.
             _albedoSampler = _gpu.CreateSampler(new GpuSamplerDesc
             {
                 Filter = GpuFilter.Point,
@@ -1197,6 +1198,12 @@ namespace Genesis.Rendering.Primitives
                 AddressW = GpuAddressMode.Wrap,
                 CompareOp = GpuCompare.Never,
                 DebugName = "Forward albedo sampler",
+            });
+            _materialSampler = _gpu.CreateSampler(new GpuSamplerDesc
+            {
+                Filter = GpuFilter.Linear, AddressU = GpuAddressMode.Wrap,
+                AddressV = GpuAddressMode.Wrap, AddressW = GpuAddressMode.Wrap,
+                CompareOp = GpuCompare.Never, DebugName = "Forward PBR sampler",
             });
 
             // Shadow: comparison + border=1
@@ -3770,6 +3777,7 @@ namespace Genesis.Rendering.Primitives
                         : (b.Texture.IsValid ? b.Texture : whiteTexture));
 
                 // Bind per-batch normal map (t3); fall back to flat default
+                _gpu.SetSampler(GpuShaderStage.Pixel, 0, b.Orm.IsValid ? _materialSampler : _albedoSampler);
                 _gpu.SetTexture(GpuShaderStage.Pixel, 3,
                     b.Normal.IsValid ? b.Normal : _flatNormalTexture);
                 _gpu.SetTexture(GpuShaderStage.Pixel, 7, b.Orm);
@@ -3834,6 +3842,7 @@ namespace Genesis.Rendering.Primitives
                 SetMeshBuffers(ref mesh);
                 _gpu.SetTexture(GpuShaderStage.Pixel, 1,
                     b.Texture.IsValid ? b.Texture : whiteTexture);
+                _gpu.SetSampler(GpuShaderStage.Pixel, 0, _albedoSampler);
                 b.AuthoredTextures.Bind(_gpu);
                 _gpu.SetStructuredBuffer(GpuShaderStage.Vertex, 12, skinPalette.Buffer);
 
@@ -3856,6 +3865,7 @@ namespace Genesis.Rendering.Primitives
 
             // Restore per-frame flat normal after opaque pass (world meshes and trans batches override per-item)
             {
+                _gpu.SetSampler(GpuShaderStage.Pixel, 0, _albedoSampler);
                 _gpu.SetTexture(GpuShaderStage.Pixel, 3, _flatNormalTexture);
             }
 
@@ -5494,6 +5504,7 @@ namespace Genesis.Rendering.Primitives
             _gpu.ReleaseTexture(_atmosphereLutTexture);
             _gpu.ReleaseTexture(_weatherMapTexture);
             _gpu.ReleaseSampler(_albedoSampler);
+            _gpu.ReleaseSampler(_materialSampler);
             _gpu.ReleaseSampler(_shadowSampler);
             _gpu.ReleaseSampler(_linearSampler);
             _gpu.ReleaseSampler(_pointClampSampler);

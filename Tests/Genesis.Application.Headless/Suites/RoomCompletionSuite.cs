@@ -2,7 +2,6 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.Numerics;
 using System.Runtime.InteropServices;
-using System.Reflection;
 using System.Windows.Forms;
 using Genesis.Application.Editors.Suite.Rooms;
 using Genesis.Application.Studio.Theme;
@@ -25,7 +24,7 @@ internal static class RoomCompletionSuite
 {
     public static void Run(HeadlessContext ctx)
     {
-        using var cameras = new CameraRegistryScope();
+        using var cameras = new EngineCameraRegistryScope();
         HeadlessHarness.RunCase(ctx.Report, "Editor.Room.Soundscape.LevelsDialogRuntimeWithoutSkyAndPersistence", () => Soundscape(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Room.Camera.LiveThreeDInstanceFollowAndDeadZone", Follow);
         foreach (RenderBackendOption backend in new[] { RenderBackendOption.SilkNetDx11, RenderBackendOption.Direct3D12,
@@ -219,14 +218,6 @@ internal static class RoomCompletionSuite
         foreach (RoomViewport port in room.Viewports) port.Enabled = false;
         Assert(!presentation.RenderViewports3D(scene, renderer, () => throw new InvalidOperationException()), "No-port rooms no longer use the normal camera.");
         renderer.ReleaseMesh(cube);
-    }
-
-    private sealed class CameraRegistryScope : IDisposable
-    {
-        private readonly Array _registry = (Array)typeof(Engine).GetField("_cameras3D", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
-        private readonly Array _saved;
-        public CameraRegistryScope() { _saved = (Array)_registry.Clone(); Array.Clear(_registry); }
-        public void Dispose() => Array.Copy(_saved, _registry, _registry.Length);
     }
 
     private sealed class AudioRecorder : IAudioSystem

@@ -65,12 +65,17 @@ namespace Genesis.Runtime.Scripting.VM
         public const int SlotUserDefined10  = 46;
         public const int SlotUserDefined11  = 47;
 
-        public const int TotalSlots = 48;
+        // Keep existing bytecode slot indices stable when adding instance identity.
+        public const int SlotInstanceId = 48;
+        public const int TotalSlots = 49;
 
         // ── Name → slot index lookup ────────────────────────────────────────────
         public static readonly Dictionary<string, int> Slots =
             new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
         {
+            ["id"]               = SlotInstanceId,
+            ["instance_id"]      = SlotInstanceId,
+            ["self"]             = SlotInstanceId,
             ["x"]                = SlotX,
             ["y"]                = SlotY,
             ["z"]                = SlotZ,
@@ -132,6 +137,8 @@ namespace Genesis.Runtime.Scripting.VM
             SlotGetters = new Func<PgslContext, object>[TotalSlots];
             SlotSetters = new Action<PgslContext, object>[TotalSlots];
 
+            SlotGetters[SlotInstanceId] = ctx => (double)ctx.InstanceId;
+            SlotSetters[SlotInstanceId] = (ctx, v) => { /* identity is read-only */ };
             SlotGetters[SlotX]           = ctx => ctx.X;
             SlotGetters[SlotY]           = ctx => ctx.Y;
             SlotGetters[SlotZ]           = ctx => ctx.Z;

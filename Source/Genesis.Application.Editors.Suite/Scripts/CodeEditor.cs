@@ -172,6 +172,7 @@ public sealed class CodeEditor : UserControl
         
         _signatureText = new RichTextBox
         {
+            Name = "CodeSignatureHelp",
             Dock = DockStyle.Fill,
             BackColor = EditorChrome.Surface,
             ForeColor = EditorChrome.Muted,
@@ -180,6 +181,7 @@ public sealed class CodeEditor : UserControl
             BorderStyle = BorderStyle.None,
             ReadOnly = true,
             Multiline = true,
+            WordWrap = true,
             ScrollBars = RichTextBoxScrollBars.None
         };
         _signatureStrip.Controls.Add(_signatureText);
@@ -651,10 +653,12 @@ public sealed class CodeEditor : UserControl
         }
 
         int caretHeight = Math.Min(ClientSize.Height, Math.Max(24 * DeviceDpi / 96, _caretStatus.Font.Height + 8));
+        int signatureWidth = Math.Max(20, ClientSize.Width - _signatureStrip.Padding.Horizontal - 16);
+        if (_signatureText.RightMargin != signatureWidth) _signatureText.RightMargin = signatureWidth;
         int footerHeight = _signatureStrip.Visible
             ? Math.Max(SignatureStripLogicalHeight * DeviceDpi / 96,
                 TextRenderer.MeasureText(_signatureText.Text, EditorChrome.SmallFont,
-                    new Size(Math.Max(60, ClientSize.Width - _signatureStrip.Padding.Horizontal - 16), int.MaxValue),
+                    new Size(signatureWidth, int.MaxValue),
                     TextFormatFlags.WordBreak).Height + 16)
             : 0;
         footerHeight = Math.Min(footerHeight, Math.Max(0, ClientSize.Height - caretHeight));

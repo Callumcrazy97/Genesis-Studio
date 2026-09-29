@@ -5,6 +5,7 @@ using Genesis.Application.Editors.Suite;
 using Genesis.Application.Editors.Suite.Assets;
 using Genesis.Runtime.Scripting;
 using Genesis.Shared.Assets;
+using Genesis.Application.Editors.Suite.Terrain;
 
 namespace Genesis.Application.Headless.Suites;
 
@@ -13,6 +14,49 @@ internal static class CodeAssistanceSuite
     public static void Run(HeadlessContext context)
     {
         HeadlessHarness.BeginMajor(context.Report, "Code assistance");
+        HeadlessHarness.RunCase(context.Report, "Acceptance.CodeAssistance.TerrainRecipeArgumentsAndGeneratedEdits", () =>
+        {
+            using TerrainSourceWizard wizard = new(new TerrainCreationRecipe
+            {
+                Source = TerrainCreationSource.Code, Width = 24, Length = 24, Spacing = 4, Code = "height = 3;"
+            }, context.Workspace);
+            Genesis.Application.Studio.Theme.ThemeService.Apply(wizard);
+            GateSuite.ShowHost(wizard);
+            CodeEditor editor = wizard.Code;
+            HeadlessHarness.Assert(editor.Width >= 480 && editor.Height >= 300 && editor.HasIntelligenceProvider,
+                "The terrain generator does not provide a usable code surface with assistance.");
+            editor.CodeText = "height = clamp(noise(x, z), /* lower bound, */ ";
+            editor.MoveCaret(editor.CodeText.Length);
+            HeadlessHarness.Assert(editor.SignatureVisible && editor.SignatureText.Contains("number minimum", StringComparison.Ordinal)
+                && editor.ActiveParameterIndex == 1 && editor.CaretStatusText.Contains("Argument 2", StringComparison.Ordinal),
+                "Terrain argument hints lost the outer call, type or current argument.");
+            editor.CodeText = "TerrainSp"; editor.MoveCaret(editor.CodeText.Length);
+            HeadlessHarness.Assert(editor.CompletionItems.Any(item => item.InsertText == "TerrainSpacing")
+                && editor.CommitSelectedCompletion() && editor.CodeText == "TerrainSpacing",
+                "The recipe's real spacing command cannot be completed.");
+            editor.CodeText="function Hill(amplitude, frequency) { return amplitude * sin(x * frequency); }\nHill(5, ";
+            editor.MoveCaret(editor.CodeText.Length);
+            HeadlessHarness.Assert(editor.ActiveParameterIndex==1&&editor.SignatureText.Contains("any frequency",StringComparison.Ordinal),
+                "Recipe functions declared in this file do not expose their real argument list.");
+            editor.CodeText = "height = 3;";
+            Generate();
+            HeadlessHarness.Assert(wizard.Result?.Heights is { } first && first.Cast<float>().All(value => value == 3),
+                "The initial edited recipe did not generate its actual heights.");
+            editor.TextBox.SelectAll(); editor.TextBox.SelectedText = "height = 7;";
+            HeadlessHarness.Assert(wizard.Result is null && !Descendants(wizard).OfType<Button>().Single(button => button.Text == "Create section").Enabled,
+                "Editing the code left an obsolete preview available for creation.");
+            Generate();
+            HeadlessHarness.Assert(wizard.Result?.Heights is { } second && second.Cast<float>().All(value => value == 7),
+                "Generation ignored the recipe typed into the actual editor.");
+            void Generate()
+            {
+                Task generation = wizard.GeneratePreviewAsync();
+                long deadline = Environment.TickCount64 + 15000;
+                while (!generation.IsCompleted && Environment.TickCount64 < deadline) GateSuite.Pump(1, 5);
+                HeadlessHarness.Assert(generation.IsCompleted, "Terrain recipe generation timed out.");
+                generation.GetAwaiter().GetResult();
+            }
+        });
         HeadlessHarness.RunCase(context.Report, "Acceptance.CodeAssistance.AssetDefinitionsKeepEditingSpaceAndSave", () =>
         {
             foreach (string kind in new[] { "Particle", "Physics", "Shader" })

@@ -52,6 +52,7 @@ public sealed partial class ModelRigViewportControl : EditorSurfaceControl
         EditorViewportChrome.Attach(toolbar, new EditorViewportChrome.Options { Viewport = _viewport, GetIs2D = () => _viewport.Mode2D, SetIs2D = value => _viewport.Mode2D = value });
         foreach (var label in toolbar.Items.OfType<ToolStripLabel>().Where(item => item.Text == "View").ToArray()) { toolbar.Items.Remove(label); label.Dispose(); }
         center.Controls.Add(toolbar, 0, 0);
+        center.SizeChanged += (_, _) => LayoutAnimationPresentation();
         foreach (Control control in center.Controls) control.Margin = Padding.Empty;
         Controls.Add(center); Controls.Add(sidebar); Controls.Add(_statusLabel);
         _viewport.DrawScene += DrawModel; _viewport.DrawOverlay += DrawSkeletonOverlay; _viewport.DrawOverlay += DrawJointStroke;

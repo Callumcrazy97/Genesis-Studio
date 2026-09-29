@@ -70,8 +70,10 @@ internal static partial class EditorGate
             ctx.Report.Images.Add(ImageResult.From("Model gameplay guide", capture,
                 VisualCapture.CaptureOpenForm(host, Path.Combine(ctx.Captures, capture), includeViewports: true)));
             CheckGuidedModelGameplay(ctx, project.RootPath, obj, editor);
-            SurfaceControls(editor).OfType<Button>().Single(control => control.Name == "ModelBackToView").PerformClick();
-            HeadlessHarness.Assert(editor.Viewport.Visible, "Returning from Model guidance lost the viewer.");
+            Button back = SurfaceControls(editor).OfType<Button>().Single(control => control.Name == "ModelBackToView");
+            HeadlessHarness.Assert(back.Visible && back.Enabled, "Live Model save/undo hid the gameplay guide's return action.");
+            back.PerformClick();
+            HeadlessHarness.Assert(editor.Viewport.Visible, $"Returning from Model guidance lost the viewer: host={host.Visible}, parent={editor.Viewport.Parent?.Visible}, guide={back.Parent?.Visible}.");
             host.Close();
         });
     }

@@ -1,6 +1,6 @@
 # Genesis Studio Master
 
-## Current acceptance programme — 2D, then 3D game production, 28 September 2026
+## Current acceptance — 2D and 3D game production, 29 September 2026
 
 This is the single authoritative completion document. The older hotfix ledgers below are historical
 evidence, not current acceptance results. README files are navigation; generated JSON, logs and
@@ -9,13 +9,98 @@ in this section. Finish one task at a time; do not use computer control or paral
 2D production before outstanding 3D work. The user's 28 September clarification authorises
 continuing through both programmes, in that order.
 
-**2D production contract: ACCEPTED for build `20260928-182030-ca6fb9c7`. Overall application/3D:
-NOT ACCEPTED.** The final hash-bound judge passed all twelve required surfaces and all 35 mandatory
-workflow/runtime/export requirements. A successful build alone does not establish editor usability,
-appearance, gameplay integration, export correctness or backend parity. The complete regression
-still has sixteen advanced 3D failures; Model and Terrain remain failed overall surfaces.
+**2D production: ACCEPTED. 3D production: ACCEPTED. Overall current production contract: ACCEPTED
+for Full Build `20260929-083942-db48872f`.** The final hash-bound judges pass all fourteen routed
+surfaces for functionality, usability and aesthetics, all 35 mandatory 2D requirements and all
+151 mandatory 3D requirements. The complete regression passes **1,025 checks, zero failures**, with
+768 registered images, zero compile warnings/errors and all five explicit renderer smokes. The
+older sixteen advanced 3D failures were repaired and pass in this fresh combined product.
+
+This completes the existing-editor Windows x64 authoring/gameplay/export contract defined below.
+It does not mean every historical engine expansion is implemented, every possible game is proven,
+or Genesis has Unreal's scope. Those roadmap items remain explicitly future work. A build alone
+does not establish usability or appearance: the matching native workflows, exports and sequential
+visual review are separate evidence.
+
+### Accepted combined checkpoint — 29 September 2026
+
+The published Studio H23 and matching Player passed the Full Build in **1,324.1 seconds**. DX11,
+DX12, Vulkan, OpenGL and Software were explicitly requested and passed; none was skipped. Startup,
+bundled shader compiler, package/assembly audit, manifest and promotion passed. The same frozen
+harness then passed the additional Terrain grass/forest/pond walkthrough (one check, four inspected
+images), which is separately required by the judge and is not included in the 1,025 full-run count.
+
+Final evidence is in `TestResults/Readiness/FinalAll20260929-083942/`. `judge.json` records
+**Accepted: true, Accepted2D: true, Accepted3D: true**, a passing matching Full Build and zero rejected
+evidence. `review.json` binds the subjective notes to every one of the **552 populated UI captures**.
+All 92 contact sheets were inspected sequentially, with eleven dense originals inspected at their
+native resolution. Coverage includes normal/narrow layouts, 125/150/200% application scale, menus,
+dialogs, lower scroll positions, button placement, sizes, optional panels, code assistance and
+contextual resource Inspectors. No automated layout findings or capture failures remain.
+
+| Surface | Functionality | Usability | Aesthetics | Main inspected workflow |
+|---|---|---|---|---|
+| Shell | Passed | 4/5 | 4/5 | Project/templates/export/preferences, one palette, four Help scopes, renderer dropdown and resource Inspectors. |
+| Image | Passed | 4/5 | 4/5 | Drawing, frames, rig/pose/animation, origins and saved playback in gameplay. |
+| Room | Passed | 4/5 | 4/5 | 2D/3D placement, tiles, instances, backgrounds, camera views and actual physics overlay. |
+| Object | Passed | 4/5 | 4/5 | Events, typed actions, Builder/Code, components, preview and placement in a Room. |
+| Script | Passed | 4/5 | 4/5 | Functions, typed suggestions/signatures and saved `.pgsl` invoked by an Object event. |
+| Audio | Passed | 4/5 | 4/5 | WAV preview, trim/fades/mix, falloff and saved sound Object. |
+| Shader | Passed | 4/5 | 4/5 | Preset/tune/code, parameters/bindings, compiler errors and saved shaded Object. |
+| Particle | Passed | 4/5 | 4/5 | Preset/tune, emitters/curves/forces, code and saved effect Object. |
+| Physics | Passed | 4/5 | 4/5 | Saved Image/Model bodies, shapes, per-body damping, contacts and exported 3D gameplay. |
+| Pathing | Passed | 4/5 | 4/5 | Editable 2D/3D routes, points/waits/speed, animation, live changes and exported movement. |
+| UI | Passed | 4/5 | 4/5 | Discoverable HUD/title/pause starters, element properties and actual gameplay clicks. |
+| Note | Passed | 4/5 | 4/5 | Source/Split/Preview, formatting, optional library/details and persistence. |
+| Model | Passed | 4/5 | 4/5 | Viewer-first tools, profiles/tubes/push-pull, Image geometry/paint and rig/pose/animation in gameplay. |
+| Terrain | Passed | 4/5 | 4/5 | Create/sculpt/paint/parts, paths/foliage/water, typed recipes/conditions and saved resources in gameplay. |
+
+The additional native pixel review inspected **256 frames across all five exact backends**:
+125 exported-game frames (Mushroom Meadow 40, Verdant Hollow 35, Physics 25 and Pathing 25), plus
+131 Model animation/live-edit, Room/game origin, Image-derived Model/paint, Terrain material,
+readback-alpha, fog/lake-mist and authored/live-font frames. `PixelReview/review-map.json` retains
+unchanged original and snapshot hashes, all 43 inspected sheet ids and review notes. The four extra
+walkthrough originals show authored grass, visible sway, forest and a filled pond; they are
+functional low-poly authoring evidence, not a cinematic art benchmark.
+
+Mushroom Meadow is a complete editable platformer with title/start, movement/jump/run, tiles,
+enemies/hazards, coins and one-use blocks, lives/checkpoints, sound, pause/restart, win/lose and
+input-only completion. Saved Image rig animation plays in exported gameplay. Both flag bases and
+enemy feet agree between Room and gameplay, including mirrored/rotated placement and ghosts.
+Verdant Hollow, saved Model Physics and animated XYZ Pathing also execute as standalone exports
+on all five backends. Model animations/pivots, shared Image painting and Terrain materials propagate
+to their consumers after a valid saved edit. Invalid replacements retain the last valid state.
+
+Renderer choice is available by clicking the bottom-right indicator. The command palette has one
+shell menu route; Help → Commands has PGSL, Engine, Editor and Shell scopes. Prefab terminology is
+absent from the authoring UI. Every routed code surface has typed suggestions or definition-field
+completion and a bottom context strip; callable languages show signatures and active arguments.
+Editor guides explain how saved resources enter Objects, Rooms and gameplay instead of leaving
+preview settings disconnected from a game.
+
+**Limits of acceptance:** usability/aesthetics ratings are source-owned, native-informed inspection,
+not an independent timed novice study. Advanced topology, rigging, shaders and Terrain dialogs still
+require learning; some enlarged panels require scrolling, and code fonts are independently sized.
+Native device DPI was 96 on one monitor: application scaling does not prove high native DPI or
+monitor transitions. Software remains a CPU fallback with lower Terrain material detail, simpler
+3D lighting, no GPU fog-noise effect and documented custom-shader/water limits; identical GPU
+appearance, effects or performance are not claimed. OpenGL ran on the available 4.6 driver, not
+a separate 4.5-only device. The fair competitor assessment below compares discoverability and
+workflow structure, without invented competing-product scores or an Unreal-quality claim.
+
+Product fingerprint:
+`D858779514B4D5A75184C17B8581AC7A517D910E401ED5AFD2DBBEA67AA1D29C`.
+Authoritative full report: `TestResults/Builds/20260929-083942-db48872f/BuildSummary.json`, with
+`Tests/results.json`; matching copies are retained under the final evidence root's `FullBuild/`.
+Later product-source changes require a new matching build and acceptance evidence. The final
+documentation-only package refresh does not change the product binaries or fingerprint.
 
 ### Accepted 2D checkpoint — 28 September 2026
+
+The reviewed source checkpoint is published on `main` as
+`d82478f4d8e31ba5d82de1fb97b7a161777c0d3f` (248 intended source/documentation/test files).
+The remote commit and sole remaining branch were verified after the push. Fifty-two unrelated
+local changes containing only line-ending differences were left unstaged; AutoSync was stopped.
 
 Quick Build `20260928-182030-ca6fb9c7` compiled and promoted matching Studio/Player with zero
 warnings/errors, eighteen focused 2D checks, exact DX11/DX12/Vulkan/OpenGL/Software smokes, startup,
@@ -53,38 +138,598 @@ inspection, not a timed independent novice study or a 5/5 claim. Native device D
 monitor; larger application interface scale does not establish high native DPI or monitor-transition
 acceptance. Source changes for 3D must generate fresh final evidence while preserving this checkpoint.
 
-### Required outcomes and sequential queue
+### Required outcomes — completed production contract
 
 | Order | Outcome | Current state |
 |---|---|---|
 | 1 | Review GitHub branches, preserve useful work and local edits, retain only `main` as a branch. | Completed: integrated `f9791e5` published; only remote `main` remains. Five archive tags and the verified recovery bundle retain alternate work. |
-| 2 | Click the bottom-right renderer indicator to choose DX11, DX12, Vulkan, OpenGL or Software; persist the preference and refresh live editor renderers. | Implemented; shell persistence and viewport recreation passed again in `PathingBackendFoundation`. Actual Pathing sprite readbacks passed sequential DX11/DX12/Vulkan/OpenGL/Software recreation after fixing window pixel-format reuse. Exported gameplay verification remains a separate gate. |
-| 3 | One shell command palette. Help → Commands separates PGSL, Engine, Editor and Shell commands, with accurate scope and shortcuts. | Implemented; 46 Foundation checks passed in `TestResults/Readiness/StartInitialScroll`, including native editor actions, availability, four scopes after painting and one palette. |
-| 4 | Create functionality, usability and aesthetics judges for every routed editor and the shell; record evidence and fix failures. | Accepted 2D checkpoint above: nine integrity checks, complete workflows, all 379 reviewed hash-bound captures and twelve required surface passes. Failed advanced Model/Terrain children and ratings remain visible; extend the contract for 3D. |
-| 5 | Complete relevant 2D editors and live, interactive cross-editor authoring. | Accepted against the final shared product for Image, Object, Room, Audio, Particle, Physics, Pathing, Shader, Script, UI and Notes. Model/Terrain advanced workflows remain open for 3D. |
-| 6 | Every script-based surface provides type/member completion, call signatures, active argument and caret context in a bottom strip. | All six CodeEditor consumers have providers. All five assistance checks passed in final regression; code/argument states were visually inspected, including narrow and enlarged layouts. |
-| 7 | Saved Image rigs/animations and Model animations are usable from gameplay code, with visible animated output and cross-editor propagation. | Image rig workflow passed live pose edit, save/reopen, undo and invalid-replacement recovery; exported rig motion passed on all five backends with inspected pixels. Saved Model animation and live saved pivot edits passed in actual Object previews on all five backends; overall Model usability remains below acceptance for advanced 3D. |
+| 2 | Click the bottom-right renderer indicator to choose DX11, DX12, Vulkan, OpenGL or Software; persist the preference and refresh live editor renderers. | Accepted final shell workflow, persistence, native viewport recreation, all five smokes and matching exported games. Dropdown reviewed at normal and enlarged scale. |
+| 3 | One shell command palette. Help → Commands separates PGSL, Engine, Editor and Shell commands, with accurate scope and shortcuts. | Accepted final Foundation checks and inspected shell/Help/palette states. |
+| 4 | Create functionality, usability and aesthetics judges for every routed editor and the shell; record evidence and fix failures. | Accepted final all-scope judge: fourteen surfaces, seventeen integrity checks, 552 hash-bound UI captures and all 186 mandatory 2D/3D requirements. |
+| 5 | Complete relevant 2D editors and live, interactive cross-editor authoring. | Accepted final shared product for all relevant 2D editors, with Model and Terrain additionally accepted for the existing 3D production workflows. |
+| 6 | Every script-based surface provides type/member completion, call signatures, active argument and caret context in a bottom strip. | Accepted final assistance checks and inspected code fields for all eight consumers: Script, Object, Shader, Physics, Particle, Pathing, Terrain recipes and conditions. Definition languages suggest fields/values; callable languages highlight active arguments. |
+| 7 | Saved Image rigs/animations and Model animations are usable from gameplay code, with visible animated output and cross-editor propagation. | Accepted saved/live Image rig and Model animation/pivot workflows, actual Object events and five-backend native gameplay/export pixels. Shared Image geometry/painting and Terrain material propagation also pass. |
 | 8 | Complete Mushroom Meadow as a full playable platformer, with onboarding, start/pause/restart, progression, enemies/hazards, win/lose, sound and editable resources. | Accepted final game contract: eleven checks cover collisions, life loss, checkpoints, timeout, restart and input-only completion; live rig authoring passed. |
 | 9 | Export Mushroom Meadow, play the exported executable, switch all five backends explicitly and inspect the resulting pixels and behavior. | Accepted final matching exports: six package/backend checks and all forty inspected captures passed on exact DX11, DX12, Vulkan, OpenGL and Software. |
-| 10 | Complete regression, all required 2D judges and fair comparisons; then finish advanced 3D and achieve a passing Full Build. | Required 2D contract and documented fair comparison complete. Complete regression executed; sixteen advanced 3D failures remain. Full Build pass and overall judges remain required for final application acceptance. |
+| 10 | Complete regression, all required 2D judges and fair comparisons; then finish advanced 3D and achieve a passing Full Build. | Accepted Full Build with 1,025 passing checks, all five smokes, final native review and both production contracts. Fair comparisons are recorded below; historical engine expansions remain separately future work. |
 
-### Work outstanding for completion
+### Completion ledger
 
-The accepted 2D checkpoint is frozen above. The active target is complete 3D production. These are
-remaining tasks, not a percentage estimate; old development notes below are superseded by the
-checkpoint only where it provides fresh evidence. New builds require new matching acceptance.
+No blocking work remains in the defined existing-editor 2D/3D production contract. The original
+2D checkpoint is retained for recovery; the fresh combined checkpoint supersedes its outstanding
+3D findings. Historical development notes below describe their original evidence limits and do
+not override this newer acceptance. Future engine expansions are recorded separately.
 
-| Sequence | Remaining work | Completion evidence |
+| Sequence | Work | Completion evidence |
 |---|---|---|
-| 1 | Publish the accepted 2D source checkpoint to `main`, preserving unrelated local work. | Review semantic changes, stage exact intended paths, check AutoSync is stopped and verify the remote commit. Only `main` remains a branch; alternate work is archived. |
-| 2 | Investigate and repair all sixteen recorded advanced 3D regression failures sequentially. | Retain meaningful assertions for resource lookup, transforms/raycast, current commands, terrain ownership/volume/placement, model intake/topology/import and animation fixtures. |
-| 3 | Finish Model and Terrain authoring usability and appearance. | Model viewer first, retained rigs/animation, clear topology tools and create/edit/use-in-game progression; readable enlarged actions and fewer primary commands. Terrain needs guided create/sculpt/paint/place and one menu structure. At least 4/5 from populated native captures. |
-| 4 | Audit and complete cross-editor 3D resource editing and live gameplay. | Model/material/rig/animation, terrain ownership/entities, room placement, physics, pathing, particles, shaders and Engine API save/reopen/live round trips with a playable 3D template. Re-audit historical roadmap before asserting completeness. |
-| 5 | Extend the judge to an explicit complete 3D contract. | Mandatory 3D workflows, all routed surfaces, failure integrity, exact renderer capabilities, complete exported 3D gameplay and fresh hash-bound reviews; 2D evidence cannot silently stand in for 3D. |
-| 6 | Repair Vulkan readback alpha and refresh cross-backend visual evidence. | Inspect original and composited captures; prove correct opaque/transparent output, lighting/material limits and requested-backend identity. |
-| 7 | Run passing Full Build and both final acceptance contracts, then publish the final application changes. | Zero build warnings/errors, no blocking complete-regression failures, all requested smokes/startup/package checks, matching exported Player, reviewed appearance and separately stated native DPI limits. |
+| 1 | Publish the accepted 2D source checkpoint to `main`, preserving unrelated local work. | Completed as `d82478f`; exact intended files staged, unrelated line-ending changes preserved, stopped AutoSync checked and remote verified. Only `main` remains a branch; alternate work is archived. |
+| 2 | Investigate and repair all sixteen recorded advanced 3D regression failures sequentially. | Completed in the fresh 1,025-check passing full regression. Required animation uses a self-contained fixture; the external Archer asset remains optional/unverified. |
+| 3 | Finish Model and Terrain authoring usability and appearance. | Accepted final 58 Model and 109 Terrain states, 4/5 usability/aesthetics, guided authoring, focused tools and readable scaled dialogs. |
+| 4 | Audit and complete cross-editor 3D resource editing and live gameplay. | Accepted final parts, Image/PBR materials, mesh colliders, character terrain/water traversal, Model yaw/roll/animation/pivots, linked painting, Physics bodies/damping and animated XYZ Pathing, with five-backend exported/native evidence. |
+| 5 | Extend the judge to an explicit complete 3D contract. | Accepted all fourteen surfaces and 151 mandatory 3D checks. Strict latest matching Full Build gate passes regression, all five smokes, package/startup and promotion; seventeen integrity checks pass. |
+| 6 | Repair Vulkan readback alpha and refresh cross-backend visual evidence. | Accepted opaque capture alpha, retained raw texture alpha/channel order, translucency, Model motion/live edits, material/fog/font scenes and exports on all five exact backends. Software feature/appearance limits remain explicit. |
+| 7 | Run passing Full Build and both final acceptance contracts, then publish the final application changes. | Build and both final judges passed; matching Studio/Player promoted. The final source checkpoint is recorded in main's commit history. Forty unrelated line-ending-only local files remain unstaged; AutoSync was stopped during publication. |
+
+### Current combined validation and source audit — 29 September 2026
+
+Full Build `20260929-083942-db48872f` is the accepted current result: **1,025 passed, zero failed**,
+768 images, all five exact renderer smokes, startup/compiler, package and promotion passed with
+zero warnings/errors. Final UI and gameplay/rendering review and the additional frozen-build
+walkthrough passed; `FinalAll20260929-083942/judge.json` accepts both production contracts.
+The following earlier runs are retained as repair history, not current failures or substituted
+acceptance evidence.
+
+Full Build `20260929-081420-9bdcbb7f` completed **1,018 checks: 1,012 passed, six failed**.
+Windows denied access to the Physics export staging folder; its five backend children
+therefore had no package to run. Meadow, Verdant and all other regression checks passed. No package
+promotion or explicit renderer smoke was accepted for this failed run. Publication now retries
+Windows sharing/access failures for at most 1.8 seconds, honours cancellation, restores the previous
+working release on failed folder promotion and reports the destination on persistent failure.
+`ExportPublicationLocks2` passes seven checks using real locked Windows directories and archives,
+including cancellation, bounded failure, rollback and do-not-replace behavior. A fresh Full Build
+and final review subsequently passed in `20260929-083942-db48872f`; this failure is retained
+rather than waived. The exact cause of the original access denial was not established; the native
+lock regressions verify the bounded publication/rollback behavior without assuming a scanner cause.
+
+Full Build `20260929-074040-f1135625` passed **1,018 checks**, 768 images and all five renderer
+smokes, startup/compiler, package and promotion checks. All 552 final editor captures were inspected,
+but the review found stale Terrain contact-script help claiming runtime dispatch was pending.
+Actual saved enter/exit contact scripts already passed real solver contact tests; the misleading
+caption was corrected. This source change invalidated that run's final product fingerprint.
+
+Full Build `20260929-072015-42e0cb94` subsequently passed **1,017 checks**, all five explicit
+renderer smokes, startup/bundled shader compiler, package and promotion in 1,161.8 seconds,
+with zero compile warnings/errors. Its Pathing and Physics exports have 50 sequentially inspected
+native frames. Final acceptance is still withheld: the combined game suites reused the same
+`Images/Export/<backend>` folder and Verdant overwrote some Meadow reports. Source now gives
+the games distinct `MushroomMeadowExport` and `VerdantHollowExport` folders, and the complete
+regression additionally verifies retention, ownership and unchanged hashes of all 75 native
+game frames after both exports run. A new matching Full Build and final capture review are required.
+
+Full Build `20260929-063819-3e32e9f9` compiled with zero warnings/errors and completed **1,000
+checks: 994 passed, six failed**. Five failures were reviewed rendering baseline drift after the
+fog noise correction and Software linear texture filtering. All five new native golden scenes
+and the old/new DX11 images were inspected before recording their new digests; tolerances were
+not relaxed. `ThreeDReviewedRenderBaselines` then passed all 56 rendering checks. The old digests
+are preserved under `.build/recovery/20260927-2d-readiness/golden-before-3d-render-fixes`.
+
+The sixth failure was process-wide Engine camera state leaking from the new camera-list fixture
+into the Room frustum test. A shared fixture now restores both camera registries, active ids and
+camera parameters even after an assertion fails. The frustum case also creates its own Object.
+`ThreeDCameraIsolation2` passes all six camera/frustum checks together, with four captures. The
+frustum image was inspected. Full Build stopped before renderer smokes, startup and promotion;
+these focused repairs do not replace a fresh Full Build.
+
+The judge no longer permits unknown regression failures to fall outside editor prefixes and its
+mandatory lists. `ThreeDFullJudgeIntegrity` passes 17 cases, including rejection of a failed
+rendering check, absent backend smoke, failed package audit, missing startup, stale identity,
+focused/Quick substitutes and an older success followed by a newer failed Full run. Include the
+matching `BuildSummary.json` and `Tests/results.json` together under the final evidence root.
+The saved Model Physics export suite is now part of the complete regression, rather than an
+additional focused report that could accidentally be omitted.
+
+**Body damping:** `ThreeDPhysicsDamping1` passes three native solver checks. Actual Objects created
+through Physics Quick setup, saved and reopened in both 2D and 3D Rooms use the authored linear
+and angular decay. The checks verify independent body settings, unaffected Kinematic motion,
+live changes, safe invalid values and equal decay at 60/120 Hz. Sandbox and game use the same
+per-second decay rule. Room-owned gravity and preview-only world settings remain clearly scoped;
+Physics Code edits the body definition and gameplay PGSL belongs to Object events/Script assets.
+
+**Model push/pull:** `ThreeDModelPushPull3` passes four cases and its three populated normal,
+narrow and 200% captures were inspected. Signed numeric distance moves selected faces inward
+or outward; zero does not create degenerate walls. Pointer pulls take priority over the mesh
+transform gizmo, tool/mode changes cancel unfinished pulls, and Move exits pull mode. Native
+checks cover both directions, undo/redo, save/reopen and retained rig/animation data. These are
+required judge workflows, alongside reviewed construction-plane concave profiles, Image opacity
+cutoff, freehand tubes and the persistent triangle count. Fresh final shared-product inspection
+remains required.
+
+**Historical roadmap scope:** CAM-3/CAM-4 and AF10 authoring now have implemented, focused-test
+evidence. The old checklist entries below are reconciled to those source slices, without claiming
+final application acceptance. The general AF3–AF7 expansion list (indoor water jets/reflections,
+terrain clipmaps/caves, independent tree styles/species/LODs, more elaborate grass and cinematic
+weather), optional squad/wildlife extensions and proposed new resource families remain future
+engine work. They are not silently treated as implemented or as Unreal feature parity. The
+current production contract requires usable existing editors, saved cross-editor resources,
+actual 2D/3D gameplay, all five supported exports and honest renderer limits. This development
+audit originally awarded no production acceptance; the newer combined checkpoint above now
+provides the matching Full Build and final review.
 
 ### Full regression findings and repairs — 28 September 2026
+
+**Model usability development review:** `ThreeDModelFinalReview/Captures/capture-manifest.json`
+contains **45 populated states, no automated findings and no capture failures**. All eight contact
+sheets were inspected sequentially, with enlarged wizard originals checked separately. Its
+hash-bound `review.json` rates usability **4/5** and aesthetics **4/5**, against product fingerprint
+`DC269296E441EF0A99717907DE9EB1756C2BE5EC4862264FD3BE1AD564DF02F0`.
+The viewer keeps six labelled tool pages, optional Model details and the gameplay guide. Rig and
+Pose use the main canvas; Animate has one bottom transport and readable curve controls. Empty
+models hide the unused timeline. Scaled controls fit their containers, and the final Bind To Mesh
+action can now scroll fully into view instead of remaining partly hidden at the native scroll limit.
+
+`ThreeDModelWorkflows2/results.json` passes **58 Model system checks with 44 registered images**;
+`ThreeDModelWizardVerified/results.json` passes **16 wizard checks with twelve images** after the
+final wizard sizing and scrolling fixes. Builds have zero warnings/errors. Rigging, pose editing,
+animation, geometry and persistence checks remain in place. This is a development inspection at
+native DPI 96, primarily DX11, including application scaling through 200%; it is not an independent
+timed novice study, native high-DPI acceptance, all-import character-art review or final 3D export
+acceptance. Terrain's later development review is recorded below; a fresh complete regression remains required.
+
+**Terrain usability development review — 29 September 2026:**
+`ThreeDTerrainReview6/Captures/capture-manifest.json` contains **109 populated native states,
+zero inspection findings and zero capture failures**. All nineteen contact sheets were inspected
+sequentially, with full-size condition/signature, action-tree, scatter and numeric-budget originals
+checked separately. Its hash-bound `review.json` rates usability **4/5** and aesthetics **4/5**.
+Product fingerprint: `8319CDFC70DD99C39C7BF9D474A293A821B7BE6809679AB484E86CB7EFB92917`.
+
+Terrain now starts with five labelled authoring pages: Select, Create, Sculpt, Paint and Objects.
+One Options menu retains view, camera and gizmo commands and reveals specialist terrain tools.
+Paint uses named colour swatches. Water separates surface authoring, rivers and playable preview.
+Creation, material, landmark, path, foliage and component dialogs use measured fields, meaningful
+scrolling and pinned actions. The initial camera frames the landscape centre outside the trees.
+Path and foliage drafts remain isolated from saved state, refresh after undo/redo and survive
+closing/reopening the scatter window. Terrain recipes and conditions have typed completion and
+bottom argument context; full signatures wrap and visual-action trees remain usable at 200% scale.
+
+The matching `ThreeDTerrainVerifiedWorkflows` reports pass **34 checks with 34 registered images**:
+ten judge-integrity checks, the complete Terrain workflow, three Terrain UX cases, two library
+cases, one grass/forest/pond walkthrough, six code-assistance cases, nine view cases and complete
+Object and Script workflows. All thirty-four images were inspected across six contact sheets.
+The pond walkthrough includes visible water and verifies saved swimming settings and shader/runtime
+behavior. Builds have zero warnings/errors. Judge guards now reject clipped signatures, overflowing
+code fields, unusable action trees and any automated layout finding even when a review supplies 4/5.
+
+Earlier Terrain review attempts remain rejected or unverified; they exposed real action-tree,
+numeric-width and signature-clipping defects and do not count as acceptance. This current review
+is development evidence at native DPI 96 on one monitor, primarily DX11, with application scaling
+through 200%. It is not an independent timed novice study, native high-DPI acceptance, finished
+showcase art, complete private terrain-part gameplay support or final exported 3D acceptance.
+Private terrain-part runtime integration now has focused development evidence below. The next
+sequential tasks are the remaining resource audit, explicit 3D judge contract, backend readback
+repair and fresh complete regression/export evidence.
+
+**Private terrain-part runtime integration — 29 September 2026:**
+`ThreeDTerrainPartsRuntime15/results.json` passes **11 checks with 14 registered images** against
+product fingerprint `DA37F965403D23F48CBE503278912E146B8A7E646587F5623AC6BE1FF6084544`.
+All three contact sheets were inspected; the native live Image edit visibly changes both Terrain
+and the part wizard. Compilation passes with zero warnings/errors.
+
+Saved private parts now enter the ordinary Object runtime pipeline, with terrain transforms applied
+once, enabled component filtering, typed script overrides and conditional animation actions. Room
+renders them through an isolated preview registry and follows live terrain movement. Saved physics
+entry/exit scripts run from real contacts; native spatial audio applies per-instance distance/falloff
+and gain without changing its reusable resource. Mesh colliders use saved geometry, pivot and scale,
+including dynamic placement and density-based mass. Saved part scripts control actual particle
+emission, including live rate zero, resume, stop and destruction.
+
+Image albedo, normal and packed AO/roughness/metallic channels share one runtime loader with the
+Terrain views. Animated frames bind all channels together; adding Texture to Model overrides its
+material without drawing an extra plane. Invalid live Image replacement retains the last valid
+gameplay material and a repaired save resumes updates. Texture modes share geometry/facing across
+Terrain, Room and gameplay: camera-facing billboard, fixed diagonal, fixed plane and shallow
+silhouette extrusion. Wide images preserve proportions; extrusion retains holes and selection
+respects visible geometry/alpha. The wizard exposes each mode with a plain-language explanation.
+
+This is focused development evidence, with native DX11 authoring captures and Software material
+frame/particle checks. It does **not** establish five-backend PBR/particle parity, complete exported
+3D gameplay, native hull/cylinder acceptance, final layout review or a passing complete regression.
+The audit found that `RoomTerrainSubsystem` still loads a fallback ground albedo instead of the
+Terrain editor's saved layer materials; the repair is recorded immediately below. Earlier focused runs
+remain superseded, including one whose blue pixel assertion counted toolbar pixels before the
+actual scene changed; its assertion was corrected and its captures are not accepted as live proof.
+
+**Saved Terrain material parity — 29 September 2026:**
+`ThreeDTerrainMaterialRuntime2/results.json` passes its complete round trip with **9 registered
+images**; `ThreeDTerrainMaterialCompatibility/results.json` passes the existing large-terrain
+workflow with **2 images**. All eleven images were inspected. Both reports match product fingerprint
+`9F09F9F0A77632B045BAF6C0297C987893B98EB85D919D00F918C59A027184FA`; compilation has zero warnings/errors.
+
+Terrain and Room/gameplay now share one surface material baker for saved paint weights, layer
+Image references, repeat/tile/stretch addressing, map resolution, normal maps and packed surface
+channels. The round trip paints through Terrain's region action, saves/reopens, checks Image/Room
+dependency tracking, compares the complete baked channel pixels and inspects native authoring,
+Room and runtime-renderer output. A saved Image edit propagates visibly to all three views. Invalid
+replacement keeps the last valid runtime material, and a repaired save refreshes it. Rebinding
+DX11 → Software → DX11 recreates textures/geometry for the new renderer. Explicit Room albedo
+overrides retain their existing behavior, including mirrored placement and all eight large-terrain
+chunks. The 3D nature template now references its existing grass/soil/rock Image assets directly
+from its layers and uses those saved materials in Room/gameplay.
+
+This is development evidence for native DX11 views and a Software rebind, **not** five-backend
+lighting acceptance, exported Player evidence, complete game playthrough or a passing Full Build.
+The first fixture's coincident checker floor obscured part of its terrain; the floor was lowered
+and the visible-area assertion strengthened before the accepted rerun. Final matching regression
+and both production judge contracts remain open.
+
+**Saved model collider runtime parity — 29 September 2026:**
+`ThreeDModelColliderRuntime2/results.json` passes two focused workflows with product fingerprint
+`62703A174698D264EC7308561653736E19FED8C7B0ED4ABE31455B8CFE126815`.
+The checks save through Model, reopen in its viewer, place a solid Object in a 3D Room and query
+native Bepu geometry. Spheres use the largest placement axis for their radius; capsules/cylinders
+use the largest horizontal axis and their saved total height. Previously uneven scaling could
+discard the larger radius. Static body position queries now report the authored origin after
+subtracting the rotated collider offset, matching dynamic bodies. Mirrored hulls and static/dynamic
+meshes use their actual sloped faces, with pivot/inertia offsets and destroy cleanup verified.
+Compilation passes with zero warnings/errors. This verifies physics behavior, not visual collider
+editing, all-backend exports or final acceptance.
+
+**Explicit 3D judge contract — 29 September 2026:**
+The default `--judge <evidence-root> --review <review.json>` now evaluates both 2D and 3D; use
+`--scope 2d` or `--scope 3d` for a separately labelled contract. Reports retain `Accepted2D` and add
+`Accepted3D`, overall `Accepted`, 14 3D surface decisions and 48 mandatory 3D requirements. Missing
+exported Verdant Hollow gameplay on any of DX11/DX12/Vulkan/OpenGL/Software remains unverified.
+The 3D judge additionally requires populated 3D Room/Pathing at normal/narrow/125/150/200% interface
+scale, Model rig/pose/animation and Terrain authoring/private-part states, with reviews tied to the
+current file hashes. Selective recapture preserves other states only from the same product and
+replaces the recaptured state; an old build cannot be relabelled as fresh evidence.
+`ThreeDContractDevelopment2/JudgeCore/results.json` passes **13 integrity checks**; the same
+product (`56B394E88723370136633F80FA0E82A533702CD9D8D83E6AA6F8FCE4DB19C85D`) has a `judge.json`
+that correctly reports both contracts unaccepted with incomplete evidence.
+The inspected development Room capture contains the ground and all three model placements; its
+first fixture placed models below generated ground and was corrected before review. This is a
+contract implementation checkpoint, not a completed visual review or exported 3D acceptance.
+
+**3D Pathing readability — 29 September 2026:**
+`ThreeDPathingContrast3/Captures/capture-manifest.json` contains five inspected 3D layouts
+(normal, narrow, 125/150/200% interface scale) with no automatic findings, fingerprint
+`BE4D10BD5D84184EEC611E489BABEF9839D3DAF20D746BEC2E5BB4198705301E`.
+The bright scene previously obscured status/agent text, and fixed pixel sizes ignored enlarged
+interface scale. Status now has a dark backing; marker/text sizes follow the interface font,
+pointer hit targets follow the markers, and measured agent labels stay inside the viewport with
+ellipsis for names that cannot fit. `ThreeDPathingContrast3/Workflow/results.json` passes the
+complete Pathing workflow with all 12 images inspected, retaining saved 2D patrol rendering on
+all five backends. This does not establish an exported 3D patrol playthrough or native monitor DPI.
+
+**Readback, opacity and Model guide verification — 29 September 2026:**
+`ThreeDReadbackAlpha4/results.json` passes five actual DX11/DX12/Vulkan/OpenGL/Software checks;
+`ThreeDModelGuideRepair/results.json` passes the complete Model workflow with 17 inspected images;
+`ThreeDContractReadbackRefresh/JudgeCore/results.json` passes thirteen judge integrity checks.
+All three use product `61C80F47529B0C674EC7901A961A8549B72C115C9B1E6E5BFA8F80ADD0C81956`, compiled
+with zero warnings/errors. Each readback image matches the inspected previous-run PNG byte for
+byte, and the original Vulkan model gameplay PNG was also inspected directly.
+
+The opaque viewport/frame normalization was already implemented; the older transparent Model
+captures above are historical. Fresh checks verify every presented pixel remains opaque after PNG
+save/reopen, while raw Image texture alpha (0/64/128/255) and offscreen alpha (0/.25/.5/1) survive.
+Software raw RGBA texture readback now returns BGRA correctly without changing authored alpha.
+The focused blend check also exposed a shared defect: rectangle/line helpers passed color alpha
+into both tint and opacity, turning 50% into 25%. They now apply it once; line centering uses its
+origin once, matching the requested coordinates. All five captured blend/color outputs pass.
+
+Model's full-width Use in game guide could be mistaken for the hidden details panel by a table
+position lookup during live pivot saves/undo. Layout now targets the details panel directly;
+the guide stays visible and its return action restores the viewport. Saved PGSL animation seeks,
+live saved pivot edits and opaque rendered output pass on all five backends. Software's simpler
+lighting remains visibly different and is not described as hardware lighting parity.
+The 3D judge now includes these five readback requirements, bringing the total at that checkpoint to **53**.
+This is focused development evidence, not exported 3D gameplay, final visual acceptance or Full Build.
+
+**Exported Verdant Hollow and character/runtime repair — 29 September 2026:**
+Quick Build `20260929-022213-236e64b9` passes with zero warnings/errors and promotes a matching
+Studio/Player. Its `Tests/results.json` passes six export checks with 35 registered game frames,
+product `F65225E3DC3F20207ED211782BC1E5CDB1C239E773E2C060B91B6839AD8F0729`.
+The actual standalone export runs sequentially on DX11, DX12, Vulkan, OpenGL and Software.
+Input drives the saved Object PGSL and real character body through first-launch controls, mouse
+look, arrow-key walking, sprinting, jumping, landing and reopening the guide. Authored terrain
+collision, four water volumes and native ambience/campfire audio load; no alternate C# game entry
+point replaces the template. Asset hashes, exact backend identity, script diagnostics and opaque
+frame pixels are checked. Package tests reject stale Player runtime hashes; the first attempt
+incorrectly selected an older harness-adjacent Player and was stopped, not accepted.
+
+The template no longer teleports the character a fixed distance per rendered frame alongside the
+physics motor. Its saved Object settings now own walking, gravity, jumping and swimming; PGSL
+owns camera, effects and HUD. Native ground probing accounts for collider offsets and starts above
+the feet. Step probing includes capsule height, projects the sampled plane to the actor position,
+and respects capsule support on slopes. Jump ascent, a short input buffer and ground grace keep
+single taps responsive without repeated fixed-tick impulses or false landings above the floor.
+`ThreeDCharacterBuffered8/results.json` passes four focused checks, including save/load terrain,
+water entry/exit, a real jump out of water before continuation on dry terrain, uphill/downhill
+movement, stationary landing and buffered tap behavior. This is native behavior evidence, not an
+exported swimming tour of all four lakes.
+
+DX12 previously exhausted its fixed 32 MiB upload ring on the dense forest. It now retains reusable
+upload pages per frame slot, grows for overflow or a larger single upload, preserves referenced
+addresses and resets pages only after that slot's fence. `ThreeDUploadPages1/results.json` passes
+six checks: readback on all five backends and seven cycles of overflow texture copies plus a
+40 MiB dynamic upload. Fresh final shared-product verification remains required.
+
+All 35 export frames were inspected sequentially on six contact sheets. **Functionality passes;
+scene appearance is not accepted.** Trees lean excessively because Room yaw is also interpreted
+as fallback roll in Model rendering; a nonvisual helper appears as a floating cube. Nearby canopy
+is washed out/cut by atmospheric compositing, and the trail is covered by coarse untextured
+ribbons. These are concrete remaining defects, not an Unreal-level quality comparison. Software
+also has intentionally simpler lighting/sky. Fix and re-inspect before final 3D acceptance.
+The 3D contract at that checkpoint contained **58 mandatory checks**. This Quick profile skips complete
+regression and all five separate renderer smokes; it is not a passing Full Build.
+
+**Terrain detail and local atmosphere repairs — 29 September 2026:**
+`ThreeDModelControllers1/results.json` passes four native model/physics checks, including saved yaw
+without accidental roll and invisible nonvisual controllers with retained procedural drawing.
+Painted template trails no longer add a second ribbon surface. Imported material Images retain
+their actual canvas dimensions, avoiding cropped 1024-pixel sources described as 512-pixel canvases.
+
+`ThreeDSoftwareMaterialFilter1/results.json` passes three checks with 26 captures: Terrain/Room/Player
+save/reopen/live Image recovery and backend rebinding, all four full-resolution tiled Image layers
+on each hardware backend, and smooth Software material filtering. OpenGL formerly ignored texture
+slots above 15; its bindings now cover the forward range through 23. The expanded layer check
+reproduced its black second layer before the fix. Software retains the baked material fallback;
+smooth filtering is not full-resolution GPU shader parity. `ThreeDMaterialFilterReadback/results.json`
+passes all six channel/alpha/upload regressions after these changes. Registered material captures
+were inspected sequentially.
+
+Quick Build `20260929-032248-c1715977` passes six export checks and startup/package checks, with 35
+inspected captures. Ground detail improves on DX11/DX12/Vulkan, but that package still shows black
+OpenGL trails, coarse Software ground and an atmosphere band; its visual acceptance is rejected.
+Subsequent source changes require a new matching export. Disabling clouds in a restored generated
+diagnostic package did not remove the band: automatic lake mist used the deliberately infinite
+HeightSlab shape. Water now generates a bounded box. `ThreeDWaterMistBaseline` reproduced distant
+foreground washout on all four hardware backends; `ThreeDWaterMistRepair/results.json` passes nine
+checks with 44 inspected captures, verifying both forward and post fog, unaffected distant surfaces
+and retained local mist.
+
+Quick Build `20260929-035955-ff00f33b` passes six export checks, startup and package checks with zero
+warnings/errors. All 35 frames were inspected sequentially on six contact sheets, with original
+DX11/OpenGL landed frames also inspected. The fog band and black OpenGL trail are gone. Software
+terrain is smoothly filtered but remains a blurrier baked fallback with simpler lighting/sky.
+An additional floating shape was traced to scripted trail grass: Create ran before the terrain
+service existed, so `GetTerrainHeight` returned zero. Initial load and room replacement now share
+the correct world-before-Create order. `ThreeDTerrainCreateGround2/results.json` passes 12 terrain
+gameplay checks, including saved ground queries in Create/RoomStart across room replacement.
+Each exported backend also verifies every saved scripted grass placement against terrain height;
+the fresh captures no longer contain the floating shape. This closes those concrete scene defects,
+not the final application acceptance or a claim of visual parity with Unreal. The Quick profile
+skips complete regression and the separate renderer smokes.
+
+**Saved 3D Pathing gameplay — 29 September 2026:** The actual Use in game button now supports Model
+Objects as well as 2D sprites. Its guide explains metre-based XYZ points, links the saved Model,
+scale, materials and animation settings, and writes an Object Create event calling the saved route.
+Quick Build `20260929-042605-d904a135` passes seven checks with 26 inspected captures and zero
+warnings/errors. Save/reopen preserves the real gameplay link; movement advances through XYZ,
+the saved animation plays and saving a speed edit changes the active routine. Invalid route edits
+retain the last valid route. The standalone export contains matching Player files and unchanged
+saved assets, with no Studio assemblies or alternate compiled game code. All five exact backends
+show stationary rendered skeletal animation (442–443 changed silhouette pixels), then movement
+and PingPong return. The earlier failed export used a camera fixture facing away from the actor;
+its diagnostic correction was confirmed before the fresh matching run. The fixture's cube is
+deliberate behavior evidence, not template artwork or a final editor aesthetics verdict. The final
+3D judge additionally requires narrow/scaled game-guide captures. Full regression and separate
+renderer smokes remain skipped by this Quick profile.
+
+**Authored Room physics overlay — 29 September 2026:** Options → View → Physics overlay now
+opens Step, Run/Pause, Restart and Probe ray above the Room. It loads a temporary Room copy using
+the runtime builder and Bepu registration path. Wires come from registered boxes, spheres,
+capsules, cylinders, actual triangle meshes, convex-hull faces and terrain shapes. Contacts use
+actual narrow-phase offsets/normals; dense wire geometry has a bounded, explicitly reported
+sampling budget. A ray probe returns a registered-collider hit or miss. Saved components and Model
+colliders participate; arbitrary gameplay scripts run in the actual game, not this inspection copy.
+The authored placements, dirty state and saved Room remain untouched. Asset changes and Room
+edits restart the preview. `ThreeDRoomPhysicsOverlay2/results.json` passes four checks with three
+inspected normal/narrow/200% native captures, including falling/contact, mesh/hull geometry, hits/
+misses, the real Probe button/pointer path and restart/isolation. This implements CAM-4 for authored
+physics inspection; final complete regression and refreshed judge acceptance remain open. The
+new camera enumeration exposed a null camera-properties crash on ordinary Objects; the shared
+resolver now returns its finite defaults safely.
+
+**Saved 3D Physics gameplay — 29 September 2026:** Quick setup now offers a saved Model for
+3D bodies and Use in game creates an Object with linked Model/Physics resources and a real
+`ModelSet` Create event. The guide explains metres/Y-up, Dynamic/Static/Kinematic behaviour,
+Model bounds/pivot/placed scaling, density-based mass and Room-owned gravity. The selected Physics
+resource overrides the Model's collider settings for that Object without modifying either asset;
+Mesh uses actual saved bind geometry. Nonvisual primitive bodies remain supported. Disable Physics
+keeps the Object out of simulation. The sandbox's selected Model remains a test surface; the guide
+routes actual body inspection to the Room overlay and states that restarting Run loads saved body
+edits. A separate runtime fix registers 3D bodies before physics commands in Create, so velocity,
+force/impulse and joints are available at creation as they are for sprite bodies.
+`ThreeDPhysicsModel2/results.json` passed five checks with six inspected normal/narrow/200% captures:
+all five shapes, mirrored scale/pivot, volume-based mass, saved material/layer settings, real rays,
+falling, saved Create movement for Dynamic/Kinematic, Static immobility, edited resource reload and
+the real Create Object button. Fresh complete regression, final judges and exported Player evidence
+remain required. The final 3D judge now requires seven dedicated 3D Physics authoring/game-guide
+states and these five gameplay cases; the overall application is not yet accepted.
+**3D Physics export evidence:** Quick Build `20260929-063415-d3508f96` passed all eleven
+focused checks with zero warnings/errors and **31 inspected captures**. The matching standalone
+Player loads unchanged saved Model, Physics, material Image and Object event files, without Studio
+assemblies or alternate compiled game code. All five explicitly selected backends render the body
+falling, landing flush at its bottom pivot, jumping via its saved Step event and landing again; real
+contacts/material/mass and changed Model pixels are checked together. Software uses simpler
+lighting, not GPU shading parity. The first run exposed two concrete issues: Object editing stores
+its Model visibly in Create-event PGSL, so Room and scripted instance loading now resolve that
+literal initial binding before collider attachment; the export observer must wait for a game frame
+after the splash screen. The corrected matching run proves the Model/pivot survives Object editing.
+Quick skips complete regression and separate renderer smokes; final combined acceptance is open.
+The 3D contract now includes all six package/backend Physics export cases. Capture generation also
+fills every mandatory 3D state, including the new Room camera/physics and Physics game-guide views.
+**Room camera list — 29 September 2026:** Views → Look through now lists Scene, every authored
+camera (the designated game camera is marked), a pinned editor view, all eight saved View slots,
+and the live registry IDs associated with those slots. The same list offers Preview in inset and
+Select camera. It replaces the incomplete selector rather than adding a second camera panel.
+Looking through or selecting a camera preserves the designated game camera, clean document state,
+saved Room bytes and the original editor view. 2D authored insets retain their identity and track
+live Object/viewport edits; they no longer appear as duplicate pinned editor cameras.
+`ThreeDRoomCameraList3/results.json` passes five focused checks with three inspected normal/narrow/
+200% captures. The selector was widened after the first run found it cramped. Final product
+regression and the fresh judges remain open; this implements CAM-3 but does not close CAM-4 physics
+overlays. The 3D judge also requires these new Room camera-panel states.
+**Freehand Model tubes — 29 September 2026:** Create → Draw Tube now draws editable capped tubes
+on the chosen XY/XZ/YZ plane. Width and end taper appear only while this tool is selected; grid
+snapping does not staircase the freehand stroke. The bottom bar shows its triangle cost before
+release. Release adds one editable mesh; Esc or changing tools cancels. Move/Rotate/Scale returns
+to transforming the finished part without a drawing/gizmo conflict. The UV seam is duplicated
+for correct Image wrapping, and existing rigging/animation remains intact. The shared authoring
+operation also accepts spatial XYZ paths. `ThreeDModelTube3/results.json` passes four checks with
+six inspected native captures, including drawing and completed meshes at normal/narrow/200%,
+cap winding, taper, UV seams, cancellation, undo/redo, save/reopen and saved Object Create events.
+An edge-on grid ribbon artifact discovered in the drawing captures was removed. These are focused
+development checks; the final judge and exported gameplay acceptance remain outstanding.
+**Connected Model outlines — 29 September 2026:** Line / Strip now triangulates concave closed
+outlines without filling their notches. Crossing and overlapping closures are rejected before
+adding geometry or materials. Undo/redo restores the drawing chain, allowing you to undo an
+edge and close the corrected outline. The persistent bottom bar shows triangle cost. The Desktop
+Model reference supplied the ear-clipping approach; its MIT notice is retained in source and
+embedded in the Suite assembly. `ThreeDModelProfile1/results.json` passes nine focused checks:
+XY/XZ/YZ in both drawing directions, winding, coverage, collinear corners, atomic rejection,
+drawing after undo, save/reopen, generated Object Create events, and actual pointer drawing.
+The native capture was inspected and preserves the open notch and readable cost. This is focused
+development evidence; final regression, exported gameplay and the refreshed judges remain open.
+**Image to editable Model — 29 September 2026:** Create → From Image opens a guided native preview
+with Image selection, width, depth, minimum opacity and bounded detail. The first saved frame keeps its proportions;
+transparent pixels produce actual holes rather than placeholder geometry. The added mesh retains
+UVs linked to the Image, so saving colour edits changes the real Model Object's gameplay pixels.
+Adding, undoing, redoing and saving/reopening preserves existing skinning, joints and clips.
+`ThreeDModelImageOpacity/results.json` passes twelve checks with fourteen inspected captures, including
+normal/narrow/200% settings, the highest-detail checkerboard with valid 16-bit mesh indices,
+rejected empty Images, adjustable faint-edge removal with save/reopen, and saved Object Create events on all five exact native backends. The
+first preview was too dark; the native preview now shows the authored colours without scene
+lighting. The judge now requires the new dialog and its scrolled final instructions. The final
+instruction scroll also passes its fresh verification. These are
+development/native workflow checks; final matching export and application acceptance remain open.
+
+**Linked Image painting from Model — 29 September 2026:** Texture → Paint linked Image opens the
+Image canvas alongside the native Model. The shared draft supports ordinary Image strokes and
+UV-projected 3D strokes, one undo command per drag, redo, stroke cancellation, locked/hidden layer
+protection, real holes, per-face materials and material UV scaling. A colour/size strip, visible
+cursor and pinned Save Image action make the workflow explicit. The irrelevant timeline starts
+closed and the embedded Image Save command is hidden, leaving one Save action. Unsaved pixels
+appear immediately in the 3D preview; Save updates the actual Image resource for other editors
+and gameplay. Geometry does not change when painting colours. `ThreeDModelTexturePaint3/results.json`
+passes ten checks with eight inspected captures: normal/narrow/200% pointer-to-UV painting and
+actual saved Model Objects on all five native backends. Both projected magenta and ordinary blue
+strokes are visible in gameplay. This is bounded colour painting of frame 1; final matching export
+and application judgement remain required.
+
+**Historical roadmap source audit:** Creating geometry from Image and painting the linked saved
+Image were missing; both now have fresh development evidence above. OpenGL's hardcoded GLSL 4.6
+output is also repaired: shared shaders emit the supported 4.5 baseline and the target remains
+part of the disk cache identity. `ThreeDOpenGL45Compat2/results.json` passes cold/warm translation
+of the engine, tiled terrain and particle catalogues, plus native linking of sprite, model,
+skinned model, terrain, water and particle draw/compute programs. The available native context
+is tested; this does not simulate a separate 4.5-only driver. The Model reference on the user's
+Desktop has now been inspected. It highlights another source defect: Studio still fan-triangulates
+closed drawn profiles, which can fill outside concave faces. Correct profile triangulation is
+next. Other historical items still require source review rather than being marked complete solely
+by older roadmap notes.
+
+The current mandatory 3D contract contains **102 checks**. Fresh complete regression, Full Build,
+all matching layouts/exports and final subjective reviews remain required.
+
+**Combined editor verification:** `ThreeDSuiteIsolated/results.json` passes all **94 editor checks**
+with 86 registered images. Focused tests now use their own preferences file rather than the user's
+settings. The first combined attempt inherited personal Software rendering through its shell test,
+stalled in Terrain capture and recorded a constrained rig-dialog viewport failure; it was terminated
+and is not a pass. The isolated run completes, including the repaired Model and Terrain cases.
+This does not establish Software 3D performance, constrained dialog usability, a Full Build pass or
+final visual acceptance. Populated captures and the explicit 3D contract still need review.
+
+**Model intake and topology:** `ThreeDModelFacingShapes/results.json` passes eight intake checks;
+`ThreeDModelTopology2/results.json` passes four authoring checks. The exterior test had sampled the
+selected model's blue Z-axis handle. It now checks four face quadrants in both directions and both
+shading modes, retaining the geometry-winding assertions. New plane, square, circle and triangle
+checks prove save/reopen and real front/back visibility with an opaque two-sided material. Facing
+geometry no longer duplicates reversed triangles, preserving ordinary editable topology. Empty
+model framing leaves enough room for one-unit grid drawing instead of snapping normal drags to a
+single point. Selection, painting, connected selection, undo and persistence pass. Direct face PNGs
+are retained in the run's Images directory in addition to its six registered layout captures; they
+are development rendering evidence, not a new overall Model aesthetics rating.
+
+**Room terrain and library:** `ThreeDRoomTerrainBaseline/results.json` passes the original terrain
+placement/movement case. `ThreeDRoomTerrainRepeat/results.json` passes seventeen Room checks with
+21 images, including automatic activation of a newly placed terrain, immediate editing, repeated
+Ctrl placement, undo and persistence. Explicit selection of an existing editing context still
+cancels its old gesture. `ThreeDTerrainLibrary/results.json` passes two wizard/library checks with
+one image: initial and explicit refresh discover externally written assets; grouping and the Edit
+route remain correct, and trash/refresh removes an entry while retaining its recoverable file.
+The delete confirmation button itself is not automated by this added check. Compilation passes
+with zero warnings/errors.
+
+**Required model animation fixture:** `ThreeDModelMotionFixture/results.json` passes both required
+preview checks with four images. The absent `Ignore` Archer DAE is replaced in mandatory coverage
+by an imported skinned GLB and a saved 20-frame donor with a different default pose. Checks retain
+mapping, visible frame changes, thumbnail navigation/cache bounds, unchanged source geometry and
+save/reopen of every frame and joint. The original Archer case runs only when
+`GENESIS_ARCHER_SOURCE` supplies that external file; its original asset is **not verified** here.
+
+**Focused 3D commands and motion import:** `ThreeDViewCommands2/results.json` passes all nine
+view/sidebar checks with seventeen images; `ThreeDModelMotionMenus/results.json` passes all six
+motion-import checks with three images (beneath `TestResults/Readiness`). The tests traverse the
+current Options hierarchy and enforce one instance of each inspection command across the whole
+menu tree. Model and Physics retain their original menus and opening handlers when moved under
+Options, fixing stale checked/enabled state. Shader restores the accidentally omitted 3D inspection
+group beneath its existing Options entry. Checks retain 2D disablement, actual normals/depth pixel
+changes, shadow/lighting/wireframe toggles, second-camera propagation and unchanged resource files.
+Motion import verifies rig/geometry retention, visible animated frames, save/reopen, undo/redo,
+animation-only glTF/FBX, incompatible/locked-save recovery and unsaved geometry preservation.
+Compilation passed with zero warnings/errors. Their captures are development evidence; a new
+complete populated aesthetics review and final shared build are still required.
+
+**Focused Terrain repairs:** `ThreeDWaterAndParts2/results.json` passes `Editor.Terrain` with one
+image; `ThreeDTerrainOwnership/results.json` passes all four Room feedback checks with six images;
+`ThreeDTerrainWalkthrough2/results.json` passes the grassy-field/forest/pond workflow with four
+images (all beneath `TestResults/Readiness`). Private terrain-part and generated-mesh references now
+retain project-relative payload paths; actual public resources still use names. The library no
+longer feeds unresolved empty paths into filesystem APIs. Save/reopen and duplicate/rename/move
+checks preserve hidden ownership, and the main Terrain test creates a part through its real wizard.
+Shader checks use the current named-resource contract. Compilation passed with zero warnings/errors.
+
+The obsolete filled-box water assertion is replaced by checks for surface geometry at its saved
+level and a separate physics volume with the authored depth, footprint, density and swimming mode;
+opaque shoreline walls are not reintroduced. Existing live collider/drop/swimming and shader tests
+are retained. Selected water now exposes explicit physics mode and depth in the global Inspector.
+The walkthrough proves decorative default, explicit swimming opt-in, invalid-value rejection,
+undo/redo and actual submerged preview behavior. Its original pond image was inspected. This is
+functional development evidence; Terrain's overall usability/appearance rating remains failed
+until the crowded editor is redesigned and new populated captures are reviewed. Runtime privately
+owned terrain-part spawning is a newly identified open integration gap.
+
+**Focused playable-template repair:** `TestResults/Readiness/ThreeDPlayableTemplateFixed/results.json`
+passes all forty Runtime checks with three images. The template check now resolves its public Image
+and start-room references using the production resource index and checks frame texture existence,
+rather than assuming the obsolete `Assets/Images` folder and a path-valued start room. Save/reopen,
+validation, compilation, scripted movement/jump, explanatory HUD, actual Draw submissions and clean
+profiler assertions all remain. This run also verifies command callability after the identity repair.
+Compilation passed with zero warnings/errors; final exported 3D gameplay is still pending.
+
+**Focused transform repair:** `TestResults/Readiness/ThreeDTransformsFixed/results.json` passes
+all eleven engine-system checks after fixing the actual instance-identity defect. The semantic
+checker accepted `id`, but the VM had no identity register/property and silently returned zero,
+which is now the no-instance sentinel. A read-only identity register implements `id`, `instance_id`
+and `self` without changing existing bytecode slots; the command catalog documents canonical `Id`,
+and the legacy C# transpiler maps those aliases to the entity identity. The strengthened regression
+checks real positive IDs, all three aliases without unresolved reads, persistent transforms on two
+isolated objects, collider raycasts and retained velocity, plus animation graph creation. Compilation
+passed with zero warnings/errors. Studio/Player use the VM backend; legacy transpiler mapping is
+source implemented, not independently compiled-game acceptance. New Player/package validation is
+still required after this runtime source change.
+
+**Focused 3D resource-graph repair:** `TestResults/Readiness/ThreeDResourceGraph3/results.json`
+passes `Runtime.PGSL.ThreeD` in 20.021 seconds with two real Player captures. Tests now resolve
+public resource names through the typed production index, including the uniquely named Verdant
+Hollow campfire Object, and advance particles through actual render submission instead of update
+calls alone. Existing terrain collision, swimming, foliage, composition and clean Player-log
+assertions are retained. The harness compiled with zero warnings/errors; its Player was refreshed
+from the accepted matching package. Both original captures were inspected. Verdant Hollow's
+large horizontal atmospheric/water region still needs dedicated visual investigation; these
+functional checks do not accept its aesthetics. This is focused development evidence on DX11
+Player, plus an isolated Software particle simulation, not five-backend 3D export acceptance.
 
 Full Build `20260928-175235-17db64a6` completed **891 checks: 875 passed, 16 failed**, with
 527 images. Studio, Player and the harness compiled with zero warnings/errors; staged package and
@@ -115,7 +760,7 @@ coalesced hierarchy updates, the public coordinate API, unified Inspector contro
 entities. The native tests retain their behavioural assertions. `--test suite-2d` explicitly covers
 18 relevant checks; it does not replace the full suite's advanced Model/Terrain coverage.
 
-The sixteen remaining failures belong to the next 3D work, now explicitly authorised:
+The original sixteen failures belonged to these 3D areas; their focused repairs are recorded above:
 
 - Terrain lake volume rendering and owned/legacy part loading.
 - 3D PGSL resource lookup, transforms/raycast and the playable template's asset paths.
@@ -123,8 +768,9 @@ The sixteen remaining failures belong to the next 3D work, now explicitly author
 - Model motion-import routes, Archer animation fixture, intake exterior rendering and face topology.
 - Room terrain placement context and Terrain entity grouping/edit/delete.
 
-These failures remain recorded and must be investigated, repaired and rerun. No Full Build pass,
-advanced 3D completion or overall application acceptance is claimed.
+The original failed checkpoint remains recorded. A fresh complete regression, 3D gameplay/export
+acceptance and visual review are still required; no Full Build pass, advanced 3D completion or
+overall application acceptance is claimed.
 
 ### Fair comparison: the same small 2D platformer
 
@@ -5365,12 +6011,17 @@ Green medieval CTF, Captains, Trolls, or the cinematic director into the engine.
 Studio’s Model Editor is further as a product DCC (glTF, topology, paint, LOD, animation). The lab
 still has sketch/push-pull/3D-brush and empty-scene CAD start. GPU sculpt is disabled in **both**.
 
-- [ ] **AF10.1 Construction-plane sketch.** Lines/profiles on a plane → faces. Empty scene without
-      forcing a primitive.
-- [ ] **AF10.2 Push-pull.** Selected faces, numeric and gizmo (Studio already has extrude — this is
-      the CAD-style constrained pull).
-- [ ] **AF10.3 3D brush tubes.** Draw editable tubular geometry in the viewport.
-- [ ] **AF10.4 Cost readout.** Triangle counts on the same screen as the operators (Part V §5.4).
+- [x] **AF10.1 Construction-plane sketch (29 September source slice).** Closed concave profiles
+      create validated faces on XY/XZ/YZ; invalid closure is atomic and drawing history restores
+      the open chain. `ThreeDModelProfile1`: nine checks and inspected pointer capture.
+- [x] **AF10.2 Push-pull (29 September source slice).** Selected faces support signed numeric
+      distance and constrained viewport drags; cancellation, undo/redo and save/reopen are tested.
+      `ThreeDModelPushPull3`: four checks and three inspected layouts. Final judges remain required.
+- [x] **AF10.3 3D brush tubes (29 September source slice).** Freehand, tapered capped geometry
+      with UV seams, preserved rig/clips and native pointer authoring. `ThreeDModelTube3`: four
+      checks and six inspected captures.
+- [x] **AF10.4 Cost readout (29 September source slice).** Persistent baked triangle count and
+      pending freehand-tube cost share the authoring screen; covered by the profile/tube checks.
 
 **Do not:** port ImGui, Veldrid, or the Vulkan Model Studio window.
 
@@ -8769,10 +9420,14 @@ Shared viewport chrome is **done**. These items are the remaining product work.
       exists, else FollowTarget look-at, else play-camera forward (−Z). Clicking a marker opens the
       existing second-camera inset (`ShowViewportInInset` / `ShowGameCameraInInset`). Gate:
       `Editor.Suite.Room.CameraFrustumOverlay`. Terrain/Model overlays remain optional later work.
-- [ ] **CAM-3 Camera list.** A Room panel listing all cameras (editor, pinned, authored/game,
-      extra registry ids) with preview-this / look-through / select.
-- [ ] **CAM-4 Physics 3D debug as a Room overlay.** Collider shapes, contacts and raycasts in
-      the authored Room. The Physics Editor now has its own 2D/3D sandbox; that does not close CAM-4.
+- [x] **CAM-3 Camera list (29 September source slice).** Room lists Scene, pinned, authored/game
+      cameras and all eight live View slots with preview/look-through/select. Authored and live
+      edits refresh without changing the designated saved game camera. Five focused checks;
+      the six-case camera/frustum isolation run also passes. Final shared-product review is pending.
+- [x] **CAM-4 Physics 3D Room overlay (29 September source slice).** An isolated authored Room
+      simulation displays actual Bepu shapes, contacts and rays with Step/Run/Pause/Restart/Probe.
+      It does not run arbitrary Object scripts or change saved placement. Four checks and three
+      inspected layouts in `ThreeDRoomPhysicsOverlay3`; gameplay/export remains separately gated.
 
 #### PIX — Image to 3D pixel-art model
 

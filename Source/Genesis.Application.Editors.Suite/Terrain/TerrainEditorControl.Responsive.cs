@@ -66,19 +66,18 @@ public sealed partial class TerrainEditorControl
     {
         if (IsDisposed || ClientSize.Width <= 0 || _rightPanel is null || _toolPanel is null) return;
 
-        bool narrow = ClientSize.Width < ResponsiveBreakpoint;
+        bool narrow = (_terrainWorkspaceHost?.ClientSize.Width ?? ClientSize.Width) < (300 + 340 + 82) * TerrainInterfaceScale + 420;
         bool enteringNarrow = narrow && !_narrowLayout;
+        bool enteringWide = !narrow && _narrowLayout;
         _narrowLayout = narrow;
-        _componentsToggle.Visible = _narrowLayout;
-        _inspectorToggle.Visible = _narrowLayout;
 
         if (_narrowLayout)
         {
             if (enteringNarrow)
             {
-                _componentsPanelVisible = false;
+                _componentsPanelVisible = true;
                 _inspectorPanelVisible = false;
-                _componentsToggle.Checked = false;
+                _componentsToggle.Checked = true;
                 _inspectorToggle.Checked = false;
             }
 
@@ -86,15 +85,19 @@ public sealed partial class TerrainEditorControl
             _rightPanel.Visible = _inspectorPanelVisible;
             _modeRail.Visible = true;
         }
-        else
+        else if (enteringWide)
         {
-            _toolPanel.Visible = true;
-            _rightPanel.Visible = true;
-            _modeRail.Visible = true;
             _componentsPanelVisible = true;
             _inspectorPanelVisible = true;
             _componentsToggle.Checked = true;
             _inspectorToggle.Checked = true;
+        }
+        _toolPanel.Visible = _componentsPanelVisible;
+        _rightPanel.Visible = _inspectorPanelVisible;
+        _modeRail.Visible = !_narrowLayout || !_inspectorPanelVisible;
+        if (_showTerrainGuide)
+        {
+            _toolPanel.Visible = _rightPanel.Visible = _modeRail.Visible = false;
         }
     }
 }

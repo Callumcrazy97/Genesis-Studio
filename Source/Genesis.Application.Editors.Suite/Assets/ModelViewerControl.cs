@@ -300,13 +300,15 @@ public partial class ModelViewerControl : EditorSurfaceControl
     public void FrameModel()
     {
         var (min, max) = ModelBounds;
-        float radius = Math.Max(.1f, Vector3.Distance(min, max) * .5f);
+        // An empty workspace needs room to draw on the one-unit snapping grid.
+        // Framing its placeholder bounds makes ordinary drags snap to one point.
+        float radius = Asset.HasRenderableMeshes ? Math.Max(.1f, Vector3.Distance(min, max) * .5f) : 3f;
         Surface.Camera.Target = (min + max) * .5f;
         float aspect = Math.Max(.3f, Surface.ClientSize.Width / (float)Math.Max(1, Surface.ClientSize.Height));
         float angle = Math.Min(.5f, MathF.Atan(MathF.Tan(.5f) * aspect));
         Surface.Camera.Distance = radius * 1.16f / MathF.Sin(angle);
         Surface.NearPlane = Math.Max(.0001f, radius / 1000); Surface.FarPlane = Math.Max(100, radius * 50);
-        if (!_gridSizeInitialized) { _gridSize = MathF.Pow(10, MathF.Ceiling(MathF.Log10(Math.Max(.001f, radius)))) / 2; _gridSizeInitialized = true; }
+        if (!_gridSizeInitialized) { _gridSize = Asset.HasRenderableMeshes ? MathF.Pow(10, MathF.Ceiling(MathF.Log10(Math.Max(.001f, radius)))) / 2 : 1f; _gridSizeInitialized = true; }
         _gridDirty = true; Surface.Invalidate(true);
     }
     private EditorCameraOverride CameraOverride()
@@ -322,6 +324,7 @@ public partial class ModelViewerControl : EditorSurfaceControl
         _clip = Asset.Animations.Any(c => c.Name == name) ? name : ""; _time = 0; SetPlaying(false);
         _syncing = true; _clips.SelectedIndex = string.IsNullOrEmpty(_clip) ? 0 : _clips.Items.IndexOf(_clip); _syncing = false;
         UpdatePlayback();
+        ApplyInterfaceLayout();
         InspectorStateChanged?.Invoke(this, EventArgs.Empty);
     }
     public void SetPlaying(bool playing) { _playing = playing && SelectedClip is { Frames.Count: > 0 }; _play.Text = _playing ? "Pause" : "Play"; _lastTick = Stopwatch.GetTimestamp(); }
@@ -339,6 +342,7 @@ public partial class ModelViewerControl : EditorSurfaceControl
         _syncing = true;
         int count = SelectedClip?.Frames.Count ?? 0;
         _play.Enabled = count > 0; _timeline.Enabled = count > 0; _timeline.Maximum = Math.Max(0, count - 1);
+        _timeline.Visible = count > 0;
         _timeline.SetSource(Asset, SelectedClip, ProjectRoot);
         _timeline.Value = Math.Clamp(CurrentFrame, 0, _timeline.Maximum);
         _timeline.PoseFrames = Asset.PoseAnimations.FirstOrDefault(a => a.Id == SelectedClip?.PoseAnimationId)?.Keys.Select(k => k.Frame - 1).ToArray() ?? []; _timeline.Invalidate();
@@ -351,8 +355,9 @@ public partial class ModelViewerControl : EditorSurfaceControl
         AdvancePreview(Math.Clamp(elapsed, 0, .1f));
         if (_spinButton.Checked) _spin += elapsed * .4f;
         _orientation.Invalidate();
-        if (!_importing) Status.Text = DateTime.UtcNow < _motionFeedbackUntil ? LastMotionImportMessage : $"{(IsDirty ? "Unsaved \u00B7 " : "")}{(_orthographic ? "Orthographic" : "Perspective")} \u00B7 {_shading} \u00B7 RMB orbit \u00B7 MMB pan \u00B7 Wheel zoom \u00B7 Ground at {GroundHeight:0.###}";
+        if (!_importing) Status.Text = DateTime.UtcNow < _motionFeedbackUntil ? LastMotionImportMessage : $"{(IsDirty ? "Unsaved \u00B7 " : "")}{Asset.Meshes.Sum(mesh => mesh.Indices.Length / 3):N0} triangles{PreviewStatusDetail} \u00B7 {(_orthographic ? "Orthographic" : "Perspective")} \u00B7 {_shading} \u00B7 RMB orbit \u00B7 MMB pan \u00B7 Wheel zoom \u00B7 Ground at {GroundHeight:0.###}";
     }
+    protected virtual string PreviewStatusDetail => "";
 
     protected virtual void DrawPreview(IRenderController renderer)
     {
@@ -379,6 +384,9 @@ public partial class ModelViewerControl : EditorSurfaceControl
     private void DrawGrid(IRenderController renderer)
     {
         if (!_showGrid) return;
+        // Edge-on ribbons cross the near plane when the camera sits on the empty model's grid.
+        // The grid has no useful visible area in this view; avoid a distracting clipped wedge.
+        if (Math.Abs(Surface.Camera.Forward.Y) < .01f && Math.Abs(Surface.Camera.Eye.Y - GroundHeight) < _gridSize * .02f) return;
         if (_gridDirty || !_gridMesh.IsValid)
         {
             if (_gridMesh.IsValid) renderer.ReleaseMesh(_gridMesh);

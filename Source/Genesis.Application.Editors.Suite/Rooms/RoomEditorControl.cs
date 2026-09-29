@@ -1143,6 +1143,7 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
 
     public void EditorPointerDown(Point client, MouseButtons button, Keys modifiers)
     {
+        if (TryProbePhysicsPointer(client, button)) return;
         FocusRoomViewport();
         _dragStartClient = client;
         _placement.ResetContinuousPlacement();
@@ -1460,6 +1461,7 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
             case Keys.End:
                 return SnapSelectionToFloor();
             case Keys.Escape:
+                if (_physicsProbeArmed) { _physicsProbeArmed = false; UpdateStatus("Physics ray cancelled."); return true; }
                 if (CancelTileTransformDrag()) return true;
                 if (CancelTransformDrag()) return true;
                 if (_inspectorPanelVisible && !_centerSplit.Panel2Collapsed)
@@ -1793,11 +1795,6 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
     /// Nodes the Scene dropdown can look through, in order. The designated game camera comes first
     /// because that is the one the running game will actually use.
     /// </summary>
-    /// <remarks>
-    /// The room model designates a single camera (<c>RoomAsset.ActiveGameCameraId</c>) rather than
-    /// holding a list of views, so today this yields at most one entry. It enumerates rather than
-    /// returning that one node so a future multi-view model needs no change here or in the UI.
-    /// </remarks>
     public IEnumerable<RoomNode> CameraNodes()
     {
         RoomNode? active = ActiveGameCamera;
@@ -1805,6 +1802,10 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
         {
             yield return active;
         }
+        RoomSceneBuilder builder = new(ProjectRoot);
+        foreach (RoomNode node in _room.Nodes)
+            if (!ReferenceEquals(node, active) && node.Kind == RoomNodeKind.GameObject
+                && builder.ResolveCameraState(_room, node)?.HasCameraComponent == true) yield return node;
     }
 
     /// <summary>Node the viewport is looking through, or null for the editor's own free camera.</summary>
@@ -1825,12 +1826,13 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
         try
         {
             _sceneViewBox.Items.Clear();
-            _sceneViewBox.Items.Add(new SceneViewChoice(string.Empty, "Scene"));
+            _sceneViewBox.Items.Add(new SceneViewChoice(string.Empty, "Scene", CameraChoiceKind.Editor));
 
             foreach (RoomNode camera in CameraNodes())
             {
-                _sceneViewBox.Items.Add(new SceneViewChoice(camera.Id, camera.Name));
+                _sceneViewBox.Items.Add(new SceneViewChoice(camera.Id, camera.Name + (ReferenceEquals(camera, ActiveGameCamera) ? " (game)" : "")));
             }
+            AddExtraCameraChoices();
 
             int index = 0;
             for (int i = 0; i < _sceneViewBox.Items.Count; i++)
@@ -1851,7 +1853,8 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
             ApplySceneView();
     }
 
-    private sealed record SceneViewChoice(string NodeId, string Label)
+    private enum CameraChoiceKind { Authored, Editor, Pinned, Viewport, Registry }
+    private sealed record SceneViewChoice(string NodeId, string Label, CameraChoiceKind Kind = CameraChoiceKind.Authored, int Slot = -1)
     {
         // ToolStripComboBox renders items by ToString().
         public override string ToString() => Label;
@@ -1863,6 +1866,12 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
         if (_refreshingSceneViews || _sceneViewBox?.SelectedItem is not SceneViewChoice choice) return;
 
         _sceneViewNodeId = choice.NodeId;
+        SyncWorkspaceSceneCameras();
+        if (choice.Kind is CameraChoiceKind.Pinned or CameraChoiceKind.Viewport or CameraChoiceKind.Registry)
+        {
+            if (!ApplyExtraCameraView(choice)) ExitGameCameraPreview();
+            return;
+        }
         RoomNode? node = SceneViewNode;
         ApplySceneCameraView(node);
     }
@@ -2342,6 +2351,16 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
             $"Place '{node.Name}'",
             () => { if (!_room.Nodes.Contains(node)) { _room.Nodes.Add(node); } ApplyRandomSequence(randomSequenceAfter); },
             () => { _room.Nodes.Remove(node); ApplyRandomSequence(randomSequenceBefore); if (_selected == node) { Select(null); } });
+        if (node.Kind == RoomNodeKind.Terrain && _workspaceTerrains is not null)
+        {
+            // Placing a terrain is an explicit choice of its editing context. Preserve
+            // the armed resource so Ctrl placement can continue with another instance.
+            RefreshWorkspaceTerrains();
+            _refreshingTerrainList = true;
+            try { _workspaceTerrains.SelectedItem = node; }
+            finally { _refreshingTerrainList = false; }
+            ActiveRoomEditContextChanged(preservePlacement: true);
+        }
         Select(node);
     }
 
@@ -3659,6 +3678,7 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
     protected override void OnAssetDependenciesChanged(ProjectAssetChangeSet changes)
     {
         base.OnAssetDependenciesChanged(changes);
+        if (_physicsOverlay) RestartPhysicsPreview();
         _assetRefreshPending = true;
         InvalidateRoomMetadata();
         RefreshPalette();
@@ -3699,6 +3719,7 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
 
     private void DrawOverlay(IRenderController renderer)
     {
+        DrawRoomPhysicsDebug(renderer);
         _viewportOverlay?.DrawOverlay(renderer, _viewport);
         DrawViewportRegions3D(renderer);
         DrawSurfacePlacementPreview(renderer);

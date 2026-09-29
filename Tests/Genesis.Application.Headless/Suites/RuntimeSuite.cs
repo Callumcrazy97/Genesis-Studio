@@ -565,9 +565,6 @@ internal static class RuntimeSuite
                          "Assets/Rooms/World.room.json",
                          "Assets/Terrain/Ground.terrain.json",
                          "Assets/Terrain/Ground.terrain.json.gterrain",
-                         "Assets/Images/GroundTexture.image.json",
-                         "Assets/Images/BarkTexture.image.json",
-                         "Assets/Images/FoliageTexture.image.json",
                      })
             {
                 HeadlessHarness.Assert(
@@ -575,10 +572,21 @@ internal static class RuntimeSuite
                     $"The 3D template did not create '{expected}'.");
             }
 
+            foreach (string imageName in new[] { "GroundTexture", "BarkTexture", "FoliageTexture" })
+            {
+                string imageFile = ResourceNames.Resolve(root, imageName, ResourceType.Image);
+                HeadlessHarness.Assert(File.Exists(imageFile),
+                    $"The 3D template's public Image '{imageName}' did not resolve.");
+                var image = Genesis.Runtime.Assets.SpriteAssetLoader.Load(root, imageName);
+                HeadlessHarness.Assert(image.Frames.Count > 0 && image.Canvas.Width > 0 && image.Canvas.Height > 0
+                    && File.Exists(Genesis.Runtime.Assets.SpriteAssetLoader.ResolveFrameTexturePath(root, imageName, 0)),
+                    $"The 3D template's Image '{imageName}' has no playable pixels.");
+            }
+
             ProjectSession reopened = service.OpenProject(root);
             HeadlessHarness.Assert(
-                reopened.Manifest.StartRoom == "Assets/Rooms/World.room.json"
-                && File.Exists(Path.Combine(root, reopened.Manifest.StartRoom.Replace('/', Path.DirectorySeparatorChar))),
+                ResourceNames.Resolve(root, reopened.Manifest.StartRoom, ResourceType.Room)
+                    == Path.Combine(root, "Assets", "Rooms", "World.room.json"),
                 "The 3D template did not persist its playable room as the F5 start room.");
             HeadlessHarness.Assert(
                 !service.Validate(reopened).Any(issue => issue.Severity == ProjectValidationSeverity.Error),

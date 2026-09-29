@@ -30,6 +30,8 @@ public sealed partial class PhysicsWorld
             Genesis.Shared.ECS.Components.CollisionShape.Capsule or Genesis.Shared.ECS.Components.CollisionShape.Cylinder => new Vector3(System.MathF.Max(sizeRatio.X, sizeRatio.Z), sizeRatio.Y, 1),
             _ => sizeRatio,
         };
+        body.LocalOffset *= sizeRatio;
+        if (world.Has<MeshColliderComponent>(entity)) world.GetRef<MeshColliderComponent>(entity).Scale *= sizeRatio;
         if (registered)
         {
             RegisterEntity(world, entity, ref body, ref transform);

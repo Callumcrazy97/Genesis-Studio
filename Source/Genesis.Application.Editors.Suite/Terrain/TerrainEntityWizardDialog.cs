@@ -13,12 +13,14 @@ public sealed class TerrainEntityWizardDialog : DpiAwareForm
     {
         AutoScaleMode = AutoScaleMode.Dpi;
         BackColor = EditorChrome.Canvas;
-        ClientSize = new Size(920, 640);
-        FormBorderStyle = FormBorderStyle.FixedDialog;
+        ClientSize = new Size(1240, 800);
+        MinimumSize = new Size(1000,650);
+        Tag="font-measured-layout";
+        FormBorderStyle = FormBorderStyle.Sizable;
         MaximizeBox = false;
         MinimizeBox = false;
         StartPosition = FormStartPosition.CenterParent;
-        Text = "Terrain Entity";
+        Text = "Create terrain object";
 
         _panel = new TerrainEntityWizardPanel(resourcePath, projectRoot, presetType)
         {

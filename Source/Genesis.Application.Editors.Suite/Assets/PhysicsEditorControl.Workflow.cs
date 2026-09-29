@@ -8,6 +8,7 @@ using Genesis.Application.Editors.Suite.UiKit;
 using Genesis.Physics;
 using Genesis.Runtime.ECS.Components;
 using Genesis.Runtime.Rendering;
+using Genesis.Runtime.Modeling;
 using Genesis.Runtime.Spatial;
 using Genesis.Shared.Assets;
 using Genesis.Shared.Interfaces;
@@ -31,7 +32,7 @@ public sealed partial class PhysicsEditorControl
         _physicsQuickSetup.VisibleChanged += (_, _) => { if (_physicsQuickSetup.Visible) ResetPhysicsQuickScroll(); };
         Load += (_, _) => ResetPhysicsQuickScroll();
         PhysicsWorkflowText(_physicsQuickSetup, "Quick setup", true);
-        PhysicsWorkflowText(_physicsQuickSetup, "Choose 2D, a body and a sprite. Play tests the material. Use in game creates an Object you can drag into a Room.");
+        PhysicsWorkflowText(_physicsQuickSetup, "Choose a dimension, body behaviour and an Image or Model. Play tests the material. Use in game creates a linked Object you can drag into a Room.");
         _physicsDimensionChoice = new ThemedComboBox { Name = "PhysicsDimensionChoice" };
         _physicsDimensionChoice.Items.AddRange(["2D sprites", "3D bodies"]);
         _physicsDimensionChoice.SelectedIndexChanged += (_, _) => { if (!_syncing) SetPreview2D(_physicsDimensionChoice.SelectedIndex == 0); };
@@ -50,9 +51,13 @@ public sealed partial class PhysicsEditorControl
         EditorChrome.StyleField(_physicsImageButton);
         _physicsImageButton.Click += (_, _) =>
         {
-            ProjectAssetEntry? selected = AssetPickerService.PickAsset(new AssetPickerRequest(ProjectRoot, ResourceKind.Image,
-                _document.PreviewAssetPath, "Choose Physics Sprite", RequiredImageUsage: ImageUsage.Sprite), FindForm());
-            if (selected is not null) ChooseSpriteImage(selected.Reference);
+            bool twoD = _document.Dimension == PhysicsDimension.TwoD;
+            ProjectAssetEntry? selected = AssetPickerService.PickAsset(new AssetPickerRequest(ProjectRoot, twoD ? ResourceKind.Image : ResourceKind.Model,
+                _document.PreviewAssetPath, twoD ? "Choose Physics Sprite" : "Choose Physics Model", RequiredImageUsage: twoD ? ImageUsage.Sprite : ImageUsage.None), FindForm());
+            if (selected is not null)
+            {
+                if (twoD) ChooseSpriteImage(selected.Reference); else ChooseModel(selected.Reference);
+            }
         };
         _physicsQuickSetup.Controls.Add(_physicsImageButton);
         foreach (CollapsibleSection section in _physicsInspectorStack!.Controls.OfType<CollapsibleSection>().Take(2).ToArray())
@@ -155,9 +160,11 @@ public sealed partial class PhysicsEditorControl
         {
             _physicsDimensionChoice!.SelectedIndex = _document.Dimension == PhysicsDimension.TwoD ? 0 : 1;
             _physicsBodyChoice!.SelectedItem = _document.BodyType;
-            _physicsImageButton!.Text = string.IsNullOrWhiteSpace(_document.PreviewAssetPath)
-                ? "Choose sprite Image…" : "Sprite: " + ResourceDisplayName.Format(_document.PreviewAssetPath);
-            _physicsImageButton.Visible = _document.Dimension == PhysicsDimension.TwoD;
+            bool twoD = _document.Dimension == PhysicsDimension.TwoD;
+            bool matching = _document.PreviewAssetKind == (twoD ? "Image" : "Model");
+            _physicsImageButton!.Text = !matching || string.IsNullOrWhiteSpace(_document.PreviewAssetPath)
+                ? (twoD ? "Choose sprite Image…" : "Choose Model…")
+                : (twoD ? "Sprite: " : "Model: ") + ResourceDisplayName.Format(_document.PreviewAssetPath);
         }
         finally { _syncing = wasSyncing; }
         foreach (FlowLayoutPanel page in _physicsLeftPages.Values.OfType<FlowLayoutPanel>()) SizePhysicsWorkflowPage(page);
@@ -168,6 +175,15 @@ public sealed partial class PhysicsEditorControl
         string? path = ProjectAssetIndex.ResolveReference(ProjectRoot, reference, ResourceKind.Image);
         if (string.IsNullOrEmpty(path) || !File.Exists(path) || !ImageDocumentSerializer.LoadAtomic(path).Document.Usage.Supports(ImageUsage.Sprite)) return false;
         SetPreviewTarget(EditorPreviewTargetChrome.PreviewTargetKind.Image, ResourceNames.Name(ProjectRoot, path));
+        UpdatePhysicsQuickFields(); return true;
+    }
+
+    public bool ChooseModel(string reference)
+    {
+        string? path = ProjectAssetIndex.ResolveReference(ProjectRoot, reference, ResourceKind.Model);
+        if (string.IsNullOrEmpty(path) || !File.Exists(path)
+            || !new RuntimeModelAssetRegistry().Load(ProjectRoot, ResourceNames.Name(ProjectRoot, path)).HasRenderableMeshes) return false;
+        SetPreviewTarget(EditorPreviewTargetChrome.PreviewTargetKind.Model, ResourceNames.Name(ProjectRoot, path));
         UpdatePhysicsQuickFields(); return true;
     }
 
@@ -197,12 +213,15 @@ public sealed partial class PhysicsEditorControl
         foreach (Control control in _physicsGameGuide.Controls.Cast<Control>().ToArray()) control.Dispose();
         Button back = new() { Text = "Back to Quick setup", Name = "PhysicsBackToQuickSetup" };
         EditorChrome.StyleField(back); back.Click += (_, _) => SelectPhysicsWorkspaceMode("Preview", _physicsRail!); _physicsGameGuide.Controls.Add(back);
-        PhysicsWorkflowText(_physicsGameGuide, "Use this Physics in a 2D game", true);
-        PhysicsWorkflowText(_physicsGameGuide, "1. In Quick setup, choose 2D and a sprite Image. Dynamic bodies fall; Static bodies make platforms; Kinematic bodies move with PhysicsSetVelocity. Friction, bounce, density, shape, gravity scale, rotation lock and collision layers are saved on the body.");
+        bool twoD = _document.Dimension == PhysicsDimension.TwoD;
+        PhysicsWorkflowText(_physicsGameGuide, twoD ? "Use this Physics in a 2D game" : "Use this Physics in a 3D game", true);
+        PhysicsWorkflowText(_physicsGameGuide, twoD
+            ? "1. In Quick setup, choose 2D and a sprite Image. Dynamic bodies fall; Static bodies make platforms; Kinematic bodies move with PhysicsSetVelocity. Friction, bounce, density, shape, gravity scale, linear/angular damping, rotation lock and collision layers are saved on the body."
+            : "1. In Quick setup, choose 3D and a saved Model. Dynamic falls, Static stays fixed, and Kinematic follows PhysicsSetVelocity. The shape fits the Model's bounds and pivot; Mesh uses its triangles. This Physics resource supplies friction, bounce, density, gravity scale, linear/angular damping, rotation lock and collision layers, replacing the Model's collider settings for this Object.");
         PhysicsWorkflowText(_physicsGameGuide, "2. Create your Object", true);
-        TextBox name = new() { Text = ResourceDisplayName.Format(ResourcePath) + " sprite", Name = "PhysicsObjectName" };
+        TextBox name = new() { Text = ResourceDisplayName.Format(ResourcePath) + (twoD ? " sprite" : " body"), Name = "PhysicsObjectName" };
         PhysicsWorkflowField(_physicsGameGuide, "Object name", name);
-        Button create = new() { Text = "Create sprite Object", Name = "PhysicsCreateObject" }; EditorChrome.StyleField(create);
+        Button create = new() { Text = twoD ? "Create sprite Object" : "Create model Object", Name = "PhysicsCreateObject" }; EditorChrome.StyleField(create);
         Label result = new() { ForeColor = EditorChrome.Muted, Name = "PhysicsCreateResult" };
         create.Click += (_, _) =>
         {
@@ -212,19 +231,36 @@ public sealed partial class PhysicsEditorControl
         };
         _physicsGameGuide.Controls.Add(create); _physicsGameGuide.Controls.Add(result);
         PhysicsWorkflowText(_physicsGameGuide, "3. Drag the Object from Assets into a Room and Run", true);
-        PhysicsWorkflowText(_physicsGameGuide, "Enable collision on the Room's tile layer and mark solid tiles in Image. Sprite pivots match Room placement. One metre is 32 pixels; 2D positions and velocity commands use pixels, with positive Y down. Room Environment owns game gravity; sandbox gravity, damping and sleeping settings only tune this preview.");
+        PhysicsWorkflowText(_physicsGameGuide, twoD
+            ? "Enable collision on the Room's tile layer and mark solid tiles in Image. Sprite pivots match Room placement. One metre is 32 pixels; 2D positions and velocity commands use pixels, with positive Y down. Room Environment owns game gravity; sandbox gravity and sleeping settings only tune this preview. Damping is a per-second decay rate on each Dynamic body; zero preserves momentum."
+            : "Place the Object in a 3D Room. Positions and velocities use metres, with positive Y up. Room Environment owns gravity. Model geometry, pivot and placed scale determine the body size and density determines mass. The sandbox shows the Model as a test surface; use Room → Options → View → Physics overlay to step the saved bodies and inspect contacts before Run.");
         PhysicsWorkflowText(_physicsGameGuide, "In the Object's Step event", true);
         TextBox example = new() { ReadOnly = true, Multiline = true, ScrollBars = ScrollBars.Both, WordWrap = false,
-            Text = "// Move right at 96 pixels per second\r\nPhysicsSetVelocity(InstanceSelf(), 96,\r\n    PhysicsGetVelocityY(InstanceSelf()), 0);\r\n// Check PhysicsIsGrounded(InstanceSelf(), 6) before jumping.", Name = "PhysicsGameplayExample" };
+            Text = twoD
+                ? "// Move right at 96 pixels per second\r\nPhysicsSetVelocity(InstanceSelf(), 96,\r\n    PhysicsGetVelocityY(InstanceSelf()), 0);\r\n// Check PhysicsIsGrounded(InstanceSelf(), 6) before jumping."
+                : "// Move right at 3 metres per second\r\nPhysicsSetVelocity(InstanceSelf(), 3,\r\n    PhysicsGetVelocityY(InstanceSelf()), 0);\r\n// ModelAnimationPlay(\"Walk\", true, 0.15) plays a saved clip.", Name = "PhysicsGameplayExample" };
         EditorChrome.StyleField(example); _physicsGameGuide.Controls.Add(example);
-        PhysicsWorkflowText(_physicsGameGuide, "Save Physics or Image changes to update the linked Object and Room previews. The sample sandbox is a material test; Use in game creates the saved links used by gameplay.");
+        PhysicsWorkflowText(_physicsGameGuide, "Save Physics and Image or Model changes to update linked authoring previews. Restart Run to load the saved body into gameplay. Use in game creates the same saved links used by the Room and exported game.");
         SelectPhysicsWorkspaceMode("Use in game", _physicsRail!); SizePhysicsWorkflowPage(_physicsGameGuide);
     }
 
     public string CreatePhysicsObject(string name)
     {
         string validName = ResourceNames.ValidateName(name);
-        if (_document.Dimension != PhysicsDimension.TwoD) throw new InvalidOperationException("Choose 2D in Quick setup to create a sprite Object.");
+        if (_document.Dimension == PhysicsDimension.ThreeD)
+        {
+            if (_document.PreviewAssetKind != "Model" || !ChooseModel(_document.PreviewAssetPath))
+                throw new InvalidOperationException("Choose a saved Model in Quick setup before creating a 3D Object.");
+            Save();
+            ResourceService service = ProjectAssetIndex.OpenResourceService(ProjectRoot);
+            string modelObject = service.CreateResource(ResourceFolderPolicy.RootFor(service.Project, ResourceKind.GameObject), ResourceKind.GameObject, validName);
+            using ObjectEditorControl editor = new(modelObject, ProjectRoot);
+            editor.SetVisualDimension(true);
+            editor.Composition.SetAsset("ModelRendererComponent", _document.PreviewAssetPath);
+            editor.Composition.SetAsset("PhysicsComponent", ResourceNames.Name(ProjectRoot, ResourcePath));
+            editor.SetEventBody("Create", "ModelSet(" + System.Text.Json.JsonSerializer.Serialize(_document.PreviewAssetPath) + ");");
+            editor.Save(); RequestOpenLinkedResource(modelObject); return modelObject;
+        }
         string? image = ProjectAssetIndex.ResolveReference(ProjectRoot, _document.PreviewAssetPath, ResourceKind.Image);
         if (string.IsNullOrEmpty(image) || !File.Exists(image) || !ImageDocumentSerializer.LoadAtomic(image).Document.Usage.Supports(ImageUsage.Sprite))
             throw new InvalidOperationException("Choose a sprite Image in Quick setup. The sample sprite cannot be placed in a Room.");

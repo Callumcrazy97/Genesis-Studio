@@ -8,7 +8,7 @@ using Genesis.Shared.Interfaces;
 namespace Genesis.Runtime.Project
 {
     /// <summary>Ticks <see cref="ScriptHostSystem"/> inside the scene update loop.</summary>
-    public sealed class ScriptHostSubsystem : ISceneSubsystem
+    public sealed class ScriptHostSubsystem : ISceneSubsystem, IPostPhysicsSceneSubsystem
     {
         private readonly ScriptHostSystem _host;
         private readonly Func<bool> _allowUpdate;
@@ -20,6 +20,13 @@ namespace Genesis.Runtime.Project
         }
 
         public void FixedUpdate(RuntimeScene scene, float fixedDelta) { }
+
+        public void AfterPhysics(RuntimeScene scene, float fixedDelta)
+        {
+            if (scene.Physics == null || _host == null || _allowUpdate != null && !_allowUpdate()) return;
+            foreach (var contact in scene.Physics.ContactChanges) _host.DispatchPhysicsContact(contact);
+            scene.World.FlushDeferred();
+        }
 
         public void Update(RuntimeScene scene, GameTime time)
         {

@@ -130,6 +130,11 @@ namespace Genesis.Runtime.Scene
                             Spatial = B(props, "Spatial", false),
                             Looping = B(props, "Loop", false),
                             Playing = false,
+                            SpatialSettings = props["MinDistance"] != null || props["MaxDistance"] != null || props["Falloff"] != null
+                                ? new Genesis.Shared.Audio.AudioSpatialSettings(F(props, "MinDistance", 1), F(props, "MaxDistance", 48),
+                                    Enum.TryParse((string)props["Falloff"], true, out Genesis.Shared.Audio.AudioFalloffCurve falloff)
+                                        ? falloff : Genesis.Shared.Audio.AudioFalloffCurve.Linear)
+                                : null,
                         });
                         break;
                     case "PointLightComponent":
@@ -340,6 +345,13 @@ namespace Genesis.Runtime.Scene
                 drawAssets.Culling = culling;
                 drawAssets.WindingOrder = winding;
                 drawAssets.Shader = shaderPath?.Trim();
+                if (prefab["terrainTexture"] is JObject textureProps)
+                {
+                    drawAssets.TerrainTextureMode = TerrainPartBinding.Text(textureProps, "Mode", "Billboard2D");
+                    drawAssets.TerrainTextureScale = Math.Clamp(TerrainPartBinding.Number(textureProps, "Scale", 1), .001f, 1000);
+                    drawAssets.TerrainTextureFps = Math.Clamp(TerrainPartBinding.Number(textureProps, "AnimationFps", 0), 0, 240);
+                    drawAssets.TerrainTextureFrameCount = Math.Max(0, (int)TerrainPartBinding.Number(textureProps, "FrameCount", 0));
+                }
                 if (prefab["shaderVariant"] is JValue variantToken
                     && variantToken.Type == JTokenType.String)
                 {

@@ -367,7 +367,7 @@ public sealed partial class VisualActionBuilderControl : UserControl
             if (args.Item is TreeNode { Tag: VisualActionPaletteItem item }) _palette.DoDragDrop(item, DragDropEffects.Copy);
         };
         FlowLayoutPanel actions = new() { Dock = DockStyle.Bottom, FlowDirection = FlowDirection.LeftToRight,
-            Height = 42, Padding = new Padding(0, 7, 0, 0), WrapContents = false };
+            AutoSize=true, Padding = new Padding(0, 7, 0, 0), WrapContents = true };
         actions.Controls.Add(MakeButton("＋ New", () => OpenWizard(), 82));
         actions.Controls.Add(MakeButton("Save preset", SaveSelectedPreset, 104));
         Label hint = new() { Dock = DockStyle.Bottom, ForeColor = EditorChrome.Muted, Font = EditorChrome.SmallFont,
@@ -377,6 +377,14 @@ public sealed partial class VisualActionBuilderControl : UserControl
         palette.Controls.Add(actions);
         palette.Controls.Add(_search);
         palette.Controls.Add(heading);
+        void FitPalette()
+        {
+            heading.Height=heading.Font.Height+10;
+            hint.Height=TextRenderer.MeasureText(hint.Text,hint.Font,new Size(Math.Max(120,palette.ClientSize.Width-palette.Padding.Horizontal),int.MaxValue),TextFormatFlags.WordBreak).Height+hint.Padding.Vertical;
+            foreach(Button button in actions.Controls){button.AutoSize=true;button.MinimumSize=new Size(0,button.Font.Height+18);}
+        }
+        palette.FontChanged+=(_,_)=>FitPalette();palette.SizeChanged+=(_,_)=>FitPalette();
+        heading.FontChanged+=(_,_)=>FitPalette();hint.FontChanged+=(_,_)=>FitPalette();
         _palette.BringToFront();
         return palette;
     }

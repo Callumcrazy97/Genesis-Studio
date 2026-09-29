@@ -30,6 +30,7 @@ public sealed partial class RoomEditorControl
         ToolStripItem edit = toolbar.Items[1];
         ToolStripDropDownButton view = toolbar.Items.OfType<ToolStripDropDownButton>().Last(item => item.Text == "View");
         AddFogViewControls(view);
+        BuildRoomPhysicsDebug(view, viewportHost);
         ToolStripMenuItem palette = new("Objects and navigation") { CheckOnClick = true, Checked = true };
         ToolStripMenuItem inspector = new("Inspector") { CheckOnClick = true, Checked = true };
         palette.Click += (_, _) => { _palettePanelVisible = palette.Checked; _paletteToggle.Checked = palette.Checked; ApplyResponsiveLayout(); };
@@ -57,12 +58,25 @@ public sealed partial class RoomEditorControl
             EditorChrome.StyleField(button); button.Click += (_, _) => SetViewportLayout(count); layouts.Controls.Add(button);
         }
         _workspaceSceneCamera = new ThemedComboBox { Name = "RoomSceneCamera", DropDownStyle = ComboBoxStyle.DropDownList };
+        _workspaceSceneCamera.DropDown += (_, _) => RefreshSceneViews();
         _workspaceSceneCamera.SelectedIndexChanged += (_, _) =>
         {
             if (!_syncingWorkspaceSceneCamera && _workspaceSceneCamera.SelectedIndex >= 0)
                 _sceneViewBox.SelectedIndex = _workspaceSceneCamera.SelectedIndex;
         };
-        WorkspaceGroup(cameras, "Camera views", true, ("", layouts), ("", _viewportSlotCombo), ("", _viewportEnabledCheck), ("Scene camera", _workspaceSceneCamera));
+        FlowLayoutPanel cameraActions = new() { AutoSize = true, Dock = DockStyle.Top, WrapContents = true, Margin = Padding.Empty };
+        Button previewCamera = new() { Name = "RoomPreviewListedCamera", AutoSize = true, Text = "Preview in inset" };
+        Button selectCamera = new() { Name = "RoomSelectListedCamera", AutoSize = true, Text = "Select camera" };
+        previewCamera.Click += (_, _) => PreviewListedCamera(); selectCamera.Click += (_, _) => SelectListedCamera();
+        foreach (Button button in new[] { previewCamera, selectCamera }) { EditorChrome.StyleField(button); cameraActions.Controls.Add(button); }
+        Label cameraGuide = new() { Name = "RoomCameraListGuide", AutoSize = true, Text = "Choose Scene to return to editing. This preview does not change the game's camera.", ForeColor = EditorChrome.Muted };
+        cameraGuide.SizeChanged += (_, _) =>
+        {
+            if (cameraGuide.Parent is { } parent) cameraGuide.MaximumSize = new Size(Math.Max(100, parent.ClientSize.Width - 12), 0);
+        };
+        WorkspaceGroup(cameras, "Camera views", true, ("", layouts), ("", _viewportSlotCombo), ("", _viewportEnabledCheck),
+            ("", new Label { Text = "Look through a camera", AutoSize = true, ForeColor = EditorChrome.Muted }),
+            ("", _workspaceSceneCamera), ("", cameraActions), ("", cameraGuide));
         SyncWorkspaceSceneCameras();
         WorkspaceGroup(cameras, "Source region", true, ("X", _viewportSource[0]), ("Y", _viewportSource[1]), ("Z", _viewportSource[2]), ("Width", _viewportSource[3]), ("Height", _viewportSource[4]), ("Depth", _viewportSource[5]));
         WorkspaceGroup(cameras, "Projection", false, ("Near", _viewportFrustum[0]), ("Far", _viewportFrustum[1]), ("Field of view", _viewportFrustum[2]));

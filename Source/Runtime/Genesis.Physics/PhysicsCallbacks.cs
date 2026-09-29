@@ -28,6 +28,14 @@ internal struct PhysicsNarrowPhaseCallbacks : INarrowPhaseCallbacks
     public bool ConfigureContactManifold<TManifold>(int workerIndex, CollidablePair pair, ref TManifold manifold, out PairMaterialProperties pairMaterial)
         where TManifold : unmanaged, IContactManifold<TManifold>
     {
+        for (int index = 0; index < manifold.Count; index++)
+        {
+            manifold.GetContact(index, out Vector3 offset, out Vector3 normal, out float depth, out _);
+            if (depth < 0) continue; // Speculative near misses are not overlaps.
+            _world.RecordContact(pair);
+            _world.RecordDebugContact(pair, offset, normal, depth);
+            break;
+        }
         if (_world.IsCollidableSensor(pair.A) || _world.IsCollidableSensor(pair.B))
         {
             pairMaterial = default;
@@ -121,6 +129,7 @@ internal struct PhysicsPoseCallbacks : IPoseIntegratorCallbacks
                 }
             }
 
+            linear *= PhysicsDamping.Factor(binding.LinearDamping, laneDt);
             if (_maxVelocity > 0f && linear.LengthSquared() > _maxVelocitySq)
                 linear = Vector3.Normalize(linear) * _maxVelocity;
 
@@ -133,6 +142,13 @@ internal struct PhysicsPoseCallbacks : IPoseIntegratorCallbacks
                 SetFloatLane(ref velocity.Angular.X, lane, 0f);
                 SetFloatLane(ref velocity.Angular.Y, lane, 0f);
                 SetFloatLane(ref velocity.Angular.Z, lane, 0f);
+            }
+            else
+            {
+                float damping = PhysicsDamping.Factor(binding.AngularDamping, laneDt);
+                SetFloatLane(ref velocity.Angular.X, lane, GetFloatLane(in velocity.Angular.X, lane) * damping);
+                SetFloatLane(ref velocity.Angular.Y, lane, GetFloatLane(in velocity.Angular.Y, lane) * damping);
+                SetFloatLane(ref velocity.Angular.Z, lane, GetFloatLane(in velocity.Angular.Z, lane) * damping);
             }
         }
     }

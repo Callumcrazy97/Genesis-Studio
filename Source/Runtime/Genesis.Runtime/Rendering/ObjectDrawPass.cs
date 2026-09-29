@@ -23,7 +23,7 @@ namespace Genesis.Runtime.Rendering
     /// <summary>
     /// Draw pass for object Draw2D/Draw3D components. Scripts configure; components draw.
     /// </summary>
-    public static class ObjectDrawPass
+    public static partial class ObjectDrawPass
     {
         private static readonly ConditionalWeakTable<IRenderController, RenderCache> RenderCaches = new();
         private static readonly RuntimeModelRenderSystem ModelRenderer = new();
@@ -33,6 +33,8 @@ namespace Genesis.Runtime.Rendering
             public readonly Dictionary<string, TextureCacheEntry> Textures = new(StringComparer.OrdinalIgnoreCase);
             public readonly Dictionary<string, ShaderCacheEntry> Shaders = new(StringComparer.OrdinalIgnoreCase);
             public MeshHandle CubeMesh = MeshHandle.Invalid;
+            public MeshHandle TerrainPlane = MeshHandle.Invalid;
+            public readonly Dictionary<string, ImageMaterialCacheEntry> ImageMaterials = new(StringComparer.OrdinalIgnoreCase);
         }
 
         private sealed class ShaderCacheEntry
@@ -88,6 +90,8 @@ namespace Genesis.Runtime.Rendering
                     if (handle.IsValid) renderer.ReleaseRuntimeShader(handle, profile);
             }
             if (cache.CubeMesh.IsValid) renderer.ReleaseMesh(cache.CubeMesh);
+            if (cache.TerrainPlane.IsValid) renderer.ReleaseMesh(cache.TerrainPlane);
+            foreach (ImageMaterialCacheEntry material in cache.ImageMaterials.Values) ReleaseImageMaterial(renderer, material);
             RenderCaches.Remove(renderer);
         }
 
@@ -156,6 +160,9 @@ namespace Genesis.Runtime.Rendering
                         {
                             int before = drawCount;
                             drawCount = queue.CopyTo(buffer, drawCount);
+                            if (hasAssets && assets.TerrainTextureMode != null)
+                                for (int index = before; index < drawCount; index++)
+                                    ApplyTerrainImageMaterial(renderer, projectPath, assets, ReadSpriteFrameIndex(world, entity), ref buffer[index]);
                             if (hasAssets && drawCount > before
                                 && TryResolveShader(renderer, projectPath, assets, ShaderAssetPipeline.Mesh, out ShaderCacheEntry shader))
                             {
@@ -187,11 +194,14 @@ namespace Genesis.Runtime.Rendering
                     return;
 
                 string image = ResolveImageName(entity, world, assets);
+                if (!HasAuthoredGeometry(assets, image)) return;
                 int frameIndex = ReadSpriteFrameIndex(world, entity);
                 TextureHandle tex = TextureHandle.Invalid;
-                if (!string.IsNullOrWhiteSpace(image)) TryGetTexture(renderer, projectPath, image, frameIndex, out tex, out _, out _);
+                if (assets.TerrainTextureMode == null && !string.IsNullOrWhiteSpace(image)) TryGetTexture(renderer, projectPath, image, frameIndex, out tex, out _, out _);
 
-                MeshDrawCall cube = ImageCube(renderer, assets, transform, draw3d, tex);
+                MeshDrawCall cube = assets.TerrainTextureMode == null
+                    ? ImageCube(renderer, assets, transform, draw3d, tex)
+                    : TerrainTexture(renderer, projectPath, assets, transform, draw3d, cameraEye, frameIndex);
                 int cubePasses = AppendMeshShaderPasses(renderer, projectPath, assets, cube, buffer, ref drawCount);
                 RenderAutoState.SubmittedMeshes += cubePasses;
                 if ((cube.Flags & MeshDrawFlags.NoShadow) == 0) RenderAutoState.ShadowCastersSubmitted++;
@@ -328,7 +338,9 @@ namespace Genesis.Runtime.Rendering
                     destination = new ShaderPassDrawList(queue, modelShader, textures);
                 }
                 if (!string.IsNullOrWhiteSpace(model.ModelAsset)
-                    && ModelRenderer.Enqueue(destination, projectPath, model.ModelAsset, model.MaterialOverride,
+                    && ModelRenderer.Enqueue(hasVisualAssets && visualAssets.TerrainTextureMode != null
+                        ? new ImageMaterialDrawList(destination, renderer, projectPath, visualAssets, ReadSpriteFrameIndex(world, entity)) : destination,
+                        projectPath, model.ModelAsset, model.MaterialOverride,
                         RuntimeModelRenderSystem.TransformMatrix(transform, model), draw3d, model,
                         ReadAnimation(world, entity, model.KeepPreviousTransform), renderer))
                 {
@@ -341,13 +353,21 @@ namespace Genesis.Runtime.Rendering
             ObjectDrawAssetEntry assets = visualAssets;
 
             string image = ResolveImageName(entity, world, assets);
+            if (!HasAuthoredGeometry(assets, image)) return;
             int frameIndex = ReadSpriteFrameIndex(world, entity);
             TextureHandle tex = TextureHandle.Invalid;
-            if (!string.IsNullOrWhiteSpace(image)) TryGetTexture(renderer, projectPath, image, frameIndex, out tex, out _, out _);
+            if (assets.TerrainTextureMode == null && !string.IsNullOrWhiteSpace(image)) TryGetTexture(renderer, projectPath, image, frameIndex, out tex, out _, out _);
 
-            MeshDrawCall cube = ImageCube(renderer, assets, transform, draw3d, tex);
+            MeshDrawCall cube = assets.TerrainTextureMode == null
+                ? ImageCube(renderer, assets, transform, draw3d, tex)
+                : TerrainTexture(renderer, projectPath, assets, transform, draw3d, cameraEye, frameIndex);
             AppendMeshShaderPasses(renderer, projectPath, assets, cube, queue);
         }
+
+        private static bool HasAuthoredGeometry(ObjectDrawAssetEntry assets, string image)
+            => !string.IsNullOrWhiteSpace(image) || !string.IsNullOrWhiteSpace(assets.Model)
+                || !string.IsNullOrWhiteSpace(assets.Material) || !string.IsNullOrWhiteSpace(assets.Shader)
+                || assets.TerrainTextureMode != null;
 
         private static MeshDrawCall ImageCube(IRenderController renderer, ObjectDrawAssetEntry assets,
             TransformComponent transform, Draw3DComponent draw, TextureHandle texture)

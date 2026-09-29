@@ -1070,12 +1070,33 @@ internal static class HeadlessTestRunner
         Suites.RoomObjectsPanelSuite.Run(ctx);
         Suites.RoomCompletionSuite.Run(ctx);
         Suites.RoomFeedbackSuite.Run(ctx);
+        Suites.TerrainPartRuntimeSuite.Run(ctx);
+        Suites.PathingThreeDWorkflowSuite.Run(ctx, export: true);
+        Suites.ModelImageWorkflowSuite.Run(ctx);
+        Suites.ModelTexturePaintingSuite.Run(ctx);
+        Suites.ModelProfileWorkflowSuite.Run(ctx);
+        Suites.ModelTubeWorkflowSuite.Run(ctx);
+        Suites.ModelPushPullWorkflowSuite.Run(ctx);
+        Suites.RoomCameraListSuite.Run(ctx);
+        Suites.RoomPhysicsOverlaySuite.Run(ctx);
+        Suites.PhysicsModelWorkflowSuite.Run(ctx);
+        Suites.PhysicsModelExportSuite.Run(ctx);
+        Suites.PhysicsDampingRuntimeSuite.Run(ctx);
+        Suites.OpenGlCompatibilitySuite.Run(ctx);
+        Suites.TerrainMaterialRuntimeSuite.Run(ctx);
+        Suites.ModelColliderRuntimeSuite.Run(ctx);
+        Suites.CharacterMotorRuntimeSuite.Run(ctx);
+        Suites.ReadbackAlphaSuite.Run(ctx);
+        Suites.FogNoiseRuntimeSuite.Run(ctx);
         Suites.RoomNavigationSuite.Run(ctx);
         Suites.RoomEnvironmentPreviewSuite.Run(ctx);
         Suites.SuiteEditorSuite.Run(ctx);
         Suites.TwoDPipelineSuite.Run(ctx);
         Suites.TwoDShowcaseSuite.Run(ctx);
         Suites.MushroomMeadowExportSuite.Run(ctx);
+        Suites.VerdantHollowExportSuite.Run(ctx);
+        Suites.GameExportEvidenceSuite.Run(ctx);
+        Suites.GameExportPublishingSuite.Run(ctx);
         Suites.TextRenderingSuite.Run(ctx);
         Suites.LuigisMansionSuite.Run(ctx);
 
@@ -1113,6 +1134,12 @@ internal static class HeadlessTestRunner
             case "judge-core":
                 Suites.ReadinessJudgeSuite.Run(ctx);
                 break;
+            case "readback-alpha":
+                Suites.ReadbackAlphaSuite.Run(ctx);
+                break;
+            case "character-motor-runtime":
+                Suites.CharacterMotorRuntimeSuite.Run(ctx);
+                break;
             case "code-assistance":
                 Suites.CodeAssistanceSuite.Run(ctx);
                 break;
@@ -1145,7 +1172,7 @@ internal static class HeadlessTestRunner
             case "qol":
             case "quality-of-life":
                 ctx.StudioServices = new StudioServices(
-                    new SettingsService(),
+                    new SettingsService(Path.Combine(ctx.OutputRoot, "UserData", "preferences.json")),
                     new ProjectService(),
                     new ProjectValidator(),
                     new StudioLog(Path.Combine(ctx.Logs, "focused-qol-studio.log")));
@@ -1163,6 +1190,80 @@ internal static class HeadlessTestRunner
             case "suite-editors":
                 PrepareFocusedProject(ctx, requireStudioServices: true);
                 Suites.SuiteEditorSuite.Run(ctx);
+                break;
+            case "suite-terrain-library":
+                PrepareFocusedProject(ctx, requireStudioServices: true);
+                Suites.SuiteEditorSuite.Run(ctx, focusedPrefix: "Editor.Suite.TerrainEntity.");
+                break;
+            case "terrain-parts-runtime":
+                PrepareFocusedProject(ctx, requireStudioServices: true);
+                Suites.TerrainPartRuntimeSuite.Run(ctx);
+                break;
+            case "pathing-3d":
+            case "pathing-3d-export":
+                PrepareFocusedProject(ctx, requireStudioServices: true);
+                Suites.PathingThreeDWorkflowSuite.Run(ctx, export: normalized == "pathing-3d-export");
+                break;
+            case "model-image":
+                PrepareFocusedProject(ctx, requireStudioServices: true);
+                Suites.ModelImageWorkflowSuite.Run(ctx);
+                break;
+            case "model-texture-paint":
+                PrepareFocusedProject(ctx, requireStudioServices: true);
+                Suites.ModelTexturePaintingSuite.Run(ctx);
+                break;
+            case "opengl-compat":
+                Suites.OpenGlCompatibilitySuite.Run(ctx);
+                break;
+            case "model-profile":
+                PrepareFocusedProject(ctx, requireStudioServices: true);
+                Suites.ModelProfileWorkflowSuite.Run(ctx);
+                break;
+            case "model-tube":
+                PrepareFocusedProject(ctx, requireStudioServices: true);
+                Suites.ModelTubeWorkflowSuite.Run(ctx);
+                break;
+            case "model-push-pull":
+                PrepareFocusedProject(ctx, requireStudioServices: true);
+                Suites.ModelPushPullWorkflowSuite.Run(ctx);
+                break;
+            case "room-camera-list":
+                PrepareFocusedProject(ctx, requireStudioServices: true);
+                Suites.RoomCameraListSuite.Run(ctx);
+                Suites.SuiteEditorSuite.Run(ctx, focusedPrefix: "Editor.Suite.Room.CameraFrustumOverlay");
+                break;
+            case "room-physics-overlay":
+                PrepareFocusedProject(ctx, requireStudioServices: true);
+                Suites.RoomPhysicsOverlaySuite.Run(ctx);
+                break;
+            case "physics-model":
+                PrepareFocusedProject(ctx, requireStudioServices: true);
+                Suites.PhysicsModelWorkflowSuite.Run(ctx);
+                break;
+            case "physics-damping":
+                PrepareFocusedProject(ctx, requireStudioServices: true);
+                Suites.PhysicsDampingRuntimeSuite.Run(ctx);
+                break;
+            case "physics-model-export":
+                PrepareFocusedProject(ctx, requireStudioServices: true);
+                Suites.PhysicsModelWorkflowSuite.Run(ctx);
+                Suites.PhysicsModelExportSuite.Run(ctx);
+                break;
+            case "terrain-material-runtime":
+                PrepareFocusedProject(ctx, requireStudioServices: true);
+                Suites.TerrainMaterialRuntimeSuite.Run(ctx);
+                break;
+            case "model-collider-runtime":
+                PrepareFocusedProject(ctx, requireStudioServices: true);
+                Suites.ModelColliderRuntimeSuite.Run(ctx);
+                break;
+            case "suite-terrain":
+                PrepareFocusedProject(ctx, requireStudioServices: true);
+                Suites.SuiteEditorSuite.Run(ctx, focusedPrefix: "Editor.Suite.Terrain.");
+                break;
+            case "suite-room-terrain":
+                PrepareFocusedProject(ctx, requireStudioServices: true);
+                Suites.SuiteEditorSuite.Run(ctx, focusedPrefix: "Editor.Suite.Room.PlaceTerrain3DOnly");
                 break;
             case "suite-2d":
                 PrepareFocusedProject(ctx, requireStudioServices: true);
@@ -1233,6 +1334,9 @@ internal static class HeadlessTestRunner
             case "room-environment-preview":
                 Suites.RoomEnvironmentPreviewSuite.Run(ctx);
                 break;
+            case "fog-noise-runtime":
+                Suites.FogNoiseRuntimeSuite.Run(ctx);
+                break;
             case "room-surface-placement":
                 Suites.RoomSurfacePlacementSuite.Run(ctx);
                 break;
@@ -1248,6 +1352,10 @@ internal static class HeadlessTestRunner
                 PrepareFocusedProject(ctx, requireStudioServices: false);
                 Suites.ModelEditorResetSuite.Run(ctx);
                 Suites.ModelPoseWorkflowSuite.Run(ctx);
+                break;
+            case "model-refinement":
+                PrepareFocusedProject(ctx, requireStudioServices: true);
+                Suites.ModelRefinementSuite.Run(ctx);
                 break;
             case "model-system":
                 PrepareFocusedProject(ctx, requireStudioServices: true);
@@ -1297,6 +1405,17 @@ internal static class HeadlessTestRunner
             case "mushroom-export":
                 Suites.MushroomMeadowExportSuite.Run(ctx);
                 break;
+            case "game-exports":
+                Suites.MushroomMeadowExportSuite.Run(ctx);
+                Suites.VerdantHollowExportSuite.Run(ctx);
+                Suites.GameExportEvidenceSuite.Run(ctx);
+                break;
+            case "export-publishing":
+                Suites.GameExportPublishingSuite.Run(ctx);
+                break;
+            case "verdant-export":
+                Suites.VerdantHollowExportSuite.Run(ctx);
+                break;
             case "text-rendering":
                 Suites.TextRenderingSuite.Run(ctx);
                 break;
@@ -1328,7 +1447,7 @@ internal static class HeadlessTestRunner
         if (requireStudioServices)
         {
             ctx.StudioServices = new StudioServices(
-                new SettingsService(),
+                new SettingsService(Path.Combine(ctx.OutputRoot, "UserData", "preferences.json")),
                 projects,
                 new ProjectValidator(),
                 new StudioLog(Path.Combine(ctx.Logs, "focused-studio.log")));

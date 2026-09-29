@@ -58,6 +58,8 @@ namespace Genesis.Runtime.Scripting
         public virtual void OnInputEvents() { }
         public virtual void OnStepEnd(float dt) { }
         public virtual void OnCollision(Entity other) { }
+        public virtual void OnCollisionEnter(Entity other) { }
+        public virtual void OnCollisionExit(Entity other) { }
         public virtual void OnRoomEnd() { }
         public virtual void OnGameEnd() { }
         public virtual void OnDestroy() { }

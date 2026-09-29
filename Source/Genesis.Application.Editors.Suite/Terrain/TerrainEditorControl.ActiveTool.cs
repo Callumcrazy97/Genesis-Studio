@@ -6,40 +6,37 @@ namespace Genesis.Application.Editors.Suite.Terrain;
 public sealed partial class TerrainEditorControl
 {
     private Label? _activeToolName;
-    private Panel? _activeBrushSettings;
-    private Panel? _activeToolCard;
+    private readonly List<ComboBox> _brushFalloffPickers = [];
     private bool _selectionDrawing;
     private readonly List<Vector2> _paintSelection = [];
     public string BrushFalloff { get; set; } = "Smooth";
 
     private void InstallActiveToolCard()
     {
-        _contextHeader.Visible = false;
-        _activeToolCard = new Panel { Dock = DockStyle.Top, Height = 196, Padding = new Padding(8), BackColor = ReferenceSurface };
-        _activeToolName = new Label { Dock = DockStyle.Top, Height = 52, Font = EditorChrome.BaseFont, ForeColor = Color.WhiteSmoke,
-            Text = "CURRENT TOOL\nSelect: Terrain", AutoEllipsis = true, Padding = new Padding(4) };
-        _activeBrushSettings = new Panel { Dock = DockStyle.Top, Height = 136 };
-        var radius = MakeSlider(2, 40, _radiusSlider.Value);
-        var strength = MakeSlider(1, 100, _strengthSlider.Value);
-        radius.ValueChanged += (_, _) => _radiusSlider.Value = radius.Value;
-        strength.ValueChanged += (_, _) => _strengthSlider.Value = strength.Value;
-        _radiusSlider.ValueChanged += (_, _) => radius.Value = _radiusSlider.Value;
-        _strengthSlider.ValueChanged += (_, _) => strength.Value = _strengthSlider.Value;
-        var radiusRow = MakeSliderPanel("Radius", radius); radiusRow.Dock = DockStyle.Top; radiusRow.Height = 46;
-        var strengthRow = MakeSliderPanel("Strength / Opacity", strength); strengthRow.Dock = DockStyle.Top; strengthRow.Height = 46;
-        var falloff = new ComboBox { Dock = DockStyle.Top, DropDownStyle = ComboBoxStyle.DropDownList, AccessibleName = "Brush falloff" };
-        falloff.Items.AddRange(["Smooth falloff", "Linear falloff", "Hard edge"]); falloff.SelectedIndex = 0;
-        falloff.SelectedIndexChanged += (_, _) => BrushFalloff = new[] { "Smooth", "Linear", "Hard" }[falloff.SelectedIndex];
-        EditorChrome.StyleField(falloff);
-        _activeBrushSettings.Controls.Add(falloff); _activeBrushSettings.Controls.Add(strengthRow); _activeBrushSettings.Controls.Add(radiusRow);
-        _activeToolCard.Controls.Add(_activeBrushSettings); _activeToolCard.Controls.Add(_activeToolName);
-        _toolPanel.Controls.Add(_activeToolCard); _activeToolCard.SendToBack();
+        _activeToolName = new Label { Dock = DockStyle.Top, Font = EditorChrome.SmallFont, ForeColor = EditorChrome.Muted,
+            Text = "Select: Terrain", Padding = new Padding(8, 6, 8, 6), BackColor = ReferenceSurface };
+        _toolPanel.Controls.Add(_activeToolName);
+        _activeToolName.SendToBack();
+        foreach (string mode in new[] { nameof(TerrainEditorMode.Sculpt), nameof(TerrainEditorMode.Paint) })
+        {
+            FlowLayoutPanel page = _modeHost.Controls.OfType<FlowLayoutPanel>().Single(panel => panel.Name == "TerrainMode" + mode);
+            ComboBox falloff = new UiKit.ThemedComboBox { DropDownStyle = ComboBoxStyle.DropDownList, AccessibleName = "Brush falloff" };
+            falloff.Items.AddRange(["Smooth falloff", "Linear falloff", "Hard edge"]); falloff.SelectedIndex = 0;
+            falloff.SelectedIndexChanged += (_, _) =>
+            {
+                BrushFalloff = new[] { "Smooth", "Linear", "Hard" }[falloff.SelectedIndex];
+                foreach (ComboBox other in _brushFalloffPickers) other.SelectedIndex = falloff.SelectedIndex;
+            };
+            EditorChrome.StyleField(falloff);
+            _brushFalloffPickers.Add(falloff);
+            page.Controls.Add(falloff);
+        }
         Disposed += (_, _) => { _createMenu?.Dispose(); _terrainGhost.InvalidateAssets(_viewport.Host.Renderer); };
     }
 
     private void RefreshActiveToolCard()
     {
-        if (_activeToolName is null || _activeToolCard is null || _activeBrushSettings is null) return;
+        if (_activeToolName is null) return;
         string asset = SelectedPlacedEntity() is { } placed ? TryLoadEntityDocument(ResolveEntityFullPath(placed.Entity))?.Name ?? "Entity" : "Terrain";
         string tool = _pendingTerrain is { } terrain ? "Place: " + terrain.Recipe.Name : _placementEntityPath is { } path ? "Place: " + (TryLoadEntityDocument(path)?.Name ?? ResourceDisplayName.Format(path))
             : _drawingSection is { } drawing ? (_selectionDrawing ? "Select: " : "Create: ") + drawing
@@ -47,12 +44,9 @@ public sealed partial class TerrainEditorControl
             : ActiveMode == TerrainEditorMode.Paint ? "Paint: " + _settings.Layers[Math.Clamp(SelectedLayer, 0, _settings.Layers.Count - 1)].Name
             : ActiveMode == TerrainEditorMode.Foliage && !_foliageBrushArmed ? "Foliage: Choose an asset"
             : ModeCaption(ActiveMode) + ": " + asset;
-        _activeToolName.Text = "CURRENT TOOL\n" + tool;
-        _activeBrushSettings.Visible = ActiveMode is TerrainEditorMode.Sculpt or TerrainEditorMode.Paint
-            || ActiveMode == TerrainEditorMode.Foliage && _foliageBrushArmed;
-        _activeToolCard.Height = _activeBrushSettings.Visible ? 202 : 68;
+        _activeToolName.Text = tool;
+        ApplyInterfaceLayout();
     }
-
     private void ActivateSelectTool()
     {
         _placementEntityPath = null; SetMode(TerrainEditorMode.Select); RefreshActiveToolCard();

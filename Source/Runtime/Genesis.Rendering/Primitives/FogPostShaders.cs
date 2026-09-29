@@ -309,7 +309,8 @@ float FogDensityAt(float3 worldPos)
 {
     float fogDensity = FogParams.w;
     float noiseStr   = EffectParams.w;
-    float noiseAmp   = noiseStr * saturate(fogDensity / 0.004);
+    // Noise strength is a fraction of authored density, not another density in world units.
+    float noiseAmp   = saturate(noiseStr) * fogDensity;
     float density    = fogDensity + (NoiseXZ(worldPos.xz) - 0.5) * noiseAmp;
 
     float heightBase    = FogParams2.x;

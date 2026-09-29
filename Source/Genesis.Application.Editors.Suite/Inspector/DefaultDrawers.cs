@@ -236,6 +236,15 @@ public sealed class RangedNumericDrawer : IPropertyDrawer
         };
         row.Controls.Add(slider, 0, 0);
         row.Controls.Add(number, 1, 0);
+        void FitNumber()
+        {
+            string format = "F" + number.DecimalPlaces;
+            int width = Math.Max(TextRenderer.MeasureText(minimum.ToString(format), number.Font).Width,
+                TextRenderer.MeasureText(maximum.ToString(format), number.Font).Width);
+            row.ColumnStyles[1].Width = Math.Max(86, width + SystemInformation.VerticalScrollBarWidth + 12);
+        }
+        number.FontChanged += (_, _) => FitNumber();
+        FitNumber();
         return row;
     }
 

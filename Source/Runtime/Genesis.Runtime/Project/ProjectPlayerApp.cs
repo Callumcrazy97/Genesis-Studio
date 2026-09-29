@@ -69,6 +69,23 @@ namespace Genesis.Runtime.Project
                     ? Path.GetFullPath(args[acceptanceIndex + 1]) : null;
                 if (acceptanceIndex >= 0 && acceptanceOutput == null)
                     throw new ArgumentException("--acceptance-meadow requires an evidence directory.");
+                int verdantIndex = Array.IndexOf(args, "--acceptance-verdant");
+                string verdantOutput = verdantIndex >= 0 && verdantIndex + 1 < args.Length
+                    ? Path.GetFullPath(args[verdantIndex + 1]) : null;
+                if (verdantIndex >= 0 && verdantOutput == null)
+                    throw new ArgumentException("--acceptance-verdant requires an evidence directory.");
+                int pathingIndex = Array.IndexOf(args, "--acceptance-pathing");
+                string pathingOutput = pathingIndex >= 0 && pathingIndex + 1 < args.Length
+                    ? Path.GetFullPath(args[pathingIndex + 1]) : null;
+                if (pathingIndex >= 0 && pathingOutput == null)
+                    throw new ArgumentException("--acceptance-pathing requires an evidence directory.");
+                int physicsIndex = Array.IndexOf(args, "--acceptance-physics-model");
+                string physicsOutput = physicsIndex >= 0 && physicsIndex + 1 < args.Length
+                    ? Path.GetFullPath(args[physicsIndex + 1]) : null;
+                if (physicsIndex >= 0 && physicsOutput == null)
+                    throw new ArgumentException("--acceptance-physics-model requires an evidence directory.");
+                if (new[] { acceptanceOutput, verdantOutput, pathingOutput, physicsOutput }.Count(value => value != null) > 1)
+                    throw new ArgumentException("Choose one acceptance driver per run.");
                 PgslProfiler.Reset();
                 PgslProfiler.Enabled = debugMode;
 
@@ -216,14 +233,9 @@ namespace Genesis.Runtime.Project
                     Engine.SetNetwork(_activeNet);
                     logger.Line("network system initialised (LiteNetLib)");
 
-                    var builder = new RoomSceneBuilder(projectPath, scriptHost);
                     RoomAsset loaded = RoomAssetLoader.Parse(roomFile);
-                    RoomBuildResult build = builder.Build(scene, loaded);
-                    gameContext.SetRoom(build.Asset);
-                    scriptHost.BeginRoom(beginGame: true);
-
-                    if (RoomTerrainSubsystem.ShouldRegister(loaded))
-                        scene.AddSubsystem(new RoomTerrainSubsystem(projectPath, loaded, gameContext));
+                    RoomBuildResult build = ProjectRoomLoader.Build(projectPath, scene, loaded,
+                        scriptHost, gameContext, beginGame: true);
                     if (RoomEnvironmentAudioSubsystem.ShouldRegister(loaded.Environment))
                         scene.AddSubsystem(new RoomEnvironmentAudioSubsystem(loaded.Environment, gameContext));
 
@@ -235,6 +247,26 @@ namespace Genesis.Runtime.Project
                         var acceptance = scene.AddSubsystem(new MushroomMeadowRuntimeAcceptance(
                             acceptanceOutput, projectPath, gameContext, scriptHost,
                             () => bootSplash.IsComplete, result => { _exitCode = result; RequestStop(); }));
+                        host.EndFrame += acceptance.CaptureFrame;
+                    }
+                    if (verdantOutput != null)
+                    {
+                        var acceptance = scene.AddSubsystem(new VerdantHollowRuntimeAcceptance(
+                            verdantOutput, gameContext, scriptHost,
+                            () => bootSplash.IsComplete, result => { _exitCode = result; RequestStop(); }));
+                        host.EndFrame += acceptance.CaptureFrame;
+                    }
+                    if (pathingOutput != null)
+                    {
+                        var acceptance = scene.AddSubsystem(new PathingRuntimeAcceptance(
+                            pathingOutput, gameContext, scriptHost,
+                            () => bootSplash.IsComplete, result => { _exitCode = result; RequestStop(); }));
+                        host.EndFrame += acceptance.CaptureFrame;
+                    }
+                    if (physicsOutput != null)
+                    {
+                        var acceptance = scene.AddSubsystem(new PhysicsModelRuntimeAcceptance(
+                            physicsOutput, scriptHost, () => bootSplash.IsComplete, result => { _exitCode = result; RequestStop(); }));
                         host.EndFrame += acceptance.CaptureFrame;
                     }
                     scene.AddSubsystem(new ScriptHostSubsystem(scriptHost, () => bootSplash.IsComplete));

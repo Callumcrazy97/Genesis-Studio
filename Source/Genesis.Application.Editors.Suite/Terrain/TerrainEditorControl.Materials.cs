@@ -1,4 +1,6 @@
 using System.Numerics;
+using Genesis.Runtime.Assets;
+using SurfacePixels = Genesis.Runtime.Assets.TerrainSurfaceMaterialPixels;
 using Genesis.Application.Core.Resources;
 using Genesis.Application.Editors.Suite.UiKit;
 using Genesis.Application.Editors.Suite.Inspector;
@@ -8,8 +10,6 @@ namespace Genesis.Application.Editors.Suite.Terrain;
 
 public sealed partial class TerrainEditorControl
 {
-    private sealed record SurfacePixels(int Size, byte[] Color, byte[] Normal, byte[] Orm,
-        List<TerrainLayerDocument> Layers, TerrainImageMaterial?[] Images, float WorldWidth, float WorldHeight);
     private sealed record SurfacePatch(SurfacePixels Surface, Rectangle Area, byte[] Color, byte[] Normal, byte[] Orm);
     private Rectangle _paintDirtyRegion;
     private Task<SurfacePatch>? _paintPreparation;
@@ -17,7 +17,7 @@ public sealed partial class TerrainEditorControl
     private readonly Dictionary<IRenderController, int> _surfaceUploadVersions = [];
     private readonly Dictionary<IRenderController, MeshDrawCall> _surfaceMaterials = [];
     private SurfacePixels? _surfacePixels;
-    private Task<SurfacePixels?>? _materialPreparation;
+    private Task<SurfacePixels>? _materialPreparation;
     private DateTime _nextMaterialCheck;
     private string _materialSignature = "";
     private string _pendingMaterialSignature = "";
@@ -47,7 +47,16 @@ public sealed partial class TerrainEditorControl
     public void OpenLayerMaterial(int index)
     {
         if ((uint)index >= (uint)_settings.Layers.Count) return;
-        using var dialog = new DpiAwareForm { Text = _settings.Layers[index].Name + " · Material", ClientSize = new Size(600, 510),
+        using DpiAwareForm dialog = CreateLayerMaterialDialog(index);
+        dialog.ShowDialog(FindForm());
+        RebuildSelectionInspector();
+    }
+
+    public DpiAwareForm CreateLayerMaterialDialog(int index)
+    {
+        if ((uint)index >= (uint)_settings.Layers.Count) throw new ArgumentOutOfRangeException(nameof(index));
+        var dialog = new DpiAwareForm { Text = _settings.Layers[index].Name + " · Material", ClientSize = new Size(680, 720),
+            MinimumSize = new Size(540, 560), Tag = "font-measured-layout", FormBorderStyle = FormBorderStyle.Sizable,
             StartPosition = FormStartPosition.CenterParent, BackColor = EditorChrome.Surface, ForeColor = EditorChrome.Text };
         var column = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(20) };
         var image = new Button { Text = "Choose Image…", Width = 540, Height = 36 };
@@ -56,9 +65,9 @@ public sealed partial class TerrainEditorControl
         var generate = new Button { Text = "Generate missing PBR maps…", Width = 260, Height = 36 };
         var tiling = new NumericUpDown { Minimum = .1m, Maximum = 128, DecimalPlaces = 1, Value = (decimal)Math.Clamp(_settings.Layers[index].Tiling, .1f, 128), Width = 120 };
         var colour = new Button { Text = "Use colour instead of Image…", Width = 260, Height = 32 };
-        var addressing = new ComboBox { Width = 260, DropDownStyle = ComboBoxStyle.DropDownList };
+        var addressing = new ThemedComboBox { Name = "TerrainLayerAddressing", Width = 260, DropDownStyle = ComboBoxStyle.DropDownList };
         addressing.Items.AddRange(["Repeat", "Clamp", "Tile", "Stretch"]); addressing.SelectedItem = _settings.Layers[index].Addressing;
-        var resolution = new ComboBox { Width = 180, DropDownStyle = ComboBoxStyle.DropDownList };
+        var resolution = new ThemedComboBox { Width = 180, DropDownStyle = ComboBoxStyle.DropDownList };
         resolution.Items.AddRange([256, 512, 1024, 2048]); resolution.SelectedItem = _settings.Layers[index].Resolution;
         void MappingChanged()
         {
@@ -81,7 +90,7 @@ public sealed partial class TerrainEditorControl
         void Refresh()
         {
             string reference = _settings.Layers[index].Image;
-            name.Text = ResourceDisplayName.Format(reference);
+            name.Text = string.IsNullOrWhiteSpace(reference) ? "Colour material · no Image assigned" : ResourceDisplayName.Format(reference);
             status.Text = TerrainImageMaterial.Describe(ProjectRoot, reference); generate.Enabled = !string.IsNullOrWhiteSpace(reference);
         }
         image.Click += (_, _) =>
@@ -107,24 +116,48 @@ public sealed partial class TerrainEditorControl
             new Label { Text = "Addressing (Tile uses metres per tile)", AutoSize = true }, addressing,
             new Label { Text = "Repeat count / tile size", AutoSize = true }, tiling,
             new Label { Text = "Material map resolution", AutoSize = true }, resolution]);
-        dialog.Controls.Add(column); Refresh(); dialog.ShowDialog(FindForm()); RebuildSelectionInspector();
+        column.Controls.Add(new Label { Text = "Changes apply live. Ctrl+Z in Terrain undoes them.", AutoSize = true, ForeColor = EditorChrome.Muted });
+        dialog.Controls.Add(column);
+        Button done = new() { Text = "Done", AutoSize = true, DialogResult = DialogResult.OK };
+        EditorChrome.StyleField(done);
+        FlowLayoutPanel footer = new() { Dock = DockStyle.Bottom, AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(10) };
+        footer.Controls.Add(done); dialog.Controls.Add(footer); dialog.AcceptButton = dialog.CancelButton = done;
+        void Fit()
+        {
+            if (dialog.IsDisposed) return;
+            foreach (Control field in column.Controls)
+            {
+                int width = Math.Max(180, column.ClientSize.Width - column.Padding.Horizontal - SystemInformation.VerticalScrollBarWidth - field.Margin.Horizontal - 8);
+                field.Width = width;
+                if (field is Button button) button.Height = button.Font.Height + 18;
+                if (field is ComboBox combo) combo.ItemHeight = combo.Font.Height + 8;
+                if (field is Label label)
+                {
+                    label.AutoSize = true;
+                    label.MinimumSize = label.MaximumSize = new Size(width, 0);
+                }
+            }
+            done.MinimumSize = new Size(0, done.Font.Height + 18);
+        }
+        dialog.SizeChanged += (_, _) => Fit();
+        dialog.FontChanged += (_, _) => Fit();
+        dialog.Shown += (_, _) => { Fit(); dialog.BeginInvoke((Action)Fit); };
+        Refresh();
+        return dialog;
     }
 
     private void RefreshMaterialTiles()
     {
-        foreach (var (tile, index) in _referenceLayers)
+        if (_paintLayerGrid is null) return;
+        foreach (Button tile in _paintLayerGrid.Controls.OfType<Button>())
         {
-            if (index >= _settings.Layers.Count) continue;
+            int index = (int)tile.Tag!;
             tile.Text = _settings.Layers[index].Name;
-            string? raster = ResolveNamedImageRaster(_settings.Layers[index].Image);
-            if (raster is null)
-            {
-                var bitmap = new Bitmap(96, 64); using var graphics = Graphics.FromImage(bitmap); var c = _settings.Layers[index].Color;
-                graphics.Clear(Color.FromArgb((int)(c[0] * 255), (int)(c[1] * 255), (int)(c[2] * 255)));
-                var old = tile.Image; tile.Image = bitmap; old?.Dispose(); tile.Invalidate(); continue;
-            }
-            try { using var image = new Bitmap(raster); var previous = tile.Image; tile.Image = new Bitmap(image, 96, 64); previous?.Dispose(); tile.Invalidate(); }
-            catch (Exception exception) when (exception is IOException or ArgumentException) { }
+            bool selected = index == SelectedLayer;
+            tile.BackColor = selected ? EditorChrome.Hover : EditorChrome.Raised;
+            tile.FlatAppearance.BorderColor = selected ? EditorChrome.Accent : EditorChrome.Border;
+            tile.FlatAppearance.BorderSize = selected ? 2 : 1;
+            tile.Invalidate();
         }
     }
 
@@ -168,53 +201,12 @@ public sealed partial class TerrainEditorControl
         return string.IsNullOrWhiteSpace(path) || !File.Exists(path) ? 0 : File.GetLastWriteTimeUtc(path).Ticks;
     }
 
-    private SurfacePixels? BakeSurface(List<TerrainLayerDocument> layers, byte[] splats, int width, int height, float worldWidth, float worldHeight)
+    private SurfacePixels BakeSurface(List<TerrainLayerDocument> layers, byte[] splats, int width, int height, float worldWidth, float worldHeight)
     {
-        var images = layers.Select(layer => string.IsNullOrWhiteSpace(layer.Image) ? null : ReduceMaterial(TerrainImageMaterial.Load(ProjectRoot, layer.Image), layer.Resolution)).ToArray();
-        const int size = 2048;
-        byte[] color = new byte[size * size * 4], normal = new byte[color.Length], orm = new byte[color.Length];
-        var surface = new SurfacePixels(size, color, normal, orm, layers, images, worldWidth, worldHeight);
-        BakeSurfaceArea(surface, new Rectangle(0, 0, size, size), splats, width, height, color, normal, orm);
-        return surface;
+        var authored = layers.Select(layer => new TerrainMaterialLayer { Name = layer.Name, Color = (float[])layer.Color.Clone(),
+            Image = layer.Image, Tiling = layer.Tiling, Addressing = layer.Addressing, Resolution = layer.Resolution }).ToList();
+        return TerrainSurfaceMaterialBaker.Bake(ProjectRoot, authored, splats, width, height, worldWidth, worldHeight);
     }
-
-    private static void BakeSurfaceArea(SurfacePixels surface, Rectangle area, byte[] splats, int width, int height,
-        byte[] color, byte[] normal, byte[] orm)
-    {
-        int size = surface.Size;
-        var layers = surface.Layers; var images = surface.Images;
-        float worldWidth = surface.WorldWidth, worldHeight = surface.WorldHeight;
-        for (int y = area.Top; y < area.Bottom; y++)
-        for (int x = area.Left; x < area.Right; x++)
-        {
-            float u = x / (float)(size - 1), v = y / (float)(size - 1);
-            Vector4 weights = Sample(splats, width, height, u, v, false); float total = weights.X + weights.Y + weights.Z + weights.W;
-            weights = total > .00001f ? weights / total : new Vector4(1, 0, 0, 0);
-            Vector3 c = default, n = default, o = default;
-            for (int layer = 0; layer < layers.Count; layer++)
-            {
-                float weight = weights[layer]; if (weight < .0001f) continue;
-                var definition = layers[layer]; var image = images[layer];
-                if (image is null)
-                {
-                    c += new Vector3(definition.Color[0], definition.Color[1], definition.Color[2]) * weight;
-                    n += Vector3.UnitZ * weight; o += new Vector3(1, .72f, 0) * weight; continue;
-                }
-                float su = definition.Addressing == "Stretch" ? u : definition.Addressing == "Tile" ? u * worldWidth / definition.Tiling : u * definition.Tiling;
-                float sv = definition.Addressing == "Stretch" ? v : definition.Addressing == "Tile" ? v * worldHeight / definition.Tiling : v * definition.Tiling;
-                bool repeat = definition.Addressing is "Repeat" or "Tile";
-                Vector4 a = Sample(image.Albedo, image.Width, image.Height, su, sv, repeat);
-                Vector4 b = Sample(image.Normal, image.Width, image.Height, su, sv, repeat);
-                Vector4 d = Sample(image.Orm, image.Width, image.Height, su, sv, repeat);
-                c += new Vector3(a.X, a.Y, a.Z) * weight;
-                n += (new Vector3(b.X, b.Y, b.Z) * 2 - Vector3.One) * weight;
-                o += new Vector3(d.X, d.Y, d.Z) * weight;
-            }
-            int pixel = ((y - area.Top) * area.Width + x - area.Left) * 4;
-            Write(color, pixel, c); Write(normal, pixel, (n.LengthSquared() > .00001f ? Vector3.Normalize(n) : Vector3.UnitZ) * .5f + new Vector3(.5f)); Write(orm, pixel, o);
-        }
-    }
-
     // Brush input invalidates only the affected atlas area. Image loading and full material
     // preparation are independent; neither the inspector nor terrain meshes change for paint.
     private void InvalidatePaint(Rectangle? cells = null)
@@ -259,41 +251,9 @@ public sealed partial class TerrainEditorControl
         {
             int length = area.Width * area.Height * 4;
             var patch = new SurfacePatch(pixels, area, new byte[length], new byte[length], new byte[length]);
-            BakeSurfaceArea(pixels, area, splats, width, height, patch.Color, patch.Normal, patch.Orm);
+            TerrainSurfaceMaterialBaker.BakeArea(pixels, area.X, area.Y, area.Width, area.Height, splats, width, height, patch.Color, patch.Normal, patch.Orm);
             return patch;
         });
-    }
-
-    private static TerrainImageMaterial ReduceMaterial(TerrainImageMaterial image, int resolution)
-    {
-        int width = Math.Min(image.Width, Math.Clamp(resolution, 256, 2048)), height = Math.Min(image.Height, Math.Clamp(resolution, 256, 2048));
-        if (width == image.Width && height == image.Height) return image;
-        byte[] Resize(byte[] source)
-        {
-            var result = new byte[width * height * 4];
-            for (int y = 0; y < height; y++) for (int x = 0; x < width; x++)
-            {
-                var pixel = Sample(source, image.Width, image.Height, x / (float)(width - 1), y / (float)(height - 1), false);
-                int at = (y * width + x) * 4; for (int c = 0; c < 4; c++) result[at + c] = (byte)(pixel[c] * 255);
-            }
-            return result;
-        }
-        return new(width, height, Resize(image.Albedo), Resize(image.Normal), Resize(image.Orm));
-    }
-
-    private static Vector4 Sample(byte[] pixels, int width, int height, float u, float v, bool repeat)
-    {
-        u = repeat ? u - MathF.Floor(u) : Math.Clamp(u, 0, 1); v = repeat ? v - MathF.Floor(v) : Math.Clamp(v, 0, 1);
-        float x = u * (width - 1), y = v * (height - 1); int x0 = (int)x, y0 = (int)y;
-        Vector4 At(int px, int py) { int i = (py * width + px) * 4; return new Vector4(pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]) / 255f; }
-        return Vector4.Lerp(Vector4.Lerp(At(x0, y0), At(Math.Min(x0 + 1, width - 1), y0), x - x0),
-            Vector4.Lerp(At(x0, Math.Min(y0 + 1, height - 1)), At(Math.Min(x0 + 1, width - 1), Math.Min(y0 + 1, height - 1)), x - x0), y - y0);
-    }
-
-    private static void Write(byte[] pixels, int i, Vector3 value)
-    {
-        pixels[i] = (byte)Math.Clamp(value.X * 255, 0, 255); pixels[i + 1] = (byte)Math.Clamp(value.Y * 255, 0, 255);
-        pixels[i + 2] = (byte)Math.Clamp(value.Z * 255, 0, 255); pixels[i + 3] = 255;
     }
 
     private MeshDrawCall? EnsureSurfaceMaterial(IRenderController renderer)
@@ -303,24 +263,19 @@ public sealed partial class TerrainEditorControl
         {
             if (_surfaceUploadVersions.GetValueOrDefault(renderer, -1) != _paintUploadVersion)
             {
-                renderer.UpdateTexture(existing.Texture, pixels.Size, pixels.Size, pixels.Color);
-                renderer.UpdateTexture(existing.NormalMap, pixels.Size, pixels.Size, pixels.Normal);
-                renderer.UpdateTexture(existing.OrmMap, pixels.Size, pixels.Size, pixels.Orm);
+                TerrainSurfaceMaterialBinding.UpdatePaint(renderer, existing, pixels, _terrain.SplatmapData, _terrain.ResolutionX, _terrain.ResolutionZ);
                 _surfaceUploadVersions[renderer] = _paintUploadVersion;
             }
             return existing;
         }
-        var material = new MeshDrawCall { Texture = renderer.CreateTexture(pixels.Size, pixels.Size, pixels.Color),
-            NormalMap = renderer.CreateTexture(pixels.Size, pixels.Size, pixels.Normal), OrmMap = renderer.CreateTexture(pixels.Size, pixels.Size, pixels.Orm),
-            World = Matrix4x4.Identity, Tint = RenderColor.White, Alpha = 1, SurfaceParams = new Vector4(1, 0, 0, 0), DetailParams = new Vector4(0, 0, 0, 1) };
+        var material = TerrainSurfaceMaterialBinding.Create(renderer, pixels, _terrain.SplatmapData, _terrain.ResolutionX, _terrain.ResolutionZ);
         _surfaceMaterials[renderer] = material; _surfaceUploadVersions[renderer] = _paintUploadVersion; return material;
     }
 
     private void ReleaseSurfaceMaterials()
     {
         foreach (var (renderer, material) in _surfaceMaterials)
-            foreach (var texture in new[] { material.Texture, material.NormalMap, material.OrmMap })
-                if (texture.IsValid) renderer.ReleaseTexture(texture);
+            TerrainSurfaceMaterialBinding.Release(renderer, material);
         _surfaceMaterials.Clear();
         _surfaceUploadVersions.Clear();
     }

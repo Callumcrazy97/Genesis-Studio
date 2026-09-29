@@ -100,7 +100,7 @@ namespace Genesis.Runtime.Modeling
             };
         }
 
-        private static Vector3 SkinBindPosition(SkinnedMeshVertex vertex, Matrix4x4[] palette)
+        internal static Vector3 SkinBindPosition(SkinnedMeshVertex vertex, Matrix4x4[] palette)
         {
             if (palette.Length == 0) return vertex.Position;
             Vector3 position = Vector3.Zero;

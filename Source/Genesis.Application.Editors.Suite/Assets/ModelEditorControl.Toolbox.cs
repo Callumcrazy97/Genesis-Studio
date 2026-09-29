@@ -10,7 +10,7 @@ using Genesis.Shared.Interfaces;
 
 namespace Genesis.Application.Editors.Suite.Assets;
 
-public enum ModelAuthoringTool { Brush, Line, Cube, Sphere, Cylinder, SquareFace, CircleFace, TriangleFace, Push, Pull, Smooth, Colouring, Wand, Lasso, Region, BrushSelect, Select }
+public enum ModelAuthoringTool { Brush, Line, Cube, Sphere, Cylinder, SquareFace, CircleFace, TriangleFace, Push, Pull, Smooth, Colouring, Wand, Lasso, Region, BrushSelect, Select, Tube }
 public enum ModelToolPage { Create, Edit, Select, Texture, RigAnimate, Outliner }
 
 public sealed partial class ModelEditorControl
@@ -76,7 +76,7 @@ public sealed partial class ModelEditorControl
         AddPageButton(ModelToolPage.Create, "＋\nCreate", "Create primitive and drawn geometry");
         AddPageButton(ModelToolPage.Edit, "🛠\nEdit", "Edit vertices, edges and faces");
         AddPageButton(ModelToolPage.Select, "⬚\nSelect", "Select mesh elements");
-        AddPageButton(ModelToolPage.Texture, "🎨\nTexture", "Assign PBR textures and paint vertex colour");
+        AddPageButton(ModelToolPage.Texture, "🎨\nTexture", "Paint a linked Image, assign PBR textures or paint vertex colour");
         AddPageButton(ModelToolPage.RigAnimate, "🦴\nRig", "Rig, pose and animate the model");
         AddPageButton(ModelToolPage.Outliner, "☰\nOutliner", "Manage model mesh parts");
 
@@ -124,6 +124,12 @@ public sealed partial class ModelEditorControl
 
     private void BuildCreatePage(FlowLayoutPanel page)
     {
+        CollapsibleSection image = Section(page, "FROM YOUR IMAGE", 80);
+        Button fromImage = Tool("From Image…", OpenImageCreation);
+        fromImage.Name = "ModelCreateFromImage";
+        fromImage.SetBounds(8, 6, 250, 31);
+        image.Content.Controls.Add(fromImage);
+        image.Content.Controls.Add(new Label { Text = "Turn saved pixel art into an editable 3D part.", Location = new Point(8, 44), Size = new Size(250, 30), ForeColor = EditorChrome.Muted });
         _primitivesSection = Section(page, "3D PRIMITIVES", 118);
         (ModelPrimitiveKind Kind, string Name)[] primitives =
         [
@@ -149,7 +155,20 @@ public sealed partial class ModelEditorControl
 
         AddToolGrid(page, "2D FACING SHAPES", ModelAuthoringTool.SquareFace,
             ModelAuthoringTool.CircleFace, ModelAuthoringTool.TriangleFace);
-        AddToolGrid(page, "DRAW GEOMETRY", ModelAuthoringTool.Line);
+        AddToolGrid(page, "DRAW GEOMETRY", ModelAuthoringTool.Line, ModelAuthoringTool.Tube);
+        _tubeSection = Section(page, "DRAW A TUBE", 158);
+        _tubeSection.Visible = false;
+        _tubeWidthInput = Number(.001m, 1000, (decimal)_tubeWidth, value => _tubeWidth = (float)value);
+        _tubeWidthInput.Name = "ModelTubeWidth";
+        _tubeTaperInput = Number(0, 95, (decimal)_tubeTaper * 100, value => _tubeTaper = (float)value / 100);
+        _tubeTaperInput.Name = "ModelTubeTaper"; _tubeTaperInput.DecimalPlaces = 0; _tubeTaperInput.Increment = 5;
+        Field(_tubeSection.Content, "Width (metres)", _tubeWidthInput, 8);
+        Field(_tubeSection.Content, "End taper (%)", _tubeTaperInput, 42);
+        _tubeSection.Content.Controls.Add(new Label
+        {
+            Name = "ModelTubeGuide", Text = "Drag freely on the chosen drawing plane. Release to create a tube. Esc cancels. Move or rotate the finished part. Grid snapping applies to lines and shapes.",
+            Location = new Point(8, 78), Size = new Size(250, 76), ForeColor = EditorChrome.Muted,
+        });
 
         CollapsibleSection placement = Section(page, "DRAWING & SNAPPING", 156);
         CheckBox grid = Check("Snap to Grid", _snapToGrid, value => _snapToGrid = value, 8);
@@ -209,6 +228,12 @@ public sealed partial class ModelEditorControl
 
     private void BuildTexturePage(FlowLayoutPanel page)
     {
+        CollapsibleSection imagePaint = Section(page, "PAINT YOUR IMAGE", 108);
+        Button paintImage = Tool("Paint linked Image…", OpenTexturePainting);
+        paintImage.Name = "ModelPaintLinkedImage"; paintImage.SetBounds(8, 6, 250, 31);
+        imagePaint.Content.Controls.Add(paintImage);
+        imagePaint.Content.Controls.Add(new Label { Text = "Assign an Albedo Image below. Paint on its 2D canvas or on the Model, then Save Image to update gameplay.",
+            Location = new Point(8, 44), Size = new Size(250, 58), ForeColor = EditorChrome.Muted });
         CollapsibleSection material = Section(page, "MATERIAL & PBR", 390);
         _material.SetBounds(8, 7, 166, 28);
         material.Content.Controls.Add(_material);
@@ -254,11 +279,21 @@ public sealed partial class ModelEditorControl
 
     private void BuildRigPage(FlowLayoutPanel page)
     {
-        CollapsibleSection rig = Section(page, "RIG & ANIMATE", 164);
-        Add("Rigging & Binding…", 8, () => { SetMode(ModelEditorMode.Rig); OpenAnimation(0); });
-        Add("Guided Auto-Rig Templates…", 46, OpenAutoRigWizard);
-        Add("Pose Editor…", 84, () => { SetMode(ModelEditorMode.Rig); OpenAnimation(1); });
-        Add("Animation Clips & Timeline…", 122, () => { SetMode(ModelEditorMode.Animate); OpenAnimation(2); });
+        CollapsibleSection rig = Section(page, "RIG → POSE → ANIMATE", 248);
+        rig.Content.Controls.Add(new Label
+        {
+            Text = "1. Create joints and bind them to the mesh.",
+            Location = new Point(8, 8), Size = new Size(250, 36), ForeColor = EditorChrome.Muted,
+        });
+        Add("Draw or edit rig…", 48, () => { SetMode(ModelEditorMode.Rig); OpenAnimation(0); });
+        Add("Fit a ready-made rig…", 86, OpenAutoRigWizard);
+        Add("2. Save poses…", 124, () => { SetMode(ModelEditorMode.Rig); OpenAnimation(1); });
+        Add("3. Build animation…", 162, () => { SetMode(ModelEditorMode.Animate); OpenAnimation(2); });
+        rig.Content.Controls.Add(new Label
+        {
+            Text = "Play saved clips below. Use in game creates an Object with this model and animation.",
+            Location = new Point(8, 202), Size = new Size(250, 42), ForeColor = EditorChrome.Muted,
+        });
         void Add(string caption, int y, Action action)
         {
             Button button = Tool(caption, action);
@@ -325,6 +360,7 @@ public sealed partial class ModelEditorControl
 
     private void ShowToolPage(ModelToolPage page)
     {
+        CancelAuthoringGesture(); FinishStroke();
         CancelPrimitivePlacement();
         CancelPushPull();
         if (_toolPageHost?.ShowMode(page.ToString()) != true) return;
@@ -381,6 +417,7 @@ public sealed partial class ModelEditorControl
     }
     public void SelectTool(ModelAuthoringTool tool)
     {
+        CancelPushPull();
         CancelAuthoringGesture(); FinishStroke(); _tool=tool;
         SetBrush(tool == ModelAuthoringTool.Push ? ModelBrushKind.Carve : tool == ModelAuthoringTool.Smooth ? ModelBrushKind.Smooth : ModelBrushKind.Draw);
         SetMode(tool == ModelAuthoringTool.Colouring ? ModelEditorMode.Paint
@@ -390,18 +427,21 @@ public sealed partial class ModelEditorControl
             : ModelEditorMode.Compose);
         AllowSpin(false);
         foreach (var (kind,button) in _toolButtons) button.BackColor=kind==tool?ImageEditorChrome.Hover:ImageEditorChrome.Raised;
+        foreach (var (mode, button) in _meshGizmoButtons) button.Checked = !IsDrawingTool && !IsPushPullTool && mode == _meshGizmoMode;
         UpdateToolHeader();
     }
 
     private void UpdateToolHeader()
     {
         if (_toolPageHost is null) return;
+        if (_tubeSection is not null) _tubeSection.Visible = _toolPageHost.ActiveMode == nameof(ModelToolPage.Create) && _tool == ModelAuthoringTool.Tube;
         _currentTool.Text = _toolPageHost.ActiveMode switch
         {
             nameof(ModelToolPage.Create) when _pendingPrimitive is { } primitive => $"CREATE\nPlace {PrimitiveName(primitive)}",
-            nameof(ModelToolPage.Create) when _tool is ModelAuthoringTool.Line or ModelAuthoringTool.SquareFace
+            nameof(ModelToolPage.Create) when _tool is ModelAuthoringTool.Line or ModelAuthoringTool.Tube or ModelAuthoringTool.SquareFace
                 or ModelAuthoringTool.CircleFace or ModelAuthoringTool.TriangleFace => "CREATE\n" + ToolName(_tool),
             nameof(ModelToolPage.Create) => "CREATE\nChoose a primitive or drawing tool",
+            nameof(ModelToolPage.Edit) when IsPushPullTool => "EDIT\nPush / Pull · drag up or down on a face",
             nameof(ModelToolPage.Edit) => $"EDIT\nSelect {_elementSelectionMode.ToString().ToLowerInvariant()}",
             nameof(ModelToolPage.Select) => "SELECT\n" + ToolName(_tool),
             nameof(ModelToolPage.Texture) => _tool == ModelAuthoringTool.Colouring ? "TEXTURE\nVertex Paint" : "TEXTURE\nMaterial and vertex colour",
@@ -421,6 +461,7 @@ public sealed partial class ModelEditorControl
         ModelAuthoringTool.Wand => "Wand",
         ModelAuthoringTool.BrushSelect => "Brush Select",
         ModelAuthoringTool.Line => "Line / Strip",
+        ModelAuthoringTool.Tube => "Draw Tube",
         ModelAuthoringTool.Push => "Push / Pull",
         ModelAuthoringTool.Select => "Select Mesh",
         _ => tool.ToString(),
@@ -835,6 +876,7 @@ internal sealed class ModelToolButton(ModelAuthoringTool tool) : Button
         if(tool is ModelAuthoringTool.Sphere or ModelAuthoringTool.CircleFace or ModelAuthoringTool.Lasso)g.DrawEllipse(pen,x-8,6,16,16);
         else if(tool is ModelAuthoringTool.SquareFace or ModelAuthoringTool.Cube or ModelAuthoringTool.Region)g.DrawRectangle(pen,x-8,6,16,16);
         else if(tool==ModelAuthoringTool.TriangleFace)g.DrawPolygon(pen,new PointF[]{new(x,5),new(x+9,23),new(x-9,23)});
+        else if(tool==ModelAuthoringTool.Tube){g.DrawBezier(pen,new PointF(x-9,22),new PointF(x-7,0),new PointF(x+7,28),new PointF(x+9,6));g.DrawBezier(pen,new PointF(x-6,23),new PointF(x-4,3),new PointF(x+10,30),new PointF(x+12,7));}
         else if(tool==ModelAuthoringTool.Cylinder){g.DrawEllipse(pen,x-8,6,16,6);g.DrawLine(pen,x-8,9,x-8,22);g.DrawLine(pen,x+8,9,x+8,22);g.DrawArc(pen,x-8,18,16,6,0,180);}
         else if(tool is ModelAuthoringTool.Push or ModelAuthoringTool.Pull){int sign=tool==ModelAuthoringTool.Pull?-1:1;float y=15+sign*8;g.DrawLine(pen,x,15-sign*8,x,y);g.DrawLines(pen,new PointF[]{new(x-5,y-sign*5),new(x,y),new(x+5,y-sign*5)});}
         else {g.DrawLine(pen,x-8,23,x+8,6);g.DrawLine(pen,x-4,24,x+10,9);}

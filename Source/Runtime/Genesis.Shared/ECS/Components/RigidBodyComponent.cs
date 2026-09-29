@@ -26,6 +26,8 @@ namespace Genesis.Shared.ECS.Components
         public CollisionShape    Shape;
         public PhysicsMotionType Motion;
         public Vector3           Size;
+        /// <summary>Collider center relative to the authored entity origin, in scaled local units.</summary>
+        public Vector3           LocalOffset;
         public float             Mass;
         public float             Weight;
         public float             Friction;
@@ -51,6 +53,10 @@ namespace Genesis.Shared.ECS.Components
         /// disables gravity for bodies created before this field existed.
         /// </summary>
         public float GravityScale;
+
+        /// <summary>Nonnegative per-second velocity decay rates. Zero preserves momentum.</summary>
+        public float LinearDamping;
+        public float AngularDamping;
 
         public bool Collision => (Flags & RigidBodyFlags.Collision) != 0;
         public bool UseGravity => (Flags & RigidBodyFlags.UseGravity) != 0;

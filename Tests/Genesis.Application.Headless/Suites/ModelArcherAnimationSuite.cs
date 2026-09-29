@@ -13,14 +13,17 @@ internal static class ModelArcherAnimationSuite
 {
     public static void Run(HeadlessContext ctx)
     {
-        HeadlessHarness.BeginMajor(ctx.Report, "Editor.Model.ArcherAnimation");
-        HeadlessHarness.RunCase(ctx.Report, "Editor.Model.ArcherAnimation.StandingToCrouched", () =>
+        HeadlessHarness.BeginMajor(ctx.Report, "Editor.Model.AnimationImportPreview");
+        string? externalRoot = Environment.GetEnvironmentVariable("GENESIS_ARCHER_SOURCE");
+        bool external = !string.IsNullOrWhiteSpace(externalRoot);
+        HeadlessHarness.RunCase(ctx.Report, external ? "Editor.Model.ArcherAnimation.StandingToCrouched"
+            : "Editor.Model.Animation.DifferentBindPosesAndPreviewNavigation", () =>
         {
-            string root = Environment.GetEnvironmentVariable("GENESIS_ARCHER_SOURCE")
-                ?? Path.GetFullPath("Ignore/AssetsForGPT/Models/Mixamo/Characters/Archer");
-            string source = Path.Combine(root, "Stand", "Erika Archer.dae");
-            string motion = Path.Combine(root, "Between Poses", "Stand To Crouch", "Standing To Crouched.dae");
-            string path = ctx.Resources!.CreateResource(ctx.Resources.AssetsRoot, ResourceKind.Model, "Archer animation review");
+            (string source, string motion) = external
+                ? (Path.Combine(externalRoot!, "Stand", "Erika Archer.dae"),
+                    Path.Combine(externalRoot!, "Between Poses", "Stand To Crouch", "Standing To Crouched.dae"))
+                : WritePreviewFixture(Path.Combine(ctx.Workspace, "Different bind poses"));
+            string path = ctx.Resources!.CreateResource(ctx.Resources.AssetsRoot, ResourceKind.Model, "Motion preview review");
             using var viewer = new ModelViewerControl(path, ctx.Project!.RootPath);
             viewer.ImportExternalModel(source);
             var donor = ModelMotionImport.ReadDonor(motion);
@@ -40,8 +43,8 @@ internal static class ModelArcherAnimationSuite
                 HeadlessHarness.Assert(deviation < .001f, $"{bone.Name} lost authored local motion (difference {deviation}).");
                 log.Add($"{i} {bone.Name}: maximum local-transform difference {deviation}");
             }
-            HeadlessHarness.Assert(differentDefaultPose && clip.Frames.Count == 20, "Archer fixture no longer exercises different default poses and the full 20-frame clip.");
-            File.WriteAllLines(Path.Combine(ctx.Workspace, "archer-transforms.txt"), log);
+            HeadlessHarness.Assert(differentDefaultPose && clip.Frames.Count == 20, "Motion fixture no longer exercises different default poses and the full 20-frame clip.");
+            File.WriteAllLines(Path.Combine(ctx.Workspace, "motion-preview-transforms.txt"), log);
             var timeline = viewer.Controls.Find("ModelViewerTimeline", true).Single();
             WaitFor(() => Images(timeline).Count >= 12, "Visible front-view previews did not finish rendering: " + timeline.AccessibleDescription);
             foreach (int frame in new[] { 0, clip.Frames.Count / 2, clip.Frames.Count - 1 })
@@ -50,7 +53,7 @@ internal static class ModelArcherAnimationSuite
                 viewer.SetFrame(frame); using var capture = viewer.Viewport.CaptureFrame(5);
                 WaitFor(() => Images(timeline).ContainsKey(frame), "Selected frame preview did not render.");
                 HeadlessHarness.Assert(viewer.Viewport.Camera.Eye == eye, "Thumbnail rendering changed the main camera.");
-                Editor3DInspectionSuite.Capture(ctx, host, $"archer-frame-{frame + 1}");
+                Editor3DInspectionSuite.Capture(ctx, host, $"motion-preview-frame-{frame + 1}");
             }
             HeadlessHarness.Assert(Editor3DInspectionSuite.Difference(Images(timeline)[0], Images(timeline)[19]) > 50, "Standing/crouching previews are blank or identical.");
             viewer.SetFrame(0);
@@ -64,8 +67,11 @@ internal static class ModelArcherAnimationSuite
             viewer.Save();
             using var reopened = new ModelViewerControl(path, ctx.Project.RootPath);
             var saved = reopened.PreviewAsset.Animations.Last();
-            HeadlessHarness.Assert(saved.Frames.Count == 20 && MatrixDistance(saved.Frames[10].LocalBoneTransforms[12], clip.Frames[10].LocalBoneTransforms[12]) < .00001f,
-                "Save/reopen changed corrected Archer motion.");
+            HeadlessHarness.Assert(saved.Frames.Count == 20 && saved.Frames.Zip(clip.Frames).All(pair =>
+                pair.First.LocalBoneTransforms.Length == pair.Second.LocalBoneTransforms.Length
+                && pair.First.LocalBoneTransforms.Zip(pair.Second.LocalBoneTransforms)
+                    .All(transforms => MatrixDistance(transforms.First, transforms.Second) < .00001f)),
+                "Save/reopen changed imported motion.");
         });
         HeadlessHarness.RunCase(ctx.Report, "Editor.Model.FramePreviews.EditorScrollCacheAndClipChanges", () =>
         {
@@ -97,6 +103,27 @@ internal static class ModelArcherAnimationSuite
                 "Background previews modified the editable mesh.");
             Editor3DInspectionSuite.Capture(ctx, host, "model-editor-frame-previews");
         });
+    }
+
+    private static (string Source, string Motion) WritePreviewFixture(string directory)
+    {
+        string source = AnimatedGlbFixture.Write(directory);
+        GModelAsset donor = ModelMotionImport.ReadDonor(source);
+        Matrix4x4[] bind = donor.Rig.Bones.Select(bone => bone.BindLocal).ToArray();
+        donor.Rig.Bones[1].BindLocal = Matrix4x4.CreateRotationZ(.35f) * bind[1];
+        GModelPrimitiveFactory.RebuildInverseBindMatrices(donor.Rig);
+        donor.Animations.Clear();
+        GModelAnimationClip clip = new() { Name = "Fold", Fps = 19, Loop = false };
+        for (int frame = 0; frame < 20; frame++)
+        {
+            Matrix4x4[] pose = (Matrix4x4[])bind.Clone();
+            pose[1] = Matrix4x4.CreateRotationZ(frame / 19f * MathF.PI * .7f) * bind[1];
+            clip.Frames.Add(new GModelAnimationFrame { LocalBoneTransforms = pose });
+        }
+        donor.Animations.Add(clip);
+        string motion = Path.Combine(directory, "Different default pose.gmodel");
+        RuntimeModelStore.Save(motion, donor);
+        return (source, motion);
     }
 
     private static float MatrixDistance(Matrix4x4 a, Matrix4x4 b)

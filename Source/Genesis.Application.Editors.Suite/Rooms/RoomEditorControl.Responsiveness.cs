@@ -153,7 +153,9 @@ public sealed partial class RoomEditorControl
     };
 
     /// <summary>Called by tabs and explicit layer pickers, not by viewport hit tests.</summary>
-    public void ActiveRoomEditContextChanged()
+    public void ActiveRoomEditContextChanged() => ActiveRoomEditContextChanged(preservePlacement: false);
+
+    private void ActiveRoomEditContextChanged(bool preservePlacement)
     {
         if (_navigation is null) return;
         string next = _navigation.CurrentSection + ":" + (_navigation.CurrentSection switch
@@ -166,16 +168,19 @@ public sealed partial class RoomEditorControl
         });
         if (next == _roomEditContext) return;
         _roomEditContext = next;
-        CancelActiveRoomGesture();
-        if (_pendingPlacementPath is not null) CancelPlacement();
+        if (!preservePlacement) CancelActiveRoomGesture();
+        if (!preservePlacement && _pendingPlacementPath is not null) CancelPlacement();
         _activeTileLayer = _navigation.CurrentSection == RoomNavSection.Tilesets
             ? _navigation.TilesetsPanel.ActiveTileLayer : null;
         if (_navigation.CurrentSection == RoomNavSection.Objects)
             _placement.TargetLayerId = _navigation.ObjectsPanel.ActiveObjectLayer?.Id;
         _hover = null;
         if (_selected is not null && !CanRetainNodeSelection(_selected)) SetSelection([]);
-        _transformToolActive = false;
-        ActiveTool = RoomTool.Select;
+        if (!preservePlacement)
+        {
+            _transformToolActive = false;
+            ActiveTool = RoomTool.Select;
+        }
         SyncToolbar();
         QueueRoomUiRefresh();
         _viewport?.Invalidate();

@@ -130,12 +130,8 @@ namespace Genesis.Runtime.Project
             _scriptHost.EndRoom(endGame: false);
             scene.UnloadRoomContent(_scriptHost, KeepSubsystem, preservePersistent: !liveReload);
 
-            _context.SetRoom(room);
-            RoomBuildResult build = new RoomSceneBuilder(_projectPath, _scriptHost).Build(scene, room);
-            _scriptHost.BeginRoom(beginGame: false);
-
-            if (RoomTerrainSubsystem.ShouldRegister(room))
-                scene.AddSubsystem(new RoomTerrainSubsystem(_projectPath, room, _context));
+            RoomBuildResult build = ProjectRoomLoader.Build(_projectPath, scene, room,
+                _scriptHost, _context, beginGame: false);
             if (RoomEnvironmentAudioSubsystem.ShouldRegister(room.Environment))
                 scene.AddSubsystem(new RoomEnvironmentAudioSubsystem(room.Environment, _context));
             scene.AddSubsystem(new ObjectCompositionSubsystem(_projectPath, _context.Audio, room.Dimension == RoomDimension.TwoD));

@@ -51,6 +51,7 @@ namespace Genesis.Audio
             public string Bus = "sfx";
             public AudioAssetSettings Settings = new();
             public IXAudio2SourceVoice? Voice;
+            public AudioSpatialSettings? SpatialOverride;
             public SoundEffect Effect = null!;
         }
 
@@ -224,7 +225,7 @@ namespace Genesis.Audio
         public void SetChannelVolume(AudioChannel channel, float volume)
         {
             if (!channel.IsValid || !_channels.TryGetValue(channel.Id, out ChannelState? state) || state == null) return;
-            state.BaseVolume = Math.Clamp(volume, 0f, 2f);
+            state.BaseVolume = Math.Clamp(volume, 0f, 2f) * state.Settings.Volume;
             ApplySpatial(channel.Id);
         }
 
@@ -243,6 +244,14 @@ namespace Genesis.Audio
                 _listenerForward = Vector3.Normalize(forward);
             foreach (var id in _channels.Keys)
                 ApplySpatial(id);
+        }
+
+        public void SetChannelSpatialSettings(AudioChannel channel, bool spatial, AudioSpatialSettings settings)
+        {
+            if (!channel.IsValid || !_channels.TryGetValue(channel.Id, out ChannelState? state) || state == null) return;
+            state.Spatial = spatial;
+            state.SpatialOverride = settings;
+            ApplySpatial(channel.Id);
         }
 
         public void Update()
@@ -292,7 +301,7 @@ namespace Genesis.Audio
                 // Authored MinDistance / MaxDistance / Falloff, shared with the editor's
                 // audition so the designer hears the curve they are dialling in.
                 float dist = Vector3.Distance(_listenerPos, state.Position);
-                vol *= state.Settings.AttenuationAt(dist);
+                vol *= state.SpatialOverride?.AttenuationAt(dist) ?? state.Settings.AttenuationAt(dist);
             }
 
             try

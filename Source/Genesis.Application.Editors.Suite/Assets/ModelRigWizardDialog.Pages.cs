@@ -27,8 +27,8 @@ public sealed partial class ModelRigWizardDialog
     {
         Heading("ORIENT THE FITTING SPACE");
         Hint("Set the model's up and forward directions. These controls change the fitting reference only.");
-        Row(new Label { Text = "Up", Width = 90 }, Choice(AxisNames, Array.IndexOf(Axes, Setup.Up), i => { Setup.Up = Axes[i]; AlignmentChanged(); }));
-        Row(new Label { Text = "Forward", Width = 90 }, Choice(AxisNames, Array.IndexOf(Axes, Setup.Forward), i => { Setup.Forward = Axes[i]; AlignmentChanged(); }));
+        Row(new Label { Text = "Up", AutoSize = true }, Choice(AxisNames, Array.IndexOf(Axes, Setup.Up), i => { Setup.Up = Axes[i]; AlignmentChanged(); }));
+        Row(new Label { Text = "Forward", AutoSize = true }, Choice(AxisNames, Array.IndexOf(Axes, Setup.Forward), i => { Setup.Forward = Axes[i]; AlignmentChanged(); }));
         Row(ActionButton("Flip forward", () => { Setup.Forward = -Setup.Forward; AlignmentChanged(); GoToStep(1); }),
             ActionButton("Rotate 90°", () => { Setup.Forward = Vector3.Cross(Setup.Up, Setup.Forward); AlignmentChanged(); GoToStep(1); }));
         Number("Ground (along up)", Setup.GroundHeight, -1000000, 1000000, v => { Setup.GroundHeight = v; Setup.OrientationConfirmed = false; InvalidateFit(); }, 4);
@@ -37,6 +37,7 @@ public sealed partial class ModelRigWizardDialog
         Heading("SHAPE DETECTION MESHES");
         Hint("Untick accessories such as weapons, bags or separate clothing. Excluded meshes are kept in the model and bound later.");
         var meshes = new CheckedListBox { Width = 328, Height = 150, CheckOnClick = true, IntegralHeight = false, BackColor = EditorChrome.Canvas, ForeColor = EditorChrome.Text };
+        FitWizardField(meshes, 328);
         for (int i = 0; i < _source.Meshes.Count; i++) meshes.Items.Add($"{i + 1} · {_source.Meshes[i].Name}", !Setup.ExcludedMeshes.Contains(i));
         meshes.ItemCheck += (_, e) => { if (e.NewValue == CheckState.Checked) Setup.ExcludedMeshes.Remove(e.Index); else if (!Setup.ExcludedMeshes.Contains(e.Index)) Setup.ExcludedMeshes.Add(e.Index); InvalidateFit(); };
         _fields.Controls.Add(meshes);
@@ -74,6 +75,7 @@ public sealed partial class ModelRigWizardDialog
             : "Drag a joint to adjust only that joint. Mirroring is optional. Amber entries are suggestions to check. Bend handles set how knees and elbows fold.");
         Row(ActionButton("Front", () => SetView(false)), ActionButton("Side", () => SetView(true)), AsyncButton("Refit unpinned", DetectAsync));
         _landmarks = new ListBox { Name = "RigWizardLandmarks", Width = 328, Height = 220, IntegralHeight = false, BackColor = EditorChrome.Canvas, ForeColor = EditorChrome.Text };
+        FitWizardField(_landmarks, 328);
         foreach (var j in Setup.Joints) _landmarks.Items.Add((j.Issue.Length > 0 && !j.Reviewed ? "! " : j.Pinned ? "● " : "✓ ") + j.Role);
         _landmarks.SelectedIndex = Math.Max(0, Setup.Joints.FindIndex(j => j.Role == _selectedRole));
         _selectedRole = Setup.Joints[_landmarks.SelectedIndex].Role;
@@ -141,6 +143,7 @@ public sealed partial class ModelRigWizardDialog
         }
         var kinds = Enum.GetValues<GModelMotionKind>();
         var choose = new CheckedListBox { Width = 328, Height = 128, CheckOnClick = true, IntegralHeight = false, BackColor = EditorChrome.Canvas, ForeColor = EditorChrome.Text };
+        FitWizardField(choose, 328);
         foreach (var kind in kinds) choose.Items.Add(kind.ToString(), _selectedMotions.Contains(kind));
         choose.ItemCheck += (_, e) => { if (e.NewValue == CheckState.Checked) _selectedMotions.Add(kinds[e.Index]); else _selectedMotions.Remove(kinds[e.Index]); };
         _fields.Controls.Add(choose);
@@ -158,8 +161,6 @@ public sealed partial class ModelRigWizardDialog
         Slider(_controls.Intensity, 0, 1, v => { _controls.Intensity = v; });
         Number("Crouch depth / leg length", _controls.CrouchDepth, 0, .5m, v => _controls.CrouchDepth = v);
         Number("Jump height / leg length", _controls.JumpHeight, 0, .6m, v => _controls.JumpHeight = v);
-        Row(AsyncButton("Preview / generate clips", GenerateSelected));
-        Row(ActionButton("Play", () => _preview.PlayClip(SelectedClip)), ActionButton("Stop", () => _preview.PlayClip(SelectedClip, false)));
         Hint("The root stays fixed. Walk and run use a virtual travel path for foot contacts; it is not saved as root motion.");
     }
     private void Slider(float value, float min, float max, Action<float> changed)

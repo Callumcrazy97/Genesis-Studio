@@ -4,6 +4,11 @@ using Genesis.Shared.Interfaces;
 
 namespace Genesis.Runtime.Scene
 {
+    public interface IPostPhysicsSceneSubsystem
+    {
+        void AfterPhysics(RuntimeScene scene, float fixedDelta);
+    }
+
     public interface ISceneSubsystem : IDisposable
     {
         void Update(Genesis.Runtime.RuntimeScene scene, GameTime time);

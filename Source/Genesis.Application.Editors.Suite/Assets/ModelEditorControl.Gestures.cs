@@ -17,6 +17,9 @@ public sealed partial class ModelEditorControl
     private readonly List<Vector3> _openEdgeChain = [];
     private string _openEdgePlane = "";
     public int SelectedVertexCount=>_selection.Count;
+    private bool IsDrawingTool => _tool is ModelAuthoringTool.Line or ModelAuthoringTool.Tube
+        or ModelAuthoringTool.SquareFace or ModelAuthoringTool.CircleFace or ModelAuthoringTool.TriangleFace
+        or ModelAuthoringTool.Cube or ModelAuthoringTool.Sphere or ModelAuthoringTool.Cylinder;
 
     private bool BeginAuthoringGesture(Point point)
     {
@@ -24,7 +27,7 @@ public sealed partial class ModelEditorControl
         if (_mode is ModelEditorMode.Paint or ModelEditorMode.Sculpt && _tool!=ModelAuthoringTool.Line) return false;
         if (_tool==ModelAuthoringTool.Wand) { SelectConnected(point,ModifierKeys); return true; }
         if (_tool is not (ModelAuthoringTool.Region or ModelAuthoringTool.Lasso or ModelAuthoringTool.BrushSelect
-            or ModelAuthoringTool.Line or ModelAuthoringTool.Cube or ModelAuthoringTool.Sphere or ModelAuthoringTool.Cylinder
+            or ModelAuthoringTool.Line or ModelAuthoringTool.Tube or ModelAuthoringTool.Cube or ModelAuthoringTool.Sphere or ModelAuthoringTool.Cylinder
             or ModelAuthoringTool.SquareFace or ModelAuthoringTool.CircleFace or ModelAuthoringTool.TriangleFace)) return false;
         _gestureStart=_gestureEnd=point;_selectionModifiers=ModifierKeys;_lasso.Clear();_lasso.Add(point);
         _planeStart=Asset.Bounds.Center;
@@ -33,7 +36,9 @@ public sealed partial class ModelEditorControl
             if (TryPickSurface(point,out var surface)) _planeStart=surface;
             if (!PlanePoint(point,_planeStart,out _planeStart)) {Status.Text="Choose a drawing plane facing the camera (XY, XZ or YZ).";return true;}
         }
-        _planeEnd=_planeStart;_gesture=true;Surface.NavigationEnabled=false;Surface.Host.Capture=true;return true;
+        _planeEnd=_planeStart;_gesture=true;Surface.NavigationEnabled=false;Surface.Host.Capture=true;
+        if (_tool == ModelAuthoringTool.Tube) { _tubePoints.Clear(); AddTubePoint(_planeStart); }
+        return true;
     }
     public void PointerMove(Point point,MouseButtons buttons)
     {
@@ -43,7 +48,9 @@ public sealed partial class ModelEditorControl
         if(_gesture && buttons==MouseButtons.Left)
         {
             _gestureEnd=point;if(_tool is ModelAuthoringTool.Lasso or ModelAuthoringTool.BrushSelect && (_lasso.Count==0 || Distance(point,_lasso[^1])>3))_lasso.Add(point);
-            PlanePoint(point,_planeStart,out _planeEnd);Surface.Invalidate(true);
+            PlanePoint(point,_planeStart,out _planeEnd);
+            if (_tool == ModelAuthoringTool.Tube) AddTubePoint(_planeEnd);
+            Surface.Invalidate(true);
         }
         else if (_pushPullActive && buttons == MouseButtons.Left) UpdatePushPull(point);
         else if(_stroke && buttons==MouseButtons.Left)ApplyPointerBrush(point);
@@ -68,20 +75,27 @@ public sealed partial class ModelEditorControl
         if(Distance(_gestureStart,point)<3)return;
         if(_tool==ModelAuthoringTool.Line)
         {
-            PlaceLine(_planeStart, _planeEnd);
+            CreateConnectedEdge(_planeStart, _planeEnd);
             return;
+        }
+        if (_tool == ModelAuthoringTool.Tube)
+        {
+            AddTubePoint(_planeEnd);
+            try { CreateTube(_tubePoints, _tubeWidth, _tubeTaper); }
+            catch (InvalidOperationException ex) { Status.Text = ex.Message; }
+            _tubePoints.Clear(); return;
         }
         PlaceShape(_tool,_planeStart,_planeEnd);
     }
     private static float Distance(Point a,Point b)=>Vector2.Distance(new(a.X,a.Y),new(b.X,b.Y));
-    private void CancelAuthoringGesture(){_gesture=false;_lasso.Clear();Surface.NavigationEnabled=true;Surface.Host.Capture=false;}
+    private void CancelAuthoringGesture(){_gesture=false;_lasso.Clear();_tubePoints.Clear();Surface.NavigationEnabled=true;Surface.Host.Capture=false;}
     private bool PlanePoint(Point point,Vector3 origin,out Vector3 hit)
     {
         var ray=Surface.PickRay(point);Vector3 normal=DrawingPlane switch{"XZ"=>Vector3.UnitY,"YZ"=>Vector3.UnitX,_=>Vector3.UnitZ};
         float denominator=Vector3.Dot(ray.Direction,normal);hit=origin;if(Math.Abs(denominator)<1e-5f)return false;
         float distance=Vector3.Dot(origin-Asset.Pivot.Position-ray.Origin,normal)/denominator;if(distance<=0)return false;
         hit=ray.Origin+ray.Direction*distance+Asset.Pivot.Position;
-        hit = SnapDrawingPoint(hit, origin, point);
+        if (_tool != ModelAuthoringTool.Tube) hit = SnapDrawingPoint(hit, origin, point);
         return true;
     }
 
@@ -201,7 +215,8 @@ public sealed partial class ModelEditorControl
         Vector3 centre=(start+end)*.5f;Vector3 normal=Vector3.Cross(u,v);
         ChangeAsset("Place "+ToolName(tool),()=>
         {
-            int material = NeutralMaterialIndex(); MeshVertex[] vertices;ushort[] indices;
+            bool facingShape = tool is not (ModelAuthoringTool.Cube or ModelAuthoringTool.Sphere or ModelAuthoringTool.Cylinder);
+            int material = NeutralMaterialIndex(doubleSided: facingShape); MeshVertex[] vertices;ushort[] indices;
             if(tool is ModelAuthoringTool.Cube or ModelAuthoringTool.Sphere or ModelAuthoringTool.Cylinder)
             {
                 var primitive=tool==ModelAuthoringTool.Cube?ModelPrimitiveKind.Cube:tool==ModelAuthoringTool.Sphere?ModelPrimitiveKind.Sphere:ModelPrimitiveKind.Cylinder;
@@ -223,42 +238,53 @@ public sealed partial class ModelEditorControl
                     vertices[i]=new MeshVertex{Position=centre+u*q.X*width+v*q.Y*height,Normal=normal,UV=q+new Vector2(.5f),Color=Vector4.One};
                 }
                 ushort[] front=Enumerable.Range(1,count-2).SelectMany(i=>new ushort[]{0,(ushort)i,(ushort)(i+1)}).ToArray();
-                indices=MakeDoubleSided(front);
+                indices=front;
             }
             Asset.Meshes.Add(new GModelMesh{Name=ToolName(tool)+" "+(Asset.Meshes.Count+1),Vertices=vertices,Indices=indices,MaterialIndex=material});
         });
         _selection.Clear();SelectPart(Asset.Meshes.Count-1);
     }
 
-    private void PlaceLine(Vector3 start, Vector3 end)
+    public bool CreateConnectedEdge(Vector3 start, Vector3 end)
     {
+        if (!float.IsFinite(start.LengthSquared()) || !float.IsFinite(end.LengthSquared())) return false;
         Vector3 direction = end - start;
         float length = direction.Length();
-        if (length < .0001f) return;
+        if (length < .0001f) return false;
         Vector3 normal = DrawingPlane switch { "XZ" => Vector3.UnitY, "YZ" => Vector3.UnitX, _ => Vector3.UnitZ };
         Vector3 side = Vector3.Cross(normal, direction);
-        if (side.LengthSquared() < 1e-8f) return;
+        if (side.LengthSquared() < 1e-8f) return false;
         side = Vector3.Normalize(side) * MathF.Max(.0005f, MathF.Min(_gridSnap * .0025f, length * .0015f));
         MeshVertex[] vertices =
         [
             Vertex(start - side, normal, new Vector2(0, 0)), Vertex(start + side, normal, new Vector2(0, 1)),
             Vertex(end + side, normal, new Vector2(1, 1)), Vertex(end - side, normal, new Vector2(1, 0)),
         ];
-        ushort[] indices = MakeDoubleSided([0, 1, 2, 0, 2, 3]);
+        ushort[] indices = [0, 1, 2, 0, 2, 3];
+        Vector3[] beforeChain = [.. _openEdgeChain];
+        string beforePlane = _openEdgePlane;
         IReadOnlyList<Vector3>? closedFace = ExtendEdgeChain(start, end);
+        Vector3[] afterChain = [.. _openEdgeChain];
+        string afterPlane = _openEdgePlane;
+        _openEdgeChain.Clear(); _openEdgeChain.AddRange(beforeChain); _openEdgePlane = beforePlane;
+        GModelMesh? face;
+        try { face = closedFace is null ? null : BuildConnectedFace(closedFace, normal, 0); }
+        catch (InvalidOperationException ex) { Status.Text = ex.Message; return false; }
         ChangeAsset(closedFace is null ? "Create edge" : "Create connected face", () =>
         {
-            int material = NeutralMaterialIndex();
+            _openEdgeChain.Clear(); _openEdgeChain.AddRange(afterChain); _openEdgePlane = afterPlane;
+            int material = NeutralMaterialIndex(doubleSided: true);
             Asset.Meshes.Add(new GModelMesh
             {
                 Name = "Edge " + (Asset.Meshes.Count + 1), Vertices = vertices, Indices = indices, MaterialIndex = material,
             });
-            if (closedFace is not null) Asset.Meshes.Add(BuildConnectedFace(closedFace, normal, material));
+            if (face is not null) { face.MaterialIndex = material; Asset.Meshes.Add(face); }
         });
         SelectPart(Asset.Meshes.Count - 1);
         Status.Text = closedFace is null
             ? "Created thin snapped edge · connect back to the first point to create a face"
             : "Closed edge loop created an opaque untextured face.";
+        return true;
         static MeshVertex Vertex(Vector3 position, Vector3 normal, Vector2 uv) => new() { Position = position, Normal = normal, UV = uv, Color = Vector4.One };
     }
 
@@ -322,13 +348,12 @@ public sealed partial class ModelEditorControl
                 Color = Vector4.One,
             };
         }
-        ushort[] front = Enumerable.Range(1, points.Count - 2)
-            .SelectMany(index => new ushort[] { 0, (ushort)index, (ushort)(index + 1) }).ToArray();
+        ushort[] front = ModelProfileTriangulator.Build(points, u, v, normal);
         return new GModelMesh
         {
             Name = "Face " + (Asset.Meshes.Count + 2),
             Vertices = vertices,
-            Indices = MakeDoubleSided(front),
+            Indices = front,
             MaterialIndex = material,
         };
     }
@@ -349,6 +374,15 @@ public sealed partial class ModelEditorControl
         if(_tool is ModelAuthoringTool.Lasso or ModelAuthoringTool.BrushSelect)
         {for(int i=1;i<_lasso.Count;i++){var a=Surface.ControlToSurface(_lasso[i-1]);var b=Surface.ControlToSurface(_lasso[i]);renderer.DrawLine(a.X,a.Y,b.X,b.Y,colour,1);}return;}
         if(_tool==ModelAuthoringTool.Line){renderer.DrawLine(start.X,start.Y,end.X,end.Y,colour,2);return;}
+        if (_tool == ModelAuthoringTool.Tube)
+        {
+            for (int i = 1; i < _tubePoints.Count; i++)
+            {
+                var a = Surface.WorldToSurface(_tubePoints[i - 1] - Asset.Pivot.Position); var b = Surface.WorldToSurface(_tubePoints[i] - Asset.Pivot.Position);
+                renderer.DrawLine(a.X, a.Y, b.X, b.Y, colour, 3);
+            }
+            return;
+        }
         if(_tool==ModelAuthoringTool.Region){renderer.DrawRect(Math.Min(start.X,end.X),Math.Min(start.Y,end.Y),Math.Abs(start.X-end.X),Math.Abs(start.Y-end.Y),colour,false,-9500);return;}
         Vector3 u=DrawingPlane=="YZ"?Vector3.UnitY:Vector3.UnitX,v=DrawingPlane=="XY"?Vector3.UnitY:Vector3.UnitZ;
         Vector3 corner=_planeStart+u*Vector3.Dot(_planeEnd-_planeStart,u);Vector3 other=_planeStart+v*Vector3.Dot(_planeEnd-_planeStart,v);

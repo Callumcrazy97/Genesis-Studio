@@ -26,6 +26,7 @@ namespace Genesis.Rendering.Software
             public byte[] Pixels;
             public float[] Depth;
             public GpuFormat Format;
+            public bool RenderTarget;
         }
 
         private sealed class RenderTargetData
@@ -39,6 +40,7 @@ namespace Genesis.Rendering.Software
 
         private readonly Dictionary<int, BufferData> _buffers = new();
         private readonly Dictionary<int, TextureData> _textures = new();
+        private readonly Dictionary<int, GpuSamplerDesc> _samplers = new();
         private readonly Dictionary<int, RenderTargetData> _renderTargets = new();
         private readonly Dictionary<int, GpuVertexLayoutDesc> _vertexLayouts = new();
         private readonly Dictionary<int, GpuShaderProgramDesc> _programs = new();
@@ -55,6 +57,7 @@ namespace Genesis.Rendering.Software
         private readonly GpuBufferHandle[] _psConstantBuffers = new GpuBufferHandle[16];
         private readonly GpuBufferHandle[] _vsStructuredBuffers = new GpuBufferHandle[16];
         private readonly GpuTextureHandle[] _psTextures = new GpuTextureHandle[16];
+        private readonly GpuSamplerHandle[] _psSamplers = new GpuSamplerHandle[4];
 
         private GpuBufferHandle _boundVertexBuffer = GpuBufferHandle.Invalid;
         private int _boundVertexStride = 48;
@@ -289,6 +292,7 @@ namespace Genesis.Rendering.Software
                 Height = desc.Height,
                 ArrayLayers = layers,
                 Format = desc.Format,
+                RenderTarget = (desc.BindFlags & GpuBindFlags.RenderTarget) != 0,
                 Pixels = new byte[Math.Max(byteLen, initialData.Length)]
             };
             if (IsDepthFormat(desc.Format))
@@ -334,8 +338,11 @@ namespace Genesis.Rendering.Software
             _textures.Remove(handle.Id);
         }
 
-        public GpuSamplerHandle CreateSampler(in GpuSamplerDesc desc) => new GpuSamplerHandle(_nextHandle++);
-        public void ReleaseSampler(GpuSamplerHandle handle) { }
+        public GpuSamplerHandle CreateSampler(in GpuSamplerDesc desc)
+        {
+            int id = _nextHandle++; _samplers[id] = desc; return new GpuSamplerHandle(id);
+        }
+        public void ReleaseSampler(GpuSamplerHandle handle) => _samplers.Remove(handle.Id);
 
         public GpuRenderTargetHandle CreateRenderTarget(in GpuRenderTargetDesc desc)
         {
@@ -493,7 +500,11 @@ namespace Genesis.Rendering.Software
                 _vsStructuredBuffers[tRegister] = handle;
         }
 
-        public void SetSampler(GpuShaderStage stage, int sRegister, GpuSamplerHandle handle) { }
+        public void SetSampler(GpuShaderStage stage, int sRegister, GpuSamplerHandle handle)
+        {
+            if (stage == GpuShaderStage.Pixel && sRegister >= 0 && sRegister < _psSamplers.Length)
+                _psSamplers[sRegister] = handle;
+        }
 
         public void SetVertexBuffer(int slot, GpuBufferHandle handle, int stride, int offset = 0)
         {
@@ -636,6 +647,7 @@ namespace Genesis.Rendering.Software
                 TexHeight = albedo?.Height ?? 0,
                 TexArrayLayers = albedo?.ArrayLayers ?? 1,
                 TexFormat = albedo?.Format ?? GpuFormat.R8G8B8A8UNorm,
+                AlbedoSampler = _samplers.GetValueOrDefault(_psSamplers[0].Id),
                 ShadowFarDepth = shadowFar?.Depth,
                 ShadowFarW = shadowFar?.Width ?? 0,
                 ShadowFarH = shadowFar?.Height ?? 0,
@@ -808,6 +820,11 @@ namespace Genesis.Rendering.Software
                 width = tex.Width;
                 height = tex.Height;
                 bgra = (byte[])tex.Pixels.Clone();
+                // Render targets use the rasterizer's BGRA storage; sampled RGBA textures retain
+                // their declared upload order. Normalize only the latter to the readback contract.
+                if (!tex.RenderTarget && tex.Format is GpuFormat.R8G8B8A8UNorm or GpuFormat.R8G8B8A8UNormSrgb)
+                    for (int index = 0; index < bgra.Length; index += 4)
+                        (bgra[index], bgra[index + 2]) = (bgra[index + 2], bgra[index]);
                 return true;
             }
             width = (int)_viewportW;
@@ -821,6 +838,7 @@ namespace Genesis.Rendering.Software
             _activeSwapChain?.Dispose();
             _buffers.Clear();
             _textures.Clear();
+            _samplers.Clear();
             _renderTargets.Clear();
         }
     }

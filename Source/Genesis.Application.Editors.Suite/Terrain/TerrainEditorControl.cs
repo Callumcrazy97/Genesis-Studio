@@ -90,7 +90,7 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
     private FoliageField _foliage;
     private Dictionary<string, HeldFoliageInstance[]> _foliageHeldByWater = new(StringComparer.OrdinalIgnoreCase);
     private readonly EditorViewport3D _viewport;
-    private readonly ListBox _layerListBox;
+    private int _selectedPaintLayer;
     private readonly Label _statusLabel;
     private readonly TrackBar _radiusSlider;
     private readonly TrackBar _strengthSlider;
@@ -167,31 +167,7 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
 
         // ── Responsive command bar ───────────────────────────────────────────────
         EditorCommandBar toolbar = EditorChrome.MakeToolbar();
-        toolbar.Items.Add(EditorDocumentMenuChrome.BuildFileMenu(this,
-        [
-            EditorDocumentMenuChrome.Item("New…", "Create terrain from a preset", OpenCreationWizard),
-            EditorDocumentMenuChrome.Item("Export World Map…", "Bake the current world map", ExportWorldMap),
-        ]));
-        toolbar.Items.Add(EditorDocumentMenuChrome.BuildEditMenu(this));
-        ToolStripMenuItem process = new("Process")
-        {
-            ToolTipText = "Apply deterministic geological processes",
-        };
-        process.DropDownItems.Add("Erode", null, (_, _) => ApplyErosion(8, 0.35f));
-        process.DropDownItems.Add("Terrace", null, (_, _) => ApplyTerracing(0.6f, 12));
-        process.DropDownItems.Add("Carve River", null, (_, _) => CarveRivers(1, 8f));
-        toolbar.Items.Add(EditorDocumentMenuChrome.BuildToolsMenu(
-            "Regenerate the heightfield or apply geological processes",
-            [
-                EditorDocumentMenuChrome.Item("Regenerate", "Regenerate from the current preset and seed", RegenerateFromSeed),
-                EditorDocumentMenuChrome.Item(
-                    "Drop into Water",
-                    "Drop a playable capsule into the selected or first water body using the live collider",
-                    () => DropPlayableIntoWater()),
-                new ToolStripSeparator(),
-                process,
-            ]));
-        toolbar.Items.Add(new ToolStripSeparator());
+        toolbar.Name = "TerrainCommands";
         WireResponsiveChrome(toolbar);
 
         _wireframeButton = EditorChrome.ToolButton("Wireframe", "Toggle wireframe preview", () =>
@@ -278,13 +254,10 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
         BuildTerrainShellPanels(right);
 
         FlowLayoutPanel selectPage = MakeContextPage();
-        selectPage.Controls.Add(MakeContextCaption("Terrain objects"));
-        selectPage.Controls.Add(MakeContextAction("Add object…", "Create a terrain-owned object and assign resources",
-            () => OnEntityCreateRequested(this, TerrainEntityType.Foliage)));
-        selectPage.Controls.Add(MakeContextAction("Frame terrain", "Frame the terrain in the viewport", () => FrameTerrain()));
+        selectPage.Controls.Add(MakeContextCaption("Select and place"));
+        selectPage.Controls.Add(MakeContextAction("Place selected asset", "Choose an available asset on the right, then place it on the terrain", ArmSelectedEntity));
         Label selectHint = MakeContextSummary();
-        selectHint.Height = 110;
-        selectHint.Text = "Select an object in the viewport or the Terrain Wizard. Use its Inspector to move, resize or assign resources.";
+        selectHint.Text = "Choose an asset in Objects and Inspector, then click the terrain to place it. Ctrl keeps placing; Esc cancels. Select a placed object to move it or edit its resources. Drag with the middle mouse button to move the camera; scroll to zoom.";
         selectPage.Controls.Add(selectHint);
         _modeHost.AddMode(nameof(TerrainEditorMode.Select), selectPage);
 
@@ -297,15 +270,18 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
 
         FlowLayoutPanel sculptPage = MakeContextPage();
         sculptPage.Controls.Add(MakeContextCaption("Brush"));
-        FlowLayoutPanel brushRow = new()
+        TableLayoutPanel brushRow = new()
         {
-            AutoSize = false,
-            FlowDirection = FlowDirection.LeftToRight,
+            Name = "TerrainSculptBrushes",
+            AutoSize = true,
+            ColumnCount = 2,
+            RowCount = 3,
             Margin = new Padding(0, 0, 0, 6),
-            WrapContents = true,
             Width = 248,
-            Height = 84,
         };
+        brushRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        brushRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        for (int row = 0; row < 3; row++) brushRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         foreach (TerrainBrush brush in Enum.GetValues<TerrainBrush>().Where(value => value != TerrainBrush.Paint))
         {
             TerrainBrush captured = brush;
@@ -313,11 +289,11 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
                 brush.ToString(),
                 $"Use the {brush.ToString().ToLowerInvariant()} terrain brush",
                 () => { ActiveBrush = captured; SyncToolbar(); });
-            button.Width = 116;
+            button.Dock = DockStyle.Fill;
             button.Height = 34;
             button.Margin = new Padding(0, 0, 6, 4);
             _brushButtons.Add(brush, button);
-            brushRow.Controls.Add(button);
+            brushRow.Controls.Add(button, brushRow.Controls.Count % 2, brushRow.Controls.Count / 2);
         }
 
         sculptPage.Controls.Add(brushRow);
@@ -325,64 +301,20 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
         sculptPage.Controls.Add(MakeSliderPanel("Strength", _strengthSlider));
         _modeHost.AddMode(nameof(TerrainEditorMode.Sculpt), sculptPage);
 
-        _layerListBox = new ListBox
-        {
-            Name = "TerrainPaintLayerList",
-            BackColor = EditorChrome.Surface,
-            BorderStyle = BorderStyle.None,
-            Dock = DockStyle.Top,
-            DrawMode = DrawMode.OwnerDrawFixed,
-            Font = EditorChrome.BaseFont,
-            ForeColor = EditorChrome.Text,
-            ItemHeight = DpiLayout.Scale(this, 86),
-            Height = 180,
-            MultiColumn = true,
-            ColumnWidth = 128,
-        };
-        _layerListBox.DrawItem += DrawLayerItem;
-        foreach (TerrainLayerDocument layer in _settings.Layers)
-        {
-            _layerListBox.Items.Add(layer.Name);
-        }
-
-        if (_layerListBox.Items.Count > 0)
-        {
-            _layerListBox.SelectedIndex = 0;
-        }
-
-        Label hint = new()
-        {
-            AutoSize = false,
-            BackColor = Color.Transparent,
-            Dock = DockStyle.Bottom,
-            Font = EditorChrome.SmallFont,
-            ForeColor = EditorChrome.Muted,
-            Height = 54,
-            Padding = new Padding(10, 4, 8, 4),
-            Text = "Paint targets the selected surface.\nChange navigation in Camera → Control method.",
-        };
-        Panel paintPage = new() { BackColor = EditorChrome.Surface };
-        FlowLayoutPanel paintBrush = MakeContextPage();
-        paintBrush.Dock = DockStyle.Top;
-        paintBrush.Height = 170;
-        Button paintButton = MakeContextAction("Paint Surface", "Paint the selected terrain layer", () =>
-        {
-            ActiveBrush = TerrainBrush.Paint;
-            SyncToolbar();
-        });
-        _brushButtons.Add(TerrainBrush.Paint, paintButton);
-        paintBrush.Controls.Add(paintButton);
+        FlowLayoutPanel paintPage = MakeContextPage();
+        paintPage.Controls.Add(BuildPaintLayerGrid());
         TrackBar paintRadius = MakeSlider(2, 40, _radiusSlider.Value);
         TrackBar paintStrength = MakeSlider(1, 100, _strengthSlider.Value);
         paintRadius.ValueChanged += (_, _) => _radiusSlider.Value = paintRadius.Value;
         paintStrength.ValueChanged += (_, _) => _strengthSlider.Value = paintStrength.Value;
         _radiusSlider.ValueChanged += (_, _) => paintRadius.Value = _radiusSlider.Value;
         _strengthSlider.ValueChanged += (_, _) => paintStrength.Value = _strengthSlider.Value;
-        paintBrush.Controls.Add(MakeSliderPanel("Radius", paintRadius));
-        paintBrush.Controls.Add(MakeSliderPanel("Strength", paintStrength));
-        paintPage.Controls.Add(_layerListBox);
-        paintPage.Controls.Add(hint);
-        paintPage.Controls.Add(paintBrush);
+        paintPage.Controls.Add(MakeSliderPanel("Radius", paintRadius));
+        paintPage.Controls.Add(MakeSliderPanel("Strength", paintStrength));
+        paintPage.Controls.Add(MakeContextAction("Select rectangle", "Drag a rectangle to limit painting to that region", () => BeginPaintSelection(TerrainCreationSource.Region)));
+        paintPage.Controls.Add(MakeContextAction("Select freehand region", "Draw an outline to limit painting", () => BeginPaintSelection(TerrainCreationSource.Lasso)));
+        paintPage.Controls.Add(MakeContextAction("Fill selected layer", "Fill the selected region, or the whole terrain when there is no region", FillPaintSelection));
+        paintPage.Controls.Add(MakeContextAction("Clear region", "Remove the paint selection", () => { _paintSelection.Clear(); _viewport!.Invalidate(); }));
         _modeHost.AddMode(nameof(TerrainEditorMode.Paint), paintPage);
 
         FlowLayoutPanel pathsPage = BuildPathsPage();
@@ -398,9 +330,7 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
         FlowLayoutPanel environmentPage = MakeContextPage();
         _environmentSummary = MakeContextSummary();
         environmentPage.Controls.Add(_environmentSummary);
-        environmentPage.Controls.Add(MakeContextAction("Toggle Wireframe", "Inspect terrain mesh topology", () => _wireframeButton.PerformClick()));
-        environmentPage.Controls.Add(MakeContextAction("Toggle Fog", "Preview authored aerial haze", () => _fogButton.PerformClick()));
-        environmentPage.Controls.Add(MakeContextAction("Export World Map…", "Bake the current world map", ExportWorldMap));
+        environmentPage.Controls.Add(MakeContextAction("Add point of interest", "Mark a named location on the terrain", AddPointOfInterestAtCursor));
         _modeHost.AddMode(nameof(TerrainEditorMode.Environment), environmentPage);
 
         WireEntitiesMode(projectRoot);
@@ -416,13 +346,8 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
             MiddleButtonPans = true,
             WheelInputHandler = MoveObjectWithWheel,
         };
-        float extent = _terrain.ResolutionX * _terrain.CellSize;
-        _viewport.Camera.Target = new Vector3(0f, (_terrain.MinHeight + _terrain.MaxHeight) * 0.18f, 0f);
-        // A sculpting tool's default view needs to read relief and paint colour clearly —
-        // a satellite-height framing (the terrain's full extent away) washes everything into
-        // a near-uniform haze. Frame roughly a third of the terrain instead.
-        _viewport.Camera.Distance = Math.Clamp(extent * 0.34f, 24f, 220f);
         _viewport.Camera.Pitch = -0.5f;
+        FrameTerrain();
         _viewport.DrawScene += DrawTerrainScene;
         _viewport.DrawOverlay += DrawOverlay;
         _viewport.Host.MouseDown += (_, e) => EditorPointerDown(e.Location, e.Button);
@@ -507,7 +432,6 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
                     UpdateStatus();
                 },
             });
-        toolbar.Items.Add(BuildWizardMenu());
         AddTerrainPlayback(toolbar, () =>
         {
             if (!_viewportSession.Clock.Playing && _viewportSession.Clock.Time == 0f)
@@ -525,13 +449,9 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
         InstallReferenceLayout(toolbar, modeRail, right);
 
         RegisterResponsivePanels(right, modeRail);
-        Controls.Add(_viewport);
-        Controls.Add(right);
-        Controls.Add(_toolPanel);
-        Controls.Add(modeRail);
+        BuildTerrainWorkflowHost(right, modeRail);
         Controls.Add(toolbar);
         Controls.Add(_statusLabel);
-        _viewport.BringToFront();
         WireInspectorNotifications();
         SetMode(TerrainEditorMode.Select);
         RefreshComponentsPanel();
@@ -573,6 +493,8 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
         RebuildSelectionInspector();
         NotifyInspectorStateChanged();
         SyncReferencePalette();
+        ShowTerrainAuthoring();
+        if (_narrowLayout) _componentsToggle.Checked = true;
     }
 
     public TerrainAsset Terrain => _terrain;
@@ -599,14 +521,18 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
         }
     }
 
-    public int SelectedLayer => Math.Max(0, _layerListBox.SelectedIndex);
+    public int SelectedLayer => _selectedPaintLayer;
 
-    /// <summary>Programmatically selects the active paint layer (toolbar picker for tests).</summary>
+    /// <summary>Selects the same active layer as the visible paint tiles.</summary>
     public void SelectPaintLayer(int index)
     {
-        if (index >= 0 && index < _layerListBox.Items.Count)
+        if (index >= 0 && index < _settings.Layers.Count)
         {
-            _layerListBox.SelectedIndex = index;
+            _selectedPaintLayer = index;
+            RefreshMaterialTiles();
+            SyncToolbar();
+            RefreshActiveToolCard();
+            UpdateStatus();
         }
     }
 
@@ -1280,6 +1206,7 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
             _foliageHeldByWater = CloneHold(heldByWater);
         _meshDirty = true;
         ResetFoliagePreview();
+        RefreshTerrainSettingsBindings();
     }
 
     private static Dictionary<string, HeldFoliageInstance[]> CloneHold(Dictionary<string, HeldFoliageInstance[]> source)
@@ -1628,6 +1555,7 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
             if (!ShouldDrawNatureComponent(TerrainComponentsPanel.ComponentKind.Path, path.Id)) continue;
 
             MeshHandle mesh = _pathMeshes[i];
+            if (!mesh.IsValid) continue;
             renderer.DrawMesh(new MeshDrawCall
             {
                 Mesh = mesh,
@@ -1709,8 +1637,8 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
         _natureRenderer = renderer;
         foreach (TerrainPathDefinition path in _nature.Paths)
         {
-            MeshData geometry = TerrainPathGeometry.BuildRibbon(path);
-            if (geometry.Vertices is { Length: > 0 }) _pathMeshes.Add(renderer.RegisterMesh(geometry.Vertices, geometry.Indices));
+            MeshData geometry = path.SurfacePainted ? default : TerrainPathGeometry.BuildRibbon(path, _terrain.SampleHeight, MathF.Max(.5f, _terrain.CellSize));
+            _pathMeshes.Add(geometry.Vertices is { Length: > 0 } ? renderer.RegisterMesh(geometry.Vertices, geometry.Indices) : MeshHandle.Invalid);
         }
         foreach (FoliageSpecies species in _foliage.Instances.Select(instance => instance.Species).Distinct())
         {
@@ -1994,7 +1922,7 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
 
     private static Label MakeContextSummary() => new()
     {
-        AutoSize = false,
+        AutoSize = true,
         BackColor = EditorChrome.Raised,
         Font = EditorChrome.SmallFont,
         ForeColor = EditorChrome.Text,
@@ -2006,7 +1934,7 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
 
     private static Label MakeContextCaption(string text) => new()
     {
-        AutoSize = false,
+        AutoSize = true,
         BackColor = Color.Transparent,
         Font = EditorChrome.HeadingFont,
         ForeColor = EditorChrome.Muted,
@@ -2038,6 +1966,7 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
     {
         Panel panel = new()
         {
+            Tag = "TerrainSlider",
             BackColor = Color.Transparent,
             Height = 52,
             Margin = new Padding(0, 0, 0, 5),
@@ -2049,7 +1978,7 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
             Dock = DockStyle.Top,
             Font = EditorChrome.SmallFont,
             ForeColor = EditorChrome.Muted,
-            Height = 20,
+            AutoSize = true,
             Text = caption,
         };
         slider.Dock = DockStyle.Fill;
@@ -2080,29 +2009,6 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
         panel.Controls.Add(combo);
         panel.Controls.Add(label);
         return panel;
-    }
-
-    private void DrawLayerItem(object? sender, DrawItemEventArgs e)
-    {
-        if (e.Index < 0 || e.Index >= _settings.Layers.Count)
-        {
-            return;
-        }
-
-        TerrainLayerDocument layer = _settings.Layers[e.Index];
-        bool selected = (e.State & DrawItemState.Selected) != 0;
-        using SolidBrush back = new(selected ? EditorChrome.Hover : EditorChrome.Surface);
-        e.Graphics.FillRectangle(back, e.Bounds);
-        Color swatch = Color.FromArgb(
-            (int)(Math.Clamp(layer.Color[0], 0f, 1f) * 255f),
-            (int)(Math.Clamp(layer.Color[1], 0f, 1f) * 255f),
-            (int)(Math.Clamp(layer.Color[2], 0f, 1f) * 255f));
-        using SolidBrush swatchBrush = new(swatch);
-        e.Graphics.FillRectangle(swatchBrush, e.Bounds.X + 12, e.Bounds.Y + 8, 96, 48);
-        using Pen border = new(EditorChrome.Border);
-        e.Graphics.DrawRectangle(border, e.Bounds.X + 12, e.Bounds.Y + 8, 96, 48);
-        using SolidBrush text = new(EditorChrome.Text);
-        e.Graphics.DrawString(layer.Name, EditorChrome.SmallFont, text, e.Bounds.X + 12, e.Bounds.Y + 61);
     }
 
     private void SyncToolbar()
@@ -2152,11 +2058,12 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
             TerrainEditorMode.Select => "Select and move objects",
             TerrainEditorMode.Entities => "Add or edit terrain objects",
             TerrainEditorMode.Generate => "Landscape creation",
+            TerrainEditorMode.Environment => "Add or edit landmarks",
             TerrainEditorMode.Water => _waterTool == WaterAuthoringTool.River
                 ? $"River · {_riverDraft.Count} points · width {_riverWidthBox.Value:0.##} · depth {_riverDepthBox.Value:0.##} · carve {(_riverCarveCheck.Checked ? "on" : "off")}"
                 : $"{_waterTool} · {_pendingWaterKind} · level {(_waterLevelSet ? _waterLevel.ToString("0.##") : "—")} · carve {(_carveBasinCheck.Checked ? "on" : "off")}",
             TerrainEditorMode.Foliage => _foliageBrushArmed ? $"{_foliageBrush.Mode} {_foliageBrush.Species} · radius {FoliageBrushRadius:0} · density {FoliageBrushDensity:P0}" : "Choose a plant or tree to place",
-            TerrainEditorMode.Paths => $"{_pathTool} · width {_nature.PathSettings.Width:0.#} · {_nature.PathSettings.Kind}",
+            TerrainEditorMode.Paths => $"{_pathTool} · width {_pathAuthoringSettings.Width:0.#} · {_pathAuthoringSettings.Kind}",
             _ => $"{ActiveBrush} · radius {BrushRadius:0} · strength {BrushStrength:P0}",
         };
         string preview = _viewportSession.Clock.Playing
@@ -2199,7 +2106,6 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
             CloseEntityWizard(trashPending: true);
             _entitiesSplit?.Dispose();
             _creationPanel?.Dispose();
-            _referenceTips.Dispose();
             _foliageScatterPage?.Dispose();
             DisposePhysicsPreview();
             _placedModelPreview.InvalidateAssets();
@@ -2215,7 +2121,6 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
         base.OnChromeChanged();
         _statusLabel.BackColor = EditorChrome.Surface;
         _statusLabel.ForeColor = EditorChrome.Muted;
-        _layerListBox.BackColor = EditorChrome.Surface;
-        _layerListBox.Invalidate();
+        RefreshMaterialTiles();
     }
 }

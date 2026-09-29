@@ -153,7 +153,7 @@ public sealed partial class TerrainEditorControl
             return;
         }
 
-        string relative = ResourceNames.Name(ProjectRoot, resourcePath);
+        string relative = EntityReference(resourcePath);
         if (!_settings.Entities.Contains(relative, StringComparer.OrdinalIgnoreCase))
         {
             _settings.Entities.Add(relative);

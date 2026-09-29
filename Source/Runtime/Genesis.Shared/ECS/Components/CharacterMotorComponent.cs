@@ -29,6 +29,10 @@ public struct CharacterMotorComponent : IComponent
     public bool WasInWater;
     public bool EnteredWater;
     public bool ExitedWater;
+    /// <summary>Runtime jump ascent; distinct from small impulses while settling on terrain.</summary>
+    public bool JumpAscending;
+    public float JumpBufferRemaining;
+    public float GroundGraceRemaining;
 
     public static CharacterMotorComponent Default => new()
     {

@@ -8,7 +8,7 @@ using Silk.NET.OpenGL;
 
 namespace Genesis.Rendering.SilkNet.OpenGL
 {
-    /// <summary>The OpenGL 4.6 core-profile implementation of <see cref="IGpuDevice"/>.</summary>
+    /// <summary>The OpenGL 4.5-or-newer core-profile implementation of <see cref="IGpuDevice"/>.</summary>
     /// <remarks>
     /// <para><b>Clip control does the heavy lifting.</b> Genesis's shaders and projection matrices
     /// are written for Direct3D: depth in 0..1 and the framebuffer origin at the top left. GL
@@ -27,7 +27,9 @@ namespace Genesis.Rendering.SilkNet.OpenGL
     internal sealed unsafe partial class OpenGLGpuDevice : IGpuComputeDevice
     {
         private const int MaxVertexSlots = 4;
-        private const int MaxTextureUnits = 16;
+        // Match the forward material register range, including omni shadows and terrain layers.
+        // Texture units are indexed within GL's combined range; active samplers are checked at link.
+        private const int MaxTextureUnits = 24;
         private const int MaxSamplerRegisters = 4;
         private const int MaxUniformBindings = 8;
 

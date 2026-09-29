@@ -87,16 +87,26 @@ internal static class ModelIntakeSuite
                 using var editor = new ModelEditorControl(path, project.RootPath, role);
                 editor.SetSpin(false); editor.Save();
                 using var host = Host(editor);
-                editor.Viewport.CameraOverrideFactory = () => new EditorCameraOverride(
-                    Matrix4x4.CreateLookAt(new Vector3(0, 0, 4), Vector3.Zero, Vector3.UnitY),
-                    Matrix4x4.CreateOrthographic(4, 4, .1f, 20), new Vector3(0, 0, 4), -Vector3.UnitZ);
+                foreach (int side in new[] { 1, -1 })
                 foreach (var shading in new[] { ModelPreviewShading.Textured, ModelPreviewShading.Untextured })
                 {
+                    Vector3 eye = new(0, 0, side * 4);
+                    editor.Viewport.CameraOverrideFactory = () => new EditorCameraOverride(
+                        Matrix4x4.CreateLookAt(eye, Vector3.Zero, Vector3.UnitY),
+                        Matrix4x4.CreateOrthographic(4, 4, .1f, 20), eye, new Vector3(0, 0, -side));
                     editor.SetShading(shading);
                     using var frame = editor.Viewport.CaptureFrame(8);
                     Assert(frame is not null, "Model viewport did not render.");
-                    Color center = frame!.GetPixel(frame.Width / 2, frame.Height / 2);
-                    Assert(center.G > 80 && center.R < 50, $"{role}/{shading} rendered the cube interior: {center}.");
+                    frame!.Save(Path.Combine(ctx.Captures, $"cube-face-{role}-{shading}-{side}.png"));
+                    // Selection axes cross the centre. Check the face in every quadrant,
+                    // away from its edges and the authoring overlay, from both directions.
+                    foreach (int x in new[] { 3, 5 })
+                    foreach (int y in new[] { 3, 5 })
+                    {
+                        Color face = frame.GetPixel(frame.Width * x / 8, frame.Height * y / 8);
+                        bool exterior = side > 0 ? face.G > 80 && face.R < 50 : face.R > 80 && face.G < 50;
+                        Assert(exterior, $"{role}/{shading}/Z={side} rendered the wrong cube face at {x},{y}: {face}.");
+                    }
                 }
                 editor.SetShading(ModelPreviewShading.Textured);
                 editor.Viewport.CameraOverrideFactory = null; editor.Viewport.Camera.Yaw = MathF.PI - .55f;
@@ -105,6 +115,50 @@ internal static class ModelIntakeSuite
             var runtime = StudioModelResourceLoader.Load(path);
             Assert(runtime.Meshes[0].Indices.SequenceEqual(indices) && runtime.WindingOrder == FrontFaceWindingOverride.Default,
                 "Saving changed geometry winding or silently forced a model override for the runtime.");
+        });
+        HeadlessHarness.RunCase(ctx.Report, "Editor.Model.Intake.FacingShapesRenderWithoutDuplicateFaces", () =>
+        {
+            foreach (string shape in new[] { "Plane", "SquareFace", "CircleFace", "TriangleFace" })
+            {
+                string path = resources.CreateResource(resources.AssetsRoot, ResourceKind.Model, "Two-sided " + shape);
+                using (var author = new ModelEditorControl(path, project.RootPath))
+                {
+                    if (shape == "Plane") author.AddPart(ModelPrimitiveKind.Quad);
+                    else author.PlaceShape(Enum.Parse<ModelAuthoringTool>(shape), new Vector3(-1, -1, 0), new Vector3(1, 1, 0));
+                    var mesh = author.PreviewAsset.Meshes.Single();
+                    int triangles = shape == "TriangleFace" ? 1 : shape == "CircleFace" ? 30 : 2;
+                    Assert(mesh.Indices.Length == triangles * 3 && mesh.Vertices.Length == triangles + 2,
+                        shape + " duplicated its geometry to render both sides.");
+                    var material = author.PreviewAsset.Materials[mesh.MaterialIndex];
+                    Assert(material.DoubleSided && material.AlphaMode == GModelAlphaMode.Opaque,
+                        shape + " did not use an opaque two-sided material.");
+                    material.EmissiveFactor = Vector3.One; material.BaseColor = Vector4.One;
+                    for (int vertex = 0; vertex < mesh.Vertices.Length; vertex++) mesh.Vertices[vertex].Color = new Vector4(0, 1, 0, 1);
+                    author.Save();
+                }
+                using var viewer = new ModelViewerControl(path, project.RootPath);
+                using var host = UnattendedWindowing.NewHost(1280, 820);
+                host.Controls.Add(viewer); ThemeService.Apply(host); UnattendedWindowing.ShowWithoutFocus(host);
+                System.Windows.Forms.Application.DoEvents();
+                Assert(viewer.PreviewAsset.Materials[viewer.PreviewAsset.Meshes[0].MaterialIndex].DoubleSided,
+                    shape + " lost its two-sided material on reopening.");
+                foreach (int side in new[] { 1, -1 })
+                {
+                    Vector3 eye = new(0, 0, side * 4);
+                    viewer.Viewport.CameraOverrideFactory = () => new EditorCameraOverride(
+                        Matrix4x4.CreateLookAt(eye, Vector3.Zero, Vector3.UnitY),
+                        Matrix4x4.CreateOrthographic(4, 4, .1f, 20), eye, new Vector3(0, 0, -side));
+                    using var frame = viewer.Viewport.CaptureFrame(4);
+                    Assert(frame is not null, shape + " did not render.");
+                    frame!.Save(Path.Combine(ctx.Captures, $"two-sided-{shape}-{side}.png"));
+                    foreach (int x in new[] { -1, 1 })
+                    foreach (int y in new[] { -1, 1 })
+                    {
+                        Color face = frame.GetPixel(frame.Width / 2 + x * frame.Width / 32, frame.Height / 2 + y * frame.Height / 32);
+                        Assert(face.G > 80 && face.R < 50, $"{shape}/Z={side} lost its visible face: {face}.");
+                    }
+                }
+            }
         });
         HeadlessHarness.RunCase(ctx.Report, "Editor.Model.Intake.WindingPreferenceMigration", () =>
         {

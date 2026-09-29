@@ -3,16 +3,19 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using Genesis.Application.Core.Resources;
 using Genesis.Application.Editors.Suite.Inspector;
+using Genesis.Application.Editors.Suite.Scripts;
+using Genesis.Application.Editors.Suite.UiKit;
 
 namespace Genesis.Application.Editors.Suite.Terrain;
 
-public sealed partial class TerrainSourceWizard : Form
+public sealed partial class TerrainSourceWizard : DpiAwareForm
 {
     private readonly TextBox _name = new() { Text = "Terrain section" };
     private readonly TextBox _image = new() { ReadOnly = true };
-    private readonly RichTextBox _code = new() { AcceptsTab = true, WordWrap = false, Font = new Font("Consolas", 10), Height = 250 };
-    private readonly ComboBox _source = new() { DropDownStyle = ComboBoxStyle.DropDownList };
-    private readonly ComboBox _surface = new() { DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly CodeEditor _code = new() { Name = "TerrainRecipeCode", Height = 300 };
+    public CodeEditor Code => _code;
+    private readonly ComboBox _source = new ThemedComboBox();
+    private readonly ComboBox _surface = new ThemedComboBox();
     private readonly NumericUpDown _width = Number(1,100000,1000), _length = Number(1,100000,1000), _spacing = Number(.1m,10000,8);
     private readonly NumericUpDown _min = Number(-100000,100000,-100), _max = Number(-100000,100000,200), _seed = Number(0,int.MaxValue,1337);
     private readonly PictureBox _preview = new() { Dock = DockStyle.Fill, SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.FromArgb(23,28,34) };
@@ -20,45 +23,60 @@ public sealed partial class TerrainSourceWizard : Form
     private readonly Button _generate = new() { Text = "Generate preview", AutoSize = true, Height = 36 }, _apply = new() { Text = "Create section", AutoSize = true, Height = 36, Enabled = false };
     private CancellationTokenSource? _generation;
     private int _revision;
+    private Action? _fitWizard;
+    public override void ApplyInterfaceLayout() => _fitWizard?.Invoke();
     public TerrainCreationResult? Result { get; private set; }
     public TerrainSourceWizard(TerrainCreationRecipe recipe, string projectRoot)
     {
-        Text = "Create terrain · Heightmap / Code"; ClientSize = new Size(1050,740); MinimumSize = new Size(900,640);
+        Text = "Create terrain · Heightmap / Code"; ClientSize = new Size(1400,820); MinimumSize = new Size(960,680);
         StartPosition = FormStartPosition.CenterParent; BackColor = EditorChrome.Canvas; ForeColor = EditorChrome.Text;
-        Font = EditorChrome.BaseFont; MinimizeBox = false; ShowInTaskbar = false;
-        var footer = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 58, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(10), BackColor = EditorChrome.Surface };
+        Font = EditorChrome.BaseFont; MinimizeBox = false; ShowInTaskbar = false; Tag = "font-measured-layout";
+        var footer = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(10), BackColor = EditorChrome.Surface };
         var cancel = new Button { Text = "Cancel", AutoSize = true, Height = 36 };
         footer.Controls.AddRange([cancel,_apply,_generate]); cancel.Click += (_,_)=>Close();
-        var split = new SplitContainer { Dock = DockStyle.Fill, Size = new Size(1050,680), FixedPanel = FixedPanel.Panel1, SplitterDistance = 410, Panel1MinSize = 370, Panel2MinSize = 300 };
+        var split = new SplitContainer { Dock = DockStyle.Fill, Size = new Size(1400,750), SplitterDistance = 760, Panel1MinSize = 500, Panel2MinSize = 300 };
+        var inputTabs = new TabControl { Dock = DockStyle.Fill, Name = "TerrainRecipeTabs" };
+        EditorChrome.StyleTabs(inputTabs);
+        var settingsPage = new TabPage("Settings") { AutoScroll = true, BackColor = EditorChrome.Surface };
+        var sourcePage = new TabPage("Code") { BackColor = EditorChrome.Surface };
+        inputTabs.TabPages.AddRange([sourcePage, settingsPage]); split.Panel1.Controls.Add(inputTabs);
         var fields = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, Padding = new Padding(16), BackColor = EditorChrome.Surface };
-        split.Panel1.AutoScroll = true; split.Panel1.Controls.Add(fields);
-        void FitFields() => fields.MaximumSize = new Size(Math.Max(300, split.Panel1.ClientSize.Width - SystemInformation.VerticalScrollBarWidth), 0);
-        split.Panel1.SizeChanged += (_,_)=>FitFields(); FitFields();
-        split.Panel2.Controls.Add(_preview); split.Panel2.Controls.Add(_summary);
+        settingsPage.Controls.Add(fields);
+        var sourceFields = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, Padding = new Padding(16) };
+        var imagePage = new Panel { Dock = DockStyle.Fill, AutoScroll = true }; imagePage.Controls.Add(sourceFields);
+        var codePage = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10) };
+        sourcePage.Controls.Add(codePage); sourcePage.Controls.Add(imagePage);
         Controls.Add(split); Controls.Add(footer);
         _source.Items.AddRange(["Code / PGSL", "Heightmap image"]); _source.SelectedIndex = recipe.Source == TerrainCreationSource.Heightmap ? 1 : 0;
         _surface.Items.AddRange(["Heightfield · hills and ravines", "Volume · caves and overhangs"]); _surface.SelectedIndex = (int)recipe.Surface;
-        _name.Text = recipe.Name; _code.Text = recipe.Code; _image.Text = recipe.Image;
+        TerrainRecipeCodeAssistance.Attach(_code);
+        _name.Text = recipe.Name; _code.CodeText = recipe.Code; _image.Text = recipe.Image;
+        _seed.DecimalPlaces=0;_seed.Increment=1;
         SetNumber(_width,recipe.Width); SetNumber(_length,recipe.Length); SetNumber(_spacing,recipe.Spacing); SetNumber(_min,recipe.MinHeight);SetNumber(_max,recipe.MaxHeight);SetNumber(_seed,recipe.Seed);
-        Label Field(string title,Control control)
+        Label Field(string title,Control control, TableLayoutPanel? owner = null)
         {
-            var label = new Label { Text=title,AutoSize=true,Margin=new Padding(0,12,0,5), ForeColor=EditorChrome.Muted }; fields.Controls.Add(label);
-            control.Dock=DockStyle.Top;control.Margin=new Padding(0);EditorChrome.StyleField(control);fields.Controls.Add(control);
+            owner ??= fields;
+            var label = new Label { Text=title,AutoSize=true,Margin=new Padding(0,12,0,5), ForeColor=EditorChrome.Muted }; owner.Controls.Add(label);
+            control.Dock=DockStyle.Top;control.Margin=new Padding(0);EditorChrome.StyleField(control);owner.Controls.Add(control);
             return label;
         }
-        Field("Name",_name);Field("Source",_source);
-        var dimensions = new TableLayoutPanel { ColumnCount=3, RowCount=2, Dock=DockStyle.Top,Height=132,Width=350,Margin=new Padding(0,14,0,0) };
-        dimensions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,34));dimensions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,33));dimensions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,33));
+        Field("Name",_name);
+        var sourceChoice=new TableLayoutPanel {Dock=DockStyle.Top,AutoSize=true,ColumnCount=2,Padding=new Padding(10)};
+        sourceChoice.ColumnStyles.Add(new(SizeType.AutoSize));sourceChoice.ColumnStyles.Add(new(SizeType.Percent,100));
+        sourceChoice.Controls.Add(new Label {Text="Source",AutoSize=true,Anchor=AnchorStyles.Left,Margin=new Padding(0,0,12,0)});
+        _source.Dock=DockStyle.Top;sourceChoice.Controls.Add(_source);split.Panel1.Controls.Add(sourceChoice);
+        var dimensions = new TableLayoutPanel { ColumnCount=2, RowCount=3, Dock=DockStyle.Top,AutoSize=true,Margin=new Padding(0,14,0,0) };
+        dimensions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));dimensions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));
         var values = new[]{("Width (m)",_width),("Length (m)",_length),("Spacing (m)",_spacing),("Min height (m)",_min),("Max height (m)",_max),("Seed",_seed)};
         for(int i=0;i<values.Length;i++)
         {
-            var group=new Panel { Height=58,Width=105,Dock=DockStyle.Top,Margin=new Padding(0,0,8,8) };
-            var label=new Label { Text=values[i].Item1,Dock=DockStyle.Top,Height=24,ForeColor=EditorChrome.Muted };
-            var value=values[i].Item2;value.Dock=DockStyle.Bottom;EditorChrome.StyleField(value);group.Controls.Add(value);group.Controls.Add(label);dimensions.Controls.Add(group,i%3,i/3);
+            var group=new TableLayoutPanel { ColumnCount=1,AutoSize=true,Dock=DockStyle.Top,Margin=new Padding(0,0,12,12) };
+            var label=new Label { Text=values[i].Item1,AutoSize=true,Dock=DockStyle.Top,ForeColor=EditorChrome.Muted };
+            var value=values[i].Item2;value.Dock=DockStyle.Top;EditorChrome.StyleField(value);group.Controls.Add(label);group.Controls.Add(value);dimensions.Controls.Add(group,i%2,i/2);
         }
         fields.Controls.Add(dimensions);
         var browse = new Button { Text = "Choose heightmap image…", Height=32, Dock=DockStyle.Top };
-        var imageLabel=Field("Heightmap (dark = low, light = high)",_image);fields.Controls.Add(browse);
+        Field("Heightmap (dark = low, light = high)",_image,sourceFields);sourceFields.Controls.Add(browse);
         browse.Click += (_,_)=>
         {
             ProjectAssetEntry? selected = AssetPickerService.PickAsset(
@@ -69,40 +87,68 @@ public sealed partial class TerrainSourceWizard : Form
             _editedHeightmap = null;
             _image.Text = pixels;
         };
-        var surfaceLabel=Field("Code surface",_surface);
+        Field("Code surface",_surface);
         var presets=new FlowLayoutPanel { AutoSize=true,Dock=DockStyle.Top,Margin=new Padding(0,8,0,0) };
         foreach(var entry in new[]{("Hills",TerrainCreationRecipe.HillsCode),("Ravine",TerrainCreationRecipe.RavineCode),("Cave",TerrainCreationRecipe.CaveCode)})
         {
             var button=new Button { Text=entry.Item1,AutoSize=true,Height=30 };EditorChrome.StyleField(button);presets.Controls.Add(button);
-            button.Click+=(_,_)=>{ _code.Text=entry.Item2;_surface.SelectedIndex=entry.Item1=="Cave"?1:0;if(entry.Item1=="Cave"){_min.Value=-8;_max.Value=55;} };
+            button.Click+=(_,_)=>{ _code.CodeText=entry.Item2;_surface.SelectedIndex=entry.Item1=="Cave"?1:0;if(entry.Item1=="Cave"){_min.Value=-8;_max.Value=55;} };
         }
         var loadCode = new Button { Text="Load code…",AutoSize=true,Height=30 };presets.Controls.Add(loadCode);
         loadCode.Click+=(_,_)=>
         {
             ProjectAssetEntry? selected = AssetPickerService.PickAsset(
                 new AssetPickerRequest(projectRoot, ResourceKind.PgslScript, null, "Choose Terrain Generator Script"), this);
-            if (selected is not null) _code.Text = File.ReadAllText(selected.FullPath);
+            if (selected is not null) _code.CodeText = File.ReadAllText(selected.FullPath);
         };
-        fields.Controls.Add(presets);var codeLabel=Field("PGSL · output height or density",_code);
-        var help=new Label { AutoSize=true,MaximumSize=new Size(350,0),Margin=new Padding(0,14,0,12),ForeColor=EditorChrome.Muted,
-            Text="x, y, z are metres. u, v span 0–1. Use sin, cos, abs, sqrt, min, max, pow, exp, floor, clamp and noise(x,z). TerrainSize(width,length) and TerrainSpacing(metres) override the fields.\n\nHeightfields: up to 384 × 384 cells. Volumes: up to 64³ cells. Large areas keep their dimensions; effective spacing is shown after generation. Heightmap luminance is sampled at 8-bit precision. Sections can be moved and assigned components; terrain brushes edit the base landscape." };fields.Controls.Add(help);
+        presets.Dock = DockStyle.Top;
+        _code.Dock = DockStyle.Fill;
+        codePage.Controls.Add(_code); codePage.Controls.Add(presets);
+        var help=new Label { AutoSize=true,Dock=DockStyle.Top,Margin=new Padding(0,14,0,12),ForeColor=EditorChrome.Muted,
+            Text="Generate a height or density at each coordinate. Choose a sample below, then Generate preview. Ctrl+Space shows functions; the bottom bar shows types and the current argument." };codePage.Controls.Add(help);
+        fields.Controls.Add(new Label { AutoSize=true,Dock=DockStyle.Top,ForeColor=EditorChrome.Muted,Margin=new Padding(0,14,0,12),
+            Text="Heightfields: up to 384 × 384 cells. Volumes: up to 64³ cells. Generation keeps the area dimensions and reports effective spacing. Heightmap luminance is sampled at 8-bit precision. Brushes edit the base landscape; sections can be moved and assigned components." });
         void Change(object? sender,EventArgs e) { _revision++;Result=null;_apply.Enabled=false;_generation?.Cancel(); }
-        foreach(var control in new Control[]{_name,_image,_code})control.TextChanged+=Change;
+        foreach(var control in new Control[]{_name,_image})control.TextChanged+=Change;
+        _code.TextChangedByUser += Change;
         foreach(var number in new[]{_width,_length,_spacing,_min,_max,_seed})number.ValueChanged+=Change;
         _surface.SelectedIndexChanged+=Change;
         void SourceChanged()
         {
             bool code=_source.SelectedIndex==0;
-            foreach(var control in new Control[]{_code,_surface,presets,surfaceLabel,codeLabel,help})control.Visible=code;
-            foreach(var control in new Control[]{browse,_image,imageLabel})control.Visible=!code;
+            codePage.Visible=code; imagePage.Visible=!code;
+            sourcePage.Text=code?"Code":"Heightmap";
+            _surface.Enabled=code;
         }
         _source.SelectedIndexChanged+=(_,e)=>{Change(this,e);SourceChanged();};SourceChanged();
         foreach(Control control in footer.Controls)EditorChrome.StyleField(control);
         _generate.Click+=async (_,_)=>await GeneratePreviewAsync();
         _apply.Click+=(_,_)=>{ if(Result is not null) {DialogResult=DialogResult.OK;Close();} };
         FormClosing+=(_,_)=>_generation?.Cancel();
-        FormClosed+=(_,_)=>{_preview.Image?.Dispose();_preview.Image=null;};
-        InstallAuthoringPreview(split, fields);
+        InstallAuthoringPreview(split, sourceFields);
+        bool fitting=false;
+        _fitWizard=()=>
+        {
+            if(fitting||IsDisposed)return;
+            fitting=true;
+            try
+            {
+                foreach(var pageFields in new[]{fields,sourceFields})
+                {
+                    int width=Math.Max(300,pageFields.Parent!.ClientSize.Width-SystemInformation.VerticalScrollBarWidth-8);
+                    pageFields.MinimumSize=pageFields.MaximumSize=new Size(width,0);
+                    foreach(Label label in pageFields.Controls.OfType<Label>())label.MaximumSize=new Size(Math.Max(200,width-pageFields.Padding.Horizontal),0);
+                }
+                help.MaximumSize=new Size(Math.Max(300,codePage.ClientSize.Width-codePage.Padding.Horizontal),0);
+                foreach(ComboBox combo in new[]{_source,_surface})combo.ItemHeight=combo.Font.Height+8;
+                foreach(Button button in footer.Controls)button.MinimumSize=new Size(0,button.Font.Height+18);
+                foreach(Button button in sourceFields.Controls.OfType<Button>())button.MinimumSize=new Size(0,button.Font.Height+18);
+                FitAuthoringPreview();
+            }
+            finally{fitting=false;}
+        };
+        SizeChanged+=(_,_)=>ApplyInterfaceLayout(); inputTabs.SizeChanged+=(_,_)=>ApplyInterfaceLayout();
+        Shown+=(_,_)=>{ApplyInterfaceLayout();BeginInvoke(()=>{if(!IsDisposed)ApplyInterfaceLayout();});};
     }
     private static NumericUpDown Number(decimal min,decimal max,decimal value)=>new(){Minimum=min,Maximum=max,Value=value,DecimalPlaces=2,ThousandsSeparator=true};
     private static void SetNumber(NumericUpDown field,float value)=>field.Value=Math.Clamp((decimal)value,field.Minimum,field.Maximum);
@@ -110,7 +156,7 @@ public sealed partial class TerrainSourceWizard : Form
     {
         if(_generation is not null) { _generation.Cancel();return; }
         var recipe=new TerrainCreationRecipe { Name=_name.Text.Trim(), Source=_source.SelectedIndex==0?TerrainCreationSource.Code:TerrainCreationSource.Heightmap,
-            Surface=_source.SelectedIndex==0?(TerrainCodeSurface)_surface.SelectedIndex:TerrainCodeSurface.Heightfield, Code=_code.Text,Image=_image.Text,
+            Surface=_source.SelectedIndex==0?(TerrainCodeSurface)_surface.SelectedIndex:TerrainCodeSurface.Heightfield, Code=_code.CodeText,Image=_image.Text,
             Width=(float)_width.Value,Length=(float)_length.Value,Spacing=(float)_spacing.Value,MinHeight=(float)_min.Value,MaxHeight=(float)_max.Value,Seed=(int)_seed.Value };
         using var cancellation=new CancellationTokenSource();_generation=cancellation;int revision=_revision;
         _generate.Text="Cancel generation";_apply.Enabled=false;_summary.Text="Generating terrain preview…";
@@ -132,5 +178,16 @@ public sealed partial class TerrainSourceWizard : Form
         catch(OperationCanceledException) { if(!IsDisposed)_summary.Text="Generation cancelled. Adjust the recipe and try again."; }
         catch(Exception exception) { if(!IsDisposed)_summary.Text=exception.Message; }
         finally { _generation=null;if(!IsDisposed)_generate.Text="Generate preview"; }
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _generation?.Cancel();
+            _preview.Image?.Dispose();
+            _preview.Image = null;
+        }
+        base.Dispose(disposing);
     }
 }

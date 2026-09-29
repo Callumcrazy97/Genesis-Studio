@@ -57,6 +57,8 @@ internal sealed class PathingViewportControl : UserControl
     private bool _frameQueued;
     private int _frameWidth;
     private int _frameHeight;
+    private SkiaSharp.SKTypeface? _labelTypeface;
+    private SkiaSharp.SKFont? _labelFont;
 
     public PathingViewportControl(string projectRoot)
     {
@@ -305,9 +307,12 @@ internal sealed class PathingViewportControl : UserControl
         DrawNavMesh(renderer);
         DrawRoute(renderer);
         DrawAgents(renderer);
-        renderer.DrawText("PATH PREVIEW · fixed 60 Hz simulation", 16, 14, EditorChrome.SmallFont.SizeInPoints, RenderColor.White);
+        float scale = OverlayScale;
+        renderer.DrawRect(10 * scale, 8 * scale, MathF.Min(390 * scale, MathF.Max(1, _viewport.SurfaceWidth - 20 * scale)), 52 * scale,
+            new RenderColor(.07f, .08f, .11f, .92f), true, -9002);
+        renderer.DrawText("PATH PREVIEW · fixed 60 Hz simulation", 16 * scale, 14 * scale, 11 * scale, RenderColor.White);
         string room = _room is null ? "No room selected" : _room.Name;
-        renderer.DrawText($"{room} · {_simulation.Agents.Count} simulated agent(s)", 16, 34, 10,
+        renderer.DrawText($"{room} · {_simulation.Agents.Count} simulated agent(s)", 16 * scale, 34 * scale, 10 * scale,
             new RenderColor(.62f, .7f, .76f));
         if (_simulation.CollisionWarning)
         {
@@ -355,8 +360,9 @@ internal sealed class PathingViewportControl : UserControl
             Vector3 screen = _viewport.WorldToSurface(waypoints[index].Position + Vector3.UnitY * .08f);
             if (!IsScreenVisible(screen)) continue;
             RenderColor color = index == _selectedWaypoint ? new RenderColor(1f, .72f, .16f) : new RenderColor(.08f, .9f, 1f);
-            EditorTransformGizmo.DrawCircle(renderer, new Vector2(screen.X, screen.Y), 10f, new RenderColor(.05f, .15f, .2f), color);
-            renderer.DrawText((index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture), screen.X - 3.5f, screen.Y - 6f, 9, RenderColor.White);
+            float scale = OverlayScale;
+            EditorTransformGizmo.DrawCircle(renderer, new Vector2(screen.X, screen.Y), 10 * scale, new RenderColor(.05f, .15f, .2f), color);
+            renderer.DrawText((index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture), screen.X - 3.5f * scale, screen.Y - 6 * scale, 9 * scale, RenderColor.White);
         }
     }
 
@@ -370,7 +376,25 @@ internal sealed class PathingViewportControl : UserControl
             DrawWorldVector(renderer, agent.Position + Vector3.UnitY * .16f, agent.Steering,
                 new RenderColor(1f, .2f, .22f), 1.6f);
             Vector3 screen = _viewport.WorldToSurface(agent.Position + Vector3.UnitY * 1.65f);
-            if (IsScreenVisible(screen)) renderer.DrawText(agent.Name, screen.X + 7f, screen.Y, 9, RenderColor.White);
+            if (IsScreenVisible(screen))
+            {
+                float scale = OverlayScale;
+                _labelTypeface ??= SkiaSharp.SKTypeface.FromFamilyName("Segoe UI");
+                _labelFont ??= new SkiaSharp.SKFont(_labelTypeface);
+                _labelFont.Size = 9 * scale;
+                float available = MathF.Max(1, _viewport.SurfaceWidth - 12 * scale);
+                string label = agent.Name;
+                int[] characters = System.Globalization.StringInfo.ParseCombiningCharacters(label);
+                int count = characters.Length;
+                while (count > 1 && _labelFont.MeasureText(label) > available)
+                    label = agent.Name[..characters[--count]] + "…";
+                float width = _labelFont.MeasureText(label);
+                float x = Math.Clamp(screen.X + 7 * scale, 6 * scale,
+                    MathF.Max(6 * scale, _viewport.SurfaceWidth - width - 6 * scale));
+                float y = Math.Clamp(screen.Y, 6 * scale, MathF.Max(6 * scale, _viewport.SurfaceHeight - 14 * scale));
+                renderer.DrawText(label, x + scale, y + scale, 9 * scale, RenderColor.Black);
+                renderer.DrawText(label, x, y, 9 * scale, RenderColor.White);
+            }
         }
     }
 
@@ -401,6 +425,8 @@ internal sealed class PathingViewportControl : UserControl
     }
 
     private static bool IsScreenVisible(Vector3 screen) => screen.Z is > 0f and < 1f;
+
+    private static float OverlayScale => MathF.Max(1, EditorChrome.BaseFont.SizeInPoints / 9.5f);
 
     private IReadOnlyList<Vector3> RouteSamples(IReadOnlyList<PathingWaypoint> points)
     {
@@ -474,7 +500,8 @@ internal sealed class PathingViewportControl : UserControl
             }
             Vector3 point = _viewport.WorldToSurface(_asset.Route.Waypoints[index].Position + Vector3.UnitY * .08f);
             float dx = surface.X - point.X, dy = surface.Y - point.Y;
-            if (IsScreenVisible(point) && dx * dx + dy * dy <= 15f * 15f) return index;
+            float radius = 15 * OverlayScale;
+            if (IsScreenVisible(point) && dx * dx + dy * dy <= radius * radius) return index;
         }
         return -1;
     }
@@ -636,6 +663,8 @@ internal sealed class PathingViewportControl : UserControl
 
     private void ReleaseRuntimeResources()
     {
+        _labelFont?.Dispose(); _labelFont = null;
+        _labelTypeface?.Dispose(); _labelTypeface = null;
         _terrain?.Dispose();
         _terrain = null;
         if (_renderer is not null)

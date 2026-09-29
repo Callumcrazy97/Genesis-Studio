@@ -22,6 +22,11 @@ namespace Genesis.Runtime.Rendering
         public readonly Dictionary<string, float[]> ShaderParameters = new(StringComparer.OrdinalIgnoreCase);
         public readonly Dictionary<string, string> ShaderResources = new(StringComparer.OrdinalIgnoreCase);
         public float SpriteAlpha = 1f;
+        /// <summary>Terrain-owned texture geometry; null retains ordinary Object rendering.</summary>
+        public string TerrainTextureMode;
+        public float TerrainTextureScale = 1f;
+        public float TerrainTextureFps;
+        public int TerrainTextureFrameCount;
         /// <summary>Last successfully resolved 2D frame dimensions, used by generic debug picking.</summary>
         public int SpritePixelWidth = 32;
         public int SpritePixelHeight = 32;
@@ -45,7 +50,36 @@ namespace Genesis.Runtime.Rendering
 
     public static class ObjectDrawAssetRegistry
     {
-        private static readonly Dictionary<int, ObjectDrawAssetEntry> Entries = new();
+        private static readonly Dictionary<int, ObjectDrawAssetEntry> GameplayEntries = new();
+        [ThreadStatic] private static Dictionary<int, ObjectDrawAssetEntry> _scopedEntries;
+        private static Dictionary<int, ObjectDrawAssetEntry> Entries => _scopedEntries ?? GameplayEntries;
+
+        /// <summary>Owns the assets of an isolated editor world. Activate only around synchronous
+        /// loading/drawing calls; disposing the activation restores the previous world's assets.</summary>
+        public sealed class PreviewScope
+        {
+            private readonly Dictionary<int, ObjectDrawAssetEntry> _entries = new();
+
+            public IDisposable Activate()
+            {
+                var activation = new Activation(_scopedEntries);
+                _scopedEntries = _entries;
+                return activation;
+            }
+
+            public void Clear() => _entries.Clear();
+
+            private sealed class Activation(Dictionary<int, ObjectDrawAssetEntry> previous) : IDisposable
+            {
+                private bool _disposed;
+                public void Dispose()
+                {
+                    if (_disposed) return;
+                    _scopedEntries = previous;
+                    _disposed = true;
+                }
+            }
+        }
 
         public static void Set(Entity entity, ObjectDrawAssetEntry entry)
         {

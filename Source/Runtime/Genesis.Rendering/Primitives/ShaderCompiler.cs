@@ -237,9 +237,10 @@ namespace Genesis.Rendering.Primitives
         }
 
         /// <summary>
-        /// GLSL version emitted for the OpenGL backend, matching the 4.6 core context it requests.
+        /// GLSL baseline shared by every supported OpenGL context, including the 4.5 fallback.
+        /// The target participates in the compiler identity, so cached 4.6 binaries cannot leak in.
         /// </summary>
-        private const uint GlslTargetVersion = 460;
+        private const uint GlslTargetVersion = 450;
 
         /// <summary>Produces GLSL by compiling to SPIR-V first and translating it.</summary>
         /// <remarks>

@@ -41,6 +41,7 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem
     {
         public required string EmitterId;
         public required ParticleConfig Config;
+        public double AuthoredRate;
         public ParticleSimulation? Simulation;
         public GpuParticleEmitter? GpuEmitter;
         public IGpuParticleRenderer? GpuOwner;
@@ -149,7 +150,7 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem
                     int sound = _audio.LoadSound(component.Asset);
                     state.Channel = _audio.Play(
                         sound,
-                        Math.Clamp(component.Volume <= 0f ? 1f : component.Volume, 0f, 1f),
+                        Math.Clamp(component.Volume, 0f, 1f),
                         component.Pitch <= 0f ? 1f : component.Pitch,
                         component.Looping);
                     component.SoundIndex = sound;
@@ -167,6 +168,12 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem
 
             if (component.Spatial && state.Channel.IsValid)
                 _audio.SetChannelPosition(state.Channel, new Vector3(transform.X, transform.Y, transform.Z));
+            if (state.Channel.IsValid)
+            {
+                _audio.SetChannelVolume(state.Channel, Math.Clamp(component.Volume, 0f, 1f));
+                if (component.SpatialSettings is { } spatial)
+                    _audio.SetChannelSpatialSettings(state.Channel, component.Spatial, spatial);
+            }
         });
 
         scene.World.Query<PointLightComponent>((Entity entity, ref PointLightComponent component) =>
@@ -366,14 +373,16 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem
         if (_particles.TryGetValue(entity.Id, out ParticleState? existing)
             && string.Equals(existing.Asset, component.Asset, StringComparison.OrdinalIgnoreCase)
             && existing.WriteTicks == writeTicks)
+        {
+            ApplyParticleRate(existing, component);
             return existing;
+        }
 
         if (existing is not null) ReleaseParticleState(existing);
 
         try
         {
             ParticleConfig config = ParticleAssetLoader.Load(_projectPath, component.Asset);
-            float rateScale = component.RateScale <= 0f ? 1f : component.RateScale;
             ParticleState state = new()
             {
                 Entity = entity,
@@ -383,21 +392,34 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem
             };
             foreach ((string emitterId, string _, ParticleConfig emitter) in ParticleAssetLoader.EnumerateEnabledEmitters(config))
             {
-                emitter.EmitRate = component.EmitRate > 0f ? component.EmitRate : emitter.EmitRate * rateScale;
                 state.Layers.Add(new ParticleLayerState
                 {
                     EmitterId = emitterId,
                     Config = _particles2D ? Particle2DLayout.ForSimulation(emitter) : emitter,
+                    AuthoredRate = emitter.EmitRate,
                     MeshSurfaceSamples = LoadMeshSurfaceSamples(emitter),
                     PendingBurst = !emitter.Loop ? Math.Max(0, emitter.BurstCount) : 0,
                 });
             }
+            ApplyParticleRate(state, component);
             _particles[entity.Id] = state;
             return state;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
         {
             return null;
+        }
+    }
+
+    private static void ApplyParticleRate(ParticleState state, ParticleComponent component)
+    {
+        float scale = component.RateScale <= 0 ? 1 : component.RateScale;
+        foreach (ParticleLayerState layer in state.Layers)
+        {
+            double rate = component.HasEmitRateOverride || component.EmitRate > 0 ? component.EmitRate : layer.AuthoredRate * scale;
+            if (layer.Config.EmitRate == rate) continue;
+            layer.Config.EmitRate = Math.Max(0, rate);
+            layer.Simulation?.UpdateConfig(layer.Config);
         }
     }
 

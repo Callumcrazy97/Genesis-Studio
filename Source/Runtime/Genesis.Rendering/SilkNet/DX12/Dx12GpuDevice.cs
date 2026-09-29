@@ -146,9 +146,16 @@ namespace Genesis.Rendering.SilkNet.DX12
         private readonly GpuSamplerHandle[] _vsSampler = new GpuSamplerHandle[Dx12Bindings.SamplerCount];
         private readonly GpuSamplerHandle[] _psSampler = new GpuSamplerHandle[Dx12Bindings.SamplerCount];
 
-        private ComPtr<ID3D12Resource>[] _uploadRing;
-        private byte*[] _uploadCursorBase;
-        private int[] _uploadUsed;
+        private sealed class UploadPage
+        {
+            public ComPtr<ID3D12Resource> Resource;
+            public byte* Cursor;
+            public int Capacity;
+            public int Used;
+        }
+
+        private readonly List<UploadPage> _uploadPages = new();
+        private List<int>[] _uploadFramePages;
 
         private ComPtr<ID3D12QueryHeap> _timestampHeap;
         private ComPtr<ID3D12Resource> _timestampReadback;
@@ -255,7 +262,10 @@ namespace Genesis.Rendering.SilkNet.DX12
             if (!alreadyRecording)
             {
                 _bindings.BeginFrame(_frames.FrameIndex);
-                _uploadUsed[_frames.FrameIndex] = 0;
+                // BeginFrame waited for this slot's fence, so all of its upload pages are safe
+                // to reuse. Pages in other slots still belong to their submitted command lists.
+                foreach (int page in _uploadFramePages[_frames.FrameIndex])
+                    _uploadPages[page].Used = 0;
             }
 
             _bindings.BindHeaps(_frames.List);
@@ -1248,10 +1258,12 @@ namespace Genesis.Rendering.SilkNet.DX12
 
             _renderTargets.Clear();
 
-            for (int i = 0; i < _uploadRing.Length; i++)
+            foreach (UploadPage page in _uploadPages)
             {
-                _uploadRing[i].Dispose();
+                page.Resource.Dispose();
             }
+
+            _uploadPages.Clear();
 
             _timestampReadback.Dispose();
             _timestampHeap.Dispose();

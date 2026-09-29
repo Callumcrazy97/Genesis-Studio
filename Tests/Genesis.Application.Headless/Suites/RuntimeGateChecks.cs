@@ -153,7 +153,13 @@ internal static class RuntimeGateChecks
             HeadlessHarness.Assert(motor.ExitedWater && motor.State == SharedCharacterState.Falling
                 && jumpVelocity > 1f,
                 $"The character could not jump out of water or expose the exit transition hook (exit={motor.ExitedWater}, state={motor.State}, vy={jumpVelocity:0.###}, submerged={motor.SubmergedFraction:0.###}).");
-            // Continue the acceptance course on dry terrain after proving the water-edge jump.
+            input.NextFrame(); input.OnKeyUp(Genesis.Runtime.Input.Key.Space); input.NextFrame();
+            for (int tick = 0; tick < 8; tick++) scene.UpdateFixed(1f / 60f);
+            Vector3 airborne = scene.World.GetRef<Genesis.Shared.ECS.Components.Transform3DComponent>(player).Position;
+            HeadlessHarness.Assert(airborne.Y > 6.9f
+                && scene.World.GetRef<SharedCharacterMotor>(player).State == SharedCharacterState.Falling,
+                "The water-exit jump was cancelled before reaching air: " + airborne);
+            // Continue the dry terrain course only after the real jump has cleared the surface.
             physics.SetBodyPose(scene.World, playerBody.RegistrationId,
                 new Vector3(6.25f, 6.4f, 6.25f), Quaternion.Identity);
             physics.SetLinearVelocity(scene.World, playerBody.RegistrationId, new Vector3(0f, jumpVelocity, 0f));
@@ -1477,12 +1483,14 @@ internal static class RuntimeGateChecks
                 room.Dimension == RoomDimension.ThreeD,
                 $"The 3D template's start room reports {room.Dimension}.");
             RoomNode terrainNode = room.Nodes.Single(node => node.Kind == RoomNodeKind.Terrain);
-            RoomNode playerNode = room.Nodes.Single(node => node.GameObject?.Prefab.EndsWith(
-                "/" + SandboxTemplate.PlayerName + ".object.json", StringComparison.OrdinalIgnoreCase) == true);
-            RoomNode campfireNode = room.Nodes.Single(node => node.GameObject?.Prefab.EndsWith(
-                "/" + SandboxTemplate.CampfireName + ".object.json", StringComparison.OrdinalIgnoreCase) == true);
+            RoomNode playerNode = room.Nodes.Single(node => node.GameObject is { } placed
+                && ResourceNames.Resolve(project.RootPath, placed.Prefab, ResourceType.Object) == playerPrefab);
+            RoomNode campfireNode = room.Nodes.Single(node => node.GameObject is { } placed
+                && ResourceNames.Resolve(project.RootPath, placed.Prefab, ResourceType.Object) == campfirePrefab);
             HeadlessHarness.Assert(
-                terrainNode.Terrain?.Asset.EndsWith(".terrain.json", StringComparison.OrdinalIgnoreCase) == true
+                terrainNode.Terrain is { } terrainReference
+                && ResourceNames.Resolve(project.RootPath, terrainReference.Asset, ResourceType.Terrain) == terrainResource
+                && File.Exists(terrainResource)
                 && playerNode.Enabled && campfireNode.Enabled,
                 "The canonical room did not contain its terrain, player and composed campfire nodes.");
 
@@ -1547,6 +1555,9 @@ internal static class RuntimeGateChecks
             ScriptAssetRegistry.ClearCache();
             ScriptAssetRegistry.LoadFromProject(project.RootPath);
 
+            using IRenderController effectRenderer = RenderControllerFactory.Create(RenderBackendOption.Software);
+            effectRenderer.Initialize(IntPtr.Zero, 160, 90);
+            MeshDrawCall[] effectMeshes = new MeshDrawCall[256];
             ScriptHostSystem scriptHost = new();
             using RuntimeScene scene = new("Canonical 3D gate") { Input = new Genesis.Runtime.Input.InputState() };
             ProjectGameContext game = new(project.RootPath, scene, null, null, room, null);
@@ -1568,6 +1579,15 @@ internal static class RuntimeGateChecks
                 {
                     scene.UpdateFixed(1f / 60f);
                     scene.UpdateVariable(1f / 60f);
+                    // Particle simulation follows the production render submission path. Updates
+                    // only accumulate time until a renderer chooses GPU or Software execution.
+                    effectRenderer.BeginFrame();
+                    effectRenderer.SetCamera3D(
+                        Matrix4x4.CreateLookAt(new Vector3(0, 5, -10), new Vector3(0, 1, 6), Vector3.UnitY),
+                        Matrix4x4.CreatePerspectiveFieldOfView(MathF.PI / 3, 16f / 9f, .1f, 100));
+                    int effectCount = 0;
+                    composition.SubmitMeshes(scene, effectMeshes, ref effectCount, effectRenderer);
+                    effectRenderer.EndFrame();
                     scene.Input.NextFrame();
                 }
 
@@ -1578,8 +1598,8 @@ internal static class RuntimeGateChecks
                 HeadlessHarness.Assert(terrainSubsystem.AuthoredFoliageInstanceCounts.Single() >= 2500,
                     "F5 did not load the same authored regional foliage cache as Terrain Editor.");
 
-                RoomNode campfireNode = room.Nodes.Single(node => node.GameObject?.Prefab.EndsWith(
-                    "/" + SandboxTemplate.CampfireName + ".object.json", StringComparison.OrdinalIgnoreCase) == true);
+                RoomNode campfireNode = room.Nodes.Single(node => node.GameObject is { } placed
+                    && ResourceNames.Resolve(project.RootPath, placed.Prefab, ResourceType.Object) == campfirePrefab);
                 Entity campfire = built.EntitiesByNodeId[campfireNode.Id];
                 HeadlessHarness.Assert(
                     scene.World.Has<ModelRendererComponent>(campfire)
@@ -1592,7 +1612,11 @@ internal static class RuntimeGateChecks
                     && composition.ActiveParticleCount > 0
                     && composition.ActiveAudioCount == 1
                     && composition.PointLightCount == 1,
-                    "The played ECS world did not advance the campfire model/particle/audio/light stack.");
+                    "The played ECS world did not advance the campfire model/particle/audio/light stack: "
+                    + $"model={scene.World.Has<ModelRendererComponent>(campfire)}, "
+                    + $"animator={scene.World.Has<ModelAnimatorComponent>(campfire)}, "
+                    + $"emitters={composition.ParticleEmitterCount}, particles={composition.ActiveParticleCount}, "
+                    + $"audio={composition.ActiveAudioCount}, lights={composition.PointLightCount}.");
 
                 PgslBehavior campfireScript = scriptHost.Instances.OfType<PgslBehavior>()
                     .Single(behavior => behavior.ScriptName == SandboxTemplate.CampfireName);
@@ -1608,8 +1632,8 @@ internal static class RuntimeGateChecks
                     && profile.All(entry => entry.FailedCalls == 0),
                     "The canonical first-person/campfire PGSL profile is missing or contains failures.");
 
-                RoomNode playerNode = room.Nodes.Single(node => node.GameObject?.Prefab.EndsWith(
-                    "/" + SandboxTemplate.PlayerName + ".object.json", StringComparison.OrdinalIgnoreCase) == true);
+                RoomNode playerNode = room.Nodes.Single(node => node.GameObject is { } placed
+                    && ResourceNames.Resolve(project.RootPath, placed.Prefab, ResourceType.Object) == playerPrefab);
                 Entity player = built.EntitiesByNodeId[playerNode.Id];
                 HeadlessHarness.Assert(
                     scene.World.Has<SharedRigidBody>(player)
@@ -1810,8 +1834,12 @@ internal static class RuntimeGateChecks
                 "Verdant Hollow is missing authored resources: "
                 + string.Join(", ", requiredResources.Where(path => !File.Exists(path)).Select(Path.GetFileName)));
 
-            string campfirePrefab = Path.Combine(
-                project.AssetsPath, "Objects", NatureWalkTemplate.CampfireName + ".object.json");
+            RoomNode campfireNode = room.Nodes.Single(node => node.Name == "South Trail Campfire"
+                && node.Kind == RoomNodeKind.GameObject);
+            string campfirePrefab = ResourceNames.Resolve(project.RootPath,
+                campfireNode.GameObject?.Prefab, ResourceType.Object);
+            HeadlessHarness.Assert(File.Exists(campfirePrefab),
+                "Verdant Hollow's placed campfire did not resolve to an Object resource.");
             JObject campfire = JObject.Parse(File.ReadAllText(campfirePrefab));
             string[] componentTypes = (campfire["components"] as JArray)!.OfType<JObject>()
                 .Select(component => (string?)component["type"] ?? string.Empty).ToArray();
@@ -1883,8 +1911,9 @@ internal static class RuntimeGateChecks
                 $"The live scene lost effects (particles={composition.ParticleEmitterCount}, "
                 + $"lights={composition.PointLightCount}, audio={composition.ActiveAudioCount}).");
 
-            RoomNode playerNode = room.Nodes.Single(node => node.GameObject?.Prefab.EndsWith(
-                "/" + NatureWalkTemplate.PlayerName + ".object.json", StringComparison.OrdinalIgnoreCase) == true);
+            string playerFile = Path.Combine(project.AssetsPath, "Objects", NatureWalkTemplate.PlayerName + ".object.json");
+            RoomNode playerNode = room.Nodes.Single(node => node.GameObject is { } placed
+                && ResourceNames.Resolve(project.RootPath, placed.Prefab, ResourceType.Object) == playerFile);
             Entity player = built.EntitiesByNodeId[playerNode.Id];
             HeadlessHarness.Assert(scene.World.Has<SharedRigidBody>(player)
                 && scene.World.Has<SharedCharacterMotor>(player),
@@ -2096,10 +2125,8 @@ internal static class RuntimeGateChecks
         Genesis.Shared.Rendering.RenderAutoState.AllowDrawSubmit = false;
     }
 
-    private static string ResolveProjectPath(ProjectSession project, string relativePath) =>
-        Path.GetFullPath(Path.Combine(
-            project.RootPath,
-            (relativePath ?? string.Empty).Replace('/', Path.DirectorySeparatorChar)));
+    private static string ResolveProjectPath(ProjectSession project, string reference) =>
+        ResourceNames.ResolveFile(project.RootPath, reference);
 
     /// <summary>Records the HUD a game draws, so "it drew something" is an assertion not a hope.</summary>
     private sealed class GateHudCanvas : IHudCanvas

@@ -57,12 +57,13 @@ public sealed partial class ModelEditorControl
             Color = [200f / 255f, 200f / 255f, 200f / 255f],
         };
         (MeshVertex[] vertices, ushort[] sourceIndices) = ModelPartBuilder.Bake([part]);
-        ushort[] indices = kind == ModelPrimitiveKind.Quad ? MakeDoubleSided(sourceIndices) : sourceIndices;
+        var material = CreateNeutralMaterial();
+        material.DoubleSided = kind == ModelPrimitiveKind.Quad;
         GModelAsset asset = new()
         {
             Name = PrimitiveName(kind) + " Placement Preview",
-            Materials = [CreateNeutralMaterial()],
-            Meshes = [new GModelMesh { Name = PrimitiveName(kind), Vertices = vertices, Indices = indices, MaterialIndex = 0 }],
+            Materials = [material],
+            Meshes = [new GModelMesh { Name = PrimitiveName(kind), Vertices = vertices, Indices = sourceIndices, MaterialIndex = 0 }],
         };
         asset.RecalculateBounds();
         return asset;
@@ -145,6 +146,7 @@ public sealed partial class ModelEditorControl
 
     private void SetMeshGizmoMode(EditorGizmoMode mode)
     {
+        if (IsDrawingTool || IsPushPullTool) SelectTool(ModelAuthoringTool.Select);
         _meshGizmoMode = mode;
         foreach ((EditorGizmoMode candidate, ToolStripButton button) in _meshGizmoButtons)
             button.Checked = candidate == mode;
@@ -154,6 +156,7 @@ public sealed partial class ModelEditorControl
 
     private void DrawMeshSelectionOverlay(IRenderController renderer)
     {
+        if (IsDrawingTool || IsPushPullTool) return;
         if (_mode is not (ModelEditorMode.Compose or ModelEditorMode.Mesh)) return;
         if (_pendingPrimitive is not null || SelectedMeshBounds() is not (Vector3 min, Vector3 max)) return;
         EditorBoundsOverlay.DrawAabb(Surface, renderer, min, max);
@@ -184,6 +187,7 @@ public sealed partial class ModelEditorControl
 
     private bool TryBeginMeshGizmoDrag(Point client)
     {
+        if (IsDrawingTool || IsPushPullTool) return false;
         if (_mode is not (ModelEditorMode.Compose or ModelEditorMode.Mesh)) return false;
         if (_pendingPrimitive is not null || SelectedMeshBounds() is not (Vector3 min, Vector3 max)) return false;
         Vector3 origin = (min + max) * .5f;

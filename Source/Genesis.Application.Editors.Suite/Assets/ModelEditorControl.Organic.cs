@@ -37,6 +37,7 @@ public sealed partial class ModelEditorControl
     private GModelAsset? _pushPullBefore;
     private Dictionary<int, int[]>? _pushPullFaces;
     private float _pushPullDistance;
+    private bool IsPushPullTool => _tool is ModelAuthoringTool.Push or ModelAuthoringTool.Pull;
 
     public ModelElementSelectionMode ElementSelectionMode => _elementSelectionMode;
     public int SelectedFaceCount => _selectedFaces.Count;
@@ -57,8 +58,9 @@ public sealed partial class ModelEditorControl
         }
 
         CollapsibleSection topology = _boxModelingSection = Section(flow, "BOX MODELING", 194);
-        Label amountLabel = new() { Text = "Operation amount", Location = new Point(8, 8), Size = new Size(122, 24), ForeColor = EditorChrome.Muted };
-        NumericUpDown amount = Number(.001m, 100m, (decimal)_topologyAmount, value => _topologyAmount = (float)value);
+        Label amountLabel = new() { Text = "Distance / amount", Location = new Point(8, 8), Size = new Size(122, 24), ForeColor = EditorChrome.Muted };
+        NumericUpDown amount = Number(-100m, 100m, (decimal)_topologyAmount, value => _topologyAmount = (float)value);
+        amount.Name = "ModelTopologyAmount";
         amount.SetBounds(134, 4, 124, 27);
         topology.Content.Controls.Add(amountLabel);
         topology.Content.Controls.Add(amount);
@@ -68,7 +70,7 @@ public sealed partial class ModelEditorControl
         Add("Loop Cut  Ctrl+R", 134, 78, LoopCutSelectedEdge);
         Label hint = new()
         {
-            Text = "Face tools use selected faces. Bevel and Loop Cut use selected edges.",
+            Text = "Extrude: positive pulls, negative pushes. Face tools use selected faces; Bevel and Loop Cut use edges.",
             Location = new Point(8, 122), Size = new Size(250, 54), ForeColor = EditorChrome.Muted,
         };
         topology.Content.Controls.Add(hint);
@@ -179,13 +181,22 @@ public sealed partial class ModelEditorControl
         RunTopology(smooth ? "Smooth shading" : "Flat shading", () => ModelPartBuilder.SetSmoothShading(Asset.Meshes[meshIndex], smooth));
     }
 
-    public void ExtrudeSelectedFaces() => ApplyFaceOperation("Extrude faces", (mesh, faces) => ModelPartBuilder.ExtrudeFaces(mesh, faces, _topologyAmount));
+    public void ExtrudeSelectedFaces()
+    {
+        if (MathF.Abs(_topologyAmount) < .000001f) { Status.Text = "Enter a nonzero distance: positive pulls, negative pushes."; return; }
+        ApplyFaceOperation("Extrude faces", (mesh, faces) => ModelPartBuilder.ExtrudeFaces(mesh, faces, _topologyAmount));
+    }
     public void InsetSelectedFaces() => ApplyFaceOperation("Inset faces", (mesh, faces) => ModelPartBuilder.InsetFaces(mesh, faces, Math.Clamp(_topologyAmount, .01f, .92f)));
 
     private void ApplyFaceOperation(string label, Func<GModelMesh, IEnumerable<int>, IReadOnlyList<int>> operation)
     {
         if (_selectedFaces.Count == 0) { Status.Text = "Select one or more faces first."; return; }
         Dictionary<int, int[]> selection = _selectedFaces.GroupBy(item => item.Mesh).ToDictionary(group => group.Key, group => group.Select(item => item.Face).ToArray());
+        if (selection.Keys.Any(index => Asset.Meshes[index].IsSkinned || (Asset.Meshes[index].MorphTargets?.Count ?? 0) > 0))
+        {
+            Status.Text = "Face topology requires an unskinned mesh without morph targets.";
+            return;
+        }
         RunTopology(label, () =>
         {
             foreach ((int meshIndex, int[] faces) in selection)

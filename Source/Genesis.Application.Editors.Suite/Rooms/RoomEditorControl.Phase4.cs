@@ -56,7 +56,7 @@ public sealed partial class RoomEditorControl
 
     public ListView SceneOutliner => _outliner;
 
-    public bool IsGameCameraPreview => GameCameraPreviewState is not null;
+    public bool IsGameCameraPreview => GameCameraPreviewState is not null || _extraCameraPreview;
 
     public RoomCameraState? GameCameraPreviewState { get; private set; }
 
@@ -1049,6 +1049,7 @@ public sealed partial class RoomEditorControl
 
     private void ApplySceneCameraView(RoomNode? node)
     {
+        _extraCameraPreview = false;
         if (node is null)
         {
             GameCameraPreviewState = null;
@@ -1159,14 +1160,11 @@ public sealed partial class RoomEditorControl
 
         if (_room.Dimension == RoomDimension.TwoD)
         {
-            _viewport.PinSecondaryFromCurrentView($"Game camera · {camera.Name}");
-            if (_viewport.SecondaryViewport is EditorViewport3D feed)
+            _viewport.ShowAuthoredSecondaryCamera2D(() =>
             {
-                feed.Mode2D = true;
-                feed.Camera2DX = state.Position.X;
-                feed.Camera2DY = state.Position.Y;
-                feed.Zoom2D = state.Zoom2D;
-            }
+                RoomCameraState current = new RoomSceneBuilder(ProjectRoot).ResolveCameraState(_room, camera) ?? state;
+                return (current.Position.X, current.Position.Y, current.Zoom2D);
+            }, $"Game camera · {camera.Name}");
 
             UpdateStatus($"Inset: '{camera.Name}' (editor view stays free).");
             return;
@@ -1179,7 +1177,7 @@ public sealed partial class RoomEditorControl
         }
 
         _viewport.ShowAuthoredSecondaryCamera(
-            () => BuildCameraOverride(state, _viewport.SecondaryViewport ?? _viewport),
+            () => BuildCameraOverride(new RoomSceneBuilder(ProjectRoot).ResolveCameraState(_room, camera) ?? state, _viewport.SecondaryViewport ?? _viewport),
             $"Game camera · {camera.Name}");
         UpdateStatus($"Inset: '{camera.Name}' (editor view stays free).");
     }
@@ -1204,15 +1202,12 @@ public sealed partial class RoomEditorControl
 
         if (_room.Dimension == RoomDimension.TwoD)
         {
-            _viewport.PinSecondaryFromCurrentView($"Viewport {index + 1}");
-            if (_viewport.SecondaryViewport is EditorViewport3D feed)
+            _viewport.ShowAuthoredSecondaryCamera2D(() =>
             {
-                feed.Mode2D = true;
-                feed.Camera2DX = viewport.SourceX + viewport.SourceWidth * 0.5f;
-                feed.Camera2DY = viewport.SourceY + viewport.SourceHeight * 0.5f;
-                float zoom = feed.SurfaceWidth / MathF.Max(1f, viewport.SourceWidth);
-                feed.Zoom2D = Math.Clamp(zoom, 0.05f, 40f);
-            }
+                EditorViewport3D feed = _viewport.SecondaryViewport ?? _viewport;
+                return (viewport.SourceX + viewport.SourceWidth * .5f, viewport.SourceY + viewport.SourceHeight * .5f,
+                    Math.Clamp(feed.SurfaceWidth / MathF.Max(1, viewport.SourceWidth), .05f, 40));
+            }, $"Viewport {index + 1}");
 
             UpdateStatus($"Inset: viewport {index + 1} (editor view stays free).");
             return;
@@ -1319,6 +1314,11 @@ public sealed partial class RoomEditorControl
 
     private void RefreshCameraPreviewIfNeeded()
     {
+        if (_extraCameraPreview)
+        {
+            if (_sceneViewBox.SelectedItem is not SceneViewChoice choice || !ApplyExtraCameraView(choice)) ExitGameCameraPreview();
+            return;
+        }
         if (GameCameraPreviewState is null) return;
         RoomNode? node = SceneViewNode;
         if (node is null)
@@ -1335,6 +1335,7 @@ public sealed partial class RoomEditorControl
     protected override void OnJournalChanged()
     {
         base.OnJournalChanged();
+        if (_physicsOverlay) RestartPhysicsPreview();
         RefreshPhase4Ui();
     }
 }

@@ -44,8 +44,8 @@ internal static class Editor3DInspectionSuite
             ParticleEditorControl particle => particle.Viewport, PhysicsEditorControl physics => physics.Viewport,
             _ => throw new InvalidOperationException(),
         };
-        var view = Descendants(control).OfType<ToolStrip>().SelectMany(s => s.Items.OfType<ToolStripDropDownItem>())
-            .First(m => m.Text == "View" && m.DropDownItems.ContainsKey("View3DNormals"));
+        var view = MenuItems(control).OfType<ToolStripDropDownItem>()
+            .Single(menu => menu.DropDownItems.ContainsKey("View3DNormals"));
         // Open the menu through its control API so its real opening handlers refresh enabled/check states.
         void Open() { view.ShowDropDown(); view.HideDropDown(); Pump(); }
         ToolStripMenuItem Item(string label) => (ToolStripMenuItem)view.DropDownItems["View3D" + label]!;
@@ -57,13 +57,13 @@ internal static class Editor3DInspectionSuite
         if (control is ShaderEditorControl shaderControl) shaderControl.SetPipeline(ShaderAssetPipeline.Mesh);
         if (control is ParticleEditorControl particleControl) { particleControl.SetPreview2D(false); particleControl.SetTimelinePosition(.5f); }
         if (control is PhysicsEditorControl physicsControl) physicsControl.SetPreview2D(false);
-        if (control is RoomEditorControl)
-            Descendants(control).OfType<ToolStrip>().SelectMany(s => s.Items.OfType<ToolStripButton>()).First(b => b.Text == "3D").PerformClick();
+        if (control is RoomEditorControl roomControl) roomControl.EditorToolbar.Dimension3DCommand.PerformClick();
         Pump(); Open();
         Assert(!viewport.Mode2D, name + " did not enter 3D.");
         string original = File.ReadAllText(path);
         foreach (string label in new[] { "Normals", "Wireframe", "Shadows", "Lighting", "Depth" })
-            Assert(Item(label).Enabled && view.DropDownItems.Cast<ToolStripItem>().Count(i => i.Text == label) == 1, label + " missing, disabled or duplicated.");
+            Assert(Item(label).Enabled && MenuItems(control).Count(item => item.Name == "View3D" + label) == 1,
+                label + " missing, disabled or duplicated.");
         using var baseline = viewport.CaptureFrame(8);
         Item("Normals").PerformClick();
         Assert(viewport.InspectionState.DebugView == RenderDebugView.Normals && Item("Normals").Checked && !Item("Depth").Checked, "Normals did not become active.");
@@ -93,6 +93,19 @@ internal static class Editor3DInspectionSuite
             viewport.ClearSecondaryCamera(); Item("Normals").PerformClick();
         }
         Assert(File.ReadAllText(path) == original, "View options wrote the resource.");
+    }
+
+    internal static IEnumerable<ToolStripItem> MenuItems(Control control) =>
+        Descendants(control).OfType<ToolStrip>().SelectMany(strip => Items(strip.Items)).Distinct();
+
+    private static IEnumerable<ToolStripItem> Items(ToolStripItemCollection items)
+    {
+        foreach (ToolStripItem item in items)
+        {
+            yield return item;
+            if (item is ToolStripDropDownItem menu)
+                foreach (ToolStripItem child in Items(menu.DropDownItems)) yield return child;
+        }
     }
 
     internal static IEnumerable<Control> Descendants(Control control)

@@ -51,20 +51,27 @@ internal static class ModelRefinementSuite
             string path=resources.CreateResource(resources.AssetsRoot,ResourceKind.Model,"Drawn geometry");using var editor=new ModelEditorControl(path,project);
             using var host=UnattendedWindowing.NewHost(1440,920);host.Controls.Add(editor);ThemeService.Apply(host);UnattendedWindowing.ShowWithoutFocus(host);System.Windows.Forms.Application.DoEvents();
             editor.SetCameraView("Front");editor.FrameModel();using(var frame=editor.Viewport.CaptureFrame(3)){}
-            int w=editor.Viewport.Width,h=editor.Viewport.Height;editor.SelectTool(ModelAuthoringTool.SquareFace);
+            int w=editor.Viewport.Host.ClientSize.Width,h=editor.Viewport.Host.ClientSize.Height;editor.SelectTool(ModelAuthoringTool.SquareFace);
             editor.PointerDown(new(w/3,h/3),MouseButtons.Left);editor.PointerMove(new(2*w/3,2*h/3),MouseButtons.Left);
             Assert(editor.CanonicalMeshCount==0,"Placement committed before release.");editor.PointerUp(new(2*w/3,2*h/3),MouseButtons.Left);
-            Assert(editor.BakedTriangleCount==2,"Square drag must create two triangles.");editor.Undo();Assert(editor.CanonicalMeshCount==0,"Place face cannot be undone.");editor.Redo();
+            Assert(editor.BakedTriangleCount==2,$"Square drag must create two triangles; got {editor.BakedTriangleCount}, {editor.CanonicalMeshCount} meshes at camera distance {editor.Viewport.Camera.Distance}.");editor.Undo();Assert(editor.CanonicalMeshCount==0,"Place face cannot be undone.");editor.Redo();
+            var square = editor.PreviewAsset.Meshes[0];
+            Assert(square.Vertices.Length == 4 && square.Indices.Length == 6
+                && editor.PreviewAsset.Materials[square.MaterialIndex].DoubleSided,
+                "A facing square must use two-sided rendering without duplicate topology.");
             foreach(var tool in new[]{ModelAuthoringTool.CircleFace,ModelAuthoringTool.TriangleFace,ModelAuthoringTool.Sphere,ModelAuthoringTool.Cylinder,ModelAuthoringTool.Cube})
             {int previous=editor.CanonicalMeshCount;editor.PlaceShape(tool,new Vector3(-2,-1,0),new Vector3(-1,0,0));Assert(editor.CanonicalMeshCount==previous+1,"Placement failed: "+tool);editor.Undo();}
             editor.SetCameraView("Front");editor.FrameModel();using(var frame=editor.Viewport.CaptureFrame(3)){}
-            editor.SelectTool(ModelAuthoringTool.Region);editor.SelectRegion(Point.Empty,new Point(editor.Viewport.Width/2,editor.Viewport.Height));
+            editor.SelectTool(ModelAuthoringTool.Region);editor.SelectRegion(Point.Empty,new Point(editor.Viewport.Host.ClientSize.Width/2,editor.Viewport.Host.ClientSize.Height));
             Assert(editor.SelectedVertexCount==2,"Region did not select the left two vertices.");
             editor.SetMode(ModelEditorMode.Paint);editor.SetBrushRadius(20);editor.SetBrushStrength(1);editor.SetPaintColor(new Vector4(1,0,0,1));var before=editor.BakedVerticesForTest;editor.BrushAt(editor.PreviewAsset.Bounds.Center);var after=editor.BakedVerticesForTest;
             Assert(before.Where((v,i)=>v.Color!=after[i].Color).Count()==2,"Colouring ignored the selection.");
-            editor.SelectTool(ModelAuthoringTool.Wand);editor.SelectConnected(new Point(editor.Viewport.Width/2,editor.Viewport.Height/2));Assert(editor.SelectedVertexCount==4,"Wand failed to follow connected faces.");
-            editor.SelectRegion(Point.Empty,new Point(editor.Viewport.Width,editor.Viewport.Height),modifiers:Keys.Shift);Assert(editor.SelectedVertexCount==0,"Subtract selection failed.");
+            editor.SelectTool(ModelAuthoringTool.Wand);editor.SelectConnected(new Point(editor.Viewport.Host.ClientSize.Width/2,editor.Viewport.Host.ClientSize.Height/2));Assert(editor.SelectedVertexCount==4,"Wand failed to follow connected faces.");
+            editor.SelectRegion(Point.Empty,new Point(editor.Viewport.Host.ClientSize.Width,editor.Viewport.Host.ClientSize.Height),modifiers:Keys.Shift);Assert(editor.SelectedVertexCount==0,"Subtract selection failed.");
             editor.Save();using var reopened=new ModelViewerControl(path,project);Assert(reopened.PreviewAsset.Meshes[0].Vertices.SequenceEqual(after),"Painted face was not saved.");
+            Assert(reopened.PreviewAsset.Meshes[0].Indices.Length == 6
+                && reopened.PreviewAsset.Materials[reopened.PreviewAsset.Meshes[0].MaterialIndex].DoubleSided,
+                "Save/reopen changed the two-sided face topology.");
         });
         HeadlessHarness.RunCase(ctx.Report,"Editor.Model.Refinement.DrawBonesJointsDirectPoseAndCancel",()=>
         {

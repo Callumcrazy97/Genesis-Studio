@@ -1722,12 +1722,12 @@ internal static class ThemeImageSuite
                 HeadlessHarness.Assert(
                     Descendants(host).OfType<ThemedComboBox>().Any(),
                     "Terrain Editor should expose at least one ThemedComboBox after chrome polish.");
-                ListBox layers = HeadlessHarness.Require(
-                    Descendants(host).OfType<ListBox>().FirstOrDefault(list => list.Name == "TerrainPaintLayerList"),
-                    "TerrainPaintLayerList");
+                TableLayoutPanel layers = HeadlessHarness.Require(
+                    Descendants(host).OfType<TableLayoutPanel>().FirstOrDefault(grid => grid.Name == "TerrainPaintLayers"),
+                    "TerrainPaintLayers");
                 HeadlessHarness.Assert(
-                    layers.DrawMode == DrawMode.OwnerDrawFixed && layers.BorderStyle == BorderStyle.None,
-                    "Paint layer list should keep owner-draw accent selection.");
+                    layers.ColumnCount == 2 && layers.Controls.OfType<Button>().Count() == editor.PaintLayerCount,
+                    "Every paint layer should have one visible tile in a two-column grid.");
 
                 host.BringToFront();
                 host.TopMost = true;

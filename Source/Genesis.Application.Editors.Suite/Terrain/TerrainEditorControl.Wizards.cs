@@ -43,6 +43,10 @@ public sealed partial class TerrainEditorControl
         page.Controls.Add(_generateSummary);
         page.Controls.Add(MakeContextCaption("Generation Wizard"));
         page.Controls.Add(MakeContextAction("Create terrain…", "Choose a landscape preset and review its generation settings", OpenCreationWizard));
+        page.Controls.Add(MakeContextAction("Draw rectangle", "Drag a rectangle in the view to create a terrain section", () => BeginSectionDrawing(TerrainCreationSource.Region)));
+        page.Controls.Add(MakeContextAction("Draw freehand outline", "Draw a closed outline to create a terrain section", () => BeginSectionDrawing(TerrainCreationSource.Lasso)));
+        page.Controls.Add(MakeContextAction("From heightmap…", "Build terrain from an Image heightmap", () => OpenTerrainSourceWizard(TerrainCreationSource.Heightmap)));
+        page.Controls.Add(MakeContextAction("From code…", "Build terrain from a saved expression", () => OpenTerrainSourceWizard(TerrainCreationSource.Code)));
         page.Controls.Add(MakeContextCaption("Quick Processes"));
         page.Controls.Add(MakeContextAction("Regenerate from Seed", "Rebuild the authored preset deterministically", RegenerateFromSeed));
         page.Controls.Add(MakeContextAction("Thermal Erosion", "Relax unstable slopes", () => ApplyErosion(8, 0.35f)));
@@ -68,18 +72,17 @@ public sealed partial class TerrainEditorControl
         _pathToolButtons.Add(PathAuthoringTool.PaintPath, paintPathButton);
         page.Controls.Add(paintPathButton);
         page.Controls.Add(MakeContextCaption("Path Network"));
-        Control inspector = Inspector.InspectorBuilder.BuildForObject(
-            _nature.PathSettings,
-            "Generation is deterministic and grades/paints the terrain with full undo support.");
+        _pathSettingsSource = _nature.PathSettings;
+        _pathAuthoringSettings = Clone(_nature.PathSettings);
+        Control inspector = _pathSettingsInspector = Inspector.InspectorBuilder.BuildForObject(
+            _pathAuthoringSettings,
+            "Generation is deterministic and grades/paints the terrain with full undo support.", inline:true);
         inspector.Dock = DockStyle.Top;
-        inspector.MinimumSize = new Size(240, 280);
         page.Controls.Add(inspector);
         page.Controls.Add(MakeContextAction(
             "Generate Connected Paths",
             "Build routes from the settings above and grade them into the terrain",
-            () => GeneratePaths(_nature.PathSettings)));
-        page.Controls.Add(MakeContextAction("Legacy Path Dialog…", "Open the modal path generator", OpenPathDialog));
-        page.Controls.Add(MakeContextAction("Export World Map…", "Bake terrain, paths, water, and discovery to PNG", ExportWorldMap));
+            () => GeneratePaths(_pathAuthoringSettings)));
         return page;
     }
 
@@ -97,15 +100,7 @@ public sealed partial class TerrainEditorControl
         page.Controls.Add(_foliageAssets);
         page.Controls.Add(MakeContextAction("Ecological scatter…", "Regional scatter tools and density settings", () =>
         {
-            using var dialog = new DpiAwareForm
-            {
-                Text = "Ecological scatter", ClientSize = new Size(310, 690), StartPosition = FormStartPosition.CenterParent,
-                BackColor = EditorChrome.Surface, ForeColor = EditorChrome.Text,
-            };
-            // Build once: these controls also hold the scatter state used by the brush.
-            _foliageScatterPage ??= BuildFoliageScatterPage();
-            _foliageScatterPage.Dock = DockStyle.Fill; dialog.Controls.Add(_foliageScatterPage);
-            dialog.FormClosed += (_, _) => dialog.Controls.Remove(_foliageScatterPage);
+            using DpiAwareForm dialog = CreateScatterSettingsDialog();
             dialog.ShowDialog(FindForm());
         }));
         return page;
@@ -114,13 +109,58 @@ public sealed partial class TerrainEditorControl
     private FlowLayoutPanel? _foliageScatterPage;
     private bool _foliageBrushArmed;
 
+    public DpiAwareForm CreateScatterSettingsDialog()
+    {
+        // These controls retain brush and scatter state when the settings window closes.
+        _foliageScatterPage ??= BuildFoliageScatterPage();
+        FlowLayoutPanel page = _foliageScatterPage;
+        page.Name = "TerrainScatterSettings";
+        DpiAwareForm dialog = new TerrainScatterSettingsDialog(page)
+        {
+            Text = "Ecological scatter", ClientSize = new Size(640, 760), MinimumSize = new Size(540, 560),
+            StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.Sizable,
+            Tag = "font-measured-layout", BackColor = EditorChrome.Surface, ForeColor = EditorChrome.Text,
+        };
+        page.Dock = DockStyle.Fill;
+        dialog.Controls.Add(page);
+        FlowLayoutPanel footer = new()
+        {
+            Dock = DockStyle.Bottom, AutoSize = true, FlowDirection = FlowDirection.RightToLeft,
+            Padding = new Padding(10), BackColor = EditorChrome.Surface,
+        };
+        Button done = new() { Text = "Done", AutoSize = true, DialogResult = DialogResult.OK };
+        EditorChrome.StyleField(done);
+        void FitDone() => done.MinimumSize = new Size(0, done.Font.Height + 18);
+        done.FontChanged += (_, _) => FitDone();
+        FitDone();
+        footer.Controls.Add(done);
+        dialog.Controls.Add(footer);
+        dialog.AcceptButton = done;
+        dialog.CancelButton = done;
+        void Fit() { if (!dialog.IsDisposed) FitTerrainPage(page); }
+        dialog.SizeChanged += (_, _) => Fit();
+        dialog.FontChanged += (_, _) => Fit();
+        dialog.Shown += (_, _) => { Fit(); dialog.BeginInvoke((Action)Fit); };
+        return dialog;
+    }
+
+    private sealed class TerrainScatterSettingsDialog(Control retainedPage) : DpiAwareForm
+    {
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) Controls.Remove(retainedPage);
+            base.Dispose(disposing);
+        }
+    }
+
     private void ArmLibraryAsset(string reference)
     {
         if (_nature.PlacedEntities.Any(placed => placed.Id == reference)) return;
-        string path = Path.GetFullPath(ResolveEntityFullPath(reference));
+        string path = ResolveEntityFullPath(reference);
+        if (string.IsNullOrWhiteSpace(path)) return;
         if (TryLoadEntityDocument(path) is null) return;
         _placementEntityPath = path;
-        string relative = ResourceNames.Name(ProjectRoot, path);
+        string relative = EntityReference(path);
         _selectedComponentKind = TerrainComponentsPanel.ComponentKind.Entity; _selectedComponentId = relative;
         _componentsPanel.Select(TerrainComponentsPanel.ComponentKind.Entity, relative);
         SetMode(TerrainEditorMode.Select); RefreshActiveToolCard();
@@ -132,7 +172,7 @@ public sealed partial class TerrainEditorControl
         foreach (Control control in _foliageAssets.Controls.Cast<Control>().ToArray()) control.Dispose();
         foreach (string reference in _settings.Entities.Concat(Directory.Exists(ResourcePath + ".parts")
             ? Directory.EnumerateFiles(ResourcePath + ".parts", "*.terrainpart.json") : [])
-            .Select(reference => Path.GetFullPath(ResolveEntityFullPath(reference))).Distinct(StringComparer.OrdinalIgnoreCase))
+            .Select(ResolveEntityFullPath).Where(File.Exists).Distinct(StringComparer.OrdinalIgnoreCase))
         {
             var document = TryLoadEntityDocument(ResolveEntityFullPath(reference));
             if (document?.Type is not (TerrainEntityType.Foliage or TerrainEntityType.Tree)) continue;
@@ -163,21 +203,23 @@ public sealed partial class TerrainEditorControl
         page.AutoScroll = true;
         page.Controls.Add(_foliageSummary);
         page.Controls.Add(MakeContextCaption("Ecological Scatter"));
-        Control scatterInspector = Inspector.InspectorBuilder.BuildForObject(
-            _nature.FoliageSettings,
-            "The same deterministic cell streaming, LOD and performance budgets run in this preview and in gameplay.");
+        page.Controls.Add(new Label { Text = "Choose a preset, density and instance budget, then Scatter Foliage. Use Paint, Place or Erase below for regional changes.",
+            AutoSize = true, ForeColor = EditorChrome.Muted, Font = EditorChrome.SmallFont });
+        _foliageSettingsSource = _nature.FoliageSettings;
+        _foliageAuthoringSettings = Clone(_nature.FoliageSettings);
+        Control scatterInspector = _foliageSettingsInspector = Inspector.InspectorBuilder.BuildForObject(
+            _foliageAuthoringSettings,
+            "The same deterministic cell streaming, LOD and performance budgets run in this preview and in gameplay.", inline:true);
         scatterInspector.Dock = DockStyle.Top;
-        scatterInspector.MinimumSize = new Size(240, 320);
         page.Controls.Add(scatterInspector);
         page.Controls.Add(MakeContextAction(
             "Scatter Foliage",
             "Generate a deterministic ecological field from the settings above",
             () =>
             {
-                ScatterFoliage(_nature.FoliageSettings);
+                ScatterFoliage(_foliageAuthoringSettings);
                 RefreshComponentsPanel();
             }));
-        page.Controls.Add(MakeContextAction("Legacy Scatter Dialog…", "Open the modal foliage scatter dialog", OpenFoliageDialog));
         page.Controls.Add(MakeContextCaption("Regional Authoring"));
         page.Controls.Add(MakeComboPanel("Species", _foliageSpeciesCombo));
         foreach (FoliageBrushMode mode in Enum.GetValues<FoliageBrushMode>())

@@ -13,5 +13,6 @@ namespace Genesis.Runtime.ECS.Components
         public bool  Spatial;
         public bool  Looping;
         public bool  Playing;
+        public Genesis.Shared.Audio.AudioSpatialSettings? SpatialSettings;
     }
 }

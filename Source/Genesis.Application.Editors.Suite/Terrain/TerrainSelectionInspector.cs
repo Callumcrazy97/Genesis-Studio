@@ -33,11 +33,19 @@ internal sealed class TerrainSelectionInspector : Panel
             int width = Math.Max(180, _stack.ClientSize.Width - _stack.Padding.Horizontal - SystemInformation.VerticalScrollBarWidth - 8);
             foreach (Control control in _stack.Controls)
             {
-                control.Width = width - control.Margin.Horizontal;
-                if (control is Label label && label.AutoSize) label.MaximumSize = new Size(control.Width, 0);
+                int rowWidth=width-control.Margin.Horizontal;
+                control.Width = rowWidth;
+                if (control is Label label)
+                {
+                    label.AutoSize = true;
+                    label.MaximumSize = label.MinimumSize = new Size(rowWidth, 0);
+                }
+                if (control is Button) control.Height = control.Font.Height + 18;
             }
         }
         _stack.ControlAdded += (_, _) => FitRows(); _stack.SizeChanged += (_, _) => FitRows();
+        _stack.FontChanged += (_, _) => FitRows();
+        _stack.Layout += (_, _) => FitRows();
         Controls.Add(_stack);
     }
 
@@ -211,48 +219,50 @@ internal sealed class TerrainSelectionInspector : Panel
 
     private Control IdentityBar(string title, string kind, bool canEdit)
     {
-        Panel bar = new()
+        TableLayoutPanel bar = new()
         {
             BackColor = EditorChrome.Raised,
-            Height = 48,
+            AutoSize = true,
+            ColumnCount = 2,
+            RowCount = 2,
+            Padding = new Padding(10,6,10,6),
             Margin = new Padding(0, 0, 0, 8),
             Width = 268,
         };
         Label name = new()
         {
-            AutoEllipsis = true,
+            AutoSize = true,
             BackColor = Color.Transparent,
             Font = EditorChrome.BaseFont,
             ForeColor = EditorChrome.Text,
-            Location = new Point(10, 6),
-            Size = new Size(200, 18),
+            Dock = DockStyle.Top,
             Text = title,
         };
         Label type = new()
         {
-            AutoEllipsis = true,
+            AutoSize = true,
             BackColor = Color.Transparent,
             Font = EditorChrome.SmallFont,
             ForeColor = EditorChrome.Muted,
-            Location = new Point(10, 26),
-            Size = new Size(200, 16),
+            Dock = DockStyle.Top,
             Text = kind,
         };
-        bar.Controls.Add(name);
-        bar.Controls.Add(type);
+        bar.ColumnStyles.Add(new(SizeType.Percent,100));bar.ColumnStyles.Add(new(SizeType.AutoSize));
+        bar.Controls.Add(name,0,0);
+        bar.Controls.Add(type,0,1);
         if (canEdit)
         {
             Button edit = new()
             {
                 FlatStyle = FlatStyle.Flat,
                 Font = EditorChrome.SmallFont,
-                Location = new Point(220, 10),
-                Size = new Size(40, 28),
+                AutoSize = true,
+                Dock = DockStyle.Top,
                 Text = "Edit",
             };
             EditorChrome.StyleField(edit);
             edit.Click += (_, _) => EditIdentityRequested?.Invoke(this, EventArgs.Empty);
-            bar.Controls.Add(edit);
+            bar.Controls.Add(edit,1,0);
         }
 
         return bar;

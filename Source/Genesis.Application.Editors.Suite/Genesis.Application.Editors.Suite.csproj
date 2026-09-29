@@ -15,6 +15,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Assets\ModelProfileTriangulator.cs" LogicalName="Genesis.Modeler.Triangulator.MIT.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Genesis.Application.Core\Genesis.Application.Core.csproj" />
     <ProjectReference Include="..\Genesis.Application.Editors.Image\Genesis.Application.Editors.Image.csproj" />
     <ProjectReference Include="..\Runtime\Genesis.Shared\Genesis.Shared.csproj" />
