@@ -151,7 +151,22 @@ public sealed class GpuParticleEmitter : IDisposable
         PollDiagnostics();
     }
 
-    internal void Draw(in GpuParticleDraw draw, GpuParticleMesh mesh, GpuTextureHandle texture, int blendMode)
+    // Premultiplied "over": the particle layer's alpha particles cover what is behind them and its
+    // additive ones (alpha 0) add without changing coverage.
+    private static readonly GpuBlendState PremultipliedOver = new()
+    {
+        Enabled = true,
+        SrcColor = GpuBlendFactor.One, DstColor = GpuBlendFactor.InvSrcAlpha, ColorOp = GpuBlendOp.Add,
+        SrcAlpha = GpuBlendFactor.One, DstAlpha = GpuBlendFactor.InvSrcAlpha, AlphaOp = GpuBlendOp.Add,
+        WriteR = true, WriteG = true, WriteB = true, WriteA = true,
+    };
+
+    /// <param name="layer">
+    /// Draw into the forward renderer's particle layer: no depth attachment (the shader tests the
+    /// scene depth itself), premultiplied output, self-applied froxel fog.
+    /// </param>
+    internal void Draw(in GpuParticleDraw draw, GpuParticleMesh mesh, GpuTextureHandle texture, int blendMode,
+        bool layer = false)
     {
         if (IsDisposed) return;
         _gpu.UpdateConstantBuffer(_parametersConstants, _definition.Parameters);
@@ -165,8 +180,9 @@ public sealed class GpuParticleEmitter : IDisposable
         _gpu.SetPrimitiveTopology(GpuPrimitiveTopology.TriangleList);
         _gpu.SetRasterState(new GpuRasterState { CullMode = GpuCullMode.None, FillMode = GpuFillMode.Solid,
             DepthClipEnabled = draw.Mode.X < .5f, ScissorEnabled = draw.Mode.X > .5f });
-        _gpu.SetDepthState(draw.Mode.X > .5f ? GpuDepthState.Disabled : GpuDepthState.ReadOnly);
-        _gpu.SetBlendState(blendMode switch { 1 => GpuBlendState.Additive, 2 => GpuBlendState.Multiply, _ => GpuBlendState.AlphaBlend });
+        _gpu.SetDepthState(layer || draw.Mode.X > .5f ? GpuDepthState.Disabled : GpuDepthState.ReadOnly);
+        _gpu.SetBlendState(layer ? PremultipliedOver
+            : blendMode switch { 1 => GpuBlendState.Additive, 2 => GpuBlendState.Multiply, _ => GpuBlendState.AlphaBlend });
         _gpu.SetStructuredBuffer(GpuShaderStage.Vertex, 0, _state);
         _gpu.SetStructuredBuffer(GpuShaderStage.Vertex, 1, _pool);
         _gpu.SetStructuredBuffer(GpuShaderStage.Vertex, 2, _lookup);

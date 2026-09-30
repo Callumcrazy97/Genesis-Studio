@@ -73,8 +73,17 @@ same slot. Vulkan bound zero descriptor sets for programs that declare no resour
 tile clear), which the validation layer rejects; such programs now bind nothing. Details, and golden
 before/after captures, are in `Verification/2026-09-30-EngineAuditRendering.md`.
 
-**Known limits.** GPU compute particles are still fogged by the composite at the depth behind them.
-The Software renderer keeps its own analytic fog. `FogSunPreserve` is no longer read. Deferred
+**Follow-ups.** GPU compute particles are fogged at their own depth: alpha and additive particles
+draw into a separate premultiplied layer, fogged through the froxel volume, which the composite
+lays over the fogged scene (multiply particles stay in the scene target). Two-sided (`NoCull`)
+draws now follow the camera's front-face winding like culled draws. They used a fixed clockwise
+front, so under the editors' right-handed cameras and in water reflections their normals were
+inverted. The golden scene's floor and foliage now light correctly, and the GPU goldens were
+re-recorded. The engine test scenes in `RuntimeViewportHarness` use the runtime's left-handed camera.
+Validation: Full Build `20260930-183831-b54a3d23` passed 1,075 with 2 editor UI failures that passed
+when rerun alone, and Quick Build `20260930-190841-56dbe4a2` passed all five renderer smokes.
+
+**Known limits.** The Software renderer keeps its own analytic fog. `FogSunPreserve` is no longer read. Deferred
 (Phases 5–6): DX12 descriptor redesign, Vulkan device-local memory, reversed-Z, TAA, IBL,
 auto-exposure, MikkTSpace tangents, LOD simplification and physical atmosphere LUTs.
 

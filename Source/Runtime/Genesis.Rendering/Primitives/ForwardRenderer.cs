@@ -133,6 +133,8 @@ namespace Genesis.Rendering.Primitives
             public Vector4   InkParams;
             public Vector4   InkColor;           // rgb=display-space ink, w=radians per pixel
             public Vector4   InkFade;            // x=full-width distance, y=far distance, z=far opacity
+            // Append-only — x=1 when the GPU particle layer (t12) is composited over the fogged scene.
+            public Vector4   ParticleLayerParams;
         }
 
         // Matches BloomShaders.cbuffer BloomConstants (b0).
@@ -286,7 +288,11 @@ namespace Genesis.Rendering.Primitives
 
         // ── Mesh registry ─────────────────────────────────────────────────────────
 
-        internal Action<Matrix4x4, Matrix4x4> ExternalParticles;
+        /// <summary>
+        /// Draws the host's 3D GPU particles: view, projection, which emitters (see
+        /// <see cref="ParticleDrawPhase"/>) and the target size.
+        /// </summary>
+        internal Action<Matrix4x4, Matrix4x4, ParticleDrawPhase, int, int> ExternalParticles;
 
         internal bool TryGetParticleMesh(MeshHandle handle, out Genesis.Rendering.Particles.GpuParticleMesh mesh)
         {
@@ -624,6 +630,7 @@ namespace Genesis.Rendering.Primitives
         private GpuRasterState _rsCullFront;
         private GpuRasterState _rsCullFrontCw;
         private GpuRasterState _rsCullNone;
+        private GpuRasterState _rsCullNoneCw;
         private GpuRasterState _rsWireframe;
         private GpuRasterState _rsShadow;
         private GpuRasterState _rsShadowCw;
@@ -1314,6 +1321,10 @@ namespace Genesis.Rendering.Primitives
             _rsCullFrontCw.FrontCounterClockwise = true;
             _rsCullNone = _rsSolid;
             _rsCullNone.CullMode = GpuCullMode.None;
+            // Two-sided draws still need the right front face: the forward shader flips the normal
+            // of back faces (SV_IsFrontFace), so the winding must follow the camera like culling does.
+            _rsCullNoneCw = _rsCullNone;
+            _rsCullNoneCw.FrontCounterClockwise = true;
             _rsWireframe = new GpuRasterState
             {
                 FillMode = GpuFillMode.Wireframe,
@@ -3087,6 +3098,7 @@ namespace Genesis.Rendering.Primitives
             if (!depthTexture.IsValid)
             {
                 _froxelsActiveThisFrame = false;
+                _particleLayerThisFrame = false;
                 _screenFogActiveThisFrame = false;
                 _smokeExtinctionActiveThisFrame = false;
                 LastAoMs = 0;
@@ -3156,6 +3168,7 @@ namespace Genesis.Rendering.Primitives
             // structurally cannot see it and would otherwise leave it completely unfogged.
             bool canPost = allowPostProcess && viewW > 0 && viewH > 0;
             bool screenFog = _state.FogEnabled && canPost;
+            _particleLayerThisFrame = ShouldRunParticleLayer(canPost);
             _screenFogActiveThisFrame = screenFog;
 
             // Volumetric light-shaft ray-marching is automatic, not a manual toggle: it only pays
@@ -3178,6 +3191,8 @@ namespace Genesis.Rendering.Primitives
             {
                 EnsureSceneTargets(viewW, viewH);
                 MainPass(_sceneTarget, _sceneDepthTexture, whiteTexture, postProcessTarget: true);
+                if (_particleLayerThisFrame)
+                    ParticleLayerPass(_sceneDepthTexture, viewW, viewH);
                 GpuTextureHandle postDepth = _sceneDepthTexture;
                 bool runGtao = ShouldRunGtao(canPost);
                 if (runGtao)
@@ -3320,7 +3335,7 @@ namespace Genesis.Rendering.Primitives
             });
             _gpu.SetBlendState(_bsOpaque);
             _gpu.SetDepthState(_dssNoTest);
-            _gpu.SetRasterState(_rsCullNone);
+            _gpu.SetRasterState(CullNoneRasterizer());
 
             BindCommonShaderState(shadowPass: false);
             _gpu.SetShaderProgram(CurrentForwardProgram(skinned: false));
@@ -3371,7 +3386,7 @@ namespace Genesis.Rendering.Primitives
             _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 2, _cbDraw);
 
             _gpu.SetDepthState(_dssNoWrite);
-            _gpu.SetRasterState(_rsCullNone);
+            _gpu.SetRasterState(CullNoneRasterizer());
 
             int instOffset = _transInstOffset;
             foreach (var b in _transBatchList)
@@ -3637,28 +3652,45 @@ namespace Genesis.Rendering.Primitives
             return raster | (ccw ? MeshDrawFlags.FrontClockwise : MeshDrawFlags.FrontCounterClockwise);
         }
 
+        /// <summary>
+        /// Whether front faces are counter-clockwise on screen for this draw. Asset winding is
+        /// defined in world space; the runtime's LH projection reverses screen winding relative to
+        /// the editors' System.Numerics RH projection, and a planar reflection reverses it again.
+        /// Camera/navigation conventions stay intact and the raster state is translated here.
+        /// </summary>
+        private bool ScreenFrontCounterClockwise(MeshDrawFlags rasterOverride)
+        {
+            bool counterClockwise = (rasterOverride & MeshDrawFlags.FrontCounterClockwise) != 0
+                || ((rasterOverride & MeshDrawFlags.FrontClockwise) == 0
+                    && _state.FrontCounterClockwise);
+            bool leftHandedProjection = MathF.Abs(_proj.M34) > 0.0001f ? _proj.M34 > 0f : _proj.M33 > 0f;
+            if (leftHandedProjection) counterClockwise = !counterClockwise;
+            if (_reflectionPassActive) counterClockwise = !counterClockwise;
+            return counterClockwise;
+        }
+
+        /// <summary>
+        /// Two-sided raster state with the camera's front-face winding. A fixed clockwise front used
+        /// to be right only for an unreflected LH camera: under the editors' RH cameras and in water
+        /// reflections every two-sided surface (floors, foliage, quads) was lit with an inverted normal.
+        /// </summary>
+        private GpuRasterState CullNoneRasterizer(MeshDrawFlags rasterOverride = MeshDrawFlags.None) =>
+            ScreenFrontCounterClockwise(rasterOverride) ? _rsCullNoneCw : _rsCullNone;
+
         private GpuRasterState CurrentRasterizer(MeshDrawFlags rasterOverride = MeshDrawFlags.None)
         {
             if (_state.Wireframe)
                 return _rsWireframe;
 
-            bool counterClockwise = (rasterOverride & MeshDrawFlags.FrontCounterClockwise) != 0
-                || ((rasterOverride & MeshDrawFlags.FrontClockwise) == 0
-                    && _state.FrontCounterClockwise);
-            // Asset winding is defined in world space. The runtime's LH projection reverses
-            // screen winding relative to the editors' System.Numerics RH projection. Keep
-            // camera/navigation conventions intact and translate the raster state here.
-            bool leftHandedProjection = MathF.Abs(_proj.M34) > 0.0001f ? _proj.M34 > 0f : _proj.M33 > 0f;
-            if (leftHandedProjection) counterClockwise = !counterClockwise;
-            if (_reflectionPassActive) counterClockwise = !counterClockwise;
+            bool counterClockwise = ScreenFrontCounterClockwise(rasterOverride);
             if ((rasterOverride & MeshDrawFlags.NoCull) != 0)
-                return _rsCullNone;
+                return counterClockwise ? _rsCullNoneCw : _rsCullNone;
 
             bool explicitBack = (rasterOverride & MeshDrawFlags.CullBack) != 0;
             bool cullFront = (rasterOverride & MeshDrawFlags.CullFront) != 0
                 || (!explicitBack && _state.CullFrontFaces);
             bool cullingEnabled = explicitBack || cullFront || _state.CullBackFaces;
-            if (!cullingEnabled) return _rsCullNone;
+            if (!cullingEnabled) return counterClockwise ? _rsCullNoneCw : _rsCullNone;
             if (cullFront) return counterClockwise ? _rsCullFrontCw : _rsCullFront;
             return counterClockwise ? _rsSolidCw : _rsSolid;
         }
@@ -4351,7 +4383,12 @@ namespace Genesis.Rendering.Primitives
             // Transparent / additive particle instanced pass — one DrawIndexedInstanced per unique
             // (mesh, texture, blendMode) instead of one DrawIndexed per particle.
             DrawTransparentBatches(whiteTexture);
-            if (!_reflectionPassActive) ExternalParticles?.Invoke(_view, _proj);
+            // With the particle layer active only multiply particles stay here; the rest are fogged
+            // at their own depth in ParticleLayerPass.
+            if (!_reflectionPassActive)
+                ExternalParticles?.Invoke(_view, _proj,
+                    _particleLayerThisFrame ? ParticleDrawPhase.MultiplyOnly : ParticleDrawPhase.All,
+                    _rtWidth, _rtHeight);
 
             // Unbind SRVs that were written during shadow pass so they can be used as DSV next frame
             _gpu.ClearTexture(GpuShaderStage.Pixel, 2);
@@ -4597,6 +4634,7 @@ namespace Genesis.Rendering.Primitives
             };
             PackSmokeVolumes(ref fogPost);
             PackInkOutline(ref fogPost, height);
+            fogPost.ParticleLayerParams = ParticleLayerParams();
             if (atmosphereLutEnabled)
             {
                 // Upload is once at create; sampling is free in the composite. Report a tiny
@@ -4665,6 +4703,8 @@ namespace Genesis.Rendering.Primitives
                     : GpuTextureHandle.Invalid);
             _gpu.SetTexture(GpuShaderStage.Pixel, 11,
                 cloudsEnabled && cloudTexture.IsValid ? cloudTexture : GpuTextureHandle.Invalid);
+            _gpu.SetTexture(GpuShaderStage.Pixel, 12,
+                _particleLayerThisFrame && _particleLayerTexture.IsValid ? _particleLayerTexture : GpuTextureHandle.Invalid);
             _gpu.SetSampler(GpuShaderStage.Pixel, 0, _linearSampler);
             _gpu.SetSampler(GpuShaderStage.Pixel, 1, _shadowSampler);
 
@@ -4672,7 +4712,7 @@ namespace Genesis.Rendering.Primitives
             _gpu.SetPrimitiveTopology(GpuPrimitiveTopology.TriangleList);
             _gpu.Draw(3);
 
-            for (int slot = 0; slot <= 11; slot++)
+            for (int slot = 0; slot <= 12; slot++)
                 _gpu.ClearTexture(GpuShaderStage.Pixel, slot);
             _gpu.EndRenderPass();
         }
@@ -4743,11 +4783,13 @@ namespace Genesis.Rendering.Primitives
                 ? _state.BloomThreshold
                 : BloomGradingMath.DefaultBloomThreshold;
 
-            // Mip 0: threshold extract from full-res HDR scene (pre-fog) into half-res.
+            // Mip 0: threshold extract from full-res HDR scene (pre-fog) into half-res. The GPU
+            // particle layer is composited over the scene here so sparks and embers still bloom.
+            bool layer = _particleLayerThisFrame && _particleLayerTexture.IsValid;
             DrawBloomFullscreen(
                 _bloomDownTargets[0], _bloomW[0], _bloomH[0],
-                _bloomExtractProgram, sceneTexture, GpuTextureHandle.Invalid,
-                sourceW: fullW, sourceH: fullH, threshold: threshold, addFine: false);
+                _bloomExtractProgram, sceneTexture, layer ? _particleLayerTexture : GpuTextureHandle.Invalid,
+                sourceW: fullW, sourceH: fullH, threshold: threshold, addFine: false, particleLayer: layer);
 
             // Further downsamples.
             for (int i = 1; i < BloomGradingMath.BloomMipCount; i++)
@@ -4784,15 +4826,17 @@ namespace Genesis.Rendering.Primitives
             int sourceW,
             int sourceH,
             float threshold,
-            bool addFine)
+            bool addFine,
+            bool particleLayer = false)
         {
             var cb = new BloomCB
             {
+                // w: 1 = add FineMap (upsample), 2 = FineMap is the particle layer (extract).
                 Params = new Vector4(
                     1f / Math.Max(sourceW, 1),
                     1f / Math.Max(sourceH, 1),
                     threshold,
-                    addFine ? 1f : 0f),
+                    particleLayer ? 2f : addFine ? 1f : 0f),
             };
             _gpu.UpdateConstantBuffer(_cbBloom, cb);
             _gpu.SetViewport(0, 0, width, height);
@@ -4809,7 +4853,7 @@ namespace Genesis.Rendering.Primitives
             _gpu.SetShaderProgram(program);
             _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 0, _cbBloom);
             _gpu.SetTexture(GpuShaderStage.Pixel, 0, source);
-            _gpu.SetTexture(GpuShaderStage.Pixel, 1, addFine && fine.IsValid ? fine : GpuTextureHandle.Invalid);
+            _gpu.SetTexture(GpuShaderStage.Pixel, 1, (addFine || particleLayer) && fine.IsValid ? fine : GpuTextureHandle.Invalid);
             _gpu.SetSampler(GpuShaderStage.Pixel, 0, _linearSampler);
             _gpu.SetVertexLayout(GpuVertexLayoutHandle.Invalid);
             _gpu.SetPrimitiveTopology(GpuPrimitiveTopology.TriangleList);
@@ -5581,7 +5625,7 @@ namespace Genesis.Rendering.Primitives
 
         private void DrawEnvironmentFloor(GpuTextureHandle whiteTexture)
         {
-            _gpu.SetRasterState(_state.Wireframe ? _rsWireframe : _rsCullNone);
+            _gpu.SetRasterState(_state.Wireframe ? _rsWireframe : CullNoneRasterizer());
             _gpu.SetDepthState(_dssDefault);
             _gpu.SetBlendState(_bsOpaque);
 
@@ -5939,6 +5983,7 @@ namespace Genesis.Rendering.Primitives
             _gpu.ReleaseRenderTarget(_shadowNearTarget);
             ReleaseLocalShadowAtlas();
             ReleaseFroxelResources();
+            ReleaseParticleLayerTarget();
             _gpu.ReleaseTexture(_flatNormalTexture);
             _gpu.ReleaseTexture(_checkerTexture);
             _gpu.ReleaseTexture(_waterNormalA);

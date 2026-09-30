@@ -356,9 +356,24 @@ cbuffer DrawParameters : register(b2) {
     float4 CameraRight,CameraUp,CameraForward;
     float4 Screen;
     float4 Mode;
+    float4 CameraPosition;
+    float4 FogLayer;
 };
+// Prefix of the forward renderer's EngineCB, bound at b3 for the particle layer's froxel fog.
+cbuffer EngineConstants : register(b3) {
+    float4 LightDirEnabled;
+    float4 FogParams;
+    float4 FogColor;
+    float4 AmbientColor;
+    float4 AmbientGroundColor;
+    float4 SunColorIntensity;
+    float4 FogParams2;
+};
+// The layer has no depth attachment, so particles test themselves against the scene depth.
+Texture2D<float> ParticleSceneDepth : register(t12);
+""" + Genesis.Rendering.Primitives.FroxelFogShaders.ApplySource + """
 struct VertexInput {float3 position:POSITION;float2 uv:TEXCOORD0;};
-struct VertexOutput {float4 position:SV_Position;float2 uv:TEXCOORD0;float4 color:COLOR0;};
+struct VertexOutput {float4 position:SV_Position;float2 uv:TEXCOORD0;float4 color:COLOR0;float3 world:TEXCOORD1;float viewDepth:TEXCOORD2;};
 float4 Curve(float t,uint offset) {
     float x=saturate(t)*(CURVE_SAMPLES-1);uint a=(uint)x;
     return lerp(Lookup[offset+a],Lookup[offset+min(a+1,CURVE_SAMPLES-1)],frac(x));
@@ -435,9 +450,12 @@ VertexOutput VS(VertexInput input,uint vertex:SV_VertexID,uint instance:SV_Insta
         uint frame=(uint)(age*max(0,Flipbook.z))%(columns*rows);
         uv=(uv+float2(frame%columns,frame/columns))/float2(columns,rows);
     }
+    output.world=centre+offset;output.viewDepth=output.position.w;
     output.uv=uv;output.color=color;return output;
 }
 float4 PS(VertexOutput input):SV_Target0 {
+    bool layer=FogLayer.x>0.5;
+    if(layer) clip(ParticleSceneDepth.Load(int3(int2(input.position.xy),0))-input.position.z);
     float4 pixel=ParticleTexture.Sample(LinearSampler,input.uv);
     float4 tint=input.color;
     // Linear colour pipeline (3D only): texture and colour curves are authored in sRGB.
@@ -446,6 +464,16 @@ float4 PS(VertexOutput input):SV_Target0 {
         float3 t=max(tint.rgb,0.0);tint.rgb=lerp(pow((t+0.055)/1.055,2.4),t/12.92,step(t,0.04045));
     }
     float4 color=pixel*tint;
+    if(layer){
+        // Fogged at the particle's own depth, then premultiplied over the fogged scene by the
+        // composite. Alpha particles take the in-scatter in front of them; additive ones only
+        // lose light to transmittance (alpha 0 keeps the layer coverage unchanged).
+        clip(color.a-0.0001);
+        float4 fog=FroxelFog(input.position.xy*FogLayer.yz,CameraPosition.xyz,input.world,input.viewDepth);
+        fog=lerp(float4(0,0,0,1),fog,saturate(FogColor.a)*step(0.5,FogParams.x));
+        if(Mode.z>0.5)return float4(color.rgb*color.a*fog.a,0);
+        return float4((color.rgb*fog.a+fog.rgb)*color.a,color.a);
+    }
     if(Mode.z>1.5)color.rgb*=color.a;
     clip(color.a-0.0001);return color;
 }

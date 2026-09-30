@@ -151,6 +151,9 @@ cbuffer FogPostConstants : register(b1)
     // w=pixels between tap rings (1 at 1080p).
     float4 InkFade;
 
+    // Append-only — x=1 when ParticleLayer (t12) holds premultiplied, self-fogged GPU particles.
+    float4 ParticleLayerParams;
+
 };
 
 
@@ -189,6 +192,9 @@ Texture2D AtmosphereLut : register(t10);
 
 // AF2.3 half-res raymarched cloud inscatter (RGB) + opacity (A).
 Texture2D CloudMap : register(t11);
+
+// GPU particles, already fogged at their own depth: premultiplied rgb, a = coverage.
+Texture2D ParticleLayer : register(t12);
 
 SamplerState LinearClamp : register(s0);
 
@@ -705,6 +711,14 @@ float4 PS(VSOut IN) : SV_Target
         if (CloudCompositeParams.z > 0.5)
             color.rgb *= 1.0 - saturate(cloud.a);
         color.rgb += cloud.rgb * CloudCompositeParams.y * fogTransmittance;
+    }
+
+    // GPU particles sit in front of whatever they cover and carry their own fog, so they go over
+    // the fogged scene, sky and clouds rather than being fogged at the background's depth.
+    if (ParticleLayerParams.x > 0.5)
+    {
+        float4 particles = ParticleLayer.Load(int3(pixel, 0));
+        color.rgb = color.rgb * (1.0 - saturate(particles.a)) + particles.rgb;
     }
 
     // AF1.7 HDR bloom add → exposure → mild grade → vignette → ACES. The bloom is extracted before

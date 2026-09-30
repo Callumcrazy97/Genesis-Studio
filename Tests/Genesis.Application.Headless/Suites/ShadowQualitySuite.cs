@@ -33,6 +33,7 @@ internal static class ShadowQualitySuite
         HeadlessHarness.RunCase(ctx.Report, "Engine.Render.Shadows.SunCastsShadowOnAllBackends", () => SunShadow(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Render.Shadows.FourLocalLightsShareAtlas", () => FourLocalLights(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Render.Shadows.SpotLightConeAndShadow", () => SpotLight(ctx));
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Render.Lighting.TwoSidedSurfacesLitUnderEitherCamera", () => TwoSided(ctx));
     }
 
     private static void Check(bool condition, string message)
@@ -283,6 +284,30 @@ internal static class ShadowQualitySuite
                 Check(withOccluder < withoutOccluder * 0.75 && withoutOccluder - withOccluder > 12,
                     $"{backend}: light {i}'s occluder cast no shadow at {point} ({withOccluder:F1} vs {withoutOccluder:F1}).");
             }
+        });
+    }
+
+    // Two-sided draws used a fixed clockwise front face, which is only right for the runtime's
+    // left-handed camera: under the editors' right-handed cameras (and in water reflections) the
+    // forward shader flipped their normals, so floors, foliage and quads lost direct light.
+    private static void TwoSided(HeadlessContext ctx)
+    {
+        WithBackends((backend, name) =>
+        {
+            using RuntimeViewportHarness harness = new();
+            string leftFile = Path.Combine(ctx.Captures, $"two-sided-{name}-left-handed.png");
+            string rightFile = Path.Combine(ctx.Captures, $"two-sided-{name}-right-handed.png");
+            harness.CaptureTwoSidedLighting(leftFile, rightHanded: false);
+            harness.CaptureTwoSidedLighting(rightFile, rightHanded: true);
+            using Bitmap left = new(leftFile);
+            using Bitmap right = new(rightFile);
+            // The slab fills the view's centre in both conventions (mirrored, but symmetric).
+            Point centre = new(left.Width / 2, left.Height / 2 + left.Height / 8);
+            double lit = Luminance(left, centre);
+            double mirrored = Luminance(right, centre);
+            Check(lit > 90, $"{backend}: the sunlit two-sided slab was dark under the left-handed camera ({lit:F1}).");
+            Check(Math.Abs(mirrored - lit) < 6,
+                $"{backend}: the two-sided slab lit differently under a right-handed camera ({mirrored:F1} vs {lit:F1}).");
         });
     }
 

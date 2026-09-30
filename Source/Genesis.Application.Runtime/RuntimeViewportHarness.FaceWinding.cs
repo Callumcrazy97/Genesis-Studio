@@ -12,6 +12,47 @@ public sealed partial class RuntimeViewportHarness
     private RenderDebugView _probeDebug;
     private bool _probeWireframe;
     private float _probeDistance = 4;
+    private bool _twoSidedRightHanded;
+
+    /// <summary>
+    /// A two-sided (NoCull) slab lit by an overhead sun, seen from above through the engine's
+    /// left-handed camera or an editor-style System.Numerics right-handed one. Both must light
+    /// its top face; the forward shader flips back-face normals, so a wrong front-face winding
+    /// leaves the slab ambient-only.
+    /// </summary>
+    public ImageMetrics CaptureTwoSidedLighting(string outputFile, bool rightHanded)
+    {
+        EnsureReady();
+        EnsureCube();
+        _twoSidedRightHanded = rightHanded;
+        _mode = CaptureMode.TwoSidedLighting;
+        return Capture(outputFile, minimumUniqueColors: 1);
+    }
+
+    private void RenderTwoSidedLighting(IRenderController renderer)
+    {
+        renderer.SetRoomFog(RoomFogState.Disabled); renderer.Set3DFrameActive(true);
+        renderer.Clear(.05f, .05f, .08f, 1);
+        Vector3 eye = new(0, 6, -6);
+        float aspect = _viewport.ClientWidth / (float)Math.Max(1, _viewport.ClientHeight);
+        if (_twoSidedRightHanded)
+            renderer.SetCamera3D(Matrix4x4.CreateLookAt(eye, Vector3.Zero, Vector3.UnitY),
+                Matrix4x4.CreatePerspectiveFieldOfView(MathF.PI / 3, aspect, .1f, 50));
+        else
+            renderer.SetCamera3D(Genesis.Rendering.D3dMath.D3dMatrixHelper.CreateLookAtLh(eye, Vector3.Zero, Vector3.UnitY),
+                Genesis.Rendering.D3dMath.D3dMatrixHelper.CreatePerspectiveLh(MathF.PI / 3, aspect, .1f, 50));
+        var state = Mesh3DState.Default;
+        state.LightingEnabled = true; state.LightingWeight = 1;
+        state.LightDirection = Vector3.Normalize(new Vector3(0, -1, .2f));
+        state.SunColor = Vector3.One; state.SunIntensity = 1.2f;
+        state.AmbientColor = new Vector3(.08f); state.AmbientGroundColor = new Vector3(.04f);
+        state.ShadowsEnabled = false; state.ShowFloor = false; state.ShowSunVisual = false;
+        state.FrustumCullingEnabled = false;
+        renderer.SetMesh3DState(state); renderer.ClearPointLights();
+        renderer.DrawMesh(new MeshDrawCall { Mesh = _cube, World = Matrix4x4.CreateScale(8, .1f, 8),
+            Tint = new RenderColor(.7f, .7f, .7f), Alpha = 1, Flags = MeshDrawFlags.NoCull | MeshDrawFlags.NoShadow | MeshDrawFlags.NoFog });
+        SetCaptureBadge("ENGINE TWO-SIDED LIGHTING", "A NoCull slab lit from overhead under either camera convention.");
+    }
 
     /// <summary>Closed cube: the near/outside face is green and the far/inside face is red.</summary>
     public ImageMetrics CaptureFaceWinding(string outputFile, FrontFaceWindingOverride winding, bool reflected = false, bool perspective = false, bool runtimeCamera = false,

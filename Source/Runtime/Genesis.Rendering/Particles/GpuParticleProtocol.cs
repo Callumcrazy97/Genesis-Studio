@@ -102,6 +102,11 @@ public struct GpuParticleDraw
     public Vector4 Screen;
     // is2D, capacity, particle blend mode (0 alpha / 1 additive / 2 multiply), current time
     public Vector4 Mode;
+    // xyz = camera position; used by the 3D particle layer's froxel fog.
+    public Vector4 CameraPosition;
+    // x = 1 in the separate particle layer (own depth test, self-fog, premultiplied output),
+    // yz = 1 / layer width and height.
+    public Vector4 FogLayer;
 }
 
 [StructLayout(LayoutKind.Sequential)]

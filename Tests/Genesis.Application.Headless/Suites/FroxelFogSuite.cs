@@ -26,6 +26,7 @@ internal static class FroxelFogSuite
         HeadlessHarness.RunCase(ctx.Report, "Engine.Render.Froxel.HeightFogIntegralMatchesNumeric", HeightFogIntegral);
         HeadlessHarness.RunCase(ctx.Report, "Engine.Render.Froxel.HeightFogShadowsAndSurfacesOnAllBackends", () => GpuFog(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Render.Froxel.GoldenSceneRepeatsExactly", () => GoldenRepeats(ctx));
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Render.Froxel.GpuParticlesFogAtTheirOwnDepth", () => GpuParticleFog(ctx));
     }
 
     private static void Check(bool condition, string message)
@@ -111,6 +112,45 @@ internal static class FroxelFogSuite
                 + $"{RuntimeImageMetrics.MaxTileDelta(captures[0], captures[i]):F3} vs first");
         bool identical = captures.Skip(1).All(capture => RuntimeImageMetrics.MaxTileDelta(captures[0], capture) == 0);
         Check(identical, "Repeated golden captures differ: " + string.Join("; ", deltas));
+    }
+
+    // GPU particles write no depth. Fogged in the scene target, the composite fogged them at the far
+    // wall 105 m behind them; the particle layer fogs them at their own depth, like an opaque box of
+    // the same colour at the same depth.
+    private static void GpuParticleFog(HeadlessContext ctx)
+    {
+        RenderBackendOption previous = RenderBackendSelection.RequestedBackend;
+        try
+        {
+            foreach (RenderBackendOption backend in GpuBackends)
+            {
+                RenderBackendSelection.Configure(backend);
+                string name = backend.ToString().ToLowerInvariant();
+                using RuntimeViewportHarness harness = new();
+                string clearFile = Path.Combine(ctx.Captures, $"froxel-{name}-particles-clear.png");
+                string fogFile = Path.Combine(ctx.Captures, $"froxel-{name}-particles-fog.png");
+                harness.CaptureFogParticles(clearFile, fog: false);
+                harness.CaptureFogParticles(fogFile, fog: true);
+
+                using Bitmap clear = new(clearFile);
+                using Bitmap fog = new(fogFile);
+                Point particle = harness.ProjectFogPoint(RuntimeViewportHarness.FogParticlePoint);
+                Point reference = harness.ProjectFogPoint(RuntimeViewportHarness.FogParticleReference);
+                double particleClear = Luminance(clear, particle);
+                double referenceClear = Luminance(clear, reference);
+                Check(Math.Abs(particleClear - referenceClear) < 8,
+                    $"{backend}: the particles did not draw in their colour ({particleClear:F1} vs box {referenceClear:F1}).");
+
+                double particleFog = Luminance(fog, particle);
+                double referenceFog = Luminance(fog, reference);
+                double added = Math.Abs(referenceFog - referenceClear);
+                Check(added > 4, $"{backend}: fog did not reach the reference box ({referenceClear:F1} → {referenceFog:F1}).");
+                Check(Math.Abs(particleFog - referenceFog) <= Math.Max(4.0, added * 0.2),
+                    $"{backend}: particles were not fogged at their own depth ({particleFog:F1} vs box {referenceFog:F1}; "
+                    + $"both {particleClear:F1}/{referenceClear:F1} without fog).");
+            }
+        }
+        finally { RenderBackendSelection.Configure(previous); }
     }
 
     private static double Luminance(Bitmap bitmap, Point point)

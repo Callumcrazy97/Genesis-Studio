@@ -15,7 +15,8 @@ internal static class BloomShaders
 cbuffer BloomConstants : register(b0)
 {
     // xy = source texel size (1/width, 1/height), z = luma threshold (extract pass),
-    // w = 1 when FineMap should be added during upsample.
+    // w = 1 when FineMap should be added during upsample, 2 when FineMap is the GPU particle
+    // layer to composite over the scene before extracting.
     float4 Params;
 };
 
@@ -41,22 +42,34 @@ float Luma(float3 c)
     return dot(c, float3(0.2126, 0.7152, 0.0722));
 }
 
+// One source tap; in the extract pass with the particle layer, the layer goes over the scene.
+float3 SourceTap(float2 uv)
+{
+    float3 color = SourceMap.SampleLevel(LinearClamp, uv, 0).rgb;
+    if (Params.w > 1.5)
+    {
+        float4 particles = FineMap.SampleLevel(LinearClamp, uv, 0);
+        color = color * (1.0 - saturate(particles.a)) + particles.rgb;
+    }
+    return color;
+}
+
 // Dual-filter style 13-tap downsample (Karis / Call of Duty).
 float3 Downsample13(float2 uv, float2 texel)
 {
-    float3 a = SourceMap.SampleLevel(LinearClamp, uv + texel * float2(-1.0, -1.0), 0).rgb;
-    float3 b = SourceMap.SampleLevel(LinearClamp, uv + texel * float2( 0.0, -1.0), 0).rgb;
-    float3 c = SourceMap.SampleLevel(LinearClamp, uv + texel * float2( 1.0, -1.0), 0).rgb;
-    float3 d = SourceMap.SampleLevel(LinearClamp, uv + texel * float2(-1.0,  0.0), 0).rgb;
-    float3 e = SourceMap.SampleLevel(LinearClamp, uv, 0).rgb;
-    float3 f = SourceMap.SampleLevel(LinearClamp, uv + texel * float2( 1.0,  0.0), 0).rgb;
-    float3 g = SourceMap.SampleLevel(LinearClamp, uv + texel * float2(-1.0,  1.0), 0).rgb;
-    float3 h = SourceMap.SampleLevel(LinearClamp, uv + texel * float2( 0.0,  1.0), 0).rgb;
-    float3 i = SourceMap.SampleLevel(LinearClamp, uv + texel * float2( 1.0,  1.0), 0).rgb;
-    float3 j = SourceMap.SampleLevel(LinearClamp, uv + texel * float2(-2.0,  0.0), 0).rgb;
-    float3 k = SourceMap.SampleLevel(LinearClamp, uv + texel * float2( 2.0,  0.0), 0).rgb;
-    float3 l = SourceMap.SampleLevel(LinearClamp, uv + texel * float2( 0.0, -2.0), 0).rgb;
-    float3 m = SourceMap.SampleLevel(LinearClamp, uv + texel * float2( 0.0,  2.0), 0).rgb;
+    float3 a = SourceTap(uv + texel * float2(-1.0, -1.0));
+    float3 b = SourceTap(uv + texel * float2( 0.0, -1.0));
+    float3 c = SourceTap(uv + texel * float2( 1.0, -1.0));
+    float3 d = SourceTap(uv + texel * float2(-1.0,  0.0));
+    float3 e = SourceTap(uv);
+    float3 f = SourceTap(uv + texel * float2( 1.0,  0.0));
+    float3 g = SourceTap(uv + texel * float2(-1.0,  1.0));
+    float3 h = SourceTap(uv + texel * float2( 0.0,  1.0));
+    float3 i = SourceTap(uv + texel * float2( 1.0,  1.0));
+    float3 j = SourceTap(uv + texel * float2(-2.0,  0.0));
+    float3 k = SourceTap(uv + texel * float2( 2.0,  0.0));
+    float3 l = SourceTap(uv + texel * float2( 0.0, -2.0));
+    float3 m = SourceTap(uv + texel * float2( 0.0,  2.0));
     return e * 0.125
          + (a + c + g + i) * 0.03125
          + (b + d + f + h) * 0.0625

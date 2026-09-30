@@ -70,3 +70,62 @@ then passed DX11, DX12, Vulkan, OpenGL and Software smokes and promoted.
 
 After the last change these focused runs passed: `--test shadows` 7/7, `--test fog` 4/4 and
 `--test render` 72/72. Repeated runs: fog 8/8 and shadows 8/8.
+
+## Follow-ups: GPU particle fog and two-sided lighting
+
+![Particle fog, harness cameras and two-sided lighting](2026-09-30-ParticleFogAndTwoSidedLighting.png)
+
+**GPU compute particles are fogged at their own depth.** Particles write no depth, so the
+composite used to fog them at the depth of whatever stood behind them. A sprite in front of a
+distant wall came out almost pure fog colour. With the froxel volume active, alpha and additive
+particles now draw into a separate premultiplied HDR layer, `ForwardRenderer.ParticleLayer.cs`:
+
+- Each particle is fogged through the froxel volume at its own position.
+- The layer has no depth attachment, because only DX11 honours a borrowed one, so the particle
+  shader tests itself against the scene depth.
+- The composite lays the layer over the fogged scene as `scene · (1 − a) + layer`. This is exact for
+  alpha blending and for additive light.
+- Multiply particles keep drawing into the scene target.
+- The bloom extract composites the layer over the scene, so sparks still glow.
+
+`Engine.Render.Froxel.GpuParticlesFogAtTheirOwnDepth` checks that unlit particles and an unlit box of
+the same colour, at the same depth, receive the same fog on DX11, DX12, Vulkan and OpenGL. With the
+layer switched off it fails: 184.2 against the box's 172.5 on DX11.
+
+**Two-sided surfaces were lit backwards under right-handed cameras and in reflections.** The forward
+shader flips the normal of back faces (`SV_IsFrontFace`). Culled draws already translated their
+front-face winding for the projection's handedness and for planar reflections. Two-sided (`NoCull`)
+draws used a fixed clockwise front face instead, which is right only for an unreflected left-handed
+camera. Under the editors' System.Numerics cameras, and in water reflections, floors, foliage, quads,
+view models and particle batches were lit with inverted normals. `CullNoneRasterizer` now gives them
+the same winding as culled draws.
+
+`Engine.Render.Lighting.TwoSidedSurfacesLitUnderEitherCamera` renders a sunlit two-sided slab through
+both camera conventions. With the old winding the right-handed view read 6.0 against 198.0.
+
+The golden scene uses a right-handed camera, so its environment floor and foliage cards now light
+correctly. The GPU goldens moved 23.44/255 and were re-recorded; Software was unchanged.
+
+The engine test scenes in `RuntimeViewportHarness` (`BeginThreeDScene` and the water-reflection
+scene) now use the runtime's left-handed camera, as `Camera3D` does. Their images are mirrored
+left to right, and their assertions are position-independent.
+
+The face-winding probe keeps its deliberate right-handed editor cameras.
+
+Still right-handed, and not changed here:
+
+- `RenderParityHarness`: the golden scene, now lit correctly.
+- `CloudFlyThroughHarness`.
+
+Validation for these follow-ups:
+
+- **Full Build `20260930-183831-b54a3d23`:** 1,075 passed and 2 failed. Both failures passed when rerun
+  alone:
+  - `Editor.Model.Profile.PointerDrawAndVisibleTriangleCost` passed 3 of 3.
+  - `Editor.QoL.Shortcuts.TypingDoesNotTriggerEditorKeys` passed in 3 focused `qol` runs.
+- **Focused `qol` runs:** each also hit clipboard and window-creation errors in four other cases. The
+  harness staged by the earlier Full Build fails those cases the same way, so they come from the
+  shared desktop (clipboard held elsewhere), not from these changes.
+- **Renderer smokes:** Quick Build `20260930-190841-56dbe4a2` passed all five and promoted.
+- **Focused suites:** render 74/74, fog 5/5, shadows 8/8, particle-planar 11/11 and
+  particle-workbench 73/73 passed.

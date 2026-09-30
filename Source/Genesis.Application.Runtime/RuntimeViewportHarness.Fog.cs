@@ -1,5 +1,7 @@
 using System.Drawing;
 using System.Numerics;
+using Genesis.Rendering.Particles;
+using Genesis.Runtime.Particles;
 using Genesis.Shared.Interfaces;
 
 namespace Genesis.Application.Runtime;
@@ -14,6 +16,9 @@ public sealed partial class RuntimeViewportHarness
     private bool _fogEnabled;
     private bool _fogShadows;
     private bool _fogRoof;
+    private bool _fogParticles;
+    private GpuParticleEmitter? _fogParticleEmitter;
+    private uint _fogParticleSequence;
 
     public static readonly Vector3 FogLowPanel = new(-5f, 1f, 45f);
     public static readonly Vector3 FogHighPanel = new(5f, 16f, 45f);
@@ -23,6 +28,15 @@ public sealed partial class RuntimeViewportHarness
     /// <summary>A point on the far wall seen through the fog under the roof slab.</summary>
     public static readonly Vector3 FogUnderRoof = new(0f, 2f, 120f);
 
+    /// <summary>Centre of a cluster of GPU compute particles, 105 m in front of the far wall.</summary>
+    public static readonly Vector3 FogParticlePoint = new(-12f, 8f, 45f);
+
+    /// <summary>An opaque box the particles' colour, at the same depth and height as the particles.</summary>
+    public static readonly Vector3 FogParticleReference = new(12f, 8f, 45f);
+
+    /// <summary>Unlit colour shared by the particles and <see cref="FogParticleReference"/>.</summary>
+    public static readonly Vector3 FogParticleColour = new(0.55f, 0.45f, 0.35f);
+
     public ImageMetrics CaptureFogScene(string outputFile, bool fog, bool shadows, bool roof)
     {
         EnsureReady();
@@ -30,6 +44,24 @@ public sealed partial class RuntimeViewportHarness
         _fogEnabled = fog;
         _fogShadows = shadows;
         _fogRoof = roof;
+        _fogParticles = false;
+        _mode = CaptureMode.Fog;
+        return Capture(outputFile, minimumUniqueColors: 2);
+    }
+
+    /// <summary>
+    /// The fog scene, unlit, with opaque GPU particles and an opaque box of the same colour at the
+    /// same depth. Particles write no depth, so this shows whether they are fogged at their own
+    /// depth (like the box) or at the far wall's behind them.
+    /// </summary>
+    public ImageMetrics CaptureFogParticles(string outputFile, bool fog)
+    {
+        EnsureReady();
+        EnsureCube();
+        _fogEnabled = fog;
+        _fogShadows = false;
+        _fogRoof = false;
+        _fogParticles = true;
         _mode = CaptureMode.Fog;
         return Capture(outputFile, minimumUniqueColors: 2);
     }
@@ -84,6 +116,8 @@ public sealed partial class RuntimeViewportHarness
         state.FogHeightFalloff = 0.12f;
         state.FogAerialBlend = 1f;
         state.VolumetricTemporalBlend = 1f; // stable analytic volume: captures are deterministic
+        // The particle comparison is unlit, so particles and their reference box share one colour.
+        if (_fogParticles) state.LightingEnabled = false;
         renderer.SetMesh3DState(state);
         renderer.ClearPointLights();
 
@@ -107,7 +141,45 @@ public sealed partial class RuntimeViewportHarness
         Box(FogSurfacePanel, new Vector3(3f, 2f, 0.5f), dark, MeshDrawFlags.NoShadow | MeshDrawFlags.NoDepthWrite);
         if (_fogRoof)
             Box(new Vector3(0f, 12f, 40f), new Vector3(60f, 1f, 60f), dark, MeshDrawFlags.None);
+        if (_fogParticles)
+        {
+            Box(FogParticleReference, new Vector3(4f, 4f, 0.5f),
+                new RenderColor(FogParticleColour.X, FogParticleColour.Y, FogParticleColour.Z), MeshDrawFlags.NoShadow);
+            SubmitFogParticles(renderer);
+        }
 
         SetCaptureBadge("ENGINE VOLUMETRIC FOG", "Froxel fog: height falloff, shafts, consistent surfaces.");
+    }
+
+    /// <summary>
+    /// A motionless, long-lived stack of large opaque billboards: every particle sits at
+    /// <see cref="FogParticlePoint"/>, so the cluster looks like one square of a known colour.
+    /// </summary>
+    private void SubmitFogParticles(IRenderController renderer)
+    {
+        if (renderer is not IGpuParticleRenderer particles) return;
+        if (_fogParticleEmitter is null || _fogParticleEmitter.IsDisposed)
+        {
+            var colour = new ParticleColor(FogParticleColour.X, FogParticleColour.Y, FogParticleColour.Z, 1f);
+            var config = new ParticleConfig
+            {
+                MaxParticles = 16, EmitRate = 0, Loop = true,
+                Shape = ParticleEmitShape.Point, Speed = 0, SpeedVariance = 0,
+                Gravity = 0, Drag = 0, TurbulenceStrength = 0,
+                Lifetime = 600, LifetimeVariance = 0,
+                StartSize = 5, EndSize = 5,
+                StartColor = colour, EndColor = colour,
+                Emissive = 1, ColorJitter = 0, RotationSpeed = 0, RotationVariance = 0,
+                BlendMode = ParticleBlendMode.Alpha,
+            };
+            _fogParticleEmitter = particles.CreateParticleEmitter(
+                GpuParticleDefinitionBuilder.Build(config, Matrix4x4.CreateTranslation(FogParticlePoint)), seed: 7);
+            _fogParticleSequence = 0;
+        }
+
+        // Emit the whole cluster on the first steps, then only advance time.
+        int births = _fogParticleSequence < 4 ? 4 : 0;
+        particles.EnqueueParticleStep(_fogParticleEmitter, 1f / 60f, births, _fogParticleSequence++, []);
+        particles.SubmitParticles3D(_fogParticleEmitter, MeshHandle.Invalid, TextureHandle.Invalid);
     }
 }

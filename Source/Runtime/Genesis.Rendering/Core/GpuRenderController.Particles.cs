@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Numerics;
 using Genesis.Rendering.Particles;
+using Genesis.Rendering.Primitives;
 using Genesis.Rendering.Abstractions;
 using Genesis.Shared.Interfaces;
 
@@ -100,9 +101,23 @@ public sealed unsafe partial class GpuRenderController
         finally { _particleOperations.Clear(); }
     }
 
-    private void DrawSubmittedParticles3D(Matrix4x4 view, Matrix4x4 projection)
+    /// <summary>True when a 3D alpha or additive emitter was submitted, so the forward renderer's
+    /// particle layer has work this frame.</summary>
+    private bool HasLayerParticles()
+    {
+        foreach (ParticleDraw draw in _particleDraws)
+            if (!draw.Is2D && !draw.Emitter.IsDisposed && draw.Emitter.Definition.BlendMode != MultiplyBlendMode)
+                return true;
+        return false;
+    }
+
+    private const int MultiplyBlendMode = 2;
+
+    private void DrawSubmittedParticles3D(Matrix4x4 view, Matrix4x4 projection, ParticleDrawPhase phase,
+        int width, int height)
     {
         if (!Matrix4x4.Invert(view, out Matrix4x4 inverse)) inverse = Matrix4x4.Identity;
+        bool layer = phase == ParticleDrawPhase.Layer;
         var parameters = new GpuParticleDraw
         {
             ViewProjection = view * projection,
@@ -111,16 +126,24 @@ public sealed unsafe partial class GpuRenderController
                 EngineRenderingDefaults.LinearColorPipeline ? 1f : 0f),
             CameraUp = new Vector4(Vector3.Normalize(new Vector3(inverse.M21,inverse.M22,inverse.M23)),0),
             CameraForward = new Vector4(Vector3.Normalize(new Vector3(inverse.M31,inverse.M32,inverse.M33)),0),
+            CameraPosition = new Vector4(inverse.M41, inverse.M42, inverse.M43, 0),
+            FogLayer = layer
+                ? new Vector4(1f, 1f / Math.Max(width, 1), 1f / Math.Max(height, 1), 0f)
+                : Vector4.Zero,
         };
         Matrix4x4 viewProjection = view * projection;
         foreach (ParticleDraw draw in _particleDraws)
         {
             if (draw.Is2D || draw.Emitter.IsDisposed) continue;
             GpuParticleDefinition definition = draw.Emitter.Definition;
+            // The layer can only cover or add; multiply particles keep darkening the scene target.
+            bool multiply = definition.BlendMode == MultiplyBlendMode;
+            if (layer ? multiply : phase == ParticleDrawPhase.MultiplyOnly && !multiply)
+                continue;
             if (!ParticleSphereVisible(definition.BoundsCenter, definition.BoundsRadius, viewProjection))
                 continue;
             parameters.Mode = new Vector4(0, draw.Emitter.Capacity, 1, (float)draw.Emitter.SimulationTime);
-            draw.Emitter.Draw(parameters,draw.Mesh,draw.Texture,definition.BlendMode);
+            draw.Emitter.Draw(parameters,draw.Mesh,draw.Texture,definition.BlendMode,layer);
         }
     }
 

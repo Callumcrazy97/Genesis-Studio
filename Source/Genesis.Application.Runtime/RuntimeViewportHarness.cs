@@ -49,6 +49,7 @@ public sealed partial class RuntimeViewportHarness : IDisposable
         FaceWinding,
         LocalLights,
         Fog,
+        TwoSidedLighting,
     }
 
     public RuntimeViewportHarness(int width = 640, int height = 360)
@@ -509,6 +510,7 @@ public sealed partial class RuntimeViewportHarness : IDisposable
         if (_mode == CaptureMode.WaterReflection) { RenderWaterReflection(renderer); return; }
         if (_mode == CaptureMode.LocalLights) { RenderLocalLights(renderer); return; }
         if (_mode == CaptureMode.Fog) { RenderFogScene(renderer); return; }
+        if (_mode == CaptureMode.TwoSidedLighting) { RenderTwoSidedLighting(renderer); return; }
         if (_mode == CaptureMode.TwoD)
         {
             RenderTwoD(renderer);
@@ -541,8 +543,8 @@ public sealed partial class RuntimeViewportHarness : IDisposable
     private void RenderWaterReflection(IRenderController renderer)
     {
         BeginThreeDScene(renderer);
-        renderer.SetCamera3D(Matrix4x4.CreateLookAt(new Vector3(0, 1, 9), new Vector3(0, .3f, 0), Vector3.UnitY),
-            Matrix4x4.CreatePerspectiveFieldOfView(MathF.PI / 3, _viewport.ClientWidth / (float)_viewport.ClientHeight, .1f, 100));
+        renderer.SetCamera3D(Genesis.Rendering.D3dMath.D3dMatrixHelper.CreateLookAtLh(new Vector3(0, 1, 9), new Vector3(0, .3f, 0), Vector3.UnitY),
+            Genesis.Rendering.D3dMath.D3dMatrixHelper.CreatePerspectiveLh(MathF.PI / 3, _viewport.ClientWidth / (float)_viewport.ClientHeight, .1f, 100));
         var state = Mesh3DState.Default;
         state.LightingEnabled = true; state.LightingWeight = 1; state.SunIntensity = 1;
         state.LightDirection = Vector3.Normalize(new Vector3(-1, -1, -1));
@@ -772,11 +774,14 @@ public sealed partial class RuntimeViewportHarness : IDisposable
         renderer.SetRoomFog(RoomFogState.Disabled);
         renderer.Set3DFrameActive(true);
         renderer.Clear(0.50f, 0.62f, 0.78f, 1f);
-        Matrix4x4 view = Matrix4x4.CreateLookAt(
+        // The engine's left-handed convention (as Camera3D uses). A right-handed System.Numerics
+        // camera mirrors screen winding, so every front face read as a back face and lit with an
+        // inverted normal: point lights never pooled on the floor.
+        Matrix4x4 view = Genesis.Rendering.D3dMath.D3dMatrixHelper.CreateLookAtLh(
             new Vector3(4.8f, 3.0f, 5.2f),
             new Vector3(0.1f, 0.45f, 0.0f),
             Vector3.UnitY);
-        Matrix4x4 projection = Matrix4x4.CreatePerspectiveFieldOfView(
+        Matrix4x4 projection = Genesis.Rendering.D3dMath.D3dMatrixHelper.CreatePerspectiveLh(
             MathF.PI / 4f,
             _viewport.ClientWidth / (float)Math.Max(1, _viewport.ClientHeight),
             0.1f,
@@ -880,6 +885,7 @@ public sealed partial class RuntimeViewportHarness : IDisposable
     {
         _viewport.OnRender -= OnRender;
         _viewport.OnPostFrame -= OnPostFrame;
+        _fogParticleEmitter?.Dispose();
         if (_viewport.Renderer is IRenderController renderer)
         {
             if (_reflectionWater.IsValid) renderer.ReleaseMesh(_reflectionWater);

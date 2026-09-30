@@ -94,6 +94,7 @@ namespace Genesis.Rendering.Core
             _gpuSwapChain = _gpu.CreateSwapChain(windowHandle, width, height);
             _fwd = new ForwardRenderer(_gpu);
             _fwd.ExternalParticles = DrawSubmittedParticles3D;
+            _fwd.ExternalParticlesPending = HasLayerParticles;
             byte[] spriteVs = ShaderCompiler.CompileForBackend(
                 SpriteShaders.Source, "VS", GpuShaderStage.Vertex, _gpu.ShaderBinaryFormat).Blob;
             byte[] spritePs = ShaderCompiler.CompileForBackend(
