@@ -24,11 +24,18 @@ public sealed record StarterItem(string Id, string Title, string Description)
     /// <summary>Optional picture drawn over the swatch (cropped to fill).</summary>
     public Image? Thumbnail { get; init; }
 
-    /// <summary>Optional short label such as "Recommended" or "Preview only".</summary>
+    /// <summary>Optional short label such as "Recommended", "Done" or "Preview only".</summary>
     public string Badge { get; init; } = string.Empty;
 
-    /// <summary>Badges that warn (for example "Preview only") use the warning colour.</summary>
-    public bool BadgeIsWarning { get; init; }
+    /// <summary>Colour of the badge: accent, success (done) or warning (preview only).</summary>
+    public StarterBadgeTone BadgeTone { get; init; }
+}
+
+public enum StarterBadgeTone
+{
+    Accent,
+    Success,
+    Warning,
 }
 
 /// <summary>
@@ -54,6 +61,7 @@ public sealed class StarterGallery : Panel
     private string? _selectedId;
     private Font? _glyphFont;
     private bool _laying;
+    private bool _fitsContent;
 
     public StarterGallery(string name)
     {
@@ -193,6 +201,22 @@ public sealed class StarterGallery : Panel
     /// <summary>The height the gallery needs to show every card at its current width.</summary>
     public int PreferredContentHeight => LayoutCards(apply: false);
 
+    /// <summary>
+    /// When true the gallery never scrolls: it sets its own height to fit every card, for use
+    /// inside a page that already scrolls (the Home page).
+    /// </summary>
+    [DefaultValue(false)]
+    public bool FitsContent
+    {
+        get => _fitsContent;
+        set
+        {
+            _fitsContent = value;
+            AutoScroll = !value;
+            PerformLayout();
+        }
+    }
+
     protected override void OnLayout(LayoutEventArgs levent)
     {
         base.OnLayout(levent);
@@ -205,10 +229,20 @@ public sealed class StarterGallery : Panel
         try
         {
             int height = LayoutCards(apply: true);
-            Size minimum = new(0, height);
-            if (AutoScrollMinSize != minimum)
+            if (_fitsContent)
             {
-                AutoScrollMinSize = minimum;
+                if (Height != height)
+                {
+                    Height = height;
+                }
+            }
+            else
+            {
+                Size minimum = new(0, height);
+                if (AutoScrollMinSize != minimum)
+                {
+                    AutoScrollMinSize = minimum;
+                }
             }
         }
         finally
@@ -247,7 +281,9 @@ public sealed class StarterGallery : Panel
         PerformLayout();
     }
 
-    internal int Scale(int logical) => (int)Math.Round(logical * DeviceDpi / 96f);
+    /// <summary>Scales logical pixels by monitor DPI and by the interface text size preference.</summary>
+    internal int Scale(int logical) =>
+        (int)Math.Round(logical * DeviceDpi / 96f * Math.Clamp(UiTokens.BaseFont.SizeInPoints / 9.5f, 0.75f, 2f));
 
     internal Font? GlyphFont => _glyphFont ??= UiGlyphs.CreateFont(17f);
 
@@ -346,7 +382,8 @@ public sealed class StarterGallery : Panel
 
     private void ApplyTokens()
     {
-        BackColor = UiTokens.Surface;
+        // Follows the theme service's convention: a "canvas" tag sits on the page background.
+        BackColor = string.Equals(Tag as string, "canvas", StringComparison.Ordinal) ? UiTokens.Canvas : UiTokens.Surface;
         foreach (Label heading in _headings)
         {
             heading.Font = UiTokens.StrongFont;
@@ -507,7 +544,12 @@ public sealed class StarterGallery : Panel
                 swatch.Top + _owner.Scale(6),
                 text.Width + padX * 2,
                 text.Height + padY * 2);
-            Color back = Item.BadgeIsWarning ? UiTokens.Warning : UiTokens.Accent;
+            Color back = Item.BadgeTone switch
+            {
+                StarterBadgeTone.Success => UiTokens.Success,
+                StarterBadgeTone.Warning => UiTokens.Warning,
+                _ => UiTokens.Accent,
+            };
             PillToolStripRenderer.FillRound(g, badge, back, badge.Height / 2);
             Color ink = UiTokens.Luminance(back) > 0.6f ? UiTokens.FromHex("#10131A") : Color.White;
             TextRenderer.DrawText(g, Item.Badge, UiTokens.SmallFont, badge, ink,

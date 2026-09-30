@@ -6,7 +6,8 @@ namespace Genesis.Application.Core.UI;
 
 /// <summary>
 /// The "Clear" tool strip look: rounded hover and pressed pills, an accent-tinted pill for a
-/// checked mode, and an accent outline for the primary command (Use in game, Run, Play).
+/// checked mode, an accent outline for an editor's primary command (Use in game), and a filled
+/// accent pill for the window's single most important action (Run).
 /// </summary>
 /// <remarks>
 /// Drop-down menus keep the professional renderer's solid rows — they open over arbitrary content
@@ -16,6 +17,9 @@ public class PillToolStripRenderer : ToolStripProfessionalRenderer
 {
     /// <summary>Tag an item with this to draw it as the strip's primary command.</summary>
     public const string PrimaryTag = "primary-command";
+
+    /// <summary>Tag an item with this to draw it as a filled accent button.</summary>
+    public const string AccentTag = "accent-command";
 
     public const int PillRadius = 7;
 
@@ -34,6 +38,11 @@ public class PillToolStripRenderer : ToolStripProfessionalRenderer
         string.Equals(item.Tag as string, PrimaryTag, StringComparison.Ordinal);
 
     public static void MarkPrimary(ToolStripItem item) => item.Tag = PrimaryTag;
+
+    public static bool IsAccent(ToolStripItem item) =>
+        string.Equals(item.Tag as string, AccentTag, StringComparison.Ordinal);
+
+    public static void MarkAccent(ToolStripItem item) => item.Tag = AccentTag;
 
     protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e)
     {
@@ -121,7 +130,11 @@ public class PillToolStripRenderer : ToolStripProfessionalRenderer
     {
         if (e.ToolStrip is not ToolStripDropDown && e.Item.Enabled)
         {
-            if (IsPrimary(e.Item))
+            if (IsAccent(e.Item))
+            {
+                e.TextColor = UiTokens.OnAccent;
+            }
+            else if (IsPrimary(e.Item))
             {
                 e.TextColor = UiTokens.Accent;
             }
@@ -160,6 +173,18 @@ public class PillToolStripRenderer : ToolStripProfessionalRenderer
     {
         bool primary = IsPrimary(item);
         bool active = item.Selected || item.Pressed;
+        if (IsAccent(item))
+        {
+            Rectangle filled = PillBounds(item.Size, inset: 3);
+            Color fill = !item.Enabled
+                ? UiTokens.Blend(UiTokens.Accent, UiTokens.Surface, 0.35f)
+                : item.Pressed
+                    ? UiTokens.Blend(UiTokens.Accent, UiTokens.Canvas, 0.8f)
+                    : active ? UiTokens.Blend(UiTokens.Accent, UiTokens.Text, 0.85f) : UiTokens.Accent;
+            FillRound(graphics, filled, fill, PillRadius);
+            return;
+        }
+
         if (!isChecked && !primary && !active)
         {
             return;

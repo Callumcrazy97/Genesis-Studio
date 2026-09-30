@@ -85,19 +85,12 @@ public sealed partial class StudioShellForm : DpiAwareForm
         Icon = Branding.WindowIcon ?? Icon;
 
         RegisterShellCommands();
+        // One app bar: menus on the left, the project commands on the right of the same row. The
+        // separate command row under the menu cost 44 px of every editor's height and split the
+        // window's top edge into two bands that both read as toolbars.
         MenuStrip menu = BuildMenu();
-        ToolStrip commandBar = BuildCommandBar();
-        Panel topChrome = new()
-        {
-            BackColor = ThemeService.Palette.Surface,
-            Dock = DockStyle.Top,
-            Height = menu.Height + commandBar.Height,
-        };
-        menu.Dock = DockStyle.Top;
-        commandBar.Dock = DockStyle.Fill;
-        topChrome.Controls.Add(commandBar);
-        topChrome.Controls.Add(menu);
-        Controls.Add(topChrome);
+        AddCommandItems(menu);
+        Controls.Add(menu);
         MainMenuStrip = menu;
 
         StatusStrip statusStrip = new()
@@ -179,7 +172,6 @@ public sealed partial class StudioShellForm : DpiAwareForm
 
         ThemeService.Apply(this);
         menu.Renderer = ThemeService.CreateToolStripRenderer();
-        commandBar.Renderer = ThemeService.CreateToolStripRenderer();
 
         StartCommandStateUpdates();
 
@@ -298,8 +290,8 @@ public sealed partial class StudioShellForm : DpiAwareForm
     {
         MenuStrip menu = new()
         {
-            BackColor = ThemeService.Palette.Surface, Dock = DockStyle.Top,
-            Padding = new Padding(8, 3, 8, 3), Renderer = ThemeService.CreateToolStripRenderer(),
+            AutoSize = false, BackColor = ThemeService.Palette.Surface, Dock = DockStyle.Top, Height = 40,
+            Name = "StudioAppBar", Padding = new Padding(8, 4, 8, 4), Renderer = ThemeService.CreateToolStripRenderer(),
         };
         ToolStripMenuItem file = new("&File");
         file.DropDownItems.Add(CommandMenuItem("project.new"));
@@ -352,99 +344,70 @@ public sealed partial class StudioShellForm : DpiAwareForm
     }
 
     /// <summary>
-    /// Builds the workspace command bar.
+    /// Adds the project commands to the right-hand side of the app bar.
     /// </summary>
     /// <remarks>
-    /// Grouped by intent rather than separated arbitrarily: Play (Run/Debug), Health (Validate),
-    /// History (Undo/Redo), then Save. Two deliberate changes from the first version:
+    /// Grouped by intent: Play (Run, Debug), Health (Validate), History (Undo, Redo), then Save.
+    /// Run is the one filled accent button in the window — it is what every workflow ends with.
+    /// Validate stays on the bar because it is the thing worth doing before Run; its caption
+    /// carries the issue count (see <see cref="UpdateValidationBadge"/>). The old "Workspace"
+    /// preset dropdown stays gone: it never moved a single dock.
     ///
-    /// * <b>Validate is on the bar.</b> It was previously reachable only through Tools, even though
-    ///   the Start page presented it as one of three primary actions — and it is the thing worth
-    ///   doing *before* Run, which was already here.
-    /// * <b>The "Workspace" preset dropdown is gone.</b> It listed Default/2D/3D/Scripting/Profiling
-    ///   and its entire handler was <c>SetStatus("Workspace preset: …")</c> — it never reflowed a
-    ///   single dock. A control that visibly does nothing when used costs more trust than the space
-    ///   it saves. Layout presets can come back when they actually move docks; the original
-    ///   per-preset layouts are still described in Part III §7, Phase 0.
+    /// Right-aligned items are laid out from the right edge in the order they are added, so the
+    /// groups are added last-to-first.
     /// </remarks>
-    private ToolStrip BuildCommandBar()
+    private void AddCommandItems(MenuStrip bar)
     {
-        ToolStrip bar = new()
-        {
-            BackColor = ThemeService.Palette.Surface,
-            Dock = DockStyle.Top,
-            GripStyle = ToolStripGripStyle.Hidden,
-            Height = 44,
-            Padding = new Padding(10, 5, 10, 5),
-            Renderer = ThemeService.CreateToolStripRenderer(),
-        };
-
-        ToolStripButton run = new("▶  Run")
-        {
-            DisplayStyle = ToolStripItemDisplayStyle.Text,
-            Font = new Font(ThemeService.InterfaceFont, FontStyle.Bold),
-            ForeColor = ThemeService.Palette.Success,
-            Margin = new Padding(0, 0, 2, 0),
-            Padding = new Padding(6, 0, 6, 0),
-            ToolTipText = "Run project (F5)",
-        };
-        BindCommandButton(run, "project.run");
-        bar.Items.Add(run);
-
-        ToolStripButton debug = new("◆  Debug")
-        {
-            DisplayStyle = ToolStripItemDisplayStyle.Text,
-            Padding = new Padding(6, 0, 6, 0),
-            ToolTipText = "Run with the in-game debugger overlay (F6)",
-        };
-        BindCommandButton(debug, "project.debug");
-        bar.Items.Add(debug);
-
-        bar.Items.Add(new ToolStripSeparator());
-
-        _validateButton = new ToolStripButton("✓  Validate")
-        {
-            DisplayStyle = ToolStripItemDisplayStyle.Text,
-            Padding = new Padding(6, 0, 6, 0),
-            ToolTipText = "Validate the project and list any issues in the Console",
-        };
-        BindCommandButton(_validateButton, "project.validate");
-        bar.Items.Add(_validateButton);
-
-        bar.Items.Add(new ToolStripSeparator());
-
-        ToolStripButton undo = new("↶")
-        {
-            DisplayStyle = ToolStripItemDisplayStyle.Text,
-            Padding = new Padding(4, 0, 4, 0),
-            ToolTipText = "Undo in the active editor (Ctrl+Z)",
-        };
-        BindCommandButton(undo, "edit.undo");
-        bar.Items.Add(undo);
-
-        ToolStripButton redo = new("↷")
-        {
-            DisplayStyle = ToolStripItemDisplayStyle.Text,
-            Padding = new Padding(4, 0, 4, 0),
-            ToolTipText = "Redo in the active editor (Ctrl+Y)",
-        };
-        BindCommandButton(redo, "edit.redo");
-        bar.Items.Add(redo);
-
-        bar.Items.Add(new ToolStripSeparator());
-
-        ToolStripButton save = new("Save Project")
-        {
-            DisplayStyle = ToolStripItemDisplayStyle.Text,
-            Padding = new Padding(6, 0, 6, 0),
-            ToolTipText = "Save every open resource in the project (Ctrl+Shift+S)",
-        };
+        ToolStripButton save = CommandButton("Save project", "Save every open resource in the project (Ctrl+Shift+S)");
         BindCommandButton(save, "project.saveAll");
-        bar.Items.Add(save);
+
+        ToolStripButton redo = CommandButton("↷", "Redo in the active editor (Ctrl+Y)");
+        BindCommandButton(redo, "edit.redo");
+
+        ToolStripButton undo = CommandButton("↶", "Undo in the active editor (Ctrl+Z)");
+        BindCommandButton(undo, "edit.undo");
+
+        _validateButton = CommandButton("✓  Validate", "Validate the project and list any issues in the Console");
+        BindCommandButton(_validateButton, "project.validate");
+
+        ToolStripButton debug = CommandButton("Debug", "Run with the in-game debugger overlay (F6)");
+        BindCommandButton(debug, "project.debug");
+
+        ToolStripButton run = CommandButton("▶  Run", "Run project (F5)");
+        run.Font = new Font(ThemeService.InterfaceFont, FontStyle.Bold);
+        run.Margin = new Padding(0, 1, 4, 1);
+        Genesis.Application.Core.UI.PillToolStripRenderer.MarkAccent(run);
+        BindCommandButton(run, "project.run");
+
+        bar.Items.AddRange(
+        [
+            save,
+            RightSeparator(),
+            redo,
+            undo,
+            RightSeparator(),
+            _validateButton,
+            debug,
+            run,
+        ]);
 
         BuildFinderControls();
-        return bar;
     }
+
+    private static ToolStripButton CommandButton(string text, string tooltip) => new(text)
+    {
+        Alignment = ToolStripItemAlignment.Right,
+        DisplayStyle = ToolStripItemDisplayStyle.Text,
+        Margin = new Padding(0, 1, 2, 1),
+        Padding = new Padding(8, 0, 8, 0),
+        ToolTipText = tooltip,
+    };
+
+    private static ToolStripSeparator RightSeparator() => new()
+    {
+        Alignment = ToolStripItemAlignment.Right,
+        Margin = new Padding(4, 0, 4, 0),
+    };
 
 
 
@@ -1907,6 +1870,48 @@ public sealed partial class StudioShellForm : DpiAwareForm
         SetStatus("Workspace layout reset.");
     }
 
+    private bool OpenStartRoom()
+    {
+        List<ResourceItem> all = _resources.BuildTree().Children.SelectMany(Flatten).ToList();
+        ResourceItem? startRoom = all.FirstOrDefault(item => !item.IsFolder
+                && string.Equals(item.Name, _project.Manifest.StartRoom, StringComparison.OrdinalIgnoreCase))
+            ?? all.FirstOrDefault(item => !item.IsFolder && item.Kind == ResourceKind.Room);
+        if (startRoom is null)
+        {
+            return false;
+        }
+
+        OpenResource(startRoom);
+        return true;
+    }
+
+    /// <summary>Creates a resource from Home (asking for its name) and opens it in its editor.</summary>
+    private void CreateAndOpen(ResourceKind kind)
+    {
+        if (_assetBrowser.DockState == DockState.Hidden)
+        {
+            _assetBrowser.Show(_dockPanel);
+        }
+
+        string? path = _assetBrowser.CreateNew(kind);
+        if (path is null)
+        {
+            return;
+        }
+
+        ResourceItem? created = _resources.BuildTree()
+            .Children
+            .SelectMany(Flatten)
+            .FirstOrDefault(item => string.Equals(
+                Path.GetFullPath(item.FullPath),
+                Path.GetFullPath(path),
+                StringComparison.OrdinalIgnoreCase));
+        if (created is not null)
+        {
+            OpenResource(created);
+        }
+    }
+
     private void HandleWelcomeAction(string action)
     {
         switch (action)
@@ -1940,21 +1945,23 @@ public sealed partial class StudioShellForm : DpiAwareForm
 
                 break;
             case "OpenStartRoom":
-                ResourceItem? startRoom = _resources.BuildTree()
-                    .Children
-                    .SelectMany(Flatten)
-                    .FirstOrDefault(
-                        item => string.Equals(
-                            item.Name,
-                            _project.Manifest.StartRoom,
-                            StringComparison.OrdinalIgnoreCase));
-                if (startRoom is not null)
-                {
-                    OpenResource(startRoom);
-                }
-                else
+                if (!OpenStartRoom())
                 {
                     SetStatus("The start room has not been created yet.");
+                }
+
+                break;
+            case "OpenOrCreateRoom":
+                if (!OpenStartRoom())
+                {
+                    CreateAndOpen(ResourceKind.Room);
+                }
+
+                break;
+            case not null when action.StartsWith("Create:", StringComparison.Ordinal):
+                if (Enum.TryParse(action["Create:".Length..], out ResourceKind kind))
+                {
+                    CreateAndOpen(kind);
                 }
 
                 break;

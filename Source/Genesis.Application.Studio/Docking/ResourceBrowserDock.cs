@@ -54,6 +54,9 @@ public sealed partial class ResourceBrowserDock : GenesisDockContent
         ToolStripDropDownButton add = new("＋ New")
         {
             DisplayStyle = ToolStripItemDisplayStyle.Text,
+            // The panel's primary action: the accent outline makes "where do I start?" obvious.
+            Tag = Genesis.Application.Core.UI.PillToolStripRenderer.PrimaryTag,
+            ToolTipText = "Create a new image, Object, Room or other resource",
         };
         add.DropDownItems.Add("Resources"); // Keep the dropdown available before its first opening.
         add.DropDownOpening += (_, _) => PopulateNewMenu(add.DropDownItems);
@@ -671,7 +674,7 @@ public sealed partial class ResourceBrowserDock : GenesisDockContent
             name,
             Font,
             new Rectangle(textX, e.Bounds.Y, row.Width - textX - 8, e.Bounds.Height),
-            selected ? ThemeService.Palette.Text : ThemeService.Palette.TextMuted,
+            ThemeService.Palette.Text,
             TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
 
         if (item is not null
@@ -793,11 +796,19 @@ public sealed partial class ResourceBrowserDock : GenesisDockContent
             "Folder created.");
     }
 
-    private void CreateResource(ResourceKind kind)
+    /// <summary>
+    /// Asks for a name and creates a resource of <paramref name="kind"/> in its folder, as the
+    /// New menu does. Returns the new file's path, or null when cancelled or failed.
+    /// </summary>
+    public string? CreateNew(ResourceKind kind) => CreateResource(kind);
+
+    private string? CreateResource(ResourceKind kind)
     {
         ResourceDefinition definition = ResourceDefinitions.Get(kind);
         string destination = SelectedFolder();
-        if (ResourceFolderPolicy.GetRoot(_resources.Project, destination) is null)
+        // A selected folder of another kind (or none) must not receive this resource.
+        ResourceRootFolder? root = ResourceFolderPolicy.GetRoot(_resources.Project, destination);
+        if (root is null || root.Kind != kind)
             destination = ResourceFolderPolicy.RootFor(_resources.Project, kind);
         using NamePromptDialog dialog = new(
             $"New {definition.DisplayName}",
@@ -805,16 +816,18 @@ public sealed partial class ResourceBrowserDock : GenesisDockContent
             $"New {definition.DisplayName}");
         if (dialog.ShowDialog(this) != DialogResult.OK)
         {
-            return;
+            return null;
         }
 
+        string? created = null;
         ExecuteGuarded(
             () =>
             {
-                string path = _resources.CreateResource(destination, kind, dialog.Value);
-                return path;
+                created = _resources.CreateResource(destination, kind, dialog.Value);
+                return created;
             },
             $"{definition.DisplayName} created.");
+        return created;
     }
 
     private void BeginRename()

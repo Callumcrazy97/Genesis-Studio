@@ -2,6 +2,7 @@ using System.Drawing;
 using System.Windows.Forms;
 using Genesis.Application.Core.Projects;
 using Genesis.Application.Core.Resources;
+using Genesis.Application.Core.UI;
 using Genesis.Application.Studio.Controls;
 using Genesis.Application.Studio.Theme;
 using WeifenLuo.WinFormsUI.Docking;
@@ -30,6 +31,8 @@ public sealed class WelcomeDocument : GenesisDockContent
     private readonly ProjectSession _project;
     private readonly FlowLayoutPanel _recents;
     private readonly FlowLayoutPanel _stats;
+    private readonly StarterGallery _steps;
+    private readonly StarterGallery _create;
     private readonly Label _recentsEmpty;
     private readonly Panel _scroll;
     private readonly Dictionary<Control, Action<float>> _scaledLayouts = [];
@@ -52,11 +55,11 @@ public sealed class WelcomeDocument : GenesisDockContent
             ColumnCount = 1,
             Dock = DockStyle.Top,
             Padding = new Padding(32, 28, 32, 24),
-            RowCount = 6,
+            RowCount = 10,
             Tag = "canvas",
         };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-        for (int i = 0; i < 6; i++)
+        for (int i = 0; i < 10; i++)
         {
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         }
@@ -67,7 +70,14 @@ public sealed class WelcomeDocument : GenesisDockContent
 
         root.Controls.Add(BuildHero(), 0, 0);
         root.Controls.Add(BuildActions(), 0, 1);
-        root.Controls.Add(SectionHeading("Recently edited resources"), 0, 2);
+
+        // "Your game in 4 steps": the whole path from nothing to a playable game, with the steps
+        // already done ticked off from what is on disk.
+        root.Controls.Add(SectionHeading("Your game in 4 steps"), 0, 2);
+        _steps = HomeGallery("HomeGameSteps");
+        root.Controls.Add(_steps, 0, 3);
+
+        root.Controls.Add(SectionHeading("Continue where you left off"), 0, 4);
 
         _recentsEmpty = new Label
         {
@@ -88,9 +98,24 @@ public sealed class WelcomeDocument : GenesisDockContent
             Tag = "transparent",
             WrapContents = true,
         };
-        root.Controls.Add(_recents, 0, 3);
+        root.Controls.Add(_recents, 0, 5);
 
-        root.Controls.Add(SectionHeading("Project at a glance"), 0, 4);
+        root.Controls.Add(SectionHeading("Create something new"), 0, 6);
+        _create = HomeGallery("HomeCreateGallery");
+        _create.SetItems(ResourceDefinitions.Creatable
+            .OrderBy(definition => CategoryOrder(ResourceKindVisuals.Category(definition.Kind)))
+            .Select(definition => new StarterItem(
+                "Create_" + definition.Kind,
+                definition.Kind == ResourceKind.Image ? "Image / sprite" : definition.DisplayName,
+                ResourceKindVisuals.Purpose(definition.Kind))
+            {
+                Category = ResourceKindVisuals.Category(definition.Kind),
+                Glyph = ResourceKindVisuals.Glyph(definition.Kind),
+                Swatch = ResourceKindVisuals.Swatch(definition.Kind),
+            }));
+        root.Controls.Add(_create, 0, 7);
+
+        root.Controls.Add(SectionHeading("Project at a glance"), 0, 8);
         _stats = new FlowLayoutPanel
         {
             AutoSize = true,
@@ -102,7 +127,7 @@ public sealed class WelcomeDocument : GenesisDockContent
             Tag = "transparent",
             WrapContents = true,
         };
-        root.Controls.Add(_stats, 0, 5);
+        root.Controls.Add(_stats, 0, 9);
 
         Refresh(scan: true);
         ThemeService.Apply(this);
@@ -137,6 +162,7 @@ public sealed class WelcomeDocument : GenesisDockContent
         }
 
         ProjectSnapshot snapshot = ScanProject(_project.RootPath);
+        _steps.SetItems(GameSteps(snapshot));
 
         _recents.SuspendLayout();
         foreach (Control previous in _recents.Controls.Cast<Control>().ToArray())
@@ -324,6 +350,82 @@ public sealed class WelcomeDocument : GenesisDockContent
         });
 
         return actions;
+    }
+
+    private StarterGallery HomeGallery(string name)
+    {
+        StarterGallery gallery = new(name)
+        {
+            Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top,
+            FitsContent = true,
+            Margin = new Padding(0, 0, 0, 12),
+            Tag = "canvas",
+        };
+        gallery.ItemChosen += (_, item) =>
+        {
+            // Home is a launcher, not a picker: nothing stays highlighted after a click.
+            gallery.SelectedId = null;
+            ActionRequested?.Invoke(this, ActionFor(item.Id));
+        };
+        return gallery;
+    }
+
+    private static string ActionFor(string id) => id switch
+    {
+        "StepImage" => "Create:" + ResourceKind.Image,
+        "StepObject" => "Create:" + ResourceKind.GameObject,
+        "StepRoom" => "OpenOrCreateRoom",
+        "StepRun" => "Run",
+        _ when id.StartsWith("Create_", StringComparison.Ordinal) => "Create:" + id["Create_".Length..],
+        _ => id,
+    };
+
+    private static int CategoryOrder(string category) => category switch
+    {
+        "Art and sound" => 0,
+        "Worlds" => 1,
+        _ => 2,
+    };
+
+    /// <summary>The four steps from an empty project to a playable game, ticked from disk.</summary>
+    private static IEnumerable<StarterItem> GameSteps(ProjectSnapshot snapshot)
+    {
+        (string Id, string Title, string Description, ResourceKind Kind, string Glyph, bool Done)[] steps =
+        [
+            ("StepImage", "1  Draw a sprite", "Paint your player, an enemy or a tile in the Image editor.",
+                ResourceKind.Image, UiGlyphs.Brush, snapshot.CountOf(ResourceKind.Image) > 0),
+            ("StepObject", "2  Make an Object", "Give the sprite behaviour: movement, collisions and events.",
+                ResourceKind.GameObject, UiGlyphs.Puzzle, snapshot.CountOf(ResourceKind.GameObject) > 0),
+            ("StepRoom", "3  Build a Room", "Place your Objects in a level, in 2D or 3D.",
+                ResourceKind.Room, UiGlyphs.Floor, snapshot.CountOf(ResourceKind.Room) > 0),
+            ("StepRun", "4  Press Run", "Play your game. F5 runs it from anywhere in Studio.",
+                ResourceKind.Unknown, UiGlyphs.Play, false),
+        ];
+
+        bool nextMarked = false;
+        foreach (var step in steps)
+        {
+            string badge = string.Empty;
+            StarterBadgeTone tone = StarterBadgeTone.Accent;
+            if (step.Done)
+            {
+                badge = "✓ Done";
+                tone = StarterBadgeTone.Success;
+            }
+            else if (!nextMarked)
+            {
+                badge = "Next";
+                nextMarked = true;
+            }
+
+            yield return new StarterItem(step.Id, step.Title, step.Description)
+            {
+                Badge = badge,
+                BadgeTone = tone,
+                Glyph = step.Glyph,
+                Swatch = step.Kind == ResourceKind.Unknown ? UiTokens.Success : ResourceKindVisuals.Swatch(step.Kind),
+            };
+        }
     }
 
     private static Label SectionHeading(string text) => new()
