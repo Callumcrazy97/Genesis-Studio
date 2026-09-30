@@ -458,6 +458,7 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
         BuildTerrainWorkflowHost(right, modeRail);
         Controls.Add(toolbar);
         Controls.Add(_statusLabel);
+        BuildTerrainWorkflowBar(toolbar);
         WireInspectorNotifications();
         SetMode(TerrainEditorMode.Select);
         RefreshComponentsPanel();

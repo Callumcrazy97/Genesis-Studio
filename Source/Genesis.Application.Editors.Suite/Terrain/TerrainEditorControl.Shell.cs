@@ -58,10 +58,19 @@ public sealed partial class TerrainEditorControl
             TerrainEditorMode.Entities => "Choose a kind of terrain object, give it a name and resources, then place it in the view. Saved terrain parts belong to this terrain.",
             _ => "Select and move objects in the view. Use Options → Panels for Objects and Inspector. Create, Sculpt and Paint are on the left; Save and Use in game connects the terrain to a Room."
         };
+        if (_terrainWorkflow is not null)
+        {
+            // The workflow bar now carries the steps and this mode's tip; the old hint row retires.
+            _terrainWorkflow.SetInstruction(ActiveMode == TerrainEditorMode.Generate || _showTerrainGuide
+                ? null
+                : _terrainStartingSteps.Text);
+            _terrainStartingSteps.Visible = false;
+        }
+
         _terrainStartingSteps.Font = EditorChrome.SmallFont;
-        int hintHeight = TextRenderer.MeasureText(_terrainStartingSteps.Text, _terrainStartingSteps.Font,
+        int hintHeight = _terrainWorkflow is not null ? 0 : TextRenderer.MeasureText(_terrainStartingSteps.Text, _terrainStartingSteps.Font,
             new Size(Math.Max(120, _terrainWorkspaceHost.ClientSize.Width - _terrainStartingSteps.Padding.Horizontal), int.MaxValue), TextFormatFlags.WordBreak).Height + _terrainStartingSteps.Padding.Vertical;
-        _terrainStartingSteps.Visible = !_showTerrainGuide;
+        _terrainStartingSteps.Visible = !_showTerrainGuide && _terrainWorkflow is null;
         _terrainWorkspaceHost.RowStyles[0].Height = _showTerrainGuide ? 0 : hintHeight;
         _terrainWorkspaceHost.ColumnStyles[0].Width = _modeRail.Visible ? 82 * TerrainInterfaceScale : 0;
         _terrainWorkspaceHost.ColumnStyles[1].Width = _toolPanel.Visible ? 300 * TerrainInterfaceScale : 0;
@@ -76,6 +85,7 @@ public sealed partial class TerrainEditorControl
     private void ShowTerrainAuthoring()
     {
         _showTerrainGuide = false;
+        SyncTerrainWorkflowStep();
         ApplyInterfaceLayout();
     }
 
@@ -114,6 +124,7 @@ public sealed partial class TerrainEditorControl
         Text("For moving characters, assign a saved Model and animation in Object, then use its events for movement and gameplay. Use Pathing for routes, Physics for collision and Audio or Particle resources for effects. Export and test the resulting Player on the renderers you intend to support.");
         _terrainGameGuide.Controls.Add(MakeContextAction("Return to terrain editing", "Close these instructions", ShowTerrainAuthoring));
         _showTerrainGuide = true;
+        SyncTerrainWorkflowStep();
         ApplyInterfaceLayout();
     }
 

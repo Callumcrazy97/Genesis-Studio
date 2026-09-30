@@ -91,6 +91,7 @@ public sealed partial class ImageEditorControl : UserControl, IEditCommandTarget
         ForeColor = ImageEditorChrome.Text;
         Font = ImageEditorChrome.BaseFont;
         Controls.Add(BuildLayout());
+        BuildImageWorkflowBar();
         _playbackTimer.Tick += (_, _) => AdvancePlaybackFrame();
         ImageEditorChrome.Changed += OnImageChromeChanged;
         Disposed += (_, _) => ImageEditorChrome.Changed -= OnImageChromeChanged;

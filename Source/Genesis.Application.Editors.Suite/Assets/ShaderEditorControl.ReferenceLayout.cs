@@ -142,6 +142,7 @@ public sealed partial class ShaderEditorControl
         if (_referenceDiagnosticsHost is not null) Controls.Add(_referenceDiagnosticsHost);
         Controls.Add(_statusLabel);
         body.BringToFront();
+        BuildShaderWorkflowBar();
         SelectShaderWorkspaceMode(_document.AuthoringMode == ShaderAuthoringMode.Code ? "Code" : "Preview");
         RefreshShaderPassList();
         RefreshShaderBufferCards();
@@ -187,6 +188,15 @@ public sealed partial class ShaderEditorControl
         else if (workspace == "Preview") _viewport.Invalidate(true);
         if (_shaderQuickButton is not null) _shaderQuickButton.Checked = mode == "Preview";
         if (_shaderCodeButton is not null) _shaderCodeButton.Checked = mode == "Code";
+        string? step = mode switch
+        {
+            "Presets" => "Look",
+            "Preview" => "Preview",
+            "Parameters" => "Tune",
+            "Use in game" => "UseInGame",
+            _ => null,
+        };
+        if (step is not null) _shaderWorkflow?.SetCurrent(step);
         ApplyReferenceShaderLayout();
     }
 

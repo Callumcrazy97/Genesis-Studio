@@ -2,6 +2,7 @@ using System.Drawing;
 using System.Globalization;
 using System.Text.Json;
 using Genesis.Application.Core.Resources;
+using Genesis.Application.Core.UI;
 using Genesis.Application.Editors.Image.Controls;
 using Genesis.Application.Editors.Suite.Objects;
 using Genesis.Shared.Assets;
@@ -19,6 +20,10 @@ public partial class ModelViewerControl : IResourceInspectorTarget, ILiveResourc
     private bool _workflowConfigured, _layingOutWorkflow, _showModelDetails, _sizingModelGuide;
     private float _sidebarLogicalWidth;
     private FlowLayoutPanel? _modelGameGuide;
+    private WorkflowBar? _modelWorkflow;
+
+    /// <summary>The guided steps shown under the command bar (replaces the old one-line hint).</summary>
+    public WorkflowBar? ModelWorkflow => _modelWorkflow;
     private readonly Dictionary<Control, bool> _beforeGameGuide = [];
     // Font sizes are capped for readability, while section geometry still follows the
     // full interface scale. Never narrow a scaled section back to the capped font ratio.
@@ -85,7 +90,33 @@ public partial class ModelViewerControl : IResourceInspectorTarget, ILiveResourc
         }
         Commands.Items.Add(options); Commands.BindDocument(this);
         DirtyChanged += (_, _) => InspectorStateChanged?.Invoke(this, EventArgs.Empty);
+        InstallModelWorkflowBar(import);
     }
+
+    /// <summary>
+    /// Puts the workflow bar in the hint's row of the root table, so the view keeps its height
+    /// and the command bar stays directly inside the table.
+    /// </summary>
+    private void InstallModelWorkflowBar(ToolStripItem import)
+    {
+        if (_viewerRoot is null || _modelWorkflow is not null) return;
+        _modelWorkflow = new WorkflowBar("ModelWorkflow", CreateModelWorkflowSteps(import))
+        {
+            Dock = DockStyle.Fill,
+            Margin = Padding.Empty,
+        };
+        _viewerRoot.Controls.Remove(_workflowHint);
+        _viewerRoot.Controls.Add(_modelWorkflow, 0, 2);
+    }
+
+    /// <summary>The viewer's steps; the Model editor replaces them with its tool pages.</summary>
+    private protected virtual IReadOnlyList<WorkflowStep> CreateModelWorkflowSteps(ToolStripItem import) =>
+    [
+        new("Import", "Import", "Import a model file, or choose Edit to build one from shapes.", () => import.PerformClick()),
+        new("Edit", "Edit", "Open the Model editor to shape, texture and rig this model.", RequestCompose),
+        new("Animate", "Animate", "Choose an animation below and press Play to check it.", () => _clips.Focus()),
+        new("UseInGame", "Use in game", "Create an Object that uses this model and animation.", ShowModelGameGuide),
+    ];
 
     public override void ApplyInterfaceLayout()
     {
@@ -98,8 +129,10 @@ public partial class ModelViewerControl : IResourceInspectorTarget, ILiveResourc
             _viewerRoot.RowStyles[1].Height = Math.Max(44 * scale, EditorChrome.BaseFont.Height + 22);
             _workflowHint.Font = EditorChrome.SmallFont;
             _workflowHint.ForeColor = EditorChrome.Muted; _workflowHint.BackColor = EditorChrome.Surface;
-            _viewerRoot.RowStyles[2].Height = TextRenderer.MeasureText(_workflowHint.Text, _workflowHint.Font,
-                new Size(Math.Max(120, ClientSize.Width - _workflowHint.Padding.Horizontal), int.MaxValue), TextFormatFlags.WordBreak).Height + _workflowHint.Padding.Vertical;
+            _viewerRoot.RowStyles[2].Height = _modelWorkflow is not null
+                ? Math.Max(WorkflowBar.LogicalHeight * scale, EditorChrome.BaseFont.Height + 18)
+                : TextRenderer.MeasureText(_workflowHint.Text, _workflowHint.Font,
+                    new Size(Math.Max(120, ClientSize.Width - _workflowHint.Padding.Horizontal), int.MaxValue), TextFormatFlags.WordBreak).Height + _workflowHint.Padding.Vertical;
             _viewerRoot.RowStyles[4].Height = AnimationFrameCount > 0
                 ? Math.Max(180, 120 + EditorChrome.BaseFont.Height * 4)
                 : Math.Max(94 * scale, EditorChrome.BaseFont.Height * 2 + 48);
@@ -146,8 +179,9 @@ public partial class ModelViewerControl : IResourceInspectorTarget, ILiveResourc
         finally { _layingOutWorkflow = false; }
     }
 
-    private void ShowModelGameGuide()
+    private protected void ShowModelGameGuide()
     {
+        _modelWorkflow?.SetCurrent("UseInGame");
         _modelGameGuide ??= BuildModelGameGuide();
         foreach (TextBox code in _modelGameGuide.Controls.OfType<TextBox>().Where(control => control.Name == "ModelGameplayCode"))
             code.Text = ModelGameplaySource();

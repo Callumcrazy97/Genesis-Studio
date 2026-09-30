@@ -180,6 +180,7 @@ public sealed partial class ParticleEditorControl
     {
         SetAuthoringMode(ParticleAuthoringMode.Properties);
         if (_authoringMode != ParticleAuthoringMode.Properties) return;
+        _particleWorkflow?.SetCurrent("UseInGame");
         _particleQuickSetup!.Visible = false;
         _inspectorTabs.Visible = false;
         _particleGameGuide!.Visible = true;
@@ -192,6 +193,7 @@ public sealed partial class ParticleEditorControl
     private void ShowParticleQuickSetup()
     {
         if (_advancedPropertiesMenu!.Checked) _advancedPropertiesMenu.Checked = false;
+        _particleWorkflow?.SetCurrent("Tune");
         _particleGameGuide!.Visible = false;
         _inspectorTabs.Visible = false;
         _particleQuickSetup!.Visible = true;

@@ -49,7 +49,9 @@ public sealed partial class RoomEditorControl
             _roomStartingSteps.Height = _roomStartingSteps.Padding.Vertical + TextRenderer.MeasureText(_roomStartingSteps.Text,
                 _roomStartingSteps.Font, new Size(Math.Max(120, _roomWorkspaceHost.ClientSize.Width - _roomStartingSteps.Padding.Horizontal), int.MaxValue), TextFormatFlags.WordBreak).Height;
             _mainSplit.Visible = !_showRoomGuide;
-            _roomStartingSteps.Visible = !_showRoomGuide;
+            // Retired in favour of the workflow bar, which carries this section's tip instead.
+            _roomStartingSteps.Visible = !_showRoomGuide && _roomWorkflow is null;
+            SyncRoomWorkflowStep(_roomStartingSteps.Text);
             if (_roomGameGuide is not { } guide) return;
             guide.Visible = _showRoomGuide;
             int width = Math.Max(120, guide.ClientSize.Width - guide.Padding.Horizontal - 24);

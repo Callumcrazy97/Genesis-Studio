@@ -43,6 +43,7 @@ public sealed partial class ObjectEditorControl
     {
         _showObjectGameGuide = false;
         WorkspaceMode = mode;
+        _objectWorkflow?.SetCurrent("Behaviour");
         _authoringSplit.SuspendLayout();
         _authoringSplit.Panel1Collapsed = false; _authoringSplit.Panel2Collapsed = false;
         _visualActions.Visible = mode != ObjectWorkspaceMode.Code; _code.Visible = mode != ObjectWorkspaceMode.Graph;
@@ -326,6 +327,7 @@ public sealed partial class ObjectEditorControl
 
     public void RunLiveSandbox()
     {
+        _objectWorkflow?.SetCurrent("Test");
         _showObjectGameGuide = false;
         _previewPanelChoice = true;
         ApplyObjectLayout();

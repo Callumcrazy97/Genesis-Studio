@@ -157,7 +157,8 @@ public sealed partial class ObjectEditorControl
     private void LayoutObjectWorkflow()
     {
         if (_objectStartingSteps is null || _objectEventPickerRow is null || _objectAuthoringPanel is null) return;
-        _objectStartingSteps.Visible = WorkspaceMode != ObjectWorkspaceMode.Code;
+        // Retired in favour of the workflow bar; kept (hidden) for editors built without one.
+        _objectStartingSteps.Visible = _objectWorkflow is null && WorkspaceMode != ObjectWorkspaceMode.Code;
         _objectStartingSteps.Font = EditorChrome.SmallFont;
         _objectStartingSteps.Height = _objectStartingSteps.Padding.Vertical + TextRenderer.MeasureText(_objectStartingSteps.Text,
             _objectStartingSteps.Font, new Size(Math.Max(120, _objectAuthoringPanel.ClientSize.Width - _objectStartingSteps.Padding.Horizontal), int.MaxValue), TextFormatFlags.WordBreak).Height;
@@ -217,5 +218,6 @@ public sealed partial class ObjectEditorControl
         Text("Other editors feed this Object", true);
         Text("Image supplies sprite frames, clips and saved rigs; Physics supplies saved 2D bodies; Shader supplies sprite effects; Particle supplies bursts; Audio supplies sound; Pathing supplies movement routes; UI supplies interactive screen layouts; Script supplies reusable functions. Their Use in game pages show exact commands or create ordinary Objects using the same saved resources. Components under Options adds persistent capabilities without copying assets. Save changes in an editor to refresh dependent previews and gameplay.");
         _showObjectGameGuide = true; _objectGameGuide.AutoScrollPosition = Point.Empty; RefreshObjectWorkflow();
+        _objectWorkflow?.SetCurrent("UseInGame");
     }
 }

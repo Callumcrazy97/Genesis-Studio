@@ -68,6 +68,7 @@ public sealed partial class PixelRigStudioDialog : DpiAwareForm
         var footer = new Panel { Dock = DockStyle.Bottom, Height = 62 };
         _cancelWork = Action("Cancel work", CancelWork); _cancelWork.Dock = DockStyle.Right; _cancelWork.Width = 120;
         _status.Dock = DockStyle.Fill; footer.Controls.Add(_status); footer.Controls.Add(_cancelWork); Controls.Add(footer);
+        BuildRigWorkflowBar();
         var rigTab = Page("1 · Rig", _library);
         rigTab.Controls.Add(Bar(_name, Action("New rig", NewRig), Action("Save rig", SaveRig), Action("Delete rig", DeleteRig)));
         _drawBones = Action("Draw bones", () => { _createBones = true; _createJoints = false; _tabs.SelectedIndex = 0; Describe(); });

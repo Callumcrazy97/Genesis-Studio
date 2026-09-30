@@ -27,10 +27,9 @@ public sealed partial class ImageEditorControl
     private ToolStrip BuildImageWorkflowToolbar()
     {
         ToolStrip bar = ImageEditorChrome.MakeCommandStrip(); bar.Name = "ImageWorkflowToolbar";
-        _drawImageButton = ImageEditorChrome.MakeButton("Draw", (_, _) => ShowImageEditing());
+        _drawImageButton = ImageEditorChrome.MakeButton("Draw", (_, _) => { ShowImageEditing(); _imageWorkflow?.SetCurrent("Draw"); });
         _drawImageButton.Checked = true;
-        ToolStripButton animate = ImageEditorChrome.MakeButton("Animate", (_, _) =>
-        { ShowImageEditing(); _timelinePanelVisible = true; ApplyResponsiveLayout(); _timeline.Focus(); });
+        ToolStripButton animate = ImageEditorChrome.MakeButton("Animate", (_, _) => ShowAnimationStep());
         animate.ToolTipText = "Edit frames and clips in the timeline below the canvas";
         ToolStripDropDownButton rig = new("Rig") { ToolTipText = "Draw bones, save poses and create sprite animation" };
         rig.DropDownItems.AddRange([Item("Rigging…", (_, _) => OpenRigStudio(0)), Item("Posing…", (_, _) => OpenRigStudio(1)), Item("Animation…", (_, _) => OpenRigStudio(2))]);
@@ -130,6 +129,7 @@ public sealed partial class ImageEditorControl
         }
         foreach (Control child in _imageGameGuide.Controls.Cast<Control>().ToArray()) child.Dispose();
         _showImageGameGuide = true; _workspaceSplit.Visible = false;
+        _imageWorkflow?.SetCurrent("UseInGame");
         _imageGameGuide.Visible = true; _imageGameGuide.BringToFront();
         _imageGameGuide.AutoScrollPosition = Point.Empty;
         _imageGameGuide.Controls.Add(ImageWorkflowText("Turn this Image into gameplay", true));

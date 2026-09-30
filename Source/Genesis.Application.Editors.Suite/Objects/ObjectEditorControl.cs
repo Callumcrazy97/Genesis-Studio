@@ -97,6 +97,7 @@ public sealed partial class ObjectEditorControl : EditorSurfaceControl, ILiveRes
         Controls.Add(_objectWorkspaceHost);
         Controls.Add(BuildToolbar());
         Controls.Add(BuildStatus());
+        BuildObjectWorkflowBar(Controls.OfType<EditorCommandBar>().Single());
 
         PopulateAssetCombos();
         LoadInheritedEvents();

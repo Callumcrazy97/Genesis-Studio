@@ -693,6 +693,7 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
         Controls.Add(toolbar);
         Disposed += (_, _) => _editorToolbar.Dispose();
         Controls.Add(_statusLabel);
+        BuildRoomWorkflowBar(toolbar);
 
         SizeChanged += (_, _) => QueueResponsiveRoomLayout();
         HandleCreated += (_, _) => QueueResponsiveRoomLayout();

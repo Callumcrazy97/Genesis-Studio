@@ -413,6 +413,7 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
         _activePreset = ParticlePresets.Names.Contains(name, StringComparer.Ordinal) ? name : "Fire";
         _effect.EffectName = _activePreset;
         _presetMenu.Text = "Preset: " + _activePreset;
+        _particleWorkflow?.SetCurrent("Tune");
         RebuildEmitterPreview();
         ResetParticlePreview(true);
         RefreshEmitterStack();

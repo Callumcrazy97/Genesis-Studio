@@ -391,7 +391,28 @@ public sealed partial class ModelEditorControl
                 break;
         }
         UpdateToolHeader();
+        string? step = page switch
+        {
+            ModelToolPage.Create => "Create",
+            ModelToolPage.Edit or ModelToolPage.Select => "Shape",
+            ModelToolPage.Texture => "Surface",
+            ModelToolPage.RigAnimate => "Rig",
+            _ => null,
+        };
+        if (step is not null) ModelWorkflow?.SetCurrent(step);
     }
+
+    /// <summary>The Model editor's steps follow its tool pages; the viewer keeps its own.</summary>
+    private protected override IReadOnlyList<Genesis.Application.Core.UI.WorkflowStep> CreateModelWorkflowSteps(ToolStripItem import) => !IsComposer
+        ? base.CreateModelWorkflowSteps(import)
+        :
+        [
+            new("Create", "Start", "Add a shape, build from an image, or import a file.", () => ShowToolPage(ModelToolPage.Create)),
+            new("Shape", "Shape", "Select parts of the model, then move, rotate, scale or extrude them.", () => ShowToolPage(ModelToolPage.Edit)),
+            new("Surface", "Surface", "Paint colours and textures onto the model.", () => ShowToolPage(ModelToolPage.Texture)),
+            new("Rig", "Rig & animate", "Add bones so the model can move, then make its animations.", () => ShowToolPage(ModelToolPage.RigAnimate)),
+            new("UseInGame", "Use in game", "Save, then create an Object that uses this model.", ShowModelGameGuide),
+        ];
 
     internal void LayoutToolNavigation()
     {

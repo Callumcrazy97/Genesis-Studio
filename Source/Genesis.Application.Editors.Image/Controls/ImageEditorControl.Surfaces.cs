@@ -30,7 +30,9 @@ public sealed partial class ImageEditorControl
             BackColor = ImageEditorChrome.Surface
         };
         Label starting = new() { Name = "ImageStartingSteps", Text = "1. Draw on the canvas or import a frame in Options → File.\n2. Animate frames below; Rig creates bone poses.\n3. Save, then Use in game.",
-            AutoSize = true, ForeColor = ImageEditorChrome.Muted, Font = ImageEditorChrome.BaseFont, Margin = new Padding(0, 0, 0, 12) };
+            AutoSize = true, ForeColor = ImageEditorChrome.Muted, Font = ImageEditorChrome.BaseFont, Margin = new Padding(0, 0, 0, 12),
+            // Retired: the workflow bar under the command bar shows these steps, clickably.
+            Visible = false };
         container.Controls.Add(starting);
         container.SizeChanged += (_, _) => starting.MaximumSize = new Size(Math.Max(120, container.ClientSize.Width - container.Padding.Horizontal - 20), 0);
         _currentToolSection = new CollapsibleSection("Current Tool · Pencil", 224);

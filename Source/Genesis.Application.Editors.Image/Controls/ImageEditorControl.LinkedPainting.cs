@@ -15,6 +15,7 @@ public sealed partial class ImageEditorControl
         _leftPanelVisible = _rightPanelVisible = _timelinePanelVisible = false;
         foreach (ToolStripItem item in _imageCommandBar.Items)
             if (item.Text is "Draw" or "Animate" or "Rig" or "Use in game" or "Save") item.Visible = false;
+        HideImageWorkflowBar();
         ApplyResponsiveLayout();
     }
 

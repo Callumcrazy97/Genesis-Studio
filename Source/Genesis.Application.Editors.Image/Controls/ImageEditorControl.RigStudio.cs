@@ -26,6 +26,7 @@ public sealed partial class ImageEditorControl
 
     private void OpenRigStudio(int tab)
     {
+        _imageWorkflow?.SetCurrent("Rig");
         if (Genesis.Application.Core.Diagnostics.UnattendedSession.IsActive || _workspace.CurrentLayer == null || _workspace.CurrentFrame == null) return;
         using var dialog = CreateRigStudioDialog(tab);
         dialog.ShowDialog(this);

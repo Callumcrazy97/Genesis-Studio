@@ -120,6 +120,7 @@ public sealed partial class PhysicsEditorControl
         // A fill-docked child must be first in z-order so WinForms reserves the
         // top command bar and bottom status strip before laying out the workspace.
         workspace.BringToFront();
+        BuildPhysicsWorkflowBar(toolbar);
         ApplyPhysicsLayout();
     }
 
@@ -404,6 +405,15 @@ public sealed partial class PhysicsEditorControl
         if (_physicsGameGuide is not null) _physicsGameGuide.Visible = mode == "Use in game";
         if (_physicsQuickButton is not null) _physicsQuickButton.Checked = mode == "Preview";
         if (_physicsCodeButton is not null) _physicsCodeButton.Checked = mode == "Code";
+        string? step = mode switch
+        {
+            "Presets" => "Kind",
+            "Preview" => "Setup",
+            "Properties" => "Tune",
+            "Use in game" => "UseInGame",
+            _ => null,
+        };
+        if (step is not null) _physicsWorkflow?.SetCurrent(step);
 
         if (string.Equals(mode, "Code", StringComparison.OrdinalIgnoreCase))
         {

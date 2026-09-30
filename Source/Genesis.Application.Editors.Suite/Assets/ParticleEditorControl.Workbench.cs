@@ -180,6 +180,14 @@ public sealed partial class ParticleEditorControl
         };
         options.DropDownItems.Add(new ToolStripSeparator());
         options.DropDownItems.AddRange([emittersVisible, inspectorVisible, curvesVisible]);
+        _showParticlePresets = () =>
+        {
+            emitterPreference = true;
+            if (LogicalClientWidth < 1000) inspectorPreference = false;
+            _particleLibraryTabs!.SelectedTab = _particleLibraryTabs.TabPages.Cast<TabPage>().Single(page => page.Text == "Presets");
+            _applyWorkbenchLayout();
+            _particleWorkflow?.SetCurrent("Effect");
+        };
         options.DropDownItems.Add("Preview settings", null, (_, _) =>
         {
             emitterPreference = true;
@@ -207,6 +215,7 @@ public sealed partial class ParticleEditorControl
         _authoringHost.Dispose(); _modeRail.Dispose();
         Controls.Add(workspace); Controls.Add(toolbar); Controls.Add(_statusLabel);
         workspace.BringToFront();
+        BuildParticleWorkflowBar(toolbar);
         RefreshEmitterStack(); RebuildEmitterPreview();
         SizeChanged += (_, _) => _applyWorkbenchLayout();
         _applyWorkbenchLayout();

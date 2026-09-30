@@ -37,6 +37,8 @@ public sealed class WorkflowBar : Panel
     private readonly ToolTip _tips = new() { ShowAlways = true };
     private string? _instructionOverride;
     private bool _numbersOnly;
+    private int _autoHideBelowHeight;
+    private Control? _watchedParent;
 
     public WorkflowBar(string name, IEnumerable<WorkflowStep> steps)
     {
@@ -93,6 +95,11 @@ public sealed class WorkflowBar : Panel
         Disposed += (_, _) =>
         {
             UiTokens.Changed -= OnTokensChanged;
+            if (_watchedParent is not null)
+            {
+                _watchedParent.Resize -= OnParentResize;
+            }
+
             _tips.Dispose();
         };
     }
@@ -123,6 +130,26 @@ public sealed class WorkflowBar : Panel
     public bool IsCompact => !_instruction.Visible;
 
     public Control StepButton(string id) => _buttons.First(button => button.Step.Id == id);
+
+    /// <summary>
+    /// Logical height below which the bar folds away (0 = never). Very short windows keep their
+    /// working area; the command bar's <i>Use in game</i> and the editor's own pages remain.
+    /// </summary>
+    [DefaultValue(0)]
+    public int AutoHideBelowHeight
+    {
+        get => _autoHideBelowHeight;
+        set
+        {
+            _autoHideBelowHeight = Math.Max(0, value);
+            UpdateAutoHide();
+        }
+    }
+
+    /// <summary>True while the bar is folded away because its editor is too short.</summary>
+    [Browsable(false)]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public bool IsAutoHidden { get; private set; }
 
     /// <summary>Marks a step as current without running its action (the editor already moved).</summary>
     public void SetCurrent(string id)
@@ -257,6 +284,54 @@ public sealed class WorkflowBar : Panel
     {
         base.OnDpiChangedAfterParent(e);
         PerformLayout();
+    }
+
+    protected override void OnParentChanged(EventArgs e)
+    {
+        base.OnParentChanged(e);
+        if (_watchedParent is not null)
+        {
+            _watchedParent.Resize -= OnParentResize;
+        }
+
+        _watchedParent = Parent;
+        if (_watchedParent is not null)
+        {
+            _watchedParent.Resize += OnParentResize;
+        }
+
+        UpdateAutoHide();
+    }
+
+    private void OnParentResize(object? sender, EventArgs e) => UpdateAutoHide();
+
+    private void UpdateAutoHide()
+    {
+        if (_autoHideBelowHeight <= 0 || Parent is null)
+        {
+            if (IsAutoHidden)
+            {
+                IsAutoHidden = false;
+                Visible = true;
+            }
+
+            return;
+        }
+
+        int parentHeight = Parent.ClientSize.Height;
+        if (parentHeight <= 0)
+        {
+            return;
+        }
+
+        bool hide = parentHeight < Scale(_autoHideBelowHeight);
+        if (hide == IsAutoHidden)
+        {
+            return;
+        }
+
+        IsAutoHidden = hide;
+        Visible = !hide;
     }
 
     internal int Scale(int logical) => (int)Math.Round(logical * DeviceDpi / 96f);
