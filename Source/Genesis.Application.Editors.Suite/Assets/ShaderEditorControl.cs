@@ -3111,14 +3111,39 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
                 new Rectangle(e.Bounds.X, e.Bounds.Y + 3, 3, Math.Max(6, e.Bounds.Height - 6)));
         }
 
+        // Each look says what it is for: "Dissolve · Model" reads at a glance, where the list used
+        // to mix model, image, terrain and full-screen effects with nothing to tell them apart.
+        int tagWidth = 0;
+        if (e.Index < _visiblePresets.Count)
+        {
+            string tag = ShaderTargetCaption(_visiblePresets[e.Index].TargetType);
+            Size tagSize = TextRenderer.MeasureText(tag, EditorChrome.SmallFont, Size.Empty, TextFormatFlags.NoPadding);
+            Rectangle pill = new(e.Bounds.Right - tagSize.Width - 20, e.Bounds.Y + (e.Bounds.Height - tagSize.Height - 6) / 2,
+                tagSize.Width + 12, tagSize.Height + 6);
+            Genesis.Application.Core.UI.PillToolStripRenderer.FillRound(e.Graphics, pill, EditorChrome.Hover, pill.Height / 2);
+            TextRenderer.DrawText(e.Graphics, tag, EditorChrome.SmallFont, pill, EditorChrome.Muted,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+            tagWidth = pill.Width + 12;
+        }
+
         TextRenderer.DrawText(
             e.Graphics,
             _presetList.Items[e.Index]?.ToString() ?? string.Empty,
             EditorChrome.BaseFont,
-            new Rectangle(e.Bounds.X + 10, e.Bounds.Y, e.Bounds.Width - 14, e.Bounds.Height),
+            new Rectangle(e.Bounds.X + 10, e.Bounds.Y, Math.Max(1, e.Bounds.Width - 14 - tagWidth), e.Bounds.Height),
             selected ? EditorChrome.Text : EditorChrome.Muted,
             TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
     }
+
+    private static string ShaderTargetCaption(ShaderTargetType target) => target switch
+    {
+        ShaderTargetType.Model => "Model",
+        ShaderTargetType.Image => "Image",
+        ShaderTargetType.Terrain => "Terrain",
+        ShaderTargetType.Particle => "Particle",
+        ShaderTargetType.Fullscreen => "Full screen",
+        _ => target.ToString(),
+    };
 
     private static List<HighlightRule> BuildHlslRules()
     {

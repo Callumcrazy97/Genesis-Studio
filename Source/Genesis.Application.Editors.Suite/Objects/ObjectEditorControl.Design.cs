@@ -42,6 +42,7 @@ public sealed partial class ObjectEditorControl
     public void SetWorkspaceMode(ObjectWorkspaceMode mode)
     {
         _showObjectGameGuide = false;
+        HideBehaviourRecipes();
         WorkspaceMode = mode;
         _objectWorkflow?.SetCurrent("Behaviour");
         _authoringSplit.SuspendLayout();

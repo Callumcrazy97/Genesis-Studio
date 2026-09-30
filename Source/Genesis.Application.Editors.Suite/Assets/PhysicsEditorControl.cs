@@ -1212,7 +1212,7 @@ public sealed partial class PhysicsEditorControl : EditorSurfaceControl, IResour
             ForeColor = EditorChrome.Muted,
             Font = EditorChrome.SmallFont,
             Margin = new Padding(0, 8, 0, 2),
-            Text = caption.ToUpperInvariant(),
+            Text = Genesis.Application.Core.UI.UiTokens.DisplayHeading(caption),
         };
         parent.Controls.Add(label);
         parent.Controls.Add(field);
@@ -1226,7 +1226,7 @@ public sealed partial class PhysicsEditorControl : EditorSurfaceControl, IResour
             ForeColor = EditorChrome.Muted,
             Font = EditorChrome.SmallFont,
             Margin = new Padding(0, 8, 0, 2),
-            Text = caption.ToUpperInvariant(),
+            Text = Genesis.Application.Core.UI.UiTokens.DisplayHeading(caption),
         };
         TrackBar trackBar = new()
         {
@@ -1264,7 +1264,7 @@ public sealed partial class PhysicsEditorControl : EditorSurfaceControl, IResour
             ForeColor = EditorChrome.Muted,
             Font = EditorChrome.SmallFont,
             Margin = new Padding(0, 8, 0, 2),
-            Text = caption.ToUpperInvariant(),
+            Text = Genesis.Application.Core.UI.UiTokens.DisplayHeading(caption),
         };
         NumericUpDown input = new()
         {

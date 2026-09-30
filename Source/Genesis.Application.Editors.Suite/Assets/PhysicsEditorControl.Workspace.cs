@@ -265,20 +265,7 @@ public sealed partial class PhysicsEditorControl
         _physicsRail = rail;
 
         Panel content = new() { Dock = DockStyle.Fill, BackColor = EditorChrome.Surface, Padding = new Padding(8) };
-        FlowLayoutPanel presets = new()
-        {
-            Dock = DockStyle.Fill,
-            AutoScroll = true,
-            WrapContents = true,
-            BackColor = EditorChrome.Surface,
-            Padding = new Padding(0, 4, 0, 4),
-        };
-        foreach (string name in PhysicsScenePresets.Names)
-        {
-            PhysicsPresetTile tile = new(name) { Margin = new Padding(3) };
-            tile.Click += (_, _) => ApplyPreset(name);
-            presets.Controls.Add(tile);
-        }
+        Control presets = BuildPhysicsPresetGallery();
 
         Panel spawner = new() { Dock = DockStyle.Bottom, Height = 174, BackColor = EditorChrome.Surface, Name = "PhysicsSpawner" };
         TableLayoutPanel shapes = new() { Dock = DockStyle.Top, Height = 82, ColumnCount = 3, RowCount = 1, BackColor = EditorChrome.Surface };
@@ -454,9 +441,10 @@ public sealed partial class PhysicsEditorControl
         _physicsInspectorStack = stack;
         stack.SizeChanged += (_, _) => ApplyPhysicsLayout();
         CollapsibleSection material = PhysicsSection("Material Properties", 192, out FlowLayoutPanel materialFields);
-        AddInspectorSlider(materialFields, "Friction", (float)_document.Friction, SetFriction, out _frictionSlider);
-        AddInspectorSlider(materialFields, "Bounce", (float)_document.Restitution, SetRestitution, out _restitutionSlider);
-        AddInspectorNumeric(materialFields, "Density", (float)_document.Density, 0.01f, 100f, SetDensity, out _densityInput);
+        // Everyday words first; the physics term stays in brackets for people who know it.
+        AddInspectorSlider(materialFields, "Grip (friction)", (float)_document.Friction, SetFriction, out _frictionSlider);
+        AddInspectorSlider(materialFields, "Bounciness", (float)_document.Restitution, SetRestitution, out _restitutionSlider);
+        AddInspectorNumeric(materialFields, "Weight (density)", (float)_document.Density, 0.01f, 100f, SetDensity, out _densityInput);
         stack.Controls.Add(material);
 
         CollapsibleSection collider = PhysicsSection("Collider & Shape", 134, out FlowLayoutPanel colliderFields);

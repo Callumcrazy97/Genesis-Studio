@@ -20,6 +20,21 @@ public sealed class RoomEditorToolbar : Panel
     private readonly ToolStripButton _btnPause = new("‖ Pause") { Alignment = ToolStripItemAlignment.Right, Enabled = false, Overflow = ToolStripItemOverflow.Never };
     private readonly ToolStripButton _btnStop = new("■ Stop") { Alignment = ToolStripItemAlignment.Right, Enabled = false, Overflow = ToolStripItemOverflow.Never };
     private bool _syncing;
+
+    // The visible 2D | 3D switch. Choosing a Room's dimension used to live only in
+    // Options › Room dimension, three clicks deep, although it changes the whole editor.
+    private readonly ToolStripButton _switch2D = new("2D")
+    {
+        Alignment = ToolStripItemAlignment.Right, Name = "RoomDimension2D", CheckOnClick = false,
+        ToolTipText = "Edit this Room in 2D: tiles, sprites and pixel positions",
+        AccessibleName = "2D Room",
+    };
+    private readonly ToolStripButton _switch3D = new("3D")
+    {
+        Alignment = ToolStripItemAlignment.Right, Name = "RoomDimension3D", CheckOnClick = false,
+        ToolTipText = "Edit this Room in 3D: terrain, models, sky and cameras",
+        AccessibleName = "3D Room",
+    };
     private bool _is2D = true;
 
     public event Action<bool>? DimensionChanged;
@@ -42,6 +57,8 @@ public sealed class RoomEditorToolbar : Panel
         Height = EditorChrome.CommandBarHeight;
         _btn2D.Click += (_, _) => DimensionChanged?.Invoke(true);
         _btn3D.Click += (_, _) => DimensionChanged?.Invoke(false);
+        _switch2D.Click += (_, _) => { if (!_switch2D.Checked) DimensionChanged?.Invoke(true); };
+        _switch3D.Click += (_, _) => { if (!_switch3D.Checked) DimensionChanged?.Invoke(false); };
         _btnGrid.Click += (_, _) => GridToggled?.Invoke(_btnGrid.Checked);
         _btnSnap.Click += (_, _) => SnapToggled?.Invoke(_btnSnap.Checked);
         _terrain.Click += (_, _) => TerrainSnapChanged?.Invoke(_terrain.Checked);
@@ -105,7 +122,7 @@ public sealed class RoomEditorToolbar : Panel
         _options.DropDownOpening += (_, _) => local.Checked = ((ToolStripButton)transforms[4]).Checked;
         _options.DropDownItems.Add(local);
         _strip.Items.Add(_options);
-        _strip.Items.AddRange([_btnStop, _btnPause, _btnPlay]);
+        _strip.Items.AddRange([_btnStop, _btnPause, _btnPlay, _switch3D, _switch2D]);
         foreach (ToolStripItem item in _strip.Items)
         {
             item.ForeColor = EditorChrome.Text;
@@ -128,6 +145,8 @@ public sealed class RoomEditorToolbar : Panel
         {
             _btn2D.Checked = is2D;
             _btn3D.Checked = !is2D;
+            _switch2D.Checked = is2D;
+            _switch3D.Checked = !is2D;
             foreach (ToolStripDropDownItem menu in _options.DropDownItems.OfType<ToolStripDropDownItem>())
                 foreach (ToolStripItem item in menu.DropDownItems)
                     if (item.Text is "Normals" or "Wireframe" or "Shadows" or "Lighting" or "Depth" or "Fog" or "Fog settings…" or "Floor" or "Snap to floor")

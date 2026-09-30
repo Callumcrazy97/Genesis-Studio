@@ -49,6 +49,7 @@ public sealed partial class RoomEditorControl
         WorkspaceGroup(skybox, "Weather", true, ("Weather", _weatherCombo), ("", _automaticWeatherCheck), ("Day of year", _dayOfYear), ("Latitude", _latitude), ("Climate seed", _climateSeed));
         WorkspaceGroup(skybox, "Clouds and haze", false, ("", _volumetricCloudsCheck), ("Quality", _cloudQuality), ("Cloud base", _cloudBaseHeight), ("Thickness", _cloudThickness), ("Coverage", _cloudCoverage), ("Haze", _atmosphericHaze));
         WorkspaceGroup(skybox, "Soundscape", false, ("", _soundscapeButton));
+        AddScenePresets(skybox);
 
         Panel cameras = WorkspaceStack();
         var layouts = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Top, WrapContents = true, Margin = Padding.Empty };

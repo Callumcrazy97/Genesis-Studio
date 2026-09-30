@@ -106,6 +106,7 @@ public sealed partial class ObjectEditorControl
         toolbar.Items.Add(_objectAddActionCommand);
         toolbar.Items.Add(EditorChrome.ToolButton("Use in game", "Place this saved Object in a Room and use other editors' saved resources", ShowObjectGameGuide));
         ToolStripDropDownButton options = new("Options") { ForeColor = EditorChrome.Text };
+        options.DropDownItems.Add("Behaviour recipes…", null, (_, _) => ShowBehaviourRecipes());
         options.DropDownItems.Add("Components…", null, (_, _) => ShowComposition());
         options.DropDownItems.Add("Split Builder and Code", null, (_, _) => SetWorkspaceMode(ObjectWorkspaceMode.Split));
         options.DropDownItems.Add("Properties and events", null, (_, _) => { _showObjectGameGuide = false; _propertiesPanelChoice = !(_objectPropertiesPanel?.Visible ?? false); ApplyObjectLayout(); RefreshObjectWorkflow(); });
@@ -217,6 +218,7 @@ public sealed partial class ObjectEditorControl
         Text("F5 here runs the isolated Object preview. Use Studio Run to play the project and its Room, tiles, collisions, cameras and other Objects. The isolated preview cannot reproduce room-dependent gameplay. Options → Preview and live variables shows its Run/Pause/Reset controls; live variable edits affect that retained instance, while Reset restores authored values.");
         Text("Other editors feed this Object", true);
         Text("Image supplies sprite frames, clips and saved rigs; Physics supplies saved 2D bodies; Shader supplies sprite effects; Particle supplies bursts; Audio supplies sound; Pathing supplies movement routes; UI supplies interactive screen layouts; Script supplies reusable functions. Their Use in game pages show exact commands or create ordinary Objects using the same saved resources. Components under Options adds persistent capabilities without copying assets. Save changes in an editor to refresh dependent previews and gameplay.");
+        HideBehaviourRecipes();
         _showObjectGameGuide = true; _objectGameGuide.AutoScrollPosition = Point.Empty; RefreshObjectWorkflow();
         _objectWorkflow?.SetCurrent("UseInGame");
     }

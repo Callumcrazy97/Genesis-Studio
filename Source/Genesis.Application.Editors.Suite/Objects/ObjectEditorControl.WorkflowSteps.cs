@@ -14,8 +14,8 @@ public sealed partial class ObjectEditorControl
         _objectWorkflow = EditorWorkflow.AttachBelow(toolbar, "ObjectWorkflow",
         [
             new("Look", "Look", "Choose the Image or Model this Object shows, on the left.", ShowObjectLookStep),
-            new("Behaviour", "Behaviour", "Add events (Create runs once, Step runs every frame), then add actions to them.",
-                ShowVisualActions),
+            new("Behaviour", "Behaviour", "Start from a recipe, or add events (Create runs once, Step every frame) and actions.",
+                ShowBehaviourStep),
             new("Test", "Test", "Try this Object on its own in the live preview (F5). Check all events is under Options.",
                 RunLiveSandbox),
             new("UseInGame", "Use in game", "Save, then open a Room and place this Object in it.",

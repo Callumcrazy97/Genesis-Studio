@@ -153,6 +153,7 @@ public sealed partial class ModelEditorControl
             _primitiveButtons[kind] = add;
         }
 
+        BuildGeneratorSection(page);
         AddToolGrid(page, "2D FACING SHAPES", ModelAuthoringTool.SquareFace,
             ModelAuthoringTool.CircleFace, ModelAuthoringTool.TriangleFace);
         AddToolGrid(page, "DRAW GEOMETRY", ModelAuthoringTool.Line, ModelAuthoringTool.Tube);
@@ -282,11 +283,14 @@ public sealed partial class ModelEditorControl
         CollapsibleSection rig = Section(page, "RIG → POSE → ANIMATE", 248);
         rig.Content.Controls.Add(new Label
         {
-            Text = "1. Create joints and bind them to the mesh.",
+            Text = "1. Give the model bones. A ready-made rig is quickest for people and animals.",
             Location = new Point(8, 8), Size = new Size(250, 36), ForeColor = EditorChrome.Muted,
         });
-        Add("Draw or edit rig…", 48, () => { SetMode(ModelEditorMode.Rig); OpenAnimation(0); });
-        Add("Fit a ready-made rig…", 86, OpenAutoRigWizard);
+        // The ready-made rig comes first and is marked: drawing joints by hand is the expert path.
+        Button recommended = Add("Fit a ready-made rig (recommended)…", 48, OpenAutoRigWizard);
+        recommended.FlatAppearance.BorderColor = EditorChrome.Accent;
+        recommended.ForeColor = EditorChrome.Accent;
+        Add("Draw or edit a rig by hand…", 86, () => { SetMode(ModelEditorMode.Rig); OpenAnimation(0); });
         Add("2. Save poses…", 124, () => { SetMode(ModelEditorMode.Rig); OpenAnimation(1); });
         Add("3. Build animation…", 162, () => { SetMode(ModelEditorMode.Animate); OpenAnimation(2); });
         rig.Content.Controls.Add(new Label
@@ -294,11 +298,12 @@ public sealed partial class ModelEditorControl
             Text = "Play saved clips below. Use in game creates an Object with this model and animation.",
             Location = new Point(8, 202), Size = new Size(250, 42), ForeColor = EditorChrome.Muted,
         });
-        void Add(string caption, int y, Action action)
+        Button Add(string caption, int y, Action action)
         {
             Button button = Tool(caption, action);
             button.SetBounds(8, y, 250, 31);
             rig.Content.Controls.Add(button);
+            return button;
         }
     }
 

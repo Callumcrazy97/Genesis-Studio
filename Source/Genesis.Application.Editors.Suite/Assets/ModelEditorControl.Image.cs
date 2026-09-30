@@ -30,8 +30,15 @@ public sealed partial class ModelEditorControl
     public void AddImageGeometry(GModelAsset geometry)
     {
         if (!geometry.HasRenderableMeshes) throw new ArgumentException("The Image has no geometry.", nameof(geometry));
+        AddGeometry(geometry, "Create from Image",
+            "Created from Image · edit the part, or save and Use in game · colours stay linked to the Image");
+    }
+
+    /// <summary>Adds another model's meshes and materials as new parts, as one undoable change.</summary>
+    private void AddGeometry(GModelAsset geometry, string undoLabel, string status)
+    {
         GModelAsset copy = ModelPoseWorkflow.Copy(geometry);
-        ChangeAsset("Create from Image", () =>
+        ChangeAsset(undoLabel, () =>
         {
             int materialOffset = Asset.Materials.Count;
             Asset.Materials.AddRange(copy.Materials);
@@ -44,6 +51,6 @@ public sealed partial class ModelEditorControl
         });
         SelectPart(Asset.Meshes.Count - 1);
         FrameModel();
-        Status.Text = "Created from Image · edit the part, or save and Use in game · colours stay linked to the Image";
+        Status.Text = status;
     }
 }

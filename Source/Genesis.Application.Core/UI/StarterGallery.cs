@@ -51,6 +51,8 @@ public sealed class StarterGallery : Panel
 {
     private const int LogicalCardWidth = 188;
     private const int LogicalSwatchHeight = 60;
+    private const int CompactCardWidth = 128;
+    private const int CompactSwatchHeight = 34;
     private const int LogicalGap = 10;
     private const int LogicalPadding = 12;
 
@@ -62,6 +64,8 @@ public sealed class StarterGallery : Panel
     private Font? _glyphFont;
     private bool _laying;
     private bool _fitsContent;
+    private bool _compact;
+    private readonly ToolTip _tips = new() { ShowAlways = true };
 
     public StarterGallery(string name)
     {
@@ -76,6 +80,7 @@ public sealed class StarterGallery : Panel
         {
             UiTokens.Changed -= OnTokensChanged;
             _glyphFont?.Dispose();
+            _tips.Dispose();
         };
     }
 
@@ -169,6 +174,7 @@ public sealed class StarterGallery : Panel
                 foreach (StarterItem item in list.Where(item => item.Category == category))
                 {
                     StarterCard card = new(this, item);
+                    _tips.SetToolTip(card, item.Description);
                     _cards.Add(card);
                     Controls.Add(card);
                 }
@@ -200,6 +206,24 @@ public sealed class StarterGallery : Panel
 
     /// <summary>The height the gallery needs to show every card at its current width.</summary>
     public int PreferredContentHeight => LayoutCards(apply: false);
+
+    /// <summary>
+    /// Smaller cards (title only, the description becomes a tooltip) for side panels, where two
+    /// columns of full cards would not fit.
+    /// </summary>
+    [DefaultValue(false)]
+    public bool Compact
+    {
+        get => _compact;
+        set
+        {
+            _compact = value;
+            _glyphFont?.Dispose();
+            _glyphFont = null;
+            PerformLayout();
+            Invalidate(true);
+        }
+    }
 
     /// <summary>
     /// When true the gallery never scrolls: it sets its own height to fit every card, for use
@@ -285,7 +309,9 @@ public sealed class StarterGallery : Panel
     internal int Scale(int logical) =>
         (int)Math.Round(logical * DeviceDpi / 96f * Math.Clamp(UiTokens.BaseFont.SizeInPoints / 9.5f, 0.75f, 2f));
 
-    internal Font? GlyphFont => _glyphFont ??= UiGlyphs.CreateFont(17f);
+    internal Font? GlyphFont => _glyphFont ??= UiGlyphs.CreateFont(_compact ? 13f : 17f);
+
+    internal int SwatchHeight => Scale(_compact ? CompactSwatchHeight : LogicalSwatchHeight);
 
     internal void OnCardChosen(StarterCard card) => Choose(card.Item.Id);
 
@@ -293,7 +319,9 @@ public sealed class StarterGallery : Panel
     {
         int title = TextRenderer.MeasureText("Ag", UiTokens.StrongFont, Size.Empty, TextFormatFlags.NoPadding).Height;
         int line = TextRenderer.MeasureText("Ag", UiTokens.SmallFont, Size.Empty, TextFormatFlags.NoPadding).Height;
-        return Scale(8) + Scale(LogicalSwatchHeight) + Scale(8) + title + Scale(3) + line * 2 + Scale(10);
+        return _compact
+            ? Scale(6) + SwatchHeight + Scale(6) + title + Scale(8)
+            : Scale(8) + SwatchHeight + Scale(8) + title + Scale(3) + line * 2 + Scale(10);
     }
 
     private int LayoutCards(bool apply)
@@ -319,7 +347,7 @@ public sealed class StarterGallery : Panel
 
         // Cards stretch to share the row, between their logical width and 1.5x it, so a wide pane
         // shows larger cards instead of a ragged strip of empty space on the right.
-        int minimumCard = Scale(LogicalCardWidth);
+        int minimumCard = Scale(_compact ? CompactCardWidth : LogicalCardWidth);
         int columns = Math.Max(1, (available + gap) / (minimumCard + gap));
         int cardWidth = Math.Min((available - gap * (columns - 1)) / columns, minimumCard * 3 / 2);
         cardWidth = Math.Max(Math.Min(minimumCard, available), cardWidth);
@@ -486,8 +514,8 @@ public sealed class StarterGallery : Panel
                 : UiTokens.Blend(UiTokens.Border, UiTokens.Raised, _hovered ? 1f : 0.6f);
             PillToolStripRenderer.StrokeRound(g, card, stroke, radius);
 
-            int inset = _owner.Scale(8);
-            Rectangle swatch = new(inset, inset, Math.Max(1, Width - inset * 2), _owner.Scale(LogicalSwatchHeight));
+            int inset = _owner.Scale(_owner.Compact ? 6 : 8);
+            Rectangle swatch = new(inset, inset, Math.Max(1, Width - inset * 2), _owner.SwatchHeight);
             PaintSwatch(g, swatch, _owner.Scale(6));
 
             if (Item.Badge.Length > 0)
@@ -496,9 +524,13 @@ public sealed class StarterGallery : Panel
             }
 
             int titleHeight = TextRenderer.MeasureText("Ag", UiTokens.StrongFont, Size.Empty, TextFormatFlags.NoPadding).Height;
-            Rectangle title = new(inset + _owner.Scale(2), swatch.Bottom + _owner.Scale(8), Math.Max(1, Width - inset * 2 - _owner.Scale(4)), titleHeight);
+            Rectangle title = new(inset + _owner.Scale(2), swatch.Bottom + _owner.Scale(_owner.Compact ? 6 : 8), Math.Max(1, Width - inset * 2 - _owner.Scale(4)), titleHeight);
             TextRenderer.DrawText(g, Item.Title, UiTokens.StrongFont, title, UiTokens.Text,
                 TextFormatFlags.Left | TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+            if (_owner.Compact)
+            {
+                return;
+            }
 
             Rectangle description = new(title.Left, title.Bottom + _owner.Scale(3), title.Width, Math.Max(1, Height - title.Bottom - _owner.Scale(3) - _owner.Scale(8)));
             TextRenderer.DrawText(g, Item.Description, UiTokens.SmallFont, description, UiTokens.Muted,

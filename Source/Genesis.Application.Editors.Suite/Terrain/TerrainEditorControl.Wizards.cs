@@ -41,6 +41,8 @@ public sealed partial class TerrainEditorControl
         FlowLayoutPanel page = MakeContextPage();
         page.AutoScroll = true;
         page.Controls.Add(_generateSummary);
+        page.Controls.Add(MakeContextCaption("Start with a landform"));
+        page.Controls.Add(BuildLandformGallery());
         page.Controls.Add(MakeContextCaption("Generation Wizard"));
         page.Controls.Add(MakeContextAction("Create terrain…", "Choose a landscape preset and review its generation settings", OpenCreationWizard));
         page.Controls.Add(MakeContextAction("Draw rectangle", "Drag a rectangle in the view to create a terrain section", () => BeginSectionDrawing(TerrainCreationSource.Region)));
