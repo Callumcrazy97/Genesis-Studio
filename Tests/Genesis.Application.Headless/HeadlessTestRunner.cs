@@ -1064,6 +1064,7 @@ internal static class HeadlessTestRunner
         Suites.ResourceNamesSuite.Run(ctx);
         Suites.StudioFoundationSuite.Run(ctx);
         Suites.CodeAssistanceSuite.Run(ctx);
+        Suites.ClearWorkflowSuite.Run(ctx);
         Suites.ReadinessJudgeSuite.Run(ctx);
         Suites.StudioPolishSuite.Run(ctx);
         Suites.ResourceLibrarySuite.Run(ctx);
@@ -1479,6 +1480,13 @@ internal static class HeadlessTestRunner
                 break;
             case "resource-search":
                 Suites.ResourceSearchSuite.Run(ctx);
+                break;
+            case "clear":
+            case "editor-workflow":
+                Suites.ClearWorkflowSuite.Run(ctx);
+                break;
+            case "clear-core":
+                Suites.ClearWorkflowSuite.RunCore(ctx);
                 break;
             default:
                 Suites.GateSuite.RunFocused(ctx, normalized);

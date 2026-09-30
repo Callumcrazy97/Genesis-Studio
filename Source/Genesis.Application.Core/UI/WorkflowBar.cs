@@ -54,6 +54,8 @@ public sealed class WorkflowBar : Panel
             throw new ArgumentException("Workflow step ids must be unique.", nameof(steps));
         }
 
+        // Adding child controls lays the bar out; nothing can be measured until every part exists.
+        SuspendLayout();
         Name = name;
         Dock = DockStyle.Top;
         Height = LogicalHeight;
@@ -90,6 +92,7 @@ public sealed class WorkflowBar : Panel
 
         CurrentStepId = _steps[0].Id;
         ApplyTokens();
+        ResumeLayout(performLayout: false);
         UpdateCurrentState();
         UiTokens.Changed += OnTokensChanged;
         Disposed += (_, _) =>
@@ -227,7 +230,7 @@ public sealed class WorkflowBar : Panel
     protected override void OnLayout(LayoutEventArgs levent)
     {
         base.OnLayout(levent);
-        if (_buttons.Count == 0)
+        if (_buttons.Count == 0 || _next is null || CurrentStepId is null)
         {
             return;
         }
