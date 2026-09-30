@@ -259,7 +259,10 @@ public sealed class GpuParticleEmitter : IDisposable
 
     private void EnsureLookup(Vector4[] lookup)
     {
-        if(ReferenceEquals(lookup,_uploadedLookup))return;
+        // Builders create a new array when only emitter uniforms (world/rate) change.
+        // Reusing identical lookup data avoids allocating and retiring a GPU buffer each frame.
+        // Compare against our own snapshot so in-place authored edits are detected as well.
+        if(_lookup.IsValid && lookup.AsSpan().SequenceEqual(_uploadedLookup))return;
         long bytes=(long)lookup.Length*16;
         _library.Reserve(bytes);
         GpuBufferHandle next;
@@ -274,7 +277,7 @@ public sealed class GpuParticleEmitter : IDisposable
         catch {_library.ReleaseBytes(bytes);throw;}
         if(_lookup.IsValid)_gpu.ReleaseBuffer(_lookup);
         _library.ReleaseBytes(_lookupBytes);
-        _lookup=next;_lookupBytes=bytes;_uploadedLookup=lookup;
+        _lookup=next;_lookupBytes=bytes;_uploadedLookup=(Vector4[])lookup.Clone();
     }
 
     public static void ValidateDefinition(GpuParticleDefinition definition)

@@ -1053,6 +1053,27 @@ namespace Genesis.Shared.Interfaces
         /// in FogPost composite — may be a tiny CPU sentinel when enabled.
         /// </summary>
         public double CelestialExtrasMs;
+
+        // Per-frame transfer and resource-churn deltas for the last complete frame. A warmed static
+        // scene should create nothing and upload only its per-frame instance/constant data.
+        /// <summary>Bytes the backend copied, cleared or uploaded CPU→GPU during the last frame.</summary>
+        public long UploadBytes;
+        public int BuffersCreated;
+        public int TexturesCreated;
+        public int RenderTargetsCreated;
+        public int PipelinesCreated;
+        /// <summary>Asset file existence/timestamp queries on the frame path during the last frame.</summary>
+        public int AssetFileChecks;
+        /// <summary>Asset file content reads (descriptor/manifest parses) during the last frame.</summary>
+        public int AssetFileReads;
+        /// <summary>Instanced and skinned caster draws across all shadow maps in the last frame.</summary>
+        public int ShadowCasterDraws;
+        /// <summary>Sun shadow cascades re-rendered in the last frame (0 when every cascade was cached).</summary>
+        public int ShadowCascadesRendered;
+        /// <summary>Point/spot lights holding a local shadow atlas slot in the last frame.</summary>
+        public int LocalShadowLights;
+        /// <summary>Local shadow atlas tiles re-rendered in the last frame (0 when every tile was cached).</summary>
+        public int LocalShadowTilesRendered;
     }
 
     public enum BlendMode   { Alpha, Additive, Multiply, None }

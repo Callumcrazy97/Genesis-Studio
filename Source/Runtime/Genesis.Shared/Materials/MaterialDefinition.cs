@@ -6,7 +6,12 @@ using Newtonsoft.Json;
 namespace Genesis.Shared.Materials
 {
     public enum MaterialHeightMode { None, Parallax, ParallaxOcclusion, VertexDisplacement }
-    public enum TextureColorSpace { Linear, Srgb }
+    /// <summary>
+    /// How a texture's bytes are interpreted. <see cref="Srgb"/> is authored colour (albedo/emission)
+    /// for lit 3D surfaces; <see cref="Linear"/> is data (normal, ORM, height); <see cref="Display"/>
+    /// is shown as-is by 2D sprites, UI and previews, without decoding or mipmaps.
+    /// </summary>
+    public enum TextureColorSpace { Linear, Srgb, Display }
 
     public sealed class MaterialMapSet
     {

@@ -16,12 +16,15 @@ public static class TiledLightDefaults
     public const uint EmptyLightIndex = 0xFFFFFFFFu;
 }
 
-/// <summary>One GPU light record (3×float4 = 48 bytes), matching HLSL ClusterPointLight.</summary>
+/// <summary>One GPU light record (4×float4 = 64 bytes), matching HLSL ClusterPointLight.</summary>
 public struct ClusterPointLightGpu
 {
     public Vector4 PosRadius;
     public Vector4 ColorIntensity;
+    /// <summary>x = falloff; y = local shadow slot + 1 (0 = unshadowed); z = shadow far; w = spot cos(inner).</summary>
     public Vector4 FalloffPad;
+    /// <summary>xyz = unit cone axis for a spot light (zero for a point light); w = cos(outer).</summary>
+    public Vector4 SpotDirCos;
 }
 
 /// <summary>Builds per-tile index lists from world-space point lights for the current frame.</summary>
@@ -129,7 +132,7 @@ public sealed class TiledLightGrid
         }
     }
 
-    private static bool TryProjectSphere(
+    internal static bool TryProjectSphere(
         Vector3 center,
         float radius,
         in Matrix4x4 viewProjection,
@@ -141,8 +144,9 @@ public sealed class TiledLightGrid
         minX = minY = 0f;
         maxX = maxY = 1f;
 
-        // Sample the sphere AABB corners in clip space and take the screen AABB of those that
-        // survive the near plane. Conservative and CPU-cheap for DX11 tile lists.
+        // A box wholly beyond the near plane has conservative projected corner bounds.
+        // A crossing box needs clipping; dropping its rear corners underestimates coverage
+        // and makes light disappear at tile boundaries. Use full coverage for that case.
         Span<Vector3> corners = stackalloc Vector3[8];
         corners[0] = center + new Vector3(-radius, -radius, -radius);
         corners[1] = center + new Vector3(-radius, -radius, radius);
@@ -156,11 +160,15 @@ public sealed class TiledLightGrid
         float xMin = float.PositiveInfinity, yMin = float.PositiveInfinity;
         float xMax = float.NegativeInfinity, yMax = float.NegativeInfinity;
         int accepted = 0;
+        bool crossesNear = false;
         for (int i = 0; i < corners.Length; i++)
         {
             Vector4 clip = Vector4.Transform(new Vector4(corners[i], 1f), viewProjection);
-            if (clip.W <= 1e-4f)
+            if (clip.W <= 1e-4f || clip.Z <= 0f)
+            {
+                crossesNear = true;
                 continue;
+            }
             float ndcX = clip.X / clip.W;
             float ndcY = clip.Y / clip.W;
             float sx = ndcX * 0.5f + 0.5f;
@@ -174,6 +182,8 @@ public sealed class TiledLightGrid
 
         if (accepted == 0)
             return false;
+        if (crossesNear)
+            return true;
 
         minX = Math.Clamp(xMin, 0f, 1f);
         minY = Math.Clamp(yMin, 0f, 1f);

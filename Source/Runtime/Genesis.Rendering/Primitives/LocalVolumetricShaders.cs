@@ -36,7 +36,8 @@ VSOut VS(uint id : SV_VertexID)
     VSOut o;
     float2 p = float2((id << 1) & 2, id & 2);
     o.pos = float4(p * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);
-    o.uv = float2(p.x, 1.0 - p.y);
+    // Keep depth reconstruction and light scatter aligned with the scene.
+    o.uv = p;
     return o;
 }
 
@@ -59,7 +60,7 @@ float HashIGN(float2 pixel)
 float4 PS_LocalVol(VSOut IN) : SV_Target
 {
     float depth = SceneDepth.SampleLevel(LinearClamp, IN.uv, 0).r;
-    if (depth >= 0.99999)
+    if (depth >= 0.9999999)
         return float4(0, 0, 0, 1);
 
     int lightCount = clamp(int(Params.z), 0, 4);

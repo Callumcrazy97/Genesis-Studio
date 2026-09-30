@@ -91,6 +91,7 @@ namespace Genesis.Shared.Assets
 
             try
             {
+                AssetIoCounters.Read();
                 CookedTextureManifest parsed =
                     JsonConvert.DeserializeObject<CookedTextureManifest>(File.ReadAllText(manifestPath));
                 if (parsed == null || parsed.Version != CookedTextureManifest.CurrentVersion ||

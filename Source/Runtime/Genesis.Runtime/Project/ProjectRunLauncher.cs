@@ -160,7 +160,8 @@ namespace Genesis.Runtime.Project
                 RedirectStandardError = supervised,
                 RedirectStandardOutput = supervised,
                 CreateNoWindow = true,
-                Arguments = debug ? $"--room \"{roomName}\" --debug" : $"--room \"{roomName}\"",
+                // Studio play keeps assets live; exported games (launched without this flag) load once.
+                Arguments = (debug ? $"--room \"{roomName}\" --debug" : $"--room \"{roomName}\"") + " " + ProjectPlayerApp.LiveReloadArgument,
             };
             startInfo.EnvironmentVariables["GENESIS_PROJECT_PATH"] = projectPath;
             startInfo.EnvironmentVariables["GENESIS_START_ROOM"] = roomName;

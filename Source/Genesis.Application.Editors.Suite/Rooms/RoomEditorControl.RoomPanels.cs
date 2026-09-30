@@ -253,6 +253,12 @@ public sealed partial class RoomEditorControl
     /// <summary>Whether the editor grid is drawn.</summary>
     public bool ShowGrid { get; private set; } = true;
 
+    /// <summary>
+    /// Whether Objects without a sprite or model draw an editor-only cube. This is shared by the
+    /// scene and secondary camera view because both views render the same authored room.
+    /// </summary>
+    public bool ShowUtilityPlaceholders { get; private set; } = true;
+
     private EditorFloorStyle _floorStyle = EditorFloorStyle.GridOnly;
 
     /// <summary>
@@ -305,6 +311,13 @@ public sealed partial class RoomEditorControl
         ShowGrid = visible;
         if (_workspaceReady) { SyncToolbar(); SyncInspector(); }
         _viewport?.Host?.Invalidate();
+    }
+
+    public void SetUtilityPlaceholdersVisible(bool visible)
+    {
+        ShowUtilityPlaceholders = visible;
+        _viewport?.Host?.Invalidate();
+        _viewport?.SecondaryViewport?.Host?.Invalidate();
     }
 
     public void SetEditorFloorVisible(bool visible) =>
@@ -419,6 +432,15 @@ public sealed partial class RoomEditorControl
         };
         ToolStripMenuItem gridColour = new("Grid colour…");
         gridColour.Click += (_, _) => PickGridColour();
+        ToolStripMenuItem utilityPlaceholders = new("Utility placeholder cubes")
+        {
+            Name = "RoomViewUtilityPlaceholders",
+            CheckOnClick = true,
+            Checked = ShowUtilityPlaceholders,
+            ToolTipText = "Show editor-only cubes for Objects that have no sprite or model",
+        };
+        utilityPlaceholders.CheckedChanged += (_, _) =>
+            SetUtilityPlaceholdersVisible(utilityPlaceholders.Checked);
 
         ToolStripDropDownButton menu = EditorViewMenuChrome.BuildViewMenu(
             "Show, hide and filter what the room view draws",
@@ -435,7 +457,7 @@ public sealed partial class RoomEditorControl
                 Invalidate = () => _viewport?.Host?.Invalidate(),
             },
             leadingItems: [layers, types, viewports],
-            extraItems: [snapItem, gridColour],
+            extraItems: [utilityPlaceholders, snapItem, gridColour],
             viewport: () => _viewport);
         menu.DropDownOpening += (_, _) => RebuildLayerVisibilityItems(layers);
         return menu;

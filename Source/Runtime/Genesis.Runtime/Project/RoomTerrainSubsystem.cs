@@ -462,11 +462,13 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
         UpdateMaterial(entry, renderer);
         if (entry.Bound) return;
         string albedo = string.IsNullOrWhiteSpace(entry.Node.Terrain.Albedo) ? "Textures/Terrain_ForestGround.png" : entry.Node.Terrain.Albedo;
-        TextureHandle texture = _game?.LoadTexture(albedo) ?? TextureHandle.Invalid;
+        // Terrain albedo is lit 3D colour: request it as such so it gets mipmaps (distant terrain
+        // shimmered without them) and is decoded under the linear colour pipeline.
+        TextureHandle texture = _game?.LoadTexture(albedo, Genesis.Shared.Materials.TextureColorSpace.Srgb) ?? TextureHandle.Invalid;
         if (!texture.IsValid)
         {
             string path = Genesis.Runtime.Assets.SpriteAssetLoader.ResolveFrameTexturePath(_projectPath, albedo, 0);
-            if (File.Exists(path)) texture = renderer.LoadTexture(path);
+            if (File.Exists(path)) texture = renderer.LoadTexture(path, Genesis.Shared.Materials.TextureColorSpace.Srgb);
         }
         if (entry.Material.Draw.HasValue)
         {

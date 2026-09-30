@@ -56,6 +56,12 @@ namespace Genesis.Shared.Overlay
         /// <summary>Square atlas edge. 2048² holds several thousand glyphs at HUD sizes.</summary>
         public const int AtlasSize = 2048;
 
+        /// <summary>
+        /// Reserved opaque-white cell used by overlay rectangles and lines. Keeping shapes in the
+        /// glyph atlas lets an ordered mixture of panels, rules, and text remain one sprite batch.
+        /// </summary>
+        public const int SolidCellSize = 4;
+
         /// <summary>Keeps neighbouring glyphs from bleeding into each other under linear filtering.</summary>
         private const int Padding = 1;
 
@@ -98,15 +104,57 @@ namespace Genesis.Shared.Overlay
             }
         }
 
+        private readonly struct LayoutKey : IEquatable<LayoutKey>
+        {
+            private readonly string _text;
+            private readonly string _family;
+            private readonly float _size;
+            private readonly bool _bold;
+
+            public LayoutKey(string text, string family, float size, bool bold)
+            {
+                _text = text;
+                _family = family;
+                _size = size;
+                _bold = bold;
+            }
+
+            public bool Equals(LayoutKey other) =>
+                _size.Equals(other._size) && _bold == other._bold
+                && string.Equals(_text, other._text, StringComparison.Ordinal)
+                && string.Equals(_family, other._family, StringComparison.Ordinal);
+
+            public override bool Equals(object obj) => obj is LayoutKey other && Equals(other);
+
+            public override int GetHashCode() => HashCode.Combine(_text, _family, _size, _bold);
+        }
+
+        private readonly struct CachedRun
+        {
+            public readonly GlyphQuad[] Quads;
+            public readonly float Advance;
+
+            public CachedRun(GlyphQuad[] quads, float advance)
+            {
+                Quads = quads;
+                Advance = advance;
+            }
+        }
+
         private readonly Dictionary<GlyphKey, GlyphEntry> _glyphs = new();
         private readonly Dictionary<(string Family, bool Bold), SKTypeface> _typefaces = new();
         private readonly Dictionary<(string Family, float Size, bool Bold), SKFont> _fonts = new();
+        private readonly Dictionary<LayoutKey, CachedRun> _layoutCache = new();
+        private readonly Queue<LayoutKey> _layoutOrder = new();
         private readonly List<GlyphUpload> _uploads = new();
         private readonly SKPaint _paint = new() { IsAntialias = true, Style = SKPaintStyle.Fill, Color = SKColors.White };
 
-        private int _penX, _penY, _shelfHeight;
+        private int _penX = SolidCellSize + Padding;
+        private int _penY;
+        private int _shelfHeight = SolidCellSize + Padding;
         private int _resetGeneration;
         private bool _disposed;
+        private const int LayoutCacheCapacity = 1024;
 
         /// <summary>Increments whenever the atlas is cleared, so a caller can drop cached UVs.</summary>
         public int ResetGeneration => _resetGeneration;
@@ -135,24 +183,19 @@ namespace Genesis.Shared.Overlay
             if (string.IsNullOrEmpty(text)) return;
 
             SKFont font = GetFont(family, size, bold, out string resolvedFamily, out float resolvedSize);
-            SKFontMetrics metrics = font.Metrics;
-            float baseline = topY - metrics.Ascent;
-
-            ushort[] glyphIds = font.GetGlyphs(text);
-            if (glyphIds.Length == 0) return;
-            SKPoint[] positions = font.GetGlyphPositions(text, new SKPoint(x, baseline));
-
-            for (int i = 0; i < glyphIds.Length && i < positions.Length; i++)
+            CachedRun run = ResolveRun(text, resolvedFamily, resolvedSize, bold, font);
+            for (int i = 0; i < run.Quads.Length; i++)
             {
-                GlyphEntry entry = Resolve(resolvedFamily, resolvedSize, bold, glyphIds[i], font);
-                if (!entry.HasPixels) continue;
-
+                GlyphQuad quad = run.Quads[i];
                 quads.Add(new GlyphQuad(
-                    positions[i].X + entry.OffsetX,
-                    positions[i].Y + entry.OffsetY,
-                    entry.Width,
-                    entry.Height,
-                    entry.U0, entry.V0, entry.U1, entry.V1));
+                    quad.X + x,
+                    quad.Y + topY,
+                    quad.Width,
+                    quad.Height,
+                    quad.U0,
+                    quad.V0,
+                    quad.U1,
+                    quad.V1));
             }
         }
 
@@ -161,8 +204,53 @@ namespace Genesis.Shared.Overlay
         {
             ThrowIfDisposed();
             if (string.IsNullOrEmpty(text)) return 0f;
-            SKFont font = GetFont(family, size, bold, out _, out _);
-            return font.MeasureText(text, _paint);
+            SKFont font = GetFont(family, size, bold, out string resolvedFamily, out float resolvedSize);
+            return ResolveRun(text, resolvedFamily, resolvedSize, bold, font).Advance;
+        }
+
+        private CachedRun ResolveRun(string text, string family, float size, bool bold, SKFont font)
+        {
+            var key = new LayoutKey(text, family, size, bold);
+            if (_layoutCache.TryGetValue(key, out CachedRun cached)) return cached;
+
+            SKFontMetrics metrics = font.Metrics;
+            ushort[] glyphIds = font.GetGlyphs(text);
+            if (glyphIds.Length == 0)
+            {
+                cached = new CachedRun(Array.Empty<GlyphQuad>(), 0f);
+                CacheRun(key, cached);
+                return cached;
+            }
+
+            SKPoint[] positions = font.GetGlyphPositions(text, new SKPoint(0f, -metrics.Ascent));
+            var runQuads = new List<GlyphQuad>(glyphIds.Length);
+            for (int i = 0; i < glyphIds.Length && i < positions.Length; i++)
+            {
+                GlyphEntry entry = Resolve(family, size, bold, glyphIds[i], font);
+                if (!entry.HasPixels) continue;
+
+                runQuads.Add(new GlyphQuad(
+                    positions[i].X + entry.OffsetX,
+                    positions[i].Y + entry.OffsetY,
+                    entry.Width,
+                    entry.Height,
+                    entry.U0,
+                    entry.V0,
+                    entry.U1,
+                    entry.V1));
+            }
+
+            cached = new CachedRun(runQuads.ToArray(), font.MeasureText(text, _paint));
+            CacheRun(key, cached);
+            return cached;
+        }
+
+        private void CacheRun(LayoutKey key, CachedRun run)
+        {
+            while (_layoutCache.Count >= LayoutCacheCapacity && _layoutOrder.Count > 0)
+                _layoutCache.Remove(_layoutOrder.Dequeue());
+            _layoutCache[key] = run;
+            _layoutOrder.Enqueue(key);
         }
 
         /// <summary>
@@ -278,10 +366,12 @@ namespace Genesis.Shared.Overlay
         private void Reset()
         {
             _glyphs.Clear();
+            _layoutCache.Clear();
+            _layoutOrder.Clear();
             _uploads.Clear();
-            _penX = 0;
+            _penX = SolidCellSize + Padding;
             _penY = 0;
-            _shelfHeight = 0;
+            _shelfHeight = SolidCellSize + Padding;
             _resetGeneration++;
         }
 
@@ -351,6 +441,8 @@ namespace Genesis.Shared.Overlay
             foreach (SKTypeface typeface in _typefaces.Values) typeface.Dispose();
             _typefaces.Clear();
             _glyphs.Clear();
+            _layoutCache.Clear();
+            _layoutOrder.Clear();
             _uploads.Clear();
             _paint.Dispose();
         }

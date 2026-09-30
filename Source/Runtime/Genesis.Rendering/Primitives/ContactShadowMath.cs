@@ -137,10 +137,10 @@ public static class ContactShadowMath
     /// <summary>Depth-buffer value to positive view-space Z.</summary>
     public static float LinearizeDepth(float depth01, float nearPlane, float farPlane)
     {
-        float z = depth01 * 2f - 1f;
+        // D3D-style 0..1 depth: view z = n*f / (f - d*(f-n)). Matches the shader copy.
         float n = MathF.Max(0.01f, nearPlane);
         float f = MathF.Max(n + 1f, farPlane);
-        return (2f * n * f) / MathF.Max(f + n - z * (f - n), 1e-5f);
+        return (n * f) / MathF.Max(f - depth01 * (f - n), 1e-5f);
     }
 
     /// <summary>

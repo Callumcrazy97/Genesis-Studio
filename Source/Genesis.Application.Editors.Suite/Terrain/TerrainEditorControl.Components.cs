@@ -12,7 +12,9 @@ namespace Genesis.Application.Editors.Suite.Terrain;
 
 public sealed partial class TerrainEditorControl
 {
-    private readonly RuntimeModelRenderSystem _placedModelPreview = new();
+    private readonly RuntimeModelRenderSystem _placedModelPreview = new(
+        assetFreshnessIntervalMilliseconds: 500,
+        textureFreshnessIntervalMilliseconds: 1000);
     private readonly Dictionary<string, double> _previewVariables = new(StringComparer.OrdinalIgnoreCase)
     {
         ["Wind"] = 0,

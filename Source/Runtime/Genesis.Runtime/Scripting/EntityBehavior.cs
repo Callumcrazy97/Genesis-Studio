@@ -124,6 +124,21 @@ namespace Genesis.Runtime.Scripting
         protected void SetComponent<T>(in T value) where T : struct, IComponent
             => World.Set<T>(Entity, value);
 
+        /// <summary>Apply a scripted 3D transform to rendering and physics together, so the next
+        /// fixed update does not restore an older pose. Use for script-owned/kinematic objects.</summary>
+        protected void SetEntityTransform(Entity target, in TransformComponent value)
+        {
+            if (!World.IsAlive(target) || !World.Has<TransformComponent>(target)) return;
+            var old = World.GetRef<TransformComponent>(target);
+            static float Unit(float scale) => scale == 0 ? 1 : scale;
+            var ratio = new System.Numerics.Vector3(
+                Math.Abs(Unit(value.ScaleX) / Unit(old.ScaleX)),
+                Math.Abs(Unit(value.ScaleY) / Unit(old.ScaleY)),
+                Math.Abs(Unit(value.ScaleZ) / Unit(old.ScaleZ)));
+            World.Set(target, value);
+            PgslCommands.SynchronizeTransform(World, target, ratio);
+        }
+
         /// <summary>Queues this entity for destruction (safe to call mid-update).</summary>
         protected void DestroyEntity() => World.DestroyEntity(Entity);
     }

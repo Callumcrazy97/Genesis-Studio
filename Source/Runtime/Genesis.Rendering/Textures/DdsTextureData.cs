@@ -60,9 +60,11 @@ namespace Genesis.Rendering.Textures
                     format = dxgiFormat switch
                     {
                         DxgiBc5Unorm => GpuFormat.BC5UNorm,
-                        DxgiBc7Unorm or DxgiBc7UnormSrgb => colorSpace == TextureColorSpace.Srgb
-                            ? GpuFormat.BC7UNormSrgb
-                            : GpuFormat.BC7UNorm,
+                        // Always sample the stored bytes as-is, exactly like the uncooked RGBA8 upload.
+                        // Loading sRGB-requested cooks as BC7_SRGB made the hardware decode them while
+                        // uncooked images were not decoded, so a texture turned darker once cooked.
+                        // The linear colour pipeline decodes albedo in the engine shaders instead.
+                        DxgiBc7Unorm or DxgiBc7UnormSrgb => GpuFormat.BC7UNorm,
                         _ => GpuFormat.Unknown,
                     };
                     dataOffset = 148;

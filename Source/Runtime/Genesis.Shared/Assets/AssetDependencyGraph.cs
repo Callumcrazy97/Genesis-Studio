@@ -64,28 +64,70 @@ namespace Genesis.Shared.Assets
                 _aliases[NormalizeKey(entry.Name)] = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { entry.FullPath };
 
             foreach (string resource in _resources)
-            {
-                HashSet<string> direct = new(StringComparer.OrdinalIgnoreCase);
-                foreach (string literal in ReadReferenceLiterals(resource))
-                {
-                    foreach (string resolved in ResolveAll(literal))
-                    {
-                        if (!string.Equals(resource, resolved, StringComparison.OrdinalIgnoreCase))
-                            direct.Add(resolved);
-                    }
-                }
+                IndexReferences(resource);
+        }
 
-                AddSidecarDependency(resource, direct);
-                _dependencies[resource] = direct;
-                foreach (string dependency in direct)
+        /// <summary>
+        /// Re-reads only the changed files when every change is a content edit to an existing, already
+        /// known resource. A single save used to re-read and parse every text asset in the project and
+        /// force a catalog rescan. Creates, deletes, renames and .meta identity edits still take the
+        /// full <see cref="Refresh"/> path.
+        /// </summary>
+        public void RefreshChanged(IEnumerable<string> changedPaths)
+        {
+            List<string> changed = new();
+            foreach (string path in changedPaths ?? Array.Empty<string>())
+            {
+                if (string.IsNullOrWhiteSpace(path)) continue;
+                string full;
+                try { full = Path.GetFullPath(path); }
+                catch (Exception error) when (error is ArgumentException or NotSupportedException or IOException) { Refresh(); return; }
+                if (!_resources.Contains(full) || !File.Exists(full)
+                    || full.EndsWith(".meta", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (!_dependents.TryGetValue(dependency, out HashSet<string> reverse))
-                    {
-                        reverse = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                        _dependents[dependency] = reverse;
-                    }
-                    reverse.Add(resource);
+                    Refresh();
+                    return;
                 }
+                changed.Add(full);
+            }
+
+            foreach (string resource in changed)
+            {
+                if (_dependencies.TryGetValue(resource, out HashSet<string> previous))
+                {
+                    foreach (string dependency in previous)
+                    {
+                        if (!_dependents.TryGetValue(dependency, out HashSet<string> reverse)) continue;
+                        reverse.Remove(resource);
+                        if (reverse.Count == 0) _dependents.Remove(dependency);
+                    }
+                }
+                IndexReferences(resource);
+            }
+        }
+
+        private void IndexReferences(string resource)
+        {
+            HashSet<string> direct = new(StringComparer.OrdinalIgnoreCase);
+            foreach (string literal in ReadReferenceLiterals(resource))
+            {
+                foreach (string resolved in ResolveAll(literal))
+                {
+                    if (!string.Equals(resource, resolved, StringComparison.OrdinalIgnoreCase))
+                        direct.Add(resolved);
+                }
+            }
+
+            AddSidecarDependency(resource, direct);
+            _dependencies[resource] = direct;
+            foreach (string dependency in direct)
+            {
+                if (!_dependents.TryGetValue(dependency, out HashSet<string> reverse))
+                {
+                    reverse = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    _dependents[dependency] = reverse;
+                }
+                reverse.Add(resource);
             }
         }
 

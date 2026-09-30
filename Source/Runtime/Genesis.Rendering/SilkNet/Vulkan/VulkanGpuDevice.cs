@@ -202,7 +202,7 @@ namespace Genesis.Rendering.SilkNet.Vulkan
         }
 
         /// <summary>Drops pipelines built against a render pass a resize has replaced.</summary>
-        internal void OnSwapChainRecreated(RenderPass previous) => _pipelines.InvalidateForRenderPass(previous);
+        internal void OnSwapChainRecreated(RenderPass previous) => _pipelines.InvalidateForRenderPass(previous, _frameRing.Defer);
 
         internal void ForgetSwapChain(VulkanSwapChainAdapter adapter)
         {
@@ -443,7 +443,10 @@ namespace Genesis.Rendering.SilkNet.Vulkan
             {
                 attachments[count++] = new ClearAttachment
                 {
-                    AspectMask = ImageAspectFlags.DepthBit,
+                    AspectMask = ImageAspectFlags.DepthBit | (_activeTargetResource != null
+                        && _textures.TryGetValue(_activeTargetResource.Depth.Id, out var depthResource)
+                        && VulkanGpuFormats.HasStencil(depthResource.Format)
+                        ? ImageAspectFlags.StencilBit : 0),
                     ClearValue = new ClearValue(depthStencil: new ClearDepthStencilValue(desc.DepthAction.ClearR, 0)),
                 };
             }
@@ -680,15 +683,13 @@ namespace Genesis.Rendering.SilkNet.Vulkan
         /// </remarks>
         private void WriteDescriptors(CommandBuffer cmd, ProgramResource program, PipelineBindPoint bindPoint = PipelineBindPoint.Graphics)
         {
-            DescriptorSet set = _descriptors.Allocate(program.Bindings.Layout);
-
+            // A program that declares no resources (the local shadow tile clear, for instance) needs
+            // no set at all, and binding zero sets is invalid (descriptorSetCount must be > 0).
             int count = program.Bindings.Types.Count;
             if (count == 0)
-            {
-                _runtime.Api.CmdBindDescriptorSets(
-                    cmd, bindPoint, program.PipelineLayout, 0, 0, null, 0, null);
                 return;
-            }
+
+            DescriptorSet set = _descriptors.Allocate(program.Bindings.Layout);
 
             var writes = stackalloc WriteDescriptorSet[count];
             var buffers = stackalloc DescriptorBufferInfo[count];

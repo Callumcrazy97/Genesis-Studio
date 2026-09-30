@@ -17,6 +17,7 @@ using Genesis.Runtime;
 using Genesis.Runtime.Climate;
 using Genesis.Runtime.Particles;
 using Genesis.Shared.Assets;
+using Genesis.Shared.Commands;
 using Genesis.Shared.Materials;
 using SharedCamera = Genesis.Shared.Rendering.Camera;
 using SharedCameraFrustum = Genesis.Shared.Rendering.CameraFrustum;
@@ -41,6 +42,39 @@ internal static class RenderBackendSuite
     public static void Run(HeadlessContext ctx)
     {
         HeadlessHarness.BeginMajor(ctx.Report, "Render");
+
+        HeadlessHarness.RunCase(ctx.Report, "Render.FogVolumes.DirectedConeAuthoring", () =>
+        {
+            int id = Engine.FogVolumeCreate("Cone");
+            try
+            {
+                Engine.FogVolumeSetBounds(id, 1f, 2f, 3f, 6f, 0.45f, 1.4f);
+                Engine.FogVolumeSetDirection(id, 3f, -1f, 4f);
+                Engine.FogVolumeSetFalloff(id, 0.05f);
+
+                HeadlessHarness.Assert(
+                    Engine.GetScriptedFogVolumes().TryGetValue(id, out FogVolume volume),
+                    "Created cone fog volume must remain queryable by its id.");
+                HeadlessHarness.Assert(
+                    volume.Shape == FogVolumeShape.Cone
+                    && Vector3.Distance(volume.Center, new Vector3(1f, 2f, 3f)) < 0.0001f
+                    && Vector3.Distance(volume.Extents, new Vector3(6f, 0.45f, 1.4f)) < 0.0001f,
+                    "Cone authoring must preserve source position and length/radius parameters.");
+                HeadlessHarness.Assert(
+                    MathF.Abs(volume.Direction.Length() - 1f) < 0.0001f
+                    && volume.Direction.X > 0f
+                    && volume.Direction.Y < 0f
+                    && volume.Direction.Z > 0f,
+                    "Cone direction must be normalised without losing its authored orientation.");
+                HeadlessHarness.Assert(
+                    MathF.Abs(volume.FalloffCurve - 0.1f) < 0.0001f,
+                    "Cone falloff must clamp to the documented safe range.");
+            }
+            finally
+            {
+                Engine.FogVolumeDestroy(id);
+            }
+        });
 
         // Phase 1 foundation: Shared is now the single authority for camera/projection conventions.
         // Keep this CPU-only and cheap enough for the normal fast build gate.
@@ -276,7 +310,9 @@ internal static class RenderBackendSuite
             HeadlessHarness.Assert(
                 colourDds.Width == 8 && colourDds.Height == 8 &&
                 colourDds.MipLevels == GpuTextureLayout.FullMipCount(8, 8) &&
-                colourDds.Format == GpuFormat.BC7UNormSrgb,
+                // Cooked colour loads as plain BC7 so it samples the same bytes as an uncooked
+                // RGBA8 upload; the linear colour pipeline decodes sRGB albedo in the shaders.
+                colourDds.Format == GpuFormat.BC7UNorm,
                 $"BC7 DDS metadata was wrong: {colourDds.Width}x{colourDds.Height}, " +
                 $"mips={colourDds.MipLevels}, format={colourDds.Format}.");
             HeadlessHarness.Assert(
@@ -324,6 +360,28 @@ internal static class RenderBackendSuite
                 "Creating a fresh cooked DDS did not invalidate the source-only texture cache entry.");
             HeadlessHarness.Assert(released.Contains(beforeCook.Id),
                 "The source-only GPU handle was not released after a cooked replacement appeared.");
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Render.Foundation.CookedTextureOddDimensionsPreserveSource", () =>
+        {
+            string directory = Path.Combine(ctx.OutputRoot, "TextureFoundation", "OddDimensions");
+            Directory.CreateDirectory(directory);
+            foreach (CookedTextureFormat format in new[] { CookedTextureFormat.Bc7Color, CookedTextureFormat.Bc5Normal })
+            {
+                string source = Path.Combine(directory, format + ".tga");
+                WriteTestTga(source, 7, 9, normalLike: format == CookedTextureFormat.Bc5Normal);
+                byte[] original = File.ReadAllBytes(source);
+                string path = CookedTextureCooker.Cook(source, format, mipmaps: true);
+                HeadlessHarness.Assert(DdsTextureData.TryLoad(path, TextureColorSpace.Linear, out DdsTextureData cooked),
+                    "Odd-sized image did not produce a readable cooked texture.");
+                HeadlessHarness.Assert(cooked.Width == 8 && cooked.Height == 12
+                    && cooked.Payload.Length == GpuTextureLayout.GetMipChainSize(cooked.Format, 8, 12, cooked.MipLevels),
+                    "Cooked image must have block-aligned dimensions and a complete mip payload.");
+                HeadlessHarness.Assert(original.SequenceEqual(File.ReadAllBytes(source)),
+                    "Cooking changed the editable source image.");
+                HeadlessHarness.Assert(CookedTextureManifestStore.TryResolve(source, out _, out _),
+                    "Resampling the cooked image invalidated its source stamp.");
+            }
         });
 
         HeadlessHarness.RunCase(ctx.Report, "Render.Preferences.GlobalLightingAndShadowsReachPlayer", () =>
@@ -484,6 +542,28 @@ internal static class RenderBackendSuite
             int kept = TiledLightGrid.SelectStrongest(
                 lights.AsSpan(), lights.Length, 16, new Vector3(0f, 20f, 40f));
             HeadlessHarness.Assert(kept == 16, "Over-cap selection must keep the strongest N lights.");
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Render.Lights.NearPlaneCrossingKeepsVisibleTiles", () =>
+        {
+            Matrix4x4 projection = Matrix4x4.CreatePerspectiveFieldOfView(MathF.PI / 3f, 16f / 9f, .1f, 80f);
+            TiledLightGrid grid = new();
+            ClusterPointLightGpu[] lights = [new() { PosRadius = new(0, 0, -1, 2) }];
+            grid.Build(lights, projection, 1280, 720, Vector3.Zero);
+            for (int tile = 0; tile < TiledLightDefaults.TileCount; tile++)
+                HeadlessHarness.Assert(grid.Indices[tile * TiledLightDefaults.MaxLightsPerTile] == 0,
+                    $"Camera inside light volume lost tile {tile} at the near plane.");
+
+            lights[0].PosRadius = new(0, 0, 10, 1);
+            grid.Build(lights, projection, 1280, 720, Vector3.Zero);
+            HeadlessHarness.Assert(grid.Indices.IndexOf(0u) < 0, "A light entirely behind the camera should be culled.");
+            lights[0].PosRadius = new(0, 0, -12, 1);
+            grid.Build(lights, projection, 1280, 720, Vector3.Zero);
+            int occupied = 0;
+            for (int tile = 0; tile < TiledLightDefaults.TileCount; tile++)
+                if (grid.Indices[tile * TiledLightDefaults.MaxLightsPerTile] == 0) occupied++;
+            HeadlessHarness.Assert(occupied > 0 && occupied < TiledLightDefaults.TileCount,
+                "A distant small light must retain bounded tile coverage.");
         });
 
         // R7.11: practical frustum splits + texel-scaled bias (still two cascades; AF1.1 owns a third).
@@ -2280,6 +2360,29 @@ internal static class RenderBackendSuite
 
         SoftwareRasterizerClipPerspectiveCases.Register(ctx);
 
+        HeadlessHarness.RunCase(ctx.Report, "Render.Shader.MeshPassStateSurvivesSaveReopen", () =>
+        {
+            ShaderAssetDocument document = new()
+            {
+                Pipeline = ShaderAssetPipeline.Mesh,
+                Passes = Enum.GetValues<ShaderMeshPassMode>().Select(mode => new ShaderPassDefinition
+                {
+                    Name = mode.ToString(), MeshPassMode = mode, Entry = "PS", VertexEntry = "VS",
+                    SkinnedVertexEntry = "VS_Skinned", Source = "float4 PS() : SV_Target { return 1; }",
+                }).ToList(),
+            };
+            string file = Path.Combine(ctx.OutputRoot, "mesh-pass-roundtrip.shader.json");
+            File.WriteAllText(file, System.Text.Json.JsonSerializer.Serialize(document,
+                new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase }));
+            ShaderAssetDocument reopened = ShaderAssetDocument.Load(file);
+            HeadlessHarness.Assert(reopened.Passes.Select(p => p.MeshPassMode).SequenceEqual(Enum.GetValues<ShaderMeshPassMode>())
+                && reopened.Passes.All(p => p.SkinnedVertexEntry == "VS_Skinned"),
+                "Saved authored stencil roles or skinned vertex entries changed on reopen.");
+            ShaderAssetDocument legacy = ShaderAssetDocument.ParseFlexible("{\"schemaVersion\":6,\"source\":\"float4 MainPS():SV_Target{return 1;}\"}");
+            HeadlessHarness.Assert(legacy.Passes.Count == 1 && legacy.Passes[0].MeshPassMode == ShaderMeshPassMode.Surface,
+                "Legacy single-pass shaders must retain ordinary surface rendering.");
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Render.Shader.IntegerParametersPackAsHlslIntBits", () =>
         {
             var document = new ShaderAssetDocument
@@ -2301,6 +2404,30 @@ internal static class RenderBackendSuite
             HeadlessHarness.Assert(
                 BitConverter.SingleToInt32Bits(row0.Y) == 1,
                 "Boolean shader parameters must upload HLSL bool/int bit patterns.");
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Render.Shader.ParameterPackingReusesReflectedLayout", () =>
+        {
+            var document = new ShaderAssetDocument
+            {
+                Source = "cbuffer GenesisParameters : register(b5) { float ToneSteps; float4 OutlineColour; };",
+                Parameters =
+                [
+                    new ShaderParameterValue { Name = "ToneSteps", Type = "float", Value = [5f] },
+                    new ShaderParameterValue { Name = "OutlineColour", Type = "float4", Value = [.04f, .02f, .01f, 1f] },
+                ],
+            };
+            IReadOnlyDictionary<string, float[]> instance = new Dictionary<string, float[]>
+            {
+                ["ToneSteps"] = [6f],
+            };
+            ShaderParameterReflection.Pack(document, instance, out _, out _, out _, out _);
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            for (int iteration = 0; iteration < 1000; iteration++)
+                ShaderParameterReflection.Pack(document, instance, out _, out _, out _, out _);
+            long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+            HeadlessHarness.Assert(allocated <= 4096,
+                $"Stable shader parameter packing allocated {allocated:N0} bytes; runtime Objects would repeat this every frame.");
         });
 
         // A viewport must render at its control's real pixel size. This used to be a fixed
@@ -2579,6 +2706,11 @@ internal static class RenderBackendSuite
                 quads.Count == 6,
                 $"'SCORE 0' produced {quads.Count} glyph quads, expected 6 (the space has no pixels). "
                 + "Text is not being laid out glyph by glyph.");
+            float reservedCellEdge = (GlyphAtlas.SolidCellSize + 1f) / GlyphAtlas.AtlasSize;
+            HeadlessHarness.Assert(
+                quads.All(quad => quad.U0 >= reservedCellEdge),
+                "A glyph overlaps the atlas cell reserved for overlay shapes. Text and shapes "
+                + "cannot safely share one texture batch.");
             int firstUploads = atlas.DrainUploads().Count;
             HeadlessHarness.Assert(
                 atlas.RasterCount > 0 && firstUploads > 0,

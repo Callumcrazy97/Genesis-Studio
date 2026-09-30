@@ -365,7 +365,8 @@ namespace Genesis.World.Water
         public MeshData BuildMesh()
         {
             int resolution = _grid.Width;
-            WaterSimulationCell[] cells = _grid.Cells.ToArray();
+            // Read in place: copying the whole grid per rebuild was a large-object allocation per frame.
+            ReadOnlySpan<WaterSimulationCell> cells = _grid.Cells.Span;
             MeshVertex[] vertices = new MeshVertex[resolution * resolution];
             for (int z = 0; z < resolution; z++)
             {

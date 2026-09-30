@@ -41,6 +41,8 @@ namespace Genesis.Streaming
         public int MaxUnloadsPerFrame { get; set; } = 8;
         public int MaxBackgroundJobs { get; set; } = 4;
         public int MaxMainThreadCallbacksPerFrame { get; set; } = 24;
+        /// <summary>Stop applying streaming completions after this CPU budget; callbacks must themselves be bounded.</summary>
+        public float MaxMainThreadMillisecondsPerFrame { get; set; } = 2f;
 
         /// <summary>How often providers rebuild their load queue (frames). Spreads expensive frustum scans.</summary>
         public int StreamingRefreshIntervalFrames { get; set; } = 8;
@@ -68,6 +70,7 @@ namespace Genesis.Streaming
             MaxUnloadsPerFrame = 8;
             MaxBackgroundJobs = 4;
             MaxMainThreadCallbacksPerFrame = 24;
+            MaxMainThreadMillisecondsPerFrame = 2f;
             StreamingRefreshIntervalFrames = 8;
         }
     }

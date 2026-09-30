@@ -166,9 +166,13 @@ namespace Genesis.Runtime.Scripting
 
         public override void OnDestroy()
         {
-            SyncToContext();
-            ExecuteScript(_onDestroyScript, "Destroy");
-            SyncFromContext();
+            try
+            {
+                SyncToContext();
+                ExecuteScript(_onDestroyScript, "Destroy");
+                SyncFromContext();
+            }
+            finally { PgslCommands.ReleaseJobs(_ctx); }
         }
 
         public override void OnRoomEnd() => ExecuteLifecycle(_onRoomEndScript, "RoomEnd");

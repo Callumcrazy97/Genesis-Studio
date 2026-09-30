@@ -198,6 +198,15 @@ public sealed class AnimationController
     public SortedDictionary<int, AnimationLayer> Layers { get; } = new() { [0] = new() };
     public int ActiveLayer { get; set; }
     public bool RootMotionEnabled { get; set; }
+    /// <summary>Per-instance local rotations applied after clip blending, for gaze, recoil or aim.</summary>
+    public Dictionary<string, Quaternion> BoneRotations { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public void SetBoneRotation(string bone, Quaternion rotation)
+    {
+        if (string.IsNullOrWhiteSpace(bone) || !float.IsFinite(rotation.LengthSquared()) || rotation.LengthSquared() < 0.000001f)
+            throw new ArgumentException("A bone rotation requires a name and a finite nonzero quaternion.");
+        BoneRotations[bone] = Quaternion.Normalize(rotation);
+    }
     public Vector3 RootMotionDelta { get; private set; }
     public Quaternion RootMotionRotation { get; private set; } = Quaternion.Identity;
     public AnimationController(Dictionary<string, object>? parameters = null) =>
@@ -260,6 +269,10 @@ public sealed class AnimationController
         if (RootMotionEnabled)
             for (int i = 0; i < result.Length; i++)
                 if (asset.Rig.Bones[i].ParentIndex < 0) result[i] = asset.Rig.Bones[i].BindLocal;
+        if (BoneRotations.Count > 0)
+            for (int i = 0; i < result.Length; i++)
+                if (BoneRotations.TryGetValue(asset.Rig.Bones[i].Name, out Quaternion offset))
+                    result[i] = Matrix4x4.CreateFromQuaternion(offset) * result[i];
         return result;
     }
 }

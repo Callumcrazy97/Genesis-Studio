@@ -81,6 +81,48 @@ internal static class RoomCameraListSuite
             Check(editor.Viewport.SecondaryViewport.Camera2DX == 200 && !editor.Viewport.SecondaryViewport.NavigationEnabled, "The 2D View inset did not track live source edits or remain an authored view.");
             editor.ExitGameCameraPreview(); Check(editor.Viewport.NavigationEnabled, "Scene remained locked after a 2D View preview.");
         });
+        HeadlessHarness.RunCase(ctx.Report, "Editor.Room.CameraList.UtilityPlaceholderToggleAffectsSceneAndInset", () =>
+        {
+            string path = Fixture("Utility placeholder toggle", RoomDimension.ThreeD);
+            using RoomEditorControl editor = new(path, project.RootPath); using Form host = UnattendedWindowing.NewHost(1440, 900);
+            host.Controls.Add(editor); ThemeService.Apply(host); UnattendedWindowing.ShowWithoutFocus(host); GateSuite.Pump(3, 20);
+            editor.RefreshSceneViews();
+            Check(editor.LookThroughCamera(editor.Room.ActiveGameCameraId), "The authored camera could not be selected for the utility-placeholder test.");
+            editor.PreviewListedCamera();
+            Check(editor.Viewport.SecondaryViewport is not null, "The secondary camera was not created for the utility-placeholder test.");
+            ToolStripDropDownItem viewMenu = editor.EditorToolbar.OptionsDropdown.DropDownItems
+                .OfType<ToolStripDropDownItem>().Single(item => item.Text == "View");
+            ToolStripMenuItem toggle = viewMenu.DropDownItems.OfType<ToolStripMenuItem>()
+                .Single(item => item.Name == "RoomViewUtilityPlaceholders");
+            Check(toggle.Checked && editor.ShowUtilityPlaceholders, "Utility placeholders did not start visible or the menu was out of sync.");
+            toggle.PerformClick();
+            Check(!toggle.Checked && !editor.ShowUtilityPlaceholders, "View/Utility placeholder cubes did not hide editor placeholders.");
+            using (var scene = editor.Viewport.CaptureFrame(2)) { }
+            using (var inset = editor.Viewport.SecondaryViewport!.CaptureFrame(2)) { }
+            toggle.PerformClick();
+            Check(toggle.Checked && editor.ShowUtilityPlaceholders, "View/Utility placeholder cubes did not restore editor placeholders.");
+        });
+        HeadlessHarness.RunCase(ctx.Report, "Editor.Room.CameraList.HiddenUtilityObjectsDoNotOccludeGameView", () =>
+        {
+            using EngineCameraRegistryScope cameras = new();
+            string path=Fixture("Hidden utilities",RoomDimension.ThreeD);
+            RoomAsset authored=RoomAssetLoader.Parse(path);
+            string objectPath=RoomSceneBuilder.ResolvePrefabPath(project.RootPath,authored.Nodes[0].GameObject!.Prefab);
+            JObject source=JObject.Parse(File.ReadAllText(objectPath));source["visible"]=false;File.WriteAllText(objectPath,source.ToString());
+            using RoomEditorControl editor=new(path,project.RootPath);using Form host=UnattendedWindowing.NewHost(1440,900);
+            host.Controls.Add(editor);UnattendedWindowing.ShowWithoutFocus(host);GateSuite.Pump(3,20);
+            Engine.Camera3DCreate(6);Engine.Camera3DSetPos(6,0,3.5f,15);Engine.Camera3DSetYaw(6,0);
+            Engine.Camera3DSetFrustum(6,60,1.6f,.1f,100);
+            Check(editor.LookThroughCamera("@view:6"),"Live game view did not open");
+            using var hidden=editor.Viewport.CaptureFrame(3) ?? throw new InvalidOperationException("Missing hidden-object frame");
+            editor.Room.Nodes.Clear();editor.FlushPendingRoomUiRefresh();
+            using var empty=editor.Viewport.CaptureFrame(3) ?? throw new InvalidOperationException("Missing empty-room frame");
+            int changed=0,samples=0;
+            for(int y=hidden.Height/3;y<hidden.Height*2/3;y+=4)
+                for(int x=hidden.Width/3;x<hidden.Width*2/3;x+=4)
+                {samples++;Color a=hidden.GetPixel(x,y),b=empty.GetPixel(x,y);if(Math.Abs(a.R-b.R)+Math.Abs(a.G-b.G)+Math.Abs(a.B-b.B)>12)changed++;}
+            Check(changed<samples*.02,"Invisible utility placeholders changed the game camera image");
+        });
         foreach ((int width, float scale) in new[] { (1440, 1f), (1000, 1f), (1440, 2f) })
             HeadlessHarness.RunCase(ctx.Report, $"Editor.Room.CameraList.Layout.{width}.Scale{scale}", () =>
             {

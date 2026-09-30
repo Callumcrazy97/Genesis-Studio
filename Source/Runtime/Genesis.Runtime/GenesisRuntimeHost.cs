@@ -244,11 +244,14 @@ namespace Genesis.Runtime
             // the variable ECS phase. The value naturally lags by a few frames on real backends.
             _scene.ObserveRenderFrame(_renderer?.LastGpuMilliseconds ?? 0.0);
 
+            long simulationStarted = System.Diagnostics.Stopwatch.GetTimestamp();
             // When the debugger is paused, hold the scene fixed unless a single step was requested.
             bool paused = IsPlayPaused || (Debugger != null && Debugger.IsPaused && !Debugger.ConsumeStepRequest());
             if (!paused)
             {
-                _scene.RebuildSpatialGrid();
+                // The 2D spatial grid is not queried by collisions or scripts, so it is no longer
+                // cleared and rebuilt (with string matching per entity) every update. Callers that
+                // need it can call RuntimeScene.RebuildSpatialGrid on demand.
                 int steps = _scene.FixedTimestep.Advance(fdt);
                 for (int i = 0; i < steps; i++)
                     _scene.UpdateFixed(_scene.FixedTimestep.FixedDelta);
@@ -258,6 +261,7 @@ namespace Genesis.Runtime
 
             // Per-frame host hook (audio voice recycling, network pump, etc.).
             FrameUpdate?.Invoke(fdt);
+            LastSimulationMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(simulationStarted).TotalMilliseconds;
 
             // A stop requested from FrameUpdate may close/dispose the scene synchronously.
             if (_scene?.Input?.WasPressed(Key.F12) == true && !string.IsNullOrWhiteSpace(ScreenshotProjectPath))
@@ -274,6 +278,8 @@ namespace Genesis.Runtime
         /// debugger overlay) subscribe here.
         /// </summary>
         public event Action<float> FrameUpdate;
+        /// <summary>Elapsed CPU-side simulation/host work; excludes rendering and presentation.</summary>
+        public double LastSimulationMilliseconds { get; private set; }
 
         private void OnRender(double dt)
         {

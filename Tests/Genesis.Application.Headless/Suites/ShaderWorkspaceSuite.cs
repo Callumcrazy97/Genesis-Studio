@@ -163,7 +163,7 @@ internal static class ShaderWorkspaceSuite
                     Assert(!editor.LastCompileSucceeded && editor.DiagnosticsVisible && editor.LivePreviewApplied, "Bad source did not show diagnostics while retaining the last working preview.");
                     Capture(host, "shader-diagnostics");
                     editor.Undo(); Warm(editor);
-                    Assert(editor.LastCompileSucceeded, "Undo did not recover from compile failure.");
+                    Assert(editor.LastCompileSucceeded, "Undo did not recover from compile failure: " + editor.DiagnosticText);
                     editor.SetSource(valid
                         .Replace("float Speed; float Saturation;", "float Speed; float Saturation; float4 Tint;", StringComparison.Ordinal)
                         .Replace("tex.rgb * HsvToRgb", "tex.rgb * Tint.rgb * HsvToRgb", StringComparison.Ordinal));

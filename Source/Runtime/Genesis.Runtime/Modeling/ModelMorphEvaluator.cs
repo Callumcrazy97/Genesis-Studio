@@ -16,11 +16,16 @@ namespace Genesis.Runtime.Modeling;
 public static class ModelMorphEvaluator
 {
     private const float MaximumAbsoluteWeight = 8f;
+    private static readonly IReadOnlyDictionary<string, float> EmptyWeights =
+        new Dictionary<string, float>(0, StringComparer.OrdinalIgnoreCase);
 
     public static IReadOnlyDictionary<string, float> ResolveWeights(
         GModelAsset asset,
         RuntimeModelAnimationState animation)
     {
+        if (animation.MorphWeights is not { Count: > 0 } && !HasMorphTargets(asset))
+            return EmptyWeights;
+
         Dictionary<string, float> result = DefaultWeights(asset);
 
         MergeClipFrame(result, asset, animation.ClipName, animation.TimeSeconds, animation.Fps, animation.Loop, 1f);
@@ -30,18 +35,29 @@ public static class ModelMorphEvaluator
             MergeClipFrame(previous, asset, animation.PreviousClipName, animation.PreviousTimeSeconds,
                 animation.Fps, animation.Loop, 1f);
             float blend = Math.Clamp(animation.BlendFactor, 0f, 1f);
-            foreach (string key in previous.Keys.Concat(result.Keys).Distinct(StringComparer.OrdinalIgnoreCase))
+            // Both dictionaries use the same case-insensitive comparer: blend every name present in
+            // either side without a LINQ union per draw.
+            foreach ((string key, float to) in new List<KeyValuePair<string, float>>(result))
             {
                 previous.TryGetValue(key, out float from);
-                result.TryGetValue(key, out float to);
                 result[key] = from + (to - from) * blend;
             }
+            foreach ((string key, float from) in previous)
+                if (!result.ContainsKey(key)) result[key] = from * (1f - blend);
         }
 
         if (animation.MorphWeights is not null)
             foreach ((string name, float value) in animation.MorphWeights)
                 if (!string.IsNullOrWhiteSpace(name) && Finite(value)) result[name.Trim()] = Clamp(value);
         return result;
+    }
+
+    private static bool HasMorphTargets(GModelAsset asset)
+    {
+        if (asset?.Meshes is null) return false;
+        foreach (GModelMesh mesh in asset.Meshes)
+            if (mesh?.MorphTargets is { Count: > 0 }) return true;
+        return false;
     }
 
     private static Dictionary<string, float> DefaultWeights(GModelAsset asset)
@@ -97,25 +113,36 @@ public static class ModelMorphEvaluator
         return vertices;
     }
 
-    /// <summary>A quantized cache key. Closely adjacent weights share a mesh to bound GPU churn.</summary>
+    [ThreadStatic] private static StringBuilder? _fingerprintBuilder;
+
+    /// <summary>
+    /// A quantized cache key. Closely adjacent weights share a mesh to bound GPU churn. Each target
+    /// is keyed by its position in the asset and resolved exactly as <see cref="Apply(GModelMesh, IReadOnlyDictionary{string, float})"/>
+    /// resolves it, including mesh-scoped <c>mesh/target</c> weights and default weights; keying by
+    /// bare target name let a changed scoped weight reuse a stale variant.
+    /// </summary>
     public static string Fingerprint(GModelAsset asset, IReadOnlyDictionary<string, float> weights, int steps = 64)
     {
         if (asset?.Meshes is null || weights is null || weights.Count == 0) return string.Empty;
-        HashSet<string> names = new(StringComparer.OrdinalIgnoreCase);
-        foreach (GModelMesh mesh in asset.Meshes)
-            foreach (GModelMorphTarget target in mesh?.MorphTargets ?? [])
-                names.Add(target.Name);
-        if (names.Count == 0) return string.Empty;
-
-        StringBuilder key = new();
-        foreach (string name in names.OrderBy(value => value, StringComparer.OrdinalIgnoreCase))
+        StringBuilder key = _fingerprintBuilder ??= new StringBuilder(64);
+        key.Clear();
+        int scale = Math.Max(1, steps);
+        for (int meshIndex = 0; meshIndex < asset.Meshes.Count; meshIndex++)
         {
-            float weight = ResolveWeight(weights, string.Empty, name, 0f);
-            int quantized = (int)MathF.Round(Clamp(weight) * Math.Max(1, steps));
-            if (quantized == 0) continue;
-            key.Append(name.ToLowerInvariant()).Append('=').Append(quantized.ToString(CultureInfo.InvariantCulture)).Append(';');
+            GModelMesh mesh = asset.Meshes[meshIndex];
+            if (mesh?.MorphTargets is not { Count: > 0 } targets) continue;
+            for (int targetIndex = 0; targetIndex < targets.Count; targetIndex++)
+            {
+                GModelMorphTarget target = targets[targetIndex];
+                float weight = ResolveWeight(weights, mesh.Name, target.Name, target.DefaultWeight);
+                int quantized = (int)MathF.Round(Clamp(weight) * scale);
+                if (quantized == 0) continue;
+                key.Append(meshIndex.ToString(CultureInfo.InvariantCulture)).Append(':')
+                    .Append(targetIndex.ToString(CultureInfo.InvariantCulture)).Append('=')
+                    .Append(quantized.ToString(CultureInfo.InvariantCulture)).Append(';');
+            }
         }
-        return key.ToString();
+        return key.Length == 0 ? string.Empty : key.ToString();
     }
 
     private static void Apply(

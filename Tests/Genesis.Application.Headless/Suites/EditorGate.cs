@@ -2886,7 +2886,7 @@ internal static partial class EditorGate
             HeadlessHarness.Assert(File.Exists(path), "The shader document was not written.");
             ShaderAssetDocument authored = ShaderAssetDocument.Load(path);
             HeadlessHarness.Assert(
-                authored.SchemaVersion == 6
+                authored.SchemaVersion == 7
                 && authored.AuthoringMode == ShaderAuthoringMode.Preset
                 && authored.TargetType == ShaderTargetType.Image
                 && authored.Parameters.Count == 2,
@@ -3002,7 +3002,7 @@ internal static partial class EditorGate
             editor.Save();
             ShaderAssetDocument saved = ShaderAssetDocument.Load(path);
             HeadlessHarness.Assert(
-                saved.SchemaVersion == 6
+                saved.SchemaVersion == 7
                 && saved.ActiveVariant == "Swap"
                 && saved.Variants.Any(variant =>
                     variant.Name == "Swap" && variant.Keywords.Contains("SWAP", StringComparer.Ordinal))

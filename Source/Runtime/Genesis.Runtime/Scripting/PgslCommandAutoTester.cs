@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using Genesis.Shared.Scripting;
@@ -120,6 +121,9 @@ public static class PgslCommandAutoTester
         // deliberately NOT set: the null-service paths are exactly what needs proving.
         PgslContext scratch = new() { RoomWidth = 1280, RoomHeight = 720 };
         PgslContext previous = PgslCommands.BindContext(scratch);
+        // File/save commands use a unique diagnostic identity; do not touch the open game's saves.
+        string previousPersistence = PgslCommands.BindPersistenceProject(
+            Path.Combine(Path.GetTempPath(), "Genesis", "CommandChecks", Guid.NewGuid().ToString("N")));
         Stopwatch clock = new();
         double totalMicroseconds = 0;
 
@@ -143,6 +147,8 @@ public static class PgslCommandAutoTester
         }
         finally
         {
+            PgslCommands.ReleaseJobs(scratch);
+            PgslCommands.BindPersistenceProject(previousPersistence);
             PgslCommands.BindContext(previous);
         }
 

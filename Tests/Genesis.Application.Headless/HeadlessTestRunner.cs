@@ -96,8 +96,12 @@ internal static class HeadlessTestRunner
         // CPU-only rendering contract checks run first: a constant-buffer layout drift would
         // otherwise surface as an inexplicably wrong pixel in a later visual capture.
         Suites.RenderBackendSuite.Run(ctx);
+        Suites.ShadowQualitySuite.Run(ctx);
+        Suites.FroxelFogSuite.Run(ctx);
+        Suites.TavernBenchmarkSuite.Run(ctx, native: false);
 
         Suites.RuntimeSuite.Run(ctx);
+        Suites.WorldStreamingSuite.Run(ctx);
         Suites.EcsFoundationSuite.Run(ctx);
         Suites.ThemeImageSuite.Run(ctx);
 
@@ -1066,6 +1070,9 @@ internal static class HeadlessTestRunner
         Suites.ResourceTagsSuite.Run(ctx);
         Suites.ParticleWorkbenchSuite.Run(ctx);
         Suites.PgslPreprocessingSuite.Run(ctx);
+        Suites.PgslPersistenceSuite.Run(ctx);
+        Suites.PgslCompileCacheSuite.Run(ctx);
+        Suites.PgslValueSuite.Run(ctx);
         Suites.RoomPalettePlacementSuite.Run(ctx);
         Suites.RoomObjectsPanelSuite.Run(ctx);
         Suites.RoomCompletionSuite.Run(ctx);
@@ -1156,12 +1163,27 @@ internal static class HeadlessTestRunner
             case "render":
             case "rendering":
                 Suites.RenderBackendSuite.Run(ctx);
+                Suites.ShadowQualitySuite.Run(ctx);
+                Suites.FroxelFogSuite.Run(ctx);
+                break;
+            case "shadows":
+                Suites.ShadowQualitySuite.Run(ctx);
+                break;
+            case "fog":
+                Suites.FroxelFogSuite.Run(ctx);
+                break;
+            case "tavern-benchmark-cpu":
+                Suites.TavernBenchmarkSuite.Run(ctx, native: false);
                 break;
             case "runtime":
                 Suites.RuntimeSuite.Run(ctx);
                 break;
             case "engine-systems":
                 Suites.EngineSystemsSuite.Run(ctx);
+                Suites.FramePathAssetIoSuite.Run(ctx);
+                break;
+            case "frame-path":
+                Suites.FramePathAssetIoSuite.Run(ctx);
                 break;
             case "ecs":
                 Suites.EcsFoundationSuite.Run(ctx);
@@ -1281,6 +1303,9 @@ internal static class HeadlessTestRunner
             case "image-authoring":
                 PrepareFocusedProject(ctx, requireStudioServices: false);
                 Suites.ImageAuthoringSuite.Run(ctx);
+                break;
+            case "model-hair":
+                Suites.ModelHairSuite.Run(ctx);
                 break;
             case "model-viewer":
                 PrepareFocusedProject(ctx, requireStudioServices: true);
@@ -1415,6 +1440,32 @@ internal static class HeadlessTestRunner
                 break;
             case "verdant-export":
                 Suites.VerdantHollowExportSuite.Run(ctx);
+                break;
+            case "tavern-benchmark":
+                Suites.TavernBenchmarkSuite.Run(ctx);
+                break;
+            case "tavern-resources":
+                Suites.TavernBenchmarkSuite.Run(ctx, native: false);
+                break;
+            case "pgsl-persistence":
+                Suites.PgslPersistenceSuite.Run(ctx);
+                break;
+            case "pgsl-persistence-core":
+                Suites.PgslPersistenceSuite.Run(ctx, native: false);
+                break;
+            case "pgsl-engine":
+                Suites.PgslCompileCacheSuite.Run(ctx);
+                Suites.PgslValueSuite.Run(ctx);
+                Suites.PgslPersistenceSuite.Run(ctx);
+                break;
+            case "pgsl-cache":
+                Suites.PgslCompileCacheSuite.Run(ctx);
+                break;
+            case "world-streaming":
+                Suites.WorldStreamingSuite.Run(ctx);
+                break;
+            case "pgsl-values":
+                Suites.PgslValueSuite.Run(ctx);
                 break;
             case "text-rendering":
                 Suites.TextRenderingSuite.Run(ctx);

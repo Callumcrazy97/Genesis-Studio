@@ -14,6 +14,8 @@ public static partial class ObjectDrawPass
     {
         public DateTime Stamp;
         public DateTime? FailedStamp;
+        public long NextCheckMilliseconds;
+        public long Generation = long.MinValue;
         public TextureHandle Albedo, Normal, Orm;
         public ImageMaterialPixels Pixels;
         public MeshHandle Plane, Extruded;
@@ -52,13 +54,24 @@ public static partial class ObjectDrawPass
     private static ImageMaterialCacheEntry TerrainImageMaterial(IRenderController renderer, string project, string image, int frame)
     {
         if (string.IsNullOrWhiteSpace(image)) return null;
-        string path = ResourceNames.Resolve(project, image, ResourceType.Image);
         RenderCache cache = RenderCaches.GetOrCreateValue(renderer);
+        // Called once per mesh draw. Answer repeat requests without re-resolving, concatenating a
+        // key and stat-ing the image each time; explicit invalidation and the bounded fallback
+        // interval still pick up edits.
+        SpriteFrameKey request = new(project ?? string.Empty, image, frame);
+        long now = Environment.TickCount64;
+        long generation = RuntimeAssetPolicy.Generation;
+        if (cache.ImageMaterialRequests.TryGetValue(request, out ImageMaterialCacheEntry known)
+            && known.Generation == generation && now < known.NextCheckMilliseconds)
+            return known;
+
+        string path = ResourceNames.Resolve(project, image, ResourceType.Image);
         string key = path + "|" + frame;
         cache.ImageMaterials.TryGetValue(key, out ImageMaterialCacheEntry entry);
-        if (!File.Exists(path)) return entry;
+        AssetIoCounters.Check(2);
+        if (!File.Exists(path)) return Remember(entry);
         DateTime stamp = File.GetLastWriteTimeUtc(path);
-        if (entry?.FailedStamp == stamp) return entry;
+        if (entry?.FailedStamp == stamp) return Remember(entry);
         if (entry == null || entry.Stamp != stamp)
         {
             ImageMaterialPixels pixels;
@@ -67,16 +80,26 @@ public static partial class ObjectDrawPass
             {
                 if (entry != null) entry.FailedStamp = stamp;
                 Genesis.Runtime.Debugger.RuntimeDiagnostics.ReportAssetProblem($"Image material '{image}': {exception.Message}");
-                return entry;
+                return Remember(entry);
             }
             var replacement = new ImageMaterialCacheEntry { Stamp = stamp, Pixels = pixels,
-                Albedo = renderer.CreateTexture(pixels.Width, pixels.Height, pixels.Albedo),
-                Normal = renderer.CreateTexture(pixels.Width, pixels.Height, pixels.Normal),
-                Orm = renderer.CreateTexture(pixels.Width, pixels.Height, pixels.Orm) };
+                Albedo = renderer.CreateTexture(pixels.Width, pixels.Height, pixels.Albedo, Genesis.Shared.Materials.TextureColorSpace.Srgb),
+                Normal = renderer.CreateTexture(pixels.Width, pixels.Height, pixels.Normal, Genesis.Shared.Materials.TextureColorSpace.Linear),
+                Orm = renderer.CreateTexture(pixels.Width, pixels.Height, pixels.Orm, Genesis.Shared.Materials.TextureColorSpace.Linear) };
             if (entry != null) ReleaseImageMaterial(renderer, entry);
             cache.ImageMaterials[key] = entry = replacement;
         }
-        return entry;
+        return Remember(entry);
+
+        ImageMaterialCacheEntry Remember(ImageMaterialCacheEntry resolved)
+        {
+            if (resolved == null) return null;
+            resolved.Generation = generation;
+            resolved.NextCheckMilliseconds = RuntimeAssetPolicy.NextCheck(
+                now, RuntimeAssetPolicy.FramePathIntervalMilliseconds, request.GetHashCode());
+            cache.ImageMaterialRequests[request] = resolved;
+            return resolved;
+        }
     }
 
     private static void BindTerrainImageMaterial(ImageMaterialCacheEntry entry, ref MeshDrawCall draw)

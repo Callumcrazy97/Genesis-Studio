@@ -185,7 +185,7 @@ float4 PS_Clouds(VSOut IN) : SV_Target
     float3 viewRay = normalize(worldFar - cameraPos);
 
     float surfaceDist = 1e6;
-    if (depth < 0.99999)
+    if (depth < 0.9999999)
     {
         float3 worldPos = ReconstructWorldPos(IN.uv, depth);
         surfaceDist = length(worldPos - cameraPos);

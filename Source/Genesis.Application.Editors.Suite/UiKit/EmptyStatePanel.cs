@@ -11,7 +11,9 @@ public sealed class EmptyStatePanel : Panel
     {
         DoubleBuffered = true;
         BackColor = EditorChrome.Canvas;
-        EditorChrome.Changed += (_, _) => Invalidate();
+        EventHandler chromeChanged = (_, _) => Invalidate();
+        EditorChrome.Changed += chromeChanged;
+        Disposed += (_, _) => EditorChrome.Changed -= chromeChanged;
     }
 
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]

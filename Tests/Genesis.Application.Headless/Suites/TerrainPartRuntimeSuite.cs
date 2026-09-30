@@ -512,11 +512,15 @@ internal static class TerrainPartRuntimeSuite
         MeshDrawCall second = Render("terrain-image-runtime-blue", blue: true);
         Assert(!second.Texture.Equals(first.Texture) && !second.NormalMap.Equals(first.NormalMap) && !second.OrmMap.Equals(first.OrmMap),
             "Material animation advanced albedo without its frame-specific normal/ORM channels.");
+        // External edits reach the runtime through the project asset watcher, which bumps the asset
+        // generation (RuntimeAssetPolicy.Invalidate); frame-path caches no longer stat files per draw.
         string saved = File.ReadAllText(image); File.WriteAllText(image, "{"); File.SetLastWriteTimeUtc(image, DateTime.UtcNow.AddSeconds(3));
+        RuntimeAssetPolicy.Invalidate();
         MeshDrawCall retained = Render("terrain-image-invalid-keeps-last-frame", blue: true);
         Assert(retained.Texture.Equals(second.Texture) && retained.NormalMap.Equals(second.NormalMap) && retained.OrmMap.Equals(second.OrmMap),
             "An invalid live Image replacement discarded the last valid material frame.");
         File.WriteAllText(image, saved); File.SetLastWriteTimeUtc(image, DateTime.UtcNow.AddSeconds(4));
+        RuntimeAssetPolicy.Invalidate();
         MeshDrawCall recovered = Render("terrain-image-repaired-frame", blue: true);
         Assert(!recovered.Texture.Equals(second.Texture), "Repairing the saved Image did not resume live material updates.");
         fixture.Document.Components.Single(component => component.Type == "Model").Enabled = true; fixture.SaveDocument();

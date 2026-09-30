@@ -24,6 +24,16 @@ public readonly record struct EngineFogDefaults(
 public static class EngineRenderingDefaults
 {
     public const string WaterReflectionsEnvironmentVariable = "GENESIS_WATER_REFLECTIONS";
+    public const string LinearColorPipelineEnvironmentVariable = "GENESIS_LINEAR_COLOR";
+
+    /// <summary>
+    /// When true, 3D lighting is computed in linear space: the engine shaders decode albedo/emission,
+    /// authored light, sky, fog and tint colours are linearized, and the tonemapped image is encoded
+    /// to sRGB for display. Off by default so existing scenes and custom authored shaders (which sample
+    /// textures themselves) keep their tuned look; enable per run with GENESIS_LINEAR_COLOR=1.
+    /// 2D sprites and UI are display-referred either way.
+    /// </summary>
+    public static bool LinearColorPipeline { get; set; }
     /// <summary>Optional half-resolution planar water pass; software retains the analytic sky fallback.</summary>
     public static bool WaterReflections { get; set; }
     public const string FogEnabledEnvironmentVariable = "GENESIS_FOG_ENABLED";
@@ -73,6 +83,9 @@ public static class EngineRenderingDefaults
         string reflections = Environment.GetEnvironmentVariable(WaterReflectionsEnvironmentVariable);
         if (!string.IsNullOrWhiteSpace(reflections))
             WaterReflections = reflections == "1" || bool.TryParse(reflections, out bool enabledReflections) && enabledReflections;
+        string linear = Environment.GetEnvironmentVariable(LinearColorPipelineEnvironmentVariable);
+        if (!string.IsNullOrWhiteSpace(linear))
+            LinearColorPipeline = linear == "1" || bool.TryParse(linear, out bool enabledLinear) && enabledLinear;
 
         bool enabled = _fog.Enabled;
         string color = ToHexColor(_fog.Color);
@@ -116,6 +129,7 @@ public static class EngineRenderingDefaults
         {
             [RenderBackendSelection.EnvironmentVariable] = RenderBackendSelection.ToEnvironmentValue(backend),
             [WaterReflectionsEnvironmentVariable] = WaterReflections ? "1" : "0",
+            [LinearColorPipelineEnvironmentVariable] = LinearColorPipeline ? "1" : "0",
             [FogEnabledEnvironmentVariable] = fogEnabled ? "1" : "0",
             [FogColorEnvironmentVariable] = NormalizeHex(fogColorHex),
             [FogStartEnvironmentVariable] = fogStart.ToString(CultureInfo.InvariantCulture),

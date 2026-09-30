@@ -86,11 +86,17 @@ namespace Genesis.Rendering.Abstractions
         }
     }
 
+    public enum GpuStencilOperation { Keep, Zero, Replace }
+
     public struct GpuDepthState : IEquatable<GpuDepthState>
     {
         public bool       TestEnabled;
         public bool       WriteEnabled;
         public GpuCompare Compare;
+        public bool StencilEnabled;
+        public byte StencilReference, StencilReadMask, StencilWriteMask;
+        public GpuCompare StencilCompare;
+        public GpuStencilOperation StencilFail, StencilDepthFail, StencilPass;
 
         public static GpuDepthState Default => new GpuDepthState
         {
@@ -108,11 +114,18 @@ namespace Genesis.Rendering.Abstractions
         };
 
         public bool Equals(GpuDepthState o) =>
-            TestEnabled == o.TestEnabled && WriteEnabled == o.WriteEnabled && Compare == o.Compare;
+            TestEnabled == o.TestEnabled && WriteEnabled == o.WriteEnabled && Compare == o.Compare
+            && StencilEnabled == o.StencilEnabled && StencilReference == o.StencilReference
+            && StencilReadMask == o.StencilReadMask && StencilWriteMask == o.StencilWriteMask
+            && StencilCompare == o.StencilCompare && StencilFail == o.StencilFail
+            && StencilDepthFail == o.StencilDepthFail && StencilPass == o.StencilPass;
 
         public override bool Equals(object obj) => obj is GpuDepthState o && Equals(o);
 
-        public override int GetHashCode() => HashCode.Combine(TestEnabled, WriteEnabled, Compare);
+        public override int GetHashCode() => HashCode.Combine(
+            HashCode.Combine(TestEnabled, WriteEnabled, Compare, StencilEnabled),
+            HashCode.Combine(StencilReference, StencilReadMask, StencilWriteMask, StencilCompare,
+                StencilFail, StencilDepthFail, StencilPass));
     }
 
     public struct GpuRasterState : IEquatable<GpuRasterState>

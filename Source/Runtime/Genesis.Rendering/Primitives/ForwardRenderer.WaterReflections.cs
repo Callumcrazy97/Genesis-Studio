@@ -2,6 +2,7 @@ using System;
 using System.Numerics;
 using Genesis.Rendering.Abstractions;
 using Genesis.Rendering.Core;
+using Genesis.Rendering.D3dMath;
 
 namespace Genesis.Rendering.Primitives;
 
@@ -14,9 +15,15 @@ internal sealed partial class ForwardRenderer
     private float _reflectionPlaneHeight;
     private Matrix4x4 _reflectionViewProjection;
 
+    private bool _lastReflectionActive;
+    private float _lastReflectionPlaneHeight;
+    private bool _hasReflectionFrustum;
+    private Frustum _reflectionFrustum;
+
     private void RenderPlanarReflection(GpuTextureHandle whiteTexture, int width, int height)
     {
         _reflectionReady = false;
+        _lastReflectionActive = false;
         if (!EngineRenderingDefaults.WaterReflections || _waterMeshes.Count == 0 || width <= 0 || height <= 0
             || _gpu.BackendName.Contains("Software", StringComparison.OrdinalIgnoreCase)) return;
         float best = float.MinValue, planeHeight = 0;
@@ -43,7 +50,7 @@ internal sealed partial class ForwardRenderer
             _reflectionTarget = _gpu.CreateRenderTarget(new GpuRenderTargetDesc
             {
                 Width = w, Height = h, ColorFormats = new[] { GpuFormat.R16G16B16A16Float, GpuFormat.R8UNorm },
-                DepthFormat = GpuFormat.D32Float, DepthSampleable = true, DebugName = "Water planar reflection",
+                DepthFormat = GpuFormat.D24UNormS8UInt, DepthSampleable = true, DebugName = "Water planar reflection",
             });
             _reflectionTexture = _gpu.GetRenderTargetTexture(_reflectionTarget, 0);
             _reflectionDepth = _gpu.GetRenderTargetDepthTexture(_reflectionTarget);
@@ -65,6 +72,8 @@ internal sealed partial class ForwardRenderer
             // Water and view-models are excluded to avoid recursion and reflected first-person hands.
             MainPass(_reflectionTarget, _reflectionDepth, whiteTexture, postProcessTarget: true);
             _reflectionReady = true;
+            _lastReflectionActive = true;
+            _lastReflectionPlaneHeight = planeHeight;
         }
         finally
         {

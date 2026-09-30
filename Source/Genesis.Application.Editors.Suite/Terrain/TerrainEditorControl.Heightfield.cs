@@ -10,7 +10,9 @@ public sealed partial class TerrainEditorControl
     private TerrainCreationResult? _pendingTerrain;
     private bool _pendingTerrainBase;
     private Vector3? _pendingTerrainPosition;
-    private readonly RuntimeModelRenderSystem _terrainGhost = new();
+    private readonly RuntimeModelRenderSystem _terrainGhost = new(
+        assetFreshnessIntervalMilliseconds: 500,
+        textureFreshnessIntervalMilliseconds: 1000);
 
     public void ApplyHeightfield(TerrainCreationResult result, Vector3 position)
     {

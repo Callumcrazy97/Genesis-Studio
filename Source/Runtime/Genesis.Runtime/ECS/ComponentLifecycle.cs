@@ -158,7 +158,7 @@ namespace Genesis.Runtime.ECS
 
         private sealed class ModelAnimatorLifecycle : IRuntimeComponentLifecycle
         {
-            private readonly Modeling.RuntimeModelAssetRegistry AnimationAssets = new();
+            private readonly Modeling.RuntimeModelAssetRegistry AnimationAssets = new(250);
             public void OnAttach(EcsWorld world, Entity entity)
             {
                 if (!world.Has<ModelAnimatorComponent>(entity))
@@ -187,12 +187,16 @@ namespace Genesis.Runtime.ECS
                 if (animator.Controller != null)
                 {
                     Modeling.GModelAsset asset = null;
+                    string model = null;
                     if (world.Has<ModelRendererComponent>(entity))
                     {
-                        string model = world.GetRef<ModelRendererComponent>(entity).ModelAsset;
+                        model = world.GetRef<ModelRendererComponent>(entity).ModelAsset;
                         if (!string.IsNullOrWhiteSpace(model))
                             asset = AnimationAssets.Load(Scripting.PgslCommands.ProjectPath, model);
                     }
+                    animator.EvaluatedModelAsset = asset;
+                    animator.EvaluatedModelReference = model;
+                    animator.EvaluatedModelProject = Scripting.PgslCommands.ProjectPath;
                     animator.Controller.Advance(dt, animator.PlaybackSpeed, asset);
                     if (animator.Controller.RootMotionEnabled && world.Has<TransformComponent>(entity))
                         Scripting.PgslCommands.ApplyAnimationRootMotion(world, entity, animator.Controller);

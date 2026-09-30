@@ -116,6 +116,8 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
     private readonly Dictionary<IRenderController, AuthoredTerrainGround> _terrainGrounds = [];
     private readonly Dictionary<IRenderController, TextureHandle> _terrainAlbedos = [];
     private readonly Dictionary<IRenderController, int> _terrainGroundRevision = [];
+    /// <summary>Sample rectangles sculpted since each renderer's ground last refreshed.</summary>
+    private readonly Dictionary<IRenderController, (int MinX, int MinZ, int MaxX, int MaxZ)> _pendingSculptRegions = [];
     private MeshDrawCall[] _terrainGroundDraws = new MeshDrawCall[32];
     private string? _terrainAlbedoRasterPath;
     private bool _terrainAlbedoResolved;
@@ -126,7 +128,11 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
     private readonly List<MeshHandle> _pathMeshes = [];
     private readonly Dictionary<(FoliageSpecies Species, bool Near), MeshHandle> _foliageMeshes = [];
     private FoliageStreamingPlanner? _foliagePlanner;
-    private MeshInstanceData[] _foliageInstanceBuffer = [];
+    private FoliageFramePlan? _foliageFramePlan;
+    private readonly Dictionary<FoliageRenderKey, MeshInstanceData[]> _foliageDrawCache = [];
+    private Vector3 _foliagePlanCamera;
+    private Matrix4x4 _foliagePlanViewProjection;
+    private long _nextFoliagePlanRefresh;
     private WaterMeshCache? _waterMeshCache;
     private bool _wireframe;
     private bool _fogEnabled;
@@ -710,8 +716,16 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
 
         bool geometryChanged = !before.AsSpan().SequenceEqual(after);
         bool paintChanged = !beforeSplat.AsSpan().SequenceEqual(afterSplat);
-        void Restore(ushort[] heights, byte[] splats)
+        // Retain only the changed span of each array. Whole before/after copies cost ~12 MB per
+        // stroke on a 1025-square terrain and the history kept every one of them.
+        var heightChange = ChangedRange(before, after);
+        var splatChange = ChangedRange(beforeSplat, afterSplat);
+        void Restore(bool redo)
         {
+            ushort[] heights = (ushort[])_terrain.HeightsData.Clone();
+            byte[] splats = (byte[])_terrain.SplatmapData.Clone();
+            (redo ? heightChange.After : heightChange.Before).CopyTo(heights, heightChange.Start);
+            (redo ? splatChange.After : splatChange.Before).CopyTo(splats, splatChange.Start);
             _terrain.RestoreState(heights, splats);
             if (geometryChanged) _meshDirty = true;
             if (paintChanged) InvalidatePaint();
@@ -719,8 +733,19 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
         // The live stroke is already applied. The journal only needs restoration for undo/redo.
         PushEdit(
             $"{ActiveBrush} stroke",
-            () => Restore(after, afterSplat),
-            () => Restore(before, beforeSplat));
+            () => Restore(redo: true),
+            () => Restore(redo: false));
+    }
+
+    private static (int Start, T[] Before, T[] After) ChangedRange<T>(T[] before, T[] after)
+        where T : unmanaged, IEquatable<T>
+    {
+        int length = Math.Min(before.Length, after.Length);
+        int first = before.AsSpan(0, length).CommonPrefixLength(after.AsSpan(0, length));
+        if (first >= length) return (0, Array.Empty<T>(), Array.Empty<T>());
+        int last = length - 1;
+        while (last > first && before[last].Equals(after[last])) last--;
+        return (first, before[first..(last + 1)], after[first..(last + 1)]);
     }
 
     /// <summary>Begins one undoable regional foliage stroke.</summary>
@@ -1529,6 +1554,8 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
             _pathNetwork = new TerrainPathNetwork(_nature.Paths);
             _foliage = LoadFoliageData();
             _foliagePlanner = new FoliageStreamingPlanner(_foliage, _nature.FoliageSettings.StreamingCellSize);
+            _foliageFramePlan = null;
+            _foliageDrawCache.Clear();
         }
         ReleaseNatureMeshes();
         ReleaseTerrainMeshes();
@@ -1592,30 +1619,34 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
         if (ShouldDrawNatureComponent(TerrainComponentsPanel.ComponentKind.Foliage, "foliage"))
         {
             _foliagePlanner ??= new FoliageStreamingPlanner(_foliage, _nature.FoliageSettings.StreamingCellSize);
-            FoliageFramePlan plan = _foliagePlanner.Build(
-                _viewport.Camera.Eye,
-                _viewport.ViewMatrix * _viewport.ProjectionMatrix,
-                Matrix4x4.Identity,
-                _nature.FoliageSettings,
-                renderer.LastGpuMilliseconds);
+            Vector3 camera = _viewport.Camera.Eye;
+            Matrix4x4 viewProjection = _viewport.ViewMatrix * _viewport.ProjectionMatrix;
+            long now = Environment.TickCount64;
+            if (_foliageFramePlan is null
+                || Vector3.DistanceSquared(camera, _foliagePlanCamera) > 0.0001f
+                || !viewProjection.Equals(_foliagePlanViewProjection)
+                || now >= _nextFoliagePlanRefresh)
+            {
+                _foliageFramePlan = _foliagePlanner.Build(
+                    camera,
+                    viewProjection,
+                    Matrix4x4.Identity,
+                    _nature.FoliageSettings,
+                    renderer.LastGpuMilliseconds);
+                _foliagePlanCamera = camera;
+                _foliagePlanViewProjection = viewProjection;
+                _nextFoliagePlanRefresh = now + 250;
+                RebuildFoliageDrawCache(_foliageFramePlan);
+                UpdateFoliageSummary(_foliageFramePlan.Snapshot);
+            }
+
+            FoliageFramePlan plan = _foliageFramePlan;
             LastFoliagePerformance = plan.Snapshot;
 
             foreach (FoliageRenderBatch batch in plan.Batches)
             {
                 if (!_foliageMeshes.TryGetValue((batch.Key.Species, batch.Key.NearLod), out MeshHandle mesh) || !mesh.IsValid) continue;
-                if (_foliageInstanceBuffer.Length < batch.Instances.Count)
-                    Array.Resize(ref _foliageInstanceBuffer, NextPowerOfTwo(batch.Instances.Count));
-                for (int i = 0; i < batch.Instances.Count; i++)
-                {
-                    FoliageInstance instance = batch.Instances[i];
-                    float hue = instance.HueVariation * 0.045f;
-                    Matrix4x4 world = Matrix4x4.CreateScale(instance.Scale)
-                        * Matrix4x4.CreateRotationY(instance.Rotation)
-                        * Matrix4x4.CreateTranslation(instance.Position + Vector3.UnitY * 0.06f);
-                    _foliageInstanceBuffer[i] = new MeshInstanceData(
-                        world,
-                        new RenderColor(1f + hue, 1f, 1f - hue, 1f));
-                }
+                if (!_foliageDrawCache.TryGetValue(batch.Key, out MeshInstanceData[]? instances)) continue;
 
                 MeshDrawCall template = new()
                 {
@@ -1624,10 +1655,29 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
                     Alpha = 1f,
                     Flags = MeshDrawFlags.Foliage | MeshDrawFlags.NoCull | MeshDrawFlags.NoShadow,
                 };
-                renderer.DrawMeshInstances(template, _foliageInstanceBuffer.AsSpan(0, batch.Instances.Count));
+                renderer.DrawMeshInstances(template, instances);
             }
+        }
+    }
 
-            UpdateFoliageSummary(LastFoliagePerformance);
+    private void RebuildFoliageDrawCache(FoliageFramePlan plan)
+    {
+        _foliageDrawCache.Clear();
+        foreach (FoliageRenderBatch batch in plan.Batches)
+        {
+            MeshInstanceData[] instances = new MeshInstanceData[batch.Instances.Count];
+            for (int i = 0; i < batch.Instances.Count; i++)
+            {
+                FoliageInstance instance = batch.Instances[i];
+                float hue = instance.HueVariation * 0.045f;
+                Matrix4x4 world = Matrix4x4.CreateScale(instance.Scale)
+                    * Matrix4x4.CreateRotationY(instance.Rotation)
+                    * Matrix4x4.CreateTranslation(instance.Position + Vector3.UnitY * 0.06f);
+                instances[i] = new MeshInstanceData(
+                    world,
+                    new RenderColor(1f + hue, 1f, 1f - hue, 1f));
+            }
+            _foliageDrawCache[batch.Key] = instances;
         }
     }
 
@@ -1673,6 +1723,8 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
     private void ResetFoliagePreview()
     {
         _foliagePlanner = new FoliageStreamingPlanner(_foliage, _nature.FoliageSettings.StreamingCellSize);
+        _foliageFramePlan = null;
+        _foliageDrawCache.Clear();
         LastFoliagePerformance = default;
         _natureMeshDirty = true;
     }
@@ -1683,13 +1735,6 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
             $"{snapshot.AuthoredInstances:N0} authored · {snapshot.SubmittedInstances:N0} GPU-visible\n" +
             $"{snapshot.VisibleCells:N0}/{snapshot.TotalCells:N0} cells · {snapshot.Batches:N0} instanced batch(es)\n" +
             $"{snapshot.SubmittedTriangles:N0} triangles · {snapshot.UploadBytes / 1048576d:0.00} MB upload · {snapshot.PlanningMilliseconds:0.00} ms plan";
-    }
-
-    private static int NextPowerOfTwo(int value)
-    {
-        int capacity = 128;
-        while (capacity < value && capacity < 32768) capacity <<= 1;
-        return Math.Max(value, capacity);
     }
 
     /// <summary>
@@ -1735,9 +1780,32 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
             ground.SurfaceMaterial = surfaceMaterial;
             ground.Bind(renderer, ground.SurfaceMaterial?.Texture ?? EnsureTerrainAlbedo(renderer), uvScale: ground.SurfaceMaterial.HasValue ? 1f : 8f);
             _terrainGroundRevision[renderer] = _groundRevision;
+            _pendingSculptRegions.Remove(renderer);
+        }
+        else if (_pendingSculptRegions.Remove(renderer, out var region))
+        {
+            // Sculpting changes only the brush footprint; refresh just the chunks it touched.
+            ground.RebuildRegion(region.MinX, region.MinZ, region.MaxX, region.MaxZ);
         }
 
         return ground;
+    }
+
+    /// <summary>
+    /// Records a sculpted sample rectangle for every bound preview. A dab used to mark the whole
+    /// terrain dirty, which rebuilt and re-uploaded every chunk (about a million vertices at 1025
+    /// samples square) on each mouse move.
+    /// </summary>
+    private void QueueSculptRegion(int minX, int minZ, int maxX, int maxZ)
+    {
+        if (_terrainGrounds.Count == 0) { _meshDirty = true; return; }
+        foreach (IRenderController renderer in _terrainGrounds.Keys)
+        {
+            _pendingSculptRegions[renderer] = _pendingSculptRegions.TryGetValue(renderer, out var existing)
+                ? (Math.Min(existing.MinX, minX), Math.Min(existing.MinZ, minZ),
+                   Math.Max(existing.MaxX, maxX), Math.Max(existing.MaxZ, maxZ))
+                : (minX, minZ, maxX, maxZ);
+        }
     }
 
     private TextureHandle EnsureTerrainAlbedo(IRenderController renderer)
@@ -1758,7 +1826,7 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
             return handle;
         }
 
-        handle = renderer.LoadTexture(_terrainAlbedoRasterPath);
+        handle = renderer.LoadTexture(_terrainAlbedoRasterPath, Genesis.Shared.Materials.TextureColorSpace.Srgb);
         _terrainAlbedos[renderer] = handle;
         return handle;
     }

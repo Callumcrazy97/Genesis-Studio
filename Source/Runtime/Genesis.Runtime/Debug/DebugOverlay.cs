@@ -121,6 +121,9 @@ namespace Genesis.Runtime.Debugger
             Engine.DebugWatchChanged += OnWatchChanged;
             RegisterCommands();
 
+            if (Environment.GetEnvironmentVariable("GENESIS_DEBUG_EXPANDED") == "1")
+                ShowExpandedPanels = true;
+
             if (string.Equals(
                     Environment.GetEnvironmentVariable(NavigationDebugTelemetry.InitialPanelEnvironmentVariable),
                     NavigationDebugTelemetry.AiNavigationPanelValue,

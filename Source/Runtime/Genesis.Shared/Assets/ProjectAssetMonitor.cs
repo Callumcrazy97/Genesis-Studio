@@ -124,9 +124,12 @@ namespace Genesis.Shared.Assets
             }
 
             HashSet<string> affected = new(Graph.GetAffectedPaths(changed), StringComparer.OrdinalIgnoreCase);
-            Graph.Refresh();
+            Graph.RefreshChanged(changed);
             affected.UnionWith(Graph.GetAffectedPaths(changed));
             long generation = Interlocked.Increment(ref _generation);
+            // Any observed change makes frame-path caches re-validate on next use, so external edits
+            // appear immediately rather than after their bounded fallback poll.
+            RuntimeAssetPolicy.Invalidate();
             List<string> localWrites = new();
             foreach (string path in changed)
                 if (ProjectAssetWriteRegistry.IsRecentLocalWrite(path)) localWrites.Add(path);

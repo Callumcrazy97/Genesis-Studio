@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -160,7 +161,7 @@ namespace Genesis.Shared.Assets
     /// <summary>Portable, backend-neutral shader resource stored as <c>*.shader.json</c>.</summary>
     public sealed class ShaderAssetDocument
     {
-        public int SchemaVersion { get; set; } = 6;
+        public int SchemaVersion { get; set; } = 7;
         public ShaderAssetPipeline Pipeline { get; set; } = ShaderAssetPipeline.Sprite;
         public ShaderAuthoringMode AuthoringMode { get; set; } = ShaderAuthoringMode.Preset;
         public ShaderTargetType TargetType { get; set; } = ShaderTargetType.Image;
@@ -302,6 +303,8 @@ namespace Genesis.Shared.Assets
                 pass.Source ??= string.Empty;
                 pass.Entry = string.IsNullOrWhiteSpace(pass.Entry) ? "MainPS" : pass.Entry.Trim();
                 pass.VertexEntry = pass.VertexEntry?.Trim() ?? string.Empty;
+                pass.SkinnedVertexEntry = pass.SkinnedVertexEntry?.Trim() ?? string.Empty;
+                if (!Enum.IsDefined(pass.MeshPassMode)) throw new InvalidDataException("Unknown mesh shader pass mode.");
             }
             document.ActivePassIndex = Math.Clamp(document.ActivePassIndex, 0, document.Passes.Count - 1);
             document.Source = document.Passes[document.ActivePassIndex].Source;
@@ -316,8 +319,8 @@ namespace Genesis.Shared.Assets
                 variant.ResourceOverrides ??= new List<ShaderResourceBinding>();
             }
 
-            if (document.SchemaVersion < 6)
-                document.SchemaVersion = 6;
+            if (document.SchemaVersion < 7)
+                document.SchemaVersion = 7;
             return document;
         }
 
@@ -387,12 +390,17 @@ namespace Genesis.Shared.Assets
         };
     }
 
+    /// <summary>Surface draws normally; the other modes form a mask, outline, reset sequence.</summary>
+    public enum ShaderMeshPassMode { Surface, StencilMask, StencilOutline, StencilReset }
+
     public sealed class ShaderPassDefinition
     {
         public string Name { get; set; } = "Pass 0: Surface";
         public bool Enabled { get; set; } = true;
         public string Entry { get; set; } = "MainPS";
         public string VertexEntry { get; set; } = string.Empty;
+        public string SkinnedVertexEntry { get; set; } = string.Empty;
+        public ShaderMeshPassMode MeshPassMode { get; set; }
         public string Source { get; set; } = string.Empty;
     }
 
@@ -422,6 +430,13 @@ namespace Genesis.Shared.Assets
     /// </summary>
     public static class ShaderParameterReflection
     {
+        private sealed class PackingLayout
+        {
+            public string Source = string.Empty;
+            public ReflectedShaderParameter[] Fields = Array.Empty<ReflectedShaderParameter>();
+        }
+
+        private static readonly ConditionalWeakTable<ShaderAssetDocument, PackingLayout> PackingLayouts = new();
         private static readonly Regex BufferPattern = new(
             @"cbuffer\s+GenesisParameters\s*:\s*register\s*\(\s*b5\s*\)\s*\{(?<body>.*?)\}",
             RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
@@ -513,22 +528,20 @@ namespace Genesis.Shared.Assets
             out Vector4 row3)
         {
             ArgumentNullException.ThrowIfNull(document);
-            float[] packed = new float[16];
-            var values = new Dictionary<string, float[]>(StringComparer.OrdinalIgnoreCase);
-            foreach (ShaderParameterValue parameter in document.Parameters ?? new List<ShaderParameterValue>())
-                values[parameter.Name] = parameter.Value ?? Array.Empty<float>();
-            ShaderVariant variant = document.FindActiveVariant();
-            if (variant?.ParameterOverrides != null)
+            PackingLayout layout = PackingLayouts.GetOrCreateValue(document);
+            string source = document.Source ?? string.Empty;
+            if (!ReferenceEquals(layout.Source, source) && !string.Equals(layout.Source, source, StringComparison.Ordinal))
             {
-                foreach (ShaderParameterValue parameter in variant.ParameterOverrides)
-                    values[parameter.Name] = parameter.Value ?? Array.Empty<float>();
+                layout.Source = source;
+                layout.Fields = Reflect(source).ToArray();
             }
-            if (overrides != null)
-                foreach (KeyValuePair<string, float[]> pair in overrides) values[pair.Key] = pair.Value ?? Array.Empty<float>();
 
-            foreach (ReflectedShaderParameter field in Reflect(document.Source))
+            ShaderVariant variant = FindActiveVariantWithoutAllocation(document);
+            Span<float> packed = stackalloc float[16];
+            foreach (ReflectedShaderParameter field in layout.Fields)
             {
-                if (!values.TryGetValue(field.Name, out float[] value)) continue;
+                float[] value = ResolveValue(document.Parameters, variant?.ParameterOverrides, overrides, field.Name);
+                if (value is null) continue;
                 int target = field.RegisterIndex * 4 + field.ComponentOffset;
                 int count = Math.Min(field.ComponentCount, value.Length);
                 for (int index = 0; index < count; index++)
@@ -538,6 +551,44 @@ namespace Genesis.Shared.Assets
             row1 = new Vector4(packed[4], packed[5], packed[6], packed[7]);
             row2 = new Vector4(packed[8], packed[9], packed[10], packed[11]);
             row3 = new Vector4(packed[12], packed[13], packed[14], packed[15]);
+        }
+
+        private static ShaderVariant FindActiveVariantWithoutAllocation(ShaderAssetDocument document)
+        {
+            string active = document.ActiveVariant;
+            List<ShaderVariant> variants = document.Variants;
+            if (string.IsNullOrWhiteSpace(active) || variants is null) return null;
+            for (int index = 0; index < variants.Count; index++)
+            {
+                ShaderVariant candidate = variants[index];
+                if (candidate is not null && string.Equals(candidate.Name, active, StringComparison.OrdinalIgnoreCase))
+                    return candidate;
+            }
+            return null;
+        }
+
+        private static float[] ResolveValue(
+            List<ShaderParameterValue> defaults,
+            List<ShaderParameterValue> variantOverrides,
+            IReadOnlyDictionary<string, float[]> instanceOverrides,
+            string name)
+        {
+            if (instanceOverrides is not null && instanceOverrides.TryGetValue(name, out float[] instanceValue))
+                return instanceValue ?? Array.Empty<float>();
+            float[] value = FindLastValue(variantOverrides, name);
+            return value ?? FindLastValue(defaults, name);
+        }
+
+        private static float[] FindLastValue(List<ShaderParameterValue> parameters, string name)
+        {
+            if (parameters is null) return null;
+            for (int index = parameters.Count - 1; index >= 0; index--)
+            {
+                ShaderParameterValue parameter = parameters[index];
+                if (parameter is not null && string.Equals(parameter.Name, name, StringComparison.OrdinalIgnoreCase))
+                    return parameter.Value ?? Array.Empty<float>();
+            }
+            return null;
         }
 
         private static int ComponentCount(string type)

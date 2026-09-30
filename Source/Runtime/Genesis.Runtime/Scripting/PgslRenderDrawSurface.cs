@@ -35,7 +35,13 @@ namespace Genesis.Runtime.Scripting
         private readonly string _projectPath;
         private readonly bool _is3DActive;
         private readonly bool _isGui;
-        private static readonly RuntimeModelRenderSystem Models = new();
+        // Script Draw events run every frame. A default (zero-interval) renderer re-stamped every
+        // model file, re-parsed its .model.json and re-resolved every material texture on each call.
+        // Explicit invalidation still refreshes immediately through RuntimeAssetPolicy.Generation.
+        private static readonly RuntimeModelRenderSystem Models = new(
+            assetFreshnessIntervalMilliseconds: Genesis.Shared.Assets.RuntimeAssetPolicy.DefaultFramePathIntervalMilliseconds,
+            textureFreshnessIntervalMilliseconds: Genesis.Shared.Assets.RuntimeAssetPolicy.DefaultFramePathIntervalMilliseconds);
+        [ThreadStatic] private static MeshDrawCall[] _modelDrawBuffer;
 
         public PgslRenderDrawSurface(
             IRenderController renderer,
@@ -296,7 +302,10 @@ namespace Genesis.Runtime.Scripting
 
             if (_commands is IMeshDrawList meshList)
             {
-                var buffer = new MeshDrawCall[Math.Max(1, queue.Count)];
+                int needed = Math.Max(1, queue.Count);
+                if (_modelDrawBuffer == null || _modelDrawBuffer.Length < needed)
+                    _modelDrawBuffer = new MeshDrawCall[Math.Max(needed, 64)];
+                MeshDrawCall[] buffer = _modelDrawBuffer;
                 int count = queue.CopyTo(buffer, 0);
                 for (int i = 0; i < count; i++) meshList.Add(buffer[i]);
             }

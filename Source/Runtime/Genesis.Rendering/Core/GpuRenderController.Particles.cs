@@ -106,7 +106,9 @@ public sealed unsafe partial class GpuRenderController
         var parameters = new GpuParticleDraw
         {
             ViewProjection = view * projection,
-            CameraRight = new Vector4(Vector3.Normalize(new Vector3(inverse.M11,inverse.M12,inverse.M13)),0),
+            // w: linear colour pipeline flag for 3D particles (they draw into the HDR scene).
+            CameraRight = new Vector4(Vector3.Normalize(new Vector3(inverse.M11,inverse.M12,inverse.M13)),
+                EngineRenderingDefaults.LinearColorPipeline ? 1f : 0f),
             CameraUp = new Vector4(Vector3.Normalize(new Vector3(inverse.M21,inverse.M22,inverse.M23)),0),
             CameraForward = new Vector4(Vector3.Normalize(new Vector3(inverse.M31,inverse.M32,inverse.M33)),0),
         };

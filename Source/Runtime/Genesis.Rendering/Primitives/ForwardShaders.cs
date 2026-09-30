@@ -24,18 +24,21 @@ struct PointLight
 };
 
 // Clustered buffer copy of PointLight (R7.5). Same packing as PointLight / PointLightData.
+// _pad0 = local shadow slot + 1 (0 = unshadowed), _pad1 = shadow far plane, _pad2 = spot cos(inner).
+// SpotDir is the unit cone axis of a spot light and zero for a point light.
 struct ClusterPointLight
 {
     float3 Pos; float Radius;
     float3 Color; float Intensity;
     float Falloff; float _pad0; float _pad1; float _pad2;
+    float3 SpotDir; float SpotCosOuter;
 };
 
 // Issue 6 Stage 1: analytic placeable fog volume — same layout as FogPostShaders.cs's
 // FogVolumeGpu (must match Genesis.Rendering.Primitives.ForwardRenderer's FogVolumeData
-// field-for-field). Needed here too now that RayMarchFog (below) folds placed fog volumes
-// into the forward pass's own self-fog path, not just the screen-space post-process's.
-struct FogVolumeGpu { float4 CenterDensity; float4 ExtentsFalloff; float4 ColorShape; float4 KindPad; };
+// field-for-field). Placed volumes are evaluated by the froxel fog pass; the declaration stays so
+// EngineConstants remains a valid prefix of the C# EngineCB.
+struct FogVolumeGpu { float4 CenterDensity; float4 ExtentsFalloff; float4 ColorShape; float4 KindDirection; };
 
 cbuffer EngineConstants : register(b1)
 {
@@ -53,9 +56,8 @@ cbuffer EngineConstants : register(b1)
     float4     ShadowCascadeParams;  // x=near split, y=mid split (or texel when mode=1), z=mode(1=2csm,2=3csm), w=strength
     float4     PointLightCounts;     // x=numLights
     PointLight PointLights[8];
-    // Trailing fields below are only needed now that the forward pass's own RayMarchFog (fog
-    // rewrite) consults placed fog volumes too — must stay a valid *prefix* of the C# EngineCB
-    // struct in exact field order, same rule as PointLights above and as FogPostShaders.cs.
+    // Trailing fields below must stay a valid *prefix* of the C# EngineCB struct in exact field
+    // order, same rule as PointLights above and as FogPostShaders.cs.
     float4       FogVolumeCounts;    // x=numFogVolumes
     FogVolumeGpu FogVolumes[8];
     // Stylized / toon lighting — global per frame (see SceneEnvironment.Stylized*).
@@ -75,8 +77,8 @@ cbuffer DrawConstants : register(b2)
     // NoDepthWrite (fog rewrite): set whenever this specific draw doesn't write scene depth
     // (held items, particles, etc. — see ForwardRenderer.cs Submit()/Flush()). The screen-space
     // post-process fog can't see these pixels at all (its depth-buffer reconstruction reads
-    // whatever the sky/background left behind), so the pixel shader below must self-apply
-    // RayMarchFog for them regardless of whether post-process fog is otherwise active.
+    // whatever the sky/background left behind), so the pixel shader below applies the froxel
+    // fog itself for them regardless of whether post-process fog is otherwise active.
     float              NoDepthWrite;
     // TerrainGround (terrain rendering redesign): repurposes the last true-padding float.
     // Set only by SandboxTerrainGround's own draw call (see ForwardRenderer.cs Submit()/Flush()
@@ -124,22 +126,20 @@ Texture2D                      EmissionMap     : register(t9);
 Texture2D                      ExtrasMap       : register(t10);
 Texture2D                      FlowMap         : register(t11);
 StructuredBuffer<SkinMatrixData> SkinMatrices  : register(t12);
+// Clustered light lists: per cluster an (offset, count) header, then the packed light indices.
 StructuredBuffer<uint>           TileLightIndices : register(t13);
 Texture2D<float>               ShadowMapMid    : register(t14); // AF1.1 mid cascade
-Texture2D<float>               OmniFace0       : register(t15); // AF1.3 omni slot 0 faces
-Texture2D<float>               OmniFace1       : register(t16);
-Texture2D<float>               OmniFace2       : register(t17);
-Texture2D<float>               OmniFace3       : register(t18);
-Texture2D<float>               OmniFace4       : register(t19);
-Texture2D<float>               OmniFace5       : register(t20);
+Texture2D<float>               LocalShadowAtlas : register(t15); // point/spot light shadow atlas
 SamplerState                   AlbedoSamp      : register(s0);
 SamplerComparisonState         ShadowSamp      : register(s1);
 
-cbuffer OmniShadowConstants : register(b4)
+// Local light shadow atlas: a row of six 512² tiles per slot (cube faces; a spot light uses face 0).
+cbuffer LocalShadowConstants : register(b4)
 {
-    row_major float4x4 OmniFaceVP[6];
-    float4             OmniLightPosFar; // xyz = light pos, w = far
-    float4             OmniParams;      // x = active
+    row_major float4x4 LocalShadowFaceVP[24]; // slot * 6 + face
+    float4             LocalShadowSlots[4];   // xyz = light position, w = far plane
+    float4             LocalShadowKinds;      // per slot: 0 = point, 1 = spot
+    float4             LocalShadowParams;     // x = active, y = atlas rows, z = 1 / tile size
 };
 
 // ── Vertex structs ───────────────────────────────────────────────────────────
@@ -319,6 +319,17 @@ VSOut VS_Skinned(VSInSkinned IN, uint instanceId : SV_InstanceID)
     return OUT;
 }
 
+// Sun cascades are orthographic. Casters between the light and a cascade's near plane are
+// flattened onto it instead of being clipped away, so tall or distant occluders keep their shadow
+// (shadow pancaking). Omni faces are perspective (a non-zero w column) and are left untouched.
+float4 PancakeShadowDepth(float4 clipPos, float4x4 lightViewProjection)
+{
+    float perspective = abs(lightViewProjection._14) + abs(lightViewProjection._24) + abs(lightViewProjection._34);
+    if (perspective < 1e-5)
+        clipPos.z = max(clipPos.z, 0.0);
+    return clipPos;
+}
+
 float4 VS_Shadow(VSIn IN, uint instanceId : SV_InstanceID) : SV_Position
 {
     float4x4 world;
@@ -332,7 +343,7 @@ float4 VS_Shadow(VSIn IN, uint instanceId : SV_InstanceID) : SV_Position
         world = WorldMatrix;
     }
     float4 worldPos = mul(float4(IN.Position, 1.0), world);
-    return mul(worldPos, LightViewProjection);
+    return PancakeShadowDepth(mul(worldPos, LightViewProjection), LightViewProjection);
 }
 
 float4 VS_ShadowMid(VSIn IN, uint instanceId : SV_InstanceID) : SV_Position
@@ -348,7 +359,7 @@ float4 VS_ShadowMid(VSIn IN, uint instanceId : SV_InstanceID) : SV_Position
         world = WorldMatrix;
     }
     float4 worldPos = mul(float4(IN.Position, 1.0), world);
-    return mul(worldPos, LightViewProjectionMid);
+    return PancakeShadowDepth(mul(worldPos, LightViewProjectionMid), LightViewProjectionMid);
 }
 
 float4 VS_ShadowNear(VSIn IN, uint instanceId : SV_InstanceID) : SV_Position
@@ -364,10 +375,60 @@ float4 VS_ShadowNear(VSIn IN, uint instanceId : SV_InstanceID) : SV_Position
         world = WorldMatrix;
     }
     float4 worldPos = mul(float4(IN.Position, 1.0), world);
-    return mul(worldPos, LightViewProjectionNear);
+    return PancakeShadowDepth(mul(worldPos, LightViewProjectionNear), LightViewProjectionNear);
+}
+
+// Fullscreen triangle at far depth: resets one local shadow atlas tile (the viewport limits it).
+float4 VS_ShadowTileClear(uint id : SV_VertexID) : SV_Position
+{
+    float2 uv = float2((id << 1) & 2, id & 2);
+    return float4(uv * float2(2.0, -2.0) + float2(-1.0, 1.0), 1.0, 1.0);
+}
+
+// GPU-skinned shadow casters. Characters are drawn one caster at a time with their own bone
+// palette (WorldMatrix per draw), so animated actors shadow the world like static geometry.
+float4 SkinnedShadowWorld(VSInSkinned IN)
+{
+    float3 localPos;
+    float3 localNrm;
+    SkinLocal(IN, localPos, localNrm);
+    return mul(float4(localPos, 1.0), WorldMatrix);
+}
+
+float4 VS_ShadowSkinned(VSInSkinned IN) : SV_Position
+{
+    return PancakeShadowDepth(mul(SkinnedShadowWorld(IN), LightViewProjection), LightViewProjection);
+}
+
+float4 VS_ShadowSkinnedMid(VSInSkinned IN) : SV_Position
+{
+    return PancakeShadowDepth(mul(SkinnedShadowWorld(IN), LightViewProjectionMid), LightViewProjectionMid);
+}
+
+float4 VS_ShadowSkinnedNear(VSInSkinned IN) : SV_Position
+{
+    return PancakeShadowDepth(mul(SkinnedShadowWorld(IN), LightViewProjectionNear), LightViewProjectionNear);
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+// sRGB transfer functions. VolumetricParams.z selects the colour pipeline: 0 = legacy gamma,
+// 1 = linear lighting (the post composite encodes), 2 = linear lighting written straight to a
+// display target (this shader encodes its own output).
+float3 SrgbToLinear3(float3 c)
+{
+    c = max(c, 0.0);
+    // step() instead of a vector ?: — DXC (HLSL 2021) rejects non-scalar ternary conditions.
+    return lerp(pow((c + 0.055) / 1.055, 2.4), c / 12.92, step(c, 0.04045));
+}
+
+float3 LinearToSrgb3(float3 c)
+{
+    c = saturate(c);
+    return lerp(1.055 * pow(c, 1.0 / 2.4) - 0.055, c * 12.92, step(c, 0.0031308));
+}
+
+bool LinearColorPipeline() { return VolumetricParams.z > 0.5; }
 
 float Hash21(float2 p)
 {
@@ -412,6 +473,14 @@ float NoiseXZ(float2 xz)
 // Sample one shadow cascade with optional PCF. Keep the texture and sampler as global resources:
 // older wgpu-native/Naga SPIR-V frontends cannot represent opaque image/sampler handles passed as
 // ordinary function parameters even though Vulkan accepts the DXC output.
+static const float2 ShadowPoisson12[12] =
+{
+    float2(-0.326212, -0.405805), float2(-0.840144, -0.073580), float2(-0.695914,  0.457137),
+    float2(-0.203345,  0.620716), float2( 0.962340, -0.194983), float2( 0.473434, -0.480026),
+    float2( 0.519456,  0.767022), float2( 0.185461, -0.893124), float2( 0.507431,  0.064425),
+    float2( 0.896420,  0.412458), float2(-0.321940, -0.932615), float2(-0.791559, -0.597705),
+};
+
 float SampleShadowMapFar(float4 shadowCoord, float bias, float texel, bool highQ)
 {
     float3 proj = shadowCoord.xyz / shadowCoord.w;
@@ -421,24 +490,25 @@ float SampleShadowMapFar(float4 shadowCoord, float bias, float texel, bool highQ
     proj.x =  proj.x * 0.5 + 0.5;
     proj.y = -proj.y * 0.5 + 0.5;
 
-    float sum   = 0.0;
-    float count = 0.0;
-    int   radius = highQ ? 1 : 0;
-    [loop]
-    for (int y = -radius; y <= radius; y++)
+    if (!highQ)
     {
-        [loop]
-        for (int x = -radius; x <= radius; x++)
-        {
-            float2 uv = proj.xy + float2(x, y) * texel;
-            if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
-                sum += 1.0;
-            else
-                sum += ShadowMapFar.SampleCmpLevelZero(ShadowSamp, uv, proj.z - bias);
-            count += 1.0;
-        }
+        if (proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0)
+            return 1.0;
+        return ShadowMapFar.SampleCmpLevelZero(ShadowSamp, proj.xy, proj.z - bias);
     }
-    return sum / max(count, 1.0);
+    // High quality: 12 Poisson taps, each a hardware bilinear comparison, instead of a 3x3 box.
+    // The disc is fixed (not rotated per pixel) because without TAA rotation noise reads as grain.
+    float sum = 0.0;
+    [unroll]
+    for (int i = 0; i < 12; i++)
+    {
+        float2 uv = proj.xy + ShadowPoisson12[i] * (texel * 1.6);
+        if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
+            sum += 1.0;
+        else
+            sum += ShadowMapFar.SampleCmpLevelZero(ShadowSamp, uv, proj.z - bias);
+    }
+    return sum / 12.0;
 }
 
 float SampleShadowMapNear(float4 shadowCoord, float bias, float texel, bool highQ)
@@ -450,24 +520,25 @@ float SampleShadowMapNear(float4 shadowCoord, float bias, float texel, bool high
     proj.x =  proj.x * 0.5 + 0.5;
     proj.y = -proj.y * 0.5 + 0.5;
 
-    float sum   = 0.0;
-    float count = 0.0;
-    int   radius = highQ ? 1 : 0;
-    [loop]
-    for (int y = -radius; y <= radius; y++)
+    if (!highQ)
     {
-        [loop]
-        for (int x = -radius; x <= radius; x++)
-        {
-            float2 uv = proj.xy + float2(x, y) * texel;
-            if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
-                sum += 1.0;
-            else
-                sum += ShadowMapNear.SampleCmpLevelZero(ShadowSamp, uv, proj.z - bias);
-            count += 1.0;
-        }
+        if (proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0)
+            return 1.0;
+        return ShadowMapNear.SampleCmpLevelZero(ShadowSamp, proj.xy, proj.z - bias);
     }
-    return sum / max(count, 1.0);
+    // High quality: 12 Poisson taps, each a hardware bilinear comparison, instead of a 3x3 box.
+    // The disc is fixed (not rotated per pixel) because without TAA rotation noise reads as grain.
+    float sum = 0.0;
+    [unroll]
+    for (int i = 0; i < 12; i++)
+    {
+        float2 uv = proj.xy + ShadowPoisson12[i] * (texel * 1.6);
+        if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
+            sum += 1.0;
+        else
+            sum += ShadowMapNear.SampleCmpLevelZero(ShadowSamp, uv, proj.z - bias);
+    }
+    return sum / 12.0;
 }
 
 float SampleShadowMapMid(float4 shadowCoord, float bias, float texel, bool highQ)
@@ -477,24 +548,43 @@ float SampleShadowMapMid(float4 shadowCoord, float bias, float texel, bool highQ
     if (proj.z <= 0.0 || proj.z >= 1.0) return 1.0;
     if (proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0) return 1.0;
 
-    int radius = highQ ? 2 : 1;
     float sum = 0.0;
-    float count = 0.0;
-    [loop]
-    for (int y = -radius; y <= radius; y++)
+    if (!highQ)
     {
         [loop]
-        for (int x = -radius; x <= radius; x++)
+        for (int y = -1; y <= 1; y++)
         {
-            float2 uv = proj.xy + float2(x, y) * texel;
-            if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
-                sum += 1.0;
-            else
-                sum += ShadowMapMid.SampleCmpLevelZero(ShadowSamp, uv, proj.z - bias);
-            count += 1.0;
+            [loop]
+            for (int x = -1; x <= 1; x++)
+            {
+                float2 uv = proj.xy + float2(x, y) * texel;
+                if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
+                    sum += 1.0;
+                else
+                    sum += ShadowMapMid.SampleCmpLevelZero(ShadowSamp, uv, proj.z - bias);
+            }
         }
+        return sum / 9.0;
     }
-    return sum / max(count, 1.0);
+    // High quality: the 12-tap Poisson disc, spread wider to match the old 5x5 footprint.
+    [unroll]
+    for (int i = 0; i < 12; i++)
+    {
+        float2 uv = proj.xy + ShadowPoisson12[i] * (texel * 2.4);
+        if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
+            sum += 1.0;
+        else
+            sum += ShadowMapMid.SampleCmpLevelZero(ShadowSamp, uv, proj.z - bias);
+    }
+    return sum / 12.0;
+}
+
+// 0 at a cascade's edge rising to 1 a short band inside it. Pixels in the band blend with the
+// next cascade out, so the resolution change no longer shows as a hard seam.
+float CascadeBlendWeight(float2 uv)
+{
+    float edge = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
+    return saturate(edge / 0.08);
 }
 
 // Cascaded shadow map: prefer near, then mid (AF1.1), then far.
@@ -511,6 +601,8 @@ float SampleShadowCSM(float4 shadowPosFar, float4 shadowPosNear, float4 shadowPo
     float texel  = ShadowParams.z;
 
     // Try near cascade first (smaller bias — higher texel density).
+    float nearVis = 1.0;
+    float nearWeight = 0.0;
     if (ShadowCascadeParams.z > 0.5)
     {
         float3 nearNdc = shadowPosNear.xyz / shadowPosNear.w;
@@ -522,12 +614,17 @@ float SampleShadowCSM(float4 shadowPosFar, float4 shadowPosNear, float4 shadowPo
             if (nearU >= 0.0 && nearU <= 1.0 && nearV >= 0.0 && nearV <= 1.0)
             {
                 float nearTexel = ShadowCascadeParams.z < 1.5 ? ShadowCascadeParams.y : texel;
-                return SampleShadowMapNear(shadowPosNear, nearBias, nearTexel, highQ);
+                nearVis = SampleShadowMapNear(shadowPosNear, nearBias, nearTexel, highQ);
+                nearWeight = CascadeBlendWeight(float2(nearU, nearV));
+                if (nearWeight >= 0.999)
+                    return nearVis;
             }
         }
     }
 
-    // AF1.1 mid cascade when mode >= 2.
+    // AF1.1 mid cascade when mode >= 2; otherwise (or outside mid) the far cascade.
+    float outerVis = 1.0;
+    bool midCovered = false;
     if (ShadowCascadeParams.z > 1.5)
     {
         float3 midNdc = shadowPosMid.xyz / shadowPosMid.w;
@@ -537,12 +634,19 @@ float SampleShadowCSM(float4 shadowPosFar, float4 shadowPosNear, float4 shadowPo
             float midU =  midNdc.x * 0.5 + 0.5;
             float midV = -midNdc.y * 0.5 + 0.5;
             if (midU >= 0.0 && midU <= 1.0 && midV >= 0.0 && midV <= 1.0)
-                return SampleShadowMapMid(shadowPosMid, midBias, texel, highQ);
+            {
+                midCovered = true;
+                outerVis = SampleShadowMapMid(shadowPosMid, midBias, texel, highQ);
+                float midWeight = CascadeBlendWeight(float2(midU, midV));
+                if (midWeight < 0.999)
+                    outerVis = lerp(SampleShadowMapFar(shadowPosFar, bias, texel, highQ), outerVis, midWeight);
+            }
         }
     }
+    if (!midCovered)
+        outerVis = SampleShadowMapFar(shadowPosFar, bias, texel, highQ);
 
-    // Fall back to far cascade.
-    return SampleShadowMapFar(shadowPosFar, bias, texel, highQ);
+    return lerp(outerVis, nearVis, nearWeight);
 }
 
 // Compat overload for call sites that only pass far+near (terrain/fog self-shadow helpers).
@@ -550,17 +654,6 @@ float SampleShadowCSM(float4 shadowPosFar, float4 shadowPosNear,
     float3 normal, float3 lightDir)
 {
     return SampleShadowCSM(shadowPosFar, shadowPosNear, shadowPosFar, normal, lightDir);
-}
-
-// Compute point-light contribution via the R7.5 screen-tile list (bounded per pixel).
-float SampleOmniFaceCmp(int face, float2 uv, float cmp)
-{
-    if (face == 0) return OmniFace0.SampleCmpLevelZero(ShadowSamp, uv, cmp);
-    if (face == 1) return OmniFace1.SampleCmpLevelZero(ShadowSamp, uv, cmp);
-    if (face == 2) return OmniFace2.SampleCmpLevelZero(ShadowSamp, uv, cmp);
-    if (face == 3) return OmniFace3.SampleCmpLevelZero(ShadowSamp, uv, cmp);
-    if (face == 4) return OmniFace4.SampleCmpLevelZero(ShadowSamp, uv, cmp);
-    return OmniFace5.SampleCmpLevelZero(ShadowSamp, uv, cmp);
 }
 
 int OmniCubeFaceIndex(float3 dir)
@@ -573,27 +666,50 @@ int OmniCubeFaceIndex(float3 dir)
     return dir.z >= 0.0 ? 4 : 5;
 }
 
-float SampleOmniVisibility(float3 worldPos, float3 lightPos)
+static const float2 LocalShadowTaps[4] =
 {
-    float3 Lvec = worldPos - lightPos;
-    float len = length(Lvec);
+    float2(-0.75, -0.25), float2(0.25, -0.75), float2(0.75, 0.25), float2(-0.25, 0.75),
+};
+
+// Visibility of worldPos from a local shadow slot: the cube face the pixel lies in for a point
+// light, the single tile for a spot light. Four bilinear comparison taps are clamped inside the
+// tile so filtering never reads a neighbouring face or light.
+float SampleLocalShadow(int slot, float3 worldPos, float3 lightPos)
+{
+    float3 toPixel = worldPos - lightPos;
+    float len = length(toPixel);
     if (len < 1e-5)
         return 1.0;
-    float3 dir = Lvec / len;
-    int face = OmniCubeFaceIndex(dir);
-    float4 clip = mul(float4(worldPos, 1.0), OmniFaceVP[face]);
-    float3 proj = clip.xyz / max(clip.w, 1e-5);
+    float kind = dot(LocalShadowKinds, float4(slot == 0, slot == 1, slot == 2, slot == 3));
+    int face = kind > 0.5 ? 0 : OmniCubeFaceIndex(toPixel / len);
+    float4 clip = mul(float4(worldPos, 1.0), LocalShadowFaceVP[slot * 6 + face]);
+    if (clip.w <= 1e-5)
+        return 1.0;
+    float3 proj = clip.xyz / clip.w;
     if (proj.z <= 0.0 || proj.z >= 1.0)
         return 1.0;
-    proj.x =  proj.x * 0.5 + 0.5;
-    proj.y = -proj.y * 0.5 + 0.5;
-    if (proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0)
+    float2 tileUv = float2(proj.x * 0.5 + 0.5, -proj.y * 0.5 + 0.5);
+    if (tileUv.x < 0.0 || tileUv.x > 1.0 || tileUv.y < 0.0 || tileUv.y > 1.0)
         return 1.0;
-    float bias = max(0.0015, 0.02 * (1.0 - saturate(len / max(OmniLightPosFar.w, 0.001))));
-    return SampleOmniFaceCmp(face, proj.xy, proj.z - bias);
+    float bias = max(0.0015, 0.02 * (1.0 - saturate(len / max(LocalShadowSlots[slot].w, 0.001))));
+    float texel = LocalShadowParams.z;
+    float2 atlasScale = float2(1.0 / 6.0, 1.0 / max(LocalShadowParams.y, 1.0));
+    float2 origin = float2(face, slot);
+    float sum = 0.0;
+    [unroll]
+    for (int i = 0; i < 4; i++)
+    {
+        float2 uv = clamp(tileUv + LocalShadowTaps[i] * texel, texel, 1.0 - texel);
+        sum += LocalShadowAtlas.SampleCmpLevelZero(ShadowSamp, (origin + uv) * atlasScale, proj.z - bias);
+    }
+    return sum * 0.25;
 }
 
-float3 ShadeOnePointLight(ClusterPointLight L, float3 worldPos, float3 n, float3 base)
+// Point lights use the same GGX/Schlick response as the sun. They used to be diffuse-only (and
+// ignored metalness), so indoors, lit only by lanterns, roughness and metal maps had no visible
+// effect. specularWeight 0 keeps the diffuse-only response (foliage).
+float3 ShadeOnePointLight(ClusterPointLight L, float3 worldPos, float3 n, float3 base,
+                          float3 viewToCam, float roughness, float metallic, float specularWeight)
 {
     float3 toLight = L.Pos - worldPos;
     float dist     = length(toLight);
@@ -603,16 +719,40 @@ float3 ShadeOnePointLight(ClusterPointLight L, float3 worldPos, float3 n, float3
     float attenuation = 1.0 - saturate(dist / radius);
     attenuation = pow(attenuation, max(L.Falloff, 0.05));
     float3 l   = normalize(toLight);
+    if (dot(L.SpotDir, L.SpotDir) > 0.25)
+    {
+        // Spot cone: full strength inside the inner angle, fading to nothing at the outer one.
+        float coneCos = dot(-l, L.SpotDir);
+        attenuation *= smoothstep(L.SpotCosOuter, max(L._pad2, L.SpotCosOuter + 1e-4), coneCos);
+    }
     float ndotl = saturate(dot(n, l));
-    float3 lit = base * ndotl * L.Color * L.Intensity * attenuation;
+    float3 radiance = L.Color * L.Intensity * attenuation;
+    float3 lit = base * (1.0 - metallic) * ndotl * radiance;
+    if (specularWeight > 0.0 && ndotl > 0.0)
+    {
+        float3 h = normalize(l + viewToCam);
+        float ndoth = saturate(dot(n, h));
+        float ndotv = max(saturate(dot(n, viewToCam)), 0.001);
+        float vdoth = saturate(dot(viewToCam, h));
+        float alpha = roughness * roughness;
+        float alpha2 = alpha * alpha;
+        float denom = ndoth * ndoth * (alpha2 - 1.0) + 1.0;
+        float D = alpha2 / max(3.14159265 * denom * denom, 0.0001);
+        float k = (roughness + 1.0); k = k * k / 8.0;
+        float G = (ndotv / (ndotv * (1.0 - k) + k)) * (ndotl / (ndotl * (1.0 - k) + k));
+        float3 F0 = lerp(float3(0.04, 0.04, 0.04), base, metallic);
+        float3 F = F0 + (1.0 - F0) * pow(1.0 - vdoth, 5.0);
+        lit += radiance * (D * G * F / max(4.0 * ndotv * ndotl, 0.001)) * ndotl * specularWeight;
+    }
 
-    // AF1.3: FalloffPad.Y / _pad0 marks the omni slot-0 light when GPU maps are active.
-    if (L._pad0 > 0.5 && OmniParams.x > 0.5)
-        lit *= SampleOmniVisibility(worldPos, L.Pos);
+    // FalloffPad.Y / _pad0 carries the light's local shadow slot + 1 when it holds one.
+    if (L._pad0 > 0.5 && LocalShadowParams.x > 0.5)
+        lit *= SampleLocalShadow((int)(L._pad0 - 0.5), worldPos, L.Pos);
     return lit;
 }
 
-float3 ComputePointLights(float3 worldPos, float3 n, float3 base, float4 svPos)
+float3 ComputePointLightsPbr(float3 worldPos, float3 n, float3 base, float4 svPos,
+                             float3 viewToCam, float roughness, float metallic, float specularWeight)
 {
     int nLights = (int)PointLightCounts.x;
     int tileGrid = (int)PointLightCounts.y;
@@ -622,18 +762,23 @@ float3 ComputePointLights(float3 worldPos, float3 n, float3 base, float4 svPos)
 
     if (tileGrid >= 2 && maxPerTile > 0)
     {
+        // Clusters: screen tile × depth slice. Slices are exponential in clip w over the fixed range
+        // ClusteredLightDefaults uses on the CPU (0.25 to 1000, 24 slices).
         float2 uv = svPos.xy * ViewportParams.zw;
         int tx = clamp((int)floor(uv.x * tileGrid), 0, tileGrid - 1);
         int ty = clamp((int)floor(uv.y * tileGrid), 0, tileGrid - 1);
-        int baseIdx = (ty * tileGrid + tx) * maxPerTile;
+        float depthW = mul(float4(worldPos, 1.0), ViewProjection).w;
+        const float sliceScale = 24.0 / log2(1000.0 / 0.25);
+        int slice = clamp((int)floor(log2(max(depthW, 1e-4) / 0.25) * sliceScale), 0, 23);
+        uint cluster = (uint)((slice * tileGrid + ty) * tileGrid + tx);
+        uint offset = TileLightIndices[cluster * 2];
+        uint count = min(TileLightIndices[cluster * 2 + 1], (uint)maxPerTile);
         [loop]
-        for (int i = 0; i < 32; i++)
+        for (uint i = 0; i < count; i++)
         {
-            if (i >= maxPerTile) break;
-            uint li = TileLightIndices[baseIdx + i];
-            if (li == 0xffffffffu) break;
+            uint li = TileLightIndices[offset + i];
             if (li >= (uint)nLights) continue;
-            result += ShadeOnePointLight(ClusterLights[li], worldPos, n, base);
+            result += ShadeOnePointLight(ClusterLights[li], worldPos, n, base, viewToCam, roughness, metallic, specularWeight);
         }
         return result;
     }
@@ -653,196 +798,22 @@ float3 ComputePointLights(float3 worldPos, float3 n, float3 base, float4 svPos)
         L._pad0 = PointLights[i]._pad0;
         L._pad1 = PointLights[i]._pad1;
         L._pad2 = PointLights[i]._pad2;
-        result += ShadeOnePointLight(L, worldPos, n, base);
+        L.SpotDir = float3(0.0, 0.0, 0.0);  // the EngineCB copy has no cone: shaded as a point light
+        L.SpotCosOuter = -1.0;
+        result += ShadeOnePointLight(L, worldPos, n, base, viewToCam, roughness, metallic, specularWeight);
     }
     return result;
 }
 
-// ── Unified volumetric fog model (full rewrite) ─────────────────────────────
-// Textual duplicate of FogPostShaders.cs's ray-march model (no #include in these raw HLSL
-// strings, so all three copies — here, TerrainShader.cs, FogPostShaders.cs — must stay in
-// sync). The forward pass needs its own copy because it must be able to self-fog a draw that
-// the screen-space post-process structurally cannot see (no scene depth was written for it),
-// using the object's own real WorldPos/distance rather than a depth-buffer reconstruction.
-
-float FogDensityAt(float3 worldPos)
+float3 ComputePointLights(float3 worldPos, float3 n, float3 base, float4 svPos)
 {
-    float fogDensity = FogParams.w;
-    float noiseStr   = EffectParams.w;
-    // Noise strength is a fraction of authored density, not another density in world units.
-    float noiseAmp   = saturate(noiseStr) * fogDensity;
-    float density    = fogDensity + (NoiseXZ(worldPos.xz) - 0.5) * noiseAmp;
-
-    float heightBase    = FogParams2.x;
-    float heightFalloff = max(FogParams2.y, 0.0001);
-    float aerialBlend   = saturate(FogParams2.z);
-    float belowBase = max(heightBase - worldPos.y, 0.0);
-    float heightMul = exp(-heightFalloff * belowBase);
-    density *= lerp(1.0, heightMul, aerialBlend);
-
-    return max(density, 0.0);
+    return ComputePointLightsPbr(worldPos, n, base, svPos, float3(0.0, 1.0, 0.0), 1.0, 0.0, 0.0);
 }
 
-int VolumetricStepCount()
-{
-    if (VolumetricParams.y < 0.5) return 6;
-    if (VolumetricParams.y < 1.5) return 12;
-    return 20;
-}
-
-// Sun visibility at an arbitrary world point (not just the surface this pixel shades),
-// sampled from the cascaded shadow maps already bound for SampleShadowCSM above. Returns 1.0
-// (fully lit) when shadows are off or the point falls outside both cascades.
-float SampleShadowAtPoint(float3 worldPos)
-{
-    if (ShadowParams.x < 0.5)
-        return 1.0;
-
-    if (ShadowCascadeParams.z > 0.5)
-    {
-        float4 posNear = mul(float4(worldPos, 1.0), LightViewProjectionNear);
-        float3 nearNdc = posNear.xyz / max(posNear.w, 0.0001);
-        if (nearNdc.z > 0.0 && nearNdc.z < 1.0)
-        {
-            float nearU =  nearNdc.x * 0.5 + 0.5;
-            float nearV = -nearNdc.y * 0.5 + 0.5;
-            if (nearU >= 0.0 && nearU <= 1.0 && nearV >= 0.0 && nearV <= 1.0)
-                return lerp(1.0,
-                    ShadowMapNear.SampleCmpLevelZero(ShadowSamp, float2(nearU, nearV), nearNdc.z - ShadowParams.y * 0.5),
-                    saturate(ShadowCascadeParams.w) * saturate(LightDirEnabled.w));
-        }
-    }
-
-    float4 posFar = mul(float4(worldPos, 1.0), LightViewProjection);
-    float3 farNdc = posFar.xyz / max(posFar.w, 0.0001);
-    if (farNdc.z <= 0.0 || farNdc.z >= 1.0)
-        return 1.0;
-
-    float farU =  farNdc.x * 0.5 + 0.5;
-    float farV = -farNdc.y * 0.5 + 0.5;
-    if (farU < 0.0 || farU > 1.0 || farV < 0.0 || farV > 1.0)
-        return 1.0;
-
-    return lerp(1.0,
-        ShadowMapFar.SampleCmpLevelZero(ShadowSamp, float2(farU, farV), farNdc.z - ShadowParams.y),
-        saturate(ShadowCascadeParams.w) * saturate(LightDirEnabled.w));
-}
-
-// Issue 6 Stage 1: per-shape ""inside"" factor in [0,1]. Shapes: 0=Box, 1=Sphere, 2=Ellipsoid,
-// 3=HeightSlab. Unchanged from FogPostShaders.cs's copy.
-float FogVolumeInsideFactor(float3 localPos, float3 extents, int shape)
-{
-    float3 e = max(extents, 0.0001);
-
-    if (shape == 1)
-    {
-        float d = length(localPos) / e.x;
-        return saturate(1.0 - d);
-    }
-
-    if (shape == 3)
-    {
-        float d = abs(localPos.y) / e.y;
-        return saturate(1.0 - d);
-    }
-
-    float3 n = localPos / e;
-
-    if (shape == 2)
-    {
-        float d = length(n);
-        return saturate(1.0 - d);
-    }
-
-    float d = max(max(abs(n.x), abs(n.y)), abs(n.z));
-    return saturate(1.0 - d);
-}
-
-// Accumulates all active placeable fog volumes at worldPos. Unchanged from FogPostShaders.cs's
-// copy — see there for full comments.
-float ComputeFogVolumes(float3 worldPos, out float3 outColor)
-{
-    float totalWeight = 0.0;
-    float3 colorAccum = float3(0.0, 0.0, 0.0);
-    int count = (int)FogVolumeCounts.x;
-
-    [unroll]
-    for (int i = 0; i < 8; i++)
-    {
-        if (i >= count) break;
-
-        FogVolumeGpu v = FogVolumes[i];
-        float3 localPos = worldPos - v.CenterDensity.xyz;
-        int shape = (int)v.ColorShape.w;
-        float inside = FogVolumeInsideFactor(localPos, v.ExtentsFalloff.xyz, shape);
-        if (inside <= 0.0)
-            continue;
-
-        float falloffCurve = max(v.ExtentsFalloff.w, 0.0001);
-        float weight = pow(inside, falloffCurve) * saturate(v.CenterDensity.w);
-
-        colorAccum += v.ColorShape.xyz * weight;
-        totalWeight += weight;
-    }
-
-    outColor = totalWeight > 0.0001 ? colorAccum / totalWeight : float3(0.0, 0.0, 0.0);
-    return totalWeight;
-}
-
-// Marches from cameraPos toward viewDir over rayLength, accumulating Beer-Lambert
-// transmittance and shadow-aware inscattered light. Composite at the call site with:
-//   color = color * transmittance + outInscatter;
-// Unchanged from FogPostShaders.cs's copy — see there for full comments.
-float RayMarchFog(float3 cameraPos, float3 viewDir, float rayLength, float3 lightDir,
-                   float jitterSeed, out float3 outInscatter)
-{
-    outInscatter = float3(0.0, 0.0, 0.0);
-
-    float maxDist = max(rayLength, 0.0);
-    if (maxDist <= 0.001)
-        return 1.0;
-
-    int steps = VolumetricStepCount();
-    float stepLen = maxDist / max(steps, 1);
-    // jitterSeed is now expected to already be a [0,1) dither value from InterleavedGradientNoise
-    // (computed at the call site from screen pixel coordinates), not a raw hash seed.
-    float jitter = (jitterSeed - 0.5) * stepLen * 0.15;
-    float t = max(stepLen * 0.5 + jitter, 0.0);
-
-    float sunDot       = saturate(dot(viewDir, normalize(-lightDir)));
-    float sunPreserve  = saturate(FogParams2.w);
-    float horizon      = 1.0 - saturate(abs(viewDir.y));
-    float horizonBoost = horizon * horizon * saturate(FogParams2.z) * 0.30;
-
-    float transmittance = 1.0;
-
-    [loop]
-    for (int i = 0; i < 24; i++)
-    {
-        if (i >= steps) break;
-
-        float3 samplePos = cameraPos + viewDir * t;
-
-        float3 volColor;
-        float volDensity = ComputeFogVolumes(samplePos, volColor);
-        float density = FogDensityAt(samplePos) + volDensity + horizonBoost * 0.02;
-
-        float vis = SampleShadowAtPoint(samplePos);
-        float lightAmt = lerp(0.35, 1.0, vis) * (1.0 - sunDot * sunPreserve);
-
-        float3 stepColor = volDensity > 0.0001
-            ? lerp(FogColor.rgb, volColor, saturate(volDensity / max(density, 0.0001)))
-            : FogColor.rgb;
-
-        float stepTransmittance = exp(-density * stepLen);
-        outInscatter += stepColor * lightAmt * (1.0 - stepTransmittance) * transmittance;
-        transmittance *= stepTransmittance;
-
-        t += stepLen;
-    }
-
-    return saturate(transmittance);
-}
+// ── Volumetric fog ───────────────────────────────────────────────────────────
+// Fog is the froxel volume (FroxelFogShaders). The post composite fogs every pixel with depth;
+// this shader fogs only the draws the composite cannot see (NoDepthWrite) or frames without it.
+" + FroxelFogShaders.ApplySource + @"
 
 // ── Pixel shader ─────────────────────────────────────────────────────────────
 
@@ -855,16 +826,25 @@ float RayMarchFog(float3 cameraPos, float3 viewDir, float rayLength, float3 ligh
 // density. See ForwardRenderer.cs MainPass/EnsureSceneTargets for the matching render target.
 struct PSOut
 {
-    float4 Color       : SV_Target0;
-    float  SkipPostFog : SV_Target1;
+    float4 Color : SV_Target0;
+    // r = fog flag (1 = already fogged here, 0.5 = engine-lit), gba = pre-fog ambient light, which
+    // the composite's AO darkens instead of the whole pixel.
+    float4 Aux   : SV_Target1;
 };
+
+PSOut MakeOut(float4 c, float skip, float3 ambient)
+{
+    PSOut o;
+    if (VolumetricParams.z > 1.5)
+        c.rgb = LinearToSrgb3(c.rgb);
+    o.Color = c;
+    o.Aux = float4(skip > 0.5 ? 1.0 : 0.5, ambient);
+    return o;
+}
 
 PSOut MakeOut(float4 c, float skip)
 {
-    PSOut o;
-    o.Color = c;
-    o.SkipPostFog = skip;
-    return o;
+    return MakeOut(c, skip, float3(0.0, 0.0, 0.0));
 }
 
 // ── Terrain ground procedural shading (terrain rendering redesign) ─────────────
@@ -1075,6 +1055,13 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
     // sit right on that threshold), and ddx/ddy inside divergent control flow is undefined.
     // FXC (DX11) and DXC (DX12) disagree enough there to move golden tiles by ~8-19/255.
     float3 nmSample = NormalMap.Sample(AlbedoSamp, materialUv).rgb;
+    // Two-channel (BC5) normal maps sample blue as 0, which decodes to z = -1 and lights the
+    // surface inside-out. A genuine RGB normal map never stores blue 0, so rebuild z from xy.
+    if (nmSample.z < 0.5 / 255.0)
+    {
+        float2 nmXY = nmSample.xy * 2.0 - 1.0;
+        nmSample.z = sqrt(saturate(1.0 - dot(nmXY, nmXY))) * 0.5 + 0.5;
+    }
     float3 dp1Nm  = ddx(IN.WorldPos);
     float3 dp2Nm  = ddy(IN.WorldPos);
     float2 duv1Nm = ddx(IN.UV);
@@ -1119,6 +1106,9 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
         tex = AlbedoArray.Sample(AlbedoSamp, float3(materialUv, IN.AtlasLayer));
     else
         tex = AlbedoTex.Sample(AlbedoSamp, materialUv);
+    // Albedo is authored in sRGB; the linear pipeline lights it in linear space.
+    if (LinearColorPipeline())
+        tex.rgb = SrgbToLinear3(tex.rgb);
 
     // Alpha-tested cutout: opaque/masked surfaces keep the old firm threshold for vegetation.
     // Alpha-blended model surfaces are submitted with NoDepthWrite, so keep soft texture edges
@@ -1127,13 +1117,24 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
     clip(tex.a - alphaCutoff);
 
     float3 base = MaterialColor.rgb * (voxelTiled ? tex.rgb : IN.Color.rgb * tex.rgb);
+    // Tints (material colour, instance/vertex colour) are picked in sRGB. Terrain vertex colours
+    // carry splat weights and voxel colours carry atlas coordinates, so neither is converted.
+    if (LinearColorPipeline() && !voxelTiled && TerrainGround < 0.5)
+    {
+        float3 tint = MaterialColor.rgb * IN.Color.rgb;
+        base *= SrgbToLinear3(tint) / max(tint, 1e-4);
+    }
 
     // Terrain ground: replace the flat tint with the procedural slope/noise grass+dirt blend
     // (or, when vertex color carries baked elevation, the elevation-driven biome blend).
     if (TerrainGround > 0.5 && MaterialFeatures.x < 0.5)
     {
         float terrainDirtMask;
-        base = TerrainAlbedo(IN.WorldPos, n, IN.Color, tex.rgb, terrainDirtMask);
+        // The procedural palette is authored in sRGB: blend in that space, then linearize.
+        if (LinearColorPipeline())
+            base = SrgbToLinear3(TerrainAlbedo(IN.WorldPos, n, IN.Color, LinearToSrgb3(tex.rgb), terrainDirtMask));
+        else
+            base = TerrainAlbedo(IN.WorldPos, n, IN.Color, tex.rgb, terrainDirtMask);
     }
 
     // Floor checkerboard — tiled albedo (2×2 texture, wrap UVs on the floor mesh).
@@ -1143,25 +1144,37 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
         base *= lerp(0.55, 0.75, shade);
     }
 
-    // Foliage billboards: skip Lambert — sideways normals must not black out grass/trees.
+    // Foliage cards: sideways/card normals must not black out grass and trees, so the sun term
+    // uses a wrapped response around a normal bent toward up. Foliage used to be fully unlit, so it
+    // ignored the sun, shadows, time of day and point lights and stayed full-bright at night.
     if (Foliage > 0.5)
     {
         // Discard exported PNG backgrounds that kept alpha on near-black pixels.
         clip(dot(tex.rgb, float3(0.299, 0.587, 0.114)) - 0.07);
-        float3 col = base * 1.05;
+        float3 foliageNormal = normalize(lerp(n, float3(0.0, 1.0, 0.0), 0.6));
+        float3 toSun = normalize(-lightDir);
+        float foliageDiffuse = saturate(dot(foliageNormal, toSun) * 0.6 + 0.4);
+        float foliageShadow = NoReceiveShadow > 0.5
+            ? 1.0
+            : lerp(1.0, SampleShadowCSM(IN.ShadowPos, IN.ShadowPosNr, IN.ShadowPosMd, foliageNormal, lightDir),
+                saturate(ShadowCascadeParams.w) * saturate(LightDirEnabled.w));
+        float3 foliageAmbient = lerp(AmbientGroundColor.rgb, AmbientColor.rgb, 0.75);
+        float3 litFoliage = base * (foliageAmbient + SunColorIntensity.rgb * SunColorIntensity.w * foliageDiffuse * foliageShadow)
+            + ComputePointLights(IN.WorldPos, foliageNormal, base, IN.SvPos);
+        float foliageLighting = saturate(LightDirEnabled.w) * (1.0 - MaterialParams.y);
+        float3 col = lerp(base * 1.05, litFoliage, foliageLighting);
         float selfFogApplied = 0.0;
         // Match opaque draws: when screen-space FogPost is active, let it own volumetric fog
         // (FogSkip would otherwise permanently exclude these pixels from FogPost).
         if (FogParams.x > 0.5 && NoFog < 0.5 && (EffectParams.z < 0.5 || NoDepthWrite > 0.5))
         {
-            float rayLength = length(IN.WorldPos - cameraPos);
-            float jitterSeed = InterleavedGradientNoise(IN.SvPos.xy);
-            float3 inscatter;
-            float transmittance = RayMarchFog(cameraPos, viewDir, rayLength, lightDir, jitterSeed, inscatter);
-            col = lerp(col, col * transmittance + inscatter, saturate(FogColor.a));
+            float4 fog = FroxelFog(IN.SvPos.xy * ViewportParams.zw, cameraPos, IN.WorldPos,
+                mul(float4(IN.WorldPos, 1.0), ViewProjection).w);
+            col = lerp(col, col * fog.a + fog.rgb, saturate(FogColor.a));
             selfFogApplied = 1.0;
         }
-        return MakeOut(float4(col, MaterialColor.a * tex.a), selfFogApplied);
+        return MakeOut(float4(col, MaterialColor.a * tex.a), selfFogApplied,
+            base * foliageAmbient * foliageLighting);
     }
 
     float3 l       = normalize(-lightDir);
@@ -1190,6 +1203,10 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
         float steps = StylizedParams.y;
         halfLambert = floor(halfLambert * steps) / max(steps - 1.0, 1.0);
     }
+    // PBR materials (with an ORM map) outside stylized lighting use Lambert diffuse. The half-Lambert
+    // wrap lights faces the shadow map treats as unlit, a light leak on physically based surfaces.
+    if (StylizedParams.x < 0.5 && MaterialFeatures.x > 0.5)
+        halfLambert = ndotl;
 
     // Hemisphere ambient: blend sky/ground ambient terms by how much the normal
     // points up vs down, instead of one flat scalar. Keeps faces that the sun never
@@ -1242,6 +1259,8 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
     if (MaterialParams.z > 0.5)
         lit += base * 0.20;
     float3 mappedEmission = MaterialFeatures.z > 0.5 ? EmissionMap.Sample(AlbedoSamp, materialUv).rgb * MaterialSurface.z : 0.0;
+    if (LinearColorPipeline())
+        mappedEmission = SrgbToLinear3(mappedEmission / max(MaterialSurface.z, 1e-4)) * MaterialSurface.z;
     float3 color = lit + emissive * base + mappedEmission;
     if (StylizedParams.x > 0.5 && StylizedParams.w > 1.0)
     {
@@ -1250,7 +1269,7 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
     }
 
     // Point lights obey the same global lighting master switch as sun/ambient lighting.
-    color += ComputePointLights(IN.WorldPos, n, base, IN.SvPos)
+    color += ComputePointLightsPbr(IN.WorldPos, n, base, IN.SvPos, viewToCam, roughness, metallic, 1.0)
         * (1.0 - MaterialParams.y) * saturate(LightDirEnabled.w);
 
     // Self-apply ray-marched fog when: fog is on, this material doesn't opt out (NoFog), and
@@ -1262,16 +1281,14 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
     float selfFogApplied = 0.0;
     if (FogParams.x > 0.5 && NoFog < 0.5 && (EffectParams.z < 0.5 || NoDepthWrite > 0.5))
     {
-        float rayLength = length(IN.WorldPos - cameraPos);
-        float jitterSeed = InterleavedGradientNoise(IN.SvPos.xy);
-        float3 inscatter;
-        float transmittance = RayMarchFog(cameraPos, viewDir, rayLength, lightDir, jitterSeed, inscatter);
-        color = lerp(color, color * transmittance + inscatter, saturate(FogColor.a));
+        float4 fog = FroxelFog(IN.SvPos.xy * ViewportParams.zw, cameraPos, IN.WorldPos,
+            mul(float4(IN.WorldPos, 1.0), ViewProjection).w);
+        color = lerp(color, color * fog.a + fog.rgb, saturate(FogColor.a));
         selfFogApplied = 1.0;
     }
 
     float vertAlpha = voxelTiled ? 1.0 : IN.Color.a;
-    return MakeOut(float4(color, MaterialColor.a * vertAlpha * tex.a), selfFogApplied);
+    return MakeOut(float4(color, MaterialColor.a * vertAlpha * tex.a), selfFogApplied, ambient * lightingOn);
 }
 ";
     }

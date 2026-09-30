@@ -30,10 +30,11 @@ public static class TerrainSurfaceShaders
             float4 weights = max(FlowMap.Sample(AlbedoSamp, uv), 0.0);
             float total = dot(weights, float4(1, 1, 1, 1));
             weights = total > 0.0001 ? weights / total : float4(1, 0, 0, 0);
-            return AlbedoTex.Sample(AlbedoSamp, TerrainLayerUv(uv, 0)).rgb * weights.x
+            float3 layered = AlbedoTex.Sample(AlbedoSamp, TerrainLayerUv(uv, 0)).rgb * weights.x
                 + TerrainLayer1.Sample(AlbedoSamp, TerrainLayerUv(uv, 1)).rgb * weights.y
                 + TerrainLayer2.Sample(AlbedoSamp, TerrainLayerUv(uv, 2)).rgb * weights.z
                 + TerrainLayer3.Sample(AlbedoSamp, TerrainLayerUv(uv, 3)).rgb * weights.w;
+            return LinearColorPipeline() ? SrgbToLinear3(layered) : layered;
         }
         """;
 }

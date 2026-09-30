@@ -88,6 +88,7 @@ namespace Genesis.Rendering.SilkNet.DX12
                         CS = new ShaderBytecode { PShaderBytecode = code, BytecodeLength = (nuint)program.ComputeShader.Length },
                     };
                     ComPtr<ID3D12PipelineState> pipeline = default;
+                    GpuTelemetry.PipelineCreated();
                     SilkMarshal.ThrowHResult(_runtime.Device.Handle->CreateComputePipelineState(&desc,
                         SilkMarshal.GuidPtrOf<ID3D12PipelineState>(), (void**)pipeline.GetAddressOf()));
                     program.ComputePipeline = pipeline;

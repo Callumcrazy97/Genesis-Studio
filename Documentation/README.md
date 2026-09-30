@@ -1,5 +1,486 @@
 # Genesis Studio Master
 
+## Large-world 3D engine readiness — implementation in progress
+
+The 29 September existing-editor acceptance below remains a bounded checkpoint. It does **not**
+accept the new single-player Tavern RPG target: an 8 × 8 km authored world, reference-informed
+stylised presentation, 1080p High at 60 FPS on i7-14700F / RTX 5060 Ti 8 GB / 16 GB RAM.
+This programme is performed sequentially without computer control or parallel agents. Game rules
+(quests, inventories, equipment, combat, jobs) remain ordinary user scripts and resources.
+
+**Current scope, 29 September:** the large-world engine programme remains unfinished. The user
+subsequently authorised production of one reference-informed Tavern scene, generated material
+assets and reusable Blender models now. This bounded art/authoring exercise does not accept the
+large-world engine or constitute production of the complete RPG. No computer control or parallel
+agents are used for the current work.
+
+### Engine audit remediation — rendering, frame-path waste and volumetric fog, 30 September
+
+An engine audit (per-frame waste of the "model re-scanned and re-uploaded every frame" kind,
+correctness bugs and rendering quality gaps) was implemented in four phases. The plan and the
+full finding list (F/RT/E/R/B/P/Q items, deferred Phases 5–6) are in the session plan
+`are-there-any-issues-eventual-reef.md`.
+
+**Phase 1 — per-frame waste.** `RenderStats` now reports upload bytes, buffer/texture/render-target/
+pipeline creations and asset file checks/reads per frame (`GpuTelemetry`, `AssetIoCounters`).
+Sprite draws resolve each (image, frame) once into a cached binding instead of ~20 file-system calls
+per draw; model, texture, shader and particle freshness checks share `RuntimeAssetPolicy`
+(generation-based invalidation, jittered bounded polling). Exported games load assets once: only a
+Studio launch passes `--live-reload`, which enables the file watcher and polling. Vulkan/OpenGL
+map-discard touch only the written bytes; omni casters are culled to the light; skin palettes upload
+once per key per frame; simulated water updates its vertex buffer in place; the fixed timestep drops
+backlog past its step cap; recycled entities no longer inherit draw state; terrain sculpting rebuilds
+only touched chunks; undo is bounded; closed editors unsubscribe from static theme events.
+
+**Phase 2 — image correctness.** Cooked BC7 colour now samples the same bytes as an uncooked
+upload (a cook no longer changes brightness); lit textures get mip chains. A linear colour pipeline
+exists but is **opt-in** (`GENESIS_LINEAR_COLOR=1`), because authored painted shaders were tuned in
+gamma space. Distant geometry is no longer treated as sky; the renderer reads the real near plane;
+height fog is densest at the ground (it was inverted); sun scatter brightens toward the sun instead
+of being suppressed; GTAO/contact depth linearization uses D3D depth; transparents sort back to front;
+skinned meshes bind their own normal/ORM/emission maps and cast shadows; foliage is lit.
+
+**Phase 3 — lighting.** Point lights have GGX specular and respect metalness; PBR materials use
+Lambert diffuse. Sun cascades choose casters by their light-space footprint (tall or wide occluders
+no longer lose their shadow) and pancake casters above the near plane; high-quality filtering is a
+12-tap Poisson disc with a blend band between cascades. Up to four point **or spot** lights
+(`IRenderController.AddSpotLight`) shadow through one atlas, with slot hysteresis so the shadowing
+lantern does not flip as the camera moves. Shadow maps are cached: a cascade or atlas face is
+re-rendered only when its light matrix or the casters inside it change, or a skinned caster touches it. Point lights are culled into
+16×16×24 depth-sliced clusters, and over the light cap the strongest lights are kept. Cascade
+placement derives the camera direction from the view instead of trusting `Mesh3DState.CameraForward`.
+
+**Phase 4 — froxel volumetric fog.** Fog is a camera-aligned froxel volume (128–192 × 72–108 ×
+48–96 by `VolumetricFogQuality`, exponential slices to 200 m, closed-form height fog beyond). Each
+froxel injects height fog, noise and placed fog volumes (now up to 64, evaluated once per froxel),
+lit by the sun through the cascades — so shafts come from real occluders — and, when local
+volumetrics are enabled, by clustered point/spot lights through the shadow atlas. The volume is
+integrated front to back once per frame; the composite, the forward pass (for draws that write no
+depth) and water all sample it, which replaces three hand-synced per-pixel ray marches and the
+separate half-resolution local-light pass. `VolumetricTemporalBlend` below 1 adds jittered sampling
+with reprojected history; at 1 (golden captures) the volume is deterministic. Stars, clouds and bloom
+are attenuated by the pixel's fog transmittance, water no longer fogs against the lake bed, and GTAO
+now darkens only the ambient term of engine-lit surfaces. Authored mesh shaders stay fogged by the
+composite exactly as before. The Golden Stag window cones continue to work as fog-volume density
+shapes lit by the real sun shadow; no project changes were made. The inject and integrate passes are
+`precise`: without it the display driver's re-optimised shader builds made the volume differ by one
+fp16 step between frames, which broke golden determinism.
+
+**Found during validation.** DX12's mid-frame readback flush advanced the frame ring while the
+descriptor ring stayed on the old slot, so the rest of that frame could be overwritten while the GPU
+read it; with shadow caching this intermittently left a sun cascade empty. The flush now reopens the
+same slot. Vulkan bound zero descriptor sets for programs that declare no resources (the new shadow
+tile clear), which the validation layer rejects; such programs now bind nothing. Details, and golden
+before/after captures, are in `Verification/2026-09-30-EngineAuditRendering.md`.
+
+**Known limits.** GPU compute particles are still fogged by the composite at the depth behind them.
+The Software renderer keeps its own analytic fog. `FogSunPreserve` is no longer read. Deferred
+(Phases 5–6): DX12 descriptor redesign, Vulkan device-local memory, reversed-Z, TAA, IBL,
+auto-exposure, MikkTSpace tangents, LOD simplification and physical atmosphere LUTs.
+
+**Validation.** Goldens were re-recorded once (`--test render --update-baselines`; drift 24.15/255
+GPU, 20.44/255 Software, explained in the verification note). Two Full Builds ran:
+`20260930-150648-b7323566` passed 1,073 checks with 2 failures, and `20260930-154852-6f2e1130` passed 1,074
+with 1. The failures were different each time and none reproduced in isolation:
+
+- Shader workspace OpenGL Undo: 4 of 5 isolated runs passed. The failure restored text beginning with
+  typed characters, which points to keystrokes reaching the visible test window.
+- Exported persistence Player timeout: 5 of 5 isolated runs passed.
+- F5 Player cold start over 30 s: passed in the first Full Build and when rerun focused.
+
+Other agent sessions and a remote desktop shared the machine during both runs. Regression failed
+both times, so neither Full Build ran the renderer smokes. `Build.bat --quick --full-smoke` then
+found the Vulkan validation errors above. After the fix, Quick Build `20260930-161503-9ffd71c9` passed
+all five renderer smokes and promoted. Final focused runs passed: shadows 7/7, fog 4/4 and render
+72/72. Fog and shadows each passed 8 of 8 repeated runs.
+
+### Golden Stag Tavern — reusable assets and measured building
+
+Source work is in `Assets/TavernInterior/`. `TavernIndividualAssets.blend` contains 49 reusable
+prop assets; `GoldenStagEmptyTavern.blend` contains six structural assets and no furnishings or
+NPC placements. The original NPC source assets are retained separately. The Genesis project is
+`GenesisProject/Golden Stag Tavern/Golden Stag Tavern.genesisproj` under that asset directory.
+
+- 28 reference materials have albedo, normal and packed ORM maps, originally 1024 pixels.
+  Albedos were generated with the built-in image-generation tool. Blender derived subtle normal
+  relief and authored roughness/metallic channels; these are stylised material maps, not measured
+  scans or baked illumination. Sources and channel definitions: `reference-materials.json`.
+- Ground footprint: 14 × 18 m; upper footprint: 14.9 × 18.9 m, giving a 45 cm jetty. Ground ceiling
+  is 3.15 m with 2.8 m beam clearance. The upper floor is at 3.32 m. The recessed quarter-turn
+  stair has 16 risers, 28 cm treads, a turning landing, an upper arrival and a continuous floor
+  opening. The kitchen is an actual room beyond an open passage.
+- Separate windows use generated leaded-glass textures. Doors have ring pulls, backplates and
+  iron straps on both sides. The building has a pitched roof, dormer openings, timber framing,
+  stone foundation, chimney and porch. Bed parts, chest, washstand, linen, basin, jug, desk, map,
+  quill, sconces and the exterior service props are ordinary reusable model/Object resources.
+- 55 canonical models currently produce 210 Room Objects, including 12 lights and one camera.
+  The Room Editor's actual placement routine placed all 210 and its save/reopen check preserved
+  their positions and references. Scripts and validation helpers live under `Tools/`.
+- Native DX11 captures identified and reproduced a vertically mirrored full-screen UV bug in
+  GTAO. Its correction also applies to the shared bloom, contact-shadow and local-volume shader
+  passes. Native before/after Tavern captures confirm the misplaced dark overlays are gone.
+  A second preview defect drew invisible utility Objects as solid cubes in the Room game-camera
+  preview; its focused regression passed. A fresh Room Editor placement/save/reopen capture also
+  preserved all 210 Objects. Authoring overlays are not a runtime lighting or shader preview.
+
+#### Dense 3D editor performance and Golden Stag camera repair — 29 September
+
+The copied project at `C:\Users\Cal\Documents\Genesis Projects\Golden Stag` now runs with the
+published H23 build `20260929-202408-eedff7f4`. Its Tavern Camera scripts no longer assign to
+namespaced PGSL properties; they use the implemented callable property bridge, so Create, Step and
+Draw GUI compile together. A fresh installed-Player DX11 run exited normally and produced
+`Debug/Images/Golden-Stag-Installed-CameraFix-20260929.png` with no stderr or script diagnostics.
+
+Room, Model and Terrain now avoid several forms of repeated work that became severe in this scene:
+
+- hidden or minimised 3D editor viewports stop rendering instead of competing with the active tab;
+- Room queues the canonical models for one model-system submission, enables frustum culling and
+  reuses model/texture freshness checks for short bounded intervals;
+- model loading trusts valid persisted bounds, and Model Viewer/Editor no longer perform duplicate
+  whole-geometry bounds scans while initially presenting the same asset;
+- Terrain caches its foliage visibility plan until the view changes or its bounded refresh expires,
+  and reuses transformed instance arrays instead of rebuilding them every frame;
+- the runtime defaults retain immediate asset refresh, while editor instances opt into the bounded
+  caches, preserving saved/runtime live-edit behaviour.
+
+The early five-frame Golden Stag game-camera diagnostic averaged **51.58 ms / 19.39 FPS**. The
+final 30-frame native probe of the same 210-Object room averaged **15.50 ms / 64.52 FPS** in the
+editor camera and **15.51 ms / 64.45 FPS** through the authored game camera. Their p95 values were
+16.83 ms and 16.81 ms. The game-camera sample submitted 313 draws, 1,151,084 triangles and 552
+visible instances, with 135 instances culled. This isolated probe did not reproduce the user's
+approximately one-FPS interactive observation; stopping hidden docked viewports addresses the main
+additional source of multi-editor contention. Interactive navigation still requires a user session.
+
+These FPS figures are bounded by the viewport's 60 Hz presentation path: the roughly 16.6 ms median
+is the presentation interval, while the sampled GPU work was 0.3–0.7 ms. They establish that this
+room sustains the configured refresh rate in the probe, not an uncapped maximum-frame-rate result.
+
+Follow-up build `20260929-204722-4e963e9f` fixes the copied project's PGSL camera movement local
+(`moveSpeed`, avoiding the built-in `speed` instance variable) and adds **View → Utility placeholder
+cubes**. This editor-only toggle hides Objects without sprites or models from both the main Room
+view and the secondary camera inset. Its eight-case camera-list regression passed with four images,
+and the copied Golden Stag project completed a fresh staged-Player DX11 run without script errors.
+
+Validation passed the complete headless regression: **1,051 checks and 768 images**, including
+Room, Terrain, Model, live model-image refresh, all five renderers and exported games. The focused
+Room check also passed before the final promotion. Evidence is in
+`TestResults/Planning/EditorPerformance20260929/`,
+`TestResults/Builds/20260929-200453-c045d047/`, and
+`TestResults/Builds/20260929-202408-eedff7f4/`.
+
+#### Golden Stag authored atmosphere and reusable window volumes — 30 September
+
+The copied Golden Stag project keeps its atmosphere as ordinary project resources. Three
+`West Window Volumetric Shaft` Objects sit at the west leaded windows and create directed analytic
+cone fog volumes, while `Daytime Window Fill` Objects light nearby surfaces. Both are gated by
+`Engine.Sky.TimeOfDay()` and disable their contribution outside 06:30–18:30. They do not use beam
+meshes or painted translucent ribbons.
+
+Genesis now supports `Cone`/`Shaft` as a general `FogVolume` shape. Its bounds encode length,
+source radius and end radius; `Engine.FogVolumeSetDirection` controls the axis and
+`Engine.FogVolumeSetFalloff` controls edge softness. The unchanged 64-byte volume buffer carries
+that direction to forward, terrain and fog-post shaders. This is engine capability rather than a
+hardcoded Tavern effect.
+
+Every visible ground-floor hanging lantern is paired with a project light, including the rear
+lantern that previously had no illumination. Lanterns use localized orange light instead of pale
+room-wide fill. The ambient level leaves contrast for those pools and for warm window daylight.
+`Golden Hearth Particle` remains inside the masonry firebox and layers textured animated flame,
+hot-core, ember and flipbook-smoke particles. A separate flickering orange `Hearth warm light`
+makes the animated hearth affect nearby surfaces; the disabled legacy flame mesh remains disabled.
+
+The single reusable production skill is
+`C:\Users\Cal\Documents\Genesis Projects\Golden Stag\Documents\Skills\golden-stag-production\SKILL.md`.
+It records the ImageGen style and PBR channel recipe, Blender modelling/export conventions, Genesis
+Model rig/animation import workflow, sockets, Room placement, volumetric window-light recipe,
+lantern/ambient/fire values, and native visual acceptance checks.
+
+One final native Vulkan Player verification loaded 236 entities without script diagnostics and
+saved `Debug/Images/GoldenStag-Final-Lighting-20260930.png` from the authored camera. The inspected
+frame shows soft widening daylight haze beginning at the west windows, localized orange lantern
+illumination, and the layered fire inside the masonry firebox. Its snapshot reported 60.0 FPS,
+4.06 ms GPU time, 397 3D draws, 1,486,650 triangles, 22 point lights, 14 particle emitters and
+100 active particles. This one frame establishes placement and final composition; the particle
+resources and earlier motion sequence establish animation, while a sustained performance run was
+not repeated for this lighting-only request.
+
+#### Golden Stag living cast and reusable character controls — 30 September
+
+The working game remains `C:\Users\Cal\Documents\Genesis Projects\Golden Stag`, opening
+`Golden Stag Tavern.genesisproj`. Its `Assets/Scripts/LivingTavern.cs` owns player movement/camera,
+dialogue, gold, orders, cooking, deliveries, patron routines and social gaze. None of those game
+rules were added to the engine. The matching standalone export is the sibling
+`Golden Stag Playtest\The Golden Stag.exe`.
+
+The project now contains seven independent actors (player, barkeep, chef and four patrons), six
+reusable character models, an ImageGen albedo atlas, five separate service-prop models and 24
+skeletal animation clips. The editable `.blend`, GLB sources, canonical Genesis models and
+sequential import/Room-authoring helper are retained in the project. Export copies consolidate
+compatible mesh groups to 14–15 meshes per character while preserving separate Blender pieces.
+A dynamic wardrobe/equipment UI is not implemented; outfits are authored skinned model variants
+and held props use existing sockets. The project skill records this distinction and future outfit
+authoring guidance.
+
+Reusable engine additions are per-instance material tint and mesh visibility, local additive bone
+rotation after animation blending, and `EntityBehavior.SetEntityTransform` to synchronize scripted
+movement with the shared/physics transform. PGSL exposes `ModelSetMaterialTint`,
+`ModelSetMeshVisible`, `AnimationBoneSetRotation` and `AnimationBoneClearRotation`. These contain no
+Tavern identities or service logic. Bone offsets preserve animated translation and do not mutate
+the shared model. The new helper corrected a native failure where fixed updates restored an older
+actor transform. A project UI correction rejects behind-camera labels before pixel projection.
+
+The performance pass also removes repeated model path resolution during the runtime freshness
+interval, bounds particle-file checks while preserving immediate emission controls, and retains GPU
+particle lookup buffers when curve values have not changed. Sockets reuse the matching model
+already evaluated by an active animation controller instead of deserializing another copy when a
+character first receives a held item. Model/project changes and paused animation retain normal
+resource lookup; these caches contain no game-specific identities.
+
+Validation is bounded:
+
+- Quick publish/package/startup checks passed in `TestResults/Builds/20260930-111641-86d8169d`.
+  Full regression and the five-backend matrix were not run for this project increment.
+- Focused CPU regressions passed for allocation-free warm model lookups, aliases, project
+  isolation, invalidation/expiry, particle hot reload and immediate rate changes, and socket reuse.
+  The socket case locks the canonical model after animation loads it, then verifies first attachment
+  succeeds without another file read; changed references/projects and paused edits also pass.
+- The saved project PGSL/C# compilation, 100 service routes, 24 changing animation clips,
+  independent gaze and cup/mouth alignment passed. The cup rim is approximately 8 mm from the
+  mouth at the peak drinking pose. Raw results are in the project's
+  `Documents/Verification/CastStructuralChecks.json`.
+- A 145-second exported Vulkan route exercised movement (3.40 m through the input path), both
+  camera keys, purchasing, cooking, counter handoff, player delivery and patron consumption.
+  It retained seven coherent actor transforms, spent 9 gold for the player's two orders, and
+  reported no script or route errors. A second purchase while holding a serving was rejected
+  without taking gold or replacing the held item. Native images show dialogue/nameplates,
+  cup-to-mouth drinking, one-hand plate support while eating, two-hand food carrying, cooking
+  steam and the living room. These inspected captures do not replace human motion/playthrough review.
+- The final 145-second measurement at **1920×1061** recorded **8,598 frames / 144.742 seconds**
+  (**59.4 FPS**), **19.90 ms P95**, **23.92 ms P99**, and **1.89 GiB peak working set**. This compares
+  with 45.7 FPS / 25.33 ms P95 before the cache fixes. First-use socket deserialization caused
+  roughly 400 ms simulation stalls in the intermediate run; the final maximum simulation update
+  was 14.42 ms. Overall maximum frame time was 150.70 ms; this run includes scripted F12 captures
+  as well as the six separately excluded benchmark captures. GPU timing and VRAM were unavailable.
+  **The strict 1080p/60 P95 gate remains unmet**; this is also not a ten-minute or thirty-minute
+  stability acceptance. The earlier captures and measurements remain separate historical evidence.
+
+Final evidence: `TestResults/Planning/GoldenStagLivingTavern20260930/SocketReuseFinal/`.
+Earlier measurements: `Final/`, `CachedModels/`, `ParticleCacheFinal/`; focused steam: `SteamReadability/`.
+The project contains a portable copy of the checks and selected captures in `Documents/Verification`.
+The production skill now includes rig axes, action/socket calibration, character ImageGen prompt
+and actual source dimensions, navigation and service editing, controls, regeneration cautions and
+open acceptance. `C:\Users\Cal\Documents\Skills\golden-stag-production\SKILL.md` points to that
+single authoritative project skill. Native Room Editor usability, human playtesting, broad engine
+regression and sustained 60 FPS remain outside this bounded acceptance.
+
+#### Authored painted lighting and stencil outlines — 29 September
+
+The project now owns three editable Shader Resources in `Assets/Shaders/`: `Painterly Toon`,
+`Stencil Outline 3D`, and the combined `Tavern Painted Ink`. All 55 model Object resources used
+by the room reference the combined shader; utility camera and light Objects do not draw geometry.
+These are actual mesh passes, not outlines drawn into a screenshot. The combined resource retains
+the engine material textures, point lighting and emission, and adds a configurable painted-light
+response followed by stencil mask, expanded back-face silhouette and stencil reset passes.
+
+Controls include `ToneSteps`, `ToneBlend`, `ColourSaturation`, `PaintedFill`,
+`OutlineWidthPixels` and `OutlineColour`. PaintedFill is a deliberate illustration-style minimum
+illumination, not baked GI. Shader schema 7 stores each pass's mesh role and optional skinned
+vertex entry; the Shader Editor's pass Settings dialog exposes these fields. Version-6 resources
+retain ordinary Surface behaviour. A standalone single-pass preview is not proof of the full stack.
+
+Native checks in `shader-native-checks.json` passed **16 cases**: rigid geometry, nonuniform
+scale, a retained skinned pose and a 24-object pass stack, each on DX11, DX12, Vulkan and OpenGL.
+The checks compare rendered pixels, require visible outline pixels, reject damage to the interior
+surface and verify that foreground geometry hides the outline. They exposed and led to fixes for
+unstable equal-distance pass sorting, mask/reset depth equality and a DX12 bone-palette lifetime
+bug affecting unchanged poses. Normal and ORM texture loads now explicitly request linear colour
+space, and PBR surfaces use anisotropic sampling while pixel-art sampling remains unchanged.
+
+A quieter generated oak albedo is retained as `Textures/Reference/QuietOak-v2.png`; it is used by
+the four wood materials, with their previous albedos preserved as `*_BaseColor-v1.png`.
+Its 1254-pixel source exposed a BC7 upload failure. The cooker now resamples only the cooked copy
+to block-aligned dimensions (1256 here), and a rejected cooked upload falls back to the editable
+source. Regression coverage checks odd-sized BC5/BC7 inputs, source preservation and shader
+pass-state save/reopen. Exact generation prompts and original paths are in `artwork-provenance.json`.
+
+**Open acceptance:** the latest inspected native image is `Captures/Tavern-StencilDepth-DX11-v8.png`.
+It is not near reference parity: lighting/composition, some broken board-edge lines, prop placement
+and visual polish remain open. Transparent/special mesh routes and full-stack editor previews need
+separate coverage; Software does not establish arbitrary authored HLSL visual parity. The retained
+pose fix has passed the focused native checks; full regression is being rerun after updating two
+old shader-schema expectations. Earlier passing full builds do not validate these later changes.
+Exported Tavern verification is pending. Genesis and asset-creation skills remain pending the user's
+explicit near-visual-parity gate; they have not been created as if this workflow were accepted.
+
+**Acceptance remains separate:** native interior, bedroom and exterior images were inspected;
+the scene is not yet accepted as matching the illustrated references. The original v1 bedroom
+capture exposed dormer soffit and roof/wall gaps, subsequently corrected in the authored model.
+The camera is an inspection camera, not a validated stair-walking character controller. No
+60-FPS, physical traversal, complete-game or final aesthetic verdict is inferred from these assets.
+Current native captures are under the project's `Debug/Images/`; validation reports are
+`genesis-import-report.json`, `architecture-checks.json` and `room-editor-checks.json`.
+
+| Milestone | State | Required exit evidence |
+|---|---|---|
+| 1. Tavern benchmark and profiling | In progress | Saved project, reproducible route, native captures and measured baseline; no automatic aesthetic verdict. |
+| 2. General persistence and PGSL efficiency | In progress | Text/JSON round trips, failure diagnostics, saved Object-event scripts in exported Player; ≥90% fewer arithmetic/register benchmark allocations without execution-time regression. |
+| 3. Authored-world streaming | In progress | 256 m cells with real terrain/collision/Object/foliage residency, stable identities, bounded queues/caches and coherent origin shifts. |
+| 4. Navigation and character production | Pending | Layered/tiled navigation through stairs/stacked floors; cancellable requests; shared-skeleton attachments and mesh visibility. |
+| 5. Rendering and clear authoring | Pending | Four bounded High-quality local shadow lights, interior environment volumes, probes, anti-aliasing, live edits and usable contextual editors. |
+| Final large-world engine acceptance | Pending | Ten-minute p95 ≤16.7 ms / p99 ≤25 ms trace at 1080p High; 30-minute traversal; Player RAM ≤8 GiB / VRAM ≤6 GiB; stress populations, all renderer exports, compatibility regressions and native-informed reviews. Production artwork and game acceptance follow this engine programme. |
+
+Benchmark source populations are 250,000 distributed foliage instances, 10,000 placed Objects and
+128 active animated agents. Terrain authors land and owned parts; Room places Terrain resources,
+Objects and interiors. The engine must retain Genesis authoring and imported resource editing,
+rigging and animation workflows. Software receives functional/reduced-quality coverage, not the
+High-quality 60 FPS gate. Preserve existing 2D, project/save formats and version-1 navigation.
+
+The planning audit ran the published H23 workspace, 116 focused checks (zero failures), all five
+Verdant export backends, a 658-entry PGSL callability sweep and a fresh-process numeric-save
+round trip. Evidence: `TestResults/Planning/TavernOpenWorld20260929/`. These are foundation checks,
+not Tavern visual or large-world acceptance. Numeric saves are limited to 256 numbers; general
+PGSL text I/O and JSON remain pending at the start of this programme. VM microbenchmarks allocated
+204,888 / 131,280 / 66,648 / 43,096 bytes per arithmetic / register / native / function execution.
+
+Engine checkpoint `20260929-114825-1181a97e`: Quick Build passed with zero warnings/errors,
+five focused checks and six native DX11 images. Exported Player opens the configured start room,
+retains the startup resolution, and uses actual model bounds so large interior shells remain
+visible when their Object origins leave the camera view. The opt-in Player benchmark records
+real frame/phase/GPU timings, process allocations, memory and captures. The 48-second primitive
+fixture ran at 1920 × 1080: p95 5.0695 ms, p99 6.058 ms, maximum 35.287 ms and peak working set
+454,762,496 bytes. It allocated 8,412,542,392 process-wide bytes while uncapped. This is a short
+diagnostic trace, **not** the ten-minute High-quality large-world gate, script-only allocation
+measurement, VRAM measurement or visual approval. Other backend smokes were skipped in this Quick
+Build. Evidence: `TestResults/Builds/20260929-114825-1181a97e/Tests/Images/Tavern/DX11/`.
+
+### General persistence and script execution checkpoint
+
+The synchronous persistence checkpoint `20260929-120828-50ec41c3` passed Quick Build with
+seven checks, zero warnings/errors, matching Studio/Player publication and startup/package checks.
+Its saved `.pgsl` Object Create event writes Unicode/nested JSON and numeric state in one exported
+DX11 Player process and restores them in a second process. Moving the source project preserves
+the writable directory when its project identity is retained. Other renderer smokes were skipped.
+The combined VM/cache/job checkpoint `20260929-124709-4a8bd3cd` then passed Quick Build:
+13 focused checks, zero warnings/errors, matching publication and startup/package checks.
+The exported Player passed both synchronous Create-event and asynchronous Step-event persistence
+in two separate DX11 processes. Runtime compatibility passed a further 40 checks (three images)
+and code assistance passed six checks, including typed arguments and the persistent position bar.
+Evidence: `TestResults/Builds/20260929-124709-4a8bd3cd/` and
+`TestResults/Engine/PersistenceCompatibility20260929/`. Full regression and the five renderer
+smokes remain pending for this checkpoint; this does not establish final engine readiness.
+
+Full attempt `20260929-130430-8288f96e` exposed retained jobs in the Help command callability
+sweep. Its scratch context queued asynchronous file commands without releasing their handles,
+so the later global-capacity check failed. The already-failed regression was stopped and was not
+promoted; its incomplete results and skipped renderer smokes are not acceptance evidence.
+The command sweep now releases its scratch jobs and uses a distinct persistence identity for
+file/numeric-save commands, preserving the caller's context and saves. Quick verification
+`20260929-132215-5941c542` caught an incorrect count assertion in the new test (seven save
+commands, not eight); that attempt was also not promoted. The corrected Quick Build
+`20260929-132458-b8e8963e` passed all 14 combined checks, zero warnings/errors, matching
+publication and startup/package checks. The full rerun with this correction then passed below.
+
+**Latest engine regression checkpoint: Full Build `20260929-132753-e26dc441` PASSED.** It
+published matching Studio H23 and Player in 1,262.29 seconds, with **1,047 checks passed,
+zero failures, 768 registered images and zero compile warnings/errors**. DX11, DX12, Vulkan,
+OpenGL and Software explicit smokes all passed; none was skipped. Package/assembly consistency,
+Studio startup, bundled shader compilation and promotion passed. The regression includes the
+new persistence, job capacity/cleanup, scoped command-sweep, VM, cache and streaming checks, plus
+existing 2D/3D authoring, live editing and Mushroom Meadow/Verdant/physics/pathing exports.
+Evidence: `TestResults/Builds/20260929-132753-e26dc441/BuildSummary.json` and `Tests/results.json`;
+product fingerprint `4F6786BA5AF25A4567A8AC33CBB027D0E4ACCDBDE92C1AE780139FCC229BE6F1`.
+This accepts compatibility of this engine checkpoint. It does **not** accept the unfinished
+large-world programme, sustained hardware budgets or concept-art visual quality. Registered
+images and passing automated pixel/layout checks are not a fresh subjective aesthetic verdict.
+
+| PGSL facility | Live commands and behaviour |
+|---|---|
+| Existing numeric saves | `SaveSetNumber`, `SaveGetNumber`, `SaveFlush`, `SaveExists`, `SaveClear` retain the existing project identity and version-1 `campaign.json`. First access loads automatically; no separate `SaveLoad` command. Limit: 256 finite numbers. |
+| Checked numeric saves | `SaveTrySetNumber(key, value)` returns a boolean for invalid keys, non-finite values or capacity; `SaveLastError()` explains failure. Updating an existing key at capacity is allowed. |
+| Text files | `FileExists(path)`, `FileReadText(path)`, `FileWriteText(path, text)`, `FileLastError()`. UTF-8, maximum 4 MiB; writes flush a unique same-directory temporary file and atomically replace the destination. A failed/interrupted pre-commit write preserves the previous file. |
+| JSON | `JsonEncode(handle, kind)`, `JsonDecode(text, kind)`, `JsonLastError()`, `JsonFree(handle, kind)`. Root kind is explicitly `map` or `list`; malformed input, duplicate keys, cycles, released handles, excessive depth and non-finite numbers report failure. |
+| Typed nested collections | `DsMapSetCollection`, `DsListAddCollection`, `DsListSetCollection` store explicit `map`/`list` references. Ordinary numeric handles remain numbers even when the two collection families use the same number. |
+| JSON scalar types | Map/list boolean and null setters/adders plus `DsMapValueKind` / `DsListValueKind` preserve numbers, strings, booleans and null. |
+| Bounded native file jobs | `FileReadTextAsync`, `FileWriteTextAsync` return a job handle (0 plus `FileLastError` on enqueue failure). `JobStatus`, `JobResultKind`, `JobResultString`, `JobResultBool`, `JobResultNumber`, `JobError`, `JobLastError`, `JobCancel`, `JobRelease` provide typed results and explicit lifecycle. Saved Object Step events pass in the matching exported DX11 Player. |
+
+Relative paths resolve below `%LocalAppData%/Genesis/GameSaves/<project-identity>/`; explicit
+absolute Windows paths remain permitted. Relative traversal outside the game directory and
+drive-relative paths fail with diagnostics. Empty text is a valid successful read; check
+`FileLastError()` to distinguish it from failure. `JsonFree` releases a decoder-owned tree,
+including its removed decoded children, while preserving manually attached collections. Manually
+created map/list resources retain their existing explicit destroy lifecycle.
+
+```pgsl
+// User-defined save format; the engine does not decide what game state to store.
+var save = DsMapCreate();
+DsMapSet(save, "score", 125);
+DsMapSetString(save, "name", "Aldous");
+var encoded = JsonEncode(save, "map");
+if (JsonLastError() == "") {
+    if (!FileWriteText("save.json", encoded)) { Print(FileLastError()); }
+}
+DsMapDestroy(save);
+
+var text = FileReadText("save.json");
+if (FileLastError() == "") {
+    var loaded = JsonDecode(text, "map");
+    if (loaded != 0) {
+        var restoredScore = DsMapGet(loaded, "score");
+        JsonFree(loaded, "map");
+    } else { Print(JsonLastError()); }
+}
+```
+
+Poll asynchronous jobs from an ordinary Object event: states are `queued`, `running`,
+`succeeded`, `failed`, `cancelled` or `invalid`. Read the appropriate typed result only after
+success and release every completed handle. Pending or wrong-type reads set `JobLastError`;
+operation failures are available through `JobError`. Limits are 16 retained jobs per Object,
+32 globally and four active native workers. Destroying an Object cancels/releases its jobs.
+These jobs run native file operations; they do not run arbitrary gameplay scripts off-thread.
+
+The compiled-script cache is now an LRU bounded to 256 entries and 8 MiB of estimated source/
+bytecode weight. Project switches, registered script dependency edits and unload invalidate it;
+an oversized program still executes without remaining cached. Two focused checks passed under
+`TestResults/Engine/CompileCache20260929/`. Weight accounting is a cache policy, not a measured
+process memory claim.
+
+Typed bytecode values and reusable operand storage retain the native/debugging object types,
+legacy truthiness, return values and live instance-register updates. In matched fresh-process
+17-sample Release comparisons (`TestResults/Engine/VmComparison20260929/old3.json` and
+`new3.json`), bytes per execution fell from 204,888 to 0 for arithmetic, 131,280 to 0 for
+registers, 66,648 to 61,440 for native commands and 43,096 to 3,072 for user functions. Median
+microseconds were respectively 143.84→143.83, 108.75→105.67, 342.99→340.68 and 51.26→50.96.
+These isolate script execution and are not the ten-minute world frame-time gate. Native argument
+boxing remains a further measured optimisation opportunity. Do not compare timings to the older
+planning run as though the runs had identical conditions.
+
+### Streaming planner checkpoint — actual asset paging still pending
+
+Five focused source checks pass in `TestResults/Engine/WorldStreamingJobs20260929/` (Release,
+zero compile warnings/errors). The manifest planner now queries a spatial index of actual cell
+bounds, uses squared distances and reusable priority/retirement queues, and avoids rebuilding
+queues for a stationary focus. The 8 km diagnostic grid clips its final 256 m cells to 64 m;
+local queries inspect nearby records rather than the complete manifest. Two hundred warmed
+stationary ticks allocate zero bytes. Traversal checks cover exact-radius neighbours, corners,
+per-frame load/unload budgets, correct pending counts, hysteresis, sparse/nonuniform version-1
+records and unique lifecycle notifications. Invalid or non-finite manifest bounds fail clearly.
+
+Streaming workers now support scene-lifetime cancellation, reject work after disposal, finish
+legacy native jobs safely and discard callbacks belonging to a disposed scene. The former
+dispose-while-running path could release a disposed semaphore. Worker execution no longer inherits
+ambient script state. Main-thread completions stop at both the count budget and a configurable
+elapsed-time budget (default 2 ms); an individual callback cannot be pre-empted and must itself
+remain small. The focused tests validate cancellation, late completions and both budget types.
+
+These are planner/lifecycle changes, **not** proof of actual terrain residency. The current Room
+terrain subsystem still loads full terrain heights, full collision and its authored sidecars;
+manifest enter/retire notifications alone do not unload those resources. Independently loadable
+terrain/collision/Object/foliage/navigation cells, separate residency, stable authored identities,
+distant representations, bounded completion backlogs and asset caches, and coherent origin shifts
+remain required. These source changes are included in Quick publication
+`20260929-132458-b8e8963e` and passed complete regression/all renderer smokes in
+`20260929-132753-e26dc441`. Actual asset paging and the large-world acceptance gates remain pending.
+
 ## Current acceptance — 2D and 3D game production, 29 September 2026
 
 This is the single authoritative completion document. The older hotfix ledgers below are historical

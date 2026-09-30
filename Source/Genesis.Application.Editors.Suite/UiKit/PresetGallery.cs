@@ -20,7 +20,9 @@ public sealed class PresetCard : Control
         Size = new Size(168, 132);
         Cursor = Cursors.Hand;
         Font = EditorChrome.BaseFont;
-        EditorChrome.Changed += (_, _) => Invalidate();
+        EventHandler chromeChanged = (_, _) => Invalidate();
+        EditorChrome.Changed += chromeChanged;
+        Disposed += (_, _) => EditorChrome.Changed -= chromeChanged;
     }
 
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]

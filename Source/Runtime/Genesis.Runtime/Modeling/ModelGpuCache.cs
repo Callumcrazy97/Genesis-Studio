@@ -24,11 +24,17 @@ namespace Genesis.Runtime.Modeling
             public int PaletteSize;
             public readonly Dictionary<string, SkinPaletteHandle> AnimationPalettes = new(StringComparer.OrdinalIgnoreCase);
             public readonly Dictionary<string, WeakReference<AnimationController>> ControllerOwners = new();
+            /// <summary>Last use of each clip/frame palette, so unused poses can be released.</summary>
+            public readonly Dictionary<string, long> PaletteLastUsed = new(StringComparer.OrdinalIgnoreCase);
             public int ControllerUpdates;
+            public bool BindPoseApplied;
         }
 
         public sealed class CachedMesh
         {
+            public string SourceName;
+            /// <summary>Index of the source <see cref="GModelMesh"/> in the asset.</summary>
+            public int SourceIndex;
             public MeshHandle Mesh;
             public bool IsSkinned;
             public int MaterialIndex;
@@ -36,6 +42,23 @@ namespace Genesis.Runtime.Modeling
         }
 
         private readonly ConditionalWeakTable<IRenderController, RendererCache> _renderers = new();
+
+        /// <summary>Clip/frame palettes kept per asset before idle ones are released.</summary>
+        private const int MaximumClipPalettes = 128;
+        private const long IdlePaletteMilliseconds = 2000;
+
+        /// <summary>
+        /// Releases GPU resources for every renderer. Used when an invalidation does not name its
+        /// renderer: skipping the release there leaked every model's meshes on each Studio edit.
+        /// </summary>
+        public void ClearAll()
+        {
+            var renderers = new List<IRenderController>();
+            foreach (KeyValuePair<IRenderController, RendererCache> pair in _renderers)
+                renderers.Add(pair.Key);
+            foreach (IRenderController renderer in renderers)
+                Clear(renderer);
+        }
 
         public void Clear(IRenderController renderer)
         {
@@ -65,8 +88,9 @@ namespace Genesis.Runtime.Modeling
             cached = new CachedAsset();
             if (asset.Meshes != null)
             {
-                foreach (GModelMesh mesh in asset.Meshes)
+                for (int sourceIndex = 0; sourceIndex < asset.Meshes.Count; sourceIndex++)
                 {
+                    GModelMesh mesh = asset.Meshes[sourceIndex];
                     if (mesh == null || mesh.Indices == null || mesh.Indices.Length == 0)
                         continue;
 
@@ -81,6 +105,8 @@ namespace Genesis.Runtime.Modeling
                         if (!handle.IsValid) continue;
                         cached.Meshes.Add(new CachedMesh
                         {
+                            SourceName = mesh.Name,
+                            SourceIndex = sourceIndex,
                             Mesh = handle,
                             IsSkinned = skinned,
                             MaterialIndex = materialIndex,
@@ -130,13 +156,25 @@ namespace Genesis.Runtime.Modeling
                 string oldest = cached.MorphOrder.Dequeue();
                 if (!cached.MorphMeshes.Remove(oldest, out List<CachedMesh> removed)) continue;
                 foreach (CachedMesh mesh in removed)
-                    if (mesh.Mesh.IsValid) renderer.ReleaseMesh(mesh.Mesh);
+                    if (mesh.Mesh.IsValid && !cached.Meshes.Contains(mesh)) renderer.ReleaseMesh(mesh.Mesh);
             }
 
             List<CachedMesh> created = [];
-            foreach (GModelMesh mesh in asset.Meshes ?? [])
+            bool morphed = false;
+            IReadOnlyList<GModelMesh> sourceMeshes = asset.Meshes ?? [];
+            for (int sourceIndex = 0; sourceIndex < sourceMeshes.Count; sourceIndex++)
             {
+                GModelMesh mesh = sourceMeshes[sourceIndex];
                 if (mesh == null || mesh.Indices == null || mesh.Indices.Length == 0) continue;
+                if (mesh.MorphTargets is not { Count: > 0 })
+                {
+                    // Meshes without morph targets are identical in every variant; share the canonical
+                    // upload instead of cloning and re-registering them for each new weight quantum.
+                    foreach (CachedMesh canonical in cached.Meshes)
+                        if (canonical.SourceIndex == sourceIndex) created.Add(canonical);
+                    continue;
+                }
+                morphed = true;
                 bool skinned = mesh.IsSkinned && mesh.SkinnedVertices is { Length: > 0 };
                 MeshVertex[] plain = skinned ? [] : ModelMorphEvaluator.Apply(mesh, morphWeights);
                 SkinnedMeshVertex[] animated = skinned ? ModelMorphEvaluator.ApplySkinned(mesh, morphWeights) : [];
@@ -148,6 +186,8 @@ namespace Genesis.Runtime.Modeling
                     if (!handle.IsValid) continue;
                     created.Add(new CachedMesh
                     {
+                        SourceName = mesh.Name,
+                        SourceIndex = sourceIndex,
                         Mesh = handle,
                         IsSkinned = skinned,
                         MaterialIndex = materialIndex,
@@ -155,7 +195,7 @@ namespace Genesis.Runtime.Modeling
                     });
                 }
             }
-            if (created.Count == 0) return cached.Meshes;
+            if (!morphed || created.Count == 0) return cached.Meshes;
             cached.MorphMeshes[key] = created;
             cached.MorphOrder.Enqueue(key);
             return created;
@@ -222,20 +262,61 @@ namespace Genesis.Runtime.Modeling
             }
             if (string.IsNullOrEmpty(key))
             {
-                Matrix4x4[] bindPalette = GModelPrimitiveFactory.EvaluateBindPosePalette(asset.Rig);
-                renderer.UpdateSkinPalette(cached.IdentityPalette, bindPalette);
+                // The bind pose never changes for a cached asset; evaluate it once rather than on
+                // every draw of every idle rigged instance.
+                if (!cached.BindPoseApplied)
+                {
+                    Matrix4x4[] bindPalette = GModelPrimitiveFactory.EvaluateBindPosePalette(asset.Rig);
+                    renderer.UpdateSkinPalette(cached.IdentityPalette, bindPalette);
+                    cached.BindPoseApplied = true;
+                }
                 return cached.IdentityPalette;
             }
 
-            if (!cached.AnimationPalettes.TryGetValue(key, out SkinPaletteHandle handle) || !handle.IsValid)
+            bool controllerDriven = animation.Controller != null;
+            if (cached.AnimationPalettes.TryGetValue(key, out SkinPaletteHandle handle) && handle.IsValid)
             {
+                if (!controllerDriven)
+                {
+                    // A clip/frame/blend key fully determines the pose (clip sampling is frame
+                    // quantized), so an existing palette already holds it. Re-evaluating the whole
+                    // skeleton for every instance on the same frame was pure CPU waste.
+                    cached.PaletteLastUsed[key] = Environment.TickCount64;
+                    return handle;
+                }
+            }
+            else
+            {
+                if (!controllerDriven) ReleaseIdleClipPalettes(renderer, cached);
                 handle = renderer.CreateSkinPalette(cached.PaletteSize);
                 cached.AnimationPalettes[key] = handle;
             }
 
+            if (!controllerDriven) cached.PaletteLastUsed[key] = Environment.TickCount64;
             Matrix4x4[] matrices = EvaluatePalette(asset, animation, cached.PaletteSize);
             renderer.UpdateSkinPalette(handle, matrices);
             return handle;
+        }
+
+        /// <summary>
+        /// Every distinct clip frame and crossfade step creates a palette. Without a bound, long
+        /// sessions accumulated one GPU buffer per pose ever shown. Only palettes idle for a while
+        /// are released, so nothing submitted this frame loses its buffer.
+        /// </summary>
+        private static void ReleaseIdleClipPalettes(IRenderController renderer, CachedAsset cached)
+        {
+            if (cached.PaletteLastUsed.Count < MaximumClipPalettes) return;
+            long cutoff = Environment.TickCount64 - IdlePaletteMilliseconds;
+            List<string> idle = null;
+            foreach (KeyValuePair<string, long> pair in cached.PaletteLastUsed)
+                if (pair.Value < cutoff) (idle ??= new List<string>()).Add(pair.Key);
+            if (idle == null) return;
+            foreach (string key in idle)
+            {
+                cached.PaletteLastUsed.Remove(key);
+                if (cached.AnimationPalettes.Remove(key, out SkinPaletteHandle palette) && palette.IsValid)
+                    renderer.ReleaseSkinPalette(palette);
+            }
         }
 
         private static string PaletteKey(GModelAsset asset, RuntimeModelAnimationState animation)

@@ -74,6 +74,7 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
         public float OriginY = 16;
         public Vector4 UvRect;
         public bool HasModel;
+        public bool VisibleInGame = true;
         public bool HasFlow;
         /// <summary>Resolved <c>.model.json</c> path, so the placed object can be drawn with its
         /// real geometry rather than a placeholder box.</summary>
@@ -179,7 +180,9 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
     }
 
     private readonly Dictionary<string, PlacedModelMesh> _modelMeshCache = new(StringComparer.OrdinalIgnoreCase);
-    private readonly RuntimeModelRenderSystem _runtimeModelPreview = new();
+    private readonly RuntimeModelRenderSystem _runtimeModelPreview = new(
+        assetFreshnessIntervalMilliseconds: 500,
+        textureFreshnessIntervalMilliseconds: 1000);
     private bool _assetRefreshPending;
     private float _roomTime;
     private bool _roomTimePaused = true;
@@ -2813,6 +2816,7 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
                 JObject prefab = ObjectDefinitionResolver.PreviewPrefab(ObjectDefinitionResolver.Load(ProjectRoot, prefabPath));
                 if (node.GameObject is { } gameObject)
                     prefab = ApplyContextVisualOverrides(prefab, gameObject);
+                visual.VisibleInGame = (bool?)prefab["visible"] ?? true;
                 JArray? components = prefab["components"] as JArray;
 
                 JObject? spriteComponent = components?.OfType<JObject>().FirstOrDefault(component =>
@@ -3576,10 +3580,14 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
         if (!_roomTimePaused) _roomTime += 1f / 60f;
         SubmitRoomEnvironment(renderer);
         DrawBackgrounds3D(renderer);
+        ModelRenderQueue modelQueue = ModelRenderQueue.Rent();
 
         foreach (RoomNode node in EnumerateVisibleNodes())
         {
             NodeVisual visual = VisualFor(node);
+            // Utility Objects remain selectable in Scene view, but their authoring
+            // placeholders must not obscure the view through a game camera.
+            if (IsGameCameraPreview && !visual.VisibleInGame) continue;
             if (visual.ImagePath is not null
                 && !visual.HasModel
                 && _textures.TryGet(renderer, visual.ImagePath, out TextureHandle texture, out int texW, out int texH))
@@ -3610,7 +3618,8 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
                 // CPU-flow path until that material becomes a canonical shader binding.
                 if (!visual.HasFlow
                     && !string.IsNullOrWhiteSpace(visual.ModelAsset)
-                    && _runtimeModelPreview.DrawModel(
+                    && _runtimeModelPreview.Enqueue(
+                        modelQueue,
                         ProjectRoot,
                         visual.ModelAsset,
                         visual.MaterialAsset,
@@ -3659,6 +3668,8 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
                     continue;
                 }
 
+                if (!ShowUtilityPlaceholders) continue;
+
                 Matrix4x4 world = Matrix4x4.CreateTranslation(0f, .5f, 0f) * GetNodeWorldMatrix(node);
                 renderer.DrawMesh(new MeshDrawCall
                 {
@@ -3670,6 +3681,11 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
                 });
             }
         }
+
+        // Submit all canonical placed models together. Flushing once per Object made a dense
+        // room pay the renderer's complete batch setup hundreds of times per frame and prevented
+        // the backend from grouping repeated meshes and materials.
+        modelQueue.Draw(renderer);
 
         DrawAuthoredTerrainPreview(renderer);
         DrawPlacementModelPreview(renderer);

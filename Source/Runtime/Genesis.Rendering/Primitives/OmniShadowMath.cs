@@ -5,8 +5,9 @@ using Genesis.Rendering.Lights;
 namespace Genesis.Rendering.Primitives;
 
 /// <summary>
-/// AF1.3 bounded omnidirectional-shadow budget and staggered face schedule.
-/// GPU path uses six separate 512² depth RTs for slot 0 (not TextureCube).
+/// AF1.3 bounded local-light shadow budget. The GPU path packs up to <see cref="MaxBudget"/>
+/// shadowed point or spot lights into one depth atlas: a row of six 512² tiles per light (cube
+/// faces), of which a spot light uses the first.
 /// </summary>
 public static class OmniShadowMath
 {
@@ -20,6 +21,14 @@ public static class OmniShadowMath
     public const int InitialFacesPerFrame = 6;
     public const float DefaultNearPlane = 0.08f;
     public const float DefaultFarPlane = 31f;
+    /// <summary>Edge of one atlas tile in texels.</summary>
+    public const int AtlasTileSize = 512;
+    /// <summary>Tiles per atlas row: one per cube face.</summary>
+    public const int AtlasColumns = 6;
+    /// <summary>A light holding a slot keeps it unless a challenger outweighs it by this factor.</summary>
+    public const float SlotHysteresis = 1.5f;
+    /// <summary>Widest spot cone half-angle; the shadow projection must stay below 180°.</summary>
+    public const float MaxSpotAngleDegrees = 85f;
 
     /// <summary>Clamp an authored omni-shadow budget to the AF1.3 range.</summary>
     public static int ClampBudget(int budget) => Math.Clamp(budget, MinBudget, MaxBudget);
@@ -91,6 +100,139 @@ public static class OmniShadowMath
             facesOut[i] = (cursor + i) % 6;
         faceCursor = (cursor + count) % 6;
         return count;
+    }
+
+    /// <summary>
+    /// Stable slot assignment for the shadow atlas. <paramref name="previous"/> holds last frame's
+    /// light per slot (xyz = position, w = radius; w &lt;= 0 = empty). A light still near its previous
+    /// position keeps that slot and has its weight multiplied by <see cref="SlotHysteresis"/>, so the
+    /// shadowing light does not flip as the camera walks between similar lanterns, and cached tiles
+    /// stay with their light. Writes, per slot, the index into <paramref name="lights"/> or -1.
+    /// </summary>
+    public static void AssignSlots(
+        ReadOnlySpan<ClusterPointLightGpu> lights,
+        int budget,
+        Vector3 cameraPos,
+        ReadOnlySpan<Vector4> previous,
+        Span<int> assignment)
+    {
+        assignment.Fill(-1);
+        int cap = Math.Min(ClampBudget(budget), assignment.Length);
+        if (cap <= 0 || lights.IsEmpty)
+            return;
+
+        Span<int> heldSlot = lights.Length <= 256 ? stackalloc int[lights.Length] : new int[lights.Length];
+        Span<float> weight = lights.Length <= 256 ? stackalloc float[lights.Length] : new float[lights.Length];
+        for (int i = 0; i < lights.Length; i++)
+        {
+            heldSlot[i] = -1;
+            weight[i] = CameraWeight(lights[i], cameraPos);
+        }
+
+        for (int s = 0; s < cap && s < previous.Length; s++)
+        {
+            Vector4 held = previous[s];
+            if (held.W <= 0f) continue;
+            Vector3 heldPos = new(held.X, held.Y, held.Z);
+            int best = -1;
+            float bestDistSq = float.MaxValue;
+            for (int i = 0; i < lights.Length; i++)
+            {
+                if (heldSlot[i] >= 0) continue;
+                float radius = lights[i].PosRadius.W;
+                float larger = MathF.Max(radius, held.W);
+                if (MathF.Abs(radius - held.W) > 0.25f * larger) continue;
+                float tolerance = MathF.Max(0.5f, 0.25f * larger);
+                Vector3 position = new(lights[i].PosRadius.X, lights[i].PosRadius.Y, lights[i].PosRadius.Z);
+                float distSq = Vector3.DistanceSquared(position, heldPos);
+                if (distSq > tolerance * tolerance || distSq >= bestDistSq) continue;
+                best = i;
+                bestDistSq = distSq;
+            }
+            if (best < 0) continue;
+            heldSlot[best] = s;
+            weight[best] *= SlotHysteresis;
+        }
+
+        // The strongest `cap` lights by (hysteresis-adjusted) weight win a slot.
+        Span<int> chosen = stackalloc int[cap];
+        int chosenCount = 0;
+        for (int pick = 0; pick < cap; pick++)
+        {
+            int best = -1;
+            float bestWeight = 0f;
+            for (int i = 0; i < lights.Length; i++)
+            {
+                if (weight[i] <= bestWeight || chosen[..chosenCount].Contains(i)) continue;
+                best = i;
+                bestWeight = weight[i];
+            }
+            if (best < 0) break;
+            chosen[chosenCount++] = best;
+        }
+
+        // Continuing lights keep their slot; newcomers take the lowest free one.
+        foreach (int i in chosen[..chosenCount])
+            if (heldSlot[i] >= 0 && heldSlot[i] < cap)
+                assignment[heldSlot[i]] = i;
+        foreach (int i in chosen[..chosenCount])
+        {
+            if (heldSlot[i] >= 0 && heldSlot[i] < cap) continue;
+            for (int s = 0; s < cap; s++)
+            {
+                if (assignment[s] >= 0) continue;
+                assignment[s] = i;
+                break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// True when a sphere (centre relative to the light) can appear in cube face
+    /// <paramref name="face"/>'s 90° frustum. Each side plane passes through the light at 45° to
+    /// the face axis, so the test is |c·u| − c·a ≤ r√2 for both perpendicular axes.
+    /// </summary>
+    public static bool SphereTouchesCubeFace(Vector3 relativeCenter, float radius, int face)
+    {
+        Vector3 axis = FaceDirection(face);
+        float along = Vector3.Dot(relativeCenter, axis);
+        float r = MathF.Max(radius, 0f);
+        if (along + r < 0f) return false;
+        float slack = r * 1.41421356f;
+        (Vector3 u, Vector3 v) = face switch
+        {
+            0 or 1 => (Vector3.UnitY, Vector3.UnitZ),
+            2 or 3 => (Vector3.UnitX, Vector3.UnitZ),
+            _ => (Vector3.UnitX, Vector3.UnitY),
+        };
+        return MathF.Abs(Vector3.Dot(relativeCenter, u)) - along <= slack
+            && MathF.Abs(Vector3.Dot(relativeCenter, v)) - along <= slack;
+    }
+
+    /// <summary>True when a sphere (centre relative to the light) overlaps a spot light's cone.</summary>
+    public static bool SphereTouchesSpotCone(Vector3 relativeCenter, float radius, Vector3 axis, float cosOuter)
+    {
+        float distance = relativeCenter.Length();
+        float r = MathF.Max(radius, 0f);
+        if (distance <= r || distance < 1e-5f) return true;
+        float cosToCenter = Math.Clamp(Vector3.Dot(relativeCenter / distance, axis), -1f, 1f);
+        float angleToCenter = MathF.Acos(cosToCenter);
+        float angularRadius = MathF.Asin(Math.Clamp(r / distance, 0f, 1f));
+        return angleToCenter - angularRadius <= MathF.Acos(Math.Clamp(cosOuter, -1f, 1f));
+    }
+
+    /// <summary>Perspective light view-projection covering a spot light's cone (one atlas tile).</summary>
+    public static Matrix4x4 SpotViewProjection(Vector3 position, Vector3 axis, float cosOuter, float farPlane)
+    {
+        Vector3 forward = axis.LengthSquared() > 1e-8f ? Vector3.Normalize(axis) : -Vector3.UnitY;
+        Vector3 up = MathF.Abs(forward.Y) > 0.95f ? Vector3.UnitZ : Vector3.UnitY;
+        float halfAngle = MathF.Acos(Math.Clamp(cosOuter, -1f, 1f));
+        float degree = MathF.PI / 180f;
+        float fov = Math.Clamp(2f * halfAngle + 2f * degree, 2f * degree, 175f * degree);
+        Matrix4x4 view = Genesis.Rendering.D3dMath.D3dMatrixHelper.CreateLookAtLh(position, position + forward, up);
+        Matrix4x4 proj = Genesis.Rendering.D3dMath.D3dMatrixHelper.CreatePerspectiveLh(
+            fov, 1f, DefaultNearPlane, MathF.Max(farPlane, DefaultNearPlane * 2f));
+        return view * proj;
     }
 
     /// <summary>Cube face look direction (+X,-X,+Y,-Y,+Z,-Z).</summary>

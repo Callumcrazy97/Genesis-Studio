@@ -25,6 +25,7 @@ namespace Genesis.Rendering.Software
             public int ArrayLayers;
             public byte[] Pixels;
             public float[] Depth;
+            public byte[] Stencil;
             public GpuFormat Format;
             public bool RenderTarget;
         }
@@ -51,6 +52,7 @@ namespace Genesis.Rendering.Software
         private float _viewportW = 1280f, _viewportH = 720f;
         private byte[] _framePixels = new byte[1280 * 720 * 4];
         private float[] _depthBuffer = new float[1280 * 720];
+        private byte[] _stencilBuffer = new byte[1280 * 720];
 
         // State bindings
         private readonly GpuBufferHandle[] _vsConstantBuffers = new GpuBufferHandle[16];
@@ -194,6 +196,20 @@ namespace Genesis.Rendering.Software
             return _depthBuffer;
         }
 
+        private byte[] GetActiveStencilBuffer(int width, int height)
+        {
+            TextureData depth = _activeRenderTarget.IsValid && _renderTargets.TryGetValue(_activeRenderTarget.Id, out var rt)
+                ? TryGetTexture(rt.DepthTexture) : _activeSwapChain != null ? TryGetTexture(_activeSwapChain.DepthTexture) : null;
+            int count = Math.Max(1, width) * Math.Max(1, height);
+            if (depth != null)
+            {
+                if (depth.Stencil == null || depth.Stencil.Length != count) depth.Stencil = new byte[count];
+                return depth.Stencil;
+            }
+            if (_stencilBuffer.Length != count) _stencilBuffer = new byte[count];
+            return _stencilBuffer;
+        }
+
         private bool ActiveTargetIsDepthOnly()
         {
             return _activeRenderTarget.IsValid
@@ -222,6 +238,7 @@ namespace Genesis.Rendering.Software
 
         public GpuBufferHandle CreateBuffer(in GpuBufferDesc desc, ReadOnlySpan<byte> initialData)
         {
+            GpuTelemetry.BufferCreated(initialData.Length);
             int id = _nextHandle++;
             var buf = new BufferData
             {
@@ -243,6 +260,7 @@ namespace Genesis.Rendering.Software
                 if (byteOffset + data.Length > buf.Bytes.Length)
                     Array.Resize(ref buf.Bytes, byteOffset + data.Length);
                 data.CopyTo(buf.Bytes.AsSpan(byteOffset));
+                GpuTelemetry.Upload(data.Length);
             }
         }
 
@@ -251,6 +269,7 @@ namespace Genesis.Rendering.Software
             if (_buffers.TryGetValue(handle.Id, out var buf))
             {
                 int size = Unsafe.SizeOf<T>();
+                GpuTelemetry.Upload(size);
                 if (buf.Bytes.Length < size)
                     Array.Resize(ref buf.Bytes, size);
                 fixed (byte* p = buf.Bytes)
@@ -267,6 +286,7 @@ namespace Genesis.Rendering.Software
                 span = buf.Bytes.AsSpan();
                 if (byteCount > 0 && byteCount < span.Length)
                     span = span.Slice(0, byteCount);
+                GpuTelemetry.Upload(span.Length);
                 return true;
             }
             span = default;
@@ -282,6 +302,7 @@ namespace Genesis.Rendering.Software
 
         public GpuTextureHandle CreateTexture(in GpuTextureDesc desc, ReadOnlySpan<byte> initialData)
         {
+            GpuTelemetry.TextureCreated(initialData.Length);
             int id = _nextHandle++;
             int layers = Math.Max(1, desc.ArrayLayers);
             int pixelStride = BytesPerPixel(desc.Format);
@@ -318,6 +339,7 @@ namespace Genesis.Rendering.Software
         {
             if (_textures.TryGetValue(handle.Id, out var tex))
             {
+                GpuTelemetry.Upload(data.Length);
                 int bpp = BytesPerPixel(tex.Format);
                 int rowPitch = width * bpp;
                 int sliceOffset = arraySlice * tex.Width * tex.Height * bpp;
@@ -346,6 +368,7 @@ namespace Genesis.Rendering.Software
 
         public GpuRenderTargetHandle CreateRenderTarget(in GpuRenderTargetDesc desc)
         {
+            GpuTelemetry.RenderTargetCreated();
             int id = _nextHandle++;
             bool depthOnly = desc.ColorFormats == null || desc.ColorFormats.Length == 0;
             GpuFormat[] colorFormats = depthOnly
@@ -415,6 +438,7 @@ namespace Genesis.Rendering.Software
             byte[] colorBuffer = GetActiveColorBuffer(out int w, out int h);
             float[] depthBuffer = GetActiveDepthBuffer(w, h);
             SoftwareRasterizerCore.Clear(colorBuffer, depthBuffer, in desc);
+            if (desc.HasDepth && desc.DepthAction.Load == GpuLoadAction.Clear) Array.Clear(GetActiveStencilBuffer(w, h));
         }
 
         public void EndRenderPass() { }
@@ -656,6 +680,7 @@ namespace Genesis.Rendering.Software
                 ShadowNearH = shadowNear?.Height ?? 0,
                 RasterState = _boundRasterState,
                 DepthState = _boundDepthState,
+                StencilBuffer = GetActiveStencilBuffer(curW, curH),
                 BlendState = _boundBlendState,
                 RuntimeShade = _runtimeShade,
                 ShaderTime = ReadShaderTime(perFrameBytes),

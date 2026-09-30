@@ -15,10 +15,10 @@ public class PgslVm
         public PgslContext PreviousContext { get; set; }
     }
 
-    private readonly Stack<object> _stack = new();
-    private readonly Dictionary<string, object> _variables = new();
-    private readonly Stack<Dictionary<string, object>> _variableFrames = new();
-    private readonly Stack<Dictionary<string, object>> _variableFramePool = new();
+    private readonly VmValueStack _stack = new();
+    private readonly Dictionary<string, VmValue> _variables = new();
+    private readonly Stack<Dictionary<string, VmValue>> _variableFrames = new();
+    private readonly Stack<Dictionary<string, VmValue>> _variableFramePool = new();
     private readonly Dictionary<int, Stack<object[]>> _argumentPools = new();
     private IReadOnlyList<object> _constants = Array.Empty<object>();
     private readonly Dictionary<string, UserFunction> _userFunctions = new();
@@ -28,12 +28,12 @@ public class PgslVm
     private bool _debugMode = false;
     private int _instructionCounter = 0;
     private bool _returnRequested;
-    private object _returnValue;
+    private VmValue _returnValue;
     private const int MAX_INSTRUCTIONS = 100000; // Hard limit per event to prevent hangs
     private static readonly string[] LocalSlotNames = CreateSlotNames("@local", 256);
     private static readonly string[] ArgumentNames = CreateSlotNames("argument", 64);
 
-    private readonly record struct ExecutionResult(bool Returned, object Value);
+    private readonly record struct ExecutionResult(bool Returned, VmValue Value);
 
     public IPgslEngineBridge Bridge => _bridge;
     public PgslDebugController Debugger { get; set; }
@@ -50,7 +50,7 @@ public class PgslVm
     {
       if (args == null) return;
       for (int i = 0; i < args.Length; i++)
-        _variables[SlotName(ArgumentNames, "argument", i)] = args[i];
+        _variables[SlotName(ArgumentNames, "argument", i)] = VmValue.FromObject(args[i]);
       _variables["argument_count"] = args.Length;
     }
 
@@ -58,12 +58,15 @@ public class PgslVm
     public void SetVariable(string name, object value)
     {
         if (string.IsNullOrWhiteSpace(name)) return;
-        _variables[name.Trim()] = value;
+        _variables[name.Trim()] = VmValue.FromObject(value);
     }
 
     /// <summary>Reads a persistent script variable without exposing the VM's mutable dictionary.</summary>
-    public bool TryReadVariable(string name, out object value) =>
-        TryGetVariable(name?.Trim() ?? string.Empty, out value);
+    public bool TryReadVariable(string name, out object value)
+    {
+        bool found = TryGetVariable(name?.Trim() ?? string.Empty, out VmValue typed);
+        value = typed.ToObject(); return found;
+    }
 
     public void LoadUserFunctions(Dictionary<string, UserFunction> userFunctions)
     {
@@ -79,7 +82,7 @@ public class PgslVm
         {
             ExecutionResult result = ExecuteCore(instructions, constants, clearVariables);
             if (result.Returned)
-                throw new ReturnException(result.Value);
+                throw new ReturnException(result.Value.ToObject());
         }
         finally
         {
@@ -94,12 +97,12 @@ public class PgslVm
     {
         int previousInstructionCounter = _instructionCounter;
         bool previousReturnRequested = _returnRequested;
-        object previousReturnValue = _returnValue;
+        VmValue previousReturnValue = _returnValue;
 
         IReadOnlyList<object> previousConstants = _constants;
         _instructionCounter = 0;
         _returnRequested = false;
-        _returnValue = null;
+        _returnValue = default;
         _constants = constants;
         if (clearVariables)
         {
@@ -185,11 +188,11 @@ public class PgslVm
         switch (instr.Opcode)
         {
             case Opcode.PUSH_NULL:
-                _stack.Push(null);
+                _stack.Push(default);
                 break;
 
             case Opcode.PUSH:
-                _stack.Push(instr.Operand);
+                _stack.Push(VmValue.FromObject(instr.Operand));
                 break;
 
             case Opcode.POP:
@@ -215,7 +218,7 @@ public class PgslVm
 
             case Opcode.LOAD_CONST:
                 if (instr.Operand is int idx && idx >= 0 && idx < _constants.Count)
-                    _stack.Push(_constants[idx]);
+                    _stack.Push(VmValue.FromObject(_constants[idx]));
                 else
                     throw new InvalidOperationException($"Invalid constant index: {instr.Operand}");
                 break;
@@ -245,9 +248,11 @@ public class PgslVm
                     {
                         var context = _bridge.GetContext();
                         if (context != null)
-                            PgslRegisterFile.SlotSetters[storeSlot](context, storeValue);
+                            PgslRegisterFile.Write(context, storeSlot, storeValue);
                     }
-                    else if (!_bridge.TrySetProperty(storeName, storeValue))
+                    else if (!(_bridge is PgslEngineBridge typedBridge
+                        ? typedBridge.TrySetTypedProperty(storeName, storeValue)
+                        : _bridge.TrySetProperty(storeName, storeValue.ToObject())))
                     {
                         StoreVariable(storeName, storeValue);
                     }
@@ -257,35 +262,18 @@ public class PgslVm
                 break;
 
             case Opcode.ADD:
-                if (_stack.Count < 2) throw new InvalidOperationException("Stack underflow on ADD");
-                var right_add = _stack.Pop();
-                var left_add = _stack.Pop();
-                if (left_add is string || right_add is string)
-                    _stack.Push(left_add?.ToString() + right_add?.ToString());
+                ref VmValue left_add = ref _stack.CombineTop(out VmValue right_add);
+                if (left_add.IsString || right_add.IsString)
+                    left_add = left_add.ToString() + right_add.ToString();
                 else
-                    _stack.Push(AsNumber(left_add) + AsNumber(right_add));
+                    left_add = AsNumber(left_add) + AsNumber(right_add);
                 break;
 
             case Opcode.SUB:
-                BinaryOp((a, b) => AsNumber(a) - AsNumber(b));
-                break;
-
             case Opcode.MUL:
-                BinaryOp((a, b) => AsNumber(a) * AsNumber(b));
-                break;
-
             case Opcode.DIV:
-                BinaryOp((a, b) => AsNumber(a) / AsNumber(b));
-                break;
-
             case Opcode.MOD:
-                BinaryOp((a, b) =>
-                {
-                    double divisor = AsNumber(b);
-                    if (Math.Abs(divisor) < 1e-12) return 0;
-                    double dividend = AsNumber(a);
-                    return dividend - Math.Floor(dividend / divisor) * divisor;
-                });
+                NumericBinary(instr.Opcode);
                 break;
 
             case Opcode.NEG:
@@ -346,19 +334,10 @@ public class PgslVm
                 break;
 
             case Opcode.LT:
-                BinaryOp((a, b) => AsNumber(a) < AsNumber(b) ? 1 : 0);
-                break;
-
             case Opcode.LTE:
-                BinaryOp((a, b) => AsNumber(a) <= AsNumber(b) ? 1 : 0);
-                break;
-
             case Opcode.GT:
-                BinaryOp((a, b) => AsNumber(a) > AsNumber(b) ? 1 : 0);
-                break;
-
             case Opcode.GTE:
-                BinaryOp((a, b) => AsNumber(a) >= AsNumber(b) ? 1 : 0);
+                NumericBinary(instr.Opcode);
                 break;
 
             case Opcode.JUMP:
@@ -387,9 +366,9 @@ public class PgslVm
                 // Fast-path read from PgslContext via compiled slot getter (no string lookup).
                 int slot = (int)instr.Operand;
                 var ctx = _bridge.GetContext();
-                _stack.Push(slot >= 0 && slot < PgslRegisterFile.SlotGetters.Length && ctx != null
-                    ? PgslRegisterFile.SlotGetters[slot](ctx)
-                    : 0.0);
+                if (ctx == null || slot < 0 || slot >= PgslRegisterFile.NumberGetters.Length) _stack.Push(0.0);
+                else if (slot == PgslRegisterFile.SlotSpriteIndex) _stack.Push(ctx.SpriteIndex ?? "");
+                else _stack.Push(PgslRegisterFile.NumberGetters[slot](ctx));
                 break;
             }
 
@@ -401,8 +380,8 @@ public class PgslVm
                     throw new InvalidOperationException("Stack underflow on STORE_REG");
                 var storeVal = _stack.Pop();
                 var ctx = _bridge.GetContext();
-                if (ctx != null && slot >= 0 && slot < PgslRegisterFile.SlotSetters.Length)
-                    PgslRegisterFile.SlotSetters[slot](ctx, storeVal);
+                if (ctx != null && slot >= 0 && slot < PgslRegisterFile.NumberSetters.Length)
+                    PgslRegisterFile.Write(ctx, slot, storeVal);
                 break;
             }
 
@@ -429,7 +408,7 @@ public class PgslVm
                 break;
 
             case Opcode.RETURN:
-                _returnValue = _stack.Count > 0 ? _stack.Pop() : null;
+                _returnValue = _stack.Count > 0 ? _stack.Pop() : default;
                 _returnRequested = true;
                 break;
 
@@ -437,14 +416,14 @@ public class PgslVm
                 if (_stack.Count > 0)
                 {
                     var printValue = _stack.Pop();
-                    VMLogger.Log(printValue?.ToString() ?? "");
+                    VMLogger.Log(printValue.ToString());
                 }
                 break;
 
             case Opcode.WITH_START:
                 if (_stack.Count > 0)
                 {
-                    var targetObj = _stack.Pop()?.ToString();
+                    var targetObj = _stack.Pop().ToObject()?.ToString();
                     var objects = _bridge.FindObjects(targetObj);
                     var state = new WithState
                     {
@@ -496,7 +475,7 @@ public class PgslVm
                     if (_stack.Count < 2) throw new InvalidOperationException("Stack underflow on GET_INDEX");
                     var indexVal = _stack.Pop();
                     var collection = _stack.Pop();
-                    _stack.Push(GetIndexValue(collection, indexVal));
+                    _stack.Push(VmValue.FromObject(GetIndexValue(collection.ToObject(), indexVal.ToObject())));
                 }
                 break;
 
@@ -506,7 +485,7 @@ public class PgslVm
                     var setVal = _stack.Pop();
                     var setIdx = _stack.Pop();
                     var setColl = _stack.Pop();
-                    SetIndexValue(setColl, setIdx, setVal);
+                    SetIndexValue(setColl.ToObject(), setIdx.ToObject(), setVal.ToObject());
                 }
                 break;
 
@@ -563,17 +542,30 @@ public class PgslVm
         }
     }
 
-    private void BinaryOp(Func<object, object, object> op)
+    private void BinaryOp(Func<VmValue, VmValue, VmValue> op)
     {
-        if (_stack.Count < 2)
-            throw new InvalidOperationException("Stack underflow for binary operation");
+        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+        left = op(left, right);
+    }
 
-        var b = _stack.Pop();
-        var a = _stack.Pop();
-        _stack.Push(op(a, b));
+    private void NumericBinary(Opcode operation)
+    {
+        ref VmValue leftValue = ref _stack.CombineTop(out VmValue rightValue);
+        double right = rightValue.Number, left = leftValue.Number;
+        leftValue = operation switch
+        {
+            Opcode.SUB => left - right, Opcode.MUL => left * right, Opcode.DIV => left / right,
+            Opcode.MOD => Math.Abs(right) < 1e-12 ? (VmValue)0 : left - Math.Floor(left / right) * right,
+            Opcode.LT => left < right ? 1 : 0, Opcode.LTE => left <= right ? 1 : 0,
+            Opcode.GT => left > right ? 1 : 0, Opcode.GTE => left >= right ? 1 : 0,
+            _ => throw new InvalidOperationException("Not a numeric opcode.")
+        };
     }
 
     private int AsInt32(object value) => (int)AsNumber(value);
+    private static int AsInt32(VmValue value) => (int)value.Number;
+    private static double AsNumber(VmValue value) => value.Number;
+    private static bool AsBool(VmValue value) => value.Truth;
 
     private double AsNumber(object value)
     {
@@ -607,7 +599,7 @@ public class PgslVm
 
         object[] args = AcquireArgumentArray(nativeArgCount);
         for (int i = nativeArgCount - 1; i >= 0; i--)
-            args[i] = _stack.Pop();
+            args[i] = _stack.Pop().ToObject();
 
         if (Genesis.Runtime.Scripting.PgslRuntimeDiagnostics.IsCollecting)
         {
@@ -621,7 +613,7 @@ public class PgslVm
         {
             object result = _bridge.InvokeNative(nativeId, args);
             if (!_bridge.IsNativeVoid(nativeId))
-                _stack.Push(result);
+                _stack.Push(VmValue.FromObject(result));
         }
         finally
         {
@@ -644,7 +636,7 @@ public class PgslVm
                 throw new InvalidOperationException($"Function '{funcName}' expects {userFunc.Parameters.Count} arguments, got {argCount}");
             }
 
-            Dictionary<string, object> frame = AcquireVariableFrame();
+            Dictionary<string, VmValue> frame = AcquireVariableFrame();
 
             try
             {
@@ -662,7 +654,7 @@ public class PgslVm
 
                 // Preserve stack correctness for expression-position calls: an explicit
                 // "return;" still contributes a null value instead of underflowing later ops.
-                _stack.Push(callResult.Returned ? callResult.Value : null);
+                _stack.Push(callResult.Returned ? callResult.Value : default);
             }
             finally
             {
@@ -677,13 +669,13 @@ public class PgslVm
 
         object[] args = AcquireArgumentArray(argCount);
         for (int i = argCount - 1; i >= 0; i--)
-            args[i] = _stack.Pop();
+            args[i] = _stack.Pop().ToObject();
 
         try
         {
             object result = ExecuteCommand(funcName, args);
             if (!_bridge.IsVoid(funcName, argCount))
-                _stack.Push(result);
+                _stack.Push(VmValue.FromObject(result));
         }
         finally
         {
@@ -706,10 +698,10 @@ public class PgslVm
         int programCounter,
         string errorMessage = "")
     {
-        Dictionary<string, object> variables = new(_variables, StringComparer.OrdinalIgnoreCase);
-        foreach (Dictionary<string, object> frame in _variableFrames.Reverse())
+        Dictionary<string, object> variables = _variables.ToDictionary(pair => pair.Key, pair => pair.Value.ToObject(), StringComparer.OrdinalIgnoreCase);
+        foreach (Dictionary<string, VmValue> frame in _variableFrames.Reverse())
         {
-            foreach ((string name, object value) in frame) variables[name] = value;
+            foreach ((string name, VmValue value) in frame) variables[name] = value.ToObject();
         }
         PgslContext context = _bridge.GetContext();
         if (context is not null)
@@ -739,9 +731,9 @@ public class PgslVm
             errorMessage ?? string.Empty);
     }
 
-    private bool TryGetVariable(string name, out object value)
+    private bool TryGetVariable(string name, out VmValue value)
     {
-        foreach (Dictionary<string, object> frame in _variableFrames)
+        foreach (Dictionary<string, VmValue> frame in _variableFrames)
         {
             if (frame.TryGetValue(name, out value))
                 return true;
@@ -749,7 +741,7 @@ public class PgslVm
         return _variables.TryGetValue(name, out value);
     }
 
-    private void StoreVariable(string name, object value)
+    private void StoreVariable(string name, VmValue value)
     {
         if (_variableFrames.Count > 0)
             _variableFrames.Peek()[name] = value;
@@ -757,12 +749,12 @@ public class PgslVm
             _variables[name] = value;
     }
 
-    private Dictionary<string, object> AcquireVariableFrame() =>
+    private Dictionary<string, VmValue> AcquireVariableFrame() =>
         _variableFramePool.Count > 0
             ? _variableFramePool.Pop()
-            : new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+            : new Dictionary<string, VmValue>(StringComparer.OrdinalIgnoreCase);
 
-    private void ReleaseVariableFrame(Dictionary<string, object> frame)
+    private void ReleaseVariableFrame(Dictionary<string, VmValue> frame)
     {
         frame.Clear();
         _variableFramePool.Push(frame);
@@ -799,16 +791,16 @@ public class PgslVm
     private static string SlotName(string[] cache, string prefix, int slot) =>
         (uint)slot < (uint)cache.Length ? cache[slot] : prefix + slot;
 
-    private object ResolvePGSLPropertyOrZero(string name)
+    private VmValue ResolvePGSLPropertyOrZero(string name)
     {
         if (ScriptingDebugSettings.VmUseRegisterFile)
         {
             var ctx = _bridge.GetContext();
-            if (PgslRegisterFile.TryGet(ctx, name, out var regVal))
-                return regVal;
+            if (ctx != null && PgslRegisterFile.Slots.TryGetValue(name, out int slot))
+                return PgslRegisterFile.Read(ctx, slot);
         }
 
-        try { return _bridge.Invoke(name, Array.Empty<object>()); }
+        try { return VmValue.FromObject(_bridge.Invoke(name, Array.Empty<object>())); }
         catch (Exception ex)
         {
             bool unknown = ex.Message.Contains("Unknown command", StringComparison.OrdinalIgnoreCase);
@@ -871,26 +863,26 @@ public class PgslVm
         }
     }
 
-    private bool VMEquals(object a, object b)
+    private static bool VMEquals(VmValue a, VmValue b)
     {
-        if (a == null && b == null) return true;
-        if (a == null || b == null) return false;
+        if (a.IsNull && b.IsNull) return true;
+        if (a.IsNull || b.IsNull) return false;
 
-        if (IsNumeric(a) && IsNumeric(b))
+        if (a.IsNumeric && b.IsNumeric)
         {
             return Math.Abs(AsNumber(a) - AsNumber(b)) < 1e-9;
         }
 
-        if (a is bool ba && IsNumeric(b))
+        if (a.IsBoolean && b.IsNumeric)
         {
-            return ba == (AsNumber(b) != 0);
+            return a.Truth == (AsNumber(b) != 0);
         }
-        if (b is bool bb && IsNumeric(a))
+        if (b.IsBoolean && a.IsNumeric)
         {
-            return bb == (AsNumber(a) != 0);
+            return b.Truth == (AsNumber(a) != 0);
         }
 
-        return Equals(a, b);
+        return Equals(a.ToObject(), b.ToObject());
     }
 
     private bool IsNumeric(object value)
@@ -900,7 +892,7 @@ public class PgslVm
                value is ulong || value is ushort || value is sbyte;
     }
 
-    public Dictionary<string, object> GetVariables() => new(_variables);
+    public Dictionary<string, object> GetVariables() => _variables.ToDictionary(pair => pair.Key, pair => pair.Value.ToObject());
 
     /// <summary>
     /// Mutates one value in this live VM without recompiling or clearing its state. Built-in
@@ -915,12 +907,12 @@ public class PgslVm
         if (PgslRegisterFile.Slots.TryGetValue(name, out int slot))
         {
             PgslContext context = _bridge.GetContext();
-            if (context is null || slot < 0 || slot >= PgslRegisterFile.SlotSetters.Length)
+            if (context is null || slot < 0 || slot >= PgslRegisterFile.NumberSetters.Length)
                 return false;
 
             try
             {
-                PgslRegisterFile.SlotSetters[slot](context, value);
+                PgslRegisterFile.Write(context, slot, VmValue.FromObject(value));
                 return true;
             }
             catch (Exception exception) when (
@@ -930,12 +922,12 @@ public class PgslVm
             }
         }
 
-        if (!_variables.TryGetValue(name, out object current) || current is null)
+        if (!_variables.TryGetValue(name, out VmValue current) || current.IsNull)
             return false;
 
         try
         {
-            _variables[name] = ConvertLike(current, value);
+            _variables[name] = VmValue.FromObject(ConvertLike(current.ToObject(), value));
             return true;
         }
         catch (Exception exception) when (
@@ -951,14 +943,15 @@ public class PgslVm
         if (PgslRegisterFile.Slots.TryGetValue(name, out int slot))
         {
             PgslContext context = _bridge.GetContext();
-            if (context is not null && slot >= 0 && slot < PgslRegisterFile.SlotGetters.Length)
+            if (context is not null && slot >= 0 && slot < PgslRegisterFile.NumberGetters.Length)
             {
-                value = PgslRegisterFile.SlotGetters[slot](context);
+                value = PgslRegisterFile.Read(context, slot).ToObject();
                 return true;
             }
         }
 
-        return _variables.TryGetValue(name, out value);
+        bool found = _variables.TryGetValue(name, out VmValue typed);
+        value = typed.ToObject(); return found;
     }
 
     private static object ConvertLike(object current, object value)

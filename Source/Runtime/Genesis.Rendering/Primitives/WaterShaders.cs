@@ -91,6 +91,8 @@ struct VSOut
     float2 UV       : TEXCOORD4;
 };
 
+" + FroxelFogShaders.ApplySource + @"
+
 VSOut VS_Water(VSIn IN)
 {
     float time = CameraPosTime.w;
@@ -262,21 +264,28 @@ PSOut PS_Water(VSOut IN)
     float shoreFade = smoothstep(0.0, max(foamWidth * 0.35, 0.08), columnDepth);
     float alpha = MaterialColor.a * IN.Color.a * lerp(0.18, 1.0, shoreFade);
 
-    float fog = 0.0;
-    if (FogParams.x > 0.5)
+    // Water writes no depth, so the composite would fog it against the lake bed behind it. It fogs
+    // itself through the froxel volume at its own surface instead and flags the pixel as done.
+    float fogDone = 0.0;
+    if (FogParams.x > 0.5 && FroxelApplyParams.x > 0.5)
     {
-        float viewDepth = length(IN.WorldPos - cameraPos);
-        float expFog = 1.0 - exp(-pow(viewDepth * FogParams.w, 2.0));
-        float rangeFog = smoothstep(FogParams.y, FogParams.z, viewDepth);
-        fog = saturate(max(expFog, rangeFog * saturate(FogParams.w * 4.0)));
+        float4 fog = FroxelFog(IN.SvPos.xy * ViewportParams.zw, cameraPos, IN.WorldPos,
+            mul(float4(IN.WorldPos, 1.0), ViewProjection).w);
+        waterColor = lerp(waterColor, waterColor * fog.a + fog.rgb, saturate(FogColor.a));
+        fogDone = 1.0;
     }
-    waterColor = lerp(waterColor, FogColor.rgb, fog * saturate(FogColor.a));
 
     PSOut result;
+    // Linear pipeline, direct-to-display pass: encode here because no composite follows.
+    if (VolumetricParams.z > 1.5)
+    {
+        float3 encoded = saturate(waterColor);
+        waterColor = lerp(1.055 * pow(encoded, 1.0 / 2.4) - 0.055, encoded * 12.92, step(encoded, 0.0031308));
+    }
     result.Color = float4(waterColor, alpha);
     // The HDR scene target always opens a fog-skip attachment. WebGPU requires the FS to
     // write every colour target; a literal 0 is DCE'd and strips SV_Target1 from the signature.
-    result.SkipPostFog = 1e-10 * result.Color.a;
+    result.SkipPostFog = fogDone + 1e-10 * result.Color.a;
     return result;
 }
 ";

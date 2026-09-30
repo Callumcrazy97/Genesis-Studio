@@ -255,6 +255,7 @@ namespace Genesis.Rendering.SilkNet.DX11
 
         public GpuBufferHandle CreateBuffer(in GpuBufferDesc desc, ReadOnlySpan<byte> initialData)
         {
+            GpuTelemetry.BufferCreated(initialData.Length);
             ThrowIfDisposed();
             if (desc.SizeBytes <= 0) throw new ArgumentOutOfRangeException(nameof(desc.SizeBytes));
             if (initialData.Length > desc.SizeBytes) throw new ArgumentException("Initial data exceeds buffer size.", nameof(initialData));
@@ -360,6 +361,7 @@ namespace Genesis.Rendering.SilkNet.DX11
             BufferResource resource = Require(_buffers, handle.Id, nameof(handle));
             if (byteOffset < 0 || data.Length > resource.SizeBytes - byteOffset)
                 throw new ArgumentOutOfRangeException(nameof(byteOffset));
+            GpuTelemetry.Upload(resource.Usage == GpuBufferUsage.Dynamic ? resource.SizeBytes : data.Length);
 
             if (resource.Usage == GpuBufferUsage.Dynamic)
             {
@@ -412,6 +414,7 @@ namespace Genesis.Rendering.SilkNet.DX11
             BufferResource resource = Require(_buffers, handle.Id, nameof(handle));
             if (Unsafe.SizeOf<T>() > resource.SizeBytes)
                 throw new ArgumentException("Constant data exceeds the destination buffer.", nameof(data));
+            GpuTelemetry.Upload(resource.SizeBytes);
             MappedSubresource mapped;
             SilkMarshal.ThrowHResult(Context->Map(
                 (ID3D11Resource*)resource.Buffer, 0, Map.WriteDiscard, 0, &mapped));
@@ -441,6 +444,7 @@ namespace Genesis.Rendering.SilkNet.DX11
             span = new Span<byte>(mapped.PData, resource.SizeBytes);
             if (byteCount > 0 && byteCount < span.Length)
                 span = span.Slice(0, byteCount);
+            GpuTelemetry.Upload(span.Length);
             return true;
         }
 
@@ -463,6 +467,7 @@ namespace Genesis.Rendering.SilkNet.DX11
 
         public GpuTextureHandle CreateTexture(in GpuTextureDesc desc, ReadOnlySpan<byte> initialData)
         {
+            GpuTelemetry.TextureCreated(initialData.Length);
             ThrowIfDisposed();
             if (desc.Width <= 0 || desc.Height <= 0) throw new ArgumentOutOfRangeException(nameof(desc));
             int layers = Math.Max(1, desc.ArrayLayers);
@@ -470,8 +475,13 @@ namespace Genesis.Rendering.SilkNet.DX11
                 ? GpuTextureLayout.FullMipCount(desc.Width, desc.Height)
                 : Math.Max(1, desc.MipLevels);
             bool compressed = GpuTextureLayout.IsBlockCompressed(desc.Format);
-            int bytesPerLayer = compressed
-                ? GpuTextureLayout.GetMipChainSize(desc.Format, desc.Width, desc.Height, mipLevels)
+            int chainBytes = GpuTextureLayout.GetMipChainSize(desc.Format, desc.Width, desc.Height, mipLevels);
+            // Uncompressed payloads normally carry mip 0 only; a caller that supplies the whole chain
+            // (DX12, Vulkan and OpenGL already accept one) gets every level uploaded here too.
+            bool fullChain = compressed || (mipLevels > 1 && desc.Usage != GpuBufferUsage.Dynamic
+                && !initialData.IsEmpty && initialData.Length >= checked(chainBytes * layers));
+            int bytesPerLayer = fullChain
+                ? chainBytes
                 : GpuTextureLayout.GetSlicePitch(desc.Format, desc.Width, desc.Height);
             if (!initialData.IsEmpty && initialData.Length < checked(bytesPerLayer * layers))
                 throw new ArgumentException("Initial texture data does not contain every array layer/mip payload.", nameof(initialData));
@@ -503,7 +513,7 @@ namespace Genesis.Rendering.SilkNet.DX11
                         for (int layer = 0; layer < layers; layer++)
                         {
                             int layerOffset = layer * bytesPerLayer;
-                            if (compressed)
+                            if (fullChain)
                             {
                                 int mipOffset = 0;
                                 int mipWidth = desc.Width;
@@ -589,6 +599,7 @@ namespace Genesis.Rendering.SilkNet.DX11
                 y + height > resource.Height || arraySlice < 0 || arraySlice >= resource.ArrayLayers ||
                 data.Length < checked(width * height * bpp))
                 throw new ArgumentOutOfRangeException(nameof(width), "Texture update region or payload is invalid.");
+            GpuTelemetry.Upload((long)width * height * bpp);
             if (resource.Usage == GpuBufferUsage.Dynamic)
             {
                 // UpdateSubresource silently rejects D3D11_USAGE_DYNAMIC textures.
@@ -670,6 +681,7 @@ namespace Genesis.Rendering.SilkNet.DX11
 
         public GpuRenderTargetHandle CreateRenderTarget(in GpuRenderTargetDesc desc)
         {
+            GpuTelemetry.RenderTargetCreated();
             if (desc.Width <= 0 || desc.Height <= 0 || desc.ColorFormats == null)
                 throw new ArgumentException("A render target needs dimensions and a colour format array.", nameof(desc));
             if (desc.ColorFormats.Length > Capabilities.MaxColorAttachments)
@@ -954,12 +966,23 @@ namespace Genesis.Rendering.SilkNet.DX11
                     DepthEnable = state.TestEnabled,
                     DepthWriteMask = state.WriteEnabled ? DepthWriteMask.All : DepthWriteMask.Zero,
                     DepthFunc = Dx11GpuFormats.ToComparison(state.Compare),
+                    StencilEnable = state.StencilEnabled,
+                    StencilReadMask = state.StencilReadMask,
+                    StencilWriteMask = state.StencilWriteMask,
+                    FrontFace = new DepthStencilopDesc
+                    {
+                        StencilFunc = Dx11GpuFormats.ToComparison(state.StencilCompare),
+                        StencilFailOp = (StencilOp)((int)state.StencilFail + 1),
+                        StencilDepthFailOp = (StencilOp)((int)state.StencilDepthFail + 1),
+                        StencilPassOp = (StencilOp)((int)state.StencilPass + 1),
+                    },
                 };
+                desc.BackFace = desc.FrontFace;
                 SilkMarshal.ThrowHResult(Device->CreateDepthStencilState(&desc, &native));
                 _depthStates.Add(state, (nint)native);
                 nativeAddress = (nint)native;
             }
-            Context->OMSetDepthStencilState((ID3D11DepthStencilState*)nativeAddress, 0);
+            Context->OMSetDepthStencilState((ID3D11DepthStencilState*)nativeAddress, state.StencilReference);
         }
 
         public void SetRasterState(in GpuRasterState state)

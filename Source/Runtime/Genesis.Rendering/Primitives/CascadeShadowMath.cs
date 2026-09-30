@@ -115,6 +115,25 @@ public static class CascadeShadowMath
     }
 
     /// <summary>
+    /// True when a caster's bounding sphere can throw a shadow into the orthographic cascade
+    /// described by <paramref name="lightViewProjection"/>. Only the light-space footprint and the
+    /// far plane are tested: casters between the light and the near plane are pancaked onto it by
+    /// the shadow vertex shader, so they still cast.
+    /// </summary>
+    public static bool CasterReachesCascade(in Matrix4x4 lightViewProjection, Vector3 center, float radius)
+    {
+        Matrix4x4 m = lightViewProjection;
+        Vector4 clip = Vector4.Transform(new Vector4(center, 1f), m);
+        float r = MathF.Max(radius, 0f);
+        float scaleX = new Vector3(m.M11, m.M21, m.M31).Length();
+        float scaleY = new Vector3(m.M12, m.M22, m.M32).Length();
+        float scaleZ = new Vector3(m.M13, m.M23, m.M33).Length();
+        return MathF.Abs(clip.X) <= 1f + r * scaleX
+            && MathF.Abs(clip.Y) <= 1f + r * scaleY
+            && clip.Z - r * scaleZ <= 1f;
+    }
+
+    /// <summary>
     /// ForestLight light-space snap: round cascade centre on lightRight/lightUp so static
     /// receivers do not crawl under camera motion.
     /// </summary>

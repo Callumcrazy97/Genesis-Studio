@@ -13,7 +13,22 @@ namespace Genesis.World.Water
     {
         private readonly Dictionary<string, MeshHandle> _handles = new();
         private readonly Dictionary<string, string> _activeBodyKeys = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, SimulatedSurface> _simulated = new(StringComparer.Ordinal);
         private readonly IRenderController _render;
+
+        /// <summary>
+        /// A simulated surface changes on every solver step. Instead of releasing and registering a
+        /// new GPU mesh each frame, it rotates through three persistent meshes and rewrites the
+        /// oldest one's vertices, so a frame still in flight never sees its buffer overwritten.
+        /// </summary>
+        private sealed class SimulatedSurface
+        {
+            public readonly MeshHandle[] Meshes = { MeshHandle.Invalid, MeshHandle.Invalid, MeshHandle.Invalid };
+            public int Current = -1;
+            public int VertexCount = -1;
+            public int Resolution = -1;
+            public long Revision = long.MinValue;
+        }
 
         public WaterMeshCache(IRenderController render)
         {
@@ -24,6 +39,9 @@ namespace Genesis.World.Water
         {
             if (body == null)
                 return MeshHandle.Invalid;
+
+            if (body.SimulationEnabled && simulation != null)
+                return GetOrUpdateSimulated(body, cameraPos, simulation);
 
             string key = BuildCacheKey(body, cameraPos, simulation);
             if (_handles.TryGetValue(key, out MeshHandle existing) && existing.IsValid)
@@ -53,6 +71,48 @@ namespace Genesis.World.Water
             return handle;
         }
 
+        private MeshHandle GetOrUpdateSimulated(WaterBody body, Vector3 cameraPos, WaterBodySimulation simulation)
+        {
+            if (!_simulated.TryGetValue(body.Id, out SimulatedSurface surface))
+                _simulated[body.Id] = surface = new SimulatedSurface();
+
+            if (surface.Current >= 0 && surface.Revision == simulation.Revision
+                && surface.Resolution == simulation.Resolution && surface.Meshes[surface.Current].IsValid)
+                return surface.Meshes[surface.Current];
+
+            MeshData data = WaterSurfaceMesh.BuildVisual(body, cameraPos, simulation);
+            if (data.Vertices == null || data.Vertices.Length == 0)
+                return MeshHandle.Invalid;
+
+            if (surface.VertexCount != data.Vertices.Length || surface.Resolution != simulation.Resolution)
+            {
+                ReleaseSimulated(surface);
+                surface.VertexCount = data.Vertices.Length;
+                surface.Resolution = simulation.Resolution;
+            }
+
+            int next = (surface.Current + 1) % surface.Meshes.Length;
+            MeshHandle target = surface.Meshes[next];
+            if (target.IsValid)
+                _render.UpdateMesh(target, data.Vertices);
+            else
+                surface.Meshes[next] = target = _render.RegisterMesh(data.Vertices, data.Indices);
+            surface.Current = next;
+            surface.Revision = simulation.Revision;
+            return target;
+        }
+
+        private void ReleaseSimulated(SimulatedSurface surface)
+        {
+            for (int i = 0; i < surface.Meshes.Length; i++)
+            {
+                if (surface.Meshes[i].IsValid) _render.ReleaseMesh(surface.Meshes[i]);
+                surface.Meshes[i] = MeshHandle.Invalid;
+            }
+            surface.Current = -1;
+            surface.Revision = long.MinValue;
+        }
+
         public void Invalidate(string bodyId = null)
         {
             if (string.IsNullOrEmpty(bodyId))
@@ -64,8 +124,11 @@ namespace Genesis.World.Water
                 }
                 _handles.Clear();
                 _activeBodyKeys.Clear();
+                foreach (SimulatedSurface surface in _simulated.Values) ReleaseSimulated(surface);
+                _simulated.Clear();
                 return;
             }
+            if (_simulated.Remove(bodyId, out SimulatedSurface removed)) ReleaseSimulated(removed);
 
             var remove = new List<string>();
             foreach (var kv in _handles)

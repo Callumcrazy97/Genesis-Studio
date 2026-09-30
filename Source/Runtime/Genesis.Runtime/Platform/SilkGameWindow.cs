@@ -215,10 +215,11 @@ namespace Genesis.Runtime.Platform
             get => _mode;
             set
             {
+                if (_mode == value) return;
                 _mode = value;
                 if (_running)
                     _pendingModeApply = true;
-                else if (_window != null)
+                else if (_window != null && _window.IsInitialized)
                     ApplyMode();
             }
         }
@@ -417,7 +418,7 @@ namespace Genesis.Runtime.Platform
             }
 
             _window.WindowState = WindowState.Normal;
-            _window.WindowBorder = WindowBorder.Fixed;
+            if (_mode == WindowMode.Windowed) _window.WindowBorder = WindowBorder.Fixed;
 
             // Off-screen HWNDs make SDL_WaitAndAcquireGPUSwapchainTexture wait on DWM's
             // occluded-window clock (~15 Hz). Cloak the window on a real monitor so the
@@ -480,8 +481,10 @@ namespace Genesis.Runtime.Platform
                     }
                     else
                     {
-                        // Fallback if we entered fullscreen from maximized (no saved placement).
-                        _window.Size = new Vector2D<int>(1280, 720);
+                        // Initial load already has the authored client size. Do not overwrite it
+                        // merely because the requested mode is Windowed.
+                        if (_window.Size.X <= 0 || _window.Size.Y <= 0)
+                            _window.Size = new Vector2D<int>(1280, 720);
                     }
                     break;
 
@@ -501,7 +504,7 @@ namespace Genesis.Runtime.Platform
                     if (monitor != null)
                     {
                         _window.Position = monitor.Bounds.Origin;
-                        _window.Size     = monitor.Bounds.Size;
+                        _window.Size     = monitor.VideoMode.Resolution ?? monitor.Bounds.Size;
                     }
                     else
                     {

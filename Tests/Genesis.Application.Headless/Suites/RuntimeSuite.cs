@@ -29,6 +29,7 @@ internal static class RuntimeSuite
     public static void Run(HeadlessContext ctx)
     {
         EngineSystemsSuite.Run(ctx);
+        FramePathAssetIoSuite.Run(ctx);
         HeadlessHarness.BeginMajor(ctx.Report, "Runtime");
         string logs = ctx.Logs;
         string captures = ctx.Captures;

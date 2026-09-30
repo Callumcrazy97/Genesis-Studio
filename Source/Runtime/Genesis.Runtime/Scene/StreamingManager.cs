@@ -53,7 +53,9 @@ namespace Genesis.Runtime.Scene
 
         public void ProcessMainThreadCallbacks()
         {
-            _jobs.ProcessMainThread(_settings.MaxMainThreadCallbacksPerFrame);
+            float milliseconds = float.IsFinite(_settings.MaxMainThreadMillisecondsPerFrame)
+                ? Math.Clamp(_settings.MaxMainThreadMillisecondsPerFrame, 0.1f, 16f) : 2f;
+            _jobs.ProcessMainThread(_settings.MaxMainThreadCallbacksPerFrame, TimeSpan.FromMilliseconds(milliseconds));
         }
 
         public void UpdateProviders(RuntimeScene scene, GameTime time)

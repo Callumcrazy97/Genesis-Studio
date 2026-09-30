@@ -91,6 +91,9 @@ namespace Genesis.Runtime.Scripting
         string        ResolveAssetPath(string projectRelativePath);
         /// <summary>Load a texture from a project-relative path through the asset pipeline.</summary>
         TextureHandle LoadTexture(string projectRelativePath);
+        /// <summary>Loads a texture for a specific use; lit 3D colour/data textures receive mipmaps.</summary>
+        TextureHandle LoadTexture(string projectRelativePath, Genesis.Shared.Materials.TextureColorSpace colorSpace)
+            => LoadTexture(projectRelativePath);
         TextureHandle CreateTexture(int width, int height, ReadOnlySpan<byte> rgba);
         void          UpdateTexture(TextureHandle handle, int width, int height, ReadOnlySpan<byte> rgba);
         void          ReleaseTexture(TextureHandle handle);

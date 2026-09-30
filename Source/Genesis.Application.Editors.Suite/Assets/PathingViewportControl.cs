@@ -32,7 +32,9 @@ internal sealed class PathingViewportControl : UserControl
 
     private readonly string _projectRoot;
     private readonly EditorViewport3D _viewport;
-    private readonly RuntimeModelRenderSystem _models = new();
+    private readonly RuntimeModelRenderSystem _models = new(
+        assetFreshnessIntervalMilliseconds: 500,
+        textureFreshnessIntervalMilliseconds: 1000);
     private readonly List<SceneVisual> _roomVisuals = [];
     private PathingAsset _asset = new();
     private RoomAsset? _room;

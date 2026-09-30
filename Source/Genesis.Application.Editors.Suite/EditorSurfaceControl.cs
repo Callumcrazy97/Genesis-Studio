@@ -196,11 +196,15 @@ public abstract class EditorSurfaceControl : UserControl, IEditorSurface
         OnJournalChanged();
     }
 
+    /// <summary>Default number of undo steps an editor retains.</summary>
+    protected const int DefaultUndoLimit = 200;
+
     /// <summary>
     /// Records an edit whose effect is already applied. <paramref name="revert"/> restores the
-    /// prior state; <paramref name="apply"/> re-applies it for redo.
+    /// prior state; <paramref name="apply"/> re-applies it for redo. History is bounded: many edits
+    /// capture whole-document snapshots, and an unbounded journal grew for the whole session.
     /// </summary>
-    protected void PushEdit(string label, Action apply, Action revert, int maximumEntries = int.MaxValue)
+    protected void PushEdit(string label, Action apply, Action revert, int maximumEntries = DefaultUndoLimit)
     {
         if (maximumEntries < 1) throw new ArgumentOutOfRangeException(nameof(maximumEntries));
         _undoStack.Push(new EditorEdit(label, apply, revert));
@@ -231,6 +235,10 @@ public abstract class EditorSurfaceControl : UserControl, IEditorSurface
 
     protected void AcceptSave()
     {
+        // A completed save makes every frame-path cache (sprites, textures, models, shaders)
+        // re-validate on its next use, so previews and play reflect the edit immediately rather
+        // than after their bounded fallback interval.
+        Genesis.Shared.Assets.RuntimeAssetPolicy.Invalidate();
         _dirty = false;
         DirtyChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -332,8 +340,13 @@ public abstract class EditorSurfaceControl : UserControl, IEditorSurface
         Genesis.Application.Core.Projects.ResourceBackupService.BackupBeforeOverwrite(ResourcePath);
         ProjectAssetWriteRegistry.MarkLocalWrite(ResourcePath);
         content = ResourceReferenceRewriter.Normalize(ProjectRoot, ResourcePath, content);
+        bool catalogued = ResourceNames.IsCatalogued(ProjectRoot, ResourcePath);
         File.WriteAllText(ResourcePath, content, new UTF8Encoding(false));
-        ResourceNames.Invalidate(ProjectRoot);
+        // Rewriting an already catalogued resource cannot change names or identities; invalidating
+        // anyway forced a synchronous rescan (and .meta parse) of the entire project on the next
+        // lookup after every save.
+        if (!catalogued) ResourceNames.Invalidate(ProjectRoot);
+        Genesis.Shared.Assets.RuntimeAssetPolicy.Invalidate();
     }
 
     protected void SaveJson<T>(T value)

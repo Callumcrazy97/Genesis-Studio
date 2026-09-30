@@ -17,6 +17,9 @@ public sealed class AuthoredTerrainGround : IDisposable
     private readonly TerrainAsset _asset;
     private IRenderController _render;
     private readonly List<MeshHandle> _meshes = [];
+    /// <summary>Cell layout of each mesh in <see cref="_meshes"/>, for partial vertex updates.</summary>
+    private readonly List<(int StartX, int StartZ, int CellsX, int CellsZ)> _chunks = [];
+    private int _builtResolutionX, _builtResolutionZ;
     private TextureHandle _albedo = TextureHandle.Invalid;
     private float _uvScale = 6f;
     private bool _biome;
@@ -53,6 +56,8 @@ public sealed class AuthoredTerrainGround : IDisposable
         int resZ = _asset.ResolutionZ;
         int cellsX = Math.Max(0, resX - 1);
         int cellsZ = Math.Max(0, resZ - 1);
+        _builtResolutionX = resX;
+        _builtResolutionZ = resZ;
         for (int startZ = 0; startZ < cellsZ; startZ += MaximumChunkCells)
         {
             int chunkCellsZ = Math.Min(MaximumChunkCells, cellsZ - startZ);
@@ -60,16 +65,64 @@ public sealed class AuthoredTerrainGround : IDisposable
             {
                 int chunkCellsX = Math.Min(MaximumChunkCells, cellsX - startX);
                 _meshes.Add(BuildChunk(startX, startZ, chunkCellsX, chunkCellsZ));
+                _chunks.Add((startX, startZ, chunkCellsX, chunkCellsZ));
             }
+        }
+    }
+
+    /// <summary>
+    /// Refreshes only the chunks whose vertices a height/paint edit inside the inclusive sample
+    /// rectangle can change (normals read one sample either side). A sculpt dab used to rebuild and
+    /// re-register every chunk of the terrain on each mouse move.
+    /// </summary>
+    public void RebuildRegion(int minX, int minZ, int maxX, int maxZ)
+    {
+        if (_render == null) return;
+        if (_meshes.Count == 0 || _meshes.Count != _chunks.Count
+            || _builtResolutionX != _asset.ResolutionX || _builtResolutionZ != _asset.ResolutionZ)
+        {
+            RebuildMesh();
+            return;
+        }
+        minX -= 1; minZ -= 1; maxX += 1; maxZ += 1;
+        for (int i = 0; i < _chunks.Count; i++)
+        {
+            var chunk = _chunks[i];
+            if (chunk.StartX > maxX || chunk.StartX + chunk.CellsX < minX
+                || chunk.StartZ > maxZ || chunk.StartZ + chunk.CellsZ < minZ) continue;
+            if (!_meshes[i].IsValid) { RebuildMesh(); return; }
+            _render.UpdateMesh(_meshes[i], BuildChunkVertices(chunk.StartX, chunk.StartZ, chunk.CellsX, chunk.CellsZ));
         }
     }
 
     private MeshHandle BuildChunk(int startX, int startZ, int cellsX, int cellsZ)
     {
         int pointsX = cellsX + 1;
+        var verts = BuildChunkVertices(startX, startZ, cellsX, cellsZ);
+        var inds = new ushort[cellsX * cellsZ * 6];
+
+        int idx = 0;
+        for (int z = 0; z < cellsZ; z++)
+        {
+            for (int x = 0; x < cellsX; x++)
+            {
+                int i00 = z * pointsX + x;
+                int i10 = i00 + 1;
+                int i01 = i00 + pointsX;
+                int i11 = i01 + 1;
+                inds[idx++] = (ushort)i00; inds[idx++] = (ushort)i01; inds[idx++] = (ushort)i10;
+                inds[idx++] = (ushort)i10; inds[idx++] = (ushort)i01; inds[idx++] = (ushort)i11;
+            }
+        }
+
+        return _render.RegisterMesh(verts, inds);
+    }
+
+    private MeshVertex[] BuildChunkVertices(int startX, int startZ, int cellsX, int cellsZ)
+    {
+        int pointsX = cellsX + 1;
         int pointsZ = cellsZ + 1;
         var verts = new MeshVertex[pointsX * pointsZ];
-        var inds = new ushort[cellsX * cellsZ * 6];
 
         for (int localZ = 0; localZ < pointsZ; localZ++)
         {
@@ -108,21 +161,7 @@ public sealed class AuthoredTerrainGround : IDisposable
             }
         }
 
-        int idx = 0;
-        for (int z = 0; z < cellsZ; z++)
-        {
-            for (int x = 0; x < cellsX; x++)
-            {
-                int i00 = z * pointsX + x;
-                int i10 = i00 + 1;
-                int i01 = i00 + pointsX;
-                int i11 = i01 + 1;
-                inds[idx++] = (ushort)i00; inds[idx++] = (ushort)i01; inds[idx++] = (ushort)i10;
-                inds[idx++] = (ushort)i10; inds[idx++] = (ushort)i01; inds[idx++] = (ushort)i11;
-            }
-        }
-
-        return _render.RegisterMesh(verts, inds);
+        return verts;
     }
 
     private Vector3 ComputeNormal(int x, int z)
@@ -160,6 +199,7 @@ public sealed class AuthoredTerrainGround : IDisposable
             foreach (MeshHandle mesh in _meshes)
                 if (mesh.IsValid) _render.ReleaseMesh(mesh);
         _meshes.Clear();
+        _chunks.Clear();
     }
 
     public void Dispose()

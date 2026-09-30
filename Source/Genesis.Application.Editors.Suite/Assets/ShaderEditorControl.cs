@@ -68,7 +68,9 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
     private readonly Dictionary<string, TextureHandle> _resourceTextures = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<string> _terrainComponentIds = [];
     private readonly List<ShaderPresetDefinition> _visiblePresets = [];
-    private readonly RuntimeModelRenderSystem _modelPreviewRenderer = new();
+    private readonly RuntimeModelRenderSystem _modelPreviewRenderer = new(
+        assetFreshnessIntervalMilliseconds: 500,
+        textureFreshnessIntervalMilliseconds: 1000);
 
     private string? _loadedTerrainComponent;
     private TextureHandle _previewTexture;

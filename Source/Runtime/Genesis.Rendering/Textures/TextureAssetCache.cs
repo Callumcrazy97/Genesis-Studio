@@ -89,13 +89,21 @@ namespace Genesis.Rendering.Textures
         {
             public TextureHandle Handle;
             public AssetStamp Stamp;
+            public long NextFreshnessCheckMilliseconds;
+            public long Generation;
         }
 
         private readonly Dictionary<Key, Entry> _entries = new();
         private readonly object _gate = new();
+        private readonly int _freshnessIntervalMilliseconds;
         private int _loaded;
         private int _reused;
         private int _invalidated;
+
+        public TextureAssetCache(int freshnessIntervalMilliseconds = 0)
+        {
+            _freshnessIntervalMilliseconds = Math.Max(0, freshnessIntervalMilliseconds);
+        }
 
         /// <summary>File-backed textures uploaded because no valid cached entry existed.</summary>
         public int Loaded => Volatile.Read(ref _loaded);
@@ -129,11 +137,29 @@ namespace Genesis.Rendering.Textures
             Action<TextureHandle> releaseUncached)
         {
             if (loader == null) throw new ArgumentNullException(nameof(loader));
-            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return TextureHandle.Invalid;
+            if (string.IsNullOrWhiteSpace(path)) return TextureHandle.Invalid;
 
             string fullPath = Path.GetFullPath(path);
-            AssetStamp stamp = CaptureStamp(fullPath);
             Key key = new(fullPath, colorSpace);
+            long now = Environment.TickCount64;
+            long generation = RuntimeAssetPolicy.Generation;
+            AssetStamp? previous = null;
+            lock (_gate)
+            {
+                if (_entries.TryGetValue(key, out Entry recent) && recent.Handle.IsValid)
+                {
+                    if (recent.Generation == generation && now < recent.NextFreshnessCheckMilliseconds)
+                    {
+                        Interlocked.Increment(ref _reused);
+                        return recent.Handle;
+                    }
+                    previous = recent.Stamp;
+                }
+            }
+
+            AssetIoCounters.Check();
+            if (!File.Exists(fullPath)) return TextureHandle.Invalid;
+            AssetStamp stamp = CaptureStamp(fullPath, previous);
             TextureHandle stale = TextureHandle.Invalid;
 
             lock (_gate)
@@ -142,6 +168,8 @@ namespace Genesis.Rendering.Textures
                 {
                     if (existing.Handle.IsValid && existing.Stamp.Equals(stamp))
                     {
+                        existing.Generation = generation;
+                        existing.NextFreshnessCheckMilliseconds = NextCheck(now, key);
                         Interlocked.Increment(ref _reused);
                         return existing.Handle;
                     }
@@ -163,7 +191,9 @@ namespace Genesis.Rendering.Textures
             Entry candidate = new()
             {
                 Handle = loaded,
-                Stamp = CaptureStamp(fullPath),
+                Stamp = CaptureStamp(fullPath, stamp),
+                NextFreshnessCheckMilliseconds = NextCheck(now, key),
+                Generation = generation,
             };
 
             TextureHandle winner = TextureHandle.Invalid;
@@ -173,6 +203,8 @@ namespace Genesis.Rendering.Textures
                     raced.Stamp.Equals(candidate.Stamp))
                 {
                     winner = raced.Handle;
+                    raced.Generation = generation;
+                    raced.NextFreshnessCheckMilliseconds = NextCheck(now, key);
                     Interlocked.Increment(ref _reused);
                 }
                 else
@@ -191,8 +223,17 @@ namespace Genesis.Rendering.Textures
             return loaded;
         }
 
-        private static AssetStamp CaptureStamp(string sourcePath)
+        /// <summary>
+        /// Staggered next re-validation time. Textures loaded together used to expire together, so
+        /// every texture of a scene re-stamped (and re-parsed its cook manifest) in the same frame,
+        /// twice a second. Exported games disable polling; explicit invalidation still applies.
+        /// </summary>
+        private long NextCheck(long now, Key key) =>
+            RuntimeAssetPolicy.NextCheck(now, _freshnessIntervalMilliseconds, key.GetHashCode());
+
+        private static AssetStamp CaptureStamp(string sourcePath, AssetStamp? previous = null)
         {
+            AssetIoCounters.Check(2);
             FileInfo source = new(sourcePath);
             if (!source.Exists) return new AssetStamp(-1, 0, -1, 0, string.Empty, -1, 0);
 
@@ -204,9 +245,25 @@ namespace Genesis.Rendering.Textures
             string cookedPath = string.Empty;
             long cookedLength = -1;
             long cookedTicks = 0;
-            if (CookedTextureManifestStore.TryResolve(sourcePath, out string resolved, out _))
+            bool sourceAndManifestUnchanged = previous is { } before
+                && before.SourceLength == source.Length
+                && before.SourceLastWriteUtcTicks == source.LastWriteTimeUtc.Ticks
+                && before.ManifestLength == manifestLength
+                && before.ManifestLastWriteUtcTicks == manifestTicks;
+            if (sourceAndManifestUnchanged)
+            {
+                // The manifest's resolution depends only on the source and manifest themselves, so
+                // an unchanged pair reuses the previous answer instead of re-reading the JSON.
+                cookedPath = previous.Value.CookedPath;
+            }
+            else if (CookedTextureManifestStore.TryResolve(sourcePath, out string resolved, out _))
             {
                 cookedPath = Path.GetFullPath(resolved);
+            }
+
+            if (cookedPath.Length > 0)
+            {
+                AssetIoCounters.Check();
                 FileInfo cooked = new(cookedPath);
                 if (cooked.Exists)
                 {

@@ -18,10 +18,11 @@ struct PostPointLight
 };
 
 // Issue 6 Stage 1: analytic placeable fog volume. Must match Genesis.Rendering.Primitives
-// .ForwardRenderer's FogVolumeData (CenterDensity/ExtentsFalloff/ColorShape/KindPad) field
+// .ForwardRenderer's FogVolumeData (CenterDensity/ExtentsFalloff/ColorShape/KindDirection) field
 // for field — see ComputeFogVolumes() below for the shape enum (0=Box,1=Sphere,2=Ellipsoid,
-// 3=HeightSlab) and kind enum (0=GroundMist,1=Cloud,2=Haze) this is unpacked against.
-struct FogVolumeGpu { float4 CenterDensity; float4 ExtentsFalloff; float4 ColorShape; float4 KindPad; };
+// 3=HeightSlab,4=Cone) and kind enum (0=GroundMist,1=Cloud,2=Haze) this is unpacked against.
+// KindDirection.yzw carries the directed cone axis.
+struct FogVolumeGpu { float4 CenterDensity; float4 ExtentsFalloff; float4 ColorShape; float4 KindDirection; };
 
 cbuffer EngineConstants : register(b0)
 
@@ -140,6 +141,15 @@ cbuffer FogPostConstants : register(b1)
     float4 AuthoredSkyZenith;
     float4 AuthoredSkyHorizon;
     float4 AuthoredSkySun;
+
+    // Ink outline, append-only — x=opacity (0 = off), y=width in pixels, z=relative depth step
+    // that counts as a silhouette, w=crease threshold in radians of surface turn.
+    float4 InkParams;
+    // rgb = display-space ink colour, w = angular size of one pixel (radians).
+    float4 InkColor;
+    // x=full-width distance, y=far distance, z=opacity multiplier at the far distance,
+    // w=pixels between tap rings (1 at 1080p).
+    float4 InkFade;
 
 };
 
@@ -260,84 +270,9 @@ float InterleavedGradientNoise(float2 pixelCoord)
 
 
 
-float NoiseXZ(float2 xz)
-
-{
-
-    float2 uv = xz * 0.035;
-
-    float2 i = floor(uv);
-
-    float2 f = frac(uv);
-
-    f = f * f * (3.0 - 2.0 * f);
-
-    float a = Hash21(i);
-
-    float b = Hash21(i + float2(1.0, 0.0));
-
-    float c = Hash21(i + float2(0.0, 1.0));
-
-    float d = Hash21(i + float2(1.0, 1.0));
-
-    return lerp(lerp(a, b, f.x), lerp(c, d, f.x), f.y);
-
-}
-
-
-
-// ── Unified volumetric fog model (full rewrite) ─────────────────────────────
-// Replaces the old ""evaluate one scalar fog factor at the destination point""
-// approach with real front-to-back Beer-Lambert ray marching: density (base
-// atmosphere + placed fog volumes) is sampled at each step along the actual
-// view ray, accumulating transmittance and inscattered light. This is what
-// makes fog genuinely 3D — a placed volume or a height layer now affects
-// every step a ray takes through it, not just whatever single surface pixel
-// happens to be behind it — and it's also what lets fog correctly reach
-// objects that never wrote scene depth (see ForwardShaders.cs/TerrainShader.cs,
-// which ray-march from the camera to their own real position instead of
-// relying on this post-process's depth-buffer reconstruction).
-//
-// IMPORTANT: ForwardShaders.cs and TerrainShader.cs each carry their own copy
-// of FogDensityAt/RayMarchFog (these raw HLSL strings have no #include), used
-// as their no-screen-space-coverage fallback. Keep all three copies in sync —
-// same rule already applied to the EngineConstants cbuffer prefix above.
-
-// Base atmosphere extinction coefficient (per-unit-length) at a world point:
-// global density + horizontal noise breakup, attenuated by height falloff.
-float FogDensityAt(float3 worldPos)
-{
-    float fogDensity = FogParams.w;
-    float noiseStr   = EffectParams.w;
-    // Noise strength is a fraction of authored density, not another density in world units.
-    float noiseAmp   = saturate(noiseStr) * fogDensity;
-    float density    = fogDensity + (NoiseXZ(worldPos.xz) - 0.5) * noiseAmp;
-
-    float heightBase    = FogParams2.x;
-    float heightFalloff = max(FogParams2.y, 0.0001);
-    float aerialBlend   = saturate(FogParams2.z);
-    float belowBase = max(heightBase - worldPos.y, 0.0);
-    float heightMul = exp(-heightFalloff * belowBase);
-    density *= lerp(1.0, heightMul, aerialBlend);
-
-    return max(density, 0.0);
-}
-
-
-
-int VolumetricStepCount()
-
-{
-
-    if (VolumetricParams.y < 0.5) return 6;
-
-    if (VolumetricParams.y < 1.5) return 12;
-
-    return 20;
-
-}
-
-
+// ── Volumetric fog ───────────────────────────────────────────────────────────
+// The per-pixel ray march that lived here (and in two hand-synced copies) is replaced by the froxel
+// volume: see FroxelFogShaders. FroxelFog() below samples it and adds the analytic far field.
 
 // Sun visibility at a world point, sampled from the cascaded shadow maps. Returns 1.0 (fully
 // lit) when shadows are off or the point falls outside both cascades, so this is always safe
@@ -392,145 +327,7 @@ float SampleShadowAtPoint(float3 worldPos)
 
 
 
-// Issue 6 Stage 1: per-shape ""inside"" factor in [0,1], 1 at the volume centre, 0 at/beyond
-// its bounds. localPos is worldPos - volume centre. Shapes: 0=Box, 1=Sphere, 2=Ellipsoid,
-// 3=HeightSlab (infinite in X/Z, bounded by extents.y in Y only).
-float FogVolumeInsideFactor(float3 localPos, float3 extents, int shape)
-
-{
-
-    float3 e = max(extents, 0.0001);
-
-    if (shape == 1)
-    {
-        float d = length(localPos) / e.x;
-        return saturate(1.0 - d);
-    }
-
-    if (shape == 3)
-    {
-        float d = abs(localPos.y) / e.y;
-        return saturate(1.0 - d);
-    }
-
-    float3 n = localPos / e;
-
-    if (shape == 2)
-    {
-        float d = length(n);
-        return saturate(1.0 - d);
-    }
-
-    // Box: Chebyshev (max-axis) distance so the falloff reaches 0 exactly at each face.
-    float d = max(max(abs(n.x), abs(n.y)), abs(n.z));
-    return saturate(1.0 - d);
-
-}
-
-
-
-// Accumulates all active placeable fog volumes at worldPos. Returns the density-weighted
-// average volume colour via outColor and the (un-clamped-to-1) accumulated density via the
-// return value, so the caller can both boost the existing distance/height fog factor and
-// tint it toward whichever volume(s) the point sits inside.
-float ComputeFogVolumes(float3 worldPos, out float3 outColor)
-
-{
-
-    float totalWeight = 0.0;
-
-    float3 colorAccum = float3(0.0, 0.0, 0.0);
-
-    int count = (int)FogVolumeCounts.x;
-
-    [loop]
-    for (int i = 0; i < 8; i++)
-    {
-        if (i >= count) break;
-
-        FogVolumeGpu v = FogVolumes[i];
-        float3 localPos = worldPos - v.CenterDensity.xyz;
-        int shape = (int)v.ColorShape.w;
-        float inside = FogVolumeInsideFactor(localPos, v.ExtentsFalloff.xyz, shape);
-        if (inside <= 0.0)
-            continue;
-
-        float falloffCurve = max(v.ExtentsFalloff.w, 0.0001);
-        float weight = pow(inside, falloffCurve) * saturate(v.CenterDensity.w);
-
-        colorAccum += v.ColorShape.xyz * weight;
-        totalWeight += weight;
-    }
-
-    outColor = totalWeight > 0.0001 ? colorAccum / totalWeight : float3(0.0, 0.0, 0.0);
-    return totalWeight;
-
-}
-
-
-
-// Marches from cameraPos toward viewDir over rayLength, accumulating
-// Beer-Lambert transmittance and shadow-aware inscattered light (placed fog
-// volumes' own colour included). Returns transmittance via the return value
-// (0 = scene colour fully replaced by fog, 1 = fog has no effect) and the
-// inscattered colour via outInscatter. Composite at the call site with:
-//   color = color * transmittance + outInscatter;
-float RayMarchFog(float3 cameraPos, float3 viewDir, float rayLength, float3 lightDir,
-                   float jitterSeed, out float3 outInscatter)
-{
-    outInscatter = float3(0.0, 0.0, 0.0);
-
-    float maxDist = max(rayLength, 0.0);
-    if (maxDist <= 0.001)
-        return 1.0;
-
-    int steps = VolumetricStepCount();
-    float stepLen = maxDist / max(steps, 1);
-    // jitterSeed is now expected to already be a [0,1) dither value from InterleavedGradientNoise
-    // (computed at the call site from screen pixel coordinates), not a raw hash seed.
-    float jitter = (jitterSeed - 0.5) * stepLen * 0.15;
-    float t = max(stepLen * 0.5 + jitter, 0.0);
-
-    float sunDot       = saturate(dot(viewDir, normalize(-lightDir)));
-    float sunPreserve  = saturate(FogParams2.w);
-    float horizon      = 1.0 - saturate(abs(viewDir.y));
-    float horizonBoost = horizon * horizon * saturate(FogParams2.z) * 0.30;
-
-    float transmittance = 1.0;
-
-    [loop]
-    for (int i = 0; i < 24; i++)
-    {
-        if (i >= steps) break;
-
-        float3 samplePos = cameraPos + viewDir * t;
-
-        float3 volColor;
-        float volDensity = ComputeFogVolumes(samplePos, volColor);
-        float density = FogDensityAt(samplePos) + volDensity + horizonBoost * 0.02;
-
-        float vis = SampleShadowAtPoint(samplePos);
-        // Shadowed steps still contribute some ambient haze (floor of 0.35) so fog never goes
-        // pitch black; sun-visible steps contribute fully, producing visible light shafts.
-        float lightAmt = lerp(0.35, 1.0, vis) * (1.0 - sunDot * sunPreserve);
-
-        float3 stepColor = volDensity > 0.0001
-            ? lerp(FogColor.rgb, volColor, saturate(volDensity / max(density, 0.0001)))
-            : FogColor.rgb;
-
-        float stepTransmittance = exp(-density * stepLen);
-        // Front-to-back: each step's contribution is weighted by how much light already
-        // survived to reach it (the running transmittance), which is the correct way to
-        // accumulate in-scattering along a ray instead of just averaging samples.
-        outInscatter += stepColor * lightAmt * (1.0 - stepTransmittance) * transmittance;
-        transmittance *= stepTransmittance;
-
-        t += stepLen;
-    }
-
-    return saturate(transmittance);
-}
-
+" + FroxelFogShaders.ApplySource + @"
 
 
 // ── AF1.6 smoke as extinction ───────────────────────────────────────────────
@@ -593,6 +390,54 @@ float FetchSceneDepth(float2 uv, int2 pixel)
     return SceneDepth.Load(int3(pixel, 0));
 }
 
+// ── Ink outline ──────────────────────────────────────────────────────────────
+// Device depth is affine across a plane in screen space, so its second difference is zero on
+// every flat surface at any viewing angle and non-zero only where the surface steps (a
+// silhouette) or bends (a crease). Both kinds of line therefore come from depth alone — there is
+// no normal buffer — and draws that never wrote depth (particles, blended surfaces) stay clean.
+static const int2 InkTapDirs[4] = { int2(1, 0), int2(0, 1), int2(1, 1), int2(1, -1) };
+static const float InkTapLengths[4] = { 1.0, 1.0, 1.41421356, 1.41421356 };
+
+float InkOutline(int2 pixel)
+{
+    // (far / (far - near)) - depth is proportional to 1 / view depth.
+    float depthBias = ClipPlanes.y / max(ClipPlanes.y - ClipPlanes.x, 1e-4);
+    float q0 = max(depthBias - SceneDepth.Load(int3(pixel, 0)), 1e-7);
+    float viewDepth = depthBias * ClipPlanes.x / q0;
+    float distant = saturate((viewDepth - InkFade.x) / max(InkFade.y - InkFade.x, 1e-3));
+    // Three rings of taps; InkFade.w spaces them further apart for wide lines at high resolutions.
+    int tapStep = max((int)InkFade.w, 1);
+    float width = lerp(InkParams.y, min(InkParams.y, 1.0), distant) / (float)tapStep;
+    int2 maxPixel = int2(ViewportParams.xy) - int2(1, 1);
+
+    float ink = 0.0;
+    [unroll]
+    for (int ring = 1; ring <= 3; ring++)
+    {
+        float ringWeight = saturate(width - (float)(ring - 1));
+        float strongest = 0.0;
+        [unroll]
+        for (int i = 0; i < 4; i++)
+        {
+            int2 offset = InkTapDirs[i] * (ring * tapStep);
+            float qa = depthBias - SceneDepth.Load(int3(clamp(pixel + offset, int2(0, 0), maxPixel), 0));
+            float qb = depthBias - SceneDepth.Load(int3(clamp(pixel - offset, int2(0, 0), maxPixel), 0));
+            float bend = (qa + qb - 2.0 * q0) / q0;
+            // Silhouette: only the nearer surface is inked, so a line is one width rather than two.
+            float depthStep = bend < 0.0 ? smoothstep(InkParams.z, InkParams.z * 2.0, -bend) : 0.0;
+            // Crease: divide out the pixel span and the surface's own slope to get the angle the
+            // surface turns through, so a floor seen at a grazing angle does not over-respond.
+            float span = InkTapLengths[i] * (float)(ring * tapStep) * InkColor.w;
+            float slope = (qa - qb) / (2.0 * q0 * span);
+            float turn = abs(bend) / (span * (1.0 + slope * slope));
+            float crease = smoothstep(InkParams.w, InkParams.w * 1.6, turn);
+            strongest = max(strongest, max(depthStep, crease));
+        }
+        ink = max(ink, strongest * ringWeight);
+    }
+    return ink * lerp(1.0, InkFade.z, distant);
+}
+
 float4 PS(VSOut IN) : SV_Target
 
 {
@@ -601,11 +446,19 @@ float4 PS(VSOut IN) : SV_Target
 
     float3 color = scene.rgb;
 
-    float ao = AoParams.x > 0.5 ? AoMap.Sample(LinearClamp, IN.uv).r : 1.0;
-
-    color.rgb *= ao;
-
     int2 pixel = int2(floor(IN.uv * ViewportParams.xy));
+
+    // Forward attachment 1: r = fog flag (1 = fogged in the forward pass, 0.5 = engine-lit,
+    // 0 = authored shader), gba = the pixel's pre-fog ambient light.
+    float4 aux = FogSkipMask.Load(int3(pixel, 0));
+
+    // AO removes indirect light only: engine-lit pixels carry their ambient term, so sunlit and
+    // lamp-lit surfaces are no longer darkened in creases. Other pixels keep the whole-pixel multiply.
+    float ao = AoParams.x > 0.5 ? AoMap.Sample(LinearClamp, IN.uv).r : 1.0;
+    if (aux.r > 0.25 && aux.r <= 0.75)
+        color.rgb = max(color.rgb - aux.gba * (1.0 - ao), 0.0);
+    else
+        color.rgb *= ao;
 
     // AF1.4 contact shadows. Deliberately *not* another fullscreen ambient darken: that would
     // double up with the GTAO multiply above wherever both find the same crease. The contact term
@@ -615,7 +468,7 @@ float4 PS(VSOut IN) : SV_Target
     if (ContactParams.x > 0.5)
     {
         float contactDepth = FetchSceneDepth(IN.uv, pixel);
-        if (contactDepth < 0.9999)
+        if (contactDepth < 0.9999999)
         {
             float2 contactNdc = float2(IN.uv.x * 2.0 - 1.0, 1.0 - IN.uv.y * 2.0);
             float4 contactWorldH = mul(float4(contactNdc, contactDepth, 1.0), InvViewProjection);
@@ -634,7 +487,7 @@ float4 PS(VSOut IN) : SV_Target
     if (SmokeParams.x > 0.5 && SmokeParams.z >= 1.0)
     {
         float smokeZ = FetchSceneDepth(IN.uv, pixel);
-        bool smokeIsSky = smokeZ >= 0.9999;
+        bool smokeIsSky = smokeZ >= 0.9999999;
         float2 smokeNdc = float2(IN.uv.x * 2.0 - 1.0, 1.0 - IN.uv.y * 2.0);
         float4 smokeWorldH = mul(float4(smokeNdc, smokeIsSky ? 1.0 : smokeZ, 1.0), InvViewProjection);
         float3 smokeCameraPos = CameraPosPad.xyz;
@@ -650,14 +503,16 @@ float4 PS(VSOut IN) : SV_Target
         color.rgb *= SmokeTransmittance(smokeWorldPos, smokeCameraPos);
     }
 
-    // Exact (unfiltered) lookup — this is a binary flag, not something to bilinear-blend.
-    float skipPostFog = FogSkipMask.Load(int3(pixel, 0)).r;
+    float skipPostFog = aux.r > 0.75 ? 1.0 : 0.0;
+
+    // Fog transmittance to this pixel; also attenuates what is composited after the fog.
+    float fogTransmittance = 1.0;
 
     if (FogParams.x > 0.5 && skipPostFog < 0.5)
     {
 
     float z = FetchSceneDepth(IN.uv, pixel);
-    bool isSky = z >= 0.9999;
+    bool isSky = z >= 0.9999999;
 
     float2 ndc = float2(IN.uv.x * 2.0 - 1.0, 1.0 - IN.uv.y * 2.0);
 
@@ -680,10 +535,12 @@ float4 PS(VSOut IN) : SV_Target
         worldPos = cameraPos + viewDir * linearZ;
     }
 
-    float jitterSeed = InterleavedGradientNoise(float2(pixel));
-    float3 inscatter;
-    float transmittance = RayMarchFog(cameraPos, viewDir, linearZ, LightDirEnabled.xyz, jitterSeed, inscatter);
-    color = lerp(color, color * transmittance + inscatter, saturate(FogColor.a));
+    // Froxel depth is clip w: view depth along the camera's forward axis.
+    float4 forwardH = mul(float4(0.0, 0.0, 1.0, 1.0), InvViewProjection);
+    float3 cameraForward = normalize(forwardH.xyz / max(forwardH.w, 0.0001) - cameraPos);
+    float4 fog = FroxelFog(IN.uv, cameraPos, worldPos, dot(worldPos - cameraPos, cameraForward));
+    color = lerp(color, color * fog.a + fog.rgb, saturate(FogColor.a));
+    fogTransmittance = lerp(1.0, fog.a, saturate(FogColor.a));
 
     }
 
@@ -693,7 +550,7 @@ float4 PS(VSOut IN) : SV_Target
     if (AtmosphereLutParams.x > 0.5)
     {
         float lutZ = FetchSceneDepth(IN.uv, pixel);
-        if (lutZ >= 0.9999)
+        if (lutZ >= 0.9999999)
         {
             float2 lutNdc = float2(IN.uv.x * 2.0 - 1.0, 1.0 - IN.uv.y * 2.0);
             float4 lutWorldH = mul(float4(lutNdc, 1.0, 1.0), InvViewProjection);
@@ -742,7 +599,7 @@ float4 PS(VSOut IN) : SV_Target
     if (CelestialParams.x > 0.5)
     {
         float celZ = FetchSceneDepth(IN.uv, pixel);
-        if (celZ >= 0.9999)
+        if (celZ >= 0.9999999)
         {
             float2 celNdc = float2(IN.uv.x * 2.0 - 1.0, 1.0 - IN.uv.y * 2.0);
             float4 celWorldH = mul(float4(celNdc, 1.0, 1.0), InvViewProjection);
@@ -805,7 +662,7 @@ float4 PS(VSOut IN) : SV_Target
                 celestial += float3(0.67, 0.76, 0.94) * 0.85 * mask * (lit + earthshine);
             }
 
-            color.rgb += celestial;
+            color.rgb += celestial * fogTransmittance;
         }
     }
 
@@ -834,7 +691,7 @@ float4 PS(VSOut IN) : SV_Target
             cloud *= exp(-distance * CloudLayerParams.z);
         }
         float cloudDepth = FetchSceneDepth(IN.uv, pixel);
-        if (cloudDepth < 0.99999)
+        if (cloudDepth < 0.9999999)
         {
             float2 cloudNdc = float2(IN.uv.x * 2.0 - 1.0, 1.0 - IN.uv.y * 2.0);
             float4 cloudWorldH = mul(float4(cloudNdc, cloudDepth, 1.0), InvViewProjection);
@@ -847,14 +704,15 @@ float4 PS(VSOut IN) : SV_Target
         }
         if (CloudCompositeParams.z > 0.5)
             color.rgb *= 1.0 - saturate(cloud.a);
-        color.rgb += cloud.rgb * CloudCompositeParams.y;
+        color.rgb += cloud.rgb * CloudCompositeParams.y * fogTransmittance;
     }
 
-    // AF1.7 HDR bloom add (pre-fog scene extract in v1) → exposure → mild grade → vignette → ACES.
+    // AF1.7 HDR bloom add → exposure → mild grade → vignette → ACES. The bloom is extracted before
+    // fog, so it is attenuated by this pixel's fog transmittance: lamps no longer glow through fog.
     // Defaults are identity: bloom off, exposure/contrast/saturation 1, vignette 0. ACES stays
     // the sole tonemap — nothing here stacks a second filmic curve.
     if (BloomParams.x > 0.5)
-        color.rgb += BloomMap.Sample(LinearClamp, IN.uv).rgb * BloomParams.y;
+        color.rgb += BloomMap.Sample(LinearClamp, IN.uv).rgb * BloomParams.y * fogTransmittance;
 
     color.rgb *= ExposureParams.x;
 
@@ -876,6 +734,15 @@ float4 PS(VSOut IN) : SV_Target
     // HDR (FP16), so bright highlights (sun disc, emissive fire/magic/embers, bright sky) roll
     // off naturally here instead of being hard-clipped at 1.0 like the old 8-bit pipeline.
     float3 mapped = ACESFilm(color);
+    // Linear colour pipeline: encode the tonemapped linear result for the UNORM display target.
+    if (ExposureParams.w > 0.5)
+    {
+        mapped = saturate(mapped);
+        mapped = lerp(1.055 * pow(mapped, 1.0 / 2.4) - 0.055, mapped * 12.92, step(mapped, 0.0031308));
+    }
+    // Ink goes on last, in display space, so a line is the same colour at every exposure.
+    if (InkParams.x > 0.001)
+        mapped = lerp(mapped, InkColor.rgb, saturate(InkOutline(pixel) * InkParams.x));
     return float4(mapped, scene.a);
 }
 ";

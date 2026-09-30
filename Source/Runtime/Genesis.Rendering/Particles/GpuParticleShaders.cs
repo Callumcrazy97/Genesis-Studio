@@ -439,7 +439,13 @@ VertexOutput VS(VertexInput input,uint vertex:SV_VertexID,uint instance:SV_Insta
 }
 float4 PS(VertexOutput input):SV_Target0 {
     float4 pixel=ParticleTexture.Sample(LinearSampler,input.uv);
-    float4 color=pixel*input.color;
+    float4 tint=input.color;
+    // Linear colour pipeline (3D only): texture and colour curves are authored in sRGB.
+    if(Mode.x<0.5&&CameraRight.w>0.5){
+        float3 p=max(pixel.rgb,0.0);pixel.rgb=lerp(pow((p+0.055)/1.055,2.4),p/12.92,step(p,0.04045));
+        float3 t=max(tint.rgb,0.0);tint.rgb=lerp(pow((t+0.055)/1.055,2.4),t/12.92,step(t,0.04045));
+    }
+    float4 color=pixel*tint;
     if(Mode.z>1.5)color.rgb*=color.a;
     clip(color.a-0.0001);return color;
 }

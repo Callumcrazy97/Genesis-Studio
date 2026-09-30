@@ -36,9 +36,11 @@ namespace Genesis.Rendering.SilkNet.DX12
         public const int DescriptorsPerDraw =
             VertexCbvCount + VertexSrvCount + PixelCbvCount + PixelSrvCount;
 
-        // Room for ~1100 draws per frame. A descriptor is tens of bytes, so the whole ring is a
-        // few megabytes — far cheaper than the alternative, which is running out mid-frame.
-        private const int DescriptorsPerFrame = 65536;
+        // Room for ~5100 draws per frame (64 descriptors each). The previous 65536 allowed ~1024,
+        // which the shadow cascades and omni faces multiply quickly and which threw mid-frame in
+        // dense rooms. Three frames of this stay under the 1,000,000-descriptor limit of resource
+        // binding tiers 1 and 2; a descriptor is tens of bytes, so the ring is tens of megabytes.
+        private const int DescriptorsPerFrame = 327680;
         private const int SamplerHeapSize = 2048;
 
         // Root parameter order. Referenced by SetGraphicsRootDescriptorTable at draw time.

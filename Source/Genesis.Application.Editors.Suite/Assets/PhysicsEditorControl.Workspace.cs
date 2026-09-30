@@ -25,7 +25,9 @@ public sealed partial class PhysicsEditorControl
     private Label? _computedMass;
     private float _simulationSeconds;
     private bool _seekingTimeline;
-    private readonly RuntimeModelRenderSystem _physicsTargetModelRenderer = new();
+    private readonly RuntimeModelRenderSystem _physicsTargetModelRenderer = new(
+        assetFreshnessIntervalMilliseconds: 500,
+        textureFreshnessIntervalMilliseconds: 1000);
     private GModelAsset? _physicsTargetModel;
     private TerrainAsset? _physicsTargetTerrain;
     private Matrix4x4 _physicsTargetWorld = Matrix4x4.Identity;

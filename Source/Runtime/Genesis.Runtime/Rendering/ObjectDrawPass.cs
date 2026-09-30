@@ -15,6 +15,7 @@ using Genesis.Runtime.Textures;
 using Genesis.Shared.Assets;
 using Genesis.Shared.ECS;
 using Genesis.Shared.Interfaces;
+using Genesis.Shared.Materials;
 using Genesis.Shared.Rendering;
 using EcsWorld = Genesis.Runtime.ECS.World;
 
@@ -26,22 +27,65 @@ namespace Genesis.Runtime.Rendering
     public static partial class ObjectDrawPass
     {
         private static readonly ConditionalWeakTable<IRenderController, RenderCache> RenderCaches = new();
-        private static readonly RuntimeModelRenderSystem ModelRenderer = new();
+        // The project watcher invalidates this cache immediately when authored assets change.
+        // Bounded fallback checks cover external writers without resolving hundreds of identical
+        // model and texture paths during every submitted frame.
+        private static readonly RuntimeModelRenderSystem ModelRenderer = new(
+            assetFreshnessIntervalMilliseconds: 1000,
+            textureFreshnessIntervalMilliseconds: 1000);
 
         private sealed class RenderCache
         {
-            public readonly Dictionary<string, TextureCacheEntry> Textures = new(StringComparer.OrdinalIgnoreCase);
-            public readonly Dictionary<string, ShaderCacheEntry> Shaders = new(StringComparer.OrdinalIgnoreCase);
+            public readonly Dictionary<ShaderCacheKey, ShaderCacheEntry> Shaders = new();
             public MeshHandle CubeMesh = MeshHandle.Invalid;
             public MeshHandle TerrainPlane = MeshHandle.Invalid;
             public readonly Dictionary<string, ImageMaterialCacheEntry> ImageMaterials = new(StringComparer.OrdinalIgnoreCase);
+            public readonly Dictionary<SpriteFrameKey, SpriteFrameBinding> SpriteFrames = new();
+            public readonly Dictionary<SpriteFrameKey, ImageMaterialCacheEntry> ImageMaterialRequests = new();
         }
+
+        private readonly record struct SpriteFrameKey(string ProjectPath, string Image, int Frame,
+            TextureColorSpace ColorSpace = TextureColorSpace.Display);
+
+        /// <summary>
+        /// Everything a sprite draw needs from disk, resolved once per (project, image, frame).
+        /// Sprite draws used to resolve the same descriptor four times per object per frame
+        /// (texture, pivot, UV rectangle, atlas remap), each resolution stat-ing the descriptor and
+        /// frame image: roughly 20 file-system calls per sprite per frame, in shipped games too.
+        /// Entries re-validate only after an explicit invalidation (<see cref="RuntimeAssetPolicy.Generation"/>)
+        /// or the bounded, jittered fallback interval, which exported games disable entirely.
+        /// </summary>
+        private sealed class SpriteFrameBinding
+        {
+            public long Generation = long.MinValue;
+            public long NextCheckMilliseconds;
+            public bool Valid;
+            public string TexturePath = string.Empty;
+            public long TextureStampTicks;
+            public TextureHandle Handle = TextureHandle.Invalid;
+            public int Width = 32;
+            public int Height = 32;
+            public SpriteRuntimeAsset Asset;
+            public Vector4 UvRect;
+            public int AtlasVersion = int.MinValue;
+            public TextureHandle AtlasHandle = TextureHandle.Invalid;
+            public Vector4 AtlasRect;
+        }
+
+        private readonly record struct ShaderCacheKey(
+            ShaderAssetPipeline Pipeline,
+            string ProjectPath,
+            string Shader,
+            string Variant);
 
         private sealed class ShaderCacheEntry
         {
             public RuntimeShaderHandle Handle;
             public RuntimeShaderHandle[] PassHandles = Array.Empty<RuntimeShaderHandle>();
             public DateTime LastWriteUtc;
+            public string SourcePath = string.Empty;
+            public long NextFreshnessCheckMilliseconds;
+            public long Generation;
             public ShaderAssetPipeline Pipeline;
             public ShaderAssetDocument Document;
             public Vector4 Row0, Row1, Row2, Row3;
@@ -67,21 +111,14 @@ namespace Genesis.Runtime.Rendering
             }
         }
 
-        private sealed class TextureCacheEntry
-        {
-            public TextureHandle Handle;
-            public int Width = 32;
-            public int Height = 32;
-        }
-
         /// <summary>Releases renderer-owned live asset state before a room/preview is rebound.</summary>
         public static void InvalidateAssets(IRenderController renderer)
         {
             PixelRigSprite.InvalidateRenderer(renderer);
             ModelRenderer.InvalidateAssets(renderer);
             if (renderer == null || !RenderCaches.TryGetValue(renderer, out RenderCache cache)) return;
-            foreach (TextureCacheEntry texture in cache.Textures.Values)
-                if (texture.Handle.IsValid) renderer.ReleaseTexture(texture.Handle);
+            foreach (SpriteFrameBinding frame in cache.SpriteFrames.Values)
+                if (frame.Handle.IsValid) renderer.ReleaseTexture(frame.Handle);
             foreach (ShaderCacheEntry shader in cache.Shaders.Values)
             {
                 ShaderPreviewProfile profile = shader.Pipeline == ShaderAssetPipeline.Mesh
@@ -107,6 +144,29 @@ namespace Genesis.Runtime.Rendering
         {
             if (world == null || renderer == null || buffer == null) return;
 
+            ModelRenderer.BeginFrame();
+            try
+            {
+                SubmitMeshes3DFrame(world, projectPath, buffer, ref count, renderer,
+                    cameraEye, cameraForward, viewProjection);
+            }
+            finally
+            {
+                ModelRenderer.EndFrame();
+            }
+        }
+
+        private static void SubmitMeshes3DFrame(
+            EcsWorld world,
+            string projectPath,
+            MeshDrawCall[] buffer,
+            ref int count,
+            IRenderController renderer,
+            Vector3 cameraEye,
+            Vector3 cameraForward,
+            Matrix4x4 viewProjection)
+        {
+
             bool cull = RenderAutoState.FrustumCulling;
             bool occlude = RenderAutoState.OcclusionCulling;
             bool haveVp = viewProjection.M44 != 0f || viewProjection.M11 != 0f;
@@ -124,6 +184,19 @@ namespace Genesis.Runtime.Rendering
                 Vector3 pos = new(transform.X, transform.Y, transform.Z);
                 float radius = BoundsHelper.BoundingRadiusFromScale(
                     transform.ScaleX, transform.ScaleY, transform.ScaleZ, baseRadius: 1.2f);
+                // Authored geometry can be much larger than a unit cube and offset from its
+                // Object origin. Test the same pivot, scale and rotation used by the draw.
+                if (world.Has<ModelRendererComponent>(entity))
+                {
+                    ref ModelRendererComponent modelBounds = ref world.GetRef<ModelRendererComponent>(entity);
+                    if (!string.IsNullOrWhiteSpace(modelBounds.ModelAsset)
+                        && ModelRenderer.TryGetBounds(projectPath, modelBounds.ModelAsset, out Vector3 min, out Vector3 max, includePivot: true))
+                    {
+                        Matrix4x4 matrix = RuntimeModelRenderSystem.TransformMatrix(transform, modelBounds);
+                        pos = Vector3.Transform((min + max) * .5f, matrix);
+                        radius = Vector3.Distance(min, max) * .5f * MatrixScaleHelper.MaxScale(matrix);
+                    }
+                }
                 if (cull && !Visibility.IsVisible(frustum, viewProjection, pos, radius, occlude))
                     return;
 
@@ -197,7 +270,7 @@ namespace Genesis.Runtime.Rendering
                 if (!HasAuthoredGeometry(assets, image)) return;
                 int frameIndex = ReadSpriteFrameIndex(world, entity);
                 TextureHandle tex = TextureHandle.Invalid;
-                if (assets.TerrainTextureMode == null && !string.IsNullOrWhiteSpace(image)) TryGetTexture(renderer, projectPath, image, frameIndex, out tex, out _, out _);
+                if (assets.TerrainTextureMode == null && !string.IsNullOrWhiteSpace(image)) TryGetTexture(renderer, projectPath, image, frameIndex, out tex, out _, out _, TextureColorSpace.Srgb);
 
                 MeshDrawCall cube = assets.TerrainTextureMode == null
                     ? ImageCube(renderer, assets, transform, draw3d, tex)
@@ -356,7 +429,7 @@ namespace Genesis.Runtime.Rendering
             if (!HasAuthoredGeometry(assets, image)) return;
             int frameIndex = ReadSpriteFrameIndex(world, entity);
             TextureHandle tex = TextureHandle.Invalid;
-            if (assets.TerrainTextureMode == null && !string.IsNullOrWhiteSpace(image)) TryGetTexture(renderer, projectPath, image, frameIndex, out tex, out _, out _);
+            if (assets.TerrainTextureMode == null && !string.IsNullOrWhiteSpace(image)) TryGetTexture(renderer, projectPath, image, frameIndex, out tex, out _, out _, TextureColorSpace.Srgb);
 
             MeshDrawCall cube = assets.TerrainTextureMode == null
                 ? ImageCube(renderer, assets, transform, draw3d, tex)
@@ -482,16 +555,16 @@ namespace Genesis.Runtime.Rendering
             RenderColor? tint = null,
             System.Drawing.RectangleF? destination = null)
         {
-            if (alpha <= 0f || string.IsNullOrWhiteSpace(image)
-                || !TryGetTexture(renderer, projectPath, image, frameIndex,
-                    out TextureHandle texture, out int textureWidth, out int textureHeight))
-            {
-                return;
-            }
+            if (alpha <= 0f || string.IsNullOrWhiteSpace(image)) return;
+            SpriteFrameBinding frame = ResolveSpriteFrame(renderer, projectPath, image, frameIndex);
+            if (frame == null) return;
+            TextureHandle texture = frame.Handle;
+            int textureWidth = frame.Width;
+            int textureHeight = frame.Height;
 
             float width = textureWidth * SafeScale(transform.ScaleX) * zoom;
             float height = textureHeight * SafeScale(transform.ScaleY) * zoom;
-            ResolveSpriteDisplayPivot(projectPath, image, frameIndex, textureWidth, textureHeight,
+            ResolveSpriteDisplayPivot(frame, image, frameIndex, textureWidth, textureHeight,
                 width, height, out float originX, out float originY);
             if (destination is System.Drawing.RectangleF bounds)
             {
@@ -520,26 +593,24 @@ namespace Genesis.Runtime.Rendering
                 Alpha = Math.Clamp(alpha, 0f, 1f),
                 Tint = tint ?? RenderColor.White,
                 Depth = (int)draw2d.Depth,
-                UvRect = ResolveFrameUvRect(projectPath, image, frameIndex, textureWidth, textureHeight),
+                UvRect = frame.UvRect,
             };
-            RemapToTextureGroupAtlas(projectPath, image, frameIndex, ref call);
+            RemapToTextureGroupAtlas(frame, ref call);
             DrawSpriteShaderPasses(commands, renderer, projectPath, assets, call);
         }
 
-        private static void RemapToTextureGroupAtlas(
-            string projectPath,
-            string image,
-            int frameIndex,
-            ref SpriteDrawCall call)
+        private static void RemapToTextureGroupAtlas(SpriteFrameBinding frame, ref SpriteDrawCall call)
         {
-            string path = ResolveImagePath(projectPath, image, frameIndex);
-            if (string.IsNullOrWhiteSpace(path))
-                return;
-            if (RuntimeTextureAtlas.TryRemap(path, call.UvRect, out TextureHandle atlas, out Vector4 atlasUv))
+            int version = RuntimeTextureAtlas.Version;
+            if (frame.AtlasVersion != version)
             {
-                call.Texture = atlas;
-                call.UvRect = atlasUv;
+                frame.AtlasVersion = version;
+                if (!RuntimeTextureAtlas.TryGetPlacement(frame.TexturePath, out frame.AtlasHandle, out frame.AtlasRect))
+                    frame.AtlasHandle = TextureHandle.Invalid;
             }
+            if (!frame.AtlasHandle.IsValid) return;
+            call.Texture = frame.AtlasHandle;
+            call.UvRect = RuntimeTextureAtlas.Remap(frame.AtlasRect, call.UvRect);
         }
 
         private static void ApplyShader(
@@ -670,6 +741,15 @@ namespace Genesis.Runtime.Rendering
             ref AuthoredShaderTextures textures)
         {
             if (document == null) return;
+            // The usual mesh shader consumes only pipeline-owned textures. Avoid constructing
+            // a merged dictionary and list for every Object when it declares no authored
+            // resources or active resource variant.
+            if (document.Resources is not { Count: > 0 }
+                && (string.IsNullOrWhiteSpace(document.ActiveVariant)
+                    || document.FindActiveVariant()?.ResourceOverrides is not { Count: > 0 }))
+            {
+                return;
+            }
             foreach (ShaderResourceBinding resource in document.ResolveResources())
             {
                 if (!ShaderResourceReflection.IsTextureKind(resource.Kind)) continue;
@@ -749,23 +829,35 @@ namespace Genesis.Runtime.Rendering
         {
             result = null;
             if (renderer == null || assets == null || string.IsNullOrWhiteSpace(assets.Shader)) return false;
-            string path = ResourceNames.Resolve(projectPath, assets.Shader, ResourceType.Shader);
-            if (!File.Exists(path)) return false;
-
             RenderCache cache = RenderCaches.GetOrCreateValue(renderer);
             string variantKey = assets.ShaderVariant ?? string.Empty;
-            string key = expectedPipeline + "|" + path + "|" + variantKey;
-            DateTime modified = File.GetLastWriteTimeUtc(path);
-            if (cache.Shaders.TryGetValue(key, out ShaderCacheEntry cached) && cached.LastWriteUtc == modified)
+            ShaderCacheKey key = new(expectedPipeline, projectPath, assets.Shader, variantKey);
+            long now = Environment.TickCount64;
+            long generation = RuntimeAssetPolicy.Generation;
+            if (cache.Shaders.TryGetValue(key, out ShaderCacheEntry cached)
+                && cached.Generation == generation
+                && now < cached.NextFreshnessCheckMilliseconds)
             {
                 ShaderParameterReflection.Pack(cached.Document, assets.ShaderParameters,
-                    out Vector4 cached0, out Vector4 cached1, out Vector4 cached2, out Vector4 cached3);
-                result = new ShaderCacheEntry
-                {
-                    Handle = cached.Handle, PassHandles = cached.PassHandles, LastWriteUtc = cached.LastWriteUtc,
-                    Pipeline = cached.Pipeline, Document = cached.Document,
-                    Row0 = cached0, Row1 = cached1, Row2 = cached2, Row3 = cached3,
-                };
+                    out cached.Row0, out cached.Row1, out cached.Row2, out cached.Row3);
+                result = cached;
+                return cached.Handle.IsValid;
+            }
+
+            string path = ResourceNames.Resolve(projectPath, assets.Shader, ResourceType.Shader);
+            AssetIoCounters.Check(2);
+            if (!File.Exists(path)) return false;
+            DateTime modified = File.GetLastWriteTimeUtc(path);
+            if (cached is not null
+                && string.Equals(cached.SourcePath, path, StringComparison.OrdinalIgnoreCase)
+                && cached.LastWriteUtc == modified)
+            {
+                ShaderParameterReflection.Pack(cached.Document, assets.ShaderParameters,
+                    out cached.Row0, out cached.Row1, out cached.Row2, out cached.Row3);
+                cached.NextFreshnessCheckMilliseconds = RuntimeAssetPolicy.NextCheck(
+                    now, RuntimeAssetPolicy.FramePathIntervalMilliseconds, key.GetHashCode());
+                cached.Generation = generation;
+                result = cached;
                 return cached.Handle.IsValid;
             }
 
@@ -799,7 +891,9 @@ namespace Genesis.Runtime.Rendering
                     document.Entry = string.IsNullOrWhiteSpace(pass.Entry) ? "MainPS" : pass.Entry;
                     document.VertexEntry = pass.VertexEntry?.Trim() ?? string.Empty;
                     string source = document.ResolveCompiledSource();
-                    RuntimeShaderHandle passHandle = string.IsNullOrWhiteSpace(document.VertexEntry)
+                    RuntimeShaderHandle passHandle = expectedPipeline == ShaderAssetPipeline.Mesh
+                        ? renderer.RegisterRuntimeMeshPass(source, pass, path, projectPath)
+                        : string.IsNullOrWhiteSpace(document.VertexEntry)
                         ? renderer.RegisterRuntimeShader(source, document.Entry, profile, path, projectPath)
                         : renderer.RegisterRuntimeShaderProgram(
                             source,
@@ -835,6 +929,10 @@ namespace Genesis.Runtime.Rendering
             {
                 Handle = handle,
                 PassHandles = passHandles.ToArray(),
+                SourcePath = path,
+                NextFreshnessCheckMilliseconds = RuntimeAssetPolicy.NextCheck(
+                    now, RuntimeAssetPolicy.FramePathIntervalMilliseconds, key.GetHashCode()),
+                Generation = generation,
                 LastWriteUtc = modified,
                 Pipeline = expectedPipeline,
                 Document = document,
@@ -1019,61 +1117,114 @@ namespace Genesis.Runtime.Rendering
             int frameIndex,
             out TextureHandle handle,
             out int width,
-            out int height)
+            out int height,
+            TextureColorSpace colorSpace = TextureColorSpace.Display)
         {
             handle = TextureHandle.Invalid;
             width = 32;
             height = 32;
-            if (string.IsNullOrWhiteSpace(imageName) || renderer == null) return false;
-
-            string path = ResolveImagePath(projectPath, imageName, frameIndex);
-            if (string.IsNullOrEmpty(path) || !File.Exists(path)) return false;
-
-            string key = path + "|" + File.GetLastWriteTimeUtc(path).Ticks;
-            Dictionary<string, TextureCacheEntry> textureCache = RenderCaches.GetOrCreateValue(renderer).Textures;
-            // Editor previews can release a shared texture while gameplay still has its draw
-            // entry. Resolve through the renderer's asset cache again so that entry cannot
-            // retain a released handle and turn a live cross-editor sprite white.
-            handle = renderer.LoadTexture(path);
-            if (!handle.IsValid) return false;
-            if (!textureCache.TryGetValue(key, out TextureCacheEntry entry))
-            {
-                entry = new TextureCacheEntry { Handle = handle };
-                TryReadImageSize(path, out entry.Width, out entry.Height);
-                textureCache[key] = entry;
-            }
-            else entry.Handle = handle;
-
-            handle = entry.Handle;
-            width = entry.Width;
-            height = entry.Height;
+            SpriteFrameBinding frame = ResolveSpriteFrame(renderer, projectPath, imageName, frameIndex, colorSpace);
+            if (frame == null) return false;
+            handle = frame.Handle;
+            width = frame.Width;
+            height = frame.Height;
             return handle.IsValid;
         }
 
-        private static string ResolveImagePath(string projectPath, string imageName, int frameIndex = 0)
-        {
-            if (string.IsNullOrWhiteSpace(imageName)) return null;
-            string path = SpriteAssetLoader.ResolveFrameTexturePath(projectPath, imageName, frameIndex);
-            return string.IsNullOrWhiteSpace(path) ? null : path;
-        }
-
-        private static Vector4 ResolveFrameUvRect(
+        private static SpriteFrameBinding ResolveSpriteFrame(
+            IRenderController renderer,
             string projectPath,
             string imageName,
             int frameIndex,
-            int textureWidth,
-            int textureHeight)
+            TextureColorSpace colorSpace = TextureColorSpace.Display)
         {
-            string spritePath = SpriteAssetLoader.ResolveDescriptorPath(projectPath, imageName);
-            if (!SpriteAssetLoader.IsSpriteDescriptorPath(spritePath) || !File.Exists(spritePath))
-                return Vector4.Zero;
+            if (string.IsNullOrWhiteSpace(imageName) || renderer == null) return null;
+            RenderCache cache = RenderCaches.GetOrCreateValue(renderer);
+            SpriteFrameKey key = new(projectPath ?? string.Empty, imageName, frameIndex, colorSpace);
+            long now = Environment.TickCount64;
+            long generation = RuntimeAssetPolicy.Generation;
+            if (cache.SpriteFrames.TryGetValue(key, out SpriteFrameBinding frame)
+                && frame.Generation == generation
+                && now < frame.NextCheckMilliseconds)
+            {
+                if (!frame.Valid) return null;
+                if (renderer.IsTextureLive(frame.Handle)) return frame;
+                // Editor previews can release a shared texture while gameplay still has its draw
+                // entry. Resolve through the renderer's asset cache again so that entry cannot
+                // retain a released handle and turn a live cross-editor sprite white.
+                frame.Handle = renderer.LoadTexture(frame.TexturePath, key.ColorSpace);
+                return frame.Handle.IsValid ? frame : null;
+            }
 
-            SpriteRuntimeAsset asset = SpriteAssetLoader.Load(spritePath);
-            return SpriteOriginUtility.ResolveFrameUvRect(asset, frameIndex, textureWidth, textureHeight);
+            if (frame == null)
+            {
+                frame = new SpriteFrameBinding();
+                cache.SpriteFrames[key] = frame;
+            }
+            RefreshSpriteFrame(frame, renderer, projectPath, imageName, frameIndex, colorSpace);
+            frame.Generation = generation;
+            frame.NextCheckMilliseconds = RuntimeAssetPolicy.NextCheck(
+                now, RuntimeAssetPolicy.FramePathIntervalMilliseconds, key.GetHashCode());
+            return frame.Valid ? frame : null;
+        }
+
+        private static void RefreshSpriteFrame(
+            SpriteFrameBinding frame,
+            IRenderController renderer,
+            string projectPath,
+            string imageName,
+            int frameIndex,
+            TextureColorSpace colorSpace)
+        {
+            frame.Valid = false;
+            frame.Asset = null;
+            string texturePath;
+            try
+            {
+                string descriptor = SpriteAssetLoader.ResolveDescriptorPath(projectPath, imageName);
+                if (string.IsNullOrWhiteSpace(descriptor)) return;
+                if (SpriteAssetLoader.IsSpriteDescriptorPath(descriptor))
+                {
+                    AssetIoCounters.Check();
+                    if (!File.Exists(descriptor)) return;
+                    frame.Asset = SpriteAssetLoader.Load(descriptor);
+                    SpriteAssetLoader.RegisterAsset(imageName, frame.Asset);
+                    texturePath = SpriteAssetLoader.ResolveFrameTexturePath(descriptor, frame.Asset, frameIndex);
+                }
+                else
+                {
+                    // Private raw-payload compatibility: the reference already names the image file.
+                    texturePath = descriptor;
+                }
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+                or System.Text.Json.JsonException or InvalidOperationException)
+            {
+                return;
+            }
+
+            AssetIoCounters.Check(2);
+            if (string.IsNullOrEmpty(texturePath) || !File.Exists(texturePath)) return;
+            long stamp = File.GetLastWriteTimeUtc(texturePath).Ticks;
+            if (!string.Equals(texturePath, frame.TexturePath, StringComparison.OrdinalIgnoreCase)
+                || stamp != frame.TextureStampTicks)
+            {
+                TryReadImageSize(texturePath, out frame.Width, out frame.Height);
+                frame.TexturePath = texturePath;
+                frame.TextureStampTicks = stamp;
+                frame.AtlasVersion = int.MinValue;
+            }
+
+            frame.Handle = renderer.LoadTexture(texturePath, colorSpace);
+            if (!frame.Handle.IsValid) return;
+            frame.UvRect = frame.Asset != null
+                ? SpriteOriginUtility.ResolveFrameUvRect(frame.Asset, frameIndex, frame.Width, frame.Height)
+                : Vector4.Zero;
+            frame.Valid = true;
         }
 
         private static void ResolveSpriteDisplayPivot(
-            string projectPath,
+            SpriteFrameBinding frame,
             string imageName,
             int frameIndex,
             int textureWidth,
@@ -1085,12 +1236,8 @@ namespace Genesis.Runtime.Rendering
         {
             originX = displayWidth * 0.5f;
             originY = displayHeight * 0.5f;
-            string spritePath = SpriteAssetLoader.ResolveDescriptorPath(projectPath, imageName);
-            if (!SpriteAssetLoader.IsSpriteDescriptorPath(spritePath) || !File.Exists(spritePath))
-                return;
-
-            SpriteRuntimeAsset asset = SpriteAssetLoader.Load(spritePath);
-            SpriteAssetLoader.RegisterAsset(imageName, asset);
+            SpriteRuntimeAsset asset = frame.Asset;
+            if (asset == null) return;
             SpriteRuntimeOrigin origin = SpritePlayback.ResolveOrigin(asset, frameIndex);
 
             // NEXT-092: an origin that resolves off the sprite makes an object vanish while every
@@ -1121,7 +1268,18 @@ namespace Genesis.Runtime.Rendering
             h = 32;
             try
             {
+                // Header only: decoding every pixel just to learn the size doubled the cost of the
+                // first draw of each sprite frame (and of every edit).
+                AssetIoCounters.Read();
                 using var fs = File.OpenRead(path);
+                StbImageSharp.ImageInfo? info = StbImageSharp.ImageInfo.FromStream(fs);
+                if (info is { } header && header.Width > 0 && header.Height > 0)
+                {
+                    w = header.Width;
+                    h = header.Height;
+                    return;
+                }
+                fs.Position = 0;
                 var image = StbImageSharp.ImageResult.FromStream(fs, StbImageSharp.ColorComponents.RedGreenBlueAlpha);
                 w = Math.Max(1, image.Width);
                 h = Math.Max(1, image.Height);

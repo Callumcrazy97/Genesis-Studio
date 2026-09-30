@@ -35,6 +35,32 @@ internal static class EngineSystemsSuite
     public static void Run(HeadlessContext ctx)
     {
         HeadlessHarness.BeginMajor(ctx.Report, "Engine Systems");
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Models.FreshLookupAndInvalidation", () =>
+            ModelRegistryCacheChecks.Run(ctx.Workspace, Check));
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Models.SocketReusesEvaluatedAsset", () =>
+            ModelSocketReuseChecks.Run(ctx.Workspace, Check));
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Particles.BoundedFreshnessPreservesLiveControls", () =>
+            ParticleResourceCacheChecks.Run(ctx.Workspace, Check));
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Animation.BoneRotationPreservesMotionAndIsolation", () =>
+        {
+            var asset = Asset();
+            var first = new AnimationController();
+            var second = new AnimationController();
+            first.Layers[0].StateMachine.AddState("Walk", new ClipNode("Walk"));
+            second.Layers[0].StateMachine.AddState("Walk", new ClipNode("Walk"));
+            first.SetBoneRotation("Arm", Quaternion.CreateFromAxisAngle(Vector3.UnitY, .6f));
+            Matrix4x4[] changed = first.Evaluate(asset), unchanged = second.Evaluate(asset);
+            Check(changed[1].Translation == unchanged[1].Translation, "Gaze moved the animated joint origin.");
+            Check(changed[0] == unchanged[0], "Gaze changed the root animation.");
+            Check(changed[1] != unchanged[1], "The joint rotation was not applied.");
+            Check(second.BoneRotations.Count == 0, "A shared model leaked gaze into another instance.");
+            first.BoneRotations.Clear();
+            Check(first.Evaluate(asset)[1] == unchanged[1], "Removing gaze did not restore the animation.");
+            bool rejected = false;
+            try { first.SetBoneRotation("Arm", new Quaternion(float.NaN, 0, 0, 1)); }
+            catch (ArgumentException) { rejected = true; }
+            Check(rejected, "A nonfinite rotation entered the skin palette.");
+        });
         HeadlessHarness.RunCase(ctx.Report, "Render.Water.PlanarReflection", () =>
         {
             var view = Matrix4x4.CreateLookAt(new Vector3(0, 5, 10), Vector3.Zero, Vector3.UnitY);

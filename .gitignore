@@ -59,6 +59,9 @@ Workspace/
 
 # User-created Genesis Projects & Saves
 *.genesisproj
+# Game/project content (for example the Golden Stag Tavern) stays local; the repository
+# holds the engine, its tests and documentation only.
+Assets/TavernInterior/
 
 # -----------------------------------------------------------------------------
 # 3. Developer & IDE Metadata / User Preferences

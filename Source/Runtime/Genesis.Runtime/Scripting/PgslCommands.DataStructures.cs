@@ -35,7 +35,8 @@ public static partial class PgslCommands
         if (store is null) return 0;
 
         string key = "__ds_next_" + family;
-        int next = store.TryGetValue(key, out object existing) && existing is int value ? value + 1 : 1;
+        int next = store.TryGetValue(key, out object existing) && existing is int value
+            ? checked(value + 1) : 1;
         store[key] = next;
         return next;
     }
@@ -58,6 +59,7 @@ public static partial class PgslCommands
 
     private static double AsNumber(object value) => value switch
     {
+        CollectionReference reference => reference.Handle,
         double d => d,
         int i => i,
         float f => f,

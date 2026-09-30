@@ -81,6 +81,19 @@ public sealed class ResourceCatalog
         if (!string.IsNullOrWhiteSpace(projectRoot)) Catalogs.TryRemove(Path.GetFullPath(projectRoot), out _);
     }
 
+    /// <summary>
+    /// True when this project's catalog is already built and lists <paramref name="path"/>. The catalog
+    /// depends only on resource file names and their .meta identity files, so rewriting the content
+    /// of a listed resource leaves it valid and needs no synchronous rescan of the whole project.
+    /// </summary>
+    public static bool IsCatalogued(string projectRoot, string path)
+    {
+        if (string.IsNullOrWhiteSpace(projectRoot) || string.IsNullOrWhiteSpace(path)) return false;
+        if (!Catalogs.TryGetValue(Path.GetFullPath(projectRoot), out Lazy<ResourceCatalog> lazy) || !lazy.IsValueCreated)
+            return false;
+        return lazy.Value._paths.ContainsKey(Path.GetFullPath(path));
+    }
+
     public static ResourceType TypeOf(string filename)
     {
         if (string.IsNullOrWhiteSpace(filename)) return ResourceType.Unknown;

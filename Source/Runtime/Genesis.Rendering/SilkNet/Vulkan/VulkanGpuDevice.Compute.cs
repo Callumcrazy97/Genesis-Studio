@@ -47,6 +47,7 @@ namespace Genesis.Rendering.SilkNet.Vulkan
                             Module = shader, PName = name,
                         },
                     };
+                    GpuTelemetry.PipelineCreated();
                     VulkanRuntime.Check(_runtime.Api.CreateComputePipelines(_runtime.Device, default, 1, &info, null, &pipeline), "creating compute pipeline");
                 }
                 int id = _nextId++;

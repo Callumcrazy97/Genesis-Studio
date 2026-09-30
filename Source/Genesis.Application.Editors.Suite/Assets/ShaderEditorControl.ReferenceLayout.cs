@@ -336,11 +336,15 @@ public sealed partial class ShaderEditorControl
         foreach ((string text, string name, Action action) in new[] { ("+", "Add shader pass", (Action)AddShaderPass), ("−", "Remove shader pass", RemoveShaderPass), ("↑", "Move shader pass up", () => MoveShaderPass(-1)), ("↓", "Move shader pass down", () => MoveShaderPass(1)), ("Disable", "Toggle shader pass", ToggleShaderPass) })
         {
             Button button = new() { Text = text, AccessibleName = name, Dock = DockStyle.Fill, AutoEllipsis = true, Margin = new Padding(2) }; EditorChrome.StyleField(button); button.Click += (_, _) => action();
-            if (name == "Toggle shader pass") { _shaderPassToggle = button; actions.Controls.Add(button, 0, 1); actions.SetColumnSpan(button, 4); }
+            if (name == "Toggle shader pass") { _shaderPassToggle = button; actions.Controls.Add(button, 0, 1); actions.SetColumnSpan(button, 2); }
             else actions.Controls.Add(button, actions.Controls.Count, 0);
             _shaderPassActions[name] = button;
         }
         stack.Controls.Add(actions);
+        Button passSettings = new() { Text = "Settings…", AccessibleName = "Shader pass settings", Dock = DockStyle.Fill, Margin = new Padding(2) };
+        EditorChrome.StyleField(passSettings);
+        passSettings.Click += (_, _) => EditShaderPassSettings();
+        actions.Controls.Add(passSettings, 2, 1); actions.SetColumnSpan(passSettings, 2);
         root.Controls.Add(stack);
         root.Controls.Add(_presetDescription);
         root.Controls.Add(_presetLibrary);
@@ -476,6 +480,29 @@ public sealed partial class ShaderEditorControl
         CompileNow();
     }
 
+    private void EditShaderPassSettings()
+    {
+        SyncActiveShaderPass();
+        ShaderPassDefinition pass = _document.Passes[_document.ActivePassIndex];
+        using Form dialog = new() { Text = "Shader pass settings", ClientSize = new Size(420, 230),
+            StartPosition = FormStartPosition.CenterParent, MinimizeBox = false, MaximizeBox = false };
+        FlowLayoutPanel fields = new() { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, Padding = new Padding(14), WrapContents = false };
+        ComboBox mode = new() { Width = 370, DropDownStyle = ComboBoxStyle.DropDownList, DataSource = Enum.GetValues<ShaderMeshPassMode>(), SelectedItem = pass.MeshPassMode };
+        TextBox skinned = new() { Width = 370, Text = pass.SkinnedVertexEntry, PlaceholderText = "Engine skinning (default)" };
+        fields.Controls.Add(new Label { Text = "3D pass role", AutoSize = true }); fields.Controls.Add(mode);
+        fields.Controls.Add(new Label { Text = "Skinned vertex entry", AutoSize = true, Margin = new Padding(0, 12, 0, 3) }); fields.Controls.Add(skinned);
+        fields.Controls.Add(new Label { Text = "Outline sequence: Surface → StencilMask → StencilOutline → StencilReset.", AutoSize = false, Width = 370, Height = 40 });
+        Button save = new() { Text = "Apply", DialogResult = DialogResult.OK, Dock = DockStyle.Bottom, Height = 34 };
+        dialog.Controls.Add(fields); dialog.Controls.Add(save); dialog.AcceptButton = save;
+        if (dialog.ShowDialog(FindForm()) != DialogResult.OK) return;
+        RecordDocumentEdit("Change shader pass settings", () =>
+        {
+            pass.MeshPassMode = (ShaderMeshPassMode)mode.SelectedItem!;
+            pass.SkinnedVertexEntry = skinned.Text.Trim(); MarkDirty();
+        });
+        _statusLabel.Text = "Pass settings saved to the resource. Validate the complete stencil sequence in gameplay.";
+    }
+
     private void AddShaderPass()
     {
         RecordDocumentEdit("Add shader pass", () =>
@@ -592,7 +619,16 @@ internal sealed class ShaderBufferCard(string bufferName) : Control
         if (stamp == 0) return;
         try
         {
-            using System.Drawing.Image source = System.Drawing.Image.FromFile(path!);
+            // Read the bytes without holding a GDI+ lock on the file (the Image editor may be
+            // rewriting the same frame), and decode from memory.
+            byte[] bytes;
+            using (FileStream stream = new(path!, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+            {
+                bytes = new byte[stream.Length];
+                stream.ReadExactly(bytes);
+            }
+            using MemoryStream memory = new(bytes, writable: false);
+            using System.Drawing.Image source = System.Drawing.Image.FromStream(memory);
             _previewImage = new Bitmap(72, 88);
             using Graphics graphics = Graphics.FromImage(_previewImage);
             graphics.Clear(EditorChrome.Canvas);
@@ -606,6 +642,11 @@ internal sealed class ShaderBufferCard(string bufferName) : Control
         {
             _previewImage?.Dispose();
             _previewImage = null;
+            // A read that raced a save must not be remembered as this file's final state; forget
+            // the stamp so the next refresh tries again instead of showing no preview until the
+            // image changes.
+            _previewPath = string.Empty;
+            _previewStamp = 0;
         }
     }
 

@@ -23,7 +23,13 @@ namespace Genesis.Runtime.Core
                 steps++;
             }
 
-            InterpolationAlpha = FixedDelta > 0f ? _accumulator / FixedDelta : 0f;
+            // Past the step cap the backlog is dropped (the simulation slows down under overload)
+            // rather than carried forward. Carrying it made every later frame run the maximum
+            // number of steps and pushed the interpolation alpha above 1 into extrapolation.
+            if (FixedDelta > 0f && _accumulator >= FixedDelta)
+                _accumulator %= FixedDelta;
+
+            InterpolationAlpha = FixedDelta > 0f ? Math.Clamp(_accumulator / FixedDelta, 0f, 1f) : 0f;
             return steps;
         }
 

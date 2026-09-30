@@ -30,7 +30,9 @@ VSOut VS(uint id : SV_VertexID)
     VSOut o;
     float2 p = float2((id << 1) & 2, id & 2);
     o.pos = float4(p * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);
-    o.uv = float2(p.x, 1.0 - p.y);
+    // Every pyramid level keeps the source orientation; the clip transform
+    // above already handles Y, as it does in the final post composite.
+    o.uv = p;
     return o;
 }
 

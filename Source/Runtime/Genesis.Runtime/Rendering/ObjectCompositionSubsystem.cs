@@ -35,6 +35,8 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem
         public required ParticleConfig Effect;
         public readonly List<ParticleLayerState> Layers = [];
         public long WriteTicks;
+        public long NextFreshnessCheckMilliseconds;
+        public long AssetGeneration;
     }
 
     private sealed class ParticleLayerState
@@ -78,8 +80,8 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem
     private readonly HashSet<int> _seenAudio = [];
     private IRenderController? _lastRenderer;
     private RuntimeScene? _lastScene;
-    private readonly RuntimeModelAssetRegistry _particleModelAssets = new();
-    private readonly RuntimeModelAssetRegistry _attachmentModelAssets = new();
+    private readonly RuntimeModelAssetRegistry _particleModelAssets = new(250);
+    private readonly RuntimeModelAssetRegistry _attachmentModelAssets = new(250);
     private readonly ModelGpuCache _particleModelGpu = new();
     private float _totalTime;
 
@@ -368,12 +370,22 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem
 
     private ParticleState? EnsureParticle(Entity entity, ParticleComponent component, RuntimeScene scene)
     {
-        string resolved = ParticleAssetLoader.Resolve(_projectPath, component.Asset);
-        long writeTicks = File.Exists(resolved) ? File.GetLastWriteTimeUtc(resolved).Ticks : 0;
-        if (_particles.TryGetValue(entity.Id, out ParticleState? existing)
-            && string.Equals(existing.Asset, component.Asset, StringComparison.OrdinalIgnoreCase)
-            && existing.WriteTicks == writeTicks)
+        long now = Environment.TickCount64;
+        bool sameAsset = _particles.TryGetValue(entity.Id, out ParticleState? existing)
+            && string.Equals(existing.Asset, component.Asset, StringComparison.OrdinalIgnoreCase);
+        long generation = RuntimeAssetPolicy.Generation;
+        if (sameAsset && existing!.AssetGeneration == generation && now < existing.NextFreshnessCheckMilliseconds)
         {
+            ApplyParticleRate(existing, component);
+            return existing;
+        }
+        string resolved = ParticleAssetLoader.Resolve(_projectPath, component.Asset);
+        AssetIoCounters.Check(2);
+        long writeTicks = File.Exists(resolved) ? File.GetLastWriteTimeUtc(resolved).Ticks : 0;
+        if (sameAsset && existing!.WriteTicks == writeTicks)
+        {
+            existing.NextFreshnessCheckMilliseconds = RuntimeAssetPolicy.NextCheck(now, 250, entity.Id);
+            existing.AssetGeneration = generation;
             ApplyParticleRate(existing, component);
             return existing;
         }
@@ -389,6 +401,8 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem
                 Asset = component.Asset,
                 Effect = config,
                 WriteTicks = writeTicks,
+                NextFreshnessCheckMilliseconds = RuntimeAssetPolicy.NextCheck(now, 250, entity.Id),
+                AssetGeneration = generation,
             };
             foreach ((string emitterId, string _, ParticleConfig emitter) in ParticleAssetLoader.EnumerateEnabledEmitters(config))
             {

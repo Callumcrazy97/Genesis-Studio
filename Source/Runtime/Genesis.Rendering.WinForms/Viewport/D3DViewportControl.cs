@@ -80,6 +80,9 @@ namespace Genesis.Rendering.Viewport
 
         // Frame-time measurement (Phase 0)
         private double _lastCpuMs;
+        private double _lastSubmitCpuMs;
+        private double _lastEndFrameCpuMs;
+        private double _lastPresentCpuMs;
 
         private volatile int _clientWidth  = DefaultBufferWidth;
         private volatile int _clientHeight = DefaultBufferHeight;
@@ -192,6 +195,12 @@ namespace Genesis.Rendering.Viewport
         /// <summary>Smoothed CPU milliseconds for the last frame (BeginFrame→Present).</summary>
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public double LastCpuMs => _lastCpuMs;
+
+        public double LastSubmitCpuMs => _lastSubmitCpuMs;
+
+        public double LastEndFrameCpuMs => _lastEndFrameCpuMs;
+
+        public double LastPresentCpuMs => _lastPresentCpuMs;
 
         /// <summary>GPU milliseconds for the last resolved frame (a few frames of latency).</summary>
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
@@ -479,6 +488,12 @@ namespace Genesis.Rendering.Viewport
 
         private void RenderFrameCore()
         {
+            // Docked editors retain their handles when another document tab covers them. Rendering
+            // every hidden Model, Room, Terrain, Shader, and Particle viewport in that state made
+            // the active editor compete with all previously opened editors for the same UI thread
+            // and GPU. A newly revealed control receives the next timer frame immediately.
+            if (!Visible || !IsHandleCreated || FindForm()?.WindowState == FormWindowState.Minimized)
+                return;
             if (_isRendering) return; // Drop only re-entrant work for this viewport.
 
             _isRendering = true;
@@ -501,9 +516,15 @@ namespace Genesis.Rendering.Viewport
                     {
                         _renderer.BeginFrame();
                         OnRender?.Invoke(_renderer);
+                        long submittedTs = Stopwatch.GetTimestamp();
                         _renderer.EndFrame();
+                        long endedTs = Stopwatch.GetTimestamp();
                         OnPostFrame?.Invoke(_renderer);
                         _renderer.Present();
+                        long presentedTs = Stopwatch.GetTimestamp();
+                        _lastSubmitCpuMs = Stopwatch.GetElapsedTime(startTs, submittedTs).TotalMilliseconds;
+                        _lastEndFrameCpuMs = Stopwatch.GetElapsedTime(submittedTs, endedTs).TotalMilliseconds;
+                        _lastPresentCpuMs = Stopwatch.GetElapsedTime(endedTs, presentedTs).TotalMilliseconds;
                     }
                     catch (Exception ex)
                     {

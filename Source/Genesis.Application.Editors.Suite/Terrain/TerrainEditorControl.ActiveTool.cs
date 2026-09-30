@@ -103,8 +103,13 @@ public sealed partial class TerrainEditorControl
     {
         float radius = BrushRadius, strength = BrushStrength;
         var bounds = BrushCellBounds(worldX, worldZ, radius);
-        float[]? smooth = brush == TerrainBrush.Smooth ? new float[_terrain.HeightsData.Length] : null;
-        if (smooth is not null) for (int z = 0; z < _terrain.ResolutionZ; z++) for (int x = 0; x < _terrain.ResolutionX; x++) smooth[z * _terrain.ResolutionX + x] = _terrain.GetHeight(x, z);
+        // Smooth reads a snapshot of the brush footprint plus a one-sample border, not a copy of
+        // the entire heightfield per dab.
+        int windowMinX = Math.Max(0, bounds.MinX - 1), windowMinZ = Math.Max(0, bounds.MinZ - 1);
+        int windowMaxX = Math.Min(_terrain.ResolutionX - 1, bounds.MaxX + 1), windowMaxZ = Math.Min(_terrain.ResolutionZ - 1, bounds.MaxZ + 1);
+        int windowWidth = Math.Max(0, windowMaxX - windowMinX + 1);
+        float[]? smooth = brush == TerrainBrush.Smooth ? new float[windowWidth * Math.Max(0, windowMaxZ - windowMinZ + 1)] : null;
+        if (smooth is not null) for (int z = windowMinZ; z <= windowMaxZ; z++) for (int x = windowMinX; x <= windowMaxX; x++) smooth[(z - windowMinZ) * windowWidth + (x - windowMinX)] = _terrain.GetHeight(x, z);
         float rim = 0;
         if (brush == TerrainBrush.InFill) for (int i = 0; i < 16; i++) rim += _terrain.SampleHeight(worldX + MathF.Cos(i * MathF.Tau / 16) * radius, worldZ + MathF.Sin(i * MathF.Tau / 16) * radius) / 16;
         for (int z = bounds.MinZ; z <= bounds.MaxZ; z++) for (int x = bounds.MinX; x <= bounds.MaxX; x++)
@@ -130,13 +135,13 @@ public sealed partial class TerrainEditorControl
             if (smooth is not null)
             {
                 float sum = 0; int count = 0;
-                for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) { int sx = Math.Clamp(x + dx, 0, _terrain.ResolutionX - 1), sz = Math.Clamp(z + dz, 0, _terrain.ResolutionZ - 1); sum += smooth[sz * _terrain.ResolutionX + sx]; count++; }
+                for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) { int sx = Math.Clamp(x + dx, windowMinX, windowMaxX), sz = Math.Clamp(z + dz, windowMinZ, windowMaxZ); sum += smooth[(sz - windowMinZ) * windowWidth + (sx - windowMinX)]; count++; }
                 target = sum / count;
             }
             _terrain.SetHeight(x, z, float.Lerp(current, target, blend));
         }
         if (brush == TerrainBrush.Paint)
             InvalidatePaint(Rectangle.FromLTRB(bounds.MinX, bounds.MinZ, bounds.MaxX + 1, bounds.MaxZ + 1));
-        else _meshDirty = true;
+        else QueueSculptRegion(bounds.MinX, bounds.MinZ, bounds.MaxX, bounds.MaxZ);
     }
 }

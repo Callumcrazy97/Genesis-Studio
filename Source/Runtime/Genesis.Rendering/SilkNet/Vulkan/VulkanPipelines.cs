@@ -233,8 +233,19 @@ namespace Genesis.Rendering.SilkNet.Vulkan
                     DepthWriteEnable = key.HasDepth && key.Depth.WriteEnabled,
                     DepthCompareOp = VulkanGpuFormats.ToCompare(key.Depth.Compare),
                     DepthBoundsTestEnable = false,
-                    StencilTestEnable = false,
+                    StencilTestEnable = key.HasDepth && key.Depth.StencilEnabled,
+                    Front = new StencilOpState
+                    {
+                        CompareOp = VulkanGpuFormats.ToCompare(key.Depth.StencilCompare),
+                        FailOp = (StencilOp)key.Depth.StencilFail,
+                        DepthFailOp = (StencilOp)key.Depth.StencilDepthFail,
+                        PassOp = (StencilOp)key.Depth.StencilPass,
+                        CompareMask = key.Depth.StencilReadMask,
+                        WriteMask = key.Depth.StencilWriteMask,
+                        Reference = key.Depth.StencilReference,
+                    },
                 };
+                depthStencil.Back = depthStencil.Front;
 
                 int attachmentCount = Math.Max(1, key.ColorAttachmentCount);
                 var blendAttachments = stackalloc PipelineColorBlendAttachmentState[8];
@@ -298,6 +309,7 @@ namespace Genesis.Rendering.SilkNet.Vulkan
                 };
 
                 Pipeline pipeline;
+                GpuTelemetry.PipelineCreated();
                 VulkanRuntime.Check(
                     _runtime.Api.CreateGraphicsPipelines(_runtime.Device, default, 1, &createInfo, null, &pipeline),
                     "creating a graphics pipeline");
@@ -341,7 +353,12 @@ namespace Genesis.Rendering.SilkNet.Vulkan
         /// Destroying a render pass leaves its pipelines dangling, and the next draw through one is
         /// undefined behaviour rather than an error. A swap chain resize recreates its pass.
         /// </remarks>
-        public void InvalidateForRenderPass(RenderPass renderPass)
+        /// <param name="defer">
+        /// Schedules destruction after the frames in flight retire. Releasing a render target
+        /// mid-session (cloud quality, reflection or bloom resize) used to destroy pipelines that
+        /// earlier frames' command buffers could still reference.
+        /// </param>
+        public void InvalidateForRenderPass(RenderPass renderPass, Action<Action> defer = null)
         {
             var doomed = new List<VulkanPipelineKey>();
             foreach (KeyValuePair<VulkanPipelineKey, Pipeline> entry in _pipelines)
@@ -351,8 +368,10 @@ namespace Genesis.Rendering.SilkNet.Vulkan
 
             foreach (VulkanPipelineKey key in doomed)
             {
-                _runtime.Api.DestroyPipeline(_runtime.Device, _pipelines[key], null);
+                Pipeline pipeline = _pipelines[key];
                 _pipelines.Remove(key);
+                if (defer != null) defer(() => _runtime.Api.DestroyPipeline(_runtime.Device, pipeline, null));
+                else _runtime.Api.DestroyPipeline(_runtime.Device, pipeline, null);
             }
         }
 

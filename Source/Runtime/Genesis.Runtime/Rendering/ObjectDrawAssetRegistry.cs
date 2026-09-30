@@ -50,15 +50,20 @@ namespace Genesis.Runtime.Rendering
 
     public static class ObjectDrawAssetRegistry
     {
-        private static readonly Dictionary<int, ObjectDrawAssetEntry> GameplayEntries = new();
-        [ThreadStatic] private static Dictionary<int, ObjectDrawAssetEntry> _scopedEntries;
-        private static Dictionary<int, ObjectDrawAssetEntry> Entries => _scopedEntries ?? GameplayEntries;
+        // Keyed by entity id and stamped with the entity version. Ids are recycled when entities
+        // are destroyed, and without the version a newly created instance inherited the dead
+        // entity's image, shader and prefab through the common "TryGet existing ?? new" pattern.
+        private static readonly Dictionary<int, VersionedEntry> GameplayEntries = new();
+        [ThreadStatic] private static Dictionary<int, VersionedEntry> _scopedEntries;
+        private static Dictionary<int, VersionedEntry> Entries => _scopedEntries ?? GameplayEntries;
+
+        private readonly record struct VersionedEntry(int Version, ObjectDrawAssetEntry Entry);
 
         /// <summary>Owns the assets of an isolated editor world. Activate only around synchronous
         /// loading/drawing calls; disposing the activation restores the previous world's assets.</summary>
         public sealed class PreviewScope
         {
-            private readonly Dictionary<int, ObjectDrawAssetEntry> _entries = new();
+            private readonly Dictionary<int, VersionedEntry> _entries = new();
 
             public IDisposable Activate()
             {
@@ -69,7 +74,7 @@ namespace Genesis.Runtime.Rendering
 
             public void Clear() => _entries.Clear();
 
-            private sealed class Activation(Dictionary<int, ObjectDrawAssetEntry> previous) : IDisposable
+            private sealed class Activation(Dictionary<int, VersionedEntry> previous) : IDisposable
             {
                 private bool _disposed;
                 public void Dispose()
@@ -84,11 +89,19 @@ namespace Genesis.Runtime.Rendering
         public static void Set(Entity entity, ObjectDrawAssetEntry entry)
         {
             if (entry == null) return;
-            Entries[entity.Id] = entry;
+            Entries[entity.Id] = new VersionedEntry(entity.Version, entry);
         }
 
         public static bool TryGet(Entity entity, out ObjectDrawAssetEntry entry)
-            => Entries.TryGetValue(entity.Id, out entry);
+        {
+            if (Entries.TryGetValue(entity.Id, out VersionedEntry stored) && stored.Version == entity.Version)
+            {
+                entry = stored.Entry;
+                return true;
+            }
+            entry = null;
+            return false;
+        }
 
         public static void Remove(Entity entity) => Entries.Remove(entity.Id);
 

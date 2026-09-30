@@ -54,6 +54,9 @@ namespace Genesis.Runtime.Project
             _stopRequested = true;
         }
 
+        /// <summary>Studio play passes this so the player watches and hot-reloads project assets.</summary>
+        public const string LiveReloadArgument = "--live-reload";
+
         public static int Run(string[] args)
         {
             LastError = null;
@@ -64,6 +67,20 @@ namespace Genesis.Runtime.Project
                     return customExit;
 
                 ParseArgs(args, out string roomArg, out float autoshotSeconds, out string perfLabel, out bool debugMode);
+                // Only Studio play (and tooling that launches through ProjectRunLauncher) watches and
+                // re-validates assets. An exported game loads each asset once: no FileSystemWatcher and
+                // no per-frame or periodic file checks on its draw paths.
+                bool liveReload = Array.Exists(args, value =>
+                    string.Equals(value, LiveReloadArgument, StringComparison.OrdinalIgnoreCase));
+                if (!liveReload) Genesis.Shared.Assets.RuntimeAssetPolicy.DisablePolling();
+                int benchmarkIndex = Array.IndexOf(args, "--benchmark-output");
+                string benchmarkOutput = benchmarkIndex >= 0 && benchmarkIndex + 1 < args.Length
+                    && !args[benchmarkIndex + 1].StartsWith("--", StringComparison.Ordinal)
+                    ? Path.GetFullPath(args[benchmarkIndex + 1]) : null;
+                if (benchmarkIndex >= 0 && benchmarkOutput == null)
+                    throw new ArgumentException("--benchmark-output requires an evidence directory.");
+                double benchmarkSeconds = BenchmarkNumber(args, "--benchmark-seconds", 600);
+                double benchmarkWarmup = BenchmarkNumber(args, "--benchmark-warmup-seconds", 5);
                 int acceptanceIndex = Array.IndexOf(args, "--acceptance-meadow");
                 string acceptanceOutput = acceptanceIndex >= 0 && acceptanceIndex + 1 < args.Length
                     ? Path.GetFullPath(args[acceptanceIndex + 1]) : null;
@@ -86,8 +103,11 @@ namespace Genesis.Runtime.Project
                     throw new ArgumentException("--acceptance-physics-model requires an evidence directory.");
                 if (new[] { acceptanceOutput, verdantOutput, pathingOutput, physicsOutput }.Count(value => value != null) > 1)
                     throw new ArgumentException("Choose one acceptance driver per run.");
+                if (benchmarkOutput != null && (autoshotSeconds > 0
+                    || new[] { acceptanceOutput, verdantOutput, pathingOutput, physicsOutput }.Any(value => value != null)))
+                    throw new ArgumentException("Run a benchmark separately from autoshot and acceptance drivers.");
                 PgslProfiler.Reset();
-                PgslProfiler.Enabled = debugMode;
+                PgslProfiler.Enabled = debugMode || benchmarkOutput != null;
 
                 string projectPath = Environment.GetEnvironmentVariable("GENESIS_PROJECT_PATH");
                 if (string.IsNullOrWhiteSpace(projectPath))
@@ -132,6 +152,8 @@ namespace Genesis.Runtime.Project
                 {
                     autoshotSeconds = envShot;
                 }
+                if (benchmarkOutput != null && autoshotSeconds > 0)
+                    throw new ArgumentException("Run a benchmark separately from GENESIS_AUTOSHOT.");
 
                 if (string.IsNullOrEmpty(perfLabel))
                     perfLabel = Environment.GetEnvironmentVariable("GENESIS_PERF_LABEL");
@@ -160,8 +182,6 @@ namespace Genesis.Runtime.Project
                 host = new GenesisRuntimeHost(title, width, height, (scene, renderer) =>
                 {
                     var window = host.Window as SilkGameWindow;
-                    if (window is not null && Enum.TryParse(launchSettings.WindowMode, true, out WindowMode startupMode))
-                        window.Mode = startupMode;
                     _activeHost = host;
                     _activeWindow = window;
                     scene.Input = window?.Input ?? scene.Input;
@@ -272,8 +292,11 @@ namespace Genesis.Runtime.Project
                     scene.AddSubsystem(new ScriptHostSubsystem(scriptHost, () => bootSplash.IsComplete));
                     ProjectRoomSwitcher roomSwitcher = scene.AddSubsystem(new ProjectRoomSwitcher(
                         projectPath, gameContext, scriptHost, window, renderer, logger, roomName));
-                    scene.AddSubsystem(new ProjectAssetLiveReloadSubsystem(
-                        projectPath, renderer, roomSwitcher, logger));
+                    if (liveReload)
+                        scene.AddSubsystem(new ProjectAssetLiveReloadSubsystem(
+                            projectPath, renderer, roomSwitcher, logger));
+                    else
+                        logger.Line("AssetLiveReload disabled: assets load once (launched without " + LiveReloadArgument + ")");
                     host.ScriptHost = scriptHost;
                     bootSplash.Initialize(renderer);
                     host.BootSplash = bootSplash;
@@ -283,6 +306,11 @@ namespace Genesis.Runtime.Project
                     Console.WriteLine("GENESIS_PLAYER_STATE running");
                 });
 
+                // Apply the launch mode before OnLoad creates the swap chain, so its actual
+                // pixel dimensions agree with the requested startup presentation.
+                if (host.Window is SilkGameWindow startupWindow
+                    && Enum.TryParse(launchSettings.WindowMode, true, out WindowMode startupMode))
+                    startupWindow.Mode = startupMode;
                 host.StartupGate = StartupGate;
                 if (autoshotSeconds > 0f)
                 {
@@ -321,6 +349,17 @@ namespace Genesis.Runtime.Project
 
                 using (host)
                 {
+                    using RuntimeBenchmarkRecorder benchmark = benchmarkOutput != null
+                        ? new RuntimeBenchmarkRecorder(benchmarkOutput, benchmarkSeconds, benchmarkWarmup) : null;
+                    if (benchmark != null)
+                    {
+                        host.EndFrame += benchmark.Capture;
+                        host.AfterPresent += () =>
+                        {
+                            benchmark.AfterPresent(host);
+                            if (benchmark.Complete) RequestStop();
+                        };
+                    }
                     using LiveProfilerTelemetry telemetry = debugMode
                         ? new LiveProfilerTelemetry(projectPath)
                         : null;
@@ -358,6 +397,8 @@ namespace Genesis.Runtime.Project
                     };
                     host.Run();
                     if (host.StartupFailure != null) throw new InvalidOperationException("The game runtime failed.", host.StartupFailure);
+                    if (benchmark != null && (!benchmark.Complete || benchmark.Error.Length > 0))
+                        throw new InvalidOperationException("Benchmark did not complete cleanly: " + benchmark.Error);
                 }
 
                 return _exitCode;
@@ -376,6 +417,16 @@ namespace Genesis.Runtime.Project
                 _stopRequested = false; _pauseRequested = false;
                 PgslProfiler.Enabled = false;
             }
+        }
+
+        private static double BenchmarkNumber(string[] args, string option, double fallback)
+        {
+            int index = Array.IndexOf(args, option);
+            if (index < 0) return fallback;
+            if (index + 1 >= args.Length || !double.TryParse(args[index + 1],
+                System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double value)
+                || !double.IsFinite(value)) throw new ArgumentException(option + " requires a finite number.");
+            return value;
         }
 
         private sealed class GameLaunchSettings

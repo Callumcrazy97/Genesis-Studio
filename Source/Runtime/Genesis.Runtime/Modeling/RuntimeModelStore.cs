@@ -74,7 +74,10 @@ namespace Genesis.Runtime.Modeling
                     ?? CreateEmpty(Path.GetFileNameWithoutExtension(path), "Invalid .gmodel asset");
                 if (string.IsNullOrWhiteSpace(asset.Name))
                     asset.Name = Path.GetFileNameWithoutExtension(path);
-                asset.RecalculateBounds();
+                // Saved canonical assets already carry authoritative bounds. Re-scanning every
+                // vertex after parsing made large environment models pay a second full geometry
+                // traversal each time Model, Room, or Terrain Editor opened them.
+                if (!HasUsableBounds(asset.Bounds)) asset.RecalculateBounds();
                 GModelPrimitiveFactory.EnsureRigIntegrity(asset);
                 return asset;
             }
@@ -98,5 +101,17 @@ namespace Genesis.Runtime.Modeling
 
         public static void SaveByName(string projectPath, string modelName, GModelAsset asset)
             => Save(AssetPath(projectPath, modelName), asset);
+
+        private static bool HasUsableBounds(GModelBounds bounds)
+        {
+            if (bounds == null) return false;
+            return IsFinite(bounds.Min) && IsFinite(bounds.Max)
+                && bounds.Min.X <= bounds.Max.X
+                && bounds.Min.Y <= bounds.Max.Y
+                && bounds.Min.Z <= bounds.Max.Z;
+        }
+
+        private static bool IsFinite(System.Numerics.Vector3 value) =>
+            float.IsFinite(value.X) && float.IsFinite(value.Y) && float.IsFinite(value.Z);
     }
 }

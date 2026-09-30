@@ -47,6 +47,8 @@ public sealed partial class RuntimeViewportHarness : IDisposable
         FloorBatchCollapse,
         WaterReflection,
         FaceWinding,
+        LocalLights,
+        Fog,
     }
 
     public RuntimeViewportHarness(int width = 640, int height = 360)
@@ -505,6 +507,8 @@ public sealed partial class RuntimeViewportHarness : IDisposable
     {
         if (_mode == CaptureMode.FaceWinding) { RenderFaceWinding(renderer); return; }
         if (_mode == CaptureMode.WaterReflection) { RenderWaterReflection(renderer); return; }
+        if (_mode == CaptureMode.LocalLights) { RenderLocalLights(renderer); return; }
+        if (_mode == CaptureMode.Fog) { RenderFogScene(renderer); return; }
         if (_mode == CaptureMode.TwoD)
         {
             RenderTwoD(renderer);

@@ -74,6 +74,7 @@ namespace Genesis.Rendering.Software
     {
         public byte[] FramePixels;
         public float[] DepthBuffer;
+        public byte[] StencilBuffer;
         public int ScreenW;
         public int ScreenH;
         public byte[] VbBytes;
@@ -830,7 +831,7 @@ namespace Genesis.Rendering.Software
                         int pIdx = rowOffset + px;
                         if (pIdx < 0 || pIdx >= depthBuffer.Length) continue;
                         z = Math.Clamp(z, 0f, 1f);
-                        if (depthTest && !DepthPasses(z, depthBuffer[pIdx], depthCompare)) continue;
+                        if (!StencilAndDepthPass(draw, pIdx, !depthTest || DepthPasses(z, depthBuffer[pIdx], depthCompare))) continue;
                         if (depthWrite) depthBuffer[pIdx] = z;
                     }
                 }
@@ -892,7 +893,7 @@ namespace Genesis.Rendering.Software
                     float z = Math.Clamp(wa * sz0 + wb * sz1 + wc * sz2, 0f, 1f);
                     int pIdx = rowOffset + px;
                     if (pIdx < 0 || pIdx >= depthBuffer.Length) continue;
-                    if (depthTest && !DepthPasses(z, depthBuffer[pIdx], depthCompare)) continue;
+                    if (!StencilAndDepthPass(draw, pIdx, !depthTest || DepthPasses(z, depthBuffer[pIdx], depthCompare), commitPass: false)) continue;
 
                     float pa = wa * invW0, pb = wb * invW1, pc = wc * invW2;
                     float pSum = pa + pb + pc;
@@ -1027,7 +1028,11 @@ namespace Genesis.Rendering.Software
                     float finalA = Math.Clamp(a, 0f, 1f);
                     if (finalA <= 0.005f) continue;
 
+                    // Alpha-discarded texels must never become solid stencil silhouettes.
+                    if (!StencilAndDepthPass(draw, pIdx, depthPassed: true)) continue;
                     if (depthWrite) depthBuffer[pIdx] = z;
+
+                    if (!draw.BlendState.WriteR && !draw.BlendState.WriteG && !draw.BlendState.WriteB && !draw.BlendState.WriteA) continue;
 
                     int dstIdx = pixelRowByteOffset + px * 4;
                     if (dstIdx + 3 >= framePixels.Length) continue;
@@ -1126,6 +1131,20 @@ namespace Genesis.Rendering.Software
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static bool StencilAndDepthPass(in SoftwareMeshDraw draw, int index, bool depthPassed, bool commitPass = true)
+        {
+            GpuDepthState state = draw.DepthState;
+            if (!state.StencilEnabled || draw.StencilBuffer == null) return depthPassed;
+            byte stored = draw.StencilBuffer[index];
+            bool stencilPassed = DepthPasses(state.StencilReference & state.StencilReadMask,
+                stored & state.StencilReadMask, state.StencilCompare);
+            if (stencilPassed && depthPassed && !commitPass) return true;
+            GpuStencilOperation op = !stencilPassed ? state.StencilFail : !depthPassed ? state.StencilDepthFail : state.StencilPass;
+            int replacement = op == GpuStencilOperation.Replace ? state.StencilReference : op == GpuStencilOperation.Zero ? 0 : stored;
+            draw.StencilBuffer[index] = (byte)((stored & ~state.StencilWriteMask) | (replacement & state.StencilWriteMask));
+            return stencilPassed && depthPassed;
+        }
+
         private static bool DepthPasses(float z, float stored, GpuCompare compare) => compare switch
         {
             GpuCompare.Never => false,

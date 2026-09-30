@@ -13,7 +13,9 @@ public sealed partial class ModelRigViewportControl : EditorSurfaceControl
     private readonly ListBox _partList;
     private readonly Panel _inspector = new();
     private readonly Label _statusLabel;
-    private readonly RuntimeModelRenderSystem _runtimeModelPreview = new();
+    private readonly RuntimeModelRenderSystem _runtimeModelPreview = new(
+        assetFreshnessIntervalMilliseconds: 500,
+        textureFreshnessIntervalMilliseconds: 1000);
     private GModelAsset? _rigged;
     private readonly ModelEditorMode _mode = ModelEditorMode.Animate;
     private bool _showBones = true, _spinEnabled, _assetChanged = true;

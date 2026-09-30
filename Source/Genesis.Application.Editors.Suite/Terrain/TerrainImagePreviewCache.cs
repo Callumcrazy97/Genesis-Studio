@@ -59,9 +59,9 @@ internal sealed class TerrainImagePreviewCache : IDisposable
         {
             material = new MeshDrawCall
             {
-                Texture = renderer.CreateTexture(pixels.Width, pixels.Height, pixels.Albedo),
-                NormalMap = renderer.CreateTexture(pixels.Width, pixels.Height, pixels.Normal),
-                OrmMap = renderer.CreateTexture(pixels.Width, pixels.Height, pixels.Orm),
+                Texture = renderer.CreateTexture(pixels.Width, pixels.Height, pixels.Albedo, Genesis.Shared.Materials.TextureColorSpace.Srgb),
+                NormalMap = renderer.CreateTexture(pixels.Width, pixels.Height, pixels.Normal, Genesis.Shared.Materials.TextureColorSpace.Linear),
+                OrmMap = renderer.CreateTexture(pixels.Width, pixels.Height, pixels.Orm, Genesis.Shared.Materials.TextureColorSpace.Linear),
                 SurfaceParams = new Vector4(1, 0, 0, 0), DetailParams = new Vector4(0, 0, 0, 1),
             };
             entry.Materials[renderer] = material;

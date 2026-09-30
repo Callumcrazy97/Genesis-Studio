@@ -19,7 +19,9 @@ public sealed class KitToggle : Control
             true);
         Size = new Size(44, 24);
         Cursor = Cursors.Hand;
-        EditorChrome.Changed += (_, _) => Invalidate();
+        EventHandler chromeChanged = (_, _) => Invalidate();
+        EditorChrome.Changed += chromeChanged;
+        Disposed += (_, _) => EditorChrome.Changed -= chromeChanged;
     }
 
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]

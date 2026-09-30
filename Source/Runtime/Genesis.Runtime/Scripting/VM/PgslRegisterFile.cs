@@ -127,115 +127,113 @@ namespace Genesis.Runtime.Scripting.VM
         };
 
         // ── Compiled getter delegates, indexed by slot ──────────────────────────
-        public static readonly Func<PgslContext, object>[] SlotGetters;
+        public static readonly Func<PgslContext, double>[] NumberGetters;
 
         // ── Compiled setter delegates, indexed by slot ──────────────────────────
-        public static readonly Action<PgslContext, object>[] SlotSetters;
+        public static readonly Action<PgslContext, double>[] NumberSetters;
 
         static PgslRegisterFile()
         {
-            SlotGetters = new Func<PgslContext, object>[TotalSlots];
-            SlotSetters = new Action<PgslContext, object>[TotalSlots];
+            NumberGetters = new Func<PgslContext, double>[TotalSlots];
+            NumberSetters = new Action<PgslContext, double>[TotalSlots];
 
-            SlotGetters[SlotInstanceId] = ctx => (double)ctx.InstanceId;
-            SlotSetters[SlotInstanceId] = (ctx, v) => { /* identity is read-only */ };
-            SlotGetters[SlotX]           = ctx => ctx.X;
-            SlotGetters[SlotY]           = ctx => ctx.Y;
-            SlotGetters[SlotZ]           = ctx => ctx.Z;
-            SlotGetters[SlotHSpeed]      = ctx => ctx.HSpeed;
-            SlotGetters[SlotVSpeed]      = ctx => ctx.VSpeed;
-            SlotGetters[SlotSpeed]       = ctx => ctx.Speed;
-            SlotGetters[SlotDirection]   = ctx => ctx.Direction;
-            SlotGetters[SlotFriction]    = ctx => ctx.Friction;
-            SlotGetters[SlotGravity]     = ctx => ctx.Gravity;
-            SlotGetters[SlotGravityDir]  = ctx => ctx.GravityDirection;
-            SlotGetters[SlotSpriteIndex] = ctx => (object)(ctx.SpriteIndex ?? "");
-            SlotGetters[SlotImageIndex]  = ctx => ctx.ImageIndex;
-            SlotGetters[SlotImageSpeed]  = ctx => ctx.ImageSpeed;
-            SlotGetters[SlotImageAlpha]  = ctx => ctx.ImageAlpha;
-            SlotGetters[SlotImageAngle]  = ctx => ctx.ImageAngle;
-            SlotGetters[SlotImageXScale] = ctx => ctx.ImageXScale;
-            SlotGetters[SlotImageYScale] = ctx => ctx.ImageYScale;
-            SlotGetters[SlotVisible]     = ctx => (object)(ctx.Visible ? 1.0 : 0.0);
-            SlotGetters[SlotDepth]       = ctx => (object)(double)ctx.Depth;
-            SlotGetters[SlotSolid]       = ctx => (object)(ctx.Solid ? 1.0 : 0.0);
-            SlotGetters[SlotRoomWidth]   = ctx => ctx.RoomWidth;
-            SlotGetters[SlotRoomHeight]  = ctx => ctx.RoomHeight;
-            SlotGetters[SlotDrawAlpha]   = ctx => ctx.DrawAlpha;
-            SlotGetters[SlotDrawFontSize]= ctx => ctx.DrawFontSize;
-            SlotGetters[SlotAlarm0]      = ctx => ctx.Alarm0;
-            SlotGetters[SlotAlarm1]      = ctx => ctx.Alarm1;
-            SlotGetters[SlotAlarm2]      = ctx => ctx.Alarm2;
-            SlotGetters[SlotAlarm3]      = ctx => ctx.Alarm3;
-            SlotGetters[SlotAlarm4]      = ctx => ctx.Alarm4;
-            SlotGetters[SlotAlarm5]      = ctx => ctx.Alarm5;
-            SlotGetters[SlotAlarm6]      = ctx => ctx.Alarm6;
-            SlotGetters[SlotAlarm7]      = ctx => ctx.Alarm7;
-            SlotGetters[SlotAlarm8]      = ctx => ctx.Alarm8;
-            SlotGetters[SlotAlarm9]      = ctx => ctx.Alarm9;
-            SlotGetters[SlotAlarm10]     = ctx => ctx.Alarm10;
-            SlotGetters[SlotAlarm11]     = ctx => ctx.Alarm11;
-            SlotGetters[SlotUserDefined0] = ctx => ctx.UserDefined0;
-            SlotGetters[SlotUserDefined1] = ctx => ctx.UserDefined1;
-            SlotGetters[SlotUserDefined2] = ctx => ctx.UserDefined2;
-            SlotGetters[SlotUserDefined3] = ctx => ctx.UserDefined3;
-            SlotGetters[SlotUserDefined4] = ctx => ctx.UserDefined4;
-            SlotGetters[SlotUserDefined5] = ctx => ctx.UserDefined5;
-            SlotGetters[SlotUserDefined6] = ctx => ctx.UserDefined6;
-            SlotGetters[SlotUserDefined7] = ctx => ctx.UserDefined7;
-            SlotGetters[SlotUserDefined8] = ctx => ctx.UserDefined8;
-            SlotGetters[SlotUserDefined9] = ctx => ctx.UserDefined9;
-            SlotGetters[SlotUserDefined10]= ctx => ctx.UserDefined10;
-            SlotGetters[SlotUserDefined11]= ctx => ctx.UserDefined11;
+            NumberGetters[SlotInstanceId] = ctx => (double)ctx.InstanceId;
+            NumberSetters[SlotInstanceId] = (ctx, v) => { /* identity is read-only */ };
+            NumberGetters[SlotX]           = ctx => ctx.X;
+            NumberGetters[SlotY]           = ctx => ctx.Y;
+            NumberGetters[SlotZ]           = ctx => ctx.Z;
+            NumberGetters[SlotHSpeed]      = ctx => ctx.HSpeed;
+            NumberGetters[SlotVSpeed]      = ctx => ctx.VSpeed;
+            NumberGetters[SlotSpeed]       = ctx => ctx.Speed;
+            NumberGetters[SlotDirection]   = ctx => ctx.Direction;
+            NumberGetters[SlotFriction]    = ctx => ctx.Friction;
+            NumberGetters[SlotGravity]     = ctx => ctx.Gravity;
+            NumberGetters[SlotGravityDir]  = ctx => ctx.GravityDirection;
+            NumberGetters[SlotImageIndex]  = ctx => ctx.ImageIndex;
+            NumberGetters[SlotImageSpeed]  = ctx => ctx.ImageSpeed;
+            NumberGetters[SlotImageAlpha]  = ctx => ctx.ImageAlpha;
+            NumberGetters[SlotImageAngle]  = ctx => ctx.ImageAngle;
+            NumberGetters[SlotImageXScale] = ctx => ctx.ImageXScale;
+            NumberGetters[SlotImageYScale] = ctx => ctx.ImageYScale;
+            NumberGetters[SlotVisible]     = ctx => ctx.Visible ? 1.0 : 0.0;
+            NumberGetters[SlotDepth]       = ctx => (double)ctx.Depth;
+            NumberGetters[SlotSolid]       = ctx => ctx.Solid ? 1.0 : 0.0;
+            NumberGetters[SlotRoomWidth]   = ctx => ctx.RoomWidth;
+            NumberGetters[SlotRoomHeight]  = ctx => ctx.RoomHeight;
+            NumberGetters[SlotDrawAlpha]   = ctx => ctx.DrawAlpha;
+            NumberGetters[SlotDrawFontSize]= ctx => ctx.DrawFontSize;
+            NumberGetters[SlotAlarm0]      = ctx => ctx.Alarm0;
+            NumberGetters[SlotAlarm1]      = ctx => ctx.Alarm1;
+            NumberGetters[SlotAlarm2]      = ctx => ctx.Alarm2;
+            NumberGetters[SlotAlarm3]      = ctx => ctx.Alarm3;
+            NumberGetters[SlotAlarm4]      = ctx => ctx.Alarm4;
+            NumberGetters[SlotAlarm5]      = ctx => ctx.Alarm5;
+            NumberGetters[SlotAlarm6]      = ctx => ctx.Alarm6;
+            NumberGetters[SlotAlarm7]      = ctx => ctx.Alarm7;
+            NumberGetters[SlotAlarm8]      = ctx => ctx.Alarm8;
+            NumberGetters[SlotAlarm9]      = ctx => ctx.Alarm9;
+            NumberGetters[SlotAlarm10]     = ctx => ctx.Alarm10;
+            NumberGetters[SlotAlarm11]     = ctx => ctx.Alarm11;
+            NumberGetters[SlotUserDefined0] = ctx => ctx.UserDefined0;
+            NumberGetters[SlotUserDefined1] = ctx => ctx.UserDefined1;
+            NumberGetters[SlotUserDefined2] = ctx => ctx.UserDefined2;
+            NumberGetters[SlotUserDefined3] = ctx => ctx.UserDefined3;
+            NumberGetters[SlotUserDefined4] = ctx => ctx.UserDefined4;
+            NumberGetters[SlotUserDefined5] = ctx => ctx.UserDefined5;
+            NumberGetters[SlotUserDefined6] = ctx => ctx.UserDefined6;
+            NumberGetters[SlotUserDefined7] = ctx => ctx.UserDefined7;
+            NumberGetters[SlotUserDefined8] = ctx => ctx.UserDefined8;
+            NumberGetters[SlotUserDefined9] = ctx => ctx.UserDefined9;
+            NumberGetters[SlotUserDefined10]= ctx => ctx.UserDefined10;
+            NumberGetters[SlotUserDefined11]= ctx => ctx.UserDefined11;
 
-            SlotSetters[SlotX]           = (ctx, v) => ctx.X           = ToDouble(v);
-            SlotSetters[SlotY]           = (ctx, v) => ctx.Y           = ToDouble(v);
-            SlotSetters[SlotZ]           = (ctx, v) => ctx.Z           = ToDouble(v);
-            SlotSetters[SlotHSpeed]      = (ctx, v) => ctx.HSpeed      = ToDouble(v);
-            SlotSetters[SlotVSpeed]      = (ctx, v) => ctx.VSpeed      = ToDouble(v);
-            SlotSetters[SlotSpeed]       = (ctx, v) => ctx.Speed       = ToDouble(v);
-            SlotSetters[SlotDirection]   = (ctx, v) => ctx.Direction   = ToDouble(v);
-            SlotSetters[SlotFriction]    = (ctx, v) => ctx.Friction    = ToDouble(v);
-            SlotSetters[SlotGravity]     = (ctx, v) => ctx.Gravity     = ToDouble(v);
-            SlotSetters[SlotGravityDir]  = (ctx, v) => ctx.GravityDirection = ToDouble(v);
-            SlotSetters[SlotSpriteIndex] = (ctx, v) => ctx.SpriteIndex = v?.ToString() ?? "";
-            SlotSetters[SlotImageIndex]  = (ctx, v) => ctx.ImageIndex  = ToDouble(v);
-            SlotSetters[SlotImageSpeed]  = (ctx, v) => ctx.ImageSpeed  = ToDouble(v);
-            SlotSetters[SlotImageAlpha]  = (ctx, v) => ctx.ImageAlpha  = ToDouble(v);
-            SlotSetters[SlotImageAngle]  = (ctx, v) => ctx.ImageAngle  = ToDouble(v);
-            SlotSetters[SlotImageXScale] = (ctx, v) => ctx.ImageXScale = ToDouble(v);
-            SlotSetters[SlotImageYScale] = (ctx, v) => ctx.ImageYScale = ToDouble(v);
-            SlotSetters[SlotVisible]     = (ctx, v) => ctx.Visible     = ToDouble(v) != 0;
-            SlotSetters[SlotDepth]       = (ctx, v) => ctx.Depth       = (int)ToDouble(v);
-            SlotSetters[SlotSolid]       = (ctx, v) => ctx.Solid       = ToDouble(v) != 0;
-            SlotSetters[SlotRoomWidth]   = (ctx, v) => { /* read-only */ };
-            SlotSetters[SlotRoomHeight]  = (ctx, v) => { /* read-only */ };
-            SlotSetters[SlotDrawAlpha]   = (ctx, v) => ctx.DrawAlpha   = ToDouble(v);
-            SlotSetters[SlotDrawFontSize]= (ctx, v) => ctx.DrawFontSize= ToDouble(v);
-            SlotSetters[SlotAlarm0]      = (ctx, v) => ctx.Alarm0      = ToDouble(v);
-            SlotSetters[SlotAlarm1]      = (ctx, v) => ctx.Alarm1      = ToDouble(v);
-            SlotSetters[SlotAlarm2]      = (ctx, v) => ctx.Alarm2      = ToDouble(v);
-            SlotSetters[SlotAlarm3]      = (ctx, v) => ctx.Alarm3      = ToDouble(v);
-            SlotSetters[SlotAlarm4]      = (ctx, v) => ctx.Alarm4      = ToDouble(v);
-            SlotSetters[SlotAlarm5]      = (ctx, v) => ctx.Alarm5      = ToDouble(v);
-            SlotSetters[SlotAlarm6]      = (ctx, v) => ctx.Alarm6      = ToDouble(v);
-            SlotSetters[SlotAlarm7]      = (ctx, v) => ctx.Alarm7      = ToDouble(v);
-            SlotSetters[SlotAlarm8]      = (ctx, v) => ctx.Alarm8      = ToDouble(v);
-            SlotSetters[SlotAlarm9]      = (ctx, v) => ctx.Alarm9      = ToDouble(v);
-            SlotSetters[SlotAlarm10]     = (ctx, v) => ctx.Alarm10     = ToDouble(v);
-            SlotSetters[SlotAlarm11]     = (ctx, v) => ctx.Alarm11     = ToDouble(v);
-            SlotSetters[SlotUserDefined0] = (ctx, v) => ctx.UserDefined0 = ToDouble(v);
-            SlotSetters[SlotUserDefined1] = (ctx, v) => ctx.UserDefined1 = ToDouble(v);
-            SlotSetters[SlotUserDefined2] = (ctx, v) => ctx.UserDefined2 = ToDouble(v);
-            SlotSetters[SlotUserDefined3] = (ctx, v) => ctx.UserDefined3 = ToDouble(v);
-            SlotSetters[SlotUserDefined4] = (ctx, v) => ctx.UserDefined4 = ToDouble(v);
-            SlotSetters[SlotUserDefined5] = (ctx, v) => ctx.UserDefined5 = ToDouble(v);
-            SlotSetters[SlotUserDefined6] = (ctx, v) => ctx.UserDefined6 = ToDouble(v);
-            SlotSetters[SlotUserDefined7] = (ctx, v) => ctx.UserDefined7 = ToDouble(v);
-            SlotSetters[SlotUserDefined8] = (ctx, v) => ctx.UserDefined8 = ToDouble(v);
-            SlotSetters[SlotUserDefined9] = (ctx, v) => ctx.UserDefined9 = ToDouble(v);
-            SlotSetters[SlotUserDefined10]= (ctx, v) => ctx.UserDefined10= ToDouble(v);
-            SlotSetters[SlotUserDefined11]= (ctx, v) => ctx.UserDefined11= ToDouble(v);
+            NumberSetters[SlotX]           = (ctx, v) => ctx.X           = v;
+            NumberSetters[SlotY]           = (ctx, v) => ctx.Y           = v;
+            NumberSetters[SlotZ]           = (ctx, v) => ctx.Z           = v;
+            NumberSetters[SlotHSpeed]      = (ctx, v) => ctx.HSpeed      = v;
+            NumberSetters[SlotVSpeed]      = (ctx, v) => ctx.VSpeed      = v;
+            NumberSetters[SlotSpeed]       = (ctx, v) => ctx.Speed       = v;
+            NumberSetters[SlotDirection]   = (ctx, v) => ctx.Direction   = v;
+            NumberSetters[SlotFriction]    = (ctx, v) => ctx.Friction    = v;
+            NumberSetters[SlotGravity]     = (ctx, v) => ctx.Gravity     = v;
+            NumberSetters[SlotGravityDir]  = (ctx, v) => ctx.GravityDirection = v;
+            NumberSetters[SlotImageIndex]  = (ctx, v) => ctx.ImageIndex  = v;
+            NumberSetters[SlotImageSpeed]  = (ctx, v) => ctx.ImageSpeed  = v;
+            NumberSetters[SlotImageAlpha]  = (ctx, v) => ctx.ImageAlpha  = v;
+            NumberSetters[SlotImageAngle]  = (ctx, v) => ctx.ImageAngle  = v;
+            NumberSetters[SlotImageXScale] = (ctx, v) => ctx.ImageXScale = v;
+            NumberSetters[SlotImageYScale] = (ctx, v) => ctx.ImageYScale = v;
+            NumberSetters[SlotVisible]     = (ctx, v) => ctx.Visible     = v != 0;
+            NumberSetters[SlotDepth]       = (ctx, v) => ctx.Depth       = (int)v;
+            NumberSetters[SlotSolid]       = (ctx, v) => ctx.Solid       = v != 0;
+            NumberSetters[SlotRoomWidth]   = (ctx, v) => { /* read-only */ };
+            NumberSetters[SlotRoomHeight]  = (ctx, v) => { /* read-only */ };
+            NumberSetters[SlotDrawAlpha]   = (ctx, v) => ctx.DrawAlpha   = v;
+            NumberSetters[SlotDrawFontSize]= (ctx, v) => ctx.DrawFontSize= v;
+            NumberSetters[SlotAlarm0]      = (ctx, v) => ctx.Alarm0      = v;
+            NumberSetters[SlotAlarm1]      = (ctx, v) => ctx.Alarm1      = v;
+            NumberSetters[SlotAlarm2]      = (ctx, v) => ctx.Alarm2      = v;
+            NumberSetters[SlotAlarm3]      = (ctx, v) => ctx.Alarm3      = v;
+            NumberSetters[SlotAlarm4]      = (ctx, v) => ctx.Alarm4      = v;
+            NumberSetters[SlotAlarm5]      = (ctx, v) => ctx.Alarm5      = v;
+            NumberSetters[SlotAlarm6]      = (ctx, v) => ctx.Alarm6      = v;
+            NumberSetters[SlotAlarm7]      = (ctx, v) => ctx.Alarm7      = v;
+            NumberSetters[SlotAlarm8]      = (ctx, v) => ctx.Alarm8      = v;
+            NumberSetters[SlotAlarm9]      = (ctx, v) => ctx.Alarm9      = v;
+            NumberSetters[SlotAlarm10]     = (ctx, v) => ctx.Alarm10     = v;
+            NumberSetters[SlotAlarm11]     = (ctx, v) => ctx.Alarm11     = v;
+            NumberSetters[SlotUserDefined0] = (ctx, v) => ctx.UserDefined0 = v;
+            NumberSetters[SlotUserDefined1] = (ctx, v) => ctx.UserDefined1 = v;
+            NumberSetters[SlotUserDefined2] = (ctx, v) => ctx.UserDefined2 = v;
+            NumberSetters[SlotUserDefined3] = (ctx, v) => ctx.UserDefined3 = v;
+            NumberSetters[SlotUserDefined4] = (ctx, v) => ctx.UserDefined4 = v;
+            NumberSetters[SlotUserDefined5] = (ctx, v) => ctx.UserDefined5 = v;
+            NumberSetters[SlotUserDefined6] = (ctx, v) => ctx.UserDefined6 = v;
+            NumberSetters[SlotUserDefined7] = (ctx, v) => ctx.UserDefined7 = v;
+            NumberSetters[SlotUserDefined8] = (ctx, v) => ctx.UserDefined8 = v;
+            NumberSetters[SlotUserDefined9] = (ctx, v) => ctx.UserDefined9 = v;
+            NumberSetters[SlotUserDefined10]= (ctx, v) => ctx.UserDefined10= v;
+            NumberSetters[SlotUserDefined11]= (ctx, v) => ctx.UserDefined11= v;
         }
 
         // ── Backward-compatible TryGet / TrySet (used by legacy LOAD_VAR path) ─
@@ -244,7 +242,7 @@ namespace Genesis.Runtime.Scripting.VM
             value = null;
             if (ctx == null || string.IsNullOrEmpty(name)) return false;
             if (!Slots.TryGetValue(name, out int slot)) return false;
-            value = SlotGetters[slot](ctx);
+            value = Read(ctx, slot).ToObject();
             return true;
         }
 
@@ -252,17 +250,17 @@ namespace Genesis.Runtime.Scripting.VM
         {
             if (ctx == null || string.IsNullOrEmpty(name)) return false;
             if (!Slots.TryGetValue(name, out int slot)) return false;
-            SlotSetters[slot](ctx, value);
+            Write(ctx, slot, VmValue.FromObject(value));
             return true;
         }
 
-        private static double ToDouble(object value) => value switch
+        internal static VmValue Read(PgslContext context, int slot) => slot == SlotSpriteIndex
+            ? context.SpriteIndex ?? "" : (VmValue)NumberGetters[slot](context);
+
+        internal static void Write(PgslContext context, int slot, in VmValue value)
         {
-            double d  => d,
-            float  f  => f,
-            int    i  => i,
-            bool   b  => b ? 1 : 0,
-            _         => Convert.ToDouble(value)
-        };
+            if (slot == SlotSpriteIndex) context.SpriteIndex = value.ToString();
+            else NumberSetters[slot](context, value.Number);
+        }
     }
 }

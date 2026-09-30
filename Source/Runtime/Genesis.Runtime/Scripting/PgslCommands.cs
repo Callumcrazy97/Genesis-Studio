@@ -391,10 +391,9 @@ public static partial class PgslCommands
             if (ActiveGameContext != null && !string.IsNullOrEmpty(obj))
             {
                 string path = Scene.RoomSceneBuilder.ResolvePrefabPath(ProjectPath, obj);
-                if (System.IO.File.Exists(path))
+                if (Scene.ObjectDefinitionResolver.TryLoadForSpawn(ProjectPath, path,
+                        out var definition, out var prefab))
                 {
-                    var definition = Scene.ObjectDefinitionResolver.Load(ProjectPath, path);
-                    var prefab = Scene.ObjectDefinitionResolver.PreviewPrefab(definition);
                     var host = (ActiveGameContext as Project.ProjectGameContext)?.ScriptHost;
                     bool wasDeferring = host?.DeferCreateEvents ?? false;
                     if (host != null) host.DeferCreateEvents = true;

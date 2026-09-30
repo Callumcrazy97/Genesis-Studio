@@ -30,7 +30,8 @@ VSOut VS(uint id : SV_VertexID)
     VSOut o;
     float2 p = float2((id << 1) & 2, id & 2);
     o.pos = float4(p * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);
-    o.uv = float2(p.x, 1.0 - p.y);
+    // Match scene/depth coordinates and the final post composite.
+    o.uv = p;
     return o;
 }
 
@@ -69,7 +70,7 @@ float4 PS_Contact(VSOut IN) : SV_Target
     float2 fullRes = max(ClipPlanes.zw, float2(2, 2));
     float2 texel = 1.0 / fullRes;
     float centerDepth = SceneDepth.SampleLevel(LinearClamp, IN.uv, 0).r;
-    if (centerDepth >= 0.99999)
+    if (centerDepth >= 0.9999999)
         return float4(0, 0, 0, 1);
 
     float3 worldPos = ReconstructWorldPos(IN.uv, centerDepth);
@@ -117,7 +118,7 @@ float4 PS_Contact(VSOut IN) : SV_Target
             continue;
 
         float sceneDepth = NearestSceneDepth(sampleUv, texel);
-        if (sceneDepth >= 0.99999)
+        if (sceneDepth >= 0.9999999)
             continue;
 
         float separation = ndc.z - sceneDepth;

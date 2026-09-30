@@ -26,7 +26,9 @@ public sealed partial class ModelEditorControl : ModelViewerControl
     private readonly CheckBox _visibleGroup = new() { Text = "Show selected group", AutoSize = true, Checked = true };
     private NumericUpDown? _radiusInput, _strengthInput;
     private readonly List<ModelPart> _parts = [];
-    private readonly RuntimeModelRenderSystem _miniRenderer = new();
+    private readonly RuntimeModelRenderSystem _miniRenderer = new(
+        assetFreshnessIntervalMilliseconds: 500,
+        textureFreshnessIntervalMilliseconds: 1000);
     private readonly EditorViewport3D _mini = new() { Dock = DockStyle.Fill, NavigationEnabled = false, FloorStyle = EditorFloorStyle.None };
     private readonly HashSet<int> _hiddenGroups = [];
     private ModelEditorMode _mode;
@@ -44,7 +46,7 @@ public sealed partial class ModelEditorControl : ModelViewerControl
         Role = role; _parts.AddRange(ModelAssetLoader.LoadParts(path));
         if (role == ModelEditorRole.Viewer) return;
         EmptyModelHintEnabled = false;
-        RefreshAssetPresentation();
+        RefreshAssetPresentation(recalculateBounds: false);
         var oldOpen = Commands.Items.Cast<ToolStripItem>().Single(i => i.Name == "OpenModelEditor"); Commands.Items.Remove(oldOpen); oldOpen.Dispose();
         Commands.Items[0].Text = "◆  " + ResourceDisplayName.Format(ResourcePath);
         Commands.Items[0].ToolTipText = ResourcePath;
@@ -53,6 +55,7 @@ public sealed partial class ModelEditorControl : ModelViewerControl
         var redundantOpen = file.DropDownItems.Cast<ToolStripItem>().Single(i => i.Text == "Open Model Editor"); file.DropDownItems.Remove(redundantOpen); redundantOpen.Dispose();
         var edit = Menu("Edit"); edit.DropDownItems.Add("Undo", null, (_, _) => Undo()); edit.DropDownItems.Add("Redo", null, (_, _) => Redo());
         edit.DropDownItems.Add("Transform selected mesh…", null, (_, _) => ShowTransformWindow());
+        edit.DropDownItems.Add("Hair styles…", null, (_, _) => EditHairStyles());
         edit.DropDownItems.Add("Delete selected mesh", null, (_, _) => DeleteSelectedPart()); Menus.Items.Insert(1, edit);
         var create = Menu("Create"); foreach (ModelPrimitiveKind kind in Enum.GetValues<ModelPrimitiveKind>()) create.DropDownItems.Add(kind.ToString(), null, (_, _) => ArmPrimitivePlacement(kind)); Menus.Items.Insert(2, create);
         var animation = Menus.Items.OfType<ToolStripDropDownButton>().Single(item => item.Text == "Animation"); animation.DropDownItems.Clear();
@@ -327,7 +330,7 @@ public sealed partial class ModelEditorControl : ModelViewerControl
         for (int i = 0; i < Asset.Meshes.Count; i++)
         {
             if (_hiddenGroups.Contains(i)) continue;
-            var mesh = Asset.Meshes[i]; if (!ModelSurfaceBrush.Raycast(Vertices(mesh), mesh.Indices, origin, ray.Direction, out var candidate)) continue;
+            var mesh = Asset.Meshes[i]; if (!ModelSurfaceBrush.Raycast(PickVertices(mesh), mesh.Indices, origin, ray.Direction, out var candidate)) continue;
             float distance = Vector3.DistanceSquared(origin, candidate); if (distance >= best) continue;
             best = distance; hit = candidate; meshIndex = i;
         }
@@ -380,8 +383,25 @@ public sealed partial class ModelEditorControl : ModelViewerControl
         PushEdit(_mode == ModelEditorMode.Paint ? "Colouring stroke" : "Sculpt stroke", () => Restore(committed), () => Restore(before));
         void Restore(MeshVertex[][] values) { for (int m = 0; m < values.Length; m++) SetVertices(Asset.Meshes[m], values[m]); NotifyMeshChanged(); }
     }
+    /// <summary>
+    /// Read-only vertex positions for ray picking. Hover picking runs on every mouse move and used to
+    /// clone every mesh's vertex array (and convert skinned ones with LINQ) each time.
+    /// </summary>
+    private MeshVertex[] PickVertices(GModelMesh mesh)
+    {
+        if (!mesh.IsSkinned) return mesh.Vertices;
+        if (_pickVertices.TryGetValue(mesh, out var cached) && ReferenceEquals(cached.Source, mesh.SkinnedVertices))
+            return cached.Converted;
+        if (_pickVertices.Count > 64) _pickVertices.Clear();
+        MeshVertex[] converted = Vertices(mesh);
+        _pickVertices[mesh] = (mesh.SkinnedVertices, converted);
+        return converted;
+    }
+    private readonly Dictionary<GModelMesh, (SkinnedMeshVertex[] Source, MeshVertex[] Converted)> _pickVertices = new(ReferenceEqualityComparer.Instance);
+
     private void NotifyMeshChanged()
     {
+        _pickVertices.Clear();
         InvalidateModelGeometry(); _previewChanged = true; _filteredPreview = null;
         MarkDirty(); Surface.Invalidate(true);
     }

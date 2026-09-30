@@ -26,7 +26,7 @@ struct PointLight
 // ForwardShaders.cs's FogVolumeGpu (must match ForwardRenderer's FogVolumeData field-for-
 // field). Needed here so terrain's own fog (below) can fold in placed fog volumes too,
 // consistent with every other surface in the scene.
-struct FogVolumeGpu { float4 CenterDensity; float4 ExtentsFalloff; float4 ColorShape; float4 KindPad; };
+struct FogVolumeGpu { float4 CenterDensity; float4 ExtentsFalloff; float4 ColorShape; float4 KindDirection; };
 
 cbuffer EngineConstants : register(b1)
 {
@@ -223,8 +223,10 @@ float FogDensityAt(float3 worldPos)
     float heightBase    = FogParams2.x;
     float heightFalloff = max(FogParams2.y, 0.0001);
     float aerialBlend   = saturate(FogParams2.z);
-    float belowBase = max(heightBase - worldPos.y, 0.0);
-    float heightMul = exp(-heightFalloff * belowBase);
+    // Exponential height fog: densest at and below the base height, thinning with altitude.
+    // (The previous form decayed *below* the base, leaving uniform fog at every height above it.)
+    float aboveBase = max(worldPos.y - heightBase, 0.0);
+    float heightMul = exp(-heightFalloff * aboveBase);
     density *= lerp(1.0, heightMul, aerialBlend);
 
     return max(density, 0.0);
@@ -276,8 +278,8 @@ float SampleShadowAtPoint(float3 worldPos)
 }
 
 // Issue 6 Stage 1: per-shape ""inside"" factor in [0,1]. Shapes: 0=Box, 1=Sphere, 2=Ellipsoid,
-// 3=HeightSlab. Unchanged from FogPostShaders.cs's copy.
-float FogVolumeInsideFactor(float3 localPos, float3 extents, int shape)
+// 3=HeightSlab, 4=Cone/frustum. Unchanged from FogPostShaders.cs's copy.
+float FogVolumeInsideFactor(float3 localPos, float3 extents, int shape, float3 direction)
 {
     float3 e = max(extents, 0.0001);
 
@@ -291,6 +293,24 @@ float FogVolumeInsideFactor(float3 localPos, float3 extents, int shape)
     {
         float d = abs(localPos.y) / e.y;
         return saturate(1.0 - d);
+    }
+
+    if (shape == 4)
+    {
+        float3 axisDirection = dot(direction, direction) > 0.000001
+            ? normalize(direction)
+            : float3(1.0, 0.0, 0.0);
+        float axial = dot(localPos, axisDirection);
+        float shaftLength = max(e.x, 0.0001);
+        if (axial <= 0.0 || axial >= shaftLength)
+            return 0.0;
+        float along = saturate(axial / shaftLength);
+        float radius = max(lerp(e.y, e.z, along), 0.0001);
+        float radial = length(localPos - axisDirection * axial) / radius;
+        float sideFade = saturate(1.0 - radial);
+        float sourceFade = saturate(axial / max(shaftLength * 0.08, 0.02));
+        float endFade = saturate((shaftLength - axial) / max(shaftLength * 0.18, 0.02));
+        return sideFade * min(sourceFade, endFade);
     }
 
     float3 n = localPos / e;
@@ -321,7 +341,8 @@ float ComputeFogVolumes(float3 worldPos, out float3 outColor)
         FogVolumeGpu v = FogVolumes[i];
         float3 localPos = worldPos - v.CenterDensity.xyz;
         int shape = (int)v.ColorShape.w;
-        float inside = FogVolumeInsideFactor(localPos, v.ExtentsFalloff.xyz, shape);
+        float inside = FogVolumeInsideFactor(
+            localPos, v.ExtentsFalloff.xyz, shape, v.KindDirection.yzw);
         if (inside <= 0.0)
             continue;
 
@@ -340,6 +361,20 @@ float ComputeFogVolumes(float3 worldPos, out float3 outColor)
 // transmittance and shadow-aware inscattered light. Composite at the call site with:
 //   color = color * transmittance + outInscatter;
 // Unchanged from FogPostShaders.cs's copy — see there for full comments.
+float FogPhase(float cosTheta)
+{
+    const float g = 0.25;
+    float denominator = max(1.0 + g * g - 2.0 * g * cosTheta, 1e-4);
+    return (1.0 - g * g) / (denominator * sqrt(denominator));
+}
+
+// Sun in-scatter relative to side-on viewing. FogColor is the colour an author sees, so views away
+// from the sun keep it (1.0); toward the sun the Henyey-Greenstein lobe brightens the haze.
+float FogSunScatter(float cosTheta)
+{
+    return max(FogPhase(cosTheta) / FogPhase(0.0), 1.0);
+}
+
 float RayMarchFog(float3 cameraPos, float3 viewDir, float rayLength, float3 lightDir,
                    float jitterSeed, out float3 outInscatter)
 {
@@ -356,8 +391,7 @@ float RayMarchFog(float3 cameraPos, float3 viewDir, float rayLength, float3 ligh
     float jitter = (jitterSeed - 0.5) * stepLen * 0.15;
     float t = max(stepLen * 0.5 + jitter, 0.0);
 
-    float sunDot       = saturate(dot(viewDir, normalize(-lightDir)));
-    float sunPreserve  = saturate(FogParams2.w);
+    float sunCos       = dot(viewDir, normalize(-lightDir));
     float horizon      = 1.0 - saturate(abs(viewDir.y));
     float horizonBoost = horizon * horizon * saturate(FogParams2.z) * 0.30;
 
@@ -375,7 +409,9 @@ float RayMarchFog(float3 cameraPos, float3 viewDir, float rayLength, float3 ligh
         float density = FogDensityAt(samplePos) + volDensity + horizonBoost * 0.02;
 
         float vis = SampleShadowAtPoint(samplePos);
-        float lightAmt = lerp(0.35, 1.0, vis) * (1.0 - sunDot * sunPreserve);
+        // Forward scattering: lit fog brightens toward the sun instead of being suppressed there as
+        // the old (1 - sunDot) term did. Shadowed steps keep the 0.35 ambient floor.
+        float lightAmt = lerp(0.35, FogSunScatter(sunCos), vis);
 
         float3 stepColor = volDensity > 0.0001
             ? lerp(FogColor.rgb, volColor, saturate(volDensity / max(density, 0.0001)))

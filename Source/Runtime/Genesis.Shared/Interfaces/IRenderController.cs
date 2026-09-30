@@ -134,8 +134,17 @@ namespace Genesis.Shared.Interfaces
         TextureHandle LoadTexture(string path);
         TextureHandle LoadTexture(string path, TextureColorSpace colorSpace) => LoadTexture(path);
         TextureHandle CreateTexture(int width, int height, ReadOnlySpan<byte> rgba);
+        /// <summary>Creates a texture for a specific use; lit colour/data textures get mipmaps.</summary>
+        TextureHandle CreateTexture(int width, int height, ReadOnlySpan<byte> rgba, TextureColorSpace colorSpace)
+            => CreateTexture(width, height, rgba);
         void UpdateTexture(TextureHandle handle, int width, int height, ReadOnlySpan<byte> rgba);
         void ReleaseTexture(TextureHandle handle);
+        /// <summary>
+        /// True while <paramref name="handle"/> still names a live texture. Handles are never reused,
+        /// so a cached handle that reports false was released (for example by a preview or a live
+        /// reload) and should be resolved again through <see cref="LoadTexture(string)"/>.
+        /// </summary>
+        bool IsTextureLive(TextureHandle handle) => handle.IsValid;
 
         // ── Render targets ──────────────────────────────────────────────────────
         RenderTargetHandle CreateRenderTarget(int width, int height);
@@ -159,6 +168,23 @@ namespace Genesis.Shared.Interfaces
             float radius,
             float intensity = 1f,
             float falloff = 2f);
+
+        /// <summary>
+        /// Add a dynamic spot light for this frame. Angles are measured from the cone axis in
+        /// degrees: full intensity inside <paramref name="innerAngleDegrees"/>, fading to nothing at
+        /// <paramref name="outerAngleDegrees"/>. Shares the point-light budget, and can win a local
+        /// shadow slot. Renderers without cone support fall back to a point light.
+        /// </summary>
+        void AddSpotLight(
+            Vector3 position,
+            Vector3 direction,
+            Vector3 color,
+            float radius,
+            float intensity = 1f,
+            float innerAngleDegrees = 20f,
+            float outerAngleDegrees = 30f,
+            float falloff = 2f)
+            => AddPointLight(position, color, radius, intensity, falloff);
 
         /// <summary>Remove all point lights added since the last BeginFrame.</summary>
         void ClearPointLights();
@@ -247,6 +273,17 @@ namespace Genesis.Shared.Interfaces
             ShaderPreviewProfile profile,
             string sourcePath = null,
             string projectPath = null);
+
+        /// <summary>Register an authored mesh pass, including its stencil role and skinned vertex entry.</summary>
+        RuntimeShaderHandle RegisterRuntimeMeshPass(string source, Genesis.Shared.Assets.ShaderPassDefinition pass,
+            string sourcePath = null, string projectPath = null)
+        {
+            if (pass.MeshPassMode != Genesis.Shared.Assets.ShaderMeshPassMode.Surface
+                || !string.IsNullOrWhiteSpace(pass.SkinnedVertexEntry))
+                throw new NotSupportedException("This renderer does not support authored stencil mesh passes.");
+            return RegisterRuntimeShaderProgram(source, pass.VertexEntry, pass.Entry,
+                ShaderPreviewProfile.MeshPipeline, sourcePath, projectPath);
+        }
 
         /// <summary>Release a handle returned by <see cref="RegisterRuntimeShader"/>.</summary>
         void ReleaseRuntimeShader(RuntimeShaderHandle handle, ShaderPreviewProfile profile);

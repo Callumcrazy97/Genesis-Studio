@@ -264,7 +264,8 @@ PSOut PS_Water(VSOut IN)
     float alpha = MaterialColor.a * IN.Color.a * lerp(0.18, 1.0, shoreFade);
 
     float fog = 0.0;
-    if (FogParams.x > 0.5)
+    // Post fog (EffectParams.z) fogs the water pixel with the shared model; avoid applying fog twice.
+    if (FogParams.x > 0.5 && EffectParams.z < 0.5)
     {
         float viewDepth = length(IN.WorldPos - cameraPos);
         float expFog = 1.0 - exp(-pow(viewDepth * FogParams.w, 2.0));

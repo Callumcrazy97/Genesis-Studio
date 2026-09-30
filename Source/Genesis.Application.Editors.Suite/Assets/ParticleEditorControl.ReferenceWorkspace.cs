@@ -714,7 +714,9 @@ public sealed partial class ParticleEditorControl
         {
             try
             {
-                _targetModelRenderer ??= new RuntimeModelRenderSystem();
+                _targetModelRenderer ??= new RuntimeModelRenderSystem(
+                    assetFreshnessIntervalMilliseconds: 500,
+                    textureFreshnessIntervalMilliseconds: 1000);
                 _targetModelRenderer.BeginFrame();
                 if (!string.Equals(_framedTargetModel, model, StringComparison.OrdinalIgnoreCase)
                     && _targetModelRenderer.TryGetBounds(ProjectRoot, model, out Vector3 min, out Vector3 max, includePivot: true))

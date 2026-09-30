@@ -167,6 +167,13 @@ namespace Genesis.Runtime.Project
             return File.Exists(path) ? _renderer.LoadTexture(path) : TextureHandle.Invalid;
         }
 
+        /// <summary>Loads a texture for a specific use (lit 3D colour/data textures receive mipmaps).</summary>
+        public TextureHandle LoadTexture(string projectRelativePath, Genesis.Shared.Materials.TextureColorSpace colorSpace)
+        {
+            string path = Genesis.Runtime.Assets.SpriteAssetLoader.ResolveFrameTexturePath(_projectPath, projectRelativePath, 0);
+            return File.Exists(path) ? _renderer.LoadTexture(path, colorSpace) : TextureHandle.Invalid;
+        }
+
         public TextureHandle CreateTexture(int width, int height, ReadOnlySpan<byte> rgba)
             => _renderer?.CreateTexture(width, height, rgba) ?? TextureHandle.Invalid;
 

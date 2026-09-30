@@ -647,6 +647,7 @@ namespace Genesis.Rendering.SilkNet.DX12
             }
 
             _frames.List->IASetPrimitiveTopology(Dx12GpuFormats.ToTopology(_pipeline.Topology));
+            _frames.List->OMSetStencilRef(_pipeline.Depth.StencilReference);
             BindDescriptorTables();
             BindInputAssembler();
             return true;
@@ -1014,6 +1015,7 @@ namespace Genesis.Rendering.SilkNet.DX12
                     };
 
                     ComPtr<ID3D12PipelineState> pso = default;
+                    GpuTelemetry.PipelineCreated();
                     int hr = _runtime.Device.Handle->CreateGraphicsPipelineState(
                         &desc, SilkMarshal.GuidPtrOf<ID3D12PipelineState>(), (void**)pso.GetAddressOf());
 
@@ -1103,7 +1105,19 @@ namespace Genesis.Rendering.SilkNet.DX12
             DepthEnable = state.TestEnabled && hasDepthAttachment,
             DepthWriteMask = state.WriteEnabled ? DepthWriteMask.All : DepthWriteMask.Zero,
             DepthFunc = Dx12GpuFormats.ToComparison(state.Compare),
-            StencilEnable = false,
+            StencilEnable = state.StencilEnabled && hasDepthAttachment,
+            StencilReadMask = state.StencilReadMask,
+            StencilWriteMask = state.StencilWriteMask,
+            FrontFace = BuildStencilFace(state),
+            BackFace = BuildStencilFace(state),
+        };
+
+        private static DepthStencilopDesc BuildStencilFace(in GpuDepthState state) => new()
+        {
+            StencilFunc = Dx12GpuFormats.ToComparison(state.StencilCompare),
+            StencilFailOp = (StencilOp)((int)state.StencilFail + 1),
+            StencilDepthFailOp = (StencilOp)((int)state.StencilDepthFail + 1),
+            StencilPassOp = (StencilOp)((int)state.StencilPass + 1),
         };
 
         private static RasterizerDesc BuildRaster(in GpuRasterState state) => new()

@@ -17,12 +17,23 @@ namespace Genesis.Runtime.ECS.Components
         public int LodPolicy;
         public FaceCullingOverride Culling;
         public FrontFaceWindingOverride WindingOrder;
+        /// <summary>Optional instance-only multipliers keyed by authored material name; never mutates the shared asset.</summary>
+        public System.Collections.Generic.Dictionary<string, System.Numerics.Vector4> MaterialTints;
+        /// <summary>Hidden authored mesh names, for modular clothing and first-person body masks.</summary>
+        public System.Collections.Generic.HashSet<string> HiddenMeshes;
+        /// <summary>Optional scalp/beard style and colour choices from the model's authored hair profile.</summary>
+        public Genesis.Runtime.Modeling.ModelHairAppearance Hair;
     }
 
     /// <summary>Deterministic clip playback state for GPU-skinned .gmodel assets.</summary>
     public struct ModelAnimatorComponent : IComponent
     {
         public Genesis.Runtime.Modeling.AnimationController Controller;
+        // Runtime-only reference refreshed by the animation lifecycle. Socket attachments can
+        // use that same asset instead of deserializing a second copy on their first activation.
+        internal Genesis.Runtime.Modeling.GModelAsset EvaluatedModelAsset;
+        internal string EvaluatedModelReference;
+        internal string EvaluatedModelProject;
         public string ClipName;
         public string PreviousClipName;
         public float ClipFps;

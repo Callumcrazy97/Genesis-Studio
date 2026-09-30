@@ -11,6 +11,7 @@ namespace Genesis.Runtime.Project;
 public sealed class ProjectNumberSave
 {
     private static readonly Dictionary<string, ProjectNumberSave> Stores = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly Dictionary<string, string> Directories = new(StringComparer.OrdinalIgnoreCase);
     private readonly string _path;
     private readonly Dictionary<string, double> _values = new(StringComparer.Ordinal);
     public string LastError { get; private set; } = string.Empty;
@@ -44,6 +45,17 @@ public sealed class ProjectNumberSave
         if (string.IsNullOrWhiteSpace(project)) return null;
         string root = Path.GetFullPath(project);
         if (Stores.TryGetValue(root, out ProjectNumberSave save)) return save;
+        save = new ProjectNumberSave(Path.Combine(GetWritableDirectory(root), "campaign.json"));
+        Stores[root] = save;
+        return save;
+    }
+
+    /// <summary>The same stable project identity used by the existing numeric save format.</summary>
+    public static string GetWritableDirectory(string project)
+    {
+        if (string.IsNullOrWhiteSpace(project)) throw new InvalidOperationException("No active project for relative file paths.");
+        string root = Path.GetFullPath(project);
+        if (Directories.TryGetValue(root, out string existing)) return existing;
         string identity = root;
         try
         {
@@ -58,14 +70,20 @@ public sealed class ProjectNumberSave
         catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is JsonException) { }
         string hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity))).Substring(0, 24);
         string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Genesis", "GameSaves", hash);
-        save = new ProjectNumberSave(Path.Combine(folder, "campaign.json"));
-        Stores[root] = save;
-        return save;
+        Directories[root] = folder;
+        return folder;
     }
     public double Get(string key, double fallback) => key != null && _values.TryGetValue(key, out double result) ? result : fallback;
     public void Set(string key, double value)
     {
-        if (ValidKey(key) && double.IsFinite(value) && (_values.Count < 256 || _values.ContainsKey(key))) _values[key] = value;
+        _ = TrySet(key, value);
+    }
+    public bool TrySet(string key, double value)
+    {
+        if (!ValidKey(key)) { LastError = "Save key must contain 1-96 nonblank characters."; return false; }
+        if (!double.IsFinite(value)) { LastError = "Save value must be a finite number."; return false; }
+        if (_values.Count >= 256 && !_values.ContainsKey(key)) { LastError = "Numeric save contains the maximum 256 keys."; return false; }
+        _values[key] = value; LastError = string.Empty; return true;
     }
     public void Clear() => _values.Clear();
     public bool Flush()

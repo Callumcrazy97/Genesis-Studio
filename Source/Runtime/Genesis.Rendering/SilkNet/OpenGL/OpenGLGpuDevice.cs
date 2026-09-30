@@ -169,10 +169,13 @@ namespace Genesis.Rendering.SilkNet.OpenGL
             public GpuBufferUsage Usage;
             public GpuBindFlags BindFlags;
             public byte[] MapScratch;
+            /// <summary>Bytes handed out by the current TryMapDiscard; Unmap uploads only these.</summary>
+            public int MapBytes;
         }
 
         public GpuBufferHandle CreateBuffer(in GpuBufferDesc desc, ReadOnlySpan<byte> initialData)
         {
+            GpuTelemetry.BufferCreated(initialData.Length);
             uint name = _gl.GenBuffer();
             BufferTargetARB target = TargetFor(desc.BindFlags);
 
@@ -226,6 +229,7 @@ namespace Genesis.Rendering.SilkNet.OpenGL
                 return;
             }
 
+            GpuTelemetry.Upload(data.Length);
             _gl.BindBuffer(buffer.Target, buffer.Name);
             fixed (byte* source = data)
             {
@@ -252,11 +256,13 @@ namespace Genesis.Rendering.SilkNet.OpenGL
             // Staged through managed memory rather than glMapBufferRange. The caller may fill only
             // part of the span and GL would otherwise leave the remainder as whatever the driver
             // last had there, which differs from the discard semantics the other backends provide.
+            // Only the requested range is cleared and later uploaded. Clearing and re-sending the
+            // whole store turned every instance-buffer map (32768 x 96 B) into a 3 MB copy, several
+            // times per frame, regardless of how many instances were actually written.
             buffer.MapScratch ??= new byte[buffer.SizeBytes];
-            Array.Clear(buffer.MapScratch);
-            span = buffer.MapScratch;
-            if (byteCount > 0 && byteCount < span.Length)
-                span = span.Slice(0, byteCount);
+            buffer.MapBytes = byteCount > 0 ? Math.Min(byteCount, buffer.SizeBytes) : buffer.SizeBytes;
+            span = buffer.MapScratch.AsSpan(0, buffer.MapBytes);
+            span.Clear();
             return true;
         }
 
@@ -267,14 +273,17 @@ namespace Genesis.Rendering.SilkNet.OpenGL
                 return;
             }
 
+            int bytes = buffer.MapBytes > 0 ? buffer.MapBytes : buffer.SizeBytes;
+            GpuTelemetry.Upload(bytes);
             _gl.BindBuffer(buffer.Target, buffer.Name);
             fixed (byte* source = buffer.MapScratch)
             {
                 // Orphan first: respecifying the store lets the driver hand back fresh memory rather
                 // than stalling until the previous contents are no longer in flight.
                 _gl.BufferData(buffer.Target, (nuint)buffer.SizeBytes, null, BufferUsageARB.DynamicDraw);
-                _gl.BufferSubData(buffer.Target, 0, (nuint)buffer.SizeBytes, source);
+                _gl.BufferSubData(buffer.Target, 0, (nuint)bytes, source);
             }
+            buffer.MapBytes = 0;
         }
 
         public void ReleaseBuffer(GpuBufferHandle handle)
@@ -314,6 +323,7 @@ namespace Genesis.Rendering.SilkNet.OpenGL
 
         public GpuTextureHandle CreateTexture(in GpuTextureDesc desc, ReadOnlySpan<byte> initialData)
         {
+            GpuTelemetry.TextureCreated(initialData.Length);
             uint name = _gl.GenTexture();
             _gl.BindTexture(TextureTarget.Texture2D, name);
 
@@ -404,6 +414,7 @@ namespace Genesis.Rendering.SilkNet.OpenGL
                 return;
             }
 
+            GpuTelemetry.Upload(data.Length);
             _gl.BindTexture(TextureTarget.Texture2D, texture.Name);
             _gl.PixelStore(PixelStoreParameter.UnpackAlignment, 1);
 
@@ -488,6 +499,7 @@ namespace Genesis.Rendering.SilkNet.OpenGL
 
         public GpuRenderTargetHandle CreateRenderTarget(in GpuRenderTargetDesc desc)
         {
+            GpuTelemetry.RenderTargetCreated();
             uint framebuffer = _gl.GenFramebuffer();
             _gl.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffer);
 
@@ -637,6 +649,10 @@ namespace Genesis.Rendering.SilkNet.OpenGL
                 _gl.DepthMask(true);
                 float depthValue = desc.DepthAction.ClearR;
                 _gl.ClearBuffer(GLEnum.Depth, 0, &depthValue);
+                // Clearing a non-stencil framebuffer's stencil plane is a no-op in OpenGL.
+                _gl.StencilMask(255);
+                int stencilValue = 0;
+                _gl.ClearBuffer(GLEnum.Stencil, 0, &stencilValue);
             }
         }
 
@@ -977,7 +993,21 @@ namespace Genesis.Rendering.SilkNet.OpenGL
 
             _gl.DepthMask(_depth.WriteEnabled);
             _gl.DepthFunc(OpenGLGpuFormats.ToCompare(_depth.Compare));
+            if (_depth.StencilEnabled) _gl.Enable(EnableCap.StencilTest);
+            else _gl.Disable(EnableCap.StencilTest);
+            _gl.StencilMask(_depth.StencilWriteMask);
+            _gl.StencilFunc((GLEnum)OpenGLGpuFormats.ToCompare(_depth.StencilCompare),
+                _depth.StencilReference, _depth.StencilReadMask);
+            _gl.StencilOp(StencilOperation(_depth.StencilFail),
+                StencilOperation(_depth.StencilDepthFail), StencilOperation(_depth.StencilPass));
         }
+
+        private static GLEnum StencilOperation(GpuStencilOperation operation) => operation switch
+        {
+            GpuStencilOperation.Zero => GLEnum.Zero,
+            GpuStencilOperation.Replace => GLEnum.Replace,
+            _ => GLEnum.Keep,
+        };
 
         private void ApplyRaster()
         {

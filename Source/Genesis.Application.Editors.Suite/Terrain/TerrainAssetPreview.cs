@@ -25,7 +25,9 @@ public sealed class TerrainAssetPreview : UserControl
     }
     private readonly string _project;
     private readonly Func<TerrainEntityDocument>? _getDocument;
-    private readonly RuntimeModelRenderSystem _models = new();
+    private readonly RuntimeModelRenderSystem _models = new(
+        assetFreshnessIntervalMilliseconds: 500,
+        textureFreshnessIntervalMilliseconds: 1000);
     private readonly RuntimeModelAssetRegistry _assets = new();
     private readonly DrawList _draws = new();
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 33 };

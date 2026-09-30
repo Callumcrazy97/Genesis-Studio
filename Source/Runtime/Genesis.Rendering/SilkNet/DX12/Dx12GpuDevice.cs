@@ -313,6 +313,7 @@ namespace Genesis.Rendering.SilkNet.DX12
 
         public GpuBufferHandle CreateBuffer(in GpuBufferDesc desc, ReadOnlySpan<byte> initialData)
         {
+            GpuTelemetry.BufferCreated(initialData.Length);
             ThrowIfDisposed();
             int size = Math.Max(1, desc.SizeBytes);
             bool dynamic = desc.Usage == GpuBufferUsage.Dynamic;
@@ -354,6 +355,7 @@ namespace Genesis.Rendering.SilkNet.DX12
         public void UpdateBuffer(GpuBufferHandle handle, ReadOnlySpan<byte> data, int byteOffset = 0)
         {
             BufferResource buffer = Require(_buffers, handle.Id, nameof(handle));
+            GpuTelemetry.Upload(data.Length);
             if (buffer.Usage == GpuBufferUsage.Dynamic)
             {
                 WriteDynamic(buffer, data);
@@ -367,6 +369,7 @@ namespace Genesis.Rendering.SilkNet.DX12
         {
             BufferResource buffer = Require(_buffers, handle.Id, nameof(handle));
             ReadOnlySpan<byte> bytes = new(Unsafe.AsPointer(ref Unsafe.AsRef(in data)), sizeof(T));
+            GpuTelemetry.Upload(bytes.Length);
             WriteDynamic(buffer, bytes);
         }
 
@@ -399,6 +402,7 @@ namespace Genesis.Rendering.SilkNet.DX12
             span = new Span<byte>(pointer, viewSize);
             if (byteCount > 0 && byteCount < span.Length)
                 span = span.Slice(0, byteCount);
+            GpuTelemetry.Upload(viewSize);
             return true;
         }
 
@@ -427,6 +431,7 @@ namespace Genesis.Rendering.SilkNet.DX12
 
         public GpuTextureHandle CreateTexture(in GpuTextureDesc desc, ReadOnlySpan<byte> initialData)
         {
+            GpuTelemetry.TextureCreated(initialData.Length);
             ThrowIfDisposed();
             bool depth = Dx12GpuFormats.IsDepth(desc.Format);
             bool sampleable = (desc.BindFlags & GpuBindFlags.ShaderResource) != 0;
@@ -518,6 +523,7 @@ namespace Genesis.Rendering.SilkNet.DX12
             ReadOnlySpan<byte> data, int arraySlice = 0)
         {
             TextureResource texture = Require(_textures, handle.Id, nameof(handle));
+            GpuTelemetry.Upload(data.Length);
             UploadTexture(texture, x, y, width, height, data, arraySlice);
         }
 
@@ -597,6 +603,7 @@ namespace Genesis.Rendering.SilkNet.DX12
 
         public GpuRenderTargetHandle CreateRenderTarget(in GpuRenderTargetDesc desc)
         {
+            GpuTelemetry.RenderTargetCreated();
             ThrowIfDisposed();
             int colorCount = desc.ColorFormats?.Length ?? 0;
             var target = new RenderTargetResource
@@ -793,7 +800,9 @@ namespace Genesis.Rendering.SilkNet.DX12
             if (desc.HasDepth && hasDsv && desc.DepthAction.Load == GpuLoadAction.Clear)
             {
                 _frames.List->ClearDepthStencilView(
-                    dsv, ClearFlags.Depth, desc.DepthAction.ClearR, 0, 0u,
+                    dsv, ClearFlags.Depth | (desc.Target.IsValid
+                        && _renderTargets[desc.Target.Id].DepthFormat == GpuFormat.D24UNormS8UInt
+                        ? ClearFlags.Stencil : 0), desc.DepthAction.ClearR, 0, 0u,
                     (Silk.NET.Maths.Box2D<int>*)null);
             }
         }

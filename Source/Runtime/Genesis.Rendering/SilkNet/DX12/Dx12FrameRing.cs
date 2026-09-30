@@ -156,17 +156,33 @@ namespace Genesis.Rendering.SilkNet.DX12
 
         /// <summary>Submits what has been recorded so far and immediately reopens the list.</summary>
         /// <remarks>
-        /// The abstraction lets a caller read a texture back mid-frame, which needs the copy to have
-        /// actually executed. Flushing keeps that legal without making every frame synchronous.
+        /// <para>The abstraction lets a caller read a texture back mid-frame, which needs the copy to
+        /// have actually executed. Flushing keeps that legal without making every frame synchronous.</para>
+        ///
+        /// <para>The list reopens in the <b>same</b> ring slot. Ending the frame here used to advance
+        /// the ring, but the device's descriptor ring and upload pages stay on the slot the frame
+        /// began in; the rest of the frame then wrote that slot's descriptors while being fenced as
+        /// the next slot, so the slot could be recycled while the GPU still read them — a
+        /// timing-dependent corruption of whatever the frame drew after a readback.</para>
         /// </remarks>
         public void FlushAndReopen()
         {
-            bool wasRecording = _recording;
-            WaitIdle();
-            if (wasRecording)
+            if (!_recording)
             {
-                BeginFrame();
+                WaitIdle();
+                return;
             }
+
+            SilkMarshal.ThrowHResult(_list.Handle->Close());
+            ID3D12CommandList* raw = (ID3D12CommandList*)_list.Handle;
+            _runtime.Queue.Handle->ExecuteCommandLists(1u, &raw);
+            ulong signalled = _nextFenceValue++;
+            SilkMarshal.ThrowHResult(_runtime.Queue.Handle->Signal(_fence, signalled));
+            WaitForFenceValue(signalled);
+
+            // Every submission has now completed, so this slot's allocator can be reset in place.
+            SilkMarshal.ThrowHResult(_allocators[_frameIndex].Handle->Reset());
+            SilkMarshal.ThrowHResult(_list.Handle->Reset(_allocators[_frameIndex], (ID3D12PipelineState*)null));
         }
 
         private void WaitForFenceValue(ulong value)

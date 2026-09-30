@@ -5,7 +5,6 @@ using System.Linq;
 using System.Numerics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Genesis.Streaming;
 using Genesis.World.Terrain;
 
 namespace Genesis.World.Navigation;
@@ -158,66 +157,18 @@ public static class WorldManifestSerializer
         ArgumentNullException.ThrowIfNull(manifest);
         if (manifest.Schema != WorldManifest.SchemaName || manifest.Version != WorldManifest.CurrentVersion)
             throw new InvalidDataException("Unsupported world manifest schema.");
-        if (manifest.ChunkSize <= 0f || manifest.Bounds.Size.X <= 0f || manifest.Bounds.Size.Y <= 0f)
+        if (!float.IsFinite(manifest.ChunkSize) || manifest.ChunkSize <= 0f
+            || !Finite(manifest.Bounds.Minimum) || !Finite(manifest.Bounds.Maximum)
+            || manifest.Bounds.Size.X <= 0f || manifest.Bounds.Size.Y <= 0f)
             throw new InvalidDataException("World manifest bounds or chunk size are invalid.");
+        if (manifest.Chunks == null || manifest.Chunks.Any(chunk => chunk == null
+            || !Finite(chunk.Bounds.Minimum) || !Finite(chunk.Bounds.Maximum)
+            || chunk.Bounds.Size.X <= 0 || chunk.Bounds.Size.Y <= 0
+            || chunk.Bounds.Minimum.X < manifest.Bounds.Minimum.X || chunk.Bounds.Minimum.Y < manifest.Bounds.Minimum.Y
+            || chunk.Bounds.Maximum.X > manifest.Bounds.Maximum.X || chunk.Bounds.Maximum.Y > manifest.Bounds.Maximum.Y))
+            throw new InvalidDataException("World manifest chunk bounds are invalid.");
         if (manifest.Chunks.Select(c => c.Coordinate).Distinct().Count() != manifest.Chunks.Count)
             throw new InvalidDataException("World manifest contains duplicate chunks.");
     }
-}
-
-/// <summary>Manifest-backed provider using Genesis.Streaming's existing budgets and residency loop.</summary>
-public sealed class WorldManifestStreamingProvider : IStreamingProvider
-{
-    private readonly WorldManifest _manifest;
-    private readonly Dictionary<WorldChunkCoordinate, WorldChunkRecord> _chunks;
-    private readonly HashSet<WorldChunkCoordinate> _resident = new();
-
-    public WorldManifestStreamingProvider(WorldManifest manifest)
-    {
-        _manifest = manifest ?? throw new ArgumentNullException(nameof(manifest));
-        _chunks = manifest.Chunks.ToDictionary(chunk => chunk.Coordinate);
-    }
-    public string Name => "World manifest";
-    public StreamingStats Stats { get; } = new();
-    public IReadOnlyCollection<WorldChunkCoordinate> Resident => _resident;
-    public event Action<WorldChunkRecord> ChunkEntered;
-    public event Action<WorldChunkRecord> ChunkRetired;
-    public void RequestStreamingRefresh() { }
-
-    public void Tick(in StreamingContext context)
-    {
-        float loadDistance = MathF.Max(_manifest.ChunkSize, context.Settings.LoadDistance(context.CameraFarPlane));
-        float unloadDistance = MathF.Max(loadDistance + _manifest.ChunkSize, context.Settings.UnloadDistance(context.CameraFarPlane));
-        Vector2 focus = new(context.FocusPosition.X, context.FocusPosition.Z);
-        var wanted = _chunks.Values
-            .Where(chunk => DistanceToBounds(focus, chunk.Bounds) <= loadDistance)
-            .OrderBy(chunk => DistanceToBounds(focus, chunk.Bounds))
-            .Select(chunk => chunk.Coordinate)
-            .ToHashSet();
-        int loads = 0;
-        foreach (WorldChunkCoordinate coordinate in wanted)
-        {
-            if (_resident.Contains(coordinate) || loads >= context.Settings.MaxGenerationStartsPerFrame) continue;
-            _resident.Add(coordinate); loads++; ChunkEntered?.Invoke(_chunks[coordinate]);
-        }
-        int unloads = 0;
-        foreach (WorldChunkCoordinate coordinate in _resident.ToArray())
-        {
-            if (wanted.Contains(coordinate) || unloads >= context.Settings.MaxUnloadsPerFrame) continue;
-            if (DistanceToBounds(focus, _chunks[coordinate].Bounds) <= unloadDistance) continue;
-            _resident.Remove(coordinate); unloads++; ChunkRetired?.Invoke(_chunks[coordinate]);
-        }
-        Stats.CellsLoaded = _resident.Count;
-        Stats.CellsVisible = wanted.Count;
-        Stats.CellsPending = Math.Max(0, wanted.Count - _resident.Count);
-        Stats.LoadsStartedLastFrame = loads;
-        Stats.UnloadsLastFrame = unloads;
-    }
-
-    private static float DistanceToBounds(Vector2 point, WorldBounds bounds)
-    {
-        float x = MathF.Max(bounds.Minimum.X - point.X, MathF.Max(0f, point.X - bounds.Maximum.X));
-        float z = MathF.Max(bounds.Minimum.Y - point.Y, MathF.Max(0f, point.Y - bounds.Maximum.Y));
-        return MathF.Sqrt(x * x + z * z);
-    }
+    private static bool Finite(Vector2 value) => float.IsFinite(value.X) && float.IsFinite(value.Y);
 }

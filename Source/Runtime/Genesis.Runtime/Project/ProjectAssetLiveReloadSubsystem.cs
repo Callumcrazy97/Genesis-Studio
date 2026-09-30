@@ -76,7 +76,19 @@ namespace Genesis.Runtime.Project
 
         private void OnChanged(object sender, ProjectAssetChangeSet changes)
         {
-            lock (_gate) _pending = changes;
+            // Merge rather than replace: two saves landing before the game thread applies the first
+            // (or while play is paused) used to drop the earlier change set entirely.
+            lock (_gate)
+            {
+                _pending = _pending == null
+                    ? changes
+                    : new ProjectAssetChangeSet(
+                        changes.ProjectRoot,
+                        System.Linq.Enumerable.Concat(_pending.ChangedPaths, changes.ChangedPaths),
+                        System.Linq.Enumerable.Concat(_pending.AffectedPaths, changes.AffectedPaths),
+                        Math.Max(_pending.Generation, changes.Generation),
+                        System.Linq.Enumerable.Concat(_pending.LocallyWrittenPaths, changes.LocallyWrittenPaths));
+            }
         }
 
         private static bool ChangedJsonIsStable(

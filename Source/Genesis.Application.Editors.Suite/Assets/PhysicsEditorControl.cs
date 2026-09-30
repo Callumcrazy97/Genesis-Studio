@@ -265,6 +265,8 @@ public sealed partial class PhysicsEditorControl : EditorSurfaceControl, IResour
         _timer = new System.Windows.Forms.Timer { Interval = 16 };
         _timer.Tick += (_, _) =>
         {
+            // A covered document tab keeps its timer; do not simulate or repaint a hidden sandbox.
+            if (!Visible) return;
             if (!_paused)
                 StepSandbox(0.016f * _simulationSpeed);
             else

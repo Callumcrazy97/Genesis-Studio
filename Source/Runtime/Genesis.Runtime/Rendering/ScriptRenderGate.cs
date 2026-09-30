@@ -108,10 +108,15 @@ namespace Genesis.Runtime.Rendering
         public void SetCamera3D(Matrix4x4 view, Matrix4x4 projection) => _inner.SetCamera3D(view, projection);
 
         public TextureHandle LoadTexture(string path) => _inner.LoadTexture(path);
+        // Forward the colour space: the interface default would otherwise drop it and load every
+        // scripted material map (including normal/ORM data) as a display texture.
+        public TextureHandle LoadTexture(string path, Genesis.Shared.Materials.TextureColorSpace colorSpace) => _inner.LoadTexture(path, colorSpace);
         public TextureHandle CreateTexture(int width, int height, ReadOnlySpan<byte> rgba) => _inner.CreateTexture(width, height, rgba);
+        public TextureHandle CreateTexture(int width, int height, ReadOnlySpan<byte> rgba, Genesis.Shared.Materials.TextureColorSpace colorSpace) => _inner.CreateTexture(width, height, rgba, colorSpace);
         public void UpdateTexture(TextureHandle handle, int width, int height, ReadOnlySpan<byte> rgba)
             => _inner.UpdateTexture(handle, width, height, rgba);
         public void ReleaseTexture(TextureHandle handle) => _inner.ReleaseTexture(handle);
+        public bool IsTextureLive(TextureHandle handle) => _inner.IsTextureLive(handle);
 
         public RenderTargetHandle CreateRenderTarget(int width, int height) => _inner.CreateRenderTarget(width, height);
         public TextureHandle GetRenderTargetTexture(RenderTargetHandle handle) => _inner.GetRenderTargetTexture(handle);
@@ -121,6 +126,9 @@ namespace Genesis.Runtime.Rendering
 
         public void AddPointLight(Vector3 position, Vector3 color, float radius, float intensity = 1f, float falloff = 2f)
             => _inner.AddPointLight(position, color, radius, intensity, falloff);
+        public void AddSpotLight(Vector3 position, Vector3 direction, Vector3 color, float radius,
+            float intensity = 1f, float innerAngleDegrees = 20f, float outerAngleDegrees = 30f, float falloff = 2f)
+            => _inner.AddSpotLight(position, direction, color, radius, intensity, innerAngleDegrees, outerAngleDegrees, falloff);
         public void ClearPointLights() => _inner.ClearPointLights();
         public void AddFogVolume(FogVolume volume) => _inner.AddFogVolume(volume);
         public void ClearFogVolumes() => _inner.ClearFogVolumes();
@@ -167,6 +175,10 @@ namespace Genesis.Runtime.Rendering
         public void ClearPreviewShaderOverride() => _inner.ClearPreviewShaderOverride();
         public RuntimeShaderHandle RegisterRuntimeShader(string hlslSourceCode, string entryPoint, ShaderPreviewProfile profile, string sourcePath = null, string projectPath = null)
             => _inner.RegisterRuntimeShader(hlslSourceCode, entryPoint, profile, sourcePath, projectPath);
+        public RuntimeShaderHandle RegisterRuntimeMeshPass(string source, Genesis.Shared.Assets.ShaderPassDefinition pass,
+            string sourcePath = null, string projectPath = null)
+            => _inner.RegisterRuntimeMeshPass(source, pass, sourcePath, projectPath);
+
         public RuntimeShaderHandle RegisterRuntimeShaderProgram(
             string hlslSourceCode,
             string vertexEntryPoint,

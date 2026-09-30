@@ -41,7 +41,9 @@ namespace Genesis.Rendering.Core
         // ── Texture registry ─────────────────────────────────────────────────────
 
         private readonly System.Collections.Generic.List<GpuTextureHandle> _texGpu = new();
-        private readonly TextureAssetCache _textureCache = new();
+        // File watchers invalidate changed editor assets. Between notifications, avoid statting the
+        // source, cook manifest, and DDS for every material texture on every submitted frame.
+        private readonly TextureAssetCache _textureCache = new(freshnessIntervalMilliseconds: 500);
         private GpuTextureHandle _whiteTexture;
 
         // ── Overlay ──────────────────────────────────────────────────────────────
@@ -57,6 +59,11 @@ namespace Genesis.Rendering.Core
         private GlyphAtlas _glyphAtlas;
         private GpuTextureHandle _glyphAtlasGpuTexture = GpuTextureHandle.Invalid;
         private TextureHandle _glyphAtlasTexture = TextureHandle.Invalid;
+        private static readonly Vector4 OverlaySolidUv = new(
+            0.5f / GlyphAtlas.AtlasSize,
+            0.5f / GlyphAtlas.AtlasSize,
+            (GlyphAtlas.SolidCellSize - 0.5f) / GlyphAtlas.AtlasSize,
+            (GlyphAtlas.SolidCellSize - 0.5f) / GlyphAtlas.AtlasSize);
 
         // ── Public props ─────────────────────────────────────────────────────────
 
@@ -210,6 +217,7 @@ namespace Genesis.Rendering.Core
             _renderTargets.Clear();
             _activeRenderTarget = 0;
 
+            DrainDeferredTextureReleases();
             for (int i = 0; i < _texGpu.Count; i++)
             {
                 if (_texGpu[i].IsValid) _gpu.ReleaseTexture(_texGpu[i]);
@@ -227,10 +235,26 @@ namespace Genesis.Rendering.Core
 
         // ── Frame ────────────────────────────────────────────────────────────────
 
+        private GpuTelemetrySnapshot _frameGpuTelemetry = GpuTelemetry.Capture();
+        private Genesis.Shared.Assets.AssetIoSnapshot _frameAssetIo = Genesis.Shared.Assets.AssetIoCounters.Capture();
+        private GpuTelemetrySnapshot _lastFrameGpuTelemetry;
+        private Genesis.Shared.Assets.AssetIoSnapshot _lastFrameAssetIo;
+
         public void BeginFrame()
         {
             if (!_initialized) return;
 
+            // Close the previous frame's transfer/churn window. Measured between BeginFrame calls so
+            // offscreen/headless frames that never Present are still accounted.
+            GpuTelemetrySnapshot gpuNow = GpuTelemetry.Capture();
+            Genesis.Shared.Assets.AssetIoSnapshot ioNow = Genesis.Shared.Assets.AssetIoCounters.Capture();
+            _lastFrameGpuTelemetry = gpuNow.Since(_frameGpuTelemetry);
+            _lastFrameAssetIo = ioNow.Since(_frameAssetIo);
+            _frameGpuTelemetry = gpuNow;
+            _frameAssetIo = ioNow;
+
+            // The previous frame has been flushed: textures released during it can now go.
+            DrainDeferredTextureReleases();
             _gpu.BeginFrame();
 
             _cameraPostProcessing = false;
@@ -427,8 +451,8 @@ namespace Genesis.Rendering.Core
                         break;
 
                     case OverlayCommandKind.Line:
-                        _spr?.SubmitLine(command.A, command.B, command.C, command.D,
-                            ToRenderColor(command.Color), command.Stroke, OverlayDepth);
+                        SubmitOverlayLine(command.A, command.B, command.C, command.D,
+                            ToRenderColor(command.Color), command.Stroke);
                         submitted = true;
                         break;
 
@@ -471,18 +495,69 @@ namespace Genesis.Rendering.Core
             RenderColor color = ToRenderColor(command.Color);
             if (command.Filled)
             {
-                _spr?.SubmitRect(command.A, command.B, command.C, command.D, color,
-                    filled: true, depth: OverlayDepth);
+                SubmitOverlaySolid(command.A, command.B, command.C, command.D, color);
                 return;
             }
 
             // Four explicit lines rather than SubmitRect's outline, which hard-codes 1px and would
             // silently ignore the stroke width the canvas contract accepts.
             float x = command.A, y = command.B, w = command.C, h = command.D, s = command.Stroke;
-            _spr?.SubmitLine(x, y, x + w, y, color, s, OverlayDepth);
-            _spr?.SubmitLine(x + w, y, x + w, y + h, color, s, OverlayDepth);
-            _spr?.SubmitLine(x + w, y + h, x, y + h, color, s, OverlayDepth);
-            _spr?.SubmitLine(x, y + h, x, y, color, s, OverlayDepth);
+            SubmitOverlayLine(x, y, x + w, y, color, s);
+            SubmitOverlayLine(x + w, y, x + w, y + h, color, s);
+            SubmitOverlayLine(x + w, y + h, x, y + h, color, s);
+            SubmitOverlayLine(x, y + h, x, y, color, s);
+        }
+
+        private void SubmitOverlaySolid(float x, float y, float width, float height, RenderColor color)
+        {
+            EnsureGlyphAtlasTexture();
+            _spr?.Submit(new SpriteDrawCall
+            {
+                Texture = _glyphAtlasTexture,
+                X = x,
+                Y = y,
+                Width = width,
+                Height = height,
+                ScaleX = 1f,
+                ScaleY = 1f,
+                Alpha = 1f,
+                Tint = color,
+                Depth = OverlayDepth,
+                UvRect = OverlaySolidUv,
+            });
+        }
+
+        private void SubmitOverlayLine(
+            float x1,
+            float y1,
+            float x2,
+            float y2,
+            RenderColor color,
+            float thickness)
+        {
+            float dx = x2 - x1;
+            float dy = y2 - y1;
+            float length = MathF.Sqrt((dx * dx) + (dy * dy));
+            if (length < 0.001f) return;
+
+            EnsureGlyphAtlasTexture();
+            _spr?.Submit(new SpriteDrawCall
+            {
+                Texture = _glyphAtlasTexture,
+                X = x1,
+                Y = y1,
+                Width = length,
+                Height = thickness,
+                OriginX = 0f,
+                OriginY = thickness * 0.5f,
+                Rotation = MathF.Atan2(dy, dx) * (180f / MathF.PI),
+                ScaleX = 1f,
+                ScaleY = 1f,
+                Alpha = 1f,
+                Tint = color,
+                Depth = OverlayDepth,
+                UvRect = OverlaySolidUv,
+            });
         }
 
         private bool SubmitOverlayText(in OverlayCommand command, float x, float topY, Vector4 color)
@@ -535,6 +610,19 @@ namespace Genesis.Rendering.Core
             }, ReadOnlySpan<byte>.Empty);
             _texGpu.Add(_glyphAtlasGpuTexture);
             _glyphAtlasTexture = new TextureHandle(_texGpu.Count);
+
+            // Shapes and glyphs share this texture so their authored paint order can still be
+            // represented by one instanced draw. The half-texel inset in OverlaySolidUv keeps
+            // linear sampling inside this opaque cell.
+            byte[] solidPixels = new byte[GlyphAtlas.SolidCellSize * GlyphAtlas.SolidCellSize * 4];
+            Array.Fill(solidPixels, (byte)255);
+            _gpu.UpdateTexture(
+                _glyphAtlasGpuTexture,
+                0,
+                0,
+                GlyphAtlas.SolidCellSize,
+                GlyphAtlas.SolidCellSize,
+                solidPixels);
         }
 
         private void UploadNewGlyphs()
@@ -882,6 +970,10 @@ namespace Genesis.Rendering.Core
         public void AddPointLight(Vector3 position, Vector3 color, float radius, float intensity = 1f, float falloff = 2f)
             => _fwd?.AddPointLight(position, color, radius, intensity, falloff);
 
+        public void AddSpotLight(Vector3 position, Vector3 direction, Vector3 color, float radius,
+            float intensity = 1f, float innerAngleDegrees = 20f, float outerAngleDegrees = 30f, float falloff = 2f)
+            => _fwd?.AddSpotLight(position, direction, color, radius, intensity, innerAngleDegrees, outerAngleDegrees, falloff);
+
         public void ClearPointLights()
             => _fwd?.ClearPointLights();
 
@@ -910,8 +1002,14 @@ namespace Genesis.Rendering.Core
 
         // ── Texture management ────────────────────────────────────────────────────
 
+        /// <summary>
+        /// Loads a texture shown as-is (2D sprites, UI, previews): no sRGB decode and no mipmaps, so
+        /// display-referred output is identical whether or not the image has been cooked. Lit 3D
+        /// surfaces request <see cref="Genesis.Shared.Materials.TextureColorSpace.Srgb"/> or
+        /// <see cref="Genesis.Shared.Materials.TextureColorSpace.Linear"/> explicitly.
+        /// </summary>
         public TextureHandle LoadTexture(string path)
-            => LoadTexture(path, Genesis.Shared.Materials.TextureColorSpace.Srgb);
+            => LoadTexture(path, Genesis.Shared.Materials.TextureColorSpace.Display);
 
         public TextureHandle LoadTexture(string path, Genesis.Shared.Materials.TextureColorSpace colorSpace)
         {
@@ -937,26 +1035,35 @@ namespace Genesis.Rendering.Core
                         fullPath, out string cookedPath, out Genesis.Shared.Assets.CookedTextureManifest _) &&
                     DdsTextureData.TryLoad(cookedPath, colorSpace, out DdsTextureData cooked))
                 {
-                    GpuTextureHandle gpuTexture = _gpu.CreateTexture(new GpuTextureDesc
+                    try
                     {
-                        Width = cooked.Width,
-                        Height = cooked.Height,
-                        MipLevels = cooked.MipLevels,
-                        ArrayLayers = 1,
-                        Format = cooked.Format,
-                        Usage = GpuBufferUsage.Immutable,
-                        BindFlags = GpuBindFlags.ShaderResource,
-                        DebugName = "Renderer.CookedTexture",
-                    }, cooked.Payload);
-                    _texGpu.Add(gpuTexture);
-                    return new TextureHandle(_texGpu.Count);
+                        GpuTextureHandle gpuTexture = _gpu.CreateTexture(new GpuTextureDesc
+                        {
+                            Width = cooked.Width,
+                            Height = cooked.Height,
+                            MipLevels = cooked.MipLevels,
+                            ArrayLayers = 1,
+                            Format = cooked.Format,
+                            Usage = GpuBufferUsage.Immutable,
+                            BindFlags = GpuBindFlags.ShaderResource,
+                            DebugName = "Renderer.CookedTexture",
+                        }, cooked.Payload);
+                        _texGpu.Add(gpuTexture);
+                        return new TextureHandle(_texGpu.Count);
+                    }
+                    catch (Exception ex)
+                    {
+                        // An older or unsupported cook must never make an otherwise valid
+                        // editable image unavailable to the project.
+                        Debug.WriteLine($"[Renderer] Cooked texture rejected, using source: {cookedPath} — {ex.Message}");
+                    }
                 }
 
                 using var stream = File.OpenRead(fullPath);
                 ImageResult image = ImageResult.FromStream(stream, ColorComponents.RedGreenBlueAlpha);
                 if (image == null || image.Width <= 0 || image.Height <= 0)
                     return TextureHandle.Invalid;
-                return CreateTexture(image.Width, image.Height, image.Data);
+                return CreateTexture(image.Width, image.Height, image.Data, colorSpace);
             }
             catch (Exception ex)
             {
@@ -982,6 +1089,44 @@ namespace Genesis.Rendering.Core
                 maxDim >>= 1;
             }
             return levels;
+        }
+
+        /// <summary>
+        /// Creates a texture for the given use. Display keeps the historical single-level RGBA8 upload.
+        /// Lit colour (sRGB) and data (linear) textures get a full mip chain in the same RGBA8 storage.
+        /// </summary>
+        public TextureHandle CreateTexture(int w, int h, ReadOnlySpan<byte> rgba,
+            Genesis.Shared.Materials.TextureColorSpace colorSpace)
+        {
+            if (colorSpace == Genesis.Shared.Materials.TextureColorSpace.Display)
+                return CreateTexture(w, h, rgba);
+            if (!_initialized || w <= 0 || h <= 0 || rgba.Length < checked(w * h * 4))
+                return TextureHandle.Invalid;
+            // Storage stays UNorm (the engine shaders decode albedo under the linear pipeline); sRGB
+            // colour only changes how mip levels are averaged, so minified colour keeps its brightness.
+            bool srgb = colorSpace == Genesis.Shared.Materials.TextureColorSpace.Srgb;
+            try
+            {
+                byte[] chain = TextureMipBuilder.BuildChain(rgba, w, h, srgb, out int mipLevels);
+                GpuTextureHandle texture = _gpu.CreateTexture(new GpuTextureDesc
+                {
+                    Width = w,
+                    Height = h,
+                    MipLevels = mipLevels,
+                    ArrayLayers = 1,
+                    Format = GpuFormat.R8G8B8A8UNorm,
+                    Usage = GpuBufferUsage.Immutable,
+                    BindFlags = GpuBindFlags.ShaderResource,
+                    DebugName = srgb ? "Renderer.ColorTextureMips" : "Renderer.DataTextureMips",
+                }, chain);
+                _texGpu.Add(texture);
+                return new TextureHandle(_texGpu.Count);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Renderer] CreateTexture({colorSpace}) failed: {ex.Message}");
+                return TextureHandle.Invalid;
+            }
         }
 
         public TextureHandle CreateTexture(int w, int h, ReadOnlySpan<byte> rgba)
@@ -1025,6 +1170,12 @@ namespace Genesis.Rendering.Core
             InvalidateTextureRegistry(handle, releaseGpu: true);
         }
 
+        public bool IsTextureLive(TextureHandle handle)
+        {
+            int idx = handle.Id - 1;
+            return idx >= 0 && idx < _texGpu.Count && _texGpu[idx].IsValid;
+        }
+
         private void InvalidateTextureRegistry(TextureHandle handle, bool releaseGpu)
         {
             _textureCache.Remove(handle);
@@ -1038,8 +1189,22 @@ namespace Genesis.Rendering.Core
         {
             int idx = handle.Id - 1;
             if (idx < 0 || idx >= _texGpu.Count) return;
-            if (releaseGpu && _texGpu[idx].IsValid) _gpu.ReleaseTexture(_texGpu[idx]);
+            // The public handle dies now (IsTextureLive reports false immediately), but the device
+            // texture is retired at the next BeginFrame. Batches already submitted this frame hold
+            // the device handle, and a live-reload or preview release mid-frame used to make DX11
+            // throw, DX12 draw black and Vulkan draw white for the rest of the frame.
+            if (releaseGpu && _texGpu[idx].IsValid) _deferredTextureReleases.Add(_texGpu[idx]);
             _texGpu[idx] = GpuTextureHandle.Invalid;
+        }
+
+        private readonly List<GpuTextureHandle> _deferredTextureReleases = new();
+
+        private void DrainDeferredTextureReleases()
+        {
+            if (_deferredTextureReleases.Count == 0) return;
+            foreach (GpuTextureHandle texture in _deferredTextureReleases)
+                if (texture.IsValid) _gpu.ReleaseTexture(texture);
+            _deferredTextureReleases.Clear();
         }
 
         // ── Render targets ────────────────────────────────────────────────────────
@@ -1208,6 +1373,17 @@ namespace Genesis.Rendering.Core
                 AtmosphereLutMs    = _fwd?.LastAtmosphereLutMs ?? 0.0,
                 RaymarchedCloudsMs = _fwd?.LastRaymarchedCloudsMs ?? 0.0,
                 CelestialExtrasMs  = _fwd?.LastCelestialExtrasMs ?? 0.0,
+                UploadBytes          = _lastFrameGpuTelemetry.UploadBytes,
+                BuffersCreated       = (int)_lastFrameGpuTelemetry.BuffersCreated,
+                TexturesCreated      = (int)_lastFrameGpuTelemetry.TexturesCreated,
+                RenderTargetsCreated = (int)_lastFrameGpuTelemetry.RenderTargetsCreated,
+                PipelinesCreated     = (int)_lastFrameGpuTelemetry.PipelinesCreated,
+                AssetFileChecks      = (int)_lastFrameAssetIo.FileChecks,
+                AssetFileReads       = (int)_lastFrameAssetIo.FileReads,
+                ShadowCasterDraws        = _fwd?.LastShadowCasterCount ?? 0,
+                ShadowCascadesRendered   = _fwd?.LastShadowCascadesRendered ?? 0,
+                LocalShadowLights        = _fwd?.LastLocalShadowLights ?? 0,
+                LocalShadowTilesRendered = _fwd?.LastLocalShadowTilesRendered ?? 0,
             };
         }
 
@@ -1411,6 +1587,20 @@ namespace Genesis.Rendering.Core
             return profile == ShaderPreviewProfile.MeshPipeline
                 ? _fwd.RegisterRuntimeShaderProgram(vertex, pixel)
                 : _spr.RegisterRuntimeShaderProgram(vertex, pixel);
+        }
+
+        public RuntimeShaderHandle RegisterRuntimeMeshPass(string source, Genesis.Shared.Assets.ShaderPassDefinition pass,
+            string sourcePath = null, string projectPath = null)
+        {
+            if (!_initialized || string.IsNullOrWhiteSpace(source)) return RuntimeShaderHandle.Invalid;
+            var roots = ShaderCompiler.BuildDefaultIncludeSearchPaths(sourcePath, projectPath);
+            byte[] Compile(string entry, GpuShaderStage stage) => string.IsNullOrWhiteSpace(entry) ? null
+                : ShaderCompiler.CompileForBackend(source, entry, stage, _gpu.ShaderBinaryFormat, sourcePath, roots).Blob;
+            byte[] vertex = Compile(pass.VertexEntry, GpuShaderStage.Vertex);
+            byte[] skinned = Compile(pass.SkinnedVertexEntry, GpuShaderStage.Vertex);
+            byte[] pixel = Compile(string.IsNullOrWhiteSpace(pass.Entry) ? "MainPS" : pass.Entry, GpuShaderStage.Pixel);
+            EnsureShaderFrameBuffer();
+            return _fwd.RegisterRuntimeShaderProgram(vertex, pixel, skinned, pass.MeshPassMode);
         }
 
         public void ReleaseRuntimeShader(RuntimeShaderHandle handle, ShaderPreviewProfile profile)

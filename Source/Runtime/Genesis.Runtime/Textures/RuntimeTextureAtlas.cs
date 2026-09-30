@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Numerics;
 using System.Text.Json;
+using System.Threading;
 using Genesis.Rendering.Textures;
 using Genesis.Runtime.Assets;
 using Genesis.Shared.Assets;
@@ -41,7 +42,11 @@ public static class RuntimeTextureAtlas
     private static int SpriteCount;
     private static float OccupancyPercent;
 
+    private static int _version;
+
     public static bool IsActive => Built && BySourcePath.Count > 0;
+    /// <summary>Changes whenever mappings are cleared or rebuilt, so callers may cache remaps.</summary>
+    public static int Version => Volatile.Read(ref _version);
     public static int AtlasSheetCount => SheetCount;
     public static int MappedSpriteCount => SpriteCount;
     public static float AverageOccupancyPercent => OccupancyPercent;
@@ -58,6 +63,7 @@ public static class RuntimeTextureAtlas
             SheetCount = 0;
             SpriteCount = 0;
             OccupancyPercent = 0f;
+            Interlocked.Increment(ref _version);
         }
     }
 
@@ -74,6 +80,7 @@ public static class RuntimeTextureAtlas
             if (!Directory.Exists(assets))
             {
                 Built = true;
+                Interlocked.Increment(ref _version);
                 return;
             }
 
@@ -178,6 +185,7 @@ public static class RuntimeTextureAtlas
 
             OccupancyPercent = occupancyCount > 0 ? occupancySum / occupancyCount : 0f;
             Built = true;
+            Interlocked.Increment(ref _version);
         }
     }
 
@@ -206,6 +214,26 @@ public static class RuntimeTextureAtlas
         }
     }
 
+    /// <summary>
+    /// Looks up the atlas placement of an already-normalized full path without allocating. Cache the
+    /// result against <see cref="Version"/> and apply it with <see cref="Remap"/>.
+    /// </summary>
+    public static bool TryGetPlacement(string fullSourcePath, out TextureHandle atlasHandle, out Vector4 atlasRect)
+    {
+        atlasHandle = TextureHandle.Invalid;
+        atlasRect = default;
+        if (string.IsNullOrWhiteSpace(fullSourcePath)) return false;
+        lock (Gate)
+        {
+            if (!Built || !BySourcePath.TryGetValue(fullSourcePath, out SourceMapping mapping)) return false;
+            atlasHandle = mapping.AtlasHandle;
+            atlasRect = mapping.AtlasUv;
+            return atlasHandle.IsValid;
+        }
+    }
+
+    public static Vector4 Remap(in Vector4 atlasRect, in Vector4 localUv) => RemapUv(atlasRect, localUv);
+
     private static Vector4 RemapUv(in Vector4 atlasRect, in Vector4 localUv)
     {
         // The sprite contract uses a zero/empty rectangle for the whole source image.
@@ -232,6 +260,7 @@ public static class RuntimeTextureAtlas
         SheetCount = 0;
         SpriteCount = 0;
         OccupancyPercent = 0f;
+        Interlocked.Increment(ref _version);
     }
 
     private static Dictionary<string, GroupDef> LoadGroups(string projectPath)

@@ -465,7 +465,7 @@ namespace Genesis.Shared.Commands
         public static event Action FogVolumesChanged;
 
         [EngineCommand("Engine.FogVolumeCreate(shape)", "Rendering", phase: 10,
-            description: "Create a placeable analytic fog volume. shape: \"Box\"/\"Sphere\"/\"Ellipsoid\"/\"HeightSlab\". Returns its id.")]
+            description: "Create a placeable analytic fog volume. shape: \"Box\"/\"Sphere\"/\"Ellipsoid\"/\"HeightSlab\"/\"Cone\". Returns its id.")]
         public static int FogVolumeCreate(string shape)
         {
             int id = _nextFogVolumeId++;
@@ -478,6 +478,7 @@ namespace Genesis.Shared.Commands
                 Density      = 0.30f,
                 FalloffCurve = 1.5f,
                 Kind         = FogVolumeKind.Haze,
+                Direction    = Vector3.UnitX,
             };
             FogVolumesChanged?.Invoke();
             return id;
@@ -516,6 +517,28 @@ namespace Genesis.Shared.Commands
             FogVolumesChanged?.Invoke();
         }
 
+        [EngineCommand("Engine.FogVolumeSetDirection(id, x, y, z)", "Rendering", phase: 10,
+            description: "Set a cone fog volume's travel direction. Zero-length directions are ignored.")]
+        public static void FogVolumeSetDirection(int id, float x, float y, float z)
+        {
+            if (!_scriptedFogVolumes.TryGetValue(id, out FogVolume v)) return;
+            Vector3 direction = new(x, y, z);
+            if (direction.LengthSquared() < 0.000001f) return;
+            v.Direction = Vector3.Normalize(direction);
+            _scriptedFogVolumes[id] = v;
+            FogVolumesChanged?.Invoke();
+        }
+
+        [EngineCommand("Engine.FogVolumeSetFalloff(id, exponent)", "Rendering", phase: 10,
+            description: "Set analytic fog-volume edge softness. Values below one soften the edge; higher values tighten it.")]
+        public static void FogVolumeSetFalloff(int id, float exponent)
+        {
+            if (!_scriptedFogVolumes.TryGetValue(id, out FogVolume v)) return;
+            v.FalloffCurve = Math.Clamp(exponent, 0.1f, 8f);
+            _scriptedFogVolumes[id] = v;
+            FogVolumesChanged?.Invoke();
+        }
+
         [EngineCommand("Engine.FogVolumeDestroy(id)", "Rendering", phase: 10,
             description: "Remove a fog volume created with Engine.FogVolumeCreate")]
         public static void FogVolumeDestroy(int id)
@@ -531,6 +554,7 @@ namespace Genesis.Shared.Commands
             "sphere"     => FogVolumeShape.Sphere,
             "ellipsoid"  => FogVolumeShape.Ellipsoid,
             "heightslab" => FogVolumeShape.HeightSlab,
+            "cone" or "shaft" => FogVolumeShape.Cone,
             _            => FogVolumeShape.Box,
         };
 

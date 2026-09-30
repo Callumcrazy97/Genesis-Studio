@@ -195,6 +195,7 @@ namespace Genesis.Rendering.SilkNet.Vulkan
 
         public GpuBufferHandle CreateBuffer(in GpuBufferDesc desc, ReadOnlySpan<byte> initialData)
         {
+            GpuTelemetry.BufferCreated(initialData.Length);
             bool dynamic = desc.Usage == GpuBufferUsage.Dynamic;
             var resource = new BufferResource
             {
@@ -292,17 +293,26 @@ namespace Genesis.Rendering.SilkNet.Vulkan
         }
 
         /// <summary>Takes a fresh ring slice for a dynamic buffer, so earlier draws keep their data.</summary>
-        private byte* AllocateDynamicSlice(BufferResource resource, bool clear)
+        private byte* AllocateDynamicSlice(BufferResource resource, bool clear) =>
+            AllocateDynamicSlice(resource, resource.SizeBytes, clear);
+
+        /// <summary>
+        /// Takes a ring slice of <paramref name="bytes"/> (not the whole buffer). The descriptor range
+        /// follows the slice, so draws can only address what this write produced.
+        /// </summary>
+        private byte* AllocateDynamicSlice(BufferResource resource, int bytes, bool clear)
         {
+            bytes = Math.Clamp(bytes, 1, resource.SizeBytes);
             void* destination = _uploadRing.Allocate(
-                resource.SizeBytes, resource.DynamicAlignment,
+                bytes, resource.DynamicAlignment,
                 out VkBuffer buffer, out ulong offset);
 
             resource.DynamicBuffer = buffer;
             resource.DynamicOffset = offset;
-            resource.DynamicSize = resource.SizeBytes;
+            resource.DynamicSize = bytes;
 
-            if (clear) new Span<byte>(destination, resource.SizeBytes).Clear();
+            if (clear) new Span<byte>(destination, bytes).Clear();
+            GpuTelemetry.Upload(bytes);
             return (byte*)destination;
         }
 
@@ -312,6 +322,7 @@ namespace Genesis.Rendering.SilkNet.Vulkan
 
             if (resource.Usage != GpuBufferUsage.Dynamic)
             {
+                GpuTelemetry.Upload(data.Length);
                 Write(resource, data, byteOffset);
                 return;
             }
@@ -345,11 +356,12 @@ namespace Genesis.Rendering.SilkNet.Vulkan
                 return true;
             }
 
-            // Discard semantics: a fresh slice, zeroed so a partially filled span leaves no remnant
-            // of an earlier frame. Draws already recorded keep pointing at the slice they were given.
-            span = new Span<byte>(AllocateDynamicSlice(resource, clear: true), resource.SizeBytes);
-            if (byteCount > 0 && byteCount < span.Length)
-                span = span.Slice(0, byteCount);
+            // Discard semantics: a fresh slice sized to the caller's byte count, zeroed so a partially
+            // filled span leaves no remnant of an earlier frame. Draws already recorded keep pointing at
+            // the slice they were given. Allocating and clearing the full buffer here used to cost a
+            // ~3 MB memset per instance-buffer map, several times per frame, and exhausted the ring.
+            int bytes = byteCount > 0 ? Math.Min(byteCount, resource.SizeBytes) : resource.SizeBytes;
+            span = new Span<byte>(AllocateDynamicSlice(resource, bytes, clear: true), bytes);
             return true;
         }
 
@@ -383,6 +395,7 @@ namespace Genesis.Rendering.SilkNet.Vulkan
 
         public GpuTextureHandle CreateTexture(in GpuTextureDesc desc, ReadOnlySpan<byte> initialData)
         {
+            GpuTelemetry.TextureCreated(initialData.Length);
             VkFormat format = VulkanGpuFormats.ToVulkan(desc.Format);
             bool isDepth = VulkanGpuFormats.IsDepth(desc.Format);
             int mips = Math.Max(1, desc.MipLevels);
@@ -526,6 +539,7 @@ namespace Genesis.Rendering.SilkNet.Vulkan
             ReadOnlySpan<byte> data, int arraySlice = 0)
         {
             if (!_textures.TryGetValue(handle.Id, out TextureResource texture) || data.IsEmpty) return;
+            GpuTelemetry.Upload(data.Length);
 
             BufferResource staging = AllocateBuffer(data.Length, BufferUsageFlags.TransferSrcBit, hostVisible: true);
             Write(staging, data, 0);
@@ -614,6 +628,7 @@ namespace Genesis.Rendering.SilkNet.Vulkan
 
         public GpuRenderTargetHandle CreateRenderTarget(in GpuRenderTargetDesc desc)
         {
+            GpuTelemetry.RenderTargetCreated();
             GpuFormat[] colorFormats = desc.ColorFormats ?? Array.Empty<GpuFormat>();
             var target = new RenderTargetResource { Width = desc.Width, Height = desc.Height };
             var colors = new GpuTextureHandle[colorFormats.Length];
@@ -693,8 +708,8 @@ namespace Genesis.Rendering.SilkNet.Vulkan
                     Samples = SampleCountFlags.Count1Bit,
                     LoadOp = AttachmentLoadOp.Load,
                     StoreOp = AttachmentStoreOp.Store,
-                    StencilLoadOp = AttachmentLoadOp.DontCare,
-                    StencilStoreOp = AttachmentStoreOp.DontCare,
+                    StencilLoadOp = VulkanGpuFormats.HasStencil(depthFormat) ? AttachmentLoadOp.Load : AttachmentLoadOp.DontCare,
+                    StencilStoreOp = VulkanGpuFormats.HasStencil(depthFormat) ? AttachmentStoreOp.Store : AttachmentStoreOp.DontCare,
                     InitialLayout = ImageLayout.DepthStencilAttachmentOptimal,
                     FinalLayout = ImageLayout.DepthStencilAttachmentOptimal,
                 };
@@ -819,9 +834,9 @@ namespace Genesis.Rendering.SilkNet.Vulkan
         {
             if (!_renderTargets.Remove(handle.Id, out RenderTargetResource target)) return;
 
-            _pipelines.InvalidateForRenderPass(target.RenderPass);
+            _pipelines.InvalidateForRenderPass(target.RenderPass, _frameRing.Defer);
             if (target.ColorOnlyRenderPass.Handle != 0)
-                _pipelines.InvalidateForRenderPass(target.ColorOnlyRenderPass);
+                _pipelines.InvalidateForRenderPass(target.ColorOnlyRenderPass, _frameRing.Defer);
 
             Framebuffer framebuffer = target.Framebuffer;
             RenderPass renderPass = target.RenderPass;
@@ -1076,7 +1091,9 @@ namespace Genesis.Rendering.SilkNet.Vulkan
                 DstQueueFamilyIndex = Vk.QueueFamilyIgnored,
                 Image = texture.Image,
                 SubresourceRange = new ImageSubresourceRange(
-                    texture.IsDepth ? ImageAspectFlags.DepthBit : ImageAspectFlags.ColorBit,
+                    texture.IsDepth
+                        ? ImageAspectFlags.DepthBit | (VulkanGpuFormats.HasStencil(texture.Format) ? ImageAspectFlags.StencilBit : 0)
+                        : ImageAspectFlags.ColorBit,
                     0, (uint)texture.MipLevels, 0, (uint)Math.Max(1, texture.ArrayLayers)),
                 SrcAccessMask = AccessFlags.MemoryWriteBit,
                 DstAccessMask = AccessFlags.MemoryReadBit | AccessFlags.MemoryWriteBit,

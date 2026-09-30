@@ -6,6 +6,7 @@ using System.Numerics;
 using Genesis.Runtime.Assets;
 using Genesis.Runtime.Rendering;
 using Genesis.Shared.Interfaces;
+using Genesis.Shared.Materials;
 using EcsWorld = Genesis.Runtime.ECS.World;
 using Genesis.Runtime.ECS.Components;
 
@@ -16,12 +17,24 @@ namespace Genesis.Runtime.Modeling
         private readonly RuntimeModelAssetRegistry _assets;
         private readonly ModelGpuCache _gpu;
         private readonly Dictionary<(string Project, string Model), GModelAsset> _frameAssets = new();
-        private readonly Dictionary<(IRenderController Renderer, string Project, string Texture), TextureHandle> _frameTextures = new();
+        private sealed class CachedTexture
+        {
+            public TextureHandle Handle;
+            public long NextFreshnessCheckMilliseconds;
+            public int FrameGeneration;
+            public long AssetGeneration;
+        }
+        // Weakly keyed by renderer: several of these systems are static, and a strong key pinned
+        // every disposed editor/preview renderer (and its GPU cache) for the life of the process.
+        private readonly System.Runtime.CompilerServices.ConditionalWeakTable<IRenderController,
+            Dictionary<(string Project, string Texture, TextureColorSpace ColorSpace), CachedTexture>> _textures = new();
+        private readonly int _textureFreshnessIntervalMilliseconds;
+        private int _frameGeneration;
         private bool _frameOpen;
 
         /// <summary>Resolve and freshness-check each distinct asset once during a scene submission.</summary>
-        public void BeginFrame() { _frameAssets.Clear(); _frameTextures.Clear(); _frameOpen = true; }
-        public void EndFrame() { _frameAssets.Clear(); _frameTextures.Clear(); _frameOpen = false; }
+        public void BeginFrame() { _frameAssets.Clear(); _frameGeneration++; _frameOpen = true; }
+        public void EndFrame() { _frameAssets.Clear(); _frameOpen = false; }
 
         private GModelAsset LoadModel(string project, string model)
         {
@@ -32,18 +45,24 @@ namespace Genesis.Runtime.Modeling
             return asset;
         }
 
-        public RuntimeModelRenderSystem(RuntimeModelAssetRegistry assets = null, ModelGpuCache gpu = null)
+        public RuntimeModelRenderSystem(
+            RuntimeModelAssetRegistry assets = null,
+            ModelGpuCache gpu = null,
+            int assetFreshnessIntervalMilliseconds = 0,
+            int textureFreshnessIntervalMilliseconds = 0)
         {
-            _assets = assets ?? new RuntimeModelAssetRegistry();
+            _assets = assets ?? new RuntimeModelAssetRegistry(assetFreshnessIntervalMilliseconds);
             _gpu = gpu ?? new ModelGpuCache();
+            _textureFreshnessIntervalMilliseconds = Math.Max(0, textureFreshnessIntervalMilliseconds);
         }
 
         public void InvalidateAssets(IRenderController renderer = null)
         {
             _assets.Clear();
             _frameAssets.Clear();
-            _frameTextures.Clear();
+            _textures.Clear();
             if (renderer != null) _gpu.Clear(renderer);
+            else _gpu.ClearAll();
         }
 
         public bool TryGetBounds(string projectPath, string modelName, out Vector3 min, out Vector3 max, bool includePivot = false)
@@ -220,6 +239,7 @@ namespace Genesis.Runtime.Modeling
 
             SkinPaletteHandle palette = _gpu.UpdatePalette(renderer, asset, gpuAsset, animation);
             int activeLod = ResolveLodLevel(asset, rendererComponent.LodPolicy);
+            ModelHairSelection hair = ModelHairRuntime.Resolve(asset, rendererComponent.Hair);
             Vector3 pivot = asset.Pivot?.Position ?? Vector3.Zero;
             Matrix4x4 pivotedWorld = pivot.LengthSquared() > 1e-12f
                 ? Matrix4x4.CreateTranslation(-pivot) * world
@@ -227,6 +247,8 @@ namespace Genesis.Runtime.Modeling
             foreach (ModelGpuCache.CachedMesh mesh in renderMeshes)
             {
                 if (mesh.Lod != activeLod) continue;
+                if (rendererComponent.HiddenMeshes?.Contains(mesh.SourceName) == true) continue;
+                if (!hair.IsVisible(mesh.SourceName)) continue;
                 GModelMaterial material = ResolveMaterial(asset, mesh.MaterialIndex);
                 MeshDrawFlags flags = MeshDrawFlags.None;
                 TextureHandle texture = TextureHandle.Invalid;
@@ -259,8 +281,8 @@ namespace Genesis.Runtime.Modeling
                         hasOverride ? materialOverride : material?.AlbedoTexture);
                     if (!animation.IgnoreTextures && !hasOverride && material is not null)
                     {
-                        normalMap = LoadMaterialTexture(renderer, projectPath, material.NormalTexture);
-                        ormMap = LoadMaterialTexture(renderer, projectPath, material.MetallicRoughnessTexture);
+                        normalMap = LoadMaterialTexture(renderer, projectPath, material.NormalTexture, TextureColorSpace.Linear);
+                        ormMap = LoadMaterialTexture(renderer, projectPath, material.MetallicRoughnessTexture, TextureColorSpace.Linear);
                         emissionMap = LoadMaterialTexture(renderer, projectPath, material.EmissiveTexture);
                     }
                     tint = hasOverride ? RenderColor.White : ToRenderColor(material?.BaseColor ?? Vector4.One);
@@ -272,6 +294,15 @@ namespace Genesis.Runtime.Modeling
                 }
 
                 flags = MeshRasterDefaults.ApplyOverride(flags, asset.Culling, asset.WindingOrder);
+                if (!animation.FlatUntextured && hair.TryGetColor(mesh.SourceName, out Vector3 hairColor))
+                    tint = new RenderColor(hairColor.X, hairColor.Y, hairColor.Z, tint.A);
+                if (material != null && rendererComponent.MaterialTints != null
+                    && rendererComponent.MaterialTints.TryGetValue(material.Name, out Vector4 instanceTint))
+                {
+                    tint = new RenderColor(tint.R * instanceTint.X, tint.G * instanceTint.Y,
+                        tint.B * instanceTint.Z, tint.A * instanceTint.W);
+                    alpha *= instanceTint.W;
+                }
                 flags = MeshRasterDefaults.ApplyOverride(
                     flags,
                     rendererComponent.Culling,
@@ -301,10 +332,20 @@ namespace Genesis.Runtime.Modeling
         public static int ResolveLodLevel(GModelAsset asset, int requested)
         {
             int desired = Math.Max(0, requested);
-            int[] available = asset?.Meshes?.Select(mesh => mesh.Lod).Distinct().OrderBy(level => level).ToArray()
-                ?? Array.Empty<int>();
-            if (available.Length == 0 || available.Contains(desired)) return desired;
-            return available.Where(level => level <= desired).DefaultIfEmpty(available[0]).Max();
+            if (asset?.Meshes is not { Count: > 0 }) return desired;
+
+            int lowest = int.MaxValue;
+            int best = int.MinValue;
+            foreach (GModelMesh mesh in asset.Meshes)
+            {
+                if (mesh is null) continue;
+                int level = mesh.Lod;
+                if (level == desired) return desired;
+                if (level < lowest) lowest = level;
+                if (level <= desired && level > best) best = level;
+            }
+            if (best != int.MinValue) return best;
+            return lowest == int.MaxValue ? desired : lowest;
         }
 
         public static Matrix4x4 TransformMatrix(TransformComponent transform, ModelRendererComponent model)
@@ -351,16 +392,37 @@ namespace Genesis.Runtime.Modeling
             return Math.Clamp(value, 0.01f, 256f);
         }
 
-        private TextureHandle LoadMaterialTexture(IRenderController renderer, string projectPath, string texturePath)
+        private TextureHandle LoadMaterialTexture(IRenderController renderer, string projectPath, string texturePath,
+            TextureColorSpace colorSpace = TextureColorSpace.Srgb)
         {
-            if (!_frameOpen) return ResolveMaterialTexture(renderer, projectPath, texturePath);
-            var key = (renderer, projectPath, texturePath);
-            if (!_frameTextures.TryGetValue(key, out TextureHandle texture))
-                _frameTextures[key] = texture = ResolveMaterialTexture(renderer, projectPath, texturePath);
+            var textures = _textures.GetValue(renderer, _ => new());
+            var key = (projectPath, texturePath, colorSpace);
+            long now = Environment.TickCount64;
+            long assetGeneration = Genesis.Shared.Assets.RuntimeAssetPolicy.Generation;
+            if (textures.TryGetValue(key, out CachedTexture cached)
+                && cached.AssetGeneration == assetGeneration
+                && ((_frameOpen && cached.FrameGeneration == _frameGeneration)
+                    || now < cached.NextFreshnessCheckMilliseconds)
+                && (!cached.Handle.IsValid || renderer.IsTextureLive(cached.Handle)))
+            {
+                return cached.Handle;
+            }
+
+            TextureHandle texture = ResolveMaterialTexture(renderer, projectPath, texturePath, colorSpace);
+            cached ??= new CachedTexture();
+            cached.Handle = texture;
+            cached.FrameGeneration = _frameGeneration;
+            cached.AssetGeneration = assetGeneration;
+            // Spread file-system freshness work across frames instead of producing a periodic
+            // all-material hitch in large rooms. Project dependency notifications bump the asset
+            // generation and so refresh immediately; this interval covers external edits.
+            cached.NextFreshnessCheckMilliseconds = Genesis.Shared.Assets.RuntimeAssetPolicy.NextCheck(
+                now, _textureFreshnessIntervalMilliseconds, key.GetHashCode());
+            textures[key] = cached;
             return texture;
         }
 
-        private static TextureHandle ResolveMaterialTexture(IRenderController renderer, string projectPath, string texturePath)
+        private static TextureHandle ResolveMaterialTexture(IRenderController renderer, string projectPath, string texturePath, TextureColorSpace colorSpace)
         {
             string resolved = ResolveTexturePath(projectPath, texturePath);
             if (string.IsNullOrWhiteSpace(resolved)) return TextureHandle.Invalid;
@@ -369,9 +431,10 @@ namespace Genesis.Runtime.Modeling
                 Genesis.Shared.Assets.SpriteRuntimeAsset image = Genesis.Runtime.Assets.SpriteAssetLoader.Load(resolved);
                 resolved = Genesis.Runtime.Assets.SpriteAssetLoader.ResolveFrameTexturePath(resolved, image, 0);
             }
+            Genesis.Shared.Assets.AssetIoCounters.Check();
             return string.IsNullOrWhiteSpace(resolved) || !File.Exists(resolved)
                 ? TextureHandle.Invalid
-                : renderer.LoadTexture(resolved);
+                : renderer.LoadTexture(resolved, colorSpace);
         }
 
         private static string ResolveTexturePath(string projectPath, string texturePath)

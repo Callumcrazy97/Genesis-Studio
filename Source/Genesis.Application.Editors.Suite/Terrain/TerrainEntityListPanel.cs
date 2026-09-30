@@ -57,7 +57,11 @@ public sealed class TerrainEntityListPanel : Panel
             Dock = DockStyle.Fill,
         };
         Controls.Add(_scroll);
-        EditorChrome.Changed += (_, _) => { if (!IsDisposed) Rebuild(); };
+        // Static event: unsubscribe on dispose, or every closed Terrain editor (heightfields and
+        // undo history included) stays reachable through this panel for the rest of the session.
+        EventHandler chromeChanged = (_, _) => { if (!IsDisposed) Rebuild(); };
+        EditorChrome.Changed += chromeChanged;
+        Disposed += (_, _) => EditorChrome.Changed -= chromeChanged;
         RefreshEntities();
     }
 

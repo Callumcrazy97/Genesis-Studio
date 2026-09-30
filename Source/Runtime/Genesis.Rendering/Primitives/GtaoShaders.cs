@@ -25,16 +25,20 @@ VSOut VS(uint id : SV_VertexID)
     VSOut o;
     float2 p = float2((id << 1) & 2, id & 2);
     o.pos = float4(p * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);
-    o.uv = float2(p.x, 1.0 - p.y);
+    // Clip-space Y is inverted above; texture UVs already address the top-left
+    // scene/depth targets. A second flip mirrors AO onto unrelated geometry.
+    o.uv = p;
     return o;
 }
 
 float LinearizeDepth(float depth)
 {
-    float z = depth * 2.0 - 1.0;
+    // Genesis uses D3D-style 0..1 depth (z_ndc = f/(f-n) * (1 - n/z)), so view depth is
+    // n*f / (f - d*(f-n)). The OpenGL -1..1 form used here previously skewed the bilateral
+    // blur weights with distance and bled AO across depth edges.
     float n = max(ClipPlanes.x, 0.01);
     float f = max(n + 1.0, ClipPlanes.y);
-    return (2.0 * n * f) / max(f + n - z * (f - n), 1e-5);
+    return (n * f) / max(f - depth * (f - n), 1e-5);
 }
 
 float3 ReconstructViewPos(float2 uv, float depth)
@@ -65,7 +69,7 @@ float4 PS_Gtao(VSOut IN) : SV_Target
     float2 fullRes = max(ClipPlanes.zw, float2(2, 2));
     float2 texel = 1.0 / fullRes;
     float centerDepth = SceneDepth.SampleLevel(LinearClamp, IN.uv, 0).r;
-    if (centerDepth >= 0.99999)
+    if (centerDepth >= 0.9999999)
         return float4(1, 1, 1, 1);
 
     float3 center = ReconstructViewPos(IN.uv, centerDepth);
@@ -97,7 +101,7 @@ float4 PS_Gtao(VSOut IN) : SV_Target
                 continue;
 
             float sampleDepth = SceneDepth.SampleLevel(LinearClamp, sampleUv, 0).r;
-            if (sampleDepth >= 0.99999)
+            if (sampleDepth >= 0.9999999)
                 continue;
 
             float3 samplePosition = ReconstructViewPos(sampleUv, sampleDepth);

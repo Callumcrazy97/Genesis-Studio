@@ -34,17 +34,8 @@ namespace Genesis.Rendering.Primitives
         {
             public Vector4 PosRadius;      // xyz = world position, w = radius
             public Vector4 ColorIntensity; // xyz = color (linear), w = intensity
-            // x = falloff; y = omni slot flag (1 = AF1.3 GPU omni slot 0); z = omni far; w = reserved
+            // x = falloff; y = local shadow slot + 1 (0 = unshadowed); z = shadow far; w = spot cos(inner)
             public Vector4 FalloffPad;
-        }
-
-        // AF1.3: six face VPs + light pos/far + active flag (matches OmniShadowConstants b4).
-        [StructLayout(LayoutKind.Sequential)]
-        private struct OmniShadowCB
-        {
-            public Matrix4x4 FaceVP0, FaceVP1, FaceVP2, FaceVP3, FaceVP4, FaceVP5;
-            public Vector4 LightPosFar; // xyz = light position, w = far plane
-            public Vector4 Params;      // x = active
         }
 
         // Issue 6 Stage 1: placeable analytic fog volume, evaluated in the screen-space fog
@@ -57,7 +48,7 @@ namespace Genesis.Rendering.Primitives
             public Vector4 CenterDensity;  // xyz=center, w=density
             public Vector4 ExtentsFalloff; // xyz=extents (half-size), w=falloff curve exponent
             public Vector4 ColorShape;     // xyz=color, w=shape enum (FogVolumeShape)
-            public Vector4 KindPad;        // x=kind enum (FogVolumeKind), yzw=unused
+            public Vector4 KindDirection;  // x=kind enum (FogVolumeKind), yzw=cone direction
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -137,6 +128,11 @@ namespace Genesis.Rendering.Primitives
             public Vector4   AuthoredSkyZenith;
             public Vector4   AuthoredSkyHorizon;
             public Vector4   AuthoredSkySun;     // xyz=toward sun, w=solar disc radiance
+            // Ink outline, append-only — x=opacity (0 = off), y=width in pixels, z=relative depth
+            // step, w=crease threshold in radians. See InkOutlineSettings.
+            public Vector4   InkParams;
+            public Vector4   InkColor;           // rgb=display-space ink, w=radians per pixel
+            public Vector4   InkFade;            // x=full-width distance, y=far distance, z=far opacity
         }
 
         // Matches BloomShaders.cbuffer BloomConstants (b0).
@@ -315,11 +311,16 @@ namespace Genesis.Rendering.Primitives
             public int VertexCount;
             public bool IsSkinned;
             public bool IsReleased;
+            /// <summary>Changes whenever the vertices do, so cached shadow tiles notice in-place edits.</summary>
+            public int Revision;
         }
+
+        private int _meshRevision;
 
         private struct SkinPaletteEntry
         {
             public GpuBufferHandle Buffer;
+            public Matrix4x4[] Matrices;
             public int MatrixCount;
             public bool IsReleased;
         }
@@ -386,6 +387,7 @@ namespace Genesis.Rendering.Primitives
 
         private class Batch
         {
+            public int SubmissionOrder;
             public int   MeshId;
             public int   TextureId;
             public GpuTextureHandle Texture;
@@ -409,6 +411,7 @@ namespace Genesis.Rendering.Primitives
         private struct SkinnedBatchKey : IEquatable<SkinnedBatchKey>
         {
             public int MeshId, TextureId, SkinPaletteId;
+            public int NormalId, OrmId, EmissionId;
             public int ShaderId;
             public Vector4 ShaderParams0, ShaderParams1, ShaderParams2, ShaderParams3;
             public AuthoredGpuTextures AuthoredTextures;
@@ -416,8 +419,8 @@ namespace Genesis.Rendering.Primitives
             public bool NoReceiveShadow;
             public float Emissive;
             public MeshDrawFlags RasterOverride;
-            public bool Equals(SkinnedBatchKey o) => MeshId == o.MeshId && TextureId == o.TextureId && SkinPaletteId == o.SkinPaletteId && ShaderId == o.ShaderId && ShaderParams0 == o.ShaderParams0 && ShaderParams1 == o.ShaderParams1 && ShaderParams2 == o.ShaderParams2 && ShaderParams3 == o.ShaderParams3 && AuthoredTextures.SameBindings(o.AuthoredTextures) && NoFog == o.NoFog && NoReceiveShadow == o.NoReceiveShadow && Emissive == o.Emissive && RasterOverride == o.RasterOverride;
-            public override int GetHashCode() { var h = new HashCode(); h.Add(MeshId); h.Add(TextureId); h.Add(SkinPaletteId); h.Add(ShaderId); h.Add(ShaderParams0); h.Add(ShaderParams1); h.Add(ShaderParams2); h.Add(ShaderParams3); h.Add(AuthoredTextures.TexId0); h.Add(AuthoredTextures.TexId1); h.Add(AuthoredTextures.TexId2); h.Add(AuthoredTextures.TexId3); h.Add(NoFog); h.Add(NoReceiveShadow); h.Add(Emissive); h.Add(RasterOverride); return h.ToHashCode(); }
+            public bool Equals(SkinnedBatchKey o) => MeshId == o.MeshId && TextureId == o.TextureId && SkinPaletteId == o.SkinPaletteId && NormalId == o.NormalId && OrmId == o.OrmId && EmissionId == o.EmissionId && ShaderId == o.ShaderId && ShaderParams0 == o.ShaderParams0 && ShaderParams1 == o.ShaderParams1 && ShaderParams2 == o.ShaderParams2 && ShaderParams3 == o.ShaderParams3 && AuthoredTextures.SameBindings(o.AuthoredTextures) && NoFog == o.NoFog && NoReceiveShadow == o.NoReceiveShadow && Emissive == o.Emissive && RasterOverride == o.RasterOverride;
+            public override int GetHashCode() { var h = new HashCode(); h.Add(MeshId); h.Add(TextureId); h.Add(SkinPaletteId); h.Add(NormalId); h.Add(OrmId); h.Add(EmissionId); h.Add(ShaderId); h.Add(ShaderParams0); h.Add(ShaderParams1); h.Add(ShaderParams2); h.Add(ShaderParams3); h.Add(AuthoredTextures.TexId0); h.Add(AuthoredTextures.TexId1); h.Add(AuthoredTextures.TexId2); h.Add(AuthoredTextures.TexId3); h.Add(NoFog); h.Add(NoReceiveShadow); h.Add(Emissive); h.Add(RasterOverride); return h.ToHashCode(); }
         }
 
         private class SkinnedBatch
@@ -426,6 +429,7 @@ namespace Genesis.Rendering.Primitives
             public int TextureId;
             public int SkinPaletteId;
             public GpuTextureHandle Texture;
+            public GpuTextureHandle Normal, Orm, Emission;
             public float Emissive;
             public bool NoFog;
             public bool NoReceiveShadow;
@@ -476,12 +480,20 @@ namespace Genesis.Rendering.Primitives
         {
             public int MeshId;
             public MeshDrawFlags RasterOverride;
+            /// <summary>Every caster submitted this frame, with its world bounding sphere (xyz, radius).</summary>
+            public readonly List<InstanceGpu> Casters = new();
+            public readonly List<Vector4> CasterBounds = new();
+            /// <summary>Per-caster content hash (mesh, mesh revision, raster state, transform) for shadow caching.</summary>
+            public readonly List<ulong> CasterHashes = new();
+            // Per-cascade lists, filled from Casters once the cascade matrices are final.
             public readonly List<InstanceGpu> FarInstances  = new();
             public readonly List<InstanceGpu> MidInstances  = new();
             public readonly List<InstanceGpu> NearInstances = new();
+            /// <summary>Far-list casters inside the shadowed point light's sphere this frame.</summary>
+            public readonly List<InstanceGpu> OmniInstances = new();
         }
 
-        private enum ShadowCascadeKind : byte { Far, Mid, Near }
+        private enum ShadowCascadeKind : byte { Far, Mid, Near, Omni }
 
         private struct WorldMesh
         {
@@ -496,6 +508,8 @@ namespace Genesis.Rendering.Primitives
             public bool TerrainGround;
             public MeshDrawFlags RasterOverride;
             public int SkinPaletteId;
+            /// <summary>Submission order, the tie-break that keeps equal-distance draws stable.</summary>
+            public int Order;
         }
 
         private struct WaterMesh
@@ -519,6 +533,21 @@ namespace Genesis.Rendering.Primitives
         private GpuShaderProgramHandle _program;
         private GpuShaderProgramHandle _skinnedProgram;
         private GpuShaderProgramHandle _shadowProgram;
+        private GpuShaderProgramHandle _shadowSkinnedProgram, _shadowSkinnedMidProgram, _shadowSkinnedNearProgram;
+
+        /// <summary>One GPU-skinned mesh that casts shadows this frame.</summary>
+        private struct SkinnedShadowCaster
+        {
+            public int MeshId;
+            public int PaletteId;
+            public Matrix4x4 World;
+            public MeshDrawFlags RasterOverride;
+            public bool Far, Near, Mid, Omni;
+            public Vector3 Center;
+            public float Radius;
+        }
+
+        private readonly List<SkinnedShadowCaster> _skinnedShadowCasters = new();
         private GpuShaderProgramHandle _shadowMidProgram;
         private GpuShaderProgramHandle _shadowNearProgram;
         private GpuShaderProgramHandle _waterProgram;
@@ -536,6 +565,7 @@ namespace Genesis.Rendering.Primitives
         private GpuShaderProgramHandle _overrideProgram;
         private GpuShaderProgramHandle _overrideSkinnedProgram;
         private readonly Dictionary<int, (GpuShaderProgramHandle Static, GpuShaderProgramHandle Skinned)> _runtimePrograms = new();
+        private readonly Dictionary<int, Genesis.Shared.Assets.ShaderMeshPassMode> _runtimePassModes = new();
         private int _nextRuntimeProgramId = 1;
         private GpuVertexLayoutHandle _layout;
         private GpuVertexLayoutHandle _layoutSkinned;
@@ -572,17 +602,7 @@ namespace Genesis.Rendering.Primitives
         private GpuTextureHandle _shadowMidTexture;
         private GpuTextureHandle _shadowNearTexture;
 
-        // AF1.3 omnidirectional shadow: six separate 512² depth RTs (not TextureCube) for slot 0.
-        private const int OmniMapSize = 512;
-        private readonly GpuRenderTargetHandle[] _omniTargets = new GpuRenderTargetHandle[6];
-        private readonly GpuTextureHandle[] _omniTextures = new GpuTextureHandle[6];
-        private readonly Matrix4x4[] _omniFaceVP = new Matrix4x4[6];
-        private int _omniFaceCursor;
-        private bool _omniWarm;
-        private bool _omniActiveThisFrame;
-        private int _omniLightIndex = -1;
-        private Vector3 _omniLightPos;
-        private float _omniFar = OmniShadowMath.DefaultFarPlane;
+        // Local light shadows (point and spot) share one depth atlas: ForwardRenderer.LocalShadows.cs.
 
         // Flat normal map default (1×1 128,128,255 = world-space up) bound to t3 when no NormalMap set
         private GpuTextureHandle _flatNormalTexture;
@@ -702,6 +722,7 @@ namespace Genesis.Rendering.Primitives
         private readonly List<MeshEntry> _meshes = new();  // index = MeshHandle.Id - 1
         private readonly Stack<int> _freeMeshIds = new();
         private readonly List<SkinPaletteEntry> _skinPalettes = new();
+        private readonly HashSet<int> _submittedSkinPalettes = new();
         private readonly Stack<int> _freeSkinPaletteIds = new();
         public MeshHandle FloorMesh { get; private set; }
         public MeshHandle SunMesh   { get; private set; }
@@ -711,16 +732,20 @@ namespace Genesis.Rendering.Primitives
         // Frame accumulators
         private readonly Dictionary<BatchKey, Batch> _batches   = new();
         private readonly List<Batch>                 _batchList = new();
+        private readonly Stack<Batch>                _batchPool = new();
         private readonly Dictionary<SkinnedBatchKey, SkinnedBatch> _skinnedBatches = new();
         private readonly List<SkinnedBatch>          _skinnedBatchList = new();
+        private readonly Stack<SkinnedBatch>         _skinnedBatchPool = new();
         private readonly Dictionary<ShadowBatchKey, ShadowBatch> _shadowBatches = new();
         private readonly List<ShadowBatch>           _shadowBatchList = new();
+        private readonly Stack<ShadowBatch>          _shadowBatchPool = new();
         private readonly List<WorldMesh>             _worldMeshes = new();
         private readonly List<WorldMesh>             _viewModelMeshes = new();
         private readonly List<WaterMesh>               _waterMeshes = new();
         // Transparent/additive particle batches — rendered with DrawIndexedInstanced
         private readonly Dictionary<TransBatchKey, TransBatch> _transBatches    = new();
         private readonly List<TransBatch>                       _transBatchList  = new();
+        private readonly Stack<TransBatch>                      _transBatchPool  = new();
         private int _skinnedInstOffset;
         private int _transInstOffset; // first index of transparent instances in the shared instance buffer
 
@@ -745,6 +770,7 @@ namespace Genesis.Rendering.Primitives
         private Vector3     _sortCameraPos;
         private readonly Comparison<Batch>     _batchDistCompare;
         private readonly Comparison<WorldMesh>   _worldMeshDistCompare;
+        private readonly Comparison<InstanceGpu> _transInstanceBackToFront;
 
         /// <summary>Clustered local-light buffer capacity (scene soft cap, R7.5).</summary>
         public const int PointLightCapacity = RenderCapacityDefaults.MaxSceneLocalLightCap;
@@ -758,11 +784,11 @@ namespace Genesis.Rendering.Primitives
         // Point lights (cleared at BeginSubmitFrame, populated by AddPointLight; tiled at flush)
         private readonly ClusterPointLightGpu[] _pointLights = new ClusterPointLightGpu[PointLightCapacity];
         private int _pointLightCount;
-        private readonly TiledLightGrid _tiledLights = new();
+        private readonly ClusteredLightGrid _clusteredLights = new();
         private int _clusterLightUploadCount;
 
         // Fog volumes (max 8, cleared at BeginSubmitFrame, populated by AddFogVolume — Issue 6 Stage 1)
-        private readonly FogVolumeData[] _fogVolumes = new FogVolumeData[8];
+        private readonly FogVolumeData[] _fogVolumes = new FogVolumeData[MaxFogVolumes];
         private int _fogVolumeCount;
 
         // AF1.6 smoke volumes (max 8, cleared at BeginSubmitFrame, populated by AddSmokeVolume /
@@ -845,7 +871,9 @@ namespace Genesis.Rendering.Primitives
         public RuntimeShaderHandle RegisterRuntimeShader(byte[] pixelShader)
             => RegisterRuntimeShaderProgram(null, pixelShader);
 
-        public RuntimeShaderHandle RegisterRuntimeShaderProgram(byte[] vertexShader, byte[] pixelShader)
+        public RuntimeShaderHandle RegisterRuntimeShaderProgram(byte[] vertexShader, byte[] pixelShader,
+            byte[] skinnedVertexShader = null,
+            Genesis.Shared.Assets.ShaderMeshPassMode mode = Genesis.Shared.Assets.ShaderMeshPassMode.Surface)
         {
             if (pixelShader == null || pixelShader.Length == 0) throw new ArgumentException("Runtime shader bytecode is empty.", nameof(pixelShader));
             GpuShaderProgramHandle staticProgram = GpuShaderProgramHandle.Invalid;
@@ -853,9 +881,10 @@ namespace Genesis.Rendering.Primitives
             try
             {
                 staticProgram = _gpu.CreateShaderProgram(new GpuShaderProgramDesc { BinaryFormat = _gpu.ShaderBinaryFormat, VertexShader = vertexShader is { Length: > 0 } ? vertexShader : _mainVertexShader, PixelShader = pixelShader, DebugName = "Forward.RuntimeShader" });
-                skinnedProgram = _gpu.CreateShaderProgram(new GpuShaderProgramDesc { BinaryFormat = _gpu.ShaderBinaryFormat, VertexShader = _skinnedVertexShader, PixelShader = pixelShader, DebugName = "Forward.RuntimeShader.Skinned" });
+                skinnedProgram = _gpu.CreateShaderProgram(new GpuShaderProgramDesc { BinaryFormat = _gpu.ShaderBinaryFormat, VertexShader = skinnedVertexShader is { Length: > 0 } ? skinnedVertexShader : _skinnedVertexShader, PixelShader = pixelShader, DebugName = "Forward.RuntimeShader.Skinned" });
                 int id = _nextRuntimeProgramId++;
                 _runtimePrograms.Add(id, (staticProgram, skinnedProgram));
+                _runtimePassModes.Add(id, mode);
                 return new RuntimeShaderHandle(id);
             }
             catch
@@ -869,6 +898,7 @@ namespace Genesis.Rendering.Primitives
         public void ReleaseRuntimeShader(RuntimeShaderHandle handle)
         {
             if (!handle.IsValid || !_runtimePrograms.Remove(handle.Id, out var programs)) return;
+            _runtimePassModes.Remove(handle.Id);
             _gpu.ReleaseShaderProgram(programs.Static);
             _gpu.ReleaseShaderProgram(programs.Skinned);
         }
@@ -917,16 +947,30 @@ namespace Genesis.Rendering.Primitives
         {
             _gpu = gpu ?? throw new ArgumentNullException(nameof(gpu));
             _batchDistCompare = (a, b) =>
-                BatchDistanceSquared(_sortCameraPos, a).CompareTo(BatchDistanceSquared(_sortCameraPos, b));
+            {
+                int distance = BatchDistanceSquared(_sortCameraPos, a).CompareTo(BatchDistanceSquared(_sortCameraPos, b));
+                // List.Sort is not stable. Equal-depth authored passes must retain surface,
+                // mask, silhouette, reset order, including scenes with many material batches.
+                return distance != 0 ? distance : a.SubmissionOrder.CompareTo(b.SubmissionOrder);
+            };
             _worldMeshDistCompare = (a, b) =>
-                WorldMeshDistanceSquared(_sortCameraPos, a).CompareTo(WorldMeshDistanceSquared(_sortCameraPos, b));
+            {
+                int distance = WorldMeshDistanceSquared(_sortCameraPos, a).CompareTo(WorldMeshDistanceSquared(_sortCameraPos, b));
+                return distance != 0 ? distance : a.Order.CompareTo(b.Order);
+            };
+            _transInstanceBackToFront = (a, b) =>
+            {
+                float da = Vector3.DistanceSquared(_sortCameraPos, a.World.Translation);
+                float db = Vector3.DistanceSquared(_sortCameraPos, b.World.Translation);
+                return db.CompareTo(da);
+            };
             CompileShaders();
             CompileWaterShaders();
             CreateConstantBuffers();
             CreateWaterNormalMaps();
             CreateInstanceBuffer();
             CreateShadowMap();
-            CreateOmniShadowMaps();
+            CreateFroxelResources();
             CreateSamplers();
             CreateRasterizerStates();
             CreateDepthStencilStates();
@@ -971,6 +1015,35 @@ namespace Genesis.Rendering.Primitives
                 { BinaryFormat = _gpu.ShaderBinaryFormat, VertexShader = vsShadMidBlob, DebugName = "Shadow mid" });
             _shadowNearProgram = _gpu.CreateShaderProgram(new GpuShaderProgramDesc
                 { BinaryFormat = _gpu.ShaderBinaryFormat, VertexShader = vsShadNearBlob, DebugName = "Shadow near" });
+            // The CPU rasterizer has no skinned shadow path; animated actors stay shadowless there.
+            // It has no local-light shadows either, so the atlas tile clear is GPU-only too.
+            if (!string.Equals(_gpu.BackendName, "Software", StringComparison.OrdinalIgnoreCase))
+            {
+                _shadowTileClearProgram = _gpu.CreateShaderProgram(new GpuShaderProgramDesc
+                {
+                    BinaryFormat = _gpu.ShaderBinaryFormat,
+                    VertexShader = CompileShader(ForwardShaders.Source, "VS_ShadowTileClear", GpuShaderStage.Vertex),
+                    DebugName = "Local shadow tile clear",
+                });
+                _shadowSkinnedProgram = _gpu.CreateShaderProgram(new GpuShaderProgramDesc
+                {
+                    BinaryFormat = _gpu.ShaderBinaryFormat,
+                    VertexShader = CompileShader(ForwardShaders.Source, "VS_ShadowSkinned", GpuShaderStage.Vertex),
+                    DebugName = "Shadow far skinned",
+                });
+                _shadowSkinnedMidProgram = _gpu.CreateShaderProgram(new GpuShaderProgramDesc
+                {
+                    BinaryFormat = _gpu.ShaderBinaryFormat,
+                    VertexShader = CompileShader(ForwardShaders.Source, "VS_ShadowSkinnedMid", GpuShaderStage.Vertex),
+                    DebugName = "Shadow mid skinned",
+                });
+                _shadowSkinnedNearProgram = _gpu.CreateShaderProgram(new GpuShaderProgramDesc
+                {
+                    BinaryFormat = _gpu.ShaderBinaryFormat,
+                    VertexShader = CompileShader(ForwardShaders.Source, "VS_ShadowSkinnedNear", GpuShaderStage.Vertex),
+                    DebugName = "Shadow near skinned",
+                });
+            }
 
             CreateInputLayout();
             CreateSkinnedInputLayout();
@@ -1099,7 +1172,7 @@ namespace Genesis.Rendering.Primitives
             _cbDraw     = MakeCB<DrawCB>("Forward draw constants");
             _cbWater    = MakeCB<WaterCB>("Water constants");
             _cbShaderParameters = MakeCB<ShaderParametersCB>("Authored shader parameters");
-            _cbOmni = MakeCB<OmniShadowCB>("Omni shadow constants");
+            _cbOmni = MakeCB<LocalShadowCB>("Local shadow constants");
         }
 
         // ── Instance buffer ───────────────────────────────────────────────────────
@@ -1128,9 +1201,10 @@ namespace Genesis.Rendering.Primitives
             _shadowInstanceBuf = CreateStructuredBuffer<InstanceGpu>(MaxInstances, "Shadow instances");
             _clusterLightBuf = CreateStructuredBuffer<ClusterPointLightGpu>(
                 PointLightCapacity, "Clustered point lights");
+            // Packed clustered light lists: (offset, count) per cluster, then the light indices.
             _tileLightIndexBuf = CreateStructuredBuffer<uint>(
-                TiledLightDefaults.TileCount * TiledLightDefaults.MaxLightsPerTile,
-                "Tile light indices");
+                ClusteredLightDefaults.BufferWords,
+                "Clustered light lists");
         }
 
         // ── Shadow map ────────────────────────────────────────────────────────────
@@ -1158,15 +1232,6 @@ namespace Genesis.Rendering.Primitives
             _shadowNearTexture = _gpu.GetRenderTargetDepthTexture(_shadowNearTarget);
         }
 
-        private void CreateOmniShadowMaps()
-        {
-            for (int i = 0; i < 6; i++)
-            {
-                _omniTargets[i] = CreateDepthOnlyTarget(OmniMapSize, $"Omni face {i} target");
-                _omniTextures[i] = _gpu.GetRenderTargetDepthTexture(_omniTargets[i]);
-            }
-        }
-
         private void CreateFlatNormalMap()
         {
             // 1×1 texture containing (128,128,255,255) — the RGBA encoding of a flat normal (0,0,1) in tangent space.
@@ -1189,7 +1254,7 @@ namespace Genesis.Rendering.Primitives
 
         private void CreateSamplers()
         {
-            // Pixel textures retain point sampling; PBR surfaces use linear sampling.
+            // Pixel textures retain point sampling; oblique PBR surfaces need anisotropic filtering.
             _albedoSampler = _gpu.CreateSampler(new GpuSamplerDesc
             {
                 Filter = GpuFilter.Point,
@@ -1201,7 +1266,7 @@ namespace Genesis.Rendering.Primitives
             });
             _materialSampler = _gpu.CreateSampler(new GpuSamplerDesc
             {
-                Filter = GpuFilter.Linear, AddressU = GpuAddressMode.Wrap,
+                Filter = GpuFilter.Anisotropic, MaxAnisotropy = Math.Clamp(_gpu.Capabilities.MaxAnisotropy, 1, 8), AddressU = GpuAddressMode.Wrap,
                 AddressV = GpuAddressMode.Wrap, AddressW = GpuAddressMode.Wrap,
                 CompareOp = GpuCompare.Never, DebugName = "Forward PBR sampler",
             });
@@ -1297,6 +1362,13 @@ namespace Genesis.Rendering.Primitives
                 Compare = GpuCompare.Less,
             };
             _dssFogOff = GpuDepthState.Disabled;
+            // Writes far depth over one local shadow atlas tile regardless of what it held.
+            _dssAlways = new GpuDepthState
+            {
+                TestEnabled = true,
+                WriteEnabled = true,
+                Compare = GpuCompare.Always,
+            };
         }
 
         // ── Blend states ──────────────────────────────────────────────────────────
@@ -1822,10 +1894,13 @@ namespace Genesis.Rendering.Primitives
                 // HDR scene buffer (was 8-bit UNORM): lets bright highlights (sun disc, emissive
                 // fire/magic, sky) exceed 1.0 instead of clipping, so the always-on tonemap pass
                 // (FogPostShaders.PS) has real highlight data to roll off instead of crushed white.
-                ColorFormats = new[] { GpuFormat.R16G16B16A16Float, GpuFormat.R8UNorm },
-                DepthFormat = GpuFormat.D32Float,
+                // Attachment 1: r = fog flag (1 self-fogged, 0.5 engine-lit, 0 unknown/authored),
+                // gba = the pixel's pre-fog ambient term, so the composite's AO darkens only
+                // indirect light. Transparent draws write r alone (see the secondary blend state).
+                ColorFormats = new[] { GpuFormat.R16G16B16A16Float, GpuFormat.R16G16B16A16Float },
+                DepthFormat = GpuFormat.D24UNormS8UInt,
                 DepthSampleable = true,
-                DebugName = "Forward HDR scene and fog-skip MRT",
+                DebugName = "Forward HDR scene and fog/ambient MRT",
             });
             _sceneTexture = _gpu.GetRenderTargetTexture(_sceneTarget, 0);
             _fogSkipTexture = _gpu.GetRenderTargetTexture(_sceneTarget, 1);
@@ -1896,6 +1971,7 @@ namespace Genesis.Rendering.Primitives
                 BoundsRadius = boundsRadius,
                 VertexStride = stride,
                 VertexCount = vertices.Length,
+                Revision = ++_meshRevision,
             };
 
             if (_freeMeshIds.Count > 0)
@@ -1934,6 +2010,7 @@ namespace Genesis.Rendering.Primitives
                 BoundsRadius = boundsRadius,
                 VertexStride = stride,
                 VertexCount = vertices.Length,
+                Revision = ++_meshRevision,
                 IsSkinned = true,
             };
 
@@ -1956,6 +2033,7 @@ namespace Genesis.Rendering.Primitives
             var entry = new SkinPaletteEntry
             {
                 Buffer = CreateSkinMatrixBuffer(matrixCount),
+                Matrices = new Matrix4x4[matrixCount],
                 MatrixCount = matrixCount,
                 IsReleased = false,
             };
@@ -1991,9 +2069,7 @@ namespace Genesis.Rendering.Primitives
             if (!TryGetSkinPalette(handle.Id, out SkinPaletteEntry entry) || matrices.Length == 0)
                 return;
             int count = Math.Min(matrices.Length, entry.MatrixCount);
-            if (!_gpu.TryMapDiscard(entry.Buffer, out Span<byte> destination)) return;
-            MemoryMarshal.AsBytes(matrices[..count]).CopyTo(destination);
-            _gpu.Unmap(entry.Buffer);
+            matrices[..count].CopyTo(entry.Matrices);
         }
 
         public void ReleaseMesh(MeshHandle handle)
@@ -2035,6 +2111,7 @@ namespace Genesis.Rendering.Primitives
             // preserves the persistent allocation across frames on every retained backend.
             _gpu.UpdateBuffer(entry.VB, MemoryMarshal.AsBytes(vertices));
             ComputeBounds(vertices, out entry.BoundsCenter, out entry.BoundsRadius);
+            entry.Revision = ++_meshRevision;
         }
 
         private static void ComputeBounds(ReadOnlySpan<MeshVertex> vertices, out Vector3 center, out float radius)
@@ -2103,18 +2180,40 @@ namespace Genesis.Rendering.Primitives
         }
         public void AddDeltaTime(float dt)       => _time += dt;
 
+        private Vector3 _viewForward;
+
         public void SetCamera(Matrix4x4 view, Matrix4x4 proj)
         {
             _view = view;
             _proj = proj;
 
-            // Perspective LH (D3dMatrixHelper): M22=zf, M23=1, M32=-near*zf.
-            if (MathF.Abs(proj.M23) > 0.5f && MathF.Abs(proj.M22) > 1e-6f)
-                _nearPlane = MathF.Max(0.01f, -proj.M32 / proj.M22);
+            // Row-vector perspective (Conventions.CreatePerspective / D3dMatrixHelper, LH): M33 = zf,
+            // M34 = 1, M43 = -near*zf. System.Numerics RH projections used by editors have M34 = -1
+            // and M43/M33 = near with the opposite sign, so the magnitude covers both. The old test
+            // read M23 (always 0 here), leaving the near plane and FOV at their defaults.
+            if (MathF.Abs(proj.M34) > 0.5f && MathF.Abs(proj.M33) > 1e-6f)
+                _nearPlane = MathF.Max(0.01f, MathF.Abs(proj.M43 / proj.M33));
 
             Matrix4x4.Invert(view, out var inv);
             _cameraPos = new Vector3(inv.M41, inv.M42, inv.M43);
             _frustum   = new Frustum(_view * _proj);
+            // The true viewing direction, for either handedness or projection: clip z (depth) grows
+            // along it. Cascade placement used to trust Mesh3DState.CameraForward, which callers set
+            // by hand; a caller that left it stale put every sun cascade behind the camera.
+            Matrix4x4 viewProjection = _view * _proj;
+            Vector3 depthAxis = new(viewProjection.M13, viewProjection.M23, viewProjection.M33);
+            _viewForward = depthAxis.LengthSquared() > 1e-12f ? Vector3.Normalize(depthAxis) : Vector3.Zero;
+            // With planar water reflections, objects outside the main view can still appear in the
+            // mirror. Culling used to be switched off for the entire scene whenever reflections were
+            // enabled; instead also accept anything inside last frame's reflected frustum.
+            _hasReflectionFrustum = false;
+            if (_lastReflectionActive
+                && PlanarReflectionMath.TryCreate(_view, _proj, _cameraPos, _lastReflectionPlaneHeight,
+                    out Matrix4x4 reflectedView, out Matrix4x4 reflectedProjection, out _))
+            {
+                _reflectionFrustum = new Frustum(reflectedView * reflectedProjection);
+                _hasReflectionFrustum = true;
+            }
             RefreshCascadeCache();
         }
 
@@ -2137,8 +2236,8 @@ namespace Genesis.Rendering.Primitives
 
         private static float EstimateVerticalFov(in Matrix4x4 proj)
         {
-            // Perspective: M22 ≈ 1 / tan(fovY/2). Ortho falls back to 60°.
-            if (MathF.Abs(proj.M23) > 0.5f && MathF.Abs(proj.M22) > 1e-5f)
+            // Perspective: M22 ≈ 1 / tan(fovY/2), identified by the w = ±z column (M34). Ortho falls back to 60°.
+            if (MathF.Abs(proj.M34) > 0.5f && MathF.Abs(proj.M22) > 1e-5f)
                 return Math.Clamp(2f * MathF.Atan(1f / MathF.Abs(proj.M22)), 0.2f, 2.8f);
             return MathF.PI / 3f;
         }
@@ -2160,11 +2259,11 @@ namespace Genesis.Rendering.Primitives
             float intensity = 1f,
             float falloff = 2f)
         {
-            if (_pointLightCount >= RenderCapacityDefaults.EffectiveShadedLightCap) return;
+            if (_pointLightCount >= PointLightCapacity) return;
             _pointLights[_pointLightCount++] = new ClusterPointLightGpu
             {
                 PosRadius      = new Vector4(position, radius),
-                ColorIntensity = new Vector4(color, intensity),
+                ColorIntensity = new Vector4(ToLinearColor(color), intensity),
                 FalloffPad     = new Vector4(Math.Clamp(falloff, 0.05f, 16f), 0f, 0f, 0f),
             };
         }
@@ -2176,13 +2275,17 @@ namespace Genesis.Rendering.Primitives
         /// <summary>Add a placeable analytic fog volume for this frame (max 8; excess silently ignored).</summary>
         public void AddFogVolume(FogVolume volume)
         {
-            if (_fogVolumeCount >= 8) return;
+            if (_fogVolumeCount >= MaxFogVolumes) return;
             _fogVolumes[_fogVolumeCount++] = new FogVolumeData
             {
                 CenterDensity  = new Vector4(volume.Center, volume.Density),
                 ExtentsFalloff = new Vector4(volume.Extents, volume.FalloffCurve),
-                ColorShape     = new Vector4(volume.Color, (float)volume.Shape),
-                KindPad        = new Vector4((float)volume.Kind, 0f, 0f, 0f),
+                ColorShape     = new Vector4(ToLinearColor(volume.Color), (float)volume.Shape),
+                KindDirection  = new Vector4(
+                    (float)volume.Kind,
+                    volume.Direction.X,
+                    volume.Direction.Y,
+                    volume.Direction.Z),
             };
         }
 
@@ -2297,6 +2400,7 @@ namespace Genesis.Rendering.Primitives
         /// <summary>Clear pending submits from the previous frame (or after a skipped flush).</summary>
         public void BeginSubmitFrame()
         {
+            _submitFrameId++;
             ClearAccumulators();
             _pointLightCount = 0;
             _fogVolumeCount = 0;
@@ -2329,6 +2433,9 @@ namespace Genesis.Rendering.Primitives
 
             LastItemsSubmitted++;
 
+            if (RuntimePassMode(shader) != Genesis.Shared.Assets.ShaderMeshPassMode.Surface)
+                flags |= MeshDrawFlags.NoShadow;
+
             bool isWater     = (flags & MeshDrawFlags.Water)       != 0;
             bool isFloor     = (flags & MeshDrawFlags.IsFloor)      != 0;
             bool noDepthWr   = (flags & MeshDrawFlags.NoDepthWrite) != 0;
@@ -2343,6 +2450,7 @@ namespace Genesis.Rendering.Primitives
             bool noDepthTest = (flags & MeshDrawFlags.NoDepthTest)  != 0;
             bool foliage     = (flags & MeshDrawFlags.Foliage)      != 0;
             bool gpuSkinned  = meshEntrySource.IsSkinned && skinPalette.IsValid && TryGetSkinPalette(skinPalette.Id, out _);
+            if (gpuSkinned) _submittedSkinPalettes.Add(skinPalette.Id);
 
             if (isWater)
             {
@@ -2363,10 +2471,11 @@ namespace Genesis.Rendering.Primitives
 
             // Chunk-level frustum rejection: if the chunk is registered and fully outside frustum,
             // skip the entire submit (no per-instance test needed).
-            if (chunkId > 0 && _state.FrustumCullingEnabled && !Genesis.Rendering.Core.EngineRenderingDefaults.WaterReflections
+            if (chunkId > 0 && _state.FrustumCullingEnabled
                 && _chunkBounds.TryGetValue(chunkId, out var chunkBox))
             {
-                if (!_frustum.ContainsBox(chunkBox.Min, chunkBox.Max))
+                if (!_frustum.ContainsBox(chunkBox.Min, chunkBox.Max)
+                    && !(_hasReflectionFrustum && _reflectionFrustum.ContainsBox(chunkBox.Min, chunkBox.Max)))
                 {
                     LastInstancesCulled++;
                     return;
@@ -2374,11 +2483,12 @@ namespace Genesis.Rendering.Primitives
             }
 
             bool visible = true;
-            if (_state.FrustumCullingEnabled && !Genesis.Rendering.Core.EngineRenderingDefaults.WaterReflections && !isFloor && !noDepthWr)
+            if (_state.FrustumCullingEnabled && !isFloor && !noDepthWr)
             {
                 Vector3 worldCenter = Vector3.Transform(meshEntrySource.BoundsCenter, world);
                 float worldRadius = meshEntrySource.BoundsRadius * MatrixScaleHelper.MaxScale(world);
-                if (!_frustum.ContainsSphere(worldCenter, worldRadius))
+                if (!_frustum.ContainsSphere(worldCenter, worldRadius)
+                    && !(_hasReflectionFrustum && _reflectionFrustum.ContainsSphere(worldCenter, worldRadius)))
                 {
                     LastInstancesCulled++;
                     visible = false;
@@ -2399,6 +2509,9 @@ namespace Genesis.Rendering.Primitives
                         MeshId = mesh.Id,
                         TextureId = textureId != 0 ? textureId : texture.Id,
                         SkinPaletteId = skinPalette.Id,
+                        NormalId = normalId != 0 ? normalId : normal.Id,
+                        OrmId = ormId != 0 ? ormId : orm.Id,
+                        EmissionId = emissionId != 0 ? emissionId : emission.Id,
                         NoFog = noFog,
                         NoReceiveShadow = noReceiveShadow,
                         Emissive = emissive,
@@ -2409,20 +2522,24 @@ namespace Genesis.Rendering.Primitives
                     };
                     if (!_skinnedBatches.TryGetValue(sKey, out var sBatch))
                     {
-                        sBatch = new SkinnedBatch
-                        {
-                            MeshId = mesh.Id,
-                            TextureId = textureId,
-                            SkinPaletteId = skinPalette.Id,
-                            Texture = texture,
-                            Emissive = emissive,
-                            NoFog = noFog,
-                            NoReceiveShadow = noReceiveShadow,
-                            RasterOverride = rasterOverride,
-                            Shader = shader,
-                            ShaderParams0 = shaderParams0, ShaderParams1 = shaderParams1,
-                            ShaderParams2 = shaderParams2, ShaderParams3 = shaderParams3, AuthoredTextures = authoredTextures,
-                        };
+                        sBatch = RentSkinnedBatch();
+                        sBatch.MeshId = mesh.Id;
+                        sBatch.TextureId = textureId;
+                        sBatch.SkinPaletteId = skinPalette.Id;
+                        sBatch.Texture = texture;
+                        sBatch.Normal = normal;
+                        sBatch.Orm = orm;
+                        sBatch.Emission = emission;
+                        sBatch.Emissive = emissive;
+                        sBatch.NoFog = noFog;
+                        sBatch.NoReceiveShadow = noReceiveShadow;
+                        sBatch.RasterOverride = rasterOverride;
+                        sBatch.Shader = shader;
+                        sBatch.ShaderParams0 = shaderParams0;
+                        sBatch.ShaderParams1 = shaderParams1;
+                        sBatch.ShaderParams2 = shaderParams2;
+                        sBatch.ShaderParams3 = shaderParams3;
+                        sBatch.AuthoredTextures = authoredTextures;
                         _skinnedBatches[sKey] = sBatch;
                         _skinnedBatchList.Add(sBatch);
                     }
@@ -2430,6 +2547,22 @@ namespace Genesis.Rendering.Primitives
                     {
                         sBatch.Instances.Add(new InstanceGpu { World = world, Color = color, AtlasData = atlasData });
                         LastInstancesDrawn++;
+                    }
+                    // Skinned meshes used to return here without ever reaching the shadow lists, so
+                    // every animated character was shadowless.
+                    if (!noShadow && _shadowSkinnedProgram.IsValid)
+                    {
+                        // Cascade membership is decided in ClassifyShadowCasters once the light
+                        // matrices for this frame are known.
+                        _skinnedShadowCasters.Add(new SkinnedShadowCaster
+                        {
+                            MeshId = mesh.Id,
+                            PaletteId = skinPalette.Id,
+                            World = world,
+                            RasterOverride = rasterOverride,
+                            Center = Vector3.Transform(meshEntrySource.BoundsCenter, world),
+                            Radius = meshEntrySource.BoundsRadius * MatrixScaleHelper.MaxScale(world),
+                        });
                     }
                     return;
                 }
@@ -2467,8 +2600,14 @@ namespace Genesis.Rendering.Primitives
                     NoFog = noFog, Emissive = emissive };
                 if (!_transBatches.TryGetValue(tkey, out var tb))
                 {
-                    tb = new TransBatch { MeshId = mesh.Id, TextureId = textureId, Texture = texture,
-                        Normal = normal, BlendMode = blendMode, Emissive = emissive, NoFog = noFog };
+                    tb = RentTransBatch();
+                    tb.MeshId = mesh.Id;
+                    tb.TextureId = textureId;
+                    tb.Texture = texture;
+                    tb.Normal = normal;
+                    tb.BlendMode = blendMode;
+                    tb.Emissive = emissive;
+                    tb.NoFog = noFog;
                     _transBatches[tkey] = tb;
                     _transBatchList.Add(tb);
                 }
@@ -2528,32 +2667,32 @@ namespace Genesis.Rendering.Primitives
                 };
                 if (!_batches.TryGetValue(floorKey, out var floorBatch))
                 {
-                    floorBatch = new Batch
-                    {
-                        MeshId = mesh.Id,
-                        TextureId = textureId,
-                        Texture = texture,
-                        Normal = normal,
-                        Orm = orm,
-                        Height = height,
-                        Emission = emission,
-                        Extras = extras,
-                        Flow = flow,
-                        HeightMode = heightMode,
-                        SurfaceParams = surfaceParams,
-                        DetailParams = detailParams,
-                        SubsurfaceColorSteps = subsurfaceColorSteps,
-                        Emissive = emissive,
-                        NoFog = noFog,
-                        NoReceiveShadow = noReceiveShadow,
-                        TerrainGround = terrainGround,
-                        RasterOverride = rasterOverride,
-                        IsFloor = true,
-                        Shader = shader,
-                        ShaderParams0 = shaderParams0, ShaderParams1 = shaderParams1,
-                        ShaderParams2 = shaderParams2, ShaderParams3 = shaderParams3,
-                        AuthoredTextures = authoredTextures,
-                    };
+                    floorBatch = RentBatch();
+                    floorBatch.MeshId = mesh.Id;
+                    floorBatch.TextureId = textureId;
+                    floorBatch.Texture = texture;
+                    floorBatch.Normal = normal;
+                    floorBatch.Orm = orm;
+                    floorBatch.Height = height;
+                    floorBatch.Emission = emission;
+                    floorBatch.Extras = extras;
+                    floorBatch.Flow = flow;
+                    floorBatch.HeightMode = heightMode;
+                    floorBatch.SurfaceParams = surfaceParams;
+                    floorBatch.DetailParams = detailParams;
+                    floorBatch.SubsurfaceColorSteps = subsurfaceColorSteps;
+                    floorBatch.Emissive = emissive;
+                    floorBatch.NoFog = noFog;
+                    floorBatch.NoReceiveShadow = noReceiveShadow;
+                    floorBatch.TerrainGround = terrainGround;
+                    floorBatch.RasterOverride = rasterOverride;
+                    floorBatch.IsFloor = true;
+                    floorBatch.Shader = shader;
+                    floorBatch.ShaderParams0 = shaderParams0;
+                    floorBatch.ShaderParams1 = shaderParams1;
+                    floorBatch.ShaderParams2 = shaderParams2;
+                    floorBatch.ShaderParams3 = shaderParams3;
+                    floorBatch.AuthoredTextures = authoredTextures;
                     _batches[floorKey] = floorBatch;
                     _batchList.Add(floorBatch);
                 }
@@ -2573,18 +2712,13 @@ namespace Genesis.Rendering.Primitives
                     var shKey = new ShadowBatchKey { MeshId = shadowMeshId, RasterOverride = rasterOverride };
                     if (!_shadowBatches.TryGetValue(shKey, out var shBatch))
                     {
-                        shBatch = new ShadowBatch { MeshId = shadowMeshId, RasterOverride = rasterOverride };
+                        shBatch = RentShadowBatch();
+                        shBatch.MeshId = shadowMeshId;
+                        shBatch.RasterOverride = rasterOverride;
                         _shadowBatches[shKey] = shBatch;
                         _shadowBatchList.Add(shBatch);
                     }
-                    shBatch.FarInstances.Add(floorInst);
-                    Vector3 worldCenter = Vector3.Transform(meshEntrySource.BoundsCenter, world);
-                    float distSq = Vector3.DistanceSquared(_cameraPos, worldCenter);
-                    if (_cascade.CascadeCount >= 3
-                        && distSq <= _cascade.MidExtent * _cascade.MidExtent)
-                        shBatch.MidInstances.Add(floorInst);
-                    if (distSq <= _cascade.NearExtent * _cascade.NearExtent)
-                        shBatch.NearInstances.Add(floorInst);
+                    AddShadowCaster(shBatch, floorInst, meshEntrySource.BoundsCenter, meshEntrySource.BoundsRadius);
                 }
                 return;
             }
@@ -2627,11 +2761,22 @@ namespace Genesis.Rendering.Primitives
                     ShaderParams2 = shaderParams2, ShaderParams3 = shaderParams3, AuthoredTextures = authoredTextures };
                 if (!_batches.TryGetValue(fKey, out var fBatch))
                 {
-                    fBatch = new Batch { MeshId = mesh.Id, TextureId = textureId, Texture = texture,
-                        Normal = normal, Emissive = emissive, NoFog = noFog, NoReceiveShadow = noReceiveShadow,
-                        Foliage = true, RasterOverride = foliageRasterOverride,
-                        Shader = shader, ShaderParams0 = shaderParams0, ShaderParams1 = shaderParams1,
-                        ShaderParams2 = shaderParams2, ShaderParams3 = shaderParams3, AuthoredTextures = authoredTextures };
+                    fBatch = RentBatch();
+                    fBatch.MeshId = mesh.Id;
+                    fBatch.TextureId = textureId;
+                    fBatch.Texture = texture;
+                    fBatch.Normal = normal;
+                    fBatch.Emissive = emissive;
+                    fBatch.NoFog = noFog;
+                    fBatch.NoReceiveShadow = noReceiveShadow;
+                    fBatch.Foliage = true;
+                    fBatch.RasterOverride = foliageRasterOverride;
+                    fBatch.Shader = shader;
+                    fBatch.ShaderParams0 = shaderParams0;
+                    fBatch.ShaderParams1 = shaderParams1;
+                    fBatch.ShaderParams2 = shaderParams2;
+                    fBatch.ShaderParams3 = shaderParams3;
+                    fBatch.AuthoredTextures = authoredTextures;
                     _batches[fKey] = fBatch;
                     _batchList.Add(fBatch);
                 }
@@ -2658,15 +2803,31 @@ namespace Genesis.Rendering.Primitives
                 DetailParams = detailParams, SubsurfaceColorSteps = subsurfaceColorSteps, Emissive = emissive };
             if (!_batches.TryGetValue(key, out var batch))
             {
-                batch = new Batch { MeshId = mesh.Id, TextureId = textureId, Texture = texture,
-                    Normal = normal, Orm = orm, Height = height,
-                    Emission = emission, Extras = extras, Flow = flow,
-                    HeightMode = heightMode, SurfaceParams = surfaceParams, DetailParams = detailParams,
-                    SubsurfaceColorSteps = subsurfaceColorSteps, Emissive = emissive, NoFog = noFog,
-                    NoReceiveShadow = noReceiveShadow,
-                    TerrainGround = terrainGround, RasterOverride = rasterOverride,
-                    Shader = shader, ShaderParams0 = shaderParams0, ShaderParams1 = shaderParams1,
-                    ShaderParams2 = shaderParams2, ShaderParams3 = shaderParams3, AuthoredTextures = authoredTextures };
+                batch = RentBatch();
+                batch.MeshId = mesh.Id;
+                batch.TextureId = textureId;
+                batch.Texture = texture;
+                batch.Normal = normal;
+                batch.Orm = orm;
+                batch.Height = height;
+                batch.Emission = emission;
+                batch.Extras = extras;
+                batch.Flow = flow;
+                batch.HeightMode = heightMode;
+                batch.SurfaceParams = surfaceParams;
+                batch.DetailParams = detailParams;
+                batch.SubsurfaceColorSteps = subsurfaceColorSteps;
+                batch.Emissive = emissive;
+                batch.NoFog = noFog;
+                batch.NoReceiveShadow = noReceiveShadow;
+                batch.TerrainGround = terrainGround;
+                batch.RasterOverride = rasterOverride;
+                batch.Shader = shader;
+                batch.ShaderParams0 = shaderParams0;
+                batch.ShaderParams1 = shaderParams1;
+                batch.ShaderParams2 = shaderParams2;
+                batch.ShaderParams3 = shaderParams3;
+                batch.AuthoredTextures = authoredTextures;
                 _batches[key] = batch;
                 _batchList.Add(batch);
             }
@@ -2686,18 +2847,13 @@ namespace Genesis.Rendering.Primitives
                 var shKey = new ShadowBatchKey { MeshId = shadowMeshId, RasterOverride = rasterOverride };
                 if (!_shadowBatches.TryGetValue(shKey, out var shBatch))
                 {
-                    shBatch = new ShadowBatch { MeshId = shadowMeshId, RasterOverride = rasterOverride };
+                    shBatch = RentShadowBatch();
+                    shBatch.MeshId = shadowMeshId;
+                    shBatch.RasterOverride = rasterOverride;
                     _shadowBatches[shKey] = shBatch;
                     _shadowBatchList.Add(shBatch);
                 }
-                shBatch.FarInstances.Add(inst);
-                Vector3 worldCenter = Vector3.Transform(meshEntrySource.BoundsCenter, world);
-                float distSq = Vector3.DistanceSquared(_cameraPos, worldCenter);
-                if (_cascade.CascadeCount >= 3
-                    && distSq <= _cascade.MidExtent * _cascade.MidExtent)
-                    shBatch.MidInstances.Add(inst);
-                if (distSq <= _cascade.NearExtent * _cascade.NearExtent)
-                    shBatch.NearInstances.Add(inst);
+                AddShadowCaster(shBatch, inst, meshEntrySource.BoundsCenter, meshEntrySource.BoundsRadius);
             }
         }
 
@@ -2722,6 +2878,8 @@ namespace Genesis.Rendering.Primitives
             AuthoredGpuTextures authoredTextures = default)
         {
             if (!mesh.IsValid || instances.IsEmpty || !TryGetMesh(mesh.Id, out MeshEntry meshEntrySource)) return;
+            if (RuntimePassMode(shader) != Genesis.Shared.Assets.ShaderMeshPassMode.Surface)
+                flags |= MeshDrawFlags.NoShadow;
 
             bool transparent = (flags & MeshDrawFlags.Transparent) != 0;
             bool additive = (flags & MeshDrawFlags.Additive) != 0;
@@ -2747,16 +2905,14 @@ namespace Genesis.Rendering.Primitives
                 };
                 if (!_transBatches.TryGetValue(tkey, out TransBatch tb))
                 {
-                    tb = new TransBatch
-                    {
-                        MeshId = mesh.Id,
-                        TextureId = textureId,
-                        Texture = texture,
-                        Normal = normal,
-                        BlendMode = blendMode,
-                        Emissive = emissive,
-                        NoFog = noFog,
-                    };
+                    tb = RentTransBatch();
+                    tb.MeshId = mesh.Id;
+                    tb.TextureId = textureId;
+                    tb.Texture = texture;
+                    tb.Normal = normal;
+                    tb.BlendMode = blendMode;
+                    tb.Emissive = emissive;
+                    tb.NoFog = noFog;
                     _transBatches[tkey] = tb;
                     _transBatchList.Add(tb);
                 }
@@ -2828,26 +2984,24 @@ namespace Genesis.Rendering.Primitives
             };
             if (!_batches.TryGetValue(key, out Batch batch))
             {
-                batch = new Batch
-                {
-                    MeshId = mesh.Id,
-                    TextureId = textureId,
-                    Texture = texture,
-                    Normal = normal,
-                    Emissive = emissive,
-                    NoFog = noFog,
-                    NoReceiveShadow = noReceiveShadow,
-                    TerrainGround = terrainGround,
-                    Foliage = foliage,
-                    IsFloor = isFloor,
-                    RasterOverride = rasterOverride,
-                    Shader = shader,
-                    ShaderParams0 = shaderParams0,
-                    ShaderParams1 = shaderParams1,
-                    ShaderParams2 = shaderParams2,
-                    ShaderParams3 = shaderParams3,
-                    AuthoredTextures = authoredTextures,
-                };
+                batch = RentBatch();
+                batch.MeshId = mesh.Id;
+                batch.TextureId = textureId;
+                batch.Texture = texture;
+                batch.Normal = normal;
+                batch.Emissive = emissive;
+                batch.NoFog = noFog;
+                batch.NoReceiveShadow = noReceiveShadow;
+                batch.TerrainGround = terrainGround;
+                batch.Foliage = foliage;
+                batch.IsFloor = isFloor;
+                batch.RasterOverride = rasterOverride;
+                batch.Shader = shader;
+                batch.ShaderParams0 = shaderParams0;
+                batch.ShaderParams1 = shaderParams1;
+                batch.ShaderParams2 = shaderParams2;
+                batch.ShaderParams3 = shaderParams3;
+                batch.AuthoredTextures = authoredTextures;
                 _batches[key] = batch;
                 _batchList.Add(batch);
             }
@@ -2868,18 +3022,13 @@ namespace Genesis.Rendering.Primitives
                     var shKey = new ShadowBatchKey { MeshId = mesh.Id, RasterOverride = rasterOverride };
                     if (!_shadowBatches.TryGetValue(shKey, out ShadowBatch shBatch))
                     {
-                        shBatch = new ShadowBatch { MeshId = mesh.Id, RasterOverride = rasterOverride };
+                        shBatch = RentShadowBatch();
+                        shBatch.MeshId = mesh.Id;
+                        shBatch.RasterOverride = rasterOverride;
                         _shadowBatches[shKey] = shBatch;
                         _shadowBatchList.Add(shBatch);
                     }
-                    shBatch.FarInstances.Add(inst);
-                    Vector3 worldCenter = Vector3.Transform(meshEntrySource.BoundsCenter, instance.World);
-                    float distSq = Vector3.DistanceSquared(_cameraPos, worldCenter);
-                    if (_cascade.CascadeCount >= 3
-                        && distSq <= _cascade.MidExtent * _cascade.MidExtent)
-                        shBatch.MidInstances.Add(inst);
-                    if (distSq <= _cascade.NearExtent * _cascade.NearExtent)
-                        shBatch.NearInstances.Add(inst);
+                    AddShadowCaster(shBatch, inst, meshEntrySource.BoundsCenter, meshEntrySource.BoundsRadius);
                 }
             }
 
@@ -2937,6 +3086,7 @@ namespace Genesis.Rendering.Primitives
         {
             if (!depthTexture.IsValid)
             {
+                _froxelsActiveThisFrame = false;
                 _screenFogActiveThisFrame = false;
                 _smokeExtinctionActiveThisFrame = false;
                 LastAoMs = 0;
@@ -2951,23 +3101,42 @@ namespace Genesis.Rendering.Primitives
 
             BeginGpuTiming();
 
+            // Dynamic uploads are frame-local on DX12. An unchanged/paused pose must
+            // survive upload-ring reuse, so re-upload only palettes submitted this frame.
+            foreach (int paletteId in _submittedSkinPalettes)
+            {
+                if (!TryGetSkinPalette(paletteId, out SkinPaletteEntry palette)) continue;
+                if (!_gpu.TryMapDiscard(palette.Buffer, out Span<byte> destination)) continue;
+                MemoryMarshal.AsBytes(palette.Matrices.AsSpan()).CopyTo(destination);
+                _gpu.Unmap(palette.Buffer);
+            }
+            _submittedSkinPalettes.Clear();
+
             _rtWidth  = viewW;
             _rtHeight = viewH;
 
             LastDrawCalls = 0;
             LastTriangles = 0;
             LastShadowCasterCount = 0;
+            LastShadowCascadesRendered = 0;
 
             _shadowsActiveThisFrame = _state.ShadowsEnabled && _state.LightingEnabled && HasShadowCasters();
             if (_shadowsActiveThisFrame)
                 ShadowPass();
 
-            _omniActiveThisFrame = false;
-            _omniLightIndex = -1;
-            if (ShouldRunOmniShadows())
-                OmniShadowPass();
+            if (ShouldRunLocalShadows())
+                LocalShadowPass();
             else
-                UploadOmniShadowCB(active: false);
+                SkipLocalShadows();
+
+            // Froxel volumetric fog: after every shadow map it samples, before any pass that fogs a
+            // surface (reflection, main, water and the post composite all read the integrated volume).
+            {
+                Matrix4x4 froxelFar = ComputeLightViewProj(ShadowCascadeKind.Far);
+                Matrix4x4 froxelMid = _cascade.CascadeCount >= 3 ? ComputeLightViewProj(ShadowCascadeKind.Mid) : froxelFar;
+                Matrix4x4 froxelNear = ComputeLightViewProj(ShadowCascadeKind.Near);
+                FroxelFogPass(froxelFar, froxelNear, froxelMid);
+            }
 
             SortBatchesByDistance(_cameraPos);
             LastBatchCount = _batchList.Count + _skinnedBatchList.Count;
@@ -3020,10 +3189,10 @@ namespace Genesis.Rendering.Primitives
                     ContactShadowPass(postDepth, viewW, viewH);
                 else
                     LastContactShadowMs = 0;
-                bool runLocalVol = ShouldRunLocalVolumetrics(canPost)
-                    && LocalVolumetricPass(postDepth, viewW, viewH);
-                if (!runLocalVol)
-                    LastLocalVolumetricMs = 0;
+                // Local lights now scatter inside the froxel volume (shadowed, fog-density aware),
+                // which retires the separate half-resolution local-light pass.
+                bool runLocalVol = false;
+                LastLocalVolumetricMs = 0;
                 // AF1.6 has no pass of its own — the volumes ride the composite's own cbuffer, so
                 // all that happens here is deciding whether to pack them.
                 _smokeExtinctionActiveThisFrame = ShouldRunSmokeExtinction(canPost);
@@ -3155,6 +3324,11 @@ namespace Genesis.Rendering.Primitives
 
             BindCommonShaderState(shadowPass: false);
             _gpu.SetShaderProgram(CurrentForwardProgram(skinned: false));
+            // View models draw after the composite, straight into the display target: under the
+            // linear pipeline the forward shader must encode their output to sRGB itself.
+            _encodeOutputThisPass = LinearPipeline;
+            UploadEngineCB();
+            _encodeOutputThisPass = false;
             _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 0, _cbPerFrame);
             _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 1, _cbEngine);
             _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 2, _cbDraw);
@@ -3239,21 +3413,184 @@ namespace Genesis.Rendering.Primitives
 
         private bool HasShadowCasters()
         {
-            if (_state.ShowFloor && FloorMesh.IsValid)
-                return true;
+            // The environment floor alone cannot shadow anything (nothing lies beneath it), so a
+            // floor-only scene no longer pays for every cascade and omni face just to draw it.
             foreach (var b in _shadowBatchList)
-                if (b.FarInstances.Count > 0) return true;
-            return false;
+                if (b.Casters.Count > 0) return true;
+            return _skinnedShadowCasters.Count > 0;
+        }
+
+        private void AddShadowCaster(ShadowBatch batch, in InstanceGpu instance, Vector3 localCenter, float localRadius)
+        {
+            batch.Casters.Add(instance);
+            batch.CasterBounds.Add(new Vector4(
+                Vector3.Transform(localCenter, instance.World),
+                localRadius * MatrixScaleHelper.MaxScale(instance.World)));
+            int revision = TryGetMesh(batch.MeshId, out MeshEntry mesh) ? mesh.Revision : 0;
+            ulong hash = FoldCasterSignature(1469598103934665603UL, batch.MeshId, revision, instance.World);
+            batch.CasterHashes.Add((hash ^ (ulong)batch.RasterOverride) * 1099511628211UL);
+        }
+
+        // Static shadow caching: a cascade is re-rendered only when its light matrix or the set of
+        // casters inside it changes. A still camera over a static scene re-renders no cascade.
+        private readonly ulong[] _cascadeSignature = new ulong[3];
+        private readonly bool[] _cascadeValid = new bool[3];
+        private readonly ulong[] _cascadeSignatureScratch = new ulong[3];
+        private readonly bool[] _cascadeDynamicScratch = new bool[3];
+
+        /// <summary>Sun shadow cascades re-rendered in the last frame (0 when all were cached).</summary>
+        public int LastShadowCascadesRendered { get; private set; }
+
+        /// <summary>SplitMix64 finaliser; summing mixed hashes gives an order-independent set signature.</summary>
+        private static ulong MixSignature(ulong value)
+        {
+            value += 0x9E3779B97F4A7C15UL;
+            value = (value ^ (value >> 30)) * 0xBF58476D1CE4E5B9UL;
+            value = (value ^ (value >> 27)) * 0x94D049BB133111EBUL;
+            return value ^ (value >> 31);
+        }
+
+        private static ulong MatrixSignature(in Matrix4x4 matrix) =>
+            FoldCasterSignature(1469598103934665603UL, 0, 0, matrix);
+
+        /// <summary>
+        /// Sorts this frame's casters into the cascades whose light-space box they can shadow.
+        /// Every caster used to be drawn into the far cascade, and the near and mid cascades chose
+        /// casters by the distance from camera to centre, so large or tall occluders outside that
+        /// radius lost their shadow where the near cascade took over.
+        /// </summary>
+        private void ClassifyShadowCasters(in Matrix4x4 lightVPFar, in Matrix4x4 lightVPMid, in Matrix4x4 lightVPNear)
+        {
+            bool mid = _cascade.CascadeCount >= 3;
+            // Signatures start from each cascade's light matrix; the far cascade also draws the floor.
+            _cascadeSignatureScratch[0] = MatrixSignature(lightVPFar);
+            _cascadeSignatureScratch[1] = MatrixSignature(lightVPMid);
+            _cascadeSignatureScratch[2] = MatrixSignature(lightVPNear);
+            if (_state.ShowFloor && FloorMesh.IsValid)
+                _cascadeSignatureScratch[0] += MixSignature(MatrixSignature(GetFloorWorldMatrix()));
+            Array.Clear(_cascadeDynamicScratch);
+            foreach (ShadowBatch batch in _shadowBatchList)
+            {
+                batch.FarInstances.Clear();
+                batch.MidInstances.Clear();
+                batch.NearInstances.Clear();
+                for (int i = 0; i < batch.Casters.Count; i++)
+                {
+                    Vector4 bounds = batch.CasterBounds[i];
+                    Vector3 center = new(bounds.X, bounds.Y, bounds.Z);
+                    if (!CascadeShadowMath.CasterReachesCascade(lightVPFar, center, bounds.W)) continue;
+                    InstanceGpu instance = batch.Casters[i];
+                    ulong mixed = MixSignature(batch.CasterHashes[i]);
+                    batch.FarInstances.Add(instance);
+                    _cascadeSignatureScratch[0] += mixed;
+                    if (mid && CascadeShadowMath.CasterReachesCascade(lightVPMid, center, bounds.W))
+                    {
+                        batch.MidInstances.Add(instance);
+                        _cascadeSignatureScratch[1] += mixed;
+                    }
+                    if (CascadeShadowMath.CasterReachesCascade(lightVPNear, center, bounds.W))
+                    {
+                        batch.NearInstances.Add(instance);
+                        _cascadeSignatureScratch[2] += mixed;
+                    }
+                }
+            }
+
+            var skinned = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_skinnedShadowCasters);
+            for (int i = 0; i < skinned.Length; i++)
+            {
+                ref SkinnedShadowCaster caster = ref skinned[i];
+                caster.Far = CascadeShadowMath.CasterReachesCascade(lightVPFar, caster.Center, caster.Radius);
+                caster.Mid = caster.Far && mid
+                    && CascadeShadowMath.CasterReachesCascade(lightVPMid, caster.Center, caster.Radius);
+                caster.Near = caster.Far
+                    && CascadeShadowMath.CasterReachesCascade(lightVPNear, caster.Center, caster.Radius);
+                // Skinned casters animate without their transform changing: never cache over them.
+                _cascadeDynamicScratch[0] |= caster.Far;
+                _cascadeDynamicScratch[1] |= caster.Mid;
+                _cascadeDynamicScratch[2] |= caster.Near;
+            }
+        }
+
+        /// <summary>True when cascade <paramref name="index"/> must be re-rendered this frame; records it as rendered.</summary>
+        private bool TakeDirtyCascade(int index)
+        {
+            bool dirty = !_cascadeValid[index]
+                || _cascadeSignature[index] != _cascadeSignatureScratch[index]
+                || _cascadeDynamicScratch[index];
+            if (!dirty) return false;
+            _cascadeValid[index] = true;
+            _cascadeSignature[index] = _cascadeSignatureScratch[index];
+            LastShadowCascadesRendered++;
+            return true;
+        }
+
+        /// <summary>Draws this frame's GPU-skinned shadow casters into the bound shadow target.</summary>
+        private void DrawSkinnedShadowCasters(ShadowCascadeKind cascade)
+        {
+            if (_skinnedShadowCasters.Count == 0 || !_shadowSkinnedProgram.IsValid) return;
+            GpuShaderProgramHandle program = cascade switch
+            {
+                ShadowCascadeKind.Near => _shadowSkinnedNearProgram,
+                ShadowCascadeKind.Mid => _shadowSkinnedMidProgram,
+                _ => _shadowSkinnedProgram,
+            };
+            bool bound = false;
+            MeshDrawFlags lastRaster = (MeshDrawFlags)(-1);
+            foreach (SkinnedShadowCaster caster in _skinnedShadowCasters)
+            {
+                if (cascade == ShadowCascadeKind.Far && !caster.Far) continue;
+                if (cascade == ShadowCascadeKind.Near && !caster.Near) continue;
+                if (cascade == ShadowCascadeKind.Mid && !caster.Mid) continue;
+                if (cascade == ShadowCascadeKind.Omni && !caster.Omni) continue;
+                if (!TryGetMesh(caster.MeshId, out MeshEntry mesh)
+                    || !TryGetSkinPalette(caster.PaletteId, out SkinPaletteEntry palette)) continue;
+                if (!bound)
+                {
+                    _gpu.SetVertexLayout(_layoutSkinned);
+                    _gpu.SetShaderProgram(program);
+                    bound = true;
+                }
+                if (caster.RasterOverride != lastRaster)
+                {
+                    _gpu.SetRasterState(ShadowRasterizer(caster.RasterOverride));
+                    lastRaster = caster.RasterOverride;
+                }
+                SetMeshBuffers(ref mesh);
+                _gpu.SetStructuredBuffer(GpuShaderStage.Vertex, 12, palette.Buffer);
+                UploadDrawCB(caster.World, Vector4.One, 0f, 0f, 0f, 0f, 0, gpuSkinning: true);
+                _gpu.DrawIndexed(mesh.IndexCount);
+                LastDrawCalls++;
+                LastTriangles += mesh.IndexCount / 3;
+                LastShadowCasterCount++;
+            }
+            if (!bound) return;
+            _gpu.SetVertexLayout(_layout);
+            BindCommonShaderState(shadowPass: true, cascade);
+            _gpu.SetRasterState(_rsShadow);
         }
 
         private void SortBatchesByDistance(Vector3 cameraPos)
         {
             _sortCameraPos = cameraPos;
             if (_batchList.Count > 1)
+            {
+                for (int i = 0; i < _batchList.Count; i++) _batchList[i].SubmissionOrder = i;
                 _batchList.Sort(_batchDistCompare);
+            }
 
             if (_worldMeshes.Count > 1)
+            {
+                var worldMeshes = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_worldMeshes);
+                for (int i = 0; i < worldMeshes.Length; i++) worldMeshes[i].Order = i;
                 _worldMeshes.Sort(_worldMeshDistCompare);
+            }
+
+            // Alpha-blended particle instances composite correctly only far-to-near. Additive and
+            // multiply blends are order-independent, so they keep submission order.
+            foreach (TransBatch batch in _transBatchList)
+                if (batch.BlendMode == 0 && batch.Instances.Count is > 1 and <= 4096)
+                    batch.Instances.Sort(_transInstanceBackToFront);
         }
 
         private float BatchDistanceSquared(Vector3 cameraPos, Batch batch)
@@ -3364,6 +3701,42 @@ namespace Genesis.Rendering.Primitives
                 Row0 = row0, Row1 = row1, Row2 = row2, Row3 = row3,
             });
             _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 5, _cbShaderParameters);
+            _gpu.SetConstantBuffer(GpuShaderStage.Vertex, 5, _cbShaderParameters);
+        }
+
+        private Genesis.Shared.Assets.ShaderMeshPassMode RuntimePassMode(RuntimeShaderHandle shader) =>
+            _runtimePassModes.TryGetValue(shader.Id, out var mode) ? mode : Genesis.Shared.Assets.ShaderMeshPassMode.Surface;
+
+        private void ApplyRuntimeMeshPass(RuntimeShaderHandle shader, MeshDrawFlags rasterFlags)
+        {
+            var mode = RuntimePassMode(shader);
+            GpuDepthState depth = _dssDefault;
+            GpuBlendState blend = _bsOpaque;
+            GpuRasterState raster = CurrentRasterizer(rasterFlags);
+            if (mode != Genesis.Shared.Assets.ShaderMeshPassMode.Surface)
+            {
+                bool outline = mode == Genesis.Shared.Assets.ShaderMeshPassMode.StencilOutline;
+                depth.WriteEnabled = false;
+                // The surface has already written this exact depth. Less rejects the
+                // mask/reset and leaves thin bevels exposed to the expanded back faces.
+                depth.Compare = GpuCompare.LessEqual;
+                depth.StencilEnabled = true;
+                depth.StencilReadMask = 255;
+                depth.StencilWriteMask = outline ? (byte)0 : (byte)255;
+                depth.StencilReference = mode == Genesis.Shared.Assets.ShaderMeshPassMode.StencilReset ? (byte)0 : (byte)1;
+                depth.StencilCompare = outline ? GpuCompare.NotEqual : GpuCompare.Always;
+                depth.StencilPass = outline ? GpuStencilOperation.Keep : GpuStencilOperation.Replace;
+                if (outline) raster.CullMode = GpuCullMode.Front;
+                else
+                {
+                    blend.WriteR = blend.WriteG = blend.WriteB = blend.WriteA = false;
+                    blend.IndependentBlend = true;
+                    blend.SecondaryWriteR = blend.SecondaryWriteG = blend.SecondaryWriteB = blend.SecondaryWriteA = false;
+                }
+            }
+            _gpu.SetDepthState(depth);
+            _gpu.SetBlendState(blend);
+            _gpu.SetRasterState(raster);
         }
 
         /// <summary>Bind VS CB slots and instance buffer (shadow pass uses its own buffer and VS).</summary>
@@ -3425,6 +3798,7 @@ namespace Genesis.Rendering.Primitives
             {
                 ShadowCascadeKind.Near => b.NearInstances.Count,
                 ShadowCascadeKind.Mid => b.MidInstances.Count,
+                ShadowCascadeKind.Omni => b.OmniInstances.Count,
                 _ => b.FarInstances.Count,
             };
 
@@ -3433,6 +3807,7 @@ namespace Genesis.Rendering.Primitives
             {
                 ShadowCascadeKind.Near => b.NearInstances,
                 ShadowCascadeKind.Mid => b.MidInstances,
+                ShadowCascadeKind.Omni => b.OmniInstances,
                 _ => b.FarInstances,
             };
 
@@ -3446,18 +3821,22 @@ namespace Genesis.Rendering.Primitives
                 : lightVPFar;
             Matrix4x4 lightVPNear = ComputeLightViewProj(ShadowCascadeKind.Near);
             int shadowBudget = Math.Max(1, ShadowBatchBudget);
+            ClassifyShadowCasters(lightVPFar, lightVPMid, lightVPNear);
 
             _gpu.SetDepthState(_dssDefault);
             _gpu.ClearTexture(GpuShaderStage.Pixel, 2);
             _gpu.ClearTexture(GpuShaderStage.Pixel, 5);
             _gpu.ClearTexture(GpuShaderStage.Pixel, 14);
 
-            RenderOneShadowCascade(
-                ShadowCascadeKind.Far, _shadowTarget, ShadowMapSize, "Shadow far",
-                lightVPFar, lightVPFar, lightVPNear, lightVPMid, shadowBudget,
-                includeFloor: true);
+            if (TakeDirtyCascade(0))
+            {
+                RenderOneShadowCascade(
+                    ShadowCascadeKind.Far, _shadowTarget, ShadowMapSize, "Shadow far",
+                    lightVPFar, lightVPFar, lightVPNear, lightVPMid, shadowBudget,
+                    includeFloor: true);
+            }
 
-            if (_cascade.CascadeCount >= 3)
+            if (_cascade.CascadeCount >= 3 && TakeDirtyCascade(1))
             {
                 RenderOneShadowCascade(
                     ShadowCascadeKind.Mid, _shadowMidTarget, ShadowMapSizeMid, "Shadow mid",
@@ -3465,10 +3844,13 @@ namespace Genesis.Rendering.Primitives
                     includeFloor: false);
             }
 
-            RenderOneShadowCascade(
-                ShadowCascadeKind.Near, _shadowNearTarget, ShadowMapSizeNear, "Shadow near",
-                lightVPNear, lightVPFar, lightVPNear, lightVPMid, shadowBudget,
-                includeFloor: false);
+            if (TakeDirtyCascade(2))
+            {
+                RenderOneShadowCascade(
+                    ShadowCascadeKind.Near, _shadowNearTarget, ShadowMapSizeNear, "Shadow near",
+                    lightVPNear, lightVPFar, lightVPNear, lightVPMid, shadowBudget,
+                    includeFloor: false);
+            }
         }
 
         private void RenderOneShadowCascade(
@@ -3481,9 +3863,10 @@ namespace Genesis.Rendering.Primitives
             Matrix4x4 lightVPNear,
             Matrix4x4 lightVPMid,
             int shadowBudget,
-            bool includeFloor)
+            bool includeFloor,
+            bool uploadInstances = true)
         {
-            UploadShadowInstances(cascade);
+            if (uploadInstances) UploadShadowInstances(cascade);
 
             _gpu.BeginRenderPass(new GpuRenderPassDesc
             {
@@ -3500,7 +3883,27 @@ namespace Genesis.Rendering.Primitives
             UploadPerFrame(cascadeVp, lightVPFar, lightVPNear, lightVPMid);
             _gpu.SetRasterState(_rsShadow);
             BindCommonShaderState(shadowPass: true, cascade);
+            DrawShadowBatches(cascade, shadowBudget);
 
+            if (includeFloor && _state.ShowFloor && FloorMesh.IsValid)
+            {
+                _gpu.SetRasterState(_rsShadowCullNone);
+                if (TryGetMesh(FloorMesh.Id, out MeshEntry floorMesh))
+                {
+                    SetMeshBuffers(ref floorMesh);
+                    UploadDrawCB(GetFloorWorldMatrix(),
+                        Vector4.One, 0f, 0f, 1f, 0f, 0);
+                    _gpu.DrawIndexed(floorMesh.IndexCount);
+                    LastDrawCalls++; LastTriangles += floorMesh.IndexCount / 3;
+                }
+                _gpu.SetRasterState(_rsShadow);
+            }
+            _gpu.EndRenderPass();
+        }
+
+        /// <summary>Draws the cascade's (or local tile's) instanced casters, then its skinned casters.</summary>
+        private void DrawShadowBatches(ShadowCascadeKind cascade, int shadowBudget)
+        {
             int instOffset = 0;
             MeshDrawFlags lastShadowRaster = (MeshDrawFlags)(-1);
             foreach (var b in _shadowBatchList)
@@ -3524,91 +3927,7 @@ namespace Genesis.Rendering.Primitives
                 LastTriangles += (mesh.IndexCount / 3) * drawCount;
             }
 
-            if (includeFloor && _state.ShowFloor && FloorMesh.IsValid)
-            {
-                _gpu.SetRasterState(_rsShadowCullNone);
-                if (TryGetMesh(FloorMesh.Id, out MeshEntry floorMesh))
-                {
-                    SetMeshBuffers(ref floorMesh);
-                    UploadDrawCB(GetFloorWorldMatrix(),
-                        Vector4.One, 0f, 0f, 1f, 0f, 0);
-                    _gpu.DrawIndexed(floorMesh.IndexCount);
-                    LastDrawCalls++; LastTriangles += floorMesh.IndexCount / 3;
-                }
-                _gpu.SetRasterState(_rsShadow);
-            }
-            _gpu.EndRenderPass();
-        }
-
-        private bool ShouldRunOmniShadows() =>
-            _state.ShadowsEnabled
-            && _state.LightingEnabled
-            && RenderCapacityDefaults.OmniShadowBudget > 0
-            && HasShadowCasters()
-            && _shadowProgram.IsValid
-            && !string.Equals(_gpu.BackendName, "Software", StringComparison.OrdinalIgnoreCase);
-
-        private void OmniShadowPass()
-        {
-            _omniActiveThisFrame = false;
-            _omniLightIndex = -1;
-            if (_pointLightCount <= 0)
-            {
-                UploadOmniShadowCB(active: false);
-                return;
-            }
-
-            int budget = Math.Min(RenderCapacityDefaults.OmniShadowBudget, 1);
-            Span<int> slots = stackalloc int[1];
-            int n = OmniShadowMath.SelectSlots(
-                _pointLights.AsSpan(0, _pointLightCount), budget, _cameraPos, slots);
-            if (n <= 0)
-            {
-                UploadOmniShadowCB(active: false);
-                return;
-            }
-
-            int lightIndex = slots[0];
-            ref ClusterPointLightGpu light = ref _pointLights[lightIndex];
-            Vector3 lightPos = new(light.PosRadius.X, light.PosRadius.Y, light.PosRadius.Z);
-            float radius = MathF.Max(light.PosRadius.W, OmniShadowMath.DefaultNearPlane * 2f);
-            float farPlane = MathF.Min(radius, OmniShadowMath.DefaultFarPlane);
-            if (farPlane <= OmniShadowMath.DefaultNearPlane)
-                farPlane = OmniShadowMath.DefaultFarPlane;
-
-            _omniLightIndex = lightIndex;
-            _omniLightPos = lightPos;
-            _omniFar = farPlane;
-
-            // Unbind any prior omni SRVs before writing depth.
-            for (int t = 15; t <= 20; t++)
-                _gpu.ClearTexture(GpuShaderStage.Pixel, t);
-
-            Span<int> faces = stackalloc int[6];
-            int faceCount = OmniShadowMath.NextFaceBatch(_omniWarm, ref _omniFaceCursor, faces);
-
-            // Recompute all six face VPs every frame so unused faces keep fresh matrices.
-            for (int face = 0; face < 6; face++)
-                _omniFaceVP[face] = ComputeOmniFaceViewProj(lightPos, face, farPlane);
-
-            UploadShadowInstances(ShadowCascadeKind.Far);
-            int shadowBudget = Math.Max(1, ShadowBatchBudget);
-            Matrix4x4 identityLight = Matrix4x4.Identity;
-
-            _gpu.SetDepthState(_dssDefault);
-            for (int i = 0; i < faceCount; i++)
-            {
-                int face = faces[i];
-                Matrix4x4 faceVp = _omniFaceVP[face];
-                RenderOneShadowCascade(
-                    ShadowCascadeKind.Far, _omniTargets[face], OmniMapSize, $"Omni face {face}",
-                    faceVp, faceVp, identityLight, identityLight, shadowBudget,
-                    includeFloor: true);
-            }
-
-            UploadOmniShadowCB(active: true);
-            _omniWarm = true;
-            _omniActiveThisFrame = true;
+            DrawSkinnedShadowCasters(cascade);
         }
 
         private static Matrix4x4 ComputeOmniFaceViewProj(Vector3 lightPos, int face, float farPlane)
@@ -3619,22 +3938,6 @@ namespace Genesis.Rendering.Primitives
             Matrix4x4 proj = D3dMatrixHelper.CreatePerspectiveLh(
                 MathF.PI * 0.5f, 1f, OmniShadowMath.DefaultNearPlane, farPlane);
             return view * proj;
-        }
-
-        private void UploadOmniShadowCB(bool active)
-        {
-            var data = new OmniShadowCB
-            {
-                FaceVP0 = _omniFaceVP[0],
-                FaceVP1 = _omniFaceVP[1],
-                FaceVP2 = _omniFaceVP[2],
-                FaceVP3 = _omniFaceVP[3],
-                FaceVP4 = _omniFaceVP[4],
-                FaceVP5 = _omniFaceVP[5],
-                LightPosFar = new Vector4(_omniLightPos, _omniFar),
-                Params = new Vector4(active ? 1f : 0f, 0f, 0f, 0f),
-            };
-            _gpu.UpdateConstantBuffer(_cbOmni, data);
         }
 
         // ── Main pass ─────────────────────────────────────────────────────────────
@@ -3654,7 +3957,8 @@ namespace Genesis.Rendering.Primitives
             if (_rtWidth > 0 && _rtHeight > 0)
                 _gpu.SetViewport(0, 0, _rtWidth, _rtHeight);
 
-            Vector3 bg = _state.BackgroundColor;
+            Vector3 bg = ToLinearColor(_state.BackgroundColor);
+            _encodeOutputThisPass = LinearPipeline && !postProcessTarget;
             GpuAttachmentAction[] colors = postProcessTarget
                 ? new[]
                 {
@@ -3691,20 +3995,16 @@ namespace Genesis.Rendering.Primitives
                     ? _shadowMidTexture
                     : GpuTextureHandle.Invalid);
 
-            if (_omniActiveThisFrame)
-            {
-                for (int i = 0; i < 6; i++)
-                    _gpu.SetTexture(GpuShaderStage.Pixel, 15 + i, _omniTextures[i]);
-            }
+            // t15: local light shadow atlas (point and spot lights).
+            if (_localShadowsActiveThisFrame && _localShadowAtlasTexture.IsValid)
+                _gpu.SetTexture(GpuShaderStage.Pixel, 15, _localShadowAtlasTexture);
             else
-            {
-                for (int i = 0; i < 6; i++)
-                    _gpu.ClearTexture(GpuShaderStage.Pixel, 15 + i);
-            }
+                _gpu.ClearTexture(GpuShaderStage.Pixel, 15);
 
-            // Always bind Omni CB (Params.x gates sampling) so inactive frames stay deterministic.
+            // Always bind the local shadow CB (Params.x gates sampling) so inactive frames stay deterministic.
             _gpu.SetConstantBuffer(GpuShaderStage.Vertex, 4, _cbOmni);
             _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 4, _cbOmni);
+            BindFroxelApply();
 
             // Bind samplers
             _gpu.SetSampler(GpuShaderStage.Pixel, 0, _albedoSampler);
@@ -3789,7 +4089,9 @@ namespace Genesis.Rendering.Primitives
                 b.AuthoredTextures.Bind(_gpu);
 
                 int drawCount = Math.Min(b.Instances.Count, SoftMeshInstanceCap - instOffset);
-                float batchUnlit = b.Foliage ? 1f : 0f;
+                ApplyRuntimeMeshPass(b.Shader, b.RasterOverride);
+                // Foliage is lit in the shader's foliage branch (wrapped sun, shadows, ambient, point lights).
+                float batchUnlit = 0f;
                 UploadDrawCB(Matrix4x4.Identity, Vector4.One, b.Emissive, batchUnlit, b.IsFloor ? 1f : 0f, 1, (uint)instOffset,
                     noFog: b.NoFog, terrainGround: b.TerrainGround, foliage: b.Foliage,
                     surfaceParams: b.SurfaceParams, detailParams: b.DetailParams,
@@ -3842,14 +4144,22 @@ namespace Genesis.Rendering.Primitives
                 SetMeshBuffers(ref mesh);
                 _gpu.SetTexture(GpuShaderStage.Pixel, 1,
                     b.Texture.IsValid ? b.Texture : whiteTexture);
-                _gpu.SetSampler(GpuShaderStage.Pixel, 0, _albedoSampler);
+                // Characters bind their own material maps. t3 used to keep whatever normal map the
+                // last static batch bound (the shader always samples it), and ORM/emission were never
+                // bound, so skinned meshes rendered with another material's normals and no PBR maps.
+                _gpu.SetSampler(GpuShaderStage.Pixel, 0, b.Orm.IsValid ? _materialSampler : _albedoSampler);
+                _gpu.SetTexture(GpuShaderStage.Pixel, 3, b.Normal.IsValid ? b.Normal : _flatNormalTexture);
+                _gpu.SetTexture(GpuShaderStage.Pixel, 7, b.Orm);
+                _gpu.SetTexture(GpuShaderStage.Pixel, 9, b.Emission);
                 b.AuthoredTextures.Bind(_gpu);
                 _gpu.SetStructuredBuffer(GpuShaderStage.Vertex, 12, skinPalette.Buffer);
 
                 int drawCount = Math.Min(b.Instances.Count, SoftMeshInstanceCap - skinInstOffset);
+                ApplyRuntimeMeshPass(b.Shader, b.RasterOverride);
                 UploadDrawCB(Matrix4x4.Identity, Vector4.One, b.Emissive, unlit: 0f, isFloor: 0f, useInstancing: 1,
                     instOffset: (uint)skinInstOffset, noFog: b.NoFog, gpuSkinning: true,
-                    skinMatrixOffset: 0, noReceiveShadow: b.NoReceiveShadow);
+                    skinMatrixOffset: 0, noReceiveShadow: b.NoReceiveShadow,
+                    materialFeatures: new Vector4(b.Orm.IsValid ? 1f : 0f, 0f, b.Emission.IsValid ? 1f : 0f, 0f));
                 _gpu.DrawIndexedInstanced(mesh.IndexCount, drawCount);
                 _worldDrawBudgetLeft--;
                 skinInstOffset += b.Instances.Count;
@@ -3965,6 +4275,8 @@ namespace Genesis.Rendering.Primitives
             // previous unconditional-rebind version.
             var worldSpan = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_worldMeshes);
 
+            // _worldMeshes is sorted near-to-far for the opaque pass above. Blending needs
+            // far-to-near, so the transparent pass walks it backwards.
             bool boundOnce = false;
             byte lastBlendMode = byte.MaxValue;
             bool lastNoDepthWrite = false;
@@ -3972,7 +4284,7 @@ namespace Genesis.Rendering.Primitives
             int  lastMeshId = -1;
             int lastTextureId = -1;
 
-            for (int i = 0; i < worldSpan.Length; i++)
+            for (int i = worldSpan.Length - 1; i >= 0; i--)
             {
                 ref WorldMesh wm = ref worldSpan[i];
                 if (wm.NoDepthTest || (!wm.Transparent && !wm.Additive && !wm.Multiply))
@@ -4092,6 +4404,7 @@ namespace Genesis.Rendering.Primitives
             _gpu.SetTexture(GpuShaderStage.Pixel, 1, _waterNormalA);
             _gpu.SetTexture(GpuShaderStage.Pixel, 3, _waterNormalB);
             _gpu.SetTexture(GpuShaderStage.Pixel, 6, depthTexture);
+            BindFroxelApply();
             _gpu.SetTexture(GpuShaderStage.Pixel, 7, _reflectionReady ? _reflectionTexture : whiteTexture);
 
             _gpu.SetSampler(GpuShaderStage.Pixel, 0, _albedoSampler);
@@ -4107,7 +4420,7 @@ namespace Genesis.Rendering.Primitives
                 float planeHeight = Vector3.Transform(mesh.BoundsCenter, wm.World).Y;
                 UploadWaterCB(wm.Deep, wm.WaterParams, wm.SkyHorizon, wm.SkyZenith,
                     _reflectionReady && Math.Abs(planeHeight - _reflectionPlaneHeight) < .05f);
-                UploadDrawCB(wm.World, wm.Shallow, emissive: 0f, unlit: 0f, isFloor: 0f, useInstancing: 0, instOffset: 0);
+                UploadDrawCB(wm.World, ToLinearColor(wm.Shallow), emissive: 0f, unlit: 0f, isFloor: 0f, useInstancing: 0, instOffset: 0);
 
                 _gpu.SetTexture(GpuShaderStage.Pixel, 0,
                     wm.Albedo.IsValid ? wm.Albedo : whiteTexture);
@@ -4159,10 +4472,10 @@ namespace Genesis.Rendering.Primitives
         {
             var data = new WaterCB
             {
-                DeepColorDepthFade = deep,
+                DeepColorDepthFade = new Vector4(ToLinearColor(new Vector3(deep.X, deep.Y, deep.Z)), deep.W),
                 WaterParams = waterParams,
-                SkyHorizonFlow = skyHorizon,
-                SkyZenithPad = skyZenith,
+                SkyHorizonFlow = new Vector4(ToLinearColor(new Vector3(skyHorizon.X, skyHorizon.Y, skyHorizon.Z)), skyHorizon.W),
+                SkyZenithPad = new Vector4(ToLinearColor(new Vector3(skyZenith.X, skyZenith.Y, skyZenith.Z)), skyZenith.W),
                 ReflectionViewProjection = _reflectionViewProjection,
                 ReflectionParams = new Vector4(reflection ? 1 : 0, .015f, 0, 0),
                 WeatherWindRain = _state.WeatherWindRain,
@@ -4256,7 +4569,7 @@ namespace Genesis.Rendering.Primitives
                     _state.Exposure,
                     _state.Contrast,
                     _state.Saturation,
-                    0f),
+                    LinearPipeline ? 1f : 0f), // w: encode the tonemapped result to sRGB
                 VignetteParams          = new Vector4(_state.VignetteStrength, 0f, 0f, 0f),
                 AtmosphereLutParams     = new Vector4(
                     atmosphereLutEnabled ? 1f : 0f,
@@ -4277,12 +4590,13 @@ namespace Genesis.Rendering.Primitives
                 CloudLayerParams        = new Vector4(_state.CloudBaseHeight,
                     _state.CloudBaseHeight + _state.CloudThickness,
                     _state.AuthoredSkyEnabled ? MathF.Max(.0001f, _state.FogDensity * .008f) : 0f, 0f),
-                AuthoredSkyZenith       = new Vector4(_state.SkyZenithColor, _state.AuthoredSkyEnabled ? 1f : 0f),
-                AuthoredSkyHorizon      = new Vector4(_state.SkyHorizonColor, 0f),
+                AuthoredSkyZenith       = new Vector4(ToLinearColor(_state.SkyZenithColor), _state.AuthoredSkyEnabled ? 1f : 0f),
+                AuthoredSkyHorizon      = new Vector4(ToLinearColor(_state.SkyHorizonColor), 0f),
                 AuthoredSkySun          = new Vector4(towardSun,
                     _state.AuthoredSkyEnabled && _state.ShowSunVisual && sunHeight > 0f ? 8f * daylight : 0f),
             };
             PackSmokeVolumes(ref fogPost);
+            PackInkOutline(ref fogPost, height);
             if (atmosphereLutEnabled)
             {
                 // Upload is once at create; sampling is free in the composite. Report a tiny
@@ -4315,6 +4629,7 @@ namespace Genesis.Rendering.Primitives
 
             _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 0, _cbEngine);
             _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 1, _cbFogPost);
+            BindFroxelApply();
 
             // Unbind main-pass textures before sampling scene/depth in the composite pass.
             _gpu.ClearTexture(GpuShaderStage.Pixel, 1);
@@ -4814,8 +5129,8 @@ namespace Genesis.Rendering.Primitives
                     SkyAuthoringDefaults.ResolveCoverageScale(_state),
                     SkyAuthoringDefaults.ClampDensityScale(_state.CloudDensityScale)),
                 WeatherOrigin = new Vector4(_weatherMapWorldCenter, _weatherMapW, _weatherMapH),
-                CloudSunColor = new Vector4(_state.SunColor, _state.AuthoredSkyEnabled ? 1f : 0f),
-                CloudAmbientColor = new Vector4(_state.SkyZenithColor, 0f),
+                CloudSunColor = new Vector4(ToLinearColor(_state.SunColor), _state.AuthoredSkyEnabled ? 1f : 0f),
+                CloudAmbientColor = new Vector4(ToLinearColor(_state.SkyZenithColor), 0f),
             };
 
             _gpu.UpdateConstantBuffer(_cbRaymarchedClouds, cb);
@@ -5030,6 +5345,19 @@ namespace Genesis.Rendering.Primitives
             _gpu.UpdateConstantBuffer(_cbPerFrame, data);
         }
 
+        // ── Colour pipeline ─────────────────────────────────────────────────────
+        // Authored colours (sun, ambient, fog, sky, lights, tints) are picked in display (sRGB)
+        // space. Under the linear pipeline they are converted once here so lighting adds and blends
+        // light linearly; the composite (or a direct pass itself) encodes the result back to sRGB.
+        private static bool LinearPipeline => Genesis.Rendering.Core.EngineRenderingDefaults.LinearColorPipeline;
+        private static Vector3 ToLinearColor(Vector3 color) =>
+            LinearPipeline ? Genesis.Rendering.Textures.SrgbColor.ToLinear(color) : color;
+        private static Vector4 ToLinearColor(Vector4 color) =>
+            LinearPipeline ? Genesis.Rendering.Textures.SrgbColor.ToLinear(color) : color;
+
+        /// <summary>True while a pass writes straight to a display-referred target without the composite.</summary>
+        private bool _encodeOutputThisPass;
+
         private void UploadEngineCB()
         {
             var   s          = _state;
@@ -5058,10 +5386,10 @@ namespace Genesis.Rendering.Primitives
             {
                 LightDirEnabled   = new Vector4(s.LightDirection, lightingW),
                 FogParams         = new Vector4(s.FogEnabled ? 1 : 0, s.FogStart, s.FogEnd, s.FogDensity),
-                FogColor          = s.FogColor,
-                AmbientColor      = new Vector4(s.AmbientColor, 1),
-                AmbientGroundColor = new Vector4(s.AmbientGroundColor, 1),
-                SunColorIntensity = new Vector4(s.SunColor, s.SunIntensity),
+                FogColor          = ToLinearColor(s.FogColor),
+                AmbientColor      = new Vector4(ToLinearColor(s.AmbientColor), 1),
+                AmbientGroundColor = new Vector4(ToLinearColor(s.AmbientGroundColor), 1),
+                SunColorIntensity = new Vector4(ToLinearColor(s.SunColor), s.SunIntensity),
                 FogParams2        = new Vector4(s.FogHeightBase, s.FogHeightFalloff, s.FogAerialBlend, s.FogSunPreserve),
                 ShadowParams      = new Vector4(
                     _shadowsActiveThisFrame ? 1 : 0,
@@ -5076,7 +5404,9 @@ namespace Genesis.Rendering.Primitives
                 VolumetricParams = new Vector4(
                     _runVolumetricThisFrame ? 1f : 0f,
                     Math.Clamp(s.VolumetricFogQuality, 0, 2),
-                    0f,
+                    // z: 0 = legacy gamma pipeline, 1 = linear (composite encodes), 2 = linear and
+                    // this pass writes to a display target, so the shader encodes to sRGB itself.
+                    LinearPipeline ? (_encodeOutputThisPass ? 2f : 1f) : 0f,
                     Math.Clamp(s.VolumetricTemporalBlend, 0f, 1f)),
                 ViewportParams = new Vector4(
                     _rtWidth > 0 ? _rtWidth : 1,
@@ -5091,8 +5421,8 @@ namespace Genesis.Rendering.Primitives
                 // x=total clustered lights, y=tile grid, z=max per tile, w=legacy CB light count
                 PointLightCounts = new Vector4(
                     s.LightingEnabled ? _clusterLightUploadCount : 0,
-                    TiledLightDefaults.TileGridSize,
-                    TiledLightDefaults.MaxLightsPerTile,
+                    ClusteredLightDefaults.TileGridSize,
+                    ClusteredLightDefaults.MaxLightsPerCluster,
                     cbCount),
                 L0 = cbCount > 0 ? cbLights[0] : default,
                 L1 = cbCount > 1 ? cbLights[1] : default,
@@ -5102,7 +5432,7 @@ namespace Genesis.Rendering.Primitives
                 L5 = cbCount > 5 ? cbLights[5] : default,
                 L6 = cbCount > 6 ? cbLights[6] : default,
                 L7 = cbCount > 7 ? cbLights[7] : default,
-                FogVolumeCounts = new Vector4(_fogVolumeCount, 0, 0, 0),
+                FogVolumeCounts = new Vector4(Math.Min(_fogVolumeCount, 8), 0, 0, 0),
                 V0 = _fogVolumeCount > 0 ? volumes[0] : default,
                 V1 = _fogVolumeCount > 1 ? volumes[1] : default,
                 V2 = _fogVolumeCount > 2 ? volumes[2] : default,
@@ -5126,46 +5456,53 @@ namespace Genesis.Rendering.Primitives
             _gpu.UpdateConstantBuffer(_cbEngine, data);
         }
 
+        private long _submitFrameId;
+        private long _lightGridFrameId = -1;
+        private Matrix4x4 _lightGridViewProj;
+        private int _lightGridWidth, _lightGridHeight, _lightGridCount = -1;
+        private bool _lightGridLit;
+
         private void PrepareClusteredLights(bool lightingEnabled)
         {
+            // UploadEngineCB runs for the main pass, the post composite and any reflection pass.
+            // The tile grid only depends on this frame's lights, view and target size, so rebuilding
+            // and re-uploading it for the composite repeated identical CPU binning and two uploads.
+            Matrix4x4 gridViewProj = _view * _proj;
+            if (_lightGridFrameId == _submitFrameId
+                && _lightGridLit == lightingEnabled
+                && _lightGridCount == _pointLightCount
+                && _lightGridWidth == _rtWidth && _lightGridHeight == _rtHeight
+                && _lightGridViewProj == gridViewProj)
+            {
+                return;
+            }
+            _lightGridFrameId = _submitFrameId;
+            _lightGridLit = lightingEnabled;
+            _lightGridCount = _pointLightCount;
+            _lightGridWidth = _rtWidth;
+            _lightGridHeight = _rtHeight;
+            _lightGridViewProj = gridViewProj;
+
             _clusterLightUploadCount = 0;
-            _tiledLights.Clear();
+            _clusteredLights.Clear();
             if (!lightingEnabled || _pointLightCount <= 0)
             {
                 UploadEmptyClusterBuffers();
                 return;
             }
 
-            int count = Math.Min(_pointLightCount, RenderCapacityDefaults.EffectiveShadedLightCap);
-            count = TiledLightGrid.SelectStrongest(
-                _pointLights.AsSpan(0, count), count, count, _cameraPos);
+            // Over the shaded-light cap, keep the strongest lights by camera weight. Submission used
+            // to stop at the cap, so the lights dropped were whichever were submitted last.
+            int count = TiledLightGrid.SelectStrongest(
+                _pointLights.AsSpan(0, _pointLightCount), _pointLightCount,
+                RenderCapacityDefaults.EffectiveShadedLightCap, _cameraPos);
             _clusterLightUploadCount = count;
 
-            // AF1.3: FalloffPad.Y = 1 marks the GPU omni slot-0 light; .Z carries far plane.
-            for (int i = 0; i < count; i++)
-            {
-                ref ClusterPointLightGpu L = ref _pointLights[i];
-                L.FalloffPad.Y = 0f;
-                L.FalloffPad.Z = 0f;
-            }
-
-            if (_omniActiveThisFrame && count > 0)
-            {
-                int budget = Math.Min(RenderCapacityDefaults.OmniShadowBudget, 1);
-                Span<int> slots = stackalloc int[1];
-                int n = OmniShadowMath.SelectSlots(
-                    _pointLights.AsSpan(0, count), budget, _cameraPos, slots);
-                if (n > 0)
-                {
-                    ref ClusterPointLightGpu tagged = ref _pointLights[slots[0]];
-                    tagged.FalloffPad.Y = 1f;
-                    tagged.FalloffPad.Z = _omniFar;
-                    _omniLightIndex = slots[0];
-                }
-            }
+            // FalloffPad.Y/Z (local shadow slot and far plane) were stamped by LocalShadowPass and
+            // travel with each light through the selection above.
 
             Matrix4x4 viewProj = _view * _proj;
-            _tiledLights.Build(
+            _clusteredLights.Build(
                 _pointLights.AsSpan(0, count),
                 viewProj,
                 _rtWidth > 0 ? _rtWidth : 1,
@@ -5179,7 +5516,7 @@ namespace Genesis.Rendering.Primitives
         private void UploadEmptyClusterBuffers()
         {
             UploadClusterBuffer(0);
-            _tiledLights.Clear();
+            _clusteredLights.Clear();
             UploadTileIndexBuffer();
         }
 
@@ -5197,7 +5534,7 @@ namespace Genesis.Rendering.Primitives
 
         private void UploadTileIndexBuffer()
         {
-            ReadOnlySpan<uint> indices = _tiledLights.Indices;
+            ReadOnlySpan<uint> indices = _clusteredLights.Buffer;
             int bytes = indices.Length * sizeof(uint);
             if (!_gpu.TryMapDiscard(_tileLightIndexBuf, out Span<byte> mapped, bytes))
                 return;
@@ -5351,7 +5688,8 @@ namespace Genesis.Rendering.Primitives
 
             // ForestLight-style: bias the focus along horizontal camera forward, then snap in
             // light space so static receivers do not crawl (AF1.1).
-            Vector3 horizontalForward = new(_state.CameraForward.X, 0f, _state.CameraForward.Z);
+            Vector3 cameraForward = _viewForward.LengthSquared() > 0.5f ? _viewForward : _state.CameraForward;
+            Vector3 horizontalForward = new(cameraForward.X, 0f, cameraForward.Z);
             if (horizontalForward.LengthSquared() < 1e-6f)
                 horizontalForward = -Vector3.UnitZ;
             else
@@ -5406,28 +5744,129 @@ namespace Genesis.Rendering.Primitives
 
         // ── Accumulator clear ─────────────────────────────────────────────────────
 
+        private Batch RentBatch()
+        {
+            Batch batch = _batchPool.Count > 0 ? _batchPool.Pop() : new Batch();
+            batch.SubmissionOrder = 0;
+            batch.MeshId = 0;
+            batch.TextureId = 0;
+            batch.Texture = default;
+            batch.Normal = default;
+            batch.Orm = default;
+            batch.Height = default;
+            batch.Emission = default;
+            batch.Extras = default;
+            batch.Flow = default;
+            batch.HeightMode = default;
+            batch.SurfaceParams = default;
+            batch.DetailParams = default;
+            batch.SubsurfaceColorSteps = default;
+            batch.Emissive = 0;
+            batch.NoFog = false;
+            batch.NoReceiveShadow = false;
+            batch.TerrainGround = false;
+            batch.RasterOverride = default;
+            batch.Foliage = false;
+            batch.IsFloor = false;
+            batch.Shader = default;
+            batch.ShaderParams0 = default;
+            batch.ShaderParams1 = default;
+            batch.ShaderParams2 = default;
+            batch.ShaderParams3 = default;
+            batch.AuthoredTextures = default;
+            batch.Instances.Clear();
+            return batch;
+        }
+
+        private SkinnedBatch RentSkinnedBatch()
+        {
+            SkinnedBatch batch = _skinnedBatchPool.Count > 0 ? _skinnedBatchPool.Pop() : new SkinnedBatch();
+            batch.MeshId = 0;
+            batch.TextureId = 0;
+            batch.SkinPaletteId = 0;
+            batch.Texture = default;
+            batch.Emissive = 0;
+            batch.NoFog = false;
+            batch.NoReceiveShadow = false;
+            batch.RasterOverride = default;
+            batch.Shader = default;
+            batch.ShaderParams0 = default;
+            batch.ShaderParams1 = default;
+            batch.ShaderParams2 = default;
+            batch.ShaderParams3 = default;
+            batch.AuthoredTextures = default;
+            batch.Instances.Clear();
+            return batch;
+        }
+
+        private ShadowBatch RentShadowBatch()
+        {
+            ShadowBatch batch = _shadowBatchPool.Count > 0 ? _shadowBatchPool.Pop() : new ShadowBatch();
+            batch.MeshId = 0;
+            batch.RasterOverride = default;
+            batch.Casters.Clear();
+            batch.CasterBounds.Clear();
+            batch.CasterHashes.Clear();
+            batch.FarInstances.Clear();
+            batch.MidInstances.Clear();
+            batch.NearInstances.Clear();
+            batch.OmniInstances.Clear();
+            return batch;
+        }
+
+        private TransBatch RentTransBatch()
+        {
+            TransBatch batch = _transBatchPool.Count > 0 ? _transBatchPool.Pop() : new TransBatch();
+            batch.MeshId = 0;
+            batch.TextureId = 0;
+            batch.Texture = default;
+            batch.Normal = default;
+            batch.BlendMode = 0;
+            batch.Emissive = 0;
+            batch.NoFog = false;
+            batch.Instances.Clear();
+            return batch;
+        }
+
         private void ClearAccumulators()
         {
+            _submittedSkinPalettes.Clear();
             foreach (var b in _batchList)
+            {
                 b.Instances.Clear();
+                _batchPool.Push(b);
+            }
             _batches.Clear();
             _batchList.Clear();
             foreach (var b in _skinnedBatchList)
+            {
                 b.Instances.Clear();
+                _skinnedBatchPool.Push(b);
+            }
             _skinnedBatches.Clear();
             _skinnedBatchList.Clear();
             foreach (var b in _shadowBatchList)
             {
+                b.Casters.Clear();
+                b.CasterBounds.Clear();
+                b.CasterHashes.Clear();
                 b.FarInstances.Clear();
+                b.MidInstances.Clear();
                 b.NearInstances.Clear();
+                b.OmniInstances.Clear();
+                _shadowBatchPool.Push(b);
             }
             _shadowBatches.Clear();
             _shadowBatchList.Clear();
+            _skinnedShadowCasters.Clear();
             _worldMeshes.Clear();
             _viewModelMeshes.Clear();
             _waterMeshes.Clear();
             foreach (var b in _transBatchList)
+            {
                 b.Instances.Clear();
+                _transBatchPool.Push(b);
+            }
             _transBatches.Clear();
             _transBatchList.Clear();
             _skinnedInstOffset = 0;
@@ -5450,7 +5889,11 @@ namespace Genesis.Rendering.Primitives
             _gpu.ReleaseShaderProgram(_program);
             _gpu.ReleaseShaderProgram(_skinnedProgram);
             _gpu.ReleaseShaderProgram(_shadowProgram);
+            _gpu.ReleaseShaderProgram(_shadowTileClearProgram);
             _gpu.ReleaseShaderProgram(_shadowNearProgram);
+            if (_shadowSkinnedProgram.IsValid) _gpu.ReleaseShaderProgram(_shadowSkinnedProgram);
+            if (_shadowSkinnedMidProgram.IsValid) _gpu.ReleaseShaderProgram(_shadowSkinnedMidProgram);
+            if (_shadowSkinnedNearProgram.IsValid) _gpu.ReleaseShaderProgram(_shadowSkinnedNearProgram);
             _gpu.ReleaseShaderProgram(_waterProgram);
             _gpu.ReleaseShaderProgram(_fogProgram);
             _gpu.ReleaseShaderProgram(_gtaoProgram);
@@ -5494,8 +5937,8 @@ namespace Genesis.Rendering.Primitives
             _gpu.ReleaseRenderTarget(_shadowTarget);
             _gpu.ReleaseRenderTarget(_shadowMidTarget);
             _gpu.ReleaseRenderTarget(_shadowNearTarget);
-            for (int i = 0; i < _omniTargets.Length; i++)
-                _gpu.ReleaseRenderTarget(_omniTargets[i]);
+            ReleaseLocalShadowAtlas();
+            ReleaseFroxelResources();
             _gpu.ReleaseTexture(_flatNormalTexture);
             _gpu.ReleaseTexture(_checkerTexture);
             _gpu.ReleaseTexture(_waterNormalA);

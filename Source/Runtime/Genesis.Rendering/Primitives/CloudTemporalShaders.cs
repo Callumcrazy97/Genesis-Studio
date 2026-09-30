@@ -88,7 +88,7 @@ float4 PS_TemporalResolve(VSOut IN) : SV_Target
     float depth = SceneDepth.SampleLevel(PointClamp, IN.uv, 0).r;
     float3 worldPos = ReconstructWorldPos(IN.uv, depth);
     // Far/sky pixels: anchor at a mid-slab distance along the view ray so clouds still reproject.
-    if (depth >= 0.99999)
+    if (depth >= 0.9999999)
     {
         float3 worldFar = ReconstructWorldPos(IN.uv, 1.0);
         float3 ray = normalize(worldFar - CameraPosPad.xyz);

@@ -10,6 +10,12 @@ namespace Genesis.Shared.Interfaces
         Sphere     = 1,
         Ellipsoid  = 2,
         HeightSlab = 3, // infinite in X/Z, bounded in Y between Center.Y-Extents.Y and Center.Y+Extents.Y
+        /// <summary>
+        /// Soft directed frustum used for authored light shafts. The volume center is the source,
+        /// Direction points along the shaft, and Extents stores length, source radius, and end
+        /// radius respectively.
+        /// </summary>
+        Cone        = 4,
     }
 
     /// <summary>Cosmetic categorisation only — does not change the density math, but lets
@@ -39,6 +45,8 @@ namespace Genesis.Shared.Interfaces
         public float   FalloffCurve; // exponent applied to the normalised inside-distance; higher = sharper edge
         public FogVolumeShape Shape;
         public FogVolumeKind  Kind;
+        /// <summary>Normalised travel direction for <see cref="FogVolumeShape.Cone"/>.</summary>
+        public Vector3 Direction;
 
         public static FogVolume CreateGroundMist(Vector3 center, Vector3 extents, Vector3 color, float density = 0.35f, float falloffCurve = 1.5f) =>
             new FogVolume { Center = center, Extents = extents, Color = color, Density = density, FalloffCurve = falloffCurve, Shape = FogVolumeShape.HeightSlab, Kind = FogVolumeKind.GroundMist };

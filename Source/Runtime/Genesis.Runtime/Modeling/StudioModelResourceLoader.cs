@@ -6,7 +6,9 @@ using System.Linq;
 using System.Numerics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Collections.Concurrent;
 using Genesis.Rendering.Meshes;
+using Genesis.Shared.Assets;
 using Genesis.Shared.Interfaces;
 
 namespace Genesis.Runtime.Modeling;
@@ -57,14 +59,31 @@ public static class StudioModelResourceLoader
         return ResourceNames.Resolve(projectPath, modelName, ResourceType.Model);
     }
 
+    /// <summary>Resolved import source per descriptor, valid while the descriptor's timestamp is unchanged.</summary>
+    private static readonly ConcurrentDictionary<string, (long DocumentTicks, string Source)> SourceByDescriptor =
+        new(StringComparer.OrdinalIgnoreCase);
+
     public static long Stamp(string path)
     {
+        AssetIoCounters.Check(8);
         long document = File.Exists(path) ? File.GetLastWriteTimeUtc(path).Ticks : 0L;
         string sidecar = path + ".mesh";
         long mesh = File.Exists(sidecar) ? File.GetLastWriteTimeUtc(sidecar).Ticks : 0L;
         string canonical = CanonicalPath(path);
         long canonicalStamp = File.Exists(canonical) ? File.GetLastWriteTimeUtc(canonical).Ticks : 0L;
-        string source = ResolveSource(path);
+        // Every freshness check used to re-read and JSON-parse the descriptor just to learn its
+        // import source. The source can only change when the descriptor itself is rewritten.
+        string source;
+        if (SourceByDescriptor.TryGetValue(path, out var known) && known.DocumentTicks == document)
+        {
+            source = known.Source;
+        }
+        else
+        {
+            AssetIoCounters.Read();
+            source = ResolveSource(path);
+            SourceByDescriptor[path] = (document, source);
+        }
         long sourceStamp = File.Exists(source) ? File.GetLastWriteTimeUtc(source).Ticks : 0L;
         return Math.Max(Math.Max(document, mesh), Math.Max(canonicalStamp, sourceStamp));
     }

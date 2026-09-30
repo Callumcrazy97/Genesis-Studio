@@ -25,7 +25,9 @@ public partial class ModelViewerControl : EditorSurfaceControl
     protected readonly ToolStrip Menus = Strip("ModelViewerMenus", 32);
     protected readonly EditorCommandBar Commands = MakeModelCommands();
     protected readonly Label Status = new() { Dock = DockStyle.Fill, Padding = new Padding(12, 5, 8, 2), AutoEllipsis = true };
-    protected readonly RuntimeModelRenderSystem PreviewRenderer = new();
+    protected readonly RuntimeModelRenderSystem PreviewRenderer = new(
+        assetFreshnessIntervalMilliseconds: 500,
+        textureFreshnessIntervalMilliseconds: 1000);
     private readonly TreeView _hierarchy = new() { Dock = DockStyle.Fill, BorderStyle = BorderStyle.None, HideSelection = false, FullRowSelect = true, ItemHeight = 26 };
     private readonly ListBox _materials = new() { Dock = DockStyle.Fill, BorderStyle = BorderStyle.None, IntegralHeight = false, ItemHeight = 27 };
     private readonly Label _details = new() { Dock = DockStyle.Fill, Padding = new Padding(12), AutoEllipsis = true };
@@ -96,7 +98,7 @@ public partial class ModelViewerControl : EditorSurfaceControl
         HandleCreated += (_, _) => { ConfigureModelWorkflow(); ApplyInterfaceLayout(); _lastTick = Stopwatch.GetTimestamp(); _clock.Start(); BeginInvoke(FrameModel); };
         SizeChanged += (_, _) => ApplyInterfaceLayout();
         Disposed += (_, _) => { _clock.Stop(); _clock.Dispose(); if (Surface.Host.Renderer is { } renderer) { PreviewRenderer.InvalidateAssets(renderer); if (_gridMesh.IsValid) renderer.ReleaseMesh(_gridMesh); } };
-        RefreshAssetPresentation(); ApplyTheme();
+        RefreshAssetPresentation(recalculateBounds: false); ApplyTheme();
     }
 
     public EditorViewport3D Viewport => Surface;
@@ -231,10 +233,10 @@ public partial class ModelViewerControl : EditorSurfaceControl
         framed.Controls.Add(panel); var title = ImageEditorChrome.MakeSectionTitle("ANIMATION TIMELINE"); framed.Controls.Add(title); return framed;
     }
 
-    protected void RefreshAssetPresentation()
+    protected void RefreshAssetPresentation(bool recalculateBounds = true)
     {
         string previousClip = _clip;
-        Asset.RecalculateBounds();
+        if (recalculateBounds) Asset.RecalculateBounds();
         Surface.FloorHeight = Asset.HasRenderableMeshes ? ModelBounds.Min.Y : 0;
         _gridDirty = _gpuDirty = true;
         _hierarchy.BeginUpdate(); _hierarchy.Nodes.Clear();
@@ -349,12 +351,21 @@ public partial class ModelViewerControl : EditorSurfaceControl
         _frameLabel.Text = count == 0 ? "No animation" : $"Frame {Math.Min(count, CurrentFrame + 1)} / {count}\n{SelectedClip!.Fps:0.#} FPS \u00B7 {_time:0.00}s";
         _syncing = false;
     }
+    private long _nextStatusRefresh;
     private void TickPreview()
     {
         long now = Stopwatch.GetTimestamp(); float elapsed = (float)Stopwatch.GetElapsedTime(_lastTick, now).TotalSeconds; _lastTick = now;
+        // A covered document tab keeps its handle and this 16 ms clock. Advancing the preview,
+        // repainting the gizmo and rebuilding the status line there competed with the active editor.
+        if (!Visible) return;
         AdvancePreview(Math.Clamp(elapsed, 0, .1f));
         if (_spinButton.Checked) _spin += elapsed * .4f;
         _orientation.Invalidate();
+        // The status line sums every mesh's triangles and formats text; refresh it a few times a
+        // second rather than on every 16 ms tick.
+        long ticks = Environment.TickCount64;
+        if (ticks < _nextStatusRefresh) return;
+        _nextStatusRefresh = ticks + 250;
         if (!_importing) Status.Text = DateTime.UtcNow < _motionFeedbackUntil ? LastMotionImportMessage : $"{(IsDirty ? "Unsaved \u00B7 " : "")}{Asset.Meshes.Sum(mesh => mesh.Indices.Length / 3):N0} triangles{PreviewStatusDetail} \u00B7 {(_orthographic ? "Orthographic" : "Perspective")} \u00B7 {_shading} \u00B7 RMB orbit \u00B7 MMB pan \u00B7 Wheel zoom \u00B7 Ground at {GroundHeight:0.###}";
     }
     protected virtual string PreviewStatusDetail => "";
@@ -506,7 +517,7 @@ public partial class ModelViewerControl : EditorSurfaceControl
         _timeline.Font = _frameLabel.Font = _sourceInfo.Font = EditorChrome.BaseFont;
         ApplyInterfaceLayout();
     }
-    protected override void OnAssetDependenciesChanged(ProjectAssetChangeSet changes) { base.OnAssetDependenciesChanged(changes); Asset = StudioModelResourceLoader.Load(ResourcePath); RefreshAssetPresentation(); }
+    protected override void OnAssetDependenciesChanged(ProjectAssetChangeSet changes) { base.OnAssetDependenciesChanged(changes); Asset = StudioModelResourceLoader.Load(ResourcePath); RefreshAssetPresentation(recalculateBounds: false); }
     protected static ToolStrip Strip(string name, int height)
     {
         var strip = ImageEditorChrome.MakeCommandStrip(); strip.Name = name; strip.Dock = DockStyle.Fill; strip.Height = height;

@@ -178,7 +178,8 @@ internal static class VisualCapture
                 if (!viewport.Visible || !viewport.IsHandleCreated
                     || viewport.Renderer is not { IsInitialized: true }) continue;
                 using Bitmap frame = viewport.ReadbackFrameToBitmap(settleFrames: 1)
-                    ?? throw new InvalidOperationException("GPU viewport readback was unavailable during window capture.");
+                    ?? throw new InvalidOperationException("GPU viewport readback was unavailable during window capture."
+                        + (viewport.LastRenderException is { } fault ? " Render fault: " + fault : string.Empty));
                 Rectangle target = new(form.PointToClient(viewport.PointToScreen(Point.Empty)), viewport.ClientSize);
                 Rectangle clip = Rectangle.Intersect(target, new Rectangle(Point.Empty, size));
                 for (Control? parent = viewport.Parent; parent is not null && parent != form; parent = parent.Parent)

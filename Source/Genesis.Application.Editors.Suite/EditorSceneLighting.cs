@@ -64,7 +64,11 @@ public static class EditorSceneLighting
         state.FloorColor = new Vector3(0.30f, 0.33f, 0.38f);
         state.ShowSunVisual = false;
 
-        state.FrustumCullingEnabled = false;
+        // Large rooms and terrains commonly keep most authored geometry outside the current
+        // viewport. Submitting those meshes forced every editor to shade and shadow the complete
+        // world even while looking into one room. Renderer bounds are conservative, so culling is
+        // safe for authoring while keeping selection data resident on the CPU.
+        state.FrustumCullingEnabled = true;
         state.CameraFarPlane = farPlane;
         return state;
     }

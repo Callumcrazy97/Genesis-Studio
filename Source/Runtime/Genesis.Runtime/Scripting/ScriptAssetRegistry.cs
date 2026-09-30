@@ -16,6 +16,9 @@ namespace Genesis.Runtime.Scripting
       new(StringComparer.OrdinalIgnoreCase);
     private static readonly Dictionary<string, CompiledScriptAsset> _byHash =
       new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>The exact source last registered under each name.</summary>
+    private static readonly Dictionary<string, string> _sourceByName =
+      new(StringComparer.OrdinalIgnoreCase);
     private static readonly object _lock = new();
     private static string _projectPath;
     private static int _callDepth;
@@ -41,6 +44,8 @@ namespace Genesis.Runtime.Scripting
         _projectPath = projectPath;
         _byName.Clear();
         _byHash.Clear();
+        _sourceByName.Clear();
+        VMEngine.ClearCompileCache();
         if (string.IsNullOrEmpty(projectPath)) return;
         ResourceNames.Invalidate(projectPath);
 
@@ -92,9 +97,26 @@ namespace Genesis.Runtime.Scripting
 
     public static void Register(string name, string source)
     {
+      // Every spawned instance re-registers its object's event scripts. Identical source used to
+      // be preprocessed, SHA-256 hashed and compiled again before the hash comparison could
+      // discover nothing had changed.
+      lock (_lock)
+      {
+        if (_sourceByName.TryGetValue(name, out string known)
+            && string.Equals(known, source, StringComparison.Ordinal)
+            && _byName.ContainsKey(name))
+          return;
+      }
       var asset = ScriptAssetCompiler.Compile(name, source);
       lock (_lock)
       {
+        _sourceByName[name] = source;
+        if (_byName.TryGetValue(name, out CompiledScriptAsset previous) && previous.SourceHash != asset.SourceHash)
+        {
+          VMEngine.ClearCompileCache();
+          if (!_byName.Any(pair => !string.Equals(pair.Key, name, StringComparison.OrdinalIgnoreCase)
+              && pair.Value.SourceHash == previous.SourceHash)) _byHash.Remove(previous.SourceHash);
+        }
         _byName[name] = asset;
         _byHash[asset.SourceHash] = asset;
       }
@@ -189,6 +211,7 @@ namespace Genesis.Runtime.Scripting
       {
         _byName.Clear();
         _byHash.Clear();
+        _sourceByName.Clear();
         _projectPath = null;
       }
     }

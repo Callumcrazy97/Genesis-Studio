@@ -208,6 +208,13 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
         return true;
     }
 
+    internal bool TrySetTypedProperty(string name, VmValue value)
+    {
+        if (string.IsNullOrWhiteSpace(name) || !_commandDefs.TryGetValue(name, out CommandDef def) || !def.IsProperty)
+            return false;
+        SetProperty(def.Name, value.ToObject()); return true;
+    }
+
     private sealed class CommandDef
     {
         public string Name;

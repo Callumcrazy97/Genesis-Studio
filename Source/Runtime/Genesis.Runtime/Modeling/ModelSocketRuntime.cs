@@ -27,7 +27,19 @@ public static class ModelSocketRuntime
             ref TransformComponent parentTransform = ref world.GetRef<TransformComponent>(parent);
             ref ModelRendererComponent parentModel = ref world.GetRef<ModelRendererComponent>(parent);
             if (string.IsNullOrWhiteSpace(parentModel.ModelAsset)) return;
-            GModelAsset asset = assets.Load(projectPath, parentModel.ModelAsset);
+            GModelAsset? asset = null;
+            if (world.Has<ModelAnimatorComponent>(parent))
+            {
+                ref ModelAnimatorComponent animator = ref world.GetRef<ModelAnimatorComponent>(parent);
+                // The animation lifecycle runs before attachments and owns freshness checks.
+                // Reject the reference when paused, or when the model/project changed since
+                // that evaluation; those cases retain the ordinary registry lookup below.
+                if (animator.Playing && animator.Controller != null
+                    && string.Equals(animator.EvaluatedModelReference, parentModel.ModelAsset, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(animator.EvaluatedModelProject, projectPath, StringComparison.OrdinalIgnoreCase))
+                    asset = animator.EvaluatedModelAsset;
+            }
+            asset ??= assets.Load(projectPath, parentModel.ModelAsset);
             RuntimeModelAnimationState animation = AnimationState(world, parent, parentModel);
             Matrix4x4 parentWorld = RuntimeModelRenderSystem.TransformMatrix(parentTransform, parentModel);
             Matrix4x4 offset = IsUsable(attachment.LocalOffset) ? attachment.LocalOffset : Matrix4x4.Identity;
