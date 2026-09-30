@@ -89,6 +89,7 @@ public static class ThemeService
         }
 
         Genesis.Application.Studio.Docking.SuiteChromeBridge.Push();
+        Genesis.Application.Core.UI.WindowChrome.SetDarkTitleBars(Palette.IsDark);
         ThemeChanged?.Invoke(null, EventArgs.Empty);
     }
 
@@ -171,10 +172,11 @@ public static class ThemeService
         ApplyInterfaceGeometry(control);
         switch (control)
         {
-            case Form:
+            case Form form:
                 control.BackColor = Palette.Canvas;
                 control.ForeColor = Palette.Text;
                 control.Font = InterfaceFont;
+                ApplyTitleBar(form);
                 break;
             case MenuStrip or ToolStrip or StatusStrip:
                 control.BackColor = Palette.Surface;
@@ -275,6 +277,32 @@ public static class ThemeService
         }
     }
 
+    private static readonly ConditionalWeakTable<Form, object> TitleBarHooks = new();
+
+    /// <summary>Dark caption for plain dialogs too, not only <c>DpiAwareForm</c> windows.</summary>
+    private static void ApplyTitleBar(Form form)
+    {
+        if (form.IsHandleCreated)
+        {
+            Genesis.Application.Core.UI.WindowChrome.Apply(form);
+            return;
+        }
+
+        if (TitleBarHooks.TryGetValue(form, out _))
+        {
+            return;
+        }
+
+        TitleBarHooks.Add(form, new object());
+        form.HandleCreated += static (sender, _) =>
+        {
+            if (sender is Form created)
+            {
+                Genesis.Application.Core.UI.WindowChrome.Apply(created);
+            }
+        };
+    }
+
     private static void ApplyInterfaceGeometry(Control control)
     {
         for (Control? owner = control; owner is not null; owner = owner.Parent)
@@ -373,7 +401,7 @@ public sealed class GenesisColorTable(ThemePalette palette) : ProfessionalColorT
 }
 
 public sealed class GenesisToolStripRenderer(ThemePalette palette)
-    : ToolStripProfessionalRenderer(new GenesisColorTable(palette))
+    : Genesis.Application.Core.UI.PillToolStripRenderer(new GenesisColorTable(palette))
 {
     protected override void OnRenderOverflowButtonBackground(ToolStripItemRenderEventArgs e)
     {

@@ -28,7 +28,7 @@ public static class ImageEditorChrome
         new("Segoe UI Variable Text", 9.5f, FontStyle.Regular, GraphicsUnit.Point);
 
     public static Font HeadingFont { get; private set; } =
-        new("Segoe UI Variable Text", 8f, FontStyle.Bold, GraphicsUnit.Point);
+        new("Segoe UI Variable Text", 9f, FontStyle.Bold, GraphicsUnit.Point);
 
     public static Font CodeFont { get; private set; } =
         new("Cascadia Code", 10f, FontStyle.Regular, GraphicsUnit.Point);
@@ -84,7 +84,7 @@ public static class ImageEditorChrome
         CodeFont = codeFont;
         HeadingFont = new Font(
             baseFont.FontFamily,
-            MathF.Max(7f, baseFont.SizeInPoints - 1.5f),
+            MathF.Max(7.5f, baseFont.SizeInPoints - 0.5f),
             FontStyle.Bold,
             GraphicsUnit.Point);
         Changed?.Invoke(null, EventArgs.Empty);
@@ -135,7 +135,7 @@ public static class ImageEditorChrome
             RenderMode = ToolStripRenderMode.System,
             ImageScalingSize = new Size(16, 16),
         };
-        strip.Renderer = new ToolStripProfessionalRenderer(new DarkToolStripColorTable());
+        strip.Renderer = new Genesis.Application.Core.UI.PillToolStripRenderer(new DarkToolStripColorTable());
         return strip;
     }
 

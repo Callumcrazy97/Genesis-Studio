@@ -24,6 +24,12 @@ public class DpiAwareForm : Form
 
     public virtual void ApplyInterfaceLayout() { }
 
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        WindowChrome.Apply(this);
+    }
+
     protected override void OnLoad(EventArgs e)
     {
         ApplyInitialDpiScale();

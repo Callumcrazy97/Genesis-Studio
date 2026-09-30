@@ -255,6 +255,23 @@ public static class SuiteChromeBridge
     public static void Push()
     {
         ThemePalette palette = ThemeService.Palette;
+        // Shared "Clear" components (workflow bars, starter galleries, pill tool strips) live in
+        // Core, below both editor assemblies; they read these tokens.
+        Genesis.Application.Core.UI.UiTokens.Update(
+            palette.Canvas,
+            palette.Surface,
+            palette.SurfaceRaised,
+            palette.SurfaceHover,
+            palette.Border,
+            palette.Text,
+            palette.TextMuted,
+            palette.Accent,
+            palette.Success,
+            palette.Warning,
+            palette.Error,
+            palette.IsDark,
+            ThemeService.InterfaceFont);
+
         EditorChrome.Update(
             palette.Canvas,
             palette.Surface,

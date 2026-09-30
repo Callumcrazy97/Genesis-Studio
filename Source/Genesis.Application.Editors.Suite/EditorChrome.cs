@@ -1,5 +1,6 @@
 using System.Drawing;
 using System.Windows.Forms;
+using Genesis.Application.Core.UI;
 
 namespace Genesis.Application.Editors.Suite;
 
@@ -11,6 +12,9 @@ namespace Genesis.Application.Editors.Suite;
 public static class EditorChrome
 {
     public const string FormattedTextTag = "formatted-text";
+
+    /// <summary>Tag a command-bar item with this to draw it as the editor's primary action.</summary>
+    public const string PrimaryCommandTag = PillToolStripRenderer.PrimaryTag;
     public static Color Canvas { get; private set; } = FromHex("#14161D");
     public static Color Surface { get; private set; } = FromHex("#1C1F28");
     public static Color Raised { get; private set; } = FromHex("#252934");
@@ -24,14 +28,23 @@ public static class EditorChrome
     public static Color Error { get; private set; } = FromHex("#F4626F");
     public static bool IsDark { get; private set; } = true;
 
+    /// <summary>Accent mixed into the surface: a current step, checked mode or selected card.</summary>
+    public static Color AccentSoft => UiTokens.Blend(Accent, Surface, 0.26f);
+
     public static Font BaseFont { get; private set; } =
         new("Segoe UI Variable Text", 9.5f, FontStyle.Regular, GraphicsUnit.Point);
 
+    /// <summary>Secondary text: one point under body text (it was 1.5, which read as fine print).</summary>
     public static Font SmallFont { get; private set; } =
-        new("Segoe UI Variable Text", 8f, FontStyle.Regular, GraphicsUnit.Point);
+        new("Segoe UI Variable Text", 8.5f, FontStyle.Regular, GraphicsUnit.Point);
 
+    /// <summary>Section headings: bold, sentence case, close to body size.</summary>
     public static Font HeadingFont { get; private set; } =
-        new("Segoe UI Variable Text", 8f, FontStyle.Bold, GraphicsUnit.Point);
+        new("Segoe UI Variable Text", 9f, FontStyle.Bold, GraphicsUnit.Point);
+
+    /// <summary>Gallery and page titles.</summary>
+    public static Font TitleFont { get; private set; } =
+        new("Segoe UI Variable Display", 12.5f, FontStyle.Bold, GraphicsUnit.Point);
 
     public static Font CodeFont { get; private set; } =
         new("Cascadia Code", 10f, FontStyle.Regular, GraphicsUnit.Point);
@@ -94,8 +107,9 @@ public static class EditorChrome
         IsDark = isDark;
         BaseFont = baseFont;
         CodeFont = codeFont;
-        SmallFont = new Font(baseFont.FontFamily, MathF.Max(7f, baseFont.SizeInPoints - 1.5f), FontStyle.Regular, GraphicsUnit.Point);
-        HeadingFont = new Font(baseFont.FontFamily, MathF.Max(7f, baseFont.SizeInPoints - 1.5f), FontStyle.Bold, GraphicsUnit.Point);
+        SmallFont = new Font(baseFont.FontFamily, MathF.Max(7.5f, baseFont.SizeInPoints - 1f), FontStyle.Regular, GraphicsUnit.Point);
+        HeadingFont = new Font(baseFont.FontFamily, MathF.Max(7.5f, baseFont.SizeInPoints - 0.5f), FontStyle.Bold, GraphicsUnit.Point);
+        TitleFont = new Font("Segoe UI Variable Display", baseFont.SizeInPoints + 3f, FontStyle.Bold, GraphicsUnit.Point);
         Changed?.Invoke(null, EventArgs.Empty);
     }
 
@@ -147,7 +161,7 @@ public static class EditorChrome
         {
             BackColor = Surface,
             Font = BaseFont,
-            Renderer = new ToolStripProfessionalRenderer(new ChromeColorTable()),
+            Renderer = new PillToolStripRenderer(new ChromeColorTable()),
         };
         return bar;
     }
@@ -178,7 +192,7 @@ public static class EditorChrome
             GripStyle = ToolStripGripStyle.Hidden,
             LayoutStyle = ToolStripLayoutStyle.VerticalStackWithOverflow,
             Padding = ModeRailPadding,
-            Renderer = new ToolStripProfessionalRenderer(new ChromeColorTable()),
+            Renderer = new PillToolStripRenderer(new ChromeColorTable()),
             Width = width,
         };
         return rail;
@@ -198,7 +212,7 @@ public static class EditorChrome
             Height = ModeBarHeight,
             LayoutStyle = ToolStripLayoutStyle.HorizontalStackWithOverflow,
             Padding = CommandBarPadding,
-            Renderer = new ToolStripProfessionalRenderer(new ChromeColorTable()),
+            Renderer = new PillToolStripRenderer(new ChromeColorTable()),
         };
         return bar;
     }
@@ -255,19 +269,30 @@ public static class EditorChrome
         Padding = StatusBarPadding,
     };
 
-    public static Label DividerLabel(string text) => new()
+    /// <summary>A heading that starts a group inside a stacked panel, with a hairline beneath it.</summary>
+    public static Label DividerLabel(string text)
     {
-        AutoSize = false,
-        BackColor = Raised,
-        Font = HeadingFont,
-        ForeColor = Text,
-        Height = SectionHeaderHeight,
-        Margin = new Padding(0, SectionGap, 0, FieldGap),
-        Padding = SectionHeaderPadding,
-        Text = $"-- {text} --",
-        TextAlign = ContentAlignment.MiddleLeft,
-        Width = 240,
-    };
+        Label label = new()
+        {
+            AutoSize = false,
+            BackColor = Color.Transparent,
+            Font = HeadingFont,
+            ForeColor = Text,
+            Height = SectionHeaderHeight,
+            Margin = new Padding(0, SectionGap, 0, FieldGap),
+            Padding = new Padding(0, SectionHeaderPadding.Top, 0, 0),
+            Text = UiTokens.DisplayHeading(text),
+            TextAlign = ContentAlignment.MiddleLeft,
+            UseMnemonic = false,
+            Width = 240,
+        };
+        label.Paint += (_, e) =>
+        {
+            using Pen rule = new(UiTokens.Blend(Border, Surface, 0.75f));
+            e.Graphics.DrawLine(rule, 0, label.Height - 1, label.Width, label.Height - 1);
+        };
+        return label;
+    }
 
     public static ToolStripButton ModeButton(string text, string tooltip, Action onClick)
     {
@@ -286,10 +311,11 @@ public static class EditorChrome
         BackColor = Color.Transparent,
         Dock = DockStyle.Top,
         Font = HeadingFont,
-        ForeColor = Muted,
+        ForeColor = Text,
         Height = SectionHeaderHeight,
         Padding = SectionHeaderPadding,
-        Text = text.ToUpperInvariant(),
+        Text = UiTokens.DisplayHeading(text),
+        UseMnemonic = false,
     };
 
     /// <summary>
@@ -302,13 +328,21 @@ public static class EditorChrome
     /// </remarks>
     public static Control SectionHeader(string text)
     {
-        Panel host = new() { BackColor = Surface, Dock = DockStyle.Top, Height = SectionHeaderHeight + 1 };
+        string heading = UiTokens.DisplayHeading(text);
+        Panel host = new()
+        {
+            AccessibleName = heading,
+            AccessibleRole = AccessibleRole.StaticText,
+            BackColor = Surface,
+            Dock = DockStyle.Top,
+            Height = SectionHeaderHeight + 1,
+        };
         host.Paint += (_, e) =>
         {
-            using SolidBrush caption = new(Muted);
-            using Font font = new(SmallFont, FontStyle.Bold);
-            e.Graphics.DrawString(text.ToUpperInvariant(), font, caption, 12f, 9f);
-            using Pen rule = new(Color.FromArgb(80, Border));
+            Rectangle caption = new(12, 0, Math.Max(1, host.Width - 16), host.Height - 1);
+            TextRenderer.DrawText(e.Graphics, heading, HeadingFont, caption, Text,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+            using Pen rule = new(UiTokens.Blend(Border, Surface, 0.75f));
             e.Graphics.DrawLine(rule, 0, host.Height - 1, host.Width, host.Height - 1);
         };
         return host;

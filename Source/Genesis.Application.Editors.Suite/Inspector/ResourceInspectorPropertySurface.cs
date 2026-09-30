@@ -1666,11 +1666,12 @@ public sealed class ResourceInspectorPropertySurface : Panel
 
     private static string SafeName(string value) => Regex.Replace(value, @"\W", "_");
 
+    /// <summary>"icon  Heading" — plain sentence-case headings, not raw "[ROOM]" keys.</summary>
     private static string FormatGroupCaption(string title)
     {
         if (string.IsNullOrWhiteSpace(title))
         {
-            return "◆  [Properties]";
+            return "◆  Properties";
         }
 
         string trimmed = title.Trim();
@@ -1683,22 +1684,22 @@ public sealed class ResourceInspectorPropertySurface : Panel
         if (trimmed.EndsWith(" EVENT", StringComparison.OrdinalIgnoreCase))
         {
             string eventName = trimmed[..^" EVENT".Length].Trim();
-            return $"⚡  [{Humanize(eventName)} Event]";
+            return $"⚡  {Genesis.Application.Core.UI.UiTokens.DisplayHeading(Humanize(eventName))} event";
         }
 
         if (trimmed.Contains("SCRIPT VARIABLES", StringComparison.OrdinalIgnoreCase))
         {
             string scriptName = trimmed.Split('·')[0].Trim();
-            return $"#  [Script: {Humanize(scriptName)}]";
+            return $"#  Script: {Humanize(scriptName)}";
         }
 
         if (trimmed.Equals("INSTANCE FIELDS", StringComparison.OrdinalIgnoreCase)
             || trimmed.Equals("OBJECT VARIABLES", StringComparison.OrdinalIgnoreCase))
         {
-            return $"◆  [{Humanize(trimmed)}]";
+            return $"◆  {Genesis.Application.Core.UI.UiTokens.DisplayHeading(trimmed)}";
         }
 
-        return $"{GroupIcon(title)}  [{title}]";
+        return $"{GroupIcon(title)}  {Genesis.Application.Core.UI.UiTokens.DisplayHeading(title)}";
     }
 
     private static string GroupIcon(string title)

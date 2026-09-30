@@ -43,6 +43,7 @@ public sealed class EditorCommandBar : ToolStrip
             if (args.Item is { } item)
             {
                 ApplyAccessibility(item);
+                MarkPrimaryCommand(item);
             }
         };
     }
@@ -203,6 +204,19 @@ public sealed class EditorCommandBar : ToolStrip
         (text ?? string.Empty).Replace("＋", string.Empty, StringComparison.Ordinal)
             .Replace("…", string.Empty, StringComparison.Ordinal)
             .Trim();
+
+    /// <summary>
+    /// "Use in game" is where every editor's workflow ends, so it gets the accent outline: the one
+    /// command a new user should be able to find at a glance.
+    /// </summary>
+    private static void MarkPrimaryCommand(ToolStripItem item)
+    {
+        if (item.Tag is null
+            && NormaliseCaption(item.Text).StartsWith("Use in game", StringComparison.OrdinalIgnoreCase))
+        {
+            item.Tag = EditorChrome.PrimaryCommandTag;
+        }
+    }
 
     private static void ApplyAccessibility(ToolStripItem item)
     {
