@@ -1065,6 +1065,7 @@ internal static class HeadlessTestRunner
         Suites.StudioFoundationSuite.Run(ctx);
         Suites.CodeAssistanceSuite.Run(ctx);
         Suites.ClearWorkflowSuite.Run(ctx);
+        Suites.BeginnerJourneySuite.Run(ctx);
         Suites.ReadinessJudgeSuite.Run(ctx);
         Suites.StudioPolishSuite.Run(ctx);
         Suites.ResourceLibrarySuite.Run(ctx);
@@ -1487,6 +1488,10 @@ internal static class HeadlessTestRunner
                 break;
             case "clear-core":
                 Suites.ClearWorkflowSuite.RunCore(ctx);
+                break;
+            case "journey":
+            case "beginner-journey":
+                Suites.BeginnerJourneySuite.Run(ctx);
                 break;
             default:
                 Suites.GateSuite.RunFocused(ctx, normalized);

@@ -170,8 +170,10 @@ public static class ThemeService
     private static void ApplyControl(Control control)
     {
         ApplyInterfaceGeometry(control);
-        // Scroll bars follow the theme on everything that scrolls.
-        if (control is ScrollableControl or ListBox or TreeView or ListView or TextBoxBase { Multiline: true })
+        // Scroll bars follow the theme on everything that scrolls, except trees: the Explorer
+        // theme makes a TreeView paint its selected row's label itself, on top of the owner-drawn
+        // one (the Assets root showed its name twice).
+        if (control is ScrollableControl or ListBox or ListView or TextBoxBase { Multiline: true })
         {
             Genesis.Application.Core.UI.WindowChrome.ApplyScrollTheme(control);
         }
