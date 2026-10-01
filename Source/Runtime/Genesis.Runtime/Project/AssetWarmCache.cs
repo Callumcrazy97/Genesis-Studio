@@ -28,7 +28,12 @@ namespace Genesis.Runtime.Project
                 throw new DirectoryNotFoundException("The game's content directory does not exist: " + projectPath);
             var excluded = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 { ".git", ".vs", "bin", "obj", "Saves", "SaveGames", "Logs", "Cache", "Debug", ".genesis", "Build", "Packages", "ProjectSettings", "TestResults" };
-            var pending = new Stack<string>(); pending.Push(projectPath);
+            // Warm the game's content, not the whole project folder. A project also holds tools,
+            // documents, source art and archives; walking those put reference photos on the GPU and
+            // read gigabytes the game never uses, at four files a frame, before the first room ran.
+            // A content directory with no Assets folder (an exported layout) is walked whole.
+            string assets = Path.Combine(projectPath, "Assets");
+            var pending = new Stack<string>(); pending.Push(Directory.Exists(assets) ? assets : projectPath);
             while (pending.Count > 0)
             {
                 string dir = pending.Pop();
@@ -48,7 +53,7 @@ namespace Genesis.Runtime.Project
         }
 
         /// <summary>GPU calls stay on the render thread. No fixed limit on how many files are discovered.</summary>
-        public void WarmStep(IRenderController renderer, int maxItems = 4)
+        public void WarmStep(IRenderController renderer, int maxItems = 256)
         {
             if (renderer == null) throw new ArgumentNullException(nameof(renderer));
             var budget = Stopwatch.StartNew();
@@ -86,8 +91,10 @@ namespace Genesis.Runtime.Project
         private static bool IsWarmCandidate(string path)
         {
             string ext = Path.GetExtension(path).ToLowerInvariant();
+            // Model source files (.glb, .gltf, .obj, .fbx) are not listed: the game reads the
+            // imported .gmodel, and a source is opened only by the importer when a reimport is due.
             return ext is ".png" or ".jpg" or ".jpeg" or ".bmp" or ".tga" or ".wav" or ".ogg" or ".mp3"
-                or ".flac" or ".glb" or ".gltf" or ".gmodel" or ".obj" or ".fbx" or ".json" or ".hlsl" or ".glsl"
+                or ".flac" or ".gmodel" or ".json" or ".hlsl" or ".glsl"
                 or ".spv" or ".dds" or ".ktx" or ".ktx2" or ".bin" or ".pak" or ".pack";
         }
     }

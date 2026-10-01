@@ -46,7 +46,8 @@ namespace Genesis.Runtime.Project
         public void Update(float dt, IRenderController renderer)
         {
             if (!_initialized || IsComplete) return;
-            _warm.WarmStep(renderer, maxItems: 4);
+            // The step stops itself after about 6 ms, so small files are not held to four a frame.
+            _warm.WarmStep(renderer);
             LogReadiness();
         }
         public void DrawLogo(IRenderController renderer)
