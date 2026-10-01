@@ -1073,6 +1073,32 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
         if (dialog.ShowDialog(this) == DialogResult.OK) GeneratePaths(dialog.Settings);
     }
 
+    private void OpenScatterDialog()
+    {
+        IEnumerable<string> models = string.IsNullOrWhiteSpace(ProjectRoot)
+            ? Array.Empty<string>()
+            : Genesis.Shared.Assets.ResourceCatalog.For(ProjectRoot).Entries
+                .Where(entry => entry.Type == Genesis.Shared.Assets.ResourceType.Model).Select(entry => entry.Name);
+        using TerrainScatterDialog dialog = new(_nature.ScatterLayers, models, _settings.Layers.Select(layer => layer.Name).ToArray());
+        if (dialog.ShowDialog(this) == DialogResult.OK) SetScatterLayers(dialog.Layers);
+    }
+
+    /// <summary>The terrain's scatter layers: rules that cover ground with copies of a Model.</summary>
+    public IReadOnlyList<TerrainScatterLayer> ScatterLayers => _nature.ScatterLayers;
+
+    /// <summary>Replaces the terrain's scatter layers as one undo step.</summary>
+    public void SetScatterLayers(IEnumerable<TerrainScatterLayer> layers)
+    {
+        List<TerrainScatterLayer> before = TerrainNatureSerializer.Clone(_nature.ScatterLayers);
+        List<TerrainScatterLayer> after = TerrainNatureSerializer.Clone((layers ?? Array.Empty<TerrainScatterLayer>()).ToList());
+        foreach (TerrainScatterLayer layer in after) layer.Normalize();
+        _nature.ScatterLayers = TerrainNatureSerializer.Clone(after);
+        PushEdit("Edit forests and scatter",
+            () => { _nature.ScatterLayers = TerrainNatureSerializer.Clone(after); UpdateStatus(); },
+            () => { _nature.ScatterLayers = TerrainNatureSerializer.Clone(before); UpdateStatus(); });
+        UpdateStatus();
+    }
+
     private void OpenFoliageDialog()
     {
         using FoliageScatterDialog dialog = new(_nature.FoliageSettings);
@@ -1541,9 +1567,47 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
             renderer.DrawMesh(_terrainGroundDraws[i]);
         }
 
+        DrawScatterPreview(renderer);
         DrawNatureScene(renderer);
         DrawPlacedEntities(renderer);
         DrawTerrainPlacement(renderer);
+    }
+
+    private Genesis.Runtime.Project.TerrainScatterRenderer? _scatterPreview;
+    private List<TerrainScatterLayer>? _scatterPreviewLayers;
+    private TerrainAsset? _scatterPreviewTerrain;
+    private MeshDrawCall[] _scatterPreviewDraws = new MeshDrawCall[4096];
+
+    /// <summary>True when the editor is drawing the terrain's scatter layers.</summary>
+    public bool ScatterPreviewActive => _scatterPreview is { LayerCount: > 0 };
+
+    /// <summary>
+    /// Draws the scatter layers with the game's own renderer, so the forest in the editor is the
+    /// forest in the game. Rebuilt when the layers or the terrain are replaced.
+    /// </summary>
+    private void DrawScatterPreview(IRenderController renderer)
+    {
+        if (_nature.ScatterLayers.Count == 0 || string.IsNullOrWhiteSpace(ProjectRoot))
+        {
+            _scatterPreview?.Dispose();
+            _scatterPreview = null;
+            _scatterPreviewLayers = null;
+            return;
+        }
+
+        if (_scatterPreview == null || !ReferenceEquals(_scatterPreviewLayers, _nature.ScatterLayers)
+            || !ReferenceEquals(_scatterPreviewTerrain, _terrain))
+        {
+            _scatterPreview?.Dispose();
+            _scatterPreviewLayers = _nature.ScatterLayers;
+            _scatterPreviewTerrain = _terrain;
+            _scatterPreview = new Genesis.Runtime.Project.TerrainScatterRenderer(ProjectRoot, _terrain, _nature.ScatterLayers);
+        }
+
+        int count = 0;
+        _scatterPreview.Submit(renderer, _viewport.Camera.Eye, _viewport.ViewMatrix * _viewport.ProjectionMatrix,
+            Matrix4x4.Identity, _scatterPreviewDraws, ref count);
+        for (int i = 0; i < count; i++) renderer.DrawMesh(_scatterPreviewDraws[i]);
     }
 
     protected override void OnAssetDependenciesChanged(ProjectAssetChangeSet changes)
@@ -2179,6 +2243,8 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
             _creationPanel?.Dispose();
             _foliageScatterPage?.Dispose();
             DisposePhysicsPreview();
+            _scatterPreview?.Dispose();
+            _scatterPreview = null;
             _placedModelPreview.InvalidateAssets();
             ReleaseNatureMeshes();
             ReleaseTerrainMeshes();

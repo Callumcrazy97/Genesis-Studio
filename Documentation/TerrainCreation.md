@@ -29,7 +29,9 @@ height = 60 * noise(x * 0.008, z * 0.008);
 
 `TerrainSize` and `TerrainSpacing` override the GUI fields. Generation runs in a cancellable background task. **Create section** becomes available after a successful preview; changing an input invalidates that preview. Cancel closes without adding a section. Heightfields are limited to 384 × 384 cells and volumes to 64³ cells; larger dimensions remain intact while effective spacing increases. The preview reports the actual dimensions and spacing.
 
-A code heightfield applied with **Replace editable base terrain** is not held to the preview's limit: it is generated again at the spacing the code asks for, up to 8192 cells per side, and whole-terrain commands in the code (`Ocean`, `Erode`, `Rivers`, `PaintNatural`, `Layer`, `Scatter`, `Sites`, `SitePlace`, `SitePaint`) are applied to the result. The **Island** example uses them. [Large worlds](LargeWorlds.md) lists every command.
+A code heightfield applied with **Replace editable base terrain** is not held to the preview's limit: it is generated again at the spacing the code asks for, up to 8192 cells per side, and whole-terrain commands in the code (`Ocean`, `Erode`, `Rivers`, `PaintNatural`, `Layer`, `Scatter`, `ScatterCollision`, `Sites`, `SitePlace`, `SitePaint`) are applied to the result. The **Island** example uses them. [Large worlds](LargeWorlds.md) lists every command.
+
+**Options › Forests and scatter…** edits the terrain's scatter layers (the forests, rocks and undergrowth placed by rule rather than one by one): which Model, how many per hectare, where it grows, how large, how far it is drawn and whether it is solid. The terrain view draws the layers as the game does. One change is one undo step.
 
 Creation journals the mesh, recipe, definition and placement together. Undo/redo restores that operation. **File → Save** persists the terrain placement. Generated mesh sections live beneath the terrain resource's `.parts` directory.
 

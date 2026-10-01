@@ -61,6 +61,11 @@ internal sealed partial class ForwardRenderer
     private readonly ulong[] _faceSignatureScratch = new ulong[6];
     private readonly bool[] _faceHasCastersScratch = new bool[6];
     private readonly bool[] _faceDynamicScratch = new bool[6];
+    /// <summary>The face of the local shadow map being drawn; skinned casters that miss it are skipped.</summary>
+    private int _localShadowFace;
+
+    /// <summary>Skinned casters drawn into local shadow maps this frame, counted once per face drawn.</summary>
+    public int LastLocalShadowSkinnedDraws { get; private set; }
 
     /// <summary>Local shadow maps rendered this frame (tiles), for diagnostics and tests.</summary>
     public int LastLocalShadowTilesRendered { get; private set; }
@@ -156,6 +161,7 @@ internal sealed partial class ForwardRenderer
         _localShadowsActiveThisFrame = false;
         LastLocalShadowTilesRendered = 0;
         LastLocalShadowLights = 0;
+        LastLocalShadowSkinnedDraws = 0;
         ClearLocalShadowTags();
 
         int budget = OmniShadowMath.ClampBudget(RenderCapacityDefaults.OmniShadowBudget);
@@ -218,21 +224,22 @@ internal sealed partial class ForwardRenderer
             }
 
             // A face keeps last frame's depth unless the casters touching it changed (or animate).
-            bool uploaded = false;
             for (int face = 0; face < faceCount; face++)
             {
                 bool dirty = !slot.FaceValid[face]
                     || slot.FaceSignature[face] != _faceSignatureScratch[face]
                     || _faceDynamicScratch[face];
                 if (!dirty) continue;
-                if (!uploaded)
-                {
-                    UploadShadowInstances(ShadowCascadeKind.Omni);
-                    uploaded = true;
-                }
+                // A face is given only the casters that can reach it. Drawing everything near
+                // the light into all six faces cost a room full of props six times a frame for
+                // every light a moving character stood beside.
+                SelectLocalShadowFace(face);
+                UploadShadowInstances(ShadowCascadeKind.Omni);
                 Matrix4x4 faceVp = slot.IsSpot
                     ? OmniShadowMath.SpotViewProjection(lightPos, new Vector3(slot.SpotDirCos.X, slot.SpotDirCos.Y, slot.SpotDirCos.Z), slot.SpotDirCos.W, farPlane)
                     : ComputeOmniFaceViewProj(lightPos, face, farPlane);
+                foreach (SkinnedShadowCaster caster in _skinnedShadowCasters)
+                    if (caster.Omni && (caster.OmniFaces & (1 << face)) != 0) LastLocalShadowSkinnedDraws++;
                 RenderLocalShadowTile(s, face, faceVp, _faceHasCastersScratch[face], shadowBudget);
                 slot.FaceVP[face] = faceVp;
                 slot.FaceSignature[face] = _faceSignatureScratch[face];
@@ -269,6 +276,8 @@ internal sealed partial class ForwardRenderer
         foreach (ShadowBatch batch in _shadowBatchList)
         {
             batch.OmniInstances.Clear();
+            batch.OmniReach.Clear();
+            batch.OmniReachFaces.Clear();
             if (batch.Casters.Count == 0 || !IsMeshValid(batch.MeshId)) continue;
             for (int i = 0; i < batch.Casters.Count; i++)
             {
@@ -281,18 +290,19 @@ internal sealed partial class ForwardRenderer
 
                 InstanceGpu instance = batch.Casters[i];
                 ulong mixed = MixSignature(batch.CasterHashes[i]);
-                bool touched = false;
+                byte faces = 0;
                 for (int f = 0; f < faceCount; f++)
                 {
                     if (!slot.IsSpot && !OmniShadowMath.SphereTouchesCubeFace(relative, bounds.W, f)) continue;
-                    touched = true;
+                    faces |= (byte)(1 << f);
                     _faceHasCastersScratch[f] = true;
                     _faceSignatureScratch[f] += mixed;
                 }
-                if (!touched) continue;
-                batch.OmniInstances.Add(instance);
+                if (faces == 0) continue;
+                batch.OmniReach.Add(instance);
+                batch.OmniReachFaces.Add(faces);
             }
-            total += batch.OmniInstances.Count;
+            total += batch.OmniReach.Count;
         }
 
         var skinned = CollectionsMarshal.AsSpan(_skinnedShadowCasters);
@@ -303,12 +313,14 @@ internal sealed partial class ForwardRenderer
             float reach = lightRadius + caster.Radius;
             caster.Omni = relative.LengthSquared() <= reach * reach
                 && (!slot.IsSpot || OmniShadowMath.SphereTouchesSpotCone(relative, caster.Radius, spotAxis, slot.SpotDirCos.W));
+            caster.OmniFaces = 0;
             if (!caster.Omni) continue;
             bool touched = false;
             for (int f = 0; f < faceCount; f++)
             {
                 if (!slot.IsSpot && !OmniShadowMath.SphereTouchesCubeFace(relative, caster.Radius, f)) continue;
                 touched = true;
+                caster.OmniFaces |= (byte)(1 << f);
                 _faceHasCastersScratch[f] = true;
                 _faceDynamicScratch[f] = true;
             }
@@ -316,6 +328,19 @@ internal sealed partial class ForwardRenderer
             else caster.Omni = false;
         }
         return total;
+    }
+
+    /// <summary>Makes each batch's draw list the casters that can reach one face of the light being rendered.</summary>
+    private void SelectLocalShadowFace(int face)
+    {
+        _localShadowFace = face;
+        int bit = 1 << face;
+        foreach (ShadowBatch batch in _shadowBatchList)
+        {
+            batch.OmniInstances.Clear();
+            for (int i = 0; i < batch.OmniReach.Count; i++)
+                if ((batch.OmniReachFaces[i] & bit) != 0) batch.OmniInstances.Add(batch.OmniReach[i]);
+        }
     }
 
     private static ulong FoldCasterSignature(ulong hash, int meshId, int meshRevision, in Matrix4x4 world)

@@ -51,7 +51,12 @@ namespace Genesis.Runtime.Project
         public InputState Input => _scene?.Input;
         public RoomAsset Room => _room;
 
-        public void SetRoom(RoomAsset room) => _room = room;
+        public void SetRoom(RoomAsset room)
+        {
+            _room = room;
+            _stepLights.Clear();
+            _updateLights.Clear();
+        }
 
         /// <summary>Install or replace the audio service (host wires this after construction).</summary>
         public void SetAudio(IAudioSystem audio) => _audio = audio ?? NullAudioSystem.Instance;
@@ -90,11 +95,52 @@ namespace Genesis.Runtime.Project
             try { _window?.SetCursorMode(mode); } catch { }
         }
 
-        public void ChangeRoom(string roomName) => _pendingRoom = roomName;
+        public void ChangeRoom(string roomName)
+        {
+            _pendingRoom = roomName;
+            _roomWhenLoaded = null;
+        }
+
+        private string _roomWhenLoaded;
+        private int _roomWhenLoadedModels;
+        private long _roomWhenLoadedDeadline;
+
+        /// <summary>How long a room asked for with <see cref="ChangeRoomWhenLoaded"/> may take to read before the change happens anyway.</summary>
+        public const long RoomWhenLoadedTimeoutMilliseconds = 30_000;
+
+        /// <summary>
+        /// Starts reading a room's models on worker threads and changes to the room once they are
+        /// read. The current room keeps running and drawing meanwhile, so the game can show a
+        /// fade or a progress bar instead of standing still while files are read.
+        /// </summary>
+        public void ChangeRoomWhenLoaded(string roomName)
+        {
+            if (string.IsNullOrWhiteSpace(roomName)) return;
+            _roomWhenLoaded = roomName;
+            _roomWhenLoadedModels = ProjectRoomLoader.Preload(_projectPath, roomName);
+            _roomWhenLoadedDeadline = Environment.TickCount64 + RoomWhenLoadedTimeoutMilliseconds;
+        }
+
+        /// <summary>The room being read for <see cref="ChangeRoomWhenLoaded"/>, or empty.</summary>
+        public string RoomBeingLoaded => _roomWhenLoaded ?? string.Empty;
+
+        /// <summary>From 0 to 1: how much of the room being read is ready. 1 when none is being read.</summary>
+        public float RoomLoadProgress => _roomWhenLoaded == null
+            ? 1f
+            : Math.Clamp(1f - Genesis.Runtime.Modeling.RuntimeModelStore.PrefetchesPending / (float)Math.Max(1, _roomWhenLoadedModels), 0f, 1f);
 
         /// <summary>Returns and clears a pending room change requested by gameplay scripts.</summary>
         public bool TryConsumePendingRoom(out string roomName)
         {
+            // A room asked for "when loaded" becomes the pending room once nothing is still being read.
+            if (_roomWhenLoaded != null && string.IsNullOrEmpty(_pendingRoom)
+                && (Genesis.Runtime.Modeling.RuntimeModelStore.PrefetchesPending == 0
+                    || Environment.TickCount64 >= _roomWhenLoadedDeadline))
+            {
+                _pendingRoom = _roomWhenLoaded;
+                _roomWhenLoaded = null;
+            }
+
             roomName = _pendingRoom;
             if (string.IsNullOrEmpty(roomName))
                 return false;
@@ -185,8 +231,69 @@ namespace Genesis.Runtime.Project
             if (handle.IsValid) _renderer?.ReleaseTexture(handle);
         }
 
+        private const int MaximumQueuedLights = 4096;
+        private readonly System.Collections.Generic.List<(Vector3 Position, Vector3 Color, float Radius, float Intensity, float Falloff)>
+            _stepLights = new(), _updateLights = new();
+        private bool _inFixedStep, _updatesAnnounced;
+
+        /// <summary>Lights added outside a frame that are waiting to be drawn.</summary>
+        public int PendingUpdateLights => _stepLights.Count + _updateLights.Count;
+
+        /// <summary>
+        /// Adds a light for the frame being made. The renderer starts every frame with no lights, so
+        /// a light added while the game is updating (before the frame begins) is kept here and
+        /// handed over when the frame gathers its draws; it used to be thrown away unseen.
+        /// </summary>
         public void AddPointLight(Vector3 position, Vector3 color, float radius, float intensity = 1f, float falloff = 2f)
-            => _renderer?.AddPointLight(position, color, radius, intensity, falloff);
+        {
+            if (Genesis.Shared.Rendering.RenderAutoState.AllowDrawSubmit)
+            {
+                _renderer?.AddPointLight(position, color, radius, intensity, falloff);
+                return;
+            }
+
+            var lights = _inFixedStep ? _stepLights : _updateLights;
+            if (lights.Count < MaximumQueuedLights) lights.Add((position, color, radius, intensity, falloff));
+        }
+
+        /// <summary>
+        /// A fixed step is starting. Lights from the step before are replaced, not added to: a
+        /// frame that needed two steps to catch up must not draw each light twice, and a frame
+        /// that needed none must still draw the lights of the last step rather than go dark.
+        /// </summary>
+        public void BeginFixedStep()
+        {
+            _inFixedStep = true;
+            _stepLights.Clear();
+        }
+
+        /// <summary>
+        /// The once-per-frame update is starting. Lights added by the last one are replaced by
+        /// what this one adds; while the game is paused there is no update, so they stay lit.
+        /// </summary>
+        public void BeginVariableUpdate()
+        {
+            _inFixedStep = false;
+            _updatesAnnounced = true;
+            _updateLights.Clear();
+        }
+
+        /// <summary>
+        /// Gives the renderer the lights that were added during the update, and returns how many.
+        /// Called each time a frame starts gathering what to draw, so every camera drawn in a
+        /// frame is given them.
+        /// </summary>
+        public int SubmitUpdateLights()
+        {
+            int submitted = _stepLights.Count + _updateLights.Count;
+            foreach ((Vector3 position, Vector3 color, float radius, float intensity, float falloff) in _stepLights)
+                _renderer?.AddPointLight(position, color, radius, intensity, falloff);
+            foreach ((Vector3 position, Vector3 color, float radius, float intensity, float falloff) in _updateLights)
+                _renderer?.AddPointLight(position, color, radius, intensity, falloff);
+            // A host that does not say when updates begin gets each light for one frame.
+            if (!_updatesAnnounced) _updateLights.Clear();
+            return submitted;
+        }
 
         public void SetChunkBounds(int chunkId, Vector3 min, Vector3 max)
             => _renderer?.SetChunkBounds(chunkId, min, max);

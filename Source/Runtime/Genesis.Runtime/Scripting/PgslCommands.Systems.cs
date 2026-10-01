@@ -488,6 +488,51 @@ public static partial class PgslCommands
         }
     }
 
+    /// <summary>Keeps shared objects in step between the host and joined players. Assigned by the host application.</summary>
+    public static Genesis.Runtime.Net.NetworkReplication ActiveReplication { get; set; }
+
+    private static bool TryReplicationTarget(double id, out Genesis.Shared.ECS.Entity entity, out string prefab)
+    {
+        entity = Genesis.Shared.ECS.Entity.Null;
+        prefab = null;
+        if (ActiveReplication == null || ActiveGameContext?.World == null) return false;
+        entity = ActiveGameContext.World.GetEntity((int)id);
+        if (entity.IsNull || !ActiveGameContext.World.IsAlive(entity)) return false;
+        // The Object an instance was made from, so other machines can make their copy of it.
+        if (!Genesis.Runtime.Rendering.ObjectDrawAssetRegistry.TryGet(entity, out var assets) || string.IsNullOrWhiteSpace(assets.Prefab))
+            return false;
+        prefab = assets.Prefab;
+        return true;
+    }
+
+    [PgslCommand("NetReplicate", "NetReplicate(id) -> number",
+        "Host: show this instance to every player near it. Returns its network id, 0 if it cannot be shared", "Networking")]
+    public static double NetReplicate(double id) =>
+        TryReplicationTarget(id, out var entity, out string prefab) ? ActiveReplication.Replicate(entity, prefab) : 0;
+
+    [PgslCommand("NetOwn", "NetOwn(id) -> number",
+        "This machine controls this instance (a player's character); every other player sees a copy that follows it", "Networking")]
+    public static double NetOwn(double id) =>
+        TryReplicationTarget(id, out var entity, out string prefab) ? ActiveReplication.Own(entity, prefab) : 0;
+
+    [PgslCommand("NetForget", "NetForget(id)", "Stop sharing an instance; its copies on other machines are removed", "Networking")]
+    public static void NetForget(double id)
+    {
+        if (ActiveReplication == null || ActiveGameContext?.World == null) return;
+        var entity = ActiveGameContext.World.GetEntity((int)id);
+        if (!entity.IsNull) ActiveReplication.Forget(entity);
+    }
+
+    [PgslCommand("NetInterestDistance", "NetInterestDistance(metres)",
+        "How near a shared instance must be to a player for that player to be sent it", "Networking")]
+    public static void NetInterestDistance(double metres)
+    {
+        if (ActiveReplication != null) ActiveReplication.InterestDistance = (float)Math.Clamp(metres, 1, 100000);
+    }
+
+    [PgslCommand("NetCopyCount", "NetCopyCount() -> number", "How many copies of other machines' instances exist here", "Networking")]
+    public static double NetCopyCount() => ActiveReplication?.CopyCount ?? 0;
+
     [PgslCommand("NetSendNumber", "NetSendNumber(peerId, tag, value) -> bool", "Send a single number", "Networking")]
     public static bool NetSendNumber(double peerId, double tag, double value)
     {

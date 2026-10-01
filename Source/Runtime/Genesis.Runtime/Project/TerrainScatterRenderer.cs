@@ -48,7 +48,7 @@ public readonly record struct TerrainScatterStatistics(
 /// while are released, so memory follows what is in view rather than the size of the world.
 /// </para>
 /// </remarks>
-internal sealed class TerrainScatterRenderer : IDisposable
+public sealed class TerrainScatterRenderer : IDisposable
 {
     private const int Mid = 0, Far = 1;
 
@@ -140,15 +140,32 @@ internal sealed class TerrainScatterRenderer : IDisposable
     private long _mergedBytes;
     private readonly int _cellsX, _cellsZ;
 
-    public TerrainScatterRenderer(string projectPath, TerrainAsset terrain, IEnumerable<TerrainScatterLayer> layers)
+    /// <param name="preloadModels">
+    /// Read the layers' models now. False when this is built on a worker thread; the models are
+    /// then read by the first frame that draws them.
+    /// </param>
+    public TerrainScatterRenderer(string projectPath, TerrainAsset terrain, IEnumerable<TerrainScatterLayer> layers,
+        bool preloadModels = true)
     {
         _projectPath = projectPath;
         _terrain = terrain;
         (_cellsX, _cellsZ) = TerrainScatterPlacement.CellCount(terrain);
+        if (preloadModels)
+        {
+            // Worker threads start on every layer's model, so the loop below waits for files
+            // being read several at a time instead of reading each in turn.
+            foreach (TerrainScatterLayer layer in layers)
+            {
+                if (layer is { Enabled: true } && layer.DensityPerHectare > 0f)
+                    Genesis.Runtime.Modeling.RuntimeModelAssetRegistry.Shared.Prefetch(projectPath, layer.Model);
+            }
+        }
+
         foreach (TerrainScatterLayer layer in layers)
         {
             if (layer == null || !layer.Enabled || string.IsNullOrWhiteSpace(layer.Model) || layer.DensityPerHectare <= 0f) continue;
             _layers.Add(new LayerState { Layer = layer });
+            if (!preloadModels) continue;
             // Read the model now, while the room is loading, rather than in the first frame that draws it.
             try { ObjectDrawPass.Models.LoadAsset(projectPath, layer.Model); }
             catch (Exception exception) when (exception is System.IO.IOException or System.Text.Json.JsonException or InvalidOperationException)

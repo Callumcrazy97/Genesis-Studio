@@ -29,7 +29,7 @@ internal sealed class TerrainRecipeVm : IPgslEngineBridge
         "sin", "cos", "abs", "sqrt", "min", "max", "pow", "exp", "floor", "clamp", "noise",
         "fbm", "ridge", "lerp", "smoothstep", "length",
         "TerrainSize", "TerrainSpacing", "TerrainHeights", "Ocean", "Erode", "Rivers", "PaintNatural",
-        "Layer", "Scatter", "Sites", "SitePlace", "SitePaint",
+        "Layer", "Scatter", "Sites", "SitePlace", "SitePaint", "ScatterCollision",
     ];
     private const int FirstCommand = 16;
 
@@ -161,6 +161,14 @@ internal sealed class TerrainRecipeVm : IPgslEngineBridge
                 {
                     if (plan.Sites.Count == 0) throw new InvalidOperationException("SitePaint needs a Sites(...) command before it.");
                     plan.Sites[^1].PaintSlot = (int)Math.Clamp(A(0), 0, 4);
+                }
+                break;
+            case 28:
+                if (plan != null)
+                {
+                    if (plan.Scatter.Count == 0) throw new InvalidOperationException("ScatterCollision needs a Scatter(...) command before it.");
+                    plan.Scatter[^1].CollisionRadius = (float)Math.Clamp(A(0), 0, 100);
+                    plan.Scatter[^1].CollisionHeight = (float)Math.Clamp(O(1, 4), 0, 500);
                 }
                 break;
             default:

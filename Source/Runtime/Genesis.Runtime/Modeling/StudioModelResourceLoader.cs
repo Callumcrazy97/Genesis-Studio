@@ -90,6 +90,16 @@ public static class StudioModelResourceLoader
 
     public static GModelAsset Load(string path) => LoadCore(path, allowReimport: true);
 
+    /// <summary>
+    /// Starts reading a Model resource's saved geometry on a worker thread, for a load that is
+    /// about to ask for it. Never imports: a model that needs importing is still imported by the
+    /// load itself, on the thread that asked.
+    /// </summary>
+    public static void Prefetch(string path, long keepMilliseconds = RuntimeModelStore.PrefetchKeepMilliseconds)
+    {
+        if (!string.IsNullOrWhiteSpace(path)) RuntimeModelStore.Prefetch(CanonicalPath(path), keepMilliseconds);
+    }
+
     /// <summary>Reads the last saved model for background previews without importing or writing assets.</summary>
     public static GModelAsset LoadReadOnly(string path) => LoadCore(path, allowReimport: false);
 

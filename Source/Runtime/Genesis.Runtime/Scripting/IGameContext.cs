@@ -98,7 +98,9 @@ namespace Genesis.Runtime.Scripting
         void          UpdateTexture(TextureHandle handle, int width, int height, ReadOnlySpan<byte> rgba);
         void          ReleaseTexture(TextureHandle handle);
 
-        // ── Per-frame 3D submission (valid only inside OnRenderFrame) ───────────────
+        // ── Per-frame 3D submission ─────────────────────────────────────────────────
+        // A light added inside OnRenderFrame joins that frame; one added during an update is kept
+        // for the next frame drawn. SetChunkBounds is valid only inside OnRenderFrame.
         void AddPointLight(Vector3 position, Vector3 color, float radius, float intensity = 1f, float falloff = 2f);
         void SetChunkBounds(int chunkId, Vector3 min, Vector3 max);
 

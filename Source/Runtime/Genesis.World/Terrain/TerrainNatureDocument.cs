@@ -610,6 +610,13 @@ public sealed class TerrainScatterLayer
     /// <summary>Distance at which copies stop being drawn; 0 uses the view distance.</summary>
     public float DrawDistance { get; set; }
     public bool CastShadows { get; set; } = true;
+    /// <summary>
+    /// Half-width in metres, at scale 1, of the upright box each copy is given to collide with:
+    /// a trunk's radius, or a rock's. Zero leaves the layer without collision.
+    /// </summary>
+    public float CollisionRadius { get; set; }
+    /// <summary>Height in metres, at scale 1, of that box.</summary>
+    public float CollisionHeight { get; set; }
     public int Seed { get; set; } = 1;
 
     public void Normalize()
@@ -631,6 +638,8 @@ public sealed class TerrainScatterLayer
         MaximumScale = float.IsFinite(MaximumScale) ? Math.Clamp(MaximumScale, MinimumScale, 64f) : MinimumScale;
         Sink = float.IsFinite(Sink) ? Math.Clamp(Sink, -10f, 10f) : 0f;
         DrawDistance = float.IsFinite(DrawDistance) ? Math.Clamp(DrawDistance, 0f, 100000f) : 0f;
+        CollisionRadius = float.IsFinite(CollisionRadius) ? Math.Clamp(CollisionRadius, 0f, 100f) : 0f;
+        CollisionHeight = float.IsFinite(CollisionHeight) ? Math.Clamp(CollisionHeight, 0f, 500f) : 0f;
     }
 }
 

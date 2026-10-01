@@ -363,7 +363,9 @@ namespace Genesis.Runtime.Modeling
                 drawn?.Add(mesh);
                 queue.Add(new MeshDrawCall
                 {
-                    Mesh = automatic ? mesh.ForLevel(viewLevel) : mesh.Mesh,
+                    // An animated mesh steps down one level later than a static one: a character
+                    // is looked at more closely than a rock, and its joints bend.
+                    Mesh = automatic ? mesh.ForLevel(mesh.IsSkinned ? viewLevel - 1 : viewLevel) : mesh.Mesh,
                     SkinPalette = mesh.IsSkinned ? palette : SkinPaletteHandle.Invalid,
                     World = pivotedWorld,
                     Texture = texture,

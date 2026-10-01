@@ -103,6 +103,38 @@ namespace Genesis.Runtime.Modeling
             return asset;
         }
 
+        /// <summary>
+        /// Starts reading a model on a worker thread if this registry does not hold it yet, so the
+        /// <see cref="Load"/> that follows finds it read or being read. Safe to call for any name.
+        /// </summary>
+        public void Prefetch(string projectPath, string modelName, long keepMilliseconds = RuntimeModelStore.PrefetchKeepMilliseconds)
+        {
+            if (string.IsNullOrWhiteSpace(modelName) || !RuntimeModelStore.PrefetchEnabled) return;
+            try
+            {
+                lock (_gate)
+                {
+                    if (_resolvedRequests.TryGetValue((projectPath ?? string.Empty, modelName), out string known)
+                        && _cache.ContainsKey(known))
+                        return;
+                    string studioPath = StudioModelResourceLoader.Resolve(projectPath, modelName);
+                    if (!string.IsNullOrWhiteSpace(studioPath))
+                    {
+                        if (!_cache.ContainsKey(Path.GetFullPath(studioPath))) StudioModelResourceLoader.Prefetch(studioPath, keepMilliseconds);
+                        return;
+                    }
+
+                    string path = RuntimeModelStore.AssetPath(projectPath, modelName);
+                    if (!string.IsNullOrWhiteSpace(path) && !_cache.ContainsKey(Path.GetFullPath(path)))
+                        RuntimeModelStore.Prefetch(path, keepMilliseconds);
+                }
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+            {
+                // Reading ahead is an optimisation; the load itself reports a model it cannot read.
+            }
+        }
+
         // Staggered so models loaded together do not all re-stamp in the same frame.
         private long NextCheck(long now, string key) =>
             RuntimeAssetPolicy.NextCheck(now, _freshnessCheckIntervalMilliseconds,

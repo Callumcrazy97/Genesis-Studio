@@ -540,7 +540,7 @@ public static partial class PgslCommands
     [PgslCommand(
         "DrawPointLight3D",
         "DrawPointLight3D(x, y, z, radius, intensity, r, g, b)",
-        "Add an omnidirectional light during the current 3D draw pass",
+        "Add an omnidirectional light to the frame; from a Step event it lights the next frame drawn",
         "Drawing 3D",
         Namespace = "Engine.Rendering")]
     public static void DrawPointLight3D(
@@ -550,7 +550,13 @@ public static partial class PgslCommands
         double r, double g, double b)
     {
         IPgslDrawSurface surface = Draw;
-        if (surface is null || !surface.Is3DActive) return;
+        if (surface is null)
+        {
+            QueueUpdateLight(x, y, z, radius, intensity, 2.0, r, g, b);
+            return;
+        }
+
+        if (!surface.Is3DActive) return;
         surface.QueuePointLight3D(
             (float)x, (float)y, (float)z,
             (float)radius,
@@ -561,7 +567,7 @@ public static partial class PgslCommands
     [PgslCommand(
         "DrawPointLightFalloff3D",
         "DrawPointLightFalloff3D(x, y, z, radius, intensity, falloff, r, g, b)",
-        "Add an omnidirectional light with an explicit falloff exponent during the current 3D draw pass",
+        "Add an omnidirectional light with an explicit falloff exponent; from a Step event it lights the next frame drawn",
         "Drawing 3D",
         Namespace = "Engine.Rendering")]
     public static void DrawPointLightFalloff3D(
@@ -572,13 +578,36 @@ public static partial class PgslCommands
         double r, double g, double b)
     {
         IPgslDrawSurface surface = Draw;
-        if (surface is null || !surface.Is3DActive) return;
+        if (surface is null)
+        {
+            QueueUpdateLight(x, y, z, radius, intensity, falloff, r, g, b);
+            return;
+        }
+
+        if (!surface.Is3DActive) return;
         surface.QueuePointLight3D(
             (float)x, (float)y, (float)z,
             (float)radius,
             (float)intensity,
             RgbColor(r, g, b),
             (float)falloff);
+    }
+
+    /// <summary>
+    /// A light asked for outside a Draw event (Step, Create, an alarm). There is no frame to add
+    /// it to yet, so the game keeps it and hands it to the next frame; it used to be ignored.
+    /// </summary>
+    private static void QueueUpdateLight(double x, double y, double z, double radius, double intensity, double falloff,
+        double r, double g, double b)
+    {
+        if (ActiveGameContext?.Room is not { Dimension: Genesis.Runtime.Scene.RoomDimension.ThreeD }) return;
+        System.Drawing.Color color = RgbColor(r, g, b);
+        ActiveGameContext.AddPointLight(
+            new System.Numerics.Vector3((float)x, (float)y, (float)z),
+            new System.Numerics.Vector3(color.R / 255f, color.G / 255f, color.B / 255f),
+            MathF.Max(0.01f, MathF.Abs((float)radius)),
+            MathF.Max(0f, (float)intensity),
+            Math.Clamp((float)falloff, 0.05f, 16f));
     }
 
     [PgslCommand("DrawSphere3D", "DrawSphere3D(x, y, z, radius)", "Draw a sphere", "Drawing 3D")]

@@ -71,6 +71,8 @@ public sealed partial class TerrainEditorControl
             modes.DropDownItems.Add(item);
         }
         options.DropDownItems.Add(modes);
+        options.DropDownItems.Add(EditorDocumentMenuChrome.Item("Forests and scatter…",
+            "Cover ground with copies of a Model by rule: forests, rocks, undergrowth", OpenScatterDialog));
         options.DropDownItems.Add(EditorDocumentMenuChrome.Item("Export world map…", "Bake the terrain and its authored features to PNG", ExportWorldMap));
         ToolStripMenuItem panels = new("Panels");
         foreach (var entry in new[] { ("Tools", _componentsToggle), ("Objects and Inspector", _inspectorToggle) })

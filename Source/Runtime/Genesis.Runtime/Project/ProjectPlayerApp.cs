@@ -42,6 +42,7 @@ namespace Genesis.Runtime.Project
         private static SilkGameWindow _activeWindow;
         private static XAudioSystem _activeAudio;   // ticked each frame to recycle voices
         private static LiteNetGameNetwork _activeNet; // ticked each frame to pump packets
+        private static Genesis.Runtime.Net.NetworkReplication _replication;
         private static volatile bool _stopRequested;
         private static volatile bool _pauseRequested;
         public static string LastError { get; private set; }
@@ -164,6 +165,20 @@ namespace Genesis.Runtime.Project
                 logger.Line($"room={roomName} file={roomFile}");
                 logger.Line($"autoshot={autoshotSeconds} label={perfLabel ?? "(none)"}");
 
+                // Start reading the first room's models now. Workers read them while the window is
+                // made and the loading screen prepares everything else, so the room does not read
+                // them one after another when it is built and first drawn.
+                try
+                {
+                    int named = new RoomSceneBuilder(projectPath).PrefetchModels(room, ProjectRoomLoader.PreloadKeepMilliseconds);
+                    if (named > 0) logger.Line($"reading {named} models ahead for {roomName}");
+                }
+                catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException
+                    or Newtonsoft.Json.JsonException or ArgumentException)
+                {
+                    logger.Line($"reading models ahead failed: {ex.Message}");
+                }
+
                 ProjectPaths.EnsureDebugDirs(projectPath);
                 RenderLog.Init();
 
@@ -252,6 +267,13 @@ namespace Genesis.Runtime.Project
                     _activeNet = new LiteNetGameNetwork();
                     Engine.SetNetwork(_activeNet);
                     logger.Line("network system initialised (LiteNetLib)");
+                    // Shared objects between host and players. Copies are made without a script
+                    // host, so they show the Object and run none of its scripts.
+                    _replication = new Genesis.Runtime.Net.NetworkReplication();
+                    var copyBuilder = new Genesis.Runtime.Scene.RoomSceneBuilder(projectPath, null);
+                    _replication.CreateCopy = copyBuilder.SpawnCopy;
+                    _replication.Attach(_activeNet);
+                    Genesis.Runtime.Scripting.PgslCommands.ActiveReplication = _replication;
 
                     RoomAsset loaded = RoomAssetLoader.Parse(roomFile);
                     RoomBuildResult build = ProjectRoomLoader.Build(projectPath, scene, loaded,
@@ -376,6 +398,9 @@ namespace Genesis.Runtime.Project
                     }
 
                     host.DebugRoomName = roomName;
+                    host.BeforeRenderSubmit += () => gameContext?.SubmitUpdateLights();
+                    host.FixedStepStarting += () => gameContext?.BeginFixedStep();
+                    host.VariableUpdateStarting += () => gameContext?.BeginVariableUpdate();
                     // Tick the audio system + network every variable frame.
                     host.FrameUpdate += dt =>
                     {
@@ -387,6 +412,19 @@ namespace Genesis.Runtime.Project
                         if (_stopRequested) _activeWindow?.Close();
                         try { _activeAudio?.Update(); } catch { }
                         try { _activeNet?.Update(); } catch { }
+                        try
+                        {
+                            if (_replication != null && host.Scene?.World != null)
+                            {
+                                // Distance is measured from the 3D camera; a 2D room shares everything.
+                                _replication.InterestEnabled = gameContext?.Room?.Dimension != RoomDimension.TwoD;
+                                _replication.Update(host.Scene.World, host.Scene.Camera3D.Position, (float)dt);
+                            }
+                        }
+                        catch (Exception replicationError)
+                        {
+                            logger.Line("network replication error: " + replicationError.Message);
+                        }
                         telemetry?.Sample(dt, host.Renderer, host.DebugRoomName);
 
                         // Read through the scene, not the window. Both expose an InputState, but the
@@ -609,7 +647,12 @@ namespace Genesis.Runtime.Project
             {
                 foreach (ISceneSubsystem subsystem in scene.Subsystems)
                 {
+                    if (subsystem is Genesis.Runtime.Scene.RoomSceneryStreamer scenery)
+                        sb.AppendLine($"scenery=loaded {scenery.Loaded} of {scenery.Total}");
                     if (subsystem is not RoomTerrainSubsystem terrain) continue;
+                    (int streamedTerrains, int loadedTerrains) = terrain.StreamedTerrainCounts;
+                    if (streamedTerrains > 0) sb.AppendLine($"terrainStreaming=loaded {loadedTerrains} of {streamedTerrains}");
+                    sb.AppendLine($"scatterColliders={terrain.ScatterColliderCount}");
                     foreach (Genesis.World.Terrain.TerrainLodStatistics lod in terrain.TerrainLodStatistics)
                         sb.AppendLine($"terrainLod=nodes {lod.NodesDrawn} triangles {lod.TrianglesDrawn} resident {lod.MeshesResident} "
                             + $"pending {lod.BuildsPending} levels {lod.FinestLevelDrawn}-{lod.CoarsestLevelDrawn}");
@@ -622,6 +665,10 @@ namespace Genesis.Runtime.Project
                 }
             }
 
+            sb.AppendLine($"modelCache=read {Genesis.Runtime.Modeling.ModelBinaryCache.Hits} written {Genesis.Runtime.Modeling.ModelBinaryCache.Writes}");
+            sb.AppendLine($"modelReadAhead=started {Genesis.Runtime.Modeling.RuntimeModelStore.PrefetchesStarted} used {Genesis.Runtime.Modeling.RuntimeModelStore.PrefetchesUsed}");
+            if (_replication != null)
+                sb.AppendLine($"replication=shared {_replication.SharedCount} copies {_replication.CopyCount} owned {_replication.OwnedCount}");
             int[] modelLevels = Genesis.Runtime.Modeling.ModelLodView.LevelCounts;
             sb.AppendLine($"modelLod=full {modelLevels[0]} level1 {modelLevels[1]} level2 {modelLevels[2]} level3 {modelLevels[3]} "
                 + $"tooSmall {Genesis.Runtime.Modeling.ModelLodView.CulledSmall}");

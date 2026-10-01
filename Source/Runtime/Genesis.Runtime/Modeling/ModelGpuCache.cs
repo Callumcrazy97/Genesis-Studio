@@ -46,6 +46,8 @@ namespace Genesis.Runtime.Modeling
             public int Target;
             public int Level;
             public MeshVertex[] Vertices;
+            /// <summary>Set instead of <see cref="Vertices"/> for a mesh that is animated by a skeleton.</summary>
+            public SkinnedMeshVertex[] SkinnedVertices;
             public ushort[] Indices;
         }
 
@@ -93,6 +95,13 @@ namespace Genesis.Runtime.Modeling
 
         /// <summary>Set false to draw every model in full at any distance.</summary>
         public static bool AutoLodEnabled { get; set; } = true;
+
+        /// <summary>
+        /// Set false to leave animated (skinned) meshes in full at any distance. A simplified
+        /// version keeps a subset of the original vertices, each with its own bone weights, so it
+        /// follows the skeleton exactly as the full mesh does.
+        /// </summary>
+        public static bool AutoLodSkinned { get; set; } = true;
 
         /// <summary>Clip/frame palettes kept per asset before idle ones are released.</summary>
         private const int MaximumClipPalettes = 128;
@@ -204,8 +213,8 @@ namespace Genesis.Runtime.Modeling
         }
 
         /// <summary>
-        /// Starts simplifying an asset's static meshes on a worker. An asset that brings its own
-        /// levels, or that is animated, keeps exactly what was authored.
+        /// Starts simplifying an asset's meshes on a worker. An asset that brings its own levels
+        /// keeps exactly what was authored.
         /// </summary>
         private static void StartAutoLods(GModelAsset asset, CachedAsset cached)
         {
@@ -213,15 +222,23 @@ namespace Genesis.Runtime.Modeling
             foreach (GModelMesh mesh in asset.Meshes)
                 if (mesh != null && mesh.Lod != 0) return;
 
-            var jobs = new List<(int Target, MeshVertex[] Vertices, ushort[] Indices)>();
+            var jobs = new List<(int Target, MeshVertex[] Vertices, SkinnedMeshVertex[] Skinned, ushort[] Indices)>();
             for (int i = 0; i < cached.Meshes.Count; i++)
             {
                 CachedMesh entry = cached.Meshes[i];
-                if (entry.IsSkinned || entry.SourceIndex < 0 || entry.SourceIndex >= asset.Meshes.Count) continue;
+                if (entry.SourceIndex < 0 || entry.SourceIndex >= asset.Meshes.Count) continue;
                 GModelMesh source = asset.Meshes[entry.SourceIndex];
-                if (source?.Vertices == null || entry.SourceIndices == null) continue;
+                if (source == null || entry.SourceIndices == null) continue;
                 if (entry.SourceIndices.Length / 3 < AutoLodMinimumTriangles) continue;
-                jobs.Add((i, source.Vertices, entry.SourceIndices));
+                if (entry.IsSkinned)
+                {
+                    if (AutoLodSkinned && source.SkinnedVertices is { Length: > 0 })
+                        jobs.Add((i, null, source.SkinnedVertices, entry.SourceIndices));
+                }
+                else if (source.Vertices != null)
+                {
+                    jobs.Add((i, source.Vertices, null, entry.SourceIndices));
+                }
             }
 
             foreach (CachedMesh entry in cached.Meshes) entry.SourceIndices = null;
@@ -229,10 +246,37 @@ namespace Genesis.Runtime.Modeling
             cached.AutoLodBuild = Task.Run(() =>
             {
                 var built = new List<AutoLodMesh>();
-                foreach ((int target, MeshVertex[] vertices, ushort[] indices) in jobs)
-                    BuildAutoLods(target, vertices, indices, built);
+                foreach ((int target, MeshVertex[] vertices, SkinnedMeshVertex[] skinned, ushort[] indices) in jobs)
+                {
+                    if (skinned != null) BuildSkinnedAutoLods(target, skinned, indices, built);
+                    else BuildAutoLods(target, vertices, indices, built);
+                }
+
                 return built.ToArray();
             });
+        }
+
+        /// <summary>
+        /// The simplified versions an animated mesh would be given, without touching the GPU. Every
+        /// vertex kept is one of the original vertices, bone weights and all.
+        /// </summary>
+        public static IReadOnlyList<(int Level, SkinnedMeshVertex[] Vertices, ushort[] Indices)> BuildSkinnedAutoLodMeshes(
+            SkinnedMeshVertex[] vertices, ushort[] indices)
+        {
+            var levels = new List<(int, SkinnedMeshVertex[], ushort[])>();
+            if (vertices == null || indices == null || indices.Length / 3 < AutoLodMinimumTriangles) return levels;
+            var built = new List<AutoLodMesh>();
+            BuildSkinnedAutoLods(0, vertices, indices, built);
+            foreach (AutoLodMesh lod in built) levels.Add((lod.Level, lod.SkinnedVertices, lod.Indices));
+            return levels;
+        }
+
+        internal static void BuildSkinnedAutoLods(int target, SkinnedMeshVertex[] vertices, ushort[] indices, List<AutoLodMesh> built)
+        {
+            var positions = new Vector3[vertices.Length];
+            for (int i = 0; i < vertices.Length; i++) positions[i] = vertices[i].Position;
+            BuildLevels<SkinnedMeshVertex>(vertices, positions, indices, (level, kept, keptIndices) =>
+                built.Add(new AutoLodMesh { Target = target, Level = level, SkinnedVertices = kept, Indices = keptIndices }));
         }
 
         /// <summary>
@@ -253,10 +297,17 @@ namespace Genesis.Runtime.Modeling
         internal static void BuildAutoLods(int target, MeshVertex[] vertices, ushort[] indices, List<AutoLodMesh> built)
         {
             var positions = new Vector3[vertices.Length];
+            for (int i = 0; i < vertices.Length; i++) positions[i] = vertices[i].Position;
+            BuildLevels<MeshVertex>(vertices, positions, indices, (level, kept, keptIndices) =>
+                built.Add(new AutoLodMesh { Target = target, Level = level, Vertices = kept, Indices = keptIndices }));
+        }
+
+        private static void BuildLevels<TVertex>(TVertex[] vertices, Vector3[] positions, ushort[] indices,
+            Action<int, TVertex[], ushort[]> add)
+        {
             Vector3 min = new(float.MaxValue), max = new(float.MinValue);
-            for (int i = 0; i < vertices.Length; i++)
+            for (int i = 0; i < positions.Length; i++)
             {
-                positions[i] = vertices[i].Position;
                 min = Vector3.Min(min, positions[i]);
                 max = Vector3.Max(max, positions[i]);
             }
@@ -272,9 +323,9 @@ namespace Genesis.Runtime.Modeling
                 int[] simplified = MeshSimplifier.Simplify(positions, current, wanted, size * AutoLodErrors[level]);
                 int triangles = simplified.Length / 3;
                 if (triangles < 4 || triangles > previous * 0.85f) continue;
-                if (!MeshSimplifier.Compact<MeshVertex>(vertices, simplified, out MeshVertex[] keptVertices, out ushort[] keptIndices))
+                if (!MeshSimplifier.Compact<TVertex>(vertices, simplified, out TVertex[] keptVertices, out ushort[] keptIndices))
                     continue;
-                built.Add(new AutoLodMesh { Target = target, Level = level, Vertices = keptVertices, Indices = keptIndices });
+                add(level, keptVertices, keptIndices);
                 current = simplified;
                 previous = triangles;
             }
@@ -288,7 +339,9 @@ namespace Genesis.Runtime.Modeling
             foreach (AutoLodMesh lod in build.Result)
             {
                 if (lod.Target < 0 || lod.Target >= cached.Meshes.Count) continue;
-                MeshHandle handle = renderer.RegisterMesh(lod.Vertices, lod.Indices);
+                MeshHandle handle = lod.SkinnedVertices != null
+                    ? renderer.RegisterSkinnedMesh(lod.SkinnedVertices, lod.Indices)
+                    : renderer.RegisterMesh(lod.Vertices, lod.Indices);
                 if (!handle.IsValid) continue;
                 CachedMesh mesh = cached.Meshes[lod.Target];
                 mesh.AutoLods ??= new MeshHandle[AutoLodRatios.Length];

@@ -115,6 +115,10 @@ public sealed partial class RoomEditorControl
             environment.ShadowDistance, 0, 20000, 50m, 0));
         values.Add(Number("Lighting & atmosphere", "environment.simulationDistance", "Object activity distance (m, 0 = everywhere)",
             environment.SimulationDistance, 0, 100000, 50m, 0));
+        values.Add(Number("Lighting & atmosphere", "environment.sceneryDistance", "Scenery loading distance (m, 0 = load all)",
+            environment.SceneryDistance, 0, 100000, 50m, 0));
+        values.Add(Number("Lighting & atmosphere", "environment.terrainDistance", "Terrain loading distance (m, 0 = load all)",
+            environment.TerrainDistance, 0, 1000000, 100m, 0));
         AddAudio(values, "Wind", "environment.windAudio", environment.WindAudio);
         AddAudio(values, "Rain", "environment.rainAudio", environment.RainAudio);
         AddAudio(values, "Water", "environment.waterAudio", environment.WaterAudio);
@@ -329,6 +333,8 @@ public sealed partial class RoomEditorControl
             case "visibilitykilometres": next.VisibilityKilometres = Convert.ToSingle(value, CultureInfo.InvariantCulture); break;
             case "shadowdistance": next.ShadowDistance = Convert.ToSingle(value, CultureInfo.InvariantCulture); break;
             case "simulationdistance": next.SimulationDistance = Convert.ToSingle(value, CultureInfo.InvariantCulture); break;
+            case "scenerydistance": next.SceneryDistance = Convert.ToSingle(value, CultureInfo.InvariantCulture); break;
+            case "terraindistance": next.TerrainDistance = Convert.ToSingle(value, CultureInfo.InvariantCulture); break;
             case "windaudio": next.WindAudio = InspectorText(value); break;
             case "rainaudio": next.RainAudio = InspectorText(value); break;
             case "wateraudio": next.WaterAudio = InspectorText(value); break;

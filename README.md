@@ -9,7 +9,8 @@ validation evidence. Historical ledgers there are labelled separately from curre
 See [AGENTS.md](AGENTS.md) for repository contributor instructions.
 
 [Large worlds](Documentation/LargeWorlds.md) covers kilometre-scale terrain, scattered forests,
-automatic model detail, long views and what is not done yet.
+automatic model detail, long views, loading (the model cache, reading ahead, changing room in the
+background), sharing a world between players, and what is not done yet.
 
 From the repository root, run `DeveloperRequirementsInstaller.ps1 -CheckOnly` to audit prerequisites
 and `Build.bat --quick --run` to build and open Studio. Quick Build alone is not a full regression

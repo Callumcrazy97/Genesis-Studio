@@ -47,6 +47,8 @@ namespace Genesis.Runtime.Scene
         /// step events; 0 runs every object every frame.
         /// </summary>
         public float SimulationDistance { get; set; }
+        /// <summary>Distance within which plain scenery objects exist; 0 creates them all with the room.</summary>
+        public float SceneryDistance { get; set; }
         /// <summary>AF1.2 half-res GTAO (optional, default off).</summary>
         public bool GtaoEnabled { get; set; }
 

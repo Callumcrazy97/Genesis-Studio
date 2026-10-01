@@ -92,6 +92,15 @@ namespace Genesis.Runtime
         /// <summary>Invoked after <c>EndFrame</c> and before the overlay / present (screenshot hook).</summary>
         public event Action<IRenderController> EndFrame;
 
+        /// <summary>Invoked when a frame starts gathering what to draw, before scripts' render hooks.</summary>
+        public event Action BeforeRenderSubmit;
+
+        /// <summary>Invoked before each fixed step of the simulation; a frame may have none or several.</summary>
+        public event Action FixedStepStarting;
+
+        /// <summary>Invoked before the once-per-frame update, after the frame's fixed steps.</summary>
+        public event Action VariableUpdateStarting;
+
         /// <summary>
         /// Invoked after <see cref="IRenderController.Present"/>. Autoshot closes the window here
         /// so Present cannot run against a renderer already disposed by <c>Closing</c>.
@@ -239,6 +248,8 @@ namespace Genesis.Runtime
                 }
             }
             _scene.AllowStreamingUpdates = true;
+            // A shake runs on real time, so it carries on through slow motion and a hit-stop.
+            _scene.Camera3D.AdvanceShake((float)dt);
 
             // Feed the last resolved (non-stalling) GPU timestamp into the budget arbiter before
             // the variable ECS phase. The value naturally lags by a few frames on real backends.
@@ -252,11 +263,17 @@ namespace Genesis.Runtime
                 // The 2D spatial grid is not queried by collisions or scripts, so it is no longer
                 // cleared and rebuilt (with string matching per entity) every update. Callers that
                 // need it can call RuntimeScene.RebuildSpatialGrid on demand.
-                int steps = _scene.FixedTimestep.Advance(fdt);
+                // Game time may run slower or faster than real time (slow motion, a hit-stop).
+                float gameDelta = fdt * Genesis.Runtime.Core.GameSpeed.Scale;
+                int steps = _scene.FixedTimestep.Advance(gameDelta);
                 for (int i = 0; i < steps; i++)
+                {
+                    FixedStepStarting?.Invoke();
                     _scene.UpdateFixed(_scene.FixedTimestep.FixedDelta);
+                }
 
-                _scene.UpdateVariable(fdt);
+                VariableUpdateStarting?.Invoke();
+                _scene.UpdateVariable(gameDelta);
             }
 
             // Per-frame host hook (audio voice recycling, network pump, etc.).
@@ -414,6 +431,9 @@ namespace Genesis.Runtime
                     wireframe,
                     debugView);
                 EnvironmentMapper.StampClimateAtmosphere(ref meshState, _scene.Climate, _scene.Atmosphere);
+                // A script's own ambient colour outranks the sky's; the sky used to overwrite it.
+                if (_scene.Environment.AmbientOverrideColor is Vector3 ambientOverride)
+                    meshState.AmbientColor = ambientOverride;
                 // Offscreen ports share the renderer, so history from another camera must never be reused.
                 if (roomPresentation?.HasThreeDViewports == true) meshState.CloudTemporalEnabled = false;
                 _renderer.SetMesh3DState(meshState);
@@ -423,6 +443,7 @@ namespace Genesis.Runtime
                 Engine.SetDrawCommandSink(_frameQueue);
                 _frameQueue.Reset();
                 _commandBinding?.ApplyFrameRenderState();
+                BeforeRenderSubmit?.Invoke();
                 ScriptHost?.DispatchRenderFrame(_renderer, _frameQueue);
                 ScriptHost?.DispatchPgslWorldDraw(_renderer, _frameQueue);
                 int drawCount = 0;

@@ -852,6 +852,8 @@ public sealed partial class RoomEditorControl
             VisibilityKilometres = source.VisibilityKilometres,
             ShadowDistance = source.ShadowDistance,
             SimulationDistance = source.SimulationDistance,
+            SceneryDistance = source.SceneryDistance,
+            TerrainDistance = source.TerrainDistance,
             WindAudio = source.WindAudio,
             RainAudio = source.RainAudio,
             WaterAudio = source.WaterAudio,

@@ -559,6 +559,53 @@ public static partial class PgslCommands
         if (!string.IsNullOrWhiteSpace(roomName)) ActiveGameContext?.ChangeRoom(roomName);
     }
 
+    [PgslCommand("RoomPreload", "RoomPreload(roomName) -> number",
+        "Start reading another room's models in the background so a later RoomGoto has less to load; returns how many models the room names",
+        "Rooms")]
+    public static double RoomPreload(string roomName)
+        => Genesis.Runtime.Project.ProjectRoomLoader.Preload(ProjectPath, roomName);
+
+    [PgslCommand("CameraShake3D", "CameraShake3D(amplitude, seconds)",
+        "Shake the 3D view by up to this many metres, dying away over the seconds given; the camera's own position is not changed",
+        "Camera")]
+    public static void CameraShake3D(double amplitude, double seconds) =>
+        ActiveGameContext?.Camera?.Shake((float)amplitude, (float)seconds);
+
+    [PgslCommand("CameraShakeRoll3D", "CameraShakeRoll3D(amplitude, seconds, rollDegrees)",
+        "Shake the 3D view and tilt it by up to this many degrees, dying away over the seconds given",
+        "Camera")]
+    public static void CameraShakeRoll3D(double amplitude, double seconds, double rollDegrees) =>
+        ActiveGameContext?.Camera?.Shake((float)amplitude, (float)seconds, (float)rollDegrees);
+
+    [PgslCommand("GameSetSpeed", "GameSetSpeed(scale)",
+        "How fast game time runs: 1 is normal, 0.25 is slow motion, 0 holds physics, scripts' delta time and animation still (0 to 8)",
+        "System")]
+    public static void GameSetSpeed(double scale) => Genesis.Runtime.Core.GameSpeed.Scale = (float)scale;
+
+    [PgslCommand("GameGetSpeed", "GameGetSpeed() -> number", "How fast game time is running; 1 is normal", "System")]
+    public static double GameGetSpeed() => Genesis.Runtime.Core.GameSpeed.Scale;
+
+    [PgslCommand("RoomGotoWhenLoaded", "RoomGotoWhenLoaded(roomName)",
+        "Read another room's models in the background and change to it when they are ready; the current room keeps running meanwhile",
+        "Rooms")]
+    public static void RoomGotoWhenLoaded(string roomName)
+    {
+        if (string.IsNullOrWhiteSpace(roomName)) return;
+        if (ActiveGameContext is Genesis.Runtime.Project.ProjectGameContext game) game.ChangeRoomWhenLoaded(roomName);
+        else ActiveGameContext?.ChangeRoom(roomName);
+    }
+
+    [PgslCommand("RoomLoadProgress", "RoomLoadProgress() -> number",
+        "From 0 to 1: how much of the room asked for with RoomGotoWhenLoaded has been read; 1 when no room is being read",
+        "Rooms")]
+    public static double RoomLoadProgress() =>
+        ActiveGameContext is Genesis.Runtime.Project.ProjectGameContext game ? game.RoomLoadProgress : 1;
+
+    [PgslCommand("RoomPreloadPending", "RoomPreloadPending() -> number",
+        "How many models are still being read in the background; 0 means a RoomGoto will find the preloaded room's models ready",
+        "Rooms")]
+    public static double RoomPreloadPending() => Genesis.Runtime.Modeling.RuntimeModelStore.PrefetchesPending;
+
     [PgslCommand("RoomRestart", "RoomRestart()", "Re-enter the current room", "Rooms")]
     public static void RoomRestart()
     {

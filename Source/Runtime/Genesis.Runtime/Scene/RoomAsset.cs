@@ -281,6 +281,17 @@ public sealed class RoomEnvironment
     /// until the camera comes back. Zero runs every object every frame, as a small room should.
     /// </summary>
     [JsonProperty("simulationDistance")] public float SimulationDistance { get; set; }
+    /// <summary>
+    /// Placed Objects that only show a model exist only within this distance of the camera: they
+    /// are created as it approaches and destroyed as it leaves. Zero creates everything with the
+    /// room. Objects with a script, events, a physics preset or the persistent flag are unaffected.
+    /// </summary>
+    [JsonProperty("sceneryDistance")] public float SceneryDistance { get; set; }
+    /// <summary>
+    /// A room made of several terrains loads only those within this distance of the camera, and
+    /// unloads them again once it is well past. Zero loads every terrain with the room.
+    /// </summary>
+    [JsonProperty("terrainDistance")] public float TerrainDistance { get; set; }
     [JsonProperty("windAudio")] public string WindAudio { get; set; } = "";
     [JsonProperty("rainAudio")] public string RainAudio { get; set; } = "";
     [JsonProperty("waterAudio")] public string WaterAudio { get; set; } = "";

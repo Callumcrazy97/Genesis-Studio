@@ -65,18 +65,97 @@ namespace Genesis.Shared.Rendering
             set { _farPlane = value; _projectionDirty = true; }
         }
 
+        /// <summary>
+        /// The near plane the projection uses. A view of four kilometres or more cannot keep a
+        /// near plane of a few centimetres: the depth buffer runs out of precision and distant
+        /// ground, water and shore flicker through each other. Such a view moves the near plane out
+        /// to a thirty-thousandth of the far plane; shorter views use the authored value unchanged.
+        /// </summary>
+        public float EffectiveNearPlane => _farPlane >= 4000f
+            ? MathF.Max(_nearPlane, _farPlane / 30000f)
+            : _nearPlane;
+
         public Matrix4x4 ViewMatrix
         {
             get
             {
                 if (_viewDirty)
                 {
-                    _view = Conventions.CreateLookAt(_position, _position + Forward, Conventions.Up);
+                    Vector3 eye = _position + _viewOffset;
+                    _view = Conventions.CreateLookAt(eye, eye + Forward, Conventions.Up);
+                    if (_viewRoll != 0f) _view *= Matrix4x4.CreateRotationZ(_viewRoll);
                     _viewDirty = false;
                 }
 
                 return _view;
             }
+        }
+
+        private Vector3 _viewOffset;
+        private float _viewRoll;
+        private float _shakeAmplitude, _shakeRoll, _shakeSeconds, _shakeRemaining, _shakeClock;
+
+        /// <summary>
+        /// Moves what the camera shows without moving the camera: <see cref="Position"/> stays
+        /// where the game put it, so a script that follows the player is not fighting the shake.
+        /// </summary>
+        public Vector3 ViewOffset
+        {
+            get => _viewOffset;
+            set { if (value != _viewOffset) { _viewOffset = value; _viewDirty = true; } }
+        }
+
+        /// <summary>Tilt of the picture about the direction of view, in radians.</summary>
+        public float ViewRoll
+        {
+            get => _viewRoll;
+            set { if (value != _viewRoll) { _viewRoll = value; _viewDirty = true; } }
+        }
+
+        /// <summary>True while a shake started with <see cref="Shake"/> is still dying away.</summary>
+        public bool IsShaking => _shakeRemaining > 0f;
+
+        /// <summary>
+        /// Shakes the view: up to <paramref name="amplitude"/> metres sideways and up and down, and
+        /// up to <paramref name="rollDegrees"/> of tilt, dying away over <paramref name="seconds"/>.
+        /// A shake asked for during a stronger one does not weaken it.
+        /// </summary>
+        public void Shake(float amplitude, float seconds, float rollDegrees = 0f)
+        {
+            if (!(seconds > 0f) || !float.IsFinite(amplitude) || !float.IsFinite(rollDegrees)) return;
+            float left = _shakeSeconds > 0f ? Math.Clamp(_shakeRemaining / _shakeSeconds, 0f, 1f) : 0f;
+            float strength = left * left;
+            _shakeAmplitude = MathF.Max(MathF.Abs(amplitude), _shakeAmplitude * strength);
+            _shakeRoll = MathF.Max(MathF.Abs(rollDegrees) * (MathF.PI / 180f), _shakeRoll * strength);
+            _shakeSeconds = MathF.Min(seconds, 30f);
+            _shakeRemaining = _shakeSeconds;
+        }
+
+        /// <summary>Advances a shake by real elapsed time. The host calls this once a frame.</summary>
+        public void AdvanceShake(float deltaSeconds)
+        {
+            if (_shakeRemaining <= 0f) return;
+            _shakeRemaining -= MathF.Max(0f, deltaSeconds);
+            if (_shakeRemaining <= 0f)
+            {
+                _shakeRemaining = 0f;
+                ViewOffset = Vector3.Zero;
+                ViewRoll = 0f;
+                return;
+            }
+
+            _shakeClock += MathF.Max(0f, deltaSeconds);
+            float left = _shakeRemaining / _shakeSeconds, strength = left * left;
+            // Two sines at unrelated rates on each axis: irregular enough to read as a jolt.
+            float t = _shakeClock;
+            float sideways = (MathF.Sin(t * 61.3f) + MathF.Sin(t * 23.7f + 1.3f)) * 0.5f;
+            float upward = (MathF.Sin(t * 53.9f + 2.1f) + MathF.Sin(t * 29.1f + 4.2f)) * 0.5f;
+            float tilt = (MathF.Sin(t * 47.3f + 0.7f) + MathF.Sin(t * 19.9f + 3.3f)) * 0.5f;
+            Vector3 right = Right;
+            // Each axis reaches 1, so together they reach the square root of 2: scale to keep the
+            // displacement within the amplitude asked for.
+            ViewOffset = (right * sideways + Vector3.Cross(Forward, right) * upward) * (_shakeAmplitude * strength * 0.70710678f);
+            ViewRoll = tilt * _shakeRoll * strength;
         }
 
         public Matrix4x4 ProjectionMatrix
@@ -88,7 +167,7 @@ namespace Genesis.Shared.Rendering
                     _projection = Conventions.CreatePerspective(
                         _fieldOfView,
                         _aspectRatio,
-                        _nearPlane,
+                        EffectiveNearPlane,
                         _farPlane);
                     _projectionDirty = false;
                 }

@@ -32,6 +32,7 @@ internal static class TerrainRecipeCodeAssistance
         ["PaintNatural"] = ("PaintNatural(number beachHeight, number snowHeight, number rockSlopeDegrees = 34)", "Paint layers 1 to 4 as grass, rock, sand and snow from height and slope."),
         ["Layer"] = ("Layer(number slot, string name, string image = \"\", number tileMetres = 6)", "Name terrain layer 1 to 4 and give it an Image that repeats every tileMetres."),
         ["Scatter"] = ("Scatter(string model, number perHectare, number minHeight, number maxHeight, number maxSlopeDegrees = 30, number layer = 0, number spacing = 3, number clumpMetres = 0, number drawDistance = 0)", "Cover suitable ground with copies of a Model: a forest, rocks. layer 1 to 4 limits it to that painted layer; drawDistance hides small things beyond that many metres."),
+        ["ScatterCollision"] = ("ScatterCollision(number radius, number height = 4)", "Make the copies of the last Scatter solid: an upright box this wide (half-width, metres) and this tall, at scale 1."),
         ["Sites"] = ("Sites(number count, number minHeight, number maxHeight, number radius, number separation = 0)", "Find level, well-separated ground (near rivers when there are any) and flatten it."),
         ["SitePlace"] = ("SitePlace(string object, number count, number innerRadius = 0, number outerRadius = radius, number spacing = 8)", "Arrange Objects around each site of the last Sites command, facing the centre."),
         ["SitePaint"] = ("SitePaint(number layer)", "Paint layer 1 to 4 under each site of the last Sites command."),

@@ -500,7 +500,11 @@ namespace Genesis.Rendering.Primitives
             public readonly List<InstanceGpu> MidInstances  = new();
             public readonly List<InstanceGpu> NearInstances = new();
             /// <summary>Far-list casters inside the shadowed point light's sphere this frame.</summary>
+            /// <summary>The casters drawn into the face of the local shadow map being rendered.</summary>
             public readonly List<InstanceGpu> OmniInstances = new();
+            /// <summary>Every caster within reach of the light being rendered, and the faces each can touch (bit per face).</summary>
+            public readonly List<InstanceGpu> OmniReach = new();
+            public readonly List<byte> OmniReachFaces = new();
         }
 
         private enum ShadowCascadeKind : byte { Far, Mid, Near, Omni }
@@ -553,6 +557,8 @@ namespace Genesis.Rendering.Primitives
             public Matrix4x4 World;
             public MeshDrawFlags RasterOverride;
             public bool Far, Near, Mid, Omni;
+            /// <summary>Which faces of the local shadow map being drawn this caster can reach; bit per face.</summary>
+            public byte OmniFaces;
             public Vector3 Center;
             public float Radius;
         }
@@ -3676,7 +3682,8 @@ namespace Genesis.Rendering.Primitives
                 if (cascade == ShadowCascadeKind.Far && !caster.Far) continue;
                 if (cascade == ShadowCascadeKind.Near && !caster.Near) continue;
                 if (cascade == ShadowCascadeKind.Mid && !caster.Mid) continue;
-                if (cascade == ShadowCascadeKind.Omni && !caster.Omni) continue;
+                // A character beside a torch touches one or two of its six faces, not all of them.
+                if (cascade == ShadowCascadeKind.Omni && (!caster.Omni || (caster.OmniFaces & (1 << _localShadowFace)) == 0)) continue;
                 if (!TryGetMesh(caster.MeshId, out MeshEntry mesh)
                     || !TryGetSkinPalette(caster.PaletteId, out SkinPaletteEntry palette)) continue;
                 if (!bound)

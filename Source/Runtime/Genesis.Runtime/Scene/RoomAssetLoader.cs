@@ -101,6 +101,9 @@ public sealed class RoomBuildResult
     /// <summary>Time spent in the scripts' room-start events.</summary>
     public double RoomStartMilliseconds { get; internal set; }
 
+    /// <summary>Scenery objects left for the room's scenery streamer to create as the camera nears them.</summary>
+    public int DeferredScenery { get; internal set; }
+
     /// <summary>The objects that took longest to place, slowest first, at most three.</summary>
     public List<(string Name, double Milliseconds)> SlowestSpawns { get; } = new();
 
@@ -162,6 +165,80 @@ public sealed class RoomSceneBuilder
     public RoomBuildResult Build(EcsWorld world, RoomAsset asset)
         => Build(world, asset, terrainOnly: false);
 
+    /// <summary>
+    /// Starts reading the models of the room's Objects on worker threads. Called before the slow
+    /// parts of a room load (terrain, spawning), so the files are read during them rather than
+    /// one after another when each object is first created or drawn. Returns how many distinct
+    /// models were named. <paramref name="keepMilliseconds"/> is how long a model that has been
+    /// read waits to be used: short for the room being loaded, long for a room read ahead of a
+    /// door the player has not gone through yet.
+    /// </summary>
+    public int PrefetchModels(RoomAsset room, long keepMilliseconds = Modeling.RuntimeModelStore.PrefetchKeepMilliseconds)
+    {
+        if (room == null || room.Dimension != RoomDimension.ThreeD) return 0;
+        var objects = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var models = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void ReadAheadFor(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name) || !objects.Add(name)) return;
+            JObject prefab;
+            try
+            {
+                prefab = ResolvePrefab(name);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException
+                or Newtonsoft.Json.JsonException or InvalidOperationException or ArgumentException or FormatException)
+            {
+                // Reading ahead must not be where a broken Object stops a room; creating it reports the fault.
+                return;
+            }
+
+            if (prefab?["components"] is not JArray components) return;
+            foreach (JObject component in components.OfType<JObject>())
+            {
+                if ((string)component["type"] is not ("ModelRendererComponent" or "ModelComponent")) continue;
+                if (component["props"] is not JObject props) continue;
+                string model = ((string)props["ModelAsset"] ?? "").Trim();
+                if (model.Length == 0) model = ((string)props["Model"] ?? "").Trim();
+                if (model.Length > 0 && models.Add(model))
+                    Modeling.RuntimeModelAssetRegistry.Shared.Prefetch(_projectPath, model, keepMilliseconds);
+            }
+        }
+
+        foreach (RoomNode node in room.Nodes)
+        {
+            if (node.Kind == RoomNodeKind.GameObject && node.GameObject != null)
+            {
+                ReadAheadFor(node.GameObject.Prefab);
+                continue;
+            }
+
+            // A terrain places Objects of its own (a village's houses): they are created with the
+            // room like any other, so their models are wanted just as soon.
+            if (node.Kind != RoomNodeKind.Terrain || string.IsNullOrWhiteSpace(node.Terrain?.Asset)) continue;
+            try
+            {
+                string resource = ResourceNames.Resolve(_projectPath, node.Terrain.Asset, ResourceType.Terrain);
+                if (!resource.EndsWith(".terrain.json", StringComparison.OrdinalIgnoreCase))
+                {
+                    string binary = Project.RoomTerrainSubsystem.ResolveTerrainFile(_projectPath, node.Terrain.Asset);
+                    if (binary == null) continue;
+                    resource = Project.RoomTerrainSubsystem.ResolveTerrainResourcePath(binary);
+                }
+
+                foreach (var placed in Genesis.World.Terrain.TerrainNatureSerializer.LoadOrDefault(resource).PlacedEntities)
+                    ReadAheadFor(placed.Entity);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException
+                or System.Text.Json.JsonException or Newtonsoft.Json.JsonException or ArgumentException)
+            {
+                // The terrain reports its own faults when it loads.
+            }
+        }
+
+        return models.Count;
+    }
+
     /// <summary>Loads the authored terrain placements for a visual editor preview. No script
     /// host is needed; a preview must not execute gameplay or start sound/physics subsystems.</summary>
     public RoomBuildResult BuildTerrainParts(EcsWorld world, RoomAsset asset)
@@ -186,6 +263,7 @@ public sealed class RoomSceneBuilder
                 if (!RoomHierarchyTransforms.IsActive(asset, node)) continue;
                 if (!terrainOnly && node.Kind == RoomNodeKind.GameObject && node.GameObject != null)
                 {
+                    if (TryDeferScenery(asset, node)) continue;
                     long one = System.Diagnostics.Stopwatch.GetTimestamp();
                     SpawnGameObject(world, asset, node, result);
                     result.RecordSpawn(node.Name ?? node.GameObject.Prefab,
@@ -239,6 +317,7 @@ public sealed class RoomSceneBuilder
                 Kind = RoomNodeKind.GameObject, LayerId = terrain.LayerId, Transform = transform,
                 GameObject = new RoomGameObjectData { Prefab = placed.Entity },
             };
+            if (isObject && TryDeferScenery(room, node)) continue;
             if (isObject) SpawnGameObject(world, room, node, result);
             else SpawnResolvedObject(world, room, node, result, part.Definition, part.Events);
             if (result.EntitiesByNodeId.TryGetValue(node.Id, out Entity entity))
@@ -277,6 +356,9 @@ public sealed class RoomSceneBuilder
             : 0f;
         scene.Environment.SimulationDistance = float.IsFinite(environment.SimulationDistance)
             ? Math.Clamp(environment.SimulationDistance, 0f, 100000f)
+            : 0f;
+        scene.Environment.SceneryDistance = float.IsFinite(environment.SceneryDistance)
+            ? Math.Clamp(environment.SceneryDistance, 0f, 100000f)
             : 0f;
         float[] bg = environment.BackgroundColor;
         if (bg is { Length: >= 3 }) scene.Environment.BackgroundColor = new Vector4(bg[0], bg[1], bg[2], bg.Length > 3 ? bg[3] : 1f);
@@ -328,6 +410,113 @@ public sealed class RoomSceneBuilder
         scene.FixedTimestep.FixedDelta = 1f / Math.Max(1, room.Settings.FixedFps);
     }
 
+    /// <summary>
+    /// When set, plain scenery is handed to it instead of being created with the room, and it
+    /// creates each object when the camera comes within its distance.
+    /// </summary>
+    public RoomSceneryStreamer Scenery { get; set; }
+
+    private static readonly HashSet<string> SceneryComponents = new(StringComparer.Ordinal)
+    {
+        "TransformComponent", "ModelRendererComponent", "ModelComponent", "Draw3DComponent",
+        "MaterialComponent", "ShaderComponent",
+    };
+
+    /// <summary>
+    /// True when an Object only shows a model: nothing scripted, moving or remembered, so creating
+    /// it late and destroying it early loses nothing.
+    /// </summary>
+    public static bool IsScenery(JObject prefab)
+    {
+        if (prefab == null) return false;
+        if (!string.IsNullOrWhiteSpace((string)prefab["physics"]) || prefab["terrainPhysics"] != null) return false;
+        if ((bool?)prefab["persistent"] == true) return false;
+        if (prefab["events"] is JArray { Count: > 0 }) return false;
+        if (prefab["components"] is not JArray components) return false;
+        bool model = false;
+        foreach (JObject component in components.OfType<JObject>())
+        {
+            string type = (string)component["type"] ?? "";
+            if (!SceneryComponents.Contains(type)) return false;
+            if (type is "ModelRendererComponent" or "ModelComponent") model = true;
+        }
+
+        return model;
+    }
+
+    private bool TryDeferScenery(RoomAsset room, RoomNode node)
+    {
+        if (Scenery == null || room.Dimension != RoomDimension.ThreeD) return false;
+        JObject prefab = ResolvePrefab(node.GameObject.Prefab);
+        if (prefab == null) return false;
+        prefab = ApplyOverrides(prefab, node.GameObject.ComponentOverrides);
+        if (!IsScenery(prefab) || ResolveObjectEvents(node.GameObject.Prefab) is { Count: > 0 }) return false;
+        RoomTransform placed = ResolveWorldTransform(room, node);
+        Scenery.Add(node, new Vector3(placed.X, placed.Y, placed.Z));
+        return true;
+    }
+
+    private static readonly RoomAsset CopyRoom3D = RoomAsset.Create("Copies", RoomDimension.ThreeD);
+    private static readonly RoomAsset CopyRoom2D = RoomAsset.Create("Copies", RoomDimension.TwoD);
+
+    /// <summary>
+    /// Creates an Object by name at a place, outside any room's own list: the visual copy of an
+    /// object that lives on another machine. A builder made without a script host gives a copy
+    /// that runs none of the Object's scripts.
+    /// </summary>
+    public Entity SpawnCopy(EcsWorld world, string prefabName, Vector3 position, Vector3 rotationDegrees, Vector3 scale)
+    {
+        JObject prefab = ResolvePrefab(prefabName);
+        if (prefab == null) return Entity.Null;
+        bool twoD = string.Equals((string)prefab["dimension"], "TwoD", StringComparison.OrdinalIgnoreCase);
+        var node = new RoomNode
+        {
+            Id = "copy:" + Guid.NewGuid().ToString("N"), Name = prefabName, Kind = RoomNodeKind.GameObject,
+            Transform = new RoomTransform
+            {
+                X = position.X, Y = position.Y, Z = position.Z,
+                RotationX = rotationDegrees.X, RotationY = rotationDegrees.Y, RotationZ = rotationDegrees.Z,
+                ScaleX = scale.X == 0f ? 1f : scale.X, ScaleY = scale.Y == 0f ? 1f : scale.Y, ScaleZ = scale.Z == 0f ? 1f : scale.Z,
+            },
+            GameObject = new RoomGameObjectData { Prefab = prefabName },
+        };
+        RoomAsset room = twoD ? CopyRoom2D : CopyRoom3D;
+        var result = new RoomBuildResult { Asset = room };
+        // A copy is moved by the machine that owns the object. A body of its own would fall,
+        // collide and fight the positions it is sent, and a fixed collider fitted where the copy
+        // first appeared would stay behind as an invisible wall when it walked away.
+        _spawningCopy = true;
+        try
+        {
+            SpawnGameObject(world, room, node, result);
+        }
+        finally
+        {
+            _spawningCopy = false;
+        }
+
+        if (!result.EntitiesByNodeId.TryGetValue(node.Id, out Entity entity)) return Entity.Null;
+        if (world.Has<Genesis.Shared.ECS.Components.RigidBodyComponent>(entity))
+        {
+            // A body the Object declares for itself follows the copy and pushes what it touches.
+            ref Genesis.Shared.ECS.Components.RigidBodyComponent body = ref world.GetRef<Genesis.Shared.ECS.Components.RigidBodyComponent>(entity);
+            if (body.Motion == Genesis.Shared.ECS.Components.PhysicsMotionType.Dynamic)
+                body.Motion = Genesis.Shared.ECS.Components.PhysicsMotionType.Kinematic;
+        }
+
+        return entity;
+    }
+
+    private bool _spawningCopy;
+
+    /// <summary>Creates one deferred scenery object now and returns it.</summary>
+    internal Entity SpawnScenery(EcsWorld world, RoomAsset room, RoomNode node)
+    {
+        var result = new RoomBuildResult { Asset = room };
+        SpawnGameObject(world, room, node, result);
+        return result.EntitiesByNodeId.TryGetValue(node.Id, out Entity entity) ? entity : Entity.Null;
+    }
+
     private void SpawnGameObject(EcsWorld world, RoomAsset room, RoomNode node, RoomBuildResult result)
     {
         JObject prefab = ResolvePrefab(node.GameObject.Prefab);
@@ -373,9 +562,9 @@ public sealed class RoomSceneBuilder
                     transform.RotationZ * MathF.PI / 180f),
                 Scale = new Vector3(transform.ScaleX, transform.ScaleY, transform.ScaleZ),
             });
-            AttachAuthoredPhysics(world, entity, prefab, transform);
+            if (!_spawningCopy) AttachAuthoredPhysics(world, entity, prefab, transform);
         }
-        else SpritePhysicsBinding.Attach(world, entity, _projectPath, prefab, transform);
+        else if (!_spawningCopy) SpritePhysicsBinding.Attach(world, entity, _projectPath, prefab, transform);
         if (world.Has<WildlifeComponent>(entity))
         {
             ref WildlifeComponent wildlife = ref world.GetRef<WildlifeComponent>(entity);

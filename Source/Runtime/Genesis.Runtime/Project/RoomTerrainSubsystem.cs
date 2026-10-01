@@ -51,6 +51,7 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
         public bool Bound;
         public TerrainNatureDocument Nature;
         public TerrainScatterRenderer Scatter;
+        public TerrainScatterColliders ScatterColliders;
         public FoliageField Foliage;
         public FoliageStreamingPlanner FoliagePlanner;
         public FoliagePerformanceSnapshot FoliagePerformance;
@@ -80,6 +81,8 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
         _projectPath = projectPath ?? throw new ArgumentNullException(nameof(projectPath));
         ArgumentNullException.ThrowIfNull(room);
         _game = game;
+        float terrainDistance = room.Environment?.TerrainDistance ?? 0f;
+        _terrainDistance = float.IsFinite(terrainDistance) ? Math.Clamp(terrainDistance, 0f, 1000000f) : 0f;
         foreach (RoomNode node in room.Nodes)
         {
             if (node.Kind != RoomNodeKind.Terrain || !node.Enabled || !node.Supports(room.Dimension) ||
@@ -87,51 +90,198 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
                 string.IsNullOrWhiteSpace(node.Terrain?.Asset)) continue;
             string binaryPath = ResolveTerrainFile(_projectPath, node.Terrain.Asset);
             if (binaryPath == null) continue;
-            TerrainAsset terrain = TerrainAsset.Load(binaryPath);
-            string resourcePath = ResolveTerrainResourcePath(binaryPath);
-            TerrainNatureDocument nature;
-            try { nature = TerrainNatureSerializer.LoadOrDefault(resourcePath); }
-            catch (Exception exception) when (exception is IOException or InvalidDataException or System.Text.Json.JsonException)
+            if (_terrainDistance > 0f && TryReadFootprint(room, node, binaryPath, out Vector2 min, out Vector2 max))
             {
-                Console.WriteLine($"[Terrain] Nature sidecar '{resourcePath}' could not be loaded: {exception.Message}");
-                nature = new TerrainNatureDocument();
+                // Left for the camera to come near; see UpdateTerrainStreaming.
+                _streamed.Add(new StreamedTerrain { Room = room, Node = node, BinaryPath = binaryPath, Min = min, Max = max });
+                continue;
             }
 
-            foreach (TerrainWaterDefinition definition in nature.WaterBodies)
-                TerrainRiverSystem.ConformStandingWater(terrain, definition);
-
-            var manifest = WorldManifest.Build(terrain, nature);
-            var query = new WorldQuery(terrain, manifest);
-            var entry = new Entry
-            {
-                Room = room,
-                Node = node,
-                BinaryPath = binaryPath,
-                ResourcePath = resourcePath,
-                Terrain = terrain,
-                Ground = new AuthoredTerrainGround(terrain),
-                Nature = nature,
-                Foliage = LoadFoliage(resourcePath, nature),
-                Manifest = manifest,
-                Query = query,
-                Streamer = new WorldManifestStreamingProvider(manifest),
-            };
-            (entry.Culling, entry.WindingOrder) = LoadRasterOverrides(resourcePath);
-            entry.FoliagePlanner = new FoliageStreamingPlanner(
-                entry.Foliage,
-                nature.FoliageSettings.StreamingCellSize);
-            entry.Scatter = new TerrainScatterRenderer(projectPath, terrain, nature.ScatterLayers);
-            entry.ComponentShaders = TerrainNatureSerializer.LoadComponentShaders(resourcePath);
-            foreach (TerrainWaterDefinition definition in nature.WaterBodies)
-            {
-                WaterBody body = definition.ToWaterBody();
-                WaterBodySimulation simulation = body.SimulationEnabled
-                    ? new WaterBodySimulation(body, (x, z) => MathF.Max(0.02f, body.SurfaceY - terrain.SampleHeight(x, z)))
-                    : null;
-                entry.Waters.Add(new WaterRuntime { Definition = definition, Body = body, Simulation = simulation });
-            }
-            _entries.Add(entry);
+            _entries.Add(CreateEntry(room, node, binaryPath, preloadModels: true));
         }
+    }
+
+    /// <summary>
+    /// Reads one terrain and everything that belongs to it. Touches no state of this subsystem and
+    /// no GPU, so a streamed terrain can be read on a worker thread.
+    /// </summary>
+    private Entry CreateEntry(RoomAsset room, RoomNode node, string binaryPath, bool preloadModels)
+    {
+        TerrainAsset terrain = TerrainAsset.Load(binaryPath);
+        string resourcePath = ResolveTerrainResourcePath(binaryPath);
+        TerrainNatureDocument nature;
+        try { nature = TerrainNatureSerializer.LoadOrDefault(resourcePath); }
+        catch (Exception exception) when (exception is IOException or InvalidDataException or System.Text.Json.JsonException)
+        {
+            Console.WriteLine($"[Terrain] Nature sidecar '{resourcePath}' could not be loaded: {exception.Message}");
+            nature = new TerrainNatureDocument();
+        }
+
+        foreach (TerrainWaterDefinition definition in nature.WaterBodies)
+            TerrainRiverSystem.ConformStandingWater(terrain, definition);
+
+        var manifest = WorldManifest.Build(terrain, nature);
+        var query = new WorldQuery(terrain, manifest);
+        var entry = new Entry
+        {
+            Room = room,
+            Node = node,
+            BinaryPath = binaryPath,
+            ResourcePath = resourcePath,
+            Terrain = terrain,
+            Ground = new AuthoredTerrainGround(terrain),
+            Nature = nature,
+            Foliage = LoadFoliage(resourcePath, nature),
+            Manifest = manifest,
+            Query = query,
+            Streamer = new WorldManifestStreamingProvider(manifest),
+        };
+        (entry.Culling, entry.WindingOrder) = LoadRasterOverrides(resourcePath);
+        entry.FoliagePlanner = new FoliageStreamingPlanner(
+            entry.Foliage,
+            nature.FoliageSettings.StreamingCellSize);
+        entry.Scatter = new TerrainScatterRenderer(_projectPath, terrain, nature.ScatterLayers, preloadModels);
+        entry.ComponentShaders = TerrainNatureSerializer.LoadComponentShaders(resourcePath);
+        foreach (TerrainWaterDefinition definition in nature.WaterBodies)
+        {
+            WaterBody body = definition.ToWaterBody();
+            WaterBodySimulation simulation = body.SimulationEnabled
+                ? new WaterBodySimulation(body, (x, z) => MathF.Max(0.02f, body.SurfaceY - terrain.SampleHeight(x, z)))
+                : null;
+            entry.Waters.Add(new WaterRuntime { Definition = definition, Body = body, Simulation = simulation });
+        }
+        return entry;
+    }
+
+    private sealed class StreamedTerrain
+    {
+        public RoomAsset Room;
+        public RoomNode Node;
+        public string BinaryPath;
+        /// <summary>The terrain's footprint on the ground, in world space.</summary>
+        public Vector2 Min, Max;
+        public System.Threading.Tasks.Task<Entry> Loading;
+        public Entry Entry;
+        public bool Failed;
+    }
+
+    private readonly List<StreamedTerrain> _streamed = new();
+    private readonly float _terrainDistance;
+    private bool _terrainsPrimed;
+
+    /// <summary>Terrains this room streams by distance, and how many of them are loaded now.</summary>
+    public (int Total, int Loaded) StreamedTerrainCounts
+    {
+        get
+        {
+            int loaded = 0;
+            foreach (StreamedTerrain terrain in _streamed) if (terrain.Entry != null) loaded++;
+            return (_streamed.Count, loaded);
+        }
+    }
+
+    /// <summary>The ground a terrain file covers, from its header alone.</summary>
+    private static bool TryReadFootprint(RoomAsset room, RoomNode node, string binaryPath, out Vector2 min, out Vector2 max)
+    {
+        min = max = default;
+        try
+        {
+            Span<byte> header = stackalloc byte[36];
+            using (FileStream stream = File.OpenRead(binaryPath))
+                if (stream.Read(header) != header.Length) return false;
+            if (BitConverter.ToInt32(header) != 0x4E525447) return false;
+            int resolutionX = BitConverter.ToInt32(header[8..]), resolutionZ = BitConverter.ToInt32(header[12..]);
+            float cell = BitConverter.ToSingle(header[16..]), originX = BitConverter.ToSingle(header[20..]), originZ = BitConverter.ToSingle(header[24..]);
+            if (resolutionX < 2 || resolutionZ < 2 || !(cell > 0f)) return false;
+            Matrix4x4 placement = RoomHierarchyTransforms.Matrix(RoomHierarchyTransforms.World(room, node));
+            min = new Vector2(float.MaxValue);
+            max = new Vector2(float.MinValue);
+            for (int corner = 0; corner < 4; corner++)
+            {
+                Vector3 world = Vector3.Transform(new Vector3(
+                    originX + ((corner & 1) == 0 ? 0f : (resolutionX - 1) * cell), 0f,
+                    originZ + ((corner & 2) == 0 ? 0f : (resolutionZ - 1) * cell)), placement);
+                min = Vector2.Min(min, new Vector2(world.X, world.Z));
+                max = Vector2.Max(max, new Vector2(world.X, world.Z));
+            }
+
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Loads terrains the camera has come within the room's terrain distance of, and unloads the
+    /// ones it has left well behind. The first pass loads at once so a room never opens on a
+    /// hole; later terrains are read on a worker and joined when ready.
+    /// </summary>
+    private void UpdateTerrainStreaming(RuntimeScene scene)
+    {
+        if (_streamed.Count == 0) return;
+        Vector3 camera = scene.Camera3D.Position;
+        float unload = _terrainDistance * 1.25f + 64f;
+        foreach (StreamedTerrain terrain in _streamed)
+        {
+            float dx = MathF.Max(0f, MathF.Max(terrain.Min.X - camera.X, camera.X - terrain.Max.X));
+            float dz = MathF.Max(0f, MathF.Max(terrain.Min.Y - camera.Z, camera.Z - terrain.Max.Y));
+            float distance = MathF.Sqrt(dx * dx + dz * dz);
+            if (terrain.Entry != null)
+            {
+                if (distance <= unload) continue;
+                ReleaseEntry(scene, terrain.Entry);
+                _entries.Remove(terrain.Entry);
+                terrain.Entry = null;
+                _worldAssigned = false;
+                continue;
+            }
+
+            // Read in the background for a camera that then turned away: let the terrain go rather
+            // than hold a hundred megabytes for a visit that may never come.
+            if (distance > unload && terrain.Loading is { IsCompleted: true }) terrain.Loading = null;
+            if (terrain.Failed || distance > _terrainDistance) continue;
+            if (!_terrainsPrimed)
+            {
+                try { terrain.Entry = CreateEntry(terrain.Room, terrain.Node, terrain.BinaryPath, preloadModels: true); }
+                catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException)
+                {
+                    Console.WriteLine($"[Terrain] '{terrain.BinaryPath}' could not be loaded: {exception.Message}");
+                    terrain.Failed = true;
+                    continue;
+                }
+            }
+            else if (terrain.Loading == null)
+            {
+                StreamedTerrain pending = terrain;
+                terrain.Loading = System.Threading.Tasks.Task.Run(() =>
+                    CreateEntry(pending.Room, pending.Node, pending.BinaryPath, preloadModels: false));
+                continue;
+            }
+            else if (!terrain.Loading.IsCompleted)
+            {
+                continue;
+            }
+            else
+            {
+                System.Threading.Tasks.Task<Entry> loading = terrain.Loading;
+                terrain.Loading = null;
+                if (!loading.IsCompletedSuccessfully)
+                {
+                    Console.WriteLine($"[Terrain] '{terrain.BinaryPath}' could not be loaded: {loading.Exception?.GetBaseException().Message}");
+                    terrain.Failed = true;
+                    continue;
+                }
+
+                terrain.Entry = loading.Result;
+            }
+
+            _entries.Add(terrain.Entry);
+            _worldAssigned = false;
+        }
+
+        _terrainsPrimed = true;
     }
 
     public string Name => "Authored terrain world";
@@ -222,6 +372,7 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
 
     public void Update(RuntimeScene scene, GameTime time)
     {
+        UpdateTerrainStreaming(scene);
         if (!_worldAssigned && _entries.Count > 0)
         {
             scene.SetWorldQuery(_entries[0].Query, new MapDiscovery(_entries[0].Manifest.Bounds));
@@ -258,6 +409,7 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
                 UpdateColliderTiles(scene, entry);
             else if (entry.ColliderRegistrationId == 0)
                 entry.ColliderRegistrationId = RegisterTerrainCollider(scene.Physics, entry);
+            UpdateScatterColliders(scene, entry);
             if (entry.WaterVolumeIds.Count == 0)
                 RegisterWaterVolumes(scene, entry);
         }
@@ -287,6 +439,40 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
     }
 
     private readonly List<TerrainColliderFocus> _colliderFocus = new();
+    private readonly List<TerrainColliderFocus> _scatterFocus = new();
+
+    /// <summary>Metres around the camera and each moving body in which scattered copies are solid.</summary>
+    public float ScatterColliderRadius { get; set; } = 14f;
+
+    /// <summary>Scatter colliders currently in the physics world, across all terrains.</summary>
+    public int ScatterColliderCount => _entries.Sum(entry => entry.ScatterColliders?.ResidentColliders ?? 0);
+
+    /// <summary>
+    /// Trees and rocks are solid only where something could walk into them: near the camera and
+    /// near every body that moves.
+    /// </summary>
+    private void UpdateScatterColliders(RuntimeScene scene, Entry entry)
+    {
+        if (entry.ScatterColliders == null)
+        {
+            entry.ScatterColliders = new TerrainScatterColliders(entry.Terrain, entry.Nature?.ScatterLayers,
+                Placement(entry), $"Scatter:{entry.Node.Name}");
+        }
+
+        if (!entry.ScatterColliders.HasLayers) return;
+        _scatterFocus.Clear();
+        float radius = ScatterColliderRadius;
+        _scatterFocus.Add(new TerrainColliderFocus(scene.Camera3D.Position, radius));
+        scene.World.Query<Genesis.Shared.ECS.Components.Transform3DComponent, Genesis.Shared.ECS.Components.RigidBodyComponent>(
+            (Entity _, ref Genesis.Shared.ECS.Components.Transform3DComponent transform,
+                ref Genesis.Shared.ECS.Components.RigidBodyComponent body) =>
+            {
+                if (body.Motion != Genesis.Shared.ECS.Components.PhysicsMotionType.Static && _scatterFocus.Count < 128)
+                    _scatterFocus.Add(new TerrainColliderFocus(transform.Position, radius));
+            });
+        entry.ScatterColliders.Update(scene.Physics,
+            System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_scatterFocus));
+    }
 
     /// <summary>
     /// A large terrain has collision only where something can touch it: around the camera and
@@ -450,29 +636,37 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
 
     public void Dispose()
     {
-        foreach (Entry entry in _entries)
-        {
-            if (_game?.Scene?.Physics != null && entry.ColliderRegistrationId != 0)
-                _game.Scene.Physics.UnregisterStaticSurface(entry.ColliderRegistrationId);
-            entry.ColliderTiles?.Clear(_game?.Scene?.Physics);
-            entry.ColliderTiles?.Dispose();
-            entry.ColliderTiles = null;
-            if (_game?.Scene != null)
-                foreach (string id in entry.WaterVolumeIds) _game.Scene.RemoveWaterVolume(id);
-            entry.Ground?.Dispose();
-            entry.Scatter?.Dispose();
-            entry.Scatter = null;
-            if (entry.Renderer != null)
-            {
-                foreach (MeshHandle mesh in entry.PathMeshes) if (mesh.IsValid) entry.Renderer.ReleaseMesh(mesh);
-                foreach (MeshHandle mesh in entry.FoliageMeshes.Values) if (mesh.IsValid) entry.Renderer.ReleaseMesh(mesh);
-            }
-            entry.WaterCache?.Dispose();
-            ReleaseMaterial(entry);
-            if (_game?.Scene is { } activeScene) DestroyWaterImpactEntities(activeScene, entry);
-            entry.PathMeshes.Clear(); entry.FoliageMeshes.Clear(); entry.Waters.Clear();
-        }
+        foreach (Entry entry in _entries) ReleaseEntry(_game?.Scene, entry);
         _entries.Clear();
+        _streamed.Clear();
+    }
+
+    /// <summary>Gives back everything one terrain holds: collision, water volumes, meshes, material.</summary>
+    private void ReleaseEntry(RuntimeScene scene, Entry entry)
+    {
+        if (scene?.Physics != null && entry.ColliderRegistrationId != 0)
+            scene.Physics.UnregisterStaticSurface(entry.ColliderRegistrationId);
+        entry.ColliderRegistrationId = 0;
+        entry.ColliderTiles?.Clear(scene?.Physics);
+        entry.ColliderTiles?.Dispose();
+        entry.ColliderTiles = null;
+        entry.ScatterColliders?.Clear(scene?.Physics);
+        entry.ScatterColliders = null;
+        if (scene != null)
+            foreach (string id in entry.WaterVolumeIds) scene.RemoveWaterVolume(id);
+        entry.WaterVolumeIds.Clear();
+        entry.Ground?.Dispose();
+        entry.Scatter?.Dispose();
+        entry.Scatter = null;
+        if (entry.Renderer != null)
+        {
+            foreach (MeshHandle mesh in entry.PathMeshes) if (mesh.IsValid) entry.Renderer.ReleaseMesh(mesh);
+            foreach (MeshHandle mesh in entry.FoliageMeshes.Values) if (mesh.IsValid) entry.Renderer.ReleaseMesh(mesh);
+        }
+        entry.WaterCache?.Dispose();
+        ReleaseMaterial(entry);
+        if (scene != null) DestroyWaterImpactEntities(scene, entry);
+        entry.PathMeshes.Clear(); entry.FoliageMeshes.Clear(); entry.Waters.Clear();
     }
 
     /// <summary>
@@ -517,6 +711,8 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
             (entry.Culling, entry.WindingOrder) = LoadRasterOverrides(resourcePath);
             entry.Scatter?.Dispose();
             entry.Scatter = new TerrainScatterRenderer(_projectPath, entry.Terrain, entry.Nature.ScatterLayers);
+            entry.ScatterColliders?.Clear(scene.Physics);
+            entry.ScatterColliders = null;
 
             entry.Manifest = WorldManifest.Build(entry.Terrain, entry.Nature);
             entry.Query = new WorldQuery(entry.Terrain, entry.Manifest);
@@ -574,6 +770,9 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
         entry.ColliderTiles?.Clear(scene.Physics);
         entry.ColliderTiles?.Dispose();
         entry.ColliderTiles = null;
+        // Scattered copies stand on the old heights too; they are placed again on the new ground.
+        entry.ScatterColliders?.Clear(scene.Physics);
+        entry.ScatterColliders = null;
         foreach (string id in entry.WaterVolumeIds)
             scene.RemoveWaterVolume(id);
         entry.WaterVolumeIds.Clear();
