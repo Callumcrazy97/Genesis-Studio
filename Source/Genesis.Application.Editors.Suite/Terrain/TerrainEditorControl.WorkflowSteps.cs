@@ -24,7 +24,8 @@ public sealed partial class TerrainEditorControl
             new("UseInGame", "Use in game", "Save, then create a 3D Room that uses this terrain.",
                 ShowTerrainGameGuide),
         ]);
-        SyncTerrainWorkflowStep();
+
+        // The editor opens in Select, which belongs to no step: the bar starts on Shape.
         RefreshTerrainWorkflowHint();
     }
 

@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
@@ -37,6 +38,56 @@ public static class WindowChrome
             Apply(form);
         }
     }
+
+    private static readonly ConditionalWeakTable<Control, object> ScrollThemeHooks = new();
+
+    /// <summary>
+    /// Gives a scrolling control scroll bars that match the theme. Windows draws them light by
+    /// default, which left a white track down the side of dark panels, lists and text boxes.
+    /// </summary>
+    /// <remarks>
+    /// Safe to call repeatedly and before the control has a handle: the theme is (re)applied
+    /// whenever the handle is created, including after a handle recreation.
+    /// </remarks>
+    public static void ApplyScrollTheme(Control control)
+    {
+        ArgumentNullException.ThrowIfNull(control);
+        if (!ScrollThemeHooks.TryGetValue(control, out _))
+        {
+            ScrollThemeHooks.Add(control, new object());
+            control.HandleCreated += static (sender, _) =>
+            {
+                if (sender is Control created)
+                {
+                    SetScrollTheme(created);
+                }
+            };
+        }
+
+        SetScrollTheme(control);
+    }
+
+    private static void SetScrollTheme(Control control)
+    {
+        if (!control.IsHandleCreated || control.IsDisposed || !OperatingSystem.IsWindowsVersionAtLeast(10, 0, 17763))
+        {
+            return;
+        }
+
+        try
+        {
+            _ = SetWindowTheme(control.Handle, DarkTitleBars ? "DarkMode_Explorer" : "Explorer", null);
+        }
+        catch (DllNotFoundException)
+        {
+        }
+        catch (EntryPointNotFoundException)
+        {
+        }
+    }
+
+    [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)]
+    private static extern int SetWindowTheme(IntPtr window, string appName, string? idList);
 
     private static void SetDark(IntPtr handle, bool dark)
     {

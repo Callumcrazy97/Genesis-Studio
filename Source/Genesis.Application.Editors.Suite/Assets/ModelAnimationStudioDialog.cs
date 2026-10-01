@@ -202,7 +202,7 @@ public sealed partial class ModelAnimationStudioDialog : DpiAwareForm
         ScaleFieldWidth(stack, 332);
         stack.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        stack.Controls.Add(Caption(title.ToUpperInvariant()), 0, 0);
+        stack.Controls.Add(Caption(Genesis.Application.Core.UI.UiTokens.DisplayHeading(title)), 0, 0);
         for (int i = 0; i < children.Length; i++)
         {
             stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));

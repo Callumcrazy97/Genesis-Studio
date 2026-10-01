@@ -84,7 +84,7 @@ internal static class ModelRigEditingSuite
             using var dialog = editor.CreateAnimationStudio(); Show(dialog);
             var options = dialog.Controls.Find("ModelRigOptions", true).Single();
             var headings = options.Controls.Cast<Control>().SelectMany(section => section.Controls.OfType<Label>()).Select(label => label.Text);
-            Assert(headings.SequenceEqual(["RIG MANAGEMENT", "DRAWING", "BINDING"]), "Rigging has extra or missing option groups.");
+            Assert(headings.SequenceEqual(["Rig Management", "Drawing", "Binding"]), "Rigging has extra or missing option groups.");
             var buttons = Editor3DInspectionSuite.Descendants(options).OfType<Button>().ToArray();
             Assert(buttons.Select(b => b.Text).Order().SequenceEqual(new[] { "New", "Load", "Save Rig", "Delete", "Templates…", "Draw Bone", "Draw Joint", "Select", "Bind To Mesh", "Unbind" }.Order()), "Rigging page has extra or missing actions.");
             dialog.NewSkeleton(); dialog.DrawBone(Vector3.Zero, Vector3.UnitY);

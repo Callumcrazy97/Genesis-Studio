@@ -530,7 +530,7 @@ internal sealed class TerrainSelectionInspector : Panel
         ForeColor = EditorChrome.Muted,
         Height = 20,
         Margin = new Padding(0, 6, 0, 2),
-        Text = text.ToUpperInvariant(),
+        Text = Genesis.Application.Core.UI.UiTokens.DisplayHeading(text),
         Width = 268,
     };
 

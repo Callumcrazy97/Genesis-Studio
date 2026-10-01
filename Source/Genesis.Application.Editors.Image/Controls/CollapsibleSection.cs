@@ -21,7 +21,7 @@ public sealed class CollapsibleSection : Panel
     public string HeaderText
     {
         get => _header.Text.Length > 2 ? _header.Text[2..] : _header.Text;
-        set => _header.Text = (_expanded ? "▼ " : "► ") + value;
+        set => _header.Text = (_expanded ? "▼ " : "► ") + Genesis.Application.Core.UI.UiTokens.DisplayHeading(value);
     }
 
     public Panel Content => _content;

@@ -161,7 +161,7 @@ public sealed class TerrainEntityListPanel : Panel
             ForeColor = EditorChrome.Text,
             Location = new Point(S(24), 0),
             Size = new Size(width - S(60), headerHeight),
-            Text = $"{type.ToString().ToUpperInvariant()}  ({count})",
+            Text = $"{type}  ({count})",
             TextAlign = ContentAlignment.MiddleLeft,
         };
         Button addButton = new()

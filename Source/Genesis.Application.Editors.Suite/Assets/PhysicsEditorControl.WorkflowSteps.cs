@@ -25,5 +25,21 @@ public sealed partial class PhysicsEditorControl
             new("UseInGame", "Use in game", "Save, then create an Object that uses this physics material.",
                 ShowPhysicsGameGuide),
         ]);
+
+        // The editor opens on Quick setup; the bar shows the step that is actually on screen.
+        SyncPhysicsWorkflowStep(_physicsWorkspaceMode);
+    }
+
+    private void SyncPhysicsWorkflowStep(string? mode)
+    {
+        string? step = mode switch
+        {
+            "Presets" => "Kind",
+            "Preview" => "Setup",
+            "Properties" => "Tune",
+            "Use in game" => "UseInGame",
+            _ => null,
+        };
+        if (step is not null) _physicsWorkflow?.SetCurrent(step);
     }
 }

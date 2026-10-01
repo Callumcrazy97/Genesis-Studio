@@ -75,6 +75,7 @@ public sealed partial class UiEditorControl
     {
         _showWorkflowGuide = false;
         if (_workflowGuide is not null) _workflowGuide.Visible = false;
+        _uiWorkflow?.SetCurrent("Design");
         RefreshUiWorkflow(); ApplyResponsiveLayout();
     }
 
@@ -109,6 +110,7 @@ public sealed partial class UiEditorControl
     private void ShowUiStartingGuide()
     {
         FlowLayoutPanel guide = PrepareUiGuide("UiStartingGuide");
+        _uiWorkflow?.SetCurrent("Start");
         guide.Controls.Add(UiGuideText("Build a HUD or menu", true));
         guide.Controls.Add(UiGuideText("The UI Editor creates screen layouts for gameplay: score, health, buttons, menus and saved Image artwork. Find it under Assets → New → User Interface. Start here, then arrange elements on the canvas and use the selected element's Inspector."));
         guide.Controls.Add(UiGuideText(_document.Elements.Count == 0 ? "Choose a starting layout" : "This UI already has elements. Starting layouts need an empty resource; create a new User Interface to try one.", true));
@@ -158,6 +160,7 @@ public sealed partial class UiEditorControl
     private void ShowUiGameGuide()
     {
         FlowLayoutPanel guide = PrepareUiGuide("UiUseInGame");
+        _uiWorkflow?.SetCurrent("UseInGame");
         guide.Controls.Add(UiGuideButton("Back to Design", "UiBackToDesign", ShowUiDesign));
         guide.Controls.Add(UiGuideText("Use this UI in gameplay", true));
         guide.Controls.Add(UiGuideText("1. Save a layout with at least one element. The canvas is your design resolution; gameplay scales it to the GUI window. Image bindings use saved project resources, so artwork and UI saves update the running draw pass."));

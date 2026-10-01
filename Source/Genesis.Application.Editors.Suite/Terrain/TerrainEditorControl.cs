@@ -488,7 +488,7 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
         }
 
         _modeHost.ShowMode(mode.ToString());
-        _contextHeader.Text = ModeCaption(mode).ToUpperInvariant();
+        _contextHeader.Text = ModeCaption(mode);
         _componentsPanel.Affects.Value = TerrainAffectsStrip.ForMode(mode);
         foreach ((TerrainEditorMode candidate, ToolStripButton button) in _modeButtons)
         {
@@ -2009,7 +2009,7 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
         ForeColor = EditorChrome.Muted,
         Height = EditorChrome.SectionHeaderHeight,
         Margin = new Padding(0, 0, 0, 4),
-        Text = text.ToUpperInvariant(),
+        Text = Genesis.Application.Core.UI.UiTokens.DisplayHeading(text),
         TextAlign = ContentAlignment.MiddleLeft,
         Width = 244,
     };

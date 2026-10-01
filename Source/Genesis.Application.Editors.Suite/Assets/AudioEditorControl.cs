@@ -202,6 +202,7 @@ public sealed partial class AudioEditorControl : EditorSurfaceControl, IResource
         Controls.Add(_audioWorkspace);
         Controls.Add(toolbar);
         Controls.Add(_statusLabel);
+        BuildAudioWorkflowBar(toolbar);
         rows.Layout += (_, _) => ApplyAudioLayout();
         rows.SizeChanged += (_, _) => ApplyAudioLayout();
         rows.FontChanged += (_, _) => ApplyAudioLayout();

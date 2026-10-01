@@ -80,6 +80,7 @@ public sealed partial class AudioEditorControl
     {
         _showAudioGameGuide = false;
         if (_audioGameGuide is not null) _audioGameGuide.Visible = false;
+        if (_audioWorkflow?.CurrentStepId == "UseInGame") _audioWorkflow.SetCurrent("Sound");
         ApplyAudioLayout(); RefreshAudioWorkflow();
         _propertyRows.AutoScrollPosition = Point.Empty;
     }
@@ -101,6 +102,7 @@ public sealed partial class AudioEditorControl
         }
         foreach (Control child in _audioGameGuide.Controls.Cast<Control>().ToArray()) child.Dispose();
         _showAudioGameGuide = true; _audioGameGuide.Visible = true; _audioGameGuide.BringToFront();
+        _audioWorkflow?.SetCurrent("UseInGame");
         _audioGameGuide.AutoScrollPosition = Point.Empty;
         Button back = new() { Text = "Back to Quick setup" }; EditorChrome.StyleField(back); back.Click += (_, _) => ShowAudioQuickSetup();
         _audioGameGuide.Controls.Add(back);

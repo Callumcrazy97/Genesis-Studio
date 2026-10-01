@@ -2022,19 +2022,19 @@ internal static class SuiteEditorSuite
             // Counts aren't asserted exactly — the shared project fixture already seeds one
             // "Sample Terrain Entity" (Foliage) elsewhere, so only each row's presence is checked.
             HeadlessHarness.Assert(
-                FindDescendant<Label>(panel, l => l.Text.StartsWith("FOLIAGE", StringComparison.Ordinal)) is not null,
+                FindDescendant<Label>(panel, l => l.Text.StartsWith("Foliage", StringComparison.Ordinal)) is not null,
                 "Foliage group header not found.");
             HeadlessHarness.Assert(
                 FindDescendant<Label>(panel, l => l.Text == "Suite Fern") is not null,
                 "Foliage group should list the wizard-created 'Suite Fern'.");
             HeadlessHarness.Assert(
-                FindDescendant<Label>(panel, l => l.Text.StartsWith("OBJECT", StringComparison.Ordinal)) is not null,
+                FindDescendant<Label>(panel, l => l.Text.StartsWith("Object", StringComparison.Ordinal)) is not null,
                 "Object group header not found.");
             HeadlessHarness.Assert(
                 FindDescendant<Label>(panel, l => l.Text == "Suite Rock") is not null,
                 "Object group should list 'Suite Rock'.");
             HeadlessHarness.Assert(
-                FindDescendant<Label>(panel, l => l.Text.StartsWith("FLUID", StringComparison.Ordinal)) is not null,
+                FindDescendant<Label>(panel, l => l.Text.StartsWith("Fluid", StringComparison.Ordinal)) is not null,
                 "Fluid group header should render even with zero entries.");
 
             // Group header [+] raises CreateRequested with that group's type.

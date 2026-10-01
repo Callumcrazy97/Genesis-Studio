@@ -30,6 +30,9 @@ public sealed class WorkflowBar : Panel
 {
     public const int LogicalHeight = 40;
 
+    /// <summary>The theme service skips geometry scaling for controls carrying this tag.</summary>
+    private const string MeasuredLayoutTag = "font-measured-layout";
+
     private readonly List<WorkflowStep> _steps;
     private readonly List<WorkflowStepButton> _buttons = [];
     private readonly Label _instruction;
@@ -60,7 +63,9 @@ public sealed class WorkflowBar : Panel
         Dock = DockStyle.Top;
         Height = LogicalHeight;
         DoubleBuffered = true;
-        Tag = "surface";
+        // The bar sizes itself from the font and DPI (see ApplyHeight), so the theme service's
+        // interface-scale pass and the form's DPI autoscale must not scale its height as well.
+        Tag = MeasuredLayoutTag;
         AccessibleRole = AccessibleRole.ToolBar;
         AccessibleName = "Workflow steps";
         BackColor = UiTokens.Surface;
@@ -93,6 +98,7 @@ public sealed class WorkflowBar : Panel
         CurrentStepId = _steps[0].Id;
         ApplyTokens();
         ResumeLayout(performLayout: false);
+        ApplyHeight();
         UpdateCurrentState();
         UiTokens.Changed += OnTokensChanged;
         Disposed += (_, _) =>
@@ -276,6 +282,13 @@ public sealed class WorkflowBar : Panel
         _instruction.SetBounds(instructionLeft, top, Math.Max(0, instructionRight - instructionLeft), height);
     }
 
+    protected override void OnPaintBackground(PaintEventArgs e)
+    {
+        // Always the surface colour, whatever a theme pass assigned to BackColor for its parent.
+        using SolidBrush surface = new(UiTokens.Surface);
+        e.Graphics.FillRectangle(surface, ClientRectangle);
+    }
+
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e);
@@ -286,7 +299,54 @@ public sealed class WorkflowBar : Panel
     protected override void OnDpiChangedAfterParent(EventArgs e)
     {
         base.OnDpiChangedAfterParent(e);
+        ApplyHeight();
         PerformLayout();
+    }
+
+    protected override void OnDockChanged(EventArgs e)
+    {
+        base.OnDockChanged(e);
+        ApplyHeight();
+    }
+
+    protected override void ScaleControl(SizeF factor, BoundsSpecified specified)
+    {
+        // Height comes from ApplyHeight; letting autoscale multiply it too would scale it twice.
+        base.ScaleControl(factor, specified & ~BoundsSpecified.Height);
+        ApplyHeight();
+    }
+
+    /// <summary>The bar's height when shown: its logical height at this DPI and text size.</summary>
+    private int ExpandedHeight() => Math.Max(
+        Scale(LogicalHeight),
+        UiTokens.StrongFont.Height + Scale(14));
+
+    /// <summary>
+    /// A docked bar owns its height: zero while folded away, otherwise <see cref="ExpandedHeight"/>.
+    /// </summary>
+    /// <remarks>
+    /// Folding uses height, never <c>Visible</c>. Hiding and re-showing a docked control lets Windows
+    /// move it in the sibling z-order, and docking follows z-order: a bar re-shown after its editor
+    /// grew ended up docked above the command bar instead of beneath it.
+    /// </remarks>
+    private void ApplyHeight()
+    {
+        if (Dock is not (DockStyle.Top or DockStyle.Bottom))
+        {
+            return;
+        }
+
+        int height = IsAutoHidden ? 0 : ExpandedHeight();
+        if (Height != height)
+        {
+            Height = height;
+        }
+
+        // A folded bar must not keep keyboard focus stops on steps nobody can see.
+        if (Enabled == IsAutoHidden)
+        {
+            Enabled = !IsAutoHidden;
+        }
     }
 
     protected override void OnParentChanged(EventArgs e)
@@ -310,34 +370,29 @@ public sealed class WorkflowBar : Panel
 
     private void UpdateAutoHide()
     {
-        if (_autoHideBelowHeight <= 0 || Parent is null)
+        bool hide = false;
+        if (_autoHideBelowHeight > 0 && Parent is not null)
         {
-            if (IsAutoHidden)
+            int parentHeight = Parent.ClientSize.Height;
+            if (parentHeight <= 0)
             {
-                IsAutoHidden = false;
-                Visible = true;
+                return;
             }
 
-            return;
+            hide = parentHeight < Scale(_autoHideBelowHeight);
         }
 
-        int parentHeight = Parent.ClientSize.Height;
-        if (parentHeight <= 0)
+        if (hide != IsAutoHidden)
         {
-            return;
+            IsAutoHidden = hide;
         }
 
-        bool hide = parentHeight < Scale(_autoHideBelowHeight);
-        if (hide == IsAutoHidden)
-        {
-            return;
-        }
-
-        IsAutoHidden = hide;
-        Visible = !hide;
+        ApplyHeight();
     }
 
-    internal int Scale(int logical) => (int)Math.Round(logical * DeviceDpi / 96f);
+    /// <summary>Scales logical pixels by monitor DPI and by the interface text size preference.</summary>
+    internal int Scale(int logical) =>
+        (int)Math.Round(logical * DeviceDpi / 96f * Math.Clamp(UiTokens.BaseFont.SizeInPoints / 9.5f, 1f, 2f));
 
     internal string NextCaption()
     {
@@ -377,6 +432,7 @@ public sealed class WorkflowBar : Panel
         }
 
         ApplyTokens();
+        UpdateAutoHide();
         PerformLayout();
         Invalidate(true);
     }
@@ -444,7 +500,7 @@ public sealed class WorkflowBar : Panel
             if (!numberOnly)
             {
                 Font font = IsCurrent ? UiTokens.StrongFont : UiTokens.BaseFont;
-                width += _owner.Scale(6) + TextRenderer.MeasureText(Step.Title, font, Size.Empty, TextFormatFlags.NoPadding).Width;
+                width += _owner.Scale(6) + TextRenderer.MeasureText(Step.Title, font, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix).Width;
             }
 
             return width + (ShowChevron ? _owner.Scale(18) : 0);
@@ -530,7 +586,7 @@ public sealed class WorkflowBar : Panel
             string mark = IsDone && !IsCurrent ? "✓" : Number.ToString(System.Globalization.CultureInfo.InvariantCulture);
             Color markColour = IsCurrent || IsDone ? UiTokens.OnAccent : UiTokens.Muted;
             TextRenderer.DrawText(g, mark, UiTokens.SmallFont, circle, markColour,
-                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
 
             if (!NumberOnly)
             {
@@ -538,14 +594,14 @@ public sealed class WorkflowBar : Panel
                 Color text = IsCurrent || IsDone || _hovered ? UiTokens.Text : UiTokens.Muted;
                 Rectangle title = new(circle.Right + _owner.Scale(6), 0, Math.Max(1, pill.Width - circle.Right - _owner.Scale(6)), Height);
                 TextRenderer.DrawText(g, Step.Title, font, title, text,
-                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis);
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
             }
 
             if (ShowChevron)
             {
                 Rectangle arrow = new(Width - chevron, 0, chevron, Height);
                 TextRenderer.DrawText(g, "›", UiTokens.BaseFont, arrow, UiTokens.Blend(UiTokens.Muted, UiTokens.Surface, 0.7f),
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
             }
         }
 
@@ -583,7 +639,7 @@ public sealed class WorkflowBar : Panel
         }
 
         public int PreferredWidth() =>
-            TextRenderer.MeasureText(_owner.NextCaption() + "  ›", UiTokens.StrongFont, Size.Empty, TextFormatFlags.NoPadding).Width
+            TextRenderer.MeasureText(_owner.NextCaption() + "  ›", UiTokens.StrongFont, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix).Width
             + _owner.Scale(24);
 
         protected override void OnMouseEnter(EventArgs e)
@@ -628,7 +684,7 @@ public sealed class WorkflowBar : Panel
 
             PillToolStripRenderer.StrokeRound(e.Graphics, pill, UiTokens.Blend(UiTokens.Accent, UiTokens.Surface, 0.8f), _owner.Scale(PillToolStripRenderer.PillRadius));
             TextRenderer.DrawText(e.Graphics, _owner.NextCaption() + "  ›", UiTokens.StrongFont, ClientRectangle, UiTokens.Accent,
-                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
         }
     }
 }

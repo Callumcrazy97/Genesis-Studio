@@ -121,7 +121,7 @@ public sealed class RuntimeDiagnosticsForm : DpiAwareForm
         };
         Label title = new()
         {
-            Text = name.ToUpperInvariant(),
+            Text = Genesis.Application.Core.UI.UiTokens.DisplayHeading(name),
             Dock = DockStyle.Top,
             Height = 28,
             Padding = new Padding(10, 8, 0, 0),

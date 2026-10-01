@@ -65,6 +65,7 @@ public sealed class StarterGallery : Panel
     private bool _laying;
     private bool _fitsContent;
     private bool _compact;
+    private int _contentPadding = LogicalPadding;
     private readonly ToolTip _tips = new() { ShowAlways = true };
 
     public StarterGallery(string name)
@@ -208,6 +209,22 @@ public sealed class StarterGallery : Panel
     public int PreferredContentHeight => LayoutCards(apply: false);
 
     /// <summary>
+    /// Space around the cards in logical pixels (12 by default). A gallery embedded in a page that
+    /// already has margins uses 0 so its cards line up with the page's headings.
+    /// </summary>
+    [DefaultValue(LogicalPadding)]
+    public int ContentPadding
+    {
+        get => _contentPadding;
+        set
+        {
+            _contentPadding = Math.Max(0, value);
+            PerformLayout();
+            Invalidate();
+        }
+    }
+
+    /// <summary>
     /// Smaller cards (title only, the description becomes a tooltip) for side panels, where two
     /// columns of full cards would not fit.
     /// </summary>
@@ -278,7 +295,7 @@ public sealed class StarterGallery : Panel
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e);
-        int pad = Scale(LogicalPadding);
+        int pad = Scale(_contentPadding);
         int y = AutoScrollPosition.Y + pad;
         int width = Math.Max(1, ClientSize.Width - pad * 2);
         if (_heading.Length > 0)
@@ -326,7 +343,7 @@ public sealed class StarterGallery : Panel
 
     private int LayoutCards(bool apply)
     {
-        int pad = Scale(LogicalPadding);
+        int pad = Scale(_contentPadding);
         int gap = Scale(LogicalGap);
         int available = Math.Max(1, ClientSize.Width - pad * 2);
         int y = pad;

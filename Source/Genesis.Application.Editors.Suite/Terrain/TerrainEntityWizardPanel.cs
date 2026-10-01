@@ -441,7 +441,7 @@ public sealed partial class TerrainEntityWizardPanel : UserControl
         BackColor = Color.Transparent,
         Font = EditorChrome.SmallFont,
         ForeColor = EditorChrome.Muted,
-        Text = text.ToUpperInvariant(),
+        Text = Genesis.Application.Core.UI.UiTokens.DisplayHeading(text),
     };
 
     // ── Page 2: components ──────────────────────────────────────────────────────

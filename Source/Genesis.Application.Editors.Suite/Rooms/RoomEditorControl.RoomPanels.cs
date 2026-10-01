@@ -1617,7 +1617,7 @@ public sealed partial class RoomEditorControl
                 Font = EditorChrome.HeadingFont,
                 ForeColor = EditorChrome.Muted,
                 Location = new Point(12, y),
-                Text = text.ToUpperInvariant(),
+                Text = Genesis.Application.Core.UI.UiTokens.DisplayHeading(text),
             });
             _write(y + 22);
         }

@@ -68,6 +68,7 @@ public sealed partial class UiEditorControl : EditorSurfaceControl, IResourceIns
         Controls.Add(_workspace);
         Controls.Add(BuildToolbar());
         Controls.Add(BuildStatus());
+        BuildUiWorkflowBar(_commandBar!);
         RefreshHierarchy();
         _canvas.SelectedElement = _document.Elements.FirstOrDefault();
         RefreshInspector();

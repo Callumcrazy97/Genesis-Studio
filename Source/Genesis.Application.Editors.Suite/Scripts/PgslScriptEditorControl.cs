@@ -183,6 +183,7 @@ public sealed partial class PgslScriptEditorControl : EditorSurfaceControl, IRes
         Controls.Add(_statusLabel);
         if (toolbar is EditorCommandBar commandBar && commandBar.HistoryCommand is { } history) history.Visible = false;
         _authoringHost.BringToFront();
+        BuildScriptWorkflowBar(toolbar);
 
         _validateTimer = new System.Windows.Forms.Timer { Interval = 650 };
         _validateTimer.Tick += (_, _) => { _validateTimer.Stop(); ValidateNow(); };
@@ -227,6 +228,7 @@ public sealed partial class PgslScriptEditorControl : EditorSurfaceControl, IRes
     {
         _authoringMode = mode;
         _showScriptGuide = false;
+        if (_scriptWorkflow?.CurrentStepId == "UseInGame") _scriptWorkflow.SetCurrent("Write");
         bool builder = mode == PgslScriptAuthoringMode.Builder;
         _builder.Visible = builder;
         _code.Visible = !builder;

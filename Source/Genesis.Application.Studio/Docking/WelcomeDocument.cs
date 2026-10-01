@@ -357,8 +357,9 @@ public sealed class WelcomeDocument : GenesisDockContent
         StarterGallery gallery = new(name)
         {
             Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top,
+            ContentPadding = 0,
             FitsContent = true,
-            Margin = new Padding(0, 0, 0, 12),
+            Margin = new Padding(0, 0, 0, 6),
             Tag = "canvas",
         };
         gallery.ItemChosen += (_, item) =>

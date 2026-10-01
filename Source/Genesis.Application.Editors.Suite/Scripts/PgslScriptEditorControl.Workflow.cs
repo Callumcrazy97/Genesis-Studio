@@ -143,7 +143,8 @@ public sealed partial class PgslScriptEditorControl
         _builder.Visible = builder && !_showScriptGuide;
         _code.Visible = !builder && !_showScriptGuide;
         _addActionButton.Visible = builder && !_showScriptGuide;
-        _scriptWorkflowHint.Visible = builder && !_showScriptGuide;
+        // Retired in favour of the workflow bar; kept (hidden) because the layout below measures it.
+        _scriptWorkflowHint.Visible = builder && !_showScriptGuide && _scriptWorkflow is null;
         _scriptWorkflowHint.Font = EditorChrome.SmallFont;
         _scriptWorkflowHint.Height = _scriptWorkflowHint.Padding.Vertical + TextRenderer.MeasureText(
             _scriptWorkflowHint.Text, _scriptWorkflowHint.Font,
@@ -182,6 +183,7 @@ public sealed partial class PgslScriptEditorControl
 
     private void ShowScriptGameGuide()
     {
+        _scriptWorkflow?.SetCurrent("UseInGame");
         foreach (Control control in _scriptGameSteps!.Controls.Cast<Control>().ToArray()) control.Dispose();
         ScriptGuideText("Use this Script from an Object", heading: true);
         ScriptGuideText("Scripts hold reusable logic. They run when an Object event calls them. Use Create for one-time setup, Step for actions each frame, or Draw / Draw GUI for drawing. Place that Object in a Room, then Run.");

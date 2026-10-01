@@ -74,6 +74,8 @@ internal static class ClearWorkflowSuite
 
         HeadlessHarness.RunCase(context.Report, "Clear.StarterGallery.ChooseSelectsAndReportsTheItem", () =>
         {
+            using WorkflowBar titled = new("TitledWorkflow", [new("A", "Rig & animate", "Ampersands are literal.", () => { })]);
+            HeadlessHarness.Assert(titled.StepButton("A").Text == "Rig & animate", "A step title lost its ampersand.");
             using StarterGallery gallery = new("TestGallery") { FitsContent = true, Width = 600 };
             gallery.SetItems(
             [
@@ -136,6 +138,15 @@ internal static class ClearWorkflowSuite
             HeadlessHarness.Assert(bar.Visible && bar.Top >= commands.Bottom - 1 && bar.Steps.Select(step => step.Id)
                 .SequenceEqual(["Shape", "Sculpt", "Paint", "Decorate", "UseInGame"]),
                 "Terrain's workflow bar is missing, out of order, or not directly under its command bar.");
+            // A short editor folds the bar away; growing it back must leave the bar beneath the
+            // command bar (re-showing a hidden docked control once moved it above).
+            host.ClientSize = new System.Drawing.Size(1280, 520);
+            GateSuite.Pump(4, 10);
+            HeadlessHarness.Assert(bar.IsAutoHidden && bar.Height == 0, "A 520px-tall editor did not fold its workflow bar away.");
+            host.ClientSize = new System.Drawing.Size(1280, 820);
+            GateSuite.Pump(4, 10);
+            HeadlessHarness.Assert(!bar.IsAutoHidden && bar.Height > 0 && bar.Top >= commands.Bottom - 1,
+                "The workflow bar did not return beneath the command bar after the editor grew again.");
             HeadlessHarness.Assert(bar.Activate("Sculpt") && editor.ActiveMode == TerrainEditorControl.TerrainEditorMode.Sculpt,
                 "The Sculpt step did not switch the editor to Sculpt.");
             editor.SetMode(TerrainEditorControl.TerrainEditorMode.Paint);

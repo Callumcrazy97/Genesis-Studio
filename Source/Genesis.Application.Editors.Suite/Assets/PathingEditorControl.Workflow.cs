@@ -207,6 +207,8 @@ public sealed partial class PathingEditorControl
     {
         if (!ApplyCode()) return;
         _showCode = surface == "Code"; _showGameGuide = surface == "Use in game";
+        if (surface == "Use in game") _pathingWorkflow?.SetCurrent("UseInGame");
+        else if (surface == "Quick setup" && _pathingWorkflow?.CurrentStepId == "UseInGame") _pathingWorkflow.SetCurrent("Route");
         ApplyResponsiveLayout(); RefreshPathingQuickFields();
         if (surface == "Quick setup") ResetPathingQuickScroll();
     }

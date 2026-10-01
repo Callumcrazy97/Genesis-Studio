@@ -1051,7 +1051,7 @@ public sealed partial class NoteEditorControl : EditorSurfaceControl, IResourceI
         Dock = DockStyle.Fill,
         Font = EditorChrome.HeadingFont,
         ForeColor = EditorChrome.Muted,
-        Text = text.ToUpperInvariant(),
+        Text = Genesis.Application.Core.UI.UiTokens.DisplayHeading(text),
         TextAlign = ContentAlignment.BottomLeft,
     };
 

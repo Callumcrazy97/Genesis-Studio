@@ -91,6 +91,7 @@ public sealed partial class PathingEditorControl : EditorSurfaceControl, IResour
         Controls.Add(BuildToolbar());
         if (_commandBar?.HistoryCommand is { } history) history.Visible = false;
         Controls.Add(_status);
+        BuildPathingWorkflowBar(_commandBar!);
 
         _codeTimer = new System.Windows.Forms.Timer { Interval = 450 };
         _codeTimer.Tick += (_, _) => { _codeTimer.Stop(); ApplyCode(); };

@@ -3926,7 +3926,7 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
                 Font = EditorChrome.HeadingFont,
                 ForeColor = EditorChrome.Muted,
                 Location = new Point(12, y),
-                Text = text.ToUpperInvariant(),
+                Text = Genesis.Application.Core.UI.UiTokens.DisplayHeading(text),
             };
             y += 22;
             return label;

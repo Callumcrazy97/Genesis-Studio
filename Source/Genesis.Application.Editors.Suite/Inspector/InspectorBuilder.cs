@@ -80,7 +80,7 @@ public static class InspectorBuilder
             {
                 Label label = new()
                 {
-                    Text = row.IsGroup ? row.Label.ToUpperInvariant() : row.Label,
+                    Text = row.IsGroup ? Genesis.Application.Core.UI.UiTokens.DisplayHeading(row.Label) : row.Label,
                     AutoSize = true, Dock = DockStyle.Top,
                     ForeColor = row.IsGroup ? EditorChrome.Text : EditorChrome.Muted,
                     Margin = new Padding(0, row.IsGroup ? 12 : 6, 0, 4),
@@ -131,7 +131,7 @@ public static class InspectorBuilder
                     Font = new Font(EditorChrome.BaseFont, FontStyle.Bold),
                     ForeColor = EditorChrome.Text,
                     Padding = new Padding(0, rowIndex == 0 ? 4 : 12, 0, 4),
-                    Text = row.Label.ToUpperInvariant(),
+                    Text = Genesis.Application.Core.UI.UiTokens.DisplayHeading(row.Label),
                     TextAlign = ContentAlignment.MiddleLeft,
                 };
                 form.Controls.Add(heading, 0, rowIndex);
