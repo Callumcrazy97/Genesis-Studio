@@ -593,6 +593,11 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
         _viewport.Zoom2D = 0.8f;
         _viewport.Camera.Target = new Vector3(0f, 1.5f, 0f);
         _viewport.Camera.Distance = 30f;
+        // A room built on a hillside would otherwise open with the camera under the ground.
+        Load += (_, _) =>
+        {
+            if (!_viewport.Mode2D && DefaultViewIsUnderTerrain()) FrameContent();
+        };
         _viewport.DrawScene2D += DrawRoom2D;
         _viewport.DrawScene += DrawRoom3D;
         _viewport.DrawOverlay += DrawOverlay;
@@ -4236,6 +4241,24 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
         {
             _gridSizeBox.Text = _room.Settings.GridSize.ToString("0.#");
         }
+    }
+
+    /// <summary>True when the standard opening view would sit below a terrain's surface.</summary>
+    private bool DefaultViewIsUnderTerrain()
+    {
+        Vector3 target = _viewport.Camera.Target;
+        foreach (RoomNode node in EnumerateVisibleTerrainNodes())
+        {
+            TerrainPreview? preview = TerrainPreviewFor(node);
+            if (preview?.Asset is not { } terrain || !Matrix4x4.Invert(GetNodeWorldMatrix(node), out Matrix4x4 inverse)) continue;
+            Vector3 local = Vector3.Transform(target, inverse);
+            if (local.X < terrain.OriginX || local.Z < terrain.OriginZ
+                || local.X > terrain.OriginX + (terrain.ResolutionX - 1) * terrain.CellSize
+                || local.Z > terrain.OriginZ + (terrain.ResolutionZ - 1) * terrain.CellSize) continue;
+            if (terrain.SampleHeight(local.X, local.Z) > local.Y + 1f) return true;
+        }
+
+        return false;
     }
 
     private void FrameContent()

@@ -19,6 +19,7 @@ namespace Genesis.Application.Headless;
 /// --project-tool terrain-from-code &lt;project&gt; &lt;terrain-name&gt; &lt;recipe-file&gt; [seed]
 /// --project-tool terrain-room &lt;project&gt; &lt;terrain-name&gt; &lt;room-name&gt;
 /// --project-tool start-room &lt;project&gt; &lt;room-name&gt;
+/// --project-tool capture &lt;project&gt; Room|Terrain &lt;name&gt; &lt;png-file&gt;
 /// </code>
 /// </remarks>
 internal static class ProjectAutomationRunner
@@ -107,6 +108,48 @@ internal static class ProjectAutomationRunner
                     Console.WriteLine("Start room: " + project.Manifest.StartRoom);
                     return 0;
                 }
+                case "capture" when arguments.Length >= 5:
+                {
+                    // Opens the resource in its editor, as double-clicking it in Studio does, and
+                    // saves what the editor's 3D view shows once it has settled.
+                    ProjectSession project = Open(arguments[1]);
+                    ResourceKind kind = Enum.Parse<ResourceKind>(arguments[2], ignoreCase: true);
+                    string path = Ensure(project, kind, arguments[3]);
+                    var watch = System.Diagnostics.Stopwatch.StartNew();
+                    using Control editor = kind switch
+                    {
+                        ResourceKind.Room => new Genesis.Application.Editors.Suite.Rooms.RoomEditorControl(path, project.RootPath),
+                        ResourceKind.Terrain => new TerrainEditorControl(path, project.RootPath),
+                        _ => throw new ArgumentException("capture supports Room and Terrain resources."),
+                    };
+                    using Form host = UnattendedWindowing.NewHost(1600, 900);
+                    editor.Dock = DockStyle.Fill;
+                    host.Controls.Add(editor);
+                    Genesis.Application.Studio.Theme.ThemeService.Apply(host);
+                    UnattendedWindowing.ShowWithoutFocus(host);
+                    GateSuite.Pump(10, 20);
+                    double opened = watch.Elapsed.TotalSeconds;
+                    Genesis.Application.Editors.Suite.EditorViewport3D viewport = editor switch
+                    {
+                        Genesis.Application.Editors.Suite.Rooms.RoomEditorControl room => room.Viewport,
+                        TerrainEditorControl terrain => terrain.Viewport,
+                        _ => throw new InvalidOperationException(),
+                    };
+                    // Large terrains and scatter stream in over several frames.
+                    for (int i = 0; i < 40; i++)
+                    {
+                        using (System.Drawing.Bitmap? warm = viewport.CaptureFrame(2)) { }
+                        GateSuite.Pump(2, 15);
+                    }
+
+                    using System.Drawing.Bitmap? frame = viewport.CaptureFrame(4);
+                    if (frame == null) throw new InvalidOperationException("The editor's 3D view produced no image.");
+                    string file = Path.GetFullPath(arguments[4]);
+                    Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+                    frame.Save(file, System.Drawing.Imaging.ImageFormat.Png);
+                    Console.WriteLine($"{kind} '{arguments[3]}' opened in {opened:F1} s; view saved to {file}");
+                    return 0;
+                }
                 default:
                     return Usage();
             }
@@ -146,7 +189,8 @@ internal static class ProjectAutomationRunner
             + "       --project-tool import <project> <file> [file...]\n"
             + "       --project-tool terrain-from-code <project> <terrain-name> <recipe-file> [seed]\n"
             + "       --project-tool terrain-room <project> <terrain-name> <room-name>\n"
-            + "       --project-tool start-room <project> <room-name>");
+            + "       --project-tool start-room <project> <room-name>\n"
+            + "       --project-tool capture <project> Room|Terrain <name> <png-file>");
         return 2;
     }
 }

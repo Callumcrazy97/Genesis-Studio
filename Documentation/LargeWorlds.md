@@ -116,9 +116,19 @@ $tool = "Tests\Genesis.Application.Headless\bin\Release\net10.0-windows\Genesis.
 & $tool --project-tool terrain-from-code "C:\Projects\MyWorld" Island World.terrain.pgsl 20261001
 & $tool --project-tool terrain-room "C:\Projects\MyWorld" Island World
 & $tool --project-tool start-room "C:\Projects\MyWorld" World
+& $tool --project-tool capture "C:\Projects\MyWorld" Room World world-editor.png
 ```
 
 `terrain-from-code` uses the Terrain editor's own Create From Code route in a hidden window.
+`capture` opens a Room or Terrain in its editor and saves what the editor's 3D view shows.
+
+## In the editors
+
+A Room whose standard opening view would be under a terrain's surface opens framed on its contents
+instead. Editor 3D views that reach more than 3 km move their near plane out with the far plane
+(far / 30000), which keeps distant water, shore and ground from flickering through each other.
+The test world's room opens in the Room editor in about 5 seconds and its terrain in the Terrain
+editor in about 5 seconds.
 
 ## Measuring
 
@@ -160,23 +170,32 @@ machine during the flights that had them; that is the likely cause but it was no
 
 ## Verification
 
-`Build.bat --test large-world` runs eleven checks: bulk terrain files, collision tiles following
+`Build.bat --test large-world` runs twelve checks: bulk terrain files, collision tiles following
 what can touch the ground, an 8 km terrain drawn with distance detail and no gaps, a world made
 from a recipe (sea, rivers running downhill in channels, paint following the land, level sites,
 objects on the ground), the simplifier (shape, seams, open borders, error limit), automatic levels
 and how they follow size on screen, scatter placement (repeatable, seamless between cells, obeying
 height, slope and paint, clumping), the wide shadow cascade leaving the near cascades alone, room
-settings surviving save and reload, distant objects resting, and the sea reaching the horizon.
+settings surviving save and reload, distant objects resting, the editor near plane on long views,
+and the sea reaching the horizon.
 
 Scatter drawing, the long-view terrain shading, the far water and the shadow cascade on screen are
 checked by the captures and the flight above, not by a harness case.
 
-Full Build `20261001-163347-0103944c`: 1110 checks passed, with the dx11, dx12, vulkan, opengl and
-software renderer smokes. Two earlier full runs of this change each failed one timing-sensitive
-editor check (`Studio.LibraryTags.Browser.TagEditAndSharedUndoRedoUseMetadataHistory`, then
-`Editor.Model.Profile.PointerDrawAndVisibleTriangleCost`); each passed three times alone. Between
-the second and third runs the simplified model versions were changed to be built only when a draw
-needs one, which removed background work from editor previews.
+Full Build `20261001-175935-a25c1956`: 1111 checks passed, with the dx11, dx12, vulkan, opengl and
+software renderer smokes. An earlier run of the first commit, `20261001-163347-0103944c`, passed
+1110 checks and the same five smokes.
+
+Four other full runs during this work each failed one or two checks that pass alone:
+
+- `Editor.Model.Profile.PointerDrawAndVisibleTriangleCost` (twice). A fault in the check: it waited
+  80 ms for a status line that refreshes every 250 ms. It now waits for the refresh.
+- `Runtime.PGSL.TwoD`, "the player never reported loading the room" (once, and once before this
+  work). The Player dropped a log line whenever another program was reading the log at that
+  instant, and the check reads it every 50 ms. The Player now waits for the reader.
+- `Studio.LibraryTags.Browser.TagEditAndSharedUndoRedoUseMetadataHistory` (twice). Cause not found.
+  It passed in the final run and three times alone, and had not failed in the 59 recorded runs
+  before this work, so this work cannot be ruled out as the trigger.
 
 ## Not done
 
@@ -190,8 +209,8 @@ needs one, which removed background work from editor previews.
 - **Scatter has no collision** and distant scatter casts no shadows.
 - **Shadows from behind the camera.** Terrain tiles outside the view are not drawn, so a mountain
   behind the camera does not shade what is in front of it.
-- **Editors.** The Terrain editor does not preview scatter layers, and its water list has no
-  Ocean option; both come from a script today and appear in the running game.
+- **Editors.** The Terrain editor does not draw scatter layers; the Room editor and the game do.
+  Scatter layers have no editing panel yet: they come from a recipe or the terrain's nature file.
 - **Multiplayer.** There is a network transport and nothing above it: no replication, interest
   management or server authority. A shared-world game on the scale of Palworld needs those.
 - **Platforms.** Windows x64 only.

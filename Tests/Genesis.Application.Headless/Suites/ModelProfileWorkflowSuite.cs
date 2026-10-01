@@ -84,11 +84,14 @@ internal static class ModelProfileWorkflowSuite
             Check(editor.CanonicalMeshCount == 9, "The actual pointer path did not close a concave face.");
             CheckFace(editor.PreviewAsset.Meshes[^1], "XY", 10, .12f);
             editor.FrameModel(); using (var frame = editor.Viewport.CaptureFrame(6)) { }
-            // Preview ticks update the status as they do during ordinary interactive use.
-            DateTime endTime = DateTime.UtcNow.AddMilliseconds(80);
-            while (DateTime.UtcNow < endTime) System.Windows.Forms.Application.DoEvents();
-            Check(Descendants(editor).OfType<Label>().Any(label => label.Text.StartsWith("Unsaved · 22 triangles", StringComparison.Ordinal)),
-                "The triangle cost is absent from the persistent status bar.");
+            // Preview ticks update the status as they do during ordinary interactive use. The status
+            // line refreshes four times a second, so a fixed 80 ms wait passed only when the drawing
+            // above happened to take long enough; wait for the refresh itself, within a second.
+            bool StatusShowsCost() => Descendants(editor).OfType<Label>()
+                .Any(label => label.Text.StartsWith("Unsaved · 22 triangles", StringComparison.Ordinal));
+            DateTime endTime = DateTime.UtcNow.AddMilliseconds(1000);
+            while (DateTime.UtcNow < endTime && !StatusShowsCost()) System.Windows.Forms.Application.DoEvents();
+            Check(StatusShowsCost(), "The triangle cost is absent from the persistent status bar.");
             string name = "model-drawn-concave-outline";
             var metrics = VisualCapture.CaptureOpenForm(host, Path.Combine(ctx.Captures, name + ".png"), true);
             ctx.Report.Images.Add(ImageResult.From(name, name + ".png", metrics));

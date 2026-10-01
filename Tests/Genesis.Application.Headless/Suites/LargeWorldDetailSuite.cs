@@ -286,6 +286,24 @@ internal static class LargeWorldDetailSuite
                 $"An object no longer kept active should rest when out of range; {host.LastStepped} ran and {host.LastResting} rested.");
         });
 
+        HeadlessHarness.RunCase(context.Report, "Editor.View3D.LongViewsMoveTheNearPlaneOut", () =>
+        {
+            using var viewport = new Genesis.Application.Editors.Suite.EditorViewport3D();
+            HeadlessHarness.Assert(viewport.EffectiveNearPlane == viewport.NearPlane && viewport.NearPlane == 0.1f,
+                $"An ordinary editor view must keep its 10 cm near plane; it uses {viewport.EffectiveNearPlane} m.");
+            viewport.FarPlane = 2400f;
+            HeadlessHarness.Assert(viewport.EffectiveNearPlane == 0.1f, "A 2.4 km view should not move the near plane.");
+            viewport.FarPlane = 24000f;
+            HeadlessHarness.Assert(MathF.Abs(viewport.EffectiveNearPlane - 0.8f) < 1e-4f,
+                $"A 24 km view should use a 0.8 m near plane; it uses {viewport.EffectiveNearPlane} m.");
+            // What that buys at 15 km with a 24-bit depth buffer: the smallest step it can tell apart.
+            static float Step(float near, float distance) => distance * distance / (near * 16777216f);
+            HeadlessHarness.Assert(Step(viewport.EffectiveNearPlane, 15000f) < 20f && Step(0.1f, 15000f) > 100f,
+                "The near plane no longer keeps a sea surface and its floor apart at 15 km.");
+            viewport.NearPlane = 2f;
+            HeadlessHarness.Assert(viewport.EffectiveNearPlane == 2f, "An authored near plane beyond the automatic one must be kept.");
+        });
+
         HeadlessHarness.RunCase(context.Report, "Engine.World.Water.OceanReachesTheHorizon", () =>
         {
             var sea = new TerrainWaterDefinition

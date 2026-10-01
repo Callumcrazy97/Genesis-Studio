@@ -177,6 +177,13 @@ public sealed partial class EditorViewport3D : Panel
 
     public float NearPlane { get; set; } = 0.1f;
 
+    /// <summary>
+    /// The near plane actually used. A view that reaches kilometres cannot keep a 10 cm near
+    /// plane: the depth buffer runs out of precision and distant surfaces flicker through each
+    /// other. The near plane grows with the far plane, and is unchanged for ordinary views.
+    /// </summary>
+    public float EffectiveNearPlane => MathF.Max(NearPlane, FarPlane / 30000f);
+
     public float FarPlane { get; set; } = 900f;
 
     /// <summary>
@@ -418,7 +425,7 @@ public sealed partial class EditorViewport3D : Panel
         ProjectionMatrix = cameraOverride?.Projection ?? Matrix4x4.CreatePerspectiveFieldOfView(
             FieldOfViewDegrees * MathF.PI / 180f,
             width / (float)height,
-            NearPlane,
+            EffectiveNearPlane,
             FarPlane);
         renderer.SetCamera3D(ViewMatrix, ProjectionMatrix);
         renderer.SetMesh3DState(state);

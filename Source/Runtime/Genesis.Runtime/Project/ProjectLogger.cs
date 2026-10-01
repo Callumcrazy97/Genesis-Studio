@@ -28,13 +28,32 @@ namespace Genesis.Runtime.Project
         public void Line(string message)
         {
             if (_disposed || string.IsNullOrEmpty(_path)) return;
-            try
+            string line = $"{DateTime.Now:HH:mm:ss.fff}  {message}{Environment.NewLine}";
+            lock (_lock)
             {
-                lock (_lock)
-                    File.AppendAllText(_path, $"{DateTime.Now:HH:mm:ss.fff}  {message}{Environment.NewLine}", Encoding.UTF8);
+                // Something reading the log at this instant (Studio's console, a test, a text editor)
+                // holds it without write sharing, and the append fails. The line used to be dropped;
+                // a reader is done within milliseconds, so wait for it briefly instead.
+                // A program that keeps the log locked must not stall every later line: after one
+                // wait that got nowhere, lines are tried once each until an append succeeds again.
+                int attempts = _heldByAnotherProgram ? 1 : 40;
+                for (int attempt = 0; attempt < attempts; attempt++)
+                {
+                    try
+                    {
+                        File.AppendAllText(_path, line, Encoding.UTF8);
+                        _heldByAnotherProgram = false;
+                        return;
+                    }
+                    catch (IOException) { if (attempt + 1 < attempts) System.Threading.Thread.Sleep(5); }
+                    catch { return; /* logging must never throw */ }
+                }
+
+                _heldByAnotherProgram = true;
             }
-            catch { /* logging must never throw */ }
         }
+
+        private bool _heldByAnotherProgram;
 
         /// <summary>Persist a structured script failure and its first stack trace.</summary>
         public void WriteScriptDiagnostic(ScriptDiagnostic diagnostic)
