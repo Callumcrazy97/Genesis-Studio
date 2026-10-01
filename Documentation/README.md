@@ -39,6 +39,15 @@ them is [GettingStarted.md](GettingStarted.md), which Studio shows from *Help â€
 - **Tests added:** `ClearWorkflowSuite` (`--test clear`, 14 cases) and `BeginnerJourneySuite`
   (`--test journey`, 2 cases: an empty project becomes a played 2D game and a played 3D scene using
   only the guided steps). Both run in the full regression.
+- **Validation, 1 October:** `Build.bat --full` on commit `7f69b11` passed (build
+  `20261001-104749-ea164c6a`): full regression 1093 checks and 769 images with no failures, and the
+  DX11, DX12, Vulkan, OpenGL and Software renderer smokes. `Build.bat --quick --installer` compiled
+  `Dist/GenesisStudio-Setup.exe` with the guide included. Captures of the shell and all thirteen
+  editors were inspected at normal, narrow, 150% and 200% text sizes. One earlier full run on
+  `c309b00` failed a single case, `Acceptance.Pathing.ThreeD.Export.DX11` (the exported Player
+  exited before writing its report); `--test pathing-3d-export` then passed 7 of 7 against the same
+  binaries and the case passed in the two full runs that followed, so it is recorded as a
+  load-related flake, not fixed.
 - **Fixed during validation:** `WorkflowBar` laid itself out before its Next button existed, which
   would have thrown while constructing every editor (`65074e2`); the workflow bar could dock above
   the command bar after an editor was resized; *Chase the player* called a three-argument
