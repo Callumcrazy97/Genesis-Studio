@@ -3,6 +3,7 @@ using Genesis.Application.Core.Projects;
 using Genesis.Application.Core.Resources;
 using Genesis.Application.Core.UI;
 using Genesis.Application.Editors.Suite;
+using Genesis.Application.Editors.Suite.Assets;
 using Genesis.Application.Editors.Suite.Objects;
 using Genesis.Application.Editors.Suite.Rooms;
 using Genesis.Application.Editors.Suite.Terrain;
@@ -116,6 +117,29 @@ internal static class ClearWorkflowSuite
             }
         });
 
+
+        HeadlessHarness.RunCase(context.Report, "Clear.Recipes.EveryBehaviourRecipeRunsInTheGameVm", () =>
+        {
+            // Validation proves the syntax; this runs each recipe's events in the real VM.
+            foreach (ObjectBehaviourRecipe recipe in ObjectBehaviourRecipes.All)
+            {
+                ObjectSandboxResult result = ObjectSandbox.Run(recipe.Events, frames: 30);
+                HeadlessHarness.Assert(result.Ok && result.FramesRun == 30,
+                    $"Recipe '{recipe.Title}' failed in the VM: {string.Join("; ", result.Errors.Select(error => error.ToString()))}");
+            }
+
+            ObjectSandboxResult patrol = ObjectSandbox.Run(ObjectBehaviourRecipes.Find("Patrol")!.Events, frames: 30);
+            HeadlessHarness.Assert(Math.Abs(patrol.X - 60) < 0.01, $"Patrol moved to x={patrol.X} after 30 frames, expected 60.");
+            ObjectSandboxResult longPatrol = ObjectSandbox.Run(ObjectBehaviourRecipes.Find("Patrol")!.Events, frames: 200);
+            HeadlessHarness.Assert(longPatrol.X is >= -98 and <= 98, $"Patrol left its 96-pixel range (x={longPatrol.X}).");
+            ObjectSandboxResult shot = ObjectSandbox.Run(ObjectBehaviourRecipes.Find("Projectile")!.Events, frames: 30);
+            HeadlessHarness.Assert(Math.Abs(shot.X - 240) < 0.01 && Math.Abs(shot.Y) < 0.01,
+                $"Projectile travelled to ({shot.X}, {shot.Y}), expected (240, 0).");
+            ObjectSandboxResult floating = ObjectSandbox.Run(ObjectBehaviourRecipes.Find("Float")!.Events, frames: 90);
+            HeadlessHarness.Assert(Math.Abs(floating.Y) <= 4.01, $"Float drifted {floating.Y} pixels from its home.");
+            ObjectSandboxResult timed = ObjectSandbox.Run(ObjectBehaviourRecipes.Find("Timed")!.Events, frames: 200);
+            HeadlessHarness.Assert(timed.EventsFired.Contains("Alarm11"), "The three-second timer never fired its alarm.");
+        });
     }
 
     /// <summary>Editor cases: they open editors in hidden, unfocused host windows.</summary>
@@ -214,6 +238,54 @@ internal static class ClearWorkflowSuite
             GateSuite.Pump(4, 10);
             HeadlessHarness.Assert(editor.RoomWorkflow?.StepButton("Ground").Text == "Tiles",
                 "Switching to 2D did not switch the workflow bar to the 2D steps.");
+        });
+
+        HeadlessHarness.RunCase(context.Report, "Editor.Workflow.ParticleAttachesToAnExistingObject", () =>
+        {
+            ProjectSession project = fixture.Blank;
+            ResourceService resources = fixture.Resources(project);
+            string objectPath = resources.CreateResource(fixture.Folder(project, "Objects"), ResourceKind.GameObject, "Clear Torch");
+            string particlePath = resources.CreateResource(fixture.Folder(project, "Particles"), ResourceKind.Particle, "Clear Sparks");
+            using Form host = GateSuite.NewHost(1280, 820);
+            using ParticleEditorControl editor = new(particlePath, project.RootPath);
+            host.Controls.Add(editor);
+            GateSuite.ShowHost(host);
+            GateSuite.Pump(6, 20);
+            HeadlessHarness.Assert(editor.ParticleWorkflow?.Steps.Select(step => step.Id).SequenceEqual(["Effect", "Tune", "UseInGame"]) == true,
+                "The Particle editor has no Effect › Tune › Use in game bar.");
+            string attached = editor.AttachEffectToObject("Clear Torch");
+            string json = File.ReadAllText(objectPath);
+            HeadlessHarness.Assert(Path.GetFullPath(attached) == Path.GetFullPath(objectPath)
+                && json.Contains("ParticleComponent", StringComparison.Ordinal)
+                && json.Contains("Clear Sparks", StringComparison.Ordinal),
+                "Attaching the effect did not add a Particle component that references it to the existing Object.");
+            bool rejected = false;
+            try { editor.AttachEffectToObject("No Such Object"); }
+            catch (InvalidOperationException) { rejected = true; }
+            HeadlessHarness.Assert(rejected, "Attaching to an Object that does not exist was not refused.");
+        });
+
+        HeadlessHarness.RunCase(context.Report, "Editor.Workflow.ModelShaderCreatesAShadedModelObject", () =>
+        {
+            ProjectSession project = fixture.ThreeD;
+            ResourceService resources = fixture.Resources(project);
+            string modelPath = Directory.EnumerateFiles(project.AssetsPath, "*.model.json", SearchOption.AllDirectories).First();
+            string shaderPath = resources.CreateResource(fixture.Folder(project, "Shaders"), ResourceKind.Shader, "Clear Toon");
+            using Form host = GateSuite.NewHost(1280, 820);
+            using ShaderEditorControl editor = new(shaderPath, project.RootPath);
+            host.Controls.Add(editor);
+            GateSuite.ShowHost(host);
+            GateSuite.Pump(6, 20);
+            HeadlessHarness.Assert(editor.SelectPreset("Toon") && editor.ChoosePreviewAsset(modelPath),
+                "The Toon look could not be chosen with a project Model as its preview resource.");
+            string objectPath = editor.CreateShaderObject("Clear Toon Model");
+            Newtonsoft.Json.Linq.JObject created = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(objectPath));
+            string json = created.ToString();
+            HeadlessHarness.Assert((string?)created["dimension"] == "ThreeD"
+                && json.Contains("ModelRendererComponent", StringComparison.Ordinal)
+                && json.Contains("ShaderComponent", StringComparison.Ordinal)
+                && json.Contains("Clear Toon", StringComparison.Ordinal),
+                "A model look did not create a 3D Object that draws the Model with the Shader.");
         });
     }
 }

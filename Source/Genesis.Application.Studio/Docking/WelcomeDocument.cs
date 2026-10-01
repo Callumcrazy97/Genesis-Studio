@@ -429,15 +429,21 @@ public sealed class WelcomeDocument : GenesisDockContent
         }
     }
 
-    private static Label SectionHeading(string text) => new()
+    private Label SectionHeading(string text)
     {
-        AutoSize = true,
-        Font = new Font(ThemeService.InterfaceFont.FontFamily, 13f, FontStyle.Bold),
-        ForeColor = ThemeService.Palette.Text,
-        Margin = new Padding(0, 10, 0, 6),
-        Text = text,
-        UseMnemonic = false,
-    };
+        Label heading = new()
+        {
+            AutoSize = true,
+            Font = new Font(ThemeService.InterfaceFont.FontFamily, 13f, FontStyle.Bold),
+            ForeColor = ThemeService.Palette.Text,
+            Margin = new Padding(0, 10, 0, 6),
+            Text = text,
+            UseMnemonic = false,
+        };
+        // Headings follow the interface text size like the cards beneath them.
+        _scaledLayouts.Add(heading, _ => SetHeadingFont(heading, 13, FontStyle.Bold));
+        return heading;
+    }
 
     private Control BuildRecentCard(RecentResource recent)
     {

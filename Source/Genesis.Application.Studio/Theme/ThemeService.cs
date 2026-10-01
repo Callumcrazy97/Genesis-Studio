@@ -170,9 +170,8 @@ public static class ThemeService
     private static void ApplyControl(Control control)
     {
         ApplyInterfaceGeometry(control);
-        // Scroll bars follow the theme on everything that scrolls. Trees and list views are left
-        // alone: the Explorer theme also restyles their rows and expand glyphs.
-        if (control is ScrollableControl or ListBox or TextBoxBase { Multiline: true })
+        // Scroll bars follow the theme on everything that scrolls.
+        if (control is ScrollableControl or ListBox or TreeView or ListView or TextBoxBase { Multiline: true })
         {
             Genesis.Application.Core.UI.WindowChrome.ApplyScrollTheme(control);
         }

@@ -141,10 +141,21 @@ public sealed partial class ShaderEditorControl
         _shaderGameGuide.Controls.Add(back);
         ShaderWorkflowText(_shaderGameGuide, "Use this shader in a game", heading: true);
         ShaderWorkflowText(_shaderGameGuide, "Preview resource only chooses what you see here. An Object must reference the saved shader for it to appear in gameplay.");
-        ShaderWorkflowText(_shaderGameGuide, "1. Choose an Image", heading: true);
-        ShaderWorkflowText(_shaderGameGuide, "For a 2D sprite, return to Quick setup, choose an Image effect and a project Image as its preview resource. The built-in checker is a preview sample; it cannot be placed in a Room.");
-        ShaderWorkflowText(_shaderGameGuide, "2. Create a shaded Object", heading: true);
-        ShaderWorkflowText(_shaderGameGuide, "This saves your valid shader and creates an ordinary 2D Object referencing that Image and Shader, then opens it. The Image stays editable in the Image Editor.");
+        bool modelLook = _document.TargetType == ShaderTargetType.Model;
+        if (modelLook)
+        {
+            ShaderWorkflowText(_shaderGameGuide, "1. Choose a Model", heading: true);
+            ShaderWorkflowText(_shaderGameGuide, "This look is for 3D models. Return to Quick setup and choose a project Model as its preview resource. The built-in sample shape is only a preview; it cannot be placed in a Room.");
+            ShaderWorkflowText(_shaderGameGuide, "2. Create a shaded Object", heading: true);
+            ShaderWorkflowText(_shaderGameGuide, "This saves your valid shader and creates an ordinary 3D Object that draws that Model with this Shader, then opens it. The Model stays editable in the Model editor.");
+        }
+        else
+        {
+            ShaderWorkflowText(_shaderGameGuide, "1. Choose an Image", heading: true);
+            ShaderWorkflowText(_shaderGameGuide, "For a 2D sprite, return to Quick setup, choose an Image effect and a project Image as its preview resource. The built-in checker is a preview sample; it cannot be placed in a Room.");
+            ShaderWorkflowText(_shaderGameGuide, "2. Create a shaded Object", heading: true);
+            ShaderWorkflowText(_shaderGameGuide, "This saves your valid shader and creates an ordinary 2D Object referencing that Image and Shader, then opens it. The Image stays editable in the Image Editor.");
+        }
         TextBox name = new() { Text = ResourceDisplayName.Format(ResourcePath) + " Object", Name = "ShaderObjectName",
             AccessibleName = "Name for the shaded Object" };
         EditorChrome.StyleField(name); _shaderGameGuide.Controls.Add(name);
@@ -168,20 +179,25 @@ public sealed partial class ShaderEditorControl
     public string CreateShaderObject(string name)
     {
         string validName = ResourceNames.ValidateName(name);
-        if (_document.TargetType != ShaderTargetType.Image || _document.Pipeline != ShaderAssetPipeline.Sprite)
-            throw new InvalidOperationException("Choose an Image effect and a project Image in Quick setup to create a 2D shaded Object.");
-        string? image = ProjectAssetIndex.ResolveReference(ProjectRoot, _document.PreviewAsset, ResourceKind.Image);
+        // A model look makes a 3D Object that draws a Model with this Shader; an image look makes
+        // a 2D sprite Object. Terrain, particle and full-screen looks are assigned in their own editors.
+        bool modelLook = _document.TargetType == ShaderTargetType.Model;
+        if (!modelLook && (_document.TargetType != ShaderTargetType.Image || _document.Pipeline != ShaderAssetPipeline.Sprite))
+            throw new InvalidOperationException("Choose an Image or Model effect and a project resource in Quick setup to create a shaded Object.");
+        string? image = ProjectAssetIndex.ResolveReference(ProjectRoot, _document.PreviewAsset, modelLook ? ResourceKind.Model : ResourceKind.Image);
         if (string.IsNullOrEmpty(_document.PreviewAsset) || string.IsNullOrEmpty(image) || !File.Exists(image))
-            throw new InvalidOperationException("Choose a project Image in Quick setup. The built-in checker is only a preview sample.");
+            throw new InvalidOperationException(modelLook
+                ? "Choose a project Model in Quick setup. The built-in sample shape is only a preview."
+                : "Choose a project Image in Quick setup. The built-in checker is only a preview sample.");
         CompileNow();
         if (!LastCompileSucceeded) throw new InvalidOperationException("Fix the shader's compile errors before creating an Object. Your draft is retained in Code.");
         Save();
         if (IsDirty) throw new InvalidOperationException("The Shader could not be saved. Resolve its diagnostics before creating an Object.");
         ResourceService resources = ProjectAssetIndex.OpenResourceService(ProjectRoot);
         JObject document = JObject.Parse(ResourceDefinitions.Get(ResourceKind.GameObject).DefaultContent);
-        document["dimension"] = "TwoD";
+        document["dimension"] = modelLook ? "ThreeD" : "TwoD";
         ObjectCompositionModel composition = new(document);
-        composition.SetAsset("SpriteComponent", ResourceNames.Name(ProjectRoot, image));
+        composition.SetAsset(modelLook ? "ModelRendererComponent" : "SpriteComponent", ResourceNames.Name(ProjectRoot, image));
         composition.SetAsset("ShaderComponent", ResourceNames.Name(ProjectRoot, ResourcePath));
         string path = resources.CreateResource(ResourceFolderPolicy.RootFor(resources.Project, ResourceKind.GameObject), ResourceKind.GameObject, validName);
         ProjectAssetWriteRegistry.MarkLocalWrite(path);

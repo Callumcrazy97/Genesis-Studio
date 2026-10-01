@@ -326,7 +326,9 @@ public sealed class StarterGallery : Panel
     internal int Scale(int logical) =>
         (int)Math.Round(logical * DeviceDpi / 96f * Math.Clamp(UiTokens.BaseFont.SizeInPoints / 9.5f, 0.75f, 2f));
 
-    internal Font? GlyphFont => _glyphFont ??= UiGlyphs.CreateFont(_compact ? 13f : 17f);
+    // Sized with the interface text, so icons keep their proportion at 150% and 200%.
+    internal Font? GlyphFont => _glyphFont ??= UiGlyphs.CreateFont(
+        (_compact ? 13f : 17f) * Math.Clamp(UiTokens.BaseFont.SizeInPoints / 9.5f, 0.75f, 2f));
 
     internal int SwatchHeight => Scale(_compact ? CompactSwatchHeight : LogicalSwatchHeight);
 
@@ -420,6 +422,8 @@ public sealed class StarterGallery : Panel
             return;
         }
 
+        _glyphFont?.Dispose();
+        _glyphFont = null;
         ApplyTokens();
         PerformLayout();
         Invalidate(true);

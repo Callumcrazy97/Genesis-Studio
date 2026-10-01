@@ -138,8 +138,45 @@ public sealed partial class ParticleEditorControl
         page.Controls.Add(create);
         page.Controls.Add(result);
         AddParticleGuideText(page, "Attach it to an existing Object", heading: true);
-        AddParticleGuideText(page, "Open the Object, choose Components… → Add → Particle Effect, and choose "
-            + ResourceNames.Name(ProjectRoot, ResourcePath) + " as its Asset. FollowEntity keeps the effect attached as the Object moves.");
+        AddParticleGuideText(page, "Choose one of your Objects and attach this effect to it. The effect follows the Object as it moves; change that in the Object's Components.");
+        UiKit.ThemedComboBox target = new()
+        {
+            Name = "ParticleAttachObject", DropDownStyle = ComboBoxStyle.DropDownList,
+            AccessibleName = "Object to attach this effect to",
+        };
+        EditorChrome.StyleField(target);
+        void FillTargets()
+        {
+            object? selected = target.SelectedItem;
+            target.Items.Clear();
+            foreach (string objectName in ProjectObjectNames()) target.Items.Add(objectName);
+            if (selected is not null && target.Items.Contains(selected)) target.SelectedItem = selected;
+            else if (target.Items.Count > 0) target.SelectedIndex = 0;
+        }
+        FillTargets();
+        target.DropDown += (_, _) => FillTargets();
+        AddInspectorRow(page, "Object", target);
+        Label attachResult = new() { Name = "ParticleAttachResult", ForeColor = EditorChrome.Muted,
+            Text = "Your latest effect settings are saved first." };
+        Button attach = MakeInspectorButton("Attach to this Object", () =>
+        {
+            try
+            {
+                if (target.SelectedItem is not string objectName)
+                    throw new InvalidOperationException("Create an Object first, or use Create effect Object above.");
+                string path = AttachEffectToObject(objectName);
+                attachResult.Text = "Attached to " + ResourceNames.Name(ProjectRoot, path) + ". Run to see it play on every instance of that Object.";
+            }
+            catch (Exception error) when (error is ArgumentException or IOException
+                or InvalidOperationException or UnauthorizedAccessException)
+            {
+                attachResult.Text = error.Message;
+            }
+            SizeParticleQuickPages();
+        });
+        attach.Name = "ParticleAttachToObject";
+        page.Controls.Add(attach);
+        page.Controls.Add(attachResult);
         AddParticleGuideText(page, "Spawn it from PGSL", heading: true);
         AddParticleGuideText(page, "In an Object event, x and y are that instance's position. Keep the returned id if you want to stop or change the emitter later.");
         TextBox code = new()
@@ -153,6 +190,39 @@ public sealed partial class ParticleEditorControl
         EditorChrome.StyleField(code);
         page.Controls.Add(code);
         return page;
+    }
+
+    /// <summary>The project's Objects, by name, for the attach picker.</summary>
+    private IReadOnlyList<string> ProjectObjectNames() =>
+        ResourceNames.For(ProjectRoot).Entries
+            .Where(entry => ResourceDefinitions.FromPath(entry.FullPath)?.Kind == ResourceKind.GameObject)
+            .Select(entry => entry.Name)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+    /// <summary>
+    /// Adds this saved effect to an existing Object as its Particle component and opens the Object.
+    /// </summary>
+    /// <remarks>
+    /// The change goes through the Object's own document (load, set the component, save), so the
+    /// result is exactly what Components… → Add → Particle Effect would have written.
+    /// </remarks>
+    public string AttachEffectToObject(string objectName)
+    {
+        Save(); // Includes definition validation; never attach a failed draft.
+        string path = ResourceNames.For(ProjectRoot).Entries
+            .Where(entry => ResourceDefinitions.FromPath(entry.FullPath)?.Kind == ResourceKind.GameObject)
+            .FirstOrDefault(entry => string.Equals(entry.Name, objectName, StringComparison.OrdinalIgnoreCase))?.FullPath
+            ?? throw new InvalidOperationException($"There is no Object named '{objectName}' in this project.");
+        using (Objects.ObjectEditorControl editor = new(path, ProjectRoot))
+        {
+            editor.Composition.SetAsset("ParticleComponent", ResourceNames.Name(ProjectRoot, ResourcePath));
+            editor.Save();
+        }
+
+        ResourceNames.Invalidate(ProjectRoot);
+        RequestOpenLinkedResource(path);
+        return path;
     }
 
     /// <summary>Creates a normal runtime Object that references this saved effect.</summary>

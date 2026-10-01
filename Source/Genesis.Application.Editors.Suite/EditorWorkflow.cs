@@ -16,7 +16,11 @@ public static class EditorWorkflow
     /// Editors shorter than this (logical pixels) fold the bar away so the view keeps its room;
     /// every step is still reachable from the command bar and the editor's own pages.
     /// </summary>
-    public const int DefaultAutoHideHeight = 620;
+    /// <remarks>
+    /// 560 keeps the bar at Studio's minimum window size (1080 × 700 leaves an editor about 578
+    /// tall) and on a maximised 1366 × 768 display, and folds it only in genuinely short hosts.
+    /// </remarks>
+    public const int DefaultAutoHideHeight = 560;
 
     /// <summary>Creates a workflow bar and docks it directly under <paramref name="anchor"/>.</summary>
     public static WorkflowBar AttachBelow(

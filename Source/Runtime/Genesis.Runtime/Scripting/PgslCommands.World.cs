@@ -117,24 +117,32 @@ public static partial class PgslCommands
         return world.IsAlive(world.GetEntity((int)instanceId));
     }
 
-    [PgslCommand("InstanceNearest", "InstanceNearest(x, y) -> id", "Closest instance to a point; 0 when none", "Instances")]
-    public static double InstanceNearest(double x, double y) => NearestOrFurthest(x, y, nearest: true, excludeSelf: false);
+    // The optional Object name matches the command catalogue's documented signature. With a
+    // name, the search is limited to instances of that Object and never returns the caller (an
+    // enemy looking for the nearest "Enemy" must not find itself); without one, behaviour is
+    // unchanged.
+    [PgslCommand("InstanceNearest", "InstanceNearest(x, y, objectName?) -> id", "Closest instance to a point, optionally of one Object; 0 when none", "Instances")]
+    public static double InstanceNearest(double x, double y, string objectName = null) =>
+        NearestOrFurthest(x, y, nearest: true, excludeSelf: !string.IsNullOrWhiteSpace(objectName), objectName);
 
-    [PgslCommand("InstanceFurthest", "InstanceFurthest(x, y) -> id", "Furthest instance from a point; 0 when none", "Instances")]
-    public static double InstanceFurthest(double x, double y) => NearestOrFurthest(x, y, nearest: false, excludeSelf: false);
+    [PgslCommand("InstanceFurthest", "InstanceFurthest(x, y, objectName?) -> id", "Furthest instance from a point, optionally of one Object; 0 when none", "Instances")]
+    public static double InstanceFurthest(double x, double y, string objectName = null) =>
+        NearestOrFurthest(x, y, nearest: false, excludeSelf: !string.IsNullOrWhiteSpace(objectName), objectName);
 
     [PgslCommand("InstanceNearestOther", "InstanceNearestOther(x, y) -> id", "Closest instance excluding the caller", "Instances")]
     public static double InstanceNearestOther(double x, double y) => NearestOrFurthest(x, y, nearest: true, excludeSelf: true);
 
-    private static double NearestOrFurthest(double x, double y, bool nearest, bool excludeSelf)
+    private static double NearestOrFurthest(double x, double y, bool nearest, bool excludeSelf, string objectName = null)
     {
         int selfId = excludeSelf ? GetContext()?.InstanceId ?? 0 : 0;
         double best = nearest ? double.MaxValue : double.MinValue;
         int bestId = 0;
+        bool filtered = !string.IsNullOrWhiteSpace(objectName);
 
         foreach ((int id, float ix, float iy) in LivingTransforms())
         {
             if (excludeSelf && id == selfId) continue;
+            if (filtered && !MatchesObject(id, objectName)) continue;
 
             double dx = ix - x;
             double dy = iy - y;

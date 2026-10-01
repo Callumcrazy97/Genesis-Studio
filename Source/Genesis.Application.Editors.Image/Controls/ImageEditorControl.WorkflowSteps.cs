@@ -29,7 +29,7 @@ public sealed partial class ImageEditorControl
                 ShowImageGameGuide),
         ])
         {
-            AutoHideBelowHeight = 620,
+            AutoHideBelowHeight = 560,
         };
         _imageRoot.SuspendLayout();
         _imageRoot.Controls.Add(_imageWorkflow);
