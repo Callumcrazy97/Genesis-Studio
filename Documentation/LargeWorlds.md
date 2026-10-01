@@ -158,6 +158,26 @@ Some earlier flights had occasional frames of 200 to 500 ms. They were not garba
 which is measured, and did not recur in the last three flights. Another program was using the
 machine during the flights that had them; that is the likely cause but it was not confirmed.
 
+## Verification
+
+`Build.bat --test large-world` runs eleven checks: bulk terrain files, collision tiles following
+what can touch the ground, an 8 km terrain drawn with distance detail and no gaps, a world made
+from a recipe (sea, rivers running downhill in channels, paint following the land, level sites,
+objects on the ground), the simplifier (shape, seams, open borders, error limit), automatic levels
+and how they follow size on screen, scatter placement (repeatable, seamless between cells, obeying
+height, slope and paint, clumping), the wide shadow cascade leaving the near cascades alone, room
+settings surviving save and reload, distant objects resting, and the sea reaching the horizon.
+
+Scatter drawing, the long-view terrain shading, the far water and the shadow cascade on screen are
+checked by the captures and the flight above, not by a harness case.
+
+Full Build `20261001-163347-0103944c`: 1110 checks passed, with the dx11, dx12, vulkan, opengl and
+software renderer smokes. Two earlier full runs of this change each failed one timing-sensitive
+editor check (`Studio.LibraryTags.Browser.TagEditAndSharedUndoRedoUseMetadataHistory`, then
+`Editor.Model.Profile.PointerDrawAndVisibleTriangleCost`); each passed three times alone. Between
+the second and third runs the simplified model versions were changed to be built only when a draw
+needs one, which removed background work from editor previews.
+
 ## Not done
 
 - **Depth precision.** The scene depth buffer is 24-bit with a standard range. A 16 km view works
