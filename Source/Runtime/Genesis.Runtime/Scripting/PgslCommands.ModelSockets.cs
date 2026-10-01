@@ -11,7 +11,7 @@ namespace Genesis.Runtime.Scripting;
 /// <summary>Named, model-authored attachment points. Scripts decide what is attached and why.</summary>
 public static partial class PgslCommands
 {
-    private static readonly RuntimeModelAssetRegistry SocketModelAssets = new();
+    private static RuntimeModelAssetRegistry SocketModelAssets => RuntimeModelAssetRegistry.Shared;
 
     [PgslCommand("ModelSocketAttach", "ModelSocketAttach(childInstance, socket) -> bool",
         "Attach another live instance to one of this model's named sockets", "Models")]

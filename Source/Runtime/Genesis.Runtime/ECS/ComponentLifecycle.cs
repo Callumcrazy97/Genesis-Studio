@@ -158,7 +158,8 @@ namespace Genesis.Runtime.ECS
 
         private sealed class ModelAnimatorLifecycle : IRuntimeComponentLifecycle
         {
-            private readonly Modeling.RuntimeModelAssetRegistry AnimationAssets = new(250);
+            // The registry drawing uses. A private one parsed every animated model a second time.
+            private static Modeling.RuntimeModelAssetRegistry AnimationAssets => Modeling.RuntimeModelAssetRegistry.Shared;
             public void OnAttach(EcsWorld world, Entity entity)
             {
                 if (!world.Has<ModelAnimatorComponent>(entity))

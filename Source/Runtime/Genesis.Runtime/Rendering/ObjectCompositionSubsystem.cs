@@ -80,8 +80,10 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem
     private readonly HashSet<int> _seenAudio = [];
     private IRenderController? _lastRenderer;
     private RuntimeScene? _lastScene;
-    private readonly RuntimeModelAssetRegistry _particleModelAssets = new(250);
-    private readonly RuntimeModelAssetRegistry _attachmentModelAssets = new(250);
+    // The shared registry: this subsystem is created again for every room, and private registries
+    // here parsed attachment parents and particle models again on every room change.
+    private readonly RuntimeModelAssetRegistry _particleModelAssets = RuntimeModelAssetRegistry.Shared;
+    private readonly RuntimeModelAssetRegistry _attachmentModelAssets = RuntimeModelAssetRegistry.Shared;
     private readonly ModelGpuCache _particleModelGpu = new();
     private float _totalTime;
 
@@ -542,7 +544,6 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem
         }
         _particles.Clear();
         _audioStates.Clear();
-        _attachmentModelAssets.Clear();
     }
 
     private void ReleaseParticleState(ParticleState state)

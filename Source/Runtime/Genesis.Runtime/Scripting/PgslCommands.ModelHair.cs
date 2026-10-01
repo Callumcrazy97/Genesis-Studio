@@ -9,7 +9,7 @@ namespace Genesis.Runtime.Scripting;
 
 public static partial class PgslCommands
 {
-    private static readonly RuntimeModelAssetRegistry HairModelAssets = new(1000);
+    private static RuntimeModelAssetRegistry HairModelAssets => RuntimeModelAssetRegistry.Shared;
     private static string _modelHairError = "";
 
     [PgslCommand("ModelHairSetStyles", "ModelHairSetStyles(scalpStyle, facialStyle) -> bool",

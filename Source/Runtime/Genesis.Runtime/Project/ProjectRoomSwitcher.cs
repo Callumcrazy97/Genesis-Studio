@@ -127,11 +127,14 @@ namespace Genesis.Runtime.Project
                 return;
             }
 
+            long switchStarted = System.Diagnostics.Stopwatch.GetTimestamp();
             _scriptHost.EndRoom(endGame: false);
             scene.UnloadRoomContent(_scriptHost, KeepSubsystem, preservePersistent: !liveReload);
+            long unloaded = System.Diagnostics.Stopwatch.GetTimestamp();
 
             RoomBuildResult build = ProjectRoomLoader.Build(_projectPath, scene, room,
                 _scriptHost, _context, beginGame: false);
+            long built = System.Diagnostics.Stopwatch.GetTimestamp();
             if (RoomEnvironmentAudioSubsystem.ShouldRegister(room.Environment))
                 scene.AddSubsystem(new RoomEnvironmentAudioSubsystem(room.Environment, _context));
             scene.AddSubsystem(new ObjectCompositionSubsystem(_projectPath, _context.Audio, room.Dimension == RoomDimension.TwoD));
@@ -146,6 +149,11 @@ namespace Genesis.Runtime.Project
             _logger?.Line(liveReload
                 ? $"AssetLiveReload applied generation={generation} changed={changedCount} room={roomName} entities={build.SpawnedEntities.Count}"
                 : $"ChangeRoom -> {roomName} entities={build.SpawnedEntities.Count}");
+            // Where a room change's time goes, so a slow one can be attributed without a profiler.
+            _logger?.Line($"Room change timing: unload "
+                + $"{System.Diagnostics.Stopwatch.GetElapsedTime(switchStarted, unloaded).TotalMilliseconds:F0} ms, build "
+                + $"{System.Diagnostics.Stopwatch.GetElapsedTime(unloaded, built).TotalMilliseconds:F0} ms, finish "
+                + $"{System.Diagnostics.Stopwatch.GetElapsedTime(built).TotalMilliseconds:F0} ms");
         }
 
         private static bool KeepSubsystem(ISceneSubsystem sub) =>
