@@ -39,6 +39,16 @@ public sealed class AtmosphereOptions
     /// is; a room raises it to lift shaded hillsides and walls out of near-black.
     /// </summary>
     public float AmbientScale { get; set; } = 1f;
+    /// <summary>
+    /// Multiplies the fog the weather brings (rain, overcast, storm, fog). 1 is the weather as it
+    /// is; 0 leaves only the clear-day haze. May be changed while the game runs.
+    /// </summary>
+    public float WeatherFogScale { get; set; } = 1f;
+
+    /// <summary>The weather's fog density as this atmosphere takes it.</summary>
+    public float WeatherFog(float weatherFogDensity) =>
+        MathF.Max(0f, weatherFogDensity) * (float.IsFinite(WeatherFogScale) ? Math.Clamp(WeatherFogScale, 0f, 4f) : 1f);
+
     public int Seed { get; set; } = 1337;
 
     public AtmosphereOptions Clone() => (AtmosphereOptions)MemberwiseClone();
@@ -74,7 +84,7 @@ public sealed class AtmosphereService
     public AtmosphereFrame Update(in EnvironmentFrame environment, Vector3 observerPosition)
     {
         float cloud = Math.Clamp(environment.Weather.CloudCover * Options.CloudCoverageScale, 0f, 1f);
-        float haze = Math.Clamp(Options.Haze + environment.Weather.FogDensity * 2.5f, 0f, 1f);
+        float haze = Math.Clamp(Options.Haze + Options.WeatherFog(environment.Weather.FogDensity) * 2.5f, 0f, 1f);
         float night = environment.NightFactor;
         Vector3 horizon = new(environment.BackgroundColor.X, environment.BackgroundColor.Y, environment.BackgroundColor.Z);
         Vector3 zenith = environment.AmbientSky.LengthSquared() > 0.000001f

@@ -272,6 +272,12 @@ public sealed class RoomEnvironment
     /// </summary>
     [JsonProperty("visibilityKilometres")] public float VisibilityKilometres { get; set; }
     /// <summary>
+    /// How much of the weather's own fog the room takes: 1 is the weather as it is, 0 none. Rain
+    /// and overcast are thick enough to hide everything past sixty metres, which suits a street
+    /// and not a valley; a wide room lowers this and keeps the rain, the wet ground and the cloud.
+    /// </summary>
+    [JsonProperty("weatherFogScale")] public float WeatherFogScale { get; set; } = 1f;
+    /// <summary>
     /// How far from the camera the sun casts shadows, in metres. Zero keeps the close-range
     /// shadows suited to small scenes; a large outdoor world sets this so mountains shade valleys.
     /// </summary>

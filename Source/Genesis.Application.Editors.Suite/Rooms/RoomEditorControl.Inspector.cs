@@ -111,6 +111,8 @@ public sealed partial class RoomEditorControl
             environment.AtmosphericHaze, 0, 1, 0.01m, 2));
         values.Add(Number("Lighting & atmosphere", "environment.visibilityKilometres", "Visibility (km, 0 = short range)",
             environment.VisibilityKilometres, 0, 200, 0.5m, 1));
+        values.Add(Number("Lighting & atmosphere", "environment.weatherFogScale", "Weather fog (1 = as the weather sets it, 0 = none)",
+            environment.WeatherFogScale, 0, 4, 0.05m, 2));
         values.Add(Number("Lighting & atmosphere", "environment.shadowDistance", "Sun shadow distance (m, 0 = close range)",
             environment.ShadowDistance, 0, 20000, 50m, 0));
         values.Add(Number("Lighting & atmosphere", "environment.simulationDistance", "Object activity distance (m, 0 = everywhere)",
@@ -331,6 +333,7 @@ public sealed partial class RoomEditorControl
             case "cloudcoveragescale": next.CloudCoverageScale = Convert.ToSingle(value, CultureInfo.InvariantCulture); break;
             case "atmospherichaze": next.AtmosphericHaze = Convert.ToSingle(value, CultureInfo.InvariantCulture); break;
             case "visibilitykilometres": next.VisibilityKilometres = Convert.ToSingle(value, CultureInfo.InvariantCulture); break;
+            case "weatherfogscale": next.WeatherFogScale = Convert.ToSingle(value, CultureInfo.InvariantCulture); break;
             case "shadowdistance": next.ShadowDistance = Convert.ToSingle(value, CultureInfo.InvariantCulture); break;
             case "simulationdistance": next.SimulationDistance = Convert.ToSingle(value, CultureInfo.InvariantCulture); break;
             case "scenerydistance": next.SceneryDistance = Convert.ToSingle(value, CultureInfo.InvariantCulture); break;

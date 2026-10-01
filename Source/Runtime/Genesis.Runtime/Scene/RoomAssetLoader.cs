@@ -399,6 +399,7 @@ public sealed class RoomSceneBuilder
                 Haze = environment.AtmosphericHaze,
                 VisibilityMetres = MathF.Max(0f, environment.VisibilityKilometres) * 1000f,
                 AmbientScale = float.IsFinite(environment.AmbientIntensity) ? Math.Clamp(environment.AmbientIntensity, 0f, 8f) : 1f,
+                WeatherFogScale = float.IsFinite(environment.WeatherFogScale) ? Math.Clamp(environment.WeatherFogScale, 0f, 4f) : 1f,
                 Seed = environment.ClimateSeed,
             });
         }

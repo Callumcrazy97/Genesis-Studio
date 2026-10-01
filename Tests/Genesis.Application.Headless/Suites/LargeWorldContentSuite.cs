@@ -387,6 +387,51 @@ internal static class LargeWorldContentSuite
             HeadlessHarness.Assert(!camera.IsShaking, "A shake with no length or no size was started.");
         });
 
+        HeadlessHarness.RunCase(context.Report, "Engine.World.Room.WeatherFogCanBeThinnedWithoutLosingTheWeather", () =>
+        {
+            // The same rainy room three times: the weather's fog as it is, a quarter of it, none.
+            (float Density, float Rain) Fog(float scale, float visibilityKilometres)
+            {
+                RoomAsset room = RoomAsset.Create("Vale", RoomDimension.ThreeD);
+                room.Environment.DynamicSky = true;
+                room.Environment.AutomaticWeather = false;
+                room.Environment.Weather = "Rain";
+                room.Environment.WeatherFogScale = scale;
+                room.Environment.VisibilityKilometres = visibilityKilometres;
+                using var scene = new RuntimeScene("Weather fog");
+                RoomSceneBuilder.ApplySceneSettings(scene, room);
+                scene.UpdateVariable(1f / 60f);
+                var state = new Mesh3DState();
+                Genesis.Runtime.Scene.EnvironmentMapper.StampClimateAtmosphere(ref state, scene.Climate, scene.Atmosphere);
+                return (state.FogDensity, scene.Climate.Current.LocalRain);
+            }
+
+            HeadlessHarness.Assert(RoomAsset.Create("New", RoomDimension.ThreeD).Environment.WeatherFogScale == 1f,
+                "A new room must take the weather's fog as it is.");
+            (float full, float rain) = Fog(1f, 0f);
+            (float quarter, float quarterRain) = Fog(0.25f, 0f);
+            (float none, float noneRain) = Fog(0f, 0f);
+            HeadlessHarness.Assert(full > 0.03f, $"Rain should bring thick fog by default; the density is {full:F4}.");
+            HeadlessHarness.Assert(none < quarter && quarter < full * 0.5f,
+                $"Scaling the weather's fog did not thin it in step: {full:F4} at 1, {quarter:F4} at a quarter, {none:F4} at none.");
+            HeadlessHarness.Assert(rain > 0f && quarterRain == rain && noneRain == rain,
+                $"Thinning the fog changed the rain itself ({rain:F2}, {quarterRain:F2}, {noneRain:F2}).");
+
+            // With a stated visibility, no weather fog leaves exactly the clear-day haze.
+            (float clearView, _) = Fog(0f, 20f);
+            (float rainyView, _) = Fog(1f, 20f);
+            HeadlessHarness.Assert(MathF.Abs(clearView - 3f / 20000f) < 1e-6f && rainyView > clearView + 0.03f,
+                $"A 20 km room without weather fog should have the clear-day density {3f / 20000f:F5}; it has {clearView:F5} (rain: {rainyView:F5}).");
+
+            // The room file keeps it.
+            string file = Path.Combine(context.Workspace, "WeatherFogRoom", "Vale.room.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+            RoomAsset saved = RoomAsset.Create("Vale", RoomDimension.ThreeD);
+            saved.Environment.WeatherFogScale = 0.2f;
+            RoomAssetLoader.Save(saved, file);
+            HeadlessHarness.Assert(RoomAssetLoader.Parse(file).Environment.WeatherFogScale == 0.2f, "The weather fog setting was not saved with the room.");
+        });
+
         HeadlessHarness.RunCase(context.Report, "Engine.Time.GameSpeed.IsSetByScriptsAndKeptInRange", () =>
         {
             float before = GameSpeed.Scale;

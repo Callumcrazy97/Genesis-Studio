@@ -36,6 +36,7 @@ These are in the Room editor under **Lighting & atmosphere**, and in the room fi
 | Setting | Key | Default | Use |
 |---|---|---|---|
 | Visibility (km) | `visibilityKilometres` | 0 | Distance at which haze has removed about 95% of contrast. 0 keeps the short-range haze. 20 to 50 suits an island. |
+| Weather fog | `weatherFogScale` | 1 | Multiplies the fog that rain, overcast, storm and fog weather bring. At 1, rain leaves about 10% contrast at 50 m, which suits a street and hides a valley. Lower it to keep the rain, the wet ground and the cloud with a longer view; 0 leaves only the clear-day haze. Scripts can change `Atmosphere.Options.WeatherFogScale` while the game runs. |
 | Sun shadow distance (m) | `shadowDistance` | 0 | How far from the camera the sun casts shadows. 0 keeps close-range shadows only. 2000 to 4000 shades mountainsides. |
 | Object activity distance (m) | `simulationDistance` | 0 | Scripted objects with a 3D model further than this skip Step events. 0 runs everything. |
 | Ambient intensity | `ambientIntensity` | 1 | Now also scales the dynamic sky's ambient light. Raise it when shaded slopes are too dark. |

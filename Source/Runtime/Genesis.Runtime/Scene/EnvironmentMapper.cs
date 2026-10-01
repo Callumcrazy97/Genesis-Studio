@@ -134,14 +134,15 @@ namespace Genesis.Runtime.Scene
                     float ambientScale = float.IsFinite(options.AmbientScale) ? Math.Clamp(options.AmbientScale, 0f, 8f) : 1f;
                     state.AmbientColor = frame.ZenithColor * (0.38f * ambientScale);
                     state.AmbientGroundColor *= ambientScale;
-                    state.FogEnabled = frame.Haze > 0.02f || climate.Current.Weather.FogDensity > 0.01f;
-                    state.FogDensity = MathF.Max(0.002f, climate.Current.Weather.FogDensity + frame.Haze * 0.012f);
+                    float weatherFog = options.WeatherFog(climate.Current.Weather.FogDensity);
+                    state.FogEnabled = frame.Haze > 0.02f || weatherFog > 0.01f;
+                    state.FogDensity = MathF.Max(0.002f, weatherFog + frame.Haze * 0.012f);
                     if (options.VisibilityMetres > 0f)
                     {
                         // A stated visibility replaces the short-range density: exp(-3 * d / visibility)
                         // leaves 5% contrast at the visibility distance. Weather still thickens it.
                         state.FogEnabled = true;
-                        state.FogDensity = 3f / MathF.Max(50f, options.VisibilityMetres) + climate.Current.Weather.FogDensity;
+                        state.FogDensity = 3f / MathF.Max(50f, options.VisibilityMetres) + weatherFog;
                         // Air thins over hundreds of metres, not the few a ground mist does, so
                         // mountain tops stay clearer than the valleys below them.
                         state.FogHeightFalloff = 1f / 1200f;
