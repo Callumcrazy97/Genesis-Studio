@@ -303,6 +303,11 @@ namespace Genesis.Runtime.Project
 
                     ApplyRoomPresentation(window, renderer, loaded);
                     logger.Line($"room loaded entities={build.SpawnedEntities.Count} dimension={loaded.Dimension}");
+                    // The same breakdown a room change logs, for the first room.
+                    logger.Line($"Room load timing: terrain {build.TerrainMilliseconds:F0} ms, placing objects {build.SpawnMilliseconds:F0} ms, "
+                        + $"Create events {build.CreateEventsMilliseconds:F0} ms, room-start events {build.RoomStartMilliseconds:F0} ms; slowest objects: "
+                        + (build.SlowestSpawns.Count == 0 ? "none" : string.Join(", ",
+                            System.Linq.Enumerable.Select(build.SlowestSpawns, spawn => $"{spawn.Name} {spawn.Milliseconds:F0} ms"))));
                     Console.WriteLine("GENESIS_PLAYER_STATE running");
                 });
 

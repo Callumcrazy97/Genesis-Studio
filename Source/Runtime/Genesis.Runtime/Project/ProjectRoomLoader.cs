@@ -10,10 +10,15 @@ public static class ProjectRoomLoader
         ScriptHostSystem scripts, ProjectGameContext context, bool beginGame)
     {
         context.SetRoom(room);
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
         if (RoomTerrainSubsystem.ShouldRegister(room))
             scene.AddSubsystem(new RoomTerrainSubsystem(projectPath, room, context));
+        double terrainMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
         RoomBuildResult result = new RoomSceneBuilder(projectPath, scripts).Build(scene, room);
+        result.TerrainMilliseconds = terrainMilliseconds;
+        long roomStart = System.Diagnostics.Stopwatch.GetTimestamp();
         scripts.BeginRoom(beginGame);
+        result.RoomStartMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(roomStart).TotalMilliseconds;
         return result;
     }
 }

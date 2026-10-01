@@ -128,6 +128,8 @@ namespace Genesis.Runtime.Project
             }
 
             long switchStarted = System.Diagnostics.Stopwatch.GetTimestamp();
+            int collectionsBefore = GC.CollectionCount(2);
+            TimeSpan pausedBefore = GC.GetTotalPauseDuration();
             _scriptHost.EndRoom(endGame: false);
             scene.UnloadRoomContent(_scriptHost, KeepSubsystem, preservePersistent: !liveReload);
             long unloaded = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -150,10 +152,16 @@ namespace Genesis.Runtime.Project
                 ? $"AssetLiveReload applied generation={generation} changed={changedCount} room={roomName} entities={build.SpawnedEntities.Count}"
                 : $"ChangeRoom -> {roomName} entities={build.SpawnedEntities.Count}");
             // Where a room change's time goes, so a slow one can be attributed without a profiler.
+            string slowest = build.SlowestSpawns.Count == 0 ? "none"
+                : string.Join(", ", System.Linq.Enumerable.Select(build.SlowestSpawns, spawn => $"{spawn.Name} {spawn.Milliseconds:F0} ms"));
             _logger?.Line($"Room change timing: unload "
                 + $"{System.Diagnostics.Stopwatch.GetElapsedTime(switchStarted, unloaded).TotalMilliseconds:F0} ms, build "
-                + $"{System.Diagnostics.Stopwatch.GetElapsedTime(unloaded, built).TotalMilliseconds:F0} ms, finish "
-                + $"{System.Diagnostics.Stopwatch.GetElapsedTime(built).TotalMilliseconds:F0} ms");
+                + $"{System.Diagnostics.Stopwatch.GetElapsedTime(unloaded, built).TotalMilliseconds:F0} ms "
+                + $"(terrain {build.TerrainMilliseconds:F0}, placing objects {build.SpawnMilliseconds:F0}, "
+                + $"Create events {build.CreateEventsMilliseconds:F0}, room-start events {build.RoomStartMilliseconds:F0}), finish "
+                + $"{System.Diagnostics.Stopwatch.GetElapsedTime(built).TotalMilliseconds:F0} ms; slowest objects: {slowest}; "
+                + $"garbage collector paused {(GC.GetTotalPauseDuration() - pausedBefore).TotalMilliseconds:F0} ms "
+                + $"in {GC.CollectionCount(2) - collectionsBefore} full collections");
         }
 
         private static bool KeepSubsystem(ISceneSubsystem sub) =>

@@ -88,6 +88,29 @@ public sealed class RoomBuildResult
     public Dictionary<string, Entity> EntitiesByNodeId { get; } = new(StringComparer.OrdinalIgnoreCase);
     public List<Entity> SpawnedEntities { get; } = new();
     internal List<(Entity Entity, RoomNode Terrain, RoomTransform Local)> TerrainParts { get; } = new();
+
+    /// <summary>Time spent placing the room's objects, excluding their Create events.</summary>
+    public double SpawnMilliseconds { get; internal set; }
+
+    /// <summary>Time spent running the Create events held back until every object was placed.</summary>
+    public double CreateEventsMilliseconds { get; internal set; }
+
+    /// <summary>Time spent building terrain services before any object exists.</summary>
+    public double TerrainMilliseconds { get; internal set; }
+
+    /// <summary>Time spent in the scripts' room-start events.</summary>
+    public double RoomStartMilliseconds { get; internal set; }
+
+    /// <summary>The objects that took longest to place, slowest first, at most three.</summary>
+    public List<(string Name, double Milliseconds)> SlowestSpawns { get; } = new();
+
+    internal void RecordSpawn(string name, double milliseconds)
+    {
+        if (SlowestSpawns.Count == 3 && milliseconds <= SlowestSpawns[2].Milliseconds) return;
+        SlowestSpawns.Add((name, milliseconds));
+        SlowestSpawns.Sort(static (a, b) => b.Milliseconds.CompareTo(a.Milliseconds));
+        if (SlowestSpawns.Count > 3) SlowestSpawns.RemoveAt(3);
+    }
 }
 
 /// <summary>
@@ -155,13 +178,19 @@ public sealed class RoomSceneBuilder
         // read x=0,y=0 and have its own assignments overwritten a line later (NEXT-047).
         bool deferring = _scriptHost != null && !_scriptHost.DeferCreateEvents;
         if (deferring) _scriptHost.DeferCreateEvents = true;
+        long spawnStarted = System.Diagnostics.Stopwatch.GetTimestamp();
         try
         {
             foreach (RoomNode node in asset.Nodes.OrderBy(n => LayerOrder(asset, n)).ThenBy(n => n.Order))
             {
                 if (!RoomHierarchyTransforms.IsActive(asset, node)) continue;
                 if (!terrainOnly && node.Kind == RoomNodeKind.GameObject && node.GameObject != null)
+                {
+                    long one = System.Diagnostics.Stopwatch.GetTimestamp();
                     SpawnGameObject(world, asset, node, result);
+                    result.RecordSpawn(node.Name ?? node.GameObject.Prefab,
+                        System.Diagnostics.Stopwatch.GetElapsedTime(one).TotalMilliseconds);
+                }
                 // Tile layers are rendered as batches and collide through RoomTileCollisionMap.
                 // They are not gameplay instances: no per-cell ECS transforms or phantom query hits.
                 else if (node.Kind == RoomNodeKind.Terrain && node.Terrain != null)
@@ -173,7 +202,10 @@ public sealed class RoomSceneBuilder
             if (deferring) _scriptHost.DeferCreateEvents = false;
         }
 
+        result.SpawnMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(spawnStarted).TotalMilliseconds;
+        long createStarted = System.Diagnostics.Stopwatch.GetTimestamp();
         _scriptHost?.FlushDeferredCreates();
+        result.CreateEventsMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(createStarted).TotalMilliseconds;
         return result;
     }
 
