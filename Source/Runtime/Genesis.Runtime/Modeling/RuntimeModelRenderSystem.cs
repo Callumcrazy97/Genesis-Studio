@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Numerics;
+using Genesis.Rendering.D3dMath;
 using Genesis.Runtime.Assets;
 using Genesis.Runtime.Rendering;
 using Genesis.Shared.Interfaces;
@@ -165,6 +166,40 @@ namespace Genesis.Runtime.Modeling
                 rendererComponent, animation, renderer);
         }
 
+        /// <summary>The asset a Model resource name resolves to, from the shared cache.</summary>
+        public GModelAsset LoadAsset(string projectPath, string modelName) =>
+            string.IsNullOrWhiteSpace(modelName) ? null : LoadModel(projectPath, modelName);
+
+        /// <summary>
+        /// Adds a model's draw calls at one automatic level of detail, at the origin. Systems that
+        /// draw many copies (scattered forests) use these as templates and supply the transforms.
+        /// </summary>
+        /// <param name="drawn">Receives the cached mesh behind each draw call, in the same order.</param>
+        public bool EnqueueAtLevel(
+            IMeshDrawList queue,
+            string projectPath,
+            string modelName,
+            int level,
+            bool castShadows,
+            IRenderController renderer,
+            List<ModelGpuCache.CachedMesh> drawn = null)
+        {
+            if (queue == null || renderer == null || string.IsNullOrWhiteSpace(modelName)) return false;
+            GModelAsset asset = LoadModel(projectPath, modelName);
+            return EnqueueAsset(queue, asset, projectPath, string.Empty, Matrix4x4.Identity,
+                new Draw3DComponent { Visible = true, CastShadows = castShadows, ReceiveShadows = true },
+                new ModelRendererComponent { CastShadows = castShadows, ReceiveShadows = true, ScaleX = 1f, ScaleY = 1f, ScaleZ = 1f },
+                default, renderer, forcedLevel: Math.Max(0, level), drawn: drawn);
+        }
+
+        /// <summary>True once a model's automatically simplified meshes can be drawn.</summary>
+        public bool AutoLodsReady(string projectPath, string modelName, IRenderController renderer)
+        {
+            GModelAsset asset = LoadAsset(projectPath, modelName);
+            ModelGpuCache.CachedAsset cached = asset == null ? null : _gpu.GetOrCreate(renderer, asset);
+            return cached != null && (cached.AutoLodsReady || !cached.AutoLodsPending);
+        }
+
         /// <summary>Draws an in-memory canonical asset, used by Model Editor before/while saving.</summary>
         public bool DrawAsset(
             GModelAsset asset,
@@ -227,7 +262,9 @@ namespace Genesis.Runtime.Modeling
             RuntimeModelAnimationState animation,
             IRenderController renderer,
             RenderColor? tintOverride = null,
-            float alphaMultiplier = 1f)
+            float alphaMultiplier = 1f,
+            int forcedLevel = -1,
+            List<ModelGpuCache.CachedMesh> drawn = null)
         {
             if (queue == null || renderer == null || asset == null) return false;
             ModelGpuCache.CachedAsset gpuAsset = _gpu.GetOrCreate(renderer, asset);
@@ -238,12 +275,27 @@ namespace Genesis.Runtime.Modeling
             IReadOnlyList<ModelGpuCache.CachedMesh> renderMeshes = _gpu.ResolveMeshes(renderer, asset, gpuAsset, morphWeights);
 
             SkinPaletteHandle palette = _gpu.UpdatePalette(renderer, asset, gpuAsset, animation);
-            int activeLod = ResolveLodLevel(asset, rendererComponent.LodPolicy);
             ModelHairSelection hair = ModelHairRuntime.Resolve(asset, rendererComponent.Hair);
             Vector3 pivot = asset.Pivot?.Position ?? Vector3.Zero;
             Matrix4x4 pivotedWorld = pivot.LengthSquared() > 1e-12f
                 ? Matrix4x4.CreateTranslation(-pivot) * world
                 : world;
+
+            // Level of detail. A positive policy pins an authored level. Otherwise the level follows
+            // the model's size on screen: authored levels when the asset has them, automatically
+            // simplified meshes when it does not. A negative policy always draws in full.
+            int viewLevel = Math.Max(0, forcedLevel);
+            if (forcedLevel < 0 && rendererComponent.LodPolicy == 0 && ModelLodView.Active && !animation.FlatUntextured && asset.Bounds != null)
+            {
+                Vector3 centre = Vector3.Transform((asset.Bounds.Min + asset.Bounds.Max) * 0.5f, pivotedWorld);
+                float radius = Vector3.Distance(asset.Bounds.Min, asset.Bounds.Max) * 0.5f * MatrixScaleHelper.MaxScale(pivotedWorld);
+                viewLevel = Math.Max(0, ModelLodView.LevelFor(centre, radius));
+                ModelLodView.Count(viewLevel);
+            }
+
+            if (viewLevel > 0 && !gpuAsset.AutoLodsRequested) _gpu.RequestAutoLods(asset, gpuAsset);
+            int activeLod = ResolveLodLevel(asset, Math.Max(viewLevel, Math.Max(0, rendererComponent.LodPolicy)));
+            bool automatic = viewLevel > 0 && gpuAsset.AutoLodsReady && ReferenceEquals(renderMeshes, gpuAsset.Meshes);
             foreach (ModelGpuCache.CachedMesh mesh in renderMeshes)
             {
                 if (mesh.Lod != activeLod) continue;
@@ -308,9 +360,10 @@ namespace Genesis.Runtime.Modeling
                     rendererComponent.Culling,
                     rendererComponent.WindingOrder);
 
+                drawn?.Add(mesh);
                 queue.Add(new MeshDrawCall
                 {
-                    Mesh = mesh.Mesh,
+                    Mesh = automatic ? mesh.ForLevel(viewLevel) : mesh.Mesh,
                     SkinPalette = mesh.IsSkinned ? palette : SkinPaletteHandle.Invalid,
                     World = pivotedWorld,
                     Texture = texture,

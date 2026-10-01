@@ -158,7 +158,11 @@ internal sealed partial class ForwardRenderer
         return result;
     }
 
-    private float FroxelHorizonBoost => Math.Clamp(_state.FogAerialBlend, 0f, 1f) * 0.30f * 0.02f;
+    // A fixed extra density along level sight lines. It reads well in a small scene and erases a
+    // large one (it alone leaves 1% of the land visible at a kilometre), so a scene that states its
+    // visibility turns it down.
+    private float FroxelHorizonBoost => Math.Clamp(_state.FogAerialBlend, 0f, 1f) * 0.30f * 0.02f
+        * (1f - Math.Clamp(_state.FogHorizonReduction, 0f, 1f));
 
     /// <summary>Builds this frame's fog volume, or marks it inactive so every shader skips it.</summary>
     private void FroxelFogPass(Matrix4x4 lightVPFar, Matrix4x4 lightVPNear, Matrix4x4 lightVPMid)

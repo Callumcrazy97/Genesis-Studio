@@ -89,7 +89,7 @@ public sealed partial class TerrainSourceWizard : DpiAwareForm
         };
         Field("Code surface",_surface);
         var presets=new FlowLayoutPanel { AutoSize=true,Dock=DockStyle.Top,Margin=new Padding(0,8,0,0) };
-        foreach(var entry in new[]{("Hills",TerrainCreationRecipe.HillsCode),("Ravine",TerrainCreationRecipe.RavineCode),("Cave",TerrainCreationRecipe.CaveCode)})
+        foreach(var entry in new[]{("Hills",TerrainCreationRecipe.HillsCode),("Ravine",TerrainCreationRecipe.RavineCode),("Island",TerrainCreationRecipe.IslandCode),("Cave",TerrainCreationRecipe.CaveCode)})
         {
             var button=new Button { Text=entry.Item1,AutoSize=true,Height=30 };EditorChrome.StyleField(button);presets.Controls.Add(button);
             button.Click+=(_,_)=>{ _code.CodeText=entry.Item2;_surface.SelectedIndex=entry.Item1=="Cave"?1:0;if(entry.Item1=="Cave"){_min.Value=-8;_max.Value=55;} };

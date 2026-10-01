@@ -1354,6 +1354,7 @@ namespace Genesis.Rendering.Core
                 ItemsSubmitted     = _fwd?.LastItemsSubmitted ?? 0,
                 InstancesDrawn     = meshInstances + spriteInstances,
                 InstancesCulled    = _fwd?.LastFrameInstancesCulled ?? 0,
+                InstancesDropped   = _fwd?.LastInstancesDropped ?? 0,
                 SpriteInstances    = spriteInstances,
                 MeshInstances      = meshInstances,
                 SpriteInstanceCap  = RenderCapacityDefaults.SpriteInstanceCap,

@@ -279,6 +279,8 @@ namespace Genesis.Runtime.Scene
                     case "ScriptComponent":
                         string scriptClass = (string)props["ScriptClass"];
                         scriptHost?.Attach(world, e, scriptClass, ToDict(props));
+                        // An object that must keep running beyond the simulation distance of its room.
+                        if (B(props, "AlwaysActive", false)) scriptHost?.KeepActive(e);
                         ComponentLifecycle.OnAttach(world, e, type);
                         break;
                     case "WildlifeComponent":

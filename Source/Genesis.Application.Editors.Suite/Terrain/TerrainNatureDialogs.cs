@@ -65,8 +65,8 @@ public sealed class TerrainWaterDialog : DpiAwareForm
     private readonly NumericUpDown _x = TerrainPathDialog.DecimalNumber(-100000m, 100000m, 0m);
     private readonly NumericUpDown _z = TerrainPathDialog.DecimalNumber(-100000m, 100000m, 0m);
     private readonly NumericUpDown _height = TerrainPathDialog.DecimalNumber(-10000m, 10000m, 0m);
-    private readonly NumericUpDown _sizeX = TerrainPathDialog.DecimalNumber(0.5m, 10000m, 24m);
-    private readonly NumericUpDown _sizeZ = TerrainPathDialog.DecimalNumber(0.5m, 10000m, 24m);
+    private readonly NumericUpDown _sizeX = TerrainPathDialog.DecimalNumber(0.5m, 200000m, 24m);
+    private readonly NumericUpDown _sizeZ = TerrainPathDialog.DecimalNumber(0.5m, 200000m, 24m);
     private readonly CheckBox _simulation = new() { Text = "Shallow-water simulation", Checked = true, AutoSize = true };
     private readonly NumericUpDown _resolution = TerrainPathDialog.Number(8, 128, 48);
     private readonly NumericUpDown _damping = TerrainPathDialog.DecimalNumber(0.8m, 1m, 0.985m);
@@ -172,6 +172,7 @@ public sealed class TerrainWaterDialog : DpiAwareForm
         {
             TerrainWaterKind.Waterfall => nameof(TerrainWaterKind.Waterfall),
             TerrainWaterKind.River => nameof(TerrainWaterKind.River),
+            TerrainWaterKind.Ocean => nameof(TerrainWaterKind.Ocean),
             _ => nameof(TerrainWaterKind.Water),
         };
         Set(_x, water.Center.X); Set(_z, water.Center.Z); Set(_height, water.SurfaceHeight);
@@ -193,6 +194,7 @@ public sealed class TerrainWaterDialog : DpiAwareForm
         {
             nameof(TerrainWaterKind.Waterfall) => TerrainWaterKind.Waterfall,
             nameof(TerrainWaterKind.River) => TerrainWaterKind.River,
+            nameof(TerrainWaterKind.Ocean) => TerrainWaterKind.Ocean,
             _ => TerrainWaterKind.Water,
         };
         Vector3 nextCenter = new((float)_x.Value, (float)_height.Value, (float)_z.Value);
@@ -234,6 +236,8 @@ public sealed class TerrainWaterDialog : DpiAwareForm
         combo.Items.Add(nameof(TerrainWaterKind.Water));
         combo.Items.Add(nameof(TerrainWaterKind.River));
         combo.Items.Add(nameof(TerrainWaterKind.Waterfall));
+        // A sea to the horizon. Opening one in this list used to turn it into a lake on save.
+        combo.Items.Add(nameof(TerrainWaterKind.Ocean));
         combo.SelectedIndex = 0;
         return combo;
     }

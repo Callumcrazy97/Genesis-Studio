@@ -35,8 +35,9 @@ namespace Genesis.World.Water
                     ? simulation.BuildMesh()
                     : body.Kind switch
                     {
-                        WaterBodyKind.Ocean => BuildOceanTile(
-                            cameraPos, body.OceanTileSize, body.SurfaceY, body.GridResolution),
+                        WaterBodyKind.Ocean => body.OceanRadius > 0f
+                            ? BuildOceanSurface(cameraPos, body.OceanRadius, body.SurfaceY)
+                            : BuildOceanTile(cameraPos, body.OceanTileSize, body.SurfaceY, body.GridResolution),
                         WaterBodyKind.Lake or WaterBodyKind.Reservoir => BuildLakeGrid(
                             body.Center, body.SizeX, body.SizeZ, body.SurfaceY, body.GridResolution),
                         WaterBodyKind.River => BuildRiverRibbon(
@@ -360,6 +361,71 @@ namespace Genesis.World.Water
             indices.Add((ushort)start);
             indices.Add((ushort)(start + 2));
             indices.Add((ushort)(start + 3));
+        }
+
+        /// <summary>Metres the wide ocean surface moves in when it follows the camera.</summary>
+        public const float OceanSnap = 32f;
+
+        /// <summary>Where the wide ocean surface is centred for a camera position.</summary>
+        public static (float X, float Z) OceanCentre(Vector3 cameraPos) =>
+            (MathF.Round(cameraPos.X / OceanSnap) * OceanSnap, MathF.Round(cameraPos.Z / OceanSnap) * OceanSnap);
+
+        /// <summary>
+        /// One level surface out to <paramref name="radius"/> metres around the camera. Cells are
+        /// <see cref="OceanSnap"/> metres at the centre and grow toward the edge, so the sea near the
+        /// camera has detail and the sea at the horizon costs almost nothing. Texture coordinates
+        /// are world positions, so waves stay put as the surface follows the camera.
+        /// </summary>
+        public static MeshData BuildOceanSurface(Vector3 cameraPos, float radius, float surfaceY)
+        {
+            const int half = 40;
+            radius = MathF.Max(radius, OceanSnap * half);
+            (float centreX, float centreZ) = OceanCentre(cameraPos);
+
+            // Cell k is OceanSnap * growth^k wide; find the growth that makes 'half' cells span the radius.
+            double low = 1.0, high = 2.0;
+            for (int i = 0; i < 60; i++)
+            {
+                double growth = (low + high) * 0.5, total = 0, cell = OceanSnap;
+                for (int k = 0; k < half; k++) { total += cell; cell *= growth; }
+                if (total < radius) low = growth; else high = growth;
+            }
+
+            var offsets = new float[half * 2 + 1];
+            double width = OceanSnap, distance = 0;
+            for (int k = 1; k <= half; k++)
+            {
+                distance += width;
+                width *= high;
+                offsets[half + k] = (float)distance;
+                offsets[half - k] = -(float)distance;
+            }
+
+            int points = half * 2 + 1;
+            var verts = new MeshVertex[points * points];
+            for (int z = 0; z < points; z++)
+            for (int x = 0; x < points; x++)
+            {
+                float wx = centreX + offsets[x], wz = centreZ + offsets[z];
+                verts[z * points + x] = new MeshVertex
+                {
+                    Position = new Vector3(wx, surfaceY, wz),
+                    Normal = Vector3.UnitY,
+                    Color = Vector4.One,
+                    UV = new Vector2(wx / 40f, wz / 40f),
+                };
+            }
+
+            var indices = new List<ushort>(half * half * 24);
+            for (int z = 0; z < points - 1; z++)
+            for (int x = 0; x < points - 1; x++)
+            {
+                int i0 = z * points + x, i1 = i0 + 1, i2 = i0 + points, i3 = i2 + 1;
+                indices.Add((ushort)i0); indices.Add((ushort)i3); indices.Add((ushort)i1);
+                indices.Add((ushort)i0); indices.Add((ushort)i2); indices.Add((ushort)i3);
+            }
+
+            return new MeshData { Vertices = verts, Indices = indices.ToArray() };
         }
 
         /// <summary>Camera-following ocean tile (single grid snapped to tile boundaries).</summary>

@@ -266,6 +266,21 @@ public sealed class RoomEnvironment
     [JsonProperty("cloudThickness")] public float CloudThickness { get; set; } = 85f;
     [JsonProperty("cloudCoverageScale")] public float CloudCoverageScale { get; set; } = 1f;
     [JsonProperty("atmosphericHaze")] public float AtmosphericHaze { get; set; } = 0.15f;
+    /// <summary>
+    /// How far you can see on a clear day, in kilometres. Zero keeps the short-range haze suited
+    /// to small scenes; a large outdoor world sets this so distant land fades instead of vanishing.
+    /// </summary>
+    [JsonProperty("visibilityKilometres")] public float VisibilityKilometres { get; set; }
+    /// <summary>
+    /// How far from the camera the sun casts shadows, in metres. Zero keeps the close-range
+    /// shadows suited to small scenes; a large outdoor world sets this so mountains shade valleys.
+    /// </summary>
+    [JsonProperty("shadowDistance")] public float ShadowDistance { get; set; }
+    /// <summary>
+    /// Scripted objects further than this from the camera rest: their step events are skipped
+    /// until the camera comes back. Zero runs every object every frame, as a small room should.
+    /// </summary>
+    [JsonProperty("simulationDistance")] public float SimulationDistance { get; set; }
     [JsonProperty("windAudio")] public string WindAudio { get; set; } = "";
     [JsonProperty("rainAudio")] public string RainAudio { get; set; } = "";
     [JsonProperty("waterAudio")] public string WaterAudio { get; set; } = "";

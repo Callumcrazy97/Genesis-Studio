@@ -41,7 +41,10 @@ namespace Genesis.Runtime.Scene
                 ShadowStrength        = Math.Clamp(env.ShadowStrength, 0f, 1f),
                 ShadowBias            = env.ShadowBias,
                 ShadowOrthoSize       = env.ShadowOrthoSize,
-                ShadowCascadeCount    = env.ShadowCascadeCount >= 3 ? 3 : 2,
+                ShadowCascadeCount    = env.ShadowCascadeCount >= 3 || env.ShadowDistance > 0f ? 3 : 2,
+                // The cascade is centred a third of its width ahead of the camera, so a width of
+                // distance / 0.86 reaches that far forward.
+                ShadowFarExtent       = env.ShadowDistance > 0f ? env.ShadowDistance / 0.86f : 0f,
                 GtaoEnabled           = env.GtaoEnabled,
                 FogDensity            = env.FogDensity,
                 FogHeightBase         = env.FogHeightBase,
@@ -127,9 +130,24 @@ namespace Genesis.Runtime.Scene
                     state.BackgroundColor = frame.HorizonColor;
                     state.SkyHorizonColor = frame.HorizonColor;
                     state.SkyZenithColor = frame.ZenithColor;
-                    state.AmbientColor = frame.ZenithColor * 0.38f;
+                    // The room's ambient intensity scales the sky's own light; it used to be ignored here.
+                    float ambientScale = float.IsFinite(options.AmbientScale) ? Math.Clamp(options.AmbientScale, 0f, 8f) : 1f;
+                    state.AmbientColor = frame.ZenithColor * (0.38f * ambientScale);
+                    state.AmbientGroundColor *= ambientScale;
                     state.FogEnabled = frame.Haze > 0.02f || climate.Current.Weather.FogDensity > 0.01f;
                     state.FogDensity = MathF.Max(0.002f, climate.Current.Weather.FogDensity + frame.Haze * 0.012f);
+                    if (options.VisibilityMetres > 0f)
+                    {
+                        // A stated visibility replaces the short-range density: exp(-3 * d / visibility)
+                        // leaves 5% contrast at the visibility distance. Weather still thickens it.
+                        state.FogEnabled = true;
+                        state.FogDensity = 3f / MathF.Max(50f, options.VisibilityMetres) + climate.Current.Weather.FogDensity;
+                        // Air thins over hundreds of metres, not the few a ground mist does, so
+                        // mountain tops stay clearer than the valleys below them.
+                        state.FogHeightFalloff = 1f / 1200f;
+                        state.FogAerialBlend = 0.75f;
+                        state.FogHorizonReduction = 1f;
+                    }
                 }
             }
         }

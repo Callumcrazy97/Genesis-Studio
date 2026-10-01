@@ -599,6 +599,27 @@ namespace Genesis.Runtime.Project
             sb.AppendLine($"invalidSolidMeshes={invalidSolid}");
             sb.AppendLine($"emptySolidCpu={emptyCpu}");
             sb.AppendLine($"meshRegionSize={meshRegion}");
+            sb.AppendLine($"instancesDropped={stats.InstancesDropped}");
+            if (scene != null)
+            {
+                foreach (ISceneSubsystem subsystem in scene.Subsystems)
+                {
+                    if (subsystem is not RoomTerrainSubsystem terrain) continue;
+                    foreach (Genesis.World.Terrain.TerrainLodStatistics lod in terrain.TerrainLodStatistics)
+                        sb.AppendLine($"terrainLod=nodes {lod.NodesDrawn} triangles {lod.TrianglesDrawn} resident {lod.MeshesResident} "
+                            + $"pending {lod.BuildsPending} levels {lod.FinestLevelDrawn}-{lod.CoarsestLevelDrawn}");
+                    foreach (TerrainScatterStatistics scatter in terrain.ScatterStatistics)
+                        if (scatter.Layers > 0)
+                            sb.AppendLine($"scatter=layers {scatter.Layers} cells {scatter.CellsWithCopies} copies {scatter.CopiesPlaced} "
+                                + $"near {scatter.NearCopies} shadowed {scatter.ShadowCopies} dropped {scatter.DroppedCopies} "
+                                + $"mergedDraws {scatter.MergedDrawCalls} mergedTriangles {scatter.MergedTriangles} "
+                                + $"mergedMB {scatter.MergedBytes / 1048576.0:F1} pending {scatter.PendingWork}");
+                }
+            }
+
+            int[] modelLevels = Genesis.Runtime.Modeling.ModelLodView.LevelCounts;
+            sb.AppendLine($"modelLod=full {modelLevels[0]} level1 {modelLevels[1]} level2 {modelLevels[2]} level3 {modelLevels[3]} "
+                + $"tooSmall {Genesis.Runtime.Modeling.ModelLodView.CulledSmall}");
             sb.AppendLine($"terrainColliders={terrainColliders}");
             sb.AppendLine($"waterVolumes={waterVolumes}");
             sb.AppendLine($"authoredFoliage={authoredFoliage}");

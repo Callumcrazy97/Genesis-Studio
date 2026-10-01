@@ -34,6 +34,9 @@ namespace Genesis.Runtime.Rendering
             assetFreshnessIntervalMilliseconds: 1000,
             textureFreshnessIntervalMilliseconds: 1000);
 
+        /// <summary>The model system every scene draw shares, so models are loaded and uploaded once.</summary>
+        internal static RuntimeModelRenderSystem Models => ModelRenderer;
+
         private sealed class RenderCache
         {
             public readonly Dictionary<ShaderCacheKey, ShaderCacheEntry> Shaders = new();
@@ -182,6 +185,7 @@ namespace Genesis.Runtime.Rendering
                 if (!draw3d.Visible || drawCount >= buffer.Length) return;
 
                 Vector3 pos = new(transform.X, transform.Y, transform.Z);
+                bool measured = false;
                 float radius = BoundsHelper.BoundingRadiusFromScale(
                     transform.ScaleX, transform.ScaleY, transform.ScaleZ, baseRadius: 1.2f);
                 // Authored geometry can be much larger than a unit cube and offset from its
@@ -195,11 +199,18 @@ namespace Genesis.Runtime.Rendering
                         Matrix4x4 matrix = RuntimeModelRenderSystem.TransformMatrix(transform, modelBounds);
                         pos = Vector3.Transform((min + max) * .5f, matrix);
                         radius = Vector3.Distance(min, max) * .5f * MatrixScaleHelper.MaxScale(matrix);
+                        measured = true;
                     }
                 }
                 if (cull && !IsPosedByAnimation(world, entity)
                     && !Visibility.IsVisible(frustum, viewProjection, pos, radius, occlude))
                     return;
+                // A model that would cover a pixel or two costs a draw call and shows nothing.
+                if (measured && ModelLodView.Active && ModelLodView.LevelFor(pos, radius) < 0)
+                {
+                    ModelLodView.Count(-1);
+                    return;
+                }
 
                 bool hasAssets = ObjectDrawAssetRegistry.TryGet(entity, out ObjectDrawAssetEntry assets);
                 if (hasAssets && assets.Is3D == false) return;

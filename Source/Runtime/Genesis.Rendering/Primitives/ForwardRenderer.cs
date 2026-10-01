@@ -820,6 +820,9 @@ namespace Genesis.Rendering.Primitives
         public int LastBatchCount;
         public int LastFrameInstancesDrawn;
         public int LastFrameInstancesCulled;
+        /// <summary>Mesh instances submitted last frame beyond what the instance buffer holds.</summary>
+        public int LastInstancesDropped { get; private set; }
+        private bool _reportedInstanceOverflow;
         public int LastFrameBatchCount;
         public int LastFrameFoliageInstances;
         public int LastFrameFoliageBatches;
@@ -2336,7 +2339,8 @@ namespace Genesis.Rendering.Primitives
                 ShadowMapSize,
                 ShadowMapSizeNear,
                 _state.ShadowBias > 0f ? _state.ShadowBias : 0.0015f,
-                _state.ShadowCascadeCount >= 3 ? 3 : 2);
+                _state.ShadowCascadeCount >= 3 ? 3 : 2,
+                _state.ShadowFarExtent);
         }
 
         private static float EstimateVerticalFov(in Matrix4x4 proj)
@@ -3401,6 +3405,15 @@ namespace Genesis.Rendering.Primitives
 
             int cap = Math.Min(total, SoftMeshInstanceCap);
             int bytes = cap * Marshal.SizeOf<InstanceGpu>();
+            // More instances than the buffer holds are simply not drawn. Say so, once, and count
+            // them every frame so a missing crowd or forest is not a mystery.
+            LastInstancesDropped = total - cap;
+            if (LastInstancesDropped > 0 && !_reportedInstanceOverflow)
+            {
+                _reportedInstanceOverflow = true;
+                Console.WriteLine($"[Renderer] {total} mesh instances were submitted in one frame but only {cap} can be drawn; "
+                    + $"{LastInstancesDropped} were dropped. Lower densities or draw distances, or raise the mesh instance cap.");
+            }
 
             if (!_gpu.TryMapDiscard(_instanceBuf, out Span<byte> mapped, bytes))
                 return;
@@ -4620,7 +4633,8 @@ namespace Genesis.Rendering.Primitives
                 SkyHorizonFlow = new Vector4(ToLinearColor(new Vector3(skyHorizon.X, skyHorizon.Y, skyHorizon.Z)), skyHorizon.W),
                 SkyZenithPad = new Vector4(ToLinearColor(new Vector3(skyZenith.X, skyZenith.Y, skyZenith.Z)), skyZenith.W),
                 ReflectionViewProjection = _reflectionViewProjection,
-                ReflectionParams = new Vector4(reflection ? 1 : 0, .015f, 0, 0),
+                ReflectionParams = new Vector4(reflection ? 1 : 0, .015f, _nearPlane,
+                    _state.CameraFarPlane > 0f ? _state.CameraFarPlane : 1000f),
                 WeatherWindRain = _state.WeatherWindRain,
             };
             _gpu.UpdateConstantBuffer(_cbWater, data);

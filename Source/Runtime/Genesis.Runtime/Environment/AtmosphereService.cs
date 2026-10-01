@@ -29,6 +29,16 @@ public sealed class AtmosphereOptions
     /// <summary>AF2.6 density → raymarch intensity multiplier (default 1).</summary>
     public float CloudDensityScale { get; set; } = 1f;
     public float Haze { get; set; } = 0.15f;
+    /// <summary>
+    /// Clear-day visibility in metres: the distance at which haze has removed about 95% of the
+    /// contrast. Zero derives a short-range density from <see cref="Haze"/> instead.
+    /// </summary>
+    public float VisibilityMetres { get; set; }
+    /// <summary>
+    /// Multiplies the light the sky gives to surfaces the sun does not reach. 1 is the sky as it
+    /// is; a room raises it to lift shaded hillsides and walls out of near-black.
+    /// </summary>
+    public float AmbientScale { get; set; } = 1f;
     public int Seed { get; set; } = 1337;
 
     public AtmosphereOptions Clone() => (AtmosphereOptions)MemberwiseClone();

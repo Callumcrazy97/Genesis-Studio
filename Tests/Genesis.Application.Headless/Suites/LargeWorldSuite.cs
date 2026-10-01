@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Drawing;
 using System.Numerics;
+using Genesis.Application.Editors.Suite.Terrain;
 using Genesis.Application.Runtime;
 using Genesis.Physics;
 using Genesis.Rendering.Core;
@@ -157,6 +158,119 @@ internal static class LargeWorldSuite
                     $"{ground.Lod.MeshesResident} terrain meshes are resident; the cache is not releasing.");
             }
             finally { RenderBackendSelection.Configure(previous); }
+        });
+
+        RunGeneration(context);
+        LargeWorldDetailSuite.Run(context);
+    }
+
+    /// <summary>A 2 km island recipe using every world command.</summary>
+    private const string IslandRecipe = """
+        TerrainSize(2048, 2048);
+        TerrainSpacing(2);
+        TerrainHeights(-40, 300);
+        Ocean(0);
+        Erode(0.4);
+        Rivers(3, 0.25);
+        PaintNatural(3, 170, 34);
+        Scatter("Test Pine", 180, 4, 150, 28, 1, 4, 60);
+        Sites(3, 4, 60, 40);
+        SitePlace("Test House", 6, 8, 36, 12);
+        SitePaint(3);
+
+        coast = length(x, z) / 1024 + 0.18 * fbm(x * 0.002, z * 0.002, 4);
+        land = smoothstep(1.0, 0.55, coast);
+        height = -30 + land * (38 + 26 * fbm(x * 0.004, z * 0.004, 5))
+               + land * land * 190 * ridge(x * 0.0022, z * 0.0022, 6);
+        """;
+
+    public static void RunGeneration(HeadlessContext context)
+    {
+        HeadlessHarness.RunCase(context.Report, "Editor.Terrain.WorldRecipe.MakesSeaRiversPaintForestAndSites", () =>
+        {
+            var recipe = new TerrainCreationRecipe { Source = TerrainCreationSource.Code, Surface = TerrainCodeSurface.Heightfield, Code = IslandRecipe, Seed = 2024 };
+            HeadlessHarness.Assert(TerrainWorldGenerator.Handles(recipe), "A code heightfield recipe should be generated as a world.");
+            TerrainWorldResult world = TerrainWorldGenerator.Generate(recipe);
+            TerrainAsset terrain = world.Terrain;
+            HeadlessHarness.Assert(terrain.ResolutionX == 1025 && terrain.ResolutionZ == 1025 && terrain.CellSize == 2f,
+                $"The recipe asked for 2048 m at 2 m; got {terrain.ResolutionX} x {terrain.ResolutionZ} at {terrain.CellSize} m (the preview's 384-cell limit must not apply).");
+            HeadlessHarness.Assert(world.Elapsed.TotalSeconds < 60, $"A one-million-sample world took {world.Elapsed.TotalSeconds:F1} s.");
+
+            // The sea, and land that rises out of it.
+            TerrainWaterDefinition? sea = world.Water.SingleOrDefault(water => water.Kind == TerrainWaterKind.Ocean);
+            HeadlessHarness.Assert(sea is { SurfaceHeight: 0f } && terrain.GetHeight(2, 2) < 0f && terrain.SampleHeight(0f, 0f) > 5f,
+                "The island should have a sea at height 0 with its edge under water and its middle above it.");
+
+            // Rivers run downhill to the sea, in a channel cut below their own surface.
+            TerrainWaterDefinition[] rivers = world.Water.Where(water => water.Kind == TerrainWaterKind.River).ToArray();
+            HeadlessHarness.Assert(rivers.Length >= 2, $"Expected rivers; found {rivers.Length}.");
+            foreach (TerrainWaterDefinition river in rivers)
+            {
+                for (int i = 1; i < river.RiverPoints.Count; i++)
+                    HeadlessHarness.Assert(river.RiverPoints[i].Position.Y <= river.RiverPoints[i - 1].Position.Y + 0.02f,
+                        $"{river.Name} runs uphill at point {i} ({river.RiverPoints[i - 1].Position.Y:F2} to {river.RiverPoints[i].Position.Y:F2}).");
+                var middle = river.RiverPoints[river.RiverPoints.Count / 2];
+                HeadlessHarness.Assert(terrain.SampleHeight(middle.Position.X, middle.Position.Z) < middle.Position.Y + 0.35f,
+                    $"{river.Name}'s water at {middle.Position} is not in a channel (ground {terrain.SampleHeight(middle.Position.X, middle.Position.Z):F2}).");
+            }
+
+            float lowestRiver = rivers.Min(river => river.RiverPoints[^1].Position.Y);
+            HeadlessHarness.Assert(lowestRiver < 3f, $"No river reaches the sea (lowest river end is at {lowestRiver:F1} m).");
+
+            // Paint follows the land: sand at the shore, rock on steep ground, grass on gentle slopes.
+            int sand = 0, shore = 0, steep = 0, rocky = 0, gentle = 0, grassy = 0;
+            float highest = float.MinValue;
+            for (int z = 3; z < terrain.ResolutionZ - 3; z += 5)
+            for (int x = 3; x < terrain.ResolutionX - 3; x += 5)
+            {
+                float height = terrain.GetHeight(x, z);
+                highest = MathF.Max(highest, height);
+                float dx = (terrain.GetHeight(x + 1, z) - terrain.GetHeight(x - 1, z)) / (2f * terrain.CellSize);
+                float dz = (terrain.GetHeight(x, z + 1) - terrain.GetHeight(x, z - 1)) / (2f * terrain.CellSize);
+                float slope = MathF.Atan(MathF.Sqrt(dx * dx + dz * dz)) * 180f / MathF.PI;
+                (byte grass, byte rock, byte sandWeight, byte snow) = terrain.GetSplat(x, z);
+                if (height is > 0.2f and < 1.5f && slope < 20f) { shore++; if (sandWeight > 128) sand++; }
+                if (height > 12f && slope > 50f) { steep++; if (rock + snow > 128) rocky++; }
+                if (height is > 12f and < 120f && slope < 14f) { gentle++; if (grass > 128) grassy++; }
+                HeadlessHarness.Assert(Math.Abs(grass + rock + sandWeight + snow - 255) <= 3, "Paint weights do not sum to one.");
+            }
+
+            HeadlessHarness.Assert(highest > 60f, $"The island has no relief (highest point {highest:F1} m).");
+            HeadlessHarness.Assert(shore > 20 && sand > shore * 0.8 && steep > 5 && rocky > steep * 0.8 && gentle > 50 && grassy > gentle * 0.7,
+                $"Paint does not follow the land (sand on {sand}/{shore} shore samples, rock on {rocky}/{steep} steep samples, "
+                + $"grass on {grassy}/{gentle} gentle samples; highest point {highest:F1} m).");
+
+            // Level sites with their objects, and the forest rule.
+            HeadlessHarness.Assert(world.PointsOfInterest.Count == 3 && world.Placed.Count == 18
+                && world.Placed.All(placed => placed.Entity == "Test House"),
+                $"Expected 3 sites with 6 objects each; got {world.PointsOfInterest.Count} sites and {world.Placed.Count} objects.");
+            foreach (TerrainPointOfInterest site in world.PointsOfInterest)
+            {
+                float low = float.MaxValue, top = float.MinValue;
+                for (float angle = 0; angle < MathF.Tau; angle += 0.4f)
+                {
+                    float sample = terrain.SampleHeight(site.Position.X + MathF.Cos(angle) * 25f, site.Position.Z + MathF.Sin(angle) * 25f);
+                    low = MathF.Min(low, sample); top = MathF.Max(top, sample);
+                }
+
+                HeadlessHarness.Assert(top - low < 1.5f && low > 2f, $"{site.Name} is not level dry ground ({low:F1} to {top:F1} m within 25 m).");
+                (_, _, byte paved, _) = terrain.GetSplat(
+                    (int)((site.Position.X - terrain.OriginX) / terrain.CellSize), (int)((site.Position.Z - terrain.OriginZ) / terrain.CellSize));
+                HeadlessHarness.Assert(paved > 150, $"{site.Name} was not painted with layer 3.");
+            }
+
+            foreach (TerrainPlacedEntity placed in world.Placed)
+                HeadlessHarness.Assert(MathF.Abs(placed.Position.Y - terrain.SampleHeight(placed.Position.X, placed.Position.Z)) < 0.3f,
+                    "A placed object is not on the ground.");
+            TerrainScatterLayer forest = world.Scatter.Single();
+            HeadlessHarness.Assert(forest is { Model: "Test Pine", DensityPerHectare: 180f, PaintLayerMask: 1, ClumpSize: 60f },
+                "The Scatter command did not become a scatter layer with its settings.");
+
+            // The same recipe and seed give the same world, sample for sample.
+            TerrainWorldResult again = TerrainWorldGenerator.Generate(recipe);
+            HeadlessHarness.Assert(again.Terrain.HeightsData.AsSpan().SequenceEqual(terrain.HeightsData)
+                && again.Terrain.SplatmapData.AsSpan().SequenceEqual(terrain.SplatmapData),
+                "Generating the same recipe twice gave different terrain.");
         });
     }
 

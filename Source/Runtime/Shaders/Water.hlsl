@@ -160,6 +160,23 @@ PSOut PS_Water(VSOut IN)
     // River and waterfall meshes both author +V along the flow. Keeping the
     // normal-map scroll in UV space makes it follow bends and vertical sheets.
     float3 tangentNormal = SampleWaterNormal(IN.UV, time, WaterParams.x, flowDir, SkyZenithPad.w);
+    // Ripples a few metres across turn to moire when a sea runs to the horizon. Past a couple of
+    // hundred metres they give way to a broad swell, and that to flat water further still.
+    float rippleDistance = distance(IN.WorldPos, cameraPos);
+    float ripples = 1.0 - smoothstep(35.0, 240.0, rippleDistance);
+    if (ripples < 0.999)
+    {
+        // Four trains of waves on headings that share no symmetry: a tiled normal map enlarged
+        // to this scale shows its own grid, and these never line up into one.
+        float2 p = IN.WorldPos.xz;
+        float2 d1 = float2(0.866, 0.5), d2 = float2(-0.31, 0.95), d3 = float2(0.62, -0.78), d4 = float2(-0.97, -0.24);
+        float2 swell = d1 * cos(dot(p, d1) * 0.071 + time * 0.9) * 0.5
+                     + d2 * cos(dot(p, d2) * 0.113 + time * 1.1) * 0.35
+                     + d3 * cos(dot(p, d3) * 0.047 + time * 0.7) * 0.6
+                     + d4 * cos(dot(p, d4) * 0.173 + time * 1.3) * 0.25;
+        float swellAmount = (1.0 - ripples) * 0.16 * (1.0 - smoothstep(350.0, 1700.0, rippleDistance));
+        tangentNormal = float3(tangentNormal.xy * ripples + swell * swellAmount, 1.0);
+    }
     float rain = WeatherWindRain.w > 0.5 ? saturate(WeatherWindRain.z) : 0;
     tangentNormal.xy += float2(sin(IN.WorldPos.x * 19 + time * 27), cos(IN.WorldPos.z * 23 - time * 31)) * rain * 0.07;
     tangentNormal = normalize(tangentNormal);
@@ -195,8 +212,10 @@ PSOut PS_Water(VSOut IN)
 
     // If no depth buffer is bound (sceneDepth==0), assume deep water so depth fade
     // still works gracefully.
-    float nearPlane = 0.1;
-    float farPlane = max(FogParams.z, 250.0);
+    // The camera's own clip planes, so the depth of water over the bed is right at any view
+    // distance. Older callers leave them zero and get the previous fixed range.
+    float nearPlane = ReflectionParams.z > 0.0 ? ReflectionParams.z : 0.1;
+    float farPlane = ReflectionParams.w > 0.0 ? ReflectionParams.w : max(FogParams.z, 250.0);
     float waterEyeZ = LinearizeDepth(IN.SvPos.z, nearPlane, farPlane);
     float sceneEyeZ = sceneDepth > 0.0001
         ? LinearizeDepth(sceneDepth, nearPlane, farPlane)

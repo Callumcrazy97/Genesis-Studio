@@ -78,6 +78,12 @@ namespace Genesis.World.Water
         /// <summary>Ocean tiles recentre on the camera in tileSize steps.</summary>
         public float OceanTileSize { get; set; } = 128f;
 
+        /// <summary>
+        /// When above zero, the ocean is one surface reaching this far from the camera in every
+        /// direction (fine near the camera, coarse toward the horizon) instead of a single tile.
+        /// </summary>
+        public float OceanRadius { get; set; }
+
         public float RiverWidth { get; set; } = 6f;
         public int RiverSegmentsPerSpan { get; set; } = 8;
 

@@ -12,8 +12,9 @@ using Genesis.Shared.Interfaces;
 namespace Genesis.World.Terrain;
 
 /// <summary>
-/// Standing fill, spline river, or a vertical waterfall sheet.
-/// Pond/Lake/RiverPool/Wetland remain as load aliases for existing nature JSON.
+/// Standing fill, spline river, a vertical waterfall sheet, or an ocean: one level surface that
+/// follows the camera to the horizon. Pond/Lake/RiverPool/Wetland remain as load aliases for
+/// existing nature JSON.
 /// </summary>
 [JsonConverter(typeof(TerrainWaterKindJsonConverter))]
 public enum TerrainWaterKind
@@ -21,6 +22,7 @@ public enum TerrainWaterKind
     Water = 0,
     Waterfall = 1,
     River = 2,
+    Ocean = 3,
     Pond = Water,
     Lake = Water,
     RiverPool = Water,
@@ -33,7 +35,7 @@ public sealed class TerrainWaterKindJsonConverter : JsonConverter<TerrainWaterKi
     public override TerrainWaterKind Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         if (reader.TokenType == JsonTokenType.Number)
-            return reader.GetInt32() switch { 1 => TerrainWaterKind.Waterfall, 2 => TerrainWaterKind.River, _ => TerrainWaterKind.Water };
+            return reader.GetInt32() switch { 1 => TerrainWaterKind.Waterfall, 2 => TerrainWaterKind.River, 3 => TerrainWaterKind.Ocean, _ => TerrainWaterKind.Water };
         if (reader.TokenType != JsonTokenType.String)
             throw new JsonException("Expected a water kind string.");
         string name = reader.GetString();
@@ -42,11 +44,14 @@ public sealed class TerrainWaterKindJsonConverter : JsonConverter<TerrainWaterKi
         if (string.Equals(name, "River", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "Stream", StringComparison.OrdinalIgnoreCase))
             return TerrainWaterKind.River;
+        if (string.Equals(name, "Ocean", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, "Sea", StringComparison.OrdinalIgnoreCase))
+            return TerrainWaterKind.Ocean;
         return TerrainWaterKind.Water;
     }
 
     public override void Write(Utf8JsonWriter writer, TerrainWaterKind value, JsonSerializerOptions options) =>
-        writer.WriteStringValue(value switch { TerrainWaterKind.Waterfall => "Waterfall", TerrainWaterKind.River => "River", _ => "Water" });
+        writer.WriteStringValue(value switch { TerrainWaterKind.Waterfall => "Waterfall", TerrainWaterKind.River => "River", TerrainWaterKind.Ocean => "Ocean", _ => "Water" });
 }
 
 public enum WaterPhysicsMode { None, Shallow, SwimmableVolume }
@@ -110,15 +115,17 @@ public sealed class TerrainWaterDefinition
     {
         if (!Enum.IsDefined(PhysicsMode)) PhysicsMode = WaterPhysicsMode.None;
         if (string.IsNullOrWhiteSpace(Id)) Id = Guid.NewGuid().ToString("N");
-        Kind = Kind is TerrainWaterKind.Waterfall or TerrainWaterKind.River ? Kind : TerrainWaterKind.Water;
+        Kind = Kind is TerrainWaterKind.Waterfall or TerrainWaterKind.River or TerrainWaterKind.Ocean ? Kind : TerrainWaterKind.Water;
         if (string.IsNullOrWhiteSpace(Name)) Name = Kind.ToString();
         Waterfall ??= new WaterfallParams();
         RiverPoints ??= [];
         Cascades ??= [];
         ImpactHooks ??= [];
         Footprint ??= "";
-        SizeX = Math.Clamp(SizeX, 0.5f, 10000f);
-        SizeZ = Math.Clamp(SizeZ, 0.5f, 10000f);
+        // An ocean's size is how far it reaches from the camera, which is far beyond any lake.
+        float largest = Kind == TerrainWaterKind.Ocean ? 200000f : 10000f;
+        SizeX = Math.Clamp(SizeX, 0.5f, largest);
+        SizeZ = Math.Clamp(SizeZ, 0.5f, largest);
         SimulationResolution = Math.Clamp(SimulationResolution, 8, 128);
         SimulationDepth = Math.Clamp(SimulationDepth, 0.05f, 100f);
         SimulationDamping = Math.Clamp(SimulationDamping, 0.8f, 1f);
@@ -355,23 +362,35 @@ public sealed class TerrainWaterDefinition
         Normalize();
         bool waterfall = Kind == TerrainWaterKind.Waterfall;
         bool river = Kind == TerrainWaterKind.River;
+        bool ocean = Kind == TerrainWaterKind.Ocean;
         WaterMaterialSettings material = WaterMaterialSettings.Default;
         material.WaveAmplitude = WaveAmplitude;
         material.FlowSpeed = FlowSpeed;
         material.FlowDirection = FlowDirection;
         material.RapidsIntensity = waterfall ? 1f : river ? (Cascades.Count > 0 ? .85f : .35f) : 0f;
         material.TemperatureNorm = Math.Clamp((TemperatureCelsius + 10f) / 40f, 0f, 1f);
+        if (ocean)
+        {
+            // Open sea: clear over the shallows, opaque and dark within a few metres of depth.
+            material.ShallowColor = new Vector3(0.13f, 0.50f, 0.56f);
+            material.DeepColor = new Vector3(0.015f, 0.09f, 0.21f);
+            material.Opacity = 0.95f;
+            material.DepthFade = 7f;
+            material.FoamWidth = 2.4f;
+        }
         return new WaterBody
         {
             Id = Id,
             Name = Name,
-            Kind = waterfall ? WaterBodyKind.Waterfall : river ? WaterBodyKind.River : WaterBodyKind.Lake,
+            Kind = waterfall ? WaterBodyKind.Waterfall : river ? WaterBodyKind.River : ocean ? WaterBodyKind.Ocean : WaterBodyKind.Lake,
+            OceanRadius = ocean ? MathF.Max(SizeX, SizeZ) * 0.5f : 0f,
+            GroundMistEnabled = !ocean,
             Center = Center,
             SizeX = SizeX,
             SizeZ = SizeZ,
             SurfaceY = SurfaceHeight,
             VisualDepth = waterfall || river ? 0f : PhysicsDepth,
-            SimulationEnabled = waterfall || river ? false : SimulationEnabled,
+            SimulationEnabled = waterfall || river || ocean ? false : SimulationEnabled,
             SimulationResolution = SimulationResolution,
             SimulationDepth = SimulationDepth,
             SimulationDamping = SimulationDamping,
@@ -552,6 +571,70 @@ public sealed class TerrainPlacedEntity
 }
 
 /// <summary>
+/// A rule that covers suitable ground with copies of one Model: a forest, a boulder field, reeds.
+/// </summary>
+/// <remarks>
+/// The copies are not stored. Each is worked out from the rule, the terrain and the seed, one
+/// streaming cell at a time, so a layer costs the same to save whether it yields a hundred trees or
+/// a million. Where they may stand is decided by height, slope and the terrain's painted layers:
+/// painting a clearing or a road removes the trees from it.
+/// </remarks>
+public sealed class TerrainScatterLayer
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Name { get; set; } = "Scatter";
+    /// <summary>The Model resource to place.</summary>
+    public string Model { get; set; } = "";
+    public bool Enabled { get; set; } = true;
+    /// <summary>Copies per hectare (100 m x 100 m) where every condition is fully met.</summary>
+    public float DensityPerHectare { get; set; } = 120f;
+    /// <summary>Closest two copies of this layer may stand, in metres.</summary>
+    public float MinimumSpacing { get; set; } = 3f;
+    public float MinimumHeight { get; set; } = -100000f;
+    public float MaximumHeight { get; set; } = 100000f;
+    public float MaximumSlopeDegrees { get; set; } = 30f;
+    /// <summary>Painted layers (bit 0 to 3) the copies may stand on; 15 allows all four.</summary>
+    public int PaintLayerMask { get; set; } = 15;
+    /// <summary>How much of an allowed painted layer a spot needs, 0 to 1.</summary>
+    public float MinimumPaintWeight { get; set; } = 0.5f;
+    /// <summary>Size of the clumps the layer gathers into, in metres; 0 spreads it evenly.</summary>
+    public float ClumpSize { get; set; }
+    /// <summary>How strongly clumps gather, 0 to 1.</summary>
+    public float ClumpStrength { get; set; } = 0.6f;
+    public float MinimumScale { get; set; } = 0.8f;
+    public float MaximumScale { get; set; } = 1.25f;
+    /// <summary>Metres to sink each copy, so trunks and rocks sit in the ground on slopes.</summary>
+    public float Sink { get; set; } = 0.1f;
+    /// <summary>Tilt each copy to the ground instead of standing upright.</summary>
+    public bool AlignToGround { get; set; }
+    /// <summary>Distance at which copies stop being drawn; 0 uses the view distance.</summary>
+    public float DrawDistance { get; set; }
+    public bool CastShadows { get; set; } = true;
+    public int Seed { get; set; } = 1;
+
+    public void Normalize()
+    {
+        if (string.IsNullOrWhiteSpace(Id)) Id = Guid.NewGuid().ToString("N");
+        Name = string.IsNullOrWhiteSpace(Name) ? "Scatter" : Name;
+        Model ??= "";
+        DensityPerHectare = float.IsFinite(DensityPerHectare) ? Math.Clamp(DensityPerHectare, 0f, 20000f) : 0f;
+        MinimumSpacing = float.IsFinite(MinimumSpacing) ? Math.Clamp(MinimumSpacing, 0.25f, 500f) : 3f;
+        if (!float.IsFinite(MinimumHeight)) MinimumHeight = -100000f;
+        if (!float.IsFinite(MaximumHeight)) MaximumHeight = 100000f;
+        MaximumSlopeDegrees = float.IsFinite(MaximumSlopeDegrees) ? Math.Clamp(MaximumSlopeDegrees, 0f, 90f) : 30f;
+        PaintLayerMask &= 15;
+        if (PaintLayerMask == 0) PaintLayerMask = 15;
+        MinimumPaintWeight = float.IsFinite(MinimumPaintWeight) ? Math.Clamp(MinimumPaintWeight, 0f, 1f) : 0.5f;
+        ClumpSize = float.IsFinite(ClumpSize) ? Math.Clamp(ClumpSize, 0f, 5000f) : 0f;
+        ClumpStrength = float.IsFinite(ClumpStrength) ? Math.Clamp(ClumpStrength, 0f, 1f) : 0.6f;
+        MinimumScale = float.IsFinite(MinimumScale) ? Math.Clamp(MinimumScale, 0.05f, 64f) : 0.8f;
+        MaximumScale = float.IsFinite(MaximumScale) ? Math.Clamp(MaximumScale, MinimumScale, 64f) : MinimumScale;
+        Sink = float.IsFinite(Sink) ? Math.Clamp(Sink, -10f, 10f) : 0f;
+        DrawDistance = float.IsFinite(DrawDistance) ? Math.Clamp(DrawDistance, 0f, 100000f) : 0f;
+    }
+}
+
+/// <summary>
 /// Authored natural-world data associated with one <c>.terrain.json</c>. Heights remain in the
 /// existing <c>.gterrain</c>; this document owns routes, ecological scatter, water and map landmarks.
 /// </summary>
@@ -572,6 +655,8 @@ public sealed class TerrainNatureDocument
     public List<TerrainPointOfInterest> PointsOfInterest { get; set; } = new();
     /// <summary>Placed instances of project Terrain Entity resources on this heightfield.</summary>
     public List<TerrainPlacedEntity> PlacedEntities { get; set; } = new();
+    /// <summary>Rules that populate the terrain with many copies of a Model (forests, rocks).</summary>
+    public List<TerrainScatterLayer> ScatterLayers { get; set; } = new();
 
     public void Normalize()
     {
@@ -583,6 +668,8 @@ public sealed class TerrainNatureDocument
         WaterBodies ??= new List<TerrainWaterDefinition>();
         PointsOfInterest ??= new List<TerrainPointOfInterest>();
         PlacedEntities ??= new List<TerrainPlacedEntity>();
+        ScatterLayers ??= new List<TerrainScatterLayer>();
+        foreach (TerrainScatterLayer layer in ScatterLayers) layer.Normalize();
         PathSettings.Normalize();
         FoliageSettings.Normalize();
         foreach (TerrainWaterDefinition water in WaterBodies) water.Normalize();
@@ -601,6 +688,9 @@ public static class TerrainNatureSerializer
     };
 
     public static string SidecarPath(string terrainResourcePath) => Path.GetFullPath(terrainResourcePath) + ".nature.json";
+
+    /// <summary>A deep copy of any part of a nature document (undo snapshots, generated worlds).</summary>
+    public static T Clone<T>(T value) => JsonSerializer.Deserialize<T>(JsonSerializer.Serialize(value, Options), Options);
 
     public static TerrainNatureDocument LoadOrDefault(string terrainResourcePath)
     {

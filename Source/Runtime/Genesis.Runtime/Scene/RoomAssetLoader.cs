@@ -240,6 +240,12 @@ public sealed class RoomSceneBuilder
         if (room.Dimension == RoomDimension.ThreeD && scene.Physics == null)
             scene.Physics = PhysicsWorld.Create(new PhysicsWorldAsset());
         RoomEnvironment environment = room.Environment ?? new RoomEnvironment();
+        scene.Environment.ShadowDistance = float.IsFinite(environment.ShadowDistance)
+            ? Math.Clamp(environment.ShadowDistance, 0f, 20000f)
+            : 0f;
+        scene.Environment.SimulationDistance = float.IsFinite(environment.SimulationDistance)
+            ? Math.Clamp(environment.SimulationDistance, 0f, 100000f)
+            : 0f;
         float[] bg = environment.BackgroundColor;
         if (bg is { Length: >= 3 }) scene.Environment.BackgroundColor = new Vector4(bg[0], bg[1], bg[2], bg.Length > 3 ? bg[3] : 1f);
         if (scene.Physics != null && environment.Gravity is { Length: >= 3 })
@@ -277,6 +283,8 @@ public sealed class RoomSceneBuilder
                 CloudThickness = environment.CloudThickness,
                 CloudCoverageScale = environment.CloudCoverageScale,
                 Haze = environment.AtmosphericHaze,
+                VisibilityMetres = MathF.Max(0f, environment.VisibilityKilometres) * 1000f,
+                AmbientScale = float.IsFinite(environment.AmbientIntensity) ? Math.Clamp(environment.AmbientIntensity, 0f, 8f) : 1f,
                 Seed = environment.ClimateSeed,
             });
         }

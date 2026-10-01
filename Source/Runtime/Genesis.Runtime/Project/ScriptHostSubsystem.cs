@@ -31,6 +31,12 @@ namespace Genesis.Runtime.Project
         public void Update(RuntimeScene scene, GameTime time)
         {
             if (_allowUpdate != null && !_allowUpdate()) return;
+            if (_host != null)
+            {
+                _host.SimulationDistance = scene.Environment?.SimulationDistance ?? 0f;
+                _host.SimulationFocus = scene.Camera3D.Position;
+            }
+
             _host?.Update(time.Delta);
             scene.World?.FlushDeferred();
         }

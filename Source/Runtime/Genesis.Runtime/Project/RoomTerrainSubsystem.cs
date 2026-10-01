@@ -50,6 +50,7 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
         public readonly List<string> WaterVolumeIds = new();
         public bool Bound;
         public TerrainNatureDocument Nature;
+        public TerrainScatterRenderer Scatter;
         public FoliageField Foliage;
         public FoliageStreamingPlanner FoliagePlanner;
         public FoliagePerformanceSnapshot FoliagePerformance;
@@ -119,6 +120,7 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
             entry.FoliagePlanner = new FoliageStreamingPlanner(
                 entry.Foliage,
                 nature.FoliageSettings.StreamingCellSize);
+            entry.Scatter = new TerrainScatterRenderer(projectPath, terrain, nature.ScatterLayers);
             entry.ComponentShaders = TerrainNatureSerializer.LoadComponentShaders(resourcePath);
             foreach (TerrainWaterDefinition definition in nature.WaterBodies)
             {
@@ -150,6 +152,25 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
     /// Canonical authored counts loaded from each terrain foliage cache. Exposed for runtime
     /// diagnostics so the editor, F5 player, and profiler can prove they consumed the same asset.
     /// </summary>
+    /// <summary>What each terrain's scatter layers drew in the last frame.</summary>
+    public IReadOnlyList<TerrainScatterStatistics> ScatterStatistics =>
+        _entries.Select(entry => entry.Scatter?.Statistics ?? default).ToArray();
+
+    /// <summary>True while scattered cells the camera can see are still being made.</summary>
+    public bool ScatterBusy => _entries.Exists(entry => entry.Scatter?.Busy == true);
+
+    /// <summary>Applies view settings to every terrain's scatter.</summary>
+    public void ConfigureScatter(float nearDistance, float midDistance, float maximumDistance)
+    {
+        foreach (Entry entry in _entries)
+        {
+            if (entry.Scatter == null) continue;
+            entry.Scatter.NearDistance = MathF.Max(32f, nearDistance);
+            entry.Scatter.MidDistance = MathF.Max(entry.Scatter.NearDistance, midDistance);
+            entry.Scatter.MaximumDistance = MathF.Max(entry.Scatter.MidDistance, maximumDistance);
+        }
+    }
+
     public IReadOnlyList<int> AuthoredFoliageInstanceCounts =>
         _entries.Select(entry => entry.Foliage?.Instances?.Count ?? 0).ToArray();
     public IReadOnlyList<FoliagePerformanceSnapshot> FoliagePerformance =>
@@ -312,7 +333,8 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
         foreach (Entry entry in _entries)
         {
             BindEntry(entry, renderer);
-            capacity = checked(capacity + entry.Ground.MeshCount + entry.PathMeshes.Count + entry.Waters.Count);
+            capacity = checked(capacity + entry.Ground.MeshCount + entry.PathMeshes.Count + entry.Waters.Count * 2
+                + (entry.Scatter?.MaximumDrawCalls ?? 0));
         }
         return capacity;
     }
@@ -344,12 +366,38 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
                 view = new TerrainLodView(cameraLocal, placement * viewProjection, TerrainDetail);
             }
 
+            long started = System.Diagnostics.Stopwatch.GetTimestamp();
             entry.Ground.AppendDrawCalls(buffer, ref count, view, terrainRaster);
             for (int i = terrainStart; i < count; i++) buffer[i].World *= placement;
             SubmitPaths(entry, placement, buffer, ref count);
+            long afterGround = System.Diagnostics.Stopwatch.GetTimestamp();
             SubmitFoliage(entry, camera, viewProjection, placement, renderer);
+            entry.Scatter?.Submit(renderer, camera, viewProjection, placement, buffer, ref count);
+            long afterScatter = System.Diagnostics.Stopwatch.GetTimestamp();
             SubmitWater(entry, camera, placement, renderer, buffer, ref count);
+            ReportSlowSubmit(started, afterGround, afterScatter, System.Diagnostics.Stopwatch.GetTimestamp(), entry.Scatter);
         }
+    }
+
+    /// <summary>Longest time one frame has spent submitting a terrain, in milliseconds.</summary>
+    public double SlowestSubmitMilliseconds { get; private set; }
+    private long _lastSlowReport;
+
+    /// <summary>
+    /// Names the part of the terrain that held a frame up. Streaming work is budgeted per frame,
+    /// so a long submit means a budget is wrong; the log line says which.
+    /// </summary>
+    private void ReportSlowSubmit(long started, long afterGround, long afterScatter, long finished, TerrainScatterRenderer scatter)
+    {
+        double total = System.Diagnostics.Stopwatch.GetElapsedTime(started, finished).TotalMilliseconds;
+        if (total > SlowestSubmitMilliseconds) SlowestSubmitMilliseconds = total;
+        if (total < 25.0 || Environment.TickCount64 - _lastSlowReport < 1000) return;
+        _lastSlowReport = Environment.TickCount64;
+        Console.WriteLine($"[Terrain] Submitting the terrain took {total:F0} ms: ground "
+            + $"{System.Diagnostics.Stopwatch.GetElapsedTime(started, afterGround).TotalMilliseconds:F0} ms, scatter "
+            + $"{System.Diagnostics.Stopwatch.GetElapsedTime(afterGround, afterScatter).TotalMilliseconds:F0} ms, water "
+            + $"{System.Diagnostics.Stopwatch.GetElapsedTime(afterScatter, finished).TotalMilliseconds:F0} ms."
+            + (scatter == null ? "" : $" Scatter: {scatter.DescribeLastPhases()}."));
     }
 
     public float SampleHeight(float worldX, float worldZ)
@@ -412,6 +460,8 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
             if (_game?.Scene != null)
                 foreach (string id in entry.WaterVolumeIds) _game.Scene.RemoveWaterVolume(id);
             entry.Ground?.Dispose();
+            entry.Scatter?.Dispose();
+            entry.Scatter = null;
             if (entry.Renderer != null)
             {
                 foreach (MeshHandle mesh in entry.PathMeshes) if (mesh.IsValid) entry.Renderer.ReleaseMesh(mesh);
@@ -465,6 +515,8 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
             }
             entry.ComponentShaders = TerrainNatureSerializer.LoadComponentShaders(resourcePath);
             (entry.Culling, entry.WindingOrder) = LoadRasterOverrides(resourcePath);
+            entry.Scatter?.Dispose();
+            entry.Scatter = new TerrainScatterRenderer(_projectPath, entry.Terrain, entry.Nature.ScatterLayers);
 
             entry.Manifest = WorldManifest.Build(entry.Terrain, entry.Nature);
             entry.Query = new WorldQuery(entry.Terrain, entry.Manifest);
@@ -701,7 +753,7 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
                 if (count >= buffer.Length) break;
                 MeshDrawCall draw = drawValue;
                 draw.World *= placement;
-                if (!string.IsNullOrWhiteSpace(shaderPath))
+                if (!string.IsNullOrWhiteSpace(shaderPath) && (draw.Flags & MeshDrawFlags.Water) != 0)
                     ObjectDrawPass.TryApplyAuthoredWaterShader(renderer, _projectPath, shaderPath, ref draw);
                 buffer[count++] = draw;
             }

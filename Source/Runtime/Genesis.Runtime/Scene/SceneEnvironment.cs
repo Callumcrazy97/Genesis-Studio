@@ -37,6 +37,16 @@ namespace Genesis.Runtime.Scene
         public float ShadowOrthoSize { get; set; } = 120f;
         /// <summary>2 = default CSM; 3 = AF1.1 far cascade.</summary>
         public int ShadowCascadeCount { get; set; } = 2;
+        /// <summary>
+        /// How far from the camera the sun still casts shadows, in metres; 0 keeps them close.
+        /// Uses the third cascade, so near shadows stay as sharp as before.
+        /// </summary>
+        public float ShadowDistance { get; set; }
+        /// <summary>
+        /// Scripted objects drawn in the 3D world further than this from the camera skip their
+        /// step events; 0 runs every object every frame.
+        /// </summary>
+        public float SimulationDistance { get; set; }
         /// <summary>AF1.2 half-res GTAO (optional, default off).</summary>
         public bool GtaoEnabled { get; set; }
 

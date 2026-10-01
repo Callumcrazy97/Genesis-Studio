@@ -33,6 +33,67 @@ namespace Genesis.Runtime.Scripting
         // All live behaviour instances (an entity may bind more than one ScriptComponent).
         private readonly List<EntityBehavior> _instances = new();
 
+        // The behaviours whose step events run this frame: all of them, or those in range.
+        private readonly List<EntityBehavior> _stepSnapshot = new();
+        private readonly HashSet<int> _alwaysActive = new();
+
+        /// <summary>
+        /// Objects drawn in the 3D world further than this from <see cref="SimulationFocus"/> skip
+        /// their step events, so a world can hold far more scripted objects than can run at once.
+        /// Zero runs everything. Objects with nothing to draw (managers, cameras, HUDs) always run,
+        /// as do those marked with <see cref="KeepActive"/>. Create, draw and physics-contact
+        /// events are not affected.
+        /// </summary>
+        public float SimulationDistance { get; set; }
+
+        /// <summary>The point activity is measured from, normally the camera.</summary>
+        public System.Numerics.Vector3 SimulationFocus { get; set; }
+
+        /// <summary>Behaviours whose step events ran in the last update.</summary>
+        public int LastStepped { get; private set; }
+
+        /// <summary>Behaviours out of range in the last update, whose step events were skipped.</summary>
+        public int LastResting { get; private set; }
+
+        /// <summary>Keeps an object's step events running however far away it is.</summary>
+        public void KeepActive(Entity entity, bool keep = true)
+        {
+            if (keep) _alwaysActive.Add(entity.Id);
+            else _alwaysActive.Remove(entity.Id);
+        }
+
+        private void FillStepSnapshot()
+        {
+            _stepSnapshot.Clear();
+            if (SimulationDistance <= 0f || !float.IsFinite(SimulationDistance))
+            {
+                _stepSnapshot.AddRange(_dispatchSnapshot);
+                LastStepped = _stepSnapshot.Count;
+                LastResting = 0;
+                return;
+            }
+
+            float limit = SimulationDistance * SimulationDistance;
+            foreach (EntityBehavior behavior in _dispatchSnapshot)
+            {
+                EcsWorld world = behavior.World;
+                if (world != null && world.IsAlive(behavior.Entity) && !_alwaysActive.Contains(behavior.Entity.Id)
+                    && world.Has<Genesis.Runtime.ECS.Components.Draw3DComponent>(behavior.Entity)
+                    && world.Has<Genesis.Runtime.ECS.Components.TransformComponent>(behavior.Entity))
+                {
+                    ref Genesis.Runtime.ECS.Components.TransformComponent transform =
+                        ref world.GetRef<Genesis.Runtime.ECS.Components.TransformComponent>(behavior.Entity);
+                    float dx = transform.X - SimulationFocus.X, dy = transform.Y - SimulationFocus.Y, dz = transform.Z - SimulationFocus.Z;
+                    if (dx * dx + dy * dy + dz * dz > limit) continue;
+                }
+
+                _stepSnapshot.Add(behavior);
+            }
+
+            LastStepped = _stepSnapshot.Count;
+            LastResting = _dispatchSnapshot.Count - _stepSnapshot.Count;
+        }
+
         // Behaviours whose OnCreate is waiting for the loader to finish placing them.
         private readonly List<EntityBehavior> _deferredCreates = new();
         private bool _roomActive;
@@ -333,15 +394,16 @@ namespace Genesis.Runtime.Scripting
         {
             if (_instances.Count == 0) return;
             FillDispatchSnapshot();
+            FillStepSnapshot();
 
-            foreach (var b in _dispatchSnapshot)
+            foreach (var b in _stepSnapshot)
             {
                 if (b.World == null || !b.World.IsAlive(b.Entity)) continue;
                 try { b.OnStepBegin(dt); }
                 catch (Exception ex) { LogBehaviorError(b, "OnStepBegin", ex); }
             }
 
-            foreach (var b in _dispatchSnapshot)
+            foreach (var b in _stepSnapshot)
             {
                 if (b.World == null || !b.World.IsAlive(b.Entity))
                     continue;
@@ -349,14 +411,14 @@ namespace Genesis.Runtime.Scripting
                 catch (Exception ex) { LogBehaviorError(b, "OnUpdate", ex); }
             }
 
-            foreach (var b in _dispatchSnapshot)
+            foreach (var b in _stepSnapshot)
             {
                 if (b.World == null || !b.World.IsAlive(b.Entity)) continue;
                 try { b.OnInputEvents(); }
                 catch (Exception ex) { LogBehaviorError(b, "OnInputEvents", ex); }
             }
 
-            foreach (var b in _dispatchSnapshot)
+            foreach (var b in _stepSnapshot)
             {
                 if (b.World == null || !b.World.IsAlive(b.Entity)) continue;
                 try { b.OnStepEnd(dt); }

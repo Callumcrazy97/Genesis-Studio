@@ -151,6 +151,12 @@ namespace Genesis.World.Water
         {
             if (body.SimulationEnabled && simulation != null)
                 return $"{body.Id}:simulation:{simulation.Resolution}:{simulation.Revision}";
+            if (body.Kind == WaterBodyKind.Ocean && body.OceanRadius > 0f)
+            {
+                (float centreX, float centreZ) = WaterSurfaceMesh.OceanCentre(cameraPos);
+                return $"{body.Id}:sea:{centreX}:{centreZ}:{body.OceanRadius}:{body.SurfaceY}";
+            }
+
             if (body.Kind == WaterBodyKind.Ocean)
             {
                 float tile = body.OceanTileSize;
@@ -211,7 +217,26 @@ namespace Genesis.World.Water
                 Flags = MeshDrawFlags.Water | MeshDrawFlags.Transparent | MeshDrawFlags.NoDepthWrite | MeshDrawFlags.NoShadow,
                 Alpha = mat.Opacity,
             });
+
+            // A sea that runs to the horizon reaches past the land it surrounds. Water writes no
+            // depth, so out there the frame would hold only sky behind it and the sky and cloud
+            // passes would paint over the sea. A dark floor well below the surface gives every
+            // pixel of open water something solid beneath it.
+            if (body.Kind == WaterBodyKind.Ocean && body.OceanRadius > 0f)
+            {
+                output.Add(new MeshDrawCall
+                {
+                    Mesh = mesh,
+                    World = Matrix4x4.CreateTranslation(0f, -OpenSeaFloorDepth, 0f),
+                    Tint = new RenderColor(mat.DeepColor.X * 0.6f, mat.DeepColor.Y * 0.6f, mat.DeepColor.Z * 0.6f, 1f),
+                    Flags = MeshDrawFlags.NoShadow | MeshDrawFlags.NoReceiveShadow,
+                    Alpha = 1f,
+                });
+            }
         }
+
+        /// <summary>How far below the surface the stand-in floor of an open sea lies, in metres.</summary>
+        public const float OpenSeaFloorDepth = 45f;
 
         /// <summary>
         /// Issue 6 Stage 1 ("lake mist for free"): builds the auto-spawned <see cref="FogVolume"/>

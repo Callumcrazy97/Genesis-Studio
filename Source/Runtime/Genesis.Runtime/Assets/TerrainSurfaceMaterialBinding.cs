@@ -52,6 +52,9 @@ public static class TerrainSurfaceMaterialBinding
                 material.ShaderParams1[index] = layer.Addressing == "Tile" ? pixels.WorldHeight / layer.Tiling : layer.Addressing == "Stretch" ? 1 : layer.Tiling;
                 material.ShaderParams2[index] = layer.Addressing is "Clamp" or "Stretch" ? 1 : 0;
             }
+            // A terrain you can see across needs its tiling hidden and its fields varied.
+            if (MathF.Max(pixels.WorldWidth, pixels.WorldHeight) >= TerrainSurfaceShaders.LongViewWidth)
+                material.ShaderParams3 = new Vector4(0.85f, 1f, 0f, 0f);
             return material;
         }
         catch

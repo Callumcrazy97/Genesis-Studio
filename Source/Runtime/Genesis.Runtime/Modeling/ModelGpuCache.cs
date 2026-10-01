@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 using Genesis.Rendering.Meshes;
+using Genesis.Shared.Geometry;
 using Genesis.Shared.Interfaces;
 
 namespace Genesis.Runtime.Modeling
@@ -28,6 +30,23 @@ namespace Genesis.Runtime.Modeling
             public readonly Dictionary<string, long> PaletteLastUsed = new(StringComparer.OrdinalIgnoreCase);
             public int ControllerUpdates;
             public bool BindPoseApplied;
+            /// <summary>Simplified versions being worked out in the background, until they are uploaded.</summary>
+            internal Task<AutoLodMesh[]> AutoLodBuild;
+            /// <summary>True once the simplified versions are on the GPU and can be drawn.</summary>
+            public bool AutoLodsReady { get; internal set; }
+            /// <summary>True while simplified versions are still being worked out.</summary>
+            public bool AutoLodsPending => AutoLodBuild != null;
+            /// <summary>True once a draw has asked for a simplified version.</summary>
+            public bool AutoLodsRequested { get; internal set; }
+        }
+
+        /// <summary>One simplified version of one drawn mesh, ready to upload.</summary>
+        internal sealed class AutoLodMesh
+        {
+            public int Target;
+            public int Level;
+            public MeshVertex[] Vertices;
+            public ushort[] Indices;
         }
 
         public sealed class CachedMesh
@@ -39,9 +58,41 @@ namespace Genesis.Runtime.Modeling
             public bool IsSkinned;
             public int MaterialIndex;
             public int Lod;
+            /// <summary>
+            /// Automatically simplified versions for levels 1 to 3, or null when the mesh is drawn
+            /// in full at every size. A level that saved too little reuses the one before it.
+            /// </summary>
+            public MeshHandle[] AutoLods;
+            /// <summary>The drawn triangle list, kept until the simplifier has been handed it.</summary>
+            internal ushort[] SourceIndices;
+            /// <summary>Triangles drawn at full detail and at each automatic level.</summary>
+            public int[] LevelTriangles;
+
+            /// <summary>The mesh to draw for an automatic level, falling back to full detail.</summary>
+            public MeshHandle ForLevel(int level)
+            {
+                if (level <= 0 || AutoLods == null) return Mesh;
+                MeshHandle handle = AutoLods[Math.Min(level, AutoLods.Length) - 1];
+                return handle.IsValid ? handle : Mesh;
+            }
         }
 
         private readonly ConditionalWeakTable<IRenderController, RendererCache> _renderers = new();
+
+        /// <summary>Share of the triangles each automatic level aims to keep.</summary>
+        public static readonly float[] AutoLodRatios = { 0.5f, 0.2f, 0.07f };
+
+        /// <summary>
+        /// How far each level may move the surface, as a share of the mesh's size. A level is shown
+        /// only when the model is small enough on screen for this to be about a pixel.
+        /// </summary>
+        public static readonly float[] AutoLodErrors = { 0.006f, 0.016f, 0.045f };
+
+        /// <summary>Meshes with fewer triangles than this are already cheap and are left alone.</summary>
+        public const int AutoLodMinimumTriangles = 96;
+
+        /// <summary>Set false to draw every model in full at any distance.</summary>
+        public static bool AutoLodEnabled { get; set; } = true;
 
         /// <summary>Clip/frame palettes kept per asset before idle ones are released.</summary>
         private const int MaximumClipPalettes = 128;
@@ -66,7 +117,10 @@ namespace Genesis.Runtime.Modeling
             foreach (CachedAsset asset in cache.Assets.Values)
             {
                 foreach (CachedMesh mesh in asset.Meshes)
+                {
                     if (mesh.Mesh.IsValid && mesh.Mesh.Id != cache.PlaceholderMesh.Id) renderer.ReleaseMesh(mesh.Mesh);
+                    ReleaseAutoLods(renderer, mesh);
+                }
                 foreach (List<CachedMesh> variant in asset.MorphMeshes.Values)
                     foreach (CachedMesh mesh in variant)
                         if (mesh.Mesh.IsValid && mesh.Mesh.Id != cache.PlaceholderMesh.Id) renderer.ReleaseMesh(mesh.Mesh);
@@ -83,7 +137,10 @@ namespace Genesis.Runtime.Modeling
             if (renderer == null || asset == null) return null;
             RendererCache cache = _renderers.GetOrCreateValue(renderer);
             if (cache.Assets.TryGetValue(asset, out CachedAsset cached))
+            {
+                if (cached.AutoLodBuild is { IsCompleted: true }) UploadAutoLods(renderer, cached);
                 return cached;
+            }
 
             cached = new CachedAsset();
             if (asset.Meshes != null)
@@ -111,6 +168,7 @@ namespace Genesis.Runtime.Modeling
                             IsSkinned = skinned,
                             MaterialIndex = materialIndex,
                             Lod = mesh.Lod,
+                            SourceIndices = indices,
                         });
                     }
                 }
@@ -132,6 +190,150 @@ namespace Genesis.Runtime.Modeling
 
             cache.Assets[asset] = cached;
             return cached;
+        }
+
+        /// <summary>
+        /// Asks for an asset's simplified versions. Called the first time a draw wants one, so
+        /// editors and previews, which always draw in full, never pay for the simplification.
+        /// </summary>
+        public void RequestAutoLods(GModelAsset asset, CachedAsset cached)
+        {
+            if (asset == null || cached == null || cached.AutoLodsRequested) return;
+            cached.AutoLodsRequested = true;
+            StartAutoLods(asset, cached);
+        }
+
+        /// <summary>
+        /// Starts simplifying an asset's static meshes on a worker. An asset that brings its own
+        /// levels, or that is animated, keeps exactly what was authored.
+        /// </summary>
+        private static void StartAutoLods(GModelAsset asset, CachedAsset cached)
+        {
+            if (!AutoLodEnabled || asset.Meshes == null) return;
+            foreach (GModelMesh mesh in asset.Meshes)
+                if (mesh != null && mesh.Lod != 0) return;
+
+            var jobs = new List<(int Target, MeshVertex[] Vertices, ushort[] Indices)>();
+            for (int i = 0; i < cached.Meshes.Count; i++)
+            {
+                CachedMesh entry = cached.Meshes[i];
+                if (entry.IsSkinned || entry.SourceIndex < 0 || entry.SourceIndex >= asset.Meshes.Count) continue;
+                GModelMesh source = asset.Meshes[entry.SourceIndex];
+                if (source?.Vertices == null || entry.SourceIndices == null) continue;
+                if (entry.SourceIndices.Length / 3 < AutoLodMinimumTriangles) continue;
+                jobs.Add((i, source.Vertices, entry.SourceIndices));
+            }
+
+            foreach (CachedMesh entry in cached.Meshes) entry.SourceIndices = null;
+            if (jobs.Count == 0) return;
+            cached.AutoLodBuild = Task.Run(() =>
+            {
+                var built = new List<AutoLodMesh>();
+                foreach ((int target, MeshVertex[] vertices, ushort[] indices) in jobs)
+                    BuildAutoLods(target, vertices, indices, built);
+                return built.ToArray();
+            });
+        }
+
+        /// <summary>
+        /// The simplified versions a mesh would be given, without touching the GPU: level 0 is the
+        /// first step down from full detail. Empty when the mesh is too small to be worth reducing.
+        /// </summary>
+        public static IReadOnlyList<(int Level, MeshVertex[] Vertices, ushort[] Indices)> BuildAutoLodMeshes(
+            MeshVertex[] vertices, ushort[] indices)
+        {
+            var levels = new List<(int, MeshVertex[], ushort[])>();
+            if (vertices == null || indices == null || indices.Length / 3 < AutoLodMinimumTriangles) return levels;
+            var built = new List<AutoLodMesh>();
+            BuildAutoLods(0, vertices, indices, built);
+            foreach (AutoLodMesh lod in built) levels.Add((lod.Level, lod.Vertices, lod.Indices));
+            return levels;
+        }
+
+        internal static void BuildAutoLods(int target, MeshVertex[] vertices, ushort[] indices, List<AutoLodMesh> built)
+        {
+            var positions = new Vector3[vertices.Length];
+            Vector3 min = new(float.MaxValue), max = new(float.MinValue);
+            for (int i = 0; i < vertices.Length; i++)
+            {
+                positions[i] = vertices[i].Position;
+                min = Vector3.Min(min, positions[i]);
+                max = Vector3.Max(max, positions[i]);
+            }
+
+            float size = vertices.Length == 0 ? 0f : Vector3.Distance(min, max) * 0.5f;
+            int[] current = Array.ConvertAll(indices, index => (int)index);
+            int full = current.Length / 3;
+            int previous = full;
+            for (int level = 0; level < AutoLodRatios.Length; level++)
+            {
+                int wanted = Math.Max(8, (int)(full * AutoLodRatios[level]));
+                // Each level starts from the one before, so the levels nest and the work is not repeated.
+                int[] simplified = MeshSimplifier.Simplify(positions, current, wanted, size * AutoLodErrors[level]);
+                int triangles = simplified.Length / 3;
+                if (triangles < 4 || triangles > previous * 0.85f) continue;
+                if (!MeshSimplifier.Compact<MeshVertex>(vertices, simplified, out MeshVertex[] keptVertices, out ushort[] keptIndices))
+                    continue;
+                built.Add(new AutoLodMesh { Target = target, Level = level, Vertices = keptVertices, Indices = keptIndices });
+                current = simplified;
+                previous = triangles;
+            }
+        }
+
+        private static void UploadAutoLods(IRenderController renderer, CachedAsset cached)
+        {
+            Task<AutoLodMesh[]> build = cached.AutoLodBuild;
+            cached.AutoLodBuild = null;
+            if (!build.IsCompletedSuccessfully) return;
+            foreach (AutoLodMesh lod in build.Result)
+            {
+                if (lod.Target < 0 || lod.Target >= cached.Meshes.Count) continue;
+                MeshHandle handle = renderer.RegisterMesh(lod.Vertices, lod.Indices);
+                if (!handle.IsValid) continue;
+                CachedMesh mesh = cached.Meshes[lod.Target];
+                mesh.AutoLods ??= new MeshHandle[AutoLodRatios.Length];
+                mesh.LevelTriangles ??= new int[AutoLodRatios.Length + 1];
+                mesh.AutoLods[lod.Level] = handle;
+                mesh.LevelTriangles[lod.Level + 1] = lod.Indices.Length / 3;
+            }
+
+            // A level that was not worth making draws as the nearest finer one.
+            foreach (CachedMesh mesh in cached.Meshes)
+            {
+                if (mesh.AutoLods == null) continue;
+                for (int level = 0; level < mesh.AutoLods.Length; level++)
+                {
+                    if (mesh.AutoLods[level].IsValid || level == 0) continue;
+                    mesh.AutoLods[level] = mesh.AutoLods[level - 1];
+                    mesh.LevelTriangles[level + 1] = mesh.LevelTriangles[level];
+                }
+            }
+
+            cached.AutoLodsReady = true;
+        }
+
+        private static void ReleaseAutoLods(IRenderController renderer, CachedMesh mesh)
+        {
+            if (mesh.AutoLods == null) return;
+            int last = -1;
+            foreach (MeshHandle handle in mesh.AutoLods)
+            {
+                if (!handle.IsValid || handle.Id == last) continue;
+                last = handle.Id;
+                renderer.ReleaseMesh(handle);
+            }
+
+            mesh.AutoLods = null;
+        }
+
+        /// <summary>Blocks until an asset's simplified versions are uploaded. For tests and captures.</summary>
+        public void SettleAutoLods(IRenderController renderer, GModelAsset asset)
+        {
+            CachedAsset cached = GetOrCreate(renderer, asset);
+            RequestAutoLods(asset, cached);
+            if (cached?.AutoLodBuild == null) return;
+            try { cached.AutoLodBuild.Wait(); } catch (AggregateException) { }
+            UploadAutoLods(renderer, cached);
         }
 
         /// <summary>
@@ -201,7 +403,8 @@ namespace Genesis.Runtime.Modeling
             return created;
         }
 
-        private static IEnumerable<(int MaterialIndex, ushort[] Indices)> MaterialBatches(GModelMesh mesh)
+        /// <summary>The triangle list a mesh draws for each of its materials.</summary>
+        public static IEnumerable<(int MaterialIndex, ushort[] Indices)> MaterialBatches(GModelMesh mesh)
         {
             int triangles = mesh.Indices.Length / 3;
             if (mesh.TriangleMaterialIndices == null || mesh.TriangleMaterialIndices.Length != triangles)

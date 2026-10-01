@@ -345,8 +345,17 @@ namespace Genesis.Runtime
                 }
             }
 
-            for (int i = 0; i < _subsystems.Count; i++)
-                _subsystems[i].SubmitMeshes(this, buffer, ref count, renderer);
+            // Models pick their detail from their size in this camera's view.
+            Genesis.Runtime.Modeling.ModelLodView.Begin(Camera3D.Position, Camera3D.ProjectionMatrix);
+            try
+            {
+                for (int i = 0; i < _subsystems.Count; i++)
+                    _subsystems[i].SubmitMeshes(this, buffer, ref count, renderer);
+            }
+            finally
+            {
+                Genesis.Runtime.Modeling.ModelLodView.End();
+            }
 
             Vector3 cameraPos = Camera3D.Position;
             Matrix4x4 viewProjection = Camera3D.ViewMatrix * Camera3D.ProjectionMatrix;

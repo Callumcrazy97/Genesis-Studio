@@ -21,8 +21,16 @@ public sealed class TerrainCreationRecipe
     public string Image { get; set; } = "";
     public string Code { get; set; } = HillsCode;
     public float[][] Boundary { get; set; } = [];
+    /// <summary>
+    /// Whole-terrain steps collected from the code's set-up commands. Rebuilt whenever the code
+    /// runs, so it is never saved with the recipe.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public TerrainWorldPlan? World { get; set; }
     public const string HillsCode = "// Coordinates x,z are metres from the centre. u,v are 0..1.\n// Optional: TerrainSize(4000, 4000); TerrainSpacing(16);\nheight = 60 * noise(x * 0.008, z * 0.008)\n       + 14 * sin(x * 0.025);";
     public const string RavineCode = "TerrainSize(2000, 2000);\nTerrainSpacing(8);\nriver = z - 80 * sin(x * 0.004);\nheight = 50 + 25 * noise(x * 0.006, z * 0.006)\n       - 80 * exp(-river * river / 1600);";
+    /// <summary>A small island with a sea, rivers, natural painting and a forest rule.</summary>
+    public const string IslandCode = "// A world recipe: per-sample code shapes the land, commands add the rest.\nTerrainSize(2048, 2048);\nTerrainSpacing(2);\nTerrainHeights(-40, 260);\nOcean(0);\nErode(0.5);\nRivers(3);\nPaintNatural(3, 190, 34);\n// Scatter(\"Pine\", 180, 4, 150, 28, 1);   // model, per hectare, min/max height, max slope, layer\n\ncoast = length(x, z) / 1024 + 0.18 * fbm(x * 0.002, z * 0.002, 4);\nland = smoothstep(1.0, 0.55, coast);\nheight = -30 + land * (38 + 26 * fbm(x * 0.004, z * 0.004, 5))\n       + land * land * 170 * ridge(x * 0.0022, z * 0.0022, 6);";
     public const string CaveCode = "// Density < 0 is solid. A tunnel cuts through the hillside.\nTerrainSize(160, 160);\nTerrainSpacing(4);\nhill = 32 + 8 * noise(x * 0.03, z * 0.03);\ntunnel = 12 - sqrt((y - 12) * (y - 12) + z * z);\ndensity = max(y - hill, tunnel);";
 }
 

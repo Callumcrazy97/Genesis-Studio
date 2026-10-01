@@ -281,6 +281,15 @@ namespace Genesis.Runtime
         /// <summary>Elapsed CPU-side simulation/host work; excludes rendering and presentation.</summary>
         public double LastSimulationMilliseconds { get; private set; }
 
+        /// <summary>Time the last frame spent gathering what to draw: culling, level of detail, streaming uploads.</summary>
+        public double LastCollectMilliseconds { get; private set; }
+
+        /// <summary>Time the last frame spent turning the gathered draws into GPU commands.</summary>
+        public double LastDrawMilliseconds { get; private set; }
+
+        /// <summary>Time the last frame spent presenting, which includes waiting for the GPU to catch up.</summary>
+        public double LastPresentMilliseconds { get; private set; }
+
         private void OnRender(double dt)
         {
             if (!_ready || _renderer == null) return;
@@ -417,7 +426,9 @@ namespace Genesis.Runtime
                 ScriptHost?.DispatchRenderFrame(_renderer, _frameQueue);
                 ScriptHost?.DispatchPgslWorldDraw(_renderer, _frameQueue);
                 int drawCount = 0;
+                long collectStarted = System.Diagnostics.Stopwatch.GetTimestamp();
                 _scene.CollectMeshes(_meshBuffer, ref drawCount, _renderer);
+                LastCollectMilliseconds += System.Diagnostics.Stopwatch.GetElapsedTime(collectStarted).TotalMilliseconds;
                 int instanceCount = _scene.SubmitInstanceBatches(_renderer);
                 _renderer.Set3DFrameActive(drawCount > 0 || instanceCount > 0 || _frameQueue.MeshCount > 0 || meshState.AuthoredSkyEnabled);
                 if (drawCount > 0)
@@ -429,11 +440,14 @@ namespace Genesis.Runtime
             }
 
             _renderer.Advance3DTime((float)dt);
+            LastCollectMilliseconds = 0;
             if (roomPresentation?.RenderViewports3D(_scene, _renderer, RenderCamera) != true) RenderCamera();
 
+            long drawStarted = System.Diagnostics.Stopwatch.GetTimestamp();
             try
             {
                 _renderer.EndFrame();
+                LastDrawMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(drawStarted).TotalMilliseconds;
             }
             catch (Exception ex)
             {
@@ -481,7 +495,9 @@ namespace Genesis.Runtime
         {
             try
             {
+                long presentStarted = System.Diagnostics.Stopwatch.GetTimestamp();
                 _renderer?.Present();
+                LastPresentMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(presentStarted).TotalMilliseconds;
                 BootSplash?.NotifyPresented();
                 if (StartupGate != null && !_startupReadySent && !_startupFrameWasSplash && (BootSplash == null || BootSplash.IsComplete))
                 {

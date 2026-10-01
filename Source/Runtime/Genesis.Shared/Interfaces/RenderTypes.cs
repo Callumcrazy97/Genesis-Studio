@@ -701,6 +701,11 @@ namespace Genesis.Shared.Interfaces
         public float   ShadowOrthoSize;
         /// <summary>Directional cascade count: 2 (default, R7.11) or 3 (AF1.1 far envelope).</summary>
         public int     ShadowCascadeCount;
+        /// <summary>
+        /// Width in metres of the far cascade when three are in use; 0 keeps the standard size.
+        /// A large outdoor scene widens it so hills and mountains shade the land behind them.
+        /// </summary>
+        public float   ShadowFarExtent;
         /// <summary>AF1.2 optional half-res GTAO (default off).</summary>
         public bool    GtaoEnabled;
         /// <summary>
@@ -768,6 +773,11 @@ namespace Genesis.Shared.Interfaces
         public float   FogHeightBase;
         public float   FogHeightFalloff;
         public float   FogAerialBlend;
+        /// <summary>
+        /// 0 keeps the fixed extra haze along level sight lines; 1 removes it, leaving only the
+        /// fog density. Long views need it removed.
+        /// </summary>
+        public float   FogHorizonReduction;
         public float   FogSunPreserve;
         public float   FogNoiseStrength;
         public bool    FogScreenSpace;
@@ -1012,6 +1022,8 @@ namespace Genesis.Shared.Interfaces
         public int ItemsSubmitted;
         public int InstancesCulled;
         public int InstancesDrawn;
+        /// <summary>Mesh instances that did not fit the instance buffer and were not drawn.</summary>
+        public int InstancesDropped;
         public int SpriteInstances;
         public int MeshInstances;
         public int SpriteInstanceCap;

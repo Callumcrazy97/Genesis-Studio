@@ -20,6 +20,7 @@ internal static class Program
         System.Windows.Forms.Application.SetHighDpiMode(System.Windows.Forms.HighDpiMode.PerMonitorV2);
         System.Windows.Forms.Application.EnableVisualStyles();
         System.Windows.Forms.Application.SetCompatibleTextRenderingDefault(false);
+        if (args.Length >= 1 && args[0] == "--project-tool") return ProjectAutomationRunner.Run(args[1..]);
         if (args.Length >= 2 && args[0] == "--judge-captures")
         {
             int surfaceIndex = Array.IndexOf(args, "--surface");

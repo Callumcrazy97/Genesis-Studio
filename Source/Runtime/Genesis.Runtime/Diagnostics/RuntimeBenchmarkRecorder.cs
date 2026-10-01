@@ -27,6 +27,7 @@ public sealed class RuntimeBenchmarkRecorder : IDisposable
     private long _previousTick;
     private long _firstTick;
     private long _previousAllocated;
+    private TimeSpan _previousPause = GC.GetTotalPauseDuration();
     private double _nextCapture;
     private double _nextMemorySample;
     private long _workingSet;
@@ -63,24 +64,32 @@ public sealed class RuntimeBenchmarkRecorder : IDisposable
         long allocated = GC.GetTotalAllocatedBytes(false);
         long frameAllocated = Math.Max(0, allocated - _previousAllocated);
         _previousAllocated = allocated;
+        // Time the collector held every thread during this frame, so a long frame can be told
+        // apart from one the game or the renderer caused.
+        TimeSpan paused = GC.GetTotalPauseDuration();
+        double gcPauseMs = (paused - _previousPause).TotalMilliseconds;
+        _previousPause = paused;
         if (_capturedFrame) { _capturedFrame = false; return; }
         if (elapsed < _warmup) return;
         double measured = elapsed - _warmup;
         if (measured >= _nextMemorySample)
         {
-            _process.Refresh();
-            _workingSet = _process.WorkingSet64;
+            // Environment.WorkingSet asks about this process only. Process.Refresh walks every
+            // process on the machine and was itself the longest frame of some runs.
+            _workingSet = Environment.WorkingSet;
             _heap = GC.GetTotalMemory(false);
             _nextMemorySample = measured + 1;
         }
         RenderStats stats = host.Renderer.GetStats();
         int loaded = 0, pending = 0;
-        foreach (var provider in host.Scene.Subsystems.OfType<StreamingManager>().SelectMany(manager => manager.Providers))
+        // The scene owns its streaming manager; it is not one of the listed subsystems.
+        foreach (var provider in host.Scene.Streaming.Providers)
         { loaded += provider.Stats.CellsLoaded; pending += provider.Stats.CellsPending; }
         _frames.Add(new BenchmarkFrame(measured, frameMs, host.LastSimulationMilliseconds,
             stats.GpuMs > 0 ? stats.GpuMs : null, frameAllocated, _workingSet, _heap,
             stats.DrawCalls, stats.Triangles, stats.InstancesDrawn, loaded, pending,
-            host.Scene.Camera3D.Position.X, host.Scene.Camera3D.Position.Y, host.Scene.Camera3D.Position.Z));
+            host.Scene.Camera3D.Position.X, host.Scene.Camera3D.Position.Y, host.Scene.Camera3D.Position.Z,
+            gcPauseMs, host.LastCollectMilliseconds, host.LastDrawMilliseconds, host.LastPresentMilliseconds));
         if (measured >= _seconds)
         {
             Complete = true;
@@ -157,5 +166,6 @@ public sealed class RuntimeBenchmarkRecorder : IDisposable
     public readonly record struct BenchmarkFrame(double Seconds, double FrameMilliseconds,
         double SimulationMilliseconds, double? GpuMilliseconds, long AllocatedBytes, long WorkingSetBytes,
         long ManagedHeapBytes, int DrawCalls, int Triangles, int InstancesDrawn, int LoadedCells,
-        int PendingCells, float CameraX, float CameraY, float CameraZ);
+        int PendingCells, float CameraX, float CameraY, float CameraZ, double GcPauseMilliseconds = 0,
+        double CollectMilliseconds = 0, double DrawMilliseconds = 0, double PresentMilliseconds = 0);
 }

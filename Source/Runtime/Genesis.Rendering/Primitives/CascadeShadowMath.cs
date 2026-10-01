@@ -40,7 +40,8 @@ public static class CascadeShadowMath
         int farMapSize,
         int nearMapSize,
         float authoredBias,
-        int cascadeCount = 2)
+        int cascadeCount = 2,
+        float farExtentOverride = 0f)
     {
         int count = cascadeCount >= 3 ? 3 : 2;
         float farExtent = MathF.Max(orthoSize, 16f);
@@ -83,6 +84,14 @@ public static class CascadeShadowMath
         float midTexel = (2f * midExtent) / midSize;
         float nearTexel = (2f * nearExtent) / nearSize;
         float baseBias = MathF.Max(1e-5f, authoredBias);
+        // Bias is measured in the cascade's own depth range, which grows with its extent, so a far
+        // cascade widened to take in a mountainside keeps the bias the standard one would have had.
+        float farBias = AdaptiveDepthBias(baseBias, farTexel);
+        if (count == 3 && farExtentOverride > farExtent)
+        {
+            farExtent = farExtentOverride;
+            farTexel = (2f * farExtent) / farSize;
+        }
 
         return new CascadeShadowFrame
         {
@@ -94,7 +103,7 @@ public static class CascadeShadowMath
             FarTexelWorld = farTexel,
             MidTexelWorld = midTexel,
             NearTexelWorld = nearTexel,
-            FarDepthBias = AdaptiveDepthBias(baseBias, farTexel),
+            FarDepthBias = farBias,
             MidDepthBias = AdaptiveDepthBias(baseBias, midTexel) * 0.75f,
             NearDepthBias = AdaptiveDepthBias(baseBias, nearTexel) * 0.55f,
             CascadeCount = count,
