@@ -197,7 +197,8 @@ namespace Genesis.Runtime.Rendering
                         radius = Vector3.Distance(min, max) * .5f * MatrixScaleHelper.MaxScale(matrix);
                     }
                 }
-                if (cull && !Visibility.IsVisible(frustum, viewProjection, pos, radius, occlude))
+                if (cull && !IsPosedByAnimation(world, entity)
+                    && !Visibility.IsVisible(frustum, viewProjection, pos, radius, occlude))
                     return;
 
                 bool hasAssets = ObjectDrawAssetRegistry.TryGet(entity, out ObjectDrawAssetEntry assets);
@@ -1066,6 +1067,22 @@ namespace Genesis.Runtime.Rendering
             if (!string.IsNullOrWhiteSpace(assets?.Image))
                 return assets.Image.Trim();
             return null;
+        }
+
+        /// <summary>
+        /// True when a clip or controller is posing this Object's model this frame.
+        /// </summary>
+        /// <remarks>
+        /// A model's stored box is its bind pose. A clip can carry the character out of it (sitting,
+        /// lying down, a jump with root motion) and the pose is only known once it has been
+        /// evaluated, so such an Object is not rejected by that box: the renderer tests each of its
+        /// meshes against the mesh's posed bound instead.
+        /// </remarks>
+        internal static bool IsPosedByAnimation(EcsWorld world, Entity entity)
+        {
+            if (!world.Has<ModelAnimatorComponent>(entity)) return false;
+            ref ModelAnimatorComponent animator = ref world.GetRef<ModelAnimatorComponent>(entity);
+            return animator.Controller != null || !string.IsNullOrWhiteSpace(animator.ClipName);
         }
 
         private static RuntimeModelAnimationState ReadAnimation(

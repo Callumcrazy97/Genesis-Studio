@@ -53,6 +53,29 @@ them is [GettingStarted.md](GettingStarted.md), which Studio shows from *Help â€
   the command bar after an editor was resized; *Chase the player* called a three-argument
   `InstanceNearest` that did not exist; the Assets tree's row fill hid its expand buttons.
 
+### Skinned meshes are culled by their pose, 1 October
+
+Reported from a game: a character built from several skinned meshes (head, eyes, hair) lost its
+hair and eyes while playing a seated clip with the camera about a metre away. Each mesh was tested
+against the sphere of its bind pose, which the seated pose had left by half a metre.
+
+- `ForwardRenderer` now records, when a skinned mesh is registered, which joints move it. Each draw
+  with a skin palette builds a bound from the bind sphere as moved by those joints
+  (`PosedSkinBounds`) and uses it for the camera frustum test and for the skinned shadow caster's
+  cascade classification. Only the mesh's own joints count, so a head mesh's bound stays at the head.
+- `ObjectDrawPass` no longer rejects an Object by its model's bind-pose box while a clip or
+  controller is posing it; the renderer's per-mesh test decides instead. Objects with no clip keep
+  the early rejection. The cost is that an off-screen animated Object's pose is still evaluated.
+- Not changed: `RuntimeModelRenderSystem.SubmitWorld` never culled at this level, and
+  `CrowdGpuInstancer` culls by the bound its caller supplies.
+- Tests: `SkinnedCullingSuite` (`--test skinned-culling`, 6 cases, in the full regression). Five
+  check the bound against vertices skinned exactly as the shader skins them, the reported camera,
+  broken poses and the Object rule; the sixth draws the scene with culling on through DX11, DX12,
+  Vulkan and OpenGL. With the fix switched off that case fails on the first backend ("culled 1",
+  background pixel), and `render` (74 checks, including the golden scenes) is unchanged with it on.
+- A game that turned culling off as a workaround (`Engine.SetFrustumCulling(false)`) can turn it
+  back on.
+
 ### Engine audit remediation â€” rendering, frame-path waste and volumetric fog, 30 September
 
 An engine audit (per-frame waste of the "model re-scanned and re-uploaded every frame" kind,

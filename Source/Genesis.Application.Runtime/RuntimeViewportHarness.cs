@@ -50,6 +50,7 @@ public sealed partial class RuntimeViewportHarness : IDisposable
         LocalLights,
         Fog,
         TwoSidedLighting,
+        SkinnedCulling,
     }
 
     public RuntimeViewportHarness(int width = 640, int height = 360)
@@ -511,6 +512,7 @@ public sealed partial class RuntimeViewportHarness : IDisposable
         if (_mode == CaptureMode.LocalLights) { RenderLocalLights(renderer); return; }
         if (_mode == CaptureMode.Fog) { RenderFogScene(renderer); return; }
         if (_mode == CaptureMode.TwoSidedLighting) { RenderTwoSidedLighting(renderer); return; }
+        if (_mode == CaptureMode.SkinnedCulling) { RenderSkinnedCulling(renderer); return; }
         if (_mode == CaptureMode.TwoD)
         {
             RenderTwoD(renderer);
@@ -890,6 +892,8 @@ public sealed partial class RuntimeViewportHarness : IDisposable
         {
             if (_reflectionWater.IsValid) renderer.ReleaseMesh(_reflectionWater);
             if (_faceProbe.IsValid) renderer.ReleaseMesh(_faceProbe);
+            if (_skinnedCullMesh.IsValid) renderer.ReleaseMesh(_skinnedCullMesh);
+            if (_skinnedCullPalette.IsValid) renderer.ReleaseSkinPalette(_skinnedCullPalette);
             if (_authoredShader.IsValid)
                 renderer.ReleaseRuntimeShader(_authoredShader, ShaderPreviewProfile.MeshPipeline);
             if (_authoredSprite.IsValid) renderer.ReleaseTexture(_authoredSprite);

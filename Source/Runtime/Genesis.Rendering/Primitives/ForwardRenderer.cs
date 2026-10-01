@@ -319,6 +319,10 @@ namespace Genesis.Rendering.Primitives
             public bool IsReleased;
             /// <summary>Changes whenever the vertices do, so cached shadow tiles notice in-place edits.</summary>
             public int Revision;
+            /// <summary>Joints that move at least one vertex; only set for skinned meshes.</summary>
+            public int[] SkinJoints;
+            /// <summary>True when some vertices carry no weight and therefore stay at their bind position.</summary>
+            public bool HasUnweightedVertices;
         }
 
         private int _meshRevision;
@@ -2000,8 +2004,11 @@ namespace Genesis.Rendering.Primitives
         {
             int stride = Marshal.SizeOf<SkinnedMeshVertex>();
             ComputeBounds(vertices, out Vector3 boundsCenter, out float boundsRadius);
+            int[] skinJoints = CollectSkinJoints(vertices, out bool hasUnweightedVertices);
             var created = new MeshEntry
             {
+                SkinJoints = skinJoints,
+                HasUnweightedVertices = hasUnweightedVertices,
                 VB = _gpu.CreateBuffer(new GpuBufferDesc
                 {
                     SizeBytes = stride * vertices.Length,
@@ -2034,6 +2041,93 @@ namespace Genesis.Rendering.Primitives
 
             _meshes.Add(created);
             return new MeshHandle(_meshes.Count);
+        }
+
+        /// <summary>The weight below which the skinning shader ignores a joint.</summary>
+        private const float SkinWeightEpsilon = 0.0001f;
+
+        /// <summary>
+        /// Lists the joints that move at least one vertex of a skinned mesh, in ascending order.
+        /// </summary>
+        /// <param name="hasUnweightedVertices">
+        /// Set when a vertex has no weight at all: the shader leaves such a vertex at its bind position.
+        /// </param>
+        internal static int[] CollectSkinJoints(ReadOnlySpan<SkinnedMeshVertex> vertices, out bool hasUnweightedVertices)
+        {
+            hasUnweightedVertices = false;
+            var joints = new SortedSet<int>();
+            Span<float> weights = stackalloc float[4];
+            Span<float> indices = stackalloc float[4];
+            for (int i = 0; i < vertices.Length; i++)
+            {
+                vertices[i].JointWeights.CopyTo(weights);
+                vertices[i].JointIndices.CopyTo(indices);
+                if (weights[0] + weights[1] + weights[2] + weights[3] <= SkinWeightEpsilon)
+                {
+                    hasUnweightedVertices = true;
+                    continue;
+                }
+
+                for (int k = 0; k < 4; k++)
+                {
+                    if (weights[k] > SkinWeightEpsilon)
+                        joints.Add(Math.Max(0, (int)MathF.Round(indices[k])));
+                }
+            }
+
+            int[] result = new int[joints.Count];
+            joints.CopyTo(result);
+            return result;
+        }
+
+        /// <summary>
+        /// A sphere, in the mesh's own space, that contains a skinned mesh in its current pose.
+        /// </summary>
+        /// <remarks>
+        /// The bind-pose sphere says where the mesh was modelled, not where its skeleton has put it:
+        /// a seated character's head sits half a metre below its bind position. Each skinned vertex
+        /// is a weighted average of that vertex moved rigidly by each of its joints, so it lies
+        /// inside the sphere that encloses the bind sphere as moved by every joint the mesh uses.
+        /// Only the mesh's own joints are considered, which keeps a head mesh's bound at the head.
+        /// </remarks>
+        internal static void PosedSkinBounds(
+            Vector3 bindCenter, float bindRadius, ReadOnlySpan<int> joints, bool hasUnweightedVertices,
+            ReadOnlySpan<Matrix4x4> palette, out Vector3 center, out float radius)
+        {
+            // A joint outside the palette cannot be evaluated; the bind sphere stands in for it.
+            bool includeBind = hasUnweightedVertices || joints.Length == 0;
+            Vector3 sum = Vector3.Zero;
+            int count = 0;
+            for (int i = 0; i < joints.Length; i++)
+            {
+                if ((uint)joints[i] >= (uint)palette.Length) { includeBind = true; continue; }
+                sum += Vector3.Transform(bindCenter, palette[joints[i]]);
+                count++;
+            }
+
+            if (includeBind)
+            {
+                sum += bindCenter;
+                count++;
+            }
+
+            center = sum / count;
+            radius = includeBind ? Vector3.Distance(bindCenter, center) + bindRadius : 0f;
+            for (int i = 0; i < joints.Length; i++)
+            {
+                if ((uint)joints[i] >= (uint)palette.Length) continue;
+                ref readonly Matrix4x4 skin = ref palette[joints[i]];
+                float reach = Vector3.Distance(Vector3.Transform(bindCenter, skin), center)
+                    + bindRadius * MatrixScaleHelper.MaxScale(skin);
+                radius = MathF.Max(radius, reach);
+            }
+
+            // A broken pose (a NaN or infinite matrix) must not hide the mesh.
+            if (!float.IsFinite(radius) || !float.IsFinite(center.X + center.Y + center.Z))
+            {
+                center = bindCenter;
+                radius = bindRadius;
+            }
         }
 
         public SkinPaletteHandle CreateSkinPalette(int matrixCount)
@@ -2460,8 +2554,20 @@ namespace Genesis.Rendering.Primitives
             MeshDrawFlags rasterOverride = RasterOverrideForWorld(flags, world);
             bool noDepthTest = (flags & MeshDrawFlags.NoDepthTest)  != 0;
             bool foliage     = (flags & MeshDrawFlags.Foliage)      != 0;
-            bool gpuSkinned  = meshEntrySource.IsSkinned && skinPalette.IsValid && TryGetSkinPalette(skinPalette.Id, out _);
+            SkinPaletteEntry skinPaletteEntry = default;
+            bool gpuSkinned  = meshEntrySource.IsSkinned && skinPalette.IsValid && TryGetSkinPalette(skinPalette.Id, out skinPaletteEntry);
             if (gpuSkinned) _submittedSkinPalettes.Add(skinPalette.Id);
+
+            // Culling and shadow classification test where the mesh is drawn. For a skinned mesh
+            // that is its posed position; the bind-pose sphere made parts of animated characters
+            // vanish when the camera was close enough for the two to differ.
+            Vector3 boundsCenter = meshEntrySource.BoundsCenter;
+            float boundsRadius = meshEntrySource.BoundsRadius;
+            if (gpuSkinned)
+            {
+                PosedSkinBounds(boundsCenter, boundsRadius, meshEntrySource.SkinJoints, meshEntrySource.HasUnweightedVertices,
+                    skinPaletteEntry.Matrices.AsSpan(0, skinPaletteEntry.MatrixCount), out boundsCenter, out boundsRadius);
+            }
 
             if (isWater)
             {
@@ -2496,8 +2602,8 @@ namespace Genesis.Rendering.Primitives
             bool visible = true;
             if (_state.FrustumCullingEnabled && !isFloor && !noDepthWr)
             {
-                Vector3 worldCenter = Vector3.Transform(meshEntrySource.BoundsCenter, world);
-                float worldRadius = meshEntrySource.BoundsRadius * MatrixScaleHelper.MaxScale(world);
+                Vector3 worldCenter = Vector3.Transform(boundsCenter, world);
+                float worldRadius = boundsRadius * MatrixScaleHelper.MaxScale(world);
                 if (!_frustum.ContainsSphere(worldCenter, worldRadius)
                     && !(_hasReflectionFrustum && _reflectionFrustum.ContainsSphere(worldCenter, worldRadius)))
                 {
@@ -2571,8 +2677,8 @@ namespace Genesis.Rendering.Primitives
                             PaletteId = skinPalette.Id,
                             World = world,
                             RasterOverride = rasterOverride,
-                            Center = Vector3.Transform(meshEntrySource.BoundsCenter, world),
-                            Radius = meshEntrySource.BoundsRadius * MatrixScaleHelper.MaxScale(world),
+                            Center = Vector3.Transform(boundsCenter, world),
+                            Radius = boundsRadius * MatrixScaleHelper.MaxScale(world),
                         });
                     }
                     return;
