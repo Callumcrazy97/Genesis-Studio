@@ -77,8 +77,10 @@ against the sphere of its bind pose, which the seated pose had left by half a me
   back on.
 - Validation: `Build.bat --full` on commit `c74305c` passed (build `20261001-121140-08b86b64`):
   1099 regression checks, no failures, and the DX11, DX12, Vulkan, OpenGL and Software smokes.
-  Not covered: the Software renderer is not in the new drawn-scene case, and the reporting game's
-  own scene has not been re-checked from this checkout.
+  The reporting game then rebuilt its Player from this commit, turned culling back on and
+  re-checked the failing view on Vulkan (seated characters at 0.9 m, head, eyes, brows, lashes and
+  hair as separate skinned meshes): all drawn. Not covered: the Software renderer is in neither
+  the new drawn-scene case nor that game check.
 
 ### Engine audit remediation — rendering, frame-path waste and volumetric fog, 30 September
 
