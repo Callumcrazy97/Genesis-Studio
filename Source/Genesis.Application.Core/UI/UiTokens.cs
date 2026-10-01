@@ -142,6 +142,6 @@ public static class UiTokens
     private static readonly HashSet<string> Acronyms = new(StringComparer.Ordinal)
     {
         "HLSL", "PGSL", "GLSL", "PBR", "GPU", "CPU", "FPS", "RGB", "RGBA", "HDR", "XYZ", "UV", "UVS",
-        "UI", "HUD", "LOD", "API", "ID", "IK", "FX", "SFX", "AI", "PNG", "JPG", "WAV", "GLB", "FBX",
+        "UI", "HUD", "LOD", "API", "ID", "GUID", "IK", "FX", "SFX", "AI", "PNG", "JPG", "WAV", "GLB", "FBX",
     };
 }

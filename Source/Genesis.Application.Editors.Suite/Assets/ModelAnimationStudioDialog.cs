@@ -596,6 +596,6 @@ public sealed partial class ModelAnimationStudioDialog : DpiAwareForm
     private static Panel Page() => new() { AutoScroll = true, Padding = new Padding(10, 0, 10, 6), BackColor = EditorChrome.Surface };
     private static FlowLayoutPanel Stack() => new() { Dock = DockStyle.Top, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = Padding.Empty };
     private static FlowLayoutPanel Row(params Control[] controls) { var row = new FlowLayoutPanel { AutoSize = true, Width = 332, WrapContents = true, Margin = Padding.Empty }; ScaleFieldWidth(row, 332); row.Controls.AddRange(controls); return row; }
-    private static Label Caption(string text, int width = 320) => new() { Text = text, AutoSize = true, TextAlign = ContentAlignment.MiddleLeft, ForeColor = EditorChrome.Muted, Font = EditorChrome.SmallFont, Margin = new Padding(3, 5, 3, 3) };
+    private static Label Caption(string text, int width = 320) => new() { Text = Genesis.Application.Core.UI.UiTokens.DisplayHeading(text), AutoSize = true, TextAlign = ContentAlignment.MiddleLeft, ForeColor = EditorChrome.Muted, Font = EditorChrome.SmallFont, Margin = new Padding(3, 5, 3, 3) };
     private static Label Hint(string text) => new() { Text = text, Width = 326, Height = 54, ForeColor = EditorChrome.Muted, Font = EditorChrome.SmallFont, Padding = new Padding(2, 5, 2, 0) };
 }

@@ -17,7 +17,7 @@ internal static class ImageCanvasToolUi
         var panel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10), BackColor = ImageEditorChrome.Canvas };
         content.Dock = DockStyle.Fill;
         panel.Controls.Add(content);
-        panel.Controls.Add(new Label { Text = title, Dock = DockStyle.Top, Height = 30, ForeColor = ImageEditorChrome.Text, Font = new Font(SystemFonts.MessageBoxFont!,FontStyle.Bold) });
+        panel.Controls.Add(new Label { Text = Genesis.Application.Core.UI.UiTokens.DisplayHeading(title), Dock = DockStyle.Top, Height = 30, ForeColor = ImageEditorChrome.Text, Font = new Font(SystemFonts.MessageBoxFont!,FontStyle.Bold) });
         return panel;
     }
 }

@@ -309,6 +309,9 @@ internal static class StudioPolishSuite
                 && shell.CommandCatalog.FindShortcut((int)(Keys.Control | Keys.Shift | Keys.P)) == "studio.commands"
                 && entries.Any(item => item.Name == "help.copyBuildInfo"), "Palette/build commands are hidden or not registered.");
             Assert(entries.Any(item => item.Name == "help.pgsl" && item.Text == "Commands…"), "Help command reference is missing.");
+            Assert(entries.Any(item => item.Name == "help.gettingStarted" && item.Text?.StartsWith("Getting started", StringComparison.Ordinal) == true)
+                && shell.CommandCatalog.FindShortcut((int)Keys.F1) == "help.gettingStarted",
+                "The beginner guide is not in the Help menu or F1 does not open it.");
         }));
     }
 

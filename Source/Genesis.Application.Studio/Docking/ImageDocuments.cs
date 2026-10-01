@@ -76,6 +76,9 @@ public sealed class ImageViewerDocument : GenesisDockContent, IStudioDocument,
     public event EventHandler<ImageEditorRequestedEventArgs>? EditorRequested;
     public event EventHandler? InspectorStateChanged;
 
+    /// <summary>Opens the Image editor for this image, as the viewer's main button does.</summary>
+    public void RequestEdit() => _viewer.RequestEdit();
+
     /// <summary>Wires project Texture Group authoring into the Viewer and Inspector.</summary>
     public void BindTextureGroups(
         Func<IReadOnlyList<string>> listNames,

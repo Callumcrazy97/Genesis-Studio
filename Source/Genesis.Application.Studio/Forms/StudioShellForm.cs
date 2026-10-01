@@ -331,6 +331,7 @@ public sealed partial class StudioShellForm : DpiAwareForm
         tools.DropDownItems.Add(new ToolStripSeparator());
         foreach (string id in new[] { "tools.packages", "tools.profiler", "tools.frameDebugger" }) tools.DropDownItems.Add(CommandMenuItem(id));
         ToolStripMenuItem help = new("&Help");
+        help.DropDownItems.Add(CommandMenuItem("help.gettingStarted"));
         help.DropDownItems.Add(CommandMenuItem("help.documentation"));
         help.DropDownItems.Add(CommandMenuItem("help.pgsl", "Commands…"));
         help.DropDownItems.Add(new ToolStripSeparator());
@@ -517,7 +518,7 @@ public sealed partial class StudioShellForm : DpiAwareForm
         _finderFilter.DropDownItems.Add(_finderIncludeSubfoldersItem);
         _finderFilter.DropDownItems.Add(_finderContentsItem);
         _finderFilter.DropDownItems.Add(new ToolStripSeparator());
-        _finderFilter.DropDownItems.Add(new ToolStripLabel("RESOURCE TYPES") { Enabled = false });
+        _finderFilter.DropDownItems.Add(new ToolStripLabel("Resource types") { Enabled = false });
 
         _finderAllTypesItem = new ToolStripMenuItem("All resource types")
         {
@@ -1906,9 +1907,29 @@ public sealed partial class StudioShellForm : DpiAwareForm
                 Path.GetFullPath(item.FullPath),
                 Path.GetFullPath(path),
                 StringComparison.OrdinalIgnoreCase));
-        if (created is not null)
+        if (created is null)
         {
-            OpenResource(created);
+            return;
+        }
+
+        OpenResource(created);
+
+        // An image opens in its viewer. Someone who has just asked to draw one wants the canvas,
+        // so carry on into the editor instead of leaving them to find the Edit button.
+        if (kind == ResourceKind.Image)
+        {
+            _dockPanel.Contents
+                .OfType<ImageViewerDocument>()
+                .FirstOrDefault(document => string.Equals(
+                    document.DocumentIdentity,
+                    ResourceIdentity(created),
+                    StringComparison.OrdinalIgnoreCase))
+                ?.RequestEdit();
+        }
+        else if (kind == ResourceKind.Model)
+        {
+            // A new Model is empty: the viewer has nothing to show, the editor's Start step does.
+            OpenModelComposer(created);
         }
     }
 
@@ -1921,6 +1942,9 @@ public sealed partial class StudioShellForm : DpiAwareForm
                 break;
             case "Validate":
                 InvokeCommand("project.validate", CaptureCommandContext());
+                break;
+            case "Guide":
+                InvokeCommand("help.gettingStarted", CaptureCommandContext());
                 break;
             case not null when action.StartsWith("Open:", StringComparison.Ordinal):
                 string wanted = action["Open:".Length..];
@@ -2008,17 +2032,42 @@ public sealed partial class StudioShellForm : DpiAwareForm
             "explorer.exe", $"/select,\"{documentation}\"") { UseShellExecute = true });
     }
 
-    internal static string? FindMasterDocumentation(string applicationDirectory)
+    internal static string? FindMasterDocumentation(string applicationDirectory) =>
+        FindDocumentation(applicationDirectory, "README.md");
+
+    internal static string? FindDocumentation(string applicationDirectory, string fileName)
     {
         DirectoryInfo? directory = new(Path.GetFullPath(applicationDirectory));
         // Published Studio ships Documentation beside its EXE. Source/debug runs are nested.
         for (int depth = 0; directory is not null && depth < 8; depth++, directory = directory.Parent)
         {
-            string candidate = Path.Combine(directory.FullName, "Documentation", "README.md");
+            string candidate = Path.Combine(directory.FullName, "Documentation", fileName);
             if (File.Exists(candidate)) return candidate;
         }
         return null;
     }
+
+    /// <summary>Shows the beginner guide inside Studio; it needs no Markdown viewer on the machine.</summary>
+    private void ShowGettingStarted()
+    {
+        string? guide = FindDocumentation(AppContext.BaseDirectory, GuideViewerForm.GettingStartedFile);
+        if (guide is null)
+        {
+            SetStatus("The Getting started guide is not available in this build.");
+            return;
+        }
+
+        if (_guideViewer is { IsDisposed: false })
+        {
+            _guideViewer.Activate();
+            return;
+        }
+
+        _guideViewer = new GuideViewerForm("Getting started", File.ReadAllText(guide));
+        _guideViewer.Show(this);
+    }
+
+    private GuideViewerForm? _guideViewer;
 
     private void ShowPgslCommandReference()
     {

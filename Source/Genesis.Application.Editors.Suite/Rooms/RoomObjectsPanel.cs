@@ -52,7 +52,7 @@ public sealed class RoomObjectsPanel : Panel
                 : row == (instances ? 2 : 5) ? SizeType.Percent : SizeType.AutoSize;
             _content.RowStyles[row].Height = !visible ? 0 : row == (instances ? 2 : 5) ? 100 : 0;
         }
-        if (_content.GetControlFromPosition(0, 0) is Label heading) heading.Text = instances ? "ROOM INSTANCES" : "OBJECT ASSETS";
+        if (_content.GetControlFromPosition(0, 0) is Label heading) heading.Text = instances ? "Room instances" : "Object assets";
         _searchBox.PlaceholderText = instances ? "Search instances…" : "Find objects…";
         SizeObjectSections();
         ResumeLayout(true);
@@ -159,7 +159,7 @@ public sealed class RoomObjectsPanel : Panel
         foreach (var style in new[] { new RowStyle(SizeType.AutoSize), new RowStyle(SizeType.AutoSize),
             new RowStyle(SizeType.Percent, 56), new RowStyle(SizeType.AutoSize), new RowStyle(SizeType.AutoSize),
             new RowStyle(SizeType.Percent, 44), new RowStyle(SizeType.AutoSize) }) content.RowStyles.Add(style);
-        content.Controls.Add(Header("ROOM OBJECTS"), 0, 0);
+        content.Controls.Add(Header("Room objects"), 0, 0);
         var searchHost = new Panel { Dock = DockStyle.Top, Height = 36, Padding = new Padding(0, 2, 0, 6) };
         searchHost.Controls.Add(_searchBox); content.Controls.Add(searchHost, 0, 1);
         content.Controls.Add(_tree, 0, 2);
@@ -173,7 +173,7 @@ public sealed class RoomObjectsPanel : Panel
             RoomLayer layer = _editor.AddRoomLayer(); RefreshRoomInstances(); RefreshLayers();
             if (_layerNodes.TryGetValue(layer.Id, out TreeNode? item)) { _tree.SelectedNode = item; item.BeginEdit(); }
         }));
-        content.Controls.Add(actions, 0, 3); content.Controls.Add(Header("OBJECT ASSETS"), 0, 4); content.Controls.Add(_assets, 0, 5);
+        content.Controls.Add(actions, 0, 3); content.Controls.Add(Header("Object assets"), 0, 4); content.Controls.Add(_assets, 0, 5);
 
         _layerCombo = new ThemedComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList,
             DisplayMember = "Name", Name = "RoomPlacementLayer" };

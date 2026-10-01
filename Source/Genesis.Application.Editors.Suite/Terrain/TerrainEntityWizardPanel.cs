@@ -686,7 +686,7 @@ public sealed partial class TerrainEntityWizardPanel : UserControl
             ForeColor = EditorChrome.Muted,
             Font = EditorChrome.SmallFont,
             Location = new Point(0, 38),
-            Text = "ANIMATION",
+            Text = "Animation",
         };
         ThemedComboBox clipCombo = new() { Location = new Point(0, 56), Width = 220 };
         EditorChrome.StyleField(clipCombo);
@@ -992,7 +992,7 @@ public sealed partial class TerrainEntityWizardPanel : UserControl
             path => MakeSurfaceEditor(new AudioEditorControl(path, _projectRoot)),
             y: 0));
 
-        Label volumeLabel = new() { AutoSize = true, BackColor = Color.Transparent, ForeColor = EditorChrome.Muted, Font = EditorChrome.SmallFont, Location = new Point(0, 38), Text = "VOLUME" };
+        Label volumeLabel = new() { AutoSize = true, BackColor = Color.Transparent, ForeColor = EditorChrome.Muted, Font = EditorChrome.SmallFont, Location = new Point(0, 38), Text = "Volume" };
         NumericUpDown volumeField = new() { DecimalPlaces = 2, Increment = 0.05m, Maximum = 1m, Minimum = 0m, Location = new Point(0, 56), Width = 80 };
         EditorChrome.StyleField(volumeField);
         volumeField.Value = decimal.TryParse(component.Get("Volume", "1"), out decimal volume) ? Math.Clamp(volume, 0m, 1m) : 1m;
@@ -1005,11 +1005,11 @@ public sealed partial class TerrainEntityWizardPanel : UserControl
         bool is3D = component.Get("Mode", nameof(TerrainEntityAudioMode.ThreeD)) == nameof(TerrainEntityAudioMode.ThreeD);
         modeCombo.SelectedIndex = is3D ? 1 : 0;
 
-        Label minLabel = new() { AutoSize = true, BackColor = Color.Transparent, ForeColor = EditorChrome.Muted, Font = EditorChrome.SmallFont, Location = new Point(196, 38), Text = "MIN DIST" };
+        Label minLabel = new() { AutoSize = true, BackColor = Color.Transparent, ForeColor = EditorChrome.Muted, Font = EditorChrome.SmallFont, Location = new Point(196, 38), Text = "Min distance" };
         NumericUpDown minField = new() { DecimalPlaces = 1, Maximum = 1000m, Minimum = 0m, Location = new Point(196, 56), Width = 70 };
-        Label maxLabel = new() { AutoSize = true, BackColor = Color.Transparent, ForeColor = EditorChrome.Muted, Font = EditorChrome.SmallFont, Location = new Point(276, 38), Text = "MAX DIST" };
+        Label maxLabel = new() { AutoSize = true, BackColor = Color.Transparent, ForeColor = EditorChrome.Muted, Font = EditorChrome.SmallFont, Location = new Point(276, 38), Text = "Max distance" };
         NumericUpDown maxField = new() { DecimalPlaces = 1, Maximum = 2000m, Minimum = 0m, Location = new Point(276, 56), Width = 70 };
-        Label falloffLabel = new() { AutoSize = true, BackColor = Color.Transparent, ForeColor = EditorChrome.Muted, Font = EditorChrome.SmallFont, Location = new Point(356, 38), Text = "FALLOFF" };
+        Label falloffLabel = new() { AutoSize = true, BackColor = Color.Transparent, ForeColor = EditorChrome.Muted, Font = EditorChrome.SmallFont, Location = new Point(356, 38), Text = "Falloff" };
         ThemedComboBox falloffCombo = new() { Location = new Point(356, 56), Width = 110 };
         EditorChrome.StyleField(minField);
         EditorChrome.StyleField(maxField);
@@ -1068,9 +1068,9 @@ public sealed partial class TerrainEntityWizardPanel : UserControl
         solidCheck.Checked = component.Get("Solid", "true") == "true";
         solidCheck.CheckedChanged += (_, _) => component.Set("Solid", solidCheck.Checked ? "true" : "false");
 
-        Label frictionLabel = new() { AutoSize = true, BackColor = Color.Transparent, ForeColor = EditorChrome.Muted, Font = EditorChrome.SmallFont, Location = new Point(410, 0), Text = "FRICTION" };
+        Label frictionLabel = new() { AutoSize = true, BackColor = Color.Transparent, ForeColor = EditorChrome.Muted, Font = EditorChrome.SmallFont, Location = new Point(410, 0), Text = "Friction" };
         NumericUpDown frictionField = new() { DecimalPlaces = 2, Increment = 0.05m, Maximum = 2m, Minimum = 0m, Location = new Point(410, 18), Width = 70 };
-        Label restitutionLabel = new() { AutoSize = true, BackColor = Color.Transparent, ForeColor = EditorChrome.Muted, Font = EditorChrome.SmallFont, Location = new Point(490, 0), Text = "RESTITUTION" };
+        Label restitutionLabel = new() { AutoSize = true, BackColor = Color.Transparent, ForeColor = EditorChrome.Muted, Font = EditorChrome.SmallFont, Location = new Point(490, 0), Text = "Bounciness" };
         NumericUpDown restitutionField = new() { DecimalPlaces = 2, Increment = 0.05m, Maximum = 1m, Minimum = 0m, Location = new Point(490, 18), Width = 70 };
         EditorChrome.StyleField(frictionField);
         EditorChrome.StyleField(restitutionField);

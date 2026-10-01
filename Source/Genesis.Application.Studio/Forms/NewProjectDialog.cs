@@ -88,7 +88,7 @@ public sealed class NewProjectDialog : DpiAwareForm
                 : $"Start from {template.Name}. Its resources will be copied into your own editable project.",
         });
 
-        form.Controls.Add(FieldLabel("PROJECT NAME", 0, 134));
+        form.Controls.Add(FieldLabel("Project name", 0, 134));
         _nameBox = new TextBox
         {
             Location = new Point(0, 160),
@@ -98,7 +98,7 @@ public sealed class NewProjectDialog : DpiAwareForm
         };
         form.Controls.Add(_nameBox);
 
-        form.Controls.Add(FieldLabel("SAVE PROJECT IN", 0, 217));
+        form.Controls.Add(FieldLabel("Save project in", 0, 217));
         _locationBox = new TextBox
         {
             Location = new Point(0, 243),

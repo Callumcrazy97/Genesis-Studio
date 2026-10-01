@@ -97,12 +97,12 @@ public sealed class ResourceDocument : GenesisDockContent, IStudioDocument
             Padding = new Padding(18),
         };
         split.Panel2.Controls.Add(details);
-        details.Controls.Add(CreateDetail("RESOURCE TYPE", DisplayKind(resource.Kind), 18));
+        details.Controls.Add(CreateDetail("Resource type", DisplayKind(resource.Kind), 18));
         details.Controls.Add(CreateDetail(
-            "ASSET GUID",
+            "Asset GUID",
             resource.AssetId == Guid.Empty ? "Unassigned" : resource.AssetId.ToString("N"),
             92));
-        details.Controls.Add(CreateDetail("RESOURCE NAME", resource.Name, 166));
+        details.Controls.Add(CreateDetail("Resource name", resource.Name, 166));
         details.Controls.Add(CreateDetail(
             "EDITOR",
             "Foundation text surface\nSpecialised editor routing follows this contract.",

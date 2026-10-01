@@ -52,7 +52,7 @@ public sealed class TerrainAffectsStrip : Panel
             Font = EditorChrome.HeadingFont,
             ForeColor = EditorChrome.Muted,
             Height = 18,
-            Text = "AFFECTS",
+            Text = "Affects",
             TextAlign = ContentAlignment.MiddleLeft,
         };
 

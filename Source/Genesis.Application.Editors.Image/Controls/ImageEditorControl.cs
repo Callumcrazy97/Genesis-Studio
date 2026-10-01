@@ -1061,7 +1061,7 @@ public sealed partial class ImageEditorControl : UserControl, IEditCommandTarget
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
         panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
-        Label header = ImageEditorChrome.MakeSectionTitle("TIMELINE · Shift-click selects a range · Drag reorders");
+        Label header = ImageEditorChrome.MakeSectionTitle("Timeline · Shift-click selects a range · Drag reorders");
         header.Dock = DockStyle.Fill;
         panel.Controls.Add(header, 0, 0);
 

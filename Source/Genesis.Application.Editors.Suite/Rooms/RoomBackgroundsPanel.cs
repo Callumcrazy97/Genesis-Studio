@@ -205,7 +205,7 @@ public sealed class RoomBackgroundsPanel : Panel
         Label previewLbl = new()
         {
             Name = "BackgroundPreviewHeading",
-            Text = "PREVIEW",
+            Text = "Preview",
             Font = EditorChrome.HeadingFont,
             ForeColor = EditorChrome.Accent,
             Dock = DockStyle.Top,

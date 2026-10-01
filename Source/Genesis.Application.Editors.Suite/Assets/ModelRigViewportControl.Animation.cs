@@ -356,7 +356,7 @@ public sealed partial class ModelRigViewportControl
             ForeColor = EditorChrome.Muted,
             Height = 26,
             Margin = new Padding(3, 3, 3, 0),
-            Text = text,
+            Text = Genesis.Application.Core.UI.UiTokens.DisplayHeading(text),
             TextAlign = ContentAlignment.MiddleLeft,
             Width = width,
         };
@@ -414,7 +414,7 @@ public sealed partial class ModelRigViewportControl
             ForeColor = EditorChrome.Muted,
             Height = 24,
             Margin = new Padding(0, 8, 0, 0),
-            Text = text,
+            Text = Genesis.Application.Core.UI.UiTokens.DisplayHeading(text),
             TextAlign = ContentAlignment.BottomLeft,
             Width = 244,
         };

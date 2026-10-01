@@ -1,12 +1,17 @@
 using System.Windows.Forms;
 using Genesis.Application.Core.Projects;
 using Genesis.Application.Core.Resources;
+using Genesis.Application.Core.Images;
 using Genesis.Application.Core.UI;
+using Genesis.Application.Editors.Image.Controls;
+using Genesis.Application.Editors.Image.Imaging;
 using Genesis.Application.Editors.Suite;
 using Genesis.Application.Editors.Suite.Assets;
 using Genesis.Application.Editors.Suite.Objects;
 using Genesis.Application.Editors.Suite.Rooms;
+using Genesis.Application.Editors.Suite.Scripts;
 using Genesis.Application.Editors.Suite.Terrain;
+using Genesis.Application.Studio.Forms;
 using Genesis.Runtime.Scripting;
 
 namespace Genesis.Application.Headless.Suites;
@@ -140,6 +145,56 @@ internal static class ClearWorkflowSuite
             ObjectSandboxResult timed = ObjectSandbox.Run(ObjectBehaviourRecipes.Find("Timed")!.Events, frames: 200);
             HeadlessHarness.Assert(timed.EventsFired.Contains("Alarm11"), "The three-second timer never fired its alarm.");
         });
+
+        HeadlessHarness.RunCase(context.Report, "Clear.Guide.GettingStartedNamesRealRecipesAndSteps", () =>
+        {
+            string path = StudioShellForm.FindDocumentation(AppContext.BaseDirectory, GuideViewerForm.GettingStartedFile)
+                ?? throw new InvalidOperationException("Documentation/GettingStarted.md was not found from the test host.");
+            IReadOnlyList<GuideBlock> blocks = GuideViewerForm.Parse(File.ReadAllText(path));
+            HeadlessHarness.Assert(blocks.Count(block => block.Kind == GuideBlockKind.Title) == 1
+                && blocks[0].Kind == GuideBlockKind.Title,
+                "The guide does not open with exactly one title.");
+            string[] headings = blocks.Where(block => block.Kind == GuideBlockKind.Heading).Select(block => block.Text).ToArray();
+            HeadlessHarness.Assert(headings.SequenceEqual(
+                [
+                    "Your first game in four steps", "Recipes you can combine", "Making a 3D scene",
+                    "Where things are", "If something goes wrong",
+                ]),
+                "The guide's sections changed: " + string.Join(" | ", headings));
+
+            // A guide that names a recipe the editor does not offer sends a beginner looking for nothing.
+            GuideBlock[] recipeItems = Section(blocks, "Recipes you can combine")
+                .Where(block => block.Kind == GuideBlockKind.Bullet).ToArray();
+            string[] named = recipeItems.SelectMany(block => BoldRuns(block.Text)).ToArray();
+            string[] titles = ObjectBehaviourRecipes.All.Select(recipe => recipe.Title).Distinct().ToArray();
+            HeadlessHarness.Assert(named.Length == titles.Length && named.All(name => titles.Contains(name)),
+                $"The guide names {named.Length} recipes ({string.Join(", ", named.Except(titles))} unknown); the editor offers {titles.Length}.");
+
+            GuideBlock[] firstGame = Section(blocks, "Your first game in four steps")
+                .Where(block => block.Kind == GuideBlockKind.Numbered).ToArray();
+            HeadlessHarness.Assert(firstGame.Select(block => block.Number).SequenceEqual([1, 2, 3, 4])
+                && firstGame.Select(block => BoldRuns(block.Text).First())
+                    .SequenceEqual(["Draw a sprite.", "Make an Object.", "Build a Room.", "Press Run."]),
+                "The first game is no longer four numbered steps matching Home.");
+            HeadlessHarness.Assert(GuideViewerForm.PlainText("**Run** the *game* with `F5`") == "Run the game with F5",
+                "Inline marks are not removed from displayed text.");
+        });
+    }
+
+    private static IEnumerable<GuideBlock> Section(IReadOnlyList<GuideBlock> blocks, string heading) =>
+        blocks.SkipWhile(block => !(block.Kind == GuideBlockKind.Heading && block.Text == heading))
+            .Skip(1)
+            .TakeWhile(block => block.Kind != GuideBlockKind.Heading);
+
+    private static IEnumerable<string> BoldRuns(string text)
+    {
+        for (int start = text.IndexOf("**", StringComparison.Ordinal); start >= 0;)
+        {
+            int end = text.IndexOf("**", start + 2, StringComparison.Ordinal);
+            if (end < 0) yield break;
+            yield return text[(start + 2)..end];
+            start = text.IndexOf("**", end + 2, StringComparison.Ordinal);
+        }
     }
 
     /// <summary>Editor cases: they open editors in hidden, unfocused host windows.</summary>
@@ -147,6 +202,30 @@ internal static class ClearWorkflowSuite
     {
         HeadlessHarness.BeginMajor(context.Report, "Clear editor workflows");
         GateSuite.GateFixture fixture = new(context, "Clear");
+
+        HeadlessHarness.RunCase(context.Report, "Shell.Guide.ViewerShowsTheGuideWithoutMarkdownMarks", () =>
+        {
+            string path = StudioShellForm.FindDocumentation(AppContext.BaseDirectory, GuideViewerForm.GettingStartedFile)
+                ?? throw new InvalidOperationException("Documentation/GettingStarted.md was not found from the test host.");
+            using GuideViewerForm viewer = new("Getting started", File.ReadAllText(path));
+            GateSuite.ShowHost(viewer);
+            GateSuite.Pump(4, 10);
+            string shown = viewer.DisplayedText;
+            HeadlessHarness.Assert(shown.Contains("Getting started with Genesis Studio", StringComparison.Ordinal)
+                && shown.Contains("Your first game in four steps", StringComparison.Ordinal)
+                && shown.Contains("1.\tDraw a sprite.", StringComparison.Ordinal)
+                && shown.Contains("\u2022\tMove with arrow keys", StringComparison.Ordinal),
+                "The guide viewer does not show the guide's headings, numbered steps and bullets.");
+            HeadlessHarness.Assert(!shown.Contains("**", StringComparison.Ordinal) && !shown.Contains("## ", StringComparison.Ordinal)
+                && !shown.Contains('`') && !shown.Contains("\n- ", StringComparison.Ordinal),
+                "The guide viewer shows raw Markdown marks.");
+            Control close = viewer.Controls.Find("GuideClose", searchAllChildren: true).Single();
+            HeadlessHarness.Assert(close.Visible && viewer.CancelButton == close, "The guide viewer cannot be closed with Escape.");
+            // A rich text page only renders through PrintWindow, so capture the window's pixels.
+            string image = "clear-guide-viewer.png";
+            context.Report.Images.Add(ImageResult.From("Getting started guide viewer", image,
+                VisualCapture.CaptureOpenForm(viewer, Path.Combine(context.Captures, image), includeViewports: true)));
+        });
 
         HeadlessHarness.RunCase(context.Report, "Editor.Workflow.TerrainStepsFollowModesAndLandformsApply", () =>
         {
@@ -287,5 +366,98 @@ internal static class ClearWorkflowSuite
                 && json.Contains("Clear Toon", StringComparison.Ordinal),
                 "A model look did not create a 3D Object that draws the Model with the Shader.");
         });
+
+        HeadlessHarness.RunCase(context.Report, "Editor.Workflow.EveryEditorShowsItsStepsUnderTheCommandBar", () =>
+        {
+            // The table in Documentation/StudioClear.md, as a test: one guided bar per editor, the
+            // documented steps in order, ending in Use in game, directly beneath the command bar.
+            ProjectSession project = fixture.Blank;
+            ResourceService resources = fixture.Resources(project);
+            // Each kind is created in its own root folder; the project refuses any other.
+            string New(ResourceKind kind, string name) => resources.CreateResource(
+                fixture.Folder(project, ResourceFolderPolicy.Roots.First(root => root.Kind == kind).Name), kind, name);
+
+            (string Editor, Func<Control> Create, string[] Steps)[] editors =
+            [
+                ("Terrain", () => new TerrainEditorControl(New(ResourceKind.Terrain, "Steps Terrain"), project.RootPath),
+                    ["Shape", "Sculpt", "Paint", "Decorate", "UseInGame"]),
+                ("Model viewer", () => new ModelViewerControl(New(ResourceKind.Model, "Steps Viewer Model"), project.RootPath),
+                    ["Import", "Edit", "Animate", "UseInGame"]),
+                ("Model editor", () => new ModelEditorControl(New(ResourceKind.Model, "Steps Editor Model"), project.RootPath),
+                    ["Create", "Shape", "Surface", "Rig", "UseInGame"]),
+                ("Image", () => new ImageEditorControl(new ImageDocumentSession(ImageDocument.CreateDefault(32, 32)),
+                        ImageWorkspace.CreateBlank(32, 32, System.Drawing.Color.Transparent)),
+                    ["Draw", "Animate", "Rig", "UseInGame"]),
+                ("Shader", () => new ShaderEditorControl(New(ResourceKind.Shader, "Steps Shader"), project.RootPath),
+                    ["Look", "Preview", "Tune", "UseInGame"]),
+                ("Object", () => new ObjectEditorControl(New(ResourceKind.GameObject, "Steps Object"), project.RootPath),
+                    ["Look", "Behaviour", "Test", "UseInGame"]),
+                ("Particle", () => new ParticleEditorControl(New(ResourceKind.Particle, "Steps Particle"), project.RootPath),
+                    ["Effect", "Tune", "UseInGame"]),
+                ("Physics", () => new PhysicsEditorControl(New(ResourceKind.Physics, "Steps Physics"), project.RootPath),
+                    ["Kind", "Setup", "Tune", "Test", "UseInGame"]),
+                ("Room", () => new RoomEditorControl(New(ResourceKind.Room, "Steps Room"), project.RootPath),
+                    ["Ground", "Place", "Sky", "Camera", "UseInGame"]),
+                ("Audio", () => new AudioEditorControl(New(ResourceKind.Audio, "Steps Audio"), project.RootPath),
+                    ["Sound", "Tune", "Listen", "UseInGame"]),
+                ("Pathing", () => new PathingEditorControl(New(ResourceKind.Pathing, "Steps Pathing"), project.RootPath),
+                    ["Route", "Preview", "UseInGame"]),
+                ("UI", () => new UiEditorControl(New(ResourceKind.UserInterface, "Steps UI"), project.RootPath),
+                    ["Start", "Design", "UseInGame"]),
+                ("Script", () => new PgslScriptEditorControl(New(ResourceKind.PgslScript, "Steps Script"), project.RootPath),
+                    ["Write", "Check", "UseInGame"]),
+            ];
+
+            foreach ((string name, Func<Control> create, string[] steps) in editors)
+            {
+                using Form host = GateSuite.NewHost(1360, 860);
+                using Control editor = create();
+                editor.Dock = DockStyle.Fill;
+                host.Controls.Add(editor);
+                GateSuite.ShowHost(host);
+                GateSuite.Pump(8, 20);
+
+                WorkflowBar[] bars = Descendants(editor).OfType<WorkflowBar>().ToArray();
+                HeadlessHarness.Assert(bars.Length == 1, $"{name}: expected one workflow bar, found {bars.Length}.");
+                WorkflowBar bar = bars[0];
+                HeadlessHarness.Assert(bar.Steps.Select(step => step.Id).SequenceEqual(steps),
+                    $"{name}: steps are {string.Join(" > ", bar.Steps.Select(step => step.Id))}, expected {string.Join(" > ", steps)}.");
+                HeadlessHarness.Assert(bar.Visible && !bar.IsAutoHidden && bar.Height > 0 && bar.Width > 400,
+                    $"{name}: the workflow bar is not shown in a {host.ClientSize.Width}x{host.ClientSize.Height} editor ({bar.Bounds}).");
+                HeadlessHarness.Assert(bar.CurrentStepId is not null && !string.IsNullOrWhiteSpace(bar.InstructionText)
+                    && bar.Steps.All(step => !string.IsNullOrWhiteSpace(step.Title) && !string.IsNullOrWhiteSpace(step.Instruction)),
+                    $"{name}: the bar has no current step or a step without a title and instruction.");
+                foreach (WorkflowStep step in bar.Steps)
+                {
+                    Control button = bar.StepButton(step.Id);
+                    HeadlessHarness.Assert(button.Visible && button.Width > 0 && bar.ClientRectangle.Contains(button.Bounds),
+                        $"{name}: step '{step.Title}' is clipped or hidden ({button.Bounds} in {bar.ClientSize}).");
+                }
+
+                // Nothing above the bar except command rows: it must sit in the top band of the editor.
+                System.Drawing.Rectangle inEditor = editor.RectangleToClient(bar.RectangleToScreen(bar.ClientRectangle));
+                HeadlessHarness.Assert(inEditor.Top is >= 20 and <= 150,
+                    $"{name}: the workflow bar is at y={inEditor.Top}, not directly under the command bar.");
+                EditorCommandBar? commands = Descendants(editor).OfType<EditorCommandBar>()
+                    .FirstOrDefault(candidate => candidate.Parent == bar.Parent);
+                if (commands is not null)
+                {
+                    HeadlessHarness.Assert(bar.Top >= commands.Bottom - 1 && bar.Top <= commands.Bottom + 2,
+                        $"{name}: the workflow bar (top {bar.Top}) does not touch its command bar (bottom {commands.Bottom}).");
+                }
+            }
+        });
+    }
+
+    private static IEnumerable<Control> Descendants(Control root)
+    {
+        foreach (Control child in root.Controls)
+        {
+            yield return child;
+            foreach (Control descendant in Descendants(child))
+            {
+                yield return descendant;
+            }
+        }
     }
 }

@@ -127,6 +127,7 @@ public sealed partial class ResourceBrowserDock : GenesisDockContent
             ShowNodeToolTips = true,
         };
         _tree.DrawNode += DrawNode;
+        WindowChrome.ApplyScrollTheme(_tree);
         _tree.AfterSelect += (_, args) =>
         {
             if (args.Node is not null)
@@ -627,6 +628,40 @@ public sealed partial class ResourceBrowserDock : GenesisDockContent
         return item;
     }
 
+    /// <summary>
+    /// Draws the open/closed chevron in the slot where the tree's own expand button sits.
+    /// </summary>
+    /// <remarks>
+    /// The row fill covers the native button, which left folders with no sign that they open.
+    /// Clicks still go to the native button underneath, so the chevron is drawn at its centre.
+    /// Top-level nodes have no button (<c>ShowRootLines</c> is off).
+    /// </remarks>
+    private void DrawExpander(Graphics graphics, TreeNode node, Rectangle label, bool emphasised)
+    {
+        if (node.Level == 0 || node.Nodes.Count == 0)
+        {
+            return;
+        }
+
+        // Sized from the row, so it follows both the monitor's DPI and the interface text size.
+        float half = Math.Max(3.5f, label.Height * 0.15f);
+        float centreX = label.Left - (_tree.Indent / 2f) - 1f;
+        float centreY = label.Top + (label.Height / 2f);
+        PointF[] chevron = node.IsExpanded
+            ? [new(centreX - half, centreY - (half / 2f)), new(centreX, centreY + (half / 2f)), new(centreX + half, centreY - (half / 2f))]
+            : [new(centreX - (half / 2f), centreY - half), new(centreX + (half / 2f), centreY), new(centreX - (half / 2f), centreY + half)];
+        using Pen pen = new(emphasised ? ThemeService.Palette.Text : ThemeService.Palette.TextMuted, Math.Max(1.4f, half / 2.6f))
+        {
+            StartCap = System.Drawing.Drawing2D.LineCap.Round,
+            EndCap = System.Drawing.Drawing2D.LineCap.Round,
+            LineJoin = System.Drawing.Drawing2D.LineJoin.Round,
+        };
+        System.Drawing.Drawing2D.SmoothingMode previous = graphics.SmoothingMode;
+        graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        graphics.DrawLines(pen, chevron);
+        graphics.SmoothingMode = previous;
+    }
+
     private void DrawNode(object? sender, DrawTreeNodeEventArgs e)
     {
         if (e.Node is null || _previewsDisposed)
@@ -637,14 +672,17 @@ public sealed partial class ResourceBrowserDock : GenesisDockContent
         ResourceItem? item = e.Node.Tag as ResourceItem;
         bool selected = (e.State & TreeNodeStates.Selected) != 0;
         bool hovered = (e.State & TreeNodeStates.Hot) != 0;
+        // Opaque on purpose. The themed tree paints a selected row's label itself before this runs;
+        // a translucent tint let that label show through beside the one drawn below.
         Color background = selected
-            ? Color.FromArgb(55, ThemeService.Palette.Accent)
+            ? UiTokens.Blend(ThemeService.Palette.Accent, ThemeService.Palette.Surface, 0.28f)
             : hovered
                 ? ThemeService.Palette.SurfaceHover
                 : ThemeService.Palette.Surface;
         Rectangle row = new(0, e.Bounds.Y, _tree.ClientSize.Width, e.Bounds.Height);
         using SolidBrush rowBrush = new(background);
         e.Graphics.FillRectangle(rowBrush, row);
+        DrawExpander(e.Graphics, e.Node, e.Bounds, selected || hovered);
 
         int textX = e.Bounds.X;
         if (item is not null)

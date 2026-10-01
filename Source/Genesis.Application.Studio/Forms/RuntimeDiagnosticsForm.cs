@@ -36,8 +36,8 @@ public sealed class RuntimeDiagnosticsForm : DpiAwareForm
             Renderer = ThemeService.CreateToolStripRenderer(),
         };
         toolbar.Items.Add(new ToolStripLabel(frameDebugger
-            ? "LAST COMPLETED FRAME"
-            : "LIVE PLAYER TELEMETRY") { ForeColor = ThemeService.Palette.TextMuted });
+            ? "Last completed frame"
+            : "Live Player telemetry") { ForeColor = ThemeService.Palette.TextMuted });
         toolbar.Items.Add(new ToolStripSeparator());
         toolbar.Items.Add(new ToolStripButton("Run Debug (F6)", null, (_, _) => _connection.Text = "Press F6 in Studio to launch the project with telemetry."));
 
@@ -90,7 +90,7 @@ public sealed class RuntimeDiagnosticsForm : DpiAwareForm
         detailsHost.Controls.Add(_details);
         detailsHost.Controls.Add(new Label
         {
-            Text = frameDebugger ? "RENDER PASSES AND SUBMISSION" : "PGSL EVENT COST",
+            Text = frameDebugger ? "Render passes and submission" : "PGSL event cost",
             Dock = DockStyle.Top,
             Height = 32,
             Padding = new Padding(10, 8, 0, 0),

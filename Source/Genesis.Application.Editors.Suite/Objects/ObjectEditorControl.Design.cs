@@ -154,7 +154,7 @@ public sealed partial class ObjectEditorControl
         parentRow.Controls.Add(parentPicker);
         parentPicker.BringToFront();
         stack.Controls.Add(parentRow, 0, 7);
-        stack.Controls.Add(new Label { Text = "EVENTS", ForeColor = EditorChrome.Muted, Dock = DockStyle.Fill, TextAlign = ContentAlignment.BottomLeft }, 0, 8);
+        stack.Controls.Add(new Label { Text = "Events", ForeColor = EditorChrome.Muted, Dock = DockStyle.Fill, TextAlign = ContentAlignment.BottomLeft }, 0, 8);
         panel.Controls.Add(stack); return panel;
     }
 

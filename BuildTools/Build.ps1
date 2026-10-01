@@ -160,7 +160,7 @@ try {
         # Review portfolios contain disposable project fixtures and very long sidecar paths.
         # Ship the product guide; keep development evidence in the repository/report directory.
         [void][IO.Directory]::CreateDirectory((Join-Path $staging 'Documentation'))
-        foreach ($guide in @('README.md','BuildProfiles.md')) {
+        foreach ($guide in @('README.md','GettingStarted.md','BuildProfiles.md')) {
             $sourceGuide = Join-Path $repo "Documentation/$guide"
             if (Test-Path -LiteralPath $sourceGuide) { Copy-Item -LiteralPath $sourceGuide -Destination (Join-Path $staging "Documentation/$guide") }
         }

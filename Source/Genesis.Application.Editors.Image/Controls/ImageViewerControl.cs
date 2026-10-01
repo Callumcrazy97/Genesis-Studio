@@ -849,6 +849,12 @@ public sealed class ImageViewerControl : UserControl, Genesis.Application.Core.E
         }
     }
 
+    /// <summary>
+    /// Does what the viewer's main button does: asks for a canvas size when the image is still
+    /// empty, then asks the host to open the editor.
+    /// </summary>
+    public void RequestEdit() => PrimaryAction();
+
     private void PrimaryAction()
     {
         if (_session.Document.Frames.Count == 0)

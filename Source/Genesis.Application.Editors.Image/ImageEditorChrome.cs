@@ -100,7 +100,7 @@ public static class ImageEditorChrome
 
     public static Label MakeSectionTitle(string text) => new()
     {
-        Text = text,
+        Text = Genesis.Application.Core.UI.UiTokens.DisplayHeading(text),
         Dock = DockStyle.Top,
         Height = SectionHeaderHeight,
         Padding = new Padding(8, 6, 4, 0),

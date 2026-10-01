@@ -37,6 +37,12 @@ public static class WindowChrome
         {
             Apply(form);
         }
+
+        // Scroll bars follow the same switch, including on controls the theme walk does not visit.
+        foreach (Control control in ScrollThemeHooks.Select(hook => hook.Key).ToArray())
+        {
+            SetScrollTheme(control);
+        }
     }
 
     private static readonly ConditionalWeakTable<Control, object> ScrollThemeHooks = new();

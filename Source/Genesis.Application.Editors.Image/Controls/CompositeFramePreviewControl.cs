@@ -33,7 +33,7 @@ public sealed class CompositeFramePreviewControl : UserControl
             Height = 22,
             ForeColor = ImageEditorChrome.Muted,
             Font = ImageEditorChrome.HeadingFont,
-            Text = "COMPOSITE FRAME PREVIEW",
+            Text = "Composite frame preview",
             TextAlign = ContentAlignment.MiddleLeft,
             UseMnemonic = false,
         };

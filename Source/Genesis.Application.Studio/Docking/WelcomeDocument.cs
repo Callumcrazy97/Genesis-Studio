@@ -306,7 +306,8 @@ public sealed class WelcomeDocument : GenesisDockContent
             BackColor = Color.Transparent,
             FlowDirection = FlowDirection.LeftToRight,
             Dock = DockStyle.Fill,
-            Margin = new Padding(0, 0, 0, 16),
+            // The buttons carry 8 px beneath them, so wrapped rows (large text) do not touch.
+            Margin = new Padding(0, 0, 0, 8),
             Padding = new Padding(0, 2, 0, 2),
             Tag = "transparent",
             WrapContents = true,
@@ -316,7 +317,7 @@ public sealed class WelcomeDocument : GenesisDockContent
         {
             Accent = true,
             Glyph = "▶",
-            Margin = new Padding(0, 0, 10, 0),
+            Margin = new Padding(0, 0, 10, 8),
             Size = new Size(150, 44),
             Text = "Run",
         };
@@ -326,7 +327,7 @@ public sealed class WelcomeDocument : GenesisDockContent
         ModernButton room = new()
         {
             Glyph = "▱",
-            Margin = new Padding(0, 0, 10, 0),
+            Margin = new Padding(0, 0, 10, 8),
             Size = new Size(168, 44),
             Text = "Open start room",
         };
@@ -336,17 +337,29 @@ public sealed class WelcomeDocument : GenesisDockContent
         ModernButton validate = new()
         {
             Glyph = "✓",
-            Margin = new Padding(0, 0, 0, 0),
+            Margin = new Padding(0, 0, 10, 8),
             Size = new Size(150, 44),
             Text = "Validate",
         };
         validate.Click += (_, _) => ActionRequested?.Invoke(this, "Validate");
         actions.Controls.Add(validate);
+
+        ModernButton guide = new()
+        {
+            Name = "HomeGettingStarted",
+            Glyph = "?",
+            Margin = new Padding(0, 0, 0, 8),
+            Size = new Size(176, 44),
+            Text = "Getting started",
+        };
+        guide.Click += (_, _) => ActionRequested?.Invoke(this, "Guide");
+        actions.Controls.Add(guide);
         _scaledLayouts.Add(actions, scale =>
         {
             run.Size = new Size((int)(150 * scale), (int)(44 * scale));
             room.Size = new Size((int)(168 * scale), (int)(44 * scale));
             validate.Size = new Size((int)(150 * scale), (int)(44 * scale));
+            guide.Size = new Size((int)(176 * scale), (int)(44 * scale));
         });
 
         return actions;

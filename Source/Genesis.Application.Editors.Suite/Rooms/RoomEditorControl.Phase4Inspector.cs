@@ -19,7 +19,7 @@ public sealed partial class RoomEditorControl
             Font = EditorChrome.HeadingFont,
             ForeColor = EditorChrome.Muted,
             Location = new Point(12, y),
-            Text = "NODE DETAILS",
+            Text = "Node details",
         };
         _inspectorPanel.Controls.Add(heading);
         y += 24;

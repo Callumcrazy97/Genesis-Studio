@@ -70,9 +70,10 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription
 ; Runtime components are extracted in PrepareToInstall so they can run before the app files copy.
 Source: "redist\VC_redist.x64.exe"; DestDir: "{tmp}"; Flags: dontcopy nocompression
 ; The published Documentation tree includes EditorReview workspaces whose paths exceed
-; Windows MAX_PATH during compression. Ship the product README only.
+; Windows MAX_PATH during compression. Ship the product README and the beginner guide only.
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,*.log,Quality,Quality\*,TestResults,TestResults\*,Documentation,Documentation\*"
 Source: "{#PublishDir}\Documentation\README.md"; DestDir: "{app}\Documentation"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#PublishDir}\Documentation\GettingStarted.md"; DestDir: "{app}\Documentation"; Flags: ignoreversion skipifsourcedoesntexist
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"

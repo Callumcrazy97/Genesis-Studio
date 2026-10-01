@@ -344,7 +344,7 @@ public sealed class InspectorDock : GenesisDockContent
             value.PropertyPath.StartsWith("Runtime.", StringComparison.OrdinalIgnoreCase));
         _propertiesHeading.Text = hasRuntimeValues
             ? "PLAY MODE · EDITABLE VALUES"
-            : "EDITABLE PROPERTIES";
+            : "Editable properties";
         _propertiesHeading.Visible = !resource.IsFolder;
         _propertySurface.Visible = !resource.IsFolder;
 
@@ -402,7 +402,7 @@ public sealed class InspectorDock : GenesisDockContent
         IReadOnlyList<ResourceInspectorLiveValue> values = LiveValueProvider?.Invoke(_resource) ?? [];
         _propertySurface.Inspect(_resource, values);
         bool runtime = values.Any(value => value.PropertyPath.StartsWith("Runtime.", StringComparison.OrdinalIgnoreCase));
-        _propertiesHeading.Text = runtime ? "PLAY MODE · EDITABLE VALUES" : "EDITABLE PROPERTIES";
+        _propertiesHeading.Text = runtime ? "Play mode · editable values" : "Editable properties";
     }
 
     public void HandleAssetChanges(ProjectAssetChangeSet changes)
@@ -502,7 +502,7 @@ public sealed class InspectorDock : GenesisDockContent
             Dock = DockStyle.Top,
             Font = new Font("Segoe UI Variable Text", 8f, FontStyle.Bold),
             Name = name,
-            Text = text,
+            Text = Genesis.Application.Core.UI.UiTokens.DisplayHeading(text),
             UseMnemonic = false,
         };
 
