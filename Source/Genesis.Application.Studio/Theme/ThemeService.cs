@@ -173,7 +173,7 @@ public static class ThemeService
         // Scroll bars follow the theme on everything that scrolls. Trees are not included here:
         // the Explorer theme makes a TreeView paint its selected row's label itself, so only trees
         // whose owner-drawing covers that label opt in (the Assets tree does, in its own dock).
-        if (control is ScrollableControl or ListBox or ListView or TextBoxBase { Multiline: true })
+        if (control is ScrollableControl or ScrollBar or ListBox or ListView or TextBoxBase { Multiline: true })
         {
             Genesis.Application.Core.UI.WindowChrome.ApplyScrollTheme(control);
         }

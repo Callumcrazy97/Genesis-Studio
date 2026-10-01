@@ -64,7 +64,7 @@ public sealed partial class ModelEditorControl
         _currentTool.Width = 250;
         _currentTool.Height = 46;
         _currentTool.Padding = Padding.Empty;
-        _currentTool.Text = "SELECT\nBox Select";
+        _currentTool.Text = "Select\nBox Select";
         _currentTool.ForeColor = EditorChrome.Text;
         activeHeader.Controls.Add(_currentTool);
         context.Controls.Add(_toolPageHost);
@@ -463,16 +463,16 @@ public sealed partial class ModelEditorControl
         if (_tubeSection is not null) _tubeSection.Visible = _toolPageHost.ActiveMode == nameof(ModelToolPage.Create) && _tool == ModelAuthoringTool.Tube;
         _currentTool.Text = _toolPageHost.ActiveMode switch
         {
-            nameof(ModelToolPage.Create) when _pendingPrimitive is { } primitive => $"CREATE\nPlace {PrimitiveName(primitive)}",
+            nameof(ModelToolPage.Create) when _pendingPrimitive is { } primitive => $"Create\nPlace {PrimitiveName(primitive)}",
             nameof(ModelToolPage.Create) when _tool is ModelAuthoringTool.Line or ModelAuthoringTool.Tube or ModelAuthoringTool.SquareFace
-                or ModelAuthoringTool.CircleFace or ModelAuthoringTool.TriangleFace => "CREATE\n" + ToolName(_tool),
-            nameof(ModelToolPage.Create) => "CREATE\nChoose a primitive or drawing tool",
-            nameof(ModelToolPage.Edit) when IsPushPullTool => "EDIT\nPush / Pull · drag up or down on a face",
-            nameof(ModelToolPage.Edit) => $"EDIT\nSelect {_elementSelectionMode.ToString().ToLowerInvariant()}",
-            nameof(ModelToolPage.Select) => "SELECT\n" + ToolName(_tool),
-            nameof(ModelToolPage.Texture) => _tool == ModelAuthoringTool.Colouring ? "TEXTURE\nVertex Paint" : "TEXTURE\nMaterial and vertex colour",
-            nameof(ModelToolPage.RigAnimate) => "RIG & ANIMATE\nSkeleton, poses and clips",
-            _ => "OUTLINER\nMesh part hierarchy",
+                or ModelAuthoringTool.CircleFace or ModelAuthoringTool.TriangleFace => "Create\n" + ToolName(_tool),
+            nameof(ModelToolPage.Create) => "Create\nChoose a primitive or drawing tool",
+            nameof(ModelToolPage.Edit) when IsPushPullTool => "Edit\nPush / Pull · drag up or down on a face",
+            nameof(ModelToolPage.Edit) => $"Edit\nSelect {_elementSelectionMode.ToString().ToLowerInvariant()}",
+            nameof(ModelToolPage.Select) => "Select\n" + ToolName(_tool),
+            nameof(ModelToolPage.Texture) => _tool == ModelAuthoringTool.Colouring ? "Texture\nVertex Paint" : "Texture\nMaterial and vertex colour",
+            nameof(ModelToolPage.RigAnimate) => "Rig & animate\nSkeleton, poses and clips",
+            _ => "Outliner\nMesh part hierarchy",
         };
     }
 

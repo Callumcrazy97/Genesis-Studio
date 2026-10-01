@@ -217,7 +217,7 @@ public partial class ModelViewerControl : EditorSurfaceControl
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 145));
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 40)); panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         var transport = Strip("ModelViewerTransport", 40);
-        transport.Items.Add(new ToolStripLabel("ANIMATION")); transport.Items.Add(_clips);
+        transport.Items.Add(new ToolStripLabel("Animation")); transport.Items.Add(_clips);
         var frame = new ToolStripDropDownButton("Frame") { ToolTipText = "Go to the first, previous or next animation frame" };
         frame.DropDownItems.Add("First", null, (_, _) => SetFrame(0));
         frame.DropDownItems.Add("Previous", null, (_, _) => SetFrame(CurrentFrame - 1));

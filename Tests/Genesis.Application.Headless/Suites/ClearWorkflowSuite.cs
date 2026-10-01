@@ -367,6 +367,8 @@ internal static class ClearWorkflowSuite
                 "A model look did not create a 3D Object that draws the Model with the Shader.");
         });
 
+        List<string> shouting = [];
+        int editorsOpened = 0;
         HeadlessHarness.RunCase(context.Report, "Editor.Workflow.EveryEditorShowsItsStepsUnderTheCommandBar", () =>
         {
             // The table in Documentation/StudioClear.md, as a test: one guided bar per editor, the
@@ -416,6 +418,8 @@ internal static class ClearWorkflowSuite
                 host.Controls.Add(editor);
                 GateSuite.ShowHost(host);
                 GateSuite.Pump(8, 20);
+                editorsOpened++;
+                shouting.AddRange(ShoutingCaptions(editor).Distinct().Select(caption => $"{name}: \"{caption}\""));
 
                 WorkflowBar[] bars = Descendants(editor).OfType<WorkflowBar>().ToArray();
                 HeadlessHarness.Assert(bars.Length == 1, $"{name}: expected one workflow bar, found {bars.Length}.");
@@ -447,6 +451,46 @@ internal static class ClearWorkflowSuite
                 }
             }
         });
+
+        HeadlessHarness.RunCase(context.Report, "Editor.Captions.NoEditorShowsAnAllCapsHeading", () =>
+        {
+            // Uses the editors the case above opened, including their pages that are not showing.
+            HeadlessHarness.Assert(editorsOpened == 13, $"Only {editorsOpened} of 13 editors were opened, so their captions were not all read.");
+            HeadlessHarness.Assert(shouting.Count == 0,
+                "These captions are still ALL CAPS (use sentence case or UiTokens.DisplayHeading): " + string.Join("; ", shouting));
+        });
+    }
+
+    /// <summary>
+    /// Labels, buttons, group boxes and tool strip items whose text is capitals that
+    /// <see cref="UiTokens.DisplayHeading"/> would rewrite. Acronyms and axis letters pass.
+    /// </summary>
+    private static IEnumerable<string> ShoutingCaptions(Control root)
+    {
+        static bool Shouts(string? text) =>
+            !string.IsNullOrWhiteSpace(text)
+            && text.Count(char.IsLetter) >= 4
+            && !text.Any(char.IsLower)
+            && UiTokens.DisplayHeading(text) != text;
+
+        foreach (Control control in Descendants(root))
+        {
+            if (control is Label or ButtonBase or GroupBox && Shouts(control.Text))
+            {
+                yield return control.Text;
+            }
+
+            if (control is ToolStrip strip)
+            {
+                foreach (ToolStripItem item in strip.Items)
+                {
+                    if (Shouts(item.Text))
+                    {
+                        yield return item.Text!;
+                    }
+                }
+            }
+        }
     }
 
     private static IEnumerable<Control> Descendants(Control root)

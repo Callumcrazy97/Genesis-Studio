@@ -27,7 +27,7 @@ Restore point: tag `backup/pre-shell-redesign-2026-09-30` (and a local zip taken
 | `WorkflowBar` / `WorkflowStep` | The guided-steps bar. Buttons are named `WorkflowStep_<Id>`, Next is `WorkflowNext`. `SetCurrent`, `Activate`, `GoNext`, `SetInstruction` and `RefreshProgress` (check marks from `IsDone`). Narrow bars drop the instruction, then show numbers only; editors shorter than 560 logical px fold the bar to zero height (`AutoHideBelowHeight`) so short windows keep their viewport. It folds by height, never by `Visible`: re-showing a docked control lets Windows move it in the sibling z-order. Keyboard and screen-reader accessible. |
 | `StarterGallery` / `StarterItem` | Card grid grouped by category. Cards are named `Starter_<Id>`, chosen with one click, Enter or Space, and can carry a badge (*Next*, *✓ Done*, *Preview only*). `Compact` gives two narrow columns for side panels; `FitsContent` sizes the gallery to its cards inside a page that already scrolls. |
 | `ResourceKindVisuals` | Icon, colour, category and one-line purpose for each resource kind. |
-| `WindowChrome` | Dark Windows title bars (DWM attribute 20, falling back to 19) for `DpiAwareForm` windows and every themed dialog, and theme-matched scroll bars on scrolling panels, lists, list views, multi-line text boxes and the Assets tree (`ApplyScrollTheme`; other tree views are left alone because the Explorer theme repaints their selected row). Switching theme updates every control that opted in. |
+| `WindowChrome` | Dark Windows title bars (DWM attribute 20, falling back to 19) for `DpiAwareForm` windows and every themed dialog, and theme-matched scroll bars on scrolling panels, stand-alone scroll bars, lists, list views, multi-line text boxes and the Assets tree (`ApplyScrollTheme`; other tree views are left alone because the Explorer theme repaints their selected row). Switching theme updates every control that opted in. |
 | `EditorWorkflow` (Editors.Suite) | Docks a workflow bar directly under an editor's command bar. |
 
 ## Shell
@@ -77,10 +77,12 @@ in the tree, hidden, where layout code measures them.
 
 ## Tests
 
-`ClearWorkflowSuite` (`--test clear`, 13 cases; `--test clear-core` runs the six window-free ones):
+`ClearWorkflowSuite` (`--test clear`, 14 cases; `--test clear-core` runs the six window-free ones):
 `Editor.Workflow.EveryEditorShowsItsStepsUnderTheCommandBar` opens all thirteen editors in the
 table above and checks each has one bar with the documented steps, every step button visible and
-the bar directly beneath the command bar. The rest cover
+the bar directly beneath the command bar. `Editor.Captions.NoEditorShowsAnAllCapsHeading` reads
+every label, button, group box and tool strip item those editors built and fails on any caption
+still written in capitals (it found eleven when it was added). The rest cover
 tokens and headings; workflow bar behaviour; gallery choice; every behaviour recipe (alone and all
 2D recipes combined) through `PgslScriptValidator`; every recipe executed for 30 frames in
 `ObjectSandbox` with patrol, projectile, float and timer effects checked; Terrain steps, bar fold
@@ -120,6 +122,8 @@ and inspector group keys that suites look up by name.
 
 ## Known limits
 
+- The caption audit reads controls that exist once an editor has opened. A page an editor builds
+  only when it is first shown is not read until then, and the Studio shell is not audited.
 - Trees other than Assets (Room hierarchy, action palette) keep the standard Windows scroll bar:
   the dark Explorer theme also repaints a tree's selected row, which only the Assets tree's own
   row drawing is written to cover.

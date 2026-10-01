@@ -152,7 +152,7 @@ public sealed class RoomViewsPanel : Panel
         {
             Label s = new()
             {
-                Text = title,
+                Text = Genesis.Application.Core.UI.UiTokens.DisplayHeading(title),
                 Font = EditorChrome.HeadingFont,
                 ForeColor = EditorChrome.Accent,
                 Margin = new Padding(0, 8, 0, 2),

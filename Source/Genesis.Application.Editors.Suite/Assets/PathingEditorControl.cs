@@ -800,7 +800,7 @@ public sealed partial class PathingEditorControl : EditorSurfaceControl, IResour
 
     private static Label Heading(string text) => new()
     {
-        Text = text, Width = 192, Height = 28, ForeColor = EditorChrome.Muted,
+        Text = Genesis.Application.Core.UI.UiTokens.DisplayHeading(text), Width = 192, Height = 28, ForeColor = EditorChrome.Muted,
         Font = EditorChrome.SmallFont, TextAlign = ContentAlignment.MiddleLeft, Margin = new Padding(0, 6, 0, 3),
     };
 

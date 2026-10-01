@@ -428,7 +428,7 @@ public sealed partial class VisualActionBuilderControl : UserControl
         _preview.DetectUrls = false;
         Panel previewHost = new() { Dock = DockStyle.Fill, BackColor = EditorChrome.Canvas, Padding = new Padding(10, 0, 10, 10) };
         previewHost.Controls.Add(_preview);
-        previewHost.Controls.Add(new Label { Dock = DockStyle.Top, Height = 30, Text = "PGSL CODE PREVIEW  ·  AUTO-SYNCED",
+        previewHost.Controls.Add(new Label { Dock = DockStyle.Top, Height = 30, Text = "PGSL code preview  ·  auto-synced",
             TextAlign = ContentAlignment.MiddleLeft, Font = EditorChrome.SmallFont, ForeColor = EditorChrome.Muted });
         SplitContainer split = new() { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal,
             SplitterDistance = 300, Panel1MinSize = 180, Panel2MinSize = 96,

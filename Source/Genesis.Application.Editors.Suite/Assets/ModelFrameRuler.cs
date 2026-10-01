@@ -11,7 +11,14 @@ namespace Genesis.Application.Editors.Suite.Assets;
 internal sealed class ModelFrameRuler : Control
 {
     private const int CardWidth = 104, CacheLimit = 96;
-    private readonly HScrollBar _scroll = new() { Dock = DockStyle.Bottom, SmallChange = CardWidth };
+    private readonly HScrollBar _scroll = ThemedScroll(new() { Dock = DockStyle.Bottom, SmallChange = CardWidth });
+
+    /// <summary>A stand-alone scroll bar is a window of its own, so it needs the theme itself.</summary>
+    private static HScrollBar ThemedScroll(HScrollBar scroll)
+    {
+        Genesis.Application.Core.UI.WindowChrome.ApplyScrollTheme(scroll);
+        return scroll;
+    }
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 40 };
     private readonly Dictionary<int, Bitmap> _images = new();
     private readonly HashSet<int> _requested = [];

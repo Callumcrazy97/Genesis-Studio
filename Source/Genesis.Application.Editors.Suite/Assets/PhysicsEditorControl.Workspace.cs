@@ -601,7 +601,7 @@ public sealed partial class PhysicsEditorControl
 
     private static Label FieldCaption(string text) => new()
     {
-        AutoSize = false, Width = 244, Height = 24, Text = text,
+        AutoSize = false, Width = 244, Height = 24, Text = Genesis.Application.Core.UI.UiTokens.DisplayHeading(text),
         ForeColor = EditorChrome.Muted, Font = EditorChrome.SmallFont,
     };
 

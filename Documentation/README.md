@@ -14,31 +14,35 @@ assets and reusable Blender models now. This bounded art/authoring exercise does
 large-world engine or constitute production of the complete RPG. No computer control or parallel
 agents are used for the current work.
 
-### Studio "Clear" redesign — shell, guided editor workflows and one-click starters, 30 September
+### Studio "Clear" redesign — shell, guided editor workflows and one-click starters, 30 September – 1 October
 
 The user asked for a far better shell and simpler, "1-2-3" workflows in the Terrain, Model, 2D rig,
 Shader, Object, Particle, Physics and 3D Room editors. The design, the shared components and every
-per-editor change are recorded in [StudioClear.md](StudioClear.md). In short:
+per-editor change are recorded in [StudioClear.md](StudioClear.md); the beginner's route through
+them is [GettingStarted.md](GettingStarted.md), which Studio shows from *Help › Getting started*
+(F1). In short:
 
 - **Shell:** one app bar (menus left; filled *▶ Run*, Debug, Validate, Undo/Redo, *Save project*
-  right); Home gains *Your game in 4 steps* and a *Create something new* gallery; dark title bars;
-  rounded tool strips with an accent primary command; sentence-case headings and larger secondary
-  text; inspector group captions without `[brackets]`.
-- **Editors:** a numbered, clickable workflow bar under every target editor's command bar (it folds
-  away below 620 logical px); landform cards (Terrain), behaviour recipes that write readable PGSL
-  (Object), scene presets and a visible 2D | 3D switch (Room), tree/rock generators and a recommended
-  ready-made rig (Model), a Bones › Bind › Pose › Animate bar in the rig studio, grouped physics
-  presets with *Preview only* playgrounds, and shader looks labelled with their target.
-- **Validation:** Release builds with warnings as errors are clean. `--test clear` (new
-  `ClearWorkflowSuite`, 7 cases) passes. Focused targets passed after the change: `terrain`,
-  `object`, `room`, `shader`, `particle`, `physics`, `model`, `image`, `room-workspace`,
-  `shader-workspace`, `studio-foundation`, `shell-layout`, `model-editor`, `physics-model`.
-  (`object` and `shader-workspace` first failed only because the output folder exceeded GDI+'s
-  260-character path limit; both pass with output under `TestResults/`.) The full regression and
-  renderer smokes have not been re-run for this change.
+  right); Home gains *Your game in 4 steps*, a *Create something new* gallery and a *Getting
+  started* button; creating an Image or Model from Home continues into its editor; the Assets tree
+  shows which folders open; dark title bars and scroll bars; rounded tool strips with an accent
+  primary command; sentence-case headings and larger secondary text; inspector group captions
+  without `[brackets]`.
+- **Editors:** a numbered, clickable workflow bar under the command bar of all thirteen editors (it
+  folds away below 560 logical px); landform cards (Terrain), behaviour recipes that write readable
+  PGSL (Object), scene presets and a visible 2D | 3D switch (Room), tree/rock generators and a
+  recommended ready-made rig (Model), a Bones › Bind › Pose › Animate bar in the rig studio, grouped
+  physics presets with *Preview only* playgrounds, shader looks labelled with their target and able
+  to create a shaded 3D Object, and particle effects that attach to an existing Object.
+- **Engine:** `InstanceNearest` / `InstanceFurthest` accept an optional Object name (used by the
+  *Chase the player* recipe); with no name they behave as before.
+- **Tests added:** `ClearWorkflowSuite` (`--test clear`, 14 cases) and `BeginnerJourneySuite`
+  (`--test journey`, 2 cases: an empty project becomes a played 2D game and a played 3D scene using
+  only the guided steps). Both run in the full regression.
 - **Fixed during validation:** `WorkflowBar` laid itself out before its Next button existed, which
-  would have thrown while constructing every editor; found by `ClearWorkflowSuite` and fixed in
-  `65074e2`.
+  would have thrown while constructing every editor (`65074e2`); the workflow bar could dock above
+  the command bar after an editor was resized; *Chase the player* called a three-argument
+  `InstanceNearest` that did not exist; the Assets tree's row fill hid its expand buttons.
 
 ### Engine audit remediation — rendering, frame-path waste and volumetric fog, 30 September
 
