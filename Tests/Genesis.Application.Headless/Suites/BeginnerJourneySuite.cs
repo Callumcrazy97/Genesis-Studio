@@ -2,8 +2,12 @@ using System.Drawing;
 using System.Windows.Forms;
 using Genesis.Application.Core.Projects;
 using Genesis.Application.Core.Resources;
+using System.Numerics;
+using Genesis.Application.Editors.Suite.Assets;
 using Genesis.Application.Editors.Suite.Objects;
 using Genesis.Application.Editors.Suite.Rooms;
+using Genesis.Application.Editors.Suite.Terrain;
+using Genesis.Runtime.Modeling;
 using Genesis.Runtime.Assets;
 using Genesis.Runtime.ECS.Components;
 using Genesis.Runtime.Input;
@@ -135,6 +139,107 @@ internal static class BeginnerJourneySuite
                     $"The chaser stayed at {chaserNow} (from {chaserStart}); the chase recipe should move it toward the Player.");
                 HeadlessHarness.Assert(!world.IsAlive(coin),
                     "The coin is still in the Room after the Player touched it; the collectible recipe should remove it.");
+            }
+            finally
+            {
+                PgslCommands.ActiveGameContext = previousContext;
+                PgslCommands.ProjectPath = previousProject;
+            }
+        });
+
+        HeadlessHarness.RunCase(context.Report, "Journey.ThreeD.LandformScenePresetAndGeneratedModelPlayInTheRuntime", () =>
+        {
+            string root = Path.Combine(context.Workspace, "Journey3D");
+            Directory.CreateDirectory(root);
+            ProjectSession project = new ProjectService().CreateProject(root, "Journey 3D", "Blank");
+            ResourceService resources = new(project);
+
+            // 1. Shape: a landform card makes the ground; Use in game makes a 3D Room around it.
+            string terrainPath = resources.CreateResource(
+                ResourceFolderPolicy.RootFor(project, ResourceKind.Terrain), ResourceKind.Terrain, "Journey Ground");
+            string roomPath;
+            using (Form host = GateSuite.NewHost(1280, 820))
+            using (TerrainEditorControl terrain = new(terrainPath, project.RootPath))
+            {
+                host.Controls.Add(terrain);
+                GateSuite.ShowHost(host);
+                GateSuite.Pump(8, 20);
+                HeadlessHarness.Assert(terrain.LandformGallery?.Choose(nameof(TerrainPreset.RollingHills)) == true,
+                    "The Rolling hills landform could not be chosen.");
+                roomPath = terrain.CreateTerrainRoom("Journey World");
+                HeadlessHarness.Assert(File.Exists(roomPath) && !terrain.IsDirty, "Use in game did not save the terrain and create its Room.");
+            }
+
+            // 2. Start: a generated rock is the Model; Use in game makes an Object for it.
+            string modelPath = resources.CreateResource(
+                ResourceFolderPolicy.RootFor(project, ResourceKind.Model), ResourceKind.Model, "Journey Rock");
+            string rockObject;
+            using (ModelEditorControl model = new(modelPath, project.RootPath))
+            {
+                model.AddGeneratedRock(new ProceduralRockOptions());
+                HeadlessHarness.Assert(model.PreviewAsset.HasRenderableMeshes, "Generate › Rock added no geometry.");
+                rockObject = model.CreateModelObject("Journey Rock Object");
+            }
+
+            // 3. Behaviour: the 3D float recipe.
+            using (ObjectEditorControl editor = new(rockObject, project.RootPath))
+            {
+                HeadlessHarness.Assert(editor.IsThreeD && editor.ApplyBehaviourRecipe("Float3D").Count > 0,
+                    "The model Object is not 3D, or the float recipe added nothing.");
+                editor.Save();
+            }
+
+            // 4. Sky and Place: a scene preset and one instance, through the Room editor.
+            string rockNode;
+            using (Form host = GateSuite.NewHost(1280, 820))
+            using (RoomEditorControl editor = new(roomPath, project.RootPath))
+            {
+                host.Controls.Add(editor);
+                GateSuite.ShowHost(host);
+                GateSuite.Pump(8, 20);
+                HeadlessHarness.Assert(editor.ViewMode3D, "The Room made for a terrain should be 3D.");
+                HeadlessHarness.Assert(editor.ApplyScenePreset("GoldenHour"), "The Golden hour scene preset was refused.");
+                int before = editor.Room.Nodes.Count;
+                HeadlessHarness.Assert(editor.DropObjectAt(rockObject, editor.ClientFromWorld3D(Vector3.Zero))
+                    && editor.Room.Nodes.Count == before + 1, "The rock Object could not be placed in the 3D Room.");
+                rockNode = editor.Room.Nodes.Last().Id;
+                editor.Save();
+                HeadlessHarness.Assert(!editor.IsDirty, "The 3D Room did not save.");
+            }
+
+            // 5. Play: the saved Room builds into a live world; the rock bobs.
+            IGameContext previousContext = PgslCommands.ActiveGameContext;
+            string? previousProject = PgslCommands.ProjectPath;
+            PgslCommands.ProjectPath = project.RootPath;
+            try
+            {
+                Genesis.Runtime.Scripting.VM.VMEngine.Initialize();
+                ScriptAssetRegistry.ClearCache();
+                ScriptAssetRegistry.LoadFromProject(project.RootPath);
+
+                ScriptHostSystem scriptHost = new();
+                EcsWorld world = new();
+                RoomAsset asset = RoomAssetLoader.Parse(roomPath);
+                HeadlessHarness.Assert(asset.Environment.AtmospherePreset == "GoldenHour" && asset.Environment.DynamicSky
+                    && Math.Abs(asset.Environment.TimeOfDayHours - 18.6f) < 0.01f,
+                    "The saved Room lost its Golden hour sky.");
+                NullGameContext game = new() { World = world, Input = new InputState(), Room = asset, ProjectPath = project.RootPath };
+                scriptHost.SetContext(game);
+                PgslCommands.ActiveGameContext = game;
+                RoomBuildResult built = new RoomSceneBuilder(project.RootPath, scriptHost).Build(world, asset);
+                HeadlessHarness.Assert(built.EntitiesByNodeId.ContainsKey(rockNode), "The placed rock did not spawn in the live world.");
+                Entity rock = built.EntitiesByNodeId[rockNode];
+                float startY = world.GetRef<TransformComponent>(rock).Y;
+                float furthest = 0;
+                for (int frame = 0; frame < 45; frame++)
+                {
+                    scriptHost.Update(1f / 60f);
+                    world.FlushDeferred();
+                    furthest = Math.Max(furthest, Math.Abs(world.GetRef<TransformComponent>(rock).Y - startY));
+                }
+
+                HeadlessHarness.Assert(furthest is > 0.01f and <= 0.51f,
+                    $"The rock moved {furthest} metres; the float recipe should bob it within a quarter of a metre of home.");
             }
             finally
             {

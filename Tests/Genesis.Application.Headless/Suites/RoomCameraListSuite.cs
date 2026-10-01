@@ -121,7 +121,12 @@ internal static class RoomCameraListSuite
             for(int y=hidden.Height/3;y<hidden.Height*2/3;y+=4)
                 for(int x=hidden.Width/3;x<hidden.Width*2/3;x+=4)
                 {samples++;Color a=hidden.GetPixel(x,y),b=empty.GetPixel(x,y);if(Math.Abs(a.R-b.R)+Math.Abs(a.G-b.G)+Math.Abs(a.B-b.B)>12)changed++;}
-            Check(changed<samples*.02,"Invisible utility placeholders changed the game camera image");
+            hidden.Save(Path.Combine(ctx.Captures,"room-camera-hidden-objects.png"));empty.Save(Path.Combine(ctx.Captures,"room-camera-empty-room.png"));
+            // The hidden object's thin selection outline is still drawn and is not occlusion. On a 4 px
+            // sample grid its share swings between about 1.5% and 2.5% with the viewport's exact height
+            // (which rows the horizontal lines land on), so 2% was a coin toss. A filled placeholder
+            // covers the whole box: about 22% of these samples.
+            Check(changed<samples*.05,$"Invisible utility placeholders changed the game camera image ({changed}/{samples} samples; frames {hidden.Width}x{hidden.Height} and {empty.Width}x{empty.Height})");
         });
         foreach ((int width, float scale) in new[] { (1440, 1f), (1000, 1f), (1440, 2f) })
             HeadlessHarness.RunCase(ctx.Report, $"Editor.Room.CameraList.Layout.{width}.Scale{scale}", () =>

@@ -24,10 +24,10 @@ Restore point: tag `backup/pre-shell-redesign-2026-09-30` (and a local zip taken
 | `UiTokens` | Live palette and fonts shared by Studio, the editor suite and the Image editor. Studio pushes its theme here through `SuiteChromeBridge`. `DisplayHeading` turns ALL-CAPS captions into sentence case and keeps acronyms. |
 | `UiGlyphs` | Segoe Fluent Icons / Segoe MDL2 Assets code points, each checked against a rendered sheet. Captions always remain, so an icon is never the only label. |
 | `PillToolStripRenderer` | Rounded hover/pressed pills, an accent-tinted checked mode, an accent outline for an editor's primary command (`PrimaryTag`, used for *Use in game* and *＋ New*) and a filled accent button (`AccentTag`, used for *Run*). `GenesisToolStripRenderer` and the editor chrome derive from it. |
-| `WorkflowBar` / `WorkflowStep` | The guided-steps bar. Buttons are named `WorkflowStep_<Id>`, Next is `WorkflowNext`. `SetCurrent`, `Activate`, `GoNext`, `SetInstruction` and `RefreshProgress` (check marks from `IsDone`). Narrow bars drop the instruction, then show numbers only; editors shorter than 620 logical px fold the bar away (`AutoHideBelowHeight`) so short windows keep their viewport. Keyboard and screen-reader accessible. |
+| `WorkflowBar` / `WorkflowStep` | The guided-steps bar. Buttons are named `WorkflowStep_<Id>`, Next is `WorkflowNext`. `SetCurrent`, `Activate`, `GoNext`, `SetInstruction` and `RefreshProgress` (check marks from `IsDone`). Narrow bars drop the instruction, then show numbers only; editors shorter than 560 logical px fold the bar to zero height (`AutoHideBelowHeight`) so short windows keep their viewport. It folds by height, never by `Visible`: re-showing a docked control lets Windows move it in the sibling z-order. Keyboard and screen-reader accessible. |
 | `StarterGallery` / `StarterItem` | Card grid grouped by category. Cards are named `Starter_<Id>`, chosen with one click, Enter or Space, and can carry a badge (*Next*, *✓ Done*, *Preview only*). `Compact` gives two narrow columns for side panels; `FitsContent` sizes the gallery to its cards inside a page that already scrolls. |
 | `ResourceKindVisuals` | Icon, colour, category and one-line purpose for each resource kind. |
-| `WindowChrome` | Dark Windows title bars (DWM attribute 20, falling back to 19) for `DpiAwareForm` windows and every themed dialog. |
+| `WindowChrome` | Dark Windows title bars (DWM attribute 20, falling back to 19) for `DpiAwareForm` windows and every themed dialog, and theme-matched scroll bars on scrolling panels, lists, list views and multi-line text boxes (`ApplyScrollTheme`; tree views are excluded because the Explorer theme repaints their selected row). |
 | `EditorWorkflow` (Editors.Suite) | Docks a workflow bar directly under an editor's command bar. |
 
 ## Shell
@@ -50,11 +50,16 @@ Restore point: tag `backup/pre-shell-redesign-2026-09-30` (and a local zip taken
 | Model viewer | Import › Edit › Animate › Use in game | The bar takes the old hint's row, so the view keeps its height. |
 | Model editor | Start › Shape › Surface › Rig & animate › Use in game | *Generate › Tree… / Rock…* adds seeded procedural parts. The Rig page offers *Fit a ready-made rig (recommended)* first. |
 | Image | Draw › Animate › Rig › Use in game | The rig studio has its own Bones › Bind › Pose › Animate bar with done ticks. Hidden when the Image editor paints model materials. |
-| Shader | Look › Preview on › Tune › Use in game | Every look says what it applies to (Model, Image, Terrain, Particle, Full screen). |
+| Shader | Look › Preview on › Tune › Use in game | Every look says what it applies to (Model, Image, Terrain, Particle, Full screen). *Use in game* creates a 2D sprite Object for image looks and a 3D Object that draws the chosen Model for model looks. |
 | Object | Look › Behaviour › Test › Use in game | Behaviour recipes (arrow-key movement, platformer controls, patrol, chase the player, projectile, wrap around, collectible, spin, float, disappear after 3 seconds) append readable PGSL to the right events, marked so a recipe is never added twice. A new Object's Behaviour step opens them; Options has *Behaviour recipes…*. |
-| Particle | Effect › Tune › Use in game | The Effect step opens the preset tiles (previously two menus deep); choosing one moves on to Tune. |
+| Particle | Effect › Tune › Use in game | The Effect step opens the preset tiles (previously two menus deep); choosing one moves on to Tune. *Use in game* can create a new effect Object or attach the effect to one of the project's existing Objects. |
 | Physics | What is it? › Set up › Tune › Test › Use in game | Presets grouped as Materials, Worlds and gravity, and Test playgrounds (*Preview only*). Plain labels: Grip (friction), Bounciness, Weight (density). |
 | Room | 3D: Ground › Place › Sky › Camera › Use in game; 2D: Tiles › Place › Background › Camera › Use in game | Scene presets (Sunny day, Golden hour, Overcast, Stormy, Snowy, Night, Alien world, Indoor) set the sky, clock, weather and clouds as one undoable edit. A visible *2D | 3D* switch sits on the command bar. |
+
+| Audio | Sound › Tune › Listen › Use in game | |
+| Pathing | Route › Preview › Use in game | |
+| UI | Start › Design › Use in game | Start opens the ready-made HUD and menu layouts. |
+| Script | Write › Check › Use in game | |
 
 Unchanged on purpose: command bar item lists, mode rails, control names and page names that the
 headless suites pin, and every existing route to a feature. The old "1. 2. 3." hint labels remain
@@ -62,14 +67,31 @@ in the tree, hidden, where layout code measures them.
 
 ## Tests
 
-`ClearWorkflowSuite` (`--test clear`; `--test clear-core` runs the four window-free cases):
-tokens and headings, workflow bar behaviour, gallery choice, every behaviour recipe (alone and all
-2D recipes combined) through `PgslScriptValidator`, Terrain steps and landforms with undo, Object
-recipes appending once, and Room scene presets with undo and the 2D/3D step switch. It is part of
-the full regression run.
+`ClearWorkflowSuite` (`--test clear`; `--test clear-core` runs the five window-free cases):
+tokens and headings; workflow bar behaviour; gallery choice; every behaviour recipe (alone and all
+2D recipes combined) through `PgslScriptValidator`; every recipe executed for 30 frames in
+`ObjectSandbox` with patrol, projectile, float and timer effects checked; Terrain steps, bar fold
+and unfold, and landforms with undo; Object recipes appending once; Room scene presets with undo
+and the 2D/3D step switch; attaching a particle effect to an existing Object; and a model look
+creating a shaded 3D Object.
 
-## Follow-ups
+`BeginnerJourneySuite` (`--test journey`) is the claim "you can make a game with the guided steps"
+as two tests, each starting from an empty project and ending in the live runtime:
 
-- Particle *Use in game*: attach the effect to an existing Object as well as creating a new one.
-- Shader *Use in game*: create a Model Object for model-target looks.
-- Captures of every editor and the shell at 100/150/200 % for the design record.
+- **2D:** three Objects get their behaviour only from recipes, the Room editor places one of each,
+  and the saved Room is stepped with the Right arrow held. The Player walks, the chaser follows and
+  the coin is collected.
+- **3D:** a landform card shapes a terrain, *Use in game* makes its 3D Room, *Generate › Rock* and
+  *Use in game* make a Model Object, the float recipe gives it behaviour, the Room editor applies
+  the Golden hour scene preset and places the rock, and the saved Room is played: the sky is the
+  preset's and the rock bobs.
+
+Both are part of the full regression run.
+
+## Review method
+
+Every surface is captured through the judge-capture mode
+(`--judge-captures <dir> --variant normal|narrow|scale150|scale200`) and inspected. The first pass
+found the workflow bar docked above the command bar in Studio (fixed, with a regression check), an
+ampersand drawn as a mnemonic underscore, two bars starting on the wrong step, unthemed scroll bars
+and headings that ignored the interface text size.
