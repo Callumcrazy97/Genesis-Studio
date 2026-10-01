@@ -75,6 +75,10 @@ against the sphere of its bind pose, which the seated pose had left by half a me
   background pixel), and `render` (74 checks, including the golden scenes) is unchanged with it on.
 - A game that turned culling off as a workaround (`Engine.SetFrustumCulling(false)`) can turn it
   back on.
+- Validation: `Build.bat --full` on commit `c74305c` passed (build `20261001-121140-08b86b64`):
+  1099 regression checks, no failures, and the DX11, DX12, Vulkan, OpenGL and Software smokes.
+  Not covered: the Software renderer is not in the new drawn-scene case, and the reporting game's
+  own scene has not been re-checked from this checkout.
 
 ### Engine audit remediation — rendering, frame-path waste and volumetric fog, 30 September
 
