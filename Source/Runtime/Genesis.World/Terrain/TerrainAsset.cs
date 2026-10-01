@@ -53,6 +53,11 @@ public class TerrainAsset
     private readonly byte[] _splatmap;
 
     public TerrainAsset(int resX, int resZ, float cellSize, float originX, float originZ, float minHeight, float maxHeight)
+        : this(resX, resZ, cellSize, originX, originZ, minHeight, maxHeight, initialise: true)
+    {
+    }
+
+    private TerrainAsset(int resX, int resZ, float cellSize, float originX, float originZ, float minHeight, float maxHeight, bool initialise)
     {
         ResolutionX = resX;
         ResolutionZ = resZ;
@@ -64,19 +69,14 @@ public class TerrainAsset
 
         _heights = new ushort[resX * resZ];
         _splatmap = new byte[resX * resZ * 4]; // RGBA
-        
+        if (!initialise) return; // Load overwrites both planes.
+
         // Initialize to middle height
         ushort mid = (ushort)(ushort.MaxValue / 2);
         Array.Fill(_heights, mid);
-        
+
         // Initialize splatmap to red channel (texture 1)
-        for (int i = 0; i < _splatmap.Length; i += 4)
-        {
-            _splatmap[i] = 255;   // R
-            _splatmap[i+1] = 0;   // G
-            _splatmap[i+2] = 0;   // B
-            _splatmap[i+3] = 0;   // A
-        }
+        FillDefaultSplat();
     }
 
     /// <summary>Raw height samples (editor undo snapshots / bulk restore).</summary>
@@ -342,8 +342,8 @@ public class TerrainAsset
         bw.Write(OriginZ);
         bw.Write(MinHeight);
         bw.Write(MaxHeight);
-        for (int i = 0; i < _heights.Length; i++)
-            bw.Write(_heights[i]);
+        // One block write: a sample-at-a-time loop took seconds on a multi-kilometre terrain.
+        bw.Write(System.Runtime.InteropServices.MemoryMarshal.AsBytes(_heights.AsSpan()));
         bw.Write(_splatmap);
     }
 
@@ -363,14 +363,45 @@ public class TerrainAsset
         float oz = br.ReadSingle();
         float minH = br.ReadSingle();
         float maxH = br.ReadSingle();
-        var asset = new TerrainAsset(resX, resZ, cell, ox, oz, minH, maxH);
-        int count = resX * resZ;
-        for (int i = 0; i < count; i++)
-            asset._heights[i] = br.ReadUInt16();
-        byte[] splat = br.ReadBytes(count * 4);
-        if (splat.Length == asset._splatmap.Length)
-            Buffer.BlockCopy(splat, 0, asset._splatmap, 0, splat.Length);
+        if (resX < 1 || resZ < 1 || (long)resX * resZ > MaximumSamples)
+            throw new InvalidDataException($"Terrain resolution {resX} x {resZ} is outside the supported range.");
+        var asset = new TerrainAsset(resX, resZ, cell, ox, oz, minH, maxH, initialise: false);
+        // Read both planes straight into their arrays. The file is little-endian, as is every
+        // platform Genesis runs on.
+        Span<byte> heights = System.Runtime.InteropServices.MemoryMarshal.AsBytes(asset._heights.AsSpan());
+        if (ReadFully(fs, heights) != heights.Length)
+            throw new InvalidDataException("Terrain file ends inside its height data.");
+        // An absent or short splat plane keeps the default (all first layer), as it always has.
+        if (ReadFully(fs, asset._splatmap) != asset._splatmap.Length)
+            asset.FillDefaultSplat();
         return asset;
+    }
+
+    /// <summary>Largest sample count a terrain may hold (16385 x 16385).</summary>
+    public const long MaximumSamples = 16385L * 16385L;
+
+    private static int ReadFully(Stream stream, Span<byte> destination)
+    {
+        int total = 0;
+        while (total < destination.Length)
+        {
+            int read = stream.Read(destination[total..]);
+            if (read <= 0) break;
+            total += read;
+        }
+
+        return total;
+    }
+
+    private void FillDefaultSplat()
+    {
+        for (int i = 0; i < _splatmap.Length; i += 4)
+        {
+            _splatmap[i] = 255;
+            _splatmap[i + 1] = 0;
+            _splatmap[i + 2] = 0;
+            _splatmap[i + 3] = 0;
+        }
     }
 
     public static TerrainAsset CreateDefaultForestGlade()

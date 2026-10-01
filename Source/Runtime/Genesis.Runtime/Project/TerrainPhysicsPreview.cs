@@ -20,6 +20,8 @@ public sealed class TerrainPhysicsPreview : IDisposable
     private readonly EcsWorld _world;
     private readonly List<PhysicsWaterVolume> _volumes = new();
     private int _colliderId;
+    /// <summary>Collision for a terrain too large for one mesh, resident around the points in use.</summary>
+    private TerrainColliderTiles _tiles;
     private Entity _playable;
     private bool _playableActive;
     private int _rebuildGeneration;
@@ -36,7 +38,7 @@ public sealed class TerrainPhysicsPreview : IDisposable
     }
 
     public int RebuildGeneration => _rebuildGeneration;
-    public int ColliderRegistrationId => _colliderId;
+    public int ColliderRegistrationId => _colliderId != 0 ? _colliderId : _tiles != null ? -1 : 0;
     public bool PlayableIsActive => _playableActive;
     public IReadOnlyList<PhysicsWaterVolume> WaterVolumes => _volumes;
     public Vector3 PlayablePosition { get; private set; }
@@ -54,14 +56,25 @@ public sealed class TerrainPhysicsPreview : IDisposable
             _colliderId = 0;
         }
 
-        TerrainColliderMesh.Build(terrain, out Vector3[] vertices, out int[] indices);
-        _colliderId = _physics.RegisterStaticTriangleMesh(
-            vertices,
-            indices,
-            Vector3.One,
-            Vector3.Zero,
-            Quaternion.Identity,
-            "TerrainEditor:preview");
+        _tiles?.Clear(_physics);
+        _tiles?.Dispose();
+        _tiles = null;
+        if (TerrainLodGround.Applies(terrain))
+        {
+            // One mesh for every cell of a multi-kilometre terrain would take gigabytes.
+            _tiles = new TerrainColliderTiles(terrain, Vector3.One, Vector3.Zero, Quaternion.Identity, "TerrainEditor:preview");
+        }
+        else
+        {
+            TerrainColliderMesh.Build(terrain, out Vector3[] vertices, out int[] indices);
+            _colliderId = _physics.RegisterStaticTriangleMesh(
+                vertices,
+                indices,
+                Vector3.One,
+                Vector3.Zero,
+                Quaternion.Identity,
+                "TerrainEditor:preview");
+        }
 
         _volumes.Clear();
         foreach (TerrainWaterDefinition definition in waterBodies ?? Array.Empty<TerrainWaterDefinition>())
@@ -74,6 +87,7 @@ public sealed class TerrainPhysicsPreview : IDisposable
     {
         height = 0f;
         Vector3 origin = new(worldX, ceiling, worldZ);
+        EnsureColliderNear(origin);
         float distance = MathF.Max(1f, ceiling - -1000f);
         if (!_physics.RaycastDown(_world, origin, distance, out PhysicsRaycastHit hit))
             return false;
@@ -148,6 +162,7 @@ public sealed class TerrainPhysicsPreview : IDisposable
         if (!_world.IsAlive(_playable))
             return;
 
+        EnsureColliderNear(PlayablePosition);
         _physics.ApplyWater(_world, _volumes, dt);
         _physics.Step(_world, dt);
         _physics.SyncTransforms(_world);
@@ -201,8 +216,16 @@ public sealed class TerrainPhysicsPreview : IDisposable
         PlayableExitedWater = motor.ExitedWater || PlayableExitedWater;
     }
 
+    private void EnsureColliderNear(Vector3 position)
+    {
+        if (_tiles == null) return;
+        ReadOnlySpan<TerrainColliderFocus> focus = [new TerrainColliderFocus(position, 48f)];
+        _tiles.Update(_physics, focus);
+    }
+
     private void SpawnCapsule(Vector3 spawn)
     {
+        EnsureColliderNear(spawn);
         _playable = _world.CreateEntity();
         var transform = new Transform3DComponent
         {

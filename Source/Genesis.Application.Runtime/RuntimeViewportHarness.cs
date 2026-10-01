@@ -51,6 +51,7 @@ public sealed partial class RuntimeViewportHarness : IDisposable
         Fog,
         TwoSidedLighting,
         SkinnedCulling,
+        LargeTerrain,
     }
 
     public RuntimeViewportHarness(int width = 640, int height = 360)
@@ -513,6 +514,7 @@ public sealed partial class RuntimeViewportHarness : IDisposable
         if (_mode == CaptureMode.Fog) { RenderFogScene(renderer); return; }
         if (_mode == CaptureMode.TwoSidedLighting) { RenderTwoSidedLighting(renderer); return; }
         if (_mode == CaptureMode.SkinnedCulling) { RenderSkinnedCulling(renderer); return; }
+        if (_mode == CaptureMode.LargeTerrain) { RenderLargeTerrain(renderer); return; }
         if (_mode == CaptureMode.TwoD)
         {
             RenderTwoD(renderer);
@@ -888,6 +890,7 @@ public sealed partial class RuntimeViewportHarness : IDisposable
         _viewport.OnRender -= OnRender;
         _viewport.OnPostFrame -= OnPostFrame;
         _fogParticleEmitter?.Dispose();
+        _largeGround?.Dispose();
         if (_viewport.Renderer is IRenderController renderer)
         {
             if (_reflectionWater.IsValid) renderer.ReleaseMesh(_reflectionWater);

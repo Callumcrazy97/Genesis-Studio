@@ -44,6 +44,8 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
         public AuthoredTerrainGround Ground;
         public TerrainAsset Terrain;
         public int ColliderRegistrationId;
+        /// <summary>Streamed collision for terrains too large for one mesh; null otherwise.</summary>
+        public TerrainColliderTiles ColliderTiles;
         public int ColliderRebuildGeneration;
         public readonly List<string> WaterVolumeIds = new();
         public bool Bound;
@@ -131,6 +133,16 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
     }
 
     public string Name => "Authored terrain world";
+
+    /// <summary>
+    /// Level-of-detail multiplier for large terrains: 1 is the default, 2 keeps full detail twice
+    /// as far from the camera, 0.5 half as far.
+    /// </summary>
+    public float TerrainDetail { get; set; } = 1f;
+
+    /// <summary>Level-of-detail counts for each terrain, in Room order (zero for small terrains).</summary>
+    public IReadOnlyList<TerrainLodStatistics> TerrainLodStatistics =>
+        _entries.Select(entry => entry.Ground?.LodStatistics ?? default).ToArray();
     public StreamingStats Stats { get; } = new();
     public int ColliderRebuildGeneration { get; private set; }
     public IWorldQuery WorldQuery => _entries.Count > 0 ? _entries[0].Query : null;
@@ -221,11 +233,72 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
         if (scene.Physics == null) return;
         foreach (Entry entry in _entries)
         {
-            if (entry.ColliderRegistrationId == 0)
+            if (TerrainLodGround.Applies(entry.Terrain))
+                UpdateColliderTiles(scene, entry);
+            else if (entry.ColliderRegistrationId == 0)
                 entry.ColliderRegistrationId = RegisterTerrainCollider(scene.Physics, entry);
             if (entry.WaterVolumeIds.Count == 0)
                 RegisterWaterVolumes(scene, entry);
         }
+    }
+
+    /// <summary>Metres of collision kept around the camera on a large terrain.</summary>
+    public float ColliderRadiusAroundCamera { get; set; } = 160f;
+
+    /// <summary>Metres of collision kept around each moving body on a large terrain.</summary>
+    public float ColliderRadiusAroundBodies { get; set; } = 24f;
+
+    /// <summary>Registered and pending collision tiles across all large terrains.</summary>
+    public (int Resident, int Pending) ColliderTileCounts
+    {
+        get
+        {
+            int resident = 0, pending = 0;
+            foreach (Entry entry in _entries)
+            {
+                if (entry.ColliderTiles == null) continue;
+                resident += entry.ColliderTiles.ResidentTiles;
+                pending += entry.ColliderTiles.PendingTiles;
+            }
+
+            return (resident, pending);
+        }
+    }
+
+    private readonly List<TerrainColliderFocus> _colliderFocus = new();
+
+    /// <summary>
+    /// A large terrain has collision only where something can touch it: around the camera and
+    /// around every body that moves.
+    /// </summary>
+    private void UpdateColliderTiles(RuntimeScene scene, Entry entry)
+    {
+        if (entry.ColliderTiles == null)
+        {
+            RoomTransform transform = RoomHierarchyTransforms.World(entry.Room, entry.Node);
+            entry.ColliderTiles = new TerrainColliderTiles(
+                entry.Terrain,
+                new Vector3(transform.ScaleX, transform.ScaleY, transform.ScaleZ),
+                new Vector3(transform.X, transform.Y, transform.Z),
+                Quaternion.CreateFromYawPitchRoll(
+                    transform.RotationY * MathF.PI / 180f,
+                    transform.RotationX * MathF.PI / 180f,
+                    transform.RotationZ * MathF.PI / 180f),
+                $"Terrain:{entry.Node.Name}");
+        }
+
+        _colliderFocus.Clear();
+        _colliderFocus.Add(new TerrainColliderFocus(scene.Camera3D.Position, ColliderRadiusAroundCamera));
+        float bodyRadius = ColliderRadiusAroundBodies;
+        scene.World.Query<Genesis.Shared.ECS.Components.Transform3DComponent, Genesis.Shared.ECS.Components.RigidBodyComponent>(
+            (Entity _, ref Genesis.Shared.ECS.Components.Transform3DComponent transform,
+                ref Genesis.Shared.ECS.Components.RigidBodyComponent body) =>
+            {
+                if (body.Motion != Genesis.Shared.ECS.Components.PhysicsMotionType.Static && _colliderFocus.Count < 512)
+                    _colliderFocus.Add(new TerrainColliderFocus(transform.Position, bodyRadius));
+            });
+        entry.ColliderTiles.Update(scene.Physics,
+            System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_colliderFocus));
     }
 
     public void SubmitMeshes(RuntimeScene scene, MeshDrawCall[] buffer, ref int count, IRenderController renderer)
@@ -260,8 +333,18 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
                 MeshDrawFlags.None,
                 entry.Culling,
                 entry.WindingOrder);
-            entry.Ground.AppendDrawCalls(buffer, ref count, terrainRaster);
             Matrix4x4 placement = Placement(entry);
+            TerrainLodView view = default;
+            if (entry.Ground.UsesLevelOfDetail)
+            {
+                // Detail is chosen in the terrain's own space, so a placed or scaled terrain behaves.
+                Vector3 cameraLocal = Matrix4x4.Invert(placement, out Matrix4x4 inverse)
+                    ? Vector3.Transform(camera, inverse)
+                    : camera;
+                view = new TerrainLodView(cameraLocal, placement * viewProjection, TerrainDetail);
+            }
+
+            entry.Ground.AppendDrawCalls(buffer, ref count, view, terrainRaster);
             for (int i = terrainStart; i < count; i++) buffer[i].World *= placement;
             SubmitPaths(entry, placement, buffer, ref count);
             SubmitFoliage(entry, camera, viewProjection, placement, renderer);
@@ -323,6 +406,9 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
         {
             if (_game?.Scene?.Physics != null && entry.ColliderRegistrationId != 0)
                 _game.Scene.Physics.UnregisterStaticSurface(entry.ColliderRegistrationId);
+            entry.ColliderTiles?.Clear(_game?.Scene?.Physics);
+            entry.ColliderTiles?.Dispose();
+            entry.ColliderTiles = null;
             if (_game?.Scene != null)
                 foreach (string id in entry.WaterVolumeIds) _game.Scene.RemoveWaterVolume(id);
             entry.Ground?.Dispose();
@@ -383,7 +469,7 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
             entry.Manifest = WorldManifest.Build(entry.Terrain, entry.Nature);
             entry.Query = new WorldQuery(entry.Terrain, entry.Manifest);
             entry.Streamer = new WorldManifestStreamingProvider(entry.Manifest);
-            if (scene.Physics != null)
+            if (scene.Physics != null && !TerrainLodGround.Applies(entry.Terrain))
                 entry.ColliderRegistrationId = RegisterTerrainCollider(scene.Physics, entry);
             RegisterWaterVolumes(scene, entry);
             entry.ColliderRebuildGeneration++;
@@ -432,6 +518,10 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
         if (scene.Physics != null && entry.ColliderRegistrationId != 0)
             scene.Physics.UnregisterStaticSurface(entry.ColliderRegistrationId);
         entry.ColliderRegistrationId = 0;
+        // The tiles describe the old heights and the old asset; the next fixed update rebuilds them.
+        entry.ColliderTiles?.Clear(scene.Physics);
+        entry.ColliderTiles?.Dispose();
+        entry.ColliderTiles = null;
         foreach (string id in entry.WaterVolumeIds)
             scene.RemoveWaterVolume(id);
         entry.WaterVolumeIds.Clear();

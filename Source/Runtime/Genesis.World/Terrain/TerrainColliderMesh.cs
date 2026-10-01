@@ -39,6 +39,38 @@ public static class TerrainColliderMesh
         }
     }
 
+    /// <summary>
+    /// Triangles for one rectangle of cells. Large terrains register collision a tile at a time,
+    /// near the things that can touch it, instead of one mesh for every cell they contain.
+    /// </summary>
+    public static void BuildRegion(TerrainAsset terrain, int startX, int startZ, int cellsX, int cellsZ,
+        out Vector3[] vertices, out int[] indices)
+    {
+        ArgumentNullException.ThrowIfNull(terrain);
+        startX = Math.Clamp(startX, 0, terrain.ResolutionX - 1);
+        startZ = Math.Clamp(startZ, 0, terrain.ResolutionZ - 1);
+        cellsX = Math.Clamp(cellsX, 0, terrain.ResolutionX - 1 - startX);
+        cellsZ = Math.Clamp(cellsZ, 0, terrain.ResolutionZ - 1 - startZ);
+        int pointsX = cellsX + 1, pointsZ = cellsZ + 1;
+        vertices = new Vector3[pointsX * pointsZ];
+        for (int z = 0; z < pointsZ; z++)
+        for (int x = 0; x < pointsX; x++)
+            vertices[z * pointsX + x] = new Vector3(
+                terrain.OriginX + (startX + x) * terrain.CellSize,
+                terrain.GetHeight(startX + x, startZ + z),
+                terrain.OriginZ + (startZ + z) * terrain.CellSize);
+
+        indices = new int[cellsX * cellsZ * 6];
+        int index = 0;
+        for (int z = 0; z < cellsZ; z++)
+        for (int x = 0; x < cellsX; x++)
+        {
+            int a = z * pointsX + x, b = a + 1, c = a + pointsX, d = c + 1;
+            indices[index++] = a; indices[index++] = b; indices[index++] = d;
+            indices[index++] = a; indices[index++] = d; indices[index++] = c;
+        }
+    }
+
     public static PhysicsWaterVolume CreateVolume(TerrainWaterDefinition definition, Matrix4x4 placement)
     {
         ArgumentNullException.ThrowIfNull(definition);

@@ -1527,9 +1527,11 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
         }
 
         int count = 0;
+        // A large terrain chooses its detail from the editor camera; a small one draws every chunk.
         ground.AppendDrawCalls(
             _terrainGroundDraws,
             ref count,
+            new TerrainLodView(_viewport.Camera.Eye, _viewport.ViewMatrix * _viewport.ProjectionMatrix),
             MeshRasterDefaults.ApplyOverride(
                 MeshDrawFlags.None,
                 _settings.Culling,

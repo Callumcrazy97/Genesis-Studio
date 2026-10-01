@@ -23,19 +23,54 @@ public sealed class AuthoredTerrainGround : IDisposable
     private TextureHandle _albedo = TextureHandle.Invalid;
     private float _uvScale = 6f;
     private bool _biome;
-    public MeshDrawCall? SurfaceMaterial { get; set; }
+    private MeshDrawCall? _surfaceMaterial;
+    /// <summary>Set for terrains large enough to need level of detail; null draws every chunk.</summary>
+    private readonly TerrainLodGround _lod;
+    private TerrainLodView _lastView;
+    private bool _hasView;
 
-    public AuthoredTerrainGround(TerrainAsset asset) => _asset = asset ?? throw new ArgumentNullException(nameof(asset));
+    public MeshDrawCall? SurfaceMaterial
+    {
+        get => _surfaceMaterial;
+        set { _surfaceMaterial = value; if (_lod != null) _lod.SurfaceMaterial = value; }
+    }
+
+    public AuthoredTerrainGround(TerrainAsset asset)
+    {
+        _asset = asset ?? throw new ArgumentNullException(nameof(asset));
+        _lod = TerrainLodGround.Applies(asset) ? new TerrainLodGround(asset) : null;
+    }
 
     public TerrainAsset Asset => _asset;
 
-    public int MeshCount => _meshes.Count;
+    /// <summary>
+    /// Draw calls to reserve. With level of detail this is an upper bound, not a resident count.
+    /// </summary>
+    public int MeshCount => _lod != null ? (_render != null ? _lod.MaximumDrawCalls : 0) : _meshes.Count;
+
+    /// <summary>True when the terrain is drawn as distance-dependent nodes instead of every chunk.</summary>
+    public bool UsesLevelOfDetail => _lod != null;
+
+    /// <summary>Counts from the last level-of-detail selection (all zero for small terrains).</summary>
+    public TerrainLodStatistics LodStatistics => _lod?.Statistics ?? default;
+
+    /// <summary>
+    /// Waits until a large terrain has uploaded every mesh a view needs. Detail normally streams
+    /// in over a few frames; captures and tests call this to see the finished result.
+    /// </summary>
+    public void SettleLevelOfDetail(in TerrainLodView view, int timeoutMilliseconds = 30000)
+    {
+        if (_lod == null || _render == null) return;
+        _lastView = view;
+        _hasView = true;
+        _lod.WaitUntilSettled(view, timeoutMilliseconds);
+    }
 
     /// <summary>
     /// When true, the next <see cref="RebuildMesh"/> bakes normalised elevation into vertex Color.r
     /// and the draw is submitted with the TerrainGround flag so the shader applies biome blending.
     /// </summary>
-    public bool BiomeShading { get => _biome; set => _biome = value; }
+    public bool BiomeShading { get => _biome; set { _biome = value; if (_lod != null) _lod.BiomeShading = value; } }
 
     public float SampleHeight(float wx, float wz) => _asset.SampleHeight(wx, wz);
 
@@ -44,12 +79,21 @@ public sealed class AuthoredTerrainGround : IDisposable
         _render = render;
         _albedo = albedo;
         _uvScale = uvScale;
+        if (_lod != null)
+        {
+            _lod.SurfaceMaterial = _surfaceMaterial;
+            _lod.BiomeShading = _biome;
+            _lod.Bind(render, albedo, uvScale);
+            return;
+        }
+
         RebuildMesh();
     }
 
     public void RebuildMesh()
     {
         if (_render == null) return;
+        if (_lod != null) { _lod.Invalidate(); return; }
         ReleaseMeshes();
 
         int resX = _asset.ResolutionX;
@@ -78,6 +122,7 @@ public sealed class AuthoredTerrainGround : IDisposable
     public void RebuildRegion(int minX, int minZ, int maxX, int maxZ)
     {
         if (_render == null) return;
+        if (_lod != null) { _lod.InvalidateRegion(minX, minZ, maxX, maxZ); return; }
         if (_meshes.Count == 0 || _meshes.Count != _chunks.Count
             || _builtResolutionX != _asset.ResolutionX || _builtResolutionZ != _asset.ResolutionZ)
         {
@@ -173,8 +218,31 @@ public sealed class AuthoredTerrainGround : IDisposable
         return Vector3.Normalize(new Vector3(hL - hR, _asset.CellSize * 2f, hN - hS));
     }
 
+    /// <summary>
+    /// Appends the ground as seen from a camera. Large terrains choose their detail from the view;
+    /// small ones ignore it and draw every chunk.
+    /// </summary>
+    public void AppendDrawCalls(MeshDrawCall[] buffer, ref int count, in TerrainLodView view,
+        MeshDrawFlags extraFlags = MeshDrawFlags.None)
+    {
+        _lastView = view;
+        _hasView = true;
+        AppendDrawCalls(buffer, ref count, extraFlags);
+    }
+
     public void AppendDrawCalls(MeshDrawCall[] buffer, ref int count, MeshDrawFlags extraFlags = MeshDrawFlags.None)
     {
+        if (_lod != null)
+        {
+            // Without a camera the terrain is seen as from far above its centre: coarse and complete.
+            TerrainLodView view = _hasView ? _lastView : TerrainLodView.From(new Vector3(
+                _asset.OriginX + (_asset.ResolutionX - 1) * _asset.CellSize * 0.5f,
+                _asset.MaxHeight + (_asset.ResolutionX + _asset.ResolutionZ) * _asset.CellSize,
+                _asset.OriginZ + (_asset.ResolutionZ - 1) * _asset.CellSize * 0.5f));
+            _lod.AppendDrawCalls(view, buffer, ref count, extraFlags);
+            return;
+        }
+
         foreach (MeshHandle mesh in _meshes)
         {
             if (!mesh.IsValid || count >= buffer.Length) break;
@@ -205,6 +273,7 @@ public sealed class AuthoredTerrainGround : IDisposable
     public void Dispose()
     {
         ReleaseMeshes();
+        _lod?.Dispose();
         _render = null;
     }
 }
