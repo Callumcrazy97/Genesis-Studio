@@ -15,6 +15,18 @@ namespace Genesis.Runtime.Modeling
             public long Generation;
         }
 
+        /// <summary>
+        /// The registry a running game shares between drawing, collision fitting and terrain parts.
+        /// A model file is read and parsed once, however many objects use it and however many rooms
+        /// they appear in. Entries are re-checked against disk on the usual frame-path interval, and
+        /// dropped by <see cref="RuntimeAssetPolicy.Invalidate"/> when an asset is saved.
+        /// </summary>
+        public static RuntimeModelAssetRegistry Shared { get; } =
+            new(RuntimeAssetPolicy.DefaultFramePathIntervalMilliseconds);
+
+        // Room loading and drawing normally share one thread; the lock keeps the cache whole if a
+        // loader ever runs on another.
+        private readonly object _gate = new();
         private readonly Dictionary<string, Entry> _cache = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<(string Project, string Model), string> _resolvedRequests = new();
         private readonly int _freshnessCheckIntervalMilliseconds;
@@ -25,6 +37,11 @@ namespace Genesis.Runtime.Modeling
         }
 
         public GModelAsset Load(string projectPath, string modelName)
+        {
+            lock (_gate) return LoadCore(projectPath, modelName);
+        }
+
+        private GModelAsset LoadCore(string projectPath, string modelName)
         {
             long now = Environment.TickCount64;
             long generation = RuntimeAssetPolicy.Generation;
@@ -93,19 +110,25 @@ namespace Genesis.Runtime.Modeling
 
         public void Invalidate(string projectPath, string modelName)
         {
-            _resolvedRequests.Remove((projectPath ?? string.Empty, modelName ?? string.Empty));
-            string studioPath = StudioModelResourceLoader.Resolve(projectPath, modelName);
-            if (!string.IsNullOrWhiteSpace(studioPath))
-                _cache.Remove(Path.GetFullPath(studioPath));
-            string path = RuntimeModelStore.AssetPath(projectPath, modelName);
-            if (!string.IsNullOrWhiteSpace(path))
-                _cache.Remove(Path.GetFullPath(path));
+            lock (_gate)
+            {
+                _resolvedRequests.Remove((projectPath ?? string.Empty, modelName ?? string.Empty));
+                string studioPath = StudioModelResourceLoader.Resolve(projectPath, modelName);
+                if (!string.IsNullOrWhiteSpace(studioPath))
+                    _cache.Remove(Path.GetFullPath(studioPath));
+                string path = RuntimeModelStore.AssetPath(projectPath, modelName);
+                if (!string.IsNullOrWhiteSpace(path))
+                    _cache.Remove(Path.GetFullPath(path));
+            }
         }
 
         public void Clear()
         {
-            _resolvedRequests.Clear();
-            _cache.Clear();
+            lock (_gate)
+            {
+                _resolvedRequests.Clear();
+                _cache.Clear();
+            }
         }
     }
 }

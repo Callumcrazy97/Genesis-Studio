@@ -31,7 +31,7 @@ namespace Genesis.Runtime.Rendering
         // Bounded fallback checks cover external writers without resolving hundreds of identical
         // model and texture paths during every submitted frame.
         private static readonly RuntimeModelRenderSystem ModelRenderer = new(
-            assetFreshnessIntervalMilliseconds: 1000,
+            assets: RuntimeModelAssetRegistry.Shared,
             textureFreshnessIntervalMilliseconds: 1000);
 
         /// <summary>The model system every scene draw shares, so models are loaded and uploaded once.</summary>

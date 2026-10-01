@@ -457,7 +457,9 @@ public sealed class RoomSceneBuilder
         ModelRendererComponent renderer = world.GetRef<ModelRendererComponent>(entity);
         string modelName = renderer.ModelAsset;
         if (string.IsNullOrWhiteSpace(modelName)) return;
-        GModelAsset model = new RuntimeModelAssetRegistry().Load(_projectPath, modelName);
+        // The shared registry: a fresh one here parsed the model file again for every object
+        // that uses it, on every room load.
+        GModelAsset model = RuntimeModelAssetRegistry.Shared.Load(_projectPath, modelName);
         if (!GModelProductionTools.TryCreateRigidBody(model, out RigidBodyComponent rigid)) return;
         Vector3 scale = new Vector3(SafeScale(transform.ScaleX), SafeScale(transform.ScaleY), SafeScale(transform.ScaleZ))
             * new Vector3(SafeScale(renderer.ScaleX), SafeScale(renderer.ScaleY), SafeScale(renderer.ScaleZ));

@@ -25,7 +25,7 @@ public static class ModelPhysicsBinding
         if (asset.Dimension != PhysicsDimension.ThreeD)
             throw new InvalidDataException("A 3D Object requires a 3D Physics resource. Choose 3D bodies in Physics Quick setup.");
         ModelRendererComponent renderer = world.Has<ModelRendererComponent>(entity) ? world.GetRef<ModelRendererComponent>(entity) : default;
-        GModelAsset model = string.IsNullOrWhiteSpace(renderer.ModelAsset) ? null : new RuntimeModelAssetRegistry().Load(project, renderer.ModelAsset);
+        GModelAsset model = string.IsNullOrWhiteSpace(renderer.ModelAsset) ? null : RuntimeModelAssetRegistry.Shared.Load(project, renderer.ModelAsset);
         if (model != null && !model.HasRenderableMeshes) throw new InvalidDataException("The Physics Object's Model has no saved geometry.");
         model?.RecalculateBounds();
         Vector3 scale = new Vector3(SafeScale(transform.ScaleX), SafeScale(transform.ScaleY), SafeScale(transform.ScaleZ))

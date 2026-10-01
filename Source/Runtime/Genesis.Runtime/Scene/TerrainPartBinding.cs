@@ -181,7 +181,7 @@ internal static class TerrainPartBinding
         if (world.Has<ModelRendererComponent>(entity))
         {
             ModelRendererComponent renderer = world.GetRef<ModelRendererComponent>(entity);
-            asset = new RuntimeModelAssetRegistry().Load(project, renderer.ModelAsset);
+            asset = RuntimeModelAssetRegistry.Shared.Load(project, renderer.ModelAsset);
             size = Vector3.Max((asset.Bounds.Max - asset.Bounds.Min) * .5f, new Vector3(.05f));
             scale *= new Vector3(renderer.ScaleX, renderer.ScaleY, renderer.ScaleZ);
         }
