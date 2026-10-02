@@ -132,6 +132,99 @@ internal static class EngineAdditionsSuite
                 "A strike 120 m away should be over within a second, with loud thunder just after it.");
         });
 
+        HeadlessHarness.RunCase(context.Report, "Engine.Animation.Events.AScriptIsToldTheFrameAClipPassesAPoint", () =>
+        {
+            // The rule itself: a span of time passes a mark once, and a looping clip once each time round.
+            HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.AnimationPassed(0.30, 0.34, 0.32, 2.0, false)
+                && !Genesis.Runtime.Scripting.PgslCommands.AnimationPassed(0.34, 0.38, 0.32, 2.0, false)
+                && !Genesis.Runtime.Scripting.PgslCommands.AnimationPassed(0.26, 0.30, 0.32, 2.0, false),
+                "A clip passing 0.32 s should report it in that step and in no other.");
+            HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.AnimationPassed(0.0, 0.016, 0.0, 2.0, false),
+                "The start of a clip (fraction 0) was never reported.");
+            HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.AnimationPassed(4.30, 4.34, 0.32, 2.0, true)
+                && !Genesis.Runtime.Scripting.PgslCommands.AnimationPassed(4.30, 4.34, 0.32, 2.0, false)
+                && !Genesis.Runtime.Scripting.PgslCommands.AnimationPassed(4.34, 4.38, 0.32, 2.0, true),
+                "A looping clip should pass its mark again on the third time round, and a clip that does not loop should not.");
+            HeadlessHarness.Assert(!Genesis.Runtime.Scripting.PgslCommands.AnimationPassed(0.5, 0.5, 0.5, 2.0, true)
+                && !Genesis.Runtime.Scripting.PgslCommands.AnimationPassed(0.5, 0.6, 0.55, 0.0, true),
+                "A clip that did not move, or has no length, passed a mark.");
+            int passes = 0;
+            double clock = 0;
+            var random = new Random(11);
+            for (int frame = 0; frame < 2000; frame++)
+            {
+                double step = 0.004 + random.NextDouble() * 0.03;
+                if (Genesis.Runtime.Scripting.PgslCommands.AnimationPassed(clock, clock + step, 0.9, 1.2, true)) passes++;
+                clock += step;
+            }
+
+            int expected = (int)Math.Floor((clock - 0.9) / 1.2) + 1;
+            HeadlessHarness.Assert(Math.Abs(passes - expected) <= 1, $"Over {clock:F1} s a 1.2 s loop passed its mark {passes} times; expected {expected}.");
+
+            // Through the script commands, on a model with a two-second clip.
+            string project = Path.Combine(context.Workspace, "AnimationEventProject");
+            Directory.CreateDirectory(Path.Combine(project, "Models"));
+            var model = new Genesis.Runtime.Modeling.GModelAsset { Name = "Dancer" };
+            var clip = new Genesis.Runtime.Modeling.GModelAnimationClip { Name = "Strike", Fps = 30f };
+            for (int frame = 0; frame < 60; frame++)
+                clip.Frames.Add(new Genesis.Runtime.Modeling.GModelAnimationFrame { LocalBoneTransforms = [Matrix4x4.Identity] });
+            model.Animations.Add(clip);
+            Genesis.Runtime.Modeling.RuntimeModelStore.Save(Path.Combine(project, "Models", "Dancer.gmodel"), model);
+
+            using var scene = new RuntimeScene("Animation events");
+            var game = new ProjectGameContext(project, scene, null, null, RoomAsset.Create("Hall", RoomDimension.ThreeD), null);
+            string oldProject = Genesis.Runtime.Scripting.PgslCommands.ProjectPath;
+            var oldGame = Genesis.Runtime.Scripting.PgslCommands.ActiveGameContext;
+            var script = new Genesis.Shared.Scripting.PgslContext
+            {
+                ModelAsset = "Dancer", ModelAnimationClip = "Strike", ModelAnimationFps = 30, ModelAnimationActive = true, ModelAnimationLoop = false,
+            };
+            Genesis.Shared.Scripting.PgslContext oldContext = Genesis.Runtime.Scripting.PgslCommands.BindContext(script);
+            try
+            {
+                Genesis.Runtime.Scripting.PgslCommands.ProjectPath = project;
+                Genesis.Runtime.Scripting.PgslCommands.ActiveGameContext = game;
+                HeadlessHarness.Assert(Math.Abs(Genesis.Runtime.Scripting.PgslCommands.ModelAnimationGetLength("Strike") - 2.0) < 1e-6
+                    && Genesis.Runtime.Scripting.PgslCommands.ModelAnimationGetLength("Nothing") == 0,
+                    "Sixty frames at 30 a second should be a two-second clip, and a clip the model lacks should have no length.");
+
+                // The blow lands 40% of the way through: 0.8 s.
+                var landed = new List<double>();
+                for (int frame = 0; frame < 150; frame++)
+                {
+                    scene.GameTime.Advance(1f / 60f);
+                    script.ModelAnimationLastTime = script.ModelAnimationTime;
+                    script.ModelAnimationTime += 1.0 / 60.0;
+                    script.ModelAnimationAdvancedFrame = game.FrameCount;
+                    if (Genesis.Runtime.Scripting.PgslCommands.ModelAnimationCrossed(0.4)) landed.Add(script.ModelAnimationTime);
+                    // Asking twice in a frame gives the same answer; an event is for the frame, not the first caller.
+                    HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.ModelAnimationCrossed(0.4) == (landed.Count > 0 && landed[^1] == script.ModelAnimationTime),
+                        "Two events in one frame disagreed about whether the blow landed.");
+                }
+
+                HeadlessHarness.Assert(landed.Count == 1 && Math.Abs(landed[0] - 0.8) < 0.02,
+                    $"The blow should land once, at 0.8 s; it landed {landed.Count} times ({string.Join(", ", landed.Select(time => time.ToString("F2")))}).");
+                HeadlessHarness.Assert(Math.Abs(Genesis.Runtime.Scripting.PgslCommands.ModelAnimationGetProgress() - 1.0) < 1e-6
+                    && Math.Abs(Genesis.Runtime.Scripting.PgslCommands.ModelAnimationGetTime() - 2.5) < 0.01,
+                    "A finished clip should report progress 1 and the time it has run.");
+
+                // The game holds still (a hit-stop): the clip does not move, and the blow must not land again.
+                script.ModelAnimationTime = 0.79;
+                script.ModelAnimationLastTime = 0.79;
+                for (int frame = 0; frame < 20; frame++)
+                {
+                    scene.GameTime.Advance(0f);
+                    HeadlessHarness.Assert(!Genesis.Runtime.Scripting.PgslCommands.ModelAnimationCrossed(0.4), "A clip standing still reported an event.");
+                }
+            }
+            finally
+            {
+                Genesis.Runtime.Scripting.PgslCommands.BindContext(oldContext);
+                Genesis.Runtime.Scripting.PgslCommands.ProjectPath = oldProject;
+                Genesis.Runtime.Scripting.PgslCommands.ActiveGameContext = oldGame;
+            }
+        });
+
         HeadlessHarness.RunCase(context.Report, "Engine.World.Water.ATerrainCanGiveItsWaterItsOwnLook", () =>
         {
             // By default a lake and a sea keep the look their kind is given.

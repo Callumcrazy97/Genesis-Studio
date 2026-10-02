@@ -40,6 +40,10 @@ namespace Genesis.Shared.Scripting
         public string ModelAnimationClip { get; set; }
         public string ModelAnimationPreviousClip { get; set; }
         public double ModelAnimationTime { get; set; }
+        /// <summary>Where the active clip was before it last advanced; with the time now, the span an animation event is looked for in.</summary>
+        public double ModelAnimationLastTime { get; set; }
+        /// <summary>The frame in which the active clip last advanced, so a paused clip reports no events.</summary>
+        public long ModelAnimationAdvancedFrame { get; set; } = -1;
         public double ModelAnimationPreviousTime { get; set; }
         public double ModelAnimationFps { get; set; } = 60.0;
         public double ModelAnimationSpeed { get; set; } = 1.0;

@@ -582,6 +582,14 @@ namespace Genesis.Runtime.Scripting
                 _ctx.ModelAnimationClip = animator.ClipName ?? string.Empty;
                 _ctx.AnimationController = animator.Controller;
                 _ctx.ModelAnimationPreviousClip = animator.PreviousClipName ?? string.Empty;
+                // Several events may run in one frame; the span the clip covered is recorded only
+                // when the clip has actually moved, so each of them sees the same span.
+                if (animator.TimeSeconds != (float)_ctx.ModelAnimationTime)
+                {
+                    _ctx.ModelAnimationLastTime = _ctx.ModelAnimationTime;
+                    _ctx.ModelAnimationAdvancedFrame = Game?.FrameCount ?? 0;
+                }
+
                 _ctx.ModelAnimationTime = animator.TimeSeconds;
                 _ctx.ModelAnimationPreviousTime = animator.PreviousTimeSeconds;
                 _ctx.ModelAnimationFps = animator.ClipFps <= 0f ? 60f : animator.ClipFps;

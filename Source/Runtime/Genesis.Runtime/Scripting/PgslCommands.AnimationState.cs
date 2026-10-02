@@ -89,6 +89,70 @@ public static partial class PgslCommands
         "Get the model clip playback multiplier", "Animation")]
     public static double ModelAnimationGetSpeed() => GetContext()?.ModelAnimationSpeed ?? 0;
 
+    /// <summary>Length in seconds of one of the instance's clips at the rate it is played, or 0.</summary>
+    private static double ModelClipSeconds(PgslContext ctx, string clipName)
+    {
+        if (ctx is null || string.IsNullOrWhiteSpace(ctx.ModelAsset) || string.IsNullOrWhiteSpace(clipName)) return 0;
+        Genesis.Runtime.Modeling.GModelAsset asset = Genesis.Runtime.Modeling.RuntimeModelAssetRegistry.Shared.Load(ProjectPath, ctx.ModelAsset);
+        if (asset?.Animations is null) return 0;
+        foreach (Genesis.Runtime.Modeling.GModelAnimationClip clip in asset.Animations)
+        {
+            if (!string.Equals(clip.Name, clipName.Trim(), StringComparison.OrdinalIgnoreCase)) continue;
+            if (clip.Frames is not { Count: > 0 }) return 0;
+            double fps = ctx.ModelAnimationFps > 0 ? ctx.ModelAnimationFps : Math.Max(1.0, clip.Fps);
+            return clip.Frames.Count / fps;
+        }
+
+        return 0;
+    }
+
+    /// <summary>
+    /// True when a clip that moved from <paramref name="before"/> to <paramref name="now"/> seconds
+    /// passed <paramref name="mark"/> seconds on the way. A looping clip passes each mark once
+    /// every time round.
+    /// </summary>
+    public static bool AnimationPassed(double before, double now, double mark, double length, bool loop)
+    {
+        if (!(now > before) || !(length > 0) || !double.IsFinite(mark)) return false;
+        mark = Math.Clamp(mark, 0, length);
+        if (!loop) return before <= mark && mark < now;
+        // The first time round at or after where the clip was.
+        double turn = Math.Max(0, Math.Ceiling((before - mark) / length));
+        return mark + turn * length < now;
+    }
+
+    [PgslCommand("ModelAnimationGetTime", "ModelAnimationGetTime() -> number",
+        "Seconds the active model clip has been playing", "Animation")]
+    public static double ModelAnimationGetTime() => GetContext()?.ModelAnimationTime ?? 0;
+
+    [PgslCommand("ModelAnimationGetLength", "ModelAnimationGetLength(clip) -> number",
+        "Length of one of this model's clips in seconds at the rate it is played; 0 if the model has no such clip", "Animation")]
+    public static double ModelAnimationGetLength(string clip) => ModelClipSeconds(GetContext(), clip);
+
+    [PgslCommand("ModelAnimationGetProgress", "ModelAnimationGetProgress() -> number",
+        "From 0 to 1: how far through the active model clip; a looping clip starts again at 0", "Animation")]
+    public static double ModelAnimationGetProgress()
+    {
+        PgslContext ctx = GetContext();
+        double length = ModelClipSeconds(ctx, ctx?.ModelAnimationClip);
+        if (length <= 0) return 0;
+        double time = ctx.ModelAnimationTime;
+        return ctx.ModelAnimationLoop ? time % length / length : Math.Clamp(time / length, 0, 1);
+    }
+
+    [PgslCommand("ModelAnimationCrossed", "ModelAnimationCrossed(fraction) -> bool",
+        "True in the one frame the active model clip passes this point (0 = its start, 1 = its end): the moment a blow lands or a foot comes down", "Animation")]
+    public static bool ModelAnimationCrossed(double fraction)
+    {
+        PgslContext ctx = GetContext();
+        if (ctx is null || !ctx.ModelAnimationActive) return false;
+        // A clip that did not move this frame (paused, or the game held still) passes nothing.
+        if (ctx.ModelAnimationAdvancedFrame != (ActiveGameContext?.FrameCount ?? 0)) return false;
+        double length = ModelClipSeconds(ctx, ctx.ModelAnimationClip);
+        return AnimationPassed(ctx.ModelAnimationLastTime, ctx.ModelAnimationTime, Math.Clamp(fraction, 0, 1) * length, length,
+            ctx.ModelAnimationLoop);
+    }
+
     [PgslCommand("KeepPreviousTransform", "Engine.Rendering.Models.KeepPreviousTransform",
         "Keep entity position, rotation and proportional model scale when a model or animation changes",
         "Engine · Models", Namespace = "Engine.Rendering.Models")]
