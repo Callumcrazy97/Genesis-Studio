@@ -290,11 +290,16 @@ What those checks do not show, and has not been seen in a running game yet:
 - lights added from Step events on screen, and a script's ambient colour under the dynamic sky;
 - `GameSetSpeed`, `CameraShake3D` and `RoomGotoWhenLoaded` in play;
 - terrain streaming in the Player, and the Terrain editor's scatter preview on screen;
-- a rainy room with its weather fog turned down;
 - animated models' simplified versions on screen;
 - the cost saved by drawing each local shadow face only its own casters. The shadow and rendering
   suites pass with it (82 checks), which shows the picture is not broken, not how much faster a
   room of lights and characters is.
+
+Seen in a game since (the Golden Stag project, 2 October 2026, on this engine): the weather fog
+setting on a 384 m valley under rain. At 1 only the nearest 30 m keeps its colour; at 0.25 the
+whole valley reads, with cloud, wet ground and sky unchanged. Useful values there were 0.14 to 0.3.
+In the same captures the firs on the far ridge turn pale before the hill under them does, and
+stand out against a dark storm sky; that is not fixed.
 
 Scatter drawing, the long-view terrain shading, the far water and the shadow cascade on screen are
 checked by the captures and the flights above, not by a harness case.
