@@ -36,6 +36,8 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem
         public bool Loaded;
         /// <summary>Set when an object turned out to have a moving body: it stays loaded for good.</summary>
         public bool Pinned;
+        /// <summary>The Object asked to be streamed although it has scripts or a body.</summary>
+        public bool Streamable;
     }
 
     private readonly List<Item> _items = new();
@@ -73,10 +75,21 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem
     /// <summary>Scenery objects that exist right now.</summary>
     public int Loaded => _loaded.Count;
 
-    /// <summary>Records a scenery object the room builder has left for later.</summary>
-    internal void Add(RoomNode node, Vector3 position)
+    /// <summary>Scenery objects that exist now and run scripts or have bodies of their own.</summary>
+    public int LoadedStreamable
     {
-        var item = new Item { Node = node, Position = position };
+        get
+        {
+            int count = 0;
+            foreach (Item item in _loaded) if (item.Streamable) count++;
+            return count;
+        }
+    }
+
+    /// <summary>Records a scenery object the room builder has left for later.</summary>
+    internal void Add(RoomNode node, Vector3 position, bool streamable = false)
+    {
+        var item = new Item { Node = node, Position = position, Streamable = streamable };
         _items.Add(item);
         var key = Cell(position);
         if (!_cells.TryGetValue(key, out List<Item> cell)) _cells[key] = cell = new List<Item>();
@@ -132,7 +145,16 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem
         {
             _sweep = (_sweep + 1) % _loaded.Count;
             Item item = _loaded[_sweep];
-            if (item.Pinned || FlatDistanceSquared(item.Position, camera) <= unloadSquared) continue;
+            if (item.Pinned) continue;
+            // Something with a script may have walked: judge it by where it is, not where it began.
+            Vector3 where = item.Position;
+            if (item.Streamable && scene.World.IsAlive(item.Entity) && scene.World.Has<Genesis.Runtime.ECS.Components.TransformComponent>(item.Entity))
+            {
+                ref Genesis.Runtime.ECS.Components.TransformComponent transform = ref scene.World.GetRef<Genesis.Runtime.ECS.Components.TransformComponent>(item.Entity);
+                where = new Vector3(transform.X, transform.Y, transform.Z);
+            }
+
+            if (FlatDistanceSquared(where, camera) <= unloadSquared) continue;
             if (Unload(scene, item))
             {
                 _loaded[_sweep] = _loaded[^1];
@@ -153,7 +175,8 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem
         foreach (Item item in _loaded) known.Add(item.Node.GameObject?.Prefab ?? "");
         foreach (Item item in _items)
         {
-            if (item.Loaded || !known.Add(item.Node.GameObject?.Prefab ?? "")) continue;
+            // Not for an Object with scripts: its Create and Destroy events would run for nothing.
+            if (item.Loaded || item.Streamable || !known.Add(item.Node.GameObject?.Prefab ?? "")) continue;
             Load(scene.World, item);
             if (Unload(scene, item)) _loaded.Remove(item);
         }
@@ -173,7 +196,7 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem
     }
 
     /// <returns>False when the object must stay: it has gained a body that moves.</returns>
-    private static bool Unload(RuntimeScene scene, Item item)
+    private bool Unload(RuntimeScene scene, Item item)
     {
         EcsWorld world = scene.World;
         if (!item.Entity.IsNull && world.IsAlive(item.Entity))
@@ -181,7 +204,9 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem
             if (world.Has<RigidBodyComponent>(item.Entity))
             {
                 ref RigidBodyComponent body = ref world.GetRef<RigidBodyComponent>(item.Entity);
-                if (body.Motion != PhysicsMotionType.Static)
+                // Plain scenery that has somehow come to move is not what it claimed to be; an
+                // Object that asked to be streamed has said its body may go with it.
+                if (body.Motion != PhysicsMotionType.Static && !item.Streamable)
                 {
                     item.Pinned = true;
                     return false;
@@ -189,6 +214,8 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem
 
                 if (body.RegistrationId != 0) scene.Physics?.UnregisterEntity(world, item.Entity, ref body);
             }
+
+            if (item.Streamable) _builder?.DetachScripts(item.Entity);
 
             // What the object was drawn from is kept per entity; let it go with the object.
             Genesis.Runtime.Rendering.ObjectDrawAssetRegistry.Remove(item.Entity);

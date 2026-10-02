@@ -232,6 +232,56 @@ internal static class LargeWorldContentSuite
                     HeadlessHarness.Assert(transform.X > 3300f, $"An object at {transform.X:F0} m is still alive 600 m behind the camera.");
                 });
             HeadlessHarness.Assert(alive == streamer.Loaded + 1, $"{alive} model objects exist; expected the {streamer.Loaded} loaded houses and the gate.");
+
+            // An Object with a script streams only when its definition says it may.
+            HeadlessHarness.Assert(!RoomSceneBuilder.IsStreamable(Prefab("{\"components\":[" + model + "," + script + "]}"))
+                && RoomSceneBuilder.IsStreamable(Prefab("{\"streamable\":true,\"components\":[" + model + "," + script + "]}"))
+                && !RoomSceneBuilder.IsStreamable(Prefab("{\"streamable\":true,\"persistent\":true,\"components\":[" + model + "]}")),
+                "Only an Object marked streamable, and not persistent, may be streamed with its scripts.");
+            File.WriteAllText(resources.CreateResource(objects, ResourceKind.GameObject, "Test Deer"),
+                "{\"schemaVersion\":2,\"dimension\":\"ThreeD\",\"model\":\"\",\"streamable\":true,\"components\":[" + model + "," + script + "],\"events\":[]}");
+            ResourceNames.Invalidate(project.RootPath);
+            RoomAsset moor = RoomAsset.Create("Moor", RoomDimension.ThreeD);
+            for (int i = 0; i < 20; i++)
+                moor.Nodes.Add(new RoomNode
+                {
+                    Name = "Deer " + i, Kind = RoomNodeKind.GameObject, LayerId = moor.Layers[0].Id, EnabledIn2D = false,
+                    Transform = new RoomTransform { X = i * 200f, ScaleX = 1, ScaleY = 1, ScaleZ = 1 },
+                    GameObject = new RoomGameObjectData { Prefab = "Test Deer" },
+                });
+            using var moorScene = new RuntimeScene("Moor");
+            var herd = new RoomSceneryStreamer(350f);
+            var moorBuilder = new RoomSceneBuilder(project.RootPath, new ScriptHostSystem()) { Scenery = herd };
+            RoomBuildResult moorBuilt = moorBuilder.Build(moorScene, moor);
+            HeadlessHarness.Assert(herd.Total == 20 && moorBuilt.SpawnedEntities.Count == 0,
+                $"Twenty streamable deer should all be left to the streamer; it holds {herd.Total} and the room made {moorBuilt.SpawnedEntities.Count}.");
+            herd.Attach(moorBuilder, moor);
+            moorScene.Camera3D.Position = new Vector3(0f, 2f, 0f);
+            herd.Update(moorScene, time);
+            moorScene.World.FlushDeferred();
+            HeadlessHarness.Assert(herd.Loaded == 2 && herd.LoadedStreamable == 2, $"{herd.Loaded} deer exist near the start; the two within 350 m should.");
+
+            // A deer that has walked to the camera stays, however far it began.
+            Genesis.Shared.ECS.Entity wanderer = Genesis.Shared.ECS.Entity.Null;
+            moorScene.World.Query<Genesis.Runtime.ECS.Components.TransformComponent>(
+                (Genesis.Shared.ECS.Entity entity, ref Genesis.Runtime.ECS.Components.TransformComponent transform) =>
+                {
+                    if (transform.X > 100f) wanderer = entity;
+                });
+            moorScene.Camera3D.Position = new Vector3(3000f, 2f, 0f);
+            ref Genesis.Runtime.ECS.Components.TransformComponent walked =
+                ref moorScene.World.GetRef<Genesis.Runtime.ECS.Components.TransformComponent>(wanderer);
+            walked.X = 3010f;
+            for (int frame = 0; frame < 30; frame++) { herd.Update(moorScene, time); moorScene.World.FlushDeferred(); }
+            HeadlessHarness.Assert(moorScene.World.IsAlive(wanderer), "A deer standing beside the camera was unloaded because it began far away.");
+            int deer = 0;
+            moorScene.World.Query<Genesis.Runtime.ECS.Components.TransformComponent>(
+                (Genesis.Shared.ECS.Entity _, ref Genesis.Runtime.ECS.Components.TransformComponent transform) =>
+                {
+                    deer++;
+                    HeadlessHarness.Assert(MathF.Abs(transform.X - 3000f) < 450f, $"A deer at {transform.X:F0} m still exists 3 km from the camera.");
+                });
+            HeadlessHarness.Assert(deer == herd.Loaded && deer is >= 4 and <= 6, $"{deer} deer exist around the camera at 3 km; expected the wanderer and the four that live there.");
         });
 
         RunStreaming(context);

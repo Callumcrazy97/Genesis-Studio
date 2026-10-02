@@ -445,17 +445,31 @@ public sealed class RoomSceneBuilder
         return model;
     }
 
+    /// <summary>
+    /// True when an Object says it may be created and destroyed with distance although it has a
+    /// script, events or a body: <c>"streamable": true</c> in its definition. Its Create event
+    /// runs each time it comes into range and its Destroy event each time it leaves, and it
+    /// starts again from its definition each time, so it suits things that keep nothing: wildlife,
+    /// torches, ambient machinery. Anything that must be remembered stays as it is.
+    /// </summary>
+    public static bool IsStreamable(JObject prefab) =>
+        prefab != null && (bool?)prefab["streamable"] == true && (bool?)prefab["persistent"] != true;
+
     private bool TryDeferScenery(RoomAsset room, RoomNode node)
     {
         if (Scenery == null || room.Dimension != RoomDimension.ThreeD) return false;
         JObject prefab = ResolvePrefab(node.GameObject.Prefab);
         if (prefab == null) return false;
         prefab = ApplyOverrides(prefab, node.GameObject.ComponentOverrides);
-        if (!IsScenery(prefab) || ResolveObjectEvents(node.GameObject.Prefab) is { Count: > 0 }) return false;
+        bool streamable = IsStreamable(prefab);
+        if (!streamable && (!IsScenery(prefab) || ResolveObjectEvents(node.GameObject.Prefab) is { Count: > 0 })) return false;
         RoomTransform placed = ResolveWorldTransform(room, node);
-        Scenery.Add(node, new Vector3(placed.X, placed.Y, placed.Z));
+        Scenery.Add(node, new Vector3(placed.X, placed.Y, placed.Z), streamable);
         return true;
     }
+
+    /// <summary>Runs an Object's Destroy event and lets go of its scripts, before it is removed.</summary>
+    internal void DetachScripts(Entity entity) => _scriptHost?.Detach(entity);
 
     private static readonly RoomAsset CopyRoom3D = RoomAsset.Create("Copies", RoomDimension.ThreeD);
     private static readonly RoomAsset CopyRoom2D = RoomAsset.Create("Copies", RoomDimension.TwoD);
@@ -514,7 +528,20 @@ public sealed class RoomSceneBuilder
     internal Entity SpawnScenery(EcsWorld world, RoomAsset room, RoomNode node)
     {
         var result = new RoomBuildResult { Asset = room };
-        SpawnGameObject(world, room, node, result);
+        // As when a room is built: the object is put in its place before its Create event runs,
+        // or the event would see it at the origin.
+        bool deferring = _scriptHost != null && !_scriptHost.DeferCreateEvents;
+        if (deferring) _scriptHost.DeferCreateEvents = true;
+        try
+        {
+            SpawnGameObject(world, room, node, result);
+        }
+        finally
+        {
+            if (deferring) _scriptHost.DeferCreateEvents = false;
+        }
+
+        if (deferring) _scriptHost.FlushDeferredCreates();
         return result.EntitiesByNodeId.TryGetValue(node.Id, out Entity entity) ? entity : Entity.Null;
     }
 
