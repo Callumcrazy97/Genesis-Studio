@@ -753,6 +753,8 @@ namespace Genesis.Shared.Interfaces
         public float   CloudThickness;
         /// <summary>AF2.6 weather-map coverage multiplier (default 1 = identity).</summary>
         public float   CloudCoverageScale;
+        /// <summary>How large the sun's disc is drawn against its usual size. 0 (a state built without the defaults) counts as 1.</summary>
+        public float   SunDiscScale;
         /// <summary>
         /// AF2.6 cloud density → raymarch intensity multiplier (default 1 = identity).
         /// </summary>
@@ -856,6 +858,7 @@ namespace Genesis.Shared.Interfaces
             CloudThickness        = SkyAuthoringDefaults.DefaultCloudThickness,
             CloudCoverageScale    = SkyAuthoringDefaults.DefaultCloudCoverageScale,
             CloudDensityScale     = SkyAuthoringDefaults.DefaultCloudDensityScale,
+            SunDiscScale          = 1f,
             Exposure              = 1f,
             Contrast              = 1f,
             Saturation            = 1f,

@@ -4734,7 +4734,8 @@ namespace Genesis.Rendering.Primitives
                     _state.Contrast,
                     _state.Saturation,
                     LinearPipeline ? 1f : 0f), // w: encode the tonemapped result to sRGB
-                VignetteParams          = new Vector4(_state.VignetteStrength, 0f, 0f, 0f),
+                // y: break up the bands a slow sky gradient shows on a 256-level display.
+                VignetteParams          = new Vector4(_state.VignetteStrength, _state.AuthoredSkyEnabled ? 1f : 0f, 0f, 0f),
                 AtmosphereLutParams     = new Vector4(
                     atmosphereLutEnabled ? 1f : 0f,
                     sunHeight,
@@ -5792,9 +5793,10 @@ namespace Genesis.Rendering.Primitives
             if (forward.LengthSquared() < 1e-6f)
                 forward = -Vector3.Normalize(lightDir);
 
-            float sunSize = 14f * (sunDistance / 450f);
-            var world = Matrix4x4.CreateScale(sunSize)
-                * Matrix4x4.CreateBillboard(sunPos, _cameraPos, Vector3.UnitY, forward);
+            float discScale = _state.SunDiscScale > 0f ? Math.Clamp(_state.SunDiscScale, 0.25f, 8f) : 1f;
+            float sunSize = 14f * (sunDistance / 450f) * discScale;
+            // Round and one size wherever it is in the view; see SkyBillboardMath.
+            Matrix4x4 world = SkyBillboardMath.SunQuad(_cameraPos, forward, sunPos - _cameraPos, sunDistance, sunSize);
 
             _gpu.SetDepthState(_dssNoWrite);
             _gpu.SetRasterState(_rsCullNone);

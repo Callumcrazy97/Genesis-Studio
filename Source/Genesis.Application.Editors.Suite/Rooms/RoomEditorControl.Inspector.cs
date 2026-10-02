@@ -115,6 +115,8 @@ public sealed partial class RoomEditorControl
             environment.WeatherEffects));
         values.Add(Number("Lighting & atmosphere", "environment.weatherFogScale", "Weather fog (1 = as the weather sets it, 0 = none)",
             environment.WeatherFogScale, 0, 4, 0.05m, 2));
+        values.Add(Number("Lighting & atmosphere", "environment.sunDiscScale", "Sun size (1 = as it is)",
+            environment.SunDiscScale, 0.25m, 8, 0.05m, 2));
         values.Add(Number("Lighting & atmosphere", "environment.shadowDistance", "Sun shadow distance (m, 0 = close range)",
             environment.ShadowDistance, 0, 20000, 50m, 0));
         values.Add(Number("Lighting & atmosphere", "environment.simulationDistance", "Object activity distance (m, 0 = everywhere)",
@@ -337,6 +339,7 @@ public sealed partial class RoomEditorControl
             case "atmospherichaze": next.AtmosphericHaze = Convert.ToSingle(value, CultureInfo.InvariantCulture); break;
             case "visibilitykilometres": next.VisibilityKilometres = Convert.ToSingle(value, CultureInfo.InvariantCulture); break;
             case "weatherfogscale": next.WeatherFogScale = Convert.ToSingle(value, CultureInfo.InvariantCulture); break;
+            case "sundiscscale": next.SunDiscScale = Convert.ToSingle(value, CultureInfo.InvariantCulture); break;
             case "shadowdistance": next.ShadowDistance = Convert.ToSingle(value, CultureInfo.InvariantCulture); break;
             case "simulationdistance": next.SimulationDistance = Convert.ToSingle(value, CultureInfo.InvariantCulture); break;
             case "scenerydistance": next.SceneryDistance = Convert.ToSingle(value, CultureInfo.InvariantCulture); break;

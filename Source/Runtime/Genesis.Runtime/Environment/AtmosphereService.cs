@@ -28,6 +28,8 @@ public sealed class AtmosphereOptions
     public float CloudCoverageScale { get; set; } = 1f;
     /// <summary>AF2.6 density → raymarch intensity multiplier (default 1).</summary>
     public float CloudDensityScale { get; set; } = 1f;
+    /// <summary>How large the sun's disc is drawn against its usual size (0.25 to 8).</summary>
+    public float SunDiscScale { get; set; } = 1f;
     public float Haze { get; set; } = 0.15f;
     /// <summary>
     /// Clear-day visibility in metres: the distance at which haze has removed about 95% of the
@@ -206,6 +208,7 @@ public sealed class AtmosphereService
         options.CloudThickness = Math.Clamp(options.CloudThickness, 5f, 2000f);
         options.CloudCoverageScale = Math.Clamp(options.CloudCoverageScale, 0f, 4f);
         options.CloudDensityScale = Math.Clamp(options.CloudDensityScale, 0f, 4f);
+        options.SunDiscScale = float.IsFinite(options.SunDiscScale) && options.SunDiscScale > 0f ? Math.Clamp(options.SunDiscScale, 0.25f, 8f) : 1f;
         options.Haze = Math.Clamp(options.Haze, 0f, 1f);
     }
 }

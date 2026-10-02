@@ -46,6 +46,19 @@ public static partial class PgslCommands
         }
     }
 
+    [PgslCommand("SunSize", "Engine.Sky.SunSize",
+        "How large the sun's disc is drawn against its usual size (0.25 to 8)", "Engine · Sky",
+        Namespace = "Engine.Sky")]
+    public static float SkySunSize
+    {
+        get => ResolveAtmosphere()?.SunDiscScale ?? 1f;
+        set
+        {
+            AtmosphereOptions atmosphere = ResolveAtmosphere();
+            if (atmosphere != null && float.IsFinite(value)) atmosphere.SunDiscScale = Math.Clamp(value, 0.25f, 8f);
+        }
+    }
+
     [PgslCommand("Altitude", "Engine.Sky.Altitude",
         "Cloud slab base height in metres", "Engine · Sky",
         Namespace = "Engine.Sky")]

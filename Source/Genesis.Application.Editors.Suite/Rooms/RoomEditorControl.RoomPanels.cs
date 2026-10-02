@@ -851,6 +851,7 @@ public sealed partial class RoomEditorControl
             AtmosphericHaze = source.AtmosphericHaze,
             VisibilityKilometres = source.VisibilityKilometres,
             WeatherFogScale = source.WeatherFogScale,
+            SunDiscScale = source.SunDiscScale,
             ShadowDistance = source.ShadowDistance,
             SimulationDistance = source.SimulationDistance,
             SceneryDistance = source.SceneryDistance,

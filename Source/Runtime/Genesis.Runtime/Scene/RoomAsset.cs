@@ -277,6 +277,8 @@ public sealed class RoomEnvironment
     /// and not a valley; a wide room lowers this and keeps the rain, the wet ground and the cloud.
     /// </summary>
     [JsonProperty("weatherFogScale")] public float WeatherFogScale { get; set; } = 1f;
+    /// <summary>How large the sun's disc is drawn against its usual size, which is a little over half a degree.</summary>
+    [JsonProperty("sunDiscScale")] public float SunDiscScale { get; set; } = 1f;
     /// <summary>
     /// How far from the camera the sun casts shadows, in metres. Zero keeps the close-range
     /// shadows suited to small scenes; a large outdoor world sets this so mountains shade valleys.

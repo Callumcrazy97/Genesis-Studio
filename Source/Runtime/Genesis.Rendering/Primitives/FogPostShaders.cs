@@ -754,6 +754,14 @@ float4 PS(VSOut IN) : SV_Target
         mapped = saturate(mapped);
         mapped = lerp(1.055 * pow(mapped, 1.0 / 2.4) - 0.055, mapped * 12.92, step(mapped, 0.0031308));
     }
+    // The display holds 256 levels a channel, and a slow gradient such as a clear sky shows them
+    // as bands. Half a level of noise, the same for a pixel every frame, breaks them up. Only
+    // where the engine draws a sky: other scenes keep exactly the colours they had.
+    if (VignetteParams.y > 0.5)
+    {
+        float grain = frac(52.9829189 * frac(dot(float2(pixel), float2(0.06711056, 0.00583715))));
+        mapped = saturate(mapped + (grain - 0.5) / 255.0);
+    }
     // Ink goes on last, in display space, so a line is the same colour at every exposure.
     if (InkParams.x > 0.001)
         mapped = lerp(mapped, InkColor.rgb, saturate(InkOutline(pixel) * InkParams.x));

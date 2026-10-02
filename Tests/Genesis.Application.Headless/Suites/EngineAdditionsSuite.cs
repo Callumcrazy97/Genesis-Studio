@@ -584,6 +584,59 @@ internal static class EngineAdditionsSuite
             HeadlessHarness.Assert(recorder.Lines.Count == 3 && recorder.Lines[^1].To == triangle[0], "A polygon's outline should join back to its first point.");
         });
 
+        HeadlessHarness.RunCase(context.Report, "Engine.Sky.Sun.IsARoundDiscOfOneSizeAnywhereInTheView", () =>
+        {
+            // A wide view: 100 degrees up and down, 16 by 9, looking along +Z from a hilltop.
+            Vector3 camera = new(40f, 12f, -7f), forward = Vector3.UnitZ;
+            Matrix4x4 view = Matrix4x4.CreateLookAt(camera, camera + forward, Vector3.UnitY);
+            Matrix4x4 projection = Matrix4x4.CreatePerspectiveFieldOfView(100f * MathF.PI / 180f, 16f / 9f, 0.1f, 2000f);
+            Vector2 OnScreen(Matrix4x4 world, float x, float y)
+            {
+                Vector4 clip = Vector4.Transform(new Vector4(x, y, 0f, 1f), world * view * projection);
+                return new Vector2(clip.X / clip.W * 960f, clip.Y / clip.W * 540f);
+            }
+
+            (float Across, float Along) Size(Vector3 towardSun, float size = 14f)
+            {
+                Matrix4x4 world = Genesis.Rendering.Primitives.SkyBillboardMath.SunQuad(camera, forward, towardSun, 450f, size);
+                return (Vector2.Distance(OnScreen(world, -0.5f, 0f), OnScreen(world, 0.5f, 0f)),
+                    Vector2.Distance(OnScreen(world, 0f, -0.5f), OnScreen(world, 0f, 0.5f)));
+            }
+
+            var centre = Size(forward);
+            HeadlessHarness.Assert(centre.Across > 5f && MathF.Abs(centre.Across - centre.Along) < centre.Across * 0.01f,
+                $"In the middle of the view the sun should be as tall as it is wide ({centre.Across:F1} by {centre.Along:F1} pixels).");
+            foreach ((float right, float up) in new[] { (25f, 0f), (45f, 0f), (0f, 40f), (38f, 30f), (-50f, 20f) })
+            {
+                // A direction that many degrees to the side and above the view direction.
+                Vector3 towardSun = Vector3.Normalize(new Vector3(MathF.Tan(right * MathF.PI / 180f), MathF.Tan(up * MathF.PI / 180f), 1f));
+                var off = Size(towardSun);
+                HeadlessHarness.Assert(MathF.Abs(off.Across - off.Along) < off.Across * 0.03f,
+                    $"At {right:F0} degrees right and {up:F0} up the sun is {off.Across:F1} by {off.Along:F1} pixels: it should be round.");
+                HeadlessHarness.Assert(MathF.Abs(off.Across - centre.Across) < centre.Across * 0.03f,
+                    $"At {right:F0} degrees right and {up:F0} up the sun is {off.Across:F1} pixels across; in the middle it is {centre.Across:F1}.");
+            }
+
+            // A plain camera-facing quad, as it was drawn before, is what this corrects.
+            Vector3 aside = Vector3.Normalize(new Vector3(1f, 0f, 1f));
+            Matrix4x4 facing = Matrix4x4.CreateScale(14f) * Matrix4x4.CreateBillboard(camera + aside * 450f, camera, Vector3.UnitY, forward);
+            float facingAcross = Vector2.Distance(OnScreen(facing, -0.5f, 0f), OnScreen(facing, 0.5f, 0f));
+            float facingAlong = Vector2.Distance(OnScreen(facing, 0f, -0.5f), OnScreen(facing, 0f, 0.5f));
+            HeadlessHarness.Assert(facingAcross > facingAlong * 1.3f,
+                $"The check itself is wrong: an uncorrected quad 45 degrees aside should be stretched ({facingAcross:F1} by {facingAlong:F1}).");
+
+            // The room's sun size makes it that much larger, and the setting is kept with the room.
+            var doubled = Size(forward, 28f);
+            HeadlessHarness.Assert(MathF.Abs(doubled.Across / centre.Across - 2f) < 0.02f, "Twice the size should be twice as wide.");
+            RoomAsset room = RoomAsset.Create("Sunny", RoomDimension.ThreeD);
+            room.Environment.SunDiscScale = 2.5f;
+            string roomFile = Path.Combine(context.Workspace, "Sunny.room.json");
+            File.WriteAllText(roomFile, Newtonsoft.Json.JsonConvert.SerializeObject(room));
+            RoomAsset reopened = RoomAssetLoader.Parse(roomFile);
+            HeadlessHarness.Assert(reopened.Environment.SunDiscScale == 2.5f && RoomAsset.Create("Plain", RoomDimension.ThreeD).Environment.SunDiscScale == 1f,
+                "A room's sun size was not saved with it, or does not start at 1.");
+        });
+
         HeadlessHarness.RunCase(context.Report, "Engine.Particles.Bursts.PlayOnceAndRemoveThemselves", () =>
         {
             using var scene = new RuntimeScene("Sparks");
