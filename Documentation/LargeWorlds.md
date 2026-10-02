@@ -20,7 +20,7 @@ at small scale, or an opt-in setting whose default is the old behaviour.
 | Model loading | A model of 256 KB or more is kept a second time in the project's `.genesis/Cache/Models` folder with its vertices, indices and animation frames as raw bytes, which reads back many times faster than the model's text. A room's models are read on worker threads while the room's terrain loads and its objects are created. See [Loading](#loading). |
 | Scatter | A terrain's scatter layers place copies of a Model by rule: density, height range, slope, painted layer, clumping. Nothing is stored; each 256 m cell is worked out when it comes into range. Near cells draw every copy as an instance with shadows; further cells draw as one merged mesh each. |
 | Scatter collision | A scatter layer with a collision size is solid: copies within 14 m of the camera or of a moving physics body get an upright box collider, and lose it when everything has moved away. A forest of 200,000 trees costs the few dozen colliders around what can touch them. |
-| Scenery | With a scenery distance set, placed Objects that only show a model exist only while the camera is within that distance. Anything scripted, moving or remembered loads with the room as before. |
+| Scenery | With a scenery distance set, placed Objects that only show a model exist only while the camera is within that distance. Anything scripted, moving or remembered loads with the room as before, unless the Object says it may be streamed. |
 | Several terrains | With a terrain distance set, each Terrain in a room is read when the camera comes within that distance of its edge and released when the camera has left it behind. Later terrains are read on a worker thread. |
 | Shared worlds | A host shares Objects with the players joined to it, each player is sent only what is near it, and each player's own character is shown to the others. See [Multiplayer](#multiplayer). |
 | Sea | An ocean water body follows the camera to the horizon and has a dark floor under open water. |
@@ -54,6 +54,15 @@ no script, no events, no physics preset, not persistent. While it is loaded a st
 as solid as any placed model (it gets the same collider fitted to its model), and the collider goes
 when the Object does. Something that moves on its own far from the camera can therefore pass
 through a building that is not loaded; give the building a physics preset to load it with the room.
+
+An Object with a script, events or a physics preset can ask to be streamed as well: add
+`"streamable": true` at the top level of its definition (the Object's `.json` file; there is no
+editor field for it yet). It is then created when the camera comes within the scenery distance and
+destroyed beyond 1.2 times it. Its Create event runs each time it arrives and its Destroy event
+each time it leaves, and it starts again from its definition, keeping nothing: it suits wildlife,
+torches and machinery, not a chest that must stay opened. It is judged by where it is now, so one
+that has walked to the player stays. One that a script destroys comes back the next time the
+player returns from a distance. A persistent Object is never streamed.
 
 An object that must keep running however far away it is sets `"AlwaysActive": true` on its
 `ScriptComponent`. Objects with nothing to draw (managers, cameras, HUDs) always run.
@@ -134,7 +143,7 @@ did not fit (`scatter= ... dropped`) and instances the renderer dropped (`instan
 | Part | Behaviour |
 |---|---|
 | Starting a game | The loading screen prepares what is in the project's `Assets` folder, as many files as fit in 6 ms of each frame. It no longer walks the whole project folder or counts source models (`.glb`, `.fbx`) the game never reads. |
-| Model cache | The first load of a model of 256 KB or more writes `.genesis/Cache/Models/<name>-<hash>.gmc`. Later loads read that file. A project that is moved or renamed keeps its caches. The folder is not part of an exported game, which makes its own on first run. The cache records the size and modified time of the model it was made from and is ignored when either differs, so an edited or reimported model is never shown stale. It also records a hash of its own content, and a cache that does not match its hash is ignored. Deleting the folder costs one slow load. `GENESIS_MODEL_CACHE=0` turns it off. |
+| Model cache | The first load of a model of 256 KB or more writes `.genesis/Cache/Models/<name>-<hash>.gmc`. Later loads read that file. A project that is moved or renamed keeps its caches. Export writes the caches into the game, checked against each model's content instead of its modified time so that they survive copying and archiving. The cache records the size and modified time of the model it was made from and is ignored when either differs, so an edited or reimported model is never shown stale. It also records a hash of its own content, and a cache that does not match its hash is ignored. Deleting the folder costs one slow load. `GENESIS_MODEL_CACHE=0` turns it off. |
 | Reading ahead | When a room loads, the models its Objects and scatter layers name are read on worker threads (half the processor's cores, at most 8) while the main thread loads the terrain and creates the objects. A load that asks for a model takes the worker's result, waiting if it is not finished. |
 | The next room | `RoomPreload("Cellar")` starts reading another room's models in the background and returns how many it names. Call it when the player nears a door; a `RoomGoto` within ten minutes finds the models read. `RoomPreloadPending()` is how many are still being read. `RoomGotoWhenLoaded("Cellar")` does both: it reads the room's models in the background while the current room keeps running, and changes room when they are ready (or after 30 seconds); `RoomLoadProgress()` goes from 0 to 1 meanwhile, for a progress bar. |
 
@@ -143,7 +152,11 @@ The Player's performance snapshot reports `modelCache=read N written N` and
 
 ## Multiplayer
 
-`NetHost(port)` and `NetConnect(ip, port)` join machines, as before. On top of them:
+`NetHost(port)` and `NetConnect(ip, port)` join machines. Until 2 October 2026 these script
+commands, and `NetIsHost`, `NetIsConnected`, `NetPeerCount` and `NetSendText`, were never connected
+to the Player's network and did nothing in a running game; they are now.
+
+Sharing objects:
 
 | Command | Meaning |
 |---|---|
@@ -151,7 +164,35 @@ The Player's performance snapshot reports `modelCache=read N written N` and
 | `NetOwn(id)` | Any machine. This object is controlled here (the player's character): it moves with no delay on this machine, and the host and the other players see a copy. On the host it is the same as `NetReplicate`. |
 | `NetForget(id)` | Stop sharing an object. Its copies elsewhere are removed. |
 | `NetInterestDistance(metres)` | How far from a player's camera an object is sent to that player. 250 by default. |
-| `NetCopyCount()` | Copies of other machines' objects that exist on this machine. |
+| `NetCopyCount()` | Copies of other machines' objects that exist on this machine. On the host these are the players' own objects. |
+| `NetCopyId(index)` | The instance id of a copy, counting from 0. |
+| `NetIsCopy(id)` | True when an instance is a copy of something another machine controls. |
+| `NetCopyOwner(id)` | The player a shared instance or copy belongs to, as the host numbers its players; 0 for the host's own. |
+| `NetCopyObject(id)` | The Object a shared instance or copy was made from. |
+
+Values on shared objects (health, a name, a team):
+
+| Command | Meaning |
+|---|---|
+| `NetSetNumber(id, name, value)`, `NetSetText(id, name, text)` | Give a shared instance a named value. Only the machine that controls the instance can: the host for what it replicates, a player for what it owns. Returns false otherwise. |
+| `NetGetNumber(id, name, fallback)`, `NetGetText(id, name, fallback)` | Read a value from a shared instance or from a copy of one, on any machine. |
+
+A value is sent with the object when it arrives at a player, and once to each player that has the
+object when it changes; setting it to what it already is sends nothing. A player's values go to the
+host, which passes them to the other players. An object carries at most 32 values; a name is at
+most 48 characters and a text 512.
+
+Messages between scripts:
+
+| Command | Meaning |
+|---|---|
+| `NetSendText(peerId, tag, text)`, `NetSendNumber(peerId, tag, value)` | The host sends to one player, or to all with peer 0. A player's messages always go to the host. Tags are positive numbers of your choosing. |
+| `NetReceive(tag)` | Take the oldest message that arrived with this tag; 0 takes any. True when there was one. |
+| `NetMessageText()`, `NetMessageNumber()`, `NetMessageTag()`, `NetMessageFrom()` | The message `NetReceive` last took. Pass `NetMessageFrom()` to `NetSendText` to reply. |
+| `NetPending()` | Messages that have arrived and no script has taken. The oldest are dropped beyond 4096. |
+| `NetPeerId(index)` | The id of a connected machine, counting from 0 up to `NetPeerCount()`. |
+
+Players do not message each other directly; the host's scripts pass on what should be shared.
 
 A player reports where its camera is five times a second. The host sends an object's arrival
 reliably when it comes within the interest distance of a player, its movement twenty times a
@@ -164,7 +205,8 @@ object lives on is asked for again.
 Copies are made from the Object's own definition and run none of its scripts. Position and
 rotation are shared, scale as it was when the copy was made, and the animation a model is playing
 (its clip, whether it loops, its speed, and whether it is paused) whenever that changes, so a copy
-walks when its object walks. Script variables and physics are not shared: a copy is not solid and
+walks when its object walks. Script variables are not shared unless a script shares them as named
+values, and physics is not shared: a copy is not solid and
 is not given the physics body or the collider its Object would have, because the machine that owns
 the object decides where it is. There is no prediction or
 rollback and nothing prevents cheating: a player's own objects are trusted. All players are
@@ -255,7 +297,8 @@ in the flight above as well.
 
 ## Verification
 
-`Build.bat --test large-world` runs twenty-six checks. Twelve cover the terrain, detail and view
+`Build.bat --test large-world` runs forty-three checks. Seventeen of them are described in
+[Game features](GameFeatures.md) and under the lists below. Twelve cover the terrain, detail and view
 work: bulk terrain files, collision tiles following what can touch the ground, an 8 km terrain
 drawn with distance detail and no gaps, a world made from a recipe (sea, rivers running downhill
 in channels, paint following the land, level sites, objects on the ground), the simplifier (shape,
@@ -270,7 +313,8 @@ Fourteen cover loading, streaming, sharing and weather:
 - reading ahead: workers read what the load then takes, a result is handed out once, a model saved
   after it was read loads as saved;
 - scatter colliders made near what can touch them and removed behind it;
-- scenery loading near the camera and unloading behind it, and scripted Objects never streaming;
+- scenery loading near the camera and unloading behind it, scripted Objects streaming only when
+  their definition says so, and one that has walked to the camera staying;
 - distant terrains loading as the camera reaches them;
 - the automatic near plane of a long view;
 - the scatter editor leaving a layer's pattern and other fields alone when one field is edited;
@@ -284,9 +328,22 @@ Fourteen cover loading, streaming, sharing and weather:
 - the weather fog setting thinning a rainy room's fog in step, leaving the rain itself alone, and
   being saved with the room.
 
+Added on 2 October 2026, for multiplayer:
+
+- a host and two players over a real connection on one machine (LiteNetLib over UDP, bound to
+  this computer only): joining, who is sent what, movement and animation, a player's own
+  character, travelling, a player leaving and the host stopping;
+- shared values: arriving with an object, sent once per change and not at all when unchanged,
+  refused on a copy, passed from a player through the host, current after a player has been away,
+  and held to their limits;
+- scripts starting a session, taking messages by tag, replying, and never being handed the
+  engine's own messages.
+
 What those checks do not show, and has not been seen in a running game yet:
 
-- multiplayer over a real network connection (the check uses an in-memory link);
+- multiplayer between two computers. One machine cannot show packet loss, delay, routers or
+  firewalls, and no game has yet used these commands from its scripts;
+- a scripted Object streaming in a game (the check uses a room of twenty in the harness);
 - lights added from Step events on screen, and a script's ambient colour under the dynamic sky;
 - `GameSetSpeed`, `CameraShake3D` and `RoomGotoWhenLoaded` in play;
 - terrain streaming in the Player, and the Terrain editor's scatter preview on screen;
@@ -328,8 +385,10 @@ Four other full runs during this work each failed one or two checks that pass al
 - **Terrain streaming is whole terrains.** Each terrain file is read whole when the camera nears
   it. One very large terrain is not split on disk, and neighbouring terrains are not stitched: a
   seam shows unless their edge heights match.
-- **Scripted objects load together.** Scenery streams; an Object with a script, events, physics or
-  persistence exists from room load. Activity distance stops its Step events but does not unload it.
+- **Scripted objects load together unless they ask not to.** Scenery streams, and so does an
+  Object marked `"streamable": true`. Any other Object with a script, events, physics or
+  persistence exists from room load. Activity distance stops its Step events but does not unload
+  it. A streamed Object keeps nothing between visits.
 - **Scatter collision is boxes.** A solid copy is an upright box, not the model's shape, and
   distant scatter casts no shadows.
 - **Shadows from behind the camera.** Terrain tiles outside the view are not drawn, so a mountain
@@ -338,12 +397,12 @@ Four other full runs during this work each failed one or two checks that pass al
   while the game runs, which is most of the wait. Creating the room's objects, loading its terrain
   and sending its meshes and textures to the graphics card still happen in one step before the
   next frame, and the engine draws no loading screen of its own for that.
-- **Multiplayer limits.** Copies share position, rotation and the animation being played. No
-  sharing of script variables, no prediction or lag compensation, no cheat prevention, no
-  dedicated server, and one room for all players. Enough for players to see each other and a
-  shared world's creatures move; not yet a complete basis for a Palworld-scale online game.
-- **Exported games start without a model cache.** The cache is not part of an export; the game
-  writes its own on first run, so a player's first load reads every model the slow way.
+- **Multiplayer limits.** Copies share position, rotation, the animation being played and the
+  named values scripts set. No prediction or lag compensation, no cheat prevention (a player's own
+  objects and values are trusted), no dedicated server, no way through a home router without
+  port forwarding, and one room for all players. Tested on one computer only. Enough for players
+  to see each other, a shared world's creatures to move and scripts to keep health and names in
+  step; not yet a complete basis for a Palworld-scale online game.
 - **A streamed building's collider is made when it arrives.** A model with a fitted mesh collider
   costs up to about 10 ms in the frame it is created.
 - **Platforms.** Windows x64 only.
