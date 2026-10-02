@@ -759,7 +759,8 @@ float4 PS(VSOut IN) : SV_Target
     // where the engine draws a sky: other scenes keep exactly the colours they had.
     if (VignetteParams.y > 0.5)
     {
-        float grain = frac(52.9829189 * frac(dot(float2(pixel), float2(0.06711056, 0.00583715))));
+        float2 grainAt = floor(IN.uv * ViewportParams.xy);
+        float grain = frac(52.9829189 * frac(dot(grainAt, float2(0.06711056, 0.00583715))));
         mapped = saturate(mapped + (grain - 0.5) / 255.0);
     }
     // Ink goes on last, in display space, so a line is the same colour at every exposure.
