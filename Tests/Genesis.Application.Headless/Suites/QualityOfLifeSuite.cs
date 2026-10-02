@@ -170,6 +170,7 @@ internal static class QualityOfLifeSuite
 
         HeadlessHarness.RunCase(report, "Editor.QoL.Inspector.GuidIsReadableAndCopyable", () =>
         {
+            ClipboardTestScope.RequireClipboard();
             ResourceItem room = InspectorRoom(project);
             ProjectSession session = HeadlessHarness.Require(project, "QoL project");
             using Form host = GateSuite.NewHost();
@@ -2311,6 +2312,7 @@ internal static class QualityOfLifeSuite
 
         HeadlessHarness.RunCase(report, "Editor.QoL.Paste.ExternalClipboardImageLands", () =>
         {
+            ClipboardTestScope.RequireClipboard();
             ClipboardTestScope priorClipboard = ClipboardTestScope.Capture();
             try
             {

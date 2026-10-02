@@ -163,6 +163,7 @@ internal static class ImageAuthoringSuite
         Check("CopyPasteUsesSelectionNotStaleClipboard",editor=>
         {
             // A leftover Win32 screenshot must not override Copy/Cut → Paste of the live marquee.
+            Genesis.Application.Headless.Suites.ClipboardTestScope.RequireClipboard();
             using (Bitmap stale = new(64, 64))
             using (Graphics graphics = Graphics.FromImage(stale))
             {

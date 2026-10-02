@@ -1442,6 +1442,20 @@ No GPU test is silently counted as passed through fallback. A requested renderer
 build. Software smoke coverage does not imply hardware-feature parity. `BuildSummary.json` separates
 requested checks, executed results and skipped renderer coverage.
 
+A regression check that cannot be run on the machine at that moment, for a reason the check has
+positively identified and that has nothing to do with the product, is written down as **not run**
+with its reason. It is not counted as passed and is not evidence that the behaviour works. The
+regression's last lines name each one, `Tests/results.json` lists them under `Skipped`, and
+`BuildSummary.json` lists them under `ChecksNotRun`. Report them with the build's result.
+
+At present there is one such condition: Windows refuses every program the clipboard while the
+workstation is locked. The three checks that copy to and paste from the real clipboard
+(`Editor.Image.Authoring.CopyPasteUsesSelectionNotStaleClipboard`,
+`Editor.QoL.Inspector.GuidIsReadableAndCopyable` and `Editor.QoL.Paste.ExternalClipboardImageLands`)
+are not run then. A clipboard that another program is only holding for a moment is retried as
+before, and a check that then fails still fails. Run the build with the desktop unlocked to cover
+them.
+
 #### Additional commands
 
 ```bat

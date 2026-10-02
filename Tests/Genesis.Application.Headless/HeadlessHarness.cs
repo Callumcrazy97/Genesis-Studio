@@ -13,6 +13,11 @@ internal sealed class TestReport
     public required string OutputDirectory { get; set; }
     public bool Passed { get; set; }
     public List<TestCaseResult> Tests { get; } = [];
+    /// <summary>
+    /// Checks that could not be run on this machine at this time, each with the reason. They are
+    /// neither passes nor failures: nothing here counts as evidence that the behaviour works.
+    /// </summary>
+    public List<SkippedCheck> Skipped { get; } = [];
     public List<ImageResult> Images { get; } = [];
     public string? CurrentMajor { get; set; }
     public bool FastBuildGate { get; set; }
@@ -25,6 +30,16 @@ internal sealed record TestCaseResult(
     bool Passed,
     long DurationMilliseconds,
     string? Error);
+
+internal sealed record SkippedCheck(string Major, string Name, string Reason);
+
+/// <summary>
+/// Thrown by a check that cannot run here and now for a reason that has nothing to do with the
+/// product: the operating system is withholding something the check needs. The check is written
+/// down as not run, with the reason, and is not counted as passed. It is for conditions the check
+/// has positively identified, never for a failure it cannot explain.
+/// </summary>
+internal sealed class CheckNotRunException(string reason) : Exception(reason);
 
 internal sealed record ImageResult(
     string Name,
@@ -89,6 +104,12 @@ internal static class HeadlessHarness
             stopwatch.Stop();
             report.Tests.Add(new TestCaseResult(major, name, true, stopwatch.ElapsedMilliseconds, null));
             WriteConsoleLine($"PASS  {name} ({stopwatch.ElapsedMilliseconds} ms)", ConsoleColor.Green);
+        }
+        catch (CheckNotRunException notRun)
+        {
+            stopwatch.Stop();
+            report.Skipped.Add(new SkippedCheck(major, name, notRun.Message));
+            WriteConsoleLine($"SKIP  {name}: {notRun.Message}", ConsoleColor.Yellow);
         }
         catch (Exception exception)
         {
@@ -198,6 +219,13 @@ internal static class HeadlessHarness
                     (string.IsNullOrWhiteSpace(test.Error) ? string.Empty : Environment.NewLine + test.Error));
             }
 
+            lines.Add(string.Empty);
+        }
+
+        if (report.Skipped.Count > 0)
+        {
+            lines.Add("=== Not run ===");
+            lines.AddRange(report.Skipped.Select(skipped => $"  SKIP {skipped.Name}: {skipped.Reason}"));
             lines.Add(string.Empty);
         }
 

@@ -22,6 +22,46 @@ internal sealed class ClipboardTestScope : IDisposable
         _restore = restore;
     }
 
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool OpenClipboard(IntPtr window);
+
+    [DllImport("user32.dll")]
+    private static extern bool CloseClipboard();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetOpenClipboardWindow();
+
+    private const int AccessDenied = 5;
+
+    /// <summary>
+    /// Stops a check that needs the real clipboard when Windows is withholding it from the whole
+    /// session, which it does while the workstation is locked: every attempt to open it is refused
+    /// with "access denied" and no window is holding it. That is not something a retry outlasts,
+    /// and not something the product can do anything about, so the check is written down as not
+    /// run. A clipboard that another program is merely holding for a moment is left to the check's
+    /// own retries, and a check that then fails still fails.
+    /// </summary>
+    public static void RequireClipboard()
+    {
+        for (int attempt = 0; attempt < 10; attempt++)
+        {
+            if (OpenClipboard(IntPtr.Zero))
+            {
+                CloseClipboard();
+                return;
+            }
+
+            int error = Marshal.GetLastWin32Error();
+            // Held by a window, or refused for some other reason: the check's own business.
+            if (error != AccessDenied || GetOpenClipboardWindow() != IntPtr.Zero) return;
+            Thread.Sleep(150);
+        }
+
+        throw new CheckNotRunException(
+            "Windows refuses this session the clipboard (access denied, with no window holding it), "
+            + "as it does while the workstation is locked. This check needs an unlocked desktop.");
+    }
+
     public static ClipboardTestScope Capture()
     {
         List<IDisposable> owned = [];

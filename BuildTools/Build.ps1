@@ -236,6 +236,16 @@ finally {
     foreach ($name in $oldEnvironment.Keys) { [Environment]::SetEnvironmentVariable($name, $oldEnvironment[$name], 'Process') }
     $passedBackends = @($backends | Where-Object { $name = "Explicit $_ renderer smoke"; @($stages | Where-Object { $_.Name -eq $name -and $_.Result -eq 'Passed' }).Count -gt 0 })
     $regressionStage = @($stages | Where-Object { $_.Name -eq "$tests regression tests" })
+    # Checks the regression could not run on this machine at this time (a locked workstation
+    # withholds the clipboard, for one). They are not passes; the summary names each with its reason.
+    $checksNotRun = @()
+    $regressionResults = Join-Path $reportDir 'Tests/results.json'
+    if (Test-Path -LiteralPath $regressionResults) {
+        try {
+            $checksNotRun = @((Get-Content -LiteralPath $regressionResults -Raw | ConvertFrom-Json).Skipped |
+                Where-Object { $_ } | ForEach-Object { "$($_.Name): $($_.Reason)" })
+        } catch { $checksNotRun = @("The regression's results could not be read for checks not run: $($_.Exception.Message)") }
+    }
     $summary = [ordered]@{
         Profile = $profile; Configuration = $config; Runtime = 'win-x64'; Run = $runId; StudioRevision = $studioRevision
         Result = $(if ($promoted) { 'Passed' } else { 'Failed' }); Seconds = [Math]::Round($clock.Elapsed.TotalSeconds,2)
@@ -243,6 +253,7 @@ finally {
         RequestedRegression = $tests; Regression = $(if ($regressionStage.Count) { $regressionStage[0].Result } else { 'Skipped' })
         RequestedBackends = $backends; BackendCoverage = $passedBackends
         SkippedBackends = @(@('dx11','dx12','vulkan','opengl','software') | Where-Object { $_ -notin $passedBackends })
+        ChecksNotRun = $checksNotRun
         Stages = @($stages.ToArray())
     }
     $summary | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $reportDir 'BuildSummary.json') -Encoding UTF8
@@ -250,6 +261,10 @@ finally {
     Write-Host "Studio identity: H$studioRevision / $runId"
     Write-Host "`n$profile Build: $($summary.Result) in $($summary.Seconds)s. Regression: $($summary.Regression)."
     Write-Host "Renderer smokes passed: $($passedBackends -join ', '). Skipped: $($summary.SkippedBackends -join ', ')."
+    if ($checksNotRun.Count) {
+        Write-Host "Regression checks NOT RUN ($($checksNotRun.Count)), not counted as passed:" -ForegroundColor Yellow
+        foreach ($check in $checksNotRun) { Write-Host "  $check" -ForegroundColor Yellow }
+    }
     Write-Host "Report: $reportDir"
     Pop-Location
 }

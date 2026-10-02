@@ -1547,6 +1547,12 @@ internal static class HeadlessTestRunner
             report.Passed
                 ? $"{profileLabel} PASSED — {report.Tests.Count} checks, {report.Images.Count} images"
                 : $"{profileLabel} FAILED — {report.Tests.Count(test => !test.Passed)} failing checks");
+        if (report.Skipped.Count > 0)
+        {
+            Console.WriteLine($"NOT RUN — {report.Skipped.Count} checks could not be run here and are not counted as passed:");
+            foreach (SkippedCheck skipped in report.Skipped)
+                Console.WriteLine($"  {skipped.Name}: {skipped.Reason}");
+        }
         Console.WriteLine($"Artifacts: {outputRoot}");
         return report.Passed ? 0 : 1;
     }
