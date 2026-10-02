@@ -266,6 +266,8 @@ namespace Genesis.Runtime.Project
                     // start a session; Update() pumps packets on the main thread.
                     _activeNet = new LiteNetGameNetwork();
                     Engine.SetNetwork(_activeNet);
+                    // The script commands (NetHost, NetConnect, NetSendText ...) talk to the same network.
+                    Genesis.Runtime.Scripting.PgslCommands.ActiveNetwork = _activeNet;
                     logger.Line("network system initialised (LiteNetLib)");
                     // Shared objects between host and players. Copies are made without a script
                     // host, so they show the Object and run none of its scripts.
@@ -456,6 +458,7 @@ namespace Genesis.Runtime.Project
             {
                 try { _activeAudio?.Dispose(); } catch (Exception ex) { Console.Error.WriteLine(ex); }
                 try { _activeNet?.Dispose(); } catch (Exception ex) { Console.Error.WriteLine(ex); }
+                Genesis.Runtime.Scripting.PgslCommands.ActiveNetwork = null;
                 _activeAudio = null; _activeNet = null; _activeHost = null; _activeWindow = null;
                 _stopRequested = false; _pauseRequested = false;
                 PgslProfiler.Enabled = false;

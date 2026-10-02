@@ -415,7 +415,37 @@ public static partial class PgslCommands
     /// <see cref="IGameContext"/> because widening that interface for one family would make every
     /// implementation carry networking it does not use.
     /// </summary>
-    public static IGameNetwork ActiveNetwork { get; set; }
+    public static IGameNetwork ActiveNetwork
+    {
+        get => _activeNetwork;
+        set
+        {
+            if (ReferenceEquals(_activeNetwork, value)) return;
+            if (_activeNetwork != null) _activeNetwork.OnMessageReceived -= OnNetMessage;
+            _activeNetwork = value;
+            NetInbox.Clear();
+            _netCurrent = default;
+            if (value != null) value.OnMessageReceived += OnNetMessage;
+        }
+    }
+
+    private const int NetInboxCapacity = 4096;
+    private static IGameNetwork _activeNetwork;
+    /// <summary>Game messages that have arrived and no script has taken yet, oldest first.</summary>
+    private static readonly List<NetMessage> NetInbox = new();
+    private static NetMessage _netCurrent;
+
+    private static void OnNetMessage(NetMessage message)
+    {
+        // Negative tags are the engine's own (shared objects); scripts use positive ones.
+        if (message.Tag <= 0 || message.Payload == null) return;
+        // A game that never reads its messages must not grow without limit: the oldest go.
+        if (NetInbox.Count >= NetInboxCapacity) NetInbox.RemoveAt(0);
+        NetInbox.Add(message);
+    }
+
+    /// <summary>A player has one machine to talk to; the host names the player, or 0 for all of them.</summary>
+    private static int NetTarget(IGameNetwork network, double peerId) => network.IsHost ? (int)peerId : NetPeer.Host.Id;
 
     [PgslCommand("NetAvailable", "NetAvailable() -> bool", "True when networking is wired up", "Networking")]
     public static bool NetAvailable() => ActiveNetwork is not null;
@@ -479,7 +509,7 @@ public static partial class PgslCommands
 
         try
         {
-            network.Send((int)peerId, (int)tag, Encoding.UTF8.GetBytes(text ?? string.Empty));
+            network.Send(NetTarget(network, peerId), (int)tag, Encoding.UTF8.GetBytes(text ?? string.Empty));
             return true;
         }
         catch (Exception exception) when (exception is InvalidOperationException or System.Net.Sockets.SocketException)
@@ -533,6 +563,129 @@ public static partial class PgslCommands
     [PgslCommand("NetCopyCount", "NetCopyCount() -> number", "How many copies of other machines' instances exist here", "Networking")]
     public static double NetCopyCount() => ActiveReplication?.CopyCount ?? 0;
 
+    [PgslCommand("NetCopyId", "NetCopyId(index) -> number",
+        "The instance id of a copy, counting from 0 up to NetCopyCount(); 0 when there is none", "Networking")]
+    public static double NetCopyId(double index)
+    {
+        if (ActiveReplication == null) return 0;
+        var entity = ActiveReplication.CopyAt((int)index);
+        return entity.IsNull ? 0 : entity.Id;
+    }
+
+    private static Genesis.Shared.ECS.Entity NetEntity(double id)
+    {
+        if (ActiveReplication == null || ActiveGameContext?.World == null) return Genesis.Shared.ECS.Entity.Null;
+        var entity = ActiveGameContext.World.GetEntity((int)id);
+        return entity.IsNull || !ActiveGameContext.World.IsAlive(entity) ? Genesis.Shared.ECS.Entity.Null : entity;
+    }
+
+    [PgslCommand("NetIsCopy", "NetIsCopy(id) -> bool", "True when this instance is a copy of something another machine controls", "Networking")]
+    public static bool NetIsCopy(double id)
+    {
+        var entity = NetEntity(id);
+        return !entity.IsNull && ActiveReplication.IsCopy(entity);
+    }
+
+    [PgslCommand("NetCopyOwner", "NetCopyOwner(id) -> number",
+        "The player a shared instance or copy belongs to, as the host numbers its players; 0 when it is the host's own", "Networking")]
+    public static double NetCopyOwner(double id)
+    {
+        var entity = NetEntity(id);
+        return entity.IsNull ? 0 : ActiveReplication.OwnerOf(entity);
+    }
+
+    [PgslCommand("NetCopyObject", "NetCopyObject(id) -> string", "The Object a shared instance or copy was made from", "Networking")]
+    public static string NetCopyObject(double id)
+    {
+        var entity = NetEntity(id);
+        return entity.IsNull ? "" : ActiveReplication.ObjectOf(entity);
+    }
+
+    [PgslCommand("NetSetNumber", "NetSetNumber(id, name, value) -> bool",
+        "Give a shared instance a named number every machine can read from its copy. Only the machine that controls the instance can set it", "Networking")]
+    public static bool NetSetNumber(double id, string name, double value)
+    {
+        var entity = NetEntity(id);
+        return !entity.IsNull && ActiveReplication.SetValue(entity, name, value);
+    }
+
+    [PgslCommand("NetSetText", "NetSetText(id, name, text) -> bool",
+        "Give a shared instance a named piece of text every machine can read from its copy", "Networking")]
+    public static bool NetSetText(double id, string name, string text)
+    {
+        var entity = NetEntity(id);
+        return !entity.IsNull && ActiveReplication.SetValue(entity, name, text ?? "");
+    }
+
+    [PgslCommand("NetGetNumber", "NetGetNumber(id, name, fallback) -> number",
+        "Read a named number from a shared instance or a copy; the fallback when it has none", "Networking")]
+    public static double NetGetNumber(double id, string name, double fallback)
+    {
+        var entity = NetEntity(id);
+        return !entity.IsNull && ActiveReplication.TryGetValue(entity, name, out object value) && value is double number ? number : fallback;
+    }
+
+    [PgslCommand("NetGetText", "NetGetText(id, name, fallback) -> string",
+        "Read a named piece of text from a shared instance or a copy; the fallback when it has none", "Networking")]
+    public static string NetGetText(double id, string name, string fallback)
+    {
+        var entity = NetEntity(id);
+        return !entity.IsNull && ActiveReplication.TryGetValue(entity, name, out object value) && value is string text ? text : fallback ?? "";
+    }
+
+    [PgslCommand("NetPeerId", "NetPeerId(index) -> number",
+        "The id of a connected machine, counting from 0 up to NetPeerCount(); 0 when there is none", "Networking")]
+    public static double NetPeerId(double index)
+    {
+        IReadOnlyList<NetPeer> peers = ActiveNetwork?.Peers;
+        int at = (int)index;
+        return peers != null && at >= 0 && at < peers.Count ? peers[at].Id : 0;
+    }
+
+    [PgslCommand("NetPending", "NetPending() -> number", "How many messages have arrived that no script has taken", "Networking")]
+    public static double NetPending() => NetInbox.Count;
+
+    [PgslCommand("NetReceive", "NetReceive(tag) -> bool",
+        "Take the oldest message that arrived with this tag (0 takes any). True when there was one; read it with NetMessageText, NetMessageNumber, NetMessageFrom and NetMessageTag", "Networking")]
+    public static bool NetReceive(double tag)
+    {
+        int wanted = (int)tag;
+        for (int i = 0; i < NetInbox.Count; i++)
+        {
+            if (wanted > 0 && NetInbox[i].Tag != wanted) continue;
+            _netCurrent = NetInbox[i];
+            NetInbox.RemoveAt(i);
+            return true;
+        }
+
+        return false;
+    }
+
+    [PgslCommand("NetMessageTag", "NetMessageTag() -> number", "The tag of the message NetReceive last took", "Networking")]
+    public static double NetMessageTag() => _netCurrent.Tag;
+
+    [PgslCommand("NetMessageFrom", "NetMessageFrom() -> number",
+        "The id of the machine that sent the message NetReceive last took; pass it to NetSendText to reply", "Networking")]
+    public static double NetMessageFrom() => _netCurrent.From.Id;
+
+    [PgslCommand("NetMessageText", "NetMessageText() -> string", "The message NetReceive last took, as text", "Networking")]
+    public static string NetMessageText()
+    {
+        byte[] payload = _netCurrent.Payload;
+        return payload == null || payload.Length == 0 ? "" : Encoding.UTF8.GetString(payload);
+    }
+
+    [PgslCommand("NetMessageNumber", "NetMessageNumber() -> number",
+        "The message NetReceive last took, as a number: what NetSendNumber sent, or text that reads as a number", "Networking")]
+    public static double NetMessageNumber()
+    {
+        byte[] payload = _netCurrent.Payload;
+        if (payload == null) return 0;
+        if (payload.Length == sizeof(double)) return BitConverter.ToDouble(payload, 0);
+        return double.TryParse(Encoding.UTF8.GetString(payload), System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out double parsed) ? parsed : 0;
+    }
+
     [PgslCommand("NetSendNumber", "NetSendNumber(peerId, tag, value) -> bool", "Send a single number", "Networking")]
     public static bool NetSendNumber(double peerId, double tag, double value)
     {
@@ -541,7 +694,7 @@ public static partial class PgslCommands
 
         try
         {
-            network.Send((int)peerId, (int)tag, BitConverter.GetBytes(value));
+            network.Send(NetTarget(network, peerId), (int)tag, BitConverter.GetBytes(value));
             return true;
         }
         catch (Exception exception) when (exception is InvalidOperationException or System.Net.Sockets.SocketException)

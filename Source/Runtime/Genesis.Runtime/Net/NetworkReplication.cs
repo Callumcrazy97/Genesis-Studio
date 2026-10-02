@@ -32,13 +32,21 @@ namespace Genesis.Runtime.Net
     /// model is playing is sent when it changes, so a copy walks when its object walks. There is
     /// no prediction, rollback or cheat prevention; a player's own objects are trusted.
     /// </para>
+    /// <para>
+    /// A shared object also carries a few named values (health, a name, a team) that the machine
+    /// controlling it sets and every machine holding a copy can read. They are sent when they
+    /// change and with the object when it arrives.
+    /// </para>
     /// </remarks>
     public sealed class NetworkReplication
     {
         // Negative tags are reserved for the engine; game messages use positive ones.
         public const int TagSpawn = -7001, TagDespawn = -7002, TagSnapshot = -7003, TagFocus = -7004,
             TagOwnedSpawn = -7005, TagOwnedState = -7006, TagOwnedDespawn = -7007, TagResync = -7008,
-            TagClip = -7009, TagOwnedClip = -7010;
+            TagClip = -7009, TagOwnedClip = -7010, TagValues = -7011, TagOwnedValues = -7012;
+
+        /// <summary>Most named values one object carries, and the longest name and text.</summary>
+        public const int MaxValues = 32, MaxValueName = 48, MaxValueText = 512;
 
         private const int SnapshotEntriesPerMessage = 36;
 
@@ -55,10 +63,20 @@ namespace Genesis.Runtime.Net
             public static readonly ClipState None = new("", true, 1f);
         }
 
-        private sealed class Shared
+        /// <summary>Something this machine shares or holds a copy of, and the values it carries.</summary>
+        private abstract class Tracked
         {
             public Entity Entity;
             public string Prefab;
+            public Dictionary<string, object> Values;
+            /// <summary>Names whose values have changed since they were last sent.</summary>
+            public List<string> Dirty;
+        }
+
+        private sealed class Shared : Tracked
+        {
+            /// <summary>This send's changed values, written once and sent to each player that knows the object.</summary>
+            public byte[] ValuesPayload;
             public ClipState Clip = ClipState.None;
             public bool ClipChanged;
             /// <summary>0 for the host's own; otherwise the player who owns it.</summary>
@@ -77,16 +95,15 @@ namespace Genesis.Runtime.Net
             public readonly Dictionary<int, int> Owned = new();
         }
 
-        private sealed class Copy
+        private sealed class Copy : Tracked
         {
-            public Entity Entity;
+            /// <summary>0 for the host's own object; otherwise the player it belongs to, as the host numbers them.</summary>
+            public int OwnerPeer;
             public Vector3 TargetPosition, TargetRotation;
         }
 
-        private sealed class Mine
+        private sealed class Mine : Tracked
         {
-            public Entity Entity;
-            public string Prefab;
             public ClipState Clip = ClipState.None;
             public bool Announced;
             public Vector3 LastSentPosition, LastSentRotation;
@@ -98,6 +115,9 @@ namespace Genesis.Runtime.Net
         private readonly Dictionary<int, Copy> _copies = new();
         private readonly Dictionary<int, Mine> _mine = new();
         private readonly List<int> _scratch = new();
+        private readonly Dictionary<Entity, Tracked> _index = new();
+        private readonly List<Tracked> _copyList = new();
+        private bool _indexStale = true;
         /// <summary>Messages that arrived before this machine had a world to apply them to.</summary>
         private readonly List<NetMessage> _early = new();
         private IGameNetwork _network;
@@ -127,8 +147,91 @@ namespace Genesis.Runtime.Net
         /// <summary>Objects this host shares, including the copies it holds of players' own objects.</summary>
         public int SharedCount => _shared.Count;
 
-        /// <summary>Copies of other machines' objects that exist here.</summary>
-        public int CopyCount => _copies.Count;
+        /// <summary>
+        /// Copies of other machines' objects that exist here. On the host these are the players'
+        /// own objects; on a player's machine, the host's objects and the other players'.
+        /// </summary>
+        public int CopyCount { get { Index(); return _copyList.Count; } }
+
+        /// <summary>The copy at a position in the list of copies, or nothing.</summary>
+        public Entity CopyAt(int index)
+        {
+            Index();
+            return index >= 0 && index < _copyList.Count ? _copyList[index].Entity : Entity.Null;
+        }
+
+        /// <summary>True when the object is this machine's copy of something another machine controls.</summary>
+        public bool IsCopy(Entity entity) =>
+            Index().TryGetValue(entity, out Tracked record) && record is Copy or Shared { OwnerPeer: not 0 };
+
+        /// <summary>
+        /// The player a shared object or copy belongs to, as the host numbers its players; 0 when
+        /// it is the host's own, or is not shared.
+        /// </summary>
+        public int OwnerOf(Entity entity) =>
+            !Index().TryGetValue(entity, out Tracked record) ? 0
+            : record is Copy copy ? copy.OwnerPeer
+            : record is Shared shared ? shared.OwnerPeer : 0;
+
+        /// <summary>The Object a shared object or copy was made from, or an empty string.</summary>
+        public string ObjectOf(Entity entity) =>
+            Index().TryGetValue(entity, out Tracked record) ? record.Prefab ?? "" : "";
+
+        /// <summary>
+        /// Sets a named value on an object this machine controls: one the host replicates, or
+        /// one a player owns. Every machine holding a copy can read it. A number or text.
+        /// </summary>
+        /// <returns>False when the object is not shared from here, or a limit is passed.</returns>
+        public bool SetValue(Entity entity, string name, object value)
+        {
+            if (string.IsNullOrEmpty(name) || name.Length > MaxValueName) return false;
+            if (value is string text) { if (text.Length > MaxValueText) return false; }
+            else if (value is not double) return false;
+            if (!Index().TryGetValue(entity, out Tracked record)) return false;
+            // Only the machine that controls an object says what its values are.
+            if (record is Copy or Shared { OwnerPeer: not 0 }) return false;
+            record.Values ??= new Dictionary<string, object>(StringComparer.Ordinal);
+            if (record.Values.TryGetValue(name, out object old))
+            {
+                if (Equals(old, value)) return true;
+            }
+            else if (record.Values.Count >= MaxValues) return false;
+
+            record.Values[name] = value;
+            record.Dirty ??= new List<string>();
+            if (!record.Dirty.Contains(name)) record.Dirty.Add(name);
+            return true;
+        }
+
+        /// <summary>Reads a named value from a shared object or a copy of one.</summary>
+        public bool TryGetValue(Entity entity, string name, out object value)
+        {
+            value = null;
+            return !string.IsNullOrEmpty(name) && Index().TryGetValue(entity, out Tracked record)
+                && record.Values != null && record.Values.TryGetValue(name, out value);
+        }
+
+        private Dictionary<Entity, Tracked> Index()
+        {
+            if (!_indexStale) return _index;
+            _index.Clear();
+            _copyList.Clear();
+            foreach (Shared shared in _shared.Values)
+            {
+                _index[shared.Entity] = shared;
+                if (shared.OwnerPeer != 0) _copyList.Add(shared);
+            }
+
+            foreach (Mine mine in _mine.Values) _index[mine.Entity] = mine;
+            foreach (Copy copy in _copies.Values)
+            {
+                _index[copy.Entity] = copy;
+                _copyList.Add(copy);
+            }
+
+            _indexStale = false;
+            return _index;
+        }
 
         /// <summary>Objects this machine owns and shows to others.</summary>
         public int OwnedCount => _mine.Count;
@@ -159,6 +262,7 @@ namespace Genesis.Runtime.Net
                 if (pair.Value.Entity.Equals(entity)) return pair.Key;
             int id = _nextNetId++;
             _shared[id] = new Shared { Entity = entity, Prefab = prefab };
+            _indexStale = true;
             return id;
         }
 
@@ -174,6 +278,7 @@ namespace Genesis.Runtime.Net
                 if (pair.Value.Entity.Equals(entity)) return pair.Key;
             int id = _nextLocalId++;
             _mine[id] = new Mine { Entity = entity, Prefab = prefab };
+            _indexStale = true;
             return id;
         }
 
@@ -193,6 +298,7 @@ namespace Genesis.Runtime.Net
                 if (pair.Value.Announced && _network is { IsConnected: true })
                     _network.Send(NetPeer.Host.Id, TagOwnedDespawn, Write(writer => writer.Write(pair.Key)));
                 _mine.Remove(pair.Key);
+                _indexStale = true;
                 return;
             }
         }
@@ -258,7 +364,7 @@ namespace Genesis.Runtime.Net
             // A copy that was removed here (a script, a reloaded room) while its object lives on:
             // ask the host to say again what is near, at most once a second.
             foreach (int id in _scratch) _copies.Remove(id);
-            if (_scratch.Count > 0) _resyncWanted = true;
+            if (_scratch.Count > 0) { _resyncWanted = true; _indexStale = true; }
             _resyncClock += MathF.Max(0f, deltaSeconds);
             if (_resyncWanted && !_network.IsHost && _resyncClock >= 1f)
             {
@@ -274,6 +380,7 @@ namespace Genesis.Runtime.Net
         /// </summary>
         private void ForgetWorld()
         {
+            _indexStale = true;
             bool connected = _network is { IsConnected: true };
             if (_network is { IsHost: true })
             {
@@ -366,6 +473,8 @@ namespace Genesis.Runtime.Net
                             w.Write(pair.Key); w.Write(shared.Prefab);
                             WriteVector(w, shared.LastSentPosition); WriteVector(w, shared.LastSentRotation); WriteVector(w, scale);
                             WriteClip(w, shared.Clip);
+                            w.Write(shared.OwnerPeer);
+                            WriteValues(w, shared, onlyChanged: false);
                         }));
                         continue;
                     }
@@ -379,6 +488,9 @@ namespace Genesis.Runtime.Net
 
                     if (known && shared.ClipChanged)
                         _network.Send(peer.Id, TagClip, Write(w => { w.Write(pair.Key); WriteClip(w, shared.Clip); }));
+                    if (known && shared.Dirty is { Count: > 0 })
+                        _network.Send(peer.Id, TagValues,
+                            shared.ValuesPayload ??= Write(w => { w.Write(pair.Key); WriteValues(w, shared, onlyChanged: true); }));
                     if (!known || !shared.Moved) continue;
                     if (stream == null)
                     {
@@ -395,11 +507,19 @@ namespace Genesis.Runtime.Net
 
                 Flush();
             }
+
+            // Every player that should hear of a changed value has now been told.
+            foreach (Shared shared in _shared.Values)
+            {
+                shared.Dirty?.Clear();
+                shared.ValuesPayload = null;
+            }
         }
 
         private void DropShared(int id)
         {
             if (!_shared.Remove(id)) return;
+            _indexStale = true;
             foreach (KeyValuePair<int, PeerState> peer in _peers)
             {
                 if (peer.Value.Known.Remove(id) && _network is { IsConnected: true })
@@ -446,7 +566,9 @@ namespace Genesis.Runtime.Net
                         w.Write(pair.Key); w.Write(mine.Prefab);
                         WriteVector(w, position); WriteVector(w, rotation); WriteVector(w, scale);
                         WriteClip(w, clip);
+                        WriteValues(w, mine, onlyChanged: false);
                     }));
+                    mine.Dirty?.Clear();
                     mine.Announced = true;
                     mine.LastSentPosition = position;
                     mine.LastSentRotation = rotation;
@@ -458,6 +580,12 @@ namespace Genesis.Runtime.Net
                 {
                     mine.Clip = clip;
                     _network.Send(NetPeer.Host.Id, TagOwnedClip, Write(w => { w.Write(pair.Key); WriteClip(w, clip); }));
+                }
+
+                if (mine.Dirty is { Count: > 0 })
+                {
+                    _network.Send(NetPeer.Host.Id, TagOwnedValues, Write(w => { w.Write(pair.Key); WriteValues(w, mine, onlyChanged: true); }));
+                    mine.Dirty.Clear();
                 }
 
                 bool moved = Vector3.DistanceSquared(position, mine.LastSentPosition) > 1e-6f
@@ -475,6 +603,7 @@ namespace Genesis.Runtime.Net
             {
                 if (_mine[id].Announced) _network.Send(NetPeer.Host.Id, TagOwnedDespawn, Write(w => w.Write(id)));
                 _mine.Remove(id);
+                _indexStale = true;
             }
         }
 
@@ -482,7 +611,7 @@ namespace Genesis.Runtime.Net
 
         private void OnMessage(NetMessage message)
         {
-            if (message.Tag > TagSpawn || message.Tag < TagOwnedClip || message.Payload == null) return;
+            if (message.Tag > TagSpawn || message.Tag < TagOwnedValues || message.Payload == null) return;
             if (_world == null)
             {
                 // Losing an arrival here would leave the sender believing it had been shown.
@@ -515,12 +644,30 @@ namespace Genesis.Runtime.Net
                         if (entity.IsNull) break;
                         ApplyClip(_world, entity, clip);
                         int netId = _nextNetId++;
-                        _shared[netId] = new Shared
+                        var arrived = new Shared
                         {
                             Entity = entity, Prefab = prefab, OwnerPeer = message.From.Id,
                             LastSentPosition = position, LastSentRotation = rotation,
                         };
+                        ReadValues(reader, arrived, changed: false);
+                        _shared[netId] = arrived;
+                        _indexStale = true;
                         state.Owned[localId] = netId;
+                        break;
+                    }
+                    case TagOwnedValues when host:
+                    {
+                        int localId = reader.ReadInt32();
+                        // Kept on the host's copy, and passed on to the other players as the host's own values are.
+                        if (_peers.TryGetValue(message.From.Id, out PeerState state) && state.Owned.TryGetValue(localId, out int netId)
+                            && _shared.TryGetValue(netId, out Shared shared))
+                            ReadValues(reader, shared, changed: true);
+                        break;
+                    }
+                    case TagValues when !host:
+                    {
+                        int netId = reader.ReadInt32();
+                        if (_copies.TryGetValue(netId, out Copy copy)) ReadValues(reader, copy, changed: false);
                         break;
                     }
                     case TagOwnedClip when host:
@@ -582,13 +729,25 @@ namespace Genesis.Runtime.Net
                         Entity entity = CreateCopy(_world, prefab, position, rotation, scale);
                         if (entity.IsNull) break;
                         ApplyClip(_world, entity, clip);
-                        _copies[netId] = new Copy { Entity = entity, TargetPosition = position, TargetRotation = rotation };
+                        var copy = new Copy
+                        {
+                            Entity = entity, Prefab = prefab, OwnerPeer = reader.ReadInt32(),
+                            TargetPosition = position, TargetRotation = rotation,
+                        };
+                        ReadValues(reader, copy, changed: false);
+                        _copies[netId] = copy;
+                        _indexStale = true;
                         break;
                     }
                     case TagDespawn when !host:
                     {
                         int netId = reader.ReadInt32();
-                        if (_copies.Remove(netId, out Copy copy) && _world.IsAlive(copy.Entity)) _world.DestroyEntity(copy.Entity);
+                        if (_copies.Remove(netId, out Copy copy))
+                        {
+                            _indexStale = true;
+                            if (_world.IsAlive(copy.Entity)) _world.DestroyEntity(copy.Entity);
+                        }
+
                         break;
                     }
                     case TagSnapshot when !host:
@@ -616,6 +775,7 @@ namespace Genesis.Runtime.Net
         /// <summary>Forgets everything learned from the network; this machine's own objects are kept to be announced again.</summary>
         private void Reset(EcsWorld world)
         {
+            _indexStale = true;
             foreach (Copy copy in _copies.Values)
                 if (world.IsAlive(copy.Entity)) world.DestroyEntity(copy.Entity);
             _copies.Clear();
@@ -685,6 +845,51 @@ namespace Genesis.Runtime.Net
             animator.Loop = clip.Loop;
             animator.Playing = clip.Speed != 0f;
             if (clip.Speed != 0f) animator.PlaybackSpeed = clip.Speed;
+        }
+
+        private static void WriteValues(BinaryWriter writer, Tracked record, bool onlyChanged)
+        {
+            if (record.Values == null || (onlyChanged && record.Dirty is not { Count: > 0 }))
+            {
+                writer.Write((byte)0);
+                return;
+            }
+
+            if (onlyChanged)
+            {
+                writer.Write((byte)record.Dirty.Count);
+                foreach (string name in record.Dirty) WriteValue(writer, name, record.Values[name]);
+                return;
+            }
+
+            writer.Write((byte)record.Values.Count);
+            foreach (KeyValuePair<string, object> pair in record.Values) WriteValue(writer, pair.Key, pair.Value);
+        }
+
+        private static void WriteValue(BinaryWriter writer, string name, object value)
+        {
+            writer.Write(name);
+            if (value is string text) { writer.Write((byte)1); writer.Write(text); }
+            else { writer.Write((byte)0); writer.Write((double)value); }
+        }
+
+        /// <param name="changed">True when what is read must be passed on to other machines.</param>
+        private static void ReadValues(BinaryReader reader, Tracked record, bool changed)
+        {
+            int count = reader.ReadByte();
+            for (int i = 0; i < count; i++)
+            {
+                string name = reader.ReadString();
+                object value = reader.ReadByte() == 1 ? reader.ReadString() : reader.ReadDouble();
+                // What another machine sends is held to the limits this one would be.
+                if (name.Length == 0 || name.Length > MaxValueName || value is string { Length: > MaxValueText }) continue;
+                record.Values ??= new Dictionary<string, object>(StringComparer.Ordinal);
+                if (!record.Values.ContainsKey(name) && record.Values.Count >= MaxValues) continue;
+                record.Values[name] = value;
+                if (!changed) continue;
+                record.Dirty ??= new List<string>();
+                if (!record.Dirty.Contains(name)) record.Dirty.Add(name);
+            }
         }
 
         private static void WriteClip(BinaryWriter writer, ClipState clip)

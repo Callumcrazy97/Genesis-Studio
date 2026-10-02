@@ -262,9 +262,203 @@ internal static class NetworkReplicationSuite
         }
     }
 
+    /// <summary>The value a machine reads from its copy of an Object, or null when it has no such copy or value.</summary>
+    private static object? Seen(NetworkReplication replication, string prefab, string name)
+    {
+        for (int i = 0; i < replication.CopyCount; i++)
+        {
+            Entity copy = replication.CopyAt(i);
+            if (replication.ObjectOf(copy) == prefab) return replication.TryGetValue(copy, name, out object value) ? value : null;
+        }
+
+        return null;
+    }
+
+    private static void RunValues(HeadlessContext context)
+    {
+        HeadlessHarness.RunCase(context.Report, "Engine.Net.Replication.SharedObjectsCarryValuesEveryMachineCanRead", () =>
+        {
+            var host = new Machine(host: true);
+            var anna = new Machine(host: false);
+            var ben = new Machine(host: false);
+            Machine[] machines = [host, anna, ben];
+            void Run(int frames)
+            {
+                for (int frame = 0; frame < frames; frame++)
+                    foreach (Machine machine in machines)
+                    {
+                        machine.Network.Update();
+                        machine.Replication.Update(machine.World, machine.Focus, 0.06f);
+                        machine.World.FlushDeferred();
+                    }
+            }
+
+            // Values set before anyone joins arrive with the object.
+            Entity stag = Machine.Place(host.World, new Vector3(10, 0, 0));
+            host.Replication.Replicate(stag, "Deer");
+            HeadlessHarness.Assert(host.Replication.SetValue(stag, "health", 80.0) && host.Replication.SetValue(stag, "name", "Old Stag"),
+                "The host could not give its own shared object a value.");
+            HeadlessHarness.Assert(!host.Replication.SetValue(Machine.Place(host.World, Vector3.Zero), "health", 1.0),
+                "An object that is not shared accepted a shared value.");
+            anna.Network.Join(host.Network, 1);
+            ben.Network.Join(host.Network, 2);
+            Run(12);
+            HeadlessHarness.Assert(Equals(Seen(anna.Replication, "Deer", "health"), 80.0) && Equals(Seen(ben.Replication, "Deer", "name"), "Old Stag"),
+                $"The stag's values did not arrive with it: Anna reads health {Seen(anna.Replication, "Deer", "health") ?? "nothing"}, " +
+                $"Ben reads name {Seen(ben.Replication, "Deer", "name") ?? "nothing"}.");
+
+            // A change is sent once to each player that has the object, and an unchanged value not at all.
+            Run(10);
+            int before = host.Network.Sent;
+            host.Replication.SetValue(stag, "health", 55.0);
+            Run(4);
+            HeadlessHarness.Assert(Equals(Seen(anna.Replication, "Deer", "health"), 55.0) && Equals(Seen(ben.Replication, "Deer", "health"), 55.0),
+                $"A changed value did not reach the players (Anna reads {Seen(anna.Replication, "Deer", "health") ?? "nothing"}).");
+            HeadlessHarness.Assert(host.Network.Sent - before == 2, $"One changed value cost {host.Network.Sent - before} messages for two players; it should cost 2.");
+            before = host.Network.Sent;
+            HeadlessHarness.Assert(host.Replication.SetValue(stag, "health", 55.0), "Setting a value to what it already is was refused.");
+            Run(4);
+            HeadlessHarness.Assert(host.Network.Sent == before, "A value set to what it already was sent a message.");
+
+            // Only the machine that controls an object says what its values are.
+            Entity annasStag = anna.Replication.CopyAt(0);
+            HeadlessHarness.Assert(anna.Replication.IsCopy(annasStag) && anna.Replication.OwnerOf(annasStag) == 0
+                && !anna.Replication.SetValue(annasStag, "health", 1.0),
+                "A player changed a value on its copy of the host's object.");
+
+            // A player's own character: its values reach the host and the other player.
+            Entity annaSelf = Machine.Place(anna.World, new Vector3(2, 0, 3));
+            anna.Replication.Own(annaSelf, "Player");
+            HeadlessHarness.Assert(anna.Replication.SetValue(annaSelf, "name", "Anna") && anna.Replication.SetValue(annaSelf, "hp", 100.0),
+                "A player could not give its own character a value.");
+            Run(12);
+            HeadlessHarness.Assert(host.Replication.CopyCount == 1 && Equals(Seen(host.Replication, "Player", "name"), "Anna")
+                && Equals(Seen(ben.Replication, "Player", "hp"), 100.0),
+                $"Anna's values did not reach the others: the host holds {host.Replication.CopyCount} copies and reads name " +
+                $"{Seen(host.Replication, "Player", "name") ?? "nothing"}; Ben reads hp {Seen(ben.Replication, "Player", "hp") ?? "nothing"}.");
+            Entity annaAtHost = host.Replication.CopyAt(0);
+            Entity annaAtBen = Entity.Null;
+            for (int i = 0; i < ben.Replication.CopyCount; i++)
+                if (ben.Replication.ObjectOf(ben.Replication.CopyAt(i)) == "Player") annaAtBen = ben.Replication.CopyAt(i);
+            HeadlessHarness.Assert(host.Replication.OwnerOf(annaAtHost) == 1 && ben.Replication.OwnerOf(annaAtBen) == 1,
+                $"Anna's character should be known as player 1's: the host says {host.Replication.OwnerOf(annaAtHost)}, Ben says {ben.Replication.OwnerOf(annaAtBen)}.");
+            HeadlessHarness.Assert(!host.Replication.SetValue(annaAtHost, "hp", 1.0), "The host changed a value on a player's own character.");
+            anna.Replication.SetValue(annaSelf, "hp", 40.0);
+            Run(6);
+            HeadlessHarness.Assert(Equals(Seen(host.Replication, "Player", "hp"), 40.0) && Equals(Seen(ben.Replication, "Player", "hp"), 40.0),
+                $"Anna's changed value did not reach the others (Ben reads {Seen(ben.Replication, "Player", "hp") ?? "nothing"}).");
+
+            // A copy made again after the player has been away holds what is true now.
+            ben.Focus = new Vector3(5000, 0, 0);
+            Run(20);
+            HeadlessHarness.Assert(ben.Replication.CopyCount == 0, $"Five kilometres away Ben still holds {ben.Replication.CopyCount} copies.");
+            host.Replication.SetValue(stag, "health", 30.0);
+            Run(4);
+            ben.Focus = Vector3.Zero;
+            Run(20);
+            HeadlessHarness.Assert(Equals(Seen(ben.Replication, "Deer", "health"), 30.0) && Equals(Seen(ben.Replication, "Player", "name"), "Anna"),
+                $"Ben came back to stale values: stag health {Seen(ben.Replication, "Deer", "health") ?? "nothing"}, " +
+                $"Anna's name {Seen(ben.Replication, "Player", "name") ?? "nothing"}.");
+
+            // Limits: a long name, long text, and more values than an object may carry.
+            HeadlessHarness.Assert(!host.Replication.SetValue(stag, new string('n', NetworkReplication.MaxValueName + 1), 1.0)
+                && !host.Replication.SetValue(stag, "story", new string('t', NetworkReplication.MaxValueText + 1))
+                && !host.Replication.SetValue(stag, "", 1.0),
+                "A value past the limits was accepted.");
+            int accepted = 0;
+            for (int i = 0; i < NetworkReplication.MaxValues + 8; i++)
+                if (host.Replication.SetValue(stag, "extra" + i, (double)i)) accepted++;
+            HeadlessHarness.Assert(accepted == NetworkReplication.MaxValues - 2,
+                $"The stag took {accepted} more values on top of its two; it may carry {NetworkReplication.MaxValues} in all.");
+        });
+
+        HeadlessHarness.RunCase(context.Report, "Engine.Net.Scripts.StartASessionAndSendAndReceiveMessages", () =>
+        {
+            using var host = new SocketMachine();
+            using var anna = new SocketMachine();
+            SocketMachine[] machines = [host, anna];
+            void Until(Func<bool> done, Func<string> failure, double seconds = 8)
+            {
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                while (!done() && watch.Elapsed.TotalSeconds < seconds)
+                {
+                    foreach (SocketMachine machine in machines) machine.Step();
+                    Thread.Sleep(2);
+                }
+
+                HeadlessHarness.Assert(done(), failure());
+            }
+
+            var annaHeard = new List<NetMessage>();
+            var hostHeard = new List<NetMessage>();
+            anna.Network.OnMessageReceived += message => { if (message.Tag > 0) annaHeard.Add(message); };
+            host.Network.OnMessageReceived += message => { if (message.Tag > 0) hostHeard.Add(message); };
+            try
+            {
+                // The host's scripts start the session.
+                Genesis.Runtime.Scripting.PgslCommands.ActiveNetwork = host.Network;
+                int port = FreeUdpPort();
+                HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.NetAvailable() && Genesis.Runtime.Scripting.PgslCommands.NetHost(port)
+                    && Genesis.Runtime.Scripting.PgslCommands.NetIsHost() && Genesis.Runtime.Scripting.PgslCommands.NetPort() == port,
+                    "A script could not start hosting.");
+                anna.Network.Connect("127.0.0.1", port);
+                Until(() => anna.Network.IsConnected && Genesis.Runtime.Scripting.PgslCommands.NetPeerCount() == 1,
+                    () => "A player did not connect to the session a script hosted.");
+                double annaId = Genesis.Runtime.Scripting.PgslCommands.NetPeerId(0);
+                HeadlessHarness.Assert(annaId > 0 && Genesis.Runtime.Scripting.PgslCommands.NetPeerId(1) == 0, $"The host's script sees its player as id {annaId}.");
+
+                // Two messages arrive; a script takes the one it asks for, then whatever is left.
+                anna.Network.Send(NetPeer.Host.Id, 7, System.Text.Encoding.UTF8.GetBytes("hello"));
+                anna.Network.Send(NetPeer.Host.Id, 8, BitConverter.GetBytes(42.5));
+                Until(() => Genesis.Runtime.Scripting.PgslCommands.NetPending() == 2,
+                    () => $"The host's scripts were handed {Genesis.Runtime.Scripting.PgslCommands.NetPending()} of the 2 messages sent.");
+                HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.NetReceive(8)
+                    && Genesis.Runtime.Scripting.PgslCommands.NetMessageNumber() == 42.5
+                    && Genesis.Runtime.Scripting.PgslCommands.NetMessageTag() == 8
+                    && Genesis.Runtime.Scripting.PgslCommands.NetMessageFrom() == annaId,
+                    $"The number sent with tag 8 read back as {Genesis.Runtime.Scripting.PgslCommands.NetMessageNumber()} " +
+                    $"from {Genesis.Runtime.Scripting.PgslCommands.NetMessageFrom()}.");
+                HeadlessHarness.Assert(!Genesis.Runtime.Scripting.PgslCommands.NetReceive(8), "A message was handed to scripts twice.");
+                HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.NetReceive(0)
+                    && Genesis.Runtime.Scripting.PgslCommands.NetMessageText() == "hello"
+                    && Genesis.Runtime.Scripting.PgslCommands.NetMessageTag() == 7
+                    && Genesis.Runtime.Scripting.PgslCommands.NetPending() == 0,
+                    $"The text sent with tag 7 read back as '{Genesis.Runtime.Scripting.PgslCommands.NetMessageText()}'.");
+
+                // The script answers the machine that wrote to it.
+                HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.NetSendText(annaId, 9, "welcome"), "A script could not reply.");
+                Until(() => annaHeard.Count == 1, () => "The script's reply did not arrive.");
+                HeadlessHarness.Assert(annaHeard[0].Tag == 9 && System.Text.Encoding.UTF8.GetString(annaHeard[0].Payload) == "welcome",
+                    "The script's reply arrived changed.");
+
+                // The engine's own traffic (shared objects) is not handed to scripts.
+                host.Replication.Replicate(Machine.Place(host.World, new Vector3(5, 0, 0)), "Deer");
+                Until(() => anna.Replication.CopyCount == 1, () => "The shared deer did not reach the player.");
+                HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.NetPending() == 0 && hostHeard.Count == 2 && annaHeard.Count == 1,
+                    "Sharing an object put the engine's own messages in front of scripts.");
+
+                // A player's scripts: whatever peer they name, their messages go to the host.
+                Genesis.Runtime.Scripting.PgslCommands.ActiveNetwork = anna.Network;
+                HeadlessHarness.Assert(!Genesis.Runtime.Scripting.PgslCommands.NetIsHost() && Genesis.Runtime.Scripting.PgslCommands.NetIsConnected()
+                    && Genesis.Runtime.Scripting.PgslCommands.NetSendNumber(0, 11, 3), "A player's script could not send.");
+                Until(() => hostHeard.Count == 3, () => "A player's script sent a message the host never received.");
+                HeadlessHarness.Assert(hostHeard[2].Tag == 11 && BitConverter.ToDouble(hostHeard[2].Payload, 0) == 3, "The player's number arrived changed.");
+                host.Network.Send((int)annaId, 12, System.Text.Encoding.UTF8.GetBytes("17.25"));
+                Until(() => Genesis.Runtime.Scripting.PgslCommands.NetPending() == 1, () => "The player's scripts were not handed the host's message.");
+                HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.NetReceive(12)
+                    && Genesis.Runtime.Scripting.PgslCommands.NetMessageNumber() == 17.25, "Text that is a number did not read as one.");
+            }
+            finally
+            {
+                Genesis.Runtime.Scripting.PgslCommands.ActiveNetwork = null;
+            }
+        });
+    }
+
     public static void Run(HeadlessContext context)
     {
         RunSockets(context);
+        RunValues(context);
         HeadlessHarness.RunCase(context.Report, "Engine.Net.Replication.PlayersSeeNearbySharedObjectsAndEachOther", () =>
         {
             var host = new Machine(host: true);
