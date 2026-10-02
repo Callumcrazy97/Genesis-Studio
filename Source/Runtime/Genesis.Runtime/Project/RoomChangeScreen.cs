@@ -26,9 +26,11 @@ namespace Genesis.Runtime.Project
 
         /// <summary>
         /// A 2D room that is ready within this many milliseconds simply appears, with no cover:
-        /// a platformer stepping from screen to screen is not interrupted by a loading screen.
+        /// a platformer stepping from screen to screen, or restarting its level, is not
+        /// interrupted by a loading screen. A quarter of a second, so that a change which is
+        /// usually quick does not show a cover on the day the machine is busy.
         /// </summary>
-        public static double GraceMilliseconds { get; set; } = 40;
+        public static double GraceMilliseconds { get; set; } = 250;
 
         /// <summary>Whether the engine draws its own progress bar and text on the cover. A game that draws its own turns this off, or draws from <see cref="EntityBehavior.OnDrawLoadingScreen"/>.</summary>
         public static bool ShowProgress { get; set; } = true;
@@ -55,7 +57,7 @@ namespace Genesis.Runtime.Project
         public static void Reset()
         {
             FrameBudgetMilliseconds = null;
-            GraceMilliseconds = 40;
+            GraceMilliseconds = 250;
             ShowProgress = true;
             Text = "Loading";
             Background = new Vector4(0.02f, 0.02f, 0.03f, 1f);

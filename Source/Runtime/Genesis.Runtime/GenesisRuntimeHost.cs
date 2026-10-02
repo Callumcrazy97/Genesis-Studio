@@ -560,6 +560,9 @@ namespace Genesis.Runtime
         /// </summary>
         private void InvokePostRenderHooks()
         {
+            // Asked before the cover is faded: the frame in which the last of it is drawn is
+            // still a covered frame, though nothing is left of the change once it has been.
+            bool covered = _scene?.RoomChange != null || _scene?.RoomReveal != null;
             try
             {
                 RoomChangeProgress roomChange = _scene?.RoomChange;
@@ -582,8 +585,8 @@ namespace Genesis.Runtime
             }
 
             // A screenshot, an acceptance run and a benchmark are of the game, not of the cover a
-            // room change draws over it: they wait until the room is shown.
-            if (_scene?.RoomChange == null && _scene?.RoomReveal == null)
+            // room change draws over it: they wait for the first frame with no cover in it.
+            if (!covered)
                 EndFrame?.Invoke(_renderer);
         }
 

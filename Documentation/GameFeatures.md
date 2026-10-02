@@ -233,8 +233,8 @@ What happens:
    sent to the graphics card. These were the room's long first frames; now nobody sees them.
 5. The cover fades over 0.2 seconds and the room starts running.
 
-A 3D room is always prepared this way. A 2D room that is ready within 40 ms simply appears, with no
-cover, so a game that steps from screen to screen is not interrupted.
+A 3D room is always prepared this way. A 2D room that is ready within a quarter of a second simply
+appears, with no cover, so a game that steps from screen to screen is not interrupted.
 
 The room a 3D game starts in is prepared the same way once the start-up screen has finished: it
 is drawn behind the cover until its first view is loaded, then shown. Its Create and room-start
