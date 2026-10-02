@@ -1,5 +1,59 @@
 # Genesis Studio Master
 
+## Release readiness, 2 October 2026
+
+The owner asked whether Genesis is ready to ship, and for whatever stood in the way to be fixed.
+The answer on this date: **the product now installs, runs and exports as a released product
+must, and it is not a 1.0 by this document's own rule** (REL-1-0, section 11): the human
+acceptance gates of section 12 have not been run, it has been tested on one computer, the
+installer is not signed and Genesis has no licence terms of its own. It is fit to hand to other
+people as an early release (the version is 0.1.0) once the owner's decisions below are made.
+
+### What was wrong, and is fixed
+
+| Found by | What was wrong | Now |
+|---|---|---|
+| Running an exported game from a folder with Program Files' permissions | The game did not start: the Player insisted on creating its log folders beside itself and stopped with "Access to the path ... is denied". Any game installed under Program Files, or run from a read-only share or disc, was affected. | The log and debug pictures go to `%LOCALAPPDATA%\Genesis\GameSaves\<game id>\Debug` when the game's folder cannot be written to; the crash report goes to `%LOCALAPPDATA%\Genesis\CrashReports`. `Release.Export.GameRunsFromAFolderItCannotWriteTo` exports a game, takes its write permission away and plays it through. |
+| Reading the Run path | Run compiled a project's C# scripts to `GameScripts.dll` in Studio's own Player folder. Installed under Program Files that fails, so no project with C# scripts could run; and the one file served every project. | Written to `<project>\.genesis\Run\GameScripts.dll` and named to the Player with `GENESIS_GAME_SCRIPTS`. An exported game still keeps its scripts beside its executable. `Release.Run.CompiledScriptsStayInsideTheProject`. |
+| Listing the published folder | Of some twenty bundled libraries only Assimp's licence was shipped, and exported games carried none. The shader compiler's stager skipped two of its three licence files (it looked for `LICENSE-MIT.txt`; the package spells it `LICENCE`). | `Licenses\ThirdPartyNotices.txt` in Studio, the Player and every export, with the .NET runtime's and Skia's own notices and all three shader-compiler licences. `Release.Notices.EveryBundledLibraryIsNamed` reads the dependency list and fails for a package the notices do not name. |
+| Reading the template's provenance file | The installer bundled the Luigi's Mansion fan-game template: about 1,500 files, 617 of them images and sounds taken unchanged from a fan game about another publisher's characters. | Left out of the installer unless it is compiled with `-IncludeFanTemplate`; the gallery offers the template only where its bundle is present. It is still in this repository: see the decisions below. |
+| Reading the installer script | The installed "documentation" was this development record, with links to pages that were not installed. | The installer carries the user's guides ([ProductGuide.md](ProductGuide.md) as its README); the package audit fails on a link to a page the product does not carry. |
+| Twenty minutes of room changes with memory measured | A scene registered each terrain with its streaming manager and never removed it when the room was left: a game kept every terrain room it had visited in memory and went on running it every frame. | Removed when the room unloads. `Engine.Rooms.Change.ARoomThatWasLeftIsNeitherStreamedNorKept`; measurements in [LargeWorlds.md](LargeWorlds.md). Every room change now logs what the game holds, and `GENESIS_ROOM_CHANGE_MEMORY=1` names what a left room still has alive. |
+| Installing | Installing needed an administrator, and nothing had ever run the installer. | "Install for me only" needs none. `BuildTools/InstallDrill.ps1` installs, checks, starts Studio from a read-only folder, upgrades and uninstalls a trial copy. *Help › About* shows the product version. |
+
+### What was checked
+
+- **Full Build `20261002-213408-e6e524cb`**: 1160 checks, no failures, nothing not run (the
+  desktop was unlocked, so the three clipboard checks ran), 769 images, and the dx11, dx12,
+  vulkan, opengl and software renderer smokes. It compiled `Dist/GenesisStudio-Setup.exe`, 154 MB.
+- **Install drill** on that package: six steps passed. 877 files and 500 MB installed for the
+  current user with no administrator; no fan template, symbols, logs or build reports among
+  them; Add/Remove Programs shows 0.1.0; Studio's start-up check passed from the folder made
+  read-only; installing again over the top left one uninstaller; uninstalling left no file and
+  no registry entry, and left the user's own data alone.
+- **Soak**: the Player changed between two rooms of the large-world test project for twenty
+  minutes (199 changes) before and after the terrain fix, and for five minutes between two small
+  rooms (99 changes). Handles, threads and graphics memory were level throughout.
+- The published product's text files contain no path or name from the machine that built it.
+
+### What still stands between this and a release
+
+Decisions that are the owner's:
+
+1. **The repository is public and contains the fan-game template** (`Source/Genesis.Application.Core/Projects/Templates/Assets/LuigisMansion`, 93 MB). Leaving it out of the installer does not take it off GitHub. Either the repository becomes private, or the template is removed from it and from its history.
+2. **Signing.** Without a code-signing certificate Windows SmartScreen warns every person who runs the installer, and again for every exported game.
+3. **Genesis Studio's own licence terms**, and what a game's author may do with the Player they ship. The installer shows none.
+4. **The version.** `Installer/AppVersion.txt` says 0.1.0.
+
+Not tested, and not testable on this machine:
+
+5. **Any other computer.** Everything above ran on one PC (i7-14700F, RTX 5060 Ti, Windows 11) that has the development tools installed. No AMD or Intel graphics, no Windows 10, and no clean machine: the package carries its own .NET and C++ runtimes and its shader compiler, and the build's start-up check forbids it the machine's own, but that is not the same as a clean install (REL-HW-01).
+6. **Hours-long sessions.** Twenty minutes is not the hours REL-SOAK-01 asks for. About 0.15 MB of managed memory for each visit to the large-world room is unaccounted for.
+7. **The acceptance programme of section 12**: the hand-authored vertical slice, the timed workflow journeys and the ten performance scenes are all still pending, and they are what this document says a 1.0 requires.
+8. **Multiplayer** has only ever run with every player on one computer.
+9. **Failure drills** (REL-FAIL-01): a full disk, a lost graphics device, a cancelled or interrupted install or export. One Player hang during the first room's cover was reported from a game on Vulkan with the desktop locked and has not been reproduced.
+10. There is no updater; a new version is installed over the old one by running its installer.
+
 ## Large-world 3D engine readiness — implementation in progress
 
 The 29 September existing-editor acceptance below remains a bounded checkpoint. It does **not**
@@ -1500,7 +1554,34 @@ cleanup and can consume substantial disk space. Builds should be run one at a ti
 
 `--installer` compiles `Dist/GenesisStudio-Setup.exe` from the validated staging directory before
 product promotion. Inno Setup and the existing redistribution scripts remain prerequisites.
-Installer execution, locked-output and cancellation drills remain additional release checks.
+
+What the installer carries, since 2 October 2026:
+
+- **The user's guides, not this document.** `Documentation/ProductGuide.md` is installed as the
+  product's `Documentation/README.md`, beside Getting started, Game features, Large worlds,
+  Terrain creation and Ink outline. The package audit fails if one of them links to a page the
+  product does not carry.
+- **Licences.** `Licenses/ThirdPartyNotices.txt` (source: `Documentation/ThirdPartyNotices.txt`)
+  names every bundled library and reproduces the notices their licences require;
+  `BuildTools/StageLicenses.ps1` adds the .NET runtime's own licence and notices from the runtime
+  pack that was published, and the shader compiler's three licence files travel in `Tools/DXC`.
+  The Player has the same folder, so every exported game carries it. Adding a package without a
+  notice fails `Release.Notices.EveryBundledLibraryIsNamed`.
+- **No fan-game template.** The Luigi's Mansion template is built from another publisher's artwork
+  and audio. Its bundle (`Templates/LuigisMansion.zip`) is left out of the installer, and Studio
+  offers the template only where the bundle is present, so a source build still has it. Compile
+  with `Installer/CompileInstaller.ps1 -IncludeFanTemplate` for a private installer that has it.
+- **No symbols, logs or build reports.**
+- **Install for one user without an administrator.** The wizard offers it; `/CURRENTUSER` selects
+  it on the command line. Studio never writes beside itself.
+
+`BuildTools/InstallDrill.ps1` runs the installer for real: it compiles a trial installer under its
+own name and Add/Remove Programs identity, installs it for the current user into
+`TestResults/InstallDrill/<run>/App`, checks what arrived, starts Studio from that folder made
+read-only like Program Files, installs again over the top, uninstalls, and checks that nothing but
+the user's own data is left. Run it after a build and before handing an installer to anyone.
+The installer is not signed: Windows SmartScreen warns about it until it is signed with a
+code-signing certificate. Locked-output and cancellation drills have not been run.
 
 Game Export is implemented: File → Export Game opens the release wizard. Choose title, Windows
 x64, display mode, optional icon, destination and folder/ZIP package. It cooks assets, compiles
@@ -3013,9 +3094,9 @@ Do not enlarge a 32,768-instance buffer and declare world-scale rendering finish
 | REL-FORMAT-01 | Version all project/resource formats; test upgrades from supported public versions; transactional/reference-safe migration, backups, diagnostics and rollback where defined. | **Existing / extend** |
 | REL-RECOVER-01 | Crash/dirty-document recovery, automatic backup retention and user-visible restore/discard, low-space/interrupted-write tests. Shared with ST-RECOVER-01, not a duplicate subsystem. | **Existing / extend** |
 | REL-EXPORT-01 | Complete AS-EXPORT-01 profiles, validation, metadata/icons/window/content/runtime configuration, reproducible debug/release packaging and actionable errors/cancel. | **Existing / extend** |
-| REL-PLAYER-01 | Clean Player dependency audit: no Studio-only compilers, test scenes, development diagnostics or editor assemblies unless explicitly required by a selected development mode. | **Existing / extend** |
-| REL-INSTALL-01 | Signed installer/updater, explicit product/version identity, upgrade/rollback, deterministic payload inventory and clean uninstall behaviour. | **Planned** |
-| REL-LICENSE-01 | Accurate third-party notices and license audit for Silk.NET, Bepu, DockPanelSuite, image/compression libraries, Roslyn and all other shipped dependencies/assets; notices follow actual export contents. | **Existing / extend** |
+| REL-PLAYER-01 | Clean Player dependency audit: no Studio-only compilers, test scenes, development diagnostics or editor assemblies unless explicitly required by a selected development mode. | **Existing / extend.** An export is checked for symbols, Roslyn, Studio assemblies and the docking library (`Release.Export.CarriesLicencesAndNothingOfStudio`); it runs from a folder it cannot write to. |
+| REL-INSTALL-01 | Signed installer/updater, explicit product/version identity, upgrade/rollback, deterministic payload inventory and clean uninstall behaviour. | **Partly done, 2 October.** Version identity (About, Add/Remove Programs and the installer read `Installer/AppVersion.txt`), install, in-place upgrade and clean uninstall pass `BuildTools/InstallDrill.ps1`. **Not done:** signing (needs a certificate), an updater, rollback. |
+| REL-LICENSE-01 | Accurate third-party notices and license audit for Silk.NET, Bepu, DockPanelSuite, image/compression libraries, Roslyn and all other shipped dependencies/assets; notices follow actual export contents. | **Done for bundled software, 2 October**, and checked against the dependency list on every regression. **Not done:** Genesis Studio's own licence terms, which are the owner's to choose; the fan-game template is excluded from the installer rather than licensed. |
 | REL-SCM-01 | Stable textual source formatting/identity, ignore rules for generated caches, binary/large-file policy, merge-friendly resource diffs and explicit source-control conflicts. | **Existing / extend** |
 | REL-FAIL-01 | Missing/corrupt asset, permissions/low disk, device loss, interrupted build/import, process crash and cancellation tests with recovery paths that preserve authored work. | **Gate pending** |
 | REL-SOAK-01 | Hours-long repeat load/unload/play/edit/reload tests, memory/resource-handle/fragmentation/streaming stability and failure diagnostics. | **Gate pending** |
