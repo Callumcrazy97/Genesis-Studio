@@ -421,10 +421,12 @@ stand out against a dark storm sky; that is not fixed.
 Scatter drawing, the long-view terrain shading, the far water and the shadow cascade on screen are
 checked by the captures and the flights above, not by a harness case.
 
-Full Build `20261002-115253-4c757610` (2 October 2026, with everything on this page and in
-[Game features](GameFeatures.md), reversed depth and spread room changes included): 1152 checks
-passed, with the dx11, dx12, vulkan, opengl and software renderer smokes; nothing skipped. Three
-runs before it the same day each failed one to three checks, different ones each time. Two of
+Full Build `20261002-123645-697a7698` (2 October 2026, with everything on this page and in
+[Game features](GameFeatures.md)): 1153 checks passed, with the dx11, dx12, vulkan, opengl and
+software renderer smokes; nothing skipped. `20261002-115253-4c757610`, an hour and a half
+earlier, with reversed depth and spread room changes but before emitters were made ready behind
+the cover, passed 1152 with the same five smokes. Three
+runs before that one the same day each failed one to three checks, different ones each time. Two of
 those sets pass on their own and failed while another program was loading the machine (clipboard
 checks, and one Shader editor compile). The third was a fault in the room-change work, found by
 the Mushroom Meadow export check and fixed: a capture could be taken on the frame a cover finished
