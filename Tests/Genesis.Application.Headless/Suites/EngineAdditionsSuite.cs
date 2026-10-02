@@ -132,6 +132,63 @@ internal static class EngineAdditionsSuite
                 "A strike 120 m away should be over within a second, with loud thunder just after it.");
         });
 
+        HeadlessHarness.RunCase(context.Report, "Engine.Models.Cache.AnExportedGameShipsCachesThatSurviveCopyingAndArchiving", () =>
+        {
+            // A "project" with one large model and one small one.
+            string project = Path.Combine(context.Workspace, "SealedCacheGame");
+            string models = Path.Combine(project, "Assets", "Models");
+            Directory.CreateDirectory(models);
+            var big = new Genesis.Runtime.Modeling.GModelAsset { Name = "Hall" };
+            var vertices = new MeshVertex[40000];
+            for (int i = 0; i < vertices.Length; i++)
+                vertices[i] = new MeshVertex { Position = new Vector3(i % 200, i / 200, MathF.Sin(i)), Normal = Vector3.UnitY, Color = Vector4.One };
+            var indices = new ushort[90000];
+            for (int i = 0; i < indices.Length; i++) indices[i] = (ushort)(i % 39999);
+            big.Meshes.Add(new Genesis.Runtime.Modeling.GModelMesh { Name = "Walls", Vertices = vertices, Indices = indices });
+            string bigFile = Path.Combine(models, "Hall.gmodel");
+            Genesis.Runtime.Modeling.RuntimeModelStore.Save(bigFile, big);
+            var small = new Genesis.Runtime.Modeling.GModelAsset { Name = "Peg" };
+            small.Meshes.Add(new Genesis.Runtime.Modeling.GModelMesh { Name = "Peg", Vertices = vertices[..12], Indices = [0, 1, 2] });
+            Genesis.Runtime.Modeling.RuntimeModelStore.Save(Path.Combine(models, "Peg.gmodel"), small);
+
+            int written = Genesis.Runtime.Modeling.RuntimeModelStore.WriteSealedCaches(project);
+            string cache = Genesis.Runtime.Modeling.ModelBinaryCache.PathFor(bigFile)!;
+            HeadlessHarness.Assert(written == 1 && File.Exists(cache),
+                $"Exporting should cache the one large model and leave the small one alone; it wrote {written}.");
+
+            // The game is copied and unpacked on its way to the player: the folder moves and every
+            // file's date changes. The cache must still be taken, because the model is the same.
+            string shipped = Path.Combine(context.Workspace, "SealedCacheGame Shipped");
+            if (Directory.Exists(shipped)) Directory.Delete(shipped, true);
+            foreach (string file in Directory.EnumerateFiles(project, "*", SearchOption.AllDirectories))
+            {
+                string target = Path.Combine(shipped, Path.GetRelativePath(project, file));
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                File.Copy(file, target);
+                File.SetLastWriteTimeUtc(target, new DateTime(2030, 1, 2, 3, 4, 6, DateTimeKind.Utc));
+            }
+
+            string shippedModel = Path.Combine(shipped, "Assets", "Models", "Hall.gmodel");
+            int hits = Genesis.Runtime.Modeling.ModelBinaryCache.Hits, viaContent = Genesis.Runtime.Modeling.ModelBinaryCache.SealedHits;
+            Genesis.Runtime.Modeling.GModelAsset loaded = Genesis.Runtime.Modeling.RuntimeModelStore.Load(shippedModel);
+            HeadlessHarness.Assert(Genesis.Runtime.Modeling.ModelBinaryCache.Hits == hits + 1
+                && Genesis.Runtime.Modeling.ModelBinaryCache.SealedHits == viaContent + 1,
+                "The shipped game did not use its cache after its files were copied and re-dated.");
+            HeadlessHarness.Assert(loaded.Meshes.Count == 1 && loaded.Meshes[0].Vertices.Length == 40000
+                && loaded.Meshes[0].Vertices[777].Position == vertices[777].Position && loaded.Meshes[0].Indices.AsSpan().SequenceEqual(indices),
+                "The model read from the shipped cache is not the model that was exported.");
+
+            // A model replaced after shipping (a patch, a mod) must be read, not the cache.
+            byte[] patched = File.ReadAllBytes(shippedModel);
+            int at = Array.IndexOf(patched, (byte)'7', patched.Length / 2);
+            patched[at] = (byte)'8';
+            File.WriteAllBytes(shippedModel, patched);
+            hits = Genesis.Runtime.Modeling.ModelBinaryCache.Hits;
+            Genesis.Runtime.Modeling.RuntimeModelStore.Load(shippedModel);
+            HeadlessHarness.Assert(Genesis.Runtime.Modeling.ModelBinaryCache.Hits == hits,
+                "A model changed after shipping, to the same length, was still read from the old cache.");
+        });
+
         HeadlessHarness.RunCase(context.Report, "Engine.World.Foliage.BushesAndSaplingsAreSolidShapesNotFlatCards", () =>
         {
             foreach (Genesis.World.Foliage.FoliageSpecies species in Enum.GetValues<Genesis.World.Foliage.FoliageSpecies>())

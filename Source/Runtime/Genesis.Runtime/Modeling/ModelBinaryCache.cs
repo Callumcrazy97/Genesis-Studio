@@ -32,10 +32,13 @@ namespace Genesis.Runtime.Modeling
     public static class ModelBinaryCache
     {
         private const uint Magic = 0x31434D47;   // "GMC1"
-        private const int FormatVersion = 2;
+        private const int FormatVersion = 3;
         private const int HashBytes = 32;
-        // Magic, version, the source's length and modified time, the payload's length and its hash.
-        private const int HeaderBytes = 4 + 4 + 8 + 8 + 8 + HashBytes;
+        // Magic, version, the source's length and modified time, the payload's length and its hash,
+        // flags, and (for a sealed cache) the hash of the source file.
+        private const int HeaderBytes = 4 + 4 + 8 + 8 + 8 + HashBytes + 4 + HashBytes;
+        private const int FlagsOffset = 32 + HashBytes, SourceHashOffset = FlagsOffset + 4;
+        private const int SealedFlag = 1;
 
         /// <summary>Models smaller than this parse quickly enough that a cache is not worth a file.</summary>
         public const long MinimumSourceBytes = 256 * 1024;
@@ -50,7 +53,10 @@ namespace Genesis.Runtime.Modeling
         /// <summary>Caches written since the process started.</summary>
         public static int Writes => _writes;
 
-        private static int _hits, _writes;
+        /// <summary>Sealed caches accepted by comparing the model file's content, its date having changed.</summary>
+        public static int SealedHits => _sealedHits;
+
+        private static int _hits, _writes, _sealedHits;
 
         private static readonly JsonSerializerSettings Settings = CreateSettings();
 
@@ -141,9 +147,23 @@ namespace Genesis.Runtime.Modeling
                 if (BinaryPrimitives.ReadUInt32LittleEndian(header) != Magic
                     || BinaryPrimitives.ReadInt32LittleEndian(header[4..]) != FormatVersion
                     || BinaryPrimitives.ReadInt64LittleEndian(header[8..]) != source.Length
-                    || BinaryPrimitives.ReadInt64LittleEndian(header[16..]) != source.LastWriteTimeUtc.Ticks
                     || BinaryPrimitives.ReadInt64LittleEndian(header[24..]) != bytes.Length - HeaderBytes)
                     return false;
+
+                bool viaContent = false;
+                if (BinaryPrimitives.ReadInt64LittleEndian(header[16..]) != source.LastWriteTimeUtc.Ticks)
+                {
+                    // An exported game's files lose their exact dates in an archive, so its caches
+                    // are sealed with the hash of the model they were made from. Checking it means
+                    // reading the model file, which is still far quicker than parsing it. A cache
+                    // that is not sealed belongs to a file that has since been saved again.
+                    if ((BinaryPrimitives.ReadInt32LittleEndian(header[FlagsOffset..]) & SealedFlag) == 0) return false;
+                    Span<byte> sourceHash = stackalloc byte[HashBytes];
+                    using (FileStream model = new(modelPath, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16, FileOptions.SequentialScan))
+                        SHA256.HashData(model, sourceHash);
+                    if (!sourceHash.SequenceEqual(header.Slice(SourceHashOffset, HashBytes))) return false;
+                    viaContent = true;
+                }
 
                 // A damaged cache can still be well-formed text that reads back as a different
                 // model, so the content is checked against the hash taken when it was written.
@@ -157,6 +177,7 @@ namespace Genesis.Runtime.Modeling
                 asset = JsonSerializer.Create(Settings).Deserialize<GModelAsset>(reader);
                 if (asset == null) return false;
                 System.Threading.Interlocked.Increment(ref _hits);
+                if (viaContent) System.Threading.Interlocked.Increment(ref _sealedHits);
                 return true;
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException
@@ -206,7 +227,7 @@ namespace Genesis.Runtime.Modeling
             Task.Run(() => Write(cachePath, payload));
         }
 
-        private static byte[] Serialize(GModelAsset asset, long sourceLength, long sourceWriteTicks)
+        private static byte[] Serialize(GModelAsset asset, long sourceLength, long sourceWriteTicks, byte[] sourceHash = null)
         {
             using var memory = new MemoryStream(1 << 20);
             memory.Write(new byte[HeaderBytes]);
@@ -221,6 +242,12 @@ namespace Genesis.Runtime.Modeling
             BinaryPrimitives.WriteInt64LittleEndian(header[16..], sourceWriteTicks);
             BinaryPrimitives.WriteInt64LittleEndian(header[24..], bytes.Length - HeaderBytes);
             SHA256.HashData(bytes.AsSpan(HeaderBytes), header.Slice(32, HashBytes));
+            if (sourceHash is { Length: HashBytes })
+            {
+                BinaryPrimitives.WriteInt32LittleEndian(header[FlagsOffset..], SealedFlag);
+                sourceHash.CopyTo(header.Slice(SourceHashOffset, HashBytes));
+            }
+
             return bytes;
         }
 
@@ -238,6 +265,29 @@ namespace Genesis.Runtime.Modeling
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
             {
                 try { if (File.Exists(temporary)) File.Delete(temporary); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Writes a cache that stays valid when the model file's date changes but its content does
+        /// not: for an exported game, whose files are copied, archived and unpacked on the way to
+        /// the player. Returns false when it could not be written.
+        /// </summary>
+        public static bool SaveSealed(string modelPath, GModelAsset asset, byte[] modelFileBytes)
+        {
+            if (asset == null || modelFileBytes == null) return false;
+            try
+            {
+                string cachePath = PathFor(modelPath);
+                if (cachePath == null) return false;
+                var source = new FileInfo(modelPath);
+                if (!source.Exists || source.Length != modelFileBytes.Length) return false;
+                return Write(cachePath, Serialize(asset, source.Length, source.LastWriteTimeUtc.Ticks, SHA256.HashData(modelFileBytes)));
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException
+                or InvalidOperationException or NotSupportedException or ArgumentException)
+            {
                 return false;
             }
         }

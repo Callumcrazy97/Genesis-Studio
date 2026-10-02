@@ -207,6 +207,56 @@ namespace Genesis.Runtime.Modeling
             return Read(path);
         }
 
+        /// <summary>
+        /// Writes a sealed cache for every large model under a project's Assets folder, several at
+        /// a time. Used when a game is exported, so the player's first load reads caches instead
+        /// of parsing every model. Returns how many were written.
+        /// </summary>
+        public static int WriteSealedCaches(string projectRoot, CancellationToken cancellation = default)
+        {
+            string assets = Path.Combine(projectRoot ?? "", "Assets");
+            if (!ModelBinaryCache.Enabled || !Directory.Exists(assets)) return 0;
+            int written = 0;
+            var options = new ParallelOptions
+            {
+                MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount / 2, 1, 6),
+                CancellationToken = cancellation,
+            };
+            Parallel.ForEach(Directory.EnumerateFiles(assets, "*.gmodel", SearchOption.AllDirectories), options, path =>
+            {
+                try
+                {
+                    if (new FileInfo(path).Length < ModelBinaryCache.MinimumSourceBytes) return;
+                    byte[] bytes = File.ReadAllBytes(path);
+                    // Skip a byte-order mark; the text itself is UTF-8 either way.
+                    int skip = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF ? 3 : 0;
+                    GModelAsset asset = JsonConvert.DeserializeObject<GModelAsset>(
+                        System.Text.Encoding.UTF8.GetString(bytes, skip, bytes.Length - skip), Settings);
+                    if (asset == null) return;
+                    Finish(asset, path);
+                    if (ModelBinaryCache.SaveSealed(path, asset, bytes)) Interlocked.Increment(ref written);
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException
+                    or ArgumentException or NotSupportedException)
+                {
+                    // A model that cannot be cached is still loaded the ordinary way by the game.
+                }
+            });
+            return written;
+        }
+
+        /// <summary>What every freshly parsed model is given before it is used or cached.</summary>
+        private static void Finish(GModelAsset asset, string path)
+        {
+            if (string.IsNullOrWhiteSpace(asset.Name))
+                asset.Name = Path.GetFileNameWithoutExtension(path);
+            // Saved canonical assets already carry authoritative bounds. Re-scanning every
+            // vertex after parsing made large environment models pay a second full geometry
+            // traversal each time Model, Room, or Terrain Editor opened them.
+            if (!HasUsableBounds(asset.Bounds)) asset.RecalculateBounds();
+            GModelPrimitiveFactory.EnsureRigIntegrity(asset);
+        }
+
         private static GModelAsset Read(string path)
         {
             try
@@ -217,13 +267,7 @@ namespace Genesis.Runtime.Modeling
                     asset = JsonConvert.DeserializeObject<GModelAsset>(File.ReadAllText(path), Settings);
                 bool parsed = !cached && asset != null;
                 asset ??= CreateEmpty(Path.GetFileNameWithoutExtension(path), "Invalid .gmodel asset");
-                if (string.IsNullOrWhiteSpace(asset.Name))
-                    asset.Name = Path.GetFileNameWithoutExtension(path);
-                // Saved canonical assets already carry authoritative bounds. Re-scanning every
-                // vertex after parsing made large environment models pay a second full geometry
-                // traversal each time Model, Room, or Terrain Editor opened them.
-                if (!HasUsableBounds(asset.Bounds)) asset.RecalculateBounds();
-                GModelPrimitiveFactory.EnsureRigIntegrity(asset);
+                Finish(asset, path);
                 if (parsed) ModelBinaryCache.SaveInBackground(path, asset);
                 return asset;
             }

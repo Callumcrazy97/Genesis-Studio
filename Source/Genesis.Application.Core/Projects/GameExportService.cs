@@ -116,6 +116,11 @@ public static partial class GameExportService
             progress?.Report("Copying game content…");
             CopyProject(projectRoot, staging, cancellationToken);
 
+            // The exported models are final now. Giving each large one its fast-loading copy here
+            // means the player's first launch reads those instead of parsing every model.
+            progress?.Report("Preparing models to load quickly…");
+            Genesis.Runtime.Modeling.RuntimeModelStore.WriteSealedCaches(staging, cancellationToken);
+
             progress?.Report("Compiling game scripts…");
             ProjectRunLauncher.CompileOutcome scripts = ProjectRunLauncher.CompileScripts(projectRoot, staging);
             if (!scripts.Success)
