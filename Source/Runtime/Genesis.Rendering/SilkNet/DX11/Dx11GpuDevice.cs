@@ -731,7 +731,7 @@ namespace Genesis.Rendering.SilkNet.DX11
                     SilkMarshal.ThrowHResult(Device->CreateDepthStencilView(
                         (ID3D11Resource*)depth.Texture, &dsvDesc, &dsv));
                     target.Dsv = dsv;
-                    target.HasStencil = desc.DepthFormat == GpuFormat.D24UNormS8UInt;
+                    target.HasStencil = Dx11GpuFormats.HasStencil(desc.DepthFormat);
                 }
 
                 int id = _nextRenderTarget++;
@@ -1409,7 +1409,7 @@ namespace Genesis.Rendering.SilkNet.DX11
             GpuFormat.R8G8B8A8UNorm or GpuFormat.R8G8B8A8UNormSrgb or GpuFormat.B8G8R8A8UNorm or GpuFormat.R11G11B10Float
                 or GpuFormat.R32Float or GpuFormat.D32Float or GpuFormat.D24UNormS8UInt
                 or GpuFormat.R32UInt => 4,
-            GpuFormat.R16G16B16A16Float or GpuFormat.R32Float2 => 8,
+            GpuFormat.R16G16B16A16Float or GpuFormat.R32Float2 or GpuFormat.D32FloatS8UInt => 8,
             GpuFormat.R8UNorm => 1,
             GpuFormat.R16Float => 2,
             GpuFormat.R32Float3 => 12,

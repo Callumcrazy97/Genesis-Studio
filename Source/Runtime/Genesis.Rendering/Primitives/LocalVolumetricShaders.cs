@@ -27,6 +27,8 @@ cbuffer LocalVolumetricConstants : register(b0)
 };
 
 Texture2D<float> SceneDepth  : register(t0);
+#define GENESIS_DEPTH_REVERSED (CameraPosPad.w > 0.5)
+" + SceneDepthHlsl.Helpers + @"
 SamplerState     LinearClamp : register(s0);
 
 struct VSOut { float4 pos : SV_Position; float2 uv : TEXCOORD0; };
@@ -60,7 +62,7 @@ float HashIGN(float2 pixel)
 float4 PS_LocalVol(VSOut IN) : SV_Target
 {
     float depth = SceneDepth.SampleLevel(LinearClamp, IN.uv, 0).r;
-    if (depth >= 0.9999999)
+    if (SceneDepthIsSky(depth))
         return float4(0, 0, 0, 1);
 
     int lightCount = clamp(int(Params.z), 0, 4);

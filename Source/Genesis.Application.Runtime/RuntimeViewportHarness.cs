@@ -52,6 +52,7 @@ public sealed partial class RuntimeViewportHarness : IDisposable
         TwoSidedLighting,
         SkinnedCulling,
         LargeTerrain,
+        DepthPrecision,
     }
 
     public RuntimeViewportHarness(int width = 640, int height = 360)
@@ -515,6 +516,7 @@ public sealed partial class RuntimeViewportHarness : IDisposable
         if (_mode == CaptureMode.TwoSidedLighting) { RenderTwoSidedLighting(renderer); return; }
         if (_mode == CaptureMode.SkinnedCulling) { RenderSkinnedCulling(renderer); return; }
         if (_mode == CaptureMode.LargeTerrain) { RenderLargeTerrain(renderer); return; }
+        if (_mode == CaptureMode.DepthPrecision) { RenderDepthPrecision(renderer); return; }
         if (_mode == CaptureMode.TwoD)
         {
             RenderTwoD(renderer);

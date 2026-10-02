@@ -33,6 +33,7 @@ internal static class RenderingPreferencesBridge
     {
         ArgumentNullException.ThrowIfNull(settings);
         EngineRenderingDefaults.WaterReflections = settings.WaterReflections;
+        EngineRenderingDefaults.ReversedDepth = settings.ReversedDepth;
         RenderBackendSelection.Configure(RenderBackendCatalog.ParseSettingsValue(settings.Backend));
         MeshRasterDefaults.Configure(
             MeshRasterDefaults.ParseCulling(settings.FaceCulling, FaceCullingOverride.Back),
@@ -168,6 +169,7 @@ internal static class RenderingPreferencesBridge
         environment[EngineRenderingDefaults.AllowEscapeEnvironmentVariable] =
             manifest.Runtime.AllowEscapeToClose ? "1" : "0";
         environment[EngineRenderingDefaults.WaterReflectionsEnvironmentVariable] = settings.WaterReflections ? "1" : "0";
+        environment[EngineRenderingDefaults.ReversedDepthEnvironmentVariable] = settings.ReversedDepth ? "1" : "0";
         environment[MeshRasterDefaults.CullingEnvironmentVariable] =
             MeshRasterDefaults.ParseCulling(settings.FaceCulling, FaceCullingOverride.Back).ToString();
         environment[MeshRasterDefaults.WindingEnvironmentVariable] =

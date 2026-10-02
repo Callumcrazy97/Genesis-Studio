@@ -63,6 +63,7 @@ public sealed class PreferencesForm : DpiAwareForm
     private readonly CheckBox _smokeExtinctionEnabled = new() { Name = "SmokeExtinctionEnabledPicker" };
     private readonly CheckBox _bloomEnabled = new() { Name = "BloomEnabledPicker" };
     private readonly CheckBox _waterReflections = new() { Name = "WaterReflectionsPicker" };
+    private readonly CheckBox _reversedDepth = new() { Name = "ReversedDepthPicker" };
     private readonly CheckBox _atmosphereLutEnabled = new() { Name = "AtmosphereLutEnabledPicker" };
     private readonly CheckBox _raymarchedCloudsEnabled = new() { Name = "RaymarchedCloudsEnabledPicker" };
     private readonly CheckBox _cloudTemporalEnabled = new() { Name = "CloudTemporalEnabledPicker" };
@@ -550,6 +551,8 @@ public sealed class PreferencesForm : DpiAwareForm
         page.Controls.Add(_bloomEnabled);
         ConfigureCheckBox(_waterReflections, "Water reflections (one plane, half resolution)");
         page.Controls.Add(_waterReflections);
+        ConfigureCheckBox(_reversedDepth, "Reversed depth (long views keep a close near plane)");
+        page.Controls.Add(_reversedDepth);
         ConfigureCheckBox(_atmosphereLutEnabled, "AL — Atmosphere LUT (sky-view)");
         page.Controls.Add(_atmosphereLutEnabled);
         ConfigureCheckBox(_raymarchedCloudsEnabled, "CL — Raymarched clouds");
@@ -802,6 +805,7 @@ public sealed class PreferencesForm : DpiAwareForm
             SmokeExtinctionEnabled = _smokeExtinctionEnabled.Checked,
             BloomEnabled = _bloomEnabled.Checked,
             WaterReflections = _waterReflections.Checked,
+            ReversedDepth = _reversedDepth.Checked,
             AtmosphereLutEnabled = _atmosphereLutEnabled.Checked,
             RaymarchedCloudsEnabled = _raymarchedCloudsEnabled.Checked,
             CloudTemporalEnabled = _cloudTemporalEnabled.Checked,
@@ -1338,6 +1342,7 @@ public sealed class PreferencesForm : DpiAwareForm
         _smokeExtinctionEnabled.Checked = settings.Rendering.SmokeExtinctionEnabled;
         _bloomEnabled.Checked = settings.Rendering.BloomEnabled;
         _waterReflections.Checked = settings.Rendering.WaterReflections;
+        _reversedDepth.Checked = settings.Rendering.ReversedDepth;
         _atmosphereLutEnabled.Checked = settings.Rendering.AtmosphereLutEnabled;
         _raymarchedCloudsEnabled.Checked = settings.Rendering.RaymarchedCloudsEnabled;
         _cloudTemporalEnabled.Checked = settings.Rendering.CloudTemporalEnabled;
@@ -1460,6 +1465,7 @@ public sealed class PreferencesForm : DpiAwareForm
             settings.Rendering.SmokeExtinctionEnabled = _smokeExtinctionEnabled.Checked;
             settings.Rendering.BloomEnabled = _bloomEnabled.Checked;
             settings.Rendering.WaterReflections = _waterReflections.Checked;
+            settings.Rendering.ReversedDepth = _reversedDepth.Checked;
             settings.Rendering.AtmosphereLutEnabled = _atmosphereLutEnabled.Checked;
             settings.Rendering.RaymarchedCloudsEnabled = _raymarchedCloudsEnabled.Checked;
             settings.Rendering.CloudTemporalEnabled = _cloudTemporalEnabled.Checked;

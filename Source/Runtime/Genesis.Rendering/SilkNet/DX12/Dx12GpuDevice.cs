@@ -472,7 +472,7 @@ namespace Genesis.Rendering.SilkNet.DX12
             if (depth)
             {
                 clear.Format = Dx12GpuFormats.ToDxgi(desc.Format);
-                clear.Anonymous.DepthStencil = new DepthStencilValue { Depth = 1f };
+                clear.Anonymous.DepthStencil = new DepthStencilValue { Depth = desc.DepthClearsToZero ? 0f : 1f };
                 clearPtr = &clear;
             }
             else if ((desc.BindFlags & GpuBindFlags.RenderTarget) != 0)
@@ -662,6 +662,7 @@ namespace Genesis.Rendering.SilkNet.DX12
                     BindFlags = desc.DepthSampleable
                         ? GpuBindFlags.DepthStencil | GpuBindFlags.ShaderResource
                         : GpuBindFlags.DepthStencil,
+                    DepthClearsToZero = desc.DepthClearsToZero,
                     DebugName = desc.DebugName,
                 }, ReadOnlySpan<byte>.Empty);
 
@@ -801,7 +802,7 @@ namespace Genesis.Rendering.SilkNet.DX12
             {
                 _frames.List->ClearDepthStencilView(
                     dsv, ClearFlags.Depth | (desc.Target.IsValid
-                        && _renderTargets[desc.Target.Id].DepthFormat == GpuFormat.D24UNormS8UInt
+                        && Dx12GpuFormats.HasStencil(_renderTargets[desc.Target.Id].DepthFormat)
                         ? ClearFlags.Stencil : 0), desc.DepthAction.ClearR, 0, 0u,
                     (Silk.NET.Maths.Box2D<int>*)null);
             }

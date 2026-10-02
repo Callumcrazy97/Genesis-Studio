@@ -21,6 +21,8 @@ cbuffer ContactShadowConstants : register(b0)
 };
 
 Texture2D<float> SceneDepth  : register(t0);
+#define GENESIS_DEPTH_REVERSED (Params.w > 0.5)
+" + SceneDepthHlsl.Helpers + @"
 SamplerState     LinearClamp : register(s0);
 
 struct VSOut { float4 pos : SV_Position; float2 uv : TEXCOORD0; };
@@ -58,10 +60,10 @@ float HashIGN(float2 pixel)
 float NearestSceneDepth(float2 uv, float2 texel)
 {
     float d = SceneDepth.SampleLevel(LinearClamp, uv, 0).r;
-    d = min(d, SceneDepth.SampleLevel(LinearClamp, uv + float2(-texel.x, 0), 0).r);
-    d = min(d, SceneDepth.SampleLevel(LinearClamp, uv + float2( texel.x, 0), 0).r);
-    d = min(d, SceneDepth.SampleLevel(LinearClamp, uv + float2(0, -texel.y), 0).r);
-    d = min(d, SceneDepth.SampleLevel(LinearClamp, uv + float2(0,  texel.y), 0).r);
+    d = SceneDepthNearest(d, SceneDepth.SampleLevel(LinearClamp, uv + float2(-texel.x, 0), 0).r);
+    d = SceneDepthNearest(d, SceneDepth.SampleLevel(LinearClamp, uv + float2( texel.x, 0), 0).r);
+    d = SceneDepthNearest(d, SceneDepth.SampleLevel(LinearClamp, uv + float2(0, -texel.y), 0).r);
+    d = SceneDepthNearest(d, SceneDepth.SampleLevel(LinearClamp, uv + float2(0,  texel.y), 0).r);
     return d;
 }
 
@@ -70,14 +72,14 @@ float4 PS_Contact(VSOut IN) : SV_Target
     float2 fullRes = max(ClipPlanes.zw, float2(2, 2));
     float2 texel = 1.0 / fullRes;
     float centerDepth = SceneDepth.SampleLevel(LinearClamp, IN.uv, 0).r;
-    if (centerDepth >= 0.9999999)
+    if (SceneDepthIsSky(centerDepth))
         return float4(0, 0, 0, 1);
 
     float3 worldPos = ReconstructWorldPos(IN.uv, centerDepth);
 
     // The ray from the camera through this pixel, derived from two depths on the same UV so no
     // camera position needs to ride in this cbuffer.
-    float3 viewRay = normalize(worldPos - ReconstructWorldPos(IN.uv, 0.0));
+    float3 viewRay = normalize(worldPos - ReconstructWorldPos(IN.uv, SceneDepthNear()));
 
     float3 dx = ReconstructWorldPos(
         IN.uv + float2(texel.x, 0),
@@ -118,10 +120,10 @@ float4 PS_Contact(VSOut IN) : SV_Target
             continue;
 
         float sceneDepth = NearestSceneDepth(sampleUv, texel);
-        if (sceneDepth >= 0.9999999)
+        if (SceneDepthIsSky(sceneDepth))
             continue;
 
-        float separation = ndc.z - sceneDepth;
+        float separation = SceneDepthBehind(ndc.z, sceneDepth);
         float thickness = 0.00045 + t * 0.00145;
         float hit = smoothstep(thickness, thickness * 3.2, separation);
         occlusion = max(occlusion, hit * (1.0 - t * 0.58));

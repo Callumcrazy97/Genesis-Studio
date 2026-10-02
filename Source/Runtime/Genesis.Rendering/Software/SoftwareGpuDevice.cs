@@ -138,7 +138,7 @@ namespace Genesis.Rendering.Software
         }
 
         private static bool IsDepthFormat(GpuFormat format) =>
-            format is GpuFormat.D32Float or GpuFormat.D24UNormS8UInt or GpuFormat.R32Float;
+            format is GpuFormat.D32Float or GpuFormat.D24UNormS8UInt or GpuFormat.D32FloatS8UInt or GpuFormat.R32Float;
 
         private TextureData TryGetTexture(GpuTextureHandle handle) =>
             handle.IsValid && _textures.TryGetValue(handle.Id, out TextureData tex) ? tex : null;
@@ -331,7 +331,7 @@ namespace Genesis.Rendering.Software
         private static int BytesPerPixel(GpuFormat format) => format switch
         {
             GpuFormat.R8UNorm => 1,
-            GpuFormat.D32Float or GpuFormat.D24UNormS8UInt or GpuFormat.R32Float => 4,
+            GpuFormat.D32Float or GpuFormat.D24UNormS8UInt or GpuFormat.D32FloatS8UInt or GpuFormat.R32Float => 4,
             _ => 4
         };
 

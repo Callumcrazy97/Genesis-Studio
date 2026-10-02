@@ -114,6 +114,8 @@ public sealed class AudioGroupDefinition
 public sealed class RenderingSettings
 {
     public bool WaterReflections { get; set; }
+    /// <summary>Scene depth stored reversed in floating point. On unless turned off; settings saved before it existed read as on.</summary>
+    public bool ReversedDepth { get; set; } = true;
     /// <summary>Persisted enum name from Genesis.Rendering.Core.RenderBackendOption.</summary>
     public string Backend { get; set; } = "SilkNetDx11";
 

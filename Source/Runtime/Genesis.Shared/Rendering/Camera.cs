@@ -70,8 +70,10 @@ namespace Genesis.Shared.Rendering
         /// near plane of a few centimetres: the depth buffer runs out of precision and distant
         /// ground, water and shore flicker through each other. Such a view moves the near plane out
         /// to a thirty-thousandth of the far plane; shorter views use the authored value unchanged.
+        /// With reversed depth in use (<see cref="DepthPrecision"/>) the buffer does not run out,
+        /// and every view keeps the near plane it was given.
         /// </summary>
-        public float EffectiveNearPlane => _farPlane >= 4000f
+        public float EffectiveNearPlane => _farPlane >= 4000f && !DepthPrecision.ReversedDepthInUse
             ? MathF.Max(_nearPlane, _farPlane / 30000f)
             : _nearPlane;
 

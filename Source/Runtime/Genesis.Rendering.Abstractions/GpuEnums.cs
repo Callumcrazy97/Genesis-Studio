@@ -32,6 +32,13 @@ namespace Genesis.Rendering.Abstractions
         R32Float3,
         R32Float4,
         R32UInt,
+
+        /// <summary>
+        /// Floating-point depth with a stencil byte. Last in the list so that the numbers of the
+        /// formats before it, which caches may have stored, are as they were. A reversed depth
+        /// buffer needs floating point: it is what turns the reversal into precision.
+        /// </summary>
+        D32FloatS8UInt,
     }
 
     [Flags]

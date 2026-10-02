@@ -50,7 +50,7 @@ internal sealed partial class ForwardRenderer
             _reflectionTarget = _gpu.CreateRenderTarget(new GpuRenderTargetDesc
             {
                 Width = w, Height = h, ColorFormats = new[] { GpuFormat.R16G16B16A16Float, GpuFormat.R8UNorm },
-                DepthFormat = GpuFormat.D24UNormS8UInt, DepthSampleable = true, DebugName = "Water planar reflection",
+                DepthFormat = SceneDepthFormat, DepthClearsToZero = _reversedDepth, DepthSampleable = true, DebugName = "Water planar reflection",
             });
             _reflectionTexture = _gpu.GetRenderTargetTexture(_reflectionTarget, 0);
             _reflectionDepth = _gpu.GetRenderTargetDepthTexture(_reflectionTarget);

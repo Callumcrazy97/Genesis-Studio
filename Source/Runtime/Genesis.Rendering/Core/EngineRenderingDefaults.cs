@@ -36,6 +36,19 @@ public static class EngineRenderingDefaults
     public static bool LinearColorPipeline { get; set; }
     /// <summary>Optional half-resolution planar water pass; software retains the analytic sky fallback.</summary>
     public static bool WaterReflections { get; set; }
+
+    public const string ReversedDepthEnvironmentVariable = "GENESIS_REVERSED_DEPTH";
+
+    /// <summary>
+    /// Stores the scene's depth reversed, in floating point, so a long view keeps a close near
+    /// plane without distant surfaces flickering. On unless turned off; a running renderer follows
+    /// a change at its next frame. See <see cref="Genesis.Shared.Rendering.DepthPrecision"/>.
+    /// </summary>
+    public static bool ReversedDepth
+    {
+        get => Genesis.Shared.Rendering.DepthPrecision.ReversedDepthRequested;
+        set => Genesis.Shared.Rendering.DepthPrecision.ReversedDepthRequested = value;
+    }
     public const string FogEnabledEnvironmentVariable = "GENESIS_FOG_ENABLED";
     public const string FogColorEnvironmentVariable = "GENESIS_FOG_COLOR";
     public const string FogStartEnvironmentVariable = "GENESIS_FOG_START";
@@ -83,6 +96,9 @@ public static class EngineRenderingDefaults
         string reflections = Environment.GetEnvironmentVariable(WaterReflectionsEnvironmentVariable);
         if (!string.IsNullOrWhiteSpace(reflections))
             WaterReflections = reflections == "1" || bool.TryParse(reflections, out bool enabledReflections) && enabledReflections;
+        string reversed = Environment.GetEnvironmentVariable(ReversedDepthEnvironmentVariable);
+        if (!string.IsNullOrWhiteSpace(reversed))
+            ReversedDepth = reversed == "1" || bool.TryParse(reversed, out bool enabledReversed) && enabledReversed;
         string linear = Environment.GetEnvironmentVariable(LinearColorPipelineEnvironmentVariable);
         if (!string.IsNullOrWhiteSpace(linear))
             LinearColorPipeline = linear == "1" || bool.TryParse(linear, out bool enabledLinear) && enabledLinear;
@@ -129,6 +145,7 @@ public static class EngineRenderingDefaults
         {
             [RenderBackendSelection.EnvironmentVariable] = RenderBackendSelection.ToEnvironmentValue(backend),
             [WaterReflectionsEnvironmentVariable] = WaterReflections ? "1" : "0",
+            [ReversedDepthEnvironmentVariable] = ReversedDepth ? "1" : "0",
             [LinearColorPipelineEnvironmentVariable] = LinearColorPipeline ? "1" : "0",
             [FogEnabledEnvironmentVariable] = fogEnabled ? "1" : "0",
             [FogColorEnvironmentVariable] = NormalizeHex(fogColorHex),

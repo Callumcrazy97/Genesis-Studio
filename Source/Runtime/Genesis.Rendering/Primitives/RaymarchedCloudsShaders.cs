@@ -28,6 +28,8 @@ cbuffer RaymarchedCloudsConstants : register(b0)
 
 Texture2D WeatherMap : register(t0);
 Texture2D<float> SceneDepth : register(t1);
+#define GENESIS_DEPTH_REVERSED (CameraPosPad.w > 0.5)
+" + SceneDepthHlsl.Helpers + @"
 SamplerState LinearClamp : register(s0);
 
 struct VSOut { float4 pos : SV_Position; float2 uv : TEXCOORD0; };
@@ -181,11 +183,11 @@ float4 PS_Clouds(VSOut IN) : SV_Target
     int2 pixel = min(int2(IN.uv * ClipPlanes.zw), int2(ClipPlanes.zw) - 1);
     float depth = SceneDepth.Load(int3(pixel, 0)).r;
     float3 cameraPos = CameraPosPad.xyz;
-    float3 worldFar = ReconstructWorldPos(IN.uv, 1.0);
+    float3 worldFar = ReconstructWorldPos(IN.uv, SceneDepthFar());
     float3 viewRay = normalize(worldFar - cameraPos);
 
     float surfaceDist = 1e6;
-    if (depth < 0.9999999)
+    if (!SceneDepthIsSky(depth))
     {
         float3 worldPos = ReconstructWorldPos(IN.uv, depth);
         surfaceDist = length(worldPos - cameraPos);

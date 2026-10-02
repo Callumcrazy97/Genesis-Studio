@@ -127,9 +127,10 @@ public sealed unsafe partial class GpuRenderController
             CameraUp = new Vector4(Vector3.Normalize(new Vector3(inverse.M21,inverse.M22,inverse.M23)),0),
             CameraForward = new Vector4(Vector3.Normalize(new Vector3(inverse.M31,inverse.M32,inverse.M33)),0),
             CameraPosition = new Vector4(inverse.M41, inverse.M42, inverse.M43, 0),
+            // w: the scene stores depth reversed, for the layer's own depth test and the emitter's.
             FogLayer = layer
-                ? new Vector4(1f, 1f / Math.Max(width, 1), 1f / Math.Max(height, 1), 0f)
-                : Vector4.Zero,
+                ? new Vector4(1f, 1f / Math.Max(width, 1), 1f / Math.Max(height, 1), _fwd.ReversedDepth ? 1f : 0f)
+                : new Vector4(0f, 0f, 0f, _fwd.ReversedDepth ? 1f : 0f),
         };
         Matrix4x4 viewProjection = view * projection;
         foreach (ParticleDraw draw in _particleDraws)

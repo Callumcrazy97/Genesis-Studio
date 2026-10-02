@@ -11,10 +11,12 @@ cbuffer GtaoConstants : register(b0)
 {
     float4 ClipPlanes;                 // x=near, y=far, z=fullWidth, w=fullHeight
     row_major float4x4 InvProjection;  // camera projection inverse
-    float4 Params;                     // x=time, y=horizontal blur flag, zw unused
+    float4 Params;                     // x=time, y=horizontal blur flag, z=scene depth is reversed
 };
 
 Texture2D<float> SceneDepth : register(t0);
+#define GENESIS_DEPTH_REVERSED (Params.z > 0.5)
+" + SceneDepthHlsl.Helpers + @"
 Texture2D        AoMap      : register(t1);
 SamplerState     LinearClamp : register(s0);
 
@@ -38,7 +40,7 @@ float LinearizeDepth(float depth)
     // blur weights with distance and bled AO across depth edges.
     float n = max(ClipPlanes.x, 0.01);
     float f = max(n + 1.0, ClipPlanes.y);
-    return (n * f) / max(f - depth * (f - n), 1e-5);
+    return SceneDepthToView(depth, n, f);
 }
 
 float3 ReconstructViewPos(float2 uv, float depth)
@@ -69,7 +71,7 @@ float4 PS_Gtao(VSOut IN) : SV_Target
     float2 fullRes = max(ClipPlanes.zw, float2(2, 2));
     float2 texel = 1.0 / fullRes;
     float centerDepth = SceneDepth.SampleLevel(LinearClamp, IN.uv, 0).r;
-    if (centerDepth >= 0.9999999)
+    if (SceneDepthIsSky(centerDepth))
         return float4(1, 1, 1, 1);
 
     float3 center = ReconstructViewPos(IN.uv, centerDepth);
@@ -101,7 +103,7 @@ float4 PS_Gtao(VSOut IN) : SV_Target
                 continue;
 
             float sampleDepth = SceneDepth.SampleLevel(LinearClamp, sampleUv, 0).r;
-            if (sampleDepth >= 0.9999999)
+            if (SceneDepthIsSky(sampleDepth))
                 continue;
 
             float3 samplePosition = ReconstructViewPos(sampleUv, sampleDepth);

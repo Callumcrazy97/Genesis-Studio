@@ -455,7 +455,9 @@ VertexOutput VS(VertexInput input,uint vertex:SV_VertexID,uint instance:SV_Insta
 }
 float4 PS(VertexOutput input):SV_Target0 {
     bool layer=FogLayer.x>0.5;
-    if(layer) clip(ParticleSceneDepth.Load(int3(int2(input.position.xy),0))-input.position.z);
+    // Behind the scene: FogLayer.w says which way round the scene stores depth.
+    float sceneDepth=ParticleSceneDepth.Load(int3(int2(input.position.xy),0));
+    if(layer) clip(FogLayer.w>0.5?input.position.z-sceneDepth:sceneDepth-input.position.z);
     float4 pixel=ParticleTexture.Sample(LinearSampler,input.uv);
     float4 tint=input.color;
     // Linear colour pipeline (3D only): texture and colour curves are authored in sRGB.

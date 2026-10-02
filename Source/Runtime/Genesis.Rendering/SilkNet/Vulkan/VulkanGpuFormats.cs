@@ -23,6 +23,7 @@ namespace Genesis.Rendering.SilkNet.Vulkan
             GpuFormat.R32Float => VkFormat.R32Sfloat,
             GpuFormat.D32Float => VkFormat.D32Sfloat,
             GpuFormat.D24UNormS8UInt => VkFormat.D24UnormS8Uint,
+            GpuFormat.D32FloatS8UInt => VkFormat.D32SfloatS8Uint,
             GpuFormat.R32Float2 => VkFormat.R32G32Sfloat,
             GpuFormat.R32Float3 => VkFormat.R32G32B32Sfloat,
             GpuFormat.R32Float4 => VkFormat.R32G32B32A32Sfloat,
@@ -31,9 +32,9 @@ namespace Genesis.Rendering.SilkNet.Vulkan
         };
 
         public static bool IsDepth(GpuFormat format) =>
-            format is GpuFormat.D32Float or GpuFormat.D24UNormS8UInt;
+            format is GpuFormat.D32Float or GpuFormat.D24UNormS8UInt or GpuFormat.D32FloatS8UInt;
 
-        public static bool HasStencil(GpuFormat format) => format is GpuFormat.D24UNormS8UInt;
+        public static bool HasStencil(GpuFormat format) => format is GpuFormat.D24UNormS8UInt or GpuFormat.D32FloatS8UInt;
 
         public static bool IsBlockCompressed(GpuFormat format) =>
             format is GpuFormat.BC5UNorm or GpuFormat.BC7UNorm or GpuFormat.BC7UNormSrgb;
@@ -63,6 +64,7 @@ namespace Genesis.Rendering.SilkNet.Vulkan
             GpuFormat.R8G8B8A8UNorm or GpuFormat.R8G8B8A8UNormSrgb or GpuFormat.B8G8R8A8UNorm => 4,
             GpuFormat.R11G11B10Float or GpuFormat.R32Float => 4,
             GpuFormat.D32Float or GpuFormat.D24UNormS8UInt => 4,
+            GpuFormat.D32FloatS8UInt => 8,
             GpuFormat.R16G16B16A16Float => 8,
             GpuFormat.BC5UNorm or GpuFormat.BC7UNorm or GpuFormat.BC7UNormSrgb => 16,
             GpuFormat.R32Float2 => 8,

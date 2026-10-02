@@ -34,7 +34,69 @@ internal static class ShadowQualitySuite
         HeadlessHarness.RunCase(ctx.Report, "Engine.Render.Shadows.FourLocalLightsShareAtlas", () => FourLocalLights(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Render.Shadows.SpotLightConeAndShadow", () => SpotLight(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Render.Lighting.TwoSidedSurfacesLitUnderEitherCamera", () => TwoSided(ctx));
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Render.Depth.ReversedDepthKeepsDistantSurfacesApartOnAllBackends", () => DepthPrecision(ctx));
     }
+
+    /// <summary>
+    /// Two surfaces cross six kilometres from a camera with a ten-centimetre near plane. Reversed
+    /// depth must put the join down the middle of the picture on every backend; the usual depth
+    /// buffer, which cannot tell the surfaces apart for a kilometre either side, must not. The
+    /// second half is what shows the first half is measuring something.
+    /// </summary>
+    private static void DepthPrecision(HeadlessContext ctx)
+    {
+        bool chosen = EngineRenderingDefaults.ReversedDepth;
+        bool inUse = Genesis.Shared.Rendering.DepthPrecision.ReversedDepthInUse;
+        try
+        {
+            WithBackends((backend, name) =>
+            {
+                // How far, in pixels, the join is from the middle of the picture at its worst row.
+                double JoinError(bool reversed)
+                {
+                    EngineRenderingDefaults.ReversedDepth = reversed;
+                    using RuntimeViewportHarness harness = new();
+                    string file = Path.Combine(ctx.Captures, $"depth-{name}-{(reversed ? "reversed" : "standard")}.png");
+                    harness.CaptureDepthPrecision(file);
+                    using Bitmap image = new(file);
+                    double worst = 0;
+                    // The middle band of rows: clear of the caption at the top.
+                    for (int y = image.Height * 2 / 5; y < image.Height * 4 / 5; y += 6)
+                    {
+                        // Green is in front on one side and red on the other; find where it changes.
+                        bool greenAtLeft = IsGreen(image.GetPixel(4, y));
+                        int join = -1;
+                        for (int x = 5; x < image.Width - 4; x++)
+                        {
+                            if (IsGreen(image.GetPixel(x, y)) == greenAtLeft) continue;
+                            join = x;
+                            break;
+                        }
+
+                        Check(join >= 0 || !reversed, $"{backend}: with reversed depth row {y} is one colour; the far surfaces did not both appear.");
+                        // No join at all is the worst case: one surface won everywhere.
+                        worst = Math.Max(worst, join < 0 ? image.Width / 2.0 : Math.Abs(join - image.Width / 2.0));
+                    }
+
+                    return worst;
+                }
+
+                double reversed = JoinError(true);
+                double standard = JoinError(false);
+                Check(reversed <= 3,
+                    $"{backend}: with reversed depth the join between two surfaces 6 km away is {reversed:F0} px from where it should be.");
+                Check(standard >= 12,
+                    $"{backend}: the usual depth buffer put the join only {standard:F0} px out; this check is not measuring depth precision.");
+            });
+        }
+        finally
+        {
+            EngineRenderingDefaults.ReversedDepth = chosen;
+            Genesis.Shared.Rendering.DepthPrecision.ReversedDepthInUse = inUse;
+        }
+    }
+
+    private static bool IsGreen(Color colour) => colour.G > colour.R;
 
     private static void Check(bool condition, string message)
     {

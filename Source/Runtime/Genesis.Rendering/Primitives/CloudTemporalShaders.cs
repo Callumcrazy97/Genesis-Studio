@@ -25,6 +25,8 @@ cbuffer CloudTemporalConstants : register(b0)
 Texture2D CurrentCloud : register(t0);
 Texture2D HistoryCloud : register(t1);
 Texture2D<float> SceneDepth : register(t2);
+#define GENESIS_DEPTH_REVERSED (CameraPosPad.w > 0.5)
+" + SceneDepthHlsl.Helpers + @"
 SamplerState LinearClamp : register(s0);
 SamplerState PointClamp : register(s1);
 
@@ -88,9 +90,9 @@ float4 PS_TemporalResolve(VSOut IN) : SV_Target
     float depth = SceneDepth.SampleLevel(PointClamp, IN.uv, 0).r;
     float3 worldPos = ReconstructWorldPos(IN.uv, depth);
     // Far/sky pixels: anchor at a mid-slab distance along the view ray so clouds still reproject.
-    if (depth >= 0.9999999)
+    if (SceneDepthIsSky(depth))
     {
-        float3 worldFar = ReconstructWorldPos(IN.uv, 1.0);
+        float3 worldFar = ReconstructWorldPos(IN.uv, SceneDepthFar());
         float3 ray = normalize(worldFar - CameraPosPad.xyz);
         worldPos = CameraPosPad.xyz + ray * 220.0;
     }

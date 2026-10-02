@@ -107,7 +107,7 @@ internal sealed partial class ForwardRenderer
         _gpu.SetConstantBuffer(GpuShaderStage.Pixel, ParticleEngineConstantsSlot, _cbEngine);
         BindFroxelApply();
         _gpu.SetTexture(GpuShaderStage.Pixel, ParticleSceneDepthSlot, sceneDepth);
-        ExternalParticles(_view, _proj, ParticleDrawPhase.Layer, width, height);
+        ExternalParticles(_view, SceneProj, ParticleDrawPhase.Layer, width, height);
         _gpu.ClearTexture(GpuShaderStage.Pixel, ParticleSceneDepthSlot);
         _gpu.ClearTexture(GpuShaderStage.Pixel, 16);
         _gpu.EndRenderPass();

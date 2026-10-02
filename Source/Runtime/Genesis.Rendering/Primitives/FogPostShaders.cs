@@ -117,7 +117,7 @@ cbuffer FogPostConstants : register(b1)
     // AF1.7: x=exposure, y=contrast, z=saturation, w unused. Defaults 1/1/1 are identity.
     float4 ExposureParams;
 
-    // AF1.7: x=vignette strength (0 = no-op), yzw unused.
+    // AF1.7: x=vignette strength (0 = no-op), y=dither the sky, z=scene depth is reversed.
     float4 VignetteParams;
 
     // AF2.1: append-only — x=atmosphere LUT enabled, y=sunHeight (−LightDirection.Y),
@@ -161,6 +161,8 @@ cbuffer FogPostConstants : register(b1)
 Texture2D SceneColor : register(t0);
 
 Texture2D<float> SceneDepth  : register(t1);
+#define GENESIS_DEPTH_REVERSED (VignetteParams.z > 0.5)
+" + SceneDepthHlsl.Helpers + @"
 
 Texture2D<float> ShadowMapFar  : register(t2);
 
@@ -408,7 +410,7 @@ float InkOutline(int2 pixel)
 {
     // (far / (far - near)) - depth is proportional to 1 / view depth.
     float depthBias = ClipPlanes.y / max(ClipPlanes.y - ClipPlanes.x, 1e-4);
-    float q0 = max(depthBias - SceneDepth.Load(int3(pixel, 0)), 1e-7);
+    float q0 = max(SceneDepthInverse(SceneDepth.Load(int3(pixel, 0)), ClipPlanes.x, ClipPlanes.y), 1e-7);
     float viewDepth = depthBias * ClipPlanes.x / q0;
     float distant = saturate((viewDepth - InkFade.x) / max(InkFade.y - InkFade.x, 1e-3));
     // Three rings of taps; InkFade.w spaces them further apart for wide lines at high resolutions.
@@ -426,8 +428,8 @@ float InkOutline(int2 pixel)
         for (int i = 0; i < 4; i++)
         {
             int2 offset = InkTapDirs[i] * (ring * tapStep);
-            float qa = depthBias - SceneDepth.Load(int3(clamp(pixel + offset, int2(0, 0), maxPixel), 0));
-            float qb = depthBias - SceneDepth.Load(int3(clamp(pixel - offset, int2(0, 0), maxPixel), 0));
+            float qa = SceneDepthInverse(SceneDepth.Load(int3(clamp(pixel + offset, int2(0, 0), maxPixel), 0)), ClipPlanes.x, ClipPlanes.y);
+            float qb = SceneDepthInverse(SceneDepth.Load(int3(clamp(pixel - offset, int2(0, 0), maxPixel), 0)), ClipPlanes.x, ClipPlanes.y);
             float bend = (qa + qb - 2.0 * q0) / q0;
             // Silhouette: only the nearer surface is inked, so a line is one width rather than two.
             float depthStep = bend < 0.0 ? smoothstep(InkParams.z, InkParams.z * 2.0, -bend) : 0.0;
@@ -474,7 +476,7 @@ float4 PS(VSOut IN) : SV_Target
     if (ContactParams.x > 0.5)
     {
         float contactDepth = FetchSceneDepth(IN.uv, pixel);
-        if (contactDepth < 0.9999999)
+        if (!SceneDepthIsSky(contactDepth))
         {
             float2 contactNdc = float2(IN.uv.x * 2.0 - 1.0, 1.0 - IN.uv.y * 2.0);
             float4 contactWorldH = mul(float4(contactNdc, contactDepth, 1.0), InvViewProjection);
@@ -493,9 +495,9 @@ float4 PS(VSOut IN) : SV_Target
     if (SmokeParams.x > 0.5 && SmokeParams.z >= 1.0)
     {
         float smokeZ = FetchSceneDepth(IN.uv, pixel);
-        bool smokeIsSky = smokeZ >= 0.9999999;
+        bool smokeIsSky = SceneDepthIsSky(smokeZ);
         float2 smokeNdc = float2(IN.uv.x * 2.0 - 1.0, 1.0 - IN.uv.y * 2.0);
-        float4 smokeWorldH = mul(float4(smokeNdc, smokeIsSky ? 1.0 : smokeZ, 1.0), InvViewProjection);
+        float4 smokeWorldH = mul(float4(smokeNdc, smokeIsSky ? SceneDepthFar() : smokeZ, 1.0), InvViewProjection);
         float3 smokeCameraPos = CameraPosPad.xyz;
         float3 smokeWorldPos = smokeWorldH.xyz / max(smokeWorldH.w, 0.0001);
         if (smokeIsSky)
@@ -518,11 +520,11 @@ float4 PS(VSOut IN) : SV_Target
     {
 
     float z = FetchSceneDepth(IN.uv, pixel);
-    bool isSky = z >= 0.9999999;
+    bool isSky = SceneDepthIsSky(z);
 
     float2 ndc = float2(IN.uv.x * 2.0 - 1.0, 1.0 - IN.uv.y * 2.0);
 
-    float clipZ = isSky ? 1.0 : z;
+    float clipZ = isSky ? SceneDepthFar() : z;
     float4 clip = float4(ndc, clipZ, 1.0);
 
     float4 worldH = mul(clip, InvViewProjection);
@@ -542,7 +544,7 @@ float4 PS(VSOut IN) : SV_Target
     }
 
     // Froxel depth is clip w: view depth along the camera's forward axis.
-    float4 forwardH = mul(float4(0.0, 0.0, 1.0, 1.0), InvViewProjection);
+    float4 forwardH = mul(float4(0.0, 0.0, SceneDepthFar(), 1.0), InvViewProjection);
     float3 cameraForward = normalize(forwardH.xyz / max(forwardH.w, 0.0001) - cameraPos);
     float4 fog = FroxelFog(IN.uv, cameraPos, worldPos, dot(worldPos - cameraPos, cameraForward));
     color = lerp(color, color * fog.a + fog.rgb, saturate(FogColor.a));
@@ -556,10 +558,10 @@ float4 PS(VSOut IN) : SV_Target
     if (AtmosphereLutParams.x > 0.5)
     {
         float lutZ = FetchSceneDepth(IN.uv, pixel);
-        if (lutZ >= 0.9999999)
+        if (SceneDepthIsSky(lutZ))
         {
             float2 lutNdc = float2(IN.uv.x * 2.0 - 1.0, 1.0 - IN.uv.y * 2.0);
-            float4 lutWorldH = mul(float4(lutNdc, 1.0, 1.0), InvViewProjection);
+            float4 lutWorldH = mul(float4(lutNdc, SceneDepthFar(), 1.0), InvViewProjection);
             float3 lutCam = CameraPosPad.xyz;
             float3 lutWorld = lutWorldH.xyz / max(lutWorldH.w, 0.0001);
             float3 lutViewDir = normalize(lutWorld - lutCam);
@@ -605,10 +607,10 @@ float4 PS(VSOut IN) : SV_Target
     if (CelestialParams.x > 0.5)
     {
         float celZ = FetchSceneDepth(IN.uv, pixel);
-        if (celZ >= 0.9999999)
+        if (SceneDepthIsSky(celZ))
         {
             float2 celNdc = float2(IN.uv.x * 2.0 - 1.0, 1.0 - IN.uv.y * 2.0);
-            float4 celWorldH = mul(float4(celNdc, 1.0, 1.0), InvViewProjection);
+            float4 celWorldH = mul(float4(celNdc, SceneDepthFar(), 1.0), InvViewProjection);
             float3 celCam = CameraPosPad.xyz;
             float3 celWorld = celWorldH.xyz / max(celWorldH.w, 0.0001);
             float3 viewDir = normalize(celWorld - celCam);
@@ -687,7 +689,7 @@ float4 PS(VSOut IN) : SV_Target
         if (CloudLayerParams.z > 0.0)
         {
             float2 skyNdc = float2(IN.uv.x * 2.0 - 1.0, 1.0 - IN.uv.y * 2.0);
-            float4 skyWorldH = mul(float4(skyNdc, 1.0, 1.0), InvViewProjection);
+            float4 skyWorldH = mul(float4(skyNdc, SceneDepthFar(), 1.0), InvViewProjection);
             float3 ray = normalize(skyWorldH.xyz / max(skyWorldH.w, 0.0001) - CameraPosPad.xyz);
             float boundary = CameraPosPad.y > CloudLayerParams.y ? CloudLayerParams.y : CloudLayerParams.x;
             float distance = abs(ray.y) > 0.0001 ? max(0.0, (boundary - CameraPosPad.y) / ray.y) : 100000.0;
@@ -697,7 +699,7 @@ float4 PS(VSOut IN) : SV_Target
             cloud *= exp(-distance * CloudLayerParams.z);
         }
         float cloudDepth = FetchSceneDepth(IN.uv, pixel);
-        if (cloudDepth < 0.9999999)
+        if (!SceneDepthIsSky(cloudDepth))
         {
             float2 cloudNdc = float2(IN.uv.x * 2.0 - 1.0, 1.0 - IN.uv.y * 2.0);
             float4 cloudWorldH = mul(float4(cloudNdc, cloudDepth, 1.0), InvViewProjection);

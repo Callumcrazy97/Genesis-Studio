@@ -269,7 +269,8 @@ namespace Genesis.Rendering.Primitives
             public Matrix4x4 ReflectionViewProjection;
             public Vector4 ReflectionParams;
             public Vector4 WeatherWindRain;
-
+            /// <summary>x = scene depth is reversed.</summary>
+            public Vector4 DepthParams;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -653,6 +654,68 @@ namespace Genesis.Rendering.Primitives
         private GpuDepthState _dssNoWrite;
         private GpuDepthState _dssNoTest;
         private GpuDepthState _dssFogOff;
+        /// <summary>Shadow maps keep the usual depth order whatever the scene does.</summary>
+        private GpuDepthState _dssShadow;
+
+        // ── Reversed depth ────────────────────────────────────────────────────────
+        // The scene's depth buffer stores 1 at the near plane and 0 at the far plane, in floating
+        // point, so a view of kilometres keeps its precision with a near plane of centimetres
+        // (see Genesis.Shared.Rendering.DepthPrecision). Everything that follows from that is
+        // decided here: the projection the scene is drawn with, which way the depth test runs,
+        // what the buffer is cleared to and its format. Shaders that read the buffer are told by
+        // a flag in their own constants. The camera's own projection (_proj) stays as it was
+        // given, for culling, the light grid, the froxel volume and shadow cascades.
+        private bool _reversedDepth;
+
+        /// <summary>True when this renderer stores scene depth reversed.</summary>
+        public bool ReversedDepth => _reversedDepth;
+
+        /// <summary>Clip z becomes w - z: depth d becomes 1 - d, and nothing else changes.</summary>
+        private static readonly Matrix4x4 ReverseDepthClip = new(
+            1f, 0f, 0f, 0f,
+            0f, 1f, 0f, 0f,
+            0f, 0f, -1f, 0f,
+            0f, 0f, 1f, 1f);
+
+        private Matrix4x4 SceneProj => _reversedDepth ? _proj * ReverseDepthClip : _proj;
+        private Matrix4x4 SceneViewProj => _view * SceneProj;
+        private float SceneClearDepth => _reversedDepth ? 0f : 1f;
+        private float SceneDepthFlag => _reversedDepth ? 1f : 0f;
+        private GpuFormat SceneDepthFormat => _reversedDepth ? GpuFormat.D32FloatS8UInt : GpuFormat.D24UNormS8UInt;
+
+        private bool WantsReversedDepth =>
+            Genesis.Shared.Rendering.DepthPrecision.ReversedDepthRequested
+            && !string.Equals(_gpu.BackendName, "Software", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Follows the choice when it changes while the renderer is running: the depth states are
+        /// made again and the targets that hold scene depth are let go, to be made in the other
+        /// format when next needed.
+        /// </summary>
+        private void FollowDepthChoice()
+        {
+            bool wanted = WantsReversedDepth;
+            if (wanted != _reversedDepth)
+            {
+                _reversedDepth = wanted;
+                CreateDepthStencilStates();
+                if (_sceneTarget.IsValid) _gpu.ReleaseRenderTarget(_sceneTarget);
+                _sceneTarget = GpuRenderTargetHandle.Invalid;
+                _sceneTexture = GpuTextureHandle.Invalid;
+                _fogSkipTexture = GpuTextureHandle.Invalid;
+                _sceneDepthTexture = GpuTextureHandle.Invalid;
+                _sceneW = _sceneH = 0;
+                if (_reflectionTarget.IsValid) _gpu.ReleaseRenderTarget(_reflectionTarget);
+                _reflectionTarget = GpuRenderTargetHandle.Invalid;
+                _reflectionTexture = GpuTextureHandle.Invalid;
+                _reflectionDepth = GpuTextureHandle.Invalid;
+                _reflectionWidth = _reflectionHeight = 0;
+                _cloudHistoryValid = false;
+                RenderLog.Line("Scene depth: " + (_reversedDepth ? "reversed, floating point" : "standard"));
+            }
+
+            Genesis.Shared.Rendering.DepthPrecision.ReversedDepthInUse = _reversedDepth;
+        }
 
         // Blend states
         private GpuBlendState _bsOpaque;
@@ -984,6 +1047,8 @@ namespace Genesis.Rendering.Primitives
                 float db = Vector3.DistanceSquared(_sortCameraPos, b.World.Translation);
                 return db.CompareTo(da);
             };
+            _reversedDepth = WantsReversedDepth;
+            Genesis.Shared.Rendering.DepthPrecision.ReversedDepthInUse = _reversedDepth;
             CompileShaders();
             CompileWaterShaders();
             CreateConstantBuffers();
@@ -1371,11 +1436,13 @@ namespace Genesis.Rendering.Primitives
 
         private void CreateDepthStencilStates()
         {
+            // Nearer wins: a smaller depth as usual, a larger one when depth is reversed.
+            GpuCompare nearer = _reversedDepth ? GpuCompare.Greater : GpuCompare.Less;
             _dssDefault = new GpuDepthState
             {
                 TestEnabled = true,
                 WriteEnabled = true,
-                Compare = GpuCompare.Less,
+                Compare = nearer,
             };
             _dssNoWrite = _dssDefault;
             _dssNoWrite.WriteEnabled = false;
@@ -1383,6 +1450,12 @@ namespace Genesis.Rendering.Primitives
             {
                 TestEnabled = false,
                 WriteEnabled = false,
+                Compare = nearer,
+            };
+            _dssShadow = new GpuDepthState
+            {
+                TestEnabled = true,
+                WriteEnabled = true,
                 Compare = GpuCompare.Less,
             };
             _dssFogOff = GpuDepthState.Disabled;
@@ -1922,7 +1995,8 @@ namespace Genesis.Rendering.Primitives
                 // gba = the pixel's pre-fog ambient term, so the composite's AO darkens only
                 // indirect light. Transparent draws write r alone (see the secondary blend state).
                 ColorFormats = new[] { GpuFormat.R16G16B16A16Float, GpuFormat.R16G16B16A16Float },
-                DepthFormat = GpuFormat.D24UNormS8UInt,
+                DepthFormat = SceneDepthFormat,
+                DepthClearsToZero = _reversedDepth,
                 DepthSampleable = true,
                 DebugName = "Forward HDR scene and fog/ambient MRT",
             });
@@ -3211,6 +3285,7 @@ namespace Genesis.Rendering.Primitives
             int viewW = 0, int viewH = 0, GpuTextureHandle depthTexture = default,
             bool allowPostProcess = true)
         {
+            FollowDepthChoice();
             if (!depthTexture.IsValid)
             {
                 _froxelsActiveThisFrame = false;
@@ -3877,7 +3952,7 @@ namespace Genesis.Rendering.Primitives
                 depth.WriteEnabled = false;
                 // The surface has already written this exact depth. Less rejects the
                 // mask/reset and leaves thin bevels exposed to the expanded back faces.
-                depth.Compare = GpuCompare.LessEqual;
+                depth.Compare = _reversedDepth ? GpuCompare.GreaterEqual : GpuCompare.LessEqual;
                 depth.StencilEnabled = true;
                 depth.StencilReadMask = 255;
                 depth.StencilWriteMask = outline ? (byte)0 : (byte)255;
@@ -3981,7 +4056,7 @@ namespace Genesis.Rendering.Primitives
             int shadowBudget = Math.Max(1, ShadowBatchBudget);
             ClassifyShadowCasters(lightVPFar, lightVPMid, lightVPNear);
 
-            _gpu.SetDepthState(_dssDefault);
+            _gpu.SetDepthState(_dssShadow);
             _gpu.ClearTexture(GpuShaderStage.Pixel, 2);
             _gpu.ClearTexture(GpuShaderStage.Pixel, 5);
             _gpu.ClearTexture(GpuShaderStage.Pixel, 14);
@@ -4129,7 +4204,7 @@ namespace Genesis.Rendering.Primitives
                 Target = target,
                 DepthTexture = depthTexture,
                 ColorActions = colors,
-                DepthAction = GpuAttachmentAction.Clear(1f, 0f, 0f, 0f),
+                DepthAction = GpuAttachmentAction.Clear(SceneClearDepth, 0f, 0f, 0f),
                 HasDepth = true,
                 DebugName = postProcessTarget ? "Forward HDR main" : "Forward direct main",
             });
@@ -4175,7 +4250,7 @@ namespace Genesis.Rendering.Primitives
                 ? ComputeLightViewProj(ShadowCascadeKind.Mid)
                 : lightVPFar;
             Matrix4x4 lightVPNear = ComputeLightViewProj(ShadowCascadeKind.Near);
-            Matrix4x4 vp          = _view * _proj;
+            Matrix4x4 vp          = SceneViewProj;
             UploadPerFrame(vp, lightVPFar, lightVPNear, lightVPMid);
             UploadEngineCB();
 
@@ -4512,7 +4587,7 @@ namespace Genesis.Rendering.Primitives
             // With the particle layer active only multiply particles stay here; the rest are fogged
             // at their own depth in ParticleLayerPass.
             if (!_reflectionPassActive)
-                ExternalParticles?.Invoke(_view, _proj,
+                ExternalParticles?.Invoke(_view, SceneProj,
                     _particleLayerThisFrame ? ParticleDrawPhase.MultiplyOnly : ParticleDrawPhase.All,
                     _rtWidth, _rtHeight);
 
@@ -4643,6 +4718,7 @@ namespace Genesis.Rendering.Primitives
                 ReflectionParams = new Vector4(reflection ? 1 : 0, .015f, _nearPlane,
                     _state.CameraFarPlane > 0f ? _state.CameraFarPlane : 1000f),
                 WeatherWindRain = _state.WeatherWindRain,
+                DepthParams = new Vector4(SceneDepthFlag, 0f, 0f, 0f),
             };
             _gpu.UpdateConstantBuffer(_cbWater, data);
         }
@@ -4670,7 +4746,7 @@ namespace Genesis.Rendering.Primitives
 
             float nearPlane = _nearPlane;
             float farPlane  = _state.CameraFarPlane > 0f ? _state.CameraFarPlane : 1000f;
-            Matrix4x4 viewProj = _view * _proj;
+            Matrix4x4 viewProj = SceneViewProj;
             if (!Matrix4x4.Invert(viewProj, out Matrix4x4 invVp))
                 invVp = Matrix4x4.Identity;
 
@@ -4735,7 +4811,7 @@ namespace Genesis.Rendering.Primitives
                     _state.Saturation,
                     LinearPipeline ? 1f : 0f), // w: encode the tonemapped result to sRGB
                 // y: break up the bands a slow sky gradient shows on a 256-level display.
-                VignetteParams          = new Vector4(_state.VignetteStrength, _state.AuthoredSkyEnabled ? 1f : 0f, 0f, 0f),
+                VignetteParams          = new Vector4(_state.VignetteStrength, _state.AuthoredSkyEnabled ? 1f : 0f, SceneDepthFlag, 0f),
                 AtmosphereLutParams     = new Vector4(
                     atmosphereLutEnabled ? 1f : 0f,
                     sunHeight,
@@ -5004,7 +5080,7 @@ namespace Genesis.Rendering.Primitives
 
             float nearPlane = _nearPlane;
             float farPlane = _state.CameraFarPlane > 0f ? _state.CameraFarPlane : 1000f;
-            if (!Matrix4x4.Invert(_proj, out Matrix4x4 invProj))
+            if (!Matrix4x4.Invert(SceneProj, out Matrix4x4 invProj))
                 invProj = Matrix4x4.Identity;
 
             // Horizon/contact AO into half-res target.
@@ -5046,7 +5122,7 @@ namespace Genesis.Rendering.Primitives
 
             float nearPlane = _nearPlane;
             float farPlane = _state.CameraFarPlane > 0f ? _state.CameraFarPlane : 1000f;
-            Matrix4x4 viewProj = _view * _proj;
+            Matrix4x4 viewProj = SceneViewProj;
             if (!Matrix4x4.Invert(viewProj, out Matrix4x4 invVp))
                 invVp = Matrix4x4.Identity;
 
@@ -5064,7 +5140,7 @@ namespace Genesis.Rendering.Primitives
                     ContactShadowMath.DefaultMaxDistance,
                     ContactShadowMath.DefaultStrength,
                     _time,
-                    0f),
+                    SceneDepthFlag),
             };
             _gpu.UpdateConstantBuffer(_cbContact, cb);
             _gpu.SetViewport(0, 0, _contactW, _contactH);
@@ -5180,7 +5256,7 @@ namespace Genesis.Rendering.Primitives
 
             float nearPlane = _nearPlane;
             float farPlane = _state.CameraFarPlane > 0f ? _state.CameraFarPlane : 1000f;
-            Matrix4x4 viewProj = _view * _proj;
+            Matrix4x4 viewProj = SceneViewProj;
             if (!Matrix4x4.Invert(viewProj, out Matrix4x4 invVp))
                 invVp = Matrix4x4.Identity;
 
@@ -5188,7 +5264,7 @@ namespace Genesis.Rendering.Primitives
             {
                 ClipPlanes = new Vector4(nearPlane, farPlane, fullW, fullH),
                 InvViewProjection = invVp,
-                CameraPosPad = new Vector4(_cameraPos, 0f),
+                CameraPosPad = new Vector4(_cameraPos, SceneDepthFlag),
                 Params = new Vector4(
                     LocalVolumetricMath.StepCount,
                     LocalVolumetricMath.DefaultStrength,
@@ -5270,7 +5346,7 @@ namespace Genesis.Rendering.Primitives
 
             float nearPlane = _nearPlane;
             float farPlane = _state.CameraFarPlane > 0f ? _state.CameraFarPlane : 1000f;
-            Matrix4x4 viewProj = _view * _proj;
+            Matrix4x4 viewProj = SceneViewProj;
             if (!Matrix4x4.Invert(viewProj, out Matrix4x4 invVp))
                 invVp = Matrix4x4.Identity;
 
@@ -5290,7 +5366,7 @@ namespace Genesis.Rendering.Primitives
             {
                 ClipPlanes = new Vector4(nearPlane, farPlane, fullW, fullH),
                 InvViewProjection = invVp,
-                CameraPosPad = new Vector4(_cameraPos, 0f),
+                CameraPosPad = new Vector4(_cameraPos, SceneDepthFlag),
                 LightDirPad = new Vector4(towardSun, _state.AuthoredSkyEnabled
                     ? AtmosphereLutMath.DaylightFromSunHeight(towardSun.Y) : 1f),
                 CloudParams = SkyAuthoringDefaults.ResolveCloudParams(
@@ -5346,7 +5422,7 @@ namespace Genesis.Rendering.Primitives
                         nearPlane, farPlane, _raymarchedCloudsW, _raymarchedCloudsH),
                     InvViewProjection = invVp,
                     PrevViewProjection = reset ? viewProj : _prevCloudVP,
-                    CameraPosPad = new Vector4(_cameraPos, 0f),
+                    CameraPosPad = new Vector4(_cameraPos, SceneDepthFlag),
                     TemporalParams = new Vector4(
                         CloudTemporalMath.DefaultBaseBlend,
                         reset ? 1f : 0f,
@@ -5404,7 +5480,7 @@ namespace Genesis.Rendering.Primitives
                     ClipPlanes = new Vector4(nearPlane, farPlane, fullW, fullH),
                     InvViewProjection = invVp,
                     PrevViewProjection = viewProj,
-                    CameraPosPad = new Vector4(_cameraPos, 0f),
+                    CameraPosPad = new Vector4(_cameraPos, SceneDepthFlag),
                     TemporalParams = Vector4.Zero,
                     UpsampleParams = new Vector4(
                         1f / Math.Max(_raymarchedCloudsW, 1),
@@ -5469,7 +5545,7 @@ namespace Genesis.Rendering.Primitives
             {
                 ClipPlanes = new Vector4(nearPlane, farPlane, fullW, fullH),
                 InvProjection = invProj,
-                Params = new Vector4(_time, horizontalBlur ? 1f : 0f, 0f, 0f),
+                Params = new Vector4(_time, horizontalBlur ? 1f : 0f, SceneDepthFlag, 0f),
             };
             _gpu.UpdateConstantBuffer(_cbGtao, cb);
             _gpu.SetViewport(0, 0, width, height);
@@ -5621,7 +5697,7 @@ namespace Genesis.Rendering.Primitives
                 StylizedParams2 = new Vector4(
                     Math.Max(s.StylizedSpecularStrength, 0f),
                     Math.Max(s.StylizedRimStrength, 0f),
-                    0f, 0f),
+                    SceneDepthFlag, 0f),
                 WeatherWindRain = s.WeatherWindRain,
                 WeatherSurface = s.WeatherSurface,
             };

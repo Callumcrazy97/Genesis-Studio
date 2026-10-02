@@ -23,6 +23,11 @@ namespace Genesis.Rendering.Abstractions
         public GpuBindFlags BindFlags;
         public GpuBufferUsage Usage;
         public string     DebugName;
+        /// <summary>
+        /// A depth texture that will be cleared to 0 (reversed depth) rather than 1. Direct3D 12
+        /// clears fastest to the value a resource was created with; the others ignore this.
+        /// </summary>
+        public bool       DepthClearsToZero;
     }
 
     public struct GpuSamplerDesc
@@ -104,6 +109,8 @@ namespace Genesis.Rendering.Abstractions
         /// </summary>
         public bool      DepthSampleable;
         public string    DebugName;
+        /// <summary>The depth attachment is cleared to 0 (reversed depth) rather than 1.</summary>
+        public bool      DepthClearsToZero;
     }
 
     /// <summary>One colour attachment's load/store behaviour and clear value for a pass.</summary>

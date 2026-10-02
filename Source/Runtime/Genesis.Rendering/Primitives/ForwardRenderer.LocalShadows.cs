@@ -180,7 +180,7 @@ internal sealed partial class ForwardRenderer
         Span<int> assignment = stackalloc int[OmniShadowMath.MaxBudget];
         OmniShadowMath.AssignSlots(_pointLights.AsSpan(0, _pointLightCount), budget, _cameraPos, previous, assignment);
 
-        _gpu.SetDepthState(_dssDefault);
+        _gpu.SetDepthState(_dssShadow);
         // Unbind the atlas before writing depth into it.
         _gpu.ClearTexture(GpuShaderStage.Pixel, 15);
         int shadowBudget = Math.Max(1, ShadowBatchBudget);
@@ -375,7 +375,7 @@ internal sealed partial class ForwardRenderer
         _gpu.SetVertexLayout(GpuVertexLayoutHandle.Invalid);
         _gpu.SetPrimitiveTopology(GpuPrimitiveTopology.TriangleList);
         _gpu.Draw(3);
-        _gpu.SetDepthState(_dssDefault);
+        _gpu.SetDepthState(_dssShadow);
 
         if (hasCasters)
         {

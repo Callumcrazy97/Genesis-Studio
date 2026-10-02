@@ -29,6 +29,7 @@ namespace Genesis.Rendering.SilkNet.OpenGL
             GpuFormat.R32Float => InternalFormat.R32f,
             GpuFormat.D32Float => InternalFormat.DepthComponent32f,
             GpuFormat.D24UNormS8UInt => InternalFormat.Depth24Stencil8,
+            GpuFormat.D32FloatS8UInt => (InternalFormat)0x8CAD,   // GL_DEPTH32F_STENCIL8
             _ => InternalFormat.Rgba8,
         };
 
@@ -38,7 +39,7 @@ namespace Genesis.Rendering.SilkNet.OpenGL
             GpuFormat.B8G8R8A8UNorm => PixelFormat.Bgra,
             GpuFormat.R8UNorm or GpuFormat.R16Float or GpuFormat.R32Float => PixelFormat.Red,
             GpuFormat.D32Float => PixelFormat.DepthComponent,
-            GpuFormat.D24UNormS8UInt => PixelFormat.DepthStencil,
+            GpuFormat.D24UNormS8UInt or GpuFormat.D32FloatS8UInt => PixelFormat.DepthStencil,
             _ => PixelFormat.Rgba,
         };
 
@@ -48,13 +49,14 @@ namespace Genesis.Rendering.SilkNet.OpenGL
             GpuFormat.R32Float or GpuFormat.D32Float => PixelType.Float,
             GpuFormat.R11G11B10Float => PixelType.UnsignedInt10f11f11fRev,
             GpuFormat.D24UNormS8UInt => PixelType.UnsignedInt248,
+            GpuFormat.D32FloatS8UInt => (PixelType)0x8DAD,        // GL_FLOAT_32_UNSIGNED_INT_24_8_REV
             _ => PixelType.UnsignedByte,
         };
 
         public static bool IsDepth(GpuFormat format) =>
-            format is GpuFormat.D32Float or GpuFormat.D24UNormS8UInt;
+            format is GpuFormat.D32Float or GpuFormat.D24UNormS8UInt or GpuFormat.D32FloatS8UInt;
 
-        public static bool HasStencil(GpuFormat format) => format is GpuFormat.D24UNormS8UInt;
+        public static bool HasStencil(GpuFormat format) => format is GpuFormat.D24UNormS8UInt or GpuFormat.D32FloatS8UInt;
 
         public static bool IsBlockCompressed(GpuFormat format) =>
             format is GpuFormat.BC5UNorm or GpuFormat.BC7UNorm or GpuFormat.BC7UNormSrgb;
@@ -67,6 +69,7 @@ namespace Genesis.Rendering.SilkNet.OpenGL
             GpuFormat.R8G8B8A8UNorm or GpuFormat.R8G8B8A8UNormSrgb or GpuFormat.B8G8R8A8UNorm => 4,
             GpuFormat.R11G11B10Float or GpuFormat.R32Float => 4,
             GpuFormat.D32Float or GpuFormat.D24UNormS8UInt => 4,
+            GpuFormat.D32FloatS8UInt => 8,
             GpuFormat.R16G16B16A16Float => 8,
             GpuFormat.BC5UNorm => 16,
             GpuFormat.BC7UNorm or GpuFormat.BC7UNormSrgb => 16,

@@ -62,7 +62,7 @@ cbuffer EngineConstants : register(b1)
     FogVolumeGpu FogVolumes[8];
     // Stylized / toon lighting — global per frame (see SceneEnvironment.Stylized*).
     float4       StylizedParams;     // x=enabled, y=toonSteps, z=diffuseWrap, w=saturation
-    float4       StylizedParams2;    // x=specularStrength, y=rimStrength, zw=reserved
+    float4       StylizedParams2;    // x=specularStrength, y=rimStrength, z=scene depth is reversed, w=reserved
     float4       WeatherWindRain;    // world wind XZ, rain, enabled
     float4       WeatherSurface;     // wetness, temperature C, snow, reserved
 };
@@ -1028,6 +1028,8 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
         // (unsupported by older SPIR-V frontends). Depth belongs to the camera, not the sun.
         float4 cameraPosition = mul(float4(IN.WorldPos, 1.0), ViewProjection);
         float cameraDepth = saturate(cameraPosition.z / max(cameraPosition.w, 0.0001));
+        // The view shows near as bright whichever way round the scene stores depth.
+        if (StylizedParams2.z > 0.5) cameraDepth = 1.0 - cameraDepth;
         float debugDepth = pow(saturate(1.0 - cameraDepth), 0.25);
         return MakeOut(float4(debugDepth, debugDepth, debugDepth, 1.0), 0.0);
     }

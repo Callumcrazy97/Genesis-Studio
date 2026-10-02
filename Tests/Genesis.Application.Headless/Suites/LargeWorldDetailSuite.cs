@@ -288,6 +288,9 @@ internal static class LargeWorldDetailSuite
 
         HeadlessHarness.RunCase(context.Report, "Editor.View3D.LongViewsMoveTheNearPlaneOut", () =>
         {
+            bool inUse = Genesis.Shared.Rendering.DepthPrecision.ReversedDepthInUse;
+            using var restore = new DepthChoice(inUse);
+            Genesis.Shared.Rendering.DepthPrecision.ReversedDepthInUse = false;
             using var viewport = new Genesis.Application.Editors.Suite.EditorViewport3D();
             HeadlessHarness.Assert(viewport.EffectiveNearPlane == viewport.NearPlane && viewport.NearPlane == 0.1f,
                 $"An ordinary editor view must keep its 10 cm near plane; it uses {viewport.EffectiveNearPlane} m.");
@@ -302,6 +305,12 @@ internal static class LargeWorldDetailSuite
                 "The near plane no longer keeps a sea surface and its floor apart at 15 km.");
             viewport.NearPlane = 2f;
             HeadlessHarness.Assert(viewport.EffectiveNearPlane == 2f, "An authored near plane beyond the automatic one must be kept.");
+
+            // With reversed depth the buffer does not run out, and the near plane stays put.
+            Genesis.Shared.Rendering.DepthPrecision.ReversedDepthInUse = true;
+            viewport.NearPlane = 0.1f;
+            HeadlessHarness.Assert(viewport.EffectiveNearPlane == 0.1f,
+                $"With reversed depth a 24 km editor view should keep its 10 cm near plane; it uses {viewport.EffectiveNearPlane} m.");
         });
 
         HeadlessHarness.RunCase(context.Report, "Engine.World.Water.OceanReachesTheHorizon", () =>
@@ -337,6 +346,12 @@ internal static class LargeWorldDetailSuite
             (float x1, float z1) = WaterSurfaceMesh.OceanCentre(camera + new Vector3(3f, 0f, -2f));
             HeadlessHarness.Assert(x0 == x1 && z0 == z1, "A three-metre step moved the sea mesh.");
         });
+    }
+
+    /// <summary>Puts the depth convention back when a check that changes it ends, pass or fail.</summary>
+    private sealed class DepthChoice(bool inUse) : IDisposable
+    {
+        public void Dispose() => Genesis.Shared.Rendering.DepthPrecision.ReversedDepthInUse = inUse;
     }
 
     private static (Vector3[] Positions, int[] Indices) Sphere(int segments, int rings, float radius)

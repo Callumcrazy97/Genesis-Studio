@@ -180,9 +180,12 @@ public sealed partial class EditorViewport3D : Panel
     /// <summary>
     /// The near plane actually used. A view that reaches kilometres cannot keep a 10 cm near
     /// plane: the depth buffer runs out of precision and distant surfaces flicker through each
-    /// other. The near plane grows with the far plane, and is unchanged for ordinary views.
+    /// other. The near plane grows with the far plane, and is unchanged for ordinary views. With
+    /// reversed depth in use the buffer does not run out, and the near plane stays where it is.
     /// </summary>
-    public float EffectiveNearPlane => MathF.Max(NearPlane, FarPlane / 30000f);
+    public float EffectiveNearPlane => Genesis.Shared.Rendering.DepthPrecision.ReversedDepthInUse
+        ? NearPlane
+        : MathF.Max(NearPlane, FarPlane / 30000f);
 
     public float FarPlane { get; set; } = 900f;
 

@@ -662,16 +662,32 @@ internal static class LargeWorldContentSuite
 
         HeadlessHarness.RunCase(context.Report, "Engine.Rendering.Camera.LongViewsMoveTheNearPlaneOut", () =>
         {
-            var camera = new Genesis.Shared.Rendering.Camera { NearPlane = 0.1f, FarPlane = 2000f, AspectRatio = 16f / 9f };
-            HeadlessHarness.Assert(camera.EffectiveNearPlane == 0.1f, "An ordinary view must keep its authored near plane.");
-            float Near(Matrix4x4 projection) => MathF.Abs(projection.M43 / projection.M33);
-            HeadlessHarness.Assert(MathF.Abs(Near(camera.ProjectionMatrix) - 0.1f) < 1e-3f, "The projection does not use the authored near plane.");
-            camera.FarPlane = 16000f;
-            HeadlessHarness.Assert(MathF.Abs(camera.EffectiveNearPlane - 16000f / 30000f) < 1e-4f
-                && MathF.Abs(Near(camera.ProjectionMatrix) - camera.EffectiveNearPlane) < 1e-3f,
-                $"A 16 km view should move the near plane to {16000f / 30000f:F2} m; it uses {camera.EffectiveNearPlane:F2} m.");
-            camera.NearPlane = 2f;
-            HeadlessHarness.Assert(camera.EffectiveNearPlane == 2f, "An authored near plane beyond the automatic one must be kept.");
+            // The rule is for a depth buffer stored the usual way. With reversed depth in use no
+            // view needs it, and the near plane stays where the game put it.
+            bool inUse = Genesis.Shared.Rendering.DepthPrecision.ReversedDepthInUse;
+            try
+            {
+                Genesis.Shared.Rendering.DepthPrecision.ReversedDepthInUse = false;
+                var camera = new Genesis.Shared.Rendering.Camera { NearPlane = 0.1f, FarPlane = 2000f, AspectRatio = 16f / 9f };
+                HeadlessHarness.Assert(camera.EffectiveNearPlane == 0.1f, "An ordinary view must keep its authored near plane.");
+                float Near(Matrix4x4 projection) => MathF.Abs(projection.M43 / projection.M33);
+                HeadlessHarness.Assert(MathF.Abs(Near(camera.ProjectionMatrix) - 0.1f) < 1e-3f, "The projection does not use the authored near plane.");
+                camera.FarPlane = 16000f;
+                HeadlessHarness.Assert(MathF.Abs(camera.EffectiveNearPlane - 16000f / 30000f) < 1e-4f
+                    && MathF.Abs(Near(camera.ProjectionMatrix) - camera.EffectiveNearPlane) < 1e-3f,
+                    $"A 16 km view should move the near plane to {16000f / 30000f:F2} m; it uses {camera.EffectiveNearPlane:F2} m.");
+                camera.NearPlane = 2f;
+                HeadlessHarness.Assert(camera.EffectiveNearPlane == 2f, "An authored near plane beyond the automatic one must be kept.");
+
+                Genesis.Shared.Rendering.DepthPrecision.ReversedDepthInUse = true;
+                var close = new Genesis.Shared.Rendering.Camera { NearPlane = 0.1f, FarPlane = 16000f, AspectRatio = 16f / 9f };
+                HeadlessHarness.Assert(close.EffectiveNearPlane == 0.1f && MathF.Abs(Near(close.ProjectionMatrix) - 0.1f) < 1e-3f,
+                    $"With reversed depth a 16 km view should keep its 10 cm near plane; it uses {close.EffectiveNearPlane:F2} m.");
+            }
+            finally
+            {
+                Genesis.Shared.Rendering.DepthPrecision.ReversedDepthInUse = inUse;
+            }
         });
 
         HeadlessHarness.RunCase(context.Report, "Editor.Terrain.Scatter.DialogEditsLayersWithoutTouchingTheOriginals", () =>

@@ -180,7 +180,10 @@ public sealed class GpuParticleEmitter : IDisposable
         _gpu.SetPrimitiveTopology(GpuPrimitiveTopology.TriangleList);
         _gpu.SetRasterState(new GpuRasterState { CullMode = GpuCullMode.None, FillMode = GpuFillMode.Solid,
             DepthClipEnabled = draw.Mode.X < .5f, ScissorEnabled = draw.Mode.X > .5f });
-        _gpu.SetDepthState(layer || draw.Mode.X > .5f ? GpuDepthState.Disabled : GpuDepthState.ReadOnly);
+        // Tested against the scene, never written: nearer-or-equal, whichever way round depth is stored.
+        GpuDepthState tested = GpuDepthState.ReadOnly;
+        if (draw.FogLayer.W > .5f) tested.Compare = GpuCompare.GreaterEqual;
+        _gpu.SetDepthState(layer || draw.Mode.X > .5f ? GpuDepthState.Disabled : tested);
         _gpu.SetBlendState(layer ? PremultipliedOver
             : blendMode switch { 1 => GpuBlendState.Additive, 2 => GpuBlendState.Multiply, _ => GpuBlendState.AlphaBlend });
         _gpu.SetStructuredBuffer(GpuShaderStage.Vertex, 0, _state);

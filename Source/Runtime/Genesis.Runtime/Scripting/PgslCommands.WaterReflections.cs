@@ -9,4 +9,11 @@ public static partial class PgslCommands
         get => EngineRenderingDefaults.WaterReflections;
         set => EngineRenderingDefaults.WaterReflections = value;
     }
+
+    [PgslCommand("ReversedDepth", "Engine.Rendering.ReversedDepth", "Store scene depth reversed in floating point, so a view of kilometres keeps a close near plane without distant surfaces flickering. On by default; the software renderer ignores it", "Rendering", Namespace = "Engine.Rendering")]
+    public static bool ReversedDepth
+    {
+        get => EngineRenderingDefaults.ReversedDepth;
+        set => EngineRenderingDefaults.ReversedDepth = value;
+    }
 }

@@ -24,6 +24,7 @@ namespace Genesis.Rendering.SilkNet.DX12
             GpuFormat.R32Float => Format.FormatR32Float,
             GpuFormat.D32Float => Format.FormatD32Float,
             GpuFormat.D24UNormS8UInt => Format.FormatD24UnormS8Uint,
+            GpuFormat.D32FloatS8UInt => (Format)20, // DXGI_FORMAT_D32_FLOAT_S8X24_UINT
             GpuFormat.R32Float2 => Format.FormatR32G32Float,
             GpuFormat.R32Float3 => Format.FormatR32G32B32Float,
             GpuFormat.R32Float4 => Format.FormatR32G32B32A32Float,
@@ -43,6 +44,7 @@ namespace Genesis.Rendering.SilkNet.DX12
         {
             GpuFormat.D32Float => Format.FormatR32Typeless,
             GpuFormat.D24UNormS8UInt => Format.FormatR24G8Typeless,
+            GpuFormat.D32FloatS8UInt => (Format)19, // DXGI_FORMAT_R32G8X24_TYPELESS
             _ => ToDxgi(format),
         };
 
@@ -51,11 +53,15 @@ namespace Genesis.Rendering.SilkNet.DX12
         {
             GpuFormat.D32Float => Format.FormatR32Float,
             GpuFormat.D24UNormS8UInt => Format.FormatR24UnormX8Typeless,
+            GpuFormat.D32FloatS8UInt => (Format)21, // DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS
             _ => ToDxgi(format),
         };
 
         public static bool IsDepth(GpuFormat format) =>
-            format is GpuFormat.D32Float or GpuFormat.D24UNormS8UInt;
+            format is GpuFormat.D32Float or GpuFormat.D24UNormS8UInt or GpuFormat.D32FloatS8UInt;
+
+        public static bool HasStencil(GpuFormat format) =>
+            format is GpuFormat.D24UNormS8UInt or GpuFormat.D32FloatS8UInt;
 
         public static bool IsBlockCompressed(GpuFormat format) =>
             format is GpuFormat.BC5UNorm or GpuFormat.BC7UNorm or GpuFormat.BC7UNormSrgb;
@@ -72,6 +78,7 @@ namespace Genesis.Rendering.SilkNet.DX12
             GpuFormat.R32Float => 4,
             GpuFormat.D32Float => 4,
             GpuFormat.D24UNormS8UInt => 4,
+            GpuFormat.D32FloatS8UInt => 8,
             GpuFormat.R16G16B16A16Float => 8,
             GpuFormat.BC5UNorm => 16,
             GpuFormat.BC7UNorm => 16,

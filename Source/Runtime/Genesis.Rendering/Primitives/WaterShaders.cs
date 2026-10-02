@@ -65,6 +65,7 @@ cbuffer WaterConstants : register(b3)
     row_major float4x4 ReflectionViewProjection;
     float4 ReflectionParams;
     float4 WeatherWindRain;
+    float4 DepthParams;   // x = scene depth is reversed
 };
 
 Texture2D            AlbedoTex       : register(t0);
@@ -72,6 +73,8 @@ Texture2D            WaterNormalA   : register(t1);
 Texture2D            WaterNormalB   : register(t3);
 Texture2D            PlanarReflectionTex : register(t7);
 Texture2D            SceneDepthTex  : register(t6);
+#define GENESIS_DEPTH_REVERSED (DepthParams.x > 0.5)
+" + SceneDepthHlsl.Helpers + @"
 SamplerState         WaterSamp      : register(s0);
 
 struct VSIn
@@ -129,8 +132,7 @@ float Hash21(float2 p)
 
 float LinearizeDepth(float depth, float nearPlane, float farPlane)
 {
-    float z = depth;
-    return (nearPlane * farPlane) / (farPlane - z * (farPlane - nearPlane));
+    return SceneDepthToView(depth, nearPlane, farPlane);
 }
 
 float3 SampleWaterNormal(float2 uv, float time, float flowSpeed, float2 flowDir, float rapids)
@@ -208,7 +210,10 @@ PSOut PS_Water(VSOut IN)
 
     // This pass samples scene depth as an SRV and does not bind it as a DSV (D3D
     // forbids both). Replicate the old LessEqual test-only occlusion here.
-    if (sceneDepth > 0.0001 && IN.SvPos.z > sceneDepth)
+    // A buffer that is not bound reads 0. With reversed depth 0 is also the sky: either way
+    // there is nothing in front of the water there.
+    bool sceneHasSurface = GENESIS_DEPTH_REVERSED ? sceneDepth > 0.0 : sceneDepth > 0.0001;
+    if (sceneHasSurface && SceneDepthBehind(IN.SvPos.z, sceneDepth) > 0.0)
         discard;
 
     // If no depth buffer is bound (sceneDepth==0), assume deep water so depth fade
@@ -218,7 +223,7 @@ PSOut PS_Water(VSOut IN)
     float nearPlane = ReflectionParams.z > 0.0 ? ReflectionParams.z : 0.1;
     float farPlane = ReflectionParams.w > 0.0 ? ReflectionParams.w : max(FogParams.z, 250.0);
     float waterEyeZ = LinearizeDepth(IN.SvPos.z, nearPlane, farPlane);
-    float sceneEyeZ = sceneDepth > 0.0001
+    float sceneEyeZ = sceneHasSurface
         ? LinearizeDepth(sceneDepth, nearPlane, farPlane)
         : waterEyeZ + farPlane;
     float columnDepth = max(sceneEyeZ - waterEyeZ, 0.0);
