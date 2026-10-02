@@ -565,6 +565,29 @@ public static partial class PgslCommands
     public static double RoomPreload(string roomName)
         => Genesis.Runtime.Project.ProjectRoomLoader.Preload(ProjectPath, roomName);
 
+    private static Genesis.Runtime.Project.RoomWeatherEffectsSubsystem WeatherEffects()
+    {
+        if (ActiveGameContext?.Scene is not { } scene) return null;
+        foreach (var subsystem in scene.Subsystems)
+            if (subsystem is Genesis.Runtime.Project.RoomWeatherEffectsSubsystem weather) return weather;
+        return null;
+    }
+
+    [PgslCommand("WeatherLightningFlash", "WeatherLightningFlash() -> number",
+        "From 0 to 1: the light a lightning strike is adding to the scene right now",
+        "Weather")]
+    public static double WeatherLightningFlash() => ActiveGameContext?.Scene?.Environment.LightningFlash ?? 0;
+
+    [PgslCommand("WeatherLightningStrikes", "WeatherLightningStrikes() -> number",
+        "How many times lightning has struck since the room began; compare with the last value to react to a strike",
+        "Weather")]
+    public static double WeatherLightningStrikes() => WeatherEffects()?.Strikes ?? 0;
+
+    [PgslCommand("WeatherStrikeLightning", "WeatherStrikeLightning(distanceMetres)",
+        "Make lightning strike now at this distance, whatever the weather; thunder follows. The room must draw its own weather",
+        "Weather")]
+    public static void WeatherStrikeLightning(double distanceMetres) => WeatherEffects()?.Strike((float)distanceMetres);
+
     [PgslCommand("CameraShake3D", "CameraShake3D(amplitude, seconds)",
         "Shake the 3D view by up to this many metres, dying away over the seconds given; the camera's own position is not changed",
         "Camera")]

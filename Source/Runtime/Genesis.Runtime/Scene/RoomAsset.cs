@@ -298,6 +298,14 @@ public sealed class RoomEnvironment
     /// unloads them again once it is well past. Zero loads every terrain with the room.
     /// </summary>
     [JsonProperty("terrainDistance")] public float TerrainDistance { get; set; }
+    /// <summary>
+    /// The engine draws the weather the climate reports: rain, snow or hail around the camera,
+    /// lightning in a storm, and thunder after it. Off by default, because a game that draws its
+    /// own weather would otherwise get a second one.
+    /// </summary>
+    [JsonProperty("weatherEffects")] public bool WeatherEffects { get; set; }
+    /// <summary>The sound of a thunderclap, played after each lightning strike. Empty for silent lightning.</summary>
+    [JsonProperty("thunderAudio")] public string ThunderAudio { get; set; } = "";
     [JsonProperty("windAudio")] public string WindAudio { get; set; } = "";
     [JsonProperty("rainAudio")] public string RainAudio { get; set; } = "";
     [JsonProperty("waterAudio")] public string WaterAudio { get; set; } = "";
@@ -317,11 +325,12 @@ public sealed class RoomSoundscapeLevels
     [JsonProperty("fire")] public float Fire { get; set; } = 1f;
     [JsonProperty("wildlife")] public float Wildlife { get; set; } = 1f;
     [JsonProperty("night")] public float Night { get; set; } = 1f;
+    [JsonProperty("thunder")] public float Thunder { get; set; } = 1f;
     public static float Sanitize(float gain) => float.IsFinite(gain) ? Math.Clamp(gain, 0f, 1f) : 1f;
     public RoomSoundscapeLevels Clone() => new()
     {
         Master = Sanitize(Master), Wind = Sanitize(Wind), Rain = Sanitize(Rain), Water = Sanitize(Water),
-        Fire = Sanitize(Fire), Wildlife = Sanitize(Wildlife), Night = Sanitize(Night),
+        Fire = Sanitize(Fire), Wildlife = Sanitize(Wildlife), Night = Sanitize(Night), Thunder = Sanitize(Thunder),
     };
 }
 

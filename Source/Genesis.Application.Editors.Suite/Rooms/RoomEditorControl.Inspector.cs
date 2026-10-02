@@ -111,6 +111,8 @@ public sealed partial class RoomEditorControl
             environment.AtmosphericHaze, 0, 1, 0.01m, 2));
         values.Add(Number("Lighting & atmosphere", "environment.visibilityKilometres", "Visibility (km, 0 = short range)",
             environment.VisibilityKilometres, 0, 200, 0.5m, 1));
+        values.Add(new("Lighting & atmosphere", "environment.weatherEffects", "Draw rain, snow and lightning",
+            environment.WeatherEffects));
         values.Add(Number("Lighting & atmosphere", "environment.weatherFogScale", "Weather fog (1 = as the weather sets it, 0 = none)",
             environment.WeatherFogScale, 0, 4, 0.05m, 2));
         values.Add(Number("Lighting & atmosphere", "environment.shadowDistance", "Sun shadow distance (m, 0 = close range)",
@@ -127,6 +129,7 @@ public sealed partial class RoomEditorControl
         AddAudio(values, "Fire", "environment.fireAudio", environment.FireAudio);
         AddAudio(values, "Wildlife", "environment.wildlifeAudio", environment.WildlifeAudio);
         AddAudio(values, "Night", "environment.nightAudio", environment.NightAudio);
+        AddAudio(values, "Thunder", "environment.thunderAudio", environment.ThunderAudio);
         RoomSoundscapeLevels levels = environment.SoundscapeLevels ?? new();
         foreach ((string name, float level) in new[] { ("Master", levels.Master), ("Wind", levels.Wind),
                      ("Rain", levels.Rain), ("Water", levels.Water), ("Fire", levels.Fire), ("Wildlife", levels.Wildlife), ("Night", levels.Night) })
@@ -344,6 +347,8 @@ public sealed partial class RoomEditorControl
             case "fireaudio": next.FireAudio = InspectorText(value); break;
             case "wildlifeaudio": next.WildlifeAudio = InspectorText(value); break;
             case "nightaudio": next.NightAudio = InspectorText(value); break;
+            case "thunderaudio": next.ThunderAudio = InspectorText(value); break;
+            case "weathereffects": next.WeatherEffects = Convert.ToBoolean(value, CultureInfo.InvariantCulture); break;
             case "soundscapelevels.master": next.SoundscapeLevels.Master = RoomSoundscapeLevels.Sanitize(Convert.ToSingle(value, CultureInfo.InvariantCulture)); break;
             case "soundscapelevels.wind": next.SoundscapeLevels.Wind = RoomSoundscapeLevels.Sanitize(Convert.ToSingle(value, CultureInfo.InvariantCulture)); break;
             case "soundscapelevels.rain": next.SoundscapeLevels.Rain = RoomSoundscapeLevels.Sanitize(Convert.ToSingle(value, CultureInfo.InvariantCulture)); break;

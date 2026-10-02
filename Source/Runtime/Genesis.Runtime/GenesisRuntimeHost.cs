@@ -434,6 +434,7 @@ namespace Genesis.Runtime
                 // A script's own ambient colour outranks the sky's; the sky used to overwrite it.
                 if (_scene.Environment.AmbientOverrideColor is Vector3 ambientOverride)
                     meshState.AmbientColor = ambientOverride;
+                EnvironmentMapper.ApplyLightningFlash(ref meshState, _scene.Environment.LightningFlash);
                 // Offscreen ports share the renderer, so history from another camera must never be reused.
                 if (roomPresentation?.HasThreeDViewports == true) meshState.CloudTemporalEnabled = false;
                 _renderer.SetMesh3DState(meshState);

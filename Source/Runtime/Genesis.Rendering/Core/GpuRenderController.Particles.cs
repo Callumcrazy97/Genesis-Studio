@@ -172,7 +172,13 @@ public sealed unsafe partial class GpuRenderController
     {
         if (!float.IsFinite(radius) || radius <= 0f) return true;
         Vector4 clip = Vector4.Transform(new Vector4(center, 1f), viewProjection);
-        if (clip.W <= 0.0001f) return false;
+        // Clip w is the distance in front of the camera. An effect whose centre is beside or
+        // behind the camera can still surround it (rain, snow, smoke the player stands in): it is
+        // out of sight only when the whole sphere is behind. Rejecting on the centre alone hid
+        // weather whenever the viewer was not looking towards the middle of it.
+        float reach = radius * new Vector3(viewProjection.M14, viewProjection.M24, viewProjection.M34).Length();
+        if (clip.W + reach <= 0.0001f) return false;
+        if (clip.W <= reach) return true;
 
         float xScale = new Vector3(viewProjection.M11, viewProjection.M12, viewProjection.M13).Length();
         float yScale = new Vector3(viewProjection.M21, viewProjection.M22, viewProjection.M23).Length();

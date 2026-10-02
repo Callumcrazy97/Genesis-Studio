@@ -861,6 +861,8 @@ public sealed partial class RoomEditorControl
             FireAudio = source.FireAudio,
             WildlifeAudio = source.WildlifeAudio,
             NightAudio = source.NightAudio,
+            WeatherEffects = source.WeatherEffects,
+            ThunderAudio = source.ThunderAudio,
             SoundscapeLevels = (source.SoundscapeLevels ?? new()).Clone(),
         };
     }

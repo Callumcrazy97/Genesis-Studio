@@ -420,6 +420,12 @@ public sealed class ParticleConfig
     /// (Rain, Snow) so weather always follows the player by default, with no per-instance choice.
     /// </summary>
     public bool FollowCameraXZ { get; set; } = false;
+    /// <summary>
+    /// With <see cref="FollowCameraXZ"/>: how far above the camera new particles start, in metres.
+    /// Weather falls from just overhead wherever the camera is. It used to start at height 0 of
+    /// the world, so on any ground above that the rain began under the viewer's feet.
+    /// </summary>
+    public double FollowCameraHeight { get; set; } = 8.0;
 
     /// <summary>Editor sandbox: orthographic 2D preview with sprite backdrop.</summary>
     public bool Preview2D { get; set; }
@@ -529,6 +535,7 @@ public sealed class ParticleConfig
         CollideWithTerrain = CollideWithTerrain,
         CollideWithGeometry = CollideWithGeometry,
         FollowCameraXZ     = FollowCameraXZ,
+        FollowCameraHeight = FollowCameraHeight,
         Preview2D          = Preview2D,
         BackdropSprite     = BackdropSprite,
         PreviewTargetType  = PreviewTargetType,

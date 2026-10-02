@@ -363,6 +363,7 @@ public static class ParticlePresets
         RotationSpeed     = 4,
         RotationVariance  = 1.0,
         FollowCameraXZ = true,
+        FollowCameraHeight = 5.0,
         Notes = "Gentle snowfall: large disc spawn, slow drift, fade-in and fade-out. Follows the camera XZ by default.",
     };
 
@@ -374,8 +375,9 @@ public static class ParticlePresets
 
     private static ParticleConfig RainCore(float vis) => new()
     {
-        MaxParticles  = 1400,
-        EmitRate      = 480 * vis,
+        // Enough drops that a shower fills the view around the camera rather than dotting it.
+        MaxParticles  = 2600,
+        EmitRate      = 900 * vis,
         Loop          = true,
         Shape         = ParticleEmitShape.Disc,
         SpreadDegrees = 8,
@@ -392,12 +394,15 @@ public static class ParticlePresets
         EndSize       = 0.08,
         SizeXScale    = 0.42,
         SizeYScale    = 3.4,
-        Emissive      = 0.22,
+        // Rain is seen by the sky light it scatters, so it is pale against whatever is behind it
+        // even under a dark storm. Lit like a solid surface it came out as dark streaks that
+        // showed against the sky and vanished against trees and ground.
+        Emissive      = 0.8,
         BlendMode     = ParticleBlendMode.Alpha,
-        StartColor    = new(0.72f, 0.80f, 0.94f, 0.15f),
-        MidColor      = new(0.74f, 0.82f, 0.96f, 0.82f),
+        StartColor    = new(0.80f, 0.86f, 0.96f, 0.12f),
+        MidColor      = new(0.82f, 0.88f, 0.98f, 0.62f),
         ColorMidpoint = 0.12,
-        EndColor      = new(0.68f, 0.76f, 0.92f, 0.05f),
+        EndColor      = new(0.78f, 0.84f, 0.96f, 0.05f),
         FollowCameraXZ = true,
         Notes = "Visible rain streaks aligned to fall direction (not camera billboards).",
     };
@@ -439,6 +444,7 @@ public static class ParticlePresets
         ColorMidpoint = 0.25,
         EndColor      = new(0.75f, 0.82f, 0.94f, 0.0f),
         FollowCameraXZ = true,
+        FollowCameraHeight = 3.0,
     };
 
     // ── Portal ────────────────────────────────────────────────────────────────

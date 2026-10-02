@@ -56,6 +56,9 @@ namespace Genesis.Runtime.Scene
         public float FogStart { get; set; } = 35f;
         public float FogEnd { get; set; } = 120f;
         public float FogDensity { get; set; } = 0.012f;
+
+        /// <summary>The light a lightning strike is adding to this frame, from 0 to 1. Set by the weather.</summary>
+        public float LightningFlash { get; set; }
         public float FogHeightBase { get; set; }
         public float FogHeightFalloff { get; set; } = 0.35f;
         public float FogAerialBlend { get; set; } = 0.45f;

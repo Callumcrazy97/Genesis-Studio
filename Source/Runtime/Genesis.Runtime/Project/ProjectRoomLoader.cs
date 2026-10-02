@@ -44,6 +44,8 @@ public static class ProjectRoomLoader
         if (RoomTerrainSubsystem.ShouldRegister(room))
             scene.AddSubsystem(new RoomTerrainSubsystem(projectPath, room, context));
         double terrainMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        if (RoomWeatherEffectsSubsystem.ShouldRegister(room))
+            scene.AddSubsystem(new RoomWeatherEffectsSubsystem(room.Environment, context.Audio));
         float sceneryDistance = room.Environment?.SceneryDistance ?? 0f;
         RoomSceneryStreamer scenery = room.Dimension == RoomDimension.ThreeD && float.IsFinite(sceneryDistance) && sceneryDistance > 0f
             ? new RoomSceneryStreamer(sceneryDistance)

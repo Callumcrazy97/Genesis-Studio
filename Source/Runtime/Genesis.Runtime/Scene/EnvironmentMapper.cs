@@ -80,6 +80,21 @@ namespace Genesis.Runtime.Scene
         /// packs match room authoring. When climate/atmosphere are null, leaves SkyAuthoringDefaults
         /// (already applied by <see cref="ToMesh3DState"/>) in place.
         /// </summary>
+        /// <summary>
+        /// Lights a frame with a lightning strike: the sky whitens and everything under it is lit
+        /// from above, shadows and all, for as long as the flash lasts.
+        /// </summary>
+        public static void ApplyLightningFlash(ref Mesh3DState state, float flash)
+        {
+            if (!(flash > 0f)) return;
+            flash = MathF.Min(flash, 1f);
+            Vector3 light = new(0.78f, 0.84f, 1f);
+            state.AmbientColor += light * (flash * 1.6f);
+            state.SkyHorizonColor = Vector3.Lerp(state.SkyHorizonColor, light, flash * 0.7f);
+            state.SkyZenithColor = Vector3.Lerp(state.SkyZenithColor, light * 0.8f, flash * 0.55f);
+            state.BackgroundColor = Vector3.Lerp(state.BackgroundColor, light, flash * 0.7f);
+        }
+
         public static void StampClimateAtmosphere(
             ref Mesh3DState state,
             EnvironmentService climate,

@@ -107,7 +107,7 @@ public sealed partial class ParticleSimulation
     public void UpdateCameraPosition(Vector3 cameraPos)
     {
         if (_config.FollowCameraXZ)
-            _originOffset = new Vector3(cameraPos.X, 0f, cameraPos.Z);
+            _originOffset = new Vector3(cameraPos.X, cameraPos.Y + (float)_config.FollowCameraHeight, cameraPos.Z);
     }
 
     /// <summary>
