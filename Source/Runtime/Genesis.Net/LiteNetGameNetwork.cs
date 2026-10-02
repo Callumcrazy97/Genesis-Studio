@@ -50,6 +50,14 @@ namespace Genesis.Net
         private readonly Queue<NetMessage> _inbox = new();
         private readonly Queue<(GPeer peer, bool connected)> _connectionEvents = new();
 
+        /// <summary>
+        /// Binds to this machine only (127.0.0.1) instead of every network adapter. For two
+        /// copies of a game on one computer, and for tests: nothing outside the machine can reach
+        /// the socket, so Windows does not ask to allow it through the firewall. Set before
+        /// <see cref="Host"/> or <see cref="Connect"/>.
+        /// </summary>
+        public bool LocalOnly { get; set; }
+
         public bool IsHost { get; private set; }
         public bool IsConnected { get; private set; }
         public int Port { get; private set; }
@@ -90,7 +98,10 @@ namespace Genesis.Net
         {
             Disconnect();
             if (port < 1 || port > 65535) throw new ArgumentOutOfRangeException(nameof(port));
-            if (!_manager.Start(port)) throw new InvalidOperationException($"Could not bind UDP port {port}.");
+            bool started = LocalOnly
+                ? _manager.Start(System.Net.IPAddress.Loopback, System.Net.IPAddress.IPv6Loopback, port)
+                : _manager.Start(port);
+            if (!started) throw new InvalidOperationException($"Could not bind UDP port {port}.");
             IsHost = true;
             IsConnected = true;
             Port = port;
@@ -102,7 +113,10 @@ namespace Genesis.Net
             Disconnect();
             if (port < 1 || port > 65535) throw new ArgumentOutOfRangeException(nameof(port));
             if (string.IsNullOrWhiteSpace(ip)) throw new ArgumentException("Host address is required.", nameof(ip));
-            if (!_manager.Start()) throw new InvalidOperationException("Could not start the UDP client.");
+            bool started = LocalOnly
+                ? _manager.Start(System.Net.IPAddress.Loopback, System.Net.IPAddress.IPv6Loopback, 0)
+                : _manager.Start();
+            if (!started) throw new InvalidOperationException("Could not start the UDP client.");
             _manager.Connect(ip, port, AppKey);
             IsHost = false;
             Port = port;

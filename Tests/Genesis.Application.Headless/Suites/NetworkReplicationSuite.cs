@@ -81,6 +81,146 @@ internal static class NetworkReplicationSuite
         public void Dispose() { }
     }
 
+    /// <summary>A machine on a real connection: LiteNetLib over UDP, bound to this computer only.</summary>
+    private sealed class SocketMachine : IDisposable
+    {
+        public readonly EcsWorld World = new();
+        public readonly Genesis.Net.LiteNetGameNetwork Network = new("genesis-replication-check") { LocalOnly = true };
+        public readonly NetworkReplication Replication = new();
+        public Vector3 Focus;
+        public readonly List<string> CopiesMade = new();
+
+        public SocketMachine()
+        {
+            Replication.Attach(Network);
+            Replication.CreateCopy = (world, prefab, position, rotation, scale) =>
+            {
+                CopiesMade.Add(prefab);
+                return Machine.Place(world, position);
+            };
+        }
+
+        public void Step()
+        {
+            Network.Update();
+            Replication.Update(World, Focus, 0.06f);
+            World.FlushDeferred();
+        }
+
+        public List<Vector3> AllPositions()
+        {
+            var positions = new List<Vector3>();
+            World.Query<TransformComponent>((Entity _, ref TransformComponent transform) =>
+                positions.Add(new Vector3(transform.X, transform.Y, transform.Z)));
+            return positions;
+        }
+
+        public void Dispose() => Network.Dispose();
+    }
+
+    private static int FreeUdpPort()
+    {
+        using var probe = new System.Net.Sockets.UdpClient(new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 0));
+        return ((System.Net.IPEndPoint)probe.Client.LocalEndPoint!).Port;
+    }
+
+    private static void RunSockets(HeadlessContext context)
+    {
+        HeadlessHarness.RunCase(context.Report, "Engine.Net.Replication.WorksOverARealConnectionOnThisMachine", () =>
+        {
+            using var host = new SocketMachine();
+            using var anna = new SocketMachine();
+            using var ben = new SocketMachine();
+            SocketMachine[] machines = [host, anna, ben];
+
+            // Real packets take real time: step every machine until something is true, or give up.
+            void Until(Func<bool> done, Func<string> failure, double seconds = 8)
+            {
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                while (!done() && watch.Elapsed.TotalSeconds < seconds)
+                {
+                    foreach (SocketMachine machine in machines) machine.Step();
+                    Thread.Sleep(2);
+                }
+
+                HeadlessHarness.Assert(done(), failure());
+            }
+
+            void Settle(int steps)
+            {
+                for (int i = 0; i < steps; i++)
+                {
+                    foreach (SocketMachine machine in machines) machine.Step();
+                    Thread.Sleep(2);
+                }
+            }
+
+            int port = FreeUdpPort();
+            host.Network.Host(port);
+            HeadlessHarness.Assert(host.Network.IsHost && host.Network.IsConnected && host.Network.Port == port, "The host did not start.");
+
+            Entity nearDeer = Machine.Place(host.World, new Vector3(10, 0, 0));
+            Entity farDeer = Machine.Place(host.World, new Vector3(5000, 0, 0));
+            host.World.Set(nearDeer, new ModelAnimatorComponent { ClipName = "Graze", ClipFps = 30f, PlaybackSpeed = 1f, Playing = true, Loop = true });
+            host.Replication.Replicate(nearDeer, "Deer");
+            host.Replication.Replicate(farDeer, "Deer");
+
+            anna.Network.Connect("127.0.0.1", port);
+            ben.Network.Connect("127.0.0.1", port);
+            Until(() => anna.Network.IsConnected && ben.Network.IsConnected && host.Network.PeerCount == 2,
+                () => $"Two players did not connect to the host on this machine (host has {host.Network.PeerCount} players).");
+
+            // Each player is sent the deer beside it, with the animation it is playing, and not the far one.
+            Until(() => anna.Replication.CopyCount == 1 && ben.Replication.CopyCount == 1,
+                () => $"The players were not sent the near deer: Anna has {anna.Replication.CopyCount} copies, Ben {ben.Replication.CopyCount}.");
+            string playing = "";
+            anna.World.Query<ModelAnimatorComponent>((Entity _, ref ModelAnimatorComponent animator) => playing = animator.ClipName);
+            HeadlessHarness.Assert(playing == "Graze" && anna.CopiesMade.SequenceEqual(["Deer"]),
+                $"Anna's copy should be a grazing deer; it is '{string.Join(",", anna.CopiesMade)}' playing '{playing}'.");
+
+            // The deer walks off: movement arrives as unreliable packets, the new animation reliably.
+            ref TransformComponent deer = ref host.World.GetRef<TransformComponent>(nearDeer);
+            deer.X = 40f;
+            host.World.GetRef<ModelAnimatorComponent>(nearDeer).ClipName = "Walk";
+            Until(() => anna.AllPositions().Any(position => MathF.Abs(position.X - 40f) < 0.5f)
+                    && ben.AllPositions().Any(position => MathF.Abs(position.X - 40f) < 0.5f),
+                () => $"The copies did not follow the deer to x = 40 (Anna sees it at {anna.AllPositions().FirstOrDefault().X:F1}).");
+            playing = "";
+            ben.World.Query<ModelAnimatorComponent>((Entity _, ref ModelAnimatorComponent animator) => playing = animator.ClipName);
+            HeadlessHarness.Assert(playing == "Walk", $"Ben's copy of the walking deer plays '{playing}'.");
+
+            // Anna's own character reaches the host and Ben, and never comes back to her.
+            Entity annaSelf = Machine.Place(anna.World, new Vector3(2, 0, 3));
+            anna.Replication.Own(annaSelf, "Player");
+            Until(() => host.Replication.SharedCount == 3 && ben.Replication.CopyCount == 2,
+                () => $"Anna's character did not reach the others: the host shares {host.Replication.SharedCount}, Ben sees {ben.Replication.CopyCount}.");
+            anna.World.GetRef<TransformComponent>(annaSelf).X = 30f;
+            Until(() => ben.AllPositions().Any(position => MathF.Abs(position.X - 30f) < 0.5f && MathF.Abs(position.Z - 3f) < 0.5f),
+                () => "Ben's copy of Anna did not follow her.");
+            Settle(20);
+            HeadlessHarness.Assert(anna.Replication.CopyCount == 1, $"Anna was sent a copy of herself ({anna.Replication.CopyCount} copies).");
+
+            // Ben travels: the far deer replaces what he could see at the start.
+            ben.Focus = new Vector3(5000, 0, 0);
+            Until(() => ben.Replication.CopyCount == 1 && MathF.Abs(ben.AllPositions().Single().X - 5000f) < 0.5f,
+                () => $"Five kilometres away Ben should see only the far deer; he has {ben.Replication.CopyCount} copies.");
+            ben.Focus = Vector3.Zero;
+            Until(() => ben.Replication.CopyCount == 2, () => $"Back at the start Ben sees {ben.Replication.CopyCount} copies, not the deer and Anna.");
+
+            // Anna disconnects: the host removes her character and tells Ben.
+            anna.Network.Disconnect();
+            Until(() => host.Network.PeerCount == 1 && host.Replication.SharedCount == 2 && ben.Replication.CopyCount == 1,
+                () => $"After Anna left the host has {host.Network.PeerCount} players and shares {host.Replication.SharedCount}; Ben sees {ben.Replication.CopyCount}.");
+            anna.Step();
+            HeadlessHarness.Assert(anna.Replication.CopyCount == 0, "Anna kept copies of the host's objects after disconnecting.");
+
+            // The host stops: Ben's copies of its objects go.
+            host.Network.Disconnect();
+            Until(() => !ben.Network.IsConnected && ben.Replication.CopyCount == 0,
+                () => $"Ben still has {ben.Replication.CopyCount} copies after the host stopped (connected: {ben.Network.IsConnected}).", 15);
+        });
+    }
+
     private sealed class Machine
     {
         public readonly EcsWorld World = new();
@@ -124,6 +264,7 @@ internal static class NetworkReplicationSuite
 
     public static void Run(HeadlessContext context)
     {
+        RunSockets(context);
         HeadlessHarness.RunCase(context.Report, "Engine.Net.Replication.PlayersSeeNearbySharedObjectsAndEachOther", () =>
         {
             var host = new Machine(host: true);
