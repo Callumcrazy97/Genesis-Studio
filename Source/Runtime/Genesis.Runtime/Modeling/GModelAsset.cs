@@ -438,6 +438,48 @@ namespace Genesis.Runtime.Modeling
         public readonly float BlendFactor;
         public readonly bool PreserveRootTransform;
         public readonly IReadOnlyDictionary<string, float> MorphWeights;
+        /// <summary>A second clip on one bone and everything below it; see ModelAnimatorComponent.</summary>
+        public readonly string LayerClipName;
+        public readonly string LayerFromBone;
+        public readonly float LayerTimeSeconds;
+        public readonly float LayerWeight;
+        public readonly bool LayerLoop;
+
+        /// <summary>True when a second clip has hold of part of the body.</summary>
+        public bool HasLayer => LayerWeight > 0f && !string.IsNullOrEmpty(LayerClipName);
+
+        /// <summary>The state an animator is in now, as the renderer and the sockets both read it.</summary>
+        public static RuntimeModelAnimationState From(
+            in Genesis.Runtime.ECS.Components.ModelAnimatorComponent animator,
+            bool preserveRootTransform,
+            IReadOnlyDictionary<string, float> morphWeights = null)
+        {
+            float blend = animator.BlendDuration <= 0f
+                ? 1f
+                : Math.Clamp(animator.BlendElapsed / animator.BlendDuration, 0f, 1f);
+            return new RuntimeModelAnimationState(
+                animator.ClipName,
+                animator.TimeSeconds,
+                animator.ClipFps,
+                animator.Loop,
+                previousClipName: animator.PreviousClipName,
+                previousTimeSeconds: animator.PreviousTimeSeconds,
+                blendFactor: blend,
+                preserveRootTransform: preserveRootTransform,
+                controller: animator.Controller,
+                morphWeights: morphWeights,
+                layerClipName: animator.LayerClipName,
+                layerFromBone: animator.LayerFromBone,
+                layerTimeSeconds: animator.LayerTimeSeconds,
+                layerWeight: animator.LayerWeight,
+                layerLoop: animator.LayerLoop);
+        }
+
+        /// <summary>This state with named morph weights; everything else as it was.</summary>
+        public RuntimeModelAnimationState WithMorphWeights(IReadOnlyDictionary<string, float> morphWeights, bool preserveRootTransform) =>
+            new(ClipName, TimeSeconds, Fps, Loop, FlatUntextured, PreviousClipName, PreviousTimeSeconds, BlendFactor,
+                preserveRootTransform, Controller, IgnoreTextures, morphWeights,
+                LayerClipName, LayerFromBone, LayerTimeSeconds, LayerWeight, LayerLoop);
 
         public RuntimeModelAnimationState(
             string clipName,
@@ -451,8 +493,18 @@ namespace Genesis.Runtime.Modeling
             bool preserveRootTransform = false,
             AnimationController controller = null,
             bool ignoreTextures = false,
-            IReadOnlyDictionary<string, float> morphWeights = null)
+            IReadOnlyDictionary<string, float> morphWeights = null,
+            string layerClipName = "",
+            string layerFromBone = "",
+            float layerTimeSeconds = 0f,
+            float layerWeight = 0f,
+            bool layerLoop = false)
         {
+            LayerClipName = layerClipName ?? "";
+            LayerFromBone = layerFromBone ?? "";
+            LayerTimeSeconds = layerTimeSeconds;
+            LayerWeight = float.IsFinite(layerWeight) ? Math.Clamp(layerWeight, 0f, 1f) : 0f;
+            LayerLoop = layerLoop;
             Controller = controller;
             ClipName = clipName ?? "";
             TimeSeconds = timeSeconds;

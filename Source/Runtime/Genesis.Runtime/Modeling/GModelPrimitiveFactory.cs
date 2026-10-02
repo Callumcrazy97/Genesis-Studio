@@ -212,14 +212,48 @@ namespace Genesis.Runtime.Modeling
             Matrix4x4[] current = EvaluateClipLocals(asset, animation.ClipName, animation.TimeSeconds,
                 animation.Fps, animation.Loop);
             if (string.IsNullOrWhiteSpace(animation.PreviousClipName) || animation.BlendFactor >= 1f)
-                return PreserveRootTransforms(asset, current, animation.PreserveRootTransform);
+                return PreserveRootTransforms(asset, ApplyLayer(asset, current, animation), animation.PreserveRootTransform);
 
             Matrix4x4[] previous = EvaluateClipLocals(asset, animation.PreviousClipName,
                 animation.PreviousTimeSeconds, animation.Fps, animation.Loop);
             float blend = Math.Clamp(animation.BlendFactor, 0f, 1f);
             for (int i = 0; i < current.Length && i < previous.Length; i++)
                 current[i] = BlendLocalTransform(previous[i], current[i], blend);
-            return PreserveRootTransforms(asset, current, animation.PreserveRootTransform);
+            return PreserveRootTransforms(asset, ApplyLayer(asset, current, animation), animation.PreserveRootTransform);
+        }
+
+        /// <summary>
+        /// Puts a second clip on one bone and everything below it, over the pose the body already
+        /// has: the arms strike while the legs keep walking.
+        /// </summary>
+        private static Matrix4x4[] ApplyLayer(GModelAsset asset, Matrix4x4[] locals, RuntimeModelAnimationState animation)
+        {
+            if (!animation.HasLayer) return locals;
+            var bones = asset.Rig.Bones;
+            Matrix4x4[] layer = EvaluateClipLocals(asset, animation.LayerClipName, animation.LayerTimeSeconds,
+                animation.Fps, animation.LayerLoop);
+            float weight = animation.LayerWeight;
+            for (int i = 0; i < locals.Length && i < layer.Length; i++)
+            {
+                if (!IsAtOrBelow(bones, i, animation.LayerFromBone)) continue;
+                locals[i] = weight >= 1f ? layer[i] : BlendLocalTransform(locals[i], layer[i], weight);
+            }
+
+            return locals;
+        }
+
+        /// <summary>True when a bone is the named one or has it among its parents; an empty name is every bone.</summary>
+        public static bool IsAtOrBelow(IReadOnlyList<GModelBone> bones, int index, string ancestor)
+        {
+            if (string.IsNullOrEmpty(ancestor)) return true;
+            // A damaged rig could name a parent in a circle; no real skeleton is this deep.
+            for (int depth = 0; index >= 0 && index < bones.Count && depth < 256; depth++)
+            {
+                if (string.Equals(bones[index].Name, ancestor, StringComparison.OrdinalIgnoreCase)) return true;
+                index = bones[index].ParentIndex;
+            }
+
+            return false;
         }
 
         private static Matrix4x4[] PreserveRootTransforms(

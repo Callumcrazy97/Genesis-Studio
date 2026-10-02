@@ -50,6 +50,34 @@ public static partial class PgslCommands
         attachment.Enabled = false;
     }
 
+    private static Vector3 SocketPosition(string socket, out bool found)
+    {
+        found = false;
+        PgslContext? context = GetContext();
+        var world = ActiveGameContext?.World;
+        if (context is null || world is null) return Vector3.Zero;
+        found = ModelInstance.TryGetSocketPosition(world, world.GetEntity(context.InstanceId), socket, out Vector3 position);
+        return position;
+    }
+
+    [PgslCommand("ModelSocketExists", "ModelSocketExists(socket) -> bool",
+        "True when this model has a socket, or a bone, of this name", "Models")]
+    public static bool ModelSocketExists(string socket)
+    {
+        SocketPosition(socket, out bool found);
+        return found;
+    }
+
+    [PgslCommand("ModelSocketX", "ModelSocketX(socket) -> number",
+        "World X of one of this model's sockets (or bones) in the pose it is drawn in; 0 when it has none of that name", "Models")]
+    public static double ModelSocketX(string socket) => SocketPosition(socket, out _).X;
+
+    [PgslCommand("ModelSocketY", "ModelSocketY(socket) -> number", "World Y of one of this model's sockets or bones", "Models")]
+    public static double ModelSocketY(string socket) => SocketPosition(socket, out _).Y;
+
+    [PgslCommand("ModelSocketZ", "ModelSocketZ(socket) -> number", "World Z of one of this model's sockets or bones", "Models")]
+    public static double ModelSocketZ(string socket) => SocketPosition(socket, out _).Z;
+
     private static bool AttachToSocket(double childInstance, string socket, Matrix4x4 offset)
     {
         PgslContext? context = GetContext();

@@ -23,6 +23,14 @@ namespace Genesis.Runtime.ECS.Components
         public System.Collections.Generic.HashSet<string> HiddenMeshes;
         /// <summary>Optional scalp/beard style and colour choices from the model's authored hair profile.</summary>
         public Genesis.Runtime.Modeling.ModelHairAppearance Hair;
+        /// <summary>Multiplies every material's colour on this instance; null is as authored.</summary>
+        public System.Numerics.Vector4? Tint;
+        /// <summary>The model's own colours added on top of its lighting: 0 none, 1 fully self-lit. For a hit flash or a selection glow.</summary>
+        public float Glow;
+        /// <summary>Scales the light the model's materials give off as authored; null is as authored, 0 puts them out.</summary>
+        public float? EmissionScale;
+        /// <summary>Light given off by named materials on this instance, replacing what each was authored with.</summary>
+        public System.Collections.Generic.Dictionary<string, float> MaterialEmission;
     }
 
     /// <summary>Deterministic clip playback state for GPU-skinned .gmodel assets.</summary>
@@ -45,6 +53,39 @@ namespace Genesis.Runtime.ECS.Components
         public float BlendElapsed;
         public bool Playing;
         public bool Loop;
+        /// <summary>Where the clip was before the last update moved it; with <see cref="TimeSeconds"/>, what it passed this frame.</summary>
+        public float LastTimeSeconds;
+        /// <summary>
+        /// A clip asked to play once stays on its last frame: while <see cref="ClipName"/> is this
+        /// clip and <see cref="Loop"/> is off, time is kept between 0 and <see cref="HoldSeconds"/>.
+        /// A clip authored to loop would otherwise start again. Set by Modeling.ModelInstance.Play.
+        /// </summary>
+        public string HoldClipName;
+        public float HoldSeconds;
+
+        // A second clip on one bone and everything below it, over whatever the body is doing.
+        // Set through Modeling.ModelInstance.PlayLayer; used when the model is played by clip
+        // name (no Controller).
+        public string LayerClipName;
+        /// <summary>The bone the layer takes over, with its children; empty is the whole body.</summary>
+        public string LayerFromBone;
+        public float LayerTimeSeconds;
+        public float LayerLastTimeSeconds;
+        public float LayerLengthSeconds;
+        public float LayerSpeed;
+        public float LayerFadeSeconds;
+        /// <summary>How much of the layer shows, from 0 to 1; it rises as the layer fades in and falls as it lets go.</summary>
+        public float LayerWeight;
+        public bool LayerLoop;
+        public bool LayerStopping;
+
+        public void ClearLayer()
+        {
+            LayerClipName = null;
+            LayerFromBone = null;
+            LayerTimeSeconds = LayerLastTimeSeconds = LayerLengthSeconds = LayerWeight = 0f;
+            LayerStopping = false;
+        }
     }
 
     /// <summary>

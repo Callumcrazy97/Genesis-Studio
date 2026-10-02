@@ -114,6 +114,14 @@ namespace Genesis.Runtime.Scripting
 
         /// <summary>Sample the terrain height at world XZ.</summary>
         float GetTerrainHeight(float worldX, float worldZ);
+
+        /// <summary>
+        /// Where a model's socket (or, failing that, its bone of that name) is in the world in the
+        /// pose it is being drawn in. For more that a script may ask of a model (clips, a clip on
+        /// part of the body, tint and glow) see <see cref="Genesis.Runtime.Modeling.ModelInstance"/>.
+        /// </summary>
+        bool TryGetSocketWorld(Genesis.Shared.ECS.Entity entity, string socketOrBone, out Matrix4x4 socketWorld) =>
+            Genesis.Runtime.Modeling.ModelInstance.TryGetSocketWorld(World, entity, socketOrBone, out socketWorld);
     }
 
     /// <summary>

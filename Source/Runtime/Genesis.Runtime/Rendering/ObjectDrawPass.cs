@@ -1105,28 +1105,13 @@ namespace Genesis.Runtime.Rendering
             if (world != null && world.IsAlive(entity) && world.Has<ModelAnimatorComponent>(entity))
             {
                 ref ModelAnimatorComponent animator = ref world.GetRef<ModelAnimatorComponent>(entity);
-                float blend = animator.BlendDuration <= 0f
-                    ? 1f
-                    : Math.Clamp(animator.BlendElapsed / animator.BlendDuration, 0f, 1f);
-                state = new RuntimeModelAnimationState(
-                    animator.ClipName,
-                    animator.TimeSeconds,
-                    animator.ClipFps,
-                    animator.Loop,
-                    previousClipName: animator.PreviousClipName,
-                    previousTimeSeconds: animator.PreviousTimeSeconds,
-                    blendFactor: blend,
-                    preserveRootTransform: preserveRootTransform,
-                    controller: animator.Controller);
+                state = RuntimeModelAnimationState.From(animator, preserveRootTransform);
             }
             if (world != null && world.IsAlive(entity) && world.Has<ModelMorphComponent>(entity))
             {
                 ref ModelMorphComponent morph = ref world.GetRef<ModelMorphComponent>(entity);
                 if (morph.Enabled && morph.Weights is { Count: > 0 })
-                    state = new RuntimeModelAnimationState(
-                        state.ClipName, state.TimeSeconds, state.Fps, state.Loop, state.FlatUntextured,
-                        state.PreviousClipName, state.PreviousTimeSeconds, state.BlendFactor,
-                        preserveRootTransform, state.Controller, state.IgnoreTextures, morph.Weights);
+                    state = state.WithMorphWeights(morph.Weights, preserveRootTransform);
             }
             return state;
         }

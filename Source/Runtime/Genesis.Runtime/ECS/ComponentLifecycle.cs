@@ -184,7 +184,11 @@ namespace Genesis.Runtime.ECS
             {
                 if (!world.Has<ModelAnimatorComponent>(entity)) return;
                 ref var animator = ref world.GetRef<ModelAnimatorComponent>(entity);
+                // What the clip passes this update is the stretch between these and where it ends up.
+                animator.LastTimeSeconds = animator.TimeSeconds;
+                animator.LayerLastTimeSeconds = animator.LayerTimeSeconds;
                 if (!animator.Playing) { animator.Controller?.ClearRootMotion(); return; }
+                AdvanceLayer(ref animator, MathF.Max(0f, dt));
                 if (animator.Controller != null)
                 {
                     Modeling.GModelAsset asset = null;
@@ -204,6 +208,12 @@ namespace Genesis.Runtime.ECS
                 }
                 float step = MathF.Max(0f, dt) * animator.PlaybackSpeed;
                 animator.TimeSeconds += step;
+                // A clip played backwards stops at its start instead of running into negative time,
+                // and one asked to play once stays on its last frame.
+                if (animator.PlaybackSpeed < 0f && !animator.Loop && animator.TimeSeconds < 0f) animator.TimeSeconds = 0f;
+                if (!animator.Loop && animator.HoldSeconds > 0f && animator.TimeSeconds > animator.HoldSeconds
+                    && string.Equals(animator.HoldClipName, animator.ClipName, StringComparison.OrdinalIgnoreCase))
+                    animator.TimeSeconds = animator.HoldSeconds;
                 if (!string.IsNullOrWhiteSpace(animator.PreviousClipName))
                 {
                     animator.PreviousTimeSeconds += step;
@@ -216,6 +226,41 @@ namespace Genesis.Runtime.ECS
                     }
                 }
             }
+            /// <summary>
+            /// Moves the clip on part of the body along, fades it in, and for one that does not loop
+            /// fades it out as it ends and lets go.
+            /// </summary>
+            private static void AdvanceLayer(ref ModelAnimatorComponent animator, float dt)
+            {
+                if (string.IsNullOrEmpty(animator.LayerClipName)) return;
+                float speed = animator.LayerSpeed == 0f ? 1f : animator.LayerSpeed;
+                float length = animator.LayerLengthSeconds;
+                animator.LayerTimeSeconds += dt * speed;
+                if (animator.LayerLoop && length > 0f)
+                {
+                    // Kept within one turn so that passing a mark is counted against the right lap.
+                    if (animator.LayerTimeSeconds >= length * 2f || animator.LayerTimeSeconds < -length)
+                    {
+                        float turns = MathF.Floor(animator.LayerTimeSeconds / length) * length;
+                        animator.LayerTimeSeconds -= turns;
+                        animator.LayerLastTimeSeconds -= turns;
+                    }
+                }
+                else
+                {
+                    // Held just inside the clip: a clip authored to loop would show its first frame at its very end.
+                    animator.LayerTimeSeconds = Math.Clamp(animator.LayerTimeSeconds, 0f, MathF.Max(0f, length - 0.0005f));
+                    float left = speed < 0f ? animator.LayerTimeSeconds : length - animator.LayerTimeSeconds;
+                    if (left <= animator.LayerFadeSeconds + 0.001f) animator.LayerStopping = true;
+                }
+
+                float change = animator.LayerFadeSeconds > 0f ? dt / animator.LayerFadeSeconds : 1f;
+                animator.LayerWeight = animator.LayerStopping
+                    ? MathF.Max(0f, animator.LayerWeight - change)
+                    : MathF.Min(1f, animator.LayerWeight + change);
+                if (animator.LayerStopping && animator.LayerWeight <= 0f) animator.ClearLayer();
+            }
+
             public void OnSerialize(Dictionary<string, object> props) { }
             public void OnDeserialize(Dictionary<string, object> props) { }
         }

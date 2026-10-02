@@ -73,10 +73,19 @@ public static class ModelSocketRuntime
         if (asset is null) return false;
         GModelSocket? socket = asset.Sockets?.FirstOrDefault(candidate =>
             string.Equals(candidate.Name, socketName, StringComparison.OrdinalIgnoreCase));
-        if (socket is null) return false;
+        var bones = asset.Rig?.Bones;
+        if (socket is null)
+        {
+            // No socket of that name: a bone's own name is where that bone is.
+            int bone = bones?.FindIndex(candidate => string.Equals(candidate.Name, socketName, StringComparison.OrdinalIgnoreCase)) ?? -1;
+            if (bone < 0) return false;
+            Matrix4x4[] pose = GModelPrimitiveFactory.ComputeWorldTransforms(bones, GModelPrimitiveFactory.EvaluateAnimatedLocals(asset, animation));
+            if (bone >= pose.Length) return false;
+            socketWorld = pose[bone] * modelWorld;
+            return IsUsable(socketWorld);
+        }
 
         Matrix4x4 anchor = Matrix4x4.Identity;
-        var bones = asset.Rig?.Bones;
         if (socket.BoneIndex >= 0 && bones is { Count: > 0 }
             && socket.BoneIndex < bones.Count)
         {
@@ -95,23 +104,10 @@ public static class ModelSocketRuntime
         return IsUsable(socketWorld);
     }
 
-    private static RuntimeModelAnimationState AnimationState(EcsWorld world, Entity entity, ModelRendererComponent model)
+    internal static RuntimeModelAnimationState AnimationState(EcsWorld world, Entity entity, ModelRendererComponent model)
     {
         if (!world.Has<ModelAnimatorComponent>(entity)) return default;
-        ref ModelAnimatorComponent animator = ref world.GetRef<ModelAnimatorComponent>(entity);
-        float blend = animator.BlendDuration <= 0f
-            ? 1f
-            : Math.Clamp(animator.BlendElapsed / animator.BlendDuration, 0f, 1f);
-        return new RuntimeModelAnimationState(
-            animator.ClipName,
-            animator.TimeSeconds,
-            animator.ClipFps,
-            animator.Loop,
-            previousClipName: animator.PreviousClipName,
-            previousTimeSeconds: animator.PreviousTimeSeconds,
-            blendFactor: blend,
-            preserveRootTransform: model.KeepPreviousTransform,
-            controller: animator.Controller);
+        return RuntimeModelAnimationState.From(world.GetRef<ModelAnimatorComponent>(entity), model.KeepPreviousTransform);
     }
 
     private static Matrix4x4 NodeWorld(System.Collections.Generic.IReadOnlyList<GModelNode> nodes, int index)

@@ -28,6 +28,38 @@ public static partial class PgslCommands
         return true;
     }
 
+    private static bool ThisModel(out Genesis.Runtime.ECS.World world, out Genesis.Shared.ECS.Entity entity)
+    {
+        entity = Genesis.Shared.ECS.Entity.Null;
+        world = ActiveGameContext?.World!;
+        var context = GetContext();
+        if (context == null || world == null) return false;
+        entity = world.GetEntity(context.InstanceId);
+        return world.IsAlive(entity) && world.Has<ModelRendererComponent>(entity);
+    }
+
+    [PgslCommand("ModelSetTint", "ModelSetTint(r, g, b, a) -> bool",
+        "Multiply the whole model's colour on this instance; an alpha below 1 fades it. 1, 1, 1, 1 is as authored", "Models")]
+    public static bool ModelSetTint(double r, double g, double b, double a) =>
+        Finite3(r, g, b) && double.IsFinite(a) && ThisModel(out var world, out var entity)
+        && Genesis.Runtime.Modeling.ModelInstance.SetTint(world, entity, new Vector4((float)r, (float)g, (float)b, (float)a));
+
+    [PgslCommand("ModelSetGlow", "ModelSetGlow(amount) -> bool",
+        "Add the model's own colours on top of its lighting: 0 none, 1 fully self-lit. Raise it briefly for a hit flash", "Models")]
+    public static bool ModelSetGlow(double amount) =>
+        ThisModel(out var world, out var entity) && Genesis.Runtime.Modeling.ModelInstance.SetGlow(world, entity, (float)amount);
+
+    [PgslCommand("ModelSetEmissionScale", "ModelSetEmissionScale(scale) -> bool",
+        "Scale the light this model's materials give off: 0 puts its lamps out, 1 is as authored", "Models")]
+    public static bool ModelSetEmissionScale(double scale) =>
+        ThisModel(out var world, out var entity) && Genesis.Runtime.Modeling.ModelInstance.SetEmissionScale(world, entity, (float)scale);
+
+    [PgslCommand("ModelSetMaterialEmission", "ModelSetMaterialEmission(material, strength) -> bool",
+        "Make one of this model's materials give off light of this strength (window glass at night); a negative strength gives it back its authored light", "Models")]
+    public static bool ModelSetMaterialEmission(string material, double strength) =>
+        ThisModel(out var world, out var entity)
+        && Genesis.Runtime.Modeling.ModelInstance.SetMaterialEmission(world, entity, material, (float)strength);
+
     [PgslCommand("ModelSetMeshVisible", "ModelSetMeshVisible(mesh, visible) -> bool",
         "Show or hide a named mesh on this instance without changing the shared model", "Models")]
     public static bool ModelSetMeshVisible(string mesh, bool visible)

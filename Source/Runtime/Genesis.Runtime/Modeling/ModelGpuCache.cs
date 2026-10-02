@@ -578,6 +578,20 @@ namespace Genesis.Runtime.Modeling
         private static string PaletteKey(GModelAsset asset, RuntimeModelAnimationState animation)
         {
             if (animation.Controller != null) return "controller:" + animation.Controller.Id;
+            string body = BodyPaletteKey(asset, animation);
+            if (!animation.HasLayer) return body;
+            GModelAnimationClip layer = FindClip(asset, animation.LayerClipName);
+            if (layer?.Frames == null || layer.Frames.Count == 0) return body;
+            // The same pose is the same key: the layer's frame, how far it has faded in (in
+            // sixteenths) and the bone it starts from.
+            int layerFrame = FrameIndex(layer, animation.LayerTimeSeconds, animation.Fps, animation.LayerLoop);
+            int step = (int)MathF.Round(animation.LayerWeight * 16f);
+            if (step <= 0) return body;
+            return $"{(body.Length == 0 ? "bind" : body)}+{layer.Name}|{layerFrame}@{step}:{animation.LayerFromBone}";
+        }
+
+        private static string BodyPaletteKey(GModelAsset asset, RuntimeModelAnimationState animation)
+        {
             if (string.IsNullOrWhiteSpace(animation.ClipName) || asset.Animations == null)
                 return "";
 

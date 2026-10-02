@@ -98,28 +98,13 @@ namespace Genesis.Runtime.Modeling
                 if (world.Has<ModelAnimatorComponent>(entity))
                 {
                     ref ModelAnimatorComponent animator = ref world.GetRef<ModelAnimatorComponent>(entity);
-                    float blend = animator.BlendDuration <= 0f
-                        ? 1f
-                        : Math.Clamp(animator.BlendElapsed / animator.BlendDuration, 0f, 1f);
-                    anim = new RuntimeModelAnimationState(
-                        animator.ClipName,
-                        animator.TimeSeconds,
-                        animator.ClipFps,
-                        animator.Loop,
-                        previousClipName: animator.PreviousClipName,
-                        previousTimeSeconds: animator.PreviousTimeSeconds,
-                        blendFactor: blend,
-                        preserveRootTransform: model.KeepPreviousTransform,
-                        controller: animator.Controller);
+                    anim = RuntimeModelAnimationState.From(animator, model.KeepPreviousTransform);
                 }
                 if (world.Has<ModelMorphComponent>(entity))
                 {
                     ref ModelMorphComponent morph = ref world.GetRef<ModelMorphComponent>(entity);
                     if (morph.Enabled && morph.Weights is { Count: > 0 })
-                        anim = new RuntimeModelAnimationState(
-                            anim.ClipName, anim.TimeSeconds, anim.Fps, anim.Loop, anim.FlatUntextured,
-                            anim.PreviousClipName, anim.PreviousTimeSeconds, anim.BlendFactor,
-                            anim.PreserveRootTransform, anim.Controller, anim.IgnoreTextures, morph.Weights);
+                        anim = anim.WithMorphWeights(morph.Weights, anim.PreserveRootTransform);
                 }
 
                 var queue = ModelRenderQueue.Rent();
@@ -341,8 +326,20 @@ namespace Genesis.Runtime.Modeling
                     alpha = hasOverride ? 1f : material?.BaseColor.W ?? 1f;
                     Vector3 authoredEmission = material?.EmissiveFactor ?? Vector3.Zero;
                     emissive = MathF.Max(authoredEmission.X, MathF.Max(authoredEmission.Y, authoredEmission.Z));
+                    // This instance's own light: a material given a strength of its own, then
+                    // every material scaled together (windows coming on at dusk).
+                    if (material != null && rendererComponent.MaterialEmission != null
+                        && rendererComponent.MaterialEmission.TryGetValue(material.Name, out float ownEmission))
+                        emissive = MathF.Max(0f, ownEmission);
+                    if (rendererComponent.EmissionScale is float emissionScale) emissive *= MathF.Max(0f, emissionScale);
                     if (emissive > 0.001f)
                         flags |= MeshDrawFlags.Emissive | MeshDrawFlags.NoShadow;
+                    // A glow over the whole model (a hit flash, a selection) leaves its shadow alone.
+                    if (rendererComponent.Glow > 0.001f)
+                    {
+                        emissive += rendererComponent.Glow;
+                        flags |= MeshDrawFlags.Emissive;
+                    }
                 }
 
                 flags = MeshRasterDefaults.ApplyOverride(flags, asset.Culling, asset.WindingOrder);
@@ -354,6 +351,14 @@ namespace Genesis.Runtime.Modeling
                     tint = new RenderColor(tint.R * instanceTint.X, tint.G * instanceTint.Y,
                         tint.B * instanceTint.Z, tint.A * instanceTint.W);
                     alpha *= instanceTint.W;
+                }
+                if (!animation.FlatUntextured && rendererComponent.Tint is Vector4 wholeTint)
+                {
+                    tint = new RenderColor(tint.R * wholeTint.X, tint.G * wholeTint.Y, tint.B * wholeTint.Z, tint.A * wholeTint.W);
+                    alpha *= wholeTint.W;
+                    // A model faded by its tint is drawn through, as a material authored to blend is.
+                    if (wholeTint.W < 0.999f)
+                        flags |= MeshDrawFlags.Transparent | MeshDrawFlags.NoDepthWrite | MeshDrawFlags.NoShadow;
                 }
                 flags = MeshRasterDefaults.ApplyOverride(
                     flags,

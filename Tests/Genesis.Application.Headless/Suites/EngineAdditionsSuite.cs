@@ -268,9 +268,240 @@ internal static class EngineAdditionsSuite
         });
     }
 
+    /// <summary>A four-bone figure: a root, a spine with an arm on it, and a leg. It walks with the leg and strikes with the arm.</summary>
+    private static Genesis.Runtime.Modeling.GModelAsset Figure()
+    {
+        var model = new Genesis.Runtime.Modeling.GModelAsset { Name = "Figure" };
+        Matrix4x4 root = Matrix4x4.Identity, spine = Matrix4x4.CreateTranslation(0, 1, 0),
+            arm = Matrix4x4.CreateTranslation(0.5f, 0, 0), leg = Matrix4x4.CreateTranslation(0, -0.5f, 0);
+        model.Rig = new Genesis.Runtime.Modeling.GModelRig
+        {
+            Bones =
+            [
+                new() { Name = "Root", ParentIndex = -1, BindLocal = root },
+                new() { Name = "Spine", ParentIndex = 0, BindLocal = spine },
+                new() { Name = "Arm", ParentIndex = 1, BindLocal = arm },
+                new() { Name = "Leg", ParentIndex = 0, BindLocal = leg },
+            ],
+            InverseBindMatrices = [Matrix4x4.Identity, Matrix4x4.Identity, Matrix4x4.Identity, Matrix4x4.Identity],
+        };
+        var walk = new Genesis.Runtime.Modeling.GModelAnimationClip { Name = "Walk", Fps = 30f };
+        var strike = new Genesis.Runtime.Modeling.GModelAnimationClip { Name = "Strike", Fps = 30f };
+        for (int frame = 0; frame < 30; frame++)
+        {
+            // Walking moves the leg forward a centimetre a frame; striking raises the arm two.
+            walk.Frames.Add(new() { LocalBoneTransforms = [root, spine, arm, Matrix4x4.CreateTranslation(0, -0.5f, 0.01f * frame)] });
+            strike.Frames.Add(new() { LocalBoneTransforms = [root, spine, Matrix4x4.CreateTranslation(0.5f, 0.02f * frame, 0), leg] });
+        }
+
+        model.Animations.Add(walk);
+        model.Animations.Add(strike);
+        model.Sockets.Add(new Genesis.Runtime.Modeling.GModelSocket { Name = "Hand", BoneIndex = 2, LocalTransform = Matrix4x4.CreateTranslation(0, 0, 0.25f) });
+        return model;
+    }
+
+    private static void RunModelInstances(HeadlessContext context)
+    {
+        HeadlessHarness.RunCase(context.Report, "Engine.Models.Instance.ScriptsFindBonesAndPlayAClipOnPartOfTheBody", () =>
+        {
+            string project = Path.Combine(context.Workspace, "ModelInstanceProject");
+            Directory.CreateDirectory(Path.Combine(project, "Models"));
+            Genesis.Runtime.Modeling.RuntimeModelStore.Save(Path.Combine(project, "Models", "Figure.gmodel"), Figure());
+
+            using var scene = new RuntimeScene("Figure");
+            var world = scene.World;
+            var game = new ProjectGameContext(project, scene, null, null, RoomAsset.Create("Hall", RoomDimension.ThreeD), null);
+            string oldProject = Genesis.Runtime.Scripting.PgslCommands.ProjectPath;
+            var oldGame = Genesis.Runtime.Scripting.PgslCommands.ActiveGameContext;
+            Genesis.Shared.Scripting.PgslContext? oldContext = null;
+            try
+            {
+                Genesis.Runtime.Scripting.PgslCommands.ProjectPath = project;
+                Genesis.Runtime.Scripting.PgslCommands.ActiveGameContext = game;
+                Entity figure = world.CreateEntity();
+                world.Set(figure, new TransformComponent { X = 10, Y = 0, Z = 5, ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+                world.Set(figure, new ModelRendererComponent { ModelAsset = "Figure", ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+                oldContext = Genesis.Runtime.Scripting.PgslCommands.BindContext(new Genesis.Shared.Scripting.PgslContext { InstanceId = figure.Id });
+
+                Vector3 Where(string name)
+                {
+                    HeadlessHarness.Assert(Genesis.Runtime.Modeling.ModelInstance.TryGetSocketPosition(world, figure, name, out Vector3 position),
+                        $"The figure's '{name}' could not be found.");
+                    return position;
+                }
+
+                void Near(Vector3 actual, Vector3 expected, string what) =>
+                    HeadlessHarness.Assert(Vector3.Distance(actual, expected) < 1e-3f, $"{what}: at {actual}, expected {expected}.");
+
+                void Step(float seconds) => Genesis.Runtime.ECS.ComponentLifecycle.OnUpdate(world, figure, seconds);
+
+                // At rest: a socket is its bone's place plus its own offset; a bone answers to its name; nothing else does.
+                Near(Where("Hand"), new Vector3(10.5f, 1f, 5.25f), "The hand socket at rest");
+                Near(Where("arm"), new Vector3(10.5f, 1f, 5f), "The arm bone at rest");
+                HeadlessHarness.Assert(!Genesis.Runtime.Modeling.ModelInstance.TryGetSocketWorld(world, figure, "Tail", out _)
+                    && game is Genesis.Runtime.Scripting.IGameContext scripts && scripts.TryGetSocketWorld(figure, "Hand", out Matrix4x4 viaGame)
+                    && Vector3.Distance(viaGame.Translation, new Vector3(10.5f, 1f, 5.25f)) < 1e-3f,
+                    "A name the model lacks was found, or the game context did not give the same answer.");
+                HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.ModelSocketExists("Hand")
+                    && Math.Abs(Genesis.Runtime.Scripting.PgslCommands.ModelSocketX("Hand") - 10.5) < 1e-3
+                    && Math.Abs(Genesis.Runtime.Scripting.PgslCommands.ModelSocketZ("Hand") - 5.25) < 1e-3
+                    && !Genesis.Runtime.Scripting.PgslCommands.ModelSocketExists("Tail"),
+                    "The socket commands did not give the hand's place.");
+
+                // A clip started part of the way in, played at the rate it was authored at.
+                HeadlessHarness.Assert(!Genesis.Runtime.Modeling.ModelInstance.Play(world, figure, "Dance")
+                    && Genesis.Runtime.Modeling.ModelInstance.Play(world, figure, "Walk", loop: true, blendSeconds: 0f, startSeconds: 0.5f)
+                    && MathF.Abs(Genesis.Runtime.Modeling.ModelInstance.ClipLength(world, figure, "Walk") - 1f) < 1e-4f,
+                    "Playing a clip by name did not behave: a missing clip must fail and a 30-frame clip at 30 a second is one second long.");
+                Near(Where("Leg"), new Vector3(10f, -0.5f, 5.15f), "The leg half a second into the walk");
+
+                // The arm strikes while the leg keeps walking.
+                HeadlessHarness.Assert(!Genesis.Runtime.Modeling.ModelInstance.PlayLayer(world, figure, "Strike", "Wing")
+                    && Genesis.Runtime.Modeling.ModelInstance.PlayLayer(world, figure, "Strike", "Spine", loop: false, fadeSeconds: 0f),
+                    "A clip on part of the body must name a bone the model has.");
+                Step(0.25f);
+                Near(Where("Leg"), new Vector3(10f, -0.5f, 5.22f), "The leg, still walking under the strike");
+                Near(Where("Arm"), new Vector3(10.5f, 1.14f, 5f), "The arm a quarter of a second into the strike");
+                Near(Where("Hand"), new Vector3(10.5f, 1.14f, 5.25f), "The hand socket, carried by the striking arm");
+                HeadlessHarness.Assert(Genesis.Runtime.Modeling.ModelInstance.LayerCrossed(world, figure, 0.2f)
+                    && !Genesis.Runtime.Modeling.ModelInstance.LayerCrossed(world, figure, 0.5f)
+                    && Genesis.Runtime.Modeling.ModelInstance.Crossed(world, figure, 0.6f)
+                    && !Genesis.Runtime.Modeling.ModelInstance.Crossed(world, figure, 0.4f),
+                    "The points each clip passed in that quarter second were not reported.");
+
+                // The walk's mark comes round once a lap; the strike ends and lets go by itself.
+                int laps = 0;
+                for (int i = 0; i < 8; i++)
+                {
+                    Step(0.25f);
+                    if (Genesis.Runtime.Modeling.ModelInstance.Crossed(world, figure, 0.6f)) laps++;
+                }
+
+                HeadlessHarness.Assert(laps == 2, $"A looping walk passed its mark {laps} times in two more seconds; it should pass twice.");
+                HeadlessHarness.Assert(!Genesis.Runtime.Modeling.ModelInstance.LayerPlaying(world, figure), "A finished strike still had hold of the arm.");
+                Near(Where("Arm"), new Vector3(10.5f, 1f, 5f), "The arm after the strike has let go");
+
+                // Fading in: half way through a 0.2 s fade the arm is half way to the strike's pose.
+                Genesis.Runtime.Modeling.ModelInstance.PlayLayer(world, figure, "Strike", "Spine", loop: false, fadeSeconds: 0.2f, startSeconds: 0.5f);
+                Step(0.1f);
+                float armHeight = Where("Arm").Y;
+                HeadlessHarness.Assert(armHeight > 1.14f && armHeight < 1.22f,
+                    $"Half faded in, the arm should be about half way to the strike's 1.36 ({armHeight:F3}).");
+                Genesis.Runtime.Modeling.ModelInstance.StopLayer(world, figure, 0f);
+                HeadlessHarness.Assert(!Genesis.Runtime.Modeling.ModelInstance.LayerPlaying(world, figure), "Stopping a part-body clip at once left it playing.");
+
+                // Backwards: from the end to the start, passing its marks on the way and stopping there.
+                HeadlessHarness.Assert(Genesis.Runtime.Modeling.ModelInstance.PlayReversed(world, figure, "Strike", blendSeconds: 0f),
+                    "A clip could not be played backwards.");
+                Near(Where("Arm"), new Vector3(10.5f, 1.58f, 5f), "The arm at the end of the strike, where a reversed clip starts");
+                Step(0.5f);
+                HeadlessHarness.Assert(Genesis.Runtime.Modeling.ModelInstance.Crossed(world, figure, 0.75f)
+                    && !Genesis.Runtime.Modeling.ModelInstance.Crossed(world, figure, 0.25f)
+                    && !Genesis.Runtime.Modeling.ModelInstance.Finished(world, figure),
+                    "A clip played backwards did not report the mark it passed, or said it had finished half way.");
+                Step(0.75f);
+                HeadlessHarness.Assert(Genesis.Runtime.Modeling.ModelInstance.Finished(world, figure)
+                    && world.GetRef<ModelAnimatorComponent>(figure).TimeSeconds == 0f,
+                    "A clip played backwards should stop at its start.");
+                Near(Where("Arm"), new Vector3(10.5f, 1f, 5f), "The arm back at the start of the strike");
+            }
+            finally
+            {
+                if (oldContext != null || Genesis.Runtime.Scripting.PgslCommands.BindContext(null) != null) Genesis.Runtime.Scripting.PgslCommands.BindContext(oldContext);
+                Genesis.Runtime.Scripting.PgslCommands.ProjectPath = oldProject;
+                Genesis.Runtime.Scripting.PgslCommands.ActiveGameContext = oldGame;
+            }
+        });
+
+        HeadlessHarness.RunCase(context.Report, "Engine.Models.Instance.AScriptTintsAModelAndLightsItsMaterials", () =>
+        {
+            string project = Path.Combine(context.Workspace, "ModelTintProject");
+            Directory.CreateDirectory(Path.Combine(project, "Models"));
+            Genesis.Runtime.Modeling.GModelAsset lamp = Genesis.Runtime.Modeling.GModelPrimitiveFactory.CreateCube("Lamp", 1f);
+            lamp.Materials[0].Name = "Glass";
+            lamp.Materials[0].BaseColor = new Vector4(0.5f, 0.5f, 0.5f, 1f);
+            Genesis.Runtime.Modeling.RuntimeModelStore.Save(Path.Combine(project, "Models", "Lamp.gmodel"), lamp);
+
+            using var scene = new RuntimeScene("Lamp");
+            var world = scene.World;
+            string oldProject = Genesis.Runtime.Scripting.PgslCommands.ProjectPath;
+            using System.Windows.Forms.Form host = UnattendedWindowing.NewHost(320, 240);
+            UnattendedWindowing.ShowWithoutFocus(host);
+            using IRenderController renderer = Genesis.Rendering.Core.RenderControllerFactory.Create(Genesis.Rendering.Core.RenderBackendOption.Software);
+            renderer.Initialize(host.Handle, 320, 240);
+            try
+            {
+                Genesis.Runtime.Scripting.PgslCommands.ProjectPath = project;
+                Entity entity = world.CreateEntity();
+                world.Set(entity, new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+                world.Set(entity, new ModelRendererComponent { ModelAsset = "Lamp", ScaleX = 1, ScaleY = 1, ScaleZ = 1, CastShadows = true, ReceiveShadows = true });
+                var models = new Genesis.Runtime.Modeling.RuntimeModelRenderSystem();
+
+                MeshDrawCall Drawn()
+                {
+                    var queue = new Genesis.Runtime.Modeling.ModelRenderQueue();
+                    HeadlessHarness.Assert(models.Enqueue(queue, project, "Lamp", "", Matrix4x4.Identity,
+                        new Draw3DComponent { Visible = true, CastShadows = true, ReceiveShadows = true },
+                        world.GetRef<ModelRendererComponent>(entity), default, renderer) && queue.Count == 1, "The lamp was not drawn as one mesh.");
+                    var buffer = new MeshDrawCall[1];
+                    queue.CopyTo(buffer, 0);
+                    return buffer[0];
+                }
+
+                MeshDrawCall plain = Drawn();
+                HeadlessHarness.Assert(MathF.Abs(plain.Tint.R - 0.5f) < 1e-4f && plain.Alpha == 1f && plain.Emissive == 0f
+                    && (plain.Flags & (MeshDrawFlags.Emissive | MeshDrawFlags.NoShadow | MeshDrawFlags.Transparent)) == 0,
+                    "An untouched model should be drawn in its authored colour, unlit by itself and solid.");
+
+                // A tint multiplies the colour; an alpha below one draws it through.
+                Genesis.Runtime.Modeling.ModelInstance.SetTint(world, entity, new Vector4(1f, 0.5f, 0.25f, 1f));
+                MeshDrawCall tinted = Drawn();
+                HeadlessHarness.Assert(MathF.Abs(tinted.Tint.R - 0.5f) < 1e-4f && MathF.Abs(tinted.Tint.G - 0.25f) < 1e-4f
+                    && MathF.Abs(tinted.Tint.B - 0.125f) < 1e-4f && (tinted.Flags & MeshDrawFlags.Transparent) == 0,
+                    $"A tint should multiply the model's colour ({tinted.Tint.R}, {tinted.Tint.G}, {tinted.Tint.B}).");
+                Genesis.Runtime.Modeling.ModelInstance.SetTint(world, entity, new Vector4(1f, 1f, 1f, 0.4f));
+                MeshDrawCall faded = Drawn();
+                HeadlessHarness.Assert(MathF.Abs(faded.Alpha - 0.4f) < 1e-4f && (faded.Flags & MeshDrawFlags.Transparent) != 0,
+                    "A tint with alpha below one should fade the model.");
+                Genesis.Runtime.Modeling.ModelInstance.SetTint(world, entity, Vector4.One);
+                HeadlessHarness.Assert(world.GetRef<ModelRendererComponent>(entity).Tint == null, "A tint of one should be no tint at all.");
+
+                // A glow lights the whole model and leaves its shadow.
+                Genesis.Runtime.Modeling.ModelInstance.SetGlow(world, entity, 0.8f);
+                MeshDrawCall glowing = Drawn();
+                HeadlessHarness.Assert(MathF.Abs(glowing.Emissive - 0.8f) < 1e-4f && (glowing.Flags & MeshDrawFlags.Emissive) != 0
+                    && (glowing.Flags & MeshDrawFlags.NoShadow) == 0, "A glow should light the model and keep its shadow.");
+                Genesis.Runtime.Modeling.ModelInstance.SetGlow(world, entity, 0f);
+
+                // A material given light of its own, then every material scaled, down to none.
+                HeadlessHarness.Assert(!Genesis.Runtime.Modeling.ModelInstance.SetMaterialEmission(world, entity, "Brass", 1f)
+                    && Genesis.Runtime.Modeling.ModelInstance.SetMaterialEmission(world, entity, "glass", 2f),
+                    "A material's light is set by the material's name.");
+                MeshDrawCall lit = Drawn();
+                HeadlessHarness.Assert(MathF.Abs(lit.Emissive - 2f) < 1e-4f && MathF.Abs(lit.SurfaceParams.Z - 2f) < 1e-4f
+                    && (lit.Flags & MeshDrawFlags.Emissive) != 0, $"The glass should give off light of strength 2 ({lit.Emissive}).");
+                Genesis.Runtime.Modeling.ModelInstance.SetEmissionScale(world, entity, 0.25f);
+                HeadlessHarness.Assert(MathF.Abs(Drawn().Emissive - 0.5f) < 1e-4f, "Scaling a model's light by a quarter should leave a quarter of it.");
+                Genesis.Runtime.Modeling.ModelInstance.SetEmissionScale(world, entity, 0f);
+                MeshDrawCall dark = Drawn();
+                HeadlessHarness.Assert(dark.Emissive == 0f && (dark.Flags & (MeshDrawFlags.Emissive | MeshDrawFlags.NoShadow)) == 0,
+                    "A model whose light is scaled to nothing should be drawn as an ordinary solid again.");
+                Genesis.Runtime.Modeling.ModelInstance.SetEmissionScale(world, entity, 1f);
+                Genesis.Runtime.Modeling.ModelInstance.SetMaterialEmission(world, entity, "Glass", -1f);
+                HeadlessHarness.Assert(Drawn().Emissive == 0f && world.GetRef<ModelRendererComponent>(entity).EmissionScale == null,
+                    "Giving a material back its authored light did not.");
+            }
+            finally
+            {
+                Genesis.Runtime.Scripting.PgslCommands.ProjectPath = oldProject;
+            }
+        });
+    }
+
     public static void Run(HeadlessContext context)
     {
         RunInputAndAudio(context);
+        RunModelInstances(context);
         HeadlessHarness.RunCase(context.Report, "Engine.World.Weather.TheEngineDrawsRainSnowAndLightningWhenARoomAsks", () =>
         {
             RoomAsset room = RoomAsset.Create("Moor", RoomDimension.ThreeD);
