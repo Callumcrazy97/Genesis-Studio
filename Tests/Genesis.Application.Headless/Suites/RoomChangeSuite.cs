@@ -754,6 +754,83 @@ internal static class RoomChangeSuite
             }
         });
 
+        HeadlessHarness.RunCase(context.Report, "Engine.Rendering.Text.ALineInANewSizeIsSentAsOneStrip", () =>
+        {
+            const string line = "Alderford: the gate is shut until morning";
+
+            // On each graphics backend the line reaches the screen, first time and after.
+            RenderBackendOption previous = RenderBackendSelection.RequestedBackend;
+            try
+            {
+                foreach ((RenderBackendOption backend, string name) in new[]
+                {
+                    (RenderBackendOption.SilkNetDx11, "dx11"), (RenderBackendOption.Direct3D12, "dx12"),
+                    (RenderBackendOption.Vulkan, "vulkan"), (RenderBackendOption.OpenGL, "opengl"),
+                })
+                {
+                    RenderBackendSelection.Configure(backend);
+                    using RuntimeViewportHarness harness = new();
+                    harness.Capture3D(Path.Combine(context.Captures, $"text-{name}-before.png"));
+                    IRenderController renderer = harness.Renderer;
+                    double Compose(float size)
+                    {
+                        long started = System.Diagnostics.Stopwatch.GetTimestamp();
+                        bool composed = renderer.ComposeOverlay(canvas =>
+                            canvas.DrawText(line, new Vector2(12f, 12f), size, Vector4.One, fontFamily: "Georgia"));
+                        HeadlessHarness.Assert(composed, $"{backend}: the overlay refused a line of text.");
+                        return System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+                    }
+
+                    double warm = Compose(18f);
+                    double first = Compose(64f), again = Compose(64f);
+                    Console.WriteLine($"[Text] {name}: a line in a new size took {first:F1} ms to compose the first time and {again:F1} ms the next ({warm:F1} ms for the overlay's first use).");
+                }
+            }
+            finally
+            {
+                RenderBackendSelection.Configure(previous);
+            }
+
+            // The atlas: a line of text in a size it has not seen is many new glyphs and few uploads.
+            using var atlas = new Genesis.Shared.Overlay.GlyphAtlas();
+            var quads = new List<Genesis.Shared.Overlay.GlyphQuad>();
+            atlas.LayoutRun(line, "Georgia", 22f, bold: false, 0f, 0f, quads);
+            long glyphs = atlas.RasterCount;
+            IReadOnlyList<Genesis.Shared.Overlay.GlyphUpload> uploads = atlas.DrainUploads();
+            HeadlessHarness.Assert(glyphs >= 15 && uploads.Count >= 1 && uploads.Count <= 2,
+                $"A line of {glyphs} new glyphs should be one upload, or two where it runs on to the next shelf; it was {uploads.Count}.");
+            foreach (Genesis.Shared.Overlay.GlyphUpload upload in uploads)
+            {
+                HeadlessHarness.Assert(upload.Pixels.Length == upload.Width * upload.Height * 4 && upload.X >= 0 && upload.Y >= 0
+                    && upload.X + upload.Width <= Genesis.Shared.Overlay.GlyphAtlas.AtlasSize
+                    && upload.Y + upload.Height <= Genesis.Shared.Overlay.GlyphAtlas.AtlasSize,
+                    "A strip of glyphs does not describe a rectangle of the atlas.");
+                for (int i = 0; i + 3 < upload.Pixels.Length; i += 4)
+                    HeadlessHarness.Assert(upload.Pixels[i] == 255 && upload.Pixels[i + 1] == 255 && upload.Pixels[i + 2] == 255,
+                        "A texel of a glyph strip is not white; text would be tinted twice.");
+            }
+
+            // Every glyph the line draws lies inside what was uploaded, and has ink there.
+            foreach (Genesis.Shared.Overlay.GlyphQuad quad in quads)
+            {
+                int x0 = (int)MathF.Round(quad.U0 * Genesis.Shared.Overlay.GlyphAtlas.AtlasSize), y0 = (int)MathF.Round(quad.V0 * Genesis.Shared.Overlay.GlyphAtlas.AtlasSize);
+                int x1 = (int)MathF.Round(quad.U1 * Genesis.Shared.Overlay.GlyphAtlas.AtlasSize), y1 = (int)MathF.Round(quad.V1 * Genesis.Shared.Overlay.GlyphAtlas.AtlasSize);
+                Genesis.Shared.Overlay.GlyphUpload home = uploads.FirstOrDefault(upload =>
+                    x0 >= upload.X && y0 >= upload.Y && x1 <= upload.X + upload.Width && y1 <= upload.Y + upload.Height);
+                byte[] strip = home.Pixels
+                    ?? throw new InvalidOperationException($"A glyph at {x0},{y0} of the atlas was drawn but not uploaded.");
+                int ink = 0;
+                for (int y = y0; y < y1; y++)
+                for (int x = x0; x < x1; x++)
+                    if (strip[(((y - home.Y) * home.Width) + (x - home.X)) * 4 + 3] > 96) ink++;
+                HeadlessHarness.Assert(ink > 0, $"The glyph at {x0},{y0} of the atlas was uploaded with nothing in it.");
+            }
+
+            atlas.LayoutRun(line, "Georgia", 22f, bold: false, 0f, 0f, quads);
+            HeadlessHarness.Assert(atlas.RasterCount == glyphs && atlas.DrainUploads().Count == 0, "The same line again made new glyphs or uploads.");
+
+        });
+
         HeadlessHarness.RunCase(context.Report, "Engine.Diagnostics.SlowFrames.SayWhatTheFrameWasSpentOn", () =>
         {
             var lines = new List<string>();
@@ -774,8 +851,9 @@ internal static class RoomChangeSuite
             parts.Add("too quick to mention", System.Diagnostics.Stopwatch.GetTimestamp());
             HeadlessHarness.Assert(parts.Describe().StartsWith("terrain update ", StringComparison.Ordinal) && !parts.Describe().Contains("too quick"),
                 $"The longest parts were described as '{parts.Describe()}'.");
-            log.FrameEnded("Hall", counted: true, 46, 2, 3, 4, parts.Describe());
-            HeadlessHarness.Assert(lines.Count == 1 && lines[0].Contains("in Hall (frame 3") && lines[0].Contains("update 46 ms")
+            // The parts given account for more than the frame, however long a busy machine made it.
+            log.FrameEnded("Hall", counted: true, 9046, 2, 3, 4, parts.Describe());
+            HeadlessHarness.Assert(lines.Count == 1 && lines[0].Contains("in Hall (frame 3") && lines[0].Contains("update 9046 ms")
                 && lines[0].Contains("longest parts: terrain update ") && lines[0].Contains("1 texture "),
                 $"The slow frame was written as: {(lines.Count == 0 ? "(nothing)" : lines[0])}");
             parts.Clear();

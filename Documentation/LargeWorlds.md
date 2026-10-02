@@ -356,9 +356,9 @@ since.
 
 ## Verification
 
-`Build.bat --test large-world` runs fifty-three checks. Twenty-seven of them are described in
+`Build.bat --test large-world` runs fifty-four checks. Twenty-eight of them are described in
 [Game features](GameFeatures.md), ten of those for room changes (`Build.bat --test room-change`
-runs those ten alone). Twelve cover the terrain, detail and view
+runs those ten and the text check that sits with them). Twelve cover the terrain, detail and view
 work: bulk terrain files, collision tiles following what can touch the ground, an 8 km terrain
 drawn with distance detail and no gaps, a world made from a recipe (sea, rivers running downhill
 in channels, paint following the land, level sites, objects on the ground), the simplifier (shape,

@@ -368,6 +368,12 @@ back to.
 - **Scripts could not start a network session.** See [Multiplayer](LargeWorlds.md#multiplayer).
 - **Text over overlay sprites.** Text an Object draws in the overlay pass is drawn after that
   Object's overlay sprites, so a label is on top of its own panel.
+- **Text in a size not drawn before.** The frame that first shows a line of text in a new size
+  has to send its letters to the graphics card. They now go as one strip for the line instead of
+  one update for each letter. It matters on Vulkan, where each update is waited for: a line of 17
+  new letters took 7 to 11 ms singly and 1 to 4 ms as a strip on an idle graphics card, and a game
+  on Vulkan had frames of 80 to 135 ms when a title or a line of speech first appeared. That game
+  has not been measured since. `GENESIS_GLYPH_STRIPS=0` sends them singly again, for comparison.
 - **Exported games ship their model cache.** Export writes each large model's binary cache into the
   game. These caches are checked against the model's content instead of its modified time, so they
   survive being copied, zipped or installed. A player's first load is as fast as later ones.
@@ -387,7 +393,8 @@ calls, the HUD shapes and text measuring, bursts removing themselves, save slots
 that would leave the save folder), the sun's shape across a 100-degree view, and a meadow with a
 kind of plant refused.
 
-Room changes have ten cases of their own: a change spread over frames with nothing stepping
+Text in a new size being sent as one strip, and reaching the screen on four graphics backends,
+is one more case in the same suite. Room changes have ten cases of their own: a change spread over frames with nothing stepping
 meanwhile, Create events still running together once the room is whole, the one-step change and
 the 2D room that appears without a cover, the first room of a game prepared behind the cover,
 emitters and arriving sounds made ready behind it, the engine's and a game's own loading screen

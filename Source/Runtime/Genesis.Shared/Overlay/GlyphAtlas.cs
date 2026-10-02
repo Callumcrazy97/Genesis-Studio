@@ -17,7 +17,10 @@ namespace Genesis.Shared.Overlay
         }
     }
 
-    /// <summary>A newly packed glyph the caller must copy into the atlas texture.</summary>
+    /// <summary>
+    /// Newly packed glyphs the caller must copy into the atlas texture: one glyph, or a strip of
+    /// glyphs that were packed side by side.
+    /// </summary>
     public readonly struct GlyphUpload
     {
         public readonly int X, Y, Width, Height;
@@ -277,13 +280,73 @@ namespace Genesis.Shared.Overlay
         /// New glyph bitmaps since the last call. The caller uploads them into its atlas texture;
         /// the list is cleared, so an unchanged frame drains nothing.
         /// </summary>
+        /// <remarks>
+        /// Glyphs packed one after another along a shelf come back as one strip. A line of text in
+        /// a size not used before is twenty or thirty new glyphs, and a texture update is not
+        /// cheap on every graphics backend: on some each one is its own submission that is waited
+        /// for, which made the frame that first showed such a line a tenth of a second long. As
+        /// strips, the same line is one update, or two where it runs on to the next shelf.
+        /// </remarks>
         public IReadOnlyList<GlyphUpload> DrainUploads()
         {
             ThrowIfDisposed();
             if (_uploads.Count == 0) return Array.Empty<GlyphUpload>();
-            GlyphUpload[] drained = _uploads.ToArray();
+            if (!StripsEnabled)
+            {
+                GlyphUpload[] singly = _uploads.ToArray();
+                _uploads.Clear();
+                return singly;
+            }
+
+            var drained = new List<GlyphUpload>();
+            for (int start = 0; start < _uploads.Count;)
+            {
+                int end = start + 1;
+                while (end < _uploads.Count && _uploads[end].Y == _uploads[start].Y
+                    && _uploads[end].X == _uploads[end - 1].X + _uploads[end - 1].Width)
+                    end++;
+                drained.Add(end - start == 1 ? _uploads[start] : Strip(start, end));
+                start = end;
+            }
+
             _uploads.Clear();
             return drained;
+        }
+
+        /// <summary>
+        /// Set <c>GENESIS_GLYPH_STRIPS=0</c> to send every new glyph as an update of its own, as
+        /// engines before this did: for measuring what the strips save on a given machine.
+        /// </summary>
+        private static readonly bool StripsEnabled = Environment.GetEnvironmentVariable("GENESIS_GLYPH_STRIPS") != "0";
+
+        /// <summary>
+        /// One upload covering glyphs <paramref name="start"/> to <paramref name="end"/>, which lie
+        /// side by side on one shelf. The strip is as tall as its tallest glyph; under a shorter
+        /// glyph it is transparent white, which is what that part of the shelf holds anyway, since
+        /// nothing else is ever packed there.
+        /// </summary>
+        private GlyphUpload Strip(int start, int end)
+        {
+            GlyphUpload first = _uploads[start], last = _uploads[end - 1];
+            int width = last.X + last.Width - first.X, height = 0;
+            for (int i = start; i < end; i++) height = Math.Max(height, _uploads[i].Height);
+            byte[] pixels = new byte[width * height * 4];
+            for (int i = 0; i < pixels.Length; i += 4)
+            {
+                pixels[i] = 255;
+                pixels[i + 1] = 255;
+                pixels[i + 2] = 255;
+            }
+
+            for (int i = start; i < end; i++)
+            {
+                GlyphUpload glyph = _uploads[i];
+                int column = (glyph.X - first.X) * 4, bytes = glyph.Width * 4;
+                for (int row = 0; row < glyph.Height; row++)
+                    Buffer.BlockCopy(glyph.Pixels, row * bytes, pixels, (row * width * 4) + column, bytes);
+            }
+
+            return new GlyphUpload(first.X, first.Y, width, height, pixels);
         }
 
         private GlyphEntry Resolve(string family, float size, bool bold, ushort glyphId, SKFont font)
