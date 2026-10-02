@@ -361,9 +361,11 @@ stand out against a dark storm sky; that is not fixed.
 Scatter drawing, the long-view terrain shading, the far water and the shadow cascade on screen are
 checked by the captures and the flights above, not by a harness case.
 
-Full Build `20261001-235149-13cbeb61` (2 October 2026): 1125 checks passed, with the dx11, dx12,
-vulkan, opengl and software renderer smokes; nothing skipped. `20261001-225728-58203d29`, an hour
-earlier and without the weather fog setting, passed 1124. Before those: `20261001-175935-a25c1956`
+Full Build `20261002-073832-e63b8dde` (2 October 2026, with everything on this page and in
+[Game features](GameFeatures.md)): 1142 checks passed, with the dx11, dx12, vulkan, opengl and
+software renderer smokes; nothing skipped. `20261001-235149-13cbeb61`, the night before, passed
+1125 with the same five smokes, and `20261001-225728-58203d29`, an hour before that and without
+the weather fog setting, passed 1124. Before those: `20261001-175935-a25c1956`
 passed 1111 checks and `20261001-163347-0103944c` passed 1110, each with the same five smokes.
 
 Four other full runs during this work each failed one or two checks that pass alone:
