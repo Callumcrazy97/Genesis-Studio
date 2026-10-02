@@ -421,10 +421,15 @@ stand out against a dark storm sky; that is not fixed.
 Scatter drawing, the long-view terrain shading, the far water and the shadow cascade on screen are
 checked by the captures and the flights above, not by a harness case.
 
-Full Build `20261002-123645-697a7698` (2 October 2026, with everything on this page and in
-[Game features](GameFeatures.md)): 1153 checks passed, with the dx11, dx12, vulkan, opengl and
-software renderer smokes; nothing skipped. `20261002-115253-4c757610`, an hour and a half
-earlier, with reversed depth and spread room changes but before emitters were made ready behind
+Full Build `20261002-140207-45ab77a9` (2 October 2026, with everything on this page and in
+[Game features](GameFeatures.md)): 1151 checks passed, with the dx11, dx12, vulkan, opengl and
+software renderer smokes. **Three checks were not run**: the workstation was locked, Windows
+refuses the clipboard to every program while it is, and the three checks that use the real
+clipboard say so instead of failing (see the build section of the [master document](README.md)).
+Those three passed in `20261002-123645-697a7698`, two hours earlier with the desktop unlocked,
+which passed 1153 checks with the same five smokes and nothing skipped; the only changes since are
+text glyphs being sent as strips and the not-run reporting itself. `20261002-115253-4c757610`,
+an hour and a half before that one, with reversed depth and spread room changes but before emitters were made ready behind
 the cover, passed 1152 with the same five smokes. Three
 runs before that one the same day each failed one to three checks, different ones each time. Two of
 those sets pass on their own and failed while another program was loading the machine (clipboard
