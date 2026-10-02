@@ -83,8 +83,31 @@ public sealed class TerrainWaterDialog : DpiAwareForm
     private readonly NumericUpDown _angularDrag = TerrainPathDialog.DecimalNumber(0m, 20m, 1m);
     private readonly ThemedComboBox _physicsMode = new() { Name = "TerrainWaterPhysicsMode", DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly CheckBox _damaging = new() { Text = "Damages occupants", AutoSize = true };
+    private readonly CheckBox _customLook = new() { Name = "TerrainWaterCustomLook", Text = "Use my own colours, clarity and foam", AutoSize = true };
+    private readonly Button _shallowColour = ColourButton("TerrainWaterShallowColour");
+    private readonly Button _deepColour = ColourButton("TerrainWaterDeepColour");
+    private readonly NumericUpDown _opacity = TerrainPathDialog.DecimalNumber(0m, 1m, 0.5m);
+    private readonly NumericUpDown _clarity = TerrainPathDialog.DecimalNumber(0.1m, 500m, 12m);
+    private readonly NumericUpDown _foam = TerrainPathDialog.DecimalNumber(0m, 50m, 1.25m);
     private bool _syncing;
     private readonly Vector3 _defaultCenter;
+
+    private static Button ColourButton(string name) =>
+        new() { Name = name, Text = "Choose colour...", AutoSize = true, FlatStyle = FlatStyle.Flat, MinimumSize = new Size(160, 0) };
+
+    private static Color ToColour(Vector3 colour) => Color.FromArgb(
+        (int)Math.Round(Math.Clamp(colour.X, 0f, 1f) * 255f),
+        (int)Math.Round(Math.Clamp(colour.Y, 0f, 1f) * 255f),
+        (int)Math.Round(Math.Clamp(colour.Z, 0f, 1f) * 255f));
+
+    private static Vector3 ToVector(Color colour) => new(colour.R / 255f, colour.G / 255f, colour.B / 255f);
+
+    private static void ShowColour(Button button, Color colour)
+    {
+        button.BackColor = colour;
+        // Keep the caption readable on any swatch.
+        button.ForeColor = colour.GetBrightness() > 0.55f ? Color.Black : Color.White;
+    }
 
     public TerrainWaterDialog(IEnumerable<TerrainWaterDefinition> waters, Vector3 defaultCenter, string? selectedId = null)
     {
@@ -113,6 +136,20 @@ public sealed class TerrainWaterDialog : DpiAwareForm
         AddPage("Flow and waves", [("", _simulation), ("Simulation resolution", _resolution), ("Damping", _damping),
             ("Rain coupling", _rain), ("Wave amplitude", _waves), ("Flow speed", _flow),
             ("Flow direction X", _flowX), ("Flow direction Z", _flowZ)]);
+        AddPage("Appearance", [("", _customLook), ("Colour over the shallows", _shallowColour), ("Colour in the depths", _deepColour),
+            ("How much it hides what is under it (0 to 1)", _opacity), ("Depth where shallow turns to deep (m)", _clarity),
+            ("Foam along the shore (m)", _foam)]);
+        foreach (Button swatch in new[] { _shallowColour, _deepColour })
+        {
+            swatch.Click += (_, _) =>
+            {
+                using ColorDialog picker = new() { Color = swatch.BackColor, FullOpen = true };
+                if (picker.ShowDialog(this) != DialogResult.OK) return;
+                ShowColour(swatch, picker.Color);
+                StoreSelected();
+            };
+        }
+
         AddPage("Gameplay", [("Water physics", _physicsMode), ("Physics depth (m)", _physicsDepth),
             ("Fluid density", _density), ("Buoyancy", _buoyancy), ("Linear drag", _linearDrag),
             ("Angular drag", _angularDrag), ("", _damaging)]);
@@ -130,7 +167,7 @@ public sealed class TerrainWaterDialog : DpiAwareForm
         _list.BorderStyle = BorderStyle.None;
         _list.FontChanged += (_, _) => _list.ItemHeight = _list.Font.Height + 10;
         add.Click += (_, _) => AddWater(); remove.Click += (_, _) => RemoveWater(); _list.SelectedIndexChanged += (_, _) => LoadSelected();
-        foreach (Control control in new Control[] { _name, _kind, _x, _z, _height, _sizeX, _sizeZ, _simulation, _resolution, _damping, _rain, _waves, _flow, _flowX, _flowZ, _conform, _physicsDepth, _density, _buoyancy, _linearDrag, _angularDrag, _physicsMode, _damaging })
+        foreach (Control control in new Control[] { _name, _kind, _x, _z, _height, _sizeX, _sizeZ, _simulation, _resolution, _damping, _rain, _waves, _flow, _flowX, _flowZ, _conform, _physicsDepth, _density, _buoyancy, _linearDrag, _angularDrag, _physicsMode, _damaging, _customLook, _opacity, _clarity, _foam })
         {
             if (control is TextBox text) text.TextChanged += (_, _) => StoreSelected();
             else if (control is ComboBox combo) combo.SelectedIndexChanged += (_, _) => StoreSelected();
@@ -182,8 +219,18 @@ public sealed class TerrainWaterDialog : DpiAwareForm
         Set(_flowX, water.FlowDirection.X); Set(_flowZ, water.FlowDirection.Y); _conform.Checked = water.ConformToTerrain;
         Set(_physicsDepth, water.PhysicsDepth); Set(_density, water.FluidDensity); Set(_buoyancy, water.BuoyancyStrength);
         Set(_linearDrag, water.LinearDrag); Set(_angularDrag, water.AngularDrag);
-        _physicsMode.SelectedIndex = (int)water.PhysicsMode; _damaging.Checked = water.Damaging; _syncing = false;
+        _physicsMode.SelectedIndex = (int)water.PhysicsMode; _damaging.Checked = water.Damaging;
+        _customLook.Checked = water.CustomAppearance;
+        ShowColour(_shallowColour, ToColour(water.ShallowColor)); ShowColour(_deepColour, ToColour(water.DeepColor));
+        Set(_opacity, water.Opacity); Set(_clarity, water.ClarityDepth); Set(_foam, water.FoamWidth);
+        _syncing = false;
         RefreshPhysicsControls(water.PhysicsMode);
+        RefreshAppearanceControls();
+    }
+
+    private void RefreshAppearanceControls()
+    {
+        _shallowColour.Enabled = _deepColour.Enabled = _opacity.Enabled = _clarity.Enabled = _foam.Enabled = _customLook.Checked;
     }
 
     private void StoreSelected()
@@ -214,7 +261,11 @@ public sealed class TerrainWaterDialog : DpiAwareForm
         water.PhysicsDepth = (float)_physicsDepth.Value; water.FluidDensity = (float)_density.Value;
         water.BuoyancyStrength = (float)_buoyancy.Value; water.LinearDrag = (float)_linearDrag.Value;
         water.AngularDrag = (float)_angularDrag.Value; water.PhysicsMode = (WaterPhysicsMode)Math.Max(0, _physicsMode.SelectedIndex); water.Damaging = _damaging.Checked;
+        water.CustomAppearance = _customLook.Checked;
+        water.ShallowColor = ToVector(_shallowColour.BackColor); water.DeepColor = ToVector(_deepColour.BackColor);
+        water.Opacity = (float)_opacity.Value; water.ClarityDepth = (float)_clarity.Value; water.FoamWidth = (float)_foam.Value;
         RefreshPhysicsControls(water.PhysicsMode);
+        RefreshAppearanceControls();
         // Rebuilding the whole list on every TextChanged event reloaded the selected water and
         // moved the Name caret to the end after every keystroke. Only its display label changed.
         if (index < _list.Items.Count)

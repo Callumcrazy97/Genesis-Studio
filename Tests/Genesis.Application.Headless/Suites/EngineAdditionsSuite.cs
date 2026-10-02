@@ -132,6 +132,63 @@ internal static class EngineAdditionsSuite
                 "A strike 120 m away should be over within a second, with loud thunder just after it.");
         });
 
+        HeadlessHarness.RunCase(context.Report, "Engine.World.Water.ATerrainCanGiveItsWaterItsOwnLook", () =>
+        {
+            // By default a lake and a sea keep the look their kind is given.
+            var lake = new Genesis.World.Terrain.TerrainWaterDefinition { Name = "Tarn", Kind = Genesis.World.Terrain.TerrainWaterKind.Water };
+            var sea = new Genesis.World.Terrain.TerrainWaterDefinition { Name = "Sea", Kind = Genesis.World.Terrain.TerrainWaterKind.Ocean };
+            Genesis.World.Water.WaterMaterialSettings standard = Genesis.World.Water.WaterMaterialSettings.Default;
+            Genesis.World.Water.WaterMaterialSettings lakeLook = lake.ToWaterBody().Material, seaLook = sea.ToWaterBody().Material;
+            HeadlessHarness.Assert(lakeLook.ShallowColor == standard.ShallowColor && lakeLook.Opacity == standard.Opacity && seaLook.Opacity > 0.9f,
+                "Water with no look of its own must keep the look of its kind.");
+
+            // A peat river: brown, nearly opaque within a metre, a thin line of foam.
+            var peat = new Genesis.World.Terrain.TerrainWaterDefinition
+            {
+                Name = "Peat Burn", Kind = Genesis.World.Terrain.TerrainWaterKind.River, CustomAppearance = true,
+                ShallowColor = new Vector3(0.42f, 0.30f, 0.14f), DeepColor = new Vector3(0.12f, 0.07f, 0.03f),
+                Opacity = 0.85f, ClarityDepth = 1.2f, FoamWidth = 0.3f,
+            };
+            Genesis.World.Water.WaterMaterialSettings peatLook = peat.ToWaterBody().Material;
+            HeadlessHarness.Assert(peatLook.ShallowColor == peat.ShallowColor && peatLook.DeepColor == peat.DeepColor
+                && peatLook.Opacity == 0.85f && peatLook.DepthFade == 1.2f && peatLook.FoamWidth == 0.3f,
+                "The water's own colours, clarity and foam did not reach what is drawn.");
+
+            // The look travels with a copy, survives a save, and nonsense is brought into range.
+            Genesis.World.Terrain.TerrainWaterDefinition copy = peat.Clone();
+            HeadlessHarness.Assert(copy.CustomAppearance && copy.DeepColor == peat.DeepColor && copy.ClarityDepth == 1.2f, "Copying water lost its look.");
+            string folder = Path.Combine(context.Workspace, "WaterLook");
+            Directory.CreateDirectory(folder);
+            string resource = Path.Combine(folder, "Vale.terrain.json");
+            var nature = new Genesis.World.Terrain.TerrainNatureDocument();
+            nature.WaterBodies.Add(peat);
+            Genesis.World.Terrain.TerrainNatureSerializer.Save(resource, nature);
+            Genesis.World.Terrain.TerrainWaterDefinition loaded = Genesis.World.Terrain.TerrainNatureSerializer.LoadOrDefault(resource).WaterBodies.Single();
+            HeadlessHarness.Assert(loaded.CustomAppearance && Vector3.Distance(loaded.ShallowColor, peat.ShallowColor) < 1e-5f
+                && loaded.Opacity == 0.85f && loaded.FoamWidth == 0.3f,
+                $"The water's look was not saved with the terrain (custom {loaded.CustomAppearance}, opacity {loaded.Opacity}).");
+            var broken = new Genesis.World.Terrain.TerrainWaterDefinition
+            {
+                CustomAppearance = true, ShallowColor = new Vector3(float.NaN, 2f, -1f), Opacity = 7f, ClarityDepth = -3f, FoamWidth = float.PositiveInfinity,
+            };
+            Genesis.World.Water.WaterMaterialSettings mended = broken.ToWaterBody().Material;
+            HeadlessHarness.Assert(mended.Opacity == 1f && mended.DepthFade == 0.1f && float.IsFinite(mended.FoamWidth)
+                && float.IsFinite(mended.ShallowColor.X) && mended.ShallowColor.Y <= 1f && mended.ShallowColor.Z >= 0f,
+                "Out-of-range water settings reached the renderer.");
+
+            // The Water Bodies dialog shows and edits the look.
+            using var dialog = new Genesis.Application.Editors.Suite.Terrain.TerrainWaterDialog(new[] { peat }, Vector3.Zero);
+            var custom = (System.Windows.Forms.CheckBox)dialog.Controls.Find("TerrainWaterCustomLook", true)[0];
+            System.Windows.Forms.Control shallow = dialog.Controls.Find("TerrainWaterShallowColour", true)[0];
+            HeadlessHarness.Assert(custom.Checked && shallow.Enabled && shallow.BackColor.R == 107 && shallow.BackColor.B == 36,
+                $"The dialog did not open on the water's own look (custom {custom.Checked}, swatch {shallow.BackColor}).");
+            Genesis.World.Terrain.TerrainWaterDefinition edited = dialog.WaterBodies[0];
+            HeadlessHarness.Assert(edited.CustomAppearance && edited.Opacity == 0.85f && Vector3.Distance(edited.ShallowColor, peat.ShallowColor) < 0.01f,
+                "Opening the dialog changed the water's look.");
+            custom.Checked = false;
+            HeadlessHarness.Assert(!dialog.WaterBodies[0].CustomAppearance && !shallow.Enabled, "Turning the look off in the dialog did not take.");
+        });
+
         HeadlessHarness.RunCase(context.Report, "Engine.Particles.Weather.FallsFromJustAboveTheCameraAtAnyAltitude", () =>
         {
             // On a mountain 600 m up, rain must fall past the camera, not start at sea level.

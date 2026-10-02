@@ -74,6 +74,21 @@ public sealed class TerrainWaterDefinition
     public float WaveAmplitude { get; set; } = 0.18f;
     public float FlowSpeed { get; set; } = 0.2f;
     public Vector2 FlowDirection { get; set; } = Vector2.UnitY;
+    /// <summary>
+    /// The water uses the colours, clarity and foam set here instead of the look its kind is
+    /// given: a peat-brown river, a milky glacier lake, a clear tropical shallows.
+    /// </summary>
+    public bool CustomAppearance { get; set; }
+    /// <summary>Colour over shallow water, red, green and blue from 0 to 1.</summary>
+    public Vector3 ShallowColor { get; set; } = new(0.18f, 0.62f, 0.72f);
+    /// <summary>Colour the water darkens to with depth.</summary>
+    public Vector3 DeepColor { get; set; } = new(0.04f, 0.18f, 0.38f);
+    /// <summary>How much the surface hides what is under it, 0 (glass) to 1 (opaque).</summary>
+    public float Opacity { get; set; } = 0.5f;
+    /// <summary>Depth in metres over which the shallow colour gives way to the deep one.</summary>
+    public float ClarityDepth { get; set; } = 12f;
+    /// <summary>Width in metres of the foam along the shore.</summary>
+    public float FoamWidth { get; set; } = 1.25f;
     public bool ConformToTerrain { get; set; } = true;
     public float PhysicsDepth { get; set; } = 6f;
     public float FluidDensity { get; set; } = 1000f;
@@ -132,6 +147,11 @@ public sealed class TerrainWaterDefinition
         TemperatureCelsius = Math.Clamp(TemperatureCelsius, -50f, 100f);
         RainCoupling = Math.Clamp(RainCoupling, 0f, 2f);
         WaveAmplitude = Math.Clamp(WaveAmplitude, 0f, 8f);
+        ShallowColor = ClampColour(ShallowColor, new Vector3(0.18f, 0.62f, 0.72f));
+        DeepColor = ClampColour(DeepColor, new Vector3(0.04f, 0.18f, 0.38f));
+        Opacity = float.IsFinite(Opacity) ? Math.Clamp(Opacity, 0f, 1f) : 0.5f;
+        ClarityDepth = float.IsFinite(ClarityDepth) ? Math.Clamp(ClarityDepth, 0.1f, 500f) : 12f;
+        FoamWidth = float.IsFinite(FoamWidth) ? Math.Clamp(FoamWidth, 0f, 50f) : 1.25f;
         FlowSpeed = Math.Clamp(FlowSpeed, -20f, 20f);
         if (!float.IsFinite(FlowDirection.X) || !float.IsFinite(FlowDirection.Y)
             || FlowDirection.LengthSquared() < 0.0001f)
@@ -313,11 +333,22 @@ public sealed class TerrainWaterDefinition
         Footprint = "";
     }
 
+    private static Vector3 ClampColour(Vector3 colour, Vector3 fallback) =>
+        float.IsFinite(colour.X) && float.IsFinite(colour.Y) && float.IsFinite(colour.Z)
+            ? Vector3.Clamp(colour, Vector3.Zero, Vector3.One)
+            : fallback;
+
     public TerrainWaterDefinition Clone()
     {
         Normalize();
         return new TerrainWaterDefinition
         {
+            CustomAppearance = CustomAppearance,
+            ShallowColor = ShallowColor,
+            DeepColor = DeepColor,
+            Opacity = Opacity,
+            ClarityDepth = ClarityDepth,
+            FoamWidth = FoamWidth,
             Id = Id,
             Name = Name,
             Kind = Kind,
@@ -377,6 +408,15 @@ public sealed class TerrainWaterDefinition
             material.Opacity = 0.95f;
             material.DepthFade = 7f;
             material.FoamWidth = 2.4f;
+        }
+
+        if (CustomAppearance)
+        {
+            material.ShallowColor = ShallowColor;
+            material.DeepColor = DeepColor;
+            material.Opacity = Opacity;
+            material.DepthFade = ClarityDepth;
+            material.FoamWidth = FoamWidth;
         }
         return new WaterBody
         {
