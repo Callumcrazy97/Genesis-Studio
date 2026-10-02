@@ -12,6 +12,7 @@ internal static class ModelColliderBinding
 {
     public static void AttachGeometry(EcsWorld world, Entity entity, GModelAsset asset, Vector3 scale)
     {
+        using var timed = Genesis.Shared.Assets.LoadClock.Measure(Genesis.Shared.Assets.LoadWork.Collider);
         List<Vector3> vertices = new(); List<int> indices = new();
         Vector3 pivot = asset.Pivot?.Position ?? Vector3.Zero;
         Matrix4x4[] palette = asset.Rig?.IsValid == true ? GModelPrimitiveFactory.EvaluateBindPosePalette(asset.Rig) : [];

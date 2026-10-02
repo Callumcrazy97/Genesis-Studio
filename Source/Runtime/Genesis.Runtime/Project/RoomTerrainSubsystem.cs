@@ -24,7 +24,7 @@ namespace Genesis.Runtime.Project;
 /// Runtime terrain placement plus its Genesis-native natural-world sidecar: routes, resident
 /// instanced foliage, water simulation, manifest/query and map-discovery foundations.
 /// </summary>
-public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingProvider
+public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingProvider, IRoomWarmUpSubsystem
 {
     private sealed class WaterRuntime
     {
@@ -44,6 +44,13 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
         public AuthoredTerrainGround Ground;
         public TerrainAsset Terrain;
         public int ColliderRegistrationId;
+        /// <summary>A small terrain's collision being prepared on a worker thread; null once it is solid, and for a large terrain.</summary>
+        public System.Threading.Tasks.Task<PhysicsWorld.PreparedStaticMesh> ColliderPreparing;
+        /// <summary>
+        /// True for a terrain that arrived as the camera neared it. Nothing stands on it yet, so
+        /// it becomes solid when its collision is ready rather than holding a frame up for it.
+        /// </summary>
+        public bool ColliderMayWait;
         /// <summary>Streamed collision for terrains too large for one mesh; null otherwise.</summary>
         public TerrainColliderTiles ColliderTiles;
         public int ColliderRebuildGeneration;
@@ -99,6 +106,97 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
 
             _entries.Add(CreateEntry(room, node, binaryPath, preloadModels: true));
         }
+
+        // A running game wants these terrains solid by its first step. Workers start on that now,
+        // while the room's objects are placed, instead of the first step building it all.
+        if (game != null)
+            foreach (Entry entry in _entries) PrepareCollider(entry);
+    }
+
+    /// <summary>
+    /// Starts building a small terrain's collision on a worker thread, once. A large terrain is
+    /// made solid in tiles around what can touch it and needs nothing here.
+    /// </summary>
+    private static void PrepareCollider(Entry entry)
+    {
+        if (entry.ColliderPreparing != null || entry.ColliderRegistrationId != 0 || TerrainLodGround.Applies(entry.Terrain)) return;
+        TerrainAsset terrain = entry.Terrain;
+        RoomTransform transform = RoomHierarchyTransforms.World(entry.Room, entry.Node);
+        var scale = new Vector3(transform.ScaleX, transform.ScaleY, transform.ScaleZ);
+        entry.ColliderPreparing = System.Threading.Tasks.Task.Run(() =>
+        {
+            TerrainColliderMesh.Build(terrain, out Vector3[] vertices, out int[] indices);
+            return PhysicsWorld.PrepareStaticTriangleMesh(vertices, indices, scale);
+        });
+    }
+
+    /// <summary>
+    /// Makes a small terrain solid from the collision a worker prepared. Returns false when that
+    /// is not ready and <paramref name="wait"/> is false.
+    /// </summary>
+    private static bool TryRegisterTerrainCollider(PhysicsWorld physics, Entry entry, bool wait)
+    {
+        if (entry.ColliderRegistrationId != 0) return true;
+        PrepareCollider(entry);
+        System.Threading.Tasks.Task<PhysicsWorld.PreparedStaticMesh> preparing = entry.ColliderPreparing;
+        if (!preparing.IsCompleted && !wait) return false;
+        using var timed = Genesis.Shared.Assets.LoadClock.Measure(Genesis.Shared.Assets.LoadWork.TerrainCollider);
+        entry.ColliderPreparing = null;
+        PhysicsWorld.PreparedStaticMesh prepared = preparing.GetAwaiter().GetResult();
+        RoomTransform transform = RoomHierarchyTransforms.World(entry.Room, entry.Node);
+        entry.ColliderRegistrationId = physics.RegisterStaticTriangleMesh(
+            prepared,
+            new Vector3(transform.X, transform.Y, transform.Z),
+            Quaternion.CreateFromYawPitchRoll(
+                transform.RotationY * MathF.PI / 180f,
+                transform.RotationX * MathF.PI / 180f,
+                transform.RotationZ * MathF.PI / 180f),
+            $"Terrain:{entry.Node.Name}");
+        return true;
+    }
+
+    /// <summary>Lets go of collision a worker is preparing, or has prepared, for heights that are no longer wanted.</summary>
+    private static void DiscardPreparedCollider(Entry entry)
+    {
+        System.Threading.Tasks.Task<PhysicsWorld.PreparedStaticMesh> preparing = entry.ColliderPreparing;
+        entry.ColliderPreparing = null;
+        preparing?.ContinueWith(static task =>
+        {
+            if (task.IsCompletedSuccessfully) task.Result?.Dispose();
+        }, System.Threading.Tasks.TaskScheduler.Default);
+    }
+
+    /// <summary>
+    /// Prepares the terrain for a room that is about to be shown: reads the terrains near the
+    /// camera and makes the ground and the scattered objects around the camera and every moving
+    /// body solid, all on worker threads. Returns true when none of that is still under way.
+    /// </summary>
+    public bool WarmUp(RuntimeScene scene)
+    {
+        bool ready = true;
+        UpdateTerrainStreaming(scene, inBackground: true);
+        foreach (StreamedTerrain terrain in _streamed)
+            if (terrain.Loading != null) ready = false;
+        if (scene.Physics == null) return ready;
+        foreach (Entry entry in _entries)
+        {
+            if (TerrainLodGround.Applies(entry.Terrain))
+            {
+                UpdateColliderTiles(scene, entry, groundBeneathAtOnce: false);
+                ready &= entry.ColliderTiles.Settled;
+            }
+            else
+            {
+                ready &= TryRegisterTerrainCollider(scene.Physics, entry, wait: false);
+            }
+
+            UpdateScatterColliders(scene, entry, firstCellsAtOnce: false);
+            ready &= !entry.ScatterColliders.HasLayers || entry.ScatterColliders.Settled;
+            if (entry.WaterVolumeIds.Count == 0)
+                RegisterWaterVolumes(scene, entry);
+        }
+
+        return ready;
     }
 
     /// <summary>
@@ -218,7 +316,12 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
     /// ones it has left well behind. The first pass loads at once so a room never opens on a
     /// hole; later terrains are read on a worker and joined when ready.
     /// </summary>
-    private void UpdateTerrainStreaming(RuntimeScene scene)
+    /// <param name="inBackground">
+    /// True while the room waits behind a loading screen: terrains in range are read on worker
+    /// threads. The first update after that still reads, or waits for, whatever is in range of
+    /// where the camera then is, so the ground is never missing when the room is shown.
+    /// </param>
+    private void UpdateTerrainStreaming(RuntimeScene scene, bool inBackground = false)
     {
         if (_streamed.Count == 0) return;
         Vector3 camera = scene.Camera3D.Position;
@@ -242,9 +345,17 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
             // than hold a hundred megabytes for a visit that may never come.
             if (distance > unload && terrain.Loading is { IsCompleted: true }) terrain.Loading = null;
             if (terrain.Failed || distance > _terrainDistance) continue;
-            if (!_terrainsPrimed)
+            if (!_terrainsPrimed && !inBackground)
             {
-                try { terrain.Entry = CreateEntry(terrain.Room, terrain.Node, terrain.BinaryPath, preloadModels: true); }
+                try
+                {
+                    // A worker may already be reading it for the loading screen: take its result.
+                    System.Threading.Tasks.Task<Entry> underWay = terrain.Loading;
+                    terrain.Loading = null;
+                    terrain.Entry = underWay != null
+                        ? underWay.GetAwaiter().GetResult()
+                        : CreateEntry(terrain.Room, terrain.Node, terrain.BinaryPath, preloadModels: true);
+                }
                 catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException)
                 {
                     Console.WriteLine($"[Terrain] '{terrain.BinaryPath}' could not be loaded: {exception.Message}");
@@ -275,13 +386,15 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
                 }
 
                 terrain.Entry = loading.Result;
+                // It arrived at a distance: nothing stands on it, so its collision need not hold a frame up.
+                terrain.Entry.ColliderMayWait = _terrainsPrimed;
             }
 
             _entries.Add(terrain.Entry);
             _worldAssigned = false;
         }
 
-        _terrainsPrimed = true;
+        if (!inBackground) _terrainsPrimed = true;
     }
 
     public string Name => "Authored terrain world";
@@ -408,7 +521,7 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
             if (TerrainLodGround.Applies(entry.Terrain))
                 UpdateColliderTiles(scene, entry);
             else if (entry.ColliderRegistrationId == 0)
-                entry.ColliderRegistrationId = RegisterTerrainCollider(scene.Physics, entry);
+                TryRegisterTerrainCollider(scene.Physics, entry, wait: !entry.ColliderMayWait);
             UpdateScatterColliders(scene, entry);
             if (entry.WaterVolumeIds.Count == 0)
                 RegisterWaterVolumes(scene, entry);
@@ -451,7 +564,7 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
     /// Trees and rocks are solid only where something could walk into them: near the camera and
     /// near every body that moves.
     /// </summary>
-    private void UpdateScatterColliders(RuntimeScene scene, Entry entry)
+    private void UpdateScatterColliders(RuntimeScene scene, Entry entry, bool firstCellsAtOnce = true)
     {
         if (entry.ScatterColliders == null)
         {
@@ -471,14 +584,14 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
                     _scatterFocus.Add(new TerrainColliderFocus(transform.Position, radius));
             });
         entry.ScatterColliders.Update(scene.Physics,
-            System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_scatterFocus));
+            System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_scatterFocus), firstCellsAtOnce);
     }
 
     /// <summary>
     /// A large terrain has collision only where something can touch it: around the camera and
     /// around every body that moves.
     /// </summary>
-    private void UpdateColliderTiles(RuntimeScene scene, Entry entry)
+    private void UpdateColliderTiles(RuntimeScene scene, Entry entry, bool groundBeneathAtOnce = true)
     {
         if (entry.ColliderTiles == null)
         {
@@ -505,7 +618,7 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
                     _colliderFocus.Add(new TerrainColliderFocus(transform.Position, bodyRadius));
             });
         entry.ColliderTiles.Update(scene.Physics,
-            System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_colliderFocus));
+            System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_colliderFocus), groundBeneathAtOnce);
     }
 
     public void SubmitMeshes(RuntimeScene scene, MeshDrawCall[] buffer, ref int count, IRenderController renderer)
@@ -647,6 +760,7 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
         if (scene?.Physics != null && entry.ColliderRegistrationId != 0)
             scene.Physics.UnregisterStaticSurface(entry.ColliderRegistrationId);
         entry.ColliderRegistrationId = 0;
+        DiscardPreparedCollider(entry);
         entry.ColliderTiles?.Clear(scene?.Physics);
         entry.ColliderTiles?.Dispose();
         entry.ColliderTiles = null;
@@ -766,6 +880,7 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
         if (scene.Physics != null && entry.ColliderRegistrationId != 0)
             scene.Physics.UnregisterStaticSurface(entry.ColliderRegistrationId);
         entry.ColliderRegistrationId = 0;
+        DiscardPreparedCollider(entry);
         // The tiles describe the old heights and the old asset; the next fixed update rebuilds them.
         entry.ColliderTiles?.Clear(scene.Physics);
         entry.ColliderTiles?.Dispose();

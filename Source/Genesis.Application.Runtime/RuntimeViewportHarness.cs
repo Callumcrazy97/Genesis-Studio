@@ -53,6 +53,7 @@ public sealed partial class RuntimeViewportHarness : IDisposable
         SkinnedCulling,
         LargeTerrain,
         DepthPrecision,
+        RoomChangeScreen,
     }
 
     public RuntimeViewportHarness(int width = 640, int height = 360)
@@ -485,6 +486,12 @@ public sealed partial class RuntimeViewportHarness : IDisposable
 
     private void OnPostFrame(IRenderController renderer)
     {
+        if (_mode == CaptureMode.RoomChangeScreen)
+        {
+            ComposeRoomChangeScreen(renderer);
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(_captureBadge)) return;
 
         string badge = _captureBadge;
@@ -517,6 +524,7 @@ public sealed partial class RuntimeViewportHarness : IDisposable
         if (_mode == CaptureMode.SkinnedCulling) { RenderSkinnedCulling(renderer); return; }
         if (_mode == CaptureMode.LargeTerrain) { RenderLargeTerrain(renderer); return; }
         if (_mode == CaptureMode.DepthPrecision) { RenderDepthPrecision(renderer); return; }
+        if (_mode == CaptureMode.RoomChangeScreen) { RenderRoomChangeScene(renderer); return; }
         if (_mode == CaptureMode.TwoD)
         {
             RenderTwoD(renderer);

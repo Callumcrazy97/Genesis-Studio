@@ -256,6 +256,7 @@ namespace Genesis.Rendering.Core
 
             // The previous frame has been flushed: textures released during it can now go.
             DrainDeferredTextureReleases();
+            BeginBackgroundTextureFrame();
             _gpu.BeginFrame();
 
             _cameraPostProcessing = false;
@@ -1022,6 +1023,7 @@ namespace Genesis.Rendering.Core
             string fullPath,
             Genesis.Shared.Materials.TextureColorSpace colorSpace)
         {
+            using var timed = Genesis.Shared.Assets.LoadClock.Measure(Genesis.Shared.Assets.LoadWork.Texture);
             try
             {
                 // Prefer a fresh cooked DDS. This bypasses image decode and uploads the complete

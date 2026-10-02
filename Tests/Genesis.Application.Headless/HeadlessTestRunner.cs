@@ -1501,6 +1501,9 @@ internal static class HeadlessTestRunner
             case "large-world":
                 Suites.LargeWorldSuite.Run(ctx);
                 break;
+            case "room-change":
+                RoomChangeSuite.Run(ctx);
+                break;
             default:
                 Suites.GateSuite.RunFocused(ctx, normalized);
                 break;

@@ -369,6 +369,20 @@ namespace Genesis.Runtime
                 return;
             }
 
+            _lastRenderDelta = (float)dt;
+            RoomChangeProgress roomChange = _scene.RoomChange;
+            if (roomChange != null && !roomChange.RoomBuilt)
+            {
+                // The room is half made: none of it is drawn. The cover and the loading screen are.
+                _renderer.Set3DFrameActive(false);
+                _renderer.Advance3DTime((float)dt);
+                _renderer.EndFrame();
+                try { ComposeRoomChangeOverlay(roomChange, 1f); }
+                catch (Exception ex) { RenderLog.Line("ComposeRoomChangeOverlay error: " + ex.Message); }
+                FinishRender();
+                return;
+            }
+
             if (roomPresentation?.IsTwoD == true)
             {
                 // A 2D room has no 3D pass. The boot splash sets this true and nothing ever set it
@@ -548,8 +562,18 @@ namespace Genesis.Runtime
         {
             try
             {
-                if (ScriptHost != null || _overlayDraw != null || Debugger != null)
-                    ComposeGameplayOverlay();
+                RoomChangeProgress roomChange = _scene?.RoomChange;
+                if (roomChange != null)
+                {
+                    // The finished room was drawn so that what it shows is loaded; nobody sees it yet.
+                    ComposeRoomChangeOverlay(roomChange, 1f);
+                }
+                else
+                {
+                    if (ScriptHost != null || _overlayDraw != null || Debugger != null)
+                        ComposeGameplayOverlay();
+                    FadeRoomChangeCover();
+                }
             }
             catch (Exception ex)
             {
@@ -557,7 +581,26 @@ namespace Genesis.Runtime
                 if (StartupGate != null && !StartupGate.IsActivated) throw;
             }
 
-            EndFrame?.Invoke(_renderer);
+            // A screenshot, an acceptance run and a benchmark are of the game, not of the cover a
+            // room change draws over it: they wait until the room is shown.
+            if (_scene?.RoomChange == null && _scene?.RoomReveal == null)
+                EndFrame?.Invoke(_renderer);
+        }
+
+        private float _lastRenderDelta;
+
+        private void ComposeRoomChangeOverlay(RoomChangeProgress change, float strength) =>
+            RoomChangeScreen.Compose(_renderer, OverlayWidth, OverlayHeight, change, strength, ScriptHost);
+
+        /// <summary>Fades the cover of a room change that has just finished, in real time.</summary>
+        private void FadeRoomChangeCover()
+        {
+            RoomChangeProgress reveal = _scene?.RoomReveal;
+            if (reveal == null) return;
+            float strength = reveal.RevealSeconds > 0f ? reveal.RevealRemaining / reveal.RevealSeconds : 0f;
+            if (strength > 0f) ComposeRoomChangeOverlay(reveal, MathF.Min(strength, 0.999f));
+            reveal.RevealRemaining -= MathF.Max(0f, _lastRenderDelta);
+            if (reveal.RevealRemaining <= 0f) _scene.RoomReveal = null;
         }
 
         private void ComposeGameplayOverlay()

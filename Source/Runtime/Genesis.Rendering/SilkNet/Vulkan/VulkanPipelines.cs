@@ -94,6 +94,7 @@ namespace Genesis.Rendering.SilkNet.Vulkan
         {
             if (_pipelines.TryGetValue(key, out Pipeline existing)) return existing;
 
+            using var timed = Genesis.Shared.Assets.LoadClock.Measure(Genesis.Shared.Assets.LoadWork.Pipeline);
             Pipeline created = Create(
                 key, vertexShader, vertexEntry, fragmentShader, fragmentEntry, layout, vertexLayout, renderPass);
             _pipelines[key] = created;

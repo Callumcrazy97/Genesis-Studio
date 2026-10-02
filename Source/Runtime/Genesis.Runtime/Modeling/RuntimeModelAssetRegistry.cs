@@ -88,10 +88,14 @@ namespace Genesis.Runtime.Modeling
                 return entry.Asset;
             }
 
-            GModelAsset asset = isStudioResource
-                ? StudioModelResourceLoader.Load(path)
-                : File.Exists(path) ? RuntimeModelStore.Load(path)
-                : GModelPrimitiveFactory.CreatePlaceholder(modelName, "Missing .gmodel asset. Reimport required.");
+            GModelAsset asset;
+            using (LoadClock.Measure(LoadWork.ModelRead))
+            {
+                asset = isStudioResource
+                    ? StudioModelResourceLoader.Load(path)
+                    : File.Exists(path) ? RuntimeModelStore.Load(path)
+                    : GModelPrimitiveFactory.CreatePlaceholder(modelName, "Missing .gmodel asset. Reimport required.");
+            }
 
             _cache[key] = new Entry
             {

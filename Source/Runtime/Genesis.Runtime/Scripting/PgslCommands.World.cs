@@ -619,10 +619,55 @@ public static partial class PgslCommands
     }
 
     [PgslCommand("RoomLoadProgress", "RoomLoadProgress() -> number",
-        "From 0 to 1: how much of the room asked for with RoomGotoWhenLoaded has been read; 1 when no room is being read",
+        "From 0 to 1: how much of the room asked for with RoomGotoWhenLoaded has been read, or how far a room change has got; 1 when neither is under way",
         "Rooms")]
     public static double RoomLoadProgress() =>
         ActiveGameContext is Genesis.Runtime.Project.ProjectGameContext game ? game.RoomLoadProgress : 1;
+
+    [PgslCommand("RoomChanging", "RoomChanging() -> bool",
+        "True while a room change is being spread over frames behind its loading screen",
+        "Rooms")]
+    public static bool RoomChanging() =>
+        ActiveGameContext is Genesis.Runtime.Project.ProjectGameContext game && game.IsChangingRoom;
+
+    [PgslCommand("RoomChangeBudget", "RoomChangeBudget(milliseconds)",
+        "How long a room change works in each frame before the frame is drawn and it carries on in the next (8 unless set). 0 changes room in one step, with no cover and no loading screen",
+        "Rooms")]
+    public static void RoomChangeBudget(double milliseconds) =>
+        Genesis.Runtime.Project.RoomChangeScreen.FrameBudgetMilliseconds =
+            double.IsFinite(milliseconds) ? Math.Clamp(milliseconds, 0, 100) : null;
+
+    [PgslCommand("RoomChangeProgressBar", "RoomChangeProgressBar(show)",
+        "Whether the engine draws its own progress bar and text on the cover during a room change; turn it off to show only the cover, or to draw your own",
+        "Rooms")]
+    public static void RoomChangeProgressBar(bool show) => Genesis.Runtime.Project.RoomChangeScreen.ShowProgress = show;
+
+    [PgslCommand("RoomChangeText", "RoomChangeText(text)",
+        "The words above the engine's progress bar during a room change; an empty string for none",
+        "Rooms")]
+    public static void RoomChangeText(string text) => Genesis.Runtime.Project.RoomChangeScreen.Text = text ?? string.Empty;
+
+    [PgslCommand("RoomChangeFade", "RoomChangeFade(seconds)",
+        "How long the cover takes to fade from a room that has just been shown (0.2 unless set; 0 lifts it at once)",
+        "Rooms")]
+    public static void RoomChangeFade(double seconds) =>
+        Genesis.Runtime.Project.RoomChangeScreen.FadeSeconds = double.IsFinite(seconds) ? (float)Math.Clamp(seconds, 0, 5) : 0.2f;
+
+    [PgslCommand("RoomChangeMinimumTime", "RoomChangeMinimumTime(seconds)",
+        "The least time the cover of a room change stays up once it is raised, so a loading screen can be read (0 unless set)",
+        "Rooms")]
+    public static void RoomChangeMinimumTime(double seconds) =>
+        Genesis.Runtime.Project.RoomChangeScreen.MinimumSeconds = double.IsFinite(seconds) ? (float)Math.Clamp(seconds, 0, 60) : 0f;
+
+    [PgslCommand("RoomChangeColors", "RoomChangeColors(coverRed, coverGreen, coverBlue, barRed, barGreen, barBlue)",
+        "The colour of the cover drawn during a room change, and of the engine's progress bar and text on it; each part from 0 to 1",
+        "Rooms")]
+    public static void RoomChangeColors(double coverRed, double coverGreen, double coverBlue, double barRed, double barGreen, double barBlue)
+    {
+        static float Part(double value) => double.IsFinite(value) ? (float)Math.Clamp(value, 0, 1) : 0f;
+        Genesis.Runtime.Project.RoomChangeScreen.Background = new System.Numerics.Vector4(Part(coverRed), Part(coverGreen), Part(coverBlue), 1f);
+        Genesis.Runtime.Project.RoomChangeScreen.Foreground = new System.Numerics.Vector4(Part(barRed), Part(barGreen), Part(barBlue), 1f);
+    }
 
     [PgslCommand("RoomPreloadPending", "RoomPreloadPending() -> number",
         "How many models are still being read in the background; 0 means a RoomGoto will find the preloaded room's models ready",

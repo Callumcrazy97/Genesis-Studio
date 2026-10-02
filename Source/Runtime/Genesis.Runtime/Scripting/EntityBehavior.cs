@@ -71,6 +71,16 @@ namespace Genesis.Runtime.Scripting
         public virtual void OnDrawHud(IHudCanvas hud) { }
 
         /// <summary>
+        /// Draw the game's own loading screen while a room change is spread over frames. The
+        /// engine has already covered the screen; <paramref name="progress"/> runs from 0 to 1.
+        /// Return true to say the screen has been drawn, and the engine leaves out its own bar
+        /// and text. Only objects that outlive the room change (persistent ones), and the new
+        /// room's objects once they have been created, are asked. The ordinary HUD is not drawn
+        /// during a room change.
+        /// </summary>
+        public virtual bool OnDrawLoadingScreen(IHudCanvas hud, float progress) => false;
+
+        /// <summary>
         /// Draw textured HUD sprites on top of the D2D text layer (item icons, cursor).
         /// Called after <see cref="OnDrawHud"/> compositing completes.
         /// </summary>

@@ -141,6 +141,23 @@ namespace Genesis.Runtime
         public bool HostControlsFlyCamera { get; set; }
 
         public IReadOnlyList<ISceneSubsystem> Subsystems => _subsystems;
+
+        /// <summary>
+        /// The room change in progress, while one is being spread over several frames; null
+        /// otherwise. While it is set the scene is held: updates advance the change and nothing
+        /// else, and the host draws a cover in place of the room. Game time alone keeps moving,
+        /// so a loading screen can animate.
+        /// </summary>
+        public RoomChangeProgress RoomChange { get; internal set; }
+
+        /// <summary>The room change that has just finished, while its cover fades from the new room; null otherwise.</summary>
+        public RoomChangeProgress RoomReveal { get; set; }
+
+        /// <summary>
+        /// How long each part of this scene's frame has taken since the times were last cleared.
+        /// Whoever reports long frames reads and clears them once a frame.
+        /// </summary>
+        public Genesis.Runtime.Diagnostics.SceneWorkTimes WorkTimes { get; } = new();
         public IReadOnlyList<PhysicsWaterVolume> WaterVolumes => _waterVolumes;
 
         public RuntimeScene(string name = "Scene")
@@ -230,29 +247,59 @@ namespace Genesis.Runtime
 
         public void UpdateFixed(float fixedDelta)
         {
+            // Nothing steps while a room is being put together or waits behind its cover.
+            if (RoomChange != null) return;
             RunLifecycleStart();
 
+            long mark = System.Diagnostics.Stopwatch.GetTimestamp();
             for (int i = 0; i < _subsystems.Count; i++)
-                _subsystems[i].FixedUpdate(this, fixedDelta);
+            {
+                ISceneSubsystem subsystem = _subsystems[i];
+                subsystem.FixedUpdate(this, fixedDelta);
+                mark = WorkTimes.Add(Genesis.Runtime.Diagnostics.SceneWorkTimes.NameOf(subsystem, "fixed update"), mark);
+            }
 
             Scheduler.RunFixedPhase(fixedDelta, FixedPhase.PrePhysics);
+            mark = WorkTimes.Add("systems before physics", mark);
 
             Physics?.ApplyWater(World, _waterVolumes, fixedDelta);
             // R7.12: Bepu Timestep on the dedicated physics motorway thread.
             Physics?.StepOnMotorway(World, fixedDelta, PhysicsMotorway);
+            mark = WorkTimes.Add("physics step", mark);
 
             Scheduler.RunFixedPhase(fixedDelta, FixedPhase.PostPhysics);
+            mark = WorkTimes.Add("systems after physics", mark);
 
             Physics?.SyncTransforms(World);
             SyncPhysicsTransforms();
+            mark = WorkTimes.Add("physics transforms", mark);
             for (int i = 0; i < _subsystems.Count; i++)
                 if (_subsystems[i] is IPostPhysicsSceneSubsystem postPhysics)
+                {
                     postPhysics.AfterPhysics(this, fixedDelta);
+                    mark = WorkTimes.Add(Genesis.Runtime.Diagnostics.SceneWorkTimes.NameOf(postPhysics, "after physics"), mark);
+                }
         }
 
         public void UpdateVariable(float dt)
         {
             GameTime.Advance(dt);
+            long mark = System.Diagnostics.Stopwatch.GetTimestamp();
+            if (RoomChange is { } change)
+            {
+                if (change.RoomBuilt)
+                {
+                    // The finished room waits behind its cover: let what streams in around the
+                    // camera start arriving, so it is there when the cover lifts.
+                    Streaming.ProcessMainThreadCallbacks();
+                    if (AllowStreamingUpdates) Streaming.UpdateProviders(this, GameTime);
+                }
+
+                change.Advance?.Invoke(this);
+                WorkTimes.Add("room change", mark);
+                return;
+            }
+
             if (Climate != null)
             {
                 Climate.Update(dt, Camera3D.Position);
@@ -261,17 +308,24 @@ namespace Genesis.Runtime
                     WeatherMap.ConfigureViewCoverage(Camera3D.Position, Atmosphere.Options.CloudBaseHeight, Atmosphere.Options.CloudThickness);
                 WeatherMap.Update(Climate.Current, Climate.Options.Seed);
                 Atmosphere?.Update(Climate.Current, Camera3D.Position);
+                mark = WorkTimes.Add("sky and weather", mark);
             }
             Scheduler.RunVariablePhase(dt);
+            mark = WorkTimes.Add("systems", mark);
 
             // Drain completed streaming jobs even during boot splash (providers stay gated below).
             Streaming.ProcessMainThreadCallbacks();
 
             if (AllowStreamingUpdates)
                 Streaming.UpdateProviders(this, GameTime);
+            mark = WorkTimes.Add("streaming", mark);
 
             for (int i = 0; i < _subsystems.Count; i++)
-                _subsystems[i].Update(this, GameTime);
+            {
+                ISceneSubsystem subsystem = _subsystems[i];
+                subsystem.Update(this, GameTime);
+                mark = WorkTimes.Add(Genesis.Runtime.Diagnostics.SceneWorkTimes.NameOf(subsystem, "update"), mark);
+            }
         }
 
         public void ConfigureClimate(EnvironmentOptions options, WeatherKind initialWeather)
@@ -311,9 +365,13 @@ namespace Genesis.Runtime
         public int SubmitInstanceBatches(IRenderController renderer)
         {
             int submitted = 0;
+            long mark = System.Diagnostics.Stopwatch.GetTimestamp();
             for (int i = 0; i < _subsystems.Count; i++)
                 if (_subsystems[i] is IInstanceSceneSubsystem instances)
+                {
                     submitted += instances.SubmitInstances(this, renderer);
+                    mark = WorkTimes.Add(Genesis.Runtime.Diagnostics.SceneWorkTimes.NameOf(instances, "instances"), mark);
+                }
             return submitted;
         }
 
@@ -349,8 +407,13 @@ namespace Genesis.Runtime
             Genesis.Runtime.Modeling.ModelLodView.Begin(Camera3D.Position, Camera3D.ProjectionMatrix);
             try
             {
+                long mark = System.Diagnostics.Stopwatch.GetTimestamp();
                 for (int i = 0; i < _subsystems.Count; i++)
-                    _subsystems[i].SubmitMeshes(this, buffer, ref count, renderer);
+                {
+                    ISceneSubsystem subsystem = _subsystems[i];
+                    subsystem.SubmitMeshes(this, buffer, ref count, renderer);
+                    mark = WorkTimes.Add(Genesis.Runtime.Diagnostics.SceneWorkTimes.NameOf(subsystem, "draws"), mark);
+                }
             }
             finally
             {

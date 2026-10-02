@@ -74,11 +74,19 @@ public sealed class TerrainScatterColliders
     /// <summary>Most colliders added in one update; the rest follow on later updates, nearest cells first.</summary>
     public int RegistrationsPerUpdate { get; set; } = 96;
 
+    /// <summary>True when every copy the last update wanted solid is solid, and no cell is still being worked out.</summary>
+    public bool Settled => !_waiting && _wanted.Count == _registered.Count;
+
     /// <summary>
     /// Brings colliders in line with what could touch them. Positions are in world space; each
     /// focus is a point and the distance around it that needs collision.
     /// </summary>
-    public void Update(PhysicsWorld physics, ReadOnlySpan<TerrainColliderFocus> focuses)
+    /// <param name="firstCellsAtOnce">
+    /// Work the first update's cells out on this thread, so what stands beside the player when a
+    /// room opens is solid from the first step. False while a room is being prepared behind a
+    /// loading screen, where the cells can be worked out on worker threads and waited for.
+    /// </param>
+    public void Update(PhysicsWorld physics, ReadOnlySpan<TerrainColliderFocus> focuses, bool firstCellsAtOnce = true)
     {
         if (physics == null || _layers.Count == 0) return;
 
@@ -94,7 +102,7 @@ public sealed class TerrainScatterColliders
         // room opens is solid from the first step. After that a new cell is worked out on a
         // worker thread: placing a few hundred copies is several milliseconds, which crossing a
         // cell boundary should not cost the frame.
-        bool immediate = !_primed;
+        bool immediate = !_primed && firstCellsAtOnce;
         _primed = true;
         _lastFocus.Clear();
         foreach (TerrainColliderFocus focus in focuses) _lastFocus.Add(focus.Position);
@@ -129,6 +137,7 @@ public sealed class TerrainScatterColliders
                     {
                         if (immediate)
                         {
+                            using var timed = Genesis.Shared.Assets.LoadClock.Measure(Genesis.Shared.Assets.LoadWork.ScatterCell);
                             _cells[cellKey] = cell = Bucket(TerrainScatterPlacement.Generate(_terrain, layer, cx, cz), cx, cz);
                         }
                         else if (_making.TryGetValue(cellKey, out System.Threading.Tasks.Task<CellCopies> making))

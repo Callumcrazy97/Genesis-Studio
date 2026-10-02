@@ -55,6 +55,9 @@ namespace Genesis.Runtime.Project
             _stopRequested = true;
         }
 
+        /// <summary>Set to 0 to read every model texture on the game's thread in the frame that first draws it.</summary>
+        public const string BackgroundTexturesEnvironmentVariable = "GENESIS_BACKGROUND_TEXTURES";
+
         /// <summary>Studio play passes this so the player watches and hot-reloads project assets.</summary>
         public const string LiveReloadArgument = "--live-reload";
 
@@ -220,6 +223,11 @@ namespace Genesis.Runtime.Project
 
                     gameContext = new ProjectGameContext(projectPath, scene, renderer, window, room, logger);
                     scriptHost.SetContext(gameContext);
+                    // The static commands (save slots, ModelInstance, the Net and Room commands)
+                    // answer to these. A PGSL event sets them for itself; a game written in C#
+                    // runs no PGSL event, so the Player sets them for the whole run.
+                    Genesis.Runtime.Scripting.PgslCommands.ActiveGameContext = gameContext;
+                    Genesis.Runtime.Scripting.PgslCommands.ProjectPath = projectPath;
 
                     try
                     {
@@ -323,6 +331,24 @@ namespace Genesis.Runtime.Project
                     scene.AddSubsystem(new ScriptHostSubsystem(scriptHost, () => bootSplash.IsComplete));
                     ProjectRoomSwitcher roomSwitcher = scene.AddSubsystem(new ProjectRoomSwitcher(
                         projectPath, gameContext, scriptHost, window, renderer, logger, roomName));
+                    // Textures a model needs are read and decoded on worker threads; the model is
+                    // drawn when they arrive instead of holding a frame up for them.
+                    Genesis.Runtime.Modeling.RuntimeModelRenderSystem.BackgroundTextures =
+                        Environment.GetEnvironmentVariable(BackgroundTexturesEnvironmentVariable) != "0";
+                    // A room change that is more than a moment's work is spread over frames behind
+                    // a loading screen, a few milliseconds of it in each, unless the game or the
+                    // person running it says otherwise.
+                    RoomChangeScreen.Reset();
+                    roomSwitcher.FrameBudgetMilliseconds = RoomChangeScreen.DefaultFrameBudgetMilliseconds;
+                    if (double.TryParse(Environment.GetEnvironmentVariable(RoomChangeScreen.BudgetEnvironmentVariable),
+                            System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double roomBudget)
+                        && double.IsFinite(roomBudget) && roomBudget >= 0)
+                        roomSwitcher.FrameBudgetMilliseconds = roomBudget;
+                    logger.Line(roomSwitcher.FrameBudgetMilliseconds > 0
+                        ? $"room changes are spread over frames, {roomSwitcher.FrameBudgetMilliseconds:0.#} ms in each"
+                        : "room changes happen in one step");
+                    // The room the game starts in is prepared the same way, once the start-up screen is done.
+                    roomSwitcher.PrepareFirstRoom(scene, loaded);
                     if (liveReload)
                         scene.AddSubsystem(new ProjectAssetLiveReloadSubsystem(
                             projectPath, renderer, roomSwitcher, logger));
@@ -408,6 +434,20 @@ namespace Genesis.Runtime.Project
 
                     host.DebugRoomName = roomName;
                     host.BeforeRenderSubmit += () => gameContext?.SubmitUpdateLights();
+                    // Only this thread's loading holds a frame up, so only this thread's is counted.
+                    Genesis.Shared.Assets.LoadClock.UseCurrentThread();
+                    var slowFrames = new SlowFrameLog(logger.Line);
+                    host.AfterPresent += () =>
+                    {
+                        Genesis.Runtime.Diagnostics.SceneWorkTimes parts = host.Scene?.WorkTimes;
+                        slowFrames.FrameEnded(
+                            gameContext?.Room?.Name ?? roomName,
+                            counted: host.BootSplash == null || host.BootSplash.IsComplete,
+                            host.LastSimulationMilliseconds, host.LastCollectMilliseconds,
+                            host.LastDrawMilliseconds, host.LastPresentMilliseconds,
+                            parts?.Describe() ?? string.Empty);
+                        parts?.Clear();
+                    };
                     host.FixedStepStarting += () => gameContext?.BeginFixedStep();
                     host.VariableUpdateStarting += () => gameContext?.BeginVariableUpdate();
                     // Tick the audio system + network every variable frame.
@@ -434,7 +474,8 @@ namespace Genesis.Runtime.Project
                         try { _activeNet?.Update(); } catch { }
                         try
                         {
-                            if (_replication != null && host.Scene?.World != null)
+                            // A room that is half made is no place to create shared objects.
+                            if (_replication != null && host.Scene?.World != null && host.Scene.RoomChange == null)
                             {
                                 // Distance is measured from the 3D camera; a 2D room shares everything.
                                 _replication.InterestEnabled = gameContext?.Room?.Dimension != RoomDimension.TwoD;
@@ -477,6 +518,8 @@ namespace Genesis.Runtime.Project
                 try { _activeAudio?.Dispose(); } catch (Exception ex) { Console.Error.WriteLine(ex); }
                 try { _activeNet?.Dispose(); } catch (Exception ex) { Console.Error.WriteLine(ex); }
                 Genesis.Runtime.Scripting.PgslCommands.ActiveNetwork = null;
+                Genesis.Runtime.Scripting.PgslCommands.ActiveGameContext = null;
+                Genesis.Runtime.Modeling.RuntimeModelRenderSystem.BackgroundTextures = false;
                 _activeAudio = null; _activeNet = null; _activeHost = null; _activeWindow = null;
                 _stopRequested = false; _pauseRequested = false;
                 PgslProfiler.Enabled = false;

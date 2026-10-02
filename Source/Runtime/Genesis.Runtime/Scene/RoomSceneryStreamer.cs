@@ -24,7 +24,7 @@ namespace Genesis.Runtime.Scene;
 /// with the room as it always did.
 /// </para>
 /// </remarks>
-public sealed class RoomSceneryStreamer : ISceneSubsystem
+public sealed class RoomSceneryStreamer : ISceneSubsystem, IRoomWarmUpSubsystem
 {
     private const float CellSize = 128f;
 
@@ -105,39 +105,60 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem
     private static (int X, int Z) Cell(Vector3 position) =>
         ((int)MathF.Floor(position.X / CellSize), (int)MathF.Floor(position.Z / CellSize));
 
-    public void Update(RuntimeScene scene, GameTime time)
+    /// <summary>Time one frame may spend creating objects while the room waits behind a loading screen.</summary>
+    public double WarmUpMillisecondsPerFrame { get; set; } = 6;
+
+    /// <summary>
+    /// Fills the view a few milliseconds at a time while the room waits behind a loading screen,
+    /// and returns true when nothing in range is left to create. The room's first update then
+    /// finds its work done; it still creates, at once, whatever is in range of where the camera
+    /// is by then, so a room never opens on an empty street.
+    /// </summary>
+    public bool WarmUp(RuntimeScene scene)
     {
-        if (_builder == null || scene?.World == null || _items.Count == 0) return;
+        if (_builder == null || scene?.World == null || _items.Count == 0 || _primed) return true;
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
+        return Fill(scene, int.MaxValue, WarmUpMillisecondsPerFrame, started)
+            && WarmKinds(scene, WarmUpMillisecondsPerFrame, started);
+    }
+
+    /// <summary>Creates what is in range of the camera. Returns false when it stopped because its count or its time ran out.</summary>
+    private bool Fill(RuntimeScene scene, int budget, double milliseconds, long started)
+    {
         Vector3 camera = scene.Camera3D.Position;
         float load = Distance, loadSquared = load * load;
-        float unload = load * MathF.Max(1.05f, UnloadFactor), unloadSquared = unload * unload;
-
-        // The first update fills the view at once; a room should not open on an empty street.
-        bool running = _primed;
-        int budget = running ? Math.Max(1, LoadsPerFrame) : int.MaxValue;
-        long started = System.Diagnostics.Stopwatch.GetTimestamp();
-        _primed = true;
-
         int x0 = (int)MathF.Floor((camera.X - load) / CellSize), x1 = (int)MathF.Floor((camera.X + load) / CellSize);
         int z0 = (int)MathF.Floor((camera.Z - load) / CellSize), z1 = (int)MathF.Floor((camera.Z + load) / CellSize);
-        for (int cz = z0; cz <= z1 && budget > 0; cz++)
-        for (int cx = x0; cx <= x1 && budget > 0; cx++)
+        for (int cz = z0; cz <= z1; cz++)
+        for (int cx = x0; cx <= x1; cx++)
         {
             if (!_cells.TryGetValue((cx, cz), out List<Item> cell)) continue;
             foreach (Item item in cell)
             {
                 if (item.Loaded || FlatDistanceSquared(item.Position, camera) > loadSquared) continue;
                 Load(scene.World, item);
-                if (--budget <= 0) break;
-                if (running && System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds >= LoadMillisecondsPerFrame)
-                {
-                    budget = 0;
-                    break;
-                }
+                if (--budget <= 0) return false;
+                if (System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds >= milliseconds) return false;
             }
         }
 
-        if (!running) WarmKinds(scene);
+        return true;
+    }
+
+    public void Update(RuntimeScene scene, GameTime time)
+    {
+        if (_builder == null || scene?.World == null || _items.Count == 0) return;
+        Vector3 camera = scene.Camera3D.Position;
+        float load = Distance;
+        float unload = load * MathF.Max(1.05f, UnloadFactor), unloadSquared = unload * unload;
+
+        // The first update fills the view at once; a room should not open on an empty street.
+        bool running = _primed;
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
+        _primed = true;
+        Fill(scene, running ? Math.Max(1, LoadsPerFrame) : int.MaxValue, running ? LoadMillisecondsPerFrame : double.MaxValue, started);
+
+        if (!running) WarmKinds(scene, double.MaxValue, started);
 
         // Look at a slice of what is loaded each frame; leaving is never urgent.
         int checks = Math.Min(_loaded.Count, 96);
@@ -169,18 +190,29 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem
     /// to it); this pays that while the room loads instead of in the frame a distant village
     /// first comes into range.
     /// </summary>
-    private void WarmKinds(RuntimeScene scene)
+    /// <returns>False when it stopped because its time ran out; the next call carries on from there.</returns>
+    private bool WarmKinds(RuntimeScene scene, double milliseconds, long started)
     {
-        var known = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (Item item in _loaded) known.Add(item.Node.GameObject?.Prefab ?? "");
-        foreach (Item item in _items)
+        foreach (Item item in _loaded) _warmedKinds.Add(item.Node.GameObject?.Prefab ?? "");
+        for (; _kindCursor < _items.Count; _kindCursor++)
         {
+            Item item = _items[_kindCursor];
             // Not for an Object with scripts: its Create and Destroy events would run for nothing.
-            if (item.Loaded || item.Streamable || !known.Add(item.Node.GameObject?.Prefab ?? "")) continue;
+            if (item.Loaded || item.Streamable || !_warmedKinds.Add(item.Node.GameObject?.Prefab ?? "")) continue;
             Load(scene.World, item);
             if (Unload(scene, item)) _loaded.Remove(item);
+            if (System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds >= milliseconds)
+            {
+                _kindCursor++;
+                return false;
+            }
         }
+
+        return true;
     }
+
+    private readonly HashSet<string> _warmedKinds = new(StringComparer.OrdinalIgnoreCase);
+    private int _kindCursor;
 
     private static float FlatDistanceSquared(Vector3 a, Vector3 b)
     {
@@ -237,6 +269,8 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem
         _loaded.Clear();
         _items.Clear();
         _cells.Clear();
+        _warmedKinds.Clear();
+        _kindCursor = 0;
         _builder = null;
     }
 }

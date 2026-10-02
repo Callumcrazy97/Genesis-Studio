@@ -18,8 +18,19 @@ namespace Genesis.Runtime.Modeling
         private readonly RuntimeModelAssetRegistry _assets;
         private readonly ModelGpuCache _gpu;
         private readonly Dictionary<(string Project, string Model), GModelAsset> _frameAssets = new();
+        /// <summary>
+        /// When true, a material's texture that is not loaded yet is read and decoded on a worker
+        /// thread, and a mesh is left out of the frame until every texture it uses has arrived:
+        /// it appears a few frames late, whole, rather than holding one frame up for all of them.
+        /// Off unless a game's host turns it on. Editors, previews and captures draw a model in
+        /// the frame that asks for it.
+        /// </summary>
+        public static bool BackgroundTextures { get; set; }
+
         private sealed class CachedTexture
         {
+            /// <summary>True while a worker is still reading the texture: ask again next frame.</summary>
+            public bool Pending;
             public TextureHandle Handle;
             public long NextFreshnessCheckMilliseconds;
             public int FrameGeneration;
@@ -295,6 +306,9 @@ namespace Genesis.Runtime.Modeling
                 RenderColor tint = new(0.78f, 0.77f, 0.70f, 1f);
                 float alpha = 1f;
                 float emissive = 0f;
+                // Scatter and other callers that keep what is enqueued as a template need it whole, now.
+                bool background = BackgroundTextures && forcedLevel < 0;
+                bool texturesPending = false;
 
                 if (animation.FlatUntextured)
                 {
@@ -315,13 +329,17 @@ namespace Genesis.Runtime.Modeling
                     texture = animation.IgnoreTextures ? TextureHandle.Invalid : LoadMaterialTexture(
                         renderer,
                         projectPath,
-                        hasOverride ? materialOverride : material?.AlbedoTexture);
+                        hasOverride ? materialOverride : material?.AlbedoTexture,
+                        TextureColorSpace.Srgb, background, ref texturesPending);
                     if (!animation.IgnoreTextures && !hasOverride && material is not null)
                     {
-                        normalMap = LoadMaterialTexture(renderer, projectPath, material.NormalTexture, TextureColorSpace.Linear);
-                        ormMap = LoadMaterialTexture(renderer, projectPath, material.MetallicRoughnessTexture, TextureColorSpace.Linear);
-                        emissionMap = LoadMaterialTexture(renderer, projectPath, material.EmissiveTexture);
+                        normalMap = LoadMaterialTexture(renderer, projectPath, material.NormalTexture, TextureColorSpace.Linear, background, ref texturesPending);
+                        ormMap = LoadMaterialTexture(renderer, projectPath, material.MetallicRoughnessTexture, TextureColorSpace.Linear, background, ref texturesPending);
+                        emissionMap = LoadMaterialTexture(renderer, projectPath, material.EmissiveTexture, TextureColorSpace.Srgb, background, ref texturesPending);
                     }
+
+                    // A worker is still reading one of them. Asking has started them all; the mesh waits.
+                    if (texturesPending) continue;
                     tint = hasOverride ? RenderColor.White : ToRenderColor(material?.BaseColor ?? Vector4.One);
                     alpha = hasOverride ? 1f : material?.BaseColor.W ?? 1f;
                     Vector3 authoredEmission = material?.EmissiveFactor ?? Vector3.Zero;
@@ -453,23 +471,28 @@ namespace Genesis.Runtime.Modeling
         }
 
         private TextureHandle LoadMaterialTexture(IRenderController renderer, string projectPath, string texturePath,
-            TextureColorSpace colorSpace = TextureColorSpace.Srgb)
+            TextureColorSpace colorSpace, bool background, ref bool pending)
         {
             var textures = _textures.GetValue(renderer, _ => new());
             var key = (projectPath, texturePath, colorSpace);
             long now = Environment.TickCount64;
             long assetGeneration = Genesis.Shared.Assets.RuntimeAssetPolicy.Generation;
+            // A texture still being read is asked for once in each frame, however many meshes use
+            // it, and again in the next frame; one that has arrived is trusted as before.
             if (textures.TryGetValue(key, out CachedTexture cached)
                 && cached.AssetGeneration == assetGeneration
                 && ((_frameOpen && cached.FrameGeneration == _frameGeneration)
-                    || now < cached.NextFreshnessCheckMilliseconds)
+                    || (!cached.Pending && now < cached.NextFreshnessCheckMilliseconds))
                 && (!cached.Handle.IsValid || renderer.IsTextureLive(cached.Handle)))
             {
+                pending |= cached.Pending;
                 return cached.Handle;
             }
 
-            TextureHandle texture = ResolveMaterialTexture(renderer, projectPath, texturePath, colorSpace);
+            TextureHandle texture = ResolveMaterialTexture(renderer, projectPath, texturePath, colorSpace, background, out bool waiting);
+            pending |= waiting;
             cached ??= new CachedTexture();
+            cached.Pending = waiting;
             cached.Handle = texture;
             cached.FrameGeneration = _frameGeneration;
             cached.AssetGeneration = assetGeneration;
@@ -482,8 +505,10 @@ namespace Genesis.Runtime.Modeling
             return texture;
         }
 
-        private static TextureHandle ResolveMaterialTexture(IRenderController renderer, string projectPath, string texturePath, TextureColorSpace colorSpace)
+        private static TextureHandle ResolveMaterialTexture(IRenderController renderer, string projectPath, string texturePath,
+            TextureColorSpace colorSpace, bool background, out bool pending)
         {
+            pending = false;
             string resolved = ResolveTexturePath(projectPath, texturePath);
             if (string.IsNullOrWhiteSpace(resolved)) return TextureHandle.Invalid;
             if (Genesis.Runtime.Assets.SpriteAssetLoader.IsSpriteDescriptorPath(resolved))
@@ -492,8 +517,9 @@ namespace Genesis.Runtime.Modeling
                 resolved = Genesis.Runtime.Assets.SpriteAssetLoader.ResolveFrameTexturePath(resolved, image, 0);
             }
             Genesis.Shared.Assets.AssetIoCounters.Check();
-            return string.IsNullOrWhiteSpace(resolved) || !File.Exists(resolved)
-                ? TextureHandle.Invalid
+            if (string.IsNullOrWhiteSpace(resolved) || !File.Exists(resolved)) return TextureHandle.Invalid;
+            return background
+                ? renderer.LoadTextureInBackground(resolved, colorSpace, out pending)
                 : renderer.LoadTexture(resolved, colorSpace);
         }
 

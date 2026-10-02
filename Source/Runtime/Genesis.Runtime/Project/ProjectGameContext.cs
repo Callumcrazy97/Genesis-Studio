@@ -124,10 +124,18 @@ namespace Genesis.Runtime.Project
         /// <summary>The room being read for <see cref="ChangeRoomWhenLoaded"/>, or empty.</summary>
         public string RoomBeingLoaded => _roomWhenLoaded ?? string.Empty;
 
-        /// <summary>From 0 to 1: how much of the room being read is ready. 1 when none is being read.</summary>
-        public float RoomLoadProgress => _roomWhenLoaded == null
-            ? 1f
-            : Math.Clamp(1f - Genesis.Runtime.Modeling.RuntimeModelStore.PrefetchesPending / (float)Math.Max(1, _roomWhenLoadedModels), 0f, 1f);
+        /// <summary>
+        /// From 0 to 1: how much of the room being read, or being changed to, is ready. 1 when
+        /// no room is being read and no room change is under way.
+        /// </summary>
+        public float RoomLoadProgress => _scene?.RoomChange is { } change
+            ? change.Progress
+            : _roomWhenLoaded == null
+                ? 1f
+                : Math.Clamp(1f - Genesis.Runtime.Modeling.RuntimeModelStore.PrefetchesPending / (float)Math.Max(1, _roomWhenLoadedModels), 0f, 1f);
+
+        /// <summary>True while a room change is being spread over frames behind its loading screen.</summary>
+        public bool IsChangingRoom => _scene?.RoomChange != null;
 
         /// <summary>Returns and clears a pending room change requested by gameplay scripts.</summary>
         public bool TryConsumePendingRoom(out string roomName)

@@ -129,6 +129,7 @@ namespace Genesis.Audio
                 && _soundVersions.TryGetValue(cached, out var versions)
                 && Array.TrueForAll(versions, version => CaptureVersion(version.Path) == version)) return cached;
 
+            using var timed = Genesis.Shared.Assets.LoadClock.Measure(Genesis.Shared.Assets.LoadWork.Sound);
             string abs = ResolvePath(projectRelativePath);
             string resourcePath = abs;
 

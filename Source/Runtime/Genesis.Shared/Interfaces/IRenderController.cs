@@ -133,6 +133,21 @@ namespace Genesis.Shared.Interfaces
         // ── Texture management ──────────────────────────────────────────────────
         TextureHandle LoadTexture(string path);
         TextureHandle LoadTexture(string path, TextureColorSpace colorSpace) => LoadTexture(path);
+
+        /// <summary>
+        /// Like <see cref="LoadTexture(string, TextureColorSpace)"/>, but a texture that is not
+        /// loaded yet is read and decoded on a worker thread. While that is under way the result
+        /// is invalid and <paramref name="pending"/> is true: ask again on a later frame. A
+        /// renderer without background loading reads the texture at once.
+        /// </summary>
+        TextureHandle LoadTextureInBackground(string path, TextureColorSpace colorSpace, out bool pending)
+        {
+            pending = false;
+            return LoadTexture(path, colorSpace);
+        }
+
+        /// <summary>Textures asked for with <see cref="LoadTextureInBackground"/> that are not ready yet.</summary>
+        int BackgroundTexturesPending => 0;
         TextureHandle CreateTexture(int width, int height, ReadOnlySpan<byte> rgba);
         /// <summary>Creates a texture for a specific use; lit colour/data textures get mipmaps.</summary>
         TextureHandle CreateTexture(int width, int height, ReadOnlySpan<byte> rgba, TextureColorSpace colorSpace)

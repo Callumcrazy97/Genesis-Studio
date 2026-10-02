@@ -440,6 +440,27 @@ namespace Genesis.Runtime.Scripting
         }
 
         /// <summary>
+        /// Lets behaviours draw the loading screen of a room change that is spread over frames.
+        /// Objects that have been placed but whose Create event has not run yet are left out.
+        /// Returns true when at least one behaviour drew it.
+        /// </summary>
+        public bool DispatchDrawLoadingScreen(IHudCanvas hud, float progress)
+        {
+            if (_instances.Count == 0 || hud == null) return false;
+            FillDispatchSnapshot();
+            bool drawn = false;
+            foreach (var b in _dispatchSnapshot)
+            {
+                if (b.World == null || !b.World.IsAlive(b.Entity)) continue;
+                if (_deferredCreates.Count > 0 && _deferredCreates.Contains(b)) continue;
+                try { drawn |= b.OnDrawLoadingScreen(hud, progress); }
+                catch (Exception ex) { LogBehaviorError(b, "OnDrawLoadingScreen", ex); }
+            }
+
+            return drawn;
+        }
+
+        /// <summary>
         /// Runs every PGSL object's <c>Draw</c> event with a live draw surface, so script-issued
         /// 2D drawing (shapes via the sprite batch, text via the D2D HUD canvas) actually reaches
         /// the frame. Before this existed nothing implemented <c>IPgslDrawSurface</c>, so all PGSL

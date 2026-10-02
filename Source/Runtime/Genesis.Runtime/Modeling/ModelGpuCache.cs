@@ -151,6 +151,7 @@ namespace Genesis.Runtime.Modeling
                 return cached;
             }
 
+            using var timed = Genesis.Shared.Assets.LoadClock.Measure(Genesis.Shared.Assets.LoadWork.ModelUpload);
             cached = new CachedAsset();
             if (asset.Meshes != null)
             {
@@ -333,6 +334,7 @@ namespace Genesis.Runtime.Modeling
 
         private static void UploadAutoLods(IRenderController renderer, CachedAsset cached)
         {
+            using var timed = Genesis.Shared.Assets.LoadClock.Measure(Genesis.Shared.Assets.LoadWork.ModelUpload);
             Task<AutoLodMesh[]> build = cached.AutoLodBuild;
             cached.AutoLodBuild = null;
             if (!build.IsCompletedSuccessfully) return;

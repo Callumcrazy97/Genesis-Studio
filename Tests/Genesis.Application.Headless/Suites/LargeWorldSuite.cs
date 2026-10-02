@@ -165,6 +165,7 @@ internal static class LargeWorldSuite
         LargeWorldContentSuite.Run(context);
         NetworkReplicationSuite.Run(context);
         EngineAdditionsSuite.Run(context);
+        RoomChangeSuite.Run(context);
     }
 
     /// <summary>A 2 km island recipe using every world command.</summary>

@@ -149,17 +149,33 @@ public sealed class RoomSceneBuilder
     public RoomBuildResult Build(RuntimeScene scene, RoomAsset asset)
     {
         if (scene == null) throw new ArgumentNullException(nameof(scene));
+        var result = new RoomBuildResult { Asset = asset };
+        foreach (float _ in BuildSteps(scene, asset, result)) { }
+        return result;
+    }
+
+    /// <summary>
+    /// Builds a room a piece at a time: one object is placed between each value returned, and the
+    /// value is how far along the room is, from 0 to 1. The caller decides whether to carry on at
+    /// once or after the next frame has been drawn. Create events still run together, after every
+    /// object is placed, as one last piece. Nothing in the room may be updated or drawn until the
+    /// last value has been taken.
+    /// </summary>
+    public IEnumerable<float> BuildSteps(RuntimeScene scene, RoomAsset asset, RoomBuildResult result)
+    {
+        if (scene == null) throw new ArgumentNullException(nameof(scene));
+        if (result == null) throw new ArgumentNullException(nameof(result));
+        result.Asset = asset;
         ApplySceneSettings(scene, asset);
         if (asset.Dimension == RoomDimension.TwoD && asset.Nodes.Any(node => node.Kind == RoomNodeKind.GameObject
                 && node.GameObject != null && RoomHierarchyTransforms.IsActive(asset, node)
                 && SpritePhysicsBinding.UsesSavedTwoDAsset(_projectPath, ApplyOverrides(ResolvePrefab(node.GameObject.Prefab), node.GameObject.ComponentOverrides))))
             SpritePhysicsBinding.EnsureScene(scene, asset, _projectPath);
-        RoomBuildResult result = Build(scene.World, asset);
+        foreach (float done in Steps(scene.World, asset, terrainOnly: false, result)) yield return done;
         bool spritePhysics = false;
         scene.World.Query<SpritePhysicsBindingComponent>((Entity entity, ref SpritePhysicsBindingComponent binding) => spritePhysics = true);
         if (asset.Dimension == RoomDimension.TwoD && spritePhysics) SpritePhysicsBinding.EnsureScene(scene, asset, _projectPath);
         ApplyActiveGameCamera(scene, asset);
-        return result;
     }
 
     public RoomBuildResult Build(EcsWorld world, RoomAsset asset)
@@ -247,19 +263,30 @@ public sealed class RoomSceneBuilder
     private RoomBuildResult Build(EcsWorld world, RoomAsset asset, bool terrainOnly)
     {
         if (world == null) throw new ArgumentNullException(nameof(world));
-        asset.Normalize(); RoomAssetLoader.Validate(asset);
         var result = new RoomBuildResult { Asset = asset };
+        foreach (float _ in Steps(world, asset, terrainOnly, result)) { }
+        return result;
+    }
+
+    private IEnumerable<float> Steps(EcsWorld world, RoomAsset asset, bool terrainOnly, RoomBuildResult result)
+    {
+        if (world == null) throw new ArgumentNullException(nameof(world));
+        asset.Normalize(); RoomAssetLoader.Validate(asset);
 
         // Hold every OnCreate until the whole room is spawned AND positioned — SpawnGameObject
         // applies the placement transform after PrefabSpawner returns, so an inline Create would
         // read x=0,y=0 and have its own assignments overwritten a line later (NEXT-047).
         bool deferring = _scriptHost != null && !_scriptHost.DeferCreateEvents;
         if (deferring) _scriptHost.DeferCreateEvents = true;
-        long spawnStarted = System.Diagnostics.Stopwatch.GetTimestamp();
+        // Only the time spent placing objects is counted, not the frames drawn between pieces.
+        long spawnTicks = 0;
+        long mark = System.Diagnostics.Stopwatch.GetTimestamp();
         try
         {
-            foreach (RoomNode node in asset.Nodes.OrderBy(n => LayerOrder(asset, n)).ThenBy(n => n.Order))
+            List<RoomNode> ordered = asset.Nodes.OrderBy(n => LayerOrder(asset, n)).ThenBy(n => n.Order).ToList();
+            for (int index = 0; index < ordered.Count; index++)
             {
+                RoomNode node = ordered[index];
                 if (!RoomHierarchyTransforms.IsActive(asset, node)) continue;
                 if (!terrainOnly && node.Kind == RoomNodeKind.GameObject && node.GameObject != null)
                 {
@@ -268,38 +295,54 @@ public sealed class RoomSceneBuilder
                     SpawnGameObject(world, asset, node, result);
                     result.RecordSpawn(node.Name ?? node.GameObject.Prefab,
                         System.Diagnostics.Stopwatch.GetElapsedTime(one).TotalMilliseconds);
+                    spawnTicks += System.Diagnostics.Stopwatch.GetTimestamp() - mark;
+                    yield return (index + 1f) / ordered.Count;
+                    mark = System.Diagnostics.Stopwatch.GetTimestamp();
                 }
                 // Tile layers are rendered as batches and collide through RoomTileCollisionMap.
                 // They are not gameplay instances: no per-cell ECS transforms or phantom query hits.
                 else if (node.Kind == RoomNodeKind.Terrain && node.Terrain != null)
-                    SpawnTerrainObjects(world, asset, node, result);
+                {
+                    foreach (float part in SpawnTerrainObjects(world, asset, node, result))
+                    {
+                        spawnTicks += System.Diagnostics.Stopwatch.GetTimestamp() - mark;
+                        yield return (index + part) / ordered.Count;
+                        mark = System.Diagnostics.Stopwatch.GetTimestamp();
+                    }
+                }
             }
+
+            spawnTicks += System.Diagnostics.Stopwatch.GetTimestamp() - mark;
+            // The Create events are one piece of their own, after a pause the caller may take.
+            yield return 1f;
         }
         finally
         {
             if (deferring) _scriptHost.DeferCreateEvents = false;
         }
 
-        result.SpawnMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(spawnStarted).TotalMilliseconds;
+        result.SpawnMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(0, spawnTicks).TotalMilliseconds;
         long createStarted = System.Diagnostics.Stopwatch.GetTimestamp();
         _scriptHost?.FlushDeferredCreates();
         result.CreateEventsMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(createStarted).TotalMilliseconds;
-        return result;
     }
 
-    private void SpawnTerrainObjects(EcsWorld world, RoomAsset room, RoomNode terrain, RoomBuildResult result)
+    /// <summary>Places the Objects a terrain carries, one between each value returned; the value is the share placed, from 0 to 1.</summary>
+    private IEnumerable<float> SpawnTerrainObjects(EcsWorld world, RoomAsset room, RoomNode terrain, RoomBuildResult result)
     {
         string resource = ResourceNames.Resolve(_projectPath, terrain.Terrain.Asset, ResourceType.Terrain);
         if (!resource.EndsWith(".terrain.json", StringComparison.OrdinalIgnoreCase))
         {
             string binary = Project.RoomTerrainSubsystem.ResolveTerrainFile(_projectPath, terrain.Terrain.Asset);
-            if (binary == null) return;
+            if (binary == null) yield break;
             resource = Project.RoomTerrainSubsystem.ResolveTerrainResourcePath(binary);
         }
         var nature = Genesis.World.Terrain.TerrainNatureSerializer.LoadOrDefault(resource);
         var terrainTransform = ResolveWorldTransform(room, terrain);
+        int placedCount = 0, placedTotal = Math.Max(1, nature.PlacedEntities.Count);
         foreach (var placed in nature.PlacedEntities)
         {
+            placedCount++;
             bool isObject = ResourceNames.Resolve(_projectPath, placed.Entity, ResourceType.Object).Length > 0;
             TerrainPartDefinition part = isObject ? null : TerrainPartBinding.Load(_projectPath, placed);
             if (!isObject && part == null) continue;
@@ -322,6 +365,7 @@ public sealed class RoomSceneBuilder
             else SpawnResolvedObject(world, room, node, result, part.Definition, part.Events);
             if (result.EntitiesByNodeId.TryGetValue(node.Id, out Entity entity))
                 result.TerrainParts.Add((entity, terrain, local));
+            yield return placedCount / (float)placedTotal;
         }
     }
 

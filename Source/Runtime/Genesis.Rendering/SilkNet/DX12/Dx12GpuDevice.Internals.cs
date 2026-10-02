@@ -1016,8 +1016,12 @@ namespace Genesis.Rendering.SilkNet.DX12
 
                     ComPtr<ID3D12PipelineState> pso = default;
                     GpuTelemetry.PipelineCreated();
-                    int hr = _runtime.Device.Handle->CreateGraphicsPipelineState(
-                        &desc, SilkMarshal.GuidPtrOf<ID3D12PipelineState>(), (void**)pso.GetAddressOf());
+                    int hr;
+                    using (Genesis.Shared.Assets.LoadClock.Measure(Genesis.Shared.Assets.LoadWork.Pipeline))
+                    {
+                        hr = _runtime.Device.Handle->CreateGraphicsPipelineState(
+                            &desc, SilkMarshal.GuidPtrOf<ID3D12PipelineState>(), (void**)pso.GetAddressOf());
+                    }
 
                     if (elements != null)
                     {
