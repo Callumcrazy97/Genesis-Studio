@@ -302,11 +302,71 @@ public static partial class PgslCommands
     [PgslCommand("GetMasterVolume", "GetMasterVolume()", "Current overall output volume", "Audio")]
     public static double GetMasterVolume() => ActiveGameContext?.Audio?.MasterVolume ?? 0;
 
-    [PgslCommand("SetAudioListener", "SetAudioListener(x, y, z)", "Move the listener for 3D positional audio", "Audio")]
-    public static void SetAudioListener(double x, double y, double z) =>
+    /// <summary>
+    /// True once a script has placed the listener itself. In a 3D room the Player otherwise keeps
+    /// the listener at the camera, facing the way it faces.
+    /// </summary>
+    public static bool AudioListenerManual { get; set; }
+
+    [PgslCommand("SetAudioListener", "SetAudioListener(x, y, z)",
+        "Put the listener for positioned sounds somewhere of your choosing. In a 3D room it otherwise follows the camera", "Audio")]
+    public static void SetAudioListener(double x, double y, double z)
+    {
+        AudioListenerManual = true;
         ActiveGameContext?.Audio?.SetListener(
             new System.Numerics.Vector3((float)x, (float)y, (float)z),
             new System.Numerics.Vector3(0f, 0f, -1f));
+    }
+
+    [PgslCommand("AudioListenerFollowCamera", "AudioListenerFollowCamera()",
+        "Give the listener back to the 3D camera after SetAudioListener", "Audio")]
+    public static void AudioListenerFollowCamera() => AudioListenerManual = false;
+
+    [PgslCommand("PlaySoundAt", "PlaySoundAt(path, x, y, z, volume, pitch, loop)",
+        "Play a sound at a place in the world: quieter with distance and heard to one side. Returns a channel handle", "Audio")]
+    public static double PlaySoundAt(string path, double x, double y, double z, double volume = 1.0, double pitch = 1.0, bool loop = false)
+    {
+        var audio = ActiveGameContext?.Audio;
+        if (audio == null || string.IsNullOrWhiteSpace(path)) return 0;
+        int soundId = audio.LoadSound(path);
+        if (soundId == 0) return 0;
+        return audio.PlayAt(
+            soundId,
+            new System.Numerics.Vector3((float)x, (float)y, (float)z),
+            (float)Math.Clamp(volume, 0, 1),
+            (float)Math.Clamp(pitch, 0.01, 4.0),
+            loop).Id;
+    }
+
+    [PgslCommand("SoundSetVolume", "SoundSetVolume(channel, volume)", "Change the volume of a playing channel (0..1)", "Audio")]
+    public static void SoundSetVolume(double channel, double volume) =>
+        ActiveGameContext?.Audio?.SetChannelVolume(new Genesis.Shared.Audio.AudioChannel((int)channel), (float)Math.Clamp(volume, 0, 1));
+
+    [PgslCommand("SoundSetPitch", "SoundSetPitch(channel, pitch)", "Change the pitch of a playing channel (1 is as recorded)", "Audio")]
+    public static void SoundSetPitch(double channel, double pitch) =>
+        ActiveGameContext?.Audio?.SetChannelPitch(new Genesis.Shared.Audio.AudioChannel((int)channel), (float)Math.Clamp(pitch, 0.01, 4.0));
+
+    [PgslCommand("SoundSetPosition", "SoundSetPosition(channel, x, y, z)", "Move a playing channel to a place in the world", "Audio")]
+    public static void SoundSetPosition(double channel, double x, double y, double z) =>
+        ActiveGameContext?.Audio?.SetChannelPosition(
+            new Genesis.Shared.Audio.AudioChannel((int)channel), new System.Numerics.Vector3((float)x, (float)y, (float)z));
+
+    [PgslCommand("SoundFade", "SoundFade(channel, volume, seconds)", "Move a playing channel's volume to a new level over a time", "Audio")]
+    public static void SoundFade(double channel, double volume, double seconds) =>
+        ActiveGameContext?.Audio?.FadeChannel(
+            new Genesis.Shared.Audio.AudioChannel((int)channel), (float)Math.Clamp(volume, 0, 1), (float)Math.Clamp(seconds, 0, 600));
+
+    [PgslCommand("StopSoundFaded", "StopSoundFaded(channel, seconds)", "Fade a playing channel to silence over a time, then stop it", "Audio")]
+    public static void StopSoundFaded(double channel, double seconds) =>
+        ActiveGameContext?.Audio?.FadeChannel(
+            new Genesis.Shared.Audio.AudioChannel((int)channel), 0f, (float)Math.Clamp(seconds, 0, 600), stopWhenDone: true);
+
+    [PgslCommand("SetBusVolume", "SetBusVolume(bus, volume)", "Set the volume of a group of sounds: \"music\", \"sfx\" or \"master\" (0..1)", "Audio")]
+    public static void SetBusVolume(string bus, double volume) =>
+        ActiveGameContext?.Audio?.SetBusVolume(bus, (float)Math.Clamp(volume, 0, 1));
+
+    [PgslCommand("GetBusVolume", "GetBusVolume(bus) -> number", "The volume of a group of sounds: \"music\", \"sfx\" or \"master\"", "Audio")]
+    public static double GetBusVolume(string bus) => ActiveGameContext?.Audio?.GetBusVolume(bus) ?? 1;
 
     #endregion
 
@@ -754,6 +814,79 @@ public static partial class PgslCommands
 
     [PgslCommand("GetMouseLookDeltaY", "GetMouseLookDeltaY() -> float", "Get mouse look vertical delta", "Input")]
     public static double GetMouseLookDeltaY() => ActiveGameContext?.Input?.LookDelta.Y ?? 0;
+
+    [PgslCommand("MouseWheel", "MouseWheel() -> number", "How far the mouse wheel turned this frame; positive is away from you", "Input")]
+    public static double MouseWheel() => ActiveGameContext?.Input?.WheelDelta ?? 0;
+
+    private static bool ParseGamepadButton(string name, out GamepadButton button)
+    {
+        button = default;
+        if (string.IsNullOrWhiteSpace(name)) return false;
+        switch (name.Trim().ToLowerInvariant())
+        {
+            case "lb": case "l1": button = GamepadButton.LeftBumper; return true;
+            case "rb": case "r1": button = GamepadButton.RightBumper; return true;
+            case "lt": case "l2": button = GamepadButton.LeftTrigger; return true;
+            case "rt": case "r2": button = GamepadButton.RightTrigger; return true;
+            case "l3": button = GamepadButton.LeftStick; return true;
+            case "r3": button = GamepadButton.RightStick; return true;
+            case "select": case "view": button = GamepadButton.Back; return true;
+            case "menu": button = GamepadButton.Start; return true;
+            case "up": button = GamepadButton.DPadUp; return true;
+            case "down": button = GamepadButton.DPadDown; return true;
+            case "left": button = GamepadButton.DPadLeft; return true;
+            case "right": button = GamepadButton.DPadRight; return true;
+        }
+
+        return !char.IsDigit(name.Trim()[0]) && Enum.TryParse(name.Trim(), true, out button) && Enum.IsDefined(button);
+    }
+
+    [PgslCommand("GamepadConnected", "GamepadConnected() -> bool", "True while a controller is plugged in", "Input")]
+    public static bool GamepadConnected() => ActiveGameContext?.Input?.GamepadConnected ?? false;
+
+    [PgslCommand("GamepadCheck", "GamepadCheck(button) -> bool",
+        "True while a controller button is held: \"A\", \"B\", \"X\", \"Y\", \"LB\", \"RB\", \"LT\", \"RT\", \"L3\", \"R3\", \"Start\", \"Back\", \"DPadUp\", \"DPadDown\", \"DPadLeft\", \"DPadRight\"", "Input")]
+    public static bool GamepadCheck(string button) =>
+        ActiveGameContext?.Input != null && ParseGamepadButton(button, out GamepadButton parsed) && ActiveGameContext.Input.IsDown(parsed);
+
+    [PgslCommand("GamepadPressed", "GamepadPressed(button) -> bool", "True in the frame a controller button goes down", "Input")]
+    public static bool GamepadPressed(string button) =>
+        ActiveGameContext?.Input != null && ParseGamepadButton(button, out GamepadButton parsed) && ActiveGameContext.Input.WasPressed(parsed);
+
+    [PgslCommand("GamepadReleased", "GamepadReleased(button) -> bool", "True in the frame a controller button comes up", "Input")]
+    public static bool GamepadReleased(string button) =>
+        ActiveGameContext?.Input != null && ParseGamepadButton(button, out GamepadButton parsed) && ActiveGameContext.Input.WasReleased(parsed);
+
+    [PgslCommand("GamepadAxis", "GamepadAxis(axis) -> number",
+        "A stick or trigger: \"LeftX\", \"LeftY\", \"RightX\", \"RightY\" from -1 to 1 (right and away from you are positive), \"LeftTrigger\", \"RightTrigger\" from 0 to 1", "Input")]
+    public static double GamepadAxis(string axis)
+    {
+        InputState input = ActiveGameContext?.Input;
+        if (input == null || string.IsNullOrWhiteSpace(axis)) return 0;
+        return axis.Trim().ToLowerInvariant() switch
+        {
+            "leftx" => input.LeftStick.X,
+            // The window already turns the left stick so that away from you is positive.
+            "lefty" => input.LeftStick.Y,
+            "rightx" => input.RightStick.X,
+            "righty" => -input.RightStick.Y,
+            "lefttrigger" or "lt" => input.LeftTrigger,
+            "righttrigger" or "rt" => input.RightTrigger,
+            _ => 0,
+        };
+    }
+
+    [PgslCommand("GamepadVibrate", "GamepadVibrate(low, high, seconds)",
+        "Run the controller's motors: the heavy one and the light one, each 0 to 1, for a time", "Input")]
+    public static void GamepadVibrate(double low, double high, double seconds) =>
+        ActiveGameContext?.Input?.Rumble((float)low, (float)high, (float)seconds);
+
+    [PgslCommand("GamepadKeyboardEmulation", "GamepadKeyboardEmulation(enabled)",
+        "Whether the controller also presses keys (A is Space, the triggers are the mouse buttons, the right stick looks). On by default; turn it off when your scripts read the controller", "Input")]
+    public static void GamepadKeyboardEmulation(bool enabled)
+    {
+        if (ActiveGameContext?.Input != null) ActiveGameContext.Input.GamepadEmulatesKeyboard = enabled;
+    }
 
     #endregion
 

@@ -412,6 +412,17 @@ namespace Genesis.Runtime.Project
                             Console.WriteLine("GENESIS_PLAYER_STATE " + (host.IsPlayPaused ? "paused" : "running"));
                         }
                         if (_stopRequested) _activeWindow?.Close();
+                        try
+                        {
+                            // Positioned sounds are heard from the 3D camera unless a script placed the listener.
+                            if (_activeAudio != null && host.Scene != null && gameContext?.Room?.Dimension == RoomDimension.ThreeD
+                                && !Genesis.Runtime.Scripting.PgslCommands.AudioListenerManual)
+                            {
+                                var ear = host.Scene.Camera3D;
+                                _activeAudio.SetListener(ear.Position, ear.Forward, ear.Right);
+                            }
+                        }
+                        catch { }
                         try { _activeAudio?.Update(); } catch { }
                         try { _activeNet?.Update(); } catch { }
                         try

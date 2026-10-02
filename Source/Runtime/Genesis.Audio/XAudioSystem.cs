@@ -24,6 +24,9 @@ namespace Genesis.Audio
 
         private Vector3 _listenerPos;
         private Vector3 _listenerForward = -Vector3.UnitZ;
+        private Vector3 _listenerRight = Vector3.UnitX;
+        private int _outputChannels = -1;
+        private float[] _panMatrix = new float[16];
         private float _busMaster = 1f;
         private float _busSfx = 1f;
         private float _busMusic = 1f;
@@ -53,6 +56,15 @@ namespace Genesis.Audio
             public IXAudio2SourceVoice? Voice;
             public AudioSpatialSettings? SpatialOverride;
             public SoundEffect Effect = null!;
+            /// <summary>The volume asked for, before the sound's own level, its bus and distance.</summary>
+            public float UserVolume = 1f;
+            /// <summary>The sound's own authored pitch; a script's pitch multiplies it.</summary>
+            public float AssetPitch = 1f;
+            public bool Fading, StopAfterFade;
+            public float FadeFrom, FadeTo, FadeSeconds;
+            public long FadeStarted;
+            /// <summary>The levels last given to the left and right outputs; 1 and 1 until it is panned.</summary>
+            public float PanLeft = 1f, PanRight = 1f;
         }
 
         public XAudioSystem(string projectPath)
@@ -164,6 +176,8 @@ namespace Genesis.Audio
                 Loop = wantLoop,
                 Spatial = entry.Spatial,
                 BaseVolume = volume * entry.Gain,
+                UserVolume = volume,
+                AssetPitch = entry.Pitch,
                 Bus = entry.Bus,
                 Settings = entry.Settings,
                 Voice = voice,
@@ -225,9 +239,45 @@ namespace Genesis.Audio
         public void SetChannelVolume(AudioChannel channel, float volume)
         {
             if (!channel.IsValid || !_channels.TryGetValue(channel.Id, out ChannelState? state) || state == null) return;
-            state.BaseVolume = Math.Clamp(volume, 0f, 2f) * state.Settings.Volume;
+            state.UserVolume = Math.Clamp(volume, 0f, 2f);
+            state.Fading = false;
+            state.BaseVolume = state.UserVolume * state.Settings.Volume;
             ApplySpatial(channel.Id);
         }
+
+        public void SetChannelPitch(AudioChannel channel, float pitch)
+        {
+            if (!channel.IsValid || !_channels.TryGetValue(channel.Id, out ChannelState? state) || state?.Voice == null) return;
+            if (!float.IsFinite(pitch)) return;
+            try { state.Voice.SetFrequencyRatio(Math.Clamp(pitch * state.AssetPitch, 0.01f, 4f), 0); }
+            catch (SharpGen.Runtime.SharpGenException) { }
+        }
+
+        public void FadeChannel(AudioChannel channel, float volume, float seconds, bool stopWhenDone = false)
+        {
+            if (!channel.IsValid || !_channels.TryGetValue(channel.Id, out ChannelState? state) || state == null) return;
+            float target = Math.Clamp(float.IsFinite(volume) ? volume : 0f, 0f, 2f);
+            if (!(seconds > 0f))
+            {
+                SetChannelVolume(channel, target);
+                if (stopWhenDone) Stop(channel);
+                return;
+            }
+
+            state.Fading = true;
+            state.StopAfterFade = stopWhenDone;
+            state.FadeFrom = state.UserVolume;
+            state.FadeTo = target;
+            state.FadeSeconds = seconds;
+            state.FadeStarted = System.Diagnostics.Stopwatch.GetTimestamp();
+        }
+
+        public float GetBusVolume(string bus) => (bus ?? "").Trim().ToLowerInvariant() switch
+        {
+            "music" => _busMusic,
+            "master" => _busMaster,
+            _ => _busSfx,
+        };
 
         public void SetChannelPosition(AudioChannel channel, Vector3 position)
         {
@@ -237,11 +287,18 @@ namespace Genesis.Audio
             ApplySpatial(channel.Id);
         }
 
-        public void SetListener(Vector3 position, Vector3 forward)
+        public void SetListener(Vector3 position, Vector3 forward) => SetListener(position, forward, Vector3.UnitX);
+
+        public void SetListener(Vector3 position, Vector3 forward, Vector3 right)
         {
+            Vector3 facing = forward.LengthSquared() > 1e-6f ? Vector3.Normalize(forward) : _listenerForward;
+            Vector3 side = right.LengthSquared() > 1e-6f ? Vector3.Normalize(right) : _listenerRight;
+            // Called every frame by the host: nothing to do while the listener stands still.
+            if (Vector3.DistanceSquared(position, _listenerPos) < 1e-8f && Vector3.DistanceSquared(facing, _listenerForward) < 1e-8f
+                && Vector3.DistanceSquared(side, _listenerRight) < 1e-8f) return;
             _listenerPos = position;
-            if (forward.LengthSquared() > 1e-6f)
-                _listenerForward = Vector3.Normalize(forward);
+            _listenerForward = facing;
+            _listenerRight = side;
             foreach (var id in _channels.Keys)
                 ApplySpatial(id);
         }
@@ -257,6 +314,28 @@ namespace Genesis.Audio
         public void Update()
         {
             _engine?.Update();
+            if (_channels.Count == 0) return;
+
+            List<int>? faded = null;
+            foreach (var kv in _channels)
+            {
+                ChannelState fading = kv.Value;
+                if (!fading.Fading) continue;
+                float progress = (float)(System.Diagnostics.Stopwatch.GetElapsedTime(fading.FadeStarted).TotalSeconds / fading.FadeSeconds);
+                if (progress >= 1f)
+                {
+                    progress = 1f;
+                    fading.Fading = false;
+                    if (fading.StopAfterFade) (faded ??= new List<int>()).Add(kv.Key);
+                }
+
+                fading.UserVolume = fading.FadeFrom + (fading.FadeTo - fading.FadeFrom) * progress;
+                fading.BaseVolume = fading.UserVolume * fading.Settings.Volume;
+                ApplySpatial(kv.Key);
+            }
+
+            if (faded != null)
+                foreach (int id in faded) Stop(new AudioChannel(id));
             if (_channels.Count == 0) return;
 
             var dead = new List<int>();
@@ -296,17 +375,31 @@ namespace Genesis.Audio
         {
             if (!_channels.TryGetValue(channelId, out var state) || state.Voice == null) return;
             float vol = state.BaseVolume * BusGain(state.Bus);
+            float left = 1f, right = 1f;
             if (state.Spatial)
             {
                 // Authored MinDistance / MaxDistance / Falloff, shared with the editor's
                 // audition so the designer hears the curve they are dialling in.
                 float dist = Vector3.Distance(_listenerPos, state.Position);
                 vol *= state.SpatialOverride?.AttenuationAt(dist) ?? state.Settings.AttenuationAt(dist);
+                AudioPanning.StereoLevels(_listenerPos, _listenerRight, state.Position, out left, out right);
             }
 
             try
             {
                 state.Voice.SetVolume(Math.Clamp(vol, 0f, 2f));
+                // The ear a positioned sound is nearer to. Left alone until a sound is first off
+                // centre, so sounds that are never positioned keep the device's own routing.
+                if (MathF.Abs(left - state.PanLeft) > 0.004f || MathF.Abs(right - state.PanRight) > 0.004f)
+                {
+                    if (_outputChannels < 0) _outputChannels = _engine.OutputChannels;
+                    int source = state.Effect?.Channels ?? 0;
+                    if (_panMatrix.Length < source * _outputChannels) _panMatrix = new float[source * _outputChannels];
+                    if (AudioPanning.FillMatrix(_panMatrix, source, _outputChannels, left, right))
+                        state.Voice.SetOutputMatrix((uint)source, (uint)_outputChannels, _panMatrix);
+                    state.PanLeft = left;
+                    state.PanRight = right;
+                }
             }
             catch (SharpGen.Runtime.SharpGenException)
             {

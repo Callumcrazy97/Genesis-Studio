@@ -13,6 +13,16 @@ namespace Genesis.Audio
 
         public IXAudio2 XAudio => _xaudio;
 
+        /// <summary>Channels of the device being played to: 2 for stereo, 6 for 5.1.</summary>
+        public int OutputChannels
+        {
+            get
+            {
+                try { return _disposed ? 0 : (int)_master.VoiceDetails.InputChannels; }
+                catch (SharpGen.Runtime.SharpGenException) { return 0; }
+            }
+        }
+
         private float _masterVolume = 1f;
         public float MasterVolume
         {

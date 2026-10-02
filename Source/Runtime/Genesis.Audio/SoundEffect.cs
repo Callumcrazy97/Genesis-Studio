@@ -21,6 +21,9 @@ namespace Genesis.Audio
             }
         }
 
+        /// <summary>1 for mono, 2 for stereo.</summary>
+        public int Channels => _format?.Channels ?? 0;
+
         private SoundEffect(WaveFormat fmt, byte[] data) { _format = fmt; _data = data; }
 
         // ── Playback ──────────────────────────────────────────────────────────────

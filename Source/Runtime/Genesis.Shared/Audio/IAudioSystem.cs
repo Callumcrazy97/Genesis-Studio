@@ -75,6 +75,39 @@ namespace Genesis.Shared.Audio
         /// </summary>
         void SetListener(Vector3 position, Vector3 forward);
 
+        /// <summary>
+        /// Sets the listener with the direction of its right ear, so positioned sounds are heard
+        /// more in the ear they are nearer to. A system that does not pan uses the position alone.
+        /// </summary>
+        void SetListener(Vector3 position, Vector3 forward, Vector3 right) => SetListener(position, forward);
+
+        /// <summary>Plays a sound at a place in the world: quieter with distance, and to one side.</summary>
+        AudioChannel PlayAt(int soundId, Vector3 position, float volume = 1f, float pitch = 1f, bool loop = false)
+        {
+            AudioChannel channel = Play(soundId, volume, pitch, loop);
+            if (channel.IsValid) SetChannelPosition(channel, position);
+            return channel;
+        }
+
+        /// <summary>Changes the pitch of a live channel (1 is as recorded).</summary>
+        void SetChannelPitch(AudioChannel channel, float pitch) { }
+
+        /// <summary>
+        /// Moves a live channel's volume to a new level over a time, and optionally stops it on
+        /// arrival. A system with no clock makes the change at once.
+        /// </summary>
+        void FadeChannel(AudioChannel channel, float volume, float seconds, bool stopWhenDone = false)
+        {
+            SetChannelVolume(channel, volume);
+            if (stopWhenDone) Stop(channel);
+        }
+
+        /// <summary>Volume of a group of sounds: "music", "sfx" or "master".</summary>
+        void SetBusVolume(string bus, float volume) { }
+
+        /// <summary>The volume a group of sounds was last set to; 1 when it never was.</summary>
+        float GetBusVolume(string bus) => 1f;
+
         /// <summary>Advance voice recycling / 3D panning. Called once per frame by the host.</summary>
         void Update();
     }

@@ -53,6 +53,7 @@ namespace Genesis.Runtime.Platform
 
         // Gamepad previous-frame button states for edge detection.
         private bool _gpA, _gpLB, _gpRB, _gpLT, _gpRT, _gpL3, _gpR3, _gpStart, _gpB, _gpX, _gpY, _gpDUp, _gpDDown, _gpDLeft, _gpDRight, _gpBackBtn;
+        private bool _gpARaw, _gpL3Raw, _gpRumbling;
 
         // Saved windowed placement, restored when leaving fullscreen/borderless.
         private Vector2D<int> _savedPos;
@@ -585,11 +586,13 @@ namespace Genesis.Runtime.Platform
         //   A → jump (Space), L3/R3 → sprint/crouch, Start → pause, B → back/cancel.
         private void PollGamepad(float dt)
         {
-            if (_silkInput == null || _silkInput.Gamepads.Count == 0) { _input.GamepadConnected = false; return; }
+            if (_silkInput == null || _silkInput.Gamepads.Count == 0) { LoseGamepad(); return; }
 
             IGamepad gp = _silkInput.Gamepads[0];
-            if (gp == null || !gp.IsConnected) { _input.GamepadConnected = false; return; }
+            if (gp == null || !gp.IsConnected) { LoseGamepad(); return; }
             _input.GamepadConnected = true;
+            // A game that reads the controller itself asks for it not to press keys as well.
+            bool emulate = _input.GamepadEmulatesKeyboard;
 
             Vector2 ls = ReadStick(gp, 0);
             ls.Y = -ls.Y; // Invert forwards/backwards
@@ -602,23 +605,27 @@ namespace Genesis.Runtime.Platform
             _input.RightTrigger = rt;
 
             // Right stick → camera look (same units as accumulated mouse delta).
-            if (_mouseCaptured && rs.LengthSquared() > 0.0004f)
+            if (emulate && _mouseCaptured && rs.LengthSquared() > 0.0004f)
                 _input.LookDelta += new Vector2(rs.X, rs.Y) * (1100f * dt);
 
             // A → Space (jump) + confirm
             bool a = Btn(gp, ButtonName.A);
-            if (a != _gpA) { if (a) { _input.OnKeyDown(GKey.Space); _input.ConfirmPressed = true; } else _input.OnKeyUp(GKey.Space); _gpA = a; }
+            if (a && !_gpARaw) _input.ConfirmPressed = true;
+            _gpARaw = a;
+            HoldKey(a && emulate, ref _gpA, GKey.Space);
 
             // L3 sprint (Control held), R3 crouch (Shift held)
             bool l3 = Btn(gp, ButtonName.LeftStick);
-            if (l3 && !_gpL3) _input.LeftStickPressed = true;
-            HoldKey(l3, ref _gpL3, GKey.Control);
-            HoldKey(Btn(gp, ButtonName.RightStick), ref _gpR3, GKey.Shift);
+            if (l3 && !_gpL3Raw) _input.LeftStickPressed = true;
+            _gpL3Raw = l3;
+            bool r3 = Btn(gp, ButtonName.RightStick);
+            HoldKey(l3 && emulate, ref _gpL3, GKey.Control);
+            HoldKey(r3 && emulate, ref _gpR3, GKey.Shift);
 
             // RT → left mouse (mine), LT → right mouse (place)
-            bool rtD = rt > 0.5f;
+            bool rtD = rt > 0.5f && emulate;
             if (rtD != _gpRT) { if (rtD) _input.OnMouseDown(GMouseButton.Left); else _input.OnMouseUp(GMouseButton.Left); _gpRT = rtD; }
-            bool ltD = lt > 0.5f;
+            bool ltD = lt > 0.5f && emulate;
             if (ltD != _gpLT) { if (ltD) _input.OnMouseDown(GMouseButton.Right); else _input.OnMouseUp(GMouseButton.Right); _gpLT = ltD; }
 
             // LB / RB → inventory cycle bumper events
@@ -648,6 +655,51 @@ namespace Genesis.Runtime.Platform
             if (right && !_gpDRight) _input.DPadRightPressed = true; _gpDRight = right;
             bool backBtn = Btn(gp, ButtonName.Back);
             if (backBtn && !_gpBackBtn) _input.RecipeBookPressed = true; _gpBackBtn = backBtn;
+
+            // Every button as it is, for games that read the controller themselves.
+            _input.SetGamepadButton(Genesis.Runtime.Input.GamepadButton.A, a);
+            _input.SetGamepadButton(Genesis.Runtime.Input.GamepadButton.B, b);
+            _input.SetGamepadButton(Genesis.Runtime.Input.GamepadButton.X, x);
+            _input.SetGamepadButton(Genesis.Runtime.Input.GamepadButton.Y, y);
+            _input.SetGamepadButton(Genesis.Runtime.Input.GamepadButton.LeftBumper, lb);
+            _input.SetGamepadButton(Genesis.Runtime.Input.GamepadButton.RightBumper, rb);
+            _input.SetGamepadButton(Genesis.Runtime.Input.GamepadButton.Back, backBtn);
+            _input.SetGamepadButton(Genesis.Runtime.Input.GamepadButton.Start, start);
+            _input.SetGamepadButton(Genesis.Runtime.Input.GamepadButton.LeftStick, l3);
+            _input.SetGamepadButton(Genesis.Runtime.Input.GamepadButton.RightStick, r3);
+            _input.SetGamepadButton(Genesis.Runtime.Input.GamepadButton.DPadUp, up);
+            _input.SetGamepadButton(Genesis.Runtime.Input.GamepadButton.DPadDown, down);
+            _input.SetGamepadButton(Genesis.Runtime.Input.GamepadButton.DPadLeft, left);
+            _input.SetGamepadButton(Genesis.Runtime.Input.GamepadButton.DPadRight, right);
+            _input.SetGamepadButton(Genesis.Runtime.Input.GamepadButton.LeftTrigger, lt > 0.5f);
+            _input.SetGamepadButton(Genesis.Runtime.Input.GamepadButton.RightTrigger, rt > 0.5f);
+
+            // Vibration a script asked for runs for its time and then stops.
+            bool rumble = _input.RumbleSeconds > 0f && (_input.RumbleLow > 0f || _input.RumbleHigh > 0f);
+            if (rumble || _gpRumbling)
+            {
+                try
+                {
+                    var motors = gp.VibrationMotors;
+                    if (motors.Count > 0) motors[0].Speed = rumble ? _input.RumbleLow : 0f;
+                    if (motors.Count > 1) motors[1].Speed = rumble ? _input.RumbleHigh : 0f;
+                }
+                catch (Exception)
+                {
+                    // Not every controller or driver has motors; a game must not stop for that.
+                }
+
+                _gpRumbling = rumble;
+            }
+
+            if (_input.RumbleSeconds > 0f) _input.RumbleSeconds = MathF.Max(0f, _input.RumbleSeconds - dt);
+        }
+
+        private void LoseGamepad()
+        {
+            if (_input.GamepadConnected) _input.ReleaseGamepad();
+            _input.GamepadConnected = false;
+            _gpRumbling = false;
         }
 
         private void HoldKey(bool now, ref bool prev, GKey key)
