@@ -255,7 +255,7 @@ in the flight above as well.
 
 ## Verification
 
-`Build.bat --test large-world` runs twenty-five checks. Twelve cover the terrain, detail and view
+`Build.bat --test large-world` runs twenty-six checks. Twelve cover the terrain, detail and view
 work: bulk terrain files, collision tiles following what can touch the ground, an 8 km terrain
 drawn with distance detail and no gaps, a world made from a recipe (sea, rivers running downhill
 in channels, paint following the land, level sites, objects on the ground), the simplifier (shape,
@@ -264,7 +264,7 @@ placement (repeatable, seamless between cells, obeying height, slope and paint, 
 shadow cascade leaving the near cascades alone, room settings surviving save and reload, distant
 objects resting, the editor near plane on long views, and the sea reaching the horizon.
 
-Thirteen cover loading, streaming and sharing:
+Fourteen cover loading, streaming, sharing and weather:
 
 - the model cache: same model back, faster, never stale after an edit, ignored when damaged;
 - reading ahead: workers read what the load then takes, a result is handed out once, a model saved
@@ -280,7 +280,9 @@ Thirteen cover loading, streaming and sharing:
 - a background room change waiting for the models and giving way to an ordinary one;
 - lights added during an update reaching the next frame once, and staying lit between steps;
 - a host and two players over an in-memory link: who is sent what, copies following movement
-  and animation, lost copies coming back, and leaving cleaning up.
+  and animation, lost copies coming back, and leaving cleaning up;
+- the weather fog setting thinning a rainy room's fog in step, leaving the rain itself alone, and
+  being saved with the room.
 
 What those checks do not show, and has not been seen in a running game yet:
 
@@ -288,6 +290,7 @@ What those checks do not show, and has not been seen in a running game yet:
 - lights added from Step events on screen, and a script's ambient colour under the dynamic sky;
 - `GameSetSpeed`, `CameraShake3D` and `RoomGotoWhenLoaded` in play;
 - terrain streaming in the Player, and the Terrain editor's scatter preview on screen;
+- a rainy room with its weather fog turned down;
 - animated models' simplified versions on screen;
 - the cost saved by drawing each local shadow face only its own casters. The shadow and rendering
   suites pass with it (82 checks), which shows the picture is not broken, not how much faster a
@@ -296,8 +299,9 @@ What those checks do not show, and has not been seen in a running game yet:
 Scatter drawing, the long-view terrain shading, the far water and the shadow cascade on screen are
 checked by the captures and the flights above, not by a harness case.
 
-Full Build `20261001-225728-58203d29` (2 October 2026): 1124 checks passed, with the dx11, dx12,
-vulkan, opengl and software renderer smokes; nothing skipped. Earlier: `20261001-175935-a25c1956`
+Full Build `20261001-235149-13cbeb61` (2 October 2026): 1125 checks passed, with the dx11, dx12,
+vulkan, opengl and software renderer smokes; nothing skipped. `20261001-225728-58203d29`, an hour
+earlier and without the weather fog setting, passed 1124. Before those: `20261001-175935-a25c1956`
 passed 1111 checks and `20261001-163347-0103944c` passed 1110, each with the same five smokes.
 
 Four other full runs during this work each failed one or two checks that pass alone:
