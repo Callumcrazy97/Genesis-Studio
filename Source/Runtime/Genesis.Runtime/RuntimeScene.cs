@@ -534,6 +534,10 @@ namespace Genesis.Runtime
                 ISceneSubsystem sub = _subsystems[i];
                 if (keepSubsystem != null && keepSubsystem(sub))
                     continue;
+                // AddSubsystem registered it for streaming. Left registered, every room a game
+                // has left stays in memory and is still ticked each frame.
+                if (sub is IStreamingProvider provider)
+                    Streaming.Unregister(provider);
                 sub.Dispose();
                 _subsystems.RemoveAt(i);
             }

@@ -357,6 +357,25 @@ before; with that fixed as well (see [Game features](GameFeatures.md), smaller c
 run logged no frame over 100 ms after either cover. The village was then 0.8 s behind the cover
 and the terrain room 0.7 s, with eleven more scatter layers on its terrain than before.
 
+**Going back and forth for twenty minutes.** The Player changed between the small room and the
+island every four and eight seconds, 199 changes in each run, collecting before each measurement
+(`GENESIS_ROOM_CHANGE_MEMORY=1`, see [Game features](GameFeatures.md)).
+
+| Measure | Before | Now |
+|---|---|---|
+| Rooms left that were still in memory | every one that had a terrain: 11 after 11 visits | none |
+| Parts of rooms left that were still run every frame | the same | none |
+| Frames over 100 ms in the run | 7 | 1 |
+| Managed memory on arriving at the island, visits 3 to 12 and the last ten | 283 and 308 MB | 284 and 298 MB |
+| Handles, threads, graphics memory | level | level |
+
+A scene registered each terrain with its streaming manager and never took it out again when the
+room was left, so a game that changed room kept, and went on running, every terrain it had been
+to. The remaining rise in managed memory, about 0.15 MB for each visit to the island over a
+hundred visits, has not been traced; two small rooms with no terrain, changed between 99 times,
+held exactly the same 63 MB throughout. The process's total sits at one of two levels about
+125 MB apart from one arrival to the next and does not climb within either.
+
 ## Verification
 
 `Build.bat --test large-world` runs fifty-four checks. Twenty-eight of them are described in
@@ -428,7 +447,8 @@ Full Build `20261002-140207-45ab77a9` (2 October 2026, with everything on this p
 [Game features](GameFeatures.md)): 1151 checks passed, with the dx11, dx12, vulkan, opengl and
 software renderer smokes. **Three checks were not run**: the workstation was locked, Windows
 refuses the clipboard to every program while it is, and the three checks that use the real
-clipboard say so instead of failing (see the build section of the [master document](README.md)).
+clipboard say so instead of failing (the build section of the development record in the
+source repository says how).
 Those three passed in `20261002-123645-697a7698`, two hours earlier with the desktop unlocked,
 which passed 1153 checks with the same five smokes and nothing skipped; the only changes since are
 text glyphs being sent as strips and the not-run reporting itself. `20261002-115253-4c757610`,

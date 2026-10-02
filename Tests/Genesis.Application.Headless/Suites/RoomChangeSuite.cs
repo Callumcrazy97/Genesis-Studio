@@ -22,6 +22,30 @@ using EcsWorld = Genesis.Runtime.ECS.World;
 
 namespace Genesis.Application.Headless;
 
+/// <summary>A part of a room that streams, as a terrain does, and says whether it is ticked after its room was left.</summary>
+internal sealed class StreamedRoomPart : ISceneSubsystem, Genesis.Streaming.IStreamingProvider
+{
+    public static int TicksAfterDispose;
+    public int Ticks;
+    private bool _disposed;
+    // Stands for what a real one holds: a room's terrain, its tiles, its list of placed objects.
+    private readonly byte[] _held = new byte[1 << 20];
+
+    public string Name => "Streamed room part";
+    public Genesis.Streaming.StreamingStats Stats { get; } = new();
+    public void Tick(in Genesis.Streaming.StreamingContext context)
+    {
+        if (_disposed) TicksAfterDispose++;
+        else Ticks += _held.Length > 0 ? 1 : 0;
+    }
+
+    public void RequestStreamingRefresh() { }
+    public void Update(RuntimeScene scene, Genesis.Runtime.Core.GameTime time) { }
+    public void FixedUpdate(RuntimeScene scene, float fixedDelta) { }
+    public void SubmitMeshes(RuntimeScene scene, MeshDrawCall[] buffer, ref int count, IRenderController renderer) { }
+    public void Dispose() => _disposed = true;
+}
+
 /// <summary>Writes down what the engine asks of an object placed in a room, so a check can say what ran and when.</summary>
 public sealed class RoomChangeProbe : EntityBehavior
 {
@@ -150,6 +174,10 @@ internal static class RoomChangeSuite
             Host.Dispose();
         }
     }
+
+    // In a method of its own, so that nothing on the caller's stack keeps the part alive.
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static WeakReference AddARoomPart(RuntimeScene scene) => new(scene.AddSubsystem(new StreamedRoomPart()));
 
     private static void WritePicture(string file, Color colour, int size = 256)
     {
@@ -829,6 +857,28 @@ internal static class RoomChangeSuite
             atlas.LayoutRun(line, "Georgia", 22f, bold: false, 0f, 0f, quads);
             HeadlessHarness.Assert(atlas.RasterCount == glyphs && atlas.DrainUploads().Count == 0, "The same line again made new glyphs or uploads.");
 
+        });
+
+        HeadlessHarness.RunCase(context.Report, "Engine.Rooms.Change.ARoomThatWasLeftIsNeitherStreamedNorKept", () =>
+        {
+            using var scene = new RuntimeScene("Left");
+            StreamedRoomPart.TicksAfterDispose = 0;
+            var kept = scene.AddSubsystem(new StreamedRoomPart());
+            WeakReference left = AddARoomPart(scene);
+            HeadlessHarness.Assert(scene.Streaming.Providers.Count == 2, "A streamed part of a room was not registered for streaming.");
+
+            scene.UnloadRoomContent(null, part => ReferenceEquals(part, kept));
+            HeadlessHarness.Assert(scene.Streaming.Providers.Count == 1 && ReferenceEquals(scene.Streaming.Providers[0], kept),
+                $"Leaving a room left {scene.Streaming.Providers.Count - 1} of its parts registered for streaming.");
+            scene.GameTime.Advance(1f / 60f);
+            scene.Streaming.UpdateProviders(scene, scene.GameTime);
+            HeadlessHarness.Assert(kept.Ticks == 1 && StreamedRoomPart.TicksAfterDispose == 0,
+                "A part of a room that was left is still streamed every frame.");
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            HeadlessHarness.Assert(!left.IsAlive,
+                "A part of a room that was left is still held in memory, so a game that changes room keeps every room it has been in.");
         });
 
         HeadlessHarness.RunCase(context.Report, "Engine.Diagnostics.SlowFrames.SayWhatTheFrameWasSpentOn", () =>

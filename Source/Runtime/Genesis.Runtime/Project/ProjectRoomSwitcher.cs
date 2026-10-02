@@ -275,6 +275,7 @@ namespace Genesis.Runtime.Project
             int collectionsBefore = GC.CollectionCount(2);
             TimeSpan pausedBefore = GC.GetTotalPauseDuration();
             _scriptHost.EndRoom(endGame: false);
+            if (CollectBeforeMeasuring && !liveReload) WatchForLeaks(scene);
             scene.UnloadRoomContent(_scriptHost, KeepSubsystem, preservePersistent: !liveReload);
             double unloadMilliseconds = Stopwatch.GetElapsedTime(changeStarted).TotalMilliseconds;
             yield return (0.03f, false);
@@ -311,6 +312,11 @@ namespace Genesis.Runtime.Project
                 + $"{Stopwatch.GetElapsedTime(finishStarted).TotalMilliseconds:F0} ms; slowest objects: {slowest}; "
                 + $"garbage collector paused {(GC.GetTotalPauseDuration() - pausedBefore).TotalMilliseconds:F0} ms "
                 + $"in {GC.CollectionCount(2) - collectionsBefore} full collections");
+            if (!liveReload)
+            {
+                _logger?.Line(DescribeMemory(roomName));
+                if (CollectBeforeMeasuring && DescribeSurvivors() is { Length: > 0 } survivors) _logger?.Line(survivors);
+            }
 
             // A change that was quick enough to finish in the frame it was asked for is done: no
             // cover was raised and none is needed. A 3D room is always prepared behind the cover,
@@ -375,6 +381,59 @@ namespace Genesis.Runtime.Project
                     : $" and shown {Stopwatch.GetElapsedTime(changeStarted).TotalMilliseconds:F0} ms after the change began, over {_framesSpread} frames; ")
                 + $"the longest single piece {(firstRoom ? "of that" : "of the change")} took {_longestPieceMilliseconds:F0} ms"
                 + (Stopwatch.GetElapsedTime(warmUpStarted).TotalSeconds >= WarmUpTimeoutSeconds ? "; it was shown before it had settled, at the time limit" : string.Empty));
+        }
+
+        // GENESIS_ROOM_CHANGE_MEMORY=1 collects before measuring, so the managed figure is what is
+        // really still in use. It costs a full collection per change: for soak runs, not for play.
+        private static readonly bool CollectBeforeMeasuring =
+            Environment.GetEnvironmentVariable("GENESIS_ROOM_CHANGE_MEMORY") == "1";
+
+        /// <summary>
+        /// What the game holds after a room change. A figure that climbs change after change, in a
+        /// game that goes back and forth between the same rooms, is a leak.
+        /// </summary>
+        private static string DescribeMemory(string roomName)
+        {
+            long managed = GC.GetTotalMemory(CollectBeforeMeasuring);
+            // What the collector has taken from Windows for its heaps: more than what is in use,
+            // by the room it keeps for the next allocations. The rest of the process is the
+            // engine's own memory outside the collector: physics, sound, what the driver keeps.
+            long committed = GC.GetGCMemoryInfo().TotalCommittedBytes;
+            using Process process = Process.GetCurrentProcess();
+            return $"Room change memory: {roomName} holds {managed / (1024.0 * 1024.0):F0} MB managed"
+                + (CollectBeforeMeasuring ? " after a full collection" : string.Empty)
+                + $" in {committed / (1024.0 * 1024.0):F0} MB of collector heaps"
+                + $", {process.PrivateMemorySize64 / (1024.0 * 1024.0):F0} MB in all, {process.HandleCount} handles";
+        }
+
+        // Soak runs only: what each unloaded room owned, held weakly. Anything from a room left
+        // two or more changes ago that a full collection has not freed is being kept alive by
+        // something that outlived the room.
+        private readonly List<(int Change, string What, WeakReference Reference)> _unloaded = new();
+        private int _changesWatched;
+
+        private void WatchForLeaks(RuntimeScene scene)
+        {
+            _changesWatched++;
+            foreach (ISceneSubsystem sub in scene.Subsystems)
+                if (!KeepSubsystem(sub)) _unloaded.Add((_changesWatched, sub.GetType().Name, new WeakReference(sub)));
+            if (scene.Physics != null) _unloaded.Add((_changesWatched, "PhysicsWorld", new WeakReference(scene.Physics)));
+        }
+
+        private string DescribeSurvivors()
+        {
+            var counts = new SortedDictionary<string, int>(StringComparer.Ordinal);
+            for (int i = _unloaded.Count - 1; i >= 0; i--)
+            {
+                (int change, string what, WeakReference reference) = _unloaded[i];
+                if (!reference.IsAlive) { _unloaded.RemoveAt(i); continue; }
+                if (change > _changesWatched - 2) continue;
+                counts[what] = counts.TryGetValue(what, out int count) ? count + 1 : 1;
+            }
+            return counts.Count == 0
+                ? string.Empty
+                : "Room change leak watch: still alive from rooms left two or more changes ago: "
+                    + string.Join(", ", System.Linq.Enumerable.Select(counts, pair => $"{pair.Value} {pair.Key}"));
         }
 
         private static bool KeepSubsystem(ISceneSubsystem sub) =>

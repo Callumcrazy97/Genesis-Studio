@@ -329,6 +329,30 @@ work: the window's messages, or another program holding the processor or the gra
 change adds one line saying how long the room was prepared behind the cover and how long its
 longest single piece took.
 
+### Finding what a game holds on to
+
+Every room change also writes what the game holds once the new room is built:
+
+```
+Room change memory: Village holds 283 MB managed in 546 MB of collector heaps, 851 MB in all, 1147 handles
+```
+
+"Managed" is what the game's own objects take; the collector's heaps are what it has taken from
+Windows to keep them in; the rest of the total is memory outside the collector, such as physics,
+sound and what the graphics driver keeps. In a game that goes back and forth between the same
+rooms, each room's figures should settle after its first two or three visits. One that climbs
+visit after visit is a leak. The total can sit at one of two levels from one visit to the next
+without climbing (on the test island they are about 125 MB apart); that is not a leak. For a soak
+run, set `GENESIS_ROOM_CHANGE_MEMORY=1`: the Player then collects before measuring, so the managed
+figure is what is really still in use, and adds a line naming anything from a room left two or
+more changes ago that is still in memory:
+
+```
+Room change leak watch: still alive from rooms left two or more changes ago: 11 RoomTerrainSubsystem
+```
+
+That switch costs a full collection at every change, so leave it off for play.
+
 ## Sky
 
 - **The sun is round wherever it is.** A wide view used to draw the sun as an ellipse away from
