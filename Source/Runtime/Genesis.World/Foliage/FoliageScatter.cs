@@ -48,6 +48,14 @@ public sealed class FoliageScatterSettings
     public float GpuUploadBudgetMegabytes { get; set; } = 4f;
     public float TargetGpuMilliseconds { get; set; } = 4f;
 
+    /// <summary>
+    /// Kinds of plant this terrain does not grow. Where the preset would have put one, another
+    /// kind from the same preset grows instead, so the ground is as full as it was. A preset left
+    /// with nothing to offer grows nothing there.
+    /// </summary>
+    [System.ComponentModel.Browsable(false)]
+    public List<FoliageSpecies> ExcludedSpecies { get; set; } = new();
+
     public void Normalize()
     {
         MaximumInstances = Math.Clamp(MaximumInstances, 0, 250000);
@@ -118,6 +126,7 @@ public static class FoliageScatter
         candidates.Sort(static (a, b) => a.Hash.CompareTo(b.Hash));
 
         float maxSlope = settings.MaximumSlopeDegrees * MathF.PI / 180f;
+        HashSet<FoliageSpecies> excluded = settings.ExcludedSpecies is { Count: > 0 } ? new HashSet<FoliageSpecies>(settings.ExcludedSpecies) : null;
         var result = new List<FoliageInstance>(Math.Min(settings.MaximumInstances, candidates.Count));
         var occupied = new Dictionary<(int X, int Z), List<Vector2>>();
         foreach ((uint hash, int cellX, int cellZ) in candidates)
@@ -129,6 +138,15 @@ public static class FoliageScatter
             float worldZ = terrain.OriginZ + MathF.Min(depth, (cellZ + 0.12f + jz * 0.76f) * spacing);
             float chance = settings.Density * HabitatProbability(terrain, settings.Preset, worldX, worldZ);
             if (Random01(hash + 3u) > chance) continue;
+            FoliageSpecies species = SelectSpecies(settings.Preset, hash);
+            if (excluded != null)
+            {
+                // Draw again from the same preset, a fixed number of times so the result is the
+                // same every run.
+                for (uint again = 0; again < 8u && excluded.Contains(species); again++)
+                    species = SelectSpecies(settings.Preset, hash + 31u + again * 7919u);
+                if (excluded.Contains(species)) continue;
+            }
 
             Vector3 normal = SampleNormal(terrain, worldX, worldZ);
             float slope = MathF.Acos(Math.Clamp(normal.Y, -1f, 1f));
@@ -141,7 +159,6 @@ public static class FoliageScatter
             if (!HasSpacing(horizontal, settings.MinimumSpacing, occupied)) continue;
             AddOccupied(horizontal, settings.MinimumSpacing, occupied);
 
-            FoliageSpecies species = SelectSpecies(settings.Preset, hash);
             float scale = SpeciesScale(species) * (0.78f + Random01(hash + 4u) * 0.46f);
             float shelter = EstimateShelter(terrain, worldX, worldZ, normal);
             result.Add(new FoliageInstance(

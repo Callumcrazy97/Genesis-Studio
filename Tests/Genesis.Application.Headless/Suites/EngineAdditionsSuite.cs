@@ -881,6 +881,65 @@ internal static class EngineAdditionsSuite
             HeadlessHarness.Assert(Genesis.World.Foliage.FoliageGeometry.Build(Genesis.World.Foliage.FoliageSpecies.Shrub, true).Vertices
                 .SequenceEqual(Genesis.World.Foliage.FoliageGeometry.Build(Genesis.World.Foliage.FoliageSpecies.Shrub, true).Vertices),
                 "A bush must be the same shape every time it is built.");
+
+            // Grass: dark at the root and lighter at the tip, each blade bending outward as it rises.
+            foreach (Genesis.World.Foliage.FoliageSpecies species in new[]
+                { Genesis.World.Foliage.FoliageSpecies.MeadowGrass, Genesis.World.Foliage.FoliageSpecies.TallGrass, Genesis.World.Foliage.FoliageSpecies.Reed })
+            foreach (bool near in new[] { true, false })
+            {
+                Genesis.World.MeshData tuft = Genesis.World.Foliage.FoliageGeometry.Build(species, near);
+                float top = tuft.Vertices.Max(vertex => vertex.Position.Y);
+                MeshVertex[] roots = tuft.Vertices.Where(vertex => vertex.Position.Y < 0.01f).ToArray();
+                MeshVertex[] tips = tuft.Vertices.Where(vertex => vertex.Position.Y > top * 0.75f).ToArray();
+                HeadlessHarness.Assert(roots.Length > 0 && tips.Length > 0 && roots.Max(vertex => vertex.Color.Y) < tips.Min(vertex => vertex.Color.Y) * 0.7f,
+                    $"{species} ({(near ? "near" : "far")}) should be darker at its roots than at its tips.");
+                float rootReach = roots.Max(vertex => new Vector2(vertex.Position.X, vertex.Position.Z).Length());
+                float tipReach = tips.Max(vertex => new Vector2(vertex.Position.X, vertex.Position.Z).Length());
+                HeadlessHarness.Assert(tipReach > rootReach, $"{species}'s blades should lean outward as they rise ({rootReach:F2} at the root, {tipReach:F2} at the tip).");
+            }
+
+            HeadlessHarness.Assert(Genesis.World.Foliage.FoliageGeometry.Build(Genesis.World.Foliage.FoliageSpecies.TallGrass, true).Vertices.Max(vertex => vertex.Position.Y) < 1.0f,
+                "Tall grass should stand under a metre before it is scaled.");
+
+            // Flowers: a yellow heart with petals all round it, the head tipped so it has height as well as width.
+            foreach (bool near in new[] { true, false })
+            {
+                Genesis.World.MeshData flowers = Genesis.World.Foliage.FoliageGeometry.Build(Genesis.World.Foliage.FoliageSpecies.Wildflower, near);
+                MeshVertex[] hearts = flowers.Vertices.Where(vertex => vertex.Color.X > 0.9f && vertex.Color.Z < 0.4f).ToArray();
+                MeshVertex[] petals = flowers.Vertices.Where(vertex => vertex.Color.Z > 0.6f).ToArray();
+                HeadlessHarness.Assert(hearts.Length == (near ? 3 : 2) && petals.Length == hearts.Length * (near ? 5 : 4),
+                    $"Wildflowers ({(near ? "near" : "far")}) should be {(near ? 3 : 2)} heads of {(near ? 5 : 4)} petals; found {hearts.Length} hearts and {petals.Length} petals.");
+                MeshVertex heart = hearts[0];
+                MeshVertex[] ring = petals.Where(vertex => Vector3.Distance(vertex.Position, heart.Position) < 0.2f).ToArray();
+                float rise = ring.Max(vertex => vertex.Position.Y) - ring.Min(vertex => vertex.Position.Y);
+                float span = ring.Max(vertex => vertex.Position.X) - ring.Min(vertex => vertex.Position.X);
+                HeadlessHarness.Assert(ring.Length == (near ? 5 : 4) && rise > 0.04f && span > 0.08f,
+                    $"A flower head should be a tipped cup of petals: it rises {rise:F2} m and spans {span:F2} m.");
+            }
+
+            // A terrain can refuse kinds of plant; others from the same preset grow where they would have.
+            var meadow = new Genesis.World.Terrain.TerrainAsset(65, 65, 1f, 0f, 0f, 0f, 20f);
+            for (int z = 0; z < 65; z++)
+            for (int x = 0; x < 65; x++)
+                meadow.SetSplat(x, z, 255, 0, 0, 0);
+            Genesis.World.Foliage.FoliageScatterSettings Meadow(params Genesis.World.Foliage.FoliageSpecies[] without) => new()
+            {
+                Seed = 915, Preset = Genesis.World.Foliage.FoliagePreset.Meadow, MaximumInstances = 4000, Density = 0.9f, MinimumSpacing = 1.2f,
+                ExcludedSpecies = [.. without],
+            };
+            var everything = Genesis.World.Foliage.FoliageScatter.Generate(meadow, null, Meadow());
+            var noFlowers = Genesis.World.Foliage.FoliageScatter.Generate(meadow, null, Meadow(Genesis.World.Foliage.FoliageSpecies.Wildflower));
+            var nothing = Genesis.World.Foliage.FoliageScatter.Generate(meadow, null, Meadow(Genesis.World.Foliage.FoliageSpecies.Wildflower,
+                Genesis.World.Foliage.FoliageSpecies.MeadowGrass, Genesis.World.Foliage.FoliageSpecies.TallGrass));
+            HeadlessHarness.Assert(everything.Instances.Count > 300 && everything.Instances.Any(plant => plant.Species == Genesis.World.Foliage.FoliageSpecies.Wildflower),
+                $"A meadow of {everything.Instances.Count} plants should have flowers in it.");
+            HeadlessHarness.Assert(noFlowers.Instances.All(plant => plant.Species != Genesis.World.Foliage.FoliageSpecies.Wildflower)
+                && noFlowers.Instances.Count == everything.Instances.Count
+                && noFlowers.Instances.Select(plant => plant.Position).SequenceEqual(everything.Instances.Select(plant => plant.Position)),
+                $"A meadow without flowers should be as full, in the same places ({noFlowers.Instances.Count} against {everything.Instances.Count}).");
+            HeadlessHarness.Assert(nothing.Instances.Count == 0, "A preset with every kind refused should grow nothing.");
+            HeadlessHarness.Assert(Genesis.World.Foliage.FoliageScatter.Generate(meadow, null, Meadow()).Instances.SequenceEqual(everything.Instances),
+                "The same settings must grow the same meadow.");
         });
 
         HeadlessHarness.RunCase(context.Report, "Engine.Animation.Events.AScriptIsToldTheFrameAClipPassesAPoint", () =>

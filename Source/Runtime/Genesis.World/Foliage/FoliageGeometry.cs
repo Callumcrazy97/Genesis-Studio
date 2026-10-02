@@ -13,10 +13,10 @@ public static class FoliageGeometry
         FoliageSpecies.Sapling => nearLod ? 40 : 16,
         FoliageSpecies.Shrub => nearLod ? 40 : 8,
         FoliageSpecies.Fern => nearLod ? 14 : 8,
-        FoliageSpecies.Wildflower => nearLod ? 15 : 10,
-        FoliageSpecies.Reed => nearLod ? 7 : 3,
-        FoliageSpecies.TallGrass => nearLod ? 8 : 3,
-        _ => nearLod ? 7 : 3,
+        FoliageSpecies.Wildflower => nearLod ? 21 : 10,
+        FoliageSpecies.Reed => nearLod ? 21 : 3,
+        FoliageSpecies.TallGrass => nearLod ? 24 : 3,
+        _ => nearLod ? 21 : 3,
     };
 
     public static MeshData Build(FoliageSpecies species, bool nearLod)
@@ -28,30 +28,63 @@ public static class FoliageGeometry
             FoliageSpecies.Shrub => BuildShrub(nearLod, color),
             FoliageSpecies.Fern => BuildFern(nearLod, color),
             FoliageSpecies.Wildflower => BuildWildflowers(nearLod, color),
-            FoliageSpecies.Reed => BuildBlades(nearLod ? 7 : 3, 1.35f, color),
-            FoliageSpecies.TallGrass => BuildBlades(nearLod ? 8 : 3, 1.05f, color),
-            _ => BuildBlades(nearLod ? 7 : 3, 0.72f, color),
+            FoliageSpecies.Reed => BuildBlades(nearLod ? 7 : 3, 1.35f, color, nearLod),
+            FoliageSpecies.TallGrass => BuildBlades(nearLod ? 8 : 3, 0.9f, color, nearLod),
+            _ => BuildBlades(nearLod ? 7 : 3, 0.72f, color, nearLod),
         };
     }
 
-    private static MeshData BuildBlades(int count, float height, Vector4 color)
+    /// <summary>
+    /// A tuft of grass. Near the camera each blade is a tapering strip that bends outward towards
+    /// its tip; far away it is one triangle. Every blade is dark at the root and lighter at the
+    /// tip, as a real tuft is where its own blades shade it. It used to be flat-coloured straight
+    /// spikes, which stood out of a meadow like nails.
+    /// </summary>
+    private static MeshData BuildBlades(int count, float height, Vector4 color, bool near)
     {
-        var vertices = new List<MeshVertex>(count * 3);
-        var indices = new List<ushort>(count * 3);
+        var vertices = new List<MeshVertex>(count * (near ? 5 : 3));
+        var indices = new List<ushort>(count * (near ? 9 : 3));
+        Vector4 dark = Shade(color, 0.52f), middle = Shade(color, 0.82f), light = Shade(color, 1.06f);
         for (int blade = 0; blade < count; blade++)
         {
             float angle = blade * 2.3999632f;
             float radius = 0.07f + 0.17f * MathF.Sqrt((blade + 1f) / count);
-            Vector3 root = new(MathF.Cos(angle) * radius, 0f, MathF.Sin(angle) * radius);
+            Vector3 outward = new(MathF.Cos(angle), 0f, MathF.Sin(angle));
+            Vector3 root = outward * radius;
             Vector3 side = new(-MathF.Sin(angle), 0f, MathF.Cos(angle));
             float half = 0.035f + (blade % 3) * 0.008f;
             float h = height * (0.78f + (blade % 4) * 0.065f);
-            AddTriangle(vertices, indices, root - side * half, root + side * half,
-                root + Vector3.UnitY * h + side * half * 0.08f,
-                Vector3.Normalize(Vector3.Cross(Vector3.UnitY, side)), color);
+            // Leaning the normal up lets a blade take the sky's light instead of going black edge-on.
+            Vector3 normal = Vector3.Normalize(outward + Vector3.UnitY * 0.7f);
+            ushort start = checked((ushort)vertices.Count);
+            if (!near)
+            {
+                AddVertex(vertices, root - side * half, normal, dark, 0f, 1f);
+                AddVertex(vertices, root + side * half, normal, dark, 1f, 1f);
+                AddVertex(vertices, root + Vector3.UnitY * h + outward * h * 0.12f, normal, light, 0.5f, 0f);
+                indices.Add(start); indices.Add((ushort)(start + 1)); indices.Add((ushort)(start + 2));
+                continue;
+            }
+
+            Vector3 bend = root + Vector3.UnitY * h * 0.55f + outward * h * 0.05f;
+            Vector3 tip = root + Vector3.UnitY * h + outward * h * 0.22f;
+            AddVertex(vertices, root - side * half, normal, dark, 0f, 1f);
+            AddVertex(vertices, root + side * half, normal, dark, 1f, 1f);
+            AddVertex(vertices, bend + side * half * 0.62f, normal, middle, 1f, 0.45f);
+            AddVertex(vertices, bend - side * half * 0.62f, normal, middle, 0f, 0.45f);
+            AddVertex(vertices, tip, normal, light, 0.5f, 0f);
+            indices.Add(start); indices.Add((ushort)(start + 1)); indices.Add((ushort)(start + 2));
+            indices.Add(start); indices.Add((ushort)(start + 2)); indices.Add((ushort)(start + 3));
+            indices.Add((ushort)(start + 3)); indices.Add((ushort)(start + 2)); indices.Add((ushort)(start + 4));
         }
         return new MeshData { Vertices = vertices.ToArray(), Indices = indices.ToArray() };
     }
+
+    private static Vector4 Shade(Vector4 color, float amount) =>
+        new(MathF.Min(1f, color.X * amount), MathF.Min(1f, color.Y * amount), MathF.Min(1f, color.Z * amount), color.W);
+
+    private static void AddVertex(List<MeshVertex> vertices, Vector3 position, Vector3 normal, Vector4 color, float u, float v) =>
+        vertices.Add(new MeshVertex { Position = position, Normal = normal, Color = color, UV = new Vector2(u, v) });
 
     private static MeshData BuildFern(bool near, Vector4 color)
     {
@@ -158,24 +191,57 @@ public static class FoliageGeometry
         foreach (ushort corner in faces) indices.Add((ushort)(start + corner));
     }
 
+    /// <summary>
+    /// A few flowers on thin stems. Each head is a shallow cup of petals round a yellow centre,
+    /// tipped away from the middle of the plant so it shows from the side as well as from above.
+    /// The heads used to be two crossed diamonds, which read as flat pink kites.
+    /// </summary>
     private static MeshData BuildWildflowers(bool near, Vector4 flowerColor)
     {
         int flowers = near ? 3 : 2;
-        var vertices = new List<MeshVertex>(flowers * 11);
-        var indices = new List<ushort>(flowers * 15);
+        int petals = near ? 5 : 4;
+        var vertices = new List<MeshVertex>(flowers * (petals + 7));
+        var indices = new List<ushort>(flowers * (petals + 2) * 3);
         Vector4 stemColor = new(0.20f, 0.46f, 0.16f, 1f);
+        Vector4 heart = new(0.95f, 0.80f, 0.26f, flowerColor.W);
         for (int flower = 0; flower < flowers; flower++)
         {
             float angle = flower * 2.3999632f;
-            Vector3 root = new(MathF.Cos(angle) * 0.15f, 0f, MathF.Sin(angle) * 0.15f);
+            Vector3 outward = new(MathF.Cos(angle), 0f, MathF.Sin(angle));
+            Vector3 root = outward * 0.15f;
             Vector3 side = new(-MathF.Sin(angle), 0f, MathF.Cos(angle));
             float height = 0.48f + 0.09f * flower;
-            Vector3 crown = root + Vector3.UnitY * height;
+            Vector3 crown = root + Vector3.UnitY * height + outward * 0.04f;
             AddTriangle(vertices, indices, root - side * 0.018f, root + side * 0.018f,
-                crown, Vector3.Normalize(Vector3.Cross(Vector3.UnitY, side)), stemColor);
-            AddLeafDiamond(vertices, indices, crown, side, 0.18f, 0.16f, flowerColor);
-            AddLeafDiamond(vertices, indices, crown, Vector3.Normalize(Vector3.Cross(side, Vector3.UnitY)),
-                0.18f, 0.16f, flowerColor);
+                crown, Vector3.Normalize(outward + Vector3.UnitY * 0.7f), stemColor);
+            if (near)
+            {
+                // One leaf low on the stem.
+                Vector3 joint = root + Vector3.UnitY * height * 0.3f;
+                AddTriangle(vertices, indices, joint, joint + side * 0.11f + Vector3.UnitY * 0.05f,
+                    joint + side * 0.05f + outward * 0.05f + Vector3.UnitY * 0.01f, Vector3.UnitY, Shade(stemColor, 1.15f));
+            }
+
+            Vector3 facing = Vector3.Normalize(Vector3.UnitY + outward * 0.6f);
+            Vector3 across = Vector3.Normalize(Vector3.Cross(facing, side));
+            Vector3 along = Vector3.Cross(across, facing);
+            const float reach = 0.115f;
+            ushort centre = checked((ushort)vertices.Count);
+            AddVertex(vertices, crown, facing, heart, 0.5f, 0.5f);
+            for (int petal = 0; petal < petals; petal++)
+            {
+                float turn = petal * MathF.Tau / petals + flower * 0.7f;
+                Vector3 offset = across * MathF.Cos(turn) + along * MathF.Sin(turn);
+                AddVertex(vertices, crown + offset * reach + facing * reach * 0.28f, facing, flowerColor,
+                    0.5f + MathF.Cos(turn) * 0.5f, 0.5f + MathF.Sin(turn) * 0.5f);
+            }
+
+            for (int petal = 0; petal < petals; petal++)
+            {
+                indices.Add(centre);
+                indices.Add((ushort)(centre + 1 + petal));
+                indices.Add((ushort)(centre + 1 + (petal + 1) % petals));
+            }
         }
         return new MeshData { Vertices = vertices.ToArray(), Indices = indices.ToArray() };
     }
@@ -277,7 +343,7 @@ public static class FoliageGeometry
     private static Vector4 SpeciesColor(FoliageSpecies species) => species switch
     {
         FoliageSpecies.MeadowGrass => new(0.29f, 0.58f, 0.20f, 1f),
-        FoliageSpecies.TallGrass => new(0.34f, 0.55f, 0.18f, 1f),
+        FoliageSpecies.TallGrass => new(0.30f, 0.50f, 0.17f, 1f),
         FoliageSpecies.Fern => new(0.16f, 0.42f, 0.18f, 1f),
         FoliageSpecies.Shrub => new(0.20f, 0.38f, 0.13f, 1f),
         FoliageSpecies.Sapling => new(0.18f, 0.48f, 0.16f, 1f),

@@ -1287,6 +1287,7 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
         ResidentMemoryBudgetMegabytes = settings.ResidentMemoryBudgetMegabytes,
         GpuUploadBudgetMegabytes = settings.GpuUploadBudgetMegabytes,
         TargetGpuMilliseconds = settings.TargetGpuMilliseconds,
+        ExcludedSpecies = settings.ExcludedSpecies is null ? new() : new(settings.ExcludedSpecies),
     };
 
     private static List<TerrainPathDefinition> Clone(IEnumerable<TerrainPathDefinition> paths) => paths.Select(path => new TerrainPathDefinition
