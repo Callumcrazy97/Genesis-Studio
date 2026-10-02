@@ -372,8 +372,11 @@ back to.
   has to send its letters to the graphics card. They now go as one strip for the line instead of
   one update for each letter. It matters on Vulkan, where each update is waited for: a line of 17
   new letters took 7 to 11 ms singly and 1 to 4 ms as a strip on an idle graphics card, and a game
-  on Vulkan had frames of 80 to 135 ms when a title or a line of speech first appeared. That game
-  has not been measured since. `GENESIS_GLYPH_STRIPS=0` sends them singly again, for comparison.
+  on Vulkan had frames of 80 to 135 ms when a title or a line of speech first appeared. Measured
+  in that game afterwards, with the same scripted run both ways: sent singly, the frame in which a
+  card first showed three new sizes (about forty letters) took 134 ms, 116 ms of it here; as
+  strips, no frame in the run spent more than 9 ms on its HUD. `GENESIS_GLYPH_STRIPS=0` sends them
+  singly again, for comparison.
 - **Exported games ship their model cache.** Export writes each large model's binary cache into the
   game. These caches are checked against the model's content instead of its modified time, so they
   survive being copied, zipped or installed. A player's first load is as fast as later ones.

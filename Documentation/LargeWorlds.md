@@ -351,8 +351,11 @@ times:
 
 The 271 ms frame after the village's cover was its nine smoke emitters being set up, four shader
 pipelines and three sounds, none of which was touched while the room was held. Emitters and
-arriving sounds are now made ready behind the cover; that project has not been measured again
-since.
+arriving sounds are now made ready behind the cover. Measured again on a quiet machine, the first
+long frame after the village's cover was 108 ms, 91 ms of it drawing text in sizes not used
+before; with that fixed as well (see [Game features](GameFeatures.md), smaller changes) the same
+run logged no frame over 100 ms after either cover. The village was then 0.8 s behind the cover
+and the terrain room 0.7 s, with eleven more scatter layers on its terrain than before.
 
 ## Verification
 
