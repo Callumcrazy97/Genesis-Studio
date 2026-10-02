@@ -20,5 +20,11 @@ namespace Genesis.Runtime.ECS.Components
         public float EmitSeconds;
         /// <summary>Seconds since the effect began, or was last restarted.</summary>
         public float Age;
+        /// <summary>
+        /// The wind this emitter's particles drift on, in metres a second along X and Z, in place
+        /// of the wind the effect was authored with. Null leaves the effect as authored. The
+        /// engine sets it on the weather it draws, so rain and snow lean with the room's wind.
+        /// </summary>
+        public System.Numerics.Vector2? Wind;
     }
 }

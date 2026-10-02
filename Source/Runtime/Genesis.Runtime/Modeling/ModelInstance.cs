@@ -295,4 +295,40 @@ public static class ModelInstance
         model.MaterialEmission[name] = MathF.Min(strength, 64f);
         return true;
     }
+
+    /// <summary>
+    /// As <see cref="SetMaterialEmission(EcsWorld, Entity, string, float)"/>, in a colour: window
+    /// glass that glows warm at night whatever colour the glass is by day. The material gives off
+    /// its own colour multiplied by this one, so the colour is also a tint on the material while
+    /// it is set. A negative strength gives the material back its authored light and colour.
+    /// </summary>
+    /// <returns>False when the model has no material of that name.</returns>
+    public static bool SetMaterialEmission(EcsWorld? world, Entity entity, string material, float strength, Vector3 colour)
+    {
+        if (!SetMaterialEmission(world, entity, material, strength)) return false;
+        bool lit = float.IsFinite(strength) && strength >= 0f;
+        return SetMaterialTint(world, entity, material, lit ? colour : null);
+    }
+
+    /// <summary>
+    /// Multiplies one of the model's materials by a colour on this instance only; the shared
+    /// model is unchanged. Parts above 1 brighten. Null gives the material back its own colour.
+    /// </summary>
+    /// <returns>False when the model has no material of that name.</returns>
+    public static bool SetMaterialTint(EcsWorld? world, Entity entity, string material, Vector3? tint)
+    {
+        if (string.IsNullOrWhiteSpace(material) || !TryModel(world, entity, out GModelAsset asset)) return false;
+        string name = material.Trim();
+        if (asset.Materials?.Exists(candidate => string.Equals(candidate.Name, name, StringComparison.OrdinalIgnoreCase)) != true) return false;
+        ref ModelRendererComponent model = ref world!.GetRef<ModelRendererComponent>(entity);
+        if (tint is not Vector3 colour || !float.IsFinite(colour.LengthSquared()))
+        {
+            model.MaterialTints?.Remove(name);
+            return true;
+        }
+
+        model.MaterialTints ??= new Dictionary<string, Vector4>(StringComparer.OrdinalIgnoreCase);
+        model.MaterialTints[name] = new Vector4(Vector3.Clamp(colour, Vector3.Zero, new Vector3(16f)), 1f);
+        return true;
+    }
 }

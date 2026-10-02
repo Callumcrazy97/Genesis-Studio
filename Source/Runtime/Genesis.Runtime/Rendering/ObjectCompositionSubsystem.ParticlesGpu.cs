@@ -70,9 +70,18 @@ public sealed partial class ObjectCompositionSubsystem
         in TransformComponent transform,
         Vector3 cameraPosition)
     {
-        // Weather starts just above the camera, at whatever height the camera is.
+        // Weather starts just above the camera, at whatever height the camera is. It starts
+        // upwind of it, by as far as the wind carries a particle in the time it takes to come
+        // down to the camera, so that what falls past the camera is the middle of the shower and
+        // not its downwind edge.
         if (config.FollowCameraXZ)
-            return Matrix4x4.CreateTranslation(cameraPosition.X, cameraPosition.Y + (float)config.FollowCameraHeight, cameraPosition.Z);
+        {
+            float carried = (float)Math.Max(0.0, config.Lifetime) * 0.6f;
+            return Matrix4x4.CreateTranslation(
+                cameraPosition.X - (float)config.WindX * carried,
+                cameraPosition.Y + (float)config.FollowCameraHeight,
+                cameraPosition.Z - (float)config.WindZ * carried);
+        }
 
         if (!component.FollowEntity)
             return Matrix4x4.Identity;

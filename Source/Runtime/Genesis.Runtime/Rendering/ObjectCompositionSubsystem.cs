@@ -44,6 +44,7 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem
         public required string EmitterId;
         public required ParticleConfig Config;
         public double AuthoredRate;
+        public double AuthoredWindX, AuthoredWindZ;
         public ParticleSimulation? Simulation;
         public GpuParticleEmitter? GpuEmitter;
         public IGpuParticleRenderer? GpuOwner;
@@ -447,11 +448,14 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem
             };
             foreach ((string emitterId, string _, ParticleConfig emitter) in ParticleAssetLoader.EnumerateEnabledEmitters(config))
             {
+                ParticleConfig layout = _particles2D ? Particle2DLayout.ForSimulation(emitter) : emitter;
                 state.Layers.Add(new ParticleLayerState
                 {
                     EmitterId = emitterId,
-                    Config = _particles2D ? Particle2DLayout.ForSimulation(emitter) : emitter,
+                    Config = layout,
                     AuthoredRate = emitter.EmitRate,
+                    AuthoredWindX = layout.WindX,
+                    AuthoredWindZ = layout.WindZ,
                     MeshSurfaceSamples = LoadMeshSurfaceSamples(emitter),
                     PendingBurst = !emitter.Loop ? Math.Max(0, emitter.BurstCount) : 0,
                 });
@@ -471,11 +475,30 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem
         float scale = component.RateScale <= 0 ? 1 : component.RateScale;
         foreach (ParticleLayerState layer in state.Layers)
         {
-            double rate = component.HasEmitRateOverride || component.EmitRate > 0 ? component.EmitRate : layer.AuthoredRate * scale;
-            if (layer.Config.EmitRate == rate) continue;
-            layer.Config.EmitRate = Math.Max(0, rate);
+            double rate = Math.Max(0, component.HasEmitRateOverride || component.EmitRate > 0 ? component.EmitRate : layer.AuthoredRate * scale);
+            // The emitter's own wind, when it has been given one, in place of the effect's.
+            double windX = component.Wind?.X ?? layer.AuthoredWindX, windZ = component.Wind?.Y ?? layer.AuthoredWindZ;
+            if (layer.Config.EmitRate == rate && layer.Config.WindX == windX && layer.Config.WindZ == windZ) continue;
+            layer.Config.EmitRate = rate;
+            layer.Config.WindX = windX;
+            layer.Config.WindZ = windZ;
             layer.Simulation?.UpdateConfig(layer.Config);
         }
+    }
+
+    /// <summary>
+    /// The wind an entity's effect is drifting on and where its particles are starting from, as
+    /// the engine last worked them out. False when the entity has no running effect.
+    /// </summary>
+    public bool TryGetParticleFlow(Entity entity, out Vector2 wind, out Vector3 origin)
+    {
+        wind = default;
+        origin = default;
+        if (!_particles.TryGetValue(entity.Id, out ParticleState? state) || state.Layers.Count == 0) return false;
+        ParticleLayerState layer = state.Layers[0];
+        wind = new Vector2((float)layer.Config.WindX, (float)layer.Config.WindZ);
+        origin = layer.World.Translation;
+        return true;
     }
 
     private void EnsureParticleRenderResources(ParticleLayerState state, IRenderController renderer)

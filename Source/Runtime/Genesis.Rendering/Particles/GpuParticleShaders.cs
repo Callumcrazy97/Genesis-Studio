@@ -428,7 +428,7 @@ VertexOutput VS(VertexInput input,uint vertex:SV_VertexID,uint instance:SV_Insta
         offset=float3(pos.x*c+pos.z*s,pos.y,-pos.x*s+pos.z*c);
     } else {
         if(alignment==1 || alignment==4 || Emission.w>0.5) {
-            up=SafeNormal(DirectionWorld(p.velocityLife.xyz),up);
+            up=SafeNormal(DirectionWorld(p.velocityLife.xyz)+(Wind.w>0.5?float3(0,0,0):float3(Wind.x,0,Wind.y)),up);
             right=SafeNormal(cross(CameraForward.xyz,up),right);
         } else if(alignment==2) {right=float3(1,0,0);up=float3(0,0,1);}
         float a=p.rotationSpeedScale.x,s=sin(a),c=cos(a);

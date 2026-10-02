@@ -375,13 +375,15 @@ public static class ParticlePresets
 
     private static ParticleConfig RainCore(float vis) => new()
     {
-        // Enough drops that a shower fills the view around the camera rather than dotting it.
-        MaxParticles  = 2600,
-        EmitRate      = 900 * vis,
+        // Enough drops that a shower fills the view around the camera rather than dotting it,
+        // seen from the ground looking along it as well as from above looking down through it.
+        MaxParticles  = 6000,
+        EmitRate      = 2600 * vis,
         Loop          = true,
         Shape         = ParticleEmitShape.Disc,
         SpreadDegrees = 8,
-        EmitRadius    = 14.0,
+        // Close in: a drop further off than this is a pixel or two, and the weather's haze stands for it.
+        EmitRadius    = 11.0,
         Speed         = 9.0,
         SpeedVariance = 0.18,
         Gravity       = -6.0,

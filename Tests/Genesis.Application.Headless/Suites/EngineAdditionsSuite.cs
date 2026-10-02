@@ -514,6 +514,20 @@ internal static class EngineAdditionsSuite
                 Genesis.Runtime.Modeling.ModelInstance.SetMaterialEmission(world, entity, "Glass", -1f);
                 HeadlessHarness.Assert(Drawn().Emissive == 0f && world.GetRef<ModelRendererComponent>(entity).EmissionScale == null,
                     "Giving a material back its authored light did not.");
+
+                // Light in a colour: the material glows in its own colour multiplied by the one given, and is given both back together.
+                RenderColor plainGlass = Drawn().Tint;
+                HeadlessHarness.Assert(Genesis.Runtime.Modeling.ModelInstance.SetMaterialEmission(world, entity, "Glass", 3f, new Vector3(1f, 0.5f, 0.25f))
+                    && !Genesis.Runtime.Modeling.ModelInstance.SetMaterialEmission(world, entity, "Brass", 3f, Vector3.One),
+                    "Coloured light is set by the material's name.");
+                MeshDrawCall warm = Drawn();
+                HeadlessHarness.Assert(MathF.Abs(warm.Emissive - 3f) < 1e-4f && MathF.Abs(warm.Tint.R - plainGlass.R) < 1e-4f
+                    && MathF.Abs(warm.Tint.G - plainGlass.G * 0.5f) < 1e-4f && MathF.Abs(warm.Tint.B - plainGlass.B * 0.25f) < 1e-4f,
+                    $"The glass should glow at strength 3 in a warm colour; it is drawn at {warm.Emissive} tinted {warm.Tint.R:F2},{warm.Tint.G:F2},{warm.Tint.B:F2}.");
+                Genesis.Runtime.Modeling.ModelInstance.SetMaterialEmission(world, entity, "Glass", -1f, Vector3.One);
+                MeshDrawCall again = Drawn();
+                HeadlessHarness.Assert(again.Emissive == 0f && MathF.Abs(again.Tint.G - plainGlass.G) < 1e-4f && MathF.Abs(again.Tint.B - plainGlass.B) < 1e-4f,
+                    "Giving a material back its light did not give back its colour.");
             }
             finally
             {
@@ -796,6 +810,47 @@ internal static class EngineAdditionsSuite
             });
             HeadlessHarness.Assert(emitters == 1 && MathF.Abs(emitterRate - weather.PrecipitationRate) < 1e-4f,
                 $"There should be one rain emitter at the weather's rate; there are {emitters} at {emitterRate:F2}.");
+
+            // The rain goes with the wind: the way the climate says it is blowing, no faster than rain is carried.
+            Vector3 localWind = scene.Climate.Current.LocalWind;
+            var blowing = new Vector2(localWind.X, localWind.Z);
+            HeadlessHarness.Assert(blowing.Length() > 0.5f, $"A thunderstorm with almost no wind ({blowing.Length():F2} m/s) cannot show that rain follows it.");
+            Vector2 carried = weather.PrecipitationWind;
+            HeadlessHarness.Assert(carried.Length() > 0.5f && carried.Length() <= RoomWeatherEffectsSubsystem.RainWindLimit + 1e-3f
+                && Vector2.Dot(Vector2.Normalize(carried), Vector2.Normalize(blowing)) > 0.999f,
+                $"The rain is carried at {carried.X:F2},{carried.Y:F2} m/s in a wind of {blowing.X:F2},{blowing.Y:F2} m/s.");
+            Entity rainEmitter = Entity.Null;
+            Vector2? onEmitter = null;
+            scene.World.Query<ParticleComponent>((Entity entity, ref ParticleComponent particles) =>
+            {
+                rainEmitter = entity;
+                onEmitter = particles.Wind;
+            });
+            HeadlessHarness.Assert(onEmitter == carried, "The rain emitter was not given the wind the rain is carried on.");
+
+            // The effect drifts on that wind, and its drops start upwind of the camera so the shower stays around it.
+            using (var effects = new Genesis.Runtime.Rendering.ObjectCompositionSubsystem(context.Workspace))
+            {
+                scene.Camera3D.Position = new Vector3(100f, 20f, -40f);
+                effects.Update(scene, time);
+                HeadlessHarness.Assert(effects.TryGetParticleFlow(rainEmitter, out Vector2 drift, out Vector3 origin)
+                    && Vector2.Distance(drift, carried) < 1e-3f,
+                    $"The rain effect drifts at {drift.X:F2},{drift.Y:F2} m/s; it was given {carried.X:F2},{carried.Y:F2}.");
+                var upwind = new Vector2(100f - origin.X, -40f - origin.Z);
+                HeadlessHarness.Assert(origin.Y > 20f && upwind.Length() > 0.3f && Vector2.Dot(Vector2.Normalize(upwind), Vector2.Normalize(carried)) > 0.999f,
+                    $"The rain should start above and upwind of the camera; it starts {upwind.X:F2},{upwind.Y:F2} m from it at height {origin.Y:F1}.");
+
+                // An emitter left alone keeps the wind its effect was made with.
+                Entity plain = scene.World.CreateEntity();
+                scene.World.Set(plain, new TransformComponent { ScaleX = 1f, ScaleY = 1f, ScaleZ = 1f });
+                scene.World.Set(plain, new ParticleComponent { Asset = "builtin://Rain", ParticleTypeId = -1, RateScale = 1f, FollowEntity = true, Emitting = true });
+                effects.Update(scene, time);
+                HeadlessHarness.Assert(effects.TryGetParticleFlow(plain, out Vector2 authored, out _)
+                    && MathF.Abs(authored.X - (float)Genesis.Runtime.Particles.ParticlePresets.Rain().WindX) < 1e-4f && authored.Y == 0f,
+                    $"An emitter with no wind of its own drifts at {authored.X:F2},{authored.Y:F2} m/s instead of the effect's authored wind.");
+                scene.World.DestroyEntity(plain);
+                scene.World.FlushDeferred();
+            }
             HeadlessHarness.Assert(weather.Strikes is >= 3 and <= 14, $"A minute of thunderstorm struck {weather.Strikes} times; expected roughly one every five to thirteen seconds.");
             HeadlessHarness.Assert(brightest > 0.3f && framesLit > 0 && framesLit < frames / 4,
                 $"Lightning should light a few frames brightly; it lit {framesLit} of {frames}, the brightest at {brightest:F2}.");
@@ -823,11 +878,14 @@ internal static class EngineAdditionsSuite
             Run(20f);
             HeadlessHarness.Assert(weather.Precipitation == "builtin://Snow" && weather.Strikes == strikes,
                 $"Snow should replace the rain and end the lightning; the effect is '{weather.Precipitation}' after {weather.Strikes - strikes} more strikes.");
+            HeadlessHarness.Assert(weather.PrecipitationWind.Length() <= RoomWeatherEffectsSubsystem.SnowWindLimit + 1e-3f,
+                $"Snow is carried at {weather.PrecipitationWind.Length():F2} m/s; a flake is in the air too long to be carried faster than {RoomWeatherEffectsSubsystem.SnowWindLimit} m/s.");
             scene.Climate.SetWeather(WeatherKind.Clear, 0f);
             Run(2f);
             emitters = 0;
             scene.World.Query<ParticleComponent>((Entity _, ref ParticleComponent _) => emitters++);
-            HeadlessHarness.Assert(weather.Precipitation.Length == 0 && emitters == 0, "Clear weather left a precipitation emitter behind.");
+            HeadlessHarness.Assert(weather.Precipitation.Length == 0 && emitters == 0 && weather.PrecipitationWind == Vector2.Zero,
+                "Clear weather left a precipitation emitter, or its wind, behind.");
 
             // A script can call lightning down from a clear sky.
             weather.Strike(120f);

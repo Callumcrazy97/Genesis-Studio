@@ -23,7 +23,8 @@ namespace Genesis.Runtime.Project;
 /// </para>
 /// <para>
 /// Precipitation is one emitter that follows the camera, swapped when the kind of weather changes
-/// and scaled with how hard it is falling. Lightning is a strike at a random distance: the sky
+/// and scaled with how hard it is falling. It drifts and leans with the room's wind: rain on a
+/// gale comes down at a slant, snow wanders. Lightning is a strike at a random distance: the sky
 /// and everything under it brighten in two quick pulses, and the thunder is played after the time
 /// sound takes to cover that distance, quieter the further off it was.
 /// </para>
@@ -63,6 +64,15 @@ public sealed class RoomWeatherEffectsSubsystem : ISceneSubsystem
 
     /// <summary>How hard it is falling against the effect's own rate.</summary>
     public float PrecipitationRate { get; private set; }
+
+    /// <summary>The wind the precipitation is drifting on, in metres a second along X and Z.</summary>
+    public System.Numerics.Vector2 PrecipitationWind { get; private set; }
+
+    /// <summary>The most wind rain is carried on, in metres a second: at 9 m/s of fall this is a slant of about forty degrees.</summary>
+    public const float RainWindLimit = 7.5f;
+
+    /// <summary>The most wind snow is carried on, in metres a second. A flake is in the air for seconds, so it travels far on little.</summary>
+    public const float SnowWindLimit = 2.5f;
 
     /// <summary>The light a lightning strike is adding right now, from 0 to 1.</summary>
     public float Flash { get; private set; }
@@ -131,6 +141,13 @@ public sealed class RoomWeatherEffectsSubsystem : ISceneSubsystem
         }
 
         PrecipitationRate = rate;
+        // The same wind the climate reports, held to a speed the effect still looks right at.
+        var wind = new System.Numerics.Vector2(frame.LocalWind.X, frame.LocalWind.Z);
+        float limit = asset == "builtin://Snow" ? SnowWindLimit : RainWindLimit;
+        float speed = wind.Length();
+        if (!float.IsFinite(speed)) wind = default;
+        else if (speed > limit) wind *= limit / speed;
+        PrecipitationWind = asset.Length > 0 ? wind : default;
         if (_emitter.IsNull) return;
         if (!scene.World.IsAlive(_emitter) || !scene.World.Has<ParticleComponent>(_emitter))
         {
@@ -140,7 +157,9 @@ public sealed class RoomWeatherEffectsSubsystem : ISceneSubsystem
             return;
         }
 
-        scene.World.GetRef<ParticleComponent>(_emitter).RateScale = MathF.Max(0.01f, rate);
+        ref ParticleComponent falling = ref scene.World.GetRef<ParticleComponent>(_emitter);
+        falling.RateScale = MathF.Max(0.01f, rate);
+        falling.Wind = PrecipitationWind;
     }
 
     private void UpdateLightning(RuntimeScene scene, in EnvironmentFrame frame, float delta)
@@ -223,6 +242,7 @@ public sealed class RoomWeatherEffectsSubsystem : ISceneSubsystem
         _emitter = Entity.Null;
         Precipitation = "";
         PrecipitationRate = 0f;
+        PrecipitationWind = default;
     }
 
     public void SubmitMeshes(RuntimeScene scene, MeshDrawCall[] buffer, ref int count, IRenderController renderer) { }

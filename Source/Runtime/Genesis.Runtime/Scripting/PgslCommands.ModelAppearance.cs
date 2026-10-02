@@ -60,6 +60,13 @@ public static partial class PgslCommands
         ThisModel(out var world, out var entity)
         && Genesis.Runtime.Modeling.ModelInstance.SetMaterialEmission(world, entity, material, (float)strength);
 
+    [PgslCommand("ModelSetMaterialEmissionColor", "ModelSetMaterialEmissionColor(material, strength, r, g, b) -> bool",
+        "Make one of this model's materials give off light of this strength in this colour (window glass glowing warm at night); a negative strength gives it back its authored light and colour", "Models")]
+    public static bool ModelSetMaterialEmissionColor(string material, double strength, double r, double g, double b) =>
+        Finite3(r, g, b) && ThisModel(out var world, out var entity)
+        && Genesis.Runtime.Modeling.ModelInstance.SetMaterialEmission(world, entity, material, (float)strength,
+            new Vector3((float)r, (float)g, (float)b));
+
     [PgslCommand("ModelSetMeshVisible", "ModelSetMeshVisible(mesh, visible) -> bool",
         "Show or hide a named mesh on this instance without changing the shared model", "Models")]
     public static bool ModelSetMeshVisible(string mesh, bool visible)
