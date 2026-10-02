@@ -215,7 +215,7 @@ namespace Genesis.Runtime.Project
 
                     scriptHost = new ScriptHostSystem();
                     scriptHost.DiagnosticReported += logger.WriteScriptDiagnostic;
-                    string dllPath = Path.Combine(AppContext.BaseDirectory, "GameScripts.dll");
+                    string dllPath = RuntimePaths.PlayerGameScriptsDll();
                     if (File.Exists(dllPath))
                     {
                         byte[] dllBytes = File.ReadAllBytes(dllPath);
@@ -852,7 +852,7 @@ namespace Genesis.Runtime.Project
         private static bool TryRunScriptEntryPoint(string[] args, out int exitCode)
         {
             exitCode = 0;
-            string dllPath = Path.Combine(AppContext.BaseDirectory, "GameScripts.dll");
+            string dllPath = RuntimePaths.PlayerGameScriptsDll();
             if (!File.Exists(dllPath))
                 return false;
 

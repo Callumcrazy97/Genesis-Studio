@@ -33,10 +33,14 @@ namespace Genesis.Runtime.Project
         public static CompileOutcome CompileScripts(string projectPath, string outputDir = null)
         {
             projectPath = ProjectRoomResolver.ResolveProjectRoot(projectPath);
-            outputDir ??= RuntimePaths.ResolveRuntimeDir() ?? RuntimePaths.StudioDir;
+            // Run keeps the compiled scripts inside the project. The Player's own folder is
+            // read-only once Studio is installed, and one folder cannot serve two projects.
+            bool intoProject = outputDir == null && !string.IsNullOrEmpty(projectPath);
+            if (intoProject) outputDir = RuntimePaths.ProjectScriptsDir(projectPath);
             string targetDll = string.IsNullOrEmpty(outputDir)
                 ? null
                 : Path.Combine(outputDir, "GameScripts.dll");
+            if (intoProject) RemoveScriptsBesidePlayer();
 
             if (string.IsNullOrEmpty(projectPath))
             {
@@ -91,7 +95,19 @@ namespace Genesis.Runtime.Project
             return new CompileOutcome { Success = true, Result = result, TargetDll = targetDll };
         }
 
-        /// <summary>Launches <c>GenesisEngine.exe</c> as a separate process (F5 and CI).</summary>
+        /// <summary>
+        /// Earlier versions wrote every project's scripts beside the Player. One left there would
+        /// be loaded by a project that has no C# of its own, so it is removed where that is allowed.
+        /// </summary>
+        private static void RemoveScriptsBesidePlayer()
+        {
+            string runtimeDir = RuntimePaths.ResolveRuntimeDir();
+            if (string.IsNullOrEmpty(runtimeDir)) return;
+            string beside = Path.Combine(runtimeDir, "GameScripts.dll");
+            try { if (File.Exists(beside)) File.Delete(beside); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
+
         /// <summary>Renames a stale GameScripts.dll so play/sandbox cannot load outdated types.</summary>
         private static void QuarantineStaleScriptDll(string targetDll)
         {
@@ -165,6 +181,13 @@ namespace Genesis.Runtime.Project
             };
             startInfo.EnvironmentVariables["GENESIS_PROJECT_PATH"] = projectPath;
             startInfo.EnvironmentVariables["GENESIS_START_ROOM"] = roomName;
+            // The project's own compiled scripts, when it has any; otherwise the Player looks
+            // beside itself, as an exported game does.
+            string projectScripts = RuntimePaths.ProjectScriptsDll(projectPath);
+            if (File.Exists(projectScripts))
+                startInfo.EnvironmentVariables[RuntimePaths.GameScriptsEnvironmentVariable] = projectScripts;
+            else
+                startInfo.EnvironmentVariables.Remove(RuntimePaths.GameScriptsEnvironmentVariable);
             if (supervised)
             {
                 using var parent = Process.GetCurrentProcess();

@@ -88,18 +88,29 @@ internal static class Program
 
     private static void WriteCrashReport(object? error)
     {
-        try
-        {
-            string text = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] GenesisEngine crashed{Environment.NewLine}{error}";
-            Console.Error.WriteLine(text);
+        string text = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] GenesisEngine crashed{Environment.NewLine}{error}";
+        Console.Error.WriteLine(text);
 
-            string path = Path.Combine(AppContext.BaseDirectory, "GenesisEngine.crash.log");
-            File.AppendAllText(path, text + Environment.NewLine + Environment.NewLine);
-        }
-        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+        // Beside the game first, where its author looks. A game installed under Program Files may
+        // not write there, and the report is the only record of the failure, so it then goes to
+        // the player's own folder.
+        foreach (string folder in new[]
+                 {
+                     AppContext.BaseDirectory,
+                     Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Genesis", "CrashReports"),
+                 })
         {
-            // The report is best-effort; a locked or read-only directory must not mask the original
-            // failure with a second one.
+            try
+            {
+                Directory.CreateDirectory(folder);
+                File.AppendAllText(Path.Combine(folder, "GenesisEngine.crash.log"), text + Environment.NewLine + Environment.NewLine);
+                return;
+            }
+            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+            {
+                // The report is best-effort; a locked or read-only directory must not mask the
+                // original failure with a second one.
+            }
         }
     }
 }

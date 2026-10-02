@@ -15,10 +15,26 @@ namespace Genesis.Runtime.Project
         public ProjectLogger(string projectPath, string logFileName = "project_player.log")
         {
             ProjectPaths.EnsureDebugDirs(projectPath);
+            string header = $"=== Genesis project player {DateTime.Now:yyyy-MM-dd HH:mm:ss} ==={Environment.NewLine}";
             _path = Path.Combine(ProjectPaths.LogsDir(projectPath), logFileName);
             try
             {
-                File.WriteAllText(_path, $"=== Genesis project player {DateTime.Now:yyyy-MM-dd HH:mm:ss} ==={Environment.NewLine}");
+                File.WriteAllText(_path, header);
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+            {
+                // The folders were there already but may not be written to: keep the log in the
+                // player's own folder instead of running without one.
+                _path = null;
+                if (ProjectPaths.UsesUserDebugFolder(projectPath)) return;
+                ProjectPaths.UseUserDebugFolder(projectPath);
+                string elsewhere = Path.Combine(ProjectPaths.LogsDir(projectPath), logFileName);
+                try
+                {
+                    File.WriteAllText(elsewhere, header);
+                    _path = elsewhere;
+                }
+                catch (Exception again) when (again is UnauthorizedAccessException or IOException) { }
             }
             catch { _path = null; }
         }
