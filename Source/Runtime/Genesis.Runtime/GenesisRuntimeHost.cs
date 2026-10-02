@@ -600,6 +600,11 @@ namespace Genesis.Runtime
             if (scriptsReady)
                 ScriptHost?.DispatchDrawHudOverlay(_renderer);
             _renderer.FlushOverlaySprites();
+            // Text drawn in the overlay event labels that event's sprites, so it goes on top of
+            // them in this frame. It used to wait in the queue for the next frame's overlay, which
+            // is drawn beneath these sprites: an icon in the overlay could never carry a caption.
+            // With nothing queued this does no work.
+            _renderer.ComposeOverlay(static _ => { });
         }
 
         /// <summary>

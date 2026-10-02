@@ -10,8 +10,8 @@ public static class FoliageGeometry
 {
     public static int TriangleCount(FoliageSpecies species, bool nearLod) => species switch
     {
-        FoliageSpecies.Sapling => nearLod ? 28 : 16,
-        FoliageSpecies.Shrub => nearLod ? 22 : 10,
+        FoliageSpecies.Sapling => nearLod ? 40 : 16,
+        FoliageSpecies.Shrub => nearLod ? 40 : 8,
         FoliageSpecies.Fern => nearLod ? 14 : 8,
         FoliageSpecies.Wildflower => nearLod ? 15 : 10,
         FoliageSpecies.Reed => nearLod ? 7 : 3,
@@ -79,22 +79,83 @@ public static class FoliageGeometry
         return new MeshData { Vertices = vertices.ToArray(), Indices = indices.ToArray() };
     }
 
+    /// <summary>
+    /// A bush as a mass of leaves: one rounded clump with a smaller one on its shoulder. It used
+    /// to be a handful of flat diamonds, which read as paper cut-outs beside a modelled tree.
+    /// </summary>
     private static MeshData BuildShrub(bool near, Vector4 color)
     {
-        int leaves = near ? 11 : 5;
-        var vertices = new List<MeshVertex>(leaves * 4);
-        var indices = new List<ushort>(leaves * 6);
-        for (int leaf = 0; leaf < leaves; leaf++)
+        var vertices = new List<MeshVertex>(24);
+        var indices = new List<ushort>(120);
+        if (near)
         {
-            float angle = leaf * 2.3999632f;
-            float ring = 0.15f + 0.20f * (leaf % 3);
-            Vector3 radial = new(MathF.Cos(angle), 0f, MathF.Sin(angle));
-            Vector3 center = radial * ring + Vector3.UnitY * (0.30f + 0.16f * (leaf % 4));
-            Vector3 side = new(-radial.Z, 0f, radial.X);
-            AddLeafDiamond(vertices, indices, center, side,
-                0.30f + 0.035f * (leaf % 3), 0.38f + 0.04f * (leaf % 2), color);
+            AddClump(vertices, indices, new Vector3(0f, 0.42f, 0f), new Vector3(0.55f, 0.42f, 0.50f), fine: true, color, 3);
+            AddClump(vertices, indices, new Vector3(0.22f, 0.64f, -0.12f), new Vector3(0.36f, 0.30f, 0.34f), fine: true, color, 7);
         }
+        else
+        {
+            AddClump(vertices, indices, new Vector3(0f, 0.46f, 0f), new Vector3(0.58f, 0.48f, 0.54f), fine: false, color, 3);
+        }
+
         return new MeshData { Vertices = vertices.ToArray(), Indices = indices.ToArray() };
+    }
+
+    private static readonly Vector3[] ClumpFine = BuildIcosahedron();
+    private static readonly ushort[] ClumpFineFaces =
+    [
+        0, 11, 5, 0, 5, 1, 0, 1, 7, 0, 7, 10, 0, 10, 11, 1, 5, 9, 5, 11, 4, 11, 10, 2, 10, 7, 6, 7, 1, 8,
+        3, 9, 4, 3, 4, 2, 3, 2, 6, 3, 6, 8, 3, 8, 9, 4, 9, 5, 2, 4, 11, 6, 2, 10, 8, 6, 7, 9, 8, 1,
+    ];
+    private static readonly Vector3[] ClumpCoarse =
+    [
+        Vector3.UnitY, -Vector3.UnitY, Vector3.UnitX, -Vector3.UnitX, Vector3.UnitZ, -Vector3.UnitZ,
+    ];
+    private static readonly ushort[] ClumpCoarseFaces =
+    [
+        0, 4, 2, 0, 2, 5, 0, 5, 3, 0, 3, 4, 1, 2, 4, 1, 5, 2, 1, 3, 5, 1, 4, 3,
+    ];
+
+    private static Vector3[] BuildIcosahedron()
+    {
+        float t = (1f + MathF.Sqrt(5f)) * 0.5f;
+        Vector3[] points =
+        [
+            new(-1, t, 0), new(1, t, 0), new(-1, -t, 0), new(1, -t, 0), new(0, -1, t), new(0, 1, t),
+            new(0, -1, -t), new(0, 1, -t), new(t, 0, -1), new(t, 0, 1), new(-t, 0, -1), new(-t, 0, 1),
+        ];
+        for (int i = 0; i < points.Length; i++) points[i] = Vector3.Normalize(points[i]);
+        return points;
+    }
+
+    /// <summary>
+    /// A rounded mass of leaves: twenty faces near, eight far, each corner pushed in or out a
+    /// little so no two clumps look turned on a lathe. It is darker underneath, where a real bush
+    /// shades itself, and its normals lean upward so the top catches the sky.
+    /// </summary>
+    private static void AddClump(List<MeshVertex> vertices, List<ushort> indices, Vector3 centre, Vector3 radii,
+        bool fine, Vector4 color, int pattern)
+    {
+        Vector3[] points = fine ? ClumpFine : ClumpCoarse;
+        ushort[] faces = fine ? ClumpFineFaces : ClumpCoarseFaces;
+        ushort start = checked((ushort)vertices.Count);
+        for (int i = 0; i < points.Length; i++)
+        {
+            Vector3 point = points[i];
+            // A fixed scramble of the corner's number: the same clump every time it is built.
+            uint hash = unchecked((uint)(i * 374761393 + pattern * 668265263));
+            hash = (hash ^ (hash >> 13)) * 1274126177u;
+            float wobble = 0.86f + ((hash >> 8) & 0xFFFF) / 65535f * 0.28f;
+            float shade = 0.70f + 0.36f * (point.Y * 0.5f + 0.5f);
+            vertices.Add(new MeshVertex
+            {
+                Position = centre + point * radii * wobble,
+                Normal = Vector3.Normalize(point + Vector3.UnitY * 0.35f),
+                Color = new Vector4(color.X * shade, color.Y * shade, color.Z * shade, color.W),
+                UV = new Vector2(point.X * 0.5f + 0.5f, 0.5f - point.Y * 0.5f),
+            });
+        }
+
+        foreach (ushort corner in faces) indices.Add((ushort)(start + corner));
     }
 
     private static MeshData BuildWildflowers(bool near, Vector4 flowerColor)
@@ -151,17 +212,17 @@ public static class FoliageGeometry
             Vector3 normal = Vector3.Normalize(new Vector3(MathF.Cos((a0 + a1) * 0.5f), 0f, MathF.Sin((a0 + a1) * 0.5f)));
             AddQuad(vertices, indices, p0, p1, p2, p3, normal, bark);
         }
-        int leaves = near ? 8 : 4;
-        for (int leaf = 0; leaf < leaves; leaf++)
+        // A young tree's crown: one rounded mass of leaves and a smaller one above it.
+        if (near)
         {
-            float angle = leaf * 2.3999632f;
-            Vector3 radial = new(MathF.Cos(angle), 0f, MathF.Sin(angle));
-            Vector3 side = new(-radial.Z, 0f, radial.X);
-            Vector3 center = radial * (0.18f + 0.15f * (leaf % 3))
-                + Vector3.UnitY * (1.28f + 0.23f * (leaf % 4));
-            AddLeafDiamond(vertices, indices, center, side,
-                0.42f + 0.05f * (leaf % 2), 0.52f, leafColor);
+            AddClump(vertices, indices, new Vector3(0f, 1.62f, 0f), new Vector3(0.50f, 0.46f, 0.48f), fine: true, leafColor, 11);
+            AddClump(vertices, indices, new Vector3(0.08f, 2.04f, -0.05f), new Vector3(0.30f, 0.30f, 0.28f), fine: false, leafColor, 13);
         }
+        else
+        {
+            AddClump(vertices, indices, new Vector3(0f, 1.72f, 0f), new Vector3(0.50f, 0.56f, 0.48f), fine: false, leafColor, 11);
+        }
+
         return new MeshData { Vertices = vertices.ToArray(), Indices = indices.ToArray() };
     }
 

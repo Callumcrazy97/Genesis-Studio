@@ -132,6 +132,47 @@ internal static class EngineAdditionsSuite
                 "A strike 120 m away should be over within a second, with loud thunder just after it.");
         });
 
+        HeadlessHarness.RunCase(context.Report, "Engine.World.Foliage.BushesAndSaplingsAreSolidShapesNotFlatCards", () =>
+        {
+            foreach (Genesis.World.Foliage.FoliageSpecies species in Enum.GetValues<Genesis.World.Foliage.FoliageSpecies>())
+            foreach (bool near in new[] { true, false })
+            {
+                Genesis.World.MeshData mesh = Genesis.World.Foliage.FoliageGeometry.Build(species, near);
+                HeadlessHarness.Assert(mesh.Indices.Length / 3 == Genesis.World.Foliage.FoliageGeometry.TriangleCount(species, near),
+                    $"{species} ({(near ? "near" : "far")}) has {mesh.Indices.Length / 3} triangles; its budget says {Genesis.World.Foliage.FoliageGeometry.TriangleCount(species, near)}.");
+                HeadlessHarness.Assert(mesh.Indices.All(index => index < mesh.Vertices.Length)
+                    && mesh.Vertices.All(vertex => float.IsFinite(vertex.Position.Length()) && MathF.Abs(vertex.Normal.Length() - 1f) < 1e-3f),
+                    $"{species} has an index past its vertices, or a normal that is not unit length.");
+            }
+
+            // A bush seen from any side has depth: a flat card has none along its own normal.
+            foreach (Genesis.World.Foliage.FoliageSpecies species in new[] { Genesis.World.Foliage.FoliageSpecies.Shrub, Genesis.World.Foliage.FoliageSpecies.Sapling })
+            foreach (bool near in new[] { true, false })
+            {
+                Genesis.World.MeshData mesh = Genesis.World.Foliage.FoliageGeometry.Build(species, near);
+                // Measure the leaves: all of a bush, and a sapling above where its trunk ends.
+                MeshVertex[] crown = species == Genesis.World.Foliage.FoliageSpecies.Shrub
+                    ? mesh.Vertices
+                    : mesh.Vertices.Where(vertex => vertex.Position.Y > 1.0f && new Vector2(vertex.Position.X, vertex.Position.Z).Length() > 0.1f
+                        || vertex.Position.Y > 1.5f).ToArray();
+                float width = crown.Max(vertex => vertex.Position.X) - crown.Min(vertex => vertex.Position.X);
+                float depth = crown.Max(vertex => vertex.Position.Z) - crown.Min(vertex => vertex.Position.Z);
+                HeadlessHarness.Assert(width > 0.3f && depth > 0.3f && MathF.Min(width, depth) / MathF.Max(width, depth) > 0.6f,
+                    $"The {species} ({(near ? "near" : "far")}) is {width:F2} m wide and {depth:F2} m deep: it should be about as deep as it is wide.");
+                // Leaves face outward all round, and the underside is shaded.
+                HeadlessHarness.Assert(crown.Any(vertex => vertex.Normal.X > 0.3f) && crown.Any(vertex => vertex.Normal.X < -0.3f)
+                    && crown.Any(vertex => vertex.Normal.Z > 0.3f) && crown.Any(vertex => vertex.Normal.Z < -0.3f),
+                    $"The {species}'s leaves do not face outward on every side.");
+                float brightest = mesh.Vertices.Max(vertex => vertex.Color.Y), darkestLeaf = crown.Min(vertex => vertex.Color.Y);
+                HeadlessHarness.Assert(species == Genesis.World.Foliage.FoliageSpecies.Sapling || mesh.Vertices.Min(vertex => vertex.Color.Y) < brightest * 0.85f,
+                    $"The {species} is one flat colour; its underside should be darker (leaf {darkestLeaf:F2} to {brightest:F2}).");
+            }
+
+            HeadlessHarness.Assert(Genesis.World.Foliage.FoliageGeometry.Build(Genesis.World.Foliage.FoliageSpecies.Shrub, true).Vertices
+                .SequenceEqual(Genesis.World.Foliage.FoliageGeometry.Build(Genesis.World.Foliage.FoliageSpecies.Shrub, true).Vertices),
+                "A bush must be the same shape every time it is built.");
+        });
+
         HeadlessHarness.RunCase(context.Report, "Engine.Animation.Events.AScriptIsToldTheFrameAClipPassesAPoint", () =>
         {
             // The rule itself: a span of time passes a mark once, and a looping clip once each time round.
