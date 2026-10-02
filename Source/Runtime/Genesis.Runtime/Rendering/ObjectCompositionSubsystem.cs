@@ -130,6 +130,45 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem
             _seenParticles.Add(entity.Id);
             ParticleState? state = EnsureParticle(entity, component, scene);
             if (state == null) return;
+            if (component.Restart)
+            {
+                // The same emitter fires its burst again: a second blow, a second footfall.
+                component.Restart = false;
+                component.Age = 0f;
+                foreach (ParticleLayerState layer in state.Layers)
+                {
+                    layer.PendingBurst = !layer.Config.Loop ? Math.Max(0, layer.Config.BurstCount) : 0;
+                    layer.EmitAccumulator = 0f;
+                }
+            }
+
+            component.Age += dt;
+            if (component.RemoveWhenDone)
+            {
+                // A burst is over once its last particle has lived its life. An effect that emits
+                // continuously is given its time, stopped, and then left to die away.
+                bool continuous = false;
+                float longestLife = 0f;
+                foreach (ParticleLayerState layer in state.Layers)
+                {
+                    continuous |= layer.Config.Loop;
+                    longestLife = MathF.Max(longestLife, (float)(layer.Config.Lifetime * (1.0 + layer.Config.LifetimeVariance)));
+                }
+
+                float emitting = continuous ? (component.EmitSeconds > 0f ? component.EmitSeconds : 0.25f) : 0f;
+                if (continuous && component.Age >= emitting)
+                {
+                    component.HasEmitRateOverride = true;
+                    component.EmitRate = 0f;
+                }
+
+                if (component.Age >= emitting + longestLife + 0.25f)
+                {
+                    scene.World.DestroyEntity(entity);
+                    return;
+                }
+            }
+
             foreach (ParticleLayerState layer in state.Layers)
             {
                 layer.World = ResolveParticleWorld(layer.Config, component, transform, scene.Camera3D.Position);

@@ -105,6 +105,12 @@ namespace Genesis.Shared.Audio
         /// <summary>Volume of a group of sounds: "music", "sfx" or "master".</summary>
         void SetBusVolume(string bus, float volume) { }
 
+        /// <summary>
+        /// Puts a playing channel in a group ("music" or "sfx") whatever group its sound would have
+        /// chosen. A long looping sound is taken for music unless told otherwise.
+        /// </summary>
+        void SetChannelBus(AudioChannel channel, string bus) { }
+
         /// <summary>The volume a group of sounds was last set to; 1 when it never was.</summary>
         float GetBusVolume(string bus) => 1f;
 

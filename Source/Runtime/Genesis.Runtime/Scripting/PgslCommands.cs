@@ -365,6 +365,11 @@ public static partial class PgslCommands
     public static void SetBusVolume(string bus, double volume) =>
         ActiveGameContext?.Audio?.SetBusVolume(bus, (float)Math.Clamp(volume, 0, 1));
 
+    [PgslCommand("SoundSetBus", "SoundSetBus(channel, bus)",
+        "Put a playing channel in a group, \"music\" or \"sfx\". A sound longer than ten seconds is taken for music unless told otherwise", "Audio")]
+    public static void SoundSetBus(double channel, string bus) =>
+        ActiveGameContext?.Audio?.SetChannelBus(new Genesis.Shared.Audio.AudioChannel((int)channel), bus);
+
     [PgslCommand("GetBusVolume", "GetBusVolume(bus) -> number", "The volume of a group of sounds: \"music\", \"sfx\" or \"master\"", "Audio")]
     public static double GetBusVolume(string bus) => ActiveGameContext?.Audio?.GetBusVolume(bus) ?? 1;
 

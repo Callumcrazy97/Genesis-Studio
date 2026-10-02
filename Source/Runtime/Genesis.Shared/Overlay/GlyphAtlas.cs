@@ -199,6 +199,26 @@ namespace Genesis.Shared.Overlay
             }
         }
 
+        private static readonly object MeasureLock = new();
+        private static GlyphAtlas _measuring;
+
+        /// <summary>
+        /// The width and line height of text as the overlay draws it, for layout by code that has no
+        /// renderer to ask. Nothing is rasterised; one line is measured, and a line break in the
+        /// text is not a new line.
+        /// </summary>
+        public static System.Numerics.Vector2 Measure(string text, string family, float size, bool bold = false)
+        {
+            lock (MeasureLock)
+            {
+                _measuring ??= new GlyphAtlas();
+                SKFont font = _measuring.GetFont(family, size, bold, out _, out _);
+                SKFontMetrics metrics = font.Metrics;
+                float width = string.IsNullOrEmpty(text) ? 0f : font.MeasureText(text, _measuring._paint);
+                return new System.Numerics.Vector2(width, metrics.Descent - metrics.Ascent);
+            }
+        }
+
         /// <summary>Advance width of a run, for centring.</summary>
         public float MeasureRun(string text, string family, float size, bool bold)
         {

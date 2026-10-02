@@ -61,6 +61,7 @@ internal static class EngineAdditionsSuite
         public void SetChannelPosition(AudioChannel channel, Vector3 position) => Calls.Add($"position {channel.Id} {V(position)}");
         public void SetChannelPitch(AudioChannel channel, float pitch) => Calls.Add($"pitch {channel.Id} {F(pitch)}");
         public void SetBusVolume(string bus, float volume) => Calls.Add($"bus {bus} {F(volume)}");
+        public void SetChannelBus(AudioChannel channel, string bus) => Calls.Add($"channel {channel.Id} on {bus}");
         public void SetListener(Vector3 position, Vector3 forward) => Calls.Add($"listener {V(position)}");
         public void Update() { }
     }
@@ -202,11 +203,12 @@ internal static class EngineAdditionsSuite
                 Genesis.Runtime.Scripting.PgslCommands.SoundFade(channel, 0.25, 2);
                 Genesis.Runtime.Scripting.PgslCommands.StopSoundFaded(channel, 1);
                 Genesis.Runtime.Scripting.PgslCommands.SetBusVolume("music", 0.4);
+                Genesis.Runtime.Scripting.PgslCommands.SoundSetBus(channel, "sfx");
                 string[] expected =
                 [
                     "play 7 0.8 1.5 True", "position 1 4,1,-2", "position 1 5,1,-2", "volume 1 1", "pitch 1 0.5",
                     // A system with no clock of its own makes a fade at once, and stops when asked to.
-                    "volume 1 0.25", "volume 1 0", "stop 1", "bus music 0.4",
+                    "volume 1 0.25", "volume 1 0", "stop 1", "bus music 0.4", "channel 1 on sfx",
                 ];
                 HeadlessHarness.Assert(channel == 1 && recorder.Calls.SequenceEqual(expected),
                     "The sound commands asked for: " + string.Join(" | ", recorder.Calls));
@@ -251,6 +253,28 @@ internal static class EngineAdditionsSuite
                 $"Turning round did not move the sound to the left ear ({heard}).");
             audio.SetBusVolume("music", 0.4f);
             HeadlessHarness.Assert(audio.GetBusVolume("music") == 0.4f && audio.GetBusVolume("sfx") == 1f, "A bus volume did not read back.");
+
+            // The caller may say which group a sound is in, and a muted device stays muted whatever the volume is set to.
+            string Bus()
+            {
+                var channels = (System.Collections.IDictionary)typeof(Genesis.Audio.XAudioSystem)
+                    .GetField("_channels", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(audio)!;
+                object state = channels[live.Id]!;
+                return (string)state.GetType().GetField("Bus")!.GetValue(state)!;
+            }
+
+            HeadlessHarness.Assert(Bus() == "sfx", $"A one-second sound should start in the effects group, not '{Bus()}'.");
+            audio.SetChannelBus(live, "Music");
+            HeadlessHarness.Assert(Bus() == "music", "A playing sound could not be moved to the music group.");
+            audio.SetChannelBus(live, "sfx");
+            audio.Muted = true;
+            audio.MasterVolume = 0.8f;
+            var engine = (Genesis.Audio.AudioEngine)typeof(Genesis.Audio.XAudioSystem)
+                .GetField("_engine", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(audio)!;
+            HeadlessHarness.Assert(audio.MasterVolume == 0.8f && engine.MasterVolume == 0f,
+                $"A muted device should stay silent while the game's own volume reads back ({audio.MasterVolume}, device {engine.MasterVolume}).");
+            audio.Muted = false;
+            HeadlessHarness.Assert(engine.MasterVolume == 0.8f, "Unmuting did not give the device back the game's volume.");
 
             // A fade to silence that ends by stopping the sound.
             audio.FadeChannel(live, 0f, 0.15f, stopWhenDone: true);
@@ -498,10 +522,178 @@ internal static class EngineAdditionsSuite
         });
     }
 
+    /// <summary>Keeps the rectangles and lines a HUD shape is made of.</summary>
+    private sealed class ShapeRecorder : Genesis.Runtime.Scripting.IHudCanvas
+    {
+        public readonly List<(float X, float Y, float W, float H)> Rects = new();
+        public readonly List<(Vector2 From, Vector2 To)> Lines = new();
+        public int Width => 640;
+        public int Height => 360;
+        public void Text(string text, float x, float y, float size, Vector4 color) { }
+        public void TextCentered(string text, float centerX, float y, float width, float size, Vector4 color) { }
+        public void Rect(float x, float y, float w, float h, Vector4 color, bool filled = true) => Rects.Add((x, y, w, h));
+        public void Line(float x1, float y1, float x2, float y2, Vector4 color, float thickness = 1.5f) =>
+            Lines.Add((new Vector2(x1, y1), new Vector2(x2, y2)));
+    }
+
+    private static void RunHudParticlesAndSaves(HeadlessContext context)
+    {
+        HeadlessHarness.RunCase(context.Report, "Engine.Hud.Canvas.MeasuresTextAndDrawsCirclesArcsAndPolygons", () =>
+        {
+            var recorder = new ShapeRecorder();
+            Genesis.Runtime.Scripting.IHudCanvas hud = recorder;
+
+            // Text: capitals are wider than thin letters, twice the size is twice the width, and nothing is no width.
+            Vector2 wide = hud.MeasureText("WWWW", 16f), thin = hud.MeasureText("iiii", 16f), large = hud.MeasureText("WWWW", 32f);
+            HeadlessHarness.Assert(wide.X > thin.X * 2f && wide.Y > 12f && wide.Y < 32f,
+                $"Four capital Ws should be far wider than four small is at one height ({wide} against {thin}).");
+            HeadlessHarness.Assert(MathF.Abs(large.X / wide.X - 2f) < 0.15f, $"Text at twice the size should be about twice as wide ({wide.X} then {large.X}).");
+            HeadlessHarness.Assert(hud.MeasureText("", 16f).X == 0f && hud.MeasureText(null!, 16f).Y > 0f, "Empty text should have no width and still a line height.");
+
+            // A disc: one row of pixels each, as wide as the circle is at that row, the same above and below.
+            hud.Circle(50f, 50f, 10f, Vector4.One);
+            HeadlessHarness.Assert(recorder.Rects.Count == 20 && recorder.Rects.All(row => row.H == 1f), $"A disc of radius 10 should be 20 rows ({recorder.Rects.Count}).");
+            float area = recorder.Rects.Sum(row => row.W);
+            HeadlessHarness.Assert(MathF.Abs(area - MathF.PI * 100f) < 6f, $"A disc of radius 10 covers about 314 pixels; it drew {area:F0}.");
+            HeadlessHarness.Assert(MathF.Abs(recorder.Rects[0].W - recorder.Rects[19].W) < 1e-3f && recorder.Rects.All(row => MathF.Abs(row.X + row.W / 2f - 50f) < 1e-3f),
+                "A disc should be the same top and bottom and centred on its centre.");
+
+            // A ring is a closed run of lines on the circle; a quarter arc is a quarter of it.
+            recorder.Rects.Clear();
+            hud.Circle(100f, 100f, 40f, Vector4.One, filled: false, thickness: 2f);
+            HeadlessHarness.Assert(recorder.Rects.Count == 0 && recorder.Lines.Count >= 24
+                && Vector2.Distance(recorder.Lines[0].From, recorder.Lines[^1].To) < 0.01f
+                && recorder.Lines.All(line => MathF.Abs(Vector2.Distance(line.From, new Vector2(100f, 100f)) - 40f) < 0.01f),
+                $"A ring should be a closed loop of lines on the circle ({recorder.Lines.Count} lines).");
+            int ring = recorder.Lines.Count;
+            recorder.Lines.Clear();
+            hud.Arc(100f, 100f, 40f, -90f, 90f, Vector4.One);
+            HeadlessHarness.Assert(recorder.Lines.Count >= 3 && recorder.Lines.Count <= ring / 4 + 1
+                && Vector2.Distance(recorder.Lines[0].From, new Vector2(100f, 60f)) < 0.01f
+                && Vector2.Distance(recorder.Lines[^1].To, new Vector2(140f, 100f)) < 0.01f,
+                "A quarter arc from twelve o'clock should end at three o'clock.");
+
+            // A filled triangle covers its area; an outline joins back to the start.
+            recorder.Lines.Clear();
+            Vector2[] triangle = [new(10f, 10f), new(110f, 10f), new(10f, 60f)];
+            hud.Polygon(triangle, Vector4.One);
+            float triangleArea = recorder.Rects.Sum(row => row.W);
+            HeadlessHarness.Assert(MathF.Abs(triangleArea - 2500f) < 30f && recorder.Rects.Count == 50,
+                $"A triangle 100 wide and 50 tall covers 2500 pixels in 50 rows; it drew {triangleArea:F0} in {recorder.Rects.Count}.");
+            hud.Polygon(triangle, Vector4.One, filled: false);
+            HeadlessHarness.Assert(recorder.Lines.Count == 3 && recorder.Lines[^1].To == triangle[0], "A polygon's outline should join back to its first point.");
+        });
+
+        HeadlessHarness.RunCase(context.Report, "Engine.Particles.Bursts.PlayOnceAndRemoveThemselves", () =>
+        {
+            using var scene = new RuntimeScene("Sparks");
+            var composition = new Genesis.Runtime.Rendering.ObjectCompositionSubsystem(context.Workspace);
+            void Run(float seconds)
+            {
+                for (float done = 0f; done < seconds - 1e-4f; done += 0.05f)
+                {
+                    scene.GameTime.Advance(0.05f);
+                    composition.Update(scene, scene.GameTime);
+                    scene.World.FlushDeferred();
+                }
+            }
+
+            try
+            {
+                // A single burst: gone once its last particle has lived its life, and not before.
+                Entity burst = ParticleBursts.Play(scene.World, "builtin://Explosion", new Vector3(3f, 1f, 2f), 2f);
+                HeadlessHarness.Assert(!burst.IsNull && scene.World.GetRef<ParticleComponent>(burst).RemoveWhenDone
+                    && scene.World.GetRef<TransformComponent>(burst).X == 3f && scene.World.GetRef<TransformComponent>(burst).ScaleX == 2f,
+                    "A burst was not made where and as large as it was asked for.");
+                ParticleConfig explosion = ParticlePresets.Explosion();
+                float life = (float)(explosion.Lifetime * (1.0 + explosion.LifetimeVariance));
+                Run(MathF.Max(0.1f, life * 0.5f));
+                HeadlessHarness.Assert(scene.World.IsAlive(burst), "A burst was removed while its particles were still alive.");
+                HeadlessHarness.Assert(composition.ParticleEmitterCount == 1, $"One burst should be one emitter ({composition.ParticleEmitterCount}).");
+                Run(life + 1f);
+                HeadlessHarness.Assert(!scene.World.IsAlive(burst) && composition.ParticleEmitterCount == 0,
+                    $"A burst whose particles live {life:F1} s was still there {life * 1.5f + 1f:F1} s later.");
+
+                // An effect that emits continuously is given its time, stopped, and then removed.
+                Entity shower = ParticleBursts.Play(scene.World, "builtin://Rain", Vector3.Zero, 1f, emitSeconds: 0.5f);
+                Run(0.6f);
+                ref ParticleComponent raining = ref scene.World.GetRef<ParticleComponent>(shower);
+                HeadlessHarness.Assert(scene.World.IsAlive(shower) && raining.HasEmitRateOverride && raining.EmitRate == 0f,
+                    "A continuous effect played as a burst should stop emitting after its time and still be there to die away.");
+                ParticleConfig rain = ParticlePresets.Rain();
+                Run((float)(rain.Lifetime * (1.0 + rain.LifetimeVariance)) + 1f);
+                HeadlessHarness.Assert(!scene.World.IsAlive(shower), "A continuous effect played as a burst was never removed.");
+
+                // An emitter that is kept can fire its burst again; an unknown effect makes nothing.
+                Entity kept = scene.World.CreateEntity();
+                scene.World.Set(kept, new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+                scene.World.Set(kept, new ParticleComponent { Asset = "builtin://Explosion", ParticleTypeId = -1, RateScale = 1f, FollowEntity = true, Emitting = true });
+                Run(1f);
+                scene.World.GetRef<ParticleComponent>(kept).Restart = true;
+                Run(0.05f);
+                ref ParticleComponent again = ref scene.World.GetRef<ParticleComponent>(kept);
+                HeadlessHarness.Assert(scene.World.IsAlive(kept) && !again.Restart && again.Age < 0.11f,
+                    $"Asking an emitter to fire again should start it over (age {again.Age:F2}, still asking: {again.Restart}).");
+                HeadlessHarness.Assert(ParticleBursts.Play(scene.World, "", Vector3.Zero).IsNull, "A burst with no effect named made something.");
+            }
+            finally
+            {
+                composition.Dispose();
+            }
+        });
+
+        HeadlessHarness.RunCase(context.Report, "Engine.Save.Slots.ARichSaveIsWrittenReadListedAndRemoved", () =>
+        {
+            string project = Path.Combine(context.Workspace, "SaveSlotProject");
+            Directory.CreateDirectory(project);
+            string oldProject = Genesis.Runtime.Scripting.PgslCommands.ProjectPath;
+            string folder = ProjectNumberSave.GetWritableDirectory(project);
+            try
+            {
+                Genesis.Runtime.Scripting.PgslCommands.ProjectPath = project;
+                HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.SaveSlotCount() == 0 && !Genesis.Runtime.Scripting.PgslCommands.SaveSlotExists("Quick")
+                    && Genesis.Runtime.Scripting.PgslCommands.SaveSlotRead("Quick") == "", "A game with no saves reported one.");
+
+                string story = "{\"hero\":\"Æthelflæd\",\"gold\":412,\"inventory\":[\"sword\",\"ale\"],\"note\":\"line one\\nline two\"}";
+                HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.SaveSlotWrite("Slot 1", story)
+                    && Genesis.Runtime.Scripting.PgslCommands.SaveSlotLastError() == ""
+                    && Genesis.Runtime.Scripting.PgslCommands.SaveSlotRead("Slot 1") == story,
+                    "A save did not read back as it was written: " + Genesis.Runtime.Scripting.PgslCommands.SaveSlotLastError());
+                HeadlessHarness.Assert(File.Exists(Path.Combine(folder, "Slots", "Slot 1.save")) && !Directory.EnumerateFiles(Path.Combine(folder, "Slots"), "*.tmp").Any(),
+                    "The slot was not written where saves are kept, or a part-written file was left behind.");
+
+                // A later save is listed first; writing a slot again replaces it.
+                File.SetLastWriteTimeUtc(Path.Combine(folder, "Slots", "Slot 1.save"), DateTime.UtcNow.AddMinutes(-5));
+                Genesis.Runtime.Scripting.PgslCommands.SaveSlotWrite("Quick", "first");
+                Genesis.Runtime.Scripting.PgslCommands.SaveSlotWrite("Quick", "second");
+                HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.SaveSlotCount() == 2
+                    && Genesis.Runtime.Scripting.PgslCommands.SaveSlotName(0) == "Quick" && Genesis.Runtime.Scripting.PgslCommands.SaveSlotName(1) == "Slot 1"
+                    && Genesis.Runtime.Scripting.PgslCommands.SaveSlotName(2) == "" && Genesis.Runtime.Scripting.PgslCommands.SaveSlotRead("Quick") == "second",
+                    "Two slots should be listed newest first, and a slot written twice should hold the second text.");
+
+                // A name that would leave the save folder, or is not a name, is refused and says why.
+                foreach (string bad in new[] { "..\\escape", "a/b", "", " padded ", new string('x', 49), "dot.name" })
+                    HeadlessHarness.Assert(!Genesis.Runtime.Scripting.PgslCommands.SaveSlotWrite(bad, "x") && Genesis.Runtime.Scripting.PgslCommands.SaveSlotLastError().Length > 0
+                        && !Genesis.Runtime.Scripting.PgslCommands.SaveSlotExists(bad), $"The slot name '{bad}' was accepted.");
+                HeadlessHarness.Assert(Directory.GetFiles(folder, "*", SearchOption.AllDirectories).Length == 2, "A refused name still wrote a file.");
+
+                HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.SaveSlotDelete("Quick") && !Genesis.Runtime.Scripting.PgslCommands.SaveSlotExists("Quick")
+                    && Genesis.Runtime.Scripting.PgslCommands.SaveSlotCount() == 1 && Genesis.Runtime.Scripting.PgslCommands.SaveSlotDelete("Quick"),
+                    "Removing a slot did not remove it, or removing it twice was an error.");
+            }
+            finally
+            {
+                Genesis.Runtime.Scripting.PgslCommands.ProjectPath = oldProject;
+                try { if (Directory.Exists(folder)) Directory.Delete(folder, true); } catch (IOException) { }
+            }
+        });
+    }
+
     public static void Run(HeadlessContext context)
     {
         RunInputAndAudio(context);
         RunModelInstances(context);
+        RunHudParticlesAndSaves(context);
         HeadlessHarness.RunCase(context.Report, "Engine.World.Weather.TheEngineDrawsRainSnowAndLightningWhenARoomAsks", () =>
         {
             RoomAsset room = RoomAsset.Create("Moor", RoomDimension.ThreeD);

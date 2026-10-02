@@ -245,6 +245,13 @@ namespace Genesis.Runtime.Project
                     try
                     {
                         audioSystem = new XAudioSystem(projectPath);
+                        // A window opened by a test or a tool makes no noise unless asked to.
+                        if (Environment.GetEnvironmentVariable("GENESIS_UNATTENDED_WINDOW") == "1"
+                            && Environment.GetEnvironmentVariable("GENESIS_UNATTENDED_AUDIO") != "1")
+                        {
+                            audioSystem.Muted = true;
+                            logger.Line("audio muted: unattended window (set GENESIS_UNATTENDED_AUDIO=1 to hear it)");
+                        }
                         gameContext.SetAudio(audioSystem);
                         Engine.SetAudioSystem(
                             loadSound: name => audioSystem.LoadSound(name),

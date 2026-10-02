@@ -80,8 +80,31 @@ namespace Genesis.Audio
             {
                 _busMaster = Math.Clamp(value, 0f, 2f);
                 if (_engine != null)
-                    _engine.MasterVolume = _busMaster;
+                    _engine.MasterVolume = _muted ? 0f : _busMaster;
             }
+        }
+
+        private bool _muted;
+
+        /// <summary>
+        /// Silences the device without changing what <see cref="MasterVolume"/> reads back, so a
+        /// game's own volume setting cannot turn the sound back on. Used for test windows.
+        /// </summary>
+        public bool Muted
+        {
+            get => _muted;
+            set
+            {
+                _muted = value;
+                if (_engine != null) _engine.MasterVolume = _muted ? 0f : _busMaster;
+            }
+        }
+
+        public void SetChannelBus(AudioChannel channel, string bus)
+        {
+            if (!channel.IsValid || !_channels.TryGetValue(channel.Id, out ChannelState? state) || state == null) return;
+            state.Bus = (bus ?? "").Trim().ToLowerInvariant() switch { "music" => "music", "master" => "master", _ => "sfx" };
+            ApplySpatial(channel.Id);
         }
 
         public void SetBusVolume(string bus, float volume)

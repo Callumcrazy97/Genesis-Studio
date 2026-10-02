@@ -122,6 +122,13 @@ namespace Genesis.Runtime.Scripting
         /// </summary>
         bool TryGetSocketWorld(Genesis.Shared.ECS.Entity entity, string socketOrBone, out Matrix4x4 socketWorld) =>
             Genesis.Runtime.Modeling.ModelInstance.TryGetSocketWorld(World, entity, socketOrBone, out socketWorld);
+
+        /// <summary>
+        /// Plays a Particle resource once at a place; the emitter removes itself when the effect
+        /// has played out. See <see cref="Genesis.Runtime.Particles.ParticleBursts"/>.
+        /// </summary>
+        Genesis.Shared.ECS.Entity PlayParticleBurst(string asset, Vector3 position, float scale = 1f, float emitSeconds = 0f) =>
+            Genesis.Runtime.Particles.ParticleBursts.Play(World, asset, position, scale, emitSeconds);
     }
 
     /// <summary>
@@ -142,6 +149,25 @@ namespace Genesis.Runtime.Scripting
             => TextCentered(text, centerX, y, width, size, color);
         void Rect(float x, float y, float w, float h, Vector4 color, bool filled = true);
         void Line(float x1, float y1, float x2, float y2, Vector4 color, float thickness = 1.5f);
+
+        /// <summary>
+        /// The width and line height, in pixels, that <see cref="Text(string, float, float, float, Vector4, string)"/>
+        /// would draw this text at: for right-aligning, wrapping and fitting a panel to its label.
+        /// </summary>
+        Vector2 MeasureText(string text, float size, string font = null)
+            => Genesis.Shared.Overlay.GlyphAtlas.Measure(text, font, size);
+
+        /// <summary>A filled disc, or a ring of the given thickness.</summary>
+        void Circle(float centerX, float centerY, float radius, Vector4 color, bool filled = true, float thickness = 1.5f)
+            => HudShapes.Circle(this, centerX, centerY, radius, color, filled, thickness);
+
+        /// <summary>Part of a ring: a cooldown sweep, a compass arc. Degrees run clockwise on screen from three o'clock.</summary>
+        void Arc(float centerX, float centerY, float radius, float startDegrees, float sweepDegrees, Vector4 color, float thickness = 1.5f)
+            => HudShapes.Arc(this, centerX, centerY, radius, startDegrees, sweepDegrees, color, thickness);
+
+        /// <summary>A shape through these points, filled or as an outline joined back to the first point.</summary>
+        void Polygon(ReadOnlySpan<Vector2> points, Vector4 color, bool filled = true, float thickness = 1.5f)
+            => HudShapes.Polygon(this, points, color, filled, thickness);
     }
 
     /// <summary>

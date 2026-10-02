@@ -12,5 +12,13 @@ namespace Genesis.Runtime.ECS.Components
         public float RateScale;       // multiplier applied to the asset's authored rate
         public bool  FollowEntity;    // new particles originate at the owning entity
         public bool  Emitting;
+        /// <summary>Set to fire a one-off burst again; the engine clears it once it has.</summary>
+        public bool  Restart;
+        /// <summary>The entity is destroyed once the effect has played out. See Particles.ParticleBursts.</summary>
+        public bool  RemoveWhenDone;
+        /// <summary>With <see cref="RemoveWhenDone"/>: how long a continuous effect emits before it is left to die away.</summary>
+        public float EmitSeconds;
+        /// <summary>Seconds since the effect began, or was last restarted.</summary>
+        public float Age;
     }
 }
