@@ -46,8 +46,9 @@ namespace Genesis.Runtime.Project
         /// that are expected to be long or are not the game's (the loading screen at start-up).
         /// </summary>
         /// <param name="longestParts">The parts of the scene's frame that took longest, in words, or empty.</param>
+        /// <param name="overlayMilliseconds">Time spent drawing the HUD and in whatever is hooked to the end of a frame.</param>
         public void FrameEnded(string room, bool counted, double updateMilliseconds, double collectMilliseconds,
-            double drawMilliseconds, double presentMilliseconds, string longestParts = "")
+            double drawMilliseconds, double presentMilliseconds, string longestParts = "", double overlayMilliseconds = 0)
         {
             long now = Stopwatch.GetTimestamp();
             LoadClockSnapshot loads = LoadClock.Capture();
@@ -68,10 +69,15 @@ namespace Genesis.Runtime.Project
                 {
                     _written++;
                     string loaded = loads.Describe(_loads);
+                    // What the frame's own work does not account for: the window's messages, a wait
+                    // for the frame rate, or another program holding the processor or graphics card.
+                    double outside = frame - (updateMilliseconds + collectMilliseconds + drawMilliseconds
+                        + overlayMilliseconds + presentMilliseconds);
                     _write($"Slow frame: {frame:F0} ms in {room} (frame {_frameInRoom}, "
                         + $"{Stopwatch.GetElapsedTime(_roomStarted, now).TotalSeconds:F1} s after the room began): "
                         + $"update {updateMilliseconds:F0} ms, gathering what to draw {collectMilliseconds:F0} ms, "
-                        + $"drawing {drawMilliseconds:F0} ms, presenting {presentMilliseconds:F0} ms; "
+                        + $"drawing {drawMilliseconds:F0} ms, HUD and hooks {overlayMilliseconds:F0} ms, presenting {presentMilliseconds:F0} ms; "
+                        + (outside >= Math.Max(20.0, frame * 0.15) ? $"{outside:F0} ms was outside the frame's own work; " : string.Empty)
                         + (string.IsNullOrEmpty(longestParts) ? string.Empty : $"longest parts: {longestParts}; ")
                         + $"loading in that frame: {(loaded.Length == 0 ? "none" : loaded)}; "
                         + $"garbage collector paused {(paused - _collectorPaused).TotalMilliseconds:F0} ms"

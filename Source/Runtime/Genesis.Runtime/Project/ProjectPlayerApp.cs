@@ -55,6 +55,12 @@ namespace Genesis.Runtime.Project
             _stopRequested = true;
         }
 
+        /// <summary>
+        /// Set to a label to save a picture of each room change's loading screen, and of the first
+        /// room's, as <c>&lt;label&gt;-&lt;room&gt;.png</c> beside the game's screenshots.
+        /// </summary>
+        public const string RoomChangeShotEnvironmentVariable = "GENESIS_ROOM_CHANGE_SHOT";
+
         /// <summary>Set to 0 to read every model texture on the game's thread in the frame that first draws it.</summary>
         public const string BackgroundTexturesEnvironmentVariable = "GENESIS_BACKGROUND_TEXTURES";
 
@@ -434,6 +440,36 @@ namespace Genesis.Runtime.Project
 
                     host.DebugRoomName = roomName;
                     host.BeforeRenderSubmit += () => gameContext?.SubmitUpdateLights();
+                    // A picture of each room change's loading screen, for whoever asks for one: the
+                    // third frame drawn behind the cover, saved beside the game's other screenshots.
+                    string coverShot = Environment.GetEnvironmentVariable(RoomChangeShotEnvironmentVariable);
+                    if (!string.IsNullOrWhiteSpace(coverShot))
+                    {
+                        RoomChangeProgress photographed = null;
+                        int coveredFrames = 0;
+                        host.RoomChangeCovered += (coverRenderer, change) =>
+                        {
+                            if (!ReferenceEquals(change, photographed))
+                            {
+                                photographed = change;
+                                coveredFrames = 0;
+                            }
+
+                            if (++coveredFrames != 3) return;
+                            try
+                            {
+                                string saved = ProjectScreenshot.Capture(coverRenderer, projectPath,
+                                    $"{coverShot.Trim()}-{change.RoomName}", frameAlreadySubmitted: true);
+                                logger.Line(saved != null
+                                    ? $"room change cover saved: {saved}"
+                                    : $"room change cover for {change.RoomName} could not be read back");
+                            }
+                            catch (Exception coverError)
+                            {
+                                logger.Line("room change cover capture failed: " + coverError.Message);
+                            }
+                        };
+                    }
                     // Only this thread's loading holds a frame up, so only this thread's is counted.
                     Genesis.Shared.Assets.LoadClock.UseCurrentThread();
                     var slowFrames = new SlowFrameLog(logger.Line);
@@ -445,7 +481,7 @@ namespace Genesis.Runtime.Project
                             counted: host.BootSplash == null || host.BootSplash.IsComplete,
                             host.LastSimulationMilliseconds, host.LastCollectMilliseconds,
                             host.LastDrawMilliseconds, host.LastPresentMilliseconds,
-                            parts?.Describe() ?? string.Empty);
+                            parts?.Describe() ?? string.Empty, host.LastOverlayMilliseconds);
                         parts?.Clear();
                     };
                     host.FixedStepStarting += () => gameContext?.BeginFixedStep();

@@ -339,17 +339,26 @@ the Player's slow-frame lines. Other programs were using the machine, so the fig
 | What those frames were | Terrain collision: 8 tiles a frame at about 35 ms each | Tiles made on workers; handing one over is not measurable |
 | Time behind the cover | none | 0.3 to 0.5 s for the island; 30 ms for a room of eleven models |
 
-In another project, entering a village took a first frame of 3.6 s (25 textures, 2.4 s) and a
-second of 1.8 s (particle effects and shader pipelines, 1.1 s), and entering a terrain room took a
-frame of 0.6 s (the terrain's collider, 0.48 s). Those measurements are what the background
-textures, the prepared collider and the cover were written for; that project has not yet been
-measured with them.
+A second project, a town game with a village of about forty models and a terrain room, was
+measured before and after by its own session, with another program sharing the graphics card both
+times:
+
+| Measure | Before | Now |
+|---|---|---|
+| Entering the village | a first frame of 3.6 s (25 textures, 2.4 s) and a second of 1.8 s (particle effects and shader pipelines, 1.1 s) | 1.0 s behind the cover, longest frame there 177 ms; then one frame of 271 ms once the room was running |
+| Entering the terrain room | a frame of 0.6 s (the terrain's collider, 0.48 s) | 0.8 s behind the cover, longest frame there 155 ms; the collider frame is gone |
+| The game's first room | long first frames in view | 3.6 s behind the cover, one frame of it 0.96 s compiling four shader pipelines |
+
+The 271 ms frame after the village's cover was its nine smoke emitters being set up, four shader
+pipelines and three sounds, none of which was touched while the room was held. Emitters and
+arriving sounds are now made ready behind the cover; that project has not been measured again
+since.
 
 ## Verification
 
-`Build.bat --test large-world` runs fifty-two checks. Twenty-six of them are described in
-[Game features](GameFeatures.md), nine of those for room changes (`Build.bat --test room-change`
-runs those nine alone). Twelve cover the terrain, detail and view
+`Build.bat --test large-world` runs fifty-three checks. Twenty-seven of them are described in
+[Game features](GameFeatures.md), ten of those for room changes (`Build.bat --test room-change`
+runs those ten alone). Twelve cover the terrain, detail and view
 work: bulk terrain files, collision tiles following what can touch the ground, an 8 km terrain
 drawn with distance detail and no gaps, a world made from a recipe (sea, rivers running downhill
 in channels, paint following the land, level sites, objects on the ground), the simplifier (shape,

@@ -53,6 +53,15 @@ namespace Genesis.Runtime.Project
         /// </summary>
         public static float MinimumSeconds { get; set; }
 
+        /// <summary>
+        /// Draws the game's own loading screen, whatever Objects exist: it is given the canvas and
+        /// the progress from 0 to 1, and returns true when it has drawn. Set once, it is there
+        /// from the first covered frame, including the moment between the old room going and the
+        /// new room's Objects being created, when no Object can be asked. Objects that override
+        /// <see cref="EntityBehavior.OnDrawLoadingScreen"/> are asked after it and draw on top.
+        /// </summary>
+        public static Func<IHudCanvas, float, bool> Painter { get; set; }
+
         /// <summary>Puts every setting back to what a new game starts with.</summary>
         public static void Reset()
         {
@@ -64,6 +73,19 @@ namespace Genesis.Runtime.Project
             Foreground = new Vector4(0.86f, 0.88f, 0.92f, 1f);
             FadeSeconds = 0.2f;
             MinimumSeconds = 0f;
+            Painter = null;
+        }
+
+        /// <summary>
+        /// Draws the loading screen on a canvas that is already covered: the game's painter, then
+        /// any Object that draws one, and the engine's bar and text only when neither did.
+        /// </summary>
+        public static void DrawLoadingScreen(IHudCanvas hud, RoomChangeProgress change, ScriptHostSystem scripts = null)
+        {
+            if (hud == null || change == null) return;
+            bool drawn = Painter?.Invoke(hud, change.Progress) == true;
+            if (scripts?.DispatchDrawLoadingScreen(hud, change.Progress) == true) drawn = true;
+            if (!drawn) Draw(hud, change);
         }
 
         /// <summary>
@@ -81,9 +103,7 @@ namespace Genesis.Runtime.Project
             if (strength < 1f) return;
             renderer.ComposeOverlay(canvas =>
             {
-                var hud = new OverlayHudCanvas(canvas, width, height);
-                bool drawn = scripts?.DispatchDrawLoadingScreen(hud, change.Progress) == true;
-                if (!drawn) Draw(hud, change);
+                DrawLoadingScreen(new OverlayHudCanvas(canvas, width, height), change, scripts);
             });
         }
 

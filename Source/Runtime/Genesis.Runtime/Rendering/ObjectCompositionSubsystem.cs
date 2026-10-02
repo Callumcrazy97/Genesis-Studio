@@ -26,7 +26,7 @@ namespace Genesis.Runtime.Rendering;
 /// Runs the non-visual and compound visual components authored on Object prefabs: particle assets,
 /// autoplay/spatial audio, and point lights. The same subsystem is used by F5 and Object preview.
 /// </summary>
-public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem
+public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomWarmUpSubsystem
 {
     private sealed class ParticleState
     {
@@ -227,6 +227,52 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem
         });
 
         RemoveMissingStates();
+    }
+
+    private readonly HashSet<string> _soundsReadAhead = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Makes the room's particle emitters and the sounds its Objects play on arrival ready while
+    /// the room waits behind a loading screen. An emitter is set up and run for one sixtieth of a
+    /// second, so that the frame drawn behind the cover makes its buffers and compiles its
+    /// shaders; without this they were all made in the room's first running frame. Returns false
+    /// in the frame it sets a new emitter up, so that one more frame is drawn before the room is
+    /// shown.
+    /// </summary>
+    public bool WarmUp(RuntimeScene scene)
+    {
+        if (scene?.World == null) return true;
+        _lastScene = scene;
+        bool settled = true;
+        scene.World.Query<TransformComponent, ParticleComponent>((entity, ref transform, ref component) =>
+        {
+            if (!component.Emitting || string.IsNullOrWhiteSpace(component.Asset)) return;
+            bool known = _particles.ContainsKey(entity.Id);
+            ParticleState? state = EnsureParticle(entity, component, scene);
+            if (state == null) return;
+            foreach (ParticleLayerState layer in state.Layers)
+            {
+                layer.World = ResolveParticleWorld(layer.Config, component, transform, scene.Camera3D.Position);
+                if (!known) layer.PendingSeconds = 1f / 60f;
+            }
+
+            if (!known) settled = false;
+        });
+
+        scene.World.Query<TransformComponent, AudioComponent>((entity, ref transform, ref component) =>
+        {
+            if (!component.AutoPlay || string.IsNullOrWhiteSpace(component.Asset) || !_soundsReadAhead.Add(component.Asset)) return;
+            try
+            {
+                _audio.LoadSound(component.Asset);
+            }
+            catch (Exception exception) when (
+                exception is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+            {
+                // The update that plays it reports a sound that cannot be read.
+            }
+        });
+        return settled;
     }
 
     public void SubmitMeshes(

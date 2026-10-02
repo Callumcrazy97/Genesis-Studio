@@ -307,6 +307,20 @@ namespace Genesis.Runtime
         /// <summary>Time the last frame spent presenting, which includes waiting for the GPU to catch up.</summary>
         public double LastPresentMilliseconds { get; private set; }
 
+        /// <summary>
+        /// Time the last frame spent after its drawing was issued and before it was presented:
+        /// the HUD and overlay the game draws, and whatever is hooked to the end of a frame (a
+        /// screenshot, an acceptance run, a benchmark).
+        /// </summary>
+        public double LastOverlayMilliseconds { get; private set; }
+
+        /// <summary>
+        /// Raised for each frame of a finished room that is drawn behind a room change's cover,
+        /// after the cover and the loading screen are on it. The ordinary end-of-frame hooks do
+        /// not see these frames; this is for something that wants the loading screen itself.
+        /// </summary>
+        public event Action<IRenderController, RoomChangeProgress> RoomChangeCovered;
+
         private void OnRender(double dt)
         {
             if (!_ready || _renderer == null) return;
@@ -560,6 +574,7 @@ namespace Genesis.Runtime
         /// </summary>
         private void InvokePostRenderHooks()
         {
+            long hooksStarted = System.Diagnostics.Stopwatch.GetTimestamp();
             // Asked before the cover is faded: the frame in which the last of it is drawn is
             // still a covered frame, though nothing is left of the change once it has been.
             bool covered = _scene?.RoomChange != null || _scene?.RoomReveal != null;
@@ -570,6 +585,7 @@ namespace Genesis.Runtime
                 {
                     // The finished room was drawn so that what it shows is loaded; nobody sees it yet.
                     ComposeRoomChangeOverlay(roomChange, 1f);
+                    RoomChangeCovered?.Invoke(_renderer, roomChange);
                 }
                 else
                 {
@@ -588,6 +604,7 @@ namespace Genesis.Runtime
             // room change draws over it: they wait for the first frame with no cover in it.
             if (!covered)
                 EndFrame?.Invoke(_renderer);
+            LastOverlayMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(hooksStarted).TotalMilliseconds;
         }
 
         private float _lastRenderDelta;

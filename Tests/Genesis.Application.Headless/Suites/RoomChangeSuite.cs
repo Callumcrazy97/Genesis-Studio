@@ -97,6 +97,28 @@ internal static class RoomChangeSuite
         public void Line(float x1, float y1, float x2, float y2, Vector4 color, float thickness = 1.5f) { }
     }
 
+    /// <summary>Counts the sounds it is asked to read and to play.</summary>
+    private sealed class SoundCounter : Genesis.Shared.Audio.IAudioSystem
+    {
+        public readonly List<string> Loaded = new();
+        public int Played;
+        public float MasterVolume { get; set; } = 1f;
+        public int LoadSound(string path) { Loaded.Add(path); return Loaded.Count; }
+        public Genesis.Shared.Audio.AudioChannel Play(int soundId, float volume = 1f, float pitch = 1f, bool loop = false)
+        {
+            Played++;
+            return new Genesis.Shared.Audio.AudioChannel(Played);
+        }
+
+        public void Stop(Genesis.Shared.Audio.AudioChannel channel) { }
+        public void StopAll() { }
+        public bool IsPlaying(Genesis.Shared.Audio.AudioChannel channel) => true;
+        public void SetChannelVolume(Genesis.Shared.Audio.AudioChannel channel, float volume) { }
+        public void SetChannelPosition(Genesis.Shared.Audio.AudioChannel channel, Vector3 position) { }
+        public void SetListener(Vector3 position, Vector3 forward) { }
+        public void Update() { }
+    }
+
     private sealed class DrawList : IMeshDrawList
     {
         public readonly List<MeshDrawCall> Calls = new();
@@ -425,6 +447,26 @@ internal static class RoomChangeSuite
                 PgslCommands.RoomChangeFade(0.75);
                 PgslCommands.RoomChangeMinimumTime(2);
                 HeadlessHarness.Assert(RoomChangeScreen.FadeSeconds == 0.75f && RoomChangeScreen.MinimumSeconds == 2f, "The fade and minimum times were not set.");
+
+                // A painter draws the game's own screen with no Object to ask, and the engine then leaves its bar out.
+                PgslCommands.RoomChangeProgressBar(true);
+                float painted = -1f;
+                RoomChangeScreen.Painter = (canvas, progress) =>
+                {
+                    painted = progress;
+                    canvas.Rect(1, 2, 3, 4, Vector4.One);
+                    return true;
+                };
+                hud = new RecordingHud();
+                RoomChangeScreen.DrawLoadingScreen(hud, new RoomChangeProgress("Cellar", 0.35f));
+                HeadlessHarness.Assert(painted == 0.35f && hud.Rects.Count == 1 && hud.Rects[0].W == 3f,
+                    $"A painter that drew the loading screen should be all that is drawn; {hud.Rects.Count} rectangles were, with progress {painted}.");
+                RoomChangeScreen.Painter = (_, _) => false;
+                hud = new RecordingHud();
+                RoomChangeScreen.DrawLoadingScreen(hud, new RoomChangeProgress("Cellar", 0.35f));
+                HeadlessHarness.Assert(hud.Rects.Count == 2, "A painter that drew nothing should leave the engine's bar in place.");
+                RoomChangeScreen.Reset();
+                HeadlessHarness.Assert(RoomChangeScreen.Painter == null, "Resetting the loading screen left a painter behind.");
             }
             finally
             {
@@ -576,6 +618,39 @@ internal static class RoomChangeSuite
             waiting.Clear(physics);
         });
 
+        HeadlessHarness.RunCase(context.Report, "Engine.Rooms.Change.EmittersAndArrivingSoundsAreMadeReadyBehindTheCover", () =>
+        {
+            using var scene = new RuntimeScene("Chimneys");
+            var sounds = new SoundCounter();
+            using var composition = new ObjectCompositionSubsystem(context.Workspace, sounds);
+            Genesis.Shared.ECS.Entity Place(float x)
+            {
+                Genesis.Shared.ECS.Entity entity = scene.World.CreateEntity();
+                scene.World.Set(entity, new TransformComponent { X = x, ScaleX = 1f, ScaleY = 1f, ScaleZ = 1f });
+                return entity;
+            }
+
+            Genesis.Shared.ECS.Entity smoke = Place(4f), bell = Place(8f), silent = Place(12f);
+            scene.World.Set(smoke, new ParticleComponent { Asset = "builtin://Explosion", ParticleTypeId = -1, RateScale = 1f, FollowEntity = true, Emitting = true });
+            scene.World.Set(bell, new AudioComponent { Asset = "Bell", AutoPlay = true, Volume = 1f, Pitch = 1f });
+            scene.World.Set(silent, new AudioComponent { Asset = "Horn", AutoPlay = false, Volume = 1f, Pitch = 1f });
+
+            HeadlessHarness.Assert(composition.ParticleEmitterCount == 0, "An emitter existed before anything asked for it.");
+            HeadlessHarness.Assert(!composition.WarmUp(scene) && composition.ParticleEmitterCount == 1,
+                "Preparing a room should set its emitter up and ask for one more frame behind the cover.");
+            HeadlessHarness.Assert(composition.TryGetParticleFlow(smoke, out _, out Vector3 origin) && origin.X == 4f,
+                $"The prepared emitter should stand where its Object is; it is at {origin.X}.");
+            HeadlessHarness.Assert(sounds.Loaded.SequenceEqual(["Bell"]) && sounds.Played == 0,
+                $"A sound an Object plays on arrival should be read, and not played, behind the cover ({sounds.Loaded.Count} read, {sounds.Played} played).");
+            HeadlessHarness.Assert(composition.WarmUp(scene) && composition.WarmUp(scene) && composition.ParticleEmitterCount == 1 && sounds.Loaded.Count == 1,
+                "Preparing a room that is already prepared should do nothing and say it is ready.");
+
+            // The room starts running: the emitter is kept, and only now is the sound played.
+            scene.GameTime.Advance(1f / 60f);
+            composition.Update(scene, scene.GameTime);
+            HeadlessHarness.Assert(composition.ParticleEmitterCount == 1 && sounds.Played == 1, "The first update made the emitter again, or did not play the arriving sound.");
+        });
+
         HeadlessHarness.RunCase(context.Report, "Engine.Rendering.Textures.AreReadInTheBackgroundAndHandedOver", () =>
         {
             string folder = Path.Combine(context.Workspace, "BackgroundTextures" + Guid.NewGuid().ToString("N")[..6]);
@@ -705,11 +780,19 @@ internal static class RoomChangeSuite
                 $"The slow frame was written as: {(lines.Count == 0 ? "(nothing)" : lines[0])}");
             parts.Clear();
             HeadlessHarness.Assert(parts.Describe().Length == 0, "Cleared work times still describe something.");
+            HeadlessHarness.Assert(lines[0].Contains("HUD and hooks 0 ms") && !lines[0].Contains("outside the frame"),
+                $"A frame whose parts account for it should not be said to have time outside it: {lines[0]}");
+
+            // A frame far longer than its own work says so, and counts the HUD and the hooks among that work.
+            Thread.Sleep(70);
+            log.FrameEnded("Hall", counted: true, 2, 2, 2, 2, string.Empty, overlayMilliseconds: 9);
+            HeadlessHarness.Assert(lines.Count == 2 && lines[1].Contains("HUD and hooks 9 ms") && lines[1].Contains("ms was outside the frame's own work"),
+                $"A frame of 70 ms with 17 ms of work was written as: {lines[^1]}");
 
             // A frame that is expected to be long (a start-up loading screen) is not written down, and a room has a limit.
             Thread.Sleep(40);
             log.FrameEnded("Hall", counted: false, 1, 1, 1, 1);
-            HeadlessHarness.Assert(lines.Count == 1, "A frame of the start-up loading screen was written down as slow.");
+            HeadlessHarness.Assert(lines.Count == 2, "A frame of the start-up loading screen was written down as slow.");
             for (int i = 0; i < SlowFrameLog.MaximumPerRoom + 5; i++)
             {
                 Thread.Sleep(32);

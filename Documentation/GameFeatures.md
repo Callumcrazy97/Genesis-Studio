@@ -230,7 +230,9 @@ What happens:
    every object is in place, then the room-start events, exactly as before.
 4. The finished room is drawn behind the cover, without being updated, until its ground is solid,
    its scenery is in place and the models and textures its first view shows have been read and
-   sent to the graphics card. These were the room's long first frames; now nobody sees them.
+   sent to the graphics card. Its particle emitters are set up and run for a sixtieth of a second
+   there, so their buffers are made and their shaders compiled, and the sounds its Objects play
+   on arrival are read. These were the room's long first frames; now nobody sees them.
 5. The cover fades over 0.2 seconds and the room starts running.
 
 A 3D room is always prepared this way. A 2D room that is ready within a quarter of a second simply
@@ -267,15 +269,32 @@ public override bool OnDrawLoadingScreen(IHudCanvas hud, float progress)
 
 and returning true, which tells the engine to leave out its own bar and text. The engine has
 already covered the screen when it is called. It is called on Objects that outlive the room
-change (persistent ones) and on the new room's Objects once their Create events have run, so a
-loading screen that must show from the first frame belongs on a persistent Object.
+change (persistent ones) and on the new room's Objects from the frame after their Create events
+have run. Between the old room going and those Create events no room Object exists, and the cover
+is bare for that moment (10 to 70 ms in one game).
+
+A game that wants its screen there from the first covered frame, with no persistent Object, sets
+a painter once:
+
+```csharp
+RoomChangeScreen.Painter = (hud, progress) => { /* draw */ return true; };
+```
+
+The painter is asked first and Objects draw on top of it. The engine's bar is left out when
+either has drawn.
+
+To see a loading screen as a picture, run the Player with `GENESIS_ROOM_CHANGE_SHOT=<label>`: the
+third covered frame of each room change, and of the first room, is saved as
+`Debug/Images/<label>-<room>.png`.
 
 `GENESIS_ROOM_CHANGE_BUDGET_MS=0` in the environment changes room in one step for a whole run.
 Studio's live reload, which rebuilds a room when an asset is saved, always does it in one step.
 
 What is not split: the Create events and the room-start events each run in one frame, as do the
 first use of a particle effect and of a shader the graphics driver has not compiled. They happen
-behind the cover, where the loading bar pauses for them.
+behind the cover, where the loading bar pauses for them. What a script does in its first Step
+(loading sounds, spawning a cast) still happens in the room's first running frame; doing it in
+Create puts it behind the cover.
 
 ### Textures read in the background
 
@@ -297,14 +316,18 @@ The Player writes a line to `Debug/Logs/project_player.log` for every frame over
 
 ```
 Slow frame: 623 ms in River Road (frame 2, 0.9 s after the room began): update 595 ms, gathering
-what to draw 20 ms, drawing 4 ms, presenting 1 ms; longest parts: RoomTerrain fixed update 478 ms,
-ScriptHost update 108 ms; loading in that frame: 2 models read 8 ms, 12 models sent to the
-graphics card 7 ms, 2 sounds 14 ms; garbage collector paused 0 ms
+what to draw 20 ms, drawing 4 ms, HUD and hooks 2 ms, presenting 1 ms; longest parts: RoomTerrain
+fixed update 478 ms, ScriptHost update 108 ms; loading in that frame: 2 models read 8 ms, 12
+models sent to the graphics card 7 ms, 2 sounds 14 ms; garbage collector paused 0 ms
 ```
 
-"Longest parts" names the subsystems that took longest. "Loading" counts what the game's own
-thread read, decoded, compiled or made solid in that frame. A room change adds one line saying how
-long the room was prepared behind the cover and how long its longest single piece took.
+"Longest parts" names the subsystems that took longest. "HUD and hooks" is the HUD and overlay the
+game draws and anything attached to the end of a frame, such as a screenshot. "Loading" counts
+what the game's own thread read, decoded, compiled or made solid in that frame. When the parts
+fall well short of the frame, the line says how many milliseconds were outside the frame's own
+work: the window's messages, or another program holding the processor or the graphics card. A room
+change adds one line saying how long the room was prepared behind the cover and how long its
+longest single piece took.
 
 ## Sky
 
@@ -364,18 +387,20 @@ calls, the HUD shapes and text measuring, bursts removing themselves, save slots
 that would leave the save folder), the sun's shape across a 100-degree view, and a meadow with a
 kind of plant refused.
 
-Room changes have nine cases of their own: a change spread over frames with nothing stepping
+Room changes have ten cases of their own: a change spread over frames with nothing stepping
 meanwhile, Create events still running together once the room is whole, the one-step change and
-the 2D room that appears without a cover, the first room of a game prepared behind the cover, the
-engine's and a game's own loading screen, the cover
+the 2D room that appears without a cover, the first room of a game prepared behind the cover,
+emitters and arriving sounds made ready behind it, the engine's and a game's own loading screen
+(from an Object and from a painter), the cover
 hiding a room and fading from it on four graphics backends, collision prepared on worker threads
 and handed over, a texture read in the background, a mesh waiting for its textures, and the
 slow-frame line. The weather case also checks that rain is carried the way the wind blows and
 starts upwind of the camera, and the model case that a material's light takes a colour.
 
 Seen in a running game on 2 October 2026 (the test island): rain leaning with a thunderstorm's
-wind; a room change spread over frames, from the Player's log. The loading screen itself was seen
-in the harness's captures, which draw it with the Player's own code, not in a game.
+wind; a room change spread over frames, from the Player's log; and the loading screen itself, in
+pictures the Player saved of its covered frames. A game's own loading screen, drawn from an Object
+or a painter, has been checked by the harness and not looked at in a game by this work.
 
 Not seen or heard in a running game:
 
