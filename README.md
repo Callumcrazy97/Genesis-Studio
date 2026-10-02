@@ -16,6 +16,12 @@ water colours, what a script may ask of a model (bones, clips on part of the bod
 light), animation events, controllers, positioned sound, HUD shapes, particle bursts, save
 slots, and room changes that are spread over frames behind a loading screen.
 
+What a user receives is described in the [product guide](Documentation/ProductGuide.md), which is
+installed as the product's own README beside the other guides; the libraries Genesis is built with
+are listed in [ThirdPartyNotices.txt](Documentation/ThirdPartyNotices.txt). The master document's
+"Release readiness" section says what has been checked for a release and what still stands in
+the way of one.
+
 From the repository root, run `DeveloperRequirementsInstaller.ps1 -CheckOnly` to audit prerequisites
 and `Build.bat --quick --run` to build and open Studio. Quick Build alone is not a full regression
 or editor acceptance pass.

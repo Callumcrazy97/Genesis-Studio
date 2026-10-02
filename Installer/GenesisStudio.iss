@@ -15,8 +15,18 @@
   #error Installer/AppVersion.txt is missing or empty.
 #endif
 
-#define MyAppName "Genesis Studio"
+#ifndef MyAppName
+  #define MyAppName "Genesis Studio"
+#endif
 #define MyAppPublisher "Genesis"
+; The product's identity in Add/Remove Programs. An install drill passes its own, so a trial
+; installation can never be mistaken for, or upgrade, a real one.
+#ifndef MyAppId
+  #define MyAppId "{{E8A91C4B-6F3D-4A12-9C7E-1B5D8F2A0E33}"
+#endif
+#ifndef MyOutputBaseFilename
+  #define MyOutputBaseFilename "GenesisStudio-Setup"
+#endif
 #define MyAppExeName "Genesis Application.exe"
 #ifndef PublishDir
   #define PublishDir "..\Genesis Application"
@@ -24,7 +34,7 @@
 
 [Setup]
 ; Stable product id so upgrades reuse the same Add/Remove Programs entry and install directory.
-AppId={{E8A91C4B-6F3D-4A12-9C7E-1B5D8F2A0E33}
+AppId={#MyAppId}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
@@ -35,11 +45,14 @@ DisableProgramGroupPage=yes
 DisableWelcomePage=no
 AlwaysShowDirOnReadyPage=yes
 PrivilegesRequired=admin
+; "Install for me only" needs no administrator: Studio keeps settings, logs and projects in the
+; user's own folders and never writes beside itself. /CURRENTUSER selects it without the dialog.
+PrivilegesRequiredOverridesAllowed=dialog commandline
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 OutputDir=..\Dist
-OutputBaseFilename=GenesisStudio-Setup
+OutputBaseFilename={#MyOutputBaseFilename}
 SetupIconFile=..\Source\Genesis.Application.Studio\Assets\Genesis.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 UninstallDisplayName={#MyAppName}
@@ -69,11 +82,19 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription
 [Files]
 ; Runtime components are extracted in PrepareToInstall so they can run before the app files copy.
 Source: "redist\VC_redist.x64.exe"; DestDir: "{tmp}"; Flags: dontcopy nocompression
-; The published Documentation tree includes EditorReview workspaces whose paths exceed
-; Windows MAX_PATH during compression. Ship the product README and the beginner guide only.
-Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,*.log,Quality,Quality\*,TestResults,TestResults\*,Documentation,Documentation\*"
-Source: "{#PublishDir}\Documentation\README.md"; DestDir: "{app}\Documentation"; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#PublishDir}\Documentation\GettingStarted.md"; DestDir: "{app}\Documentation"; Flags: ignoreversion skipifsourcedoesntexist
+; Build.bat stages the user's guides into Documentation; nothing else belongs there. Symbols,
+; logs and the build's own reports stay behind.
+;
+; The Luigi's Mansion fan-game template is built from another publisher's artwork and audio,
+; which Genesis has no right to distribute. It is left out unless the installer is compiled
+; with /DIncludeFanTemplate for private use; Studio offers the template only when it is present.
+#ifdef IncludeFanTemplate
+  #define FanTemplateExclude ""
+#else
+  #define FanTemplateExclude ",\Templates\LuigisMansion.zip"
+#endif
+Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,*.log,\BuildSummary.json,\PackageManifest.json,Quality,Quality\*,TestResults,TestResults\*,Documentation,Documentation\*{#FanTemplateExclude}"
+Source: "{#PublishDir}\Documentation\*.md"; DestDir: "{app}\Documentation"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
@@ -109,6 +130,11 @@ begin
   NeedsRestart := False;
 
   if IsVCRedistInstalled then
+    Exit;
+
+  { The machine-wide runtime needs an administrator. Studio and the Player carry their own
+    copies of it beside their executables, so an install for one user goes on without it. }
+  if not IsAdminInstallMode then
     Exit;
 
   ExtractTemporaryFile('VC_redist.x64.exe');

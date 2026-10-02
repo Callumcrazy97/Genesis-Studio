@@ -48,4 +48,4 @@ Open them any time from an Object's *Options › Behaviour recipes…*.
 - **Validate** lists problems in the Console; double-click one to open the resource.
 - Every change can be undone with Ctrl+Z, including recipes, landforms and scene presets.
 - This guide is always at *Help › Getting started* (F1).
-- *Help › Genesis Documentation* shows the full engineering notes.
+- *Help › Genesis Documentation* opens the folder with the other guides.

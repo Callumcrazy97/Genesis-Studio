@@ -72,11 +72,14 @@ foreach ($file in $files) {
     Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $OutputDirectory $file.Name) -Force
 }
 
-foreach ($licenseName in @('LICENSE-LLVM.txt', 'LICENSE-MIT.txt')) {
-    $license = Get-ChildItem -Path $packageRoot -Filter $licenseName -File -Recurse | Select-Object -First 1
-    if ($null -ne $license) {
-        Copy-Item -LiteralPath $license.FullName -Destination (Join-Path $OutputDirectory $licenseName) -Force
-    }
+# Every licence the package carries travels with the compiler: the LLVM terms, Microsoft's terms
+# for the binaries, and the MIT terms (spelled LICENCE in the package).
+$licenses = @(Get-ChildItem -LiteralPath $packageRoot -File | Where-Object { $_.Name -match '^LICEN[CS]E-.*\.txt$' })
+if ($licenses.Count -eq 0) {
+    throw "Microsoft.Direct3D.DXC $PackageVersion carries no licence files; the compiler may not be redistributed without them."
+}
+foreach ($license in $licenses) {
+    Copy-Item -LiteralPath $license.FullName -Destination (Join-Path $OutputDirectory $license.Name) -Force
 }
 
 $manifestPath = Join-Path $OutputDirectory 'toolchain.manifest'

@@ -13,8 +13,19 @@
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="SkiaSharp" Version="4.150.1" />
-    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="4.150.1" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="4.150.1" GeneratePathProperty="true" />
     <PackageReference Include="StbImageSharp" Version="2.27.14" />
+  </ItemGroup>
+
+  <!-- The notices every copy must carry. Studio, the Player and each exported game reference
+       this project, so its Licenses folder reaches all three. Build.bat adds the .NET runtime's
+       own licence files to a published package. -->
+  <ItemGroup>
+    <None Include="..\..\..\Documentation\ThirdPartyNotices.txt" Link="Licenses\ThirdPartyNotices.txt"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="$(PkgSkiaSharp_NativeAssets_Win32)\THIRD-PARTY-NOTICES.txt" Link="Licenses\SkiaSharp-THIRD-PARTY-NOTICES.txt"
+          Condition="Exists('$(PkgSkiaSharp_NativeAssets_Win32)\THIRD-PARTY-NOTICES.txt')"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

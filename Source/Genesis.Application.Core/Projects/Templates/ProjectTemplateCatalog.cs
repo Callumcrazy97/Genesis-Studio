@@ -150,9 +150,19 @@ public static class ProjectTemplateCatalog
     /// <summary>Every template, including those not yet built.</summary>
     public static IReadOnlyList<ProjectTemplate> All => Templates;
 
-    /// <summary>Templates that can actually be created today.</summary>
+    /// <summary>Templates that can actually be created today, in this copy of Studio.</summary>
     public static IReadOnlyList<ProjectTemplate> Available =>
-        [.. Templates.Where(template => template.Available)];
+        [.. Templates.Where(IsOffered)];
+
+    /// <summary>
+    /// Built, and its content is in this copy of Studio. The fan-game template's artwork and audio
+    /// are a separate bundle that a distributed installer leaves out, so it is offered only where
+    /// that bundle is present.
+    /// </summary>
+    private static bool IsOffered(ProjectTemplate template) =>
+        template.Available
+        && (!string.Equals(template.Id, LuigisMansionTemplate.TemplateId, StringComparison.OrdinalIgnoreCase)
+            || LuigisMansionTemplate.IsInstalled);
 
     /// <summary>Find a template by id, or null.</summary>
     public static ProjectTemplate? Find(string? id) =>
@@ -162,5 +172,5 @@ public static class ProjectTemplateCatalog
                 string.Equals(template.Id, id, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>True when the id names a template that is implemented.</summary>
-    public static bool CanCreate(string? id) => Find(id)?.Available == true;
+    public static bool CanCreate(string? id) => Find(id) is { } template && IsOffered(template);
 }

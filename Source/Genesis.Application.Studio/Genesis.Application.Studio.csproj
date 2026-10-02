@@ -43,9 +43,12 @@
          in the loaded assembly so an old executable cannot borrow a new sidecar's identity. -->
     <GenesisStudioRevision>23</GenesisStudioRevision>
     <GenesisBuildId Condition="'$(GenesisBuildId)' == ''">local</GenesisBuildId>
+    <!-- The version a user sees. The installer reads the same file, so the two cannot differ. -->
+    <GenesisProductVersion>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)..\..\Installer\AppVersion.txt').Trim())</GenesisProductVersion>
   </PropertyGroup>
 
   <ItemGroup>
+    <AssemblyMetadata Include="Genesis.ProductVersion" Value="$(GenesisProductVersion)" />
     <AssemblyMetadata Include="Genesis.StudioRevision" Value="$(GenesisStudioRevision)" />
     <AssemblyMetadata Include="Genesis.BuildId" Value="$(GenesisBuildId)" />
     <AssemblyMetadata Include="Genesis.BuildConfiguration" Value="$(Configuration)" />

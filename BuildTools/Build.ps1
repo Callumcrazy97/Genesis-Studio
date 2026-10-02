@@ -73,6 +73,8 @@ $playerProject = Join-Path $repo 'Source/Genesis.Player/Genesis.Player.csproj'
 $studioRevision = $studioProjectXml.SelectSingleNode('/Project/PropertyGroup/GenesisStudioRevision').InnerText
 if ([string]::IsNullOrWhiteSpace($studioRevision)) { throw 'Studio source revision is missing.' }
 $testProject = Join-Path $repo 'Tests/Genesis.Application.Headless/Genesis.Application.Headless.csproj'
+# The guides a user gets. ProductGuide.md is installed as the product's README.
+$productGuides = @('GettingStarted.md','GameFeatures.md','LargeWorlds.md','TerrainCreation.md','InkOutline.md')
 $stages = [Collections.Generic.List[object]]::new()
 $clock = [Diagnostics.Stopwatch]::StartNew(); $stepNumber = 0; $promoted = $false; $failure = $null
 $oldEnvironment = @{}
@@ -108,9 +110,22 @@ function Copy-Tree([string]$from, [string]$to) {
 function Assert-Package {
     foreach ($prefix in @('', 'Player/')) {
         $entry = if ($prefix) { 'GenesisEngine' } else { 'Genesis Application' }
-        foreach ($relative in @("$entry.exe", "$entry.dll", "$entry.deps.json", "$entry.runtimeconfig.json", 'vcruntime140.dll', 'Tools/DXC/dxc.exe', 'Tools/DXC/dxcompiler.dll', 'Tools/DXC/dxil.dll')) {
+        foreach ($relative in @("$entry.exe", "$entry.dll", "$entry.deps.json", "$entry.runtimeconfig.json", 'vcruntime140.dll', 'Tools/DXC/dxc.exe', 'Tools/DXC/dxcompiler.dll', 'Tools/DXC/dxil.dll',
+                'Licenses/ThirdPartyNotices.txt', 'Licenses/SkiaSharp-THIRD-PARTY-NOTICES.txt', 'Licenses/DotNet-LICENSE.txt', 'Licenses/DotNet-THIRD-PARTY-NOTICES.txt',
+                'Tools/DXC/LICENSE-MS.txt', 'Tools/DXC/LICENSE-LLVM.txt')) {
             $path = Join-Path $staging ($prefix + $relative)
             if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Incomplete package: $path" }
+        }
+    }
+    foreach ($relative in @('Licenses/Assimp-LICENSE.txt', 'Documentation/README.md') + @($productGuides | ForEach-Object { "Documentation/$_" })) {
+        $path = Join-Path $staging $relative
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Incomplete package: $path" }
+    }
+    # A guide that links to a page the product does not carry is a dead link for its reader.
+    foreach ($guide in @(Get-ChildItem -LiteralPath (Join-Path $staging 'Documentation') -Filter *.md)) {
+        foreach ($link in [regex]::Matches([IO.File]::ReadAllText($guide.FullName), '\]\(([^)#:]+\.md)(#[^)]*)?\)')) {
+            $target = Join-Path $guide.DirectoryName $link.Groups[1].Value
+            if (-not (Test-Path -LiteralPath $target -PathType Leaf)) { throw "$($guide.Name) links to $($link.Groups[1].Value), which the product does not carry." }
         }
     }
     $retired = @(Get-ChildItem -LiteralPath $staging -Recurse -File | Where-Object { $_.Name -match '(?i)^(SDL3|wgpu|Silk\.NET\.WebGPU)' -or $_.Name -match '(?i)shadercross' })
@@ -157,12 +172,15 @@ try {
         Copy-Tree (Join-Path $staging 'Tools/DXC') (Join-Path $staging 'Player/Tools/DXC')
         & (Join-Path $PSScriptRoot 'StageVcRuntime.ps1') -OutputDirectory $staging
         & (Join-Path $PSScriptRoot 'StageVcRuntime.ps1') -OutputDirectory (Join-Path $staging 'Player')
-        # Review portfolios contain disposable project fixtures and very long sidecar paths.
-        # Ship the product guide; keep development evidence in the repository/report directory.
+        & (Join-Path $PSScriptRoot 'StageLicenses.ps1') -OutputDirectory $staging -RuntimeConfig (Join-Path $staging 'Genesis Application.runtimeconfig.json')
+        & (Join-Path $PSScriptRoot 'StageLicenses.ps1') -OutputDirectory (Join-Path $staging 'Player') -RuntimeConfig (Join-Path $staging 'Player/GenesisEngine.runtimeconfig.json')
+        # The product carries the guides written for its users. The master document is the
+        # development record: it stays in the repository, and the product's README is the
+        # guide that says what the others are.
         [void][IO.Directory]::CreateDirectory((Join-Path $staging 'Documentation'))
-        foreach ($guide in @('README.md','GettingStarted.md','BuildProfiles.md')) {
-            $sourceGuide = Join-Path $repo "Documentation/$guide"
-            if (Test-Path -LiteralPath $sourceGuide) { Copy-Item -LiteralPath $sourceGuide -Destination (Join-Path $staging "Documentation/$guide") }
+        Copy-Item -LiteralPath (Join-Path $repo 'Documentation/ProductGuide.md') -Destination (Join-Path $staging 'Documentation/README.md')
+        foreach ($guide in $productGuides) {
+            Copy-Item -LiteralPath (Join-Path $repo "Documentation/$guide") -Destination (Join-Path $staging "Documentation/$guide")
         }
     }
     Invoke-BuildStep 'Audit package and engine assembly consistency' { Assert-Package }

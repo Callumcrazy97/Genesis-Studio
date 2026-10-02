@@ -6,7 +6,13 @@
 param(
     [Parameter(Mandatory)]
     [string]$RepositoryRoot,
-    [string]$PublishDirectory
+    [string]$PublishDirectory,
+    # Bundles the Luigi's Mansion fan-game template. Its artwork and audio are another
+    # publisher's, so an installer made with this switch is for private use only.
+    [switch]$IncludeFanTemplate,
+    # An install drill compiles a trial installer under its own identity and file name, so it
+    # can be installed and removed without touching a real installation.
+    [string]$TrialName
 )
 
 $ErrorActionPreference = 'Stop'
@@ -67,13 +73,21 @@ if ([string]::IsNullOrWhiteSpace($iscc)) {
 $dist = Join-Path $RepositoryRoot 'Dist'
 [void][System.IO.Directory]::CreateDirectory($dist)
 
+$defines = @("/DMyAppVersion=$version", "/DPublishDir=$PublishDirectory")
+$baseName = 'GenesisStudio-Setup'
+if ($IncludeFanTemplate) { $defines += '/DIncludeFanTemplate' }
+if (-not [string]::IsNullOrWhiteSpace($TrialName)) {
+    $baseName = "GenesisStudio-Setup-$TrialName"
+    $defines += @('/DMyAppId={{7C0D2B9E-51A4-4E0B-9A3F-2D6E8B1C4F70}', "/DMyAppName=Genesis Studio $TrialName", "/DMyOutputBaseFilename=$baseName")
+}
+
 Write-Host "Compiling Genesis Studio Setup $version with $iscc"
-& $iscc "/DMyAppVersion=$version" "/DPublishDir=$PublishDirectory" $iss
+& $iscc @defines $iss
 if ($LASTEXITCODE -ne 0) {
     throw "ISCC.exe failed with exit code $LASTEXITCODE."
 }
 
-$setup = Join-Path $dist 'GenesisStudio-Setup.exe'
+$setup = Join-Path $dist "$baseName.exe"
 if (-not (Test-Path -LiteralPath $setup -PathType Leaf)) {
     throw "Inno Setup reported success but '$setup' was not created."
 }

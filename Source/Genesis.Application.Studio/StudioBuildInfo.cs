@@ -10,8 +10,18 @@ public static class StudioBuildInfo
     public static string Revision { get; } = Metadata("Genesis.StudioRevision", "unknown");
     public static string BuildId { get; } = Metadata("Genesis.BuildId", "local");
     public static string Configuration { get; } = Metadata("Genesis.BuildConfiguration", "unspecified");
+    /// <summary>The version the installer and Add/Remove Programs show, from Installer/AppVersion.txt.</summary>
+    public static string ProductVersion { get; } = Metadata("Genesis.ProductVersion", "0.0.0");
     public static string ShortLabel => $"H{Revision} / {BuildId}";
     public static string WindowLabel => $"Genesis Studio — H{Revision} — Build {BuildId}";
+
+    /// <summary>What Help › About shows: the version first, then where the licences are.</summary>
+    public static string AboutText =>
+        $"Genesis Studio {ProductVersion}" + Environment.NewLine + Environment.NewLine +
+        "The software Genesis Studio is built with, and its licences:" + Environment.NewLine +
+        Path.Combine(AppContext.BaseDirectory, "Licenses", "ThirdPartyNotices.txt") + Environment.NewLine + Environment.NewLine +
+        DiagnosticText;
+
     public static string DiagnosticText =>
         WindowLabel + Environment.NewLine +
         $"Configuration: {Configuration}" + Environment.NewLine +

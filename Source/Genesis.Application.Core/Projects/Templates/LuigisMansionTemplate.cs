@@ -10,6 +10,18 @@ public static class LuigisMansionTemplate
     public const int CurrentRevision = 7;
     public const string StartRoom = "Assets/Rooms/00 - A Light in the Dark.room.json";
 
+    /// <summary>
+    /// True when this copy of Studio carries the template's artwork and audio. They come from a
+    /// fan game and are not Genesis's to distribute, so the installer leaves the bundle out
+    /// unless it is compiled with the fan template asked for.
+    /// </summary>
+    public static bool IsInstalled => IsInstalledIn(AppContext.BaseDirectory);
+
+    /// <summary>The same question asked of any Studio folder.</summary>
+    public static bool IsInstalledIn(string applicationDirectory) =>
+        File.Exists(Path.Combine(applicationDirectory, "Templates", "LuigisMansion.zip"))
+        || Directory.Exists(Path.Combine(applicationDirectory, "Projects", "Templates", "Assets", "LuigisMansion", "Assets"));
+
     public static void Apply(ProjectSession session)
     {
         ArgumentNullException.ThrowIfNull(session);
@@ -25,7 +37,7 @@ public static class LuigisMansionTemplate
             string bundle = Path.Combine(AppContext.BaseDirectory, "Projects", "Templates", "Assets", "LuigisMansion");
             string assets = Path.Combine(bundle, "Assets");
             if (!Directory.Exists(assets))
-                throw new DirectoryNotFoundException("Luigi's Mansion template assets are missing. Rebuild Studio to create Templates/LuigisMansion.zip.");
+                throw new DirectoryNotFoundException("This copy of Genesis Studio does not include the Luigi's Mansion template. Its artwork and audio are a separate bundle (Templates/LuigisMansion.zip) that a distributed installer leaves out.");
             foreach (string source in Directory.EnumerateFiles(assets, "*", SearchOption.AllDirectories))
             {
                 string destination = Path.Combine(session.RootPath, Path.GetRelativePath(bundle, source));

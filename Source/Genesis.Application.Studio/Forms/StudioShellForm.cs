@@ -2079,7 +2079,7 @@ public sealed partial class StudioShellForm : DpiAwareForm
     {
         MessageBox.Show(
             this,
-            StudioBuildInfo.DiagnosticText,
+            StudioBuildInfo.AboutText,
             "About Genesis",
             MessageBoxButtons.OK,
             MessageBoxIcon.Information);
