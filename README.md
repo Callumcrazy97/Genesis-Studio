@@ -9,12 +9,12 @@ validation evidence. Historical ledgers there are labelled separately from curre
 See [AGENTS.md](AGENTS.md) for repository contributor instructions.
 
 [Large worlds](Documentation/LargeWorlds.md) covers kilometre-scale terrain, scattered forests,
-automatic model detail, long views, loading (the model cache, reading ahead, changing room in the
-background), sharing a world between players, and what is not done yet.
+automatic model detail, long views and reversed depth, loading (the model cache, reading ahead,
+changing room in the background), sharing a world between players, and what is not done yet.
 [Game features](Documentation/GameFeatures.md) covers weather the engine draws, a terrain's own
 water colours, what a script may ask of a model (bones, clips on part of the body, tint and
-light), animation events, controllers, positioned sound, HUD shapes, particle bursts and save
-slots.
+light), animation events, controllers, positioned sound, HUD shapes, particle bursts, save
+slots, and room changes that are spread over frames behind a loading screen.
 
 From the repository root, run `DeveloperRequirementsInstaller.ps1 -CheckOnly` to audit prerequisites
 and `Build.bat --quick --run` to build and open Studio. Quick Build alone is not a full regression

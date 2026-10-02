@@ -28,6 +28,7 @@ at small scale, or an opt-in setting whose default is the old behaviour.
 | Sun shadows | With a shadow distance set, a third shadow cascade covers kilometres, so mountains shade valleys. |
 | Haze | With a visibility set, haze is defined by how far you can see instead of a fixed short-range density. |
 | Scripts | With an activity distance set, scripted objects far from the camera skip their step events. |
+| Depth | Scene depth is stored reversed in 32-bit floating point, so a view of 16 km keeps a near plane of 10 cm without distant surfaces flickering through each other. On unless turned off. See [Depth](#depth). |
 
 ## Room settings for a large world
 
@@ -44,10 +45,33 @@ These are in the Room editor under **Lighting & atmosphere**, and in the room fi
 | Terrain loading distance (m) | `terrainDistance` | 0 | A Terrain is loaded when the camera is within this distance of its edge. 0 loads every terrain with the room. |
 
 Set the camera's far plane to cover the view you want (`Engine.SetCameraFarPlane(16000)`). The
-depth buffer has 24 bits, and a near plane of 0.1 with a 16 km far plane makes distant surfaces
-flicker, so a game camera whose far plane is 4000 or more uses a near plane of at least
-far / 30000 (0.53 m at 16 km). A larger near plane you set yourself is kept. Views shorter than
-4000 are unchanged.
+near plane stays where you put it.
+
+### Depth
+
+The engine stores scene depth reversed (1 at the near plane, 0 at the far plane) in 32-bit
+floating point. Stored the usual way, in 24 bits, a near plane of 0.1 with a 16 km far plane
+cannot tell two surfaces apart for a kilometre either side of each other at 6 km, and distant
+water, shore and ground flicker. Reversed, the same view puts the join between two such surfaces
+where it belongs to within a pixel.
+
+It is on by default and can be turned off:
+
+- Studio: **Preferences**, Rendering, **Reversed depth**.
+- A script: `Engine.Rendering.ReversedDepth = false;`. It takes effect on the next frame.
+- A run: `GENESIS_REVERSED_DEPTH=0` in the environment.
+
+With it off, the depth buffer has 24 bits again, and a camera whose far plane is 4000 or more uses
+a near plane of at least far / 30000 (0.53 m at 16 km) to stop the flicker. A larger near plane
+you set yourself is kept, and views shorter than 4000 are unchanged.
+
+The software renderer always stores depth the usual way. Shadow maps are unchanged. On the test
+island, three ten-second runs each way showed no difference in frame time larger than the
+difference between two runs the same way.
+
+`Build.bat --test shadows` includes the check: two surfaces crossing 6 km from a camera with a
+10 cm near plane, drawn on Direct3D 11, Direct3D 12, Vulkan and OpenGL. Reversed, the join is
+within 3 pixels of where it belongs on each; the usual way, it is at least 12 pixels out.
 
 An Object is scenery when its components are only a transform, a model and its material or shader:
 no script, no events, no physics preset, not persistent. While it is loaded a streamed Object is
@@ -146,6 +170,9 @@ did not fit (`scatter= ... dropped`) and instances the renderer dropped (`instan
 | Model cache | The first load of a model of 256 KB or more writes `.genesis/Cache/Models/<name>-<hash>.gmc`. Later loads read that file. A project that is moved or renamed keeps its caches. Export writes the caches into the game, checked against each model's content instead of its modified time so that they survive copying and archiving. The cache records the size and modified time of the model it was made from and is ignored when either differs, so an edited or reimported model is never shown stale. It also records a hash of its own content, and a cache that does not match its hash is ignored. Deleting the folder costs one slow load. `GENESIS_MODEL_CACHE=0` turns it off. |
 | Reading ahead | When a room loads, the models its Objects and scatter layers name are read on worker threads (half the processor's cores, at most 8) while the main thread loads the terrain and creates the objects. A load that asks for a model takes the worker's result, waiting if it is not finished. |
 | The next room | `RoomPreload("Cellar")` starts reading another room's models in the background and returns how many it names. Call it when the player nears a door; a `RoomGoto` within ten minutes finds the models read. `RoomPreloadPending()` is how many are still being read. `RoomGotoWhenLoaded("Cellar")` does both: it reads the room's models in the background while the current room keeps running, and changes room when they are ready (or after 30 seconds); `RoomLoadProgress()` goes from 0 to 1 meanwhile, for a progress bar. |
+| Changing room | In the Player a room change is spread over frames behind a cover and a loading screen: the terrain is read on a worker thread, objects are placed a few milliseconds at a time, and the finished room is drawn behind the cover until its ground is solid and its first view is loaded. See [Changing room without a freeze](GameFeatures.md#changing-room-without-a-freeze). |
+| Terrain collision | The triangles of a collision tile and the tree the physics engine searches them with are made on worker threads; the game's thread only hands the result over. Where the camera or a moving body stands on a tile that is not ready, a patch of 12 by 12 cells is made solid beneath it at once and taken away when the tile arrives. A small terrain's single collider is prepared on a worker while the room's objects are placed. |
+| Textures | In the Player a model's textures are read and decoded on worker threads; a mesh is drawn when its textures have arrived. |
 
 The Player's performance snapshot reports `modelCache=read N written N` and
 `modelReadAhead=started N used N`.
@@ -233,8 +260,9 @@ $tool = "Tests\Genesis.Application.Headless\bin\Release\net10.0-windows\Genesis.
 ## In the editors
 
 A Room whose standard opening view would be under a terrain's surface opens framed on its contents
-instead. Editor 3D views that reach more than 3 km move their near plane out with the far plane
-(far / 30000), which keeps distant water, shore and ground from flickering through each other.
+instead. With reversed depth turned off, editor 3D views that reach more than 3 km move their near
+plane out with the far plane (far / 30000), which keeps distant water, shore and ground from
+flickering through each other; with it on they keep their near plane.
 The test world's room opens in the Room editor in about 5 seconds and its terrain in the Terrain
 editor in about 5 seconds.
 
@@ -248,6 +276,9 @@ GPU time, time the garbage collector paused the game, draw calls, triangles, ins
 (`terrainLod`), scatter (`scatter`), model detail (`modelLod`) and dropped instances.
 
 If submitting a terrain takes more than 25 ms in a frame, the Player prints which part was slow.
+
+Every frame over 100 ms is written to `Debug/Logs/project_player.log` with what it was spent on:
+see [Finding what made a frame long](GameFeatures.md#finding-what-made-a-frame-long).
 
 ## Measured
 
@@ -295,10 +326,30 @@ because the buildings' colliders are no longer all made in the first second. Sin
 19 ms remain where terrain collision and buildings with fitted colliders first arrive; those were
 in the flight above as well.
 
+### Room changes
+
+The test island's room, entered from a small room and left again, measured on 2 October 2026 from
+the Player's slow-frame lines. Other programs were using the machine, so the figures vary by run.
+
+| Measure | Before | Now |
+|---|---|---|
+| The change itself | 51 to 356 ms in one frame | Spread over frames: 9 ms to unload, the terrain read on a worker, no piece of the build over 30 ms |
+| Frames after entering, first visit | 516, 431, 1000 and 149 ms | None over 100 ms once the cover lifts |
+| Frames after entering, later visits | 165, 234 and 434 ms | None over 100 ms |
+| What those frames were | Terrain collision: 8 tiles a frame at about 35 ms each | Tiles made on workers; handing one over is not measurable |
+| Time behind the cover | none | 0.3 to 0.5 s for the island; 30 ms for a room of eleven models |
+
+In another project, entering a village took a first frame of 3.6 s (25 textures, 2.4 s) and a
+second of 1.8 s (particle effects and shader pipelines, 1.1 s), and entering a terrain room took a
+frame of 0.6 s (the terrain's collider, 0.48 s). Those measurements are what the background
+textures, the prepared collider and the cover were written for; that project has not yet been
+measured with them.
+
 ## Verification
 
-`Build.bat --test large-world` runs forty-three checks. Seventeen of them are described in
-[Game features](GameFeatures.md) and under the lists below. Twelve cover the terrain, detail and view
+`Build.bat --test large-world` runs fifty-two checks. Twenty-six of them are described in
+[Game features](GameFeatures.md), nine of those for room changes (`Build.bat --test room-change`
+runs those nine alone). Twelve cover the terrain, detail and view
 work: bulk terrain files, collision tiles following what can touch the ground, an 8 km terrain
 drawn with distance detail and no gaps, a world made from a recipe (sea, rivers running downhill
 in channels, paint following the land, level sites, objects on the ground), the simplifier (shape,
@@ -316,7 +367,7 @@ Fourteen cover loading, streaming, sharing and weather:
 - scenery loading near the camera and unloading behind it, scripted Objects streaming only when
   their definition says so, and one that has walked to the camera staying;
 - distant terrains loading as the camera reaches them;
-- the automatic near plane of a long view;
+- the automatic near plane of a long view with reversed depth off, and the authored one with it on;
 - the scatter editor leaving a layer's pattern and other fields alone when one field is edited;
 - animated meshes simplifying to a subset of their own vertices, bone weights intact;
 - camera shake moving the view and not the camera, and coming to rest;
@@ -381,9 +432,6 @@ Four other full runs during this work each failed one or two checks that pass al
 
 ## Not done
 
-- **Depth precision.** The scene depth buffer is 24-bit with a standard range. Long views move
-  the near plane out to about half a metre; reversed depth, which would allow a near plane of a
-  few centimetres at any view distance, is not implemented.
 - **Terrain streaming is whole terrains.** Each terrain file is read whole when the camera nears
   it. One very large terrain is not split on disk, and neighbouring terrains are not stitched: a
   seam shows unless their edge heights match.
@@ -395,10 +443,15 @@ Four other full runs during this work each failed one or two checks that pass al
   distant scatter casts no shadows.
 - **Shadows from behind the camera.** Terrain tiles outside the view are not drawn, so a mountain
   behind the camera does not shade what is in front of it.
-- **Room changes block for what is left.** `RoomGotoWhenLoaded` reads the next room's models
-  while the game runs, which is most of the wait. Creating the room's objects, loading its terrain
-  and sending its meshes and textures to the graphics card still happen in one step before the
-  next frame, and the engine draws no loading screen of its own for that.
+- **Parts of a room change are single steps.** The change is spread over frames, but Create
+  events, room-start events, the first use of a particle effect and the first use of a shader the
+  driver has not compiled each take one frame, behind the cover. A room whose scripts do a second
+  of set-up in Create still holds the loading bar still for that second.
+- **Only model textures are read in the background.** Terrain, sprite and particle textures are
+  read by the frame that first uses them. A model that first appears in the middle of play is
+  drawn a few frames late rather than holding a frame up.
+- **The first `RoomPreload` of a room with a terrain** reads the terrain's list of placed Objects
+  on the game's thread, about 0.3 s the first time on the test island.
 - **Multiplayer limits.** Copies share position, rotation, the animation being played and the
   named values scripts set. No prediction or lag compensation, no cheat prevention (a player's own
   objects and values are trusted), no dedicated server, no way through a home router without

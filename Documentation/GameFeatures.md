@@ -1,4 +1,4 @@
-# Game features: weather, models, animation, controllers, sound, HUD, saves
+# Game features: weather, models, animation, controllers, sound, HUD, saves, room changes
 
 Engine features added on 2 October 2026 for games in general. None of them is specific to one
 project, and each is off or unchanged until a room, an Object or a script asks for it, except where
@@ -23,6 +23,11 @@ C# behaviour:
   `Game.PlayParticleBurst(asset, position)` are on the game context itself.
 - The HUD canvas passed to `OnDrawHud` has `MeasureText`, `Circle`, `Arc` and `Polygon`.
 
+The Player sets the static commands' game and project when it starts a game, so they work from a
+game written entirely in C#. Before, only an Object's event set them, and a C# game had to assign
+`PgslCommands.ActiveGameContext` and `PgslCommands.ProjectPath` itself. Doing so is now harmless
+and unnecessary.
+
 ## Weather the engine draws
 
 A 3D room with a dynamic sky can draw its own rain, snow and lightning from the weather it already
@@ -32,6 +37,7 @@ has. Turn on **Draw rain, snow and lightning** in the Room editor under **Lighti
 | Part | Behaviour |
 |---|---|
 | Rain and snow | One particle emitter follows the camera and uses the built-in `builtin://Rain` or `builtin://Snow` effect. How much falls follows the local rain, snow or hail the climate reports, so it thickens and thins with the weather. |
+| Wind | The rain and snow drift on the wind the climate reports and lean with it: a thunderstorm's rain comes down at a slant. Rain is carried at no more than 7.5 m/s and snow at no more than 2.5 m/s, and the shower starts upwind of the camera so that it stays around it. |
 | Lightning | In a thunderstorm the scene is lit by two quick pulses over 0.45 seconds at each strike. |
 | Thunder | Set **Thunder audio** (`thunderAudio`) to a sound. It plays after each strike, later for a more distant one (343 m/s). The soundscape's `thunder` level scales it. |
 
@@ -49,7 +55,12 @@ weather is seen on a mountain as well as at sea level.
 
 Fixed with this: a particle effect whose centre was behind the camera was not drawn at all, even
 when most of it was in view. An effect around the camera, such as rain, was invisible because of
-it. The built-in rain is also brighter and denser than it was.
+it. The built-in rain is also brighter and denser than it was: 2600 drops a second within 11 m of
+the camera, where it was 900 within 14 m.
+
+Any emitter can be given a wind of its own: set `Wind` on its `ParticleComponent` (metres a
+second along X and Z). Left unset, an effect drifts on the wind it was authored with. A streak
+that is drawn along its motion (rain, sparks) now lies along its real path, wind included.
 
 ## Water with its own look
 
@@ -88,6 +99,8 @@ From C#, `ModelInstance.Crossed(world, entity, fraction)`, `Progress`, `Finished
 | `SetGlow(world, entity, amount)` | Add the model's own colours on top of its lighting: 0 none, 1 fully self-lit. Raise it for a few frames for a hit flash, or hold it for a selection. Its shadow is kept. Events: `ModelSetGlow`. |
 | `SetEmissionScale(world, entity, scale)` | Scale the light the model's materials give off as authored: 0 puts its lamps out. Events: `ModelSetEmissionScale`. |
 | `SetMaterialEmission(world, entity, material, strength)` | Make one material give off light whatever it was authored with: window glass at dusk. A negative strength gives it back its authored light. Events: `ModelSetMaterialEmission`. |
+| `SetMaterialEmission(world, entity, material, strength, colour)` | The same, in a colour: glass that glows warm whatever colour it is by day. The material gives off its own colour multiplied by this one, so the colour also tints the material while it is set. A negative strength gives back both. Events: `ModelSetMaterialEmissionColor(material, strength, r, g, b)`. |
+| `SetMaterialTint(world, entity, material, colour)` | Multiply one material's colour on this instance; null gives it back. Events: `ModelSetMaterialTint`. |
 
 Two things to know:
 
@@ -199,6 +212,100 @@ new file and moved into place, so a crash during a save leaves the previous save
 kept in `%LocalAppData%\Genesis\GameSaves\<game>\Slots`, where `<game>` follows the project's id,
 so a game that is moved or renamed keeps its saves.
 
+## Changing room without a freeze
+
+A room change used to do all its work between two frames. The game stood still, the window did
+not answer, and the frames after it were long while the new room's ground was made solid and its
+textures were read. In the Player a room change is now spread over frames. **This is a changed
+default**: `RoomGoto` and `RoomGotoWhenLoaded` both use it.
+
+What happens:
+
+1. The old room's RoomEnd and Destroy events run and it is removed, as before.
+2. The scene is held. No script steps, no physics runs and nothing of the new room is drawn. The
+   engine covers the screen and draws a loading screen on the cover. The window stays responsive,
+   music keeps playing and game time keeps moving so a loading screen can animate.
+3. The new room is put together a few milliseconds at a time: its terrain is read on a worker
+   thread and its objects are placed one after another. Create events still run together once
+   every object is in place, then the room-start events, exactly as before.
+4. The finished room is drawn behind the cover, without being updated, until its ground is solid,
+   its scenery is in place and the models and textures its first view shows have been read and
+   sent to the graphics card. These were the room's long first frames; now nobody sees them.
+5. The cover fades over 0.2 seconds and the room starts running.
+
+A 3D room is always prepared this way. A 2D room that is ready within 40 ms simply appears, with no
+cover, so a game that steps from screen to screen is not interrupted.
+
+The room a 3D game starts in is prepared the same way once the start-up screen has finished: it
+is drawn behind the cover until its first view is loaded, then shown. Its Create and room-start
+events have already run; its first Step comes when the cover lifts.
+
+A screenshot taken with `--autoshot`, an acceptance run and a benchmark wait for the cover to go:
+they record the game, not the loading screen.
+
+| Command | Meaning |
+|---|---|
+| `RoomChanging()` | True while a room change is under way. |
+| `RoomLoadProgress()` | 0 to 1: how far the change has got. (Also how much of a room asked for with `RoomGotoWhenLoaded` has been read.) |
+| `RoomChangeBudget(milliseconds)` | How long the change works in each frame; 8 unless set. 0 changes room in one step, with no cover, as before. |
+| `RoomChangeProgressBar(show)` | Whether the engine draws its bar and text on the cover. |
+| `RoomChangeText(text)` | The words above the bar ("Loading" unless set; empty for none). |
+| `RoomChangeColors(coverR, coverG, coverB, barR, barG, barB)` | The colour of the cover, and of the bar and text. |
+| `RoomChangeFade(seconds)` | How long the cover takes to fade from the new room; 0.2 unless set. |
+| `RoomChangeMinimumTime(seconds)` | The least time the cover stays up, so a loading screen can be read; 0 unless set. |
+
+From C#, the same settings are static properties of `RoomChangeScreen` (namespace
+`Genesis.Runtime.Project`), and `ProjectGameContext.IsChangingRoom` and `RoomLoadProgress` report
+on a change.
+
+**A loading screen of the game's own.** The ordinary HUD is not drawn during a room change. A
+behaviour draws the loading screen by overriding
+
+```csharp
+public override bool OnDrawLoadingScreen(IHudCanvas hud, float progress)
+```
+
+and returning true, which tells the engine to leave out its own bar and text. The engine has
+already covered the screen when it is called. It is called on Objects that outlive the room
+change (persistent ones) and on the new room's Objects once their Create events have run, so a
+loading screen that must show from the first frame belongs on a persistent Object.
+
+`GENESIS_ROOM_CHANGE_BUDGET_MS=0` in the environment changes room in one step for a whole run.
+Studio's live reload, which rebuilds a room when an asset is saved, always does it in one step.
+
+What is not split: the Create events and the room-start events each run in one frame, as do the
+first use of a particle effect and of a shader the graphics driver has not compiled. They happen
+behind the cover, where the loading bar pauses for them.
+
+### Textures read in the background
+
+In the Player a model's textures are read and decoded on worker threads. A mesh is left out of
+the frame until every texture it uses has arrived, then drawn whole, instead of the frame that
+first draws it waiting for all of them. A room that showed 25 new textures spent 2.4 seconds on
+them in its first frame; that work is now on workers, and a few milliseconds of each frame hand
+the results to the graphics card. Behind a room change's cover it is waited for. In the middle of
+play a model that appears for the first time may be drawn a few frames late.
+
+Editors, previews and captures still read a texture in the frame that asks for it.
+`GENESIS_BACKGROUND_TEXTURES=0` makes the Player do the same. Textures for terrain, sprites and
+particles are read where they are first used, as before.
+
+### Finding what made a frame long
+
+The Player writes a line to `Debug/Logs/project_player.log` for every frame over 100 ms
+(`GENESIS_SLOW_FRAME_MS` changes the limit), at most 24 for each room:
+
+```
+Slow frame: 623 ms in River Road (frame 2, 0.9 s after the room began): update 595 ms, gathering
+what to draw 20 ms, drawing 4 ms, presenting 1 ms; longest parts: RoomTerrain fixed update 478 ms,
+ScriptHost update 108 ms; loading in that frame: 2 models read 8 ms, 12 models sent to the
+graphics card 7 ms, 2 sounds 14 ms; garbage collector paused 0 ms
+```
+
+"Longest parts" names the subsystems that took longest. "Loading" counts what the game's own
+thread read, decoded, compiled or made solid in that frame. A room change adds one line saying how
+long the room was prepared behind the cover and how long its longest single piece took.
+
 ## Sky
 
 - **The sun is round wherever it is.** A wide view used to draw the sun as an ellipse away from
@@ -256,6 +363,19 @@ clip, marks passed in both directions), tint, glow and emission as they reach th
 calls, the HUD shapes and text measuring, bursts removing themselves, save slots (including names
 that would leave the save folder), the sun's shape across a 100-degree view, and a meadow with a
 kind of plant refused.
+
+Room changes have nine cases of their own: a change spread over frames with nothing stepping
+meanwhile, Create events still running together once the room is whole, the one-step change and
+the 2D room that appears without a cover, the first room of a game prepared behind the cover, the
+engine's and a game's own loading screen, the cover
+hiding a room and fading from it on four graphics backends, collision prepared on worker threads
+and handed over, a texture read in the background, a mesh waiting for its textures, and the
+slow-frame line. The weather case also checks that rain is carried the way the wind blows and
+starts upwind of the camera, and the model case that a material's light takes a colour.
+
+Seen in a running game on 2 October 2026 (the test island): rain leaning with a thunderstorm's
+wind; a room change spread over frames, from the Player's log. The loading screen itself was seen
+in the harness's captures, which draw it with the Player's own code, not in a game.
 
 Not seen or heard in a running game:
 
