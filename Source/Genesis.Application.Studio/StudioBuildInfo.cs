@@ -18,6 +18,8 @@ public static class StudioBuildInfo
     /// <summary>What Help › About shows: the version first, then where the licences are.</summary>
     public static string AboutText =>
         $"Genesis Studio {ProductVersion}" + Environment.NewLine + Environment.NewLine +
+        "Free to use; the games you make are yours. The licence:" + Environment.NewLine +
+        Path.Combine(AppContext.BaseDirectory, "Licenses", "Genesis-LICENSE.txt") + Environment.NewLine + Environment.NewLine +
         "The software Genesis Studio is built with, and its licences:" + Environment.NewLine +
         Path.Combine(AppContext.BaseDirectory, "Licenses", "ThirdPartyNotices.txt") + Environment.NewLine + Environment.NewLine +
         DiagnosticText;

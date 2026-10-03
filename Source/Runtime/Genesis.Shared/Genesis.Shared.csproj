@@ -17,10 +17,12 @@
     <PackageReference Include="StbImageSharp" Version="2.27.14" />
   </ItemGroup>
 
-  <!-- The notices every copy must carry. Studio, the Player and each exported game reference
-       this project, so its Licenses folder reaches all three. Build.bat adds the .NET runtime's
+  <!-- Genesis's own licence and the notices every copy must carry. Studio, the Player and each
+       exported game reference this project, so its Licenses folder reaches all three. Build.bat adds the .NET runtime's
        own licence files to a published package. -->
   <ItemGroup>
+    <None Include="..\..\..\LICENSE.md" Link="Licenses\Genesis-LICENSE.txt"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="..\..\..\Documentation\ThirdPartyNotices.txt" Link="Licenses\ThirdPartyNotices.txt"
           CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="$(PkgSkiaSharp_NativeAssets_Win32)\THIRD-PARTY-NOTICES.txt" Link="Licenses\SkiaSharp-THIRD-PARTY-NOTICES.txt"

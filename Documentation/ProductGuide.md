@@ -42,5 +42,10 @@ if you also want the settings and saves gone.
 
 ## Licences
 
-The software Genesis Studio is built with is listed in `Licenses\ThirdPartyNotices.txt`, beside
-the application. *Help › About Genesis* shows the version you have.
+Genesis Studio is free to use. Its licence, `Licenses\Genesis-LICENSE.txt` beside the
+application, says in plain English what you may do: make games with it, and give away or sell
+them with the Genesis Player inside. What you make is yours, and Genesis takes no royalty. Every
+exported game carries the same licence in its `Licenses` folder for its players.
+
+The software Genesis Studio is built with is listed in `Licenses\ThirdPartyNotices.txt`.
+*Help › About Genesis* shows the version you have.

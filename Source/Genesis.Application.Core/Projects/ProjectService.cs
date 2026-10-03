@@ -74,11 +74,7 @@ public sealed partial class ProjectService
         WriteProjectSettings(projectRoot);
         ProjectSession session = new(projectRoot, projectFile, manifest);
         ResourceFolderPolicy.EnsureRoots(session);
-        if (normalizedTemplate == Templates.LuigisMansionTemplate.TemplateId)
-        {
-            Templates.LuigisMansionTemplate.Apply(session);
-        }
-        else if (normalizedTemplate == Templates.TwoDShowcaseTemplate.TemplateId)
+        if (normalizedTemplate == Templates.TwoDShowcaseTemplate.TemplateId)
         {
             Templates.TwoDShowcaseTemplate.Apply(session);
         }
@@ -156,13 +152,6 @@ public sealed partial class ProjectService
             ?? throw new InvalidDataException("The project file has no parent directory.");
 
         ProjectSession session = new(root, projectFile, manifest);
-        // Template hotfixes are deliberately narrow and backup-first. This lets an already-created
-        // showcase project receive fixes without asking the user to delete/recreate the project.
-        if (string.Equals(manifest.Template, Templates.LuigisMansionTemplate.TemplateId, StringComparison.OrdinalIgnoreCase)
-            && Templates.LuigisMansionTemplate.UpgradeIfNeeded(session))
-        {
-            WriteManifest(projectFile, manifest);
-        }
         // Add missing roots without moving existing resources or breaking legacy references.
         ResourceFolderPolicy.EnsureRoots(session);
         ResourceNameMigration.Upgrade(session);
@@ -275,7 +264,6 @@ public sealed partial class ProjectService
         template.Trim().ToUpperInvariant() switch
         {
             "2D" => "2D",
-            "LUIGISMANSION" or "ALIGHTINTHEDARK" => Templates.LuigisMansionTemplate.TemplateId,
             "2DSHOWCASE" or "MUSHROOMMEADOW" => Templates.TwoDShowcaseTemplate.TemplateId,
             "2DDUNGEONCRAWLER" or "DUNGEONCRAWLER" or "CRYPTSOFGENESIS" or "CRYPTS" => "2DDungeonCrawler",
             "3DNATUREWALK" or "NATUREWALK" or "NATURE" => "3DNatureWalk",
@@ -289,7 +277,7 @@ public sealed partial class ProjectService
         template switch
         {
             "2D" or "2DShowcase" => ["core", "rendering", "physics", "audio"],
-            "2DDungeonCrawler" or "LuigisMansion" => ["core", "rendering", "physics", "audio", "particles"],
+            "2DDungeonCrawler" => ["core", "rendering", "physics", "audio", "particles"],
             "3DNatureWalk" or "3DSandbox" => ["core", "rendering", "physics", "audio", "terrain", "particles"],
             "3D" => ["core", "rendering", "physics", "audio", "terrain"],
             "Voxel" => ["core", "rendering", "physics", "audio", "terrain", "voxel"],

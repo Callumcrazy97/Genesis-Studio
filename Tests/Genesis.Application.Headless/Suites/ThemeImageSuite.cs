@@ -900,7 +900,7 @@ internal static class ThemeImageSuite
 
     /// <summary>
     /// Phase 2: Project Hub matches WelcomeScreen chrome (brand, recent cards, nav) while keeping
-    /// exactly six Available templates and all built-in image themes.
+    /// exactly five Available templates and all built-in image themes.
     /// </summary>
     private static void RunProjectHubParityCase(HeadlessContext ctx)
     {
@@ -910,8 +910,8 @@ internal static class ThemeImageSuite
                 ThemeCatalog.Images.Count >= ThemeCatalog.RequiredBuiltInImageThemes.Count,
                 "Hub polish must not disturb built-in image themes.");
             HeadlessHarness.Assert(
-                ProjectTemplateCatalog.Available.Count() == 6,
-                "Hub must keep exactly six Available templates.");
+                ProjectTemplateCatalog.Available.Count() == 5,
+                "Hub must keep exactly five Available templates.");
 
             ThemeService.SetPalette(ThemePalette.Dark);
             SuiteChromeBridge.Push();

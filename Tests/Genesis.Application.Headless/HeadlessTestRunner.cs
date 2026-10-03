@@ -1110,7 +1110,7 @@ internal static class HeadlessTestRunner
         Suites.GameExportPublishingSuite.Run(ctx);
         Suites.ReleaseSuite.Run(ctx);
         Suites.TextRenderingSuite.Run(ctx);
-        Suites.LuigisMansionSuite.Run(ctx);
+        Suites.Effects2DSuite.Run(ctx);
 
         return Finish(report, outputRoot, fastBuildGate: false);
     }
@@ -1424,9 +1424,8 @@ internal static class HeadlessTestRunner
                 PrepareFocusedProject(ctx, requireStudioServices: false);
                 Suites.ModelIntakeSuite.Run(ctx);
                 break;
-            case "luigis-mansion":
-            case "mansion":
-                Suites.LuigisMansionSuite.Run(ctx);
+            case "effects-2d":
+                Suites.Effects2DSuite.Run(ctx);
                 break;
             case "2d-showcase":
             case "resource-folders":

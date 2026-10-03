@@ -111,7 +111,7 @@ function Assert-Package {
     foreach ($prefix in @('', 'Player/')) {
         $entry = if ($prefix) { 'GenesisEngine' } else { 'Genesis Application' }
         foreach ($relative in @("$entry.exe", "$entry.dll", "$entry.deps.json", "$entry.runtimeconfig.json", 'vcruntime140.dll', 'Tools/DXC/dxc.exe', 'Tools/DXC/dxcompiler.dll', 'Tools/DXC/dxil.dll',
-                'Licenses/ThirdPartyNotices.txt', 'Licenses/SkiaSharp-THIRD-PARTY-NOTICES.txt', 'Licenses/DotNet-LICENSE.txt', 'Licenses/DotNet-THIRD-PARTY-NOTICES.txt',
+                'Licenses/Genesis-LICENSE.txt', 'Licenses/ThirdPartyNotices.txt', 'Licenses/SkiaSharp-THIRD-PARTY-NOTICES.txt', 'Licenses/DotNet-LICENSE.txt', 'Licenses/DotNet-THIRD-PARTY-NOTICES.txt',
                 'Tools/DXC/LICENSE-MS.txt', 'Tools/DXC/LICENSE-LLVM.txt')) {
             $path = Join-Path $staging ($prefix + $relative)
             if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Incomplete package: $path" }
@@ -222,6 +222,14 @@ try {
             if (-not $smokeText.Contains($success)) { throw "Missing smoke evidence: $success ($smokeLog)" }
         }
     }
+    # After every check: signing changes the files' bytes, and the audit compares Studio's and
+    # the Player's copies of the shared libraries byte for byte.
+    if (-not [string]::IsNullOrWhiteSpace($env:GENESIS_SIGN_COMMAND)) {
+        Invoke-BuildStep 'Sign Genesis executables and libraries' {
+            & (Join-Path $PSScriptRoot 'SignFiles.ps1') -PublishDirectory $staging
+            if ($LASTEXITCODE -ne 0) { throw "Signing failed (exit $LASTEXITCODE)." }
+        }
+    }
     if ($installer) {
         Invoke-BuildStep 'Compile installer from validated staging' {
             & (Join-Path $repo 'Installer/EnsureVcRedist.ps1') -DestinationDirectory (Join-Path $repo 'Installer/redist')
@@ -272,6 +280,7 @@ finally {
         RequestedBackends = $backends; BackendCoverage = $passedBackends
         SkippedBackends = @(@('dx11','dx12','vulkan','opengl','software') | Where-Object { $_ -notin $passedBackends })
         ChecksNotRun = $checksNotRun
+        Signed = @($stages | Where-Object { $_.Name -eq 'Sign Genesis executables and libraries' -and $_.Result -eq 'Passed' }).Count -gt 0
         Stages = @($stages.ToArray())
     }
     $summary | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $reportDir 'BuildSummary.json') -Encoding UTF8

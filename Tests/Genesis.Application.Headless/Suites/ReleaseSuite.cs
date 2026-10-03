@@ -114,6 +114,8 @@ internal static class ReleaseSuite
             Check(File.Exists(Path.Combine(directory, "Licenses", "ThirdPartyNotices.txt"))
                 && File.Exists(Path.Combine(directory, "Licenses", "SkiaSharp-THIRD-PARTY-NOTICES.txt")),
                 "An exported game does not carry the notices its libraries require.");
+            Check(File.Exists(Path.Combine(directory, "Licenses", "Genesis-LICENSE.txt")),
+                "An exported game does not carry Genesis's licence, which its players must receive.");
             string[] leaked = Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories)
                 .Where(file => Path.GetFileName(file) is string name
                     && (name.EndsWith(".pdb", StringComparison.OrdinalIgnoreCase)
@@ -204,21 +206,41 @@ internal static class ReleaseSuite
             Check(without.Success && !File.Exists(expected), "Compiled scripts outlived the C# they were made from.");
         });
 
-        HeadlessHarness.RunCase(context.Report, "Release.Templates.FanTemplateIsOfferedOnlyWhereItsBundleIs", () =>
+        HeadlessHarness.RunCase(context.Report, "Release.Licence.GenesisTermsTravelWithStudioPlayerAndInstaller", () =>
         {
-            string empty = Path.Combine(context.Workspace, "NoFanTemplate");
-            Directory.CreateDirectory(empty);
-            Check(!LuigisMansionTemplate.IsInstalledIn(empty), "The fan template claims to be installed where its bundle is not.");
-            bool here = LuigisMansionTemplate.IsInstalledIn(AppContext.BaseDirectory);
-            bool offered = ProjectTemplateCatalog.Available.Any(template => template.Id == LuigisMansionTemplate.TemplateId);
-            Check(here == offered && ProjectTemplateCatalog.CanCreate(LuigisMansionTemplate.TemplateId) == here,
-                "The gallery offers the fan template although its bundle is absent, or hides it although it is present.");
-            Check(ProjectTemplateCatalog.Available.Any(template => template.Id == TwoDShowcaseTemplate.TemplateId),
-                "Leaving the fan template out removed a template Genesis does own.");
+            string licence = File.ReadAllText(FindInRepository("LICENSE.md"));
+            foreach ((string product, string folder) in new[] { ("Studio", AppContext.BaseDirectory), ("the Player", runtime) })
+            {
+                string shipped = Path.Combine(folder, "Licenses", "Genesis-LICENSE.txt");
+                Check(File.Exists(shipped) && File.ReadAllText(shipped) == licence,
+                    product + " does not carry Genesis's licence as written in LICENSE.md.");
+            }
+            // The terms the libraries require a licence to carry, and the rights a game's author needs.
+            foreach (string term in new[] { "Reverse-engineer", "DirectX Shader Compiler", "Visual C++ runtime",
+                                            "Give away or sell the games you make", "Licenses\\ThirdPartyNotices.txt", "NO WARRANTY" })
+                Check(licence.Contains(term, StringComparison.Ordinal), "Genesis's licence no longer says: " + term);
             string installer = File.ReadAllText(FindInRepository("Installer", "GenesisStudio.iss"));
-            Check(installer.Contains(@"\Templates\LuigisMansion.zip", StringComparison.Ordinal)
-                && installer.Contains("#ifdef IncludeFanTemplate", StringComparison.Ordinal),
-                "The installer no longer leaves the fan template's bundle out by default.");
+            Check(installer.Contains(@"LicenseFile={#PublishDir}\Licenses\Genesis-LICENSE.txt", StringComparison.Ordinal),
+                "The installer no longer shows Genesis's licence before installing.");
+        });
+
+        HeadlessHarness.RunCase(context.Report, "Release.Templates.NoFanGameTemplateRemains", () =>
+        {
+            // The Luigi's Mansion fan-game template was removed on 3 October 2026: it was made from
+            // another publisher's artwork and audio. Nothing of it may come back by accident.
+            Check(ProjectTemplateCatalog.All.All(template => !template.Id.Contains("Luigi", StringComparison.OrdinalIgnoreCase)
+                    && !template.Name.Contains("Luigi", StringComparison.OrdinalIgnoreCase)),
+                "The template gallery lists the removed fan-game template.");
+            foreach (string folder in new[] { AppContext.BaseDirectory, runtime })
+                Check(!File.Exists(Path.Combine(folder, "Templates", "LuigisMansion.zip"))
+                    && !Directory.Exists(Path.Combine(folder, "Projects", "Templates", "Assets", "LuigisMansion")),
+                    "The removed fan-game template's content is still published in " + folder);
+            string parent = Path.Combine(context.Workspace, "OldTemplateName");
+            Directory.CreateDirectory(parent);
+            ProjectSession made = new ProjectService().CreateProject(parent, "Old Name", "LuigisMansion");
+            Check(made.Manifest.Template == "Blank", "Asking for the removed template's name did not give an ordinary blank project.");
+            Check(ProjectTemplateCatalog.Available.Any(template => template.Id == TwoDShowcaseTemplate.TemplateId),
+                "Removing the fan-game template removed a template Genesis does own.");
         });
     }
 

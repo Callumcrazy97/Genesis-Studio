@@ -55,6 +55,8 @@ OutputDir=..\Dist
 OutputBaseFilename={#MyOutputBaseFilename}
 SetupIconFile=..\Source\Genesis.Application.Studio\Assets\Genesis.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
+; Genesis's own licence, shown for acceptance before anything is installed.
+LicenseFile={#PublishDir}\Licenses\Genesis-LICENSE.txt
 UninstallDisplayName={#MyAppName}
 WizardStyle=modern
 WizardSizePercent=120
@@ -68,6 +70,11 @@ RestartApplications=no
 UsePreviousAppDir=yes
 UsePreviousGroup=yes
 UsePreviousTasks=yes
+#ifdef SignInstaller
+; CompileInstaller.ps1 defines the "genesis" sign tool from GENESIS_SIGN_COMMAND.
+SignTool=genesis
+SignedUninstaller=yes
+#endif
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -84,16 +91,7 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription
 Source: "redist\VC_redist.x64.exe"; DestDir: "{tmp}"; Flags: dontcopy nocompression
 ; Build.bat stages the user's guides into Documentation; nothing else belongs there. Symbols,
 ; logs and the build's own reports stay behind.
-;
-; The Luigi's Mansion fan-game template is built from another publisher's artwork and audio,
-; which Genesis has no right to distribute. It is left out unless the installer is compiled
-; with /DIncludeFanTemplate for private use; Studio offers the template only when it is present.
-#ifdef IncludeFanTemplate
-  #define FanTemplateExclude ""
-#else
-  #define FanTemplateExclude ",\Templates\LuigisMansion.zip"
-#endif
-Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,*.log,\BuildSummary.json,\PackageManifest.json,Quality,Quality\*,TestResults,TestResults\*,Documentation,Documentation\*{#FanTemplateExclude}"
+Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,*.log,\BuildSummary.json,\PackageManifest.json,Quality,Quality\*,TestResults,TestResults\*,Documentation,Documentation\*"
 Source: "{#PublishDir}\Documentation\*.md"; DestDir: "{app}\Documentation"; Flags: ignoreversion
 
 [Icons]

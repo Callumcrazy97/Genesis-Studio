@@ -16,6 +16,9 @@ water colours, what a script may ask of a model (bones, clips on part of the bod
 light), animation events, controllers, positioned sound, HUD shapes, particle bursts, save
 slots, and room changes that are spread over frames behind a loading screen.
 
+Genesis Studio is free to use under its own [licence](LICENSE.md): the games people make with it
+are theirs, and they may give away or sell them with the Genesis Player inside.
+
 What a user receives is described in the [product guide](Documentation/ProductGuide.md), which is
 installed as the product's own README beside the other guides; the libraries Genesis is built with
 are listed in [ThirdPartyNotices.txt](Documentation/ThirdPartyNotices.txt). The master document's

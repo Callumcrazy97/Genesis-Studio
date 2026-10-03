@@ -28,7 +28,7 @@ Run PowerShell commands from the repository root:
 
 These audit prerequisites, publish incrementally, build and launch Studio, run the image workflow, run detailed image checks, and run complete regression plus all five renderer smokes, respectively. Quick Build includes package/startup checks but skips regression unless requested. Builds treat warnings as errors. Run one build at a time; close published Studio/Player instances before package promotion. Consult `Documentation/BuildProfiles.md` for additional switches and recovery.
 
-Before handing anyone an installer, run `.\Build.bat --full --installer`, then `powershell -ExecutionPolicy Bypass -File BuildTools\InstallDrill.ps1`: it installs a trial copy for the current user, starts it from a read-only folder, upgrades and uninstalls it. `.\Build.bat --test release` checks licences, exports and read-only folders. A new package reference needs an entry in `Documentation/ThirdPartyNotices.txt`.
+Before handing anyone an installer, run `.\Build.bat --full --installer`, then `powershell -ExecutionPolicy Bypass -File BuildTools\InstallDrill.ps1`: it installs a trial copy for the current user, starts it from a read-only folder, upgrades and uninstalls it. `.\Build.bat --test release` checks licences, exports and read-only folders. A new package reference needs an entry in `Documentation/ThirdPartyNotices.txt`. `LICENSE.md` is Genesis's own licence and ships with every copy; signing is set up with `GENESIS_SIGN_COMMAND` (see `BuildTools/SignFiles.ps1`).
 
 ## Coding Style & Naming Conventions
 

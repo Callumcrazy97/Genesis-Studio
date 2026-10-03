@@ -16,7 +16,7 @@ people as an early release (the version is 0.1.0) once the owner's decisions bel
 | Running an exported game from a folder with Program Files' permissions | The game did not start: the Player insisted on creating its log folders beside itself and stopped with "Access to the path ... is denied". Any game installed under Program Files, or run from a read-only share or disc, was affected. | The log and debug pictures go to `%LOCALAPPDATA%\Genesis\GameSaves\<game id>\Debug` when the game's folder cannot be written to; the crash report goes to `%LOCALAPPDATA%\Genesis\CrashReports`. `Release.Export.GameRunsFromAFolderItCannotWriteTo` exports a game, takes its write permission away and plays it through. |
 | Reading the Run path | Run compiled a project's C# scripts to `GameScripts.dll` in Studio's own Player folder. Installed under Program Files that fails, so no project with C# scripts could run; and the one file served every project. | Written to `<project>\.genesis\Run\GameScripts.dll` and named to the Player with `GENESIS_GAME_SCRIPTS`. An exported game still keeps its scripts beside its executable. `Release.Run.CompiledScriptsStayInsideTheProject`. |
 | Listing the published folder | Of some twenty bundled libraries only Assimp's licence was shipped, and exported games carried none. The shader compiler's stager skipped two of its three licence files (it looked for `LICENSE-MIT.txt`; the package spells it `LICENCE`). | `Licenses\ThirdPartyNotices.txt` in Studio, the Player and every export, with the .NET runtime's and Skia's own notices and all three shader-compiler licences. `Release.Notices.EveryBundledLibraryIsNamed` reads the dependency list and fails for a package the notices do not name. |
-| Reading the template's provenance file | The installer bundled the Luigi's Mansion fan-game template: about 1,500 files, 617 of them images and sounds taken unchanged from a fan game about another publisher's characters. | Left out of the installer unless it is compiled with `-IncludeFanTemplate`; the gallery offers the template only where its bundle is present. It is still in this repository: see the decisions below. |
+| Reading the template's provenance file | The installer bundled the Luigi's Mansion fan-game template: about 1,500 files, 617 of them images and sounds taken unchanged from a fan game about another publisher's characters. | Removed from Genesis on 3 October at the owner's request: template, loader, tests and build steps. Its artwork and audio had never been in this repository (`.gitignore` keeps every template's assets out); the local copy was moved to the owner's Backups folder. The engine features it used (2D lights, numeric saves, smooth effect sprites) remain, with their checks in `Effects2DSuite`. `Release.Templates.NoFanGameTemplateRemains`. |
 | Reading the installer script | The installed "documentation" was this development record, with links to pages that were not installed. | The installer carries the user's guides ([ProductGuide.md](ProductGuide.md) as its README); the package audit fails on a link to a page the product does not carry. |
 | Twenty minutes of room changes with memory measured | A scene registered each terrain with its streaming manager and never removed it when the room was left: a game kept every terrain room it had visited in memory and went on running it every frame. | Removed when the room unloads. `Engine.Rooms.Change.ARoomThatWasLeftIsNeitherStreamedNorKept`; measurements in [LargeWorlds.md](LargeWorlds.md). Every room change now logs what the game holds, and `GENESIS_ROOM_CHANGE_MEMORY=1` names what a left room still has alive. |
 | Installing | Installing needed an administrator, and nothing had ever run the installer. | "Install for me only" needs none. `BuildTools/InstallDrill.ps1` installs, checks, starts Studio from a read-only folder, upgrades and uninstalls a trial copy. *Help › About* shows the product version. |
@@ -44,10 +44,12 @@ people as an early release (the version is 0.1.0) once the owner's decisions bel
 
 Decisions that are the owner's:
 
-1. **The repository is public and contains the fan-game template** (`Source/Genesis.Application.Core/Projects/Templates/Assets/LuigisMansion`, 93 MB). Leaving it out of the installer does not take it off GitHub. Either the repository becomes private, or the template is removed from it and from its history.
-2. **Signing.** Without a code-signing certificate Windows SmartScreen warns every person who runs the installer, and again for every exported game.
-3. **Genesis Studio's own licence terms**, and what a game's author may do with the Player they ship. The installer shows none.
+1. ~~The fan-game template~~: removed, 3 October. (This section first said the repository contained its artwork; that was wrong. The assets were only ever on this computer, kept out of git by `.gitignore`.)
+2. **Signing: unsigned for now**, the owner's choice on 3 October. Windows SmartScreen warns whoever runs the installer until it is signed. The build is ready: set `GENESIS_SIGN_COMMAND` (see "Signing" under Installer and scope) and Build.bat signs Genesis's own files, the installer and its uninstaller. An exported game cannot carry Genesis's signature, because Export changes the Player when it sets the game's icon; a game's author signs their own game.
+3. **Licence: drafted, 3 October.** [LICENSE.md](../LICENSE.md): free to use for any purpose, the games people make are theirs, they may give away or sell them with the Player inside, nobody may resell or rebrand Genesis itself, the Microsoft components may not be reverse-engineered (their terms require it), no warranty. It ships as `Licenses/Genesis-LICENSE.txt` with Studio, the Player and every export, and the installer shows it for acceptance. Before Genesis is ever sold, a lawyer should read it, and the copyright line should carry the owner's legal name instead of the GitHub name.
 4. **The version.** `Installer/AppVersion.txt` says 0.1.0.
+
+The removal, the licence and the signing hook were checked by Full Build `20261003-082826-d660e63c` (1152 checks, nothing not run, five renderer smokes, installer compiled) and the install drill on its package (six steps; 879 files, the licence among them).
 
 Not tested, and not testable on this machine:
 
@@ -1571,10 +1573,8 @@ What the installer carries, since 2 October 2026:
   pack that was published, and the shader compiler's three licence files travel in `Tools/DXC`.
   The Player has the same folder, so every exported game carries it. Adding a package without a
   notice fails `Release.Notices.EveryBundledLibraryIsNamed`.
-- **No fan-game template.** The Luigi's Mansion template is built from another publisher's artwork
-  and audio. Its bundle (`Templates/LuigisMansion.zip`) is left out of the installer, and Studio
-  offers the template only where the bundle is present, so a source build still has it. Compile
-  with `Installer/CompileInstaller.ps1 -IncludeFanTemplate` for a private installer that has it.
+- **Genesis's licence.** `LICENSE.md` ships as `Licenses/Genesis-LICENSE.txt` beside Studio and the
+  Player, so every export carries it to its players, and the installer shows it before installing.
 - **No symbols, logs or build reports.**
 - **Install for one user without an administrator.** The wizard offers it; `/CURRENTUSER` selects
   it on the command line. Studio never writes beside itself.
@@ -1584,8 +1584,15 @@ own name and Add/Remove Programs identity, installs it for the current user into
 `TestResults/InstallDrill/<run>/App`, checks what arrived, starts Studio from that folder made
 read-only like Program Files, installs again over the top, uninstalls, and checks that nothing but
 the user's own data is left. Run it after a build and before handing an installer to anyone.
-The installer is not signed: Windows SmartScreen warns about it until it is signed with a
-code-signing certificate. Locked-output and cancellation drills have not been run.
+**Signing.** Nothing is signed until `GENESIS_SIGN_COMMAND` is set to the command that signs one
+file, with `$f` where the file goes. Build.bat then signs Genesis's own executables and libraries
+after every check has passed (`BuildTools/SignFiles.ps1`; libraries by others are left as their
+publishers shipped them), and `--installer` signs the setup program and its uninstaller with the
+same command. With Microsoft's Trusted Signing service the command is roughly
+`signtool sign /fd SHA256 /tr http://timestamp.acs.microsoft.com /td SHA256 /dlib <path>\Azure.CodeSigning.Dlib.dll /dmdf <path>\metadata.json $f`;
+with a certificate in the Windows store, `signtool sign /fd SHA256 /tr <timestamp URL> /td SHA256 /sha1 <thumbprint> $f`.
+`BuildSummary.json` records `Signed`. Until then Windows SmartScreen warns whoever runs the
+installer. Locked-output and cancellation drills have not been run.
 
 Game Export is implemented: File → Export Game opens the release wizard. Choose title, Windows
 x64, display mode, optional icon, destination and folder/ZIP package. It cooks assets, compiles

@@ -7,9 +7,6 @@ param(
     [Parameter(Mandatory)]
     [string]$RepositoryRoot,
     [string]$PublishDirectory,
-    # Bundles the Luigi's Mansion fan-game template. Its artwork and audio are another
-    # publisher's, so an installer made with this switch is for private use only.
-    [switch]$IncludeFanTemplate,
     # An install drill compiles a trial installer under its own identity and file name, so it
     # can be installed and removed without touching a real installation.
     [string]$TrialName
@@ -75,10 +72,16 @@ $dist = Join-Path $RepositoryRoot 'Dist'
 
 $defines = @("/DMyAppVersion=$version", "/DPublishDir=$PublishDirectory")
 $baseName = 'GenesisStudio-Setup'
-if ($IncludeFanTemplate) { $defines += '/DIncludeFanTemplate' }
 if (-not [string]::IsNullOrWhiteSpace($TrialName)) {
     $baseName = "GenesisStudio-Setup-$TrialName"
     $defines += @('/DMyAppId={{7C0D2B9E-51A4-4E0B-9A3F-2D6E8B1C4F70}', "/DMyAppName=Genesis Studio $TrialName", "/DMyOutputBaseFilename=$baseName")
+}
+
+# Signing is set up by GENESIS_SIGN_COMMAND (see BuildTools/SignFiles.ps1): the same command,
+# with $f where the file goes, signs the setup program and its uninstaller.
+if (-not [string]::IsNullOrWhiteSpace($env:GENESIS_SIGN_COMMAND)) {
+    $defines += @('/DSignInstaller', "/Sgenesis=$($env:GENESIS_SIGN_COMMAND)")
+    Write-Host 'The installer will be signed.'
 }
 
 Write-Host "Compiling Genesis Studio Setup $version with $iscc"

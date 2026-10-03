@@ -80,15 +80,14 @@ try {
     Step 'Check what was installed' {
         foreach ($relative in @(
                 'Player\GenesisEngine.exe', 'Tools\DXC\dxc.exe', 'Player\Tools\DXC\dxc.exe',
-                'Licenses\ThirdPartyNotices.txt', 'Licenses\DotNet-LICENSE.txt', 'Licenses\DotNet-THIRD-PARTY-NOTICES.txt',
+                'Licenses\Genesis-LICENSE.txt', 'Licenses\ThirdPartyNotices.txt', 'Licenses\DotNet-LICENSE.txt', 'Licenses\DotNet-THIRD-PARTY-NOTICES.txt',
                 'Licenses\SkiaSharp-THIRD-PARTY-NOTICES.txt', 'Licenses\Assimp-LICENSE.txt',
-                'Player\Licenses\ThirdPartyNotices.txt', 'Player\Licenses\DotNet-LICENSE.txt',
+                'Player\Licenses\Genesis-LICENSE.txt', 'Player\Licenses\ThirdPartyNotices.txt', 'Player\Licenses\DotNet-LICENSE.txt',
                 'Tools\DXC\LICENSE-MS.txt', 'Tools\DXC\LICENSE-LLVM.txt',
                 'Documentation\README.md', 'Documentation\GettingStarted.md', 'Documentation\GameFeatures.md', 'Documentation\LargeWorlds.md',
                 'unins000.exe')) {
             Require (Test-Path -LiteralPath (Join-Path $app $relative) -PathType Leaf) "Not installed: $relative"
         }
-        Require (-not (Test-Path -LiteralPath (Join-Path $app 'Templates\LuigisMansion.zip'))) "The fan-game template's bundle was installed although the installer was not asked for it."
         $unwanted = @(Get-ChildItem -LiteralPath $app -Recurse -File | Where-Object { $_.Extension -in @('.pdb', '.log') -or $_.Name -in @('BuildSummary.json', 'PackageManifest.json') })
         Require ($unwanted.Count -eq 0) "Development files were installed: $(($unwanted | Select-Object -First 5 | ForEach-Object { $_.FullName.Substring($app.Length + 1) }) -join ', ')"
         $readme = Get-Content -LiteralPath (Join-Path $app 'Documentation\README.md') -TotalCount 1

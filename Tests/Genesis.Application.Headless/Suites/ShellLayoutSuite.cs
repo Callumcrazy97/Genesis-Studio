@@ -134,7 +134,7 @@ internal static class ShellLayoutSuite
     /// <summary>Guards the complete project-entry flow at desktop and reduced window sizes.</summary>
     internal static void AssertResponsiveProjectExperience(ProjectHubForm hub)
     {
-        string[] expectedIds = ["LuigisMansion", "2DShowcase", "2D", "2DDungeonCrawler", "3DNatureWalk", "3D"];
+        string[] expectedIds = ["2DShowcase", "2D", "2DDungeonCrawler", "3DNatureWalk", "3D"];
         HeadlessHarness.Assert(
             ProjectTemplateCatalog.Available.Select(template => template.Id).SequenceEqual(expectedIds),
             "The production gallery must contain four 2D templates and the two distinct 3D templates.");
