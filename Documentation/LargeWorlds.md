@@ -390,7 +390,11 @@ Vulkan alike, with graphics memory level. Its session traced that to sound: with
 the total was level, and with its music and ambience started once instead of in every room it was
 level too. Each play of a sound made a copy of its samples that was never freed, which is fixed
 (see [Game features](GameFeatures.md), Sound). The test island plays no sounds, which is why its
-soak did not show it.
+soak did not show it. With the fix, the town game's same loop with its sounds restarted at every
+door again was level on Direct3D 11 (the tavern 2,545 to 2,558 MB from the second arrival on;
+before, about 25 MB more every round), with managed memory settling at about 220 MB. On a quiet
+card its rooms then ran at 16.7 ms a frame in the village and the tavern and 20.1 ms on the river
+road, with its ground cover, three ranges of mountains and 83 animals.
 
 ## Verification
 
