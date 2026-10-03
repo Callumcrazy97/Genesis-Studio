@@ -252,6 +252,10 @@ public static partial class PgslCommands
         return 0;
     }
 
+    /// <summary>Whether an instance was made from the named Object.</summary>
+    internal static bool InstanceIsObject(int entityId, string requested) =>
+        !string.IsNullOrWhiteSpace(requested) && MatchesObject(entityId, requested);
+
     private static bool MatchesObject(int entityId, string requested)
     {
         if (string.IsNullOrWhiteSpace(requested) || string.Equals(requested, "all", StringComparison.OrdinalIgnoreCase)) return true;

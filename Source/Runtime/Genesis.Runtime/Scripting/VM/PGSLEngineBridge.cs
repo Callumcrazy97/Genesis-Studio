@@ -125,7 +125,7 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
 
     public PgslContext GetContext() => _context;
 
-    public IEnumerable<object> FindObjects(string objName) => Array.Empty<object>();
+    public IEnumerable<object> FindObjects(string objName) => Genesis.Runtime.Scripting.PgslBehavior.FindTargets(objName);
 
     public bool IsVoid(string name, int argCount)
     {

@@ -16,6 +16,11 @@ public class PgslParser
     private int _nextLabelId;
     private Dictionary<string, UserFunction> _userFunctions = new();
     private readonly Stack<string> _namespaceStack = new();
+    // Names declared with `var` (and function parameters): inside a with-block these stay the
+    // caller's, and every other variable belongs to the instance the block runs as.
+    private HashSet<string> _declaredLocals = new(StringComparer.Ordinal);
+    private int _withDepth;
+    internal const string InstanceVariablePrefix = "@inst.";
 
     public PgslParser(List<Token> tokens, IReadOnlyDictionary<string, int> nativeIdMap = null)
     {
@@ -31,8 +36,20 @@ public class PgslParser
 
     // Emit a variable load — uses LOAD_REG (slot-indexed) for known instance registers,
     // falls back to LOAD_VAR (string-keyed) for locals and unknown names.
+    private string WithScoped(string name) =>
+        _withDepth > 0 && !name.StartsWith("@") && !PgslRegisterFile.Slots.ContainsKey(name)
+        && !_declaredLocals.Contains(name) && !name.StartsWith("argument", StringComparison.Ordinal)
+            ? InstanceVariablePrefix + name
+            : name;
+
+    private void DeclareNextLocal()
+    {
+        if (Check(TokenType.Identifier)) _declaredLocals.Add(Peek().Value);
+    }
+
     private void EmitLoad(string name)
     {
+        name = WithScoped(name);
         if (!name.StartsWith("@") && PgslRegisterFile.Slots.TryGetValue(name, out int slot))
             Emit(Opcode.LOAD_REG, slot);
         else
@@ -42,6 +59,7 @@ public class PgslParser
     // Emit a variable store — uses STORE_REG for known instance registers.
     private void EmitStore(string name)
     {
+        name = WithScoped(name);
         if (!name.StartsWith("@") && PgslRegisterFile.Slots.TryGetValue(name, out int slot))
             Emit(Opcode.STORE_REG, slot);
         else
@@ -56,6 +74,8 @@ public class PgslParser
         _labelReferences = new List<(string, int)>();
         _userFunctions = new Dictionary<string, UserFunction>();
         _nextLabelId = 0;
+        _declaredLocals = new HashSet<string>(StringComparer.Ordinal);
+        _withDepth = 0;
 
         while (!IsAtEnd())
         {
@@ -115,7 +135,7 @@ public class PgslParser
     private void ParseAssignmentOrExpression(bool expectSemicolon)
     {
         // Check for var prefix
-        if (Match(TokenType.Var)) { /* skip */ }
+        if (Match(TokenType.Var)) DeclareNextLocal();
 
         if (Check(TokenType.Identifier) && _position + 1 < _tokens.Count && 
             (_tokens[_position + 1].Type == TokenType.PlusPlus || _tokens[_position + 1].Type == TokenType.MinusMinus))
@@ -239,7 +259,7 @@ public class PgslParser
         Consume(TokenType.LeftParen, "Expected '(' after 'for'");
         
         // Initializer
-        if (Match(TokenType.Var)) { /* skip */ }
+        if (Match(TokenType.Var)) DeclareNextLocal();
         if (!Check(TokenType.Semicolon)) ParseStatement();
         else Consume(TokenType.Semicolon, "Expected ';' after for initializer");
 
@@ -356,21 +376,37 @@ public class PgslParser
     private void ParseWithStatement()
     {
         Consume(TokenType.LeftParen, "Expected '(' after 'with'");
-        ParseExpression(); // target
+        string bare = Check(TokenType.Identifier) && _position + 1 < _tokens.Count
+            && _tokens[_position + 1].Type == TokenType.RightParen
+            && !PgslRegisterFile.Slots.ContainsKey(Peek().Value) && !_declaredLocals.Contains(Peek().Value)
+                ? Peek().Value : null;
+        if (bare != null)
+        {
+            // `with (obj_Weapon)`: the name of an Object, unless a variable of that name holds an
+            // instance id. The VM decides, so pass the name itself.
+            Advance();
+            Emit(Opcode.LOAD_CONST, AddConstant(bare));
+        }
+        else
+        {
+            ParseExpression(); // target
+        }
         Consume(TokenType.RightParen, "Expected ')' after with target");
-        
+
         string startLabel = GenerateLabel("with_start");
         string endLabel = GenerateLabel("with_end");
-        
-        Emit(Opcode.WITH_START);
-        
+
+        Emit(Opcode.WITH_START, bare != null ? 1 : 0);
+
         DefineLabel(startLabel);
         Emit(Opcode.WITH_NEXT, endLabel);
-        
-        ParseBlockOrStatement();
-        
+
+        _withDepth++;
+        try { ParseBlockOrStatement(); }
+        finally { _withDepth--; }
+
         Emit(Opcode.JUMP, startLabel);
-        
+
         DefineLabel(endLabel);
         Emit(Opcode.WITH_END);
     }
@@ -393,6 +429,10 @@ public class PgslParser
         Consume(TokenType.RightParen, "Expected ')' after parameters");
 
         var userFunc = new UserFunction(funcName, parameters);
+        var savedLocals = _declaredLocals;
+        int savedWithDepth = _withDepth;
+        _declaredLocals = new HashSet<string>(parameters, StringComparer.Ordinal);
+        _withDepth = 0;
 
         var savedInstructions = _instructions;
         var savedConstants = _constants;
@@ -415,6 +455,8 @@ public class PgslParser
         _constants = savedConstants;
         _labels = savedLabels;
         _labelReferences = savedLabelReferences;
+        _declaredLocals = savedLocals;
+        _withDepth = savedWithDepth;
 
         _userFunctions[funcName] = userFunc;
     }

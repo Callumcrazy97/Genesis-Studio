@@ -14,7 +14,7 @@ using Genesis.Shared.Scripting;
 
 namespace Genesis.Runtime.Scripting
 {
-    public sealed class PgslBehavior : EntityBehavior
+    public sealed partial class PgslBehavior : EntityBehavior
     {
         private readonly string _scriptName;
         private readonly PgslContext _ctx;
@@ -102,6 +102,7 @@ namespace Genesis.Runtime.Scripting
         public override void OnCreate()
         {
             InitializeVm();
+            RegisterLive();
             SyncToContext();
             ExecuteScript(_onCreateScript, "Create");
             SyncFromContext();
@@ -172,7 +173,7 @@ namespace Genesis.Runtime.Scripting
                 ExecuteScript(_onDestroyScript, "Destroy");
                 SyncFromContext();
             }
-            finally { PgslCommands.ReleaseJobs(_ctx); }
+            finally { PgslCommands.ReleaseJobs(_ctx); UnregisterLive(); }
         }
 
         public override void OnRoomEnd() => ExecuteLifecycle(_onRoomEndScript, "RoomEnd");

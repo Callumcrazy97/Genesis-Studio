@@ -131,6 +131,76 @@ internal static class PgslScriptsSuite
             Check(input.LeftStickDeadZone == 0.18f && input.TriggerDeadZone == 0f, "The controller's default dead zones changed.");
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.WithRunsItsBlockAsEachInstance", () =>
+        {
+            using var scene = new Genesis.Runtime.RuntimeScene("With test");
+            var game = new Genesis.Runtime.Project.ProjectGameContext(ctx.Workspace, scene, null, null,
+                Genesis.Runtime.Scene.RoomAsset.Create("Probe", Genesis.Runtime.Scene.RoomDimension.ThreeD), null);
+            Genesis.Shared.Scripting.PgslContext previousContext = PgslCommands.BindContext(new Genesis.Shared.Scripting.PgslContext());
+            var previousGame = PgslCommands.ActiveGameContext;
+            string previousPath = PgslCommands.ProjectPath;
+            PgslCommands.ActiveGameContext = game;
+            PgslCommands.ProjectPath = ctx.Workspace;
+            try
+            {
+                Genesis.Runtime.Scripting.VM.VMEngine.Initialize();
+                var host = new ScriptHostSystem();
+                host.SetContext(game);
+                var world = scene.World;
+                Genesis.Shared.ECS.Entity Make(float x)
+                {
+                    var entity = world.CreateEntity();
+                    world.Set(entity, new Genesis.Runtime.ECS.Components.TransformComponent { X = x, ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+                    return entity;
+                }
+                var first = Make(10);
+                var second = Make(20);
+                var controller = Make(0);
+                using (host.UseEventSources(new Dictionary<string, string> { ["Create"] = "gswRev = 0;\n" }))
+                {
+                    host.Attach(world, first, "Weapon");
+                    host.Attach(world, second, "Weapon");
+                }
+                using (host.UseEventSources(new Dictionary<string, string>
+                {
+                    ["Create"] =
+                        "var step = 3;\nmine = 5;\n" +
+                        "with (Weapon) { gswRev = gswRev + step; x = x + 1; }\n" +
+                        "count = InstanceNumber(\"Weapon\");\nlead = InstanceFind(\"Weapon\", 0);\n" +
+                        "InstanceVariableSet(lead, \"label\", \"lead\");\nread = InstanceVariableGet(lead, \"gswRev\");\n" +
+                        "with (lead) { solo = 1; }\nafter = x;\n",
+                })) host.Attach(world, controller, "Controller");
+
+                var scripts = host.Instances.OfType<PgslBehavior>().ToList();
+                Check(scripts.Count == 3, $"Expected three scripted instances, got {scripts.Count}: "
+                    + string.Join("; ", host.RecentDiagnostics.Select(d => d.Message)));
+                IReadOnlyDictionary<string, object> one = scripts[0].GetVariablesSnapshot();
+                IReadOnlyDictionary<string, object> two = scripts[1].GetVariablesSnapshot();
+                IReadOnlyDictionary<string, object> boss = scripts[2].GetVariablesSnapshot();
+                double Number(IReadOnlyDictionary<string, object> vars, string name) =>
+                    vars.TryGetValue(name, out object? value) ? Convert.ToDouble(value) : double.NaN;
+                Check(Number(one, "gswRev") == 3 && Number(two, "gswRev") == 3,
+                    $"with did not set each Weapon's own variable: {Number(one, "gswRev")}, {Number(two, "gswRev")} (3, 3). "
+                    + string.Join("; ", host.RecentDiagnostics.Select(d => d.Message)));
+                var transforms = new[] { first, second, controller }
+                    .Select(e => world.GetRef<Genesis.Runtime.ECS.Components.TransformComponent>(e).X).ToArray();
+                Check(transforms[0] == 11 && transforms[1] == 21 && transforms[2] == 0,
+                    $"with did not move each Weapon (and only them): x = {string.Join(", ", transforms)} (11, 21, 0).");
+                Check(!boss.ContainsKey("gswRev") && Number(boss, "mine") == 5 && Number(boss, "after") == 0,
+                    "The controller's own variables were changed by the block it ran as other instances.");
+                Check(Number(boss, "count") == 2 && Number(boss, "lead") == first.Id && Number(boss, "read") == 3,
+                    $"InstanceNumber/InstanceFind/InstanceVariableGet gave {Number(boss, "count")}, {Number(boss, "lead")}, {Number(boss, "read")}.");
+                Check(one.TryGetValue("label", out object? label) && Equals(label, "lead") && Number(one, "solo") == 1 && !two.ContainsKey("solo"),
+                    "InstanceVariableSet or with (id) did not reach exactly the one instance.");
+            }
+            finally
+            {
+                PgslCommands.BindContext(previousContext);
+                PgslCommands.ActiveGameContext = previousGame;
+                PgslCommands.ProjectPath = previousPath;
+            }
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.AParameterNamedLikeABuiltInIsRejected", () =>
         {
             var strict = new PgslSemanticOptions { Strict = true };

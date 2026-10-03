@@ -4,5 +4,8 @@ namespace Genesis.Shared.Scripting
     public interface IPgslInstance
     {
         void SetActiveContext();
+
+        /// <summary>Called when a with-block has finished with this instance.</summary>
+        void EndActiveContext() { }
     }
 }

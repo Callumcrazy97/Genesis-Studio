@@ -13,6 +13,45 @@ public class PgslVm
     {
         public IEnumerator<object> Enumerator { get; set; }
         public PgslContext PreviousContext { get; set; }
+        public IPgslInstance Current { get; set; }
+    }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> InstanceVariableNames = new();
+
+    private static string InstanceVariableName(string operand) =>
+        InstanceVariableNames.GetOrAdd(operand, name => name.Substring(PgslParser.InstanceVariablePrefix.Length));
+
+    // Inside a with-block, the VM of the instance the block runs as holds its variables.
+    private PgslVm InstanceVm => (_bridge.GetContext()?.ActiveVm as PgslVm) ?? this;
+
+    private VmValue LoadInstanceVariable(string operand)
+    {
+        string name = InstanceVariableName(operand);
+        return InstanceVm._variables.TryGetValue(name, out VmValue value) ? value : ResolvePGSLPropertyOrZero(name);
+    }
+
+    private void StoreInstanceVariable(string operand, VmValue value)
+    {
+        string name = InstanceVariableName(operand);
+        bool property = _bridge is PgslEngineBridge typedBridge
+            ? typedBridge.TrySetTypedProperty(name, value)
+            : _bridge.TrySetProperty(name, value.ToObject());
+        if (!property) InstanceVm._variables[name] = value;
+    }
+
+    /// <summary>Leaves with-blocks a return (or an error) jumped out of, restoring the caller.</summary>
+    private void UnwindWith(int depth)
+    {
+        while (_withStack.Count > depth)
+        {
+            WithState state = _withStack.Pop();
+            try { state.Current?.EndActiveContext(); }
+            finally
+            {
+                _bridge.SetContext(state.PreviousContext);
+                state.Enumerator.Dispose();
+            }
+        }
     }
 
     private readonly VmValueStack _stack = new();
@@ -173,6 +212,7 @@ public class PgslVm
         }
 
         int pc = 0;
+        int withDepth = _withStack.Count;
 
         try
         {
@@ -236,6 +276,7 @@ public class PgslVm
         }
         finally
         {
+            UnwindWith(withDepth);
             _constants = previousConstants;
             _instructionCounter = previousInstructionCounter;
             _returnRequested = previousReturnRequested;
@@ -286,6 +327,11 @@ public class PgslVm
             case Opcode.LOAD_VAR:
                 if (instr.Operand is string varName)
                 {
+                    if (varName.StartsWith(PgslParser.InstanceVariablePrefix, StringComparison.Ordinal))
+                    {
+                        _stack.Push(LoadInstanceVariable(varName));
+                        break;
+                    }
                     // Prefer local variables first, then fall back to PGSL context properties.
                     // This ensures reads of x, y, sprite_index etc. come from the live context.
                     if (TryGetVariable(varName, out var value))
@@ -301,6 +347,11 @@ public class PgslVm
                 if (instr.Operand is string storeName && _stack.Count > 0)
                 {
                     var storeValue = _stack.Pop();
+                    if (storeName.StartsWith(PgslParser.InstanceVariablePrefix, StringComparison.Ordinal))
+                    {
+                        StoreInstanceVariable(storeName, storeValue);
+                        break;
+                    }
                     // Current bytecode emits STORE_REG for built-in instance fields. For the much
                     // smaller declared-property set, use an explicit lookup rather than restoring
                     // the old exception-driven command probe on every ordinary variable assignment.
@@ -483,7 +534,15 @@ public class PgslVm
             case Opcode.WITH_START:
                 if (_stack.Count > 0)
                 {
-                    var targetObj = _stack.Pop().ToObject()?.ToString();
+                    object targetValue = _stack.Pop().ToObject();
+                    // A bare name is an Object's name, unless a variable of that name holds an id.
+                    if (instr.Operand is 1 && targetValue is string bareName
+                        && TryGetVariable(bareName, out VmValue held) && held.ToObject() is { } heldValue
+                        && !(heldValue is string heldText && heldText.Length == 0))
+                        targetValue = heldValue;
+                    string targetObj = targetValue is IFormattable formattable
+                        ? formattable.ToString(null, System.Globalization.CultureInfo.InvariantCulture)
+                        : targetValue?.ToString();
                     var objects = _bridge.FindObjects(targetObj);
                     var state = new WithState
                     {
@@ -502,6 +561,8 @@ public class PgslVm
                 if (_withStack.Count > 0 && instr.Operand is int endOffset)
                 {
                     var state = _withStack.Peek();
+                    state.Current?.EndActiveContext();
+                    state.Current = null;
                     bool found = false;
                     while (state.Enumerator.MoveNext())
                     {
@@ -509,6 +570,7 @@ public class PgslVm
                         if (obj is IPgslInstance inst)
                         {
                             inst.SetActiveContext();
+                            state.Current = inst;
                             found = true;
                             break;
                         }
@@ -525,6 +587,7 @@ public class PgslVm
                 if (_withStack.Count > 0)
                 {
                     var state = _withStack.Pop();
+                    state.Current?.EndActiveContext();
                     _bridge.SetContext(state.PreviousContext);
                     state.Enumerator.Dispose();
                 }

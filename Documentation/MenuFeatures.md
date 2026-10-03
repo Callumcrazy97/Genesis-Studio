@@ -64,6 +64,32 @@ drawn after a label covers it. Before, all text was drawn after all shapes. Imag
 
 A C# game reaches the same through `PgslCommands.GlobalSet(...)` and the others.
 
+## One instance driving another
+
+`with (target) { ... }` runs its block once as each instance the target names, and did nothing
+before (no instance was ever found). The target is an instance id, `all`, or an Object's name:
+`with (Weapon) { revision = 1; }`. A bare name is taken as an Object's name unless a variable of
+that name holds an instance id, so `var w = InstanceFind("Weapon", 0); with (w) { ... }` works too.
+
+Inside the block:
+
+- `x`, `y` and the other built-in variables, and commands that act on "this instance"
+  (`ModelSet`, `ModelAnimationPlay`, the light commands, ...), are the target's.
+- Other variables are the target's own, as its scripts see them: `revision = 1` sets the target's
+  `revision`. Names declared with `var`, function parameters and `argument0`... stay the caller's,
+  so `var mode = 2; with (Weapon) { weaponMode = mode; }` passes the caller's value across.
+- A script resource called in the block runs as the target too. A function defined in the caller's
+  own file runs as the caller.
+- `return` leaves the block and the event as usual; the caller is restored.
+
+| Command | Meaning |
+|---|---|
+| `InstanceVariableSet(id, name, value)` | Set a variable of another instance. |
+| `InstanceVariableGet(id, name)` | Read one; 0 when the instance or the variable does not exist. |
+| `InstanceVariableExists(id, name)` | |
+| `InstanceNumber(objectName)` | How many live instances of an Object there are. |
+| `InstanceFind(objectName, n)` | The id of the n-th of them, counting from 0; 0 when there is none. |
+
 ## Input for menus
 
 | Command | Meaning |
