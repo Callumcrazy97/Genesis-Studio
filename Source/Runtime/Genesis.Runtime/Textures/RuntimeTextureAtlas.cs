@@ -94,6 +94,8 @@ public static class RuntimeTextureAtlas
                 try
                 {
                     SpriteRuntimeAsset asset = SpriteAssetLoader.Load(descriptor);
+                    // A model texture is never drawn as a sprite; packing it only slows the start.
+                    if (asset.Usage?.IsTextureOnly == true) continue;
                     string group = TextureGroupDefaults.NormalizeOrDefault(asset.TextureGroup);
                     if (!groups.ContainsKey(group))
                         group = TextureGroupDefaults.DefaultName;

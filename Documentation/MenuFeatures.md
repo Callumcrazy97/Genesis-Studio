@@ -127,6 +127,33 @@ Fixed in the language:
   now decoded like WAV (by the file's content, not its name), in games and in the Audio editor.
 - **An imported picture keeps its size.** Its Image gets the picture's own size as its canvas
   instead of 64 x 64.
+- **Right-handed models can come in the right way round.** glTF (and Blender's exports) are
+  right-handed and Genesis's world is left-handed, so an imported model is drawn as its mirror
+  image: text reads backwards, a right-handed figure holds things in its left hand. With
+  `"convertRightHandedModels": true` in the project file (`.genesisproj`), or
+  `"convertRightHanded": true` in one Model's `.model.json`, the model is mirrored along Z when it
+  is imported: points, normals, tangents, nodes, bones, skins, clips, sockets and colliders, with
+  triangles turned so their fronts still face out. A model facing +Z in its source faces -Z,
+  Genesis's forward. A Model's own setting wins over the project's. Clips taken from a glTF file
+  into a converted Model are converted the same way. **Off by default**: models already in a
+  project, and projects that compensate in their own pipeline, are unchanged. Changing the setting
+  applies the next time a model is imported (re-import it, or replace its source file).
+
+## Start-up
+
+- **Only the first room is prepared before it starts.** The Player used to prepare every texture,
+  sound and model in the project before the first room (14 s of "runtime preload" in a project with
+  3,749 assets). It now prepares the files the first room refers to: its room file and, through
+  it, the Objects, Images, Models, Scripts and sounds it names, the ones their descriptors and event
+  code name, and so on. Everything else is prepared when a room needs it; a room change already
+  prepares its room behind its cover. The log line says what was covered:
+  `Measured runtime preload: N asset jobs (referenced by the first room 'Menu')`.
+  `GENESIS_PRELOAD_ALL=1` prepares everything first, as before. A first room that names an asset
+  only in a way the walk cannot see (a name built from pieces at run time) loads it when it is
+  first used.
+- **Model textures are not packed into sprite sheets.** An Image whose allowed use is only
+  "texture" is never drawn as a sprite, so the start no longer spends time packing it into the
+  texture groups' sheets (10.5 s in the same project, most of it 398 model textures).
 
 ## Test runs
 

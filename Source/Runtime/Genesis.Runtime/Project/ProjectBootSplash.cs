@@ -41,7 +41,7 @@ namespace Genesis.Runtime.Project
             }
             _warm.BuildCriticalList(_projectPath, _startRoom);
             _initialized = true;
-            _logger?.Line($"Measured runtime preload: {_warm.JobsTotal} asset jobs + one presented graphics warmup.");
+            _logger?.Line($"Measured runtime preload: {_warm.JobsTotal} asset jobs ({_warm.Scope}) + one presented graphics warmup.");
         }
         public void Update(float dt, IRenderController renderer)
         {

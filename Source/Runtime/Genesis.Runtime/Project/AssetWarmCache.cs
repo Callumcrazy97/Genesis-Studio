@@ -8,7 +8,7 @@ using Genesis.Streaming.Packs;
 namespace Genesis.Runtime.Project
 {
     /// <summary>Recursive runtime preparation. A job advances only after successful work.</summary>
-    public sealed class AssetWarmCache
+    public sealed partial class AssetWarmCache
     {
         private readonly List<string> _criticalPaths = new();
         private long _bytesTotal, _bytesDone;
@@ -26,6 +26,9 @@ namespace Genesis.Runtime.Project
             _criticalPaths.Clear(); _bytesTotal = 0; _bytesDone = 0; _jobsDone = 0;
             if (string.IsNullOrWhiteSpace(projectPath) || !Directory.Exists(projectPath))
                 throw new DirectoryNotFoundException("The game's content directory does not exist: " + projectPath);
+            // Only what the first room uses is prepared before it starts; see AssetWarmCache.References.
+            if (TryCollectFirstRoom(projectPath, startRoomName)) return;
+            Scope = "every game asset";
             var excluded = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 { ".git", ".vs", "bin", "obj", "Saves", "SaveGames", "Logs", "Cache", "Debug", ".genesis", "Build", "Packages", "ProjectSettings", "TestResults" };
             // Warm the game's content, not the whole project folder. A project also holds tools,

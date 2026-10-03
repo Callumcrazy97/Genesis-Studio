@@ -42,6 +42,13 @@ public sealed class ProjectManifest
 
     public List<string> EnabledPacks { get; set; } = ["core", "rendering", "physics"];
 
+    /// <summary>
+    /// Mirror imported glTF models along Z, so a model made in a right-handed tool is not drawn as
+    /// its mirror image. Off by default so existing projects' models are unchanged; a Model's own
+    /// <c>convertRightHanded</c> setting overrides it.
+    /// </summary>
+    public bool ConvertRightHandedModels { get; set; }
+
     /// <summary>How the built game behaves. Travels with the project, not the machine.</summary>
     public ProjectRuntimeSettings Runtime { get; set; } = new();
 

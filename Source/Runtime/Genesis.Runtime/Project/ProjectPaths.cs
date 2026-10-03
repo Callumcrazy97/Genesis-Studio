@@ -75,6 +75,27 @@ namespace Genesis.Runtime.Project
         }
 
         /// <summary>Reads the legacy export override, then the authored project start room.</summary>
+        /// <summary>
+        /// The project's <c>convertRightHandedModels</c> setting: whether imported glTF models are
+        /// mirrored along Z so they are not drawn as their mirror image. Off unless the project says so.
+        /// </summary>
+        public static bool ReadConvertRightHandedModels(string projectPath)
+        {
+            if (string.IsNullOrEmpty(projectPath) || !Directory.Exists(projectPath)) return false;
+            try
+            {
+                string[] projects = Directory.EnumerateFiles(projectPath, "*.genesisproj", SearchOption.TopDirectoryOnly).ToArray();
+                if (projects.Length != 1) return false;
+                using JsonDocument manifest = JsonDocument.Parse(File.ReadAllText(projects[0]));
+                return manifest.RootElement.TryGetProperty("convertRightHandedModels", out JsonElement value)
+                    && value.ValueKind == JsonValueKind.True;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+            {
+                return false;
+            }
+        }
+
         public static string ReadStartRoom(string projectPath)
         {
             if (string.IsNullOrEmpty(projectPath)) return null;

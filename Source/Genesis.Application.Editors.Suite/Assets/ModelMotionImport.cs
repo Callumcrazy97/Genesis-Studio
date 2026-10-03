@@ -12,7 +12,8 @@ public static partial class ModelMotionImport
 {
     public const string FileFilter = "Model files|*.glb;*.gltf;*.fbx;*.obj;*.dae;*.blend;*.model.json;*.gmodel";
 
-    public static GModelAsset ReadDonor(string path)
+    /// <param name="convertRightHanded">Mirror a glTF donor along Z, as the model receiving its clips was on import.</param>
+    public static GModelAsset ReadDonor(string path, bool convertRightHanded = false)
     {
         path = Path.GetFullPath(path);
         if (!File.Exists(path)) throw new FileNotFoundException("Model file not found.", path);
@@ -27,7 +28,8 @@ public static partial class ModelMotionImport
         using var converted = ModelSourceConversion.Convert(path, requireGeometry: false);
         // This path does not extract materials/textures or create a resource beside the donor.
         return ExternalModelImporter.Import(converted.Path, Path.GetDirectoryName(converted.Path)!,
-            Path.Combine(Path.GetDirectoryName(converted.Path)!, "motion.model.json"), rigAndAnimationsOnly: true);
+            Path.Combine(Path.GetDirectoryName(converted.Path)!, "motion.model.json"), rigAndAnimationsOnly: true,
+            convertRightHanded: convertRightHanded);
     }
 
     private static GModelAsset ReadCanonical(string path)

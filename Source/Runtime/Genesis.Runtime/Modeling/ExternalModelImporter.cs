@@ -27,7 +27,9 @@ public static class ExternalModelImporter
             || extension.Equals(".gltf", StringComparison.OrdinalIgnoreCase);
     }
 
-    public static GModelAsset Import(string sourcePath, string projectRoot, string modelResourcePath, bool rigAndAnimationsOnly = false)
+    /// <param name="convertRightHanded">Mirror the model along Z so a right-handed source (glTF) is not drawn as its mirror image.</param>
+    public static GModelAsset Import(string sourcePath, string projectRoot, string modelResourcePath, bool rigAndAnimationsOnly = false,
+        bool convertRightHanded = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
         ArgumentException.ThrowIfNullOrWhiteSpace(modelResourcePath);
@@ -148,6 +150,7 @@ public static class ExternalModelImporter
         asset.Metadata["source.skins"] = skins.Length.ToString(CultureInfo.InvariantCulture);
         asset.Metadata["source.morphTargets"] = morphTargets.Sum(targets => targets.Length).ToString(CultureInfo.InvariantCulture);
         asset.Metadata["source.animations"] = asset.Animations.Count.ToString(CultureInfo.InvariantCulture);
+        if (convertRightHanded) GModelHandedness.ConvertFromRightHanded(asset);
         asset.RecalculateBounds();
         return asset;
     }

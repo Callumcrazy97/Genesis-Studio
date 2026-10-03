@@ -64,7 +64,8 @@ public partial class ModelViewerControl
 
     private ModelMotionImportResult PrepareMotionImport(GModelAsset before, string path, bool animation)
     {
-        var donor = ModelMotionImport.ReadDonor(path);
+        // Clips from a glTF file are mirrored the same way the model receiving them was.
+        var donor = ModelMotionImport.ReadDonor(path, before.ImportSettings?.ConvertRightHanded == true);
         string file = Path.GetFileName(path);
         string name = ResourceDisplayName.Format(file);
         var result = animation ? ModelMotionImport.Animations(before, donor, name) : ModelMotionImport.Rig(before, donor, name);

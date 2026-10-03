@@ -34,6 +34,8 @@ public static class StudioModelResourceLoader
         public bool DoubleSided { get; set; }
         public FaceCullingOverride Culling { get; set; } = FaceCullingOverride.Default;
         public FrontFaceWindingOverride WindingOrder { get; set; } = FrontFaceWindingOverride.Default;
+        /// <summary>Mirror a right-handed source along Z on import; unset follows the project's setting.</summary>
+        public bool? ConvertRightHanded { get; set; }
         public List<Part> Parts { get; set; } = [];
         public List<string> Materials { get; set; } = [];
     }
@@ -127,7 +129,9 @@ public static class StudioModelResourceLoader
             try
             {
                 string projectRoot = FindProjectRoot(path);
-                GModelAsset imported = ExternalModelImporter.Import(source, projectRoot, path);
+                bool convert = document.ConvertRightHanded
+                    ?? Genesis.Runtime.Project.ProjectPaths.ReadConvertRightHandedModels(projectRoot);
+                GModelAsset imported = ExternalModelImporter.Import(source, projectRoot, path, convertRightHanded: convert);
                 imported.Culling = document.Culling;
                 imported.WindingOrder = document.WindingOrder;
                 RuntimeModelStore.Save(canonical, imported);

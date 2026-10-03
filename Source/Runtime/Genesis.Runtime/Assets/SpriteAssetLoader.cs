@@ -55,7 +55,11 @@ public static class SpriteAssetLoader
         using (JsonDocument metadata = JsonDocument.Parse(json))
         {
             if (TryGetProperty(metadata.RootElement, "usage", out JsonElement usage))
+            {
                 asset.Usage = usage.Deserialize<SpriteRuntimeUsage>(JsonOptions) ?? new();
+                asset.Usage.IsTextureOnly = TryGetProperty(usage, "allowed", out JsonElement allowed)
+                    && SpriteRuntimeUsage.AllowsOnlyTexture(allowed);
+            }
             if (TryGetProperty(metadata.RootElement, "collisionShapes", out JsonElement shapes))
                 asset.CollisionShapes = shapes.Deserialize<List<SpriteRuntimeCollisionShape>>(JsonOptions) ?? new();
         }

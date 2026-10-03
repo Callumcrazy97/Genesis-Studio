@@ -144,6 +144,8 @@ namespace Genesis.Runtime.Modeling
         public bool GenerateNormals { get; set; } = true;
         public bool GenerateLods { get; set; } = true;
         public bool KeepSourceCopy { get; set; } = false;
+        /// <summary>The source was right-handed and was mirrored along Z on import (see <see cref="GModelHandedness"/>).</summary>
+        public bool ConvertRightHanded { get; set; }
     }
 
     public sealed class GModelMesh

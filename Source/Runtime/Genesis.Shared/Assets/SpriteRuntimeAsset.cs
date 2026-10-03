@@ -95,6 +95,29 @@ public sealed class SpriteRuntimeAnimationTag
 public sealed class SpriteRuntimeUsage
 {
     public SpriteRuntimeTileset Tileset { get; set; } = new();
+
+    /// <summary>
+    /// True when the Image's allowed use is only "texture" (a model texture): it is never drawn as
+    /// a sprite, so it is not packed into the sprite sheets. Set by the loader from usage.allowed.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsTextureOnly { get; set; }
+
+    /// <summary>Whether a usage.allowed value ("texture", "sprite, texture", or the flags as a number) is a model texture only.</summary>
+    public static bool AllowsOnlyTexture(System.Text.Json.JsonElement allowed)
+    {
+        switch (allowed.ValueKind)
+        {
+            case System.Text.Json.JsonValueKind.Number:
+                return allowed.TryGetInt32(out int flags) && flags == 8;
+            case System.Text.Json.JsonValueKind.String:
+                string[] roles = (allowed.GetString() ?? string.Empty)
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                return roles.Length == 1 && string.Equals(roles[0], "texture", StringComparison.OrdinalIgnoreCase);
+            default:
+                return false;
+        }
+    }
 }
 
 public sealed class SpriteRuntimeTileset
