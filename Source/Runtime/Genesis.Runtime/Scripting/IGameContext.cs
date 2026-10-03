@@ -157,6 +157,16 @@ namespace Genesis.Runtime.Scripting
         Vector2 MeasureText(string text, float size, string font = null)
             => Genesis.Shared.Overlay.GlyphAtlas.Measure(text, font, size);
 
+        /// <summary>Text with <paramref name="tracking"/> pixels of letter spacing between glyphs.</summary>
+        void Text(string text, float x, float y, float size, Vector4 color, string font, float tracking)
+            => Text(text, x, y, size, color, font);
+
+        /// <summary>
+        /// Limits later drawing to a rectangle until it is cleared with a zero width or height.
+        /// Canvases that cannot clip draw everything.
+        /// </summary>
+        void SetClip(float x, float y, float width, float height) { }
+
         /// <summary>A filled disc, or a ring of the given thickness.</summary>
         void Circle(float centerX, float centerY, float radius, Vector4 color, bool filled = true, float thickness = 1.5f)
             => HudShapes.Circle(this, centerX, centerY, radius, color, filled, thickness);

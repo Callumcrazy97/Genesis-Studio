@@ -565,7 +565,9 @@ namespace Genesis.Runtime.Rendering
             float camY,
             float zoom,
             RenderColor? tint = null,
-            System.Drawing.RectangleF? destination = null)
+            System.Drawing.RectangleF? destination = null,
+            System.Drawing.RectangleF? sourcePart = null,
+            Vector4 clip = default)
         {
             if (alpha <= 0f || string.IsNullOrWhiteSpace(image)) return;
             SpriteFrameBinding frame = ResolveSpriteFrame(renderer, projectPath, image, frameIndex);
@@ -606,7 +608,20 @@ namespace Genesis.Runtime.Rendering
                 Tint = tint ?? RenderColor.White,
                 Depth = (int)draw2d.Depth,
                 UvRect = frame.UvRect,
+                ClipRect = clip,
             };
+            if (sourcePart is System.Drawing.RectangleF part)
+            {
+                // A fraction of the frame: narrow its texture rectangle before the atlas remap,
+                // which maps whatever rectangle it is given.
+                Vector4 uv = call.UvRect == Vector4.Zero ? new Vector4(0f, 0f, 1f, 1f) : call.UvRect;
+                float u0 = Math.Clamp(part.Left, 0f, 1f), u1 = Math.Clamp(part.Right, 0f, 1f);
+                float v0 = Math.Clamp(part.Top, 0f, 1f), v1 = Math.Clamp(part.Bottom, 0f, 1f);
+                if (u1 <= u0 || v1 <= v0) return;
+                call.UvRect = new Vector4(
+                    uv.X + ((uv.Z - uv.X) * u0), uv.Y + ((uv.W - uv.Y) * v0),
+                    uv.X + ((uv.Z - uv.X) * u1), uv.Y + ((uv.W - uv.Y) * v1));
+            }
             RemapToTextureGroupAtlas(frame, ref call);
             DrawSpriteShaderPasses(commands, renderer, projectPath, assets, call);
         }
@@ -1274,6 +1289,66 @@ namespace Genesis.Runtime.Rendering
         /// <summary>One report per sprite, so a per-frame draw path cannot flood the log.</summary>
         private static readonly HashSet<string> ReportedOriginWarnings =
             new(StringComparer.OrdinalIgnoreCase);
+
+        private static readonly Dictionary<(string Project, string Image), (int Width, int Height, long Generation, long Next)> ImageSizes = new();
+
+        /// <summary>
+        /// The pixel size of an Image's first frame as a sprite draws it, without a renderer: for
+        /// scripts that lay pictures out. Asked of the disk again after an asset invalidation,
+        /// otherwise at most once per polling interval.
+        /// </summary>
+        public static bool TryGetImageFrameSize(string projectPath, string imageName, out int width, out int height)
+        {
+            width = height = 0;
+            if (string.IsNullOrWhiteSpace(projectPath) || string.IsNullOrWhiteSpace(imageName)) return false;
+            var key = (projectPath, imageName);
+            long now = Environment.TickCount64;
+            long generation = RuntimeAssetPolicy.Generation;
+            lock (ImageSizes)
+            {
+                if (ImageSizes.TryGetValue(key, out var known) && known.Generation == generation && now < known.Next)
+                {
+                    width = known.Width;
+                    height = known.Height;
+                    return width > 0;
+                }
+            }
+
+            try
+            {
+                string descriptor = SpriteAssetLoader.ResolveDescriptorPath(projectPath, imageName);
+                if (!string.IsNullOrWhiteSpace(descriptor) && File.Exists(descriptor))
+                {
+                    SpriteRuntimeAsset asset = null;
+                    string texturePath = descriptor;
+                    if (SpriteAssetLoader.IsSpriteDescriptorPath(descriptor))
+                    {
+                        asset = SpriteAssetLoader.Load(descriptor);
+                        texturePath = SpriteAssetLoader.ResolveFrameTexturePath(descriptor, asset, 0);
+                    }
+                    if (!string.IsNullOrEmpty(texturePath) && File.Exists(texturePath))
+                    {
+                        TryReadImageSize(texturePath, out width, out height);
+                        Vector4 uv = asset != null ? SpriteOriginUtility.ResolveFrameUvRect(asset, 0, width, height) : Vector4.Zero;
+                        if (uv != Vector4.Zero)
+                        {
+                            width = Math.Max(1, (int)MathF.Round(width * (uv.Z - uv.X)));
+                            height = Math.Max(1, (int)MathF.Round(height * (uv.W - uv.Y)));
+                        }
+                    }
+                }
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+                or System.Text.Json.JsonException or InvalidOperationException)
+            {
+                width = height = 0;
+            }
+
+            lock (ImageSizes)
+                ImageSizes[key] = (width, height, generation,
+                    RuntimeAssetPolicy.NextCheck(now, RuntimeAssetPolicy.FramePathIntervalMilliseconds, key.GetHashCode()));
+            return width > 0;
+        }
 
         private static void TryReadImageSize(string path, out int w, out int h)
         {

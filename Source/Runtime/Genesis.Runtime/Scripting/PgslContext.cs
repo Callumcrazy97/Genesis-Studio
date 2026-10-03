@@ -83,6 +83,10 @@ namespace Genesis.Shared.Scripting
         public double DrawAlpha { get; set; } = 1.0;
         public string DrawFont { get; set; } = "Arial";
         public double DrawFontSize { get; set; } = 12.0;
+        /// <summary>Pixels added between the letters of later text (DrawSetTextTracking).</summary>
+        public double TextTracking { get; set; }
+        /// <summary>Where later text sits on its x: 0 starts there, 1 is centred on it, 2 ends there.</summary>
+        public int TextAlign { get; set; }
 
         public double Alarm0 { get; set; } = -1;
         public double Alarm1 { get; set; } = -1;

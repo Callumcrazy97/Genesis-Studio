@@ -28,6 +28,10 @@ namespace Genesis.Shared.Overlay
         public readonly bool Filled;
         public readonly float A, B, C, D, Size, Stroke;
         public readonly Vector4 Color;
+        /// <summary>Letter spacing in pixels between the glyphs of a text command.</summary>
+        public readonly float Tracking;
+        /// <summary>Screen rectangle (x, y, width, height) the command is limited to; zero size is none.</summary>
+        public readonly Vector4 Clip;
 
         public OverlayCommand(
             OverlayCommandKind kind,
@@ -41,8 +45,12 @@ namespace Genesis.Shared.Overlay
             float d,
             float size,
             float stroke,
-            Vector4 color)
+            Vector4 color,
+            float tracking = 0f,
+            Vector4 clip = default)
         {
+            Tracking = tracking;
+            Clip = clip;
             Kind = kind;
             Text = text;
             FontFamily = fontFamily;
@@ -72,6 +80,7 @@ namespace Genesis.Shared.Overlay
     {
         private readonly List<OverlayCommand> _commands = new();
         private ulong _hash = Fnv1aOffset;
+        private Vector4 _clip;
 
         private const ulong Fnv1aOffset = 14695981039346656037;
         private const ulong Fnv1aPrime = 1099511628211;
@@ -94,6 +103,7 @@ namespace Genesis.Shared.Overlay
         public void Reset(int width, int height)
         {
             _commands.Clear();
+            _clip = default;
             Width = width;
             Height = height;
             _hash = Fnv1aOffset;
@@ -116,6 +126,18 @@ namespace Genesis.Shared.Overlay
                 OverlayCommandKind.Text, text, fontFamily, bold, filled: true,
                 position.X, position.Y, maxWidth, maxHeight, size, 0f, color));
         }
+
+        public void DrawTrackedText(string text, Vector2 position, float size, Vector4 color, string fontFamily, float tracking)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            Add(new OverlayCommand(
+                OverlayCommandKind.Text, text, fontFamily ?? "Segoe UI", bold: false, filled: true,
+                position.X, position.Y, 4096f, 4096f, size, 0f, color, tracking));
+        }
+
+        /// <summary>Every command added after this is limited to <paramref name="clip"/> until the next call or frame.</summary>
+        public void SetClip(Vector4 clip) =>
+            _clip = clip.Z > 0f && clip.W > 0f ? clip : default;
 
         public void DrawTextCentered(
             string text,
@@ -162,8 +184,19 @@ namespace Genesis.Shared.Overlay
             bool filled = false)
             => DrawRect(position.X, position.Y, size.X, size.Y, color, strokeWidth, filled);
 
-        private void Add(in OverlayCommand command)
+        private void Add(OverlayCommand command)
         {
+            if (_clip != default || command.Tracking != 0f)
+            {
+                command = new OverlayCommand(command.Kind, command.Text, command.FontFamily, command.Bold, command.Filled,
+                    command.A, command.B, command.C, command.D, command.Size, command.Stroke, command.Color,
+                    command.Tracking, _clip);
+                Hash(command.Tracking);
+                Hash(_clip.X);
+                Hash(_clip.Y);
+                Hash(_clip.Z);
+                Hash(_clip.W);
+            }
             _commands.Add(command);
             Hash((int)command.Kind);
             Hash(command.Text);

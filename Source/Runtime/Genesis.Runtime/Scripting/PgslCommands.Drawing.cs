@@ -135,41 +135,9 @@ public static partial class PgslCommands
         }
     }
 
-    [PgslCommand("DrawRoundRect", "DrawRoundRect(x1, y1, x2, y2, radius, outline)", "Rectangle with rounded corners", "Drawing 2D")]
-    public static void DrawRoundRect(double x1, double y1, double x2, double y2, double radius, bool outline)
-    {
-        IPgslDrawSurface surface = Draw;
-        if (surface is null) return;
-
-        double left = Math.Min(x1, x2);
-        double top = Math.Min(y1, y2);
-        double width = Math.Abs(x2 - x1);
-        double height = Math.Abs(y2 - y1);
-        double r = Math.Clamp(radius, 0, Math.Min(width, height) * 0.5);
-        Color color = CurrentColor();
-
-        if (!outline)
-        {
-            // Centre band plus the two side bands, then the corners as quarter discs.
-            surface.FillRectangle(color, new RectangleF((float)left, (float)(top + r), (float)width, (float)(height - (r * 2))));
-            surface.FillRectangle(color, new RectangleF((float)(left + r), (float)top, (float)(width - (r * 2)), (float)r));
-            surface.FillRectangle(color, new RectangleF((float)(left + r), (float)(top + height - r), (float)(width - (r * 2)), (float)r));
-            if (r >= 0.5)
-            {
-                surface.FillCircle(color, (float)(left + r), (float)(top + r), (float)r);
-                surface.FillCircle(color, (float)(left + width - r), (float)(top + r), (float)r);
-                surface.FillCircle(color, (float)(left + r), (float)(top + height - r), (float)r);
-                surface.FillCircle(color, (float)(left + width - r), (float)(top + height - r), (float)r);
-            }
-
-            return;
-        }
-
-        surface.DrawLine((float)(left + r), (float)top, (float)(left + width - r), (float)top, color);
-        surface.DrawLine((float)(left + r), (float)(top + height), (float)(left + width - r), (float)(top + height), color);
-        surface.DrawLine((float)left, (float)(top + r), (float)left, (float)(top + height - r), color);
-        surface.DrawLine((float)(left + width), (float)(top + r), (float)(left + width), (float)(top + height - r), color);
-    }
+    [PgslCommand("DrawRoundRect", "DrawRoundRect(x1, y1, x2, y2, radius, outline)", "Smooth-edged rectangle with rounded corners; outline draws a one-pixel border", "Drawing 2D")]
+    public static void DrawRoundRect(double x1, double y1, double x2, double y2, double radius, bool outline) =>
+        DrawRoundRectEx(x1, y1, x2, y2, radius, outline ? 1 : 0);
 
     [PgslCommand("DrawArrow", "DrawArrow(x1, y1, x2, y2, headSize)", "Line with an arrowhead at the far end", "Drawing 2D")]
     public static void DrawArrow(double x1, double y1, double x2, double y2, double headSize)
@@ -259,12 +227,7 @@ public static partial class PgslCommands
         if (surface is null || string.IsNullOrEmpty(text)) return;
 
         PgslContext ctx = GetContext();
-        surface.DrawText(
-            text,
-            ctx?.DrawFont ?? "Arial",
-            (float)(ctx?.DrawFontSize ?? 12d),
-            RgbColor(r, g, b),
-            new Rectangle((int)x, (int)y, 4096, 4096));
+        DrawTextAt(x, y, text, ctx?.DrawFont ?? "Arial", ctx?.DrawFontSize ?? 12d, RgbColor(r, g, b));
     }
 
     [PgslCommand("DrawTextScaled", "DrawTextScaled(x, y, text, size)", "Text at an explicit pixel size", "Drawing 2D")]
@@ -274,12 +237,7 @@ public static partial class PgslCommands
         if (surface is null || string.IsNullOrEmpty(text)) return;
 
         PgslContext ctx = GetContext();
-        surface.DrawText(
-            text,
-            ctx?.DrawFont ?? "Arial",
-            (float)Math.Clamp(size, 1, 512),
-            CurrentColor(),
-            new Rectangle((int)x, (int)y, 4096, 4096));
+        DrawTextAt(x, y, text, ctx?.DrawFont ?? "Arial", Math.Clamp(size, 1, 512), CurrentColor());
     }
 
     [PgslCommand("DrawSetFont", "DrawSetFont(name)", "Font family or project-relative TTF/OTF payload for later text", "Drawing 2D")]

@@ -5,7 +5,8 @@ project, and each is off or unchanged until a room, an Object or a script asks f
 this page says a default changed.
 
 [Large worlds](LargeWorlds.md) covers the other half of the same work: streaming, the model cache
-and multiplayer.
+and multiplayer. [Menu features](MenuFeatures.md) covers the 3 October additions: text layout,
+smooth shapes, clipping, globals, quitting and menu input.
 
 ## From C# and from events
 

@@ -23,6 +23,27 @@ namespace Genesis.Shared.Interfaces
         void DrawSprite(string spriteName, float x, float y, int frame, float xscale, float yscale, float angle, Color blend, float alpha);
         /// <summary>Draw an image into a GUI rectangle, independent of its gameplay sprite origin.</summary>
         void DrawSpriteRectangle(string spriteName, RectangleF destination, int frame, Color blend, float alpha);
+        /// <summary>
+        /// Text with its top-left corner at (x, y) and <paramref name="tracking"/> pixels of letter
+        /// spacing between glyphs.
+        /// </summary>
+        void DrawTextRun(string text, string font, float size, Color color, float x, float y, float tracking)
+            => DrawText(text, font, size, color, new Rectangle((int)x, (int)y, 4096, 4096));
+
+        /// <summary>The width and line height <see cref="DrawTextRun"/> would draw this text at.</summary>
+        Vector2 MeasureText(string text, string font, float size, float tracking)
+            => Genesis.Shared.Overlay.GlyphAtlas.Measure(text, font, size, bold: false, tracking);
+
+        /// <summary>Limits later GUI drawing to a rectangle; an empty rectangle draws everywhere again.</summary>
+        void SetClip(RectangleF clip) { }
+
+        /// <summary>
+        /// Part of an image frame into a rectangle: <paramref name="source"/> is in fractions of the
+        /// frame (0 to 1), so (0.25, 0, 0.5, 1) is the middle half of its width.
+        /// </summary>
+        void DrawSpritePart(string spriteName, int frame, RectangleF source, RectangleF destination, Color blend, float alpha)
+            => DrawSpriteRectangle(spriteName, destination, frame, blend, alpha);
+
         bool Is3DActive { get; }
         void QueueCube3D(float x, float y, float z, float sx, float sy, float sz, Color color, float alpha);
         void QueueSphere3D(float x, float y, float z, float radius, Color color, float alpha);

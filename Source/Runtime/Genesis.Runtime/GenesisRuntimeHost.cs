@@ -637,9 +637,9 @@ namespace Genesis.Runtime
             _pgslHud.Reset(OverlayWidth, OverlayHeight);
             if (scriptsReady)
             {
-                // PGSL shapes use the sprite renderer while its text uses the overlay. Draw and
-                // flush the shapes first, then replay the buffered text onto the overlay so a
-                // scripted panel cannot cover its own labels (NEXT-074).
+                // A PGSL GUI's shapes and text are buffered together and replayed onto the overlay
+                // in the order the script drew them, so a panel drawn after a label covers it.
+                // Sprites still go to the sprite renderer, flushed first, beneath them.
                 ScriptHost.DispatchPgslGuiDraw(_renderer, _pgslHud);
                 _renderer.FlushOverlaySprites();
             }
@@ -676,7 +676,7 @@ namespace Genesis.Runtime
         /// </summary>
         private sealed class BufferedHudCanvas : IHudCanvas
         {
-            private enum Kind { Text, TextCentered, Rect, Line }
+            private enum Kind { Text, TextCentered, Rect, Line, Clip }
 
             private readonly List<Command> _commands = new();
 
@@ -717,6 +717,12 @@ namespace Genesis.Runtime
             public void Text(string text, float x, float y, float size, Vector4 color, string font) =>
                 _commands.Add(new Command(Kind.Text, text, x, y, size, 0f, 0f, color, font: font));
 
+            public void Text(string text, float x, float y, float size, Vector4 color, string font, float tracking) =>
+                _commands.Add(new Command(Kind.Text, text, x, y, size, 0f, tracking, color, font: font));
+
+            public void SetClip(float x, float y, float width, float height) =>
+                _commands.Add(new Command(Kind.Clip, null, x, y, width, height, 0f, default));
+
             public void TextCentered(string text, float centerX, float y, float width, float size, Vector4 color) =>
                 _commands.Add(new Command(Kind.TextCentered, text, centerX, y, width, size, 0f, color));
             public void TextCentered(string text, float centerX, float y, float width, float size, Vector4 color, string font) =>
@@ -736,7 +742,13 @@ namespace Genesis.Runtime
                     switch (command.Type)
                     {
                         case Kind.Text:
-                            destination.Text(command.Value, command.A, command.B, command.C, command.Color, command.Font);
+                            if (command.E != 0f)
+                                destination.Text(command.Value, command.A, command.B, command.C, command.Color, command.Font, command.E);
+                            else
+                                destination.Text(command.Value, command.A, command.B, command.C, command.Color, command.Font);
+                            break;
+                        case Kind.Clip:
+                            destination.SetClip(command.A, command.B, command.C, command.D);
                             break;
                         case Kind.TextCentered:
                             destination.TextCentered(command.Value, command.A, command.B, command.C, command.D, command.Color, command.Font ?? "Segoe UI");
@@ -749,6 +761,9 @@ namespace Genesis.Runtime
                             break;
                     }
                 }
+
+                // A script that forgot DrawResetClip must not clip whatever is drawn after the GUI.
+                destination.SetClip(0f, 0f, 0f, 0f);
             }
         }
 

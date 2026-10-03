@@ -135,13 +135,22 @@ namespace Genesis.Shared.Overlay
         private readonly struct CachedRun
         {
             public readonly GlyphQuad[] Quads;
+            /// <summary>Which glyph of the run each quad is, so letter spacing can move it along.</summary>
+            public readonly int[] Indices;
+            public readonly int GlyphCount;
             public readonly float Advance;
 
-            public CachedRun(GlyphQuad[] quads, float advance)
+            public CachedRun(GlyphQuad[] quads, int[] indices, int glyphCount, float advance)
             {
                 Quads = quads;
+                Indices = indices;
+                GlyphCount = glyphCount;
                 Advance = advance;
             }
+
+            /// <summary>The run's width with <paramref name="tracking"/> pixels added between glyphs.</summary>
+            public float TrackedAdvance(float tracking) =>
+                Advance + (GlyphCount > 1 ? tracking * (GlyphCount - 1) : 0f);
         }
 
         private readonly Dictionary<GlyphKey, GlyphEntry> _glyphs = new();
@@ -171,6 +180,8 @@ namespace Genesis.Shared.Overlay
         /// <summary>
         /// Appends the quads for <paramref name="text"/> to <paramref name="quads"/>, laying it out
         /// with its <b>top</b> edge at <paramref name="topY"/> to match the overlay contract.
+        /// <paramref name="tracking"/> adds that many pixels after every glyph but the last, on top
+        /// of the font's own advances and kerning.
         /// </summary>
         public void LayoutRun(
             string text,
@@ -179,7 +190,8 @@ namespace Genesis.Shared.Overlay
             bool bold,
             float x,
             float topY,
-            List<GlyphQuad> quads)
+            List<GlyphQuad> quads,
+            float tracking = 0f)
         {
             ThrowIfDisposed();
             ArgumentNullException.ThrowIfNull(quads);
@@ -191,7 +203,7 @@ namespace Genesis.Shared.Overlay
             {
                 GlyphQuad quad = run.Quads[i];
                 quads.Add(new GlyphQuad(
-                    quad.X + x,
+                    quad.X + x + (tracking * run.Indices[i]),
                     quad.Y + topY,
                     quad.Width,
                     quad.Height,
@@ -208,27 +220,34 @@ namespace Genesis.Shared.Overlay
         /// <summary>
         /// The width and line height of text as the overlay draws it, for layout by code that has no
         /// renderer to ask. Nothing is rasterised; one line is measured, and a line break in the
-        /// text is not a new line.
+        /// text is not a new line. <paramref name="tracking"/> is the letter spacing the text is
+        /// drawn with.
         /// </summary>
-        public static System.Numerics.Vector2 Measure(string text, string family, float size, bool bold = false)
+        public static System.Numerics.Vector2 Measure(string text, string family, float size, bool bold = false, float tracking = 0f)
         {
             lock (MeasureLock)
             {
                 _measuring ??= new GlyphAtlas();
                 SKFont font = _measuring.GetFont(family, size, bold, out _, out _);
                 SKFontMetrics metrics = font.Metrics;
-                float width = string.IsNullOrEmpty(text) ? 0f : font.MeasureText(text, _measuring._paint);
+                float width = 0f;
+                if (!string.IsNullOrEmpty(text))
+                {
+                    width = font.MeasureText(text, _measuring._paint);
+                    int glyphs = font.CountGlyphs(text);
+                    if (glyphs > 1) width += tracking * (glyphs - 1);
+                }
                 return new System.Numerics.Vector2(width, metrics.Descent - metrics.Ascent);
             }
         }
 
-        /// <summary>Advance width of a run, for centring.</summary>
-        public float MeasureRun(string text, string family, float size, bool bold)
+        /// <summary>Advance width of a run, for centring and aligning.</summary>
+        public float MeasureRun(string text, string family, float size, bool bold, float tracking = 0f)
         {
             ThrowIfDisposed();
             if (string.IsNullOrEmpty(text)) return 0f;
             SKFont font = GetFont(family, size, bold, out string resolvedFamily, out float resolvedSize);
-            return ResolveRun(text, resolvedFamily, resolvedSize, bold, font).Advance;
+            return ResolveRun(text, resolvedFamily, resolvedSize, bold, font).TrackedAdvance(tracking);
         }
 
         private CachedRun ResolveRun(string text, string family, float size, bool bold, SKFont font)
@@ -240,17 +259,20 @@ namespace Genesis.Shared.Overlay
             ushort[] glyphIds = font.GetGlyphs(text);
             if (glyphIds.Length == 0)
             {
-                cached = new CachedRun(Array.Empty<GlyphQuad>(), 0f);
+                cached = new CachedRun(Array.Empty<GlyphQuad>(), Array.Empty<int>(), 0, 0f);
                 CacheRun(key, cached);
                 return cached;
             }
 
             SKPoint[] positions = font.GetGlyphPositions(text, new SKPoint(0f, -metrics.Ascent));
             var runQuads = new List<GlyphQuad>(glyphIds.Length);
+            var runIndices = new List<int>(glyphIds.Length);
             for (int i = 0; i < glyphIds.Length && i < positions.Length; i++)
             {
                 GlyphEntry entry = Resolve(family, size, bold, glyphIds[i], font);
                 if (!entry.HasPixels) continue;
+
+                runIndices.Add(i);
 
                 runQuads.Add(new GlyphQuad(
                     positions[i].X + entry.OffsetX,
@@ -263,7 +285,7 @@ namespace Genesis.Shared.Overlay
                     entry.V1));
             }
 
-            cached = new CachedRun(runQuads.ToArray(), font.MeasureText(text, _paint));
+            cached = new CachedRun(runQuads.ToArray(), runIndices.ToArray(), glyphIds.Length, font.MeasureText(text, _paint));
             CacheRun(key, cached);
             return cached;
         }
@@ -458,6 +480,28 @@ namespace Genesis.Shared.Overlay
             _resetGeneration++;
         }
 
+        // A font file's identity (time written and length), looked at most once a second per file
+        // rather than at every draw: text in a project font was costing two file-system calls a draw.
+        private readonly System.Collections.Generic.Dictionary<string, (string Stamp, long Generation, long Next)> _payloadStamps =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        // A font file is asked about as the engine's other frame-path caches are: again after an
+        // explicit asset invalidation (a Studio save, the play window's asset watcher), otherwise at
+        // most once per polling interval, and never in an exported game.
+        private string PayloadStamp(string path)
+        {
+            long now = Environment.TickCount64;
+            long generation = Genesis.Shared.Assets.RuntimeAssetPolicy.Generation;
+            if (_payloadStamps.TryGetValue(path, out (string Stamp, long Generation, long Next) known)
+                && known.Generation == generation && now < known.Next)
+                return known.Stamp;
+            var info = new System.IO.FileInfo(path);
+            string stamp = info.Exists ? info.LastWriteTimeUtc.Ticks + "|" + info.Length : null;
+            _payloadStamps[path] = (stamp, generation, Genesis.Shared.Assets.RuntimeAssetPolicy.NextCheck(
+                now, Genesis.Shared.Assets.RuntimeAssetPolicy.FramePathIntervalMilliseconds, path.GetHashCode()));
+            return stamp;
+        }
+
         private SKFont GetFont(
             string family,
             float size,
@@ -469,12 +513,11 @@ namespace Genesis.Shared.Overlay
             string requestedFamily = resolvedFamily;
             bool isPayload = (requestedFamily.EndsWith(".ttf", StringComparison.OrdinalIgnoreCase)
                 || requestedFamily.EndsWith(".otf", StringComparison.OrdinalIgnoreCase))
-                && System.IO.File.Exists(requestedFamily);
+                && PayloadStamp(requestedFamily) is not null;
             if (isPayload)
             {
-                var info = new System.IO.FileInfo(requestedFamily);
                 // A live replacement must invalidate both font metrics and already rasterised glyphs.
-                resolvedFamily += "|" + info.LastWriteTimeUtc.Ticks + "|" + info.Length;
+                resolvedFamily += "|" + PayloadStamp(requestedFamily);
             }
             resolvedSize = size > 0.1f ? size : 12f;
 

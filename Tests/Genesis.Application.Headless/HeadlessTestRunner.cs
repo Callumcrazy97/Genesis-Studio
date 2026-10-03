@@ -1110,6 +1110,8 @@ internal static class HeadlessTestRunner
         Suites.GameExportPublishingSuite.Run(ctx);
         Suites.ReleaseSuite.Run(ctx);
         Suites.RoomOrderSuite.Run(ctx);
+        Suites.PgslScriptsSuite.Run(ctx);
+        Suites.AssetImportSuite.Run(ctx);
         Suites.TextRenderingSuite.Run(ctx);
         Suites.Effects2DSuite.Run(ctx);
 
@@ -1510,6 +1512,12 @@ internal static class HeadlessTestRunner
                 break;
             case "room-order":
                 Suites.RoomOrderSuite.Run(ctx);
+                break;
+            case "pgsl-scripts":
+                Suites.PgslScriptsSuite.Run(ctx);
+                break;
+            case "asset-import":
+                Suites.AssetImportSuite.Run(ctx);
                 break;
             default:
                 Suites.GateSuite.RunFocused(ctx, normalized);

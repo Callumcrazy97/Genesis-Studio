@@ -416,8 +416,7 @@ public static partial class PgslCommands
 
     [PgslCommand("DrawText", "DrawText(x,y,text)", "Draw text", "Drawing 2D")]
     public static void DrawText(double x, double y, string text) =>
-        Draw?.DrawText(text ?? "", Ctx.DrawFont, (float)Ctx.DrawFontSize, Ctx.DrawColor,
-            new Rectangle((int)x, (int)y, 2000, 200));
+        DrawTextAt(x, y, text, Ctx.DrawFont, Ctx.DrawFontSize, Ctx.DrawColor);
 
     [PgslCommand("DrawSprite", "DrawSprite(spr,frame,x,y)", "Draw sprite", "Drawing 2D")]
     public static void DrawSprite(string spr, double frame, double x, double y) =>

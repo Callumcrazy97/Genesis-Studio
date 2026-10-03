@@ -122,7 +122,7 @@ namespace Genesis.Audio
         {
             try
             {
-                var clip = Genesis.Shared.Audio.PcmAudioClip.LoadWave(path);
+                var clip = Genesis.Shared.Audio.PcmAudioClip.Load(path);
                 if (settings is not null) clip = clip.ApplyRegion(settings);
                 byte[] data = SampleArray(clip.Samples.Length * 2);
                 Buffer.BlockCopy(clip.Samples, 0, data, 0, data.Length);

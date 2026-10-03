@@ -43,6 +43,7 @@ Skia                                    libSkiaSharp.dll                        
 StbImageSharp                           StbImageSharp.dll                       Public domain      S P
 BCnEncoder.NET                          BCnEncoder.dll                          MIT                S P
 Newtonsoft.Json                         Newtonsoft.Json.dll                     MIT                S P
+NVorbis                                 NVorbis.dll                             MIT                S P
 LiteNetLib                              LiteNetLib.dll                          MIT                S P
 Vortice.Windows                         Vortice.XAudio2.dll,                    MIT                S P
                                         Vortice.DirectX.dll,
@@ -118,6 +119,10 @@ BCnEncoder.NET
 
 Newtonsoft.Json
     Copyright (c) 2007 James Newton-King
+    MIT licence.
+
+NVorbis
+    Copyright (c) 2020 Andrew Ward
     MIT licence.
 
 LiteNetLib

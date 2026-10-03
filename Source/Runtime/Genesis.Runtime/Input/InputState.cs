@@ -23,6 +23,41 @@ namespace Genesis.Runtime.Input
         public Vector2 RightStick { get; set; }   // -1..1, analog look
         public float   LeftTrigger { get; set; }
         public float   RightTrigger { get; set; }
+
+        /// <summary>The sticks and triggers as the controller reports them, before any dead zone.</summary>
+        public Vector2 LeftStickRaw { get; set; }
+        public Vector2 RightStickRaw { get; set; }
+        public float   LeftTriggerRaw { get; set; }
+        public float   RightTriggerRaw { get; set; }
+
+        /// <summary>
+        /// How far a stick or trigger must move (0 to 1) before it reads as moved. The sticks'
+        /// default is 0.18; the triggers have none.
+        /// </summary>
+        public float LeftStickDeadZone { get; set; } = DefaultStickDeadZone;
+        public float RightStickDeadZone { get; set; } = DefaultStickDeadZone;
+        public float TriggerDeadZone { get; set; }
+        public const float DefaultStickDeadZone = 0.18f;
+
+        private readonly System.Text.StringBuilder _typed = new();
+        private const int TypedCapacity = 256;
+
+        /// <summary>A character typed on the keyboard, as the keyboard layout and shift make it.</summary>
+        public void OnChar(char character)
+        {
+            if (char.IsControl(character)) return;
+            if (_typed.Length >= TypedCapacity) _typed.Remove(0, 1);
+            _typed.Append(character);
+        }
+
+        /// <summary>Everything typed since the last call, in order, and forgets it.</summary>
+        public string TakeTypedText()
+        {
+            if (_typed.Length == 0) return string.Empty;
+            string text = _typed.ToString();
+            _typed.Clear();
+            return text;
+        }
         public bool    LeftStickPressed { get; set; }
         /// <summary>Start/Menu button pressed this frame (maps to pause).</summary>
         public bool    StartPressed { get; set; }
@@ -81,6 +116,10 @@ namespace Genesis.Runtime.Input
             RightStick = Vector2.Zero;
             LeftTrigger = 0f;
             RightTrigger = 0f;
+            LeftStickRaw = Vector2.Zero;
+            RightStickRaw = Vector2.Zero;
+            LeftTriggerRaw = 0f;
+            RightTriggerRaw = 0f;
         }
 
         /// <summary>Runs the controller's motors: the heavy low one and the light high one, each 0 to 1.</summary>

@@ -33,6 +33,39 @@ public sealed record PcmAudioClip(short[] Samples, int SampleRate, int Channels)
         return new(output, SampleRate, Channels);
     }
 
+    /// <summary>
+    /// Reads a WAV or an Ogg Vorbis file, whichever it is: the file's first bytes decide, not its
+    /// name. Everything that plays or shows a sound goes through here.
+    /// </summary>
+    public static PcmAudioClip Load(string path)
+    {
+        byte[] magic = new byte[4];
+        using (FileStream probe = File.OpenRead(path))
+            if (probe.Read(magic, 0, 4) < 4) throw new InvalidDataException("The audio file is empty.");
+        return magic[0] == (byte)'O' && magic[1] == (byte)'g' && magic[2] == (byte)'g' && magic[3] == (byte)'S'
+            ? LoadOgg(path)
+            : LoadWave(path);
+    }
+
+    /// <summary>Decodes an Ogg Vorbis file to 16-bit interleaved PCM.</summary>
+    public static PcmAudioClip LoadOgg(string path)
+    {
+        using var vorbis = new NVorbis.VorbisReader(path);
+        int channels = vorbis.Channels;
+        int rate = vorbis.SampleRate;
+        if (channels < 1 || channels > 8 || rate < 1000 || rate > 384000)
+            throw new InvalidDataException($"Unsupported Ogg Vorbis audio: {channels} channels at {rate} Hz.");
+        var samples = new System.Collections.Generic.List<short>(
+            (int)Math.Min(int.MaxValue / 2, Math.Max(0, vorbis.TotalSamples * channels)));
+        float[] buffer = new float[4096 * channels];
+        int read;
+        while ((read = vorbis.ReadSamples(buffer, 0, buffer.Length)) > 0)
+            for (int i = 0; i < read; i++)
+                samples.Add((short)Math.Round(Math.Clamp(buffer[i], -1f, 1f) * short.MaxValue));
+        if (samples.Count == 0) throw new InvalidDataException("The Ogg Vorbis file contains no audio.");
+        return new PcmAudioClip(samples.ToArray(), rate, channels);
+    }
+
     public static PcmAudioClip LoadWave(string path)
     {
         using BinaryReader reader = new(File.OpenRead(path));

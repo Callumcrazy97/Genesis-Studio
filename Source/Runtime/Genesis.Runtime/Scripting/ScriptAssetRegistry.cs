@@ -190,9 +190,8 @@ namespace Genesis.Runtime.Scripting
       try
       {
         vm.Bridge.SetContext(PgslCommands.GetContext());
-        vm.SetScriptArguments(args);
-        vm.LoadUserFunctions(asset.CompileResult.UserFunctions);
-        vm.Execute(asset.CompileResult.Instructions, asset.CompileResult.Constants, clearVariables: false);
+        using (vm.EnterScriptScope(args, asset.CompileResult.UserFunctions))
+          vm.Execute(asset.CompileResult.Instructions, asset.CompileResult.Constants, clearVariables: false);
         return null;
       }
       catch (ReturnException ex)

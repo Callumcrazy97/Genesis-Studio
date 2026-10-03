@@ -31,6 +31,7 @@ internal static class ReleaseSuite
         ("StbImageSharp", "StbImageSharp"),
         ("BCnEncoder.Net", "BCnEncoder.NET"),
         ("Newtonsoft.Json", "Newtonsoft.Json"),
+        ("NVorbis", "NVorbis"),
         ("LiteNetLib", "LiteNetLib"),
         ("Vortice.", "Vortice.Windows"),
         ("SharpGen.Runtime", "SharpGen.Runtime"),
@@ -175,6 +176,41 @@ internal static class ReleaseSuite
             Check(File.ReadAllText(log!).Contains("room=", StringComparison.Ordinal), "The relocated log is empty: " + log);
         });
 
+        HeadlessHarness.RunCase(context.Report, "Release.Player.AnUnattendedRunNeverTakesTheForeground", () =>
+        {
+            // Tests and tools run the Player while someone may be playing a game on the same machine.
+            // Its window used to be restored with SW_RESTORE, which activated it for seconds.
+            string parent = Path.Combine(context.Workspace, "Unattended");
+            Directory.CreateDirectory(parent);
+            ProjectSession quiet = new ProjectService().CreateProject(parent, "Quiet", "Blank");
+            ProcessStartInfo start = new(Path.Combine(runtime, RuntimePaths.RuntimeExeName))
+            {
+                WorkingDirectory = runtime, UseShellExecute = false, CreateNoWindow = true,
+                RedirectStandardOutput = true, RedirectStandardError = true,
+            };
+            start.ArgumentList.Add("--autoshot"); start.ArgumentList.Add("4");
+            start.Environment["GENESIS_PROJECT_PATH"] = quiet.RootPath;
+            start.Environment["GENESIS_UNATTENDED_WINDOW"] = "1";
+            start.Environment[RenderBackendSelection.EnvironmentVariable] =
+                RenderBackendCatalog.All.First(backend => backend.ShortName == "DX11").SettingsValue;
+            using Process process = Process.Start(start) ?? throw new InvalidOperationException("Could not start the Player.");
+            _ = process.StandardOutput.ReadToEndAsync(); _ = process.StandardError.ReadToEndAsync();
+            int samples = 0, ours = 0, unknown = 0;
+            var clock = Stopwatch.StartNew();
+            while (!process.HasExited && clock.Elapsed.TotalSeconds < 60)
+            {
+                IntPtr window = GetForegroundWindow();
+                if (window == IntPtr.Zero) unknown++;
+                else { GetWindowThreadProcessId(window, out uint owner); if (owner == process.Id) ours++; }
+                samples++;
+                Thread.Sleep(50);
+            }
+            if (!process.HasExited) { process.Kill(entireProcessTree: true); process.WaitForExit(); }
+            if (unknown == samples) throw new CheckNotRunException("Windows reports no foreground window (the workstation is locked), so focus cannot be observed.");
+            Check(samples > 20, $"The Player finished too quickly to observe ({samples} samples).");
+            Check(ours == 0, $"An unattended Player had the foreground in {ours} of {samples} samples taken every 50 ms.");
+        });
+
         HeadlessHarness.RunCase(context.Report, "Release.Run.CompiledScriptsStayInsideTheProject", () =>
         {
             string parent = Path.Combine(context.Workspace, "ReleaseScripts");
@@ -243,6 +279,12 @@ internal static class ReleaseSuite
                 "Removing the fan-game template removed a template Genesis does own.");
         });
     }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
 
     /// <summary>What Program Files gives an ordinary user: read and run, nothing else.</summary>
     private static IDisposable ReadAndRunOnly(string directory)

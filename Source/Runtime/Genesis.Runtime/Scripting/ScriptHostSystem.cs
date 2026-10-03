@@ -517,6 +517,8 @@ namespace Genesis.Runtime.Scripting
                     isGui: true);
                 try { pgsl.OnDrawGuiFrame(surface); }
                 catch (Exception ex) { LogBehaviorError(b, "PGSL DrawGui", ex); }
+                // One instance's clip rectangle ends with its event.
+                finally { surface.SetClip(System.Drawing.RectangleF.Empty); }
             }
         }
 

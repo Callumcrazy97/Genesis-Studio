@@ -67,5 +67,18 @@ namespace Genesis.Shared.Interfaces
             Vector4 color,
             float strokeWidth = 1.5f,
             bool filled = false);
+
+        /// <summary>
+        /// Left-aligned text with <paramref name="tracking"/> pixels of letter spacing added between
+        /// glyphs. Canvases without letter spacing draw it unspaced.
+        /// </summary>
+        void DrawTrackedText(string text, Vector2 position, float size, Vector4 color, string fontFamily, float tracking)
+            => DrawText(text, position, size, color, fontFamily);
+
+        /// <summary>
+        /// Limits later draws to a screen rectangle (x, y, width, height); a zero width or height
+        /// clears the limit. Canvases that cannot clip ignore it.
+        /// </summary>
+        void SetClip(Vector4 clip) { }
     }
 }

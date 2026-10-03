@@ -702,7 +702,7 @@ public sealed partial class AudioEditorControl : EditorSurfaceControl, IResource
         using OpenFileDialog dialog = new()
         {
             Title = "Import Audio",
-            Filter = "WAV audio (*.wav)|*.wav",
+            Filter = "Audio (*.wav;*.ogg)|*.wav;*.ogg|WAV audio (*.wav)|*.wav|Ogg Vorbis audio (*.ogg)|*.ogg",
             CheckFileExists = true,
             Multiselect = false,
         };
@@ -718,8 +718,8 @@ public sealed partial class AudioEditorControl : EditorSurfaceControl, IResource
     {
         string source = Path.GetFullPath(sourcePath);
         if (!IsSupportedAudioExtension(Path.GetExtension(source)))
-            throw new ArgumentException("Choose a WAV audio file.", nameof(sourcePath));
-        PcmAudioClip.LoadWave(source);
+            throw new ArgumentException("Choose a WAV or Ogg Vorbis audio file.", nameof(sourcePath));
+        PcmAudioClip.Load(source);
 
         string audioDirectory = Path.Combine(ProjectRoot, "Assets", AssetKindNames.AudioFolder);
         Directory.CreateDirectory(audioDirectory);
@@ -731,12 +731,12 @@ public sealed partial class AudioEditorControl : EditorSurfaceControl, IResource
 
         string relative = Path.GetRelativePath(ProjectRoot, destination).Replace('\\', '/');
         PopulateSources();
-        if (!SelectSource(relative)) throw new InvalidOperationException("The imported WAV could not be selected.");
+        if (!SelectSource(relative)) throw new InvalidOperationException("The imported audio could not be selected.");
         return relative;
     }
 
     private static bool IsSupportedAudioExtension(string extension) =>
-        extension.Equals(".wav", StringComparison.OrdinalIgnoreCase);
+        extension.Equals(".wav", StringComparison.OrdinalIgnoreCase) || extension.Equals(".ogg", StringComparison.OrdinalIgnoreCase);
 
     private static string UniqueImportPath(string requested)
     {
@@ -855,7 +855,7 @@ public sealed partial class AudioEditorControl : EditorSurfaceControl, IResource
         }
         try
         {
-            _sourceClip = PcmAudioClip.LoadWave(path);
+            _sourceClip = PcmAudioClip.Load(path);
             _previewClip = _sourceClip.ApplyRegion(Settings);
             int sampleCount = _previewClip.Samples.Length / _previewClip.Channels;
             int columns = Math.Min(640, sampleCount);

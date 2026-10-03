@@ -580,7 +580,8 @@ public static partial class PgslCommands
         List<object> array = ArrayFor(name, create: true);
         int at = (int)index;
         if (array is null || at < 0 || at >= MaxCollectionElements) return;
-        while (array.Count <= at) array.Add(0d);
+        // Slots below the written one were never set: they read as 0 and as empty text.
+        while (array.Count <= at) array.Add(null);
         array[at] = value;
     }
 

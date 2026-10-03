@@ -43,5 +43,11 @@ namespace Genesis.Runtime.Project
 
         public void Line(float x1, float y1, float x2, float y2, Vector4 color, float thickness = 1.5f)
             => _overlay.DrawLine(new Vector2(x1, y1), new Vector2(x2, y2), color, thickness);
+
+        public void Text(string text, float x, float y, float size, Vector4 color, string font, float tracking)
+            => _overlay.DrawTrackedText(text, new Vector2(x, y), size, color, font, tracking);
+
+        public void SetClip(float x, float y, float width, float height)
+            => _overlay.SetClip(new Vector4(x, y, width, height));
     }
 }

@@ -21,7 +21,7 @@ public sealed class PgslRecordingDrawSurface : IPgslDrawSurface
     public readonly record struct RectRecord(float X, float Y, float W, float H, bool Filled, Color Color);
     public readonly record struct CircleRecord(float X, float Y, float Radius, bool Filled, Color Color);
     public readonly record struct LineRecord(float X1, float Y1, float X2, float Y2, float Thickness, Color Color);
-    public readonly record struct TextRecord(string Text, float X, float Y, float Size, Color Color, string Font = "Segoe UI", Rectangle? UiBounds = null, bool Centered = false);
+    public readonly record struct TextRecord(string Text, float X, float Y, float Size, Color Color, string Font = "Segoe UI", Rectangle? UiBounds = null, bool Centered = false, float Tracking = 0f);
     public readonly record struct SpriteRecord(string Sprite, float X, float Y, int Frame, float Angle, float Alpha, RectangleF? Destination = null);
     public readonly record struct CubeRecord(float X, float Y, float Z, float SX, float SY, float SZ, Color Color);
     public readonly record struct SphereRecord(float X, float Y, float Z, float Radius, Color Color);
@@ -89,6 +89,14 @@ public sealed class PgslRecordingDrawSurface : IPgslDrawSurface
 
     public void DrawText(string text, string font, float size, Color color, Rectangle bounds) =>
         Texts.Add(new TextRecord(text, bounds.X, bounds.Y, size, color, font));
+    public void DrawTextRun(string text, string font, float size, Color color, float x, float y, float tracking) =>
+        Texts.Add(new TextRecord(text, x, y, size, color, font, Tracking: tracking));
+
+    /// <summary>The clip rectangle DrawSetClip last set; empty when there is none.</summary>
+    public RectangleF Clip { get; private set; }
+
+    public void SetClip(RectangleF clip) => Clip = clip;
+
     public void DrawUiText(string text, string font, float size, Color color, Rectangle bounds, bool centered) =>
         Texts.Add(new TextRecord(text, bounds.X, bounds.Y, size, color, font, bounds, centered));
 

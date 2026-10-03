@@ -50,6 +50,8 @@ internal static class TextRenderingSuite
                 context.Report.Images.Add(new ImageResult("Authored fonts " + backend.ShortName, file,
                     metrics.Width, metrics.Height, metrics.UniqueSampledColors, metrics.AverageLuminance));
                 File.Copy(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Fonts), "segoeui.ttf"), payload, true);
+                // What a Studio save or the play window's asset watcher does when a font is replaced.
+                Genesis.Shared.Assets.RuntimeAssetPolicy.Invalidate();
                 string updatedFile = "authored-font-updated-" + backend.ShortName + ".png";
                 string updatedPath = Path.Combine(context.Captures, updatedFile);
                 var updatedMetrics = harness.CaptureWithOverlay(updatedPath, canvas =>

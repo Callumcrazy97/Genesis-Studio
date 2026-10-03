@@ -69,42 +69,69 @@ namespace Genesis.Runtime.Scripting
         /// <summary>GUI sprites share the primitive layer, preserving authored panel/icon order.</summary>
         public int SpriteDepth => _isGui ? -10000 : 0;
 
-        public void Clear(Color color) =>
-            _renderer?.DrawRect(0f, 0f, _width, _height, ToRender(color), filled: true);
+        // A GUI's shapes go where its text goes, so the screen shows them in the order the script
+        // drew them: a panel drawn after a label covers it. (Shapes used to reach the screen before
+        // every piece of text, so nothing could cover text.)
+        private bool ShapesWithText => _isGui && _hud is not null;
 
-        public void DrawPoint(float x, float y, Color color) =>
-            _renderer?.DrawRect(x, y, 1f, 1f, ToRender(color), filled: true);
+        // DrawSetClip's rectangle; empty draws everywhere.
+        private RectangleF _clip;
+        private Vector4 SpriteClip => _isGui && !_clip.IsEmpty
+            ? new Vector4(_clip.X, _clip.Y, _clip.Width, _clip.Height)
+            : default;
+
+        public void SetClip(RectangleF clip)
+        {
+            if (clip.Width <= 0f || clip.Height <= 0f) clip = RectangleF.Empty;
+            if (clip == _clip) return;
+            _clip = clip;
+            _hud?.SetClip(clip.X, clip.Y, clip.Width, clip.Height);
+        }
+
+        private void Rect(float x, float y, float width, float height, Color color, bool filled)
+        {
+            if (ShapesWithText) _hud.Rect(x, y, width, height, ToVector(color), filled);
+            else _renderer?.DrawRect(x, y, width, height, ToRender(color), filled: filled);
+        }
+
+        private void Segment(float x1, float y1, float x2, float y2, Color color, float thickness)
+        {
+            if (ShapesWithText) _hud.Line(x1, y1, x2, y2, ToVector(color), thickness);
+            else _renderer?.DrawLine(x1, y1, x2, y2, ToRender(color), thickness);
+        }
+
+        public void Clear(Color color) => Rect(0f, 0f, _width, _height, color, filled: true);
+
+        public void DrawPoint(float x, float y, Color color) => Rect(x, y, 1f, 1f, color, filled: true);
 
         public void DrawLine(float x1, float y1, float x2, float y2, Color color, float thickness = 1f) =>
-            _renderer?.DrawLine(x1, y1, x2, y2, ToRender(color), thickness);
+            Segment(x1, y1, x2, y2, color, thickness);
 
         public void DrawRectangle(Color color, RectangleF rect) =>
-            _renderer?.DrawRect(rect.X, rect.Y, rect.Width, rect.Height, ToRender(color), filled: false);
+            Rect(rect.X, rect.Y, rect.Width, rect.Height, color, filled: false);
 
         public void FillRectangle(Color color, RectangleF rect) =>
-            _renderer?.DrawRect(rect.X, rect.Y, rect.Width, rect.Height, ToRender(color), filled: true);
+            Rect(rect.X, rect.Y, rect.Width, rect.Height, color, filled: true);
 
         public void FillCircle(Color color, float centerX, float centerY, float radius)
         {
-            if (_renderer == null || radius <= 0f) return;
+            if ((_renderer == null && !ShapesWithText) || radius <= 0f) return;
 
             // Horizontal scanline strips: for each row, half-width = sqrt(r² - dy²).
-            RenderColor c = ToRender(color);
             int rows = Math.Max(1, (int)MathF.Ceiling(radius * 2f));
             for (int i = 0; i < rows; i++)
             {
                 float dy = -radius + i + 0.5f;
                 float half = MathF.Sqrt(MathF.Max(0f, radius * radius - dy * dy));
                 if (half <= 0f) continue;
-                _renderer.DrawRect(centerX - half, centerY + dy - 0.5f, half * 2f, 1f, c, filled: true);
+                Rect(centerX - half, centerY + dy - 0.5f, half * 2f, 1f, color, filled: true);
             }
         }
 
         public void DrawCircle(Color color, float centerX, float centerY, float radius, float thickness = 1f)
         {
-            if (_renderer == null || radius <= 0f) return;
+            if ((_renderer == null && !ShapesWithText) || radius <= 0f) return;
 
-            RenderColor c = ToRender(color);
             float step = MathF.Tau / CircleSegments;
             float px = centerX + radius, py = centerY;
             for (int i = 1; i <= CircleSegments; i++)
@@ -112,7 +139,7 @@ namespace Genesis.Runtime.Scripting
                 float a = step * i;
                 float nx = centerX + MathF.Cos(a) * radius;
                 float ny = centerY + MathF.Sin(a) * radius;
-                _renderer.DrawLine(px, py, nx, ny, c, thickness);
+                Segment(px, py, nx, ny, color, thickness);
                 px = nx;
                 py = ny;
             }
@@ -147,14 +174,67 @@ namespace Genesis.Runtime.Scripting
             }
         }
 
-        private string ResolveFont(string font)
+        public void DrawTextRun(string text, string font, float size, Color color, float x, float y, float tracking)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            font = ResolveFont(font);
+            size = size <= 0f ? 12f : size;
+            if (_hud is not null)
+            {
+                if (tracking == 0f) _hud.Text(text, x, y, size, ToVector(color), font);
+                else _hud.Text(text, x, y, size, ToVector(color), font, tracking);
+                return;
+            }
+            if (_renderer is null) return;
+            if (tracking == 0f)
+            {
+                _renderer.DrawText(text, x, y, size, ToRender(color), font);
+                return;
+            }
+            // The renderer's text has no letter spacing, so each character goes where the spaced
+            // run would put it.
+            for (int i = 0; i < text.Length; i++)
+            {
+                if (char.IsLowSurrogate(text[i])) continue;
+                int length = char.IsHighSurrogate(text[i]) && i + 1 < text.Length ? 2 : 1;
+                float pen = i == 0 ? 0f : Genesis.Shared.Overlay.GlyphAtlas.Measure(text.Substring(0, i), font, size).X;
+                _renderer.DrawText(text.Substring(i, length), x + pen + (tracking * i), y, size, ToRender(color), font);
+            }
+        }
+
+        public Vector2 MeasureText(string text, string font, float size, float tracking) =>
+            Genesis.Shared.Overlay.GlyphAtlas.Measure(text, ResolveFont(font), size <= 0f ? 12f : size, bold: false, tracking);
+
+        private string ResolveFont(string font) => ResolveProjectFont(_projectPath ?? PgslCommands.ProjectPath, font);
+
+        /// <summary>The file a project font name stands for, or the family name as it is.</summary>
+        internal static string ResolveProjectFont(string project, string font)
         {
             if (string.IsNullOrWhiteSpace(font)) return "Segoe UI";
             if (!font.EndsWith(".ttf", StringComparison.OrdinalIgnoreCase)
                 && !font.EndsWith(".otf", StringComparison.OrdinalIgnoreCase)) return font;
-            string project = _projectPath ?? PgslCommands.ProjectPath;
-            return string.IsNullOrWhiteSpace(project) ? font : ResourceNames.ResolveFile(project, font);
+            if (string.IsNullOrWhiteSpace(project)) return font;
+
+            // Resolving a project font walks the resource catalogue and asks the file system about a
+            // dozen times. A menu draws text a hundred times a frame, so the answer is kept: asked
+            // again after an asset invalidation, otherwise at most once per polling interval.
+            var key = (project, font);
+            long now = Environment.TickCount64;
+            long generation = RuntimeAssetPolicy.Generation;
+            lock (ResolvedFonts)
+            {
+                if (ResolvedFonts.TryGetValue(key, out (string Path, long Generation, long Next) known)
+                    && known.Generation == generation && now < known.Next)
+                    return known.Path;
+            }
+            string resolved = ResourceNames.ResolveFile(project, font);
+            lock (ResolvedFonts)
+                ResolvedFonts[key] = (resolved, generation,
+                    RuntimeAssetPolicy.NextCheck(now, RuntimeAssetPolicy.FramePathIntervalMilliseconds, key.GetHashCode()));
+            return resolved;
         }
+
+        private static readonly System.Collections.Generic.Dictionary<(string Project, string Font), (string Path, long Generation, long Next)> ResolvedFonts = new();
 
         public void DrawText3D(
             string text,
@@ -185,7 +265,8 @@ namespace Genesis.Runtime.Scripting
             var queue = _commands ?? new FrameRenderQueue();
             ObjectDrawPass.QueueSprite2D(_projectPath ?? PgslCommands.ProjectPath, queue, _renderer,
                 new ObjectDrawAssetEntry(), new TransformComponent { X = x, Y = y, ScaleX = xscale, ScaleY = yscale, ScaleZ = 1, Rotation = angle },
-                new Draw2DComponent { Visible = true, Depth = SpriteDepth }, spriteName, frame, alpha, 0, 0, 1, ToRender(blend));
+                new Draw2DComponent { Visible = true, Depth = SpriteDepth }, spriteName, frame, alpha, 0, 0, 1, ToRender(blend),
+                clip: SpriteClip);
             if (_commands == null) ((FrameRenderQueue)queue).Flush(_renderer, includeMeshes: false);
         }
 
@@ -196,7 +277,18 @@ namespace Genesis.Runtime.Scripting
             ObjectDrawPass.QueueSprite2D(_projectPath ?? PgslCommands.ProjectPath, queue, _renderer,
                 new ObjectDrawAssetEntry(), new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 },
                 new Draw2DComponent { Visible = true, Depth = SpriteDepth }, spriteName, frame, alpha, 0, 0, 1,
-                ToRender(blend), destination);
+                ToRender(blend), destination, clip: SpriteClip);
+            if (_commands == null) ((FrameRenderQueue)queue).Flush(_renderer, includeMeshes: false);
+        }
+
+        public void DrawSpritePart(string spriteName, int frame, RectangleF source, RectangleF destination, Color blend, float alpha)
+        {
+            if (_renderer == null) return;
+            var queue = _commands ?? new FrameRenderQueue();
+            ObjectDrawPass.QueueSprite2D(_projectPath ?? PgslCommands.ProjectPath, queue, _renderer,
+                new ObjectDrawAssetEntry(), new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 },
+                new Draw2DComponent { Visible = true, Depth = SpriteDepth }, spriteName, frame, alpha, 0, 0, 1,
+                ToRender(blend), destination, source, SpriteClip);
             if (_commands == null) ((FrameRenderQueue)queue).Flush(_renderer, includeMeshes: false);
         }
 

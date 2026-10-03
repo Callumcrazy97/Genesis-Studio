@@ -566,7 +566,18 @@ public sealed class ResourceService
                     Path.GetFileName(spriteDataDirectory),
                     Path.GetFileName(mediaDestination))
                 .Replace('\\', '/');
+            // The canvas is the picture's own size, not the 64 x 64 of a new drawing.
             ImageDocument document = ImageDocument.CreateDefault();
+            try
+            {
+                Genesis.Shared.Assets.DecodedImageAsset decoded = Genesis.Shared.Assets.ImageAssetDecoder.DecodeFrames(sourcePath);
+                if (decoded.Width > 0 && decoded.Height > 0)
+                    document = ImageDocument.CreateDefault(decoded.Width, decoded.Height);
+            }
+            catch (Exception exception) when (exception is IOException or InvalidDataException or NotSupportedException or ArgumentException)
+            {
+                // An unreadable picture still imports; its canvas can be set in the Image editor.
+            }
             document.Import.Source = mediaRelative;
             document.Frames.Add(new ImageFrame
             {

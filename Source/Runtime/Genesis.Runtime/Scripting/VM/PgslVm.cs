@@ -76,6 +76,66 @@ public class PgslVm
         }
     }
 
+    /// <summary>
+    /// Runs a called script's set-up in a scope of its own: its functions and its argument0..N
+    /// apply until the scope ends, then the caller's come back. Two scripts may each define a
+    /// function called Helper, and a script that calls another still reads its own arguments.
+    /// </summary>
+    public IDisposable EnterScriptScope(object[] args, Dictionary<string, UserFunction> functions)
+    {
+        var scope = new ScriptScope(this);
+        int slots = Math.Max(args?.Length ?? 0, ArgumentCount());
+        for (int i = 0; i < slots; i++) scope.Remember(SlotName(ArgumentNames, "argument", i));
+        scope.Remember("argument_count");
+        if (functions != null)
+            foreach (string name in functions.Keys) scope.RememberFunction(name);
+        if (args != null) SetScriptArguments(args);
+        if (functions != null) LoadUserFunctions(functions);
+        return scope;
+    }
+
+    private int ArgumentCount() =>
+        _variables.TryGetValue("argument_count", out VmValue count) && count.ToObject() is { } value
+            ? Math.Max(0, (int)Convert.ToDouble(value, System.Globalization.CultureInfo.InvariantCulture))
+            : 0;
+
+    private sealed class ScriptScope : IDisposable
+    {
+        private readonly PgslVm _vm;
+        private readonly List<(string Name, bool Had, VmValue Value)> _variables = [];
+        private readonly List<(string Name, UserFunction Function)> _functions = [];
+        private bool _ended;
+
+        public ScriptScope(PgslVm vm) => _vm = vm;
+
+        public void Remember(string name)
+        {
+            bool had = _vm._variables.TryGetValue(name, out VmValue value);
+            _variables.Add((name, had, value));
+        }
+
+        public void RememberFunction(string name)
+        {
+            _vm._userFunctions.TryGetValue(name, out UserFunction function);
+            _functions.Add((name, function));
+        }
+
+        public void Dispose()
+        {
+            if (_ended) return;
+            _ended = true;
+            foreach ((string name, bool had, VmValue value) in _variables)
+            {
+                if (had) _vm._variables[name] = value;
+                else _vm._variables.Remove(name);
+            }
+            // A script's own functions stay callable by its caller (a library script is run once,
+            // then its functions are called), but a name the caller already had is put back.
+            foreach ((string name, UserFunction function) in _functions)
+                if (function != null) _vm._userFunctions[name] = function;
+        }
+    }
+
     public void Execute(List<Instruction> instructions, List<object> constants, bool clearVariables = true)
     {
         try
@@ -612,8 +672,11 @@ public class PgslVm
         try
         {
             object result = _bridge.InvokeNative(nativeId, args);
-            if (!_bridge.IsNativeVoid(nativeId))
-                _stack.Push(VmValue.FromObject(result));
+            // Every call leaves exactly one value, as a user function does: a command that returns
+            // nothing leaves null. The statement that called it pops one value, and that must be its
+            // own, not one its caller was still holding (a script called inside an expression runs on
+            // its caller's stack).
+            _stack.Push(_bridge.IsNativeVoid(nativeId) ? default : VmValue.FromObject(result));
         }
         finally
         {
@@ -674,8 +737,7 @@ public class PgslVm
         try
         {
             object result = ExecuteCommand(funcName, args);
-            if (!_bridge.IsVoid(funcName, argCount))
-                _stack.Push(VmValue.FromObject(result));
+            _stack.Push(_bridge.IsVoid(funcName, argCount) ? default : VmValue.FromObject(result));
         }
         finally
         {

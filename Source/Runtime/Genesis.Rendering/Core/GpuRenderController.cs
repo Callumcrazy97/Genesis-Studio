@@ -55,6 +55,7 @@ namespace Genesis.Rendering.Core
         private const int OverlayDepth = -10200;
 
         private readonly OverlayCommandList _overlayCommands = new();
+        private Vector4 _overlayClip;
         private readonly List<GlyphQuad> _glyphQuads = new();
         private GlyphAtlas _glyphAtlas;
         private GpuTextureHandle _glyphAtlasGpuTexture = GpuTextureHandle.Invalid;
@@ -445,6 +446,8 @@ namespace Genesis.Rendering.Core
 
             foreach (OverlayCommand command in _overlayCommands.Commands)
             {
+                // A GUI clip rectangle travels with each command and becomes each quad's scissor.
+                _overlayClip = command.Clip;
                 switch (command.Kind)
                 {
                     case OverlayCommandKind.Rect:
@@ -466,7 +469,7 @@ namespace Genesis.Rendering.Core
                     case OverlayCommandKind.TextCentered:
                     {
                         float width = _glyphAtlas.MeasureRun(
-                            command.Text, command.FontFamily, command.Size, command.Bold);
+                            command.Text, command.FontFamily, command.Size, command.Bold, command.Tracking);
                         submitted |= SubmitOverlayText(
                             command, command.A - (width * 0.5f), command.B, command.Color);
                         break;
@@ -474,6 +477,7 @@ namespace Genesis.Rendering.Core
                 }
             }
 
+            _overlayClip = default;
             _overlayCommands.Reset(_gpuSwapChain.Width, _gpuSwapChain.Height);
 
             // Newly rasterised glyphs are the only CPU→GPU traffic the overlay ever generates, and
@@ -526,6 +530,7 @@ namespace Genesis.Rendering.Core
                 Tint = color,
                 Depth = OverlayDepth,
                 UvRect = OverlaySolidUv,
+                ClipRect = _overlayClip,
             });
         }
 
@@ -559,6 +564,7 @@ namespace Genesis.Rendering.Core
                 Tint = color,
                 Depth = OverlayDepth,
                 UvRect = OverlaySolidUv,
+                ClipRect = _overlayClip,
             });
         }
 
@@ -566,7 +572,7 @@ namespace Genesis.Rendering.Core
         {
             _glyphQuads.Clear();
             _glyphAtlas.LayoutRun(
-                command.Text, command.FontFamily, command.Size, command.Bold, x, topY, _glyphQuads);
+                command.Text, command.FontFamily, command.Size, command.Bold, x, topY, _glyphQuads, command.Tracking);
             if (_glyphQuads.Count == 0) return false;
 
             EnsureGlyphAtlasTexture();
@@ -589,6 +595,7 @@ namespace Genesis.Rendering.Core
                     Tint = tint,
                     Depth = OverlayDepth,
                     UvRect = new Vector4(quad.U0, quad.V0, quad.U1, quad.V1),
+                    ClipRect = _overlayClip,
                 });
             }
 

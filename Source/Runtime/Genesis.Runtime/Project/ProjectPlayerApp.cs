@@ -117,6 +117,10 @@ namespace Genesis.Runtime.Project
                     || new[] { acceptanceOutput, verdantOutput, pathingOutput, physicsOutput }.Any(value => value != null)))
                     throw new ArgumentException("Run a benchmark separately from autoshot and acceptance drivers.");
                 PgslProfiler.Reset();
+                // A new game: no globals from a previous run, the real-time clock at zero, and
+                // GameEnd() closes this game's window.
+                Genesis.Runtime.Scripting.PgslCommands.ResetSession();
+                Genesis.Runtime.Scripting.PgslCommands.GameQuitHandler = RequestStop;
                 PgslProfiler.Enabled = debugMode || benchmarkOutput != null;
 
                 string projectPath = Environment.GetEnvironmentVariable("GENESIS_PROJECT_PATH");
@@ -555,6 +559,7 @@ namespace Genesis.Runtime.Project
                 try { _activeNet?.Dispose(); } catch (Exception ex) { Console.Error.WriteLine(ex); }
                 Genesis.Runtime.Scripting.PgslCommands.ActiveNetwork = null;
                 Genesis.Runtime.Scripting.PgslCommands.ActiveGameContext = null;
+                Genesis.Runtime.Scripting.PgslCommands.GameQuitHandler = null;
                 Genesis.Runtime.Modeling.RuntimeModelRenderSystem.BackgroundTextures = false;
                 _activeAudio = null; _activeNet = null; _activeHost = null; _activeWindow = null;
                 _stopRequested = false; _pauseRequested = false;

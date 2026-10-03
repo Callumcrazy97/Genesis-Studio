@@ -8,6 +8,7 @@ using Genesis.Runtime.Scene;
 using Genesis.Runtime.Scripting;
 using Genesis.Shared.Assets;
 using Genesis.Shared.Interfaces;
+using Genesis.Shared.Overlay;
 
 namespace Genesis.Application.Headless.Suites;
 
@@ -86,6 +87,146 @@ internal static class Effects2DSuite
             File.WriteAllText(file, "not json"); Assert(!new ProjectNumberSave(file).Exists, "Corrupt checkpoint did not recover safely.");
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Text.AProjectFontIsNotLookedUpAgainAtEveryDraw", () =>
+        {
+            // A menu draws text about a hundred times a frame. Each draw in a project font used to walk
+            // the resource catalogue and ask the file system a dozen times (0.16 ms a draw).
+            string project = Path.Combine(parent, "Fonts");
+            string fonts = Path.Combine(project, "Assets", "Fonts");
+            Directory.CreateDirectory(fonts);
+            string source = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Fonts), "arial.ttf");
+            if (!File.Exists(source)) throw new CheckNotRunException("This machine has no Arial font file to copy as a project font.");
+            File.Copy(source, Path.Combine(fonts, "Menu.ttf"), overwrite: true);
+            ResourceCatalog.Invalidate(project);
+            PgslRenderDrawSurface surface = new(null, null, 1280, 720, projectPath: project, isGui: true);
+            var resolve = typeof(PgslRenderDrawSurface).GetMethod("ResolveFont", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+            string first = (string)resolve.Invoke(surface, ["Assets/Fonts/Menu.ttf"])!;
+            Assert(File.Exists(first), "The project font did not resolve to its file: " + first);
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            for (int i = 0; i < 2000; i++) resolve.Invoke(surface, ["Assets/Fonts/Menu.ttf"]);
+            clock.Stop();
+            Assert(clock.Elapsed.TotalMilliseconds < 40,
+                $"2000 text draws spent {clock.Elapsed.TotalMilliseconds:F0} ms finding their font; it should be looked up about once a second.");
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Gui.ShapesAndTextReachTheScreenInTheOrderDrawn", () =>
+        {
+            // A dimming panel or a padlock plate drawn after a label must cover it.
+            OrderRecordingHud hud = new();
+            PgslRenderDrawSurface gui = new(null, hud, 1280, 720, isGui: true);
+            gui.FillRectangle(Color.Black, new RectangleF(0, 0, 100, 40));
+            gui.DrawText("UNDER", "Arial", 20, Color.White, new Rectangle(10, 10, 80, 20));
+            gui.FillRectangle(Color.FromArgb(150, 0, 0, 0), new RectangleF(0, 0, 100, 40));
+            gui.DrawLine(0, 0, 10, 10, Color.Red, 2);
+            Assert(string.Join(",", hud.Order) == "rect,text,rect,line",
+                "GUI draws did not keep their order: " + string.Join(",", hud.Order));
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Gui.TextIsMeasuredSpacedAndAligned", () =>
+        {
+            PgslRecordingDrawSurface surface = new();
+            ObjectSandboxResult result = ObjectSandbox.Run(new Dictionary<string, string>
+            {
+                ["Create"] =
+                    "DrawSetFont(\"Arial\");\n" +
+                    "w = DrawTextWidth(\"PLAY\", 23);\n" +
+                    "DrawSetTextTracking(8);\n" +
+                    "ws = DrawTextWidth(\"PLAY\", 23);\n" +
+                    "h = DrawTextHeight(23);\n" +
+                    "DrawSetTextAlign(\"right\");\n" +
+                    "DrawTextScaled(500, 10, \"PLAY\", 23);\n" +
+                    "DrawSetTextAlign(\"center\");\n" +
+                    "DrawTextScaled(500, 50, \"PLAY\", 23);\n",
+            }, frames: 0, surface);
+            Assert(result.Ok, "The text layout script failed: " + string.Join(" | ", result.Errors));
+            double w = result.Numbers["w"], ws = result.Numbers["ws"], h = result.Numbers["h"];
+            Assert(w > 20 && w < 120, $"\"PLAY\" at 23 px measured {w:F1} px wide.");
+            Assert(Math.Abs(ws - w - 24) < 0.01, $"8 px of letter spacing over four letters added {ws - w:F2} px, not 24.");
+            Assert(h > 20 && h < 40, $"The line height of 23 px Arial measured {h:F1} px.");
+            Assert(surface.Texts.Count == 2, $"Expected two texts, got {surface.Texts.Count}.");
+            Assert(surface.Texts[0].X == (int)(500 - ws) && surface.Texts[0].Tracking == 8,
+                $"Right-aligned text started at {surface.Texts[0].X} (expected {(int)(500 - ws)}) with spacing {surface.Texts[0].Tracking}.");
+            Assert(surface.Texts[1].X == (int)(500 - (ws / 2)),
+                $"Centred text started at {surface.Texts[1].X} (expected {(int)(500 - (ws / 2))}).");
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Gui.LetterSpacingMovesEachGlyphAlong", () =>
+        {
+            using GlyphAtlas atlas = new();
+            List<GlyphQuad> plain = [], spaced = [];
+            atlas.LayoutRun("AB", "Arial", 20, false, 0, 0, plain);
+            atlas.LayoutRun("AB", "Arial", 20, false, 0, 0, spaced, 10);
+            Assert(plain.Count == 2 && spaced.Count == 2, "Two letters did not lay out as two glyphs.");
+            Assert(Math.Abs(spaced[0].X - plain[0].X) < 0.01 && Math.Abs(spaced[1].X - plain[1].X - 10) < 0.01,
+                $"Spacing of 10 moved the glyphs by {spaced[0].X - plain[0].X:F2} and {spaced[1].X - plain[1].X:F2}.");
+            Assert(Math.Abs(atlas.MeasureRun("AB", "Arial", 20, false, 10) - atlas.MeasureRun("AB", "Arial", 20, false) - 10) < 0.01,
+                "A spaced run's measured width does not include its spacing.");
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Gui.RoundedShapesCoverEachPixelOnceWithSmoothEdges", () =>
+        {
+            PgslRecordingDrawSurface surface = new();
+            ObjectSandboxResult result = ObjectSandbox.Run(new Dictionary<string, string>
+            {
+                ["Create"] = "DrawSetAlpha(0.5);\nDrawRoundRectEx(10, 10, 110, 60, 12, 0);\nDrawCircleEx(200, 200, 30, 4);\n",
+            }, frames: 0, surface);
+            Assert(result.Ok, "The shapes script failed: " + string.Join(" | ", result.Errors));
+            var hits = new Dictionary<(int X, int Y), (int Count, double Alpha)>();
+            foreach (var rect in surface.Rectangles)
+            {
+                Assert(rect.Filled && rect.H == 1, "Smooth shapes are drawn as filled one-pixel rows.");
+                for (int x = (int)rect.X; x < (int)(rect.X + rect.W); x++)
+                {
+                    var key = (x, (int)rect.Y);
+                    hits.TryGetValue(key, out var hit);
+                    hits[key] = (hit.Count + 1, hit.Alpha + (rect.Color.A / 255.0));
+                }
+            }
+            Assert(hits.Values.All(hit => hit.Count == 1), "A pixel of a translucent shape was drawn more than once (darker seams).");
+            double Covered(Func<(int X, int Y), bool> where) => hits.Where(pair => where(pair.Key)).Sum(pair => pair.Value.Alpha) / 0.5;
+            double box = Covered(key => key.X < 150);
+            double expectedBox = (100 * 50) - ((4 - Math.PI) * 12 * 12);
+            Assert(Math.Abs(box - expectedBox) < expectedBox * 0.01, $"The rounded rectangle covered {box:F1} px, expected {expectedBox:F1}.");
+            double ring = Covered(key => key.X >= 150);
+            double expectedRing = Math.PI * ((30 * 30) - (26 * 26));
+            Assert(Math.Abs(ring - expectedRing) < expectedRing * 0.02, $"The ring covered {ring:F1} px, expected {expectedRing:F1}.");
+            Assert(!hits.ContainsKey((10, 10)) && !hits.ContainsKey((200, 200)), "A rounded corner or the ring's middle was filled.");
+            Assert(Math.Abs(hits[(60, 35)].Alpha - (127 / 255.0)) < 0.01, "The rectangle's inside is not the draw alpha.");
+            Assert(hits.Values.Any(hit => hit.Alpha > 0.05 && hit.Alpha < 0.45), "No edge pixel is partly covered: the edges are not smooth.");
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Gui.GradientShadesFromOneColourToTheOther", () =>
+        {
+            PgslRecordingDrawSurface surface = new();
+            ObjectSandboxResult result = ObjectSandbox.Run(new Dictionary<string, string>
+            {
+                ["Create"] = "DrawRectangleGradient(0, 0, 100, 50, 255, 0, 0, 1, 0, 0, 255, 0.5, true);\n",
+            }, frames: 0, surface);
+            Assert(result.Ok && surface.Rectangles.Count == 50, $"A 50 px tall gradient drew {surface.Rectangles.Count} bands: " + string.Join(" | ", result.Errors));
+            var first = surface.Rectangles[0];
+            var last = surface.Rectangles[^1];
+            Assert(first.Y == 0 && first.H == 1 && first.W == 100 && last.Y == 49, "The gradient's bands are not one pixel rows across the rectangle.");
+            Assert(first.Color.R == 255 && first.Color.B == 0 && first.Color.A == 255 && last.Color.B == 255 && last.Color.R == 0 && last.Color.A == 128,
+                $"The gradient runs from {first.Color} to {last.Color}.");
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Gui.AClipLimitsLaterDrawingUntilReset", () =>
+        {
+            OverlayCommandList list = new();
+            list.Reset(1280, 720);
+            PgslRenderDrawSurface gui = new(null, new OverlayHudCanvas(list, 1280, 720), 1280, 720, isGui: true);
+            gui.SetClip(new RectangleF(10, 20, 300, 40));
+            gui.FillRectangle(Color.White, new RectangleF(0, 0, 400, 100));
+            gui.DrawTextRun("SPACED", "Arial", 20, Color.White, 15, 25, 6);
+            gui.SetClip(RectangleF.Empty);
+            gui.FillRectangle(Color.White, new RectangleF(0, 0, 400, 100));
+            Assert(list.Count == 3, $"Expected three overlay commands, got {list.Count}.");
+            Vector4 clip = new(10, 20, 300, 40);
+            Assert(list.Commands[0].Clip == clip && list.Commands[1].Clip == clip, "Drawing after DrawSetClip was not limited to the clip.");
+            Assert(list.Commands[1].Tracking == 6, "Letter spacing did not reach the overlay.");
+            Assert(list.Commands[2].Clip == default, "Drawing after DrawResetClip was still clipped.");
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Engine.Effects2D.MouseButtonsAndSmoothEffectSpritesPreserveContract", () =>
         {
             Assert(PgslCommands.MbRight == (int)MouseButton.Right && PgslCommands.MbMiddle == (int)MouseButton.Middle, "Right/middle mouse mapping is swapped.");
@@ -100,6 +241,17 @@ internal static class Effects2DSuite
     }
 
     private static void Assert(bool condition, string message) => HeadlessHarness.Assert(condition, message);
+
+    private sealed class OrderRecordingHud : Genesis.Runtime.Scripting.IHudCanvas
+    {
+        public List<string> Order { get; } = [];
+        public int Width => 1280;
+        public int Height => 720;
+        public void Text(string text, float x, float y, float size, Vector4 color) => Order.Add("text");
+        public void TextCentered(string text, float centerX, float y, float width, float size, Vector4 color) => Order.Add("text");
+        public void Rect(float x, float y, float w, float h, Vector4 color, bool filled = true) => Order.Add("rect");
+        public void Line(float x1, float y1, float x2, float y2, Vector4 color, float thickness = 1.5f) => Order.Add("line");
+    }
 
     private sealed class RecordingSink : IRenderCommandSink
     {

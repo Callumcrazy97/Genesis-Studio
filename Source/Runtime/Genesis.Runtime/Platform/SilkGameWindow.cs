@@ -68,7 +68,12 @@ namespace Genesis.Runtime.Platform
         public event Action<int, int>  Resize;
         public event Action            Closing;
         public event Action<Exception> FatalError;
-        public void SetStartupVisible(bool visible) { if (_window != null) _window.IsVisible = visible; }
+        public void SetStartupVisible(bool visible)
+        {
+            if (_window == null) return;
+            if (visible && ShouldRunOffScreen()) { ShowWithoutActivating(); return; }
+            _window.IsVisible = visible;
+        }
 
         /// <summary>Engine input state, refreshed each frame. Assign to RuntimeScene.Input.</summary>
         public EngineInput Input => _input;
@@ -79,7 +84,11 @@ namespace Genesis.Runtime.Platform
 
             var options = WindowOptions.Default;
             options.Title           = title;
-            options.IsVisible = Environment.GetEnvironmentVariable("GENESIS_BOOT_COORDINATED") != "1";
+            // An unattended run (a test, a tool, a screenshot) starts hidden and is shown, cloaked,
+            // without being activated: a visible window would take the foreground from whatever
+            // the person at the machine is doing, if only for a moment.
+            options.IsVisible = Environment.GetEnvironmentVariable("GENESIS_BOOT_COORDINATED") != "1"
+                && !ShouldRunOffScreen();
             options.Size            = new Vector2D<int>(Math.Max(1, width), Math.Max(1, height));
             options.WindowBorder    = WindowBorder.Resizable;
             options.VSync           = false;
@@ -105,6 +114,8 @@ namespace Genesis.Runtime.Platform
                 HookInput(_silkInput);
                 ApplyMode();
                 ApplyUnattendedPlacement();
+                if (ShouldRunOffScreen() && Environment.GetEnvironmentVariable("GENESIS_BOOT_COORDINATED") != "1")
+                    ShowWithoutActivating();
                 Load?.Invoke();
             };
 
@@ -116,7 +127,9 @@ namespace Genesis.Runtime.Platform
                 _input.LookDelta = _mouseCaptured ? _lookAccum : Vector2.Zero;
                 _lookAccum = Vector2.Zero;
 
-                PollGamepad((float)dt);
+                // An unattended run neither reads nor vibrates a controller: the person at the
+                // machine may be holding it in another game.
+                if (!ShouldRunOffScreen()) PollGamepad((float)dt);
 
                 try { Update?.Invoke(dt); }
                 catch (Exception ex)
@@ -418,7 +431,7 @@ namespace Genesis.Runtime.Platform
                 return;
             }
 
-            _window.WindowState = WindowState.Normal;
+            RestoreNormal();
             if (_mode == WindowMode.Windowed) _window.WindowBorder = WindowBorder.Fixed;
 
             // Off-screen HWNDs make SDL_WaitAndAcquireGPUSwapchainTexture wait on DWM's
@@ -433,6 +446,25 @@ namespace Genesis.Runtime.Platform
                     _window.Position = new Vector2D<int>(-12_000, -12_000);
             }
         }
+
+        // GLFW restores a window with ShowWindow(SW_RESTORE), which also shows and activates it: done
+        // to a hidden, unattended window it took the foreground. Only restore what is not already normal.
+        private void RestoreNormal()
+        {
+            if (_window.WindowState != WindowState.Normal) _window.WindowState = WindowState.Normal;
+        }
+
+        private void ShowWithoutActivating()
+        {
+            IntPtr hwnd = NativeHandle;
+            if (hwnd == IntPtr.Zero) { _window.IsVisible = true; return; }
+            ShowWindow(hwnd, ShowNoActivate);
+        }
+
+        private const int ShowNoActivate = 4; // SW_SHOWNOACTIVATE
+
+        [DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hwnd, int command);
 
         private static bool TryCloakWindow(IntPtr hwnd, bool cloak)
         {
@@ -472,7 +504,7 @@ namespace Genesis.Runtime.Platform
             switch (_mode)
             {
                 case WindowMode.Windowed:
-                    _window.WindowState  = WindowState.Normal;
+                    RestoreNormal();
                     _window.WindowBorder = WindowBorder.Resizable;
                     if (_savedPlacement)
                     {
@@ -498,7 +530,7 @@ namespace Genesis.Runtime.Platform
                         _savedPlacement = true;
                     }
 
-                    _window.WindowState  = WindowState.Normal;   // not Maximized/Fullscreen
+                    RestoreNormal();   // not Maximized/Fullscreen
                     _window.WindowBorder = WindowBorder.Hidden;
 
                     var monitor = _window.Monitor;
@@ -552,6 +584,7 @@ namespace Genesis.Runtime.Platform
                     if (key == Key.F11) { _f11Held = false; return; }
                     GKey g = Map(key); if (g != GKey.Unknown) _input.OnKeyUp(g);
                 };
+                kb.KeyChar += (_, character) => _input.OnChar(character);
             }
 
             for (int i = 0; i < input.Mice.Count; i++)
@@ -594,13 +627,21 @@ namespace Genesis.Runtime.Platform
             // A game that reads the controller itself asks for it not to press keys as well.
             bool emulate = _input.GamepadEmulatesKeyboard;
 
-            Vector2 ls = ReadStick(gp, 0);
-            ls.Y = -ls.Y; // Invert forwards/backwards
-            Vector2 rs = ReadStick(gp, 1);
+            Vector2 lsRaw = ReadStick(gp, 0);
+            lsRaw.Y = -lsRaw.Y; // Invert forwards/backwards
+            Vector2 rsRaw = ReadStick(gp, 1);
+            float ltRaw = ReadTrigger(gp, 0);
+            float rtRaw = ReadTrigger(gp, 1);
+            _input.LeftStickRaw = lsRaw;
+            _input.RightStickRaw = rsRaw;
+            _input.LeftTriggerRaw = ltRaw;
+            _input.RightTriggerRaw = rtRaw;
+            Vector2 ls = lsRaw.Length() < _input.LeftStickDeadZone ? Vector2.Zero : lsRaw;
+            Vector2 rs = rsRaw.Length() < _input.RightStickDeadZone ? Vector2.Zero : rsRaw;
             _input.LeftStick = ls;
             _input.RightStick = rs;
-            float lt = ReadTrigger(gp, 0);
-            float rt = ReadTrigger(gp, 1);
+            float lt = ltRaw < _input.TriggerDeadZone ? 0f : ltRaw;
+            float rt = rtRaw < _input.TriggerDeadZone ? 0f : rtRaw;
             _input.LeftTrigger = lt;
             _input.RightTrigger = rt;
 
@@ -713,9 +754,7 @@ namespace Genesis.Runtime.Platform
         {
             if (gp.Thumbsticks.Count <= index) return Vector2.Zero;
             var t = gp.Thumbsticks[index];
-            var v = new Vector2(t.X, t.Y);
-            const float dead = 0.18f;
-            return v.Length() < dead ? Vector2.Zero : v;
+            return new Vector2(t.X, t.Y);
         }
 
         private static float ReadTrigger(IGamepad gp, int index)
