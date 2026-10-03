@@ -168,6 +168,13 @@ Fades run in real time, not game time: music still fades while the game is held 
 A Player opened by a test or a tool (`GENESIS_UNATTENDED_WINDOW=1`) is silent, whatever volume the
 game sets. `GENESIS_UNATTENDED_AUDIO=1` lets it be heard.
 
+**Playing a sound costs no memory.** Every play used to make its own copy of the sound's samples
+and never gave it back, so a game lost a sound's whole size each time it played it: a footstep's
+10 KB twice a second, or 5 to 7 MB in every room for a game that restarts its music and ambience
+at each door. Every play now reads the sound's one set of samples. Found by a game measuring its
+own room changes with the memory line described under
+[Finding what a game holds on to](#finding-what-a-game-holds-on-to).
+
 ## HUD: measuring text, and shapes
 
 The canvas passed to `OnDrawHud` gained:

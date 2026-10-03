@@ -376,6 +376,22 @@ hundred visits, has not been traced; two small rooms with no terrain, changed be
 held exactly the same 63 MB throughout. The process's total sits at one of two levels about
 125 MB apart from one arrival to the next and does not climb within either.
 
+An hour of the same, on Direct3D 11 (599 changes, 300 visits to each room): no room left was
+still in memory; handles, threads and graphics memory stayed level; memory outside the
+collector stepped up once, by about 125 MB, within the first ten minutes and then stayed within
+15 MB for the remaining fifty. Managed memory on arriving at the island rose from 276 to 323 MB,
+about 0.16 MB a visit, and was still rising at the end; in the small room it rose by the same
+amount. That is about 80 MB for every thousand room changes that include the island. It has not
+been traced.
+
+The town game then ran its own loop of three rooms, 24 changes, with the same switch. No room it
+left stayed in memory, but its total still rose 5 to 6 MB at every change, on Direct3D 11 and on
+Vulkan alike, with graphics memory level. Its session traced that to sound: with no sound played
+the total was level, and with its music and ambience started once instead of in every room it was
+level too. Each play of a sound made a copy of its samples that was never freed, which is fixed
+(see [Game features](GameFeatures.md), Sound). The test island plays no sounds, which is why its
+soak did not show it.
+
 ## Verification
 
 `Build.bat --test large-world` runs fifty-four checks. Twenty-eight of them are described in

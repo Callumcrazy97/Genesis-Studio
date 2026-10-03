@@ -32,8 +32,12 @@ people as an early release (the version is 0.1.0) once the owner's decisions bel
   read-only; installing again over the top left one uninstaller; uninstalling left no file and
   no registry entry, and left the user's own data alone.
 - **Soak**: the Player changed between two rooms of the large-world test project for twenty
-  minutes (199 changes) before and after the terrain fix, and for five minutes between two small
-  rooms (99 changes). Handles, threads and graphics memory were level throughout.
+  minutes (199 changes) before and after the terrain fix, for an hour after it (599 changes), and
+  for five minutes between two small rooms (99 changes), with and without the engine's rain.
+  Handles, threads and graphics memory were level throughout.
+- **Sound** (found the same night by a game measuring its own room changes): every play of a
+  sound made a native copy of its samples that was never freed, 5 to 7 MB a room for a game that
+  restarts its music and ambience at each door. Fixed; `Engine.Audio.EveryPlayOfASoundReadsTheSameSamples`.
 - The published product's text files contain no path or name from the machine that built it.
 
 ### What still stands between this and a release
@@ -48,7 +52,7 @@ Decisions that are the owner's:
 Not tested, and not testable on this machine:
 
 5. **Any other computer.** Everything above ran on one PC (i7-14700F, RTX 5060 Ti, Windows 11) that has the development tools installed. No AMD or Intel graphics, no Windows 10, and no clean machine: the package carries its own .NET and C++ runtimes and its shader compiler, and the build's start-up check forbids it the machine's own, but that is not the same as a clean install (REL-HW-01).
-6. **Hours-long sessions.** Twenty minutes is not the hours REL-SOAK-01 asks for. About 0.15 MB of managed memory for each visit to the large-world room is unaccounted for.
+6. **Hours-long sessions.** The longest soak was an hour (599 room changes, on Direct3D 11), not the hours REL-SOAK-01 asks for. About 0.16 MB of managed memory for each visit to the large-world room is unaccounted for and was still rising at the end of that hour.
 7. **The acceptance programme of section 12**: the hand-authored vertical slice, the timed workflow journeys and the ten performance scenes are all still pending, and they are what this document says a 1.0 requires.
 8. **Multiplayer** has only ever run with every player on one computer.
 9. **Failure drills** (REL-FAIL-01): a full disk, a lost graphics device, a cancelled or interrupted install or export. One Player hang during the first room's cover was reported from a game on Vulkan with the desktop locked and has not been reproduced.

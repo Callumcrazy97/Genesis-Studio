@@ -8,7 +8,9 @@ namespace Genesis.Audio
     {
         private readonly IXAudio2              _xaudio;
         private readonly IXAudio2MasteringVoice _master;
-        private readonly List<IXAudio2SourceVoice> _active = new();
+        // Each voice with the sound it is playing. The voice reads the sound's own samples, so the
+        // sound is kept from the collector until the voice is gone.
+        private readonly List<(IXAudio2SourceVoice Voice, SoundEffect? Sound)> _active = new();
         private bool _disposed;
 
         public IXAudio2 XAudio => _xaudio;
@@ -44,22 +46,28 @@ namespace Genesis.Audio
             {
                 for (int i = _active.Count - 1; i >= 0; i--)
                 {
-                    if (_active[i].State.BuffersQueued == 0)
+                    if (_active[i].Voice.State.BuffersQueued == 0)
                     {
-                        _active[i].DestroyVoice();
-                        _active[i].Dispose();
+                        _active[i].Voice.DestroyVoice();
+                        _active[i].Voice.Dispose();
                         _active.RemoveAt(i);
                     }
                 }
             }
         }
 
-        internal void Track(IXAudio2SourceVoice voice)
+        /// <summary>Voices that are still playing or waiting to be recycled.</summary>
+        public int ActiveVoices
+        {
+            get { lock (_active) return _active.Count; }
+        }
+
+        internal void Track(IXAudio2SourceVoice voice, SoundEffect? sound = null)
         {
             if (_disposed) { try { voice.DestroyVoice(); voice.Dispose(); } catch { } return; }
             lock (_active)
             {
-                _active.Add(voice);
+                _active.Add((voice, sound));
             }
         }
 
@@ -92,7 +100,7 @@ namespace Genesis.Audio
 
             lock (_active)
             {
-                foreach (var v in _active) { try { v.DestroyVoice(); v.Dispose(); } catch { } }
+                foreach (var v in _active) { try { v.Voice.DestroyVoice(); v.Voice.Dispose(); } catch { } }
                 _active.Clear();
             }
 

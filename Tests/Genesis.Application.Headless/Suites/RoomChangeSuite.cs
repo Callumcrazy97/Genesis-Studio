@@ -881,6 +881,36 @@ internal static class RoomChangeSuite
                 "A part of a room that was left is still held in memory, so a game that changes room keeps every room it has been in.");
         });
 
+        HeadlessHarness.RunCase(context.Report, "Engine.Audio.EveryPlayOfASoundReadsTheSameSamples", () =>
+        {
+            // Four megabytes, the size of a piece of music: what a game starts again in each room.
+            var samples = new short[2 * 1024 * 1024];
+            for (int i = 0; i < samples.Length; i++) samples[i] = (short)(i * 7);
+            Genesis.Audio.SoundEffect sound = Genesis.Audio.SoundEffect.FromPcm(samples);
+
+            Vortice.XAudio2.AudioBuffer once = sound.CreatePlaybackBuffer(loop: false);
+            Vortice.XAudio2.AudioBuffer looped = sound.CreatePlaybackBuffer(loop: true);
+            HeadlessHarness.Assert(once.AudioDataPointer != IntPtr.Zero && once.AudioDataPointer == looped.AudioDataPointer,
+                "Each play of a sound is given its own copy of the samples.");
+            HeadlessHarness.Assert(once.AudioBytes == (uint)samples.Length * 2 && looped.LoopCount == 255 && once.LoopCount == 0
+                && once.Flags == Vortice.XAudio2.BufferFlags.EndOfStream,
+                "The buffer a voice is given does not describe the sound.");
+
+            using var process = System.Diagnostics.Process.GetCurrentProcess();
+            long before = process.PrivateMemorySize64;
+            for (int play = 0; play < 100; play++) sound.CreatePlaybackBuffer(loop: play % 2 == 0);
+            // The collector may move everything else; the samples must stay where the voice reads them.
+            GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: true);
+            process.Refresh();
+            double grewMegabytes = (process.PrivateMemorySize64 - before) / (1024.0 * 1024.0);
+            HeadlessHarness.Assert(grewMegabytes < 100,
+                $"A hundred plays of a 4 MB sound took {grewMegabytes:F0} MB that is never given back.");
+            HeadlessHarness.Assert(System.Runtime.InteropServices.Marshal.ReadInt16(once.AudioDataPointer, 2 * 1000) == samples[1000]
+                && System.Runtime.InteropServices.Marshal.ReadInt16(once.AudioDataPointer, 2 * (samples.Length - 1)) == samples[^1],
+                "The samples a voice reads are not the sound's, or moved while it could be playing.");
+            GC.KeepAlive(sound);
+        });
+
         HeadlessHarness.RunCase(context.Report, "Engine.Diagnostics.SlowFrames.SayWhatTheFrameWasSpentOn", () =>
         {
             var lines = new List<string>();
