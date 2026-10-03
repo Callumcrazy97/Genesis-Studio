@@ -64,6 +64,7 @@ public static class ResourceReferenceOperations
         {
             JObject manifest = JObject.Parse(manifestText);
             project.Manifest.StartRoom = (string?)manifest["startRoom"] ?? project.Manifest.StartRoom;
+            project.Manifest.RoomOrder = manifest["roomOrder"]?.ToObject<List<string>>() ?? project.Manifest.RoomOrder;
             project.Manifest.ProjectIcon = (string?)manifest["projectIcon"] ?? project.Manifest.ProjectIcon;
         }
         ResourceNames.Invalidate(project.RootPath);

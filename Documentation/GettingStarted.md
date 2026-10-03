@@ -40,6 +40,7 @@ Open them any time from an Object's *Options › Behaviour recipes…*.
 - **Inspector** (right edge) — properties of whatever is selected.
 - **Console** (bottom edge) — messages, and the problems Validate finds.
 - **Run, Debug, Validate, Save project** — top right of the window.
+- **Which Room the game starts in** — the first Room. Drag one Room onto another in Assets to change the order; the first is marked *game starts here*.
 - **Options** in each editor — everything that is not part of the main steps.
 - **Help › Commands…** — every game-code command, with examples.
 

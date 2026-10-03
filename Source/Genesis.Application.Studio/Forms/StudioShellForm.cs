@@ -1149,17 +1149,7 @@ public sealed partial class StudioShellForm : DpiAwareForm
         }
 
         _editorRegistry.Register(ResourceKind.Room, resource => Wrap(
-            resource, (path, projectRoot) =>
-            {
-                var editor = new Genesis.Application.Editors.Suite.Rooms.RoomEditorControl(path, projectRoot);
-                editor.StartingRoomRequested += (_, name) =>
-                {
-                    _project.Manifest.StartRoom = name;
-                    _services.Projects.Save(_project);
-                    SetStatus($"Starting Room set to '{name}'.");
-                };
-                return editor;
-            }, "Room Editor"));
+            resource, (path, projectRoot) => new Genesis.Application.Editors.Suite.Rooms.RoomEditorControl(path, projectRoot), "Room Editor"));
         _editorRegistry.Register(ResourceKind.Terrain, resource => Wrap(
             resource, (path, projectRoot) => new Genesis.Application.Editors.Suite.Terrain.TerrainEditorControl(path, projectRoot), "Terrain Editor"));
         _editorRegistry.Register(ResourceKind.GameObject, resource => Wrap(

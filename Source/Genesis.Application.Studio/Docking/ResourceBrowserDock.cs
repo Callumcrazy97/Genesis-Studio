@@ -1,5 +1,6 @@
 using System.Drawing;
 using System.Windows.Forms;
+using Genesis.Application.Core.Projects;
 using Genesis.Application.Core.Resources;
 using Genesis.Application.Core.Diagnostics;
 using Genesis.Application.Core.Settings;
@@ -707,6 +708,9 @@ public sealed partial class ResourceBrowserDock : GenesisDockContent
         string name = e.Node.Text;
         if (item is { IsFolder: false } && _preferences.IsFavourite(item.AssetId, item.Name))
             name = "★ " + name;
+        if (item is { IsFolder: false, Kind: ResourceKind.Room }
+            && string.Equals(item.Name, _resources.Project.Manifest.StartRoom, StringComparison.OrdinalIgnoreCase))
+            name += "   · game starts here";
         TextRenderer.DrawText(
             e.Graphics,
             name,
@@ -1031,6 +1035,11 @@ public sealed partial class ResourceBrowserDock : GenesisDockContent
 
         _tree.SelectedNode = target;
         string? source = e.Data?.GetData(ResourceDragFormat) as string;
+        if (source is not null && IsRoomReorder(source, target))
+        {
+            e.Effect = DragDropEffects.Move;
+            return;
+        }
         if (source is null || !_resources.CanTransfer(source, SelectedFolder()))
         {
             e.Effect = DragDropEffects.None;
@@ -1046,6 +1055,12 @@ public sealed partial class ResourceBrowserDock : GenesisDockContent
         string? source = e.Data?.GetData(ResourceDragFormat) as string;
         if (string.IsNullOrWhiteSpace(source) || e.Effect == DragDropEffects.None)
         {
+            return;
+        }
+
+        if (IsRoomReorder(source, _tree.SelectedNode))
+        {
+            ReorderRoom(source, (ResourceItem)_tree.SelectedNode!.Tag!);
             return;
         }
 
@@ -1066,6 +1081,23 @@ public sealed partial class ResourceBrowserDock : GenesisDockContent
                 return path;
             }, "Resource moved.");
         }
+    }
+
+    /// <summary>A Room dropped on another Room changes the room order instead of moving a file.</summary>
+    private static bool IsRoomReorder(string source, TreeNode? target) =>
+        target?.Tag is ResourceItem { IsFolder: false, Kind: ResourceKind.Room } room
+        && ResourceDefinitions.FromPath(source)?.Kind == ResourceKind.Room
+        && !string.Equals(Path.GetFullPath(source), Path.GetFullPath(room.FullPath), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Puts the dragged Room just before the one it was dropped on. The first Room is where the game starts.</summary>
+    private void ReorderRoom(string source, ResourceItem target)
+    {
+        ExecuteGuarded(() =>
+        {
+            ProjectRoomOrder.Move(_resources.Project, source, target.FullPath);
+            return source;
+        }, "Room order changed. The game starts in the first Room.");
+        _tree.Invalidate();
     }
 
     private void SelectRightClickedNode(object? sender, TreeNodeMouseClickEventArgs e)

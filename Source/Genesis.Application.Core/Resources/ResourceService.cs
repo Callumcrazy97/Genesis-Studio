@@ -334,9 +334,21 @@ public sealed class ResourceService
     {
         List<ResourceItem> children = [];
         List<string> files = [];
+        // Rooms are listed in the project's room order, which is where the game starts; everything
+        // else by name.
+        IReadOnlyList<string> roomOrder = ProjectRoomOrder.Rooms(Project);
+        int RoomPosition(string path)
+        {
+            if (ResourceDefinitions.FromPath(path)?.Kind != ResourceKind.Room) return -1;
+            string name = ResourceNames.Name(Project.RootPath, path, ResourceType.Room);
+            for (int index = 0; index < roomOrder.Count; index++)
+                if (string.Equals(roomOrder[index], name, StringComparison.OrdinalIgnoreCase)) return index;
+            return int.MaxValue;
+        }
         foreach (string file in Directory.EnumerateFiles(folder)
                      .Where(path => !ResourceAssociates.IsHiddenImplementationFile(path))
-                     .OrderBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase))
+                     .OrderBy(RoomPosition)
+                     .ThenBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase))
         {
             files.Add(file);
         }

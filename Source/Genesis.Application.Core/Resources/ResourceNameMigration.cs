@@ -106,6 +106,7 @@ public static class ResourceNameMigration
         }
         project.Manifest.ResourceNamesVersion = Version;
         project.Manifest.StartRoom = (string?)manifest["startRoom"] ?? project.Manifest.StartRoom;
+        project.Manifest.RoomOrder = manifest["roomOrder"]?.ToObject<List<string>>() ?? project.Manifest.RoomOrder;
         project.Manifest.ProjectIcon = (string?)manifest["projectIcon"] ?? project.Manifest.ProjectIcon;
         ResourceNames.Invalidate(project.RootPath);
         if (ResourceNames.For(project.RootPath).Conflicts.Any()) throw new InvalidDataException("Resource-name migration left a duplicate name; restore the migration backup before continuing.");

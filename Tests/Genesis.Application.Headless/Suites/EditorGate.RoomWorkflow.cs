@@ -31,15 +31,12 @@ internal static partial class EditorGate
                 .Select(item => item.Text ?? string.Empty).ToArray();
             HeadlessHarness.Assert(primary.SequenceEqual(new[] { "Select", "Move", "Rotate", "Scale", "Use in game", "Options" }),
                 "Room keeps repeated or crowded primary commands: " + string.Join(',', primary));
-            editor.StartingRoomRequested += (_, name) => { project.Manifest.StartRoom = name; new ProjectService().Save(project); };
             bar.Items.OfType<ToolStripButton>().Single(item => item.Text == "Use in game").PerformClick();
             FlowLayoutPanel guide = SurfaceControls(editor).OfType<FlowLayoutPanel>().Single(control => control.Name == "RoomUseInGame");
             HeadlessHarness.Assert(guide.Visible && guide.Controls.OfType<Label>().Any(label => label.Text.Contains("saved origin", StringComparison.Ordinal)),
                 "Room guide omitted the shared Image origin or did not open.");
-            guide.Controls.OfType<Button>().Single(button => button.Name == "RoomMakeStartingRoom").PerformClick();
-            HeadlessHarness.Assert(project.Manifest.StartRoom == ResourceNames.Name(project.RootPath, path)
-                && new ProjectService().OpenProject(project.RootPath).Manifest.StartRoom == project.Manifest.StartRoom,
-                "Starting Room was not retained by the project and persisted to its manifest.");
+            HeadlessHarness.Assert(!guide.Controls.OfType<Button>().Any(button => button.Name == "RoomMakeStartingRoom"),
+                "The Room guide still offers a Starting Room command; the game starts in the first Room of the room order.");
             guide.Controls.OfType<Button>().Single(button => button.Name == "RoomGuideTiles").PerformClick();
             HeadlessHarness.Assert(!guide.Visible && editor.Navigation.CurrentSection == RoomNavSection.Tilesets,
                 "Guide did not return to the actual tile authoring panel.");

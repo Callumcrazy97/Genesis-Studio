@@ -1109,6 +1109,7 @@ internal static class HeadlessTestRunner
         Suites.GameExportEvidenceSuite.Run(ctx);
         Suites.GameExportPublishingSuite.Run(ctx);
         Suites.ReleaseSuite.Run(ctx);
+        Suites.RoomOrderSuite.Run(ctx);
         Suites.TextRenderingSuite.Run(ctx);
         Suites.Effects2DSuite.Run(ctx);
 
@@ -1506,6 +1507,9 @@ internal static class HeadlessTestRunner
                 break;
             case "release":
                 Suites.ReleaseSuite.Run(ctx);
+                break;
+            case "room-order":
+                Suites.RoomOrderSuite.Run(ctx);
                 break;
             default:
                 Suites.GateSuite.RunFocused(ctx, normalized);

@@ -29,7 +29,14 @@ public sealed class ProjectManifest
 
     public DateTime ModifiedUtc { get; set; } = DateTime.UtcNow;
 
+    /// <summary>
+    /// The first Room in <see cref="RoomOrder"/>, where the game starts. Kept equal to it on every
+    /// save (see <see cref="ProjectRoomOrder"/>) so that the Player and older tools agree.
+    /// </summary>
     public string StartRoom { get; set; } = "Start";
+
+    /// <summary>The project's Rooms in order. The game starts in the first; drag in the Assets tree to change it.</summary>
+    public List<string> RoomOrder { get; set; } = [];
 
     public string DefaultNamespace { get; set; } = "Game";
 

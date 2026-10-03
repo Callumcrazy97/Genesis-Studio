@@ -14,7 +14,6 @@ public sealed partial class RoomEditorControl
     private bool _layingOutRoomWorkflow;
 
     /// <summary>The shell updates its retained project manifest before persisting the starting Room.</summary>
-    public event EventHandler<string>? StartingRoomRequested;
 
     private void BuildRoomWorkflowHost(Control authoring)
     {
@@ -120,13 +119,7 @@ public sealed partial class RoomEditorControl
         Button("RoomGuideViews", "Open camera Views", () => Open(RoomNavSection.Views));
         Button("RoomGuideSettings", "Open Room Settings", () => Open(RoomNavSection.Settings));
         Text("3. Save, Play and export", true);
-        Text("Play in this toolbar saves and tests this Room in Genesis Player. Pause and Stop appear while it is running. Studio Run starts the project's starting Room. Make this the starting Room below to include it in the normal project launch. Select the renderer from the bottom-right Studio status bar before testing another backend.");
-        Button("RoomMakeStartingRoom", "Save and make this the starting Room", () =>
-        {
-            Save();
-            StartingRoomRequested?.Invoke(this, ResourceNames.Name(ProjectRoot, ResourcePath));
-        }, StartingRoomRequested is not null);
-        if (StartingRoomRequested is null) Text("Starting Room is a project setting managed by the Studio shell; open this Room in Studio to change it here.");
+        Text("Play in this toolbar saves and tests this Room in Genesis Player. Pause and Stop appear while it is running. Studio Run starts the project's first Room: drag Rooms in the Assets tree to put them in order. Select the renderer from the bottom-right Studio status bar before testing another backend.");
         Text("For a complete jumping platformer, create a Mushroom Meadow project and edit its Player, enemies and levels. Use the project's Export command to package the game, then test the exported game and each renderer you intend to support.");
         Button("RoomGuideReturn", "Return to Room editing", ShowRoomAuthoring);
         _showRoomGuide = true; RefreshRoomWorkflowHint();

@@ -108,6 +108,7 @@ public sealed partial class ProjectService
         // Templates update their start room after the initial manifest is created. Persist that
         // choice so opening the project and pressing F5 launches the playable room immediately.
         ResourceNameMigration.Upgrade(session);
+        ProjectRoomOrder.Normalize(session);
         WriteManifest(projectFile, manifest);
 
         return session;
@@ -155,6 +156,7 @@ public sealed partial class ProjectService
         // Add missing roots without moving existing resources or breaking legacy references.
         ResourceFolderPolicy.EnsureRoots(session);
         ResourceNameMigration.Upgrade(session);
+        ProjectRoomOrder.Normalize(session);
         TextureGroupCatalog.EnsureAndBackfill(session, this);
         return session;
     }
@@ -210,6 +212,7 @@ public sealed partial class ProjectService
     public void Save(ProjectSession session)
     {
         ArgumentNullException.ThrowIfNull(session);
+        ProjectRoomOrder.Normalize(session);
         session.Manifest.StartRoom = ResourceNames.Name(session.RootPath, session.Manifest.StartRoom, ResourceType.Room);
         session.Manifest.ProjectIcon = ResourceNames.Name(session.RootPath, session.Manifest.ProjectIcon, ResourceType.Image);
         session.Manifest.ModifiedUtc = DateTime.UtcNow;

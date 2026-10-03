@@ -90,7 +90,7 @@ public static class ResourceReferenceRewriter
             or "binding" or "iconimage" or "projecticon" or "backgroundsprite" or "normalmap" or "emissivetexture") return ResourceType.Image;
         if (name is "model" or "modelasset" or "meshsurfaceasset" or "meshparticleasset") return ResourceType.Model;
         if (name is "object" or "objectname" or "objectindex" or "targetobject" or "objectasset" or "prefab") return ResourceType.Object;
-        if (name is "room" or "roomname" or "targetroom" or "startroom") return ResourceType.Room;
+        if (name is "room" or "roomname" or "targetroom" or "startroom" or "roomorder") return ResourceType.Room;
         if (name is "shader" or "shaderasset") return ResourceType.Shader;
         if (name is "audio" or "audioasset" or "sound" or "soundasset" or "soundname" or "audiosource") return ResourceType.Audio;
         if (name is "particle" or "particleasset" or "effectasset") return ResourceType.Particle;
