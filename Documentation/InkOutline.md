@@ -1,5 +1,10 @@
 # Ink outline
 
+> **Being retired.** An outline is a game's look, so it belongs in the game's project as a Shader
+> resource, not in the engine. Use the project shader in `Documentation/Examples/InkOutline.hlsl`
+> as a [post effect](PostEffects.md) instead; this built-in outline will be removed once no game
+> uses it.
+
 An optional outline for illustrated and cel-shaded projects. It is **off by default**: with it off
 the composite's three ink constants are zero and the shader block is skipped, so existing projects
 and golden images are unchanged.

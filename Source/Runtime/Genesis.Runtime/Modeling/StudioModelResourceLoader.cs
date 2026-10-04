@@ -36,6 +36,8 @@ public static class StudioModelResourceLoader
         public FrontFaceWindingOverride WindingOrder { get; set; } = FrontFaceWindingOverride.Default;
         /// <summary>Mirror a right-handed source along Z on import; unset follows the project's setting.</summary>
         public bool? ConvertRightHanded { get; set; }
+        /// <summary>Models whose clips this one plays as its own (see ModelAnimationLibraries).</summary>
+        public List<string> AnimationLibraries { get; set; } = [];
         public List<Part> Parts { get; set; } = [];
         public List<string> Materials { get; set; } = [];
     }
@@ -90,7 +92,7 @@ public static class StudioModelResourceLoader
         return Math.Max(Math.Max(document, mesh), Math.Max(canonicalStamp, sourceStamp));
     }
 
-    public static GModelAsset Load(string path) => LoadCore(path, allowReimport: true);
+    public static GModelAsset Load(string path) => LoadWithLibraries(path, allowReimport: true);
 
     /// <summary>
     /// Starts reading a Model resource's saved geometry on a worker thread, for a load that is
@@ -103,7 +105,40 @@ public static class StudioModelResourceLoader
     }
 
     /// <summary>Reads the last saved model for background previews without importing or writing assets.</summary>
-    public static GModelAsset LoadReadOnly(string path) => LoadCore(path, allowReimport: false);
+    public static GModelAsset LoadReadOnly(string path) => LoadWithLibraries(path, allowReimport: false);
+
+    [ThreadStatic] private static HashSet<string> _loadingLibraries;
+
+    /// <summary>The model with the clips of the Models its descriptor names as animation libraries.</summary>
+    private static GModelAsset LoadWithLibraries(string path, bool allowReimport)
+    {
+        GModelAsset asset = LoadCore(path, allowReimport);
+        List<string> libraries;
+        try { libraries = ReadDocument(path).AnimationLibraries; }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return asset;
+        }
+        if (asset == null || libraries is not { Count: > 0 }) return asset;
+
+        _loadingLibraries ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        string self = Path.GetFullPath(path);
+        if (!_loadingLibraries.Add(self)) return asset;
+        try
+        {
+            string projectRoot = FindProjectRoot(path);
+            foreach (string reference in libraries)
+            {
+                if (string.IsNullOrWhiteSpace(reference)) continue;
+                string library = Genesis.Shared.Assets.ResourceCatalog.Resolve(projectRoot, reference, Genesis.Shared.Assets.ResourceType.Model);
+                if (string.IsNullOrEmpty(library) || !File.Exists(library)
+                    || _loadingLibraries.Contains(Path.GetFullPath(library))) continue;
+                ModelAnimationLibraries.AddClips(asset, LoadWithLibraries(library, allowReimport));
+            }
+        }
+        finally { _loadingLibraries.Remove(self); }
+        return asset;
+    }
 
     private static GModelAsset LoadCore(string path, bool allowReimport)
     {

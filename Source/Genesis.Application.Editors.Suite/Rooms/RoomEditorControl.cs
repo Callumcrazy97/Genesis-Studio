@@ -89,7 +89,7 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
         public bool ReceiveShadows = true;
         public float Alpha = 1f;
         public string AnimationClip = string.Empty;
-        public float AnimationFps = 60f;
+        public float AnimationFps;
         public bool AnimationPlaying;
         public bool AnimationLoop = true;
         public RenderColor Tint = new(0.55f, 0.65f, 0.95f);
@@ -2872,7 +2872,7 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
                 if (animator?["props"] is JObject animatorProps)
                 {
                     visual.AnimationClip = (string?)animatorProps["ClipName"] ?? string.Empty;
-                    visual.AnimationFps = MathF.Max(1f, (float?)animatorProps["ClipFps"] ?? 60f);
+                    visual.AnimationFps = MathF.Max(0f, (float?)animatorProps["ClipFps"] ?? 0f);
                     visual.AnimationPlaying = ((bool?)animator["enabled"] ?? true)
                         && ((bool?)animatorProps["Playing"] ?? true);
                     visual.AnimationLoop = (bool?)animatorProps["Loop"] ?? true;

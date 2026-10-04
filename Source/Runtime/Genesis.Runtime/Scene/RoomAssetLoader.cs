@@ -407,6 +407,7 @@ public sealed class RoomSceneBuilder
         scene.Environment.EnvironmentReflection = float.IsFinite(environment.EnvironmentReflection)
             ? Math.Clamp(environment.EnvironmentReflection, 0f, 4f)
             : 0f;
+        Genesis.Runtime.Rendering.ProjectPostEffects.SetRoomEffects(environment.PostEffects);
         float[] bg = environment.BackgroundColor;
         if (bg is { Length: >= 3 }) scene.Environment.BackgroundColor = new Vector4(bg[0], bg[1], bg[2], bg.Length > 3 ? bg[3] : 1f);
         if (scene.Physics != null && environment.Gravity is { Length: >= 3 })

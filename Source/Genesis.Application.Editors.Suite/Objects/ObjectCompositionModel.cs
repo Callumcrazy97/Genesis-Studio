@@ -27,7 +27,7 @@ public sealed class ObjectCompositionModel
                 ["CastShadows"] = true, ["ReceiveShadows"] = true,
                 ["KeepPreviousTransform"] = false }),
         Def("ModelAnimatorComponent", "Model Animation", "", null,
-            new JObject { ["ClipName"] = "", ["ClipFps"] = 60f, ["Playing"] = true, ["Loop"] = true,
+            new JObject { ["ClipName"] = "", ["ClipFps"] = 0f, ["Playing"] = true, ["Loop"] = true,
                 ["PlaybackSpeed"] = 1f, ["BlendTime"] = 0.15f }),
         Def("ModelMorphComponent", "Model Morph Targets", "", null,
             new JObject { ["Enabled"] = true, ["InitialWeights"] = "" }),

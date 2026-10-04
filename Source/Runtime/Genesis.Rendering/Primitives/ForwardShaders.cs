@@ -828,18 +828,24 @@ struct PSOut
 {
     float4 Color : SV_Target0;
     // r = fog flag (1 = already fogged here, 0.5 = engine-lit), gba = pre-fog ambient light, which
-    // the composite's AO darkens instead of the whole pixel.
+    // the composite's AO darkens instead of the whole pixel. Foliage writes 0.875 / 0.375 instead:
+    // the same ranges to the fog and AO tests, and a mark post effects can read (SceneFlags).
     float4 Aux   : SV_Target1;
 };
 
-PSOut MakeOut(float4 c, float skip, float3 ambient)
+PSOut MakeOut(float4 c, float skip, float3 ambient, float foliage)
 {
     PSOut o;
     if (VolumetricParams.z > 1.5)
         c.rgb = LinearToSrgb3(c.rgb);
     o.Color = c;
-    o.Aux = float4(skip > 0.5 ? 1.0 : 0.5, ambient);
+    o.Aux = float4((skip > 0.5 ? 1.0 : 0.5) - (foliage > 0.5 ? 0.125 : 0.0), ambient);
     return o;
+}
+
+PSOut MakeOut(float4 c, float skip, float3 ambient)
+{
+    return MakeOut(c, skip, ambient, 0.0);
 }
 
 PSOut MakeOut(float4 c, float skip)
@@ -1176,7 +1182,7 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
             selfFogApplied = 1.0;
         }
         return MakeOut(float4(col, MaterialColor.a * tex.a), selfFogApplied,
-            base * foliageAmbient * foliageLighting);
+            base * foliageAmbient * foliageLighting, 1.0);
     }
 
     float3 l       = normalize(-lightDir);

@@ -21,6 +21,14 @@ namespace Genesis.Runtime.Modeling
         public FrontFaceWindingOverride WindingOrder { get; set; } = FrontFaceWindingOverride.Default;
         public GModelBounds Bounds { get; set; } = new();
         public GModelImportSettings ImportSettings { get; set; } = new();
+
+        /// <summary>
+        /// Names of clips borrowed from animation libraries when the model was loaded (see
+        /// <see cref="ModelAnimationLibraries"/>): played like the model's own, never saved with it.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        [System.Text.Json.Serialization.JsonIgnore]
+        public HashSet<string> LibraryClipNames { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         /// <summary>Source hierarchy retained for outliners, sockets, metadata and reimport diagnostics.</summary>
         public List<GModelNode> Nodes { get; set; } = new();
         /// <summary>Named attachment points relative to an imported node, a rig bone, or the model root.</summary>

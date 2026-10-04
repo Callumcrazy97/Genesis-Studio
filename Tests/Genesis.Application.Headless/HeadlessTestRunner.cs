@@ -1114,6 +1114,7 @@ internal static class HeadlessTestRunner
         Suites.AssetImportSuite.Run(ctx);
         Suites.TextRenderingSuite.Run(ctx);
         Suites.Effects2DSuite.Run(ctx);
+        Suites.PostEffectsSuite.Run(ctx);
 
         return Finish(report, outputRoot, fastBuildGate: false);
     }
@@ -1298,6 +1299,9 @@ internal static class HeadlessTestRunner
             case "suite-2d":
                 PrepareFocusedProject(ctx, requireStudioServices: true);
                 Suites.SuiteEditorSuite.Run(ctx, twoDOnly: true);
+                break;
+            case "post-effects":
+                Suites.PostEffectsSuite.Run(ctx);
                 break;
             case "walkthrough":
             case "terrain-walkthrough":

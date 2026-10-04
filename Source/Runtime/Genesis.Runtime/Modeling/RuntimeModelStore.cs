@@ -286,7 +286,12 @@ namespace Genesis.Runtime.Modeling
             Directory.CreateDirectory(Path.GetDirectoryName(path) ?? ".");
             asset.ImportedUtc = asset.ImportedUtc == default ? DateTime.UtcNow : asset.ImportedUtc;
             asset.RecalculateBounds();
-            File.WriteAllText(path, JsonConvert.SerializeObject(asset, Settings));
+            // Clips borrowed from animation libraries stay in their libraries.
+            System.Collections.Generic.List<GModelAnimationClip> all = asset.Animations;
+            if (asset.LibraryClipNames is { Count: > 0 } borrowed && all != null)
+                asset.Animations = all.FindAll(clip => !borrowed.Contains(clip?.Name ?? string.Empty));
+            try { File.WriteAllText(path, JsonConvert.SerializeObject(asset, Settings)); }
+            finally { asset.Animations = all; }
         }
 
         public static void SaveByName(string projectPath, string modelName, GModelAsset asset)

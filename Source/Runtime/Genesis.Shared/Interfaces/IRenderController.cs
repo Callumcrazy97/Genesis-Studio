@@ -47,6 +47,15 @@ namespace Genesis.Shared.Interfaces
         void SetViewport(int x, int y, int width, int height);
         void SetBlendMode(BlendMode mode);
         void SetSamplerState(SamplerFilter filter);
+
+        /// <summary>
+        /// The project post effects to run after the final composite, in order, until changed. An
+        /// empty list runs none. Renderers without post effects ignore it.
+        /// </summary>
+        void SetPostEffects(System.Collections.Generic.IReadOnlyList<PostEffectRequest> effects) { }
+
+        /// <summary>Why the last post effect that could not be compiled was refused; empty when none was.</summary>
+        string LastPostEffectError => string.Empty;
         /// <summary>Configure 2D room fog. HUD/GUI overlay flushes are always rendered with fog disabled.</summary>
         void SetRoomFog(RoomFogState state);
 

@@ -153,6 +153,12 @@ Fixed in the language:
   project, and projects that compensate in their own pipeline, are unchanged. Changing the setting
   applies the next time a model is imported (re-import it, or replace its source file).
 
+## Post effects
+
+A project's Fullscreen Shader resources can now run over the finished frame, listed in a room's
+`postEffects` or added by scripts (`PostEffectAdd`). See [Post effects](PostEffects.md), which
+also has a complete ink outline as a project shader.
+
 ## Models reflect their surroundings
 
 A room's environment has a new `environmentReflection` strength (0 to 4, **0 by default**, so
@@ -165,6 +171,29 @@ room runs: `EnvironmentSetReflection(strength)`, `EnvironmentGetReflection()`.
 
 It is not a captured sky or a reflection probe: a metal mirrors the room's ambient colours, not the
 actual scene around it. Terrain and water keep their own shading.
+
+## Models that share their clips
+
+A Model can play the clips of other Models as its own: list them in its `.model.json` as
+`"animationLibraries": ["Operator Moves", "Hollow Moves"]` (Model resource names). Characters on
+one skeleton then keep one set of clips between them instead of a copy each.
+
+- **Same skeleton** (the same bone names, in the same order, posed the same at rest): the clips
+  are shared, so they are held once however many models use them.
+- **Same bone names, other proportions or order**: each clip is retargeted when the model loads.
+  Every bone keeps its own rest pose plus the library's movement from rest, and takes the library's
+  rotation, so a clip made on one body plays on a taller or shorter one.
+- A clip the model has itself wins over a library clip of the same name. Borrowed clips are never
+  written into the model's own file, so saving the model in the Model editor keeps it small.
+- **Clips play at their own frame rate.** An animator's clip rate (`ClipFps`, the Animator
+  component's "Clip FPS") now defaults to 0, meaning each clip plays at the rate it was authored
+  at. It used to default to 60, which overrode the clip's rate and played imported clips (baked at
+  30 fps) at double speed. A rate you set still overrides the clip's (an Object or Room that saved
+  60 explicitly keeps 60); scripts can set it too.
+- **A GLB of clips with no meshes** (an animation library exported on its own) now imports as a
+  clips-only Model to use as a library; it used to be refused, and stopped the whole import.
+- **One file that cannot be imported no longer stops the others.** The rest of the batch is
+  imported, then the failures are reported together ("Imported 9 of 10 file(s). Not imported: ...").
 
 ## Start-up
 

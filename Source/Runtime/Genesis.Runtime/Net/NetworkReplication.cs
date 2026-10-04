@@ -828,7 +828,7 @@ namespace Genesis.Runtime.Net
             if (!world.Has<ModelAnimatorComponent>(entity))
             {
                 if (clip.Clip.Length == 0) return;
-                world.Set(entity, new ModelAnimatorComponent { ClipFps = 60f, PlaybackSpeed = 1f, Playing = true, Loop = true });
+                world.Set(entity, new ModelAnimatorComponent { ClipFps = 0f, PlaybackSpeed = 1f, Playing = true, Loop = true });
             }
 
             ref ModelAnimatorComponent animator = ref world.GetRef<ModelAnimatorComponent>(entity);

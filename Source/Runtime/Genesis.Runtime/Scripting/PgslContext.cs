@@ -45,7 +45,8 @@ namespace Genesis.Shared.Scripting
         /// <summary>The frame in which the active clip last advanced, so a paused clip reports no events.</summary>
         public long ModelAnimationAdvancedFrame { get; set; } = -1;
         public double ModelAnimationPreviousTime { get; set; }
-        public double ModelAnimationFps { get; set; } = 60.0;
+        /// <summary>Rate the instance's clips play at; 0 (the default) plays each at the rate it was authored at.</summary>
+        public double ModelAnimationFps { get; set; }
         public double ModelAnimationSpeed { get; set; } = 1.0;
         public bool ModelAnimationLoop { get; set; } = true;
         public bool ModelAnimationActive { get; set; }

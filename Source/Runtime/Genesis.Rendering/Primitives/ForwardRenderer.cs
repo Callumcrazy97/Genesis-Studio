@@ -3426,7 +3426,10 @@ namespace Genesis.Rendering.Primitives
                         _cloudHistoryValid = false;
                 }
 
-                CompositePost(target, _sceneTexture, postDepth, viewW, viewH,
+                // With project post effects the composite and the held items draw into an image of
+                // their own, which the effects then read; the last effect draws the real target.
+                GpuRenderTargetHandle composed = HasPostEffects ? PostEffectInput(viewW, viewH) : target;
+                CompositePost(composed, _sceneTexture, postDepth, viewW, viewH,
                     runGtao ? _aoTexture : GpuTextureHandle.Invalid, runGtao,
                     runContact ? _contactTexture : GpuTextureHandle.Invalid, runContact,
                     runLocalVol ? _localVolTexture : GpuTextureHandle.Invalid, runLocalVol,
@@ -3437,7 +3440,8 @@ namespace Genesis.Rendering.Primitives
                         : GpuTextureHandle.Invalid,
                     runRaymarchedClouds,
                     runCelestialExtras);
-                DrawViewModelPass(target, whiteTexture);
+                DrawViewModelPass(composed, whiteTexture);
+                if (HasPostEffects) RunPostEffects(target, postDepth, viewW, viewH);
             }
             else
             {
@@ -6133,6 +6137,7 @@ namespace Genesis.Rendering.Primitives
 
         public void Dispose()
         {
+            ReleasePostEffectTargets();
             if (_reflectionTarget.IsValid) _gpu.ReleaseRenderTarget(_reflectionTarget);
             _gpu.ReleaseVertexLayout(_layout);
             _gpu.ReleaseVertexLayout(_layoutSkinned);

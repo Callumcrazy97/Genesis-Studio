@@ -64,6 +64,7 @@ internal static class AssetImportSuite
 
         RunHandedness(ctx, parent, service, project);
         RunFirstRoomPreparation(ctx, parent, project, resources);
+        RunAnimationLibraries(ctx, parent, resources);
     }
 
     private static void RunHandedness(HeadlessContext ctx, string parent, ProjectService service, ProjectSession project)
@@ -208,6 +209,94 @@ internal static class AssetImportSuite
             gui.FillRectangle(Color.FromArgb(150, 0, 0, 0), new RectangleF(0, 0, 200, 100));
             Check(string.Join(",", hud.Order) == "rect,sprite,text,rect" && probe.Sprites.Count == 0,
                 $"GUI images did not keep their draw order: {string.Join(",", hud.Order)} ({probe.Sprites.Count} drawn beneath).");
+        });
+    }
+
+    /// <summary>A glTF with one node named Root, optionally a triangle mesh on it and a one-second clip moving it.</summary>
+    private static string WriteGltf(string path, bool mesh, bool clip)
+    {
+        var bytes = new List<byte>();
+        void Floats(params float[] values) { foreach (float value in values) bytes.AddRange(BitConverter.GetBytes(value)); }
+        Floats(0, 0, 0, 1, 0, 0, 0, 1, 0);                // 0: positions (36 bytes)
+        bytes.AddRange(BitConverter.GetBytes((ushort)0)); bytes.AddRange(BitConverter.GetBytes((ushort)1));
+        bytes.AddRange(BitConverter.GetBytes((ushort)2)); bytes.AddRange(new byte[2]); // 36: indices (6 + 2 pad)
+        Floats(0, 1);                                      // 44: key times (8 bytes)
+        Floats(0, 0, 0, 0, 2, 0);                          // 52: translations (24 bytes)
+        string nodes = mesh ? "[{\"name\":\"Root\",\"mesh\":0}]" : "[{\"name\":\"Root\"}]";
+        string meshes = mesh ? ",\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0},\"indices\":1}]}]" : string.Empty;
+        string animations = clip
+            ? ",\"animations\":[{\"name\":\"Rise\",\"samplers\":[{\"input\":2,\"output\":3}],\"channels\":[{\"sampler\":0,\"target\":{\"node\":0,\"path\":\"translation\"}}]}]"
+            : string.Empty;
+        string json = "{\"asset\":{\"version\":\"2.0\"},\"scene\":0,\"scenes\":[{\"nodes\":[0]}],\"nodes\":" + nodes + meshes + animations +
+            ",\"buffers\":[{\"byteLength\":" + bytes.Count + ",\"uri\":\"data:application/octet-stream;base64," + Convert.ToBase64String(bytes.ToArray()) + "\"}]," +
+            "\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":36},{\"buffer\":0,\"byteOffset\":36,\"byteLength\":6}," +
+            "{\"buffer\":0,\"byteOffset\":44,\"byteLength\":8},{\"buffer\":0,\"byteOffset\":52,\"byteLength\":24}]," +
+            "\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\",\"min\":[0,0,0],\"max\":[1,1,0]}," +
+            "{\"bufferView\":1,\"componentType\":5123,\"count\":3,\"type\":\"SCALAR\"}," +
+            "{\"bufferView\":2,\"componentType\":5126,\"count\":2,\"type\":\"SCALAR\",\"min\":[0],\"max\":[1]}," +
+            "{\"bufferView\":3,\"componentType\":5126,\"count\":2,\"type\":\"VEC3\"}]}";
+        File.WriteAllText(path, json);
+        return path;
+    }
+
+    private static void RunAnimationLibraries(HeadlessContext ctx, string parent, ResourceService resources)
+    {
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Models.ModelsShareClipsFromAnAnimationLibrary", () =>
+        {
+            // A file of clips with no meshes imports as a clips-only Model.
+            string clipsSource = WriteGltf(Path.Combine(parent, "Moves.gltf"), mesh: false, clip: true);
+            GModelAsset clipsOnly = ExternalModelImporter.Import(clipsSource, parent, Path.Combine(parent, "Moves.model.json"));
+            Check(clipsOnly.Meshes.Count == 0 && clipsOnly.Animations.Count == 1 && clipsOnly.Metadata.ContainsKey("source.clipsOnly"),
+                "A glTF of clips without meshes did not import as a clips-only Model.");
+
+            // Same skeleton: the clip object itself is shared. Another rest pose: retargeted.
+            GModelAsset same = new();
+            same.Nodes.Add(new GModelNode { Name = "Root", LocalTransform = clipsOnly.Nodes[0].LocalTransform });
+            Check(ModelAnimationLibraries.AddClips(same, clipsOnly) == 1
+                && ReferenceEquals(same.Animations[0], clipsOnly.Animations[0]) && same.LibraryClipNames.Contains("Rise"),
+                "A model on the same skeleton did not share the library's clip.");
+            GModelAsset taller = new();
+            taller.Nodes.Add(new GModelNode { Name = "Root", LocalTransform = Matrix4x4.CreateTranslation(0, 5, 0) });
+            ModelAnimationLibraries.AddClips(taller, clipsOnly);
+            GModelAnimationClip moved = taller.Animations.Single();
+            float startY = moved.Frames[0].LocalBoneTransforms[0].Translation.Y;
+            float endY = moved.Frames[^1].LocalBoneTransforms[0].Translation.Y;
+            Check(!ReferenceEquals(moved, clipsOnly.Animations[0]) && Math.Abs(startY - 5) < 1e-4f && Math.Abs(endY - 7) < 1e-3f,
+                $"A clip on a body with another rest pose did not keep that pose plus the movement: {startY} to {endY} (5 to 7).");
+
+            // Wired through a Model's descriptor; borrowed clips are not saved into its file.
+            string library = resources.ImportFiles(resources.AssetsRoot, [clipsSource]).Single();
+            string figureSource = WriteGltf(Path.Combine(parent, "Figure.gltf"), mesh: true, clip: false);
+            string figure = resources.ImportFiles(resources.AssetsRoot, [figureSource]).Single();
+            var descriptor = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(figure))!.AsObject();
+            descriptor["animationLibraries"] = new System.Text.Json.Nodes.JsonArray(Path.GetFileName(library).Split('.')[0]);
+            File.WriteAllText(figure, descriptor.ToJsonString());
+            Genesis.Shared.Assets.ResourceCatalog.Invalidate(Path.GetDirectoryName(resources.AssetsRoot)!);
+            GModelAsset loaded = StudioModelResourceLoader.Load(figure);
+            Check(loaded.Animations.Any(c => c.Name == "Rise") && loaded.LibraryClipNames.Contains("Rise"),
+                "A Model did not play the clips of the library its descriptor names: " + string.Join(", ", loaded.Animations.Select(c => c.Name)));
+            string saved = Path.Combine(parent, "Figure-saved.gmodel");
+            RuntimeModelStore.Save(saved, loaded);
+            Check(!File.ReadAllText(saved).Contains("\"Rise\"", StringComparison.Ordinal) && loaded.Animations.Any(c => c.Name == "Rise"),
+                "A borrowed clip was written into the model's own file.");
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Assets.OneBadFileDoesNotStopAnImport", () =>
+        {
+            string empty = WriteGltf(Path.Combine(parent, "Nothing.gltf"), mesh: false, clip: false);
+            string picture = Path.Combine(parent, "Fine.png");
+            using (Bitmap bitmap = new(8, 8)) bitmap.Save(picture, ImageFormat.Png);
+            try
+            {
+                resources.ImportFiles(resources.AssetsRoot, [empty, picture]);
+                Check(false, "A file that cannot be imported was not reported.");
+            }
+            catch (ResourceImportException exception)
+            {
+                Check(exception.Imported.Count == 1 && exception.Failed.Count == 1
+                    && exception.Failed[0].Source.EndsWith("Nothing.gltf", StringComparison.OrdinalIgnoreCase),
+                    $"The import stopped or misreported: {exception.Message}");
+            }
         });
     }
 

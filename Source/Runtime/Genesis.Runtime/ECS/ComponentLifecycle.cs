@@ -165,7 +165,8 @@ namespace Genesis.Runtime.ECS
                 if (!world.Has<ModelAnimatorComponent>(entity))
                     world.Set(entity, new ModelAnimatorComponent
                     {
-                        ClipFps = 60f,
+                        // 0 plays each clip at the rate it was authored at; a value overrides it.
+                        ClipFps = 0f,
                         PlaybackSpeed = 1f,
                         Playing = true,
                         Loop = true,
@@ -176,7 +177,7 @@ namespace Genesis.Runtime.ECS
                     // Legacy prefab documents predate PlaybackSpeed. Their missing numeric value
                     // deserialises as zero, but authored pause state is represented by Playing.
                     if (animator.PlaybackSpeed == 0f) animator.PlaybackSpeed = 1f;
-                    if (animator.ClipFps <= 0f) animator.ClipFps = 60f;
+                    if (!float.IsFinite(animator.ClipFps) || animator.ClipFps < 0f) animator.ClipFps = 0f;
                 }
             }
             public void OnDetach(EcsWorld world, Entity entity) { }

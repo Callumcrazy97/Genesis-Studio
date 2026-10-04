@@ -37,7 +37,8 @@ public static class ProjectModelCooker
                     ? File.GetLastWriteTimeUtc(canonicalPath).Ticks
                     : 0L;
                 GModelAsset model = StudioModelResourceLoader.Load(resourcePath);
-                if (model.ImportRequired || model.Meshes.Count == 0)
+                // A clips-only Model (an animation library) has no geometry and is still a Model.
+                if (model.ImportRequired || (model.Meshes.Count == 0 && model.Animations.Count == 0))
                 {
                     failures.Add(new Failure(
                         resourcePath,
@@ -70,7 +71,8 @@ public static class ProjectModelCooker
     public static void CookOne(string resourcePath)
     {
         GModelAsset model = StudioModelResourceLoader.Load(resourcePath);
-        if (model.ImportRequired || model.Meshes.Count == 0)
+        // A clips-only Model (an animation library) has no geometry and is still a Model.
+        if (model.ImportRequired || (model.Meshes.Count == 0 && model.Animations.Count == 0))
         {
             throw new InvalidDataException(
                 string.IsNullOrWhiteSpace(model.ImportMessage)

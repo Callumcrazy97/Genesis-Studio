@@ -255,6 +255,11 @@ public sealed class RoomEnvironment
     /// balanced; up to 4). Gives metals their colour away from lights.
     /// </summary>
     [JsonProperty("environmentReflection")] public float EnvironmentReflection { get; set; }
+    /// <summary>
+    /// The project's Fullscreen Shader resources to run over the finished frame, in order, while
+    /// this room is shown (an outline, a colour grade, a vignette). Empty runs none.
+    /// </summary>
+    [JsonProperty("postEffects")] public List<string> PostEffects { get; set; } = new();
     [JsonProperty("fogDensity")] public float FogDensity { get; set; }
     [JsonProperty("dynamicSky")] public bool DynamicSky { get; set; }
     [JsonProperty("weather")] public string Weather { get; set; } = "Clear";

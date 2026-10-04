@@ -196,7 +196,7 @@ namespace Genesis.Runtime.Scene
                         {
                             ClipName = (string)(props["ClipName"] ?? props["Clip"]) ?? "",
                             PreviousClipName = (string)props["PreviousClipName"] ?? "",
-                            ClipFps = F(props, "ClipFps", F(props, "FPS", 60f)),
+                            ClipFps = MathF.Max(0f, F(props, "ClipFps", F(props, "FPS", 0f))),
                             TimeSeconds = F(props, "TimeSeconds", 0f),
                             PreviousTimeSeconds = F(props, "PreviousTimeSeconds", 0f),
                             PlaybackSpeed = F(props, "PlaybackSpeed", 1f),

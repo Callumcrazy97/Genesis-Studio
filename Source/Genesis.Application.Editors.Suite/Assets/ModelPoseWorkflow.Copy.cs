@@ -12,6 +12,7 @@ public static partial class ModelPoseWorkflow
         Schema = source.Schema, Name = source.Name, SourceFile = source.SourceFile, ImportedUtc = source.ImportedUtc,
         ImportRequired = source.ImportRequired, ImportMessage = source.ImportMessage, Culling = source.Culling, WindingOrder = source.WindingOrder,
         Bounds = Copy(source.Bounds), ImportSettings = Copy(source.ImportSettings), Nodes = source.Nodes.Select(Copy).ToList(),
+        LibraryClipNames = new HashSet<string>(source.LibraryClipNames ?? [], StringComparer.OrdinalIgnoreCase),
         Sockets = (source.Sockets ?? []).Select(socket => new GModelSocket
         {
             Name = socket.Name, BoneIndex = socket.BoneIndex, NodeIndex = socket.NodeIndex,

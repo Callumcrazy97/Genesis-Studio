@@ -352,6 +352,10 @@ namespace Genesis.Runtime
             // A 3D room's sprites and GUI sprites follow its pixel-art setting too (2D rooms set it
             // again as they draw). Without this a 3D room's HUD was always smoothed.
             if (roomPresentation != null) _renderer.SetSamplerState(roomPresentation.SpriteFilter);
+            // The project's post effects (Fullscreen Shader resources) the room and its scripts ask for.
+            if (!booting)
+                _renderer.SetPostEffects(Genesis.Runtime.Rendering.ProjectPostEffects.RequestsFor(
+                    Genesis.Runtime.Scripting.PgslCommands.ProjectPath));
             RoomFogState spriteFog = twoDRoom
                 ? RoomFogState.Create(
                     _scene.Environment.FogEnabled,

@@ -134,11 +134,17 @@ public static class ExternalModelImporter
             }
         }
 
-        if (!rigAndAnimationsOnly && asset.Meshes.Count == 0)
-            throw new InvalidDataException("The glTF contains no supported triangle primitives with POSITION data.");
-
         foreach (AnimationState animation in animations)
             asset.Animations.Add(BakeClip(animation, nodes));
+
+        // A file of clips with no meshes (an animation library) becomes a clips-only Model that other
+        // Models borrow from; a file with neither meshes nor a skeleton nor clips is still refused.
+        if (!rigAndAnimationsOnly && asset.Meshes.Count == 0)
+        {
+            if (asset.Animations.Count == 0 && !requiresRig)
+                throw new InvalidDataException("The glTF contains no supported triangle primitives with POSITION data.");
+            asset.Metadata["source.clipsOnly"] = "true";
+        }
         if (requiresRig)
         {
             asset.LastSkinDiagnostics = GModelPrimitiveFactory.ValidateSkin(asset);

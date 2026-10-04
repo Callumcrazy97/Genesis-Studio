@@ -274,9 +274,18 @@ public sealed class ResourceService
         string[] destinations = sources.Select(source =>
             ResourceFolderPolicy.Destination(Project, parent, ImportKind(source))).ToArray();
         List<string> imported = [];
+        List<(string Source, Exception Error)> failed = [];
+        // One file that cannot be imported no longer stops the rest of the batch.
         for (int index = 0; index < sources.Length; index++)
-            imported.Add(ImportSingleFile(destinations[index], sources[index]));
-
+        {
+            try { imported.Add(ImportSingleFile(destinations[index], sources[index])); }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException
+                or NotSupportedException or InvalidOperationException or ArgumentException or System.Text.Json.JsonException)
+            {
+                failed.Add((sources[index], exception));
+            }
+        }
+        if (failed.Count > 0) throw new ResourceImportException(imported, failed);
         return imported;
     }
 

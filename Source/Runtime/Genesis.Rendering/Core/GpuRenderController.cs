@@ -787,6 +787,49 @@ namespace Genesis.Rendering.Core
 
         public void SetBlendMode(BlendMode mode)    { }
         public void SetSamplerState(SamplerFilter f) => _spr?.SetSamplerFilter(f);
+
+        // Compiled project post effects by name and source, so an unchanged effect is never rebuilt.
+        private readonly Dictionary<string, (string Entry, string Source, GpuShaderProgramHandle Program)> _postEffectPrograms = new(StringComparer.OrdinalIgnoreCase);
+        private readonly List<ForwardRenderer.PostEffectPass> _postEffectPasses = new();
+
+        public string LastPostEffectError { get; private set; } = string.Empty;
+
+        public void SetPostEffects(IReadOnlyList<PostEffectRequest> effects)
+        {
+            if (!_initialized || _fwd == null) return;
+            _postEffectPasses.Clear();
+            foreach (PostEffectRequest effect in effects ?? Array.Empty<PostEffectRequest>())
+            {
+                if (string.IsNullOrWhiteSpace(effect.Source)) continue;
+                string key = effect.Name ?? string.Empty;
+                string entry = string.IsNullOrWhiteSpace(effect.Entry) ? "MainPS" : effect.Entry.Trim();
+                if (!_postEffectPrograms.TryGetValue(key, out var compiled)
+                    || !string.Equals(compiled.Entry, entry, StringComparison.Ordinal)
+                    || !string.Equals(compiled.Source, effect.Source, StringComparison.Ordinal))
+                {
+                    if (compiled.Program.IsValid) _fwd.ReleasePostEffectProgram(compiled.Program);
+                    GpuShaderProgramHandle program = GpuShaderProgramHandle.Invalid;
+                    try
+                    {
+                        var roots = ShaderCompiler.BuildDefaultIncludeSearchPaths(effect.SourcePath, effect.ProjectPath);
+                        byte[] pixel = ShaderCompiler.CompileForBackend(effect.Source, entry, GpuShaderStage.Pixel,
+                            _gpu.ShaderBinaryFormat, effect.SourcePath, roots).Blob;
+                        program = _fwd.CreatePostEffectProgram(pixel, key);
+                    }
+                    catch (Exception exception)
+                    {
+                        // A post effect that does not compile is left out; the game keeps running.
+                        LastPostEffectError = $"{key}: {exception.Message}";
+                        RenderLog.Line("Post effect not compiled: " + LastPostEffectError);
+                    }
+                    compiled = (entry, effect.Source, program);
+                    _postEffectPrograms[key] = compiled;
+                }
+                if (compiled.Program.IsValid)
+                    _postEffectPasses.Add(new ForwardRenderer.PostEffectPass(compiled.Program, effect.Row0, effect.Row1, effect.Row2, effect.Row3));
+            }
+            _fwd.SetPostEffects(_postEffectPasses);
+        }
         public void SetRoomFog(RoomFogState state)
         {
             _spriteFog = state;

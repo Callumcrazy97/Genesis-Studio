@@ -593,7 +593,7 @@ namespace Genesis.Runtime.Scripting
 
                 _ctx.ModelAnimationTime = animator.TimeSeconds;
                 _ctx.ModelAnimationPreviousTime = animator.PreviousTimeSeconds;
-                _ctx.ModelAnimationFps = animator.ClipFps <= 0f ? 60f : animator.ClipFps;
+                _ctx.ModelAnimationFps = animator.ClipFps <= 0f ? 0f : animator.ClipFps;
                 _ctx.ModelAnimationSpeed = animator.PlaybackSpeed;
                 _ctx.ModelAnimationLoop = animator.Loop;
                 _ctx.ModelAnimationActive = animator.Playing;
@@ -780,7 +780,7 @@ namespace Genesis.Runtime.Scripting
                 {
                     SetComponent(new ModelAnimatorComponent
                     {
-                        ClipFps = 60f,
+                        ClipFps = 0f,
                         PlaybackSpeed = 1f,
                         Playing = true,
                         Loop = true,
@@ -793,7 +793,7 @@ namespace Genesis.Runtime.Scripting
                 animator.PreviousClipName = _ctx.ModelAnimationPreviousClip ?? string.Empty;
                 animator.TimeSeconds = (float)Math.Max(0, _ctx.ModelAnimationTime);
                 animator.PreviousTimeSeconds = (float)Math.Max(0, _ctx.ModelAnimationPreviousTime);
-                animator.ClipFps = (float)(_ctx.ModelAnimationFps <= 0 ? 60 : _ctx.ModelAnimationFps);
+                animator.ClipFps = (float)(_ctx.ModelAnimationFps <= 0 ? 0 : _ctx.ModelAnimationFps);
                 animator.PlaybackSpeed = (float)_ctx.ModelAnimationSpeed;
                 animator.Loop = _ctx.ModelAnimationLoop;
                 animator.Playing = _ctx.ModelAnimationActive;

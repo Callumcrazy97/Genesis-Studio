@@ -390,6 +390,25 @@ public static partial class PgslCommands
 
     #endregion
 
+    #region Post effects
+
+    [PgslCommand("PostEffectAdd", "PostEffectAdd(shader)",
+        "Run one of the project's Fullscreen Shader resources over the finished frame, after any already running", "Lighting")]
+    public static void PostEffectAdd(string shader) => Genesis.Runtime.Rendering.ProjectPostEffects.Add(shader);
+
+    [PgslCommand("PostEffectRemove", "PostEffectRemove(shader)", "Stop running a post effect", "Lighting")]
+    public static void PostEffectRemove(string shader) => Genesis.Runtime.Rendering.ProjectPostEffects.Remove(shader);
+
+    [PgslCommand("PostEffectClear", "PostEffectClear()", "Stop every post effect", "Lighting")]
+    public static void PostEffectClear() => Genesis.Runtime.Rendering.ProjectPostEffects.Clear();
+
+    [PgslCommand("PostEffectSetParameter", "PostEffectSetParameter(shader, parameter, value)",
+        "Set one of a running post effect's parameters, by the name it has in the shader's GenesisParameters", "Lighting")]
+    public static void PostEffectSetParameter(string shader, string parameter, double value) =>
+        Genesis.Runtime.Rendering.ProjectPostEffects.SetParameter(shader, parameter, (float)value);
+
+    #endregion
+
     #region Inverse trigonometry
 
     [PgslCommand("ArcSin", "ArcSin(x) -> number", "The angle in degrees whose sine is x (-1 to 1)", "Math")]
