@@ -219,6 +219,8 @@ namespace Genesis.Runtime.Modeling
         public string MetallicRoughnessTexture { get; set; } = "";
         public string EmissiveTexture { get; set; } = "";
         public Vector3 EmissiveFactor { get; set; }
+        /// <summary>A mesh Shader resource this material is drawn with, in place of the Object's (empty for none).</summary>
+        public string Shader { get; set; } = "";
         public Dictionary<string, string> Metadata { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     }
 

@@ -520,6 +520,10 @@ namespace Genesis.Rendering.Primitives
             public int SkinPaletteId;
             /// <summary>Submission order, the tie-break that keeps equal-distance draws stable.</summary>
             public int Order;
+            /// <summary>The draw's own mesh shader (a Shader resource), its parameters and textures.</summary>
+            public RuntimeShaderHandle Shader;
+            public Vector4 ShaderParams0, ShaderParams1, ShaderParams2, ShaderParams3;
+            public AuthoredGpuTextures AuthoredTextures;
         }
 
         private struct WaterMesh
@@ -2780,6 +2784,10 @@ namespace Genesis.Rendering.Primitives
                     TerrainGround = terrainGround,
                     RasterOverride = rasterOverride,
                     SkinPaletteId = skinPalette.Id,
+                    Shader = shader,
+                    ShaderParams0 = shaderParams0, ShaderParams1 = shaderParams1,
+                    ShaderParams2 = shaderParams2, ShaderParams3 = shaderParams3,
+                    AuthoredTextures = authoredTextures,
                 });
                 LastInstancesDrawn++;
                 return;
@@ -2940,6 +2948,10 @@ namespace Genesis.Rendering.Primitives
                     NoReceiveShadow = noReceiveShadow,
                     TerrainGround = terrainGround,
                     RasterOverride = rasterOverride,
+                    Shader = shader,
+                    ShaderParams0 = shaderParams0, ShaderParams1 = shaderParams1,
+                    ShaderParams2 = shaderParams2, ShaderParams3 = shaderParams3,
+                    AuthoredTextures = authoredTextures,
                 });
                 LastInstancesDrawn++;
                 return;
@@ -4515,6 +4527,7 @@ namespace Genesis.Rendering.Primitives
             bool lastCullNone = false;
             int  lastMeshId = -1;
             int lastTextureId = -1;
+            int lastShaderId = -1;
 
             for (int i = worldSpan.Length - 1; i >= 0; i--)
             {
@@ -4562,6 +4575,20 @@ namespace Genesis.Rendering.Primitives
                     lastTextureId = wm.Texture.Id;
                 }
 
+                // A see-through draw keeps its own shader (a glass, an ash wall, an ability shell):
+                // the pass's blending stays, the pixel shader and its inputs are the draw's.
+                int shaderId = wm.Shader.IsValid ? wm.Shader.Id : 0;
+                if (!boundOnce || shaderId != lastShaderId)
+                {
+                    _gpu.SetShaderProgram(CurrentForwardProgram(skinned: false, wm.Shader));
+                    lastShaderId = shaderId;
+                }
+                if (wm.Shader.IsValid)
+                {
+                    BindShaderParameters(wm.Shader, wm.ShaderParams0, wm.ShaderParams1, wm.ShaderParams2, wm.ShaderParams3);
+                    wm.AuthoredTextures.Bind(_gpu);
+                }
+
                 boundOnce = true;
 
                 // wm.NoDepthWrite exactly matches the depth-stencil state just bound above
@@ -4578,6 +4605,7 @@ namespace Genesis.Rendering.Primitives
                 LastTriangles += mesh.IndexCount / 3;
             }
 
+            if (lastShaderId > 0) _gpu.SetShaderProgram(CurrentForwardProgram(skinned: false));
             _gpu.SetRasterState(CurrentRasterizer());
 
             // Transparent / additive particle instanced pass — one DrawIndexedInstanced per unique

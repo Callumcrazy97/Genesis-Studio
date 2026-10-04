@@ -384,7 +384,7 @@ namespace Genesis.Runtime.Modeling
                     rendererComponent.WindingOrder);
 
                 drawn?.Add(mesh);
-                queue.Add(new MeshDrawCall
+                var draw = new MeshDrawCall
                 {
                     // An animated mesh steps down one level later than a static one: a character
                     // is looked at more closely than a rock, and its joints bend.
@@ -401,7 +401,12 @@ namespace Genesis.Runtime.Modeling
                     Alpha = alpha,
                     Emissive = emissive,
                     Flags = flags,
-                });
+                };
+                // A material may name a mesh Shader resource of its own: a building's glass and walls
+                // are one model.
+                if (!string.IsNullOrWhiteSpace(material?.Shader) && !animation.FlatUntextured)
+                    Genesis.Runtime.Rendering.ObjectDrawPass.TryApplyMaterialShader(renderer, projectPath, material.Shader, ref draw);
+                queue.Add(draw);
             }
             return true;
         }

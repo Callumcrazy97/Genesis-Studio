@@ -38,6 +38,8 @@ public static class StudioModelResourceLoader
         public bool? ConvertRightHanded { get; set; }
         /// <summary>Models whose clips this one plays as its own (see ModelAnimationLibraries).</summary>
         public List<string> AnimationLibraries { get; set; } = [];
+        /// <summary>Material name to mesh Shader resource; kept here so a re-import keeps it.</summary>
+        public Dictionary<string, string> MaterialShaders { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         public List<Part> Parts { get; set; } = [];
         public List<string> Materials { get; set; } = [];
     }
@@ -114,7 +116,15 @@ public static class StudioModelResourceLoader
     {
         GModelAsset asset = LoadCore(path, allowReimport);
         List<string> libraries;
-        try { libraries = ReadDocument(path).AnimationLibraries; }
+        try
+        {
+            Document document = ReadDocument(path);
+            libraries = document.AnimationLibraries;
+            if (asset != null && document.MaterialShaders is { Count: > 0 } shaders)
+                foreach (GModelMaterial material in asset.Materials)
+                    if (material != null && shaders.TryGetValue(material.Name ?? string.Empty, out string shader))
+                        material.Shader = shader ?? string.Empty;
+        }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
         {
             return asset;

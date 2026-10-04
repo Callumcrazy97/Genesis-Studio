@@ -257,6 +257,39 @@ internal static class PgslScriptsSuite
             Check(scene.Environment.EnvironmentReflection == 4f, "An out-of-range reflection strength was not limited to 4.");
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Shaders.EachInstanceCarriesItsOwnShaderValues", () =>
+        {
+            using var scene = new Genesis.Runtime.RuntimeScene("Shader values");
+            var game = new Genesis.Runtime.Project.ProjectGameContext(ctx.Workspace, scene, null, null,
+                Genesis.Runtime.Scene.RoomAsset.Create("Probe", Genesis.Runtime.Scene.RoomDimension.ThreeD), null);
+            var previousGame = PgslCommands.ActiveGameContext;
+            PgslCommands.ActiveGameContext = game;
+            try
+            {
+                var first = scene.World.CreateEntity();
+                var second = scene.World.CreateEntity();
+                PgslCommands.InstanceSetShader(first.Id, "Camo");
+                PgslCommands.InstanceSetShaderParameter(first.Id, "Pattern", 3);
+                PgslCommands.InstanceSetShaderVector(second.Id, "Tint", 0.1, 0.2, 0.3, 1);
+                Check(Genesis.Runtime.Rendering.ObjectDrawAssetRegistry.TryGet(first, out var one)
+                    && one.Shader == "Camo" && one.ShaderParameters["Pattern"][0] == 3f
+                    && PgslCommands.InstanceGetShaderParameter(first.Id, "Pattern") == 3,
+                    "An instance's shader and parameter did not reach its own draw values.");
+                Check(Genesis.Runtime.Rendering.ObjectDrawAssetRegistry.TryGet(second, out var two)
+                    && !two.ShaderParameters.ContainsKey("Pattern") && two.ShaderParameters["Tint"][2] == 0.3f,
+                    "Shader values leaked between instances.");
+                var document = new Genesis.Shared.Assets.ShaderAssetDocument
+                {
+                    Source = "cbuffer GenesisParameters : register(b5) { float Pattern; float3 Tint; };",
+                };
+                Genesis.Shared.Assets.ShaderParameterReflection.Synchronize(document);
+                Genesis.Shared.Assets.ShaderParameterReflection.Pack(document, one.ShaderParameters,
+                    out System.Numerics.Vector4 row0, out _, out _, out _);
+                Check(row0.X == 3f, $"The instance's value is not what its shader receives: {row0}.");
+            }
+            finally { PgslCommands.ActiveGameContext = previousGame; }
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Engine.Input.ADigitNamesItsKey", () =>
         {
             Genesis.Runtime.Input.InputState input = new();

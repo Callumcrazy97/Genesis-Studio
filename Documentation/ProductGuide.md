@@ -10,6 +10,7 @@ Genesis Studio makes 2D and 3D games for Windows. These guides are installed wit
 | [Large worlds](LargeWorlds.md) | Kilometre-scale terrain, scattered forests, automatic model detail, long views, loading, sharing a world between players, and what is not done yet. |
 | [Terrain creation](TerrainCreation.md) | Making, sculpting and painting a terrain, and its materials. |
 | [Post effects](PostEffects.md) | The project's own full-screen shaders over the finished frame, such as an ink outline. |
+| [Mesh shaders](MeshShaders.md) | A model's own pixel shader: per material, per instance from scripts, and the inputs it can rely on. |
 
 *Help › Commands…* in Studio lists every game-code command with an example.
 

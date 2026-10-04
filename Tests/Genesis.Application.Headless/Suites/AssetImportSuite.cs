@@ -270,11 +270,15 @@ internal static class AssetImportSuite
             string figure = resources.ImportFiles(resources.AssetsRoot, [figureSource]).Single();
             var descriptor = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(figure))!.AsObject();
             descriptor["animationLibraries"] = new System.Text.Json.Nodes.JsonArray(Path.GetFileName(library).Split('.')[0]);
+            descriptor["materialShaders"] = new System.Text.Json.Nodes.JsonObject { ["Material"] = "Glass Fresnel" };
             File.WriteAllText(figure, descriptor.ToJsonString());
             Genesis.Shared.Assets.ResourceCatalog.Invalidate(Path.GetDirectoryName(resources.AssetsRoot)!);
             GModelAsset loaded = StudioModelResourceLoader.Load(figure);
             Check(loaded.Animations.Any(c => c.Name == "Rise") && loaded.LibraryClipNames.Contains("Rise"),
                 "A Model did not play the clips of the library its descriptor names: " + string.Join(", ", loaded.Animations.Select(c => c.Name)));
+            Check(loaded.Materials.Any(m => m.Shader == "Glass Fresnel"),
+                "The descriptor's materialShaders did not reach the model's material: "
+                + string.Join(", ", loaded.Materials.Select(m => $"{m.Name}={m.Shader}")));
             string saved = Path.Combine(parent, "Figure-saved.gmodel");
             RuntimeModelStore.Save(saved, loaded);
             Check(!File.ReadAllText(saved).Contains("\"Rise\"", StringComparison.Ordinal) && loaded.Animations.Any(c => c.Name == "Rise"),

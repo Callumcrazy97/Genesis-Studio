@@ -104,6 +104,12 @@ namespace Genesis.Runtime.Rendering
             public int CopyTo(MeshDrawCall[] buffer, int startIndex) => target.CopyTo(buffer, startIndex);
             public void Add(in MeshDrawCall call)
             {
+                // A material with a shader of its own keeps it; the Object's shader covers the rest.
+                if (call.Shader.IsValid)
+                {
+                    target.Add(call);
+                    return;
+                }
                 foreach (RuntimeShaderHandle handle in shader.PassHandles)
                 {
                     MeshDrawCall pass = call;
@@ -844,6 +850,27 @@ namespace Genesis.Runtime.Rendering
                 | MeshDrawFlags.NoCull
                 | MeshDrawFlags.NoShadow
                 | MeshDrawFlags.NoDepthWrite;
+            return true;
+        }
+
+        [ThreadStatic] private static ObjectDrawAssetEntry _materialShaderLookup;
+
+        /// <summary>
+        /// Applies a material's own mesh Shader resource to one of its draws (its first pass, with the
+        /// shader's own parameter values). False leaves the draw as it was.
+        /// </summary>
+        internal static bool TryApplyMaterialShader(
+            IRenderController renderer, string projectPath, string shaderName, ref MeshDrawCall call)
+        {
+            if (string.IsNullOrWhiteSpace(shaderName)) return false;
+            _materialShaderLookup ??= new ObjectDrawAssetEntry();
+            _materialShaderLookup.Shader = shaderName.Trim();
+            if (!TryResolveShader(renderer, projectPath, _materialShaderLookup, ShaderAssetPipeline.Mesh, out ShaderCacheEntry shader))
+                return false;
+            RuntimeShaderHandle handle = shader.PassHandles.Length > 0 ? shader.PassHandles[0] : shader.Handle;
+            if (!handle.IsValid) return false;
+            BindAuthoredTextures(renderer, projectPath, _materialShaderLookup, shader.Document, ShaderAssetPipeline.Mesh, ref call.AuthoredTextures);
+            ApplyResolvedShader(shader, handle, ref call);
             return true;
         }
 
