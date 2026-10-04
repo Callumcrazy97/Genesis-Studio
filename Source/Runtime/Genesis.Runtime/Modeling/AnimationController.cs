@@ -207,6 +207,19 @@ public sealed class AnimationController
             throw new ArgumentException("A bone rotation requires a name and a finite nonzero quaternion.");
         BoneRotations[bone] = Quaternion.Normalize(rotation);
     }
+
+    /// <summary>
+    /// Per-instance local offsets added to a bone's position after clip blending (in its parent's
+    /// space, model units): a shoulder slid towards a grip it cannot reach, a recoil kick.
+    /// </summary>
+    public Dictionary<string, Vector3> BoneTranslations { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public void SetBoneTranslation(string bone, Vector3 offset)
+    {
+        if (string.IsNullOrWhiteSpace(bone) || !float.IsFinite(offset.X) || !float.IsFinite(offset.Y) || !float.IsFinite(offset.Z))
+            throw new ArgumentException("A bone translation requires a name and a finite offset.");
+        BoneTranslations[bone] = offset;
+    }
     public Vector3 RootMotionDelta { get; private set; }
     public Quaternion RootMotionRotation { get; private set; } = Quaternion.Identity;
     public AnimationController(Dictionary<string, object>? parameters = null) =>
@@ -273,6 +286,10 @@ public sealed class AnimationController
             for (int i = 0; i < result.Length; i++)
                 if (BoneRotations.TryGetValue(asset.Rig.Bones[i].Name, out Quaternion offset))
                     result[i] = Matrix4x4.CreateFromQuaternion(offset) * result[i];
+        if (BoneTranslations.Count > 0)
+            for (int i = 0; i < result.Length; i++)
+                if (BoneTranslations.TryGetValue(asset.Rig.Bones[i].Name, out Vector3 move))
+                    result[i].Translation += move;
         return result;
     }
 }

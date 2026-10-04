@@ -393,6 +393,27 @@ tileMetres)`, or the Terrain editor's layers): a layered terrain takes its colou
 Images. The fixed grass, earth, rock and moss colours are only what an unlayered terrain falls
 back to.
 
+## Movers, first-person views and moving parts
+
+For a character controller written in script, and for first-person arms, weapons and vehicles.
+The shape queries never hit the calling instance's own collider and are read back with the
+`PhysicsRaycastHit*` commands (the point is where the shape touches; the shape's centre is then
+at the start plus the direction times the distance). They work in 3D rooms, in metres.
+
+| Command | What it does |
+|---|---|
+| `PhysicsSphereCast(x, y, z, radius, dx, dy, dz, maxDistance)` | Distance a sphere moves before it touches something; 0 when it starts touching, -1 for nothing. |
+| `PhysicsCapsuleCast(x, y, z, radius, height, dx, dy, dz, maxDistance)` | The same for an upright capsule centred on x, y, z, `height` tall end to end. |
+| `PhysicsSphereRest(x, z, radius, maxCentreY)` | Height of a sphere's centre where it comes to rest when lowered from `maxCentreY`, on a face, an edge or a corner (a rounded foot on a kerb); -1000000 when nothing is below. |
+| `PhysicsOverlapCapsule(x, y, z, radius, height)` | Whether an upright capsule there overlaps or touches anything: does a crouched character fit standing up? |
+| `SetCameraRoll(degrees)`, `GetCameraRoll()` | Roll the 3D camera about its direction of view; positive leans it right. It stays until set again, and a shake's tilt adds to it. |
+| `ModelSetCastShadows(enabled)`, `InstanceSetCastShadows(id, enabled)` | Whether a model casts a shadow: first-person arms and weapons should not. |
+| `AnimationBoneSetTranslation(bone, x, y, z)`, `AnimationBoneClearTranslation(bone)` | Move a bone by a local offset (its parent's space, model units) after animation, as `AnimationBoneSetRotation` turns it: a shoulder slid towards a grip. |
+| `ModelNodeSetRotation(node, pitch, yaw, roll)`, `ModelNodeSetTranslation(node, x, y, z)`, `ModelNodeClear(node)` | Turn or move one of this instance's model nodes from its authored pose (propellers, a gun's bolt, slide or magazine); the nodes below it follow. Skinned meshes follow their bones instead. |
+
+Bone turns and offsets set on another instance through `with` reach its model at the end of the
+block, also on an instance that has no events of its own.
+
 ## Smaller changes
 
 - **Bushes and saplings.** The `Shrub` and `Sapling` foliage shapes are built from rounded solid

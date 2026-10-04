@@ -21,6 +21,8 @@ namespace Genesis.Runtime.ECS.Components
         public System.Collections.Generic.Dictionary<string, System.Numerics.Vector4> MaterialTints;
         /// <summary>Hidden authored mesh names, for modular clothing and first-person body masks.</summary>
         public System.Collections.Generic.HashSet<string> HiddenMeshes;
+        /// <summary>Instance-only turns and offsets of the model's non-skinned nodes, by node name (ModelNodeSetRotation).</summary>
+        public System.Collections.Generic.Dictionary<string, Genesis.Runtime.Modeling.ModelNodePose> NodePoses;
         /// <summary>Optional scalp/beard style and colour choices from the model's authored hair profile.</summary>
         public Genesis.Runtime.Modeling.ModelHairAppearance Hair;
         /// <summary>Multiplies every material's colour on this instance; null is as authored.</summary>

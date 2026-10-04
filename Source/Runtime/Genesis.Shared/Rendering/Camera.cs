@@ -85,7 +85,9 @@ namespace Genesis.Shared.Rendering
                 {
                     Vector3 eye = _position + _viewOffset;
                     _view = Conventions.CreateLookAt(eye, eye + Forward, Conventions.Up);
-                    if (_viewRoll != 0f) _view *= Matrix4x4.CreateRotationZ(_viewRoll);
+                    // The picture turns the opposite way to the camera: leaning right turns it anticlockwise.
+                    float roll = _viewRoll - _roll;
+                    if (roll != 0f) _view *= Matrix4x4.CreateRotationZ(roll);
                     _viewDirty = false;
                 }
 
@@ -95,6 +97,22 @@ namespace Genesis.Shared.Rendering
 
         private Vector3 _viewOffset;
         private float _viewRoll;
+        private float _roll;
+
+        /// <summary>
+        /// The camera's own roll about its direction of view, in radians; positive leans it to the
+        /// right (the right ear down, the horizon turning anticlockwise). It stays until changed; a
+        /// shake's tilt (<see cref="ViewRoll"/>) is added on top.
+        /// </summary>
+        public float Roll
+        {
+            get => _roll;
+            set
+            {
+                float next = float.IsFinite(value) ? value : 0f;
+                if (next != _roll) { _roll = next; _viewDirty = true; }
+            }
+        }
         private float _shakeAmplitude, _shakeRoll, _shakeSeconds, _shakeRemaining, _shakeClock;
 
         /// <summary>

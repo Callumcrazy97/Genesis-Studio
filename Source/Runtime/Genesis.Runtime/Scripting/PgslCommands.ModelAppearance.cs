@@ -44,6 +44,75 @@ public static partial class PgslCommands
         Finite3(r, g, b) && double.IsFinite(a) && ThisModel(out var world, out var entity)
         && Genesis.Runtime.Modeling.ModelInstance.SetTint(world, entity, new Vector4((float)r, (float)g, (float)b, (float)a));
 
+    [PgslCommand("ModelNodeSetRotation", "ModelNodeSetRotation(node, pitch, yaw, roll) -> bool",
+        "Turn one of this instance's model nodes (a propeller, a gun's bolt) by degrees from its authored pose; the nodes below it follow. False when the model has no node of that name",
+        "Models")]
+    public static bool ModelNodeSetRotation(string node, double pitch, double yaw, double roll)
+    {
+        if (!Finite3(pitch, yaw, roll) || !ThisModelNode(node, out var pose, out var poses, out string name)) return false;
+        const double radians = Math.PI / 180;
+        pose.Rotation = Quaternion.CreateFromYawPitchRoll(
+            (float)(yaw % 360 * radians), (float)(pitch % 360 * radians), (float)(roll % 360 * radians));
+        poses[name] = pose;
+        return true;
+    }
+
+    [PgslCommand("ModelNodeSetTranslation", "ModelNodeSetTranslation(node, x, y, z) -> bool",
+        "Move one of this instance's model nodes (a slide, a magazine) by an offset in its parent's space, model units", "Models")]
+    public static bool ModelNodeSetTranslation(string node, double x, double y, double z)
+    {
+        if (!Finite3(x, y, z) || !ThisModelNode(node, out var pose, out var poses, out string name)) return false;
+        pose.Translation = new Vector3((float)x, (float)y, (float)z);
+        poses[name] = pose;
+        return true;
+    }
+
+    [PgslCommand("ModelNodeClear", "ModelNodeClear(node)", "Return one of this instance's model nodes to its authored pose", "Models")]
+    public static void ModelNodeClear(string node)
+    {
+        if (ThisModel(out var world, out var entity) && !string.IsNullOrWhiteSpace(node))
+            world.GetRef<ModelRendererComponent>(entity).NodePoses?.Remove(node.Trim());
+    }
+
+    private static bool ThisModelNode(string node, out Genesis.Runtime.Modeling.ModelNodePose pose,
+        out Dictionary<string, Genesis.Runtime.Modeling.ModelNodePose> poses, out string name)
+    {
+        pose = Genesis.Runtime.Modeling.ModelNodePose.Identity;
+        poses = null!;
+        name = node?.Trim() ?? string.Empty;
+        if (name.Length == 0 || !ThisModel(out var world, out var entity)) return false;
+        ref var component = ref world.GetRef<ModelRendererComponent>(entity);
+        var asset = SocketModelAssets.Load(ProjectPath, component.ModelAsset);
+        string wanted = name;
+        if (asset?.Nodes == null || !asset.Nodes.Exists(n => string.Equals(n.Name, wanted, StringComparison.OrdinalIgnoreCase)))
+            return false;
+        component.NodePoses ??= new Dictionary<string, Genesis.Runtime.Modeling.ModelNodePose>(StringComparer.OrdinalIgnoreCase);
+        poses = component.NodePoses;
+        if (poses.TryGetValue(name, out var existing)) pose = existing;
+        return true;
+    }
+
+    [PgslCommand("ModelSetCastShadows", "ModelSetCastShadows(enabled) -> bool",
+        "Whether this instance's model casts a shadow: a first-person weapon or arms should not", "Models")]
+    public static bool ModelSetCastShadows(bool enabled) =>
+        ThisModel(out var world, out var entity) && SetCastShadows(world, entity, enabled);
+
+    [PgslCommand("InstanceSetCastShadows", "InstanceSetCastShadows(id, enabled) -> bool",
+        "Whether another instance's model casts a shadow", "Models")]
+    public static bool InstanceSetCastShadows(double id, bool enabled)
+    {
+        var world = ActiveGameContext?.World;
+        if (world == null || !double.IsFinite(id) || id < 1 || id > int.MaxValue) return false;
+        var entity = world.GetEntity((int)id);
+        return world.IsAlive(entity) && world.Has<ModelRendererComponent>(entity) && SetCastShadows(world, entity, enabled);
+    }
+
+    private static bool SetCastShadows(Genesis.Runtime.ECS.World world, Genesis.Shared.ECS.Entity entity, bool enabled)
+    {
+        world.GetRef<ModelRendererComponent>(entity).CastShadows = enabled;
+        return true;
+    }
+
     [PgslCommand("ModelSetGlow", "ModelSetGlow(amount) -> bool",
         "Add the model's own colours on top of its lighting: 0 none, 1 fully self-lit. Raise it briefly for a hit flash", "Models")]
     public static bool ModelSetGlow(double amount) =>

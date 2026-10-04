@@ -274,6 +274,9 @@ namespace Genesis.Runtime.Modeling
             ModelHairSelection hair = ModelHairRuntime.Resolve(asset, rendererComponent.Hair);
             Vector3 pivot = asset.Pivot?.Position ?? Vector3.Zero;
             bool drawsMaterialFactors = asset.DrawsMaterialFactors();
+            Matrix4x4[] nodeDeltas = rendererComponent.NodePoses is { Count: > 0 } nodePoses
+                ? ModelNodePoses.Deltas(asset, nodePoses)
+                : null;
             Matrix4x4 pivotedWorld = pivot.LengthSquared() > 1e-12f
                 ? Matrix4x4.CreateTranslation(-pivot) * world
                 : world;
@@ -391,7 +394,7 @@ namespace Genesis.Runtime.Modeling
                     // is looked at more closely than a rock, and its joints bend.
                     Mesh = automatic ? mesh.ForLevel(mesh.IsSkinned ? viewLevel - 1 : viewLevel) : mesh.Mesh,
                     SkinPalette = mesh.IsSkinned ? palette : SkinPaletteHandle.Invalid,
-                    World = pivotedWorld,
+                    World = NodeWorld(asset, mesh, nodeDeltas, pivotedWorld),
                     Texture = texture,
                     NormalMap = normalMap,
                     OrmMap = ormMap,
@@ -436,7 +439,15 @@ namespace Genesis.Runtime.Modeling
             return lowest == int.MaxValue ? desired : lowest;
         }
 
-        public static Matrix4x4 TransformMatrix(TransformComponent transform, ModelRendererComponent model)
+        // A mesh of a posed node is drawn with its node's change from the bind pose (see ModelNodePoses).
+    private static Matrix4x4 NodeWorld(GModelAsset asset, ModelGpuCache.CachedMesh mesh, Matrix4x4[] deltas, Matrix4x4 world)
+    {
+        if (deltas == null || mesh.IsSkinned || (uint)mesh.SourceIndex >= (uint)asset.Meshes.Count) return world;
+        int node = asset.Meshes[mesh.SourceIndex].SourceNodeIndex;
+        return (uint)node < (uint)deltas.Length ? deltas[node] * world : world;
+    }
+
+    public static Matrix4x4 TransformMatrix(TransformComponent transform, ModelRendererComponent model)
         {
             Vector3 scale = new(
                 SafeScale(transform.ScaleX) * SafeScale(model.ScaleX),

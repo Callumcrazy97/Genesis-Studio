@@ -604,6 +604,18 @@ public static partial class PgslCommands
     public static void CameraShakeRoll3D(double amplitude, double seconds, double rollDegrees) =>
         ActiveGameContext?.Camera?.Shake((float)amplitude, (float)seconds, (float)rollDegrees);
 
+    [PgslCommand("SetCameraRoll", "SetCameraRoll(degrees)",
+        "Roll the 3D camera about its direction of view: positive leans it to the right. It stays until set again; a shake's tilt adds to it",
+        "Camera")]
+    public static void SetCameraRoll(double degrees)
+    {
+        var camera = ActiveGameContext?.Camera;
+        if (camera != null && double.IsFinite(degrees)) camera.Roll = (float)(degrees * Math.PI / 180.0);
+    }
+
+    [PgslCommand("GetCameraRoll", "GetCameraRoll() -> degrees", "The 3D camera's own roll, in degrees", "Camera")]
+    public static double GetCameraRoll() => (ActiveGameContext?.Camera?.Roll ?? 0f) * 180.0 / Math.PI;
+
     [PgslCommand("GameSetSpeed", "GameSetSpeed(scale)",
         "How fast game time runs: 1 is normal, 0.25 is slow motion, 0 holds physics, scripts' delta time and animation still (0 to 8)",
         "System")]

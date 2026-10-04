@@ -224,6 +224,37 @@ internal static class EngineSystemsSuite
             Check(host.RecentDiagnostics.Count == 0 && world.Has<ModelAnimatorComponent>(animated)
                 && Near(world.GetRef<ModelAnimatorComponent>(animated).Controller.Evaluate(Asset())[0].Translation.X, 4), "PGSL graph creation did not reach the ECS animator.");
         }));
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.PGSL.SphereAndCapsuleQueries", () => WithScene(ctx, (scene, context, game) =>
+        {
+            // A two-metre box centred on the origin: its top is at y = 1 and its sides at x = +-1.
+            var world = scene.World; Entity box = world.CreateEntity();
+            world.Set(box, new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+            world.Set(box, Transform3DComponent.Default);
+            world.Set(box, RigidBodyComponent.DynamicBox(Vector3.One));
+            scene.Physics = Genesis.Physics.PhysicsWorld.Create(new Genesis.Shared.Assets.PhysicsWorldAsset());
+            scene.Physics.RegisterEntity(world, box, ref world.GetRef<RigidBodyComponent>(box), ref world.GetRef<Transform3DComponent>(box));
+            context.InstanceId = 0;
+            Check(Near((float)PgslCommands.PhysicsSphereRest(0, 0, 0.25, 5), 1.25f),
+                $"A sphere lowered onto the box's top rested at {PgslCommands.PhysicsSphereRest(0, 0, 0.25, 5)} (1.25).");
+            // Just past the edge a ray straight down misses; the sphere rests on the edge.
+            double edge = PgslCommands.PhysicsSphereRest(1.1, 0, 0.25, 5);
+            Check(PgslCommands.PhysicsRaycast(1.1, 5, 0, 0, -1, 0, 10) == -1 && Math.Abs(edge - (1 + Math.Sqrt(0.25 * 0.25 - 0.1 * 0.1))) < 0.01,
+                $"A sphere over the box's edge rested at {edge}, not on the edge.");
+            Check(PgslCommands.PhysicsSphereRest(5, 0, 0.25, 5) == PgslCommands.NothingBelow && PgslCommands.PhysicsRaycastHitInstanceId() == -1,
+                "A sphere with nothing below it found somewhere to rest.");
+            double side = PgslCommands.PhysicsSphereCast(5, 0, 0, 0.5, -1, 0, 0, 10);
+            Check(Near((float)side, 3.5f) && Near((float)PgslCommands.PhysicsRaycastHitNormalX(), 1)
+                && PgslCommands.PhysicsRaycastHitInstanceId() == box.Id && Near((float)PgslCommands.PhysicsRaycastHitX(), 1),
+                $"A sphere moving at the box's side touched after {side} (3.5).");
+            Check(Near((float)PgslCommands.PhysicsCapsuleCast(0, 5, 0, 0.3, 1.8, 0, -1, 0, 10), 3.1f),
+                "An upright capsule did not stop with its foot on the box.");
+            Check(PgslCommands.PhysicsOverlapCapsule(0, 1.4, 0, 0.3, 1) && !PgslCommands.PhysicsOverlapCapsule(0, 3, 0, 0.3, 1),
+                "A capsule overlapping the box was not found, or one in the air was.");
+            context.InstanceId = box.Id;
+            Check(PgslCommands.PhysicsSphereCast(5, 0, 0, 0.5, -1, 0, 0, 10) == -1 && !PgslCommands.PhysicsOverlapCapsule(0, 0, 0, 0.3, 1),
+                "A query hit the collider of the instance asking.");
+            context.InstanceId = 0;
+        }));
         HeadlessHarness.RunCase(ctx.Report, "Runtime.PGSL.ThirdPersonCamera", () => WithScene(ctx, (scene, context, game) =>
         {
             var entity = scene.World.CreateEntity(); context.InstanceId = entity.Id;

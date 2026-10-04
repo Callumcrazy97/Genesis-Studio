@@ -168,7 +168,8 @@ internal static class PgslScriptsSuite
                         "with (Weapon) { gswRev = gswRev + step; x = x + 1; }\n" +
                         "count = InstanceNumber(\"Weapon\");\nlead = InstanceFind(\"Weapon\", 0);\n" +
                         "InstanceVariableSet(lead, \"label\", \"lead\");\nread = InstanceVariableGet(lead, \"gswRev\");\n" +
-                        "with (lead) { solo = 1; }\nafter = x;\n",
+                        "with (lead) { solo = 1; }\nafter = x;\n" +
+                        "with (lead) { AnimationBoneSetRotation(\"Arm\", 10, 0, 0); AnimationBoneSetTranslation(\"Arm\", 0, 0, 0.26); }\n",
                 })) host.Attach(world, controller, "Controller");
 
                 var scripts = host.Instances.OfType<PgslBehavior>().ToList();
@@ -192,6 +193,18 @@ internal static class PgslScriptsSuite
                     $"InstanceNumber/InstanceFind/InstanceVariableGet gave {Number(boss, "count")}, {Number(boss, "lead")}, {Number(boss, "read")}.");
                 Check(one.TryGetValue("label", out object? label) && Equals(label, "lead") && Number(one, "solo") == 1 && !two.ContainsKey("solo"),
                     "InstanceVariableSet or with (id) did not reach exactly the one instance.");
+                // A target with no events of its own still shows the bone turns and offsets set on it.
+                bool posed = world.Has<Genesis.Runtime.ECS.Components.ModelAnimatorComponent>(first)
+                    && world.GetRef<Genesis.Runtime.ECS.Components.ModelAnimatorComponent>(first).Controller is { } arms
+                    && arms.BoneRotations.ContainsKey("Arm")
+                    && arms.BoneTranslations.TryGetValue("Arm", out System.Numerics.Vector3 slide) && Math.Abs(slide.Z - 0.26f) < 1e-5f;
+                Check(posed, "A bone set through with did not reach the target's model before its own events ran.");
+                world.Set(second, new Genesis.Runtime.ECS.Components.ModelRendererComponent { CastShadows = true, ReceiveShadows = true });
+                Check(PgslCommands.InstanceSetCastShadows(second.Id, false)
+                    && !world.GetRef<Genesis.Runtime.ECS.Components.ModelRendererComponent>(second).CastShadows
+                    && world.GetRef<Genesis.Runtime.ECS.Components.ModelRendererComponent>(second).ReceiveShadows
+                    && !PgslCommands.InstanceSetCastShadows(controller.Id, false),
+                    "InstanceSetCastShadows did not turn off exactly one model's shadow.");
             }
             finally
             {
@@ -199,6 +212,64 @@ internal static class PgslScriptsSuite
                 PgslCommands.ActiveGameContext = previousGame;
                 PgslCommands.ProjectPath = previousPath;
             }
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Models.ANodeTurnsAndMovesPerInstance", () =>
+        {
+            // A plane with a propeller one metre to its right and a spinner on the propeller.
+            var asset = new Genesis.Runtime.Modeling.GModelAsset();
+            asset.Nodes.Add(new Genesis.Runtime.Modeling.GModelNode { Name = "Body" });
+            asset.Nodes.Add(new Genesis.Runtime.Modeling.GModelNode
+            {
+                Name = "prop_1", ParentIndex = 0, LocalTransform = System.Numerics.Matrix4x4.CreateTranslation(1, 0, 0),
+            });
+            asset.Nodes.Add(new Genesis.Runtime.Modeling.GModelNode
+            {
+                Name = "Spinner", ParentIndex = 1, LocalTransform = System.Numerics.Matrix4x4.CreateTranslation(0, 1, 0),
+            });
+            var poses = new Dictionary<string, Genesis.Runtime.Modeling.ModelNodePose>(StringComparer.OrdinalIgnoreCase);
+            Check(Genesis.Runtime.Modeling.ModelNodePoses.Deltas(asset, poses) == null, "An instance with no poses moved its nodes.");
+            poses["PROP_1"] = new Genesis.Runtime.Modeling.ModelNodePose
+            {
+                Rotation = System.Numerics.Quaternion.CreateFromYawPitchRoll(MathF.PI / 2, 0, 0),
+            };
+            var deltas = Genesis.Runtime.Modeling.ModelNodePoses.Deltas(asset, poses)!;
+            System.Numerics.Vector3 Moved(int node, System.Numerics.Vector3 baked) => System.Numerics.Vector3.Transform(baked, deltas[node]);
+            bool Near3(System.Numerics.Vector3 a, System.Numerics.Vector3 b) => System.Numerics.Vector3.Distance(a, b) < 1e-4f;
+            Check(Near3(Moved(1, new(1, 0, 0)), new(1, 0, 0)) && Near3(Moved(1, new(1, 0, 1)), new(2, 0, 0)),
+                $"The propeller did not turn about its own centre: {Moved(1, new(1, 0, 1))} (2, 0, 0).");
+            Check(Near3(Moved(2, new(1, 1, 1)), new(2, 1, 0)), $"The node below the propeller did not follow it: {Moved(2, new(1, 1, 1))}.");
+            Check(Near3(Moved(0, new(0, 0, 1)), new(0, 0, 1)), "A node that was not posed moved.");
+            poses["prop_1"] = new Genesis.Runtime.Modeling.ModelNodePose
+            {
+                Rotation = System.Numerics.Quaternion.Identity, Translation = new(0, 0, 0.5f),
+            };
+            deltas = Genesis.Runtime.Modeling.ModelNodePoses.Deltas(asset, poses)!;
+            Check(Near3(Moved(1, new(1, 0, 0)), new(1, 0, 0.5f)) && Near3(Moved(2, new(1, 1, 0)), new(1, 1, 0.5f)),
+                "Moving the propeller did not move it and the node below it.");
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Camera.RollStaysAndAShakeAddsToIt", () =>
+        {
+            var camera = new Genesis.Shared.Rendering.Camera { Position = System.Numerics.Vector3.Zero };
+            System.Numerics.Vector3 point = camera.Forward * 5f + camera.Right;
+            System.Numerics.Vector4 Clip()
+            {
+                var p = System.Numerics.Vector4.Transform(new System.Numerics.Vector4(point, 1f), camera.ViewProjection);
+                return p / p.W;
+            }
+            System.Numerics.Vector4 level = Clip();
+            Check(level.X > 0.05f && Math.Abs(level.Y) < 1e-4f, $"A point on the camera's right is at {level} unrolled.");
+            camera.Roll = 10f * MathF.PI / 180f;
+            System.Numerics.Vector4 leaning = Clip();
+            Check(leaning.Y < -0.01f, $"Leaning right did not lower a point on the right ({leaning.Y}).");
+            camera.Shake(0f, 0.1f, 5f);
+            camera.AdvanceShake(0.05f);
+            camera.AdvanceShake(1f);
+            Check(camera.Roll == 10f * MathF.PI / 180f && Math.Abs(Clip().Y - leaning.Y) < 1e-5f,
+                "A shake ending took the camera's own roll away.");
+            camera.Roll = float.NaN;
+            Check(camera.Roll == 0f, "A roll that is not a number was kept.");
         });
 
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.AParameterNamedLikeABuiltInIsTheArgument", () =>
