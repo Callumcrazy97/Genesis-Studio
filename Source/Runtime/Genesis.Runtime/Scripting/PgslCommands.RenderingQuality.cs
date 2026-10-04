@@ -137,6 +137,33 @@ public static partial class PgslCommands
         set => ReconfigureLighting(exposure: value);
     }
 
+    [PgslCommand("Contrast", "Engine.Rendering.Contrast",
+        "Colour grading contrast (1 = identity)", "Engine · Rendering",
+        Namespace = "Engine.Rendering")]
+    public static float Contrast
+    {
+        get => MeshLightingDefaults.Contrast;
+        set { if (float.IsFinite(value)) ReconfigureLighting(contrast: value); }
+    }
+
+    [PgslCommand("Saturation", "Engine.Rendering.Saturation",
+        "Colour grading saturation (1 = identity, 0 = grey)", "Engine · Rendering",
+        Namespace = "Engine.Rendering")]
+    public static float Saturation
+    {
+        get => MeshLightingDefaults.Saturation;
+        set { if (float.IsFinite(value)) ReconfigureLighting(saturation: value); }
+    }
+
+    [PgslCommand("Vignette", "Engine.Rendering.Vignette",
+        "Strength of the darkening towards the picture's corners (0 = none)", "Engine · Rendering",
+        Namespace = "Engine.Rendering")]
+    public static float Vignette
+    {
+        get => MeshLightingDefaults.VignetteStrength;
+        set { if (float.IsFinite(value)) ReconfigureLighting(vignetteStrength: value); }
+    }
+
     /// <summary>
     /// Re-apply <see cref="MeshLightingDefaults"/> with a single field overridden so sibling AF
     /// toggles are not wiped.

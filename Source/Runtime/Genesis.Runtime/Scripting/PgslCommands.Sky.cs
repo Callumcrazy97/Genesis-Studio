@@ -177,6 +177,79 @@ public static partial class PgslCommands
         Namespace = "Engine.Sky")]
     public static void SetTimeOfDay(float hours) => SkyTimeOfDay = hours;
 
+    [PgslCommand("Haze", "Engine.Sky.Haze",
+        "Atmospheric haze of the room's sky, 0 to 1, as the Room's Haze; changes with the hour for a hazy morning", "Engine · Sky",
+        Namespace = "Engine.Sky")]
+    public static float SkyHaze
+    {
+        get => ResolveAtmosphere()?.Haze ?? 0f;
+        set
+        {
+            AtmosphereOptions atmosphere = ResolveAtmosphere();
+            if (atmosphere != null && float.IsFinite(value)) atmosphere.Haze = Math.Clamp(value, 0f, 1f);
+        }
+    }
+
+    [PgslCommand("Visibility", "Engine.Sky.Visibility",
+        "How far one can see through the atmosphere's fog, in metres (0 = the preset's own)", "Engine · Sky",
+        Namespace = "Engine.Sky")]
+    public static float SkyVisibility
+    {
+        get => ResolveAtmosphere()?.VisibilityMetres ?? 0f;
+        set
+        {
+            AtmosphereOptions atmosphere = ResolveAtmosphere();
+            if (atmosphere != null && float.IsFinite(value)) atmosphere.VisibilityMetres = Math.Clamp(value, 0f, 1_000_000f);
+        }
+    }
+
+    [PgslCommand("FogScale", "Engine.Sky.FogScale",
+        "Scales the fog the weather brings, 0 to 4 (1 = as the weather has it)", "Engine · Sky",
+        Namespace = "Engine.Sky")]
+    public static float SkyFogScale
+    {
+        get => ResolveAtmosphere()?.WeatherFogScale ?? 1f;
+        set
+        {
+            AtmosphereOptions atmosphere = ResolveAtmosphere();
+            if (atmosphere != null && float.IsFinite(value)) atmosphere.WeatherFogScale = Math.Clamp(value, 0f, 4f);
+        }
+    }
+
+    [PgslCommand("AmbientScale", "Engine.Sky.AmbientScale",
+        "Scales the sky's ambient light, 0 to 8 (1 = as the preset has it)", "Engine · Sky",
+        Namespace = "Engine.Sky")]
+    public static float SkyAmbientScale
+    {
+        get => ResolveAtmosphere()?.AmbientScale ?? 1f;
+        set
+        {
+            AtmosphereOptions atmosphere = ResolveAtmosphere();
+            if (atmosphere != null && float.IsFinite(value)) atmosphere.AmbientScale = Math.Clamp(value, 0f, 8f);
+        }
+    }
+
+    [PgslCommand("SetHaze", "Engine.Sky.SetHaze", "Set the atmospheric haze, 0 to 1 (alias Haze)", "Engine · Sky",
+        Namespace = "Engine.Sky")]
+    public static void SetHaze(float amount) => SkyHaze = amount;
+
+    [PgslCommand("SetAtmospherePreset", "Engine.Sky.SetAtmospherePreset",
+        "Switch the room's atmosphere: Natural, ClearDay, GoldenHour, Overcast, Storm, Night or Alien. False for an unknown name",
+        "Engine · Sky", Namespace = "Engine.Sky")]
+    public static bool SetAtmospherePreset(string preset)
+    {
+        AtmosphereOptions atmosphere = ResolveAtmosphere();
+        string name = (preset ?? string.Empty).Replace(" ", string.Empty);
+        if (atmosphere == null || int.TryParse(name, out _) || !Enum.TryParse(name, true, out AtmospherePreset parsed)
+            || !Enum.IsDefined(parsed)) return false;
+        atmosphere.Preset = parsed;
+        return true;
+    }
+
+    [PgslCommand("AtmospherePreset", "Engine.Sky.AtmospherePreset", "The room's atmosphere preset by name (empty with no sky)",
+        "Engine · Sky", Namespace = "Engine.Sky")]
+    public static string SkyAtmospherePreset => ResolveAtmosphere()?.Preset.ToString() ?? string.Empty;
+
     private static AtmosphereOptions ResolveAtmosphere() => ActiveSkyScene?.Atmosphere?.Options;
 
     private static EnvironmentOptions ResolveClimate() => ActiveSkyScene?.Climate?.Options;

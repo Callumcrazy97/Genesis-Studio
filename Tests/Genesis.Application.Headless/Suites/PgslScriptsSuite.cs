@@ -131,6 +131,46 @@ internal static class PgslScriptsSuite
             Check(input.LeftStickDeadZone == 0.18f && input.TriggerDeadZone == 0f, "The controller's default dead zones changed.");
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Sky.AScriptSetsTheMood", () =>
+        {
+            using var scene = new Genesis.Runtime.RuntimeScene("Mood test");
+            scene.ConfigureAtmosphere(new Genesis.Runtime.Climate.AtmosphereOptions());
+            var game = new Genesis.Runtime.Project.ProjectGameContext(ctx.Workspace, scene, null, null,
+                Genesis.Runtime.Scene.RoomAsset.Create("Probe", Genesis.Runtime.Scene.RoomDimension.ThreeD), null);
+            var previousGame = PgslCommands.ActiveGameContext;
+            float contrast = PgslCommands.Contrast, saturation = PgslCommands.Saturation, vignette = PgslCommands.Vignette;
+            PgslCommands.ActiveGameContext = game;
+            try
+            {
+                var options = scene.Atmosphere.Options;
+                PgslCommands.SetHaze(0.6f);
+                PgslCommands.SkyVisibility = 800f;
+                PgslCommands.SkyFogScale = 2f;
+                PgslCommands.SkyAmbientScale = 0.5f;
+                Check(options.Haze == 0.6f && options.VisibilityMetres == 800f && options.WeatherFogScale == 2f && options.AmbientScale == 0.5f,
+                    "Haze, visibility, fog or ambient set from a script did not reach the room's atmosphere.");
+                Check(PgslCommands.SetAtmospherePreset("golden hour") && options.Preset == Genesis.Runtime.Climate.AtmospherePreset.GoldenHour
+                    && PgslCommands.SkyAtmospherePreset == "GoldenHour" && !PgslCommands.SetAtmospherePreset("Sunset")
+                    && !PgslCommands.SetAtmospherePreset("3") && options.Preset == Genesis.Runtime.Climate.AtmospherePreset.GoldenHour,
+                    "The atmosphere preset could not be switched by name, or an unknown name changed it.");
+                PgslCommands.SetHaze(float.NaN);
+                PgslCommands.SkyHaze = 5f;
+                Check(options.Haze == 1f, "Haze outside 0 to 1 was kept.");
+                PgslCommands.Contrast = 1.2f;
+                PgslCommands.Saturation = 0.7f;
+                PgslCommands.Vignette = 0.3f;
+                Check(Math.Abs(PgslCommands.Contrast - 1.2f) < 1e-5f && Math.Abs(PgslCommands.Saturation - 0.7f) < 1e-5f
+                    && Math.Abs(PgslCommands.Vignette - 0.3f) < 1e-5f, "Colour grading set from a script did not read back.");
+            }
+            finally
+            {
+                PgslCommands.Contrast = contrast;
+                PgslCommands.Saturation = saturation;
+                PgslCommands.Vignette = vignette;
+                PgslCommands.ActiveGameContext = previousGame;
+            }
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.WithRunsItsBlockAsEachInstance", () =>
         {
             using var scene = new Genesis.Runtime.RuntimeScene("With test");

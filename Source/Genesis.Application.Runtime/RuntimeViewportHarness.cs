@@ -33,6 +33,7 @@ public sealed partial class RuntimeViewportHarness : IDisposable
     private TextureHandle _authoredSprite;
     private TextureHandle _authoredMask;
     private string? _authoredHlsl;
+    private bool _authoredSeeThrough;
     private string? _compiledHlsl;
     private string? _captureBadge;
     private string? _captureBadgeDetail;
@@ -290,9 +291,17 @@ public sealed partial class RuntimeViewportHarness : IDisposable
     /// capture. Engine tests prove renderer-owned scene setup; authored/PGSL-adjacent tests prove
     /// code-selected draw state and shader logic on top of that scene.
     /// </summary>
-    public ImageMetrics CaptureAuthoredShader(string outputFile, bool swapVariant)
+    public ImageMetrics CaptureAuthoredShader(string outputFile, bool swapVariant) =>
+        CaptureAuthoredShader(outputFile, swapVariant, seeThrough: false);
+
+    /// <summary>
+    /// As <see cref="CaptureAuthoredShader(string, bool)"/>; <paramref name="seeThrough"/> draws the
+    /// shader's cube the way a fading or glass model is drawn (transparent, no depth write, no shadow).
+    /// </summary>
+    public ImageMetrics CaptureAuthoredShader(string outputFile, bool swapVariant, bool seeThrough)
     {
         EnsureReady();
+        _authoredSeeThrough = seeThrough;
         _authoredHlsl = AuthoredParityHlsl(swapVariant);
         _mode = CaptureMode.AuthoredShader;
         try
@@ -856,7 +865,10 @@ public sealed partial class RuntimeViewportHarness : IDisposable
             Mesh = _cube,
             World = world,
             Tint = tint,
-            Alpha = 1f,
+            Alpha = shader.IsValid && _authoredSeeThrough ? 0.7f : 1f,
+            Flags = shader.IsValid && _authoredSeeThrough
+                ? MeshDrawFlags.Transparent | MeshDrawFlags.NoDepthWrite | MeshDrawFlags.NoShadow
+                : MeshDrawFlags.None,
             Shader = shader,
             ShaderParams0 = new Vector4(0.8f, 0.95f, 1f, 1f),
         });

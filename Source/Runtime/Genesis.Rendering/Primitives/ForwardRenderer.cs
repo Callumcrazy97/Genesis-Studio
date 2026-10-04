@@ -2804,7 +2804,9 @@ namespace Genesis.Rendering.Primitives
 
             // Particle-style draws (transparent/additive + noShadow + noDepthWrite):
             // batch them for a single DrawIndexedInstanced call per unique (mesh, texture, blendMode).
-            if ((transparent || additive || multiply) && noShadow && noDepthWr && !isFloor)
+            // A draw with its own mesh shader is not a particle: it parks on _worldMeshes, which
+            // keeps the shader (a see-through wall, glass, an ability shell).
+            if ((transparent || additive || multiply) && noShadow && noDepthWr && !isFloor && !shader.IsValid)
             {
                 byte blendMode = multiply ? (byte)2 : additive ? (byte)1 : (byte)0;
                 var tkey = new TransBatchKey { MeshId = mesh.Id,
@@ -3113,7 +3115,7 @@ namespace Genesis.Rendering.Primitives
 
             // Particle TransBatch (same predicate as Submit): append InstanceGpu directly — no
             // per-particle MeshDrawCall / WorldMeshes parking.
-            if ((transparent || additive || multiply) && noShadow && noDepthWr && !isFloor)
+            if ((transparent || additive || multiply) && noShadow && noDepthWr && !isFloor && !shader.IsValid)
             {
                 byte blendMode = multiply ? (byte)2 : additive ? (byte)1 : (byte)0;
                 var tkey = new TransBatchKey

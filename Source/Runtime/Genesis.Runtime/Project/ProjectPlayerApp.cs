@@ -73,6 +73,7 @@ namespace Genesis.Runtime.Project
             _exitCode = 0;
             // A game plays its project; it never cooks a model into it (see StudioModelResourceLoader).
             Genesis.Runtime.Modeling.StudioModelResourceLoader.WriteReimportsToProject = false;
+            ScriptScreenshots.Reset();
             try
             {
                 if (TryRunScriptEntryPoint(args, out int customExit))

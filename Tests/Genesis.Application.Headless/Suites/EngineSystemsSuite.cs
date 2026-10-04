@@ -88,6 +88,37 @@ internal static class EngineSystemsSuite
             }
             finally { Genesis.Rendering.Core.EngineRenderingDefaults.WaterReflections = old; Genesis.Rendering.Core.RenderBackendSelection.Configure(backend); }
         });
+        HeadlessHarness.RunCase(ctx.Report, "Render.Shader.SeeThroughDrawKeepsItsMeshShader", () =>
+        {
+            // The shader paints blue and gold stripes no tint or texture in the scene has: a
+            // see-through draw that lost its shader shows none of the blue.
+            static int Blue(string file)
+            {
+                using var bitmap = new System.Drawing.Bitmap(file);
+                int count = 0;
+                for (int y = 0; y < bitmap.Height; y += 2)
+                    for (int x = 0; x < bitmap.Width; x += 2)
+                    {
+                        var c = bitmap.GetPixel(x, y);
+                        if (c.B > 150 && c.R < 70 && c.G < 110) count++;
+                    }
+                return count;
+            }
+            var backend = Genesis.Rendering.Core.RenderBackendSelection.RequestedBackend;
+            try
+            {
+                Genesis.Rendering.Core.RenderBackendSelection.Configure(Genesis.Rendering.Core.RenderBackendOption.SilkNetDx11);
+                using var harness = new Genesis.Application.Runtime.RuntimeViewportHarness();
+                string solidFile = Path.Combine(ctx.Captures, "shader-solid.png");
+                string seeThroughFile = Path.Combine(ctx.Captures, "shader-see-through.png");
+                harness.CaptureAuthoredShader(solidFile, swapVariant: true, seeThrough: false);
+                harness.CaptureAuthoredShader(seeThroughFile, swapVariant: true, seeThrough: true);
+                int solid = Blue(solidFile), seeThrough = Blue(seeThroughFile);
+                Check(solid > 40 && seeThrough > solid / 3,
+                    $"A see-through draw lost its mesh shader: {seeThrough} shader-blue samples against {solid} drawn solid.");
+            }
+            finally { Genesis.Rendering.Core.RenderBackendSelection.Configure(backend); }
+        });
         HeadlessHarness.RunCase(ctx.Report, "Editor.Water.ExplicitPhysicsModes", () =>
         {
             var water = new Genesis.World.Terrain.TerrainWaterDefinition();

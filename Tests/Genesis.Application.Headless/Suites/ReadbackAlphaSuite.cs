@@ -13,6 +13,41 @@ internal static class ReadbackAlphaSuite
         foreach (RenderBackendDescriptor backend in RenderBackendCatalog.All)
             HeadlessHarness.RunCase(ctx.Report, "Render.Readback.AlphaAndPresentedPixels." + backend.ShortName, () => Check(ctx, backend));
         HeadlessHarness.RunCase(ctx.Report, "Render.DX12.UploadPages.PreserveTextureCopiesAcrossFrameReuse", () => UploadPages());
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Debug.ScreenshotSaveTakesEachPictureAScriptAsksFor", () => ScriptPictures(ctx));
+    }
+
+    private static void ScriptPictures(HeadlessContext ctx)
+    {
+        using Form host = GateSuite.NewHost(320, 180);
+        GateSuite.ShowHost(host);
+        using GpuRenderController renderer = new(RenderControllerFactory.CreateDevice(RenderBackendOption.SilkNetDx11));
+        renderer.Initialize(host.Handle, 320, 180);
+        string project = Path.Combine(ctx.Workspace, "ScriptPictures");
+        Directory.CreateDirectory(project);
+        Genesis.Runtime.Project.ScriptScreenshots.Reset();
+        Assert(!Genesis.Runtime.Scripting.PgslCommands.ScreenshotSave("  "), "A picture without a name was accepted.");
+        (string Name, float R, float G)[] views = [("view 1", 1f, 0f), ("view:2", 0f, 1f)];
+        foreach (var view in views)
+        {
+            Assert(Genesis.Runtime.Scripting.PgslCommands.ScreenshotSave(view.Name), "A picture was refused.");
+            renderer.Set3DFrameActive(false);
+            renderer.SetCamera2D(160, 90, 1, 0);
+            renderer.BeginFrame();
+            renderer.Clear(view.R, view.G, 0f, 1f);
+            renderer.EndFrame();
+            renderer.ComposeOverlay(static _ => { });
+            Genesis.Runtime.Project.ScriptScreenshots.CaptureFrame(renderer, project);
+            renderer.Present();
+            string path = Genesis.Runtime.Project.ScriptScreenshots.LastPath;
+            Assert(File.Exists(path), $"The picture '{view.Name}' was not saved.");
+            using Bitmap picture = new(path);
+            Color centre = picture.GetPixel(160, 90);
+            Assert(view.R > 0 ? centre.R > 200 && centre.G < 60 : centre.G > 200 && centre.R < 60,
+                $"The picture '{view.Name}' is not of the frame it was asked for ({centre}).");
+        }
+        Assert(Path.GetFileName(Genesis.Runtime.Project.ScriptScreenshots.LastPath) == "view_2.png"
+            && Genesis.Runtime.Project.ScriptScreenshots.Saved == 2 && Genesis.Runtime.Project.ScriptScreenshots.PendingCount == 0,
+            "The pictures were not saved once each under safe file names.");
     }
 
     private static void UploadPages()

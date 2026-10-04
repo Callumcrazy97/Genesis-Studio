@@ -610,7 +610,12 @@ namespace Genesis.Runtime
             // A screenshot, an acceptance run and a benchmark are of the game, not of the cover a
             // room change draws over it: they wait for the first frame with no cover in it.
             if (!covered)
+            {
+                // Pictures a script asked for this frame (ScreenshotSave), of the finished frame.
+                if (Genesis.Runtime.Project.ScriptScreenshots.PendingCount > 0)
+                    Genesis.Runtime.Project.ScriptScreenshots.CaptureFrame(_renderer, Genesis.Runtime.Scripting.PgslCommands.ProjectPath);
                 EndFrame?.Invoke(_renderer);
+            }
             LastOverlayMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(hooksStarted).TotalMilliseconds;
         }
 

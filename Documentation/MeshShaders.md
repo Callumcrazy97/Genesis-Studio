@@ -18,7 +18,8 @@ covers the rest of the model.
 
 See-through draws keep their shader. A material or instance that is partly transparent (alpha
 below 1, or a fading Object) is drawn in the transparent pass with its own shader, parameters
-and textures; only the blending is the pass's. Glass, ghost walls and ability shells can
+and textures; only the blending is the pass's. This includes draws with no shadow and no depth
+write, which are otherwise batched like particles. Glass, ghost walls and ability shells can
 therefore use custom shaders.
 
 ## Per-instance values from scripts

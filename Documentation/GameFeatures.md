@@ -414,6 +414,30 @@ at the start plus the direction times the distance). They work in 3D rooms, in m
 Bone turns and offsets set on another instance through `with` reach its model at the end of the
 block, also on an instance that has no events of its own.
 
+## The mood of a room from a script
+
+A room's atmosphere and grading can follow the hour (a hazy morning, a golden hour, dusk):
+
+| Command | What it does |
+|---|---|
+| `Engine.Sky.Haze`, `Engine.Sky.SetHaze(amount)` | Atmospheric haze, 0 to 1, as the Room's Haze. |
+| `Engine.Sky.Visibility` | How far one sees through the atmosphere's fog, in metres (0 = the preset's own). |
+| `Engine.Sky.FogScale` | Scales the fog the weather brings, 0 to 4. |
+| `Engine.Sky.AmbientScale` | Scales the sky's ambient light, 0 to 8. |
+| `Engine.Sky.SetAtmospherePreset(name)`, `Engine.Sky.AtmospherePreset` | Natural, ClearDay, GoldenHour, Overcast, Storm, Night or Alien; false for an unknown name. |
+| `Engine.Rendering.Contrast`, `Engine.Rendering.Saturation`, `Engine.Rendering.Vignette` | Colour grading, beside the existing `Engine.Rendering.Exposure`. |
+
+Colour tints belong to the game's look, so they are a project post effect (see
+[Post effects](PostEffects.md)) with its parameters set by `PostEffectSetParameter`.
+
+## Pictures from a script
+
+`ScreenshotSave(name)` saves a picture of the frame once it is drawn, as `name.png` in the
+project's debug images folder (the autoshot's folder), so one run can step a camera through many
+views. `ScreenshotPending()` counts pictures not yet taken and `ScreenshotLastPath()` gives the file
+the last one went to. A picture asked for during a room change's cover waits for the first frame
+without it.
+
 ## Smaller changes
 
 - **Bushes and saplings.** The `Shrub` and `Sapling` foliage shapes are built from rounded solid
