@@ -651,6 +651,7 @@ public sealed class ResourceService
             // Create the Player-ready asset while the importer still owns the operation. Waiting
             // until a preview happens made untouched imports fail only after F5 was pressed.
             ProjectModelCooker.CookOne(resourcePath);
+            ProjectTextureCooker.QueueModel(resourcePath);
         }
         Notify(ResourceChangeKind.Created, resourcePath);
         return resourcePath;

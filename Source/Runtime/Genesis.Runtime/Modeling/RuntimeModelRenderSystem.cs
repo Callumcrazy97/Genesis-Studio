@@ -299,6 +299,7 @@ namespace Genesis.Runtime.Modeling
             foreach (ModelGpuCache.CachedMesh mesh in renderMeshes)
             {
                 if (mesh.Lod != activeLod) continue;
+                if (ModelCollisionNames.IsCollisionOnly(asset, mesh.SourceIndex)) continue;
                 if (rendererComponent.HiddenMeshes?.Contains(mesh.SourceName) == true) continue;
                 if (!hair.IsVisible(mesh.SourceName)) continue;
                 GModelMaterial material = ResolveMaterial(asset, mesh.MaterialIndex);

@@ -21,7 +21,7 @@ namespace Genesis.Physics.Systems
             world.Query<RigidBodyComponent, Transform3DComponent, EntityLifecycleComponent>(
                 (entity, ref rigid, ref transform, ref lifecycle) =>
             {
-                if (rigid.RegistrationId != 0 || !lifecycle.Enabled || !rigid.Collision)
+                if (rigid.RegistrationId != 0 || !lifecycle.Enabled || !rigid.Collision || rigid.Dormant)
                     return;
 
                 _physics.RegisterEntity(world, entity, ref rigid, ref transform);

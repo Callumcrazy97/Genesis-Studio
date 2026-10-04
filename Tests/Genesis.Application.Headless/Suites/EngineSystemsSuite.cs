@@ -255,6 +255,127 @@ internal static class EngineSystemsSuite
             Check(host.RecentDiagnostics.Count == 0 && world.Has<ModelAnimatorComponent>(animated)
                 && Near(world.GetRef<ModelAnimatorComponent>(animated).Controller.Evaluate(Asset())[0].Translation.X, 4), "PGSL graph creation did not reach the ECS animator.");
         }));
+        HeadlessHarness.RunCase(ctx.Report, "Render.Textures.CutOutMipsKeepTheirCoverage", () =>
+        {
+            // Leaves: three texels in ten solid, the rest clear, scattered. Averaged alone, an 8 x 8
+            // level would have almost nothing left above the cut-off.
+            const int size = 64;
+            byte[] leaves = new byte[size * size * 4];
+            var random = new Random(7);
+            for (int i = 0; i < size * size; i++)
+            {
+                leaves[i * 4 + 1] = 160;
+                leaves[i * 4 + 3] = random.NextDouble() < 0.3 ? (byte)255 : (byte)0;
+            }
+            float full = Genesis.Rendering.Textures.TextureMipBuilder.Coverage(leaves, 0.35f);
+            byte[] chain = Genesis.Rendering.Textures.TextureMipBuilder.BuildChain(leaves, size, size, srgb: true, out int levels);
+            int offset = 0, width = size;
+            for (int level = 1; level <= 3; level++) { offset += width * width * 4; width /= 2; }
+            float small = Genesis.Rendering.Textures.TextureMipBuilder.Coverage(chain.AsSpan(offset, width * width * 4), 0.35f);
+            Check(levels == 7 && Math.Abs(small - full) < 0.12f,
+                $"An 8 x 8 level of a cut-out keeps {small:P0} of its texels against {full:P0} at full size.");
+
+            // A soft fade is not a cut-out: its smaller sizes stay plain averages.
+            byte[] fade = new byte[size * size * 4];
+            for (int i = 0; i < size * size; i++) fade[i * 4 + 3] = (byte)(i % size * 4);
+            byte[] fadeChain = Genesis.Rendering.Textures.TextureMipBuilder.BuildChain(fade, size, size, srgb: true, out _);
+            int expected = (fade[3] + fade[7] + fade[size * 4 + 3] + fade[size * 4 + 7] + 2) >> 2;
+            Check(!Genesis.Rendering.Textures.TextureMipBuilder.IsCutOut(fade) && fadeChain[size * size * 4 + 3] == expected,
+                "A soft alpha fade was treated as a cut-out.");
+        });
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Physics.ModelInstancesShareOneCollisionMesh", () => WithScene(ctx, (scene, context, game) =>
+        {
+            // Three crates of one model (a two-metre cube), one of them twice the size, and one mirrored.
+            var world = scene.World;
+            GModelAsset crate = GModelPrimitiveFactory.CreateCube("Crate", 2f);
+            scene.Physics = Genesis.Physics.PhysicsWorld.Create(new Genesis.Shared.Assets.PhysicsWorldAsset());
+            Entity Make(Vector3 position, Vector3 scale)
+            {
+                Entity entity = world.CreateEntity();
+                world.Set(entity, new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+                Transform3DComponent transform = Transform3DComponent.Default;
+                transform.Position = position;
+                world.Set(entity, transform);
+                RigidBodyComponent body = RigidBodyComponent.StaticBox(Vector3.One);
+                body.Shape = CollisionShape.Mesh;
+                world.Set(entity, body);
+                ModelColliderBinding.AttachGeometry(world, entity, crate, scale);
+                scene.Physics.RegisterEntity(world, entity, ref world.GetRef<RigidBodyComponent>(entity), ref world.GetRef<Transform3DComponent>(entity));
+                return entity;
+            }
+            Entity first = Make(new Vector3(0, 0, 0), Vector3.One);
+            Entity large = Make(new Vector3(10, 0, 0), new Vector3(2f));
+            Entity mirrored = Make(new Vector3(20, 0, 0), new Vector3(-1, 1, 1));
+            var counts = scene.Physics.SharedMeshCounts();
+            Check(counts == (1, 2), $"Two plain crates should share one collision mesh, not {counts}.");
+            Check(ReferenceEquals(world.GetRef<MeshColliderComponent>(first).Vertices, world.GetRef<MeshColliderComponent>(large).Vertices),
+                "Instances of one model carry their own copies of its triangles.");
+            // Each still collides at its own size: a ray from above meets the top of each crate.
+            Check(Near((float)PgslCommands.PhysicsRaycast(0, 10, 0, 0, -1, 0, 20), 9f), "The first crate's top is not at y = 1.");
+            Check(Near((float)PgslCommands.PhysicsRaycast(10, 10, 0, 0, -1, 0, 20), 8f), "The doubled crate's top is not at y = 2.");
+            Check(Near((float)PgslCommands.PhysicsRaycast(20, 10, 0, 0, -1, 0, 20), 9f), "The mirrored crate's top is not at y = 1.");
+            Check(Near((float)PgslCommands.PhysicsRaycast(-10, 0, 0, 1, 0, 0, 20), 9f), "The first crate's side is not at x = -1.");
+            scene.Physics.UnregisterEntity(world, first, ref world.GetRef<RigidBodyComponent>(first));
+            Check(scene.Physics.SharedMeshCounts() == (1, 1) && Near((float)PgslCommands.PhysicsRaycast(10, 10, 0, 0, -1, 0, 20), 8f),
+                "Removing one crate freed the mesh the other still uses.");
+            scene.Physics.UnregisterEntity(world, large, ref world.GetRef<RigidBodyComponent>(large));
+            Check(scene.Physics.SharedMeshCounts() == (0, 0), "The shared mesh outlived its last crate.");
+            _ = mirrored;
+        }));
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Physics.KinematicCharacterWalksStepsWallsAndCeilings", () => WithScene(ctx, (scene, context, game) =>
+        {
+            var world = scene.World;
+            scene.Physics = Genesis.Physics.PhysicsWorld.Create(new Genesis.Shared.Assets.PhysicsWorldAsset());
+            void Box(Vector3 centre, Vector3 half)
+            {
+                Entity entity = world.CreateEntity();
+                world.Set(entity, new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+                Transform3DComponent transform = Transform3DComponent.Default;
+                transform.Position = centre;
+                world.Set(entity, transform);
+                world.Set(entity, RigidBodyComponent.StaticBox(half));
+                scene.Physics.RegisterEntity(world, entity, ref world.GetRef<RigidBodyComponent>(entity), ref world.GetRef<Transform3DComponent>(entity));
+            }
+            Box(new Vector3(0, -0.5f, 0), new Vector3(50, 0.5f, 50));     // floor, top at y = 0
+            Box(new Vector3(3, 0.1f, 0), new Vector3(1, 0.1f, 1));       // a 20 cm step from x = 2 to 4
+            Box(new Vector3(-3, 1, 0), new Vector3(0.5f, 1, 2));         // a wall whose face is at x = -2.5
+            Box(new Vector3(0, 1.3f, 6), new Vector3(2, 0.1f, 2));       // a ceiling 1.2 m up around z = 6
+
+            var character = new Genesis.Physics.KinematicCharacter(0.3f, 1.8f, 0.3f, 45f) { Position = new Vector3(0, 0.5f, 0) };
+            var flags = character.Move(scene.Physics, world, new Vector3(0, -1, 0));
+            Check(flags.HasFlag(Genesis.Physics.CharacterMoveFlags.Grounded) && Math.Abs(character.Position.Y) < 0.03f,
+                $"The character did not land on the floor ({character.Position.Y:F3}, {flags}).");
+
+            bool stepped = false;
+            float highest = 0f;
+            var trace = new System.Text.StringBuilder();
+            for (int i = 0; i < 26; i++)
+            {
+                flags = character.Move(scene.Physics, world, new Vector3(0.2f, -0.05f, 0));
+                trace.Append($" ({character.Position.X:F2},{character.Position.Y:F2},{(int)flags})");
+                stepped |= flags.HasFlag(Genesis.Physics.CharacterMoveFlags.Stepped);
+                if (character.Position.X > 2.4f && character.Position.X < 3.6f) highest = MathF.Max(highest, character.Position.Y);
+            }
+            Check(stepped && Math.Abs(highest - 0.2f) < 0.04f, $"The character did not climb the 20 cm step (stepped {stepped}, at {highest:F3} m):{trace}");
+            Check(character.Position.X > 4.5f && Math.Abs(character.Position.Y) < 0.04f && character.Grounded,
+                $"Walking off the step did not bring the character down to the floor ({character.Position}).");
+
+            character.Position = new Vector3(0, 0.01f, 0);
+            for (int i = 0; i < 20; i++) flags = character.Move(scene.Physics, world, new Vector3(-0.2f, -0.05f, 0));
+            Check(Math.Abs(character.Position.X - -2.2f) < 0.05f && flags.HasFlag(Genesis.Physics.CharacterMoveFlags.Wall),
+                $"The character did not stop at the wall's face ({character.Position.X:F3}, {flags}).");
+            flags = character.Move(scene.Physics, world, new Vector3(-0.2f, 0, 0.3f));
+            Check(character.Position.Z > 0.25f && Math.Abs(character.Position.X - -2.2f) < 0.05f, "Pushing into the wall at an angle did not slide along it.");
+
+            character.Position = new Vector3(0, 0.01f, 3);
+            for (int i = 0; i < 15; i++) character.Move(scene.Physics, world, new Vector3(0, -0.05f, 0.2f));
+            Check(character.Position.Z < 4.1f, $"A standing character walked under a ceiling 1.2 m up (z = {character.Position.Z:F2}).");
+            Check(character.SetHeight(scene.Physics, world, 1.0f), "The character could not crouch.");
+            for (int i = 0; i < 15; i++) character.Move(scene.Physics, world, new Vector3(0, -0.05f, 0.2f));
+            Check(character.Position.Z > 5.5f && !character.Fits(scene.Physics, world, 1.8f)
+                && !character.SetHeight(scene.Physics, world, 1.8f) && character.Height == 1.0f,
+                $"A crouched character should pass under the ceiling and not stand up there (z = {character.Position.Z:F2}).");
+        }));
         HeadlessHarness.RunCase(ctx.Report, "Runtime.PGSL.SphereAndCapsuleQueries", () => WithScene(ctx, (scene, context, game) =>
         {
             // A two-metre box centred on the origin: its top is at y = 1 and its sides at x = +-1.

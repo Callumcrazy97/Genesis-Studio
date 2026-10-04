@@ -513,7 +513,11 @@ public sealed class RoomSceneBuilder
         bool streamable = IsStreamable(prefab);
         if (!streamable && (!IsScenery(prefab) || ResolveObjectEvents(node.GameObject.Prefab) is { Count: > 0 })) return false;
         RoomTransform placed = ResolveWorldTransform(room, node);
-        Scenery.Add(node, new Vector3(placed.X, placed.Y, placed.Z), streamable);
+        // An Object may come and go at its own distance: heather near, cliffs far.
+        float distance = prefab["streamDistance"] is JValue { Type: JTokenType.Float or JTokenType.Integer } value
+            ? (float)value
+            : 0f;
+        Scenery.Add(node, new Vector3(placed.X, placed.Y, placed.Z), streamable, distance);
         return true;
     }
 

@@ -414,6 +414,26 @@ at the start plus the direction times the distance). They work in 3D rooms, in m
 Bone turns and offsets set on another instance through `with` reach its model at the end of the
 block, also on an instance that has no events of its own.
 
+A kinematic character, built on those queries, saves writing the mover yourself. One per
+instance; its position is its feet, and the script copies it to the instance:
+
+| Command | What it does |
+|---|---|
+| `CharacterCreate(radius, height, stepHeight, maxSlopeDegrees)` | Give this instance a character at its own position. |
+| `CharacterMove(dx, dy, dz)` | Move as far as the world allows: slides along walls, climbs steps up to `stepHeight`, follows the ground down slopes and steps. Returns flags: 1 grounded, 2 ceiling, 4 wall, 8 climbed a step. |
+| `CharacterX()`, `CharacterY()`, `CharacterZ()`, `CharacterSetPosition(x, y, z)` | Where its feet are; a teleport. |
+| `CharacterGrounded()`, `CharacterGroundNormalY()` | Whether it stands on walkable ground, and how upright that ground is. |
+| `CharacterSetHeight(height)`, `CharacterFits(height)` | Crouch or stand (false and unchanged when standing would not fit). |
+| `CharacterDestroy()` | Remove it. |
+
+In a player's Step event, for example:
+
+```pgsl
+CharacterMove(moveX * DeltaTime, fallSpeed * DeltaTime, moveZ * DeltaTime);
+if (CharacterGrounded()) { fallSpeed = 0; } else { fallSpeed = fallSpeed - 9.8 * DeltaTime; }
+x = CharacterX(); y = CharacterY(); z = CharacterZ();
+```
+
 ## The mood of a room from a script
 
 A room's atmosphere and grading can follow the hour (a hazy morning, a golden hour, dusk):

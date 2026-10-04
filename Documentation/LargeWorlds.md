@@ -512,6 +512,26 @@ Four other full runs during this work each failed one or two checks that pass al
   events, room-start events, the first use of a particle effect and the first use of a shader the
   driver has not compiled each take one frame, behind the cover. A room whose scripts do a second
   of set-up in Create still holds the loading bar still for that second.
+- **An Object can stream at its own distance.** `"streamDistance": 1500` in an Object's definition
+  brings that scenery in at 1500 m and lets it go at its margin beyond, whatever the Room's scenery
+  distance: heather to 110 m, trees to 900 m, cliffs to 1500 m. Without it the Room's distance applies.
+- **Leaves stay full at a distance.** A cut-out picture (nearly every texel clearly solid or clear,
+  as leaf cards, grass and fences are) keeps the share of its texels that pass the alpha cut-off in
+  every smaller size, in the mips made when it loads and in its cooked copy. Averaging alone left a
+  forest seen from a few hundred metres as bare trunks. Soft and blended alpha is averaged as before.
+- **Model collision meshes are shared.** Every instance of a model with a Mesh collider shares
+  one collision mesh (its triangles and their tree), each with its own scale. Before, each instance
+  built its own copy: 241 buildings ran the physics memory out. A mirrored instance (a negative
+  scale) still makes its own.
+- **Scenery colliders only near the camera and moving bodies.** A streamed scenery Object with a
+  fixed collider is drawn out to the scenery distance, but its collider exists only within 200 m of
+  the camera or 64 m of a moving body (`RoomSceneryStreamer.ColliderRadiusAroundCamera` /
+  `ColliderRadiusAroundBodies`), as the terrain's tiles and scatter already were. A ray or shape
+  cast far from both finds no scenery.
+- **Textures are cooked in Studio.** When a model is imported, and when an Image used as a model
+  texture is saved, Studio makes compressed copies beside the pictures in the background (BC7, and
+  BC5 for normal maps). A game then uploads a quarter of the memory or less. A copy older than its
+  picture is ignored and made again; the Software renderer always reads the picture.
 - **Only model textures are read in the background.** Terrain, sprite and particle textures are
   read by the frame that first uses them. A model that first appears in the middle of play is
   drawn a few frames late rather than holding a frame up.

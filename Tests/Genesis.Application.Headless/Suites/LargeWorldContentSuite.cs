@@ -148,6 +148,126 @@ internal static class LargeWorldContentSuite
             HeadlessHarness.Assert(physics.ExternalStaticCount == 0 && colliders.ResidentColliders == 0, "Clearing left colliders behind.");
         });
 
+        HeadlessHarness.RunCase(context.Report, "Engine.World.Scenery.CollidersWakeOnlyNearTheCamera", () =>
+        {
+            string parent = Path.Combine(context.Workspace, "SceneryColliders");
+            Directory.CreateDirectory(parent);
+            ProjectSession project = new ProjectService().CreateProject(parent, "Colliders" + Guid.NewGuid().ToString("N")[..6], "Blank");
+            var resources = new ResourceService(project);
+            string modelFile = Path.Combine(project.RootPath, "Assets", "Models", "Hut.model.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(modelFile)!);
+            File.WriteAllText(modelFile, "{}");
+            var hut = Genesis.Runtime.Modeling.GModelPrimitiveFactory.CreateCube("Hut", 4f);
+            hut.Colliders.Add(new Genesis.Runtime.Modeling.GModelCollider { Shape = Genesis.Runtime.Modeling.GModelColliderShape.Mesh });
+            Genesis.Runtime.Modeling.StudioModelResourceLoader.SaveCanonical(modelFile, hut);
+            string objects = ResourceFolderPolicy.RootFor(project, ResourceKind.GameObject);
+            File.WriteAllText(resources.CreateResource(objects, ResourceKind.GameObject, "Test Hut"),
+                """{"schemaVersion":2,"dimension":"ThreeD","model":"","components":[{"type":"ModelRendererComponent","props":{"ModelAsset":"Hut"}}],"events":[]}""");
+            ResourceNames.Invalidate(project.RootPath);
+            Genesis.Shared.Assets.ResourceCatalog.Invalidate(project.RootPath);
+            RoomAsset room = RoomAsset.Create("Village", RoomDimension.ThreeD);
+            foreach (float x in new[] { 0f, 150f, 600f })
+                room.Nodes.Add(new RoomNode
+                {
+                    Name = "Hut " + x, Kind = RoomNodeKind.GameObject, LayerId = room.Layers[0].Id, EnabledIn2D = false,
+                    Transform = new RoomTransform { X = x, ScaleX = 1, ScaleY = 1, ScaleZ = 1 },
+                    GameObject = new RoomGameObjectData { Prefab = "Test Hut" },
+                });
+
+            Genesis.Runtime.Scripting.VM.VMEngine.Initialize();
+            using var scene = new RuntimeScene("Colliders");
+            scene.Physics = Genesis.Physics.PhysicsWorld.Create(new Genesis.Shared.Assets.PhysicsWorldAsset());
+            var registration = new Genesis.Physics.Systems.PhysicsRegistrationSystem(scene.Physics);
+            var streamer = new RoomSceneryStreamer(1000f);
+            var builder = new RoomSceneBuilder(project.RootPath, new ScriptHostSystem()) { Scenery = streamer };
+            builder.Build(scene, room);
+            streamer.Attach(builder, room);
+            var time = new GameTime();
+            time.Advance(1f / 60f);
+            int Registered()
+            {
+                int count = 0;
+                scene.World.Query<Genesis.Shared.ECS.Components.RigidBodyComponent>(
+                    (Genesis.Shared.ECS.Entity _, ref Genesis.Shared.ECS.Components.RigidBodyComponent body) => { if (body.RegistrationId != 0) count++; });
+                return count;
+            }
+            string Bodies()
+            {
+                int bodies = 0, dormant = 0, lifecycle = 0, mesh = 0;
+                scene.World.Query<Genesis.Shared.ECS.Components.RigidBodyComponent>(
+                    (Genesis.Shared.ECS.Entity entity, ref Genesis.Shared.ECS.Components.RigidBodyComponent body) =>
+                    {
+                        bodies++;
+                        if (body.Dormant) dormant++;
+                        if (scene.World.Has<Genesis.Shared.ECS.Components.EntityLifecycleComponent>(entity)) lifecycle++;
+                        if (scene.World.Has<Genesis.Shared.ECS.Components.MeshColliderComponent>(entity)) mesh++;
+                    });
+                return $"bodies {bodies}, dormant {dormant}, lifecycle {lifecycle}, mesh {mesh}";
+            }
+            void Stand(float x)
+            {
+                scene.Camera3D.Position = new Vector3(x, 2f, 0f);
+                for (int frame = 0; frame < 20; frame++)
+                {
+                    streamer.Update(scene, time);
+                    scene.World.FlushDeferred();
+                    registration.FixedUpdate(scene.World, 1f / 60f);
+                }
+            }
+            Stand(0f);
+            HeadlessHarness.Assert(streamer.Loaded == 3 && Registered() == 2 && streamer.CollidersAwake == 2,
+                $"All three huts are drawn, but only the two within 200 m should collide ({streamer.Loaded} loaded, {Registered()} colliding, {Bodies()}).");
+            HeadlessHarness.Assert(scene.Physics.SharedMeshCounts() == (1, 2), $"The huts' colliders do not share one mesh: {scene.Physics.SharedMeshCounts()}.");
+            Stand(600f);
+            HeadlessHarness.Assert(streamer.Loaded == 3 && Registered() == 1 && streamer.CollidersAwake == 1,
+                $"Walking to the far hut should leave only its collider ({Registered()} colliding).");
+        });
+
+        HeadlessHarness.RunCase(context.Report, "Engine.World.Scenery.AnObjectComesAndGoesAtItsOwnDistance", () =>
+        {
+            const string model = """{"type":"ModelRendererComponent","props":{"ModelAsset":"House Model"}}""";
+            string parent = Path.Combine(context.Workspace, "SceneryDistances");
+            Directory.CreateDirectory(parent);
+            ProjectSession project = new ProjectService().CreateProject(parent, "Distances" + Guid.NewGuid().ToString("N")[..6], "Blank");
+            var resources = new ResourceService(project);
+            string objects = ResourceFolderPolicy.RootFor(project, ResourceKind.GameObject);
+            File.WriteAllText(resources.CreateResource(objects, ResourceKind.GameObject, "Test Shed"),
+                $$"""{"schemaVersion":2,"dimension":"ThreeD","model":"","components":[{{model}}],"events":[]}""");
+            File.WriteAllText(resources.CreateResource(objects, ResourceKind.GameObject, "Test Cliff"),
+                $$"""{"schemaVersion":2,"dimension":"ThreeD","model":"","streamDistance":1500,"components":[{{model}}],"events":[]}""");
+            ResourceNames.Invalidate(project.RootPath);
+            RoomAsset room = RoomAsset.Create("Coast", RoomDimension.ThreeD);
+            void Place(string prefab, float x) => room.Nodes.Add(new RoomNode
+            {
+                Name = prefab + " " + x, Kind = RoomNodeKind.GameObject, LayerId = room.Layers[0].Id, EnabledIn2D = false,
+                Transform = new RoomTransform { X = x, ScaleX = 1, ScaleY = 1, ScaleZ = 1 },
+                GameObject = new RoomGameObjectData { Prefab = prefab },
+            });
+            Place("Test Shed", 600f);
+            Place("Test Cliff", 1200f);
+
+            Genesis.Runtime.Scripting.VM.VMEngine.Initialize();
+            using var scene = new RuntimeScene("Distances");
+            var streamer = new RoomSceneryStreamer(350f);
+            var builder = new RoomSceneBuilder(project.RootPath, new ScriptHostSystem()) { Scenery = streamer };
+            builder.Build(scene, room);
+            streamer.Attach(builder, room);
+            var time = new GameTime();
+            time.Advance(1f / 60f);
+            void Stand(float x)
+            {
+                scene.Camera3D.Position = new Vector3(x, 2f, 0f);
+                for (int frame = 0; frame < 30; frame++) { streamer.Update(scene, time); scene.World.FlushDeferred(); }
+            }
+            Stand(0f);
+            HeadlessHarness.Assert(streamer.Total == 2 && streamer.Loaded == 1,
+                $"From 1200 m the cliff (1500 m) should be in, the shed at 600 m (the room's 350 m) out; {streamer.Loaded} of {streamer.Total} loaded.");
+            Stand(400f);
+            HeadlessHarness.Assert(streamer.Loaded == 2, "Walking within the shed's 350 m did not bring it in beside the cliff.");
+            Stand(-700f);
+            HeadlessHarness.Assert(streamer.Loaded == 0, "From 1900 m the cliff should have gone (1500 m and its margin).");
+        });
+
         HeadlessHarness.RunCase(context.Report, "Engine.World.Scenery.PlainObjectsLoadNearTheCameraAndUnloadBehindIt", () =>
         {
             JObject Prefab(string json) => JObject.Parse(json);

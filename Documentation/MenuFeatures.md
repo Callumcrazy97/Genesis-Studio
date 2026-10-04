@@ -164,6 +164,10 @@ Fixed in the language:
   it (materials, sockets, merged clips). A model cooked before this records its hash the first time
   Studio finds its times in agreement. **The Player never writes into the project**: a changed
   source is used for that run only, and a model without a hash plays as cooked.
+- **Collision parts by name.** A mesh, or the node holding it, named `COL_...` or `UCX_...` is a
+  collision part: it is never drawn, and when a model has any they are its whole Mesh collider. A
+  mesh named `NOCOL_...` is drawn but left out of the collider (glass, trims, small detail).
+  Models without such names collide with every triangle, as before.
 
 ## Post effects
 

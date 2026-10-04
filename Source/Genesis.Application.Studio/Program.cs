@@ -79,6 +79,8 @@ internal static class Program
         // Keep missing entries so the Project Hub can offer locate/remove recovery.
         try
         {
+            // Imported models and Images used as textures get their compressed copies while Studio runs.
+            Genesis.Application.Core.Resources.ProjectTextureCooker.BackgroundCooking = true;
             using StudioApplicationContext context = new(services, args);
             WinFormsApplication.Run(context);
             return 0;

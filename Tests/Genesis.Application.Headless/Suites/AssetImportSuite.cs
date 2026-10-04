@@ -42,6 +42,68 @@ internal static class AssetImportSuite
                 && width == 200 && height == 120, $"SpriteWidth/SpriteHeight of '{name}' gave {width} x {height}.");
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Models.CollisionPartsAreNamed", () =>
+        {
+            GModelMesh Copy(GModelMesh mesh, string name, int node = -1) => new()
+            {
+                Name = name, SourceNodeIndex = node, Vertices = mesh.Vertices, Indices = mesh.Indices,
+            };
+            GModelAsset building = GModelPrimitiveFactory.CreateCube("Building", 2f);
+            GModelMesh walls = building.Meshes[0];
+            building.Meshes.Add(Copy(walls, "COL_Hull"));
+            building.Meshes.Add(Copy(walls, "NOCOL_Glass"));
+            building.Nodes.Add(new GModelNode { Name = "UCX_Door" });
+            building.Meshes.Add(Copy(walls, "Cube.003", node: building.Nodes.Count - 1));
+            Check(!ModelCollisionNames.IsCollisionOnly(building, 0) && ModelCollisionNames.IsCollisionOnly(building, 1)
+                && !ModelCollisionNames.IsCollisionOnly(building, 2) && ModelCollisionNames.IsCollisionOnly(building, 3),
+                "COL_ and UCX_ parts (by mesh or by node name) were not recognised as collision only.");
+            Check(!ModelCollisionNames.InCollider(building, 0) && ModelCollisionNames.InCollider(building, 1)
+                && !ModelCollisionNames.InCollider(building, 2) && ModelCollisionNames.InCollider(building, 3),
+                "With collision parts present, the collider was not made from them alone.");
+            GModelAsset shop = GModelPrimitiveFactory.CreateCube("Shop", 2f);
+            shop.Meshes.Add(Copy(shop.Meshes[0], "NOCOL_Window"));
+            Check(ModelCollisionNames.InCollider(shop, 0) && !ModelCollisionNames.InCollider(shop, 1),
+                "A NOCOL_ part was put in the collider, or the rest was left out.");
+
+            using var scene = new Genesis.Runtime.RuntimeScene("Collision names");
+            var entity = scene.World.CreateEntity();
+            ModelColliderBinding.AttachGeometry(scene.World, entity, building, System.Numerics.Vector3.One);
+            int vertices = scene.World.GetRef<Genesis.Shared.ECS.Components.MeshColliderComponent>(entity).Vertices.Length;
+            Check(vertices == walls.Vertices.Length * 2, $"The building's collider has {vertices} points, not its two collision parts' {walls.Vertices.Length * 2}.");
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Assets.TexturesAreCookedForTheGpu", () =>
+        {
+            // An Image used as a model texture gets a BC7 copy beside its picture, and the copy is
+            // made once: a second cook finds it fresh.
+            string picture = Path.Combine(parent, "Bricks.png");
+            using (Bitmap bitmap = new(64, 32))
+            {
+                using (Graphics graphics = Graphics.FromImage(bitmap)) graphics.Clear(Color.IndianRed);
+                bitmap.Save(picture, ImageFormat.Png);
+            }
+            string imported = resources.ImportFiles(resources.AssetsRoot, [picture]).Single();
+            Check(ProjectTextureCooker.CookImage(imported) == 0, "An Image used only as a sprite was cooked.");
+            ImageDocument document = ImageDocumentSerializer.LoadAtomic(imported).Document;
+            document.Usage.Allowed |= ImageUsage.Texture;
+            ImageDocumentSerializer.SaveAtomic(imported, document);
+            Check(ProjectTextureCooker.CookImage(imported) == 1, "An Image used as a texture was not cooked.");
+            string frame = Genesis.Runtime.Assets.SpriteAssetLoader.ResolveFrameTexturePath(
+                imported, Genesis.Runtime.Assets.SpriteAssetLoader.Load(imported), 0);
+            Check(Genesis.Shared.Assets.CookedTextureManifestStore.TryResolve(Path.GetFullPath(frame), out string cooked,
+                    out Genesis.Shared.Assets.CookedTextureManifest manifest)
+                && manifest.Format == Genesis.Shared.Assets.CookedTextureFormat.Bc7Color && cooked.EndsWith(".bc7.dds", StringComparison.OrdinalIgnoreCase),
+                "The Image's picture has no fresh BC7 copy beside it.");
+            Check(ProjectTextureCooker.CookImage(imported) == 0, "A fresh copy was cooked again.");
+
+            // A model's textures: its colour picture is cooked as BC7.
+            string source = AnimatedGlbFixture.Write(Path.Combine(parent, "CookedModel"));
+            string model = resources.ImportFiles(resources.AssetsRoot, [source]).Single();
+            Check(ProjectTextureCooker.CookModel(model) >= 1 && ProjectTextureCooker.CookModel(model) == 0,
+                "An imported model's textures were not cooked once.");
+            Check(!ProjectTextureCooker.BackgroundCooking, "Tests must not start the background cook.");
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Engine.Audio.OggVorbisIsDecodedLikeWav", () =>
         {
             string fixture = Path.Combine(AppContext.BaseDirectory, "Fixtures", "tone-440-660.ogg");

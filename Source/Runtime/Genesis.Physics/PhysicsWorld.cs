@@ -211,7 +211,7 @@ public sealed partial class PhysicsWorld : IDisposable
             _staticCollisionFilter.Remove(stat);
         }
 
-        _simulation.Shapes.RemoveAndDispose(binding.Shape, _pool);
+        ReleaseShape(binding.Shape);
         _bindings.Remove(body.RegistrationId);
         body.RegistrationId = 0;
     }
@@ -489,6 +489,8 @@ public sealed partial class PhysicsWorld : IDisposable
         _simulation.Dispose();
         _threadDispatcher.Dispose();
         _pool.Clear();
+        _sharedMeshes.Clear();
+        _sharedMeshShapes.Clear();
         _dynamicHandles.Clear();
         _dynamicBindingsByHandle.Clear();
         _staticHandles.Clear();

@@ -85,6 +85,8 @@ public sealed class ImageDocumentSession
 
         ImageDocumentSerializer.SaveAtomic(DocumentPath, Document);
         _savedStateToken = History.CurrentStateToken;
+        if (Document.Usage.Supports(ImageUsage.Texture))
+            Genesis.Application.Core.Resources.ProjectTextureCooker.QueueImage(DocumentPath);
         OnChanged();
     }
 

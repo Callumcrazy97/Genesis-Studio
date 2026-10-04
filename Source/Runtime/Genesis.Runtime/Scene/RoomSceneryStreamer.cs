@@ -38,7 +38,28 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem, IRoomWarmUpSubsystem
         public bool Pinned;
         /// <summary>The Object asked to be streamed although it has scripts or a body.</summary>
         public bool Streamable;
+        /// <summary>The Object's own distance (its <c>streamDistance</c>); 0 uses the room's.</summary>
+        public float Distance;
+        /// <summary>A plain scenery object with a fixed collider, made only when something comes near.</summary>
+        public bool NearCollider;
     }
+
+    /// <summary>A scenery collider is made when the camera comes this near (metres, flat).</summary>
+    public float ColliderRadiusAroundCamera { get; set; } = 200f;
+
+    /// <summary>... or when a moving body comes this near.</summary>
+    public float ColliderRadiusAroundBodies { get; set; } = 64f;
+
+    /// <summary>Scenery colliders that exist now (for diagnostics and tests).</summary>
+    public int CollidersAwake { get; private set; }
+
+    private readonly List<Vector3> _bodyFocus = new();
+    private int _colliderFrame;
+
+    // The largest distance any item asks for: how far around the camera to look.
+    private float _farthestItem;
+
+    private float DistanceOf(Item item) => item.Distance > 0f ? item.Distance : Distance;
 
     private readonly List<Item> _items = new();
     private readonly Dictionary<(int X, int Z), List<Item>> _cells = new();
@@ -87,9 +108,11 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem, IRoomWarmUpSubsystem
     }
 
     /// <summary>Records a scenery object the room builder has left for later.</summary>
-    internal void Add(RoomNode node, Vector3 position, bool streamable = false)
+    internal void Add(RoomNode node, Vector3 position, bool streamable = false, float distance = 0f)
     {
-        var item = new Item { Node = node, Position = position, Streamable = streamable };
+        float own = float.IsFinite(distance) && distance > 0f ? MathF.Max(8f, distance) : 0f;
+        var item = new Item { Node = node, Position = position, Streamable = streamable, Distance = own };
+        _farthestItem = MathF.Max(_farthestItem, own);
         _items.Add(item);
         var key = Cell(position);
         if (!_cells.TryGetValue(key, out List<Item> cell)) _cells[key] = cell = new List<Item>();
@@ -126,7 +149,7 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem, IRoomWarmUpSubsystem
     private bool Fill(RuntimeScene scene, int budget, double milliseconds, long started)
     {
         Vector3 camera = scene.Camera3D.Position;
-        float load = Distance, loadSquared = load * load;
+        float load = MathF.Max(Distance, _farthestItem);
         int x0 = (int)MathF.Floor((camera.X - load) / CellSize), x1 = (int)MathF.Floor((camera.X + load) / CellSize);
         int z0 = (int)MathF.Floor((camera.Z - load) / CellSize), z1 = (int)MathF.Floor((camera.Z + load) / CellSize);
         for (int cz = z0; cz <= z1; cz++)
@@ -135,7 +158,9 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem, IRoomWarmUpSubsystem
             if (!_cells.TryGetValue((cx, cz), out List<Item> cell)) continue;
             foreach (Item item in cell)
             {
-                if (item.Loaded || FlatDistanceSquared(item.Position, camera) > loadSquared) continue;
+                if (item.Loaded) continue;
+                float own = DistanceOf(item);
+                if (FlatDistanceSquared(item.Position, camera) > own * own) continue;
                 Load(scene.World, item);
                 if (--budget <= 0) return false;
                 if (System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds >= milliseconds) return false;
@@ -149,8 +174,7 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem, IRoomWarmUpSubsystem
     {
         if (_builder == null || scene?.World == null || _items.Count == 0) return;
         Vector3 camera = scene.Camera3D.Position;
-        float load = Distance;
-        float unload = load * MathF.Max(1.05f, UnloadFactor), unloadSquared = unload * unload;
+        float unloadFactor = MathF.Max(1.05f, UnloadFactor);
 
         // The first update fills the view at once; a room should not open on an empty street.
         bool running = _primed;
@@ -159,6 +183,7 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem, IRoomWarmUpSubsystem
         Fill(scene, running ? Math.Max(1, LoadsPerFrame) : int.MaxValue, running ? LoadMillisecondsPerFrame : double.MaxValue, started);
 
         if (!running) WarmKinds(scene, double.MaxValue, started);
+        UpdateColliders(scene, now: !running);
 
         // Look at a slice of what is loaded each frame; leaving is never urgent.
         int checks = Math.Min(_loaded.Count, 96);
@@ -175,7 +200,8 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem, IRoomWarmUpSubsystem
                 where = new Vector3(transform.X, transform.Y, transform.Z);
             }
 
-            if (FlatDistanceSquared(where, camera) <= unloadSquared) continue;
+            float unload = DistanceOf(item) * unloadFactor;
+            if (FlatDistanceSquared(where, camera) <= unload * unload) continue;
             if (Unload(scene, item))
             {
                 _loaded[_sweep] = _loaded[^1];
@@ -224,7 +250,57 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem, IRoomWarmUpSubsystem
     {
         item.Entity = _builder.SpawnScenery(world, _room, item.Node);
         item.Loaded = true;
+        item.NearCollider = false;
+        // Plain scenery's fixed collider waits until the camera or something moving comes near: a
+        // town in view costs its drawing, not the physics of every building in it.
+        if (!item.Streamable && !item.Entity.IsNull && world.IsAlive(item.Entity) && world.Has<RigidBodyComponent>(item.Entity))
+        {
+            ref RigidBodyComponent body = ref world.GetRef<RigidBodyComponent>(item.Entity);
+            if (body.Motion == PhysicsMotionType.Static && body.RegistrationId == 0)
+            {
+                body.Dormant = true;
+                item.NearCollider = true;
+            }
+        }
         _loaded.Add(item);
+    }
+
+    /// <summary>Wakes the colliders of scenery near the camera or a moving body, and lets far ones sleep.</summary>
+    private void UpdateColliders(RuntimeScene scene, bool now)
+    {
+        if (!now && ++_colliderFrame % 8 != 0) return;
+        EcsWorld world = scene.World;
+        Vector3 camera = scene.Camera3D.Position;
+        _bodyFocus.Clear();
+        world.Query<RigidBodyComponent, Transform3DComponent>((Entity _, ref RigidBodyComponent body, ref Transform3DComponent transform) =>
+        {
+            if (body.Motion != PhysicsMotionType.Static && body.RegistrationId != 0 && _bodyFocus.Count < 512)
+                _bodyFocus.Add(transform.Position);
+        });
+        float cameraNear = ColliderRadiusAroundCamera, bodyNear = ColliderRadiusAroundBodies;
+        int awake = 0;
+        foreach (Item item in _loaded)
+        {
+            if (!item.NearCollider || item.Entity.IsNull || !world.IsAlive(item.Entity) || !world.Has<RigidBodyComponent>(item.Entity))
+                continue;
+            ref RigidBodyComponent body = ref world.GetRef<RigidBodyComponent>(item.Entity);
+            // Wake inside the radius; sleep only beyond it with a margin, so an edge is not crossed back and forth.
+            float margin = body.Dormant ? 1f : 1.3f;
+            bool near = FlatDistanceSquared(item.Position, camera) <= cameraNear * cameraNear * margin * margin;
+            for (int i = 0; !near && i < _bodyFocus.Count; i++)
+                near = FlatDistanceSquared(item.Position, _bodyFocus[i]) <= bodyNear * bodyNear * margin * margin;
+            if (near)
+            {
+                body.Dormant = false;
+                awake++;
+            }
+            else if (!body.Dormant)
+            {
+                if (body.RegistrationId != 0) scene.Physics?.UnregisterEntity(world, item.Entity, ref body);
+                body.Dormant = true;
+            }
+        }
+        CollidersAwake = awake;
     }
 
     /// <returns>False when the object must stay: it has gained a body that moves.</returns>

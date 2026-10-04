@@ -25,6 +25,33 @@ namespace Genesis.Rendering.Textures
             return Path.Combine(directory, stem + suffix);
         }
 
+        // A cut-out picture's smaller sizes keep its alpha coverage (TextureMipBuilder), each level
+        // encoded from that chain in place of the encoder's own averaged mips.
+        private static void WriteCoverageKeepingMips(BcEncoder encoder, byte[] pixels, int width, int height, Stream output)
+        {
+            var dds = encoder.EncodeToDds(pixels, width, height, PixelFormat.Rgba32);
+            byte[] chain = TextureMipBuilder.BuildChain(pixels, width, height, srgb: true, out int levels);
+            var mips = dds.Faces[0].MipMaps;
+            if (mips.Length == levels)
+            {
+                BcEncoder single = new();
+                single.OutputOptions.GenerateMipMaps = false;
+                single.OutputOptions.Quality = encoder.OutputOptions.Quality;
+                single.OutputOptions.Format = encoder.OutputOptions.Format;
+                int offset = width * height * 4, levelWidth = width, levelHeight = height;
+                for (int level = 1; level < levels; level++)
+                {
+                    levelWidth = Math.Max(1, levelWidth >> 1);
+                    levelHeight = Math.Max(1, levelHeight >> 1);
+                    int bytes = levelWidth * levelHeight * 4;
+                    byte[][] encoded = single.EncodeToRawBytes(chain.AsSpan(offset, bytes), levelWidth, levelHeight, PixelFormat.Rgba32);
+                    if (encoded.Length > 0 && encoded[0].Length == mips[level].Data.Length) encoded[0].CopyTo(mips[level].Data, 0);
+                    offset += bytes;
+                }
+            }
+            dds.Write(output);
+        }
+
         public static string Cook(string sourcePath, CookedTextureFormat format, bool mipmaps = true)
         {
             string source = Path.GetFullPath(sourcePath ?? throw new ArgumentNullException(nameof(sourcePath)));
@@ -78,7 +105,10 @@ namespace Genesis.Rendering.Textures
 
                 using (FileStream output = new(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                 {
-                    encoder.EncodeToStream(pixels, width, height, PixelFormat.Rgba32, output);
+                    if (mipmaps && format == CookedTextureFormat.Bc7Color && TextureMipBuilder.IsCutOut(pixels))
+                        WriteCoverageKeepingMips(encoder, pixels, width, height, output);
+                    else
+                        encoder.EncodeToStream(pixels, width, height, PixelFormat.Rgba32, output);
                     output.Flush(flushToDisk: true);
                 }
 

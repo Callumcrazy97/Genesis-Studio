@@ -34,6 +34,11 @@ namespace Genesis.Shared.ECS.Components
         public float             SpeculativeMargin;
         public RigidBodyFlags    Flags;
         public int               RegistrationId;
+        /// <summary>
+        /// Not registered with the simulation while set: streamed scenery far from the camera and
+        /// from anything moving keeps its collider dormant (RoomSceneryStreamer wakes it).
+        /// </summary>
+        public bool              Dormant;
         /// <summary>Zero-based authored collision layer. Genesis currently exposes layers A-G.</summary>
         public byte              CollisionLayer;
         /// <summary>Bit mask of layers this body accepts. Zero is treated as all layers for legacy data.</summary>

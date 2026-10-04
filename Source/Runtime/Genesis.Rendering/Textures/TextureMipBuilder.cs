@@ -48,6 +48,10 @@ namespace Genesis.Rendering.Textures
             byte[] chain = new byte[total];
             int baseBytes = checked(width * height * 4);
             rgba[..baseBytes].CopyTo(chain);
+            // A cut-out picture (leaves, grass, a fence) keeps the share of its texels that pass the
+            // alpha cut-off at every size; averaging alone thins a forest to twigs at a distance.
+            bool cutOut = IsCutOut(rgba[..baseBytes]);
+            float coverage = cutOut ? Coverage(rgba[..baseBytes], AlphaCutoff) : 0f;
 
             int source = 0;
             int sourceWidth = width;
@@ -87,12 +91,71 @@ namespace Genesis.Rendering.Textures
                         chain[output + 3] = (byte)((chain[a + 3] + chain[b + 3] + chain[c + 3] + chain[d + 3] + 2) >> 2);
                     }
                 }
+                if (cutOut) PreserveCoverage(chain.AsSpan(destination, levelWidth * levelHeight * 4), coverage, AlphaCutoff);
                 source = destination;
                 destination += levelWidth * levelHeight * 4;
                 sourceWidth = levelWidth;
                 sourceHeight = levelHeight;
             }
             return chain;
+        }
+
+        /// <summary>The engine's alpha cut-off, which coverage is kept against.</summary>
+        public const float AlphaCutoff = 0.35f;
+
+        /// <summary>
+        /// True for a picture whose alpha is a cut-out (nearly all texels clearly in or out, with
+        /// some of each), not a soft or blended one, whose smaller sizes are left as averaged.
+        /// </summary>
+        public static bool IsCutOut(ReadOnlySpan<byte> rgba)
+        {
+            int pixels = rgba.Length / 4;
+            if (pixels < 16) return false;
+            int clear = 0, solid = 0;
+            for (int i = 3; i < rgba.Length; i += 4)
+            {
+                byte alpha = rgba[i];
+                if (alpha <= 26) clear++;
+                else if (alpha >= 229) solid++;
+            }
+            return clear + solid >= pixels * 0.9f && clear >= pixels / 100 + 1 && solid >= pixels / 100 + 1;
+        }
+
+        /// <summary>The share of texels whose alpha reaches <paramref name="cutoff"/>.</summary>
+        public static float Coverage(ReadOnlySpan<byte> rgba, float cutoff)
+        {
+            int pixels = rgba.Length / 4, passing = 0;
+            int threshold = (int)MathF.Ceiling(cutoff * 255f);
+            for (int i = 3; i < rgba.Length; i += 4) if (rgba[i] >= threshold) passing++;
+            return pixels == 0 ? 0f : passing / (float)pixels;
+        }
+
+        /// <summary>Scales one level's alpha so the share passing the cut-off matches <paramref name="target"/>.</summary>
+        public static void PreserveCoverage(Span<byte> level, float target, float cutoff)
+        {
+            int pixels = level.Length / 4;
+            if (pixels == 0) return;
+            int[] histogram = new int[256];
+            for (int i = 3; i < level.Length; i += 4) histogram[level[i]]++;
+            float CoverageAt(float scale)
+            {
+                // A texel passes when alpha * scale reaches the cut-off.
+                int first = (int)MathF.Ceiling(cutoff * 255f / scale);
+                int passing = 0;
+                for (int a = Math.Clamp(first, 0, 256); a < 256; a++) passing += histogram[a];
+                return passing / (float)pixels;
+            }
+            float low = 0.25f, high = 16f;
+            for (int iteration = 0; iteration < 14; iteration++)
+            {
+                float middle = (low + high) * 0.5f;
+                if (CoverageAt(middle) < target) low = middle;
+                else high = middle;
+            }
+            float best = high;
+            if (MathF.Abs(best - 1f) < 1e-3f) return;
+            for (int i = 3; i < level.Length; i += 4)
+                level[i] = (byte)Math.Clamp((int)MathF.Round(level[i] * best), 0, 255);
         }
 
         private static float[] BuildDecodeTable()
