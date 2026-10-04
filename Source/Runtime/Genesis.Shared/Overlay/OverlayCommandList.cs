@@ -12,6 +12,7 @@ namespace Genesis.Shared.Overlay
         TextCentered,
         Line,
         Rect,
+        Sprite,
     }
 
     /// <summary>
@@ -32,6 +33,8 @@ namespace Genesis.Shared.Overlay
         public readonly float Tracking;
         /// <summary>Screen rectangle (x, y, width, height) the command is limited to; zero size is none.</summary>
         public readonly Vector4 Clip;
+        /// <summary>The textured quad of a <see cref="OverlayCommandKind.Sprite"/> command.</summary>
+        public readonly SpriteDrawCall Sprite;
 
         public OverlayCommand(
             OverlayCommandKind kind,
@@ -47,10 +50,12 @@ namespace Genesis.Shared.Overlay
             float stroke,
             Vector4 color,
             float tracking = 0f,
-            Vector4 clip = default)
+            Vector4 clip = default,
+            SpriteDrawCall sprite = default)
         {
             Tracking = tracking;
             Clip = clip;
+            Sprite = sprite;
             Kind = kind;
             Text = text;
             FontFamily = fontFamily;
@@ -135,6 +140,23 @@ namespace Genesis.Shared.Overlay
                 position.X, position.Y, 4096f, 4096f, size, 0f, color, tracking));
         }
 
+        public bool SupportsSprites => true;
+
+        public void DrawSprite(in SpriteDrawCall call)
+        {
+            if (!call.Texture.IsValid || call.Alpha <= 0f) return;
+            Add(new OverlayCommand(
+                OverlayCommandKind.Sprite, null, null, bold: false, filled: true,
+                call.X, call.Y, call.Width, call.Height, 0f, 0f,
+                new Vector4(call.Tint.R, call.Tint.G, call.Tint.B, call.Tint.A), sprite: call));
+            Hash(call.Texture.Id);
+            Hash(call.OriginX); Hash(call.OriginY); Hash(call.Rotation);
+            Hash(call.ScaleX); Hash(call.ScaleY); Hash(call.Alpha);
+            Hash(call.UvRect.X); Hash(call.UvRect.Y); Hash(call.UvRect.Z); Hash(call.UvRect.W);
+            Hash(call.ClipRect.X); Hash(call.ClipRect.Y); Hash(call.ClipRect.Z); Hash(call.ClipRect.W);
+            Hash(call.Shader.Id); Hash((int)call.Blend); Hash(call.SmoothSampling ? 1 : 0);
+        }
+
         /// <summary>Every command added after this is limited to <paramref name="clip"/> until the next call or frame.</summary>
         public void SetClip(Vector4 clip) =>
             _clip = clip.Z > 0f && clip.W > 0f ? clip : default;
@@ -190,7 +212,7 @@ namespace Genesis.Shared.Overlay
             {
                 command = new OverlayCommand(command.Kind, command.Text, command.FontFamily, command.Bold, command.Filled,
                     command.A, command.B, command.C, command.D, command.Size, command.Stroke, command.Color,
-                    command.Tracking, _clip);
+                    command.Tracking, _clip, command.Sprite);
                 Hash(command.Tracking);
                 Hash(_clip.X);
                 Hash(_clip.Y);

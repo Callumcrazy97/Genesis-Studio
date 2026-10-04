@@ -38,6 +38,9 @@ namespace Genesis.Runtime.Scripting
 
             var externalFunctions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var objectVariables = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+            // An object's events share one VM, so a function one event defines (usually Create) is
+            // callable from its other events, as the game runs it.
+            var objectFunctions = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
             var fileVariables = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
             foreach (string file in files)
             {
@@ -53,7 +56,8 @@ namespace Genesis.Runtime.Scripting
                 }
 
                 var writes = new HashSet<string>(StringComparer.Ordinal);
-                try { CollectSourceWrites(File.ReadAllText(file), writes); }
+                var functions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                try { CollectSourceWrites(File.ReadAllText(file), writes, functions); }
                 catch { /* the validation pass below reports the actual read/parse failure */ }
 
                 if (objectEvent)
@@ -65,6 +69,12 @@ namespace Genesis.Runtime.Scripting
                         objectVariables[folder] = shared;
                     }
                     shared.UnionWith(writes);
+                    if (!objectFunctions.TryGetValue(folder, out HashSet<string> sharedFunctions))
+                    {
+                        sharedFunctions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        objectFunctions[folder] = sharedFunctions;
+                    }
+                    sharedFunctions.UnionWith(functions);
                 }
                 else
                 {
@@ -87,12 +97,19 @@ namespace Genesis.Runtime.Scripting
                 }
 
                 IReadOnlyCollection<string> knownVariables;
+                IReadOnlyCollection<string> callable = externalFunctions;
                 if (PgslPlayCompiler.TryObjectEventFile(file, out _, out _))
                 {
                     string folder = Path.GetDirectoryName(file) ?? file;
                     knownVariables = objectVariables.TryGetValue(folder, out HashSet<string> shared)
                         ? shared
                         : Array.Empty<string>();
+                    if (objectFunctions.TryGetValue(folder, out HashSet<string> sharedFunctions) && sharedFunctions.Count > 0)
+                    {
+                        var merged = new HashSet<string>(externalFunctions, StringComparer.OrdinalIgnoreCase);
+                        merged.UnionWith(sharedFunctions);
+                        callable = merged;
+                    }
                 }
                 else
                 {
@@ -104,7 +121,7 @@ namespace Genesis.Runtime.Scripting
                 var options = new PgslSemanticOptions
                 {
                     Strict = strict,
-                    ExternalFunctions = externalFunctions,
+                    ExternalFunctions = callable,
                     KnownVariables = knownVariables,
                 };
 
@@ -193,17 +210,25 @@ namespace Genesis.Runtime.Scripting
             catch { return file; }
         }
 
-        private static void CollectSourceWrites(string source, ISet<string> writes)
+        private static void CollectSourceWrites(string source, ISet<string> writes, ISet<string> functions)
         {
+            void Collect(ScriptAst ast)
+            {
+                PgslSemanticChecker.CollectWrittenVariables(ast, writes);
+                foreach (Stmt statement in ast.Body)
+                    if (statement is FunctionDeclStmt function && !string.IsNullOrWhiteSpace(function.Name))
+                        functions.Add(function.Name);
+            }
+
             Dictionary<string, string> eventBodies = PgslPlayCompiler.SplitEventBlocks(source);
             if (eventBodies.Count > 0)
             {
                 foreach (string body in eventBodies.Values)
-                    PgslSemanticChecker.CollectWrittenVariables(PgslAstBuilder.Parse(body), writes);
+                    Collect(PgslAstBuilder.Parse(body));
             }
             else if (!PgslPlayCompiler.HasEventBlocks(source))
             {
-                PgslSemanticChecker.CollectWrittenVariables(PgslAstBuilder.Parse(source ?? string.Empty), writes);
+                Collect(PgslAstBuilder.Parse(source ?? string.Empty));
             }
         }
 

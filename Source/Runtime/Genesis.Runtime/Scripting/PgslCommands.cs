@@ -599,8 +599,10 @@ public static partial class PgslCommands
 
     private static Key ParseKey(string keyStr)
     {
-        if (string.IsNullOrEmpty(keyStr)) return Key.Unknown;
-        if (Enum.TryParse<Key>(keyStr, true, out var k)) return k;
+        if (string.IsNullOrWhiteSpace(keyStr)) return Key.Unknown;
+        keyStr = keyStr.Trim();
+        // A single letter or digit is that key. Checked first: Enum.TryParse reads "5" as the
+        // enum's fifth value, not the 5 key.
         if (keyStr.Length == 1)
         {
             char c = char.ToUpperInvariant(keyStr[0]);
@@ -609,6 +611,7 @@ public static partial class PgslCommands
             if (c >= '0' && c <= '9')
                 return (Key)((int)Key.D0 + (c - '0'));
         }
+        if (!char.IsDigit(keyStr[0]) && keyStr[0] != '-' && Enum.TryParse<Key>(keyStr, true, out var k) && Enum.IsDefined(k)) return k;
         return Key.Unknown;
     }
 

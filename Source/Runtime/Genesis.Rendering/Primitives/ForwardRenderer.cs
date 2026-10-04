@@ -5697,7 +5697,8 @@ namespace Genesis.Rendering.Primitives
                 StylizedParams2 = new Vector4(
                     Math.Max(s.StylizedSpecularStrength, 0f),
                     Math.Max(s.StylizedRimStrength, 0f),
-                    SceneDepthFlag, 0f),
+                    SceneDepthFlag,
+                    float.IsFinite(s.EnvironmentReflection) ? Math.Clamp(s.EnvironmentReflection, 0f, 4f) : 0f),
                 WeatherWindRain = s.WeatherWindRain,
                 WeatherSurface = s.WeatherSurface,
             };

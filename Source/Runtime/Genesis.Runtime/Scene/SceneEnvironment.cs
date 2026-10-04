@@ -84,6 +84,9 @@ namespace Genesis.Runtime.Scene
         public float StylizedRimStrength { get; set; } = 0.18f;
         public float StylizedSaturation { get; set; } = 1f;
 
+        /// <summary>Sky and ground reflection on models: 0 off (default), 1 physically balanced, up to 4.</summary>
+        public float EnvironmentReflection { get; set; }
+
         public Vector3 GetSunLightDirection()
         {
             float yaw   = SunYawDegrees * MathUtil.DegToRad;

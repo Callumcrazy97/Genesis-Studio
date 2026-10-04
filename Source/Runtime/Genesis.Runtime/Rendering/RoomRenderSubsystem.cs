@@ -61,10 +61,13 @@ public sealed partial class RoomRenderSubsystem : ISceneSubsystem
     public Vector2 GetViewportShakeOffset(int index) =>
         _viewportTracker.ShakeOffset(_room, index, _roomTime);
 
+    /// <summary>How sprites (and GUI sprites) are sampled in this room, 2D or 3D: the room's pixel-art setting.</summary>
+    public SamplerFilter SpriteFilter => _room.Settings.PixelArtSampling ? SamplerFilter.Point : SamplerFilter.Linear;
+
     public void Render2D(RuntimeScene scene, IRenderController renderer, IRenderCommandSink commands)
     {
         if (!IsTwoD || commands == null) return;
-        renderer.SetSamplerState(_room.Settings.PixelArtSampling ? SamplerFilter.Point : SamplerFilter.Linear);
+        renderer.SetSamplerState(SpriteFilter);
 
         // A room with viewports configured draws once per enabled viewport, into that viewport's
         // rectangle of the window. A room with none keeps the original single-camera path exactly,

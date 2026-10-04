@@ -62,7 +62,7 @@ cbuffer EngineConstants : register(b1)
     FogVolumeGpu FogVolumes[8];
     // Stylized / toon lighting — global per frame (see SceneEnvironment.Stylized*).
     float4       StylizedParams;     // x=enabled, y=toonSteps, z=diffuseWrap, w=saturation
-    float4       StylizedParams2;    // x=specularStrength, y=rimStrength, z=scene depth is reversed, w=reserved
+    float4       StylizedParams2;    // x=specularStrength, y=rimStrength, z=scene depth is reversed, w=environment reflection (0 = off)
     float4       WeatherWindRain;    // world wind XZ, rain, enabled
     float4       WeatherSurface;     // wetness, temperature C, snow, reserved
 };
@@ -1241,6 +1241,24 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
     float3 F0 = lerp(float3(0.04,0.04,0.04), base, metallic);
     float3 F = F0 + (1.0 - F0) * pow(1.0 - vdoth, 5.0);
     float3 specular = sunRadiance * (D * Gv * Gl * F / max(4.0 * ndotv * max(ndotl,0.001), 0.001)) * ndotl * shadow;
+
+    // Environment reflection (room setting, off at 0): the sky and ground the surface mirrors,
+    // blurred towards the hemisphere ambient as it roughens, weighted by Karis's analytic
+    // split-sum approximation. Metals take their colour from it instead of going black away from
+    // lights; their diffuse ambient gives way to it, as it does in a physically based renderer.
+    if (StylizedParams2.w > 0.0)
+    {
+        float3 reflected = reflect(viewDir, n);
+        float3 envMirror = lerp(AmbientGroundColor.rgb, AmbientColor.rgb, saturate(reflected.y * 0.5 + 0.5));
+        float3 envLight = lerp(envMirror, hemiAmbient, roughness);
+        float4 envC0 = float4(-1.0, -0.0275, -0.572, 0.022);
+        float4 envC1 = float4(1.0, 0.0425, 1.04, -0.04);
+        float4 envR = roughness * envC0 + envC1;
+        float envA = min(envR.x * envR.x, exp2(-9.28 * ndotv)) * envR.x + envR.y;
+        float2 envAB = float2(-1.04, 1.04) * envA + envR.zw;
+        float3 envSpecular = envLight * (F0 * envAB.x + envAB.y) * StylizedParams2.w;
+        ambient = hemiAmbient * base * (1.0 - metallic) * ao + envSpecular * ao;
+    }
 
     // Fresnel rim from the sky ambient — a subtle grazing-angle edge light that gives
     // silhouettes atmospheric pop (also non-Lambertian, view-dependent).

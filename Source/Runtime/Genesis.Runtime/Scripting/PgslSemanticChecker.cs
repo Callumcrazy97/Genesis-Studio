@@ -265,21 +265,9 @@ namespace Genesis.Runtime.Scripting
                 case FunctionDeclStmt function:
                 {
                     var functionScope = new HashSet<string>(declared, StringComparer.Ordinal);
+                    // A parameter named like a built-in (x, id, speed...) is the function's own value.
                     foreach (string parameter in function.Parameters)
-                    {
                         functionScope.Add(parameter);
-                        // Inside the function the name reads the instance's own value, never the argument.
-                        if (InstanceVars.Contains(parameter))
-                            diagnostics.Add(new PgslDiagnostic
-                            {
-                                Severity = CompatibilitySeverity(options),
-                                Line = function.Line,
-                                Column = function.Column,
-                                Message = $"Parameter '{parameter}' of function '{function.Name}' is the name of a built-in instance "
-                                    + $"variable, so the function reads the instance's '{parameter}' instead of the argument; rename it "
-                                    + $"(for example '{Suggest(parameter)}').",
-                            });
-                    }
                     if (function.Body != null)
                     {
                         foreach (Stmt child in function.Body.Body)

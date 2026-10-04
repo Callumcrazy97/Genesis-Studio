@@ -815,6 +815,8 @@ namespace Genesis.Shared.Interfaces
         public float StylizedRimStrength;
         /// <summary>Albedo saturation boost (1 = neutral).</summary>
         public float StylizedSaturation;
+        /// <summary>Sky and ground reflection on models (0 = off).</summary>
+        public float EnvironmentReflection;
 
         public static Mesh3DState Default
         {

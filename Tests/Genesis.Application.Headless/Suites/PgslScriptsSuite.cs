@@ -201,14 +201,69 @@ internal static class PgslScriptsSuite
             }
         });
 
-        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.AParameterNamedLikeABuiltInIsRejected", () =>
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.AParameterNamedLikeABuiltInIsTheArgument", () =>
         {
+            ObjectSandboxResult result = RunCreate(
+                "x = 100;\n" +
+                "function Place(x, y) { var speed = x + y; return speed * 2; }\n" +
+                "function Lookup(id) { return id; }\n" +
+                "r = Place(3, 4);\nl = Lookup(7);\nafter = x;\nsp = speed;\n");
+            Check(result.Ok, "Functions with parameters named like built-ins failed: " + Errors(result));
+            Check(Near(result, "r", 14) && Near(result, "l", 7),
+                $"Parameters named x, y and id read the instance's values: Place gave {Value(result, "r")} (14), Lookup {Value(result, "l")} (7).");
+            Check(Near(result, "after", 100) && Near(result, "sp", 0),
+                $"A function's parameter or local changed the instance: x = {Value(result, "after")} (100), speed = {Value(result, "sp")} (0).");
             var strict = new PgslSemanticOptions { Strict = true };
             List<PgslDiagnostic> found = PgslSemanticChecker.Check(PgslAstBuilder.Parse("function F(id) { return id; }\nv = F(3);\n"), strict).ToList();
-            Check(found.Any(d => d.Severity == PgslDiagnostic.Kind.Error && d.Message.Contains("'id'", StringComparison.Ordinal)),
-                "A function parameter named 'id', which reads the instance's id instead of the argument, passed the strict check.");
-            List<PgslDiagnostic> fine = PgslSemanticChecker.Check(PgslAstBuilder.Parse("function F(slot) { return slot; }\nv = F(3);\n"), strict).ToList();
-            Check(!fine.Any(d => d.Message.Contains("built-in instance", StringComparison.Ordinal)), "An ordinary parameter name was rejected.");
+            Check(!found.Any(d => d.Severity == PgslDiagnostic.Kind.Error), "The strict check rejects a parameter named like a built-in, which now works.");
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.AnObjectsEventsShareTheirFunctionsInValidation", () =>
+        {
+            var resources = new Genesis.Application.Core.Resources.ResourceService(project);
+            string objectPath = resources.CreateResource(resources.AssetsRoot,
+                Genesis.Application.Core.Resources.ResourceKind.GameObject, "Shared Helper Object");
+            string create = ObjectEventStore.PathFor(objectPath, "Create");
+            string step = ObjectEventStore.PathFor(objectPath, "Step");
+            Directory.CreateDirectory(Path.GetDirectoryName(create)!);
+            File.WriteAllText(create, "function Shout(level) { return level * 2; }\nloud = Shout(1);\n");
+            File.WriteAllText(step, "loud = Shout(loud);\n");
+            PgslValidationReport report = PgslScriptValidator.ValidateProject(project.RootPath, strict: true);
+            Check(!report.Errors.Any(error => error.Contains("Shout", StringComparison.OrdinalIgnoreCase)),
+                "The strict check rejects a function another event of the same object defines: "
+                + string.Join(" | ", report.Errors.Where(error => error.Contains("Shout", StringComparison.OrdinalIgnoreCase))));
+            File.WriteAllText(step, "loud = Whisper(loud);\n");
+            report = PgslScriptValidator.ValidateProject(project.RootPath, strict: true);
+            Check(report.Errors.Any(error => error.Contains("Whisper", StringComparison.OrdinalIgnoreCase)),
+                "The strict check no longer reports a function nothing defines.");
+            File.Delete(step);
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Lighting.RoomEnvironmentReflectionReachesTheRenderer", () =>
+        {
+            var room = Genesis.Runtime.Scene.RoomAsset.Create("Reflections", Genesis.Runtime.Scene.RoomDimension.ThreeD);
+            Check(room.Environment.EnvironmentReflection == 0f, "Environment reflection is not off by default.");
+            room.Environment.EnvironmentReflection = 1.5f;
+            using var scene = new Genesis.Runtime.RuntimeScene("Reflections");
+            Genesis.Runtime.Scene.RoomSceneBuilder.ApplySceneSettings(scene, room);
+            Check(scene.Environment.EnvironmentReflection == 1.5f, "The room's environment reflection did not reach the scene.");
+            var state = Genesis.Runtime.Scene.EnvironmentMapper.ToMesh3DState(scene.Environment, scene.Camera3D,
+                new Genesis.Shared.Interfaces.RendererOptions(), false, default);
+            Check(state.EnvironmentReflection == 1.5f, "The environment reflection did not reach the renderer's frame state.");
+            var json = Newtonsoft.Json.JsonConvert.DeserializeObject<Genesis.Runtime.Scene.RoomEnvironment>("{\"environmentReflection\": 9}");
+            Check(json!.EnvironmentReflection == 9f, "The room file's environmentReflection is not read.");
+            room.Environment.EnvironmentReflection = 9f;
+            Genesis.Runtime.Scene.RoomSceneBuilder.ApplySceneSettings(scene, room);
+            Check(scene.Environment.EnvironmentReflection == 4f, "An out-of-range reflection strength was not limited to 4.");
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Input.ADigitNamesItsKey", () =>
+        {
+            Genesis.Runtime.Input.InputState input = new();
+            Genesis.Runtime.Input.Key five = (Genesis.Runtime.Input.Key)typeof(PgslCommands)
+                .GetMethod("ParseKey", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+                .Invoke(null, ["5"])!;
+            Check(five == Genesis.Runtime.Input.Key.D5, $"\"5\" named the key {five}, not D5.");
         });
     }
 

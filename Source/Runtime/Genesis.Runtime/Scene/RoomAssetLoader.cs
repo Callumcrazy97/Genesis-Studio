@@ -404,6 +404,9 @@ public sealed class RoomSceneBuilder
         scene.Environment.SceneryDistance = float.IsFinite(environment.SceneryDistance)
             ? Math.Clamp(environment.SceneryDistance, 0f, 100000f)
             : 0f;
+        scene.Environment.EnvironmentReflection = float.IsFinite(environment.EnvironmentReflection)
+            ? Math.Clamp(environment.EnvironmentReflection, 0f, 4f)
+            : 0f;
         float[] bg = environment.BackgroundColor;
         if (bg is { Length: >= 3 }) scene.Environment.BackgroundColor = new Vector4(bg[0], bg[1], bg[2], bg.Length > 3 ? bg[3] : 1f);
         if (scene.Physics != null && environment.Gravity is { Length: >= 3 })

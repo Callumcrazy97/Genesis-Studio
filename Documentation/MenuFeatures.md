@@ -36,9 +36,16 @@ outline has rounded corners (it used to be four straight lines with gaps at the 
 
 ## GUI drawing in the order drawn, and clipping
 
-In a DrawGui event, shapes and text reach the screen in the order the script drew them, so a panel
-drawn after a label covers it. Before, all text was drawn after all shapes. Images (`DrawSprite`,
-`DrawSpritePart`) are still drawn beneath the shapes and text of the same frame.
+In a DrawGui event, shapes, text and images (`DrawSprite`, `DrawSpriteScaled`, `DrawSpritePart`)
+reach the screen in the order the script drew them, so a dimming panel or a padlock plate drawn
+after a label or an icon covers it. Before, every image was drawn first, then every shape, then all
+text. A C# behaviour's `OnDrawHud` canvas carries images the same way (`IHudCanvas.Sprite`).
+
+**Pixel-art sampling in 3D rooms.** A 3D room with "Pixel-art sampling" on now draws its sprites
+and GUI images with nearest-texel sampling, as a 2D room does. It used to apply only to 2D rooms,
+so a 3D room's pixel-art HUD and bitmap fonts were always smoothed. (An Image's own Nearest filter
+is still not applied on its own: Images default to Nearest, and honouring it would change how
+nearly every game draws its scaled sprites.)
 
 | Command | Meaning |
 |---|---|
@@ -118,8 +125,15 @@ Fixed in the language:
   called each other's. Each script now sees its own.
 - `ArrayGetString` on a slot below the array's length that was never written returned `"0"`; it
   returns empty text, as documented.
-- The strict check rejects a function parameter named like an instance variable (`id`, `x`,
-  `depth`...): it read the instance's value, not the argument.
+- A function parameter or a `var` inside a function named like a built-in (`x`, `y`, `id`,
+  `speed`...) read and wrote the instance's own value instead of the argument. Inside a function
+  they are now the function's own. (`var x` in an event, outside a function, still means the
+  instance's `x`, and the strict check still warns about it.)
+- The project check reported a function defined in one of an Object's events (usually Create) as
+  unknown in its other events, though the game runs it; an Object's events now share their
+  functions in the check as in the game.
+- `KeyCheck("5")` and the other key commands read a single digit as the enum's fifth key, not the
+  5 key.
 
 ## Assets
 
@@ -138,6 +152,19 @@ Fixed in the language:
   into a converted Model are converted the same way. **Off by default**: models already in a
   project, and projects that compensate in their own pipeline, are unchanged. Changing the setting
   applies the next time a model is imported (re-import it, or replace its source file).
+
+## Models reflect their surroundings
+
+A room's environment has a new `environmentReflection` strength (0 to 4, **0 by default**, so
+existing rooms look exactly as before). Above 0, models reflect the sky and the ground (the room's
+two hemisphere ambient colours) along the mirror direction, blurring towards the plain ambient as
+the surface roughens, weighted by the usual split-sum approximation of a physically based renderer.
+Metals take their colour from it instead of going nearly black wherever no light's highlight falls,
+and their diffuse ambient gives way to it. 1 is physically balanced. Scripts can change it while the
+room runs: `EnvironmentSetReflection(strength)`, `EnvironmentGetReflection()`.
+
+It is not a captured sky or a reflection probe: a metal mirrors the room's ambient colours, not the
+actual scene around it. Terrain and water keep their own shading.
 
 ## Start-up
 

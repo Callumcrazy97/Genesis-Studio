@@ -349,6 +349,9 @@ namespace Genesis.Runtime
             }
 
             bool twoDRoom = roomPresentation?.IsTwoD == true;
+            // A 3D room's sprites and GUI sprites follow its pixel-art setting too (2D rooms set it
+            // again as they draw). Without this a 3D room's HUD was always smoothed.
+            if (roomPresentation != null) _renderer.SetSamplerState(roomPresentation.SpriteFilter);
             RoomFogState spriteFog = twoDRoom
                 ? RoomFogState.Create(
                     _scene.Environment.FogEnabled,
@@ -637,9 +640,9 @@ namespace Genesis.Runtime
             _pgslHud.Reset(OverlayWidth, OverlayHeight);
             if (scriptsReady)
             {
-                // A PGSL GUI's shapes and text are buffered together and replayed onto the overlay
-                // in the order the script drew them, so a panel drawn after a label covers it.
-                // Sprites still go to the sprite renderer, flushed first, beneath them.
+                // A PGSL GUI's shapes, text and images are buffered together and replayed onto the
+                // overlay in the order the script drew them, so a panel drawn after a label or an
+                // icon covers it. (A sprite the GUI canvas cannot carry is flushed here, beneath.)
                 ScriptHost.DispatchPgslGuiDraw(_renderer, _pgslHud);
                 _renderer.FlushOverlaySprites();
             }
@@ -676,9 +679,19 @@ namespace Genesis.Runtime
         /// </summary>
         private sealed class BufferedHudCanvas : IHudCanvas
         {
-            private enum Kind { Text, TextCentered, Rect, Line, Clip }
+            private enum Kind { Text, TextCentered, Rect, Line, Clip, Sprite }
 
             private readonly List<Command> _commands = new();
+            private readonly List<SpriteDrawCall> _sprites = new();
+
+            // Replayed onto the overlay, which draws sprites in order with text and shapes.
+            public bool SupportsSprites => true;
+
+            public void Sprite(in SpriteDrawCall call)
+            {
+                _commands.Add(new Command(Kind.Sprite, null, _sprites.Count, 0f, 0f, 0f, 0f, default));
+                _sprites.Add(call);
+            }
 
             private readonly struct Command
             {
@@ -709,6 +722,7 @@ namespace Genesis.Runtime
                 Width = width;
                 Height = height;
                 _commands.Clear();
+                _sprites.Clear();
             }
 
             public void Text(string text, float x, float y, float size, Vector4 color) =>
@@ -749,6 +763,9 @@ namespace Genesis.Runtime
                             break;
                         case Kind.Clip:
                             destination.SetClip(command.A, command.B, command.C, command.D);
+                            break;
+                        case Kind.Sprite:
+                            destination.Sprite(_sprites[(int)command.A]);
                             break;
                         case Kind.TextCentered:
                             destination.TextCentered(command.Value, command.A, command.B, command.C, command.D, command.Color, command.Font ?? "Segoe UI");

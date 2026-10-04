@@ -69,6 +69,7 @@ namespace Genesis.Runtime.Scene
                 StylizedSpecularStrength = env.StylizedSpecularStrength,
                 StylizedRimStrength     = env.StylizedRimStrength,
                 StylizedSaturation      = env.StylizedSaturation,
+                EnvironmentReflection   = env.EnvironmentReflection,
             };
             // AF2.6: PGSL / headless authoring bridge (room Climate/Atmosphere overwrite after).
             SkyAuthoringDefaults.Apply(ref state);

@@ -196,10 +196,35 @@ internal static class AssetImportSuite
             Check(Genesis.Runtime.Assets.SpriteAssetLoader.Load(unused).Usage.IsTextureOnly
                 && !Genesis.Runtime.Assets.SpriteAssetLoader.Load(used).Usage.IsTextureOnly,
                 "An Image allowed only as a texture is not told apart from a sprite.");
+
+            // A GUI image keeps its place between the shapes and text drawn around it.
+            var probe = new EditorInteractionRenderProbe();
+            var hud = new OrderHud();
+            var gui = new Genesis.Runtime.Scripting.PgslRenderDrawSurface(probe, hud, 1280, 720,
+                projectPath: project.RootPath, isGui: true);
+            gui.FillRectangle(Color.Black, new RectangleF(0, 0, 200, 100));
+            gui.DrawSpriteRectangle("Backdrop", new RectangleF(10, 10, 64, 64), 0, Color.White, 1f);
+            gui.DrawText("LOCKED", "Arial", 16, Color.White, new Rectangle(10, 10, 100, 20));
+            gui.FillRectangle(Color.FromArgb(150, 0, 0, 0), new RectangleF(0, 0, 200, 100));
+            Check(string.Join(",", hud.Order) == "rect,sprite,text,rect" && probe.Sprites.Count == 0,
+                $"GUI images did not keep their draw order: {string.Join(",", hud.Order)} ({probe.Sprites.Count} drawn beneath).");
         });
     }
 
     private static float At(Matrix4x4 m, int i) => m[i / 4, i % 4];
+
+    private sealed class OrderHud : Genesis.Runtime.Scripting.IHudCanvas
+    {
+        public List<string> Order { get; } = [];
+        public int Width => 1280;
+        public int Height => 720;
+        public void Text(string text, float x, float y, float size, Vector4 color) => Order.Add("text");
+        public void TextCentered(string text, float centerX, float y, float width, float size, Vector4 color) => Order.Add("text");
+        public void Rect(float x, float y, float w, float h, Vector4 color, bool filled = true) => Order.Add("rect");
+        public void Line(float x1, float y1, float x2, float y2, Vector4 color, float thickness = 1.5f) => Order.Add("line");
+        public bool SupportsSprites => true;
+        public void Sprite(in SpriteDrawCall call) => Order.Add("sprite");
+    }
 
     private static void Check(bool condition, string message) => HeadlessHarness.Assert(condition, message);
 }

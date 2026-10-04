@@ -250,6 +250,11 @@ public sealed class RoomEnvironment
     [JsonProperty("backgroundColor")] public float[] BackgroundColor { get; set; } = { .07f, .09f, .14f, 1f };
     [JsonProperty("gravity")] public float[] Gravity { get; set; } = { 0f, -9.81f, 0f };
     [JsonProperty("ambientIntensity")] public float AmbientIntensity { get; set; } = 1f;
+    /// <summary>
+    /// How strongly models reflect the sky and ground (0 = off, the default; 1 = physically
+    /// balanced; up to 4). Gives metals their colour away from lights.
+    /// </summary>
+    [JsonProperty("environmentReflection")] public float EnvironmentReflection { get; set; }
     [JsonProperty("fogDensity")] public float FogDensity { get; set; }
     [JsonProperty("dynamicSky")] public bool DynamicSky { get; set; }
     [JsonProperty("weather")] public string Weather { get; set; } = "Clear";

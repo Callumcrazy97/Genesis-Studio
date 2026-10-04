@@ -167,6 +167,12 @@ namespace Genesis.Runtime.Scripting
         /// </summary>
         void SetClip(float x, float y, float width, float height) { }
 
+        /// <summary>Whether <see cref="Sprite"/> draws: then GUI images are ordered with this canvas's shapes and text.</summary>
+        bool SupportsSprites => false;
+
+        /// <summary>A textured sprite in screen pixels, in order with this canvas's shapes and text.</summary>
+        void Sprite(in SpriteDrawCall call) { }
+
         /// <summary>A filled disc, or a ring of the given thickness.</summary>
         void Circle(float centerX, float centerY, float radius, Vector4 color, bool filled = true, float thickness = 1.5f)
             => HudShapes.Circle(this, centerX, centerY, radius, color, filled, thickness);

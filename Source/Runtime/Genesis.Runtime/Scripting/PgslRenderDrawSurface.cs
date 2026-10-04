@@ -74,6 +74,34 @@ namespace Genesis.Runtime.Scripting
         // every piece of text, so nothing could cover text.)
         private bool ShapesWithText => _isGui && _hud is not null;
 
+        // GUI images go to the HUD canvas with its shapes and text when it can draw them, so the
+        // screen shows all three in the order the script drew them.
+        private bool SpritesWithText => _isGui && _hud is { SupportsSprites: true };
+
+        private sealed class HudSpriteSink : IRenderCommandSink
+        {
+            private readonly IHudCanvas _hud;
+            public HudSpriteSink(IHudCanvas hud) => _hud = hud;
+            public void DrawSprite(in SpriteDrawCall call) => _hud.Sprite(call);
+            public void DrawSpriteBatch(ReadOnlySpan<SpriteDrawCall> calls) { foreach (SpriteDrawCall call in calls) _hud.Sprite(call); }
+            public void DrawMesh(in MeshDrawCall call) { }
+            public void DrawMeshBatch(ReadOnlySpan<MeshDrawCall> calls) { }
+        }
+
+        private HudSpriteSink _hudSprites;
+
+        private void QueueGuiSprite(Action<IRenderCommandSink> queue)
+        {
+            if (SpritesWithText)
+            {
+                queue(_hudSprites ??= new HudSpriteSink(_hud));
+                return;
+            }
+            var frame = _commands ?? new FrameRenderQueue();
+            queue(frame);
+            if (_commands == null) ((FrameRenderQueue)frame).Flush(_renderer, includeMeshes: false);
+        }
+
         // DrawSetClip's rectangle; empty draws everywhere.
         private RectangleF _clip;
         private Vector4 SpriteClip => _isGui && !_clip.IsEmpty
@@ -262,34 +290,28 @@ namespace Genesis.Runtime.Scripting
             float xscale, float yscale, float angle, Color blend, float alpha)
         {
             if (_renderer == null) return;
-            var queue = _commands ?? new FrameRenderQueue();
-            ObjectDrawPass.QueueSprite2D(_projectPath ?? PgslCommands.ProjectPath, queue, _renderer,
+            QueueGuiSprite(queue => ObjectDrawPass.QueueSprite2D(_projectPath ?? PgslCommands.ProjectPath, queue, _renderer,
                 new ObjectDrawAssetEntry(), new TransformComponent { X = x, Y = y, ScaleX = xscale, ScaleY = yscale, ScaleZ = 1, Rotation = angle },
                 new Draw2DComponent { Visible = true, Depth = SpriteDepth }, spriteName, frame, alpha, 0, 0, 1, ToRender(blend),
-                clip: SpriteClip);
-            if (_commands == null) ((FrameRenderQueue)queue).Flush(_renderer, includeMeshes: false);
+                clip: SpriteClip));
         }
 
         public void DrawSpriteRectangle(string spriteName, RectangleF destination, int frame, Color blend, float alpha)
         {
             if (_renderer == null) return;
-            var queue = _commands ?? new FrameRenderQueue();
-            ObjectDrawPass.QueueSprite2D(_projectPath ?? PgslCommands.ProjectPath, queue, _renderer,
+            QueueGuiSprite(queue => ObjectDrawPass.QueueSprite2D(_projectPath ?? PgslCommands.ProjectPath, queue, _renderer,
                 new ObjectDrawAssetEntry(), new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 },
                 new Draw2DComponent { Visible = true, Depth = SpriteDepth }, spriteName, frame, alpha, 0, 0, 1,
-                ToRender(blend), destination, clip: SpriteClip);
-            if (_commands == null) ((FrameRenderQueue)queue).Flush(_renderer, includeMeshes: false);
+                ToRender(blend), destination, clip: SpriteClip));
         }
 
         public void DrawSpritePart(string spriteName, int frame, RectangleF source, RectangleF destination, Color blend, float alpha)
         {
             if (_renderer == null) return;
-            var queue = _commands ?? new FrameRenderQueue();
-            ObjectDrawPass.QueueSprite2D(_projectPath ?? PgslCommands.ProjectPath, queue, _renderer,
+            QueueGuiSprite(queue => ObjectDrawPass.QueueSprite2D(_projectPath ?? PgslCommands.ProjectPath, queue, _renderer,
                 new ObjectDrawAssetEntry(), new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 },
                 new Draw2DComponent { Visible = true, Depth = SpriteDepth }, spriteName, frame, alpha, 0, 0, 1,
-                ToRender(blend), destination, source, SpriteClip);
-            if (_commands == null) ((FrameRenderQueue)queue).Flush(_renderer, includeMeshes: false);
+                ToRender(blend), destination, source, SpriteClip));
         }
 
         public void QueueCube3D(float x, float y, float z, float sx, float sy, float sz, Color color, float alpha)

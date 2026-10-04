@@ -375,6 +375,21 @@ public static partial class PgslCommands
 
     #endregion
 
+    #region Lighting
+
+    [PgslCommand("EnvironmentSetReflection", "EnvironmentSetReflection(strength)",
+        "How strongly models reflect the sky and ground: 0 off, 1 physically balanced, up to 4. Gives metals their colour away from lights", "Lighting")]
+    public static void EnvironmentSetReflection(double strength)
+    {
+        var environment = ActiveGameContext?.Scene?.Environment;
+        if (environment != null && double.IsFinite(strength)) environment.EnvironmentReflection = (float)Math.Clamp(strength, 0, 4);
+    }
+
+    [PgslCommand("EnvironmentGetReflection", "EnvironmentGetReflection() -> number", "The room's sky and ground reflection strength", "Lighting")]
+    public static double EnvironmentGetReflection() => ActiveGameContext?.Scene?.Environment.EnvironmentReflection ?? 0;
+
+    #endregion
+
     #region Inverse trigonometry
 
     [PgslCommand("ArcSin", "ArcSin(x) -> number", "The angle in degrees whose sine is x (-1 to 1)", "Math")]

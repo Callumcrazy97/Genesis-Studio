@@ -21,6 +21,10 @@ public class PgslParser
     private HashSet<string> _declaredLocals = new(StringComparer.Ordinal);
     private int _withDepth;
     internal const string InstanceVariablePrefix = "@inst.";
+    // Inside a function, its parameters and `var` locals are its own even when they share a
+    // built-in's name (x, y, speed...): they live in the function's frame, never the instance.
+    internal const string FunctionLocalPrefix = "@fn.";
+    private int _functionDepth;
 
     public PgslParser(List<Token> tokens, IReadOnlyDictionary<string, int> nativeIdMap = null)
     {
@@ -36,6 +40,11 @@ public class PgslParser
 
     // Emit a variable load — uses LOAD_REG (slot-indexed) for known instance registers,
     // falls back to LOAD_VAR (string-keyed) for locals and unknown names.
+    private string Scoped(string name) =>
+        _functionDepth > 0 && !name.StartsWith("@") && _declaredLocals.Contains(name)
+            ? FunctionLocalPrefix + name
+            : WithScoped(name);
+
     private string WithScoped(string name) =>
         _withDepth > 0 && !name.StartsWith("@") && !PgslRegisterFile.Slots.ContainsKey(name)
         && !_declaredLocals.Contains(name) && !name.StartsWith("argument", StringComparison.Ordinal)
@@ -49,7 +58,7 @@ public class PgslParser
 
     private void EmitLoad(string name)
     {
-        name = WithScoped(name);
+        name = Scoped(name);
         if (!name.StartsWith("@") && PgslRegisterFile.Slots.TryGetValue(name, out int slot))
             Emit(Opcode.LOAD_REG, slot);
         else
@@ -59,7 +68,7 @@ public class PgslParser
     // Emit a variable store — uses STORE_REG for known instance registers.
     private void EmitStore(string name)
     {
-        name = WithScoped(name);
+        name = Scoped(name);
         if (!name.StartsWith("@") && PgslRegisterFile.Slots.TryGetValue(name, out int slot))
             Emit(Opcode.STORE_REG, slot);
         else
@@ -76,6 +85,7 @@ public class PgslParser
         _nextLabelId = 0;
         _declaredLocals = new HashSet<string>(StringComparer.Ordinal);
         _withDepth = 0;
+        _functionDepth = 0;
 
         while (!IsAtEnd())
         {
@@ -433,6 +443,7 @@ public class PgslParser
         int savedWithDepth = _withDepth;
         _declaredLocals = new HashSet<string>(parameters, StringComparer.Ordinal);
         _withDepth = 0;
+        _functionDepth++;
 
         var savedInstructions = _instructions;
         var savedConstants = _constants;
@@ -457,6 +468,7 @@ public class PgslParser
         _labelReferences = savedLabelReferences;
         _declaredLocals = savedLocals;
         _withDepth = savedWithDepth;
+        _functionDepth--;
 
         _userFunctions[funcName] = userFunc;
     }

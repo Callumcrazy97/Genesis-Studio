@@ -466,6 +466,17 @@ namespace Genesis.Rendering.Core
                             command, command.A, command.B, command.Color);
                         break;
 
+                    case OverlayCommandKind.Sprite:
+                    {
+                        SpriteDrawCall sprite = command.Sprite;
+                        sprite.Depth = OverlayDepth;
+                        if (_overlayClip.Z > 0f && _overlayClip.W > 0f)
+                            sprite.ClipRect = IntersectClip(sprite.ClipRect, _overlayClip);
+                        _spr?.Submit(sprite);
+                        submitted = true;
+                        break;
+                    }
+
                     case OverlayCommandKind.TextCentered:
                     {
                         float width = _glyphAtlas.MeasureRun(
@@ -490,10 +501,24 @@ namespace Genesis.Rendering.Core
             BeginPass(GpuRenderTargetHandle.Invalid, GpuTextureHandle.Invalid,
                 _gpuSwapChain.Width, _gpuSwapChain.Height, clearDepth: false, "Controller.OverlayCompose");
 
+            // The overlay is screen-space, like the GUI sprite pass: legible whatever the room's fog.
+            _spr?.SetFog(RoomFogState.Disabled);
             _spr?.Flush(_gpuSwapChain.Width, _gpuSwapChain.Height, ResolveGpuTexture, _whiteTexture,
                 _gpuSwapChain.Width / 2f, _gpuSwapChain.Height / 2f, 1f);
+            _spr?.SetFog(_spriteFog);
             _gpu.EndRenderPass();
             return true;
+        }
+
+        private static Vector4 IntersectClip(Vector4 a, Vector4 b)
+        {
+            if (a.Z <= 0f || a.W <= 0f) return b;
+            float left = MathF.Max(a.X, b.X), top = MathF.Max(a.Y, b.Y);
+            float right = MathF.Min(a.X + a.Z, b.X + b.Z), bottom = MathF.Min(a.Y + a.W, b.Y + b.W);
+            // An empty intersection still has to clip everything, so keep a sliver off-screen.
+            return right > left && bottom > top
+                ? new Vector4(left, top, right - left, bottom - top)
+                : new Vector4(-10f, -10f, 0.001f, 0.001f);
         }
 
         private void SubmitOverlayRect(in OverlayCommand command)

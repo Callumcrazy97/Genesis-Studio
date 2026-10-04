@@ -18,6 +18,11 @@ public class PgslVm
 
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> InstanceVariableNames = new();
 
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> FunctionLocalNames = new();
+
+    private static string FunctionLocalName(string operand) =>
+        FunctionLocalNames.GetOrAdd(operand, name => name.Substring(PgslParser.FunctionLocalPrefix.Length));
+
     private static string InstanceVariableName(string operand) =>
         InstanceVariableNames.GetOrAdd(operand, name => name.Substring(PgslParser.InstanceVariablePrefix.Length));
 
@@ -332,6 +337,11 @@ public class PgslVm
                         _stack.Push(LoadInstanceVariable(varName));
                         break;
                     }
+                    if (varName.StartsWith(PgslParser.FunctionLocalPrefix, StringComparison.Ordinal))
+                    {
+                        _stack.Push(TryGetVariable(FunctionLocalName(varName), out VmValue local) ? local : 0.0);
+                        break;
+                    }
                     // Prefer local variables first, then fall back to PGSL context properties.
                     // This ensures reads of x, y, sprite_index etc. come from the live context.
                     if (TryGetVariable(varName, out var value))
@@ -350,6 +360,11 @@ public class PgslVm
                     if (storeName.StartsWith(PgslParser.InstanceVariablePrefix, StringComparison.Ordinal))
                     {
                         StoreInstanceVariable(storeName, storeValue);
+                        break;
+                    }
+                    if (storeName.StartsWith(PgslParser.FunctionLocalPrefix, StringComparison.Ordinal))
+                    {
+                        StoreVariable(FunctionLocalName(storeName), storeValue);
                         break;
                     }
                     // Current bytecode emits STORE_REG for built-in instance fields. For the much

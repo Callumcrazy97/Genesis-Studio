@@ -80,5 +80,11 @@ namespace Genesis.Shared.Interfaces
         /// clears the limit. Canvases that cannot clip ignore it.
         /// </summary>
         void SetClip(Vector4 clip) { }
+
+        /// <summary>Whether <see cref="DrawSprite"/> draws; canvases that cannot leave sprites to the sprite pass.</summary>
+        bool SupportsSprites => false;
+
+        /// <summary>A textured sprite in screen pixels, drawn in order with this canvas's text and shapes.</summary>
+        void DrawSprite(in SpriteDrawCall call) { }
     }
 }
