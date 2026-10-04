@@ -9,7 +9,7 @@ Genesis Studio makes 2D and 3D games for Windows. These guides are installed wit
 | [Game features](GameFeatures.md) | Weather, a terrain's water, what a script may ask of a model, animation events, controllers, positioned sound, HUD shapes, particle bursts, save slots, and room changes behind a loading screen. |
 | [Large worlds](LargeWorlds.md) | Kilometre-scale terrain, scattered forests, automatic model detail, long views, loading, sharing a world between players, and what is not done yet. |
 | [Terrain creation](TerrainCreation.md) | Making, sculpting and painting a terrain, and its materials. |
-| [Ink outline](InkOutline.md) | The optional outline for illustrated and cel-shaded games. |
+| [Post effects](PostEffects.md) | The project's own full-screen shaders over the finished frame, such as an ink outline. |
 
 *Help › Commands…* in Studio lists every game-code command with an example.
 

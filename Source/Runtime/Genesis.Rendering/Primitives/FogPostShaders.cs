@@ -142,15 +142,6 @@ cbuffer FogPostConstants : register(b1)
     float4 AuthoredSkyHorizon;
     float4 AuthoredSkySun;
 
-    // Ink outline, append-only — x=opacity (0 = off), y=width in pixels, z=relative depth step
-    // that counts as a silhouette, w=crease threshold in radians of surface turn.
-    float4 InkParams;
-    // rgb = display-space ink colour, w = angular size of one pixel (radians).
-    float4 InkColor;
-    // x=full-width distance, y=far distance, z=opacity multiplier at the far distance,
-    // w=pixels between tap rings (1 at 1080p).
-    float4 InkFade;
-
     // Append-only — x=1 when ParticleLayer (t12) holds premultiplied, self-fogged GPU particles.
     float4 ParticleLayerParams;
 
@@ -396,54 +387,6 @@ float3 ACESFilm(float3 x)
 float FetchSceneDepth(float2 uv, int2 pixel)
 {
     return SceneDepth.Load(int3(pixel, 0));
-}
-
-// ── Ink outline ──────────────────────────────────────────────────────────────
-// Device depth is affine across a plane in screen space, so its second difference is zero on
-// every flat surface at any viewing angle and non-zero only where the surface steps (a
-// silhouette) or bends (a crease). Both kinds of line therefore come from depth alone — there is
-// no normal buffer — and draws that never wrote depth (particles, blended surfaces) stay clean.
-static const int2 InkTapDirs[4] = { int2(1, 0), int2(0, 1), int2(1, 1), int2(1, -1) };
-static const float InkTapLengths[4] = { 1.0, 1.0, 1.41421356, 1.41421356 };
-
-float InkOutline(int2 pixel)
-{
-    // (far / (far - near)) - depth is proportional to 1 / view depth.
-    float depthBias = ClipPlanes.y / max(ClipPlanes.y - ClipPlanes.x, 1e-4);
-    float q0 = max(SceneDepthInverse(SceneDepth.Load(int3(pixel, 0)), ClipPlanes.x, ClipPlanes.y), 1e-7);
-    float viewDepth = depthBias * ClipPlanes.x / q0;
-    float distant = saturate((viewDepth - InkFade.x) / max(InkFade.y - InkFade.x, 1e-3));
-    // Three rings of taps; InkFade.w spaces them further apart for wide lines at high resolutions.
-    int tapStep = max((int)InkFade.w, 1);
-    float width = lerp(InkParams.y, min(InkParams.y, 1.0), distant) / (float)tapStep;
-    int2 maxPixel = int2(ViewportParams.xy) - int2(1, 1);
-
-    float ink = 0.0;
-    [unroll]
-    for (int ring = 1; ring <= 3; ring++)
-    {
-        float ringWeight = saturate(width - (float)(ring - 1));
-        float strongest = 0.0;
-        [unroll]
-        for (int i = 0; i < 4; i++)
-        {
-            int2 offset = InkTapDirs[i] * (ring * tapStep);
-            float qa = SceneDepthInverse(SceneDepth.Load(int3(clamp(pixel + offset, int2(0, 0), maxPixel), 0)), ClipPlanes.x, ClipPlanes.y);
-            float qb = SceneDepthInverse(SceneDepth.Load(int3(clamp(pixel - offset, int2(0, 0), maxPixel), 0)), ClipPlanes.x, ClipPlanes.y);
-            float bend = (qa + qb - 2.0 * q0) / q0;
-            // Silhouette: only the nearer surface is inked, so a line is one width rather than two.
-            float depthStep = bend < 0.0 ? smoothstep(InkParams.z, InkParams.z * 2.0, -bend) : 0.0;
-            // Crease: divide out the pixel span and the surface's own slope to get the angle the
-            // surface turns through, so a floor seen at a grazing angle does not over-respond.
-            float span = InkTapLengths[i] * (float)(ring * tapStep) * InkColor.w;
-            float slope = (qa - qb) / (2.0 * q0 * span);
-            float turn = abs(bend) / (span * (1.0 + slope * slope));
-            float crease = smoothstep(InkParams.w, InkParams.w * 1.6, turn);
-            strongest = max(strongest, max(depthStep, crease));
-        }
-        ink = max(ink, strongest * ringWeight);
-    }
-    return ink * lerp(1.0, InkFade.z, distant);
 }
 
 float4 PS(VSOut IN) : SV_Target
@@ -765,9 +708,6 @@ float4 PS(VSOut IN) : SV_Target
         float grain = frac(52.9829189 * frac(dot(grainAt, float2(0.06711056, 0.00583715))));
         mapped = saturate(mapped + (grain - 0.5) / 255.0);
     }
-    // Ink goes on last, in display space, so a line is the same colour at every exposure.
-    if (InkParams.x > 0.001)
-        mapped = lerp(mapped, InkColor.rgb, saturate(InkOutline(pixel) * InkParams.x));
     return float4(mapped, scene.a);
 }
 ";

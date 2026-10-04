@@ -128,11 +128,6 @@ namespace Genesis.Rendering.Primitives
             public Vector4   AuthoredSkyZenith;
             public Vector4   AuthoredSkyHorizon;
             public Vector4   AuthoredSkySun;     // xyz=toward sun, w=solar disc radiance
-            // Ink outline, append-only — x=opacity (0 = off), y=width in pixels, z=relative depth
-            // step, w=crease threshold in radians. See InkOutlineSettings.
-            public Vector4   InkParams;
-            public Vector4   InkColor;           // rgb=display-space ink, w=radians per pixel
-            public Vector4   InkFade;            // x=full-width distance, y=far distance, z=far opacity
             // Append-only — x=1 when the GPU particle layer (t12) is composited over the fogged scene.
             public Vector4   ParticleLayerParams;
         }
@@ -4841,7 +4836,6 @@ namespace Genesis.Rendering.Primitives
                     _state.AuthoredSkyEnabled && _state.ShowSunVisual && sunHeight > 0f ? 8f * daylight : 0f),
             };
             PackSmokeVolumes(ref fogPost);
-            PackInkOutline(ref fogPost, height);
             fogPost.ParticleLayerParams = ParticleLayerParams();
             if (atmosphereLutEnabled)
             {

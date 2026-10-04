@@ -6,7 +6,9 @@ the project; the engine only runs the shaders and hands them their inputs. Effec
 each reading what the one before drew; none run unless a room or a script asks for them.
 
 Added 4 October 2026. Before it, a Fullscreen shader could only be previewed in the Shader editor,
-which is why an ink outline had been built into the engine's composite for one game.
+which is why an ink outline had been built into the engine's composite for one game. That built-in
+outline (`InkOutlineSettings`, `Engine.Rendering.InkOutline*`) has been removed; the same outline is
+now a project shader (below).
 
 ## Turning effects on
 
@@ -66,7 +68,8 @@ games: lines on silhouettes and creases from depth alone, thinner and fainter wi
 past a fade-out distance, and gone from foliage sooner, so a distant meadow is not inked into a
 dark speckle. Its parameters (`Opacity`, `WidthPixels`, `DepthStep`, `CreaseDegrees`, `InkColor`,
 `FullWidthDistance`, `FarDistance`, `FarOpacity`, `FadeOutDistance`, `FoliageDistance`) are the
-ones the engine's built-in outline had, plus the last two.
+ones the removed built-in outline had, plus the last two. Copy it into a project as a Shader
+resource (Full screen target, code) and list it in a room's `postEffects`.
 
 `Build.bat --test post-effects` runs a project shader that inverts the frame (and takes it off
 again through its parameter), and this ink outline over a 257 m meadow: near grass outlined, under
