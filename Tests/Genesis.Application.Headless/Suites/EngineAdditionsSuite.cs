@@ -266,6 +266,18 @@ internal static class EngineAdditionsSuite
             HeadlessHarness.Assert(Bus() == "sfx", $"A one-second sound should start in the effects group, not '{Bus()}'.");
             audio.SetChannelBus(live, "Music");
             HeadlessHarness.Assert(Bus() == "music", "A playing sound could not be moved to the music group.");
+            // A project's own bus keeps its sounds and its volume apart from the effects.
+            audio.SetBusVolume("ui", 0.5f);
+            audio.SetChannelBus(live, "UI");
+            HeadlessHarness.Assert(Bus() == "ui" && audio.GetBusVolume("UI") == 0.5f && audio.GetBusVolume("sfx") == 1f
+                && audio.GetBusVolume("ambient") == 1f, "A project's own bus did not keep its sounds and volume apart.");
+            // The master volume is applied once (by the device), not again on every bus.
+            audio.MasterVolume = 0.5f;
+            float uiGain = (float)typeof(Genesis.Audio.XAudioSystem)
+                .GetMethod("BusGain", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                .Invoke(audio, ["ui"])!;
+            HeadlessHarness.Assert(uiGain == 0.5f, $"A bus at 0.5 under a master of 0.5 played at {uiGain} before the device's master.");
+            audio.MasterVolume = 1f;
             audio.SetChannelBus(live, "sfx");
             audio.Muted = true;
             audio.MasterVolume = 0.8f;

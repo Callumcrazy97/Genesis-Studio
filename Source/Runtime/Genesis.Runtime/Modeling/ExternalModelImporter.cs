@@ -56,7 +56,7 @@ public static class ExternalModelImporter
             .Replace(".model.json", string.Empty, StringComparison.OrdinalIgnoreCase);
         GModelAsset asset = new()
         {
-            Schema = "genesis.gmodel/2",
+            Schema = GModelAsset.ImportSchema,
             Name = name,
             SourceFile = RelativeOrFull(projectRoot, sourcePath),
             ImportedUtc = DateTime.UtcNow,
@@ -586,8 +586,9 @@ public static class ExternalModelImporter
                 material.EmissiveFactor = Vector3From(emissive, Vector3.Zero);
             if (json.TryGetProperty("pbrMetallicRoughness", out JsonElement pbr))
             {
+                // glTF's factor is linear; a material colour is an sRGB colour, as picked in an editor.
                 material.BaseColor = pbr.TryGetProperty("baseColorFactor", out JsonElement factor)
-                    ? Vector4From(factor, Vector4.One)
+                    ? LinearToSrgb(Vector4From(factor, Vector4.One))
                     : Vector4.One;
                 material.MetallicFactor = pbr.TryGetProperty("metallicFactor", out JsonElement metallic) ? metallic.GetSingle() : 1f;
                 material.RoughnessFactor = pbr.TryGetProperty("roughnessFactor", out JsonElement roughness) ? roughness.GetSingle() : 1f;
@@ -960,6 +961,16 @@ public static class ExternalModelImporter
         values[offset + 4], values[offset + 5], values[offset + 6], values[offset + 7],
         values[offset + 8], values[offset + 9], values[offset + 10], values[offset + 11],
         values[offset + 12], values[offset + 13], values[offset + 14], values[offset + 15]);
+
+    private static Vector4 LinearToSrgb(Vector4 linear)
+    {
+        static float Channel(float c)
+        {
+            c = Math.Clamp(c, 0f, 1f);
+            return c <= 0.0031308f ? c * 12.92f : 1.055f * MathF.Pow(c, 1f / 2.4f) - 0.055f;
+        }
+        return new Vector4(Channel(linear.X), Channel(linear.Y), Channel(linear.Z), linear.W);
+    }
 
     private static Vector3 Vector3From(JsonElement element, Vector3 fallback)
     {

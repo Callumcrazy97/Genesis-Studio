@@ -152,6 +152,18 @@ Fixed in the language:
   into a converted Model are converted the same way. **Off by default**: models already in a
   project, and projects that compensate in their own pipeline, are unchanged. Changing the setting
   applies the next time a model is imported (re-import it, or replace its source file).
+- **glTF material colours and factors are drawn as in a glTF viewer.** glTF's `baseColorFactor` is
+  linear and was stored as if it were an sRGB colour, so a factor of 0.5 drew as 0.21; it is now
+  converted on import. Models imported from now on (schema `genesis.gmodel/3`) also draw their
+  materials' `metallicFactor` and `roughnessFactor` (scaling an ORM map, or on their own) and, for
+  `MASK` materials, their `alphaCutoff` instead of the fixed 0.35. Models imported before keep how
+  they look until they are imported again.
+- **A model is cooked again only when its source changes.** A Model's `.model.json` keeps a hash
+  of its source file (`sourceHash`). A source with a newer time but the same content (after a copy,
+  a git checkout or an archive tool) no longer replaces the cooked `.gmodel` and the edits made to
+  it (materials, sockets, merged clips). A model cooked before this records its hash the first time
+  Studio finds its times in agreement. **The Player never writes into the project**: a changed
+  source is used for that run only, and a model without a hash plays as cooked.
 
 ## Post effects
 

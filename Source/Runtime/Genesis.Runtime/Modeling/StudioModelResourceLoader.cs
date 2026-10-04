@@ -4,7 +4,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Numerics;
+using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Collections.Concurrent;
 using Genesis.Rendering.Meshes;
@@ -40,6 +42,8 @@ public static class StudioModelResourceLoader
         public List<string> AnimationLibraries { get; set; } = [];
         /// <summary>Material name to mesh Shader resource; kept here so a re-import keeps it.</summary>
         public Dictionary<string, string> MaterialShaders { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        /// <summary>SHA-256 of the source the cooked model was made from (see CanonicalMatchesSource).</summary>
+        public string? SourceHash { get; set; }
         public List<Part> Parts { get; set; } = [];
         public List<string> Materials { get; set; } = [];
     }
@@ -59,6 +63,15 @@ public static class StudioModelResourceLoader
         PropertyNameCaseInsensitive = true,
         Converters = { new JsonStringEnumConverter() },
     };
+
+    /// <summary>
+    /// False in the Player: a model cooked again because its source changed is used for the run and
+    /// never written into the project (nor is a source hash recorded there).
+    /// </summary>
+    public static bool WriteReimportsToProject { get; set; } = true;
+
+    private static readonly ConcurrentDictionary<string, (long Ticks, long Length, string Hash)> SourceHashes =
+        new(StringComparer.OrdinalIgnoreCase);
 
     public static string Resolve(string projectPath, string modelName)
     {
@@ -150,6 +163,71 @@ public static class StudioModelResourceLoader
         return asset;
     }
 
+    /// <summary>
+    /// Whether the cooked model still belongs to its source. The source's content decides, not file
+    /// times: a copy, a checkout or an archive tool gives a source a new time, and cooking it again
+    /// would throw away every edit made to the cooked model since (materials, sockets, merged clips).
+    /// </summary>
+    private static bool CanonicalMatchesSource(string path, Document document, string canonical, string source)
+    {
+        bool timesAgree = File.GetLastWriteTimeUtc(canonical) >= File.GetLastWriteTimeUtc(source);
+        string recorded = document.SourceHash ?? string.Empty;
+        if (recorded.Length == 0)
+        {
+            // A model cooked before hashes were kept: its times decide this once, and while they agree
+            // the hash is recorded, so later changes of time alone no longer count.
+            if (timesAgree)
+            {
+                RecordSourceHash(path, HashSource(source));
+                return true;
+            }
+            // The Player plays the project's cooked model rather than guess from times.
+            return !WriteReimportsToProject;
+        }
+        if (timesAgree) return true;
+        string current = HashSource(source);
+        return current.Length == 0 || string.Equals(current, recorded, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>SHA-256 of a source file (lower-case hex), kept per path, time and length; empty when unreadable.</summary>
+    internal static string HashSource(string source)
+    {
+        try
+        {
+            var info = new FileInfo(source);
+            long ticks = info.LastWriteTimeUtc.Ticks, length = info.Length;
+            if (SourceHashes.TryGetValue(source, out var known) && known.Ticks == ticks && known.Length == length)
+                return known.Hash;
+            using FileStream stream = new(source, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            string hash = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+            SourceHashes[source] = (ticks, length, hash);
+            return hash;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return string.Empty;
+        }
+    }
+
+    /// <summary>Writes the source hash into the model's descriptor, keeping everything else in it.</summary>
+    private static void RecordSourceHash(string path, string hash)
+    {
+        if (!WriteReimportsToProject || hash.Length == 0) return;
+        try
+        {
+            if (JsonNode.Parse(File.ReadAllText(path)) is not JsonObject root) return;
+            string key = root.Select(property => property.Key)
+                .FirstOrDefault(name => name.Equals("sourceHash", StringComparison.OrdinalIgnoreCase)) ?? "sourceHash";
+            if (root[key] is JsonValue value && value.TryGetValue(out string? existing) && existing == hash) return;
+            root[key] = hash;
+            File.WriteAllText(path, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+        {
+            // A read-only project keeps working from file times.
+        }
+    }
+
     private static GModelAsset LoadCore(string path, bool allowReimport)
     {
         Document document = ReadDocument(path);
@@ -158,7 +236,7 @@ public static class StudioModelResourceLoader
         if (File.Exists(canonical)
             && (!allowReimport || string.IsNullOrWhiteSpace(source)
                 || !File.Exists(source)
-                || File.GetLastWriteTimeUtc(canonical) >= File.GetLastWriteTimeUtc(source)))
+                || CanonicalMatchesSource(path, document, canonical, source)))
         {
             GModelAsset canonicalAsset = RuntimeModelStore.Load(canonical);
             canonicalAsset.Culling = document.Culling;
@@ -179,7 +257,11 @@ public static class StudioModelResourceLoader
                 GModelAsset imported = ExternalModelImporter.Import(source, projectRoot, path, convertRightHanded: convert);
                 imported.Culling = document.Culling;
                 imported.WindingOrder = document.WindingOrder;
-                RuntimeModelStore.Save(canonical, imported);
+                if (WriteReimportsToProject)
+                {
+                    RuntimeModelStore.Save(canonical, imported);
+                    RecordSourceHash(path, HashSource(source));
+                }
                 return imported;
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException

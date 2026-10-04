@@ -102,7 +102,7 @@ namespace Genesis.Shared.Audio
             if (stopWhenDone) Stop(channel);
         }
 
-        /// <summary>Volume of a group of sounds: "music", "sfx" or "master".</summary>
+        /// <summary>Volume of a group of sounds: "music", "sfx", "master" or any bus a project names ("ui", "ambient").</summary>
         void SetBusVolume(string bus, float volume) { }
 
         /// <summary>

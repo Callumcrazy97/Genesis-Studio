@@ -273,6 +273,7 @@ namespace Genesis.Runtime.Modeling
             SkinPaletteHandle palette = _gpu.UpdatePalette(renderer, asset, gpuAsset, animation);
             ModelHairSelection hair = ModelHairRuntime.Resolve(asset, rendererComponent.Hair);
             Vector3 pivot = asset.Pivot?.Position ?? Vector3.Zero;
+            bool drawsMaterialFactors = asset.DrawsMaterialFactors();
             Matrix4x4 pivotedWorld = pivot.LengthSquared() > 1e-12f
                 ? Matrix4x4.CreateTranslation(-pivot) * world
                 : world;
@@ -397,6 +398,10 @@ namespace Genesis.Runtime.Modeling
                     EmissionMap = emissionMap,
                     SurfaceParams = new Vector4(normalMap.IsValid ? 1f : 0f, 0f, emissive, 0f),
                     DetailParams = new Vector4(0f, 0f, 0f, MaterialUvScale(material)),
+                    MaterialFactors = material is not null && !animation.FlatUntextured && drawsMaterialFactors
+                        ? new Vector4(material.MetallicFactor, material.RoughnessFactor,
+                            material.AlphaMode == GModelAlphaMode.Mask ? material.AlphaCutoff : 0f, 1f)
+                        : default,
                     Tint = tint,
                     Alpha = alpha,
                     Emissive = emissive,

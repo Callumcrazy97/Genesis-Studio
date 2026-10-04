@@ -149,7 +149,7 @@ read; a second is ignored.
 | `SoundSetVolume(channel, volume)`, `SoundSetPitch(channel, pitch)` | Change a playing sound. |
 | `SoundFade(channel, volume, seconds)` | Move a playing sound's volume to a new level over a time. |
 | `StopSoundFaded(channel, seconds)` | Fade to silence, then stop. |
-| `SetBusVolume(bus, volume)`, `GetBusVolume(bus)` | Volume of a group: `"music"`, `"sfx"` or `"master"`. A sound longer than ten seconds is music unless its Audio resource says otherwise. |
+| `SetBusVolume(bus, volume)`, `GetBusVolume(bus)` | Volume of a group: `"music"`, `"sfx"`, `"master"` or a bus of the project's own (`"ui"`, `"ambient"`; list them in the project file's `audioBuses` to offer them in the Audio editor). A sound longer than ten seconds is music unless its Audio resource says otherwise. The master volume now applies once: before, it was applied twice, so a master of 0.5 played at 0.25. |
 | `SoundSetBus(channel, bus)` | Put a playing sound in a group whatever its length chose for it: a twelve-second wind loop belongs in `"sfx"`. |
 | `AudioListenerFollowCamera()` | Give the listener back to the camera after `SetAudioListener`. |
 

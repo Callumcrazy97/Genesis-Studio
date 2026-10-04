@@ -134,6 +134,94 @@ internal static class AssetImportSuite
             project.Manifest.ConvertRightHandedModels = false;
             service.Save(project);
         });
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Models.GltfMaterialColourAndFactorsAreKept", () =>
+        {
+            // glTF's baseColorFactor is linear; a material colour is sRGB, so 0.9 / 0.25 / 0.12 is stored
+            // as about 0.955 / 0.537 / 0.381 and draws as the same colour a glTF viewer shows.
+            string source = AnimatedGlbFixture.Write(Path.Combine(parent, "GltfFactors"));
+            GModelAsset imported = ExternalModelImporter.Import(source, parent, Path.Combine(parent, "GltfFactors", "Intake.model.json"));
+            GModelMaterial warm = imported.Materials.First(m => m.Name == "Warm Cloth");
+            Check(Math.Abs(warm.BaseColor.X - 0.9547f) < 2e-3f && Math.Abs(warm.BaseColor.Y - 0.5371f) < 2e-3f
+                && Math.Abs(warm.BaseColor.Z - 0.3811f) < 2e-3f && warm.BaseColor.W == 1f,
+                $"The linear base colour factor was stored as {warm.BaseColor}, not converted to sRGB.");
+            Check(imported.Schema == GModelAsset.ImportSchema && imported.DrawsMaterialFactors(),
+                $"A new import ({imported.Schema}) does not draw its materials' own factors.");
+            Check(Math.Abs(warm.RoughnessFactor - 0.8f) < 1e-5f && warm.MetallicFactor == 0f,
+                "The material's roughness and metallic factors were not imported.");
+            Check(!new GModelAsset { Schema = "genesis.gmodel/2" }.DrawsMaterialFactors() && !new GModelAsset().DrawsMaterialFactors(),
+                "A model imported before schema 3 changed how its materials draw.");
+        });
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Audio.AProjectNamesItsOwnBuses", () =>
+        {
+            Check(Genesis.Runtime.Project.ProjectPaths.ReadAudioBuses(project.RootPath).Count == 0,
+                "A new project has audio buses of its own.");
+            project.Manifest.AudioBuses = ["UI", "ambient", "ui"];
+            service.Save(project);
+            Check(Genesis.Runtime.Project.ProjectPaths.ReadAudioBuses(project.RootPath).SequenceEqual(["ui", "ambient"]),
+                "The project's audioBuses did not read back once each, in lower case.");
+            project.Manifest.AudioBuses = [];
+            service.Save(project);
+        });
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Models.ReimportFollowsSourceContentNotFileTimes", () =>
+        {
+            static string Triangle(float z)
+            {
+                byte[] buffer = new byte[44];
+                float[] positions = [0, 0, z, 1, 0, z, 0, 1, z];
+                Buffer.BlockCopy(positions, 0, buffer, 0, 36);
+                ushort[] indices = [0, 1, 2];
+                Buffer.BlockCopy(indices, 0, buffer, 36, 6);
+                string zText = z.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                return "{\"asset\":{\"version\":\"2.0\"},\"scene\":0,\"scenes\":[{\"nodes\":[0]}],\"nodes\":[{\"mesh\":0}]," +
+                    "\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0},\"indices\":1}]}]," +
+                    "\"buffers\":[{\"byteLength\":44,\"uri\":\"data:application/octet-stream;base64," + Convert.ToBase64String(buffer) + "\"}]," +
+                    "\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":36},{\"buffer\":0,\"byteOffset\":36,\"byteLength\":6}]," +
+                    "\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\",\"min\":[0,0," + zText + "],\"max\":[1,1," + zText + "]}," +
+                    "{\"bufferView\":1,\"componentType\":5123,\"count\":3,\"type\":\"SCALAR\"}]}";
+            }
+            string folder = Path.Combine(project.RootPath, "Assets", "Models", "Hashed");
+            Directory.CreateDirectory(folder);
+            string source = Path.Combine(folder, "source.gltf");
+            string resource = Path.Combine(folder, "Hashed.model.json");
+            File.WriteAllText(source, Triangle(1));
+            File.WriteAllText(resource, "{ \"source\": \"source.gltf\" }");
+            GModelAsset first = StudioModelResourceLoader.Load(resource);
+            Check(first.Meshes.Count == 1 && File.ReadAllText(resource).Contains("sourceHash", StringComparison.Ordinal),
+                "The first import did not record its source's hash.");
+
+            // An edit to the cooked model, then a checkout that only gives the source a newer time.
+            first.Materials.Add(new GModelMaterial { Name = "Edited" });
+            StudioModelResourceLoader.SaveCanonical(resource, first);
+            File.SetLastWriteTimeUtc(source, DateTime.UtcNow.AddMinutes(5));
+            Check(StudioModelResourceLoader.Load(resource).Materials.Any(m => m.Name == "Edited"),
+                "A newer file time alone cooked the model again and lost its edits.");
+
+            // A source whose content changed is cooked again.
+            File.WriteAllText(source, Triangle(2));
+            File.SetLastWriteTimeUtc(source, DateTime.UtcNow.AddMinutes(10));
+            Check(!StudioModelResourceLoader.Load(resource).Materials.Any(m => m.Name == "Edited"),
+                "A changed source was not cooked again.");
+
+            // The Player plays a changed source and writes nothing into the project.
+            string canonical = StudioModelResourceLoader.CanonicalPath(resource);
+            byte[] cooked = File.ReadAllBytes(canonical);
+            string descriptor = File.ReadAllText(resource);
+            File.WriteAllText(source, Triangle(3));
+            File.SetLastWriteTimeUtc(source, DateTime.UtcNow.AddMinutes(15));
+            StudioModelResourceLoader.WriteReimportsToProject = false;
+            try
+            {
+                GModelAsset played = StudioModelResourceLoader.Load(resource);
+                Check(played.Meshes.Count == 1 && Math.Abs(played.Meshes[0].Vertices[0].Position.Z - 3f) < 1e-4f,
+                    "The Player did not play the changed source.");
+                Check(File.ReadAllBytes(canonical).AsSpan().SequenceEqual(cooked) && File.ReadAllText(resource) == descriptor,
+                    "The Player wrote a model it cooked again into the project.");
+            }
+            finally
+            {
+                StudioModelResourceLoader.WriteReimportsToProject = true;
+            }
+        });
     }
 
     private static void RunFirstRoomPreparation(HeadlessContext ctx, string parent, ProjectSession project, ResourceService resources)

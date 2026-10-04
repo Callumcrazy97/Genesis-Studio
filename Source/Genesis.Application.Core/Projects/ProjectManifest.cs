@@ -49,6 +49,12 @@ public sealed class ProjectManifest
     /// </summary>
     public bool ConvertRightHandedModels { get; set; }
 
+    /// <summary>
+    /// The project's own audio buses besides sfx, music and master ("ui", "ambient"): offered in the
+    /// Audio editor, each with its own volume (<c>SetBusVolume("ui", 0.8)</c>).
+    /// </summary>
+    public List<string> AudioBuses { get; set; } = [];
+
     /// <summary>How the built game behaves. Travels with the project, not the machine.</summary>
     public ProjectRuntimeSettings Runtime { get; set; } = new();
 

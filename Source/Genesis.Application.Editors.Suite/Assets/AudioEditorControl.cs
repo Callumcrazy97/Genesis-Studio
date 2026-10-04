@@ -47,7 +47,17 @@ public sealed partial class AudioEditorControl : EditorSurfaceControl, IResource
         public float FadeOut { get; set; }
     }
 
-    private static readonly string[] Buses = ["sfx", "music", "master"];
+    private static readonly string[] BuiltInBuses = ["sfx", "music", "master"];
+    private string[]? _buses;
+
+    /// <summary>The built-in buses, the project's own (its audioBuses) and this clip's, if it names another.</summary>
+    private string[] Buses => _buses ??= BuiltInBuses
+        .Concat(Genesis.Runtime.Project.ProjectPaths.ReadAudioBuses(ProjectRoot))
+        .Append(_document.Bus ?? string.Empty)
+        .Select(bus => bus.Trim().ToLowerInvariant())
+        .Where(bus => bus.Length > 0)
+        .Distinct()
+        .ToArray();
 
     private AudioDocument _document;
     private readonly ThemedComboBox _sourceCombo;

@@ -28,8 +28,19 @@ namespace Genesis.Audio
         private int _outputChannels = -1;
         private float[] _panMatrix = new float[16];
         private float _busMaster = 1f;
-        private float _busSfx = 1f;
-        private float _busMusic = 1f;
+        // Every other bus by name: "sfx" and "music" always exist, and a project may use its own
+        // ("ui", "ambient", "voice"), each with its own volume. A bus nothing has set plays at 1.
+        private readonly Dictionary<string, float> _buses = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["sfx"] = 1f,
+            ["music"] = 1f,
+        };
+
+        private static string BusName(string bus)
+        {
+            string name = (bus ?? string.Empty).Trim().ToLowerInvariant();
+            return name.Length == 0 ? "sfx" : name;
+        }
 
         private sealed class SoundEntry
         {
@@ -103,19 +114,16 @@ namespace Genesis.Audio
         public void SetChannelBus(AudioChannel channel, string bus)
         {
             if (!channel.IsValid || !_channels.TryGetValue(channel.Id, out ChannelState? state) || state == null) return;
-            state.Bus = (bus ?? "").Trim().ToLowerInvariant() switch { "music" => "music", "master" => "master", _ => "sfx" };
+            state.Bus = BusName(bus);
             ApplySpatial(channel.Id);
         }
 
         public void SetBusVolume(string bus, float volume)
         {
             float v = Math.Clamp(volume, 0f, 2f);
-            switch ((bus ?? "").Trim().ToLowerInvariant())
-            {
-                case "music": _busMusic = v; break;
-                case "master": MasterVolume = v; break;
-                default: _busSfx = v; break;
-            }
+            string name = BusName(bus);
+            if (name == "master") MasterVolume = v;
+            else _buses[name] = v;
             RefreshChannelVolumes();
         }
 
@@ -296,12 +304,12 @@ namespace Genesis.Audio
             state.FadeStarted = System.Diagnostics.Stopwatch.GetTimestamp();
         }
 
-        public float GetBusVolume(string bus) => (bus ?? "").Trim().ToLowerInvariant() switch
+        public float GetBusVolume(string bus)
         {
-            "music" => _busMusic,
-            "master" => _busMaster,
-            _ => _busSfx,
-        };
+            string name = BusName(bus);
+            if (name == "master") return _busMaster;
+            return _buses.TryGetValue(name, out float volume) ? volume : 1f;
+        }
 
         public void SetChannelPosition(AudioChannel channel, Vector3 position)
         {
@@ -382,12 +390,13 @@ namespace Genesis.Audio
 
         public void Dispose() => _engine?.Dispose();
 
-        private float BusGain(string bus) => (bus ?? "").ToLowerInvariant() switch
+        // The master volume is the device's (MasterVolume); a bus scales only its own sounds.
+        private float BusGain(string bus)
         {
-            "music" => _busMusic * _busMaster,
-            "master" => _busMaster,
-            _ => _busSfx * _busMaster,
-        };
+            string name = BusName(bus);
+            if (name == "master") return 1f;
+            return _buses.TryGetValue(name, out float volume) ? volume : 1f;
+        }
 
         private void RefreshChannelVolumes()
         {

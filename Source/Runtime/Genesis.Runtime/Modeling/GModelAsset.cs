@@ -12,6 +12,20 @@ namespace Genesis.Runtime.Modeling
     public sealed class GModelAsset
     {
         public string Schema { get; set; } = "genesis.gmodel/1";
+
+        /// <summary>
+        /// What the glTF importer writes. From schema 3 a material's BaseColor is stored as an sRGB
+        /// colour (glTF's linear factor converted on import) and its metallic, roughness and alpha
+        /// cut-off are drawn; older models keep the engine's defaults for those.
+        /// </summary>
+        public const string ImportSchema = "genesis.gmodel/3";
+
+        /// <summary>True when this model's materials draw their own metallic, roughness and cut-off.</summary>
+        public bool DrawsMaterialFactors()
+        {
+            int slash = Schema?.LastIndexOf('/') ?? -1;
+            return slash >= 0 && int.TryParse(Schema.AsSpan(slash + 1), out int version) && version >= 3;
+        }
         public string Name { get; set; } = "";
         public string SourceFile { get; set; } = "";
         public DateTime ImportedUtc { get; set; } = DateTime.UtcNow;

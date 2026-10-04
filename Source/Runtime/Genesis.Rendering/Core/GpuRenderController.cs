@@ -925,7 +925,8 @@ namespace Genesis.Rendering.Core
                     subsurfaceColorSteps: c.SubsurfaceColorSteps, skinPalette: c.SkinPalette,
                     shader: c.Shader, shaderParams0: c.ShaderParams0, shaderParams1: c.ShaderParams1,
                     shaderParams2: c.ShaderParams2, shaderParams3: c.ShaderParams3,
-                    authoredTextures: ResolveAuthoredTextures(c.AuthoredTextures));
+                    authoredTextures: ResolveAuthoredTextures(c.AuthoredTextures),
+                    materialFactors: c.MaterialFactors);
             }
         }
 

@@ -75,6 +75,30 @@ namespace Genesis.Runtime.Project
         }
 
         /// <summary>Reads the legacy export override, then the authored project start room.</summary>
+        /// <summary>The project's own audio buses (its <c>audioBuses</c>), lower case; empty when it names none.</summary>
+        public static System.Collections.Generic.IReadOnlyList<string> ReadAudioBuses(string projectPath)
+        {
+            if (string.IsNullOrEmpty(projectPath) || !Directory.Exists(projectPath)) return [];
+            try
+            {
+                string[] projects = Directory.EnumerateFiles(projectPath, "*.genesisproj", SearchOption.TopDirectoryOnly).ToArray();
+                if (projects.Length != 1) return [];
+                using JsonDocument manifest = JsonDocument.Parse(File.ReadAllText(projects[0]));
+                if (!manifest.RootElement.TryGetProperty("audioBuses", out JsonElement buses) || buses.ValueKind != JsonValueKind.Array)
+                    return [];
+                return buses.EnumerateArray()
+                    .Where(bus => bus.ValueKind == JsonValueKind.String)
+                    .Select(bus => bus.GetString()!.Trim().ToLowerInvariant())
+                    .Where(bus => bus.Length > 0)
+                    .Distinct()
+                    .ToArray();
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+            {
+                return [];
+            }
+        }
+
         /// <summary>
         /// The project's <c>convertRightHandedModels</c> setting: whether imported glTF models are
         /// mirrored along Z so they are not drawn as their mirror image. Off unless the project says so.

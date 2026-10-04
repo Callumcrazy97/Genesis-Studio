@@ -947,6 +947,12 @@ namespace Genesis.Shared.Interfaces
         public Vector4 SurfaceParams;          // normal, height, emission, clearcoat
         public Vector4 DetailParams;           // subsurface, flow speed, flow strength, UV scale
         public Vector4 SubsurfaceColorSteps;   // RGB tint, POM max steps
+        /// <summary>
+        /// A material's own metallic (x), roughness (y) and alpha cut-off (z, 0 = the engine's 0.35);
+        /// w = 1 when set. Unset draws keep the engine's defaults (roughness 0.72, not metallic).
+        /// With an ORM map the factors scale its roughness and metallic channels.
+        /// </summary>
+        public Vector4 MaterialFactors;
         public Matrix4x4     World;
         public RenderColor   Tint;
         public MeshDrawFlags Flags;

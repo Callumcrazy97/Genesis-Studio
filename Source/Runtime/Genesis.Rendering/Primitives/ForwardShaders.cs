@@ -96,9 +96,10 @@ cbuffer DrawConstants : register(b2)
     // Three scalars rather than a float3: the 12 bytes are identical, but std140 aligns a
     // 3-component vector to 16, which would place this at a non-conforming offset and make the
     // block impossible to express in the GLSL the OpenGL backend translates to.
-    float              MaterialRowPad0;
-    float              MaterialRowPad1;
-    float              MaterialRowPad2;
+    // A material's own factors (MeshDrawCall.MaterialFactors); zero keeps the engine's defaults.
+    float              MaterialMetallic;
+    float              MaterialRoughness;     // roughness + 1 when the factors are set, else 0
+    float              MaterialCutoff;        // alpha cut-off, 0 = 0.35
     float4             MaterialSurface;       // normal scale, height scale, emission, clearcoat
     float4             MaterialDetail;        // subsurface, flow speed, flow strength, UV scale
     float4             SubsurfaceAndSteps;     // RGB tint, POM steps
@@ -1121,7 +1122,7 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
     // Alpha-tested cutout: opaque/masked surfaces keep the old firm threshold for vegetation.
     // Alpha-blended model surfaces are submitted with NoDepthWrite, so keep soft texture edges
     // by discarding only genuinely empty texels.
-    float alphaCutoff = NoDepthWrite > 0.5 ? 0.01 : 0.35;
+    float alphaCutoff = NoDepthWrite > 0.5 ? 0.01 : (MaterialCutoff > 0.0 ? MaterialCutoff : 0.35);
     clip(tex.a - alphaCutoff);
 
     float3 base = MaterialColor.rgb * (voxelTiled ? tex.rgb : IN.Color.rgb * tex.rgb);
@@ -1222,6 +1223,12 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
     float hemiBlend  = n.y * 0.5 + 0.5;
     float3 hemiAmbient = lerp(AmbientGroundColor.rgb, AmbientColor.rgb, hemiBlend);
     float3 orm = MaterialFeatures.x > 0.5 ? OrmMap.Sample(AlbedoSamp, materialUv).rgb : float3(1.0, 0.72, 0.0);
+    if (MaterialRoughness > 0.0)
+    {
+        // The material's roughness and metallic factors (glTF): they scale an ORM map, or stand alone.
+        float2 factors = float2(MaterialRoughness - 1.0, MaterialMetallic);
+        orm.gb = MaterialFeatures.x > 0.5 ? orm.gb * factors : factors;
+    }
     float ao = orm.r;
     float wetness = WeatherWindRain.w > 0.5 ? saturate(WeatherSurface.x) * saturate(n.y) : 0;
     base *= lerp(1.0, 0.72, wetness);

@@ -44,7 +44,7 @@ namespace Genesis.Shared.Audio
         /// <summary>Audio group this sound belongs to for memory management and telemetry.</summary>
         public string AudioGroup { get; set; } = "Default Audio Group";
 
-        /// <summary>Mixer bus: "sfx", "music" or "master".</summary>
+        /// <summary>Mixer bus: "sfx", "music", "master" or one of the project's own (its audioBuses).</summary>
         public string Bus { get; set; } = "sfx";
 
         /// <summary>Optional adaptive soundscape role: None, Wind, Rain, Water, Fire, Wildlife or Night.</summary>
