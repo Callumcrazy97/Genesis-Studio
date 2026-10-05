@@ -65,9 +65,7 @@ namespace Genesis.Runtime.Scripting
                 };
             }
 
-            sources.AddRange(ResourceNames.For(projectPath).Entries
-                .Where(entry => entry.Type == ResourceType.Script && entry.Extension.Equals(".cs", StringComparison.OrdinalIgnoreCase))
-                .Select(entry => entry.FullPath));
+            sources.AddRange(FindProjectScriptSources(projectPath));
 
             // PGSL has one execution backend in this correctness phase: the same validated VM in
             // editor preview and Play. Clear dead per-event C# from older builds so tooling cannot
@@ -105,6 +103,20 @@ namespace Genesis.Runtime.Scripting
                 Warnings = validation.Warnings.Concat(result.Warnings).ToArray(),
                 BehaviorTypeNames = result.BehaviorTypeNames,
             };
+        }
+
+        /// <summary>
+        /// The project's C# game scripts: its Script resources written in C# (usually under
+        /// <c>Assets/Scripts</c>). Empty for a game written only in PGSL. Reading the list needs
+        /// no compiler, so export can ask before deciding whether to compile anything.
+        /// </summary>
+        public static IReadOnlyList<string> FindProjectScriptSources(string projectPath)
+        {
+            if (string.IsNullOrEmpty(projectPath)) return Array.Empty<string>();
+            return ResourceNames.For(projectPath).Entries
+                .Where(entry => entry.Type == ResourceType.Script && entry.Extension.Equals(".cs", StringComparison.OrdinalIgnoreCase))
+                .Select(entry => entry.FullPath)
+                .ToArray();
         }
 
         /// <summary>Compile an explicit set of source files.</summary>
