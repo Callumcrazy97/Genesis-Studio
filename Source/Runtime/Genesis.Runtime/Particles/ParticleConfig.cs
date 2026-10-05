@@ -383,6 +383,15 @@ public sealed class ParticleConfig
 
     /// <summary>Animation playback speed in frames per second.</summary>
     public double FlipbookFps { get; set; } = 12.0;
+
+    /// <summary>
+    /// Each particle starts on a random frame of the sheet; at 0 fps it keeps that frame, so one
+    /// sheet gives varied debris, leaves or fragments.
+    /// </summary>
+    public bool FlipbookRandomStart { get; set; } = false;
+
+    /// <summary>Sample the texture pixel by pixel (nearest) instead of smoothly: pixel-art fragments, crisp sheets.</summary>
+    public bool PixelSampling { get; set; } = false;
     public ParticleAlignment Alignment { get; set; } = ParticleAlignment.Billboard;
     public ParticleRendererKind RendererKind { get; set; } = ParticleRendererKind.Billboard;
     public ParticleSimulationSpace SimulationSpace { get; set; } = ParticleSimulationSpace.World;
@@ -510,6 +519,8 @@ public sealed class ParticleConfig
         FlipbookColumns    = FlipbookColumns,
         FlipbookRows       = FlipbookRows,
         FlipbookFps        = FlipbookFps,
+        FlipbookRandomStart = FlipbookRandomStart,
+        PixelSampling      = PixelSampling,
         Alignment          = Alignment,
         RendererKind       = RendererKind,
         SimulationSpace    = SimulationSpace,

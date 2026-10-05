@@ -61,6 +61,8 @@ internal static class ParticleCodeCodec
         Line(text, "render.texture", Quote(config.TexturePath));
         Line(text, "render.mesh", Quote(config.MeshParticleAsset));
         Line(text, "render.flipbook", $"{config.UseFlipbook.ToString().ToLowerInvariant()}, {config.FlipbookColumns}, {config.FlipbookRows}, {N(config.FlipbookFps)}");
+        Line(text, "render.flipbookRandomStart", config.FlipbookRandomStart);
+        Line(text, "render.pixelSampling", config.PixelSampling);
         Line(text, "collision.response", config.CollisionMode);
         Line(text, "collision.height", config.CollisionPlaneHeight);
         Line(text, "collision.bounce", config.CollisionBounce);
@@ -149,6 +151,8 @@ internal static class ParticleCodeCodec
                     case "render.texture": config.TexturePath = Unquote(value); break;
                     case "render.mesh": config.MeshParticleAsset = Unquote(value); break;
                     case "render.flipbook": ParseFlipbook(value, config); break;
+                    case "render.flipbookrandomstart": config.FlipbookRandomStart = Boolean(value); break;
+                    case "render.pixelsampling": config.PixelSampling = Boolean(value); break;
                     case "collision.response": config.CollisionMode = EnumValue<ParticleCollisionMode>(value); break;
                     case "collision.height": config.CollisionPlaneHeight = Number(value); break;
                     case "collision.bounce": config.CollisionBounce = Number(value); break;

@@ -584,6 +584,35 @@ internal static partial class ParticleWorkbenchSuite
             simulation.FillSpriteDrawCalls2D(calls, 0, 0, 1, default);
             Assert(calls[0].UvRect == new Vector4(.5f, 0, 1, 1), "The software particle texture did not advance to the second authored frame.");
         });
+        check("TwoD.RandomFirstFrameAndPixelSampling", () =>
+        {
+            // One sheet of four fragments: each particle keeps a random frame (0 fps), sampled pixel by pixel.
+            ParticleConfig config = Particle2DLayout.ForSimulation(new ParticleConfig
+            {
+                Shape = ParticleEmitShape.Cone, SpreadDegrees = 0, Speed = 1, SpeedVariance = 0,
+                Loop = false, BurstCount = 32, MaxParticles = 32, Lifetime = 4, LifetimeVariance = 0,
+                Gravity = 0, Drag = 0, StartSize = 1, EndSize = 1,
+                UseFlipbook = true, FlipbookColumns = 4, FlipbookRows = 1, FlipbookFps = 0,
+                FlipbookRandomStart = true, PixelSampling = true,
+            });
+            ParticleSimulation simulation = new();
+            simulation.LoadConfig(config);
+            SpriteDrawCall[] calls = new SpriteDrawCall[32];
+            int count = simulation.FillSpriteDrawCalls2D(calls, 0, 0, 1, default);
+            float[] first = calls.Take(count).Select(call => call.UvRect.X).OrderBy(x => x).ToArray();
+            Assert(count == 32 && first.Distinct().Count() > 1, $"Random first frames were not varied ({string.Join(",", first.Distinct())}).");
+            Assert(calls.Take(count).All(call => !call.SmoothSampling && Math.Abs(call.UvRect.Z - call.UvRect.X - .25f) < .001f),
+                "Pixel sampling or the frame size was wrong.");
+            for (int frame = 0; frame < 30; frame++) simulation.Step(1f / 60f);
+            count = simulation.FillSpriteDrawCalls2D(calls, 0, 0, 1, default);
+            float[] later = calls.Take(count).Select(call => call.UvRect.X).OrderBy(x => x).ToArray();
+            Assert(first.SequenceEqual(later), "A particle changed frame at 0 frames per second.");
+
+            Genesis.Rendering.Particles.GpuParticleDefinition gpu = GpuParticleDefinitionBuilder.Build(config, Matrix4x4.Identity);
+            Assert(gpu.PointSampling && gpu.Parameters.Flipbook.W == 2f, "The GPU particles did not get pixel sampling or random first frames.");
+            ParticleConfig parsed = ParticleCodeCodec.Parse(ParticleCodeCodec.Serialize(config), new ParticleConfig());
+            Assert(parsed.FlipbookRandomStart && parsed.PixelSampling, "Particle code lost random first frames or pixel sampling.");
+        });
         check("TwoD.CollisionModesUsePlacedPlaneInBothSimulationSpaces", () =>
         {
             foreach (ParticleSimulationSpace space in Enum.GetValues<ParticleSimulationSpace>())

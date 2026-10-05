@@ -814,14 +814,18 @@ namespace Genesis.Runtime.Rendering
             if (renderer == null || string.IsNullOrWhiteSpace(shaderAsset)) return false;
             try
             {
-                var assets = new ObjectDrawAssetEntry { Shader = shaderAsset };
-                if (!TryResolveShader(renderer, projectPath, assets, ShaderAssetPipeline.Mesh, out ShaderCacheEntry shader)
+                _materialShaderLookup ??= new ObjectDrawAssetEntry();
+                _materialShaderLookup.Shader = shaderAsset;
+                if (!TryResolveShader(renderer, projectPath, _materialShaderLookup, ShaderAssetPipeline.Mesh, out ShaderCacheEntry shader)
                     || shader == null
                     || !shader.Handle.IsValid)
                 {
                     return false;
                 }
 
+                // The textures the shader declares, as for a placed Object's or a material's shader:
+                // a script's DrawModelShader3D sees the same resources.
+                BindAuthoredTextures(renderer, projectPath, _materialShaderLookup, shader.Document, ShaderAssetPipeline.Mesh, ref call.AuthoredTextures);
                 call.Shader = shader.Handle;
                 call.ShaderParams0 = shader.Row0;
                 call.ShaderParams1 = shader.Row1;

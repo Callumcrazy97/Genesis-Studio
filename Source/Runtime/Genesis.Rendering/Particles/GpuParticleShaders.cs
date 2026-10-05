@@ -445,9 +445,12 @@ VertexOutput VS(VertexInput input,uint vertex:SV_VertexID,uint instance:SV_Insta
     if(Mode.x>0.5){centre=ScreenPosition(centre);offset.xy*=Screen.w;offset.z=0;}
     VertexOutput output;output.position=mul(float4(centre+offset,1),ViewProjection);
     if(Mode.x>0.5)output.position.z=0;
-    if(Flipbook.w>0.5 && kind==0) {
+    // Quads only: a mesh particle keeps its model's own texture coordinates.
+    if(Flipbook.w>0.5 && kind==0 && alignment!=3) {
         uint columns=max(1,(uint)Flipbook.x),rows=max(1,(uint)Flipbook.y);
-        uint frame=(uint)(age*max(0,Flipbook.z))%(columns*rows);
+        uint frame=(uint)(age*max(0,Flipbook.z));
+        if(Flipbook.w>1.5) frame+=Hash(asuint(p.identity.x));
+        frame%=columns*rows;
         uv=(uv+float2(frame%columns,frame/columns))/float2(columns,rows);
     }
     output.world=centre+offset;output.viewDepth=output.position.w;

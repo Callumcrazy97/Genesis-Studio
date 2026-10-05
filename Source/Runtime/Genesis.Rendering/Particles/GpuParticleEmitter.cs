@@ -190,7 +190,7 @@ public sealed class GpuParticleEmitter : IDisposable
         _gpu.SetStructuredBuffer(GpuShaderStage.Vertex, 1, _pool);
         _gpu.SetStructuredBuffer(GpuShaderStage.Vertex, 2, _lookup);
         _gpu.SetTexture(GpuShaderStage.Pixel, 3, texture);
-        _gpu.SetSampler(GpuShaderStage.Pixel, 0, _library.Sampler);
+        _gpu.SetSampler(GpuShaderStage.Pixel, 0, _definition.PointSampling && _library.PointSampler.IsValid ? _library.PointSampler : _library.Sampler);
         _gpu.SetConstantBuffer(GpuShaderStage.Vertex, 1, _parametersConstants);
         _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 1, _parametersConstants);
         _gpu.SetConstantBuffer(GpuShaderStage.Vertex, 2, _drawConstants);

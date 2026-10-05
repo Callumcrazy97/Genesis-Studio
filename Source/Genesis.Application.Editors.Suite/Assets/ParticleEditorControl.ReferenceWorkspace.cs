@@ -158,7 +158,9 @@ public sealed partial class ParticleEditorControl
         AddInspectorRow(renderer, "Flipbook", BoundCheckBox("flipbook", () => _config.UseFlipbook, value => _config.UseFlipbook = value));
         AddNumeric(renderer, "Columns", "flipColumns", _config.FlipbookColumns, 1, 64, value => _config.FlipbookColumns = (int)value);
         AddNumeric(renderer, "Rows", "flipRows", _config.FlipbookRows, 1, 64, value => _config.FlipbookRows = (int)value);
-        AddNumeric(renderer, "Flipbook FPS", "flipFps", _config.FlipbookFps, 0.1, 240, value => _config.FlipbookFps = value, 1);
+        AddNumeric(renderer, "Flipbook FPS", "flipFps", _config.FlipbookFps, 0, 240, value => _config.FlipbookFps = value, 1);
+        AddInspectorRow(renderer, "Random first frame", BoundCheckBox("flipRandom", () => _config.FlipbookRandomStart, value => _config.FlipbookRandomStart = value));
+        AddInspectorRow(renderer, "Pixel sampling", BoundCheckBox("pixelSampling", () => _config.PixelSampling, value => _config.PixelSampling = value));
 
         FlowLayoutPanel material = InspectorPage("Appearance");
         AddNumeric(material, "Width scale", "sizeScaleX", _config.SizeXScale, 0.01, 100, value => _config.SizeXScale = value, 2);
@@ -266,6 +268,8 @@ public sealed partial class ParticleEditorControl
         SetCheck("collideTerrain", _config.CollideWithTerrain);
         SetCheck("collideGeometry", _config.CollideWithGeometry);
         SetCheck("flipbook", _config.UseFlipbook);
+        SetCheck("flipRandom", _config.FlipbookRandomStart);
+        SetCheck("pixelSampling", _config.PixelSampling);
         SetCheck("downward", _config.DownwardEmit);
         SetCheck("followCamera", _config.FollowCameraXZ);
         SetCheck("curveSize", _config.UseCustomSizeCurve);

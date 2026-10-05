@@ -56,7 +56,7 @@ These registers and fields are stable. Declare only the ones you use.
 |---|---|
 | `b4` `GenesisFrame` | `float Time; float Frame; float2 Resolution;` |
 | `b5` `GenesisParameters` | Your parameters, up to 16 floats (four `float4` rows). Their names are what the Object editor shows and what the commands above set. |
-| `t17`–`t20` | Free for your own textures (set in the Shader editor's Resources; an Object can override them). `t21`–`t23` are free except on terrain. |
+| `t17`–`t20` | Free for your own textures (set in the Shader editor's Resources; an Object can override them). `t21`–`t23` are free except on terrain. They are bound the same way for a placed Object, a model material's shader and a script's `DrawModelShader3D`. |
 
 ### What the engine passes in
 

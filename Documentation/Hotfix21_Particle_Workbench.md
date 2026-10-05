@@ -62,6 +62,15 @@ Texture, mesh-particle and mesh-surface fields use the shared type-filtered pick
 
 Changing or clearing a mesh-surface source also clears previous sampled points before loading its replacement, so a missing new model cannot keep emitting from the old model silently. Asset dependency refresh continues to invalidate the existing preview caches.
 
+## Sprite sheets and pixel art
+
+A flipbook plays a sheet of columns × rows frames on each quad particle (a mesh particle keeps its
+model's own texture coordinates). **Random first frame** starts each particle on a frame of its own;
+with **Flipbook FPS** at 0 it keeps that frame, so one sheet gives varied debris, leaves or
+fragments. **Pixel sampling** samples the texture pixel by pixel instead of smoothly, for pixel-art
+fragments and crisp sheets. Both are in particle code as `render.flipbookRandomStart` and
+`render.pixelSampling`.
+
 ## Save, undo and Advanced drafts
 
 The Particle Editor now uses the shared document journal with a 100-operation cap. Numeric edits are individual undo steps; structural operations and curve drags are single steps. Snapshots contain authored data, not particle simulation arrays or textures. Undoing back to the last saved content clears the dirty marker; redoing away from it marks the document dirty. History is session-only.

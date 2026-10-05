@@ -17,6 +17,7 @@ internal sealed class GpuParticleLibrary : IDisposable
     internal GpuShaderProgramHandle DrawProgram;
     internal GpuVertexLayoutHandle Layout;
     internal GpuSamplerHandle Sampler;
+    internal GpuSamplerHandle PointSampler;
     internal GpuParticleMesh Quad;
     internal GpuParticleMesh Strip;
     internal long AllocatedBytes { get; private set; }
@@ -62,6 +63,12 @@ internal sealed class GpuParticleLibrary : IDisposable
                 Filter = GpuFilter.Linear, AddressU = GpuAddressMode.Clamp, AddressV = GpuAddressMode.Clamp,
                 AddressW = GpuAddressMode.Clamp, CompareOp = GpuCompare.Never, MaxAnisotropy = 1,
                 DebugName = "Particles.Linear",
+            });
+            PointSampler = Device.CreateSampler(new GpuSamplerDesc
+            {
+                Filter = GpuFilter.Point, AddressU = GpuAddressMode.Clamp, AddressV = GpuAddressMode.Clamp,
+                AddressW = GpuAddressMode.Clamp, CompareOp = GpuCompare.Never, MaxAnisotropy = 1,
+                DebugName = "Particles.Point",
             });
             Quad = CreateGeometry(false);
             Strip = CreateGeometry(true);
@@ -138,6 +145,7 @@ internal sealed class GpuParticleLibrary : IDisposable
         if (DrawProgram.IsValid) Device.ReleaseShaderProgram(DrawProgram);
         if (Layout.IsValid) Device.ReleaseVertexLayout(Layout);
         if (Sampler.IsValid) Device.ReleaseSampler(Sampler);
+        if (PointSampler.IsValid) Device.ReleaseSampler(PointSampler);
         ReleaseGeometry(Quad); ReleaseGeometry(Strip);
     }
 

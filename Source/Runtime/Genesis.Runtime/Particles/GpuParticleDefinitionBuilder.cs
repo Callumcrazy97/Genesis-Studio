@@ -130,7 +130,8 @@ public static class GpuParticleDefinitionBuilder
                 Math.Clamp(config.FlipbookColumns, 1, 64),
                 Math.Clamp(config.FlipbookRows, 1, 64),
                 (float)Math.Max(0d, config.FlipbookFps),
-                config.UseFlipbook ? 1f : 0f),
+                // 1 plays the sheet; 2 also starts each particle on a random frame.
+                config.UseFlipbook ? (config.FlipbookRandomStart ? 2f : 1f) : 0f),
             Options = new Vector4(
                 config.SimulationSpace == ParticleSimulationSpace.Local ? 1f : 0f,
                 config.CollisionMode != ParticleCollisionMode.None ? 1f : 0f,
@@ -158,6 +159,7 @@ public static class GpuParticleDefinitionBuilder
             BoundsCenter = boundsCenter,
             BoundsRadius = boundsRadius,
             BlendMode = (int)config.BlendMode,
+            PointSampling = config.PixelSampling,
         };
     }
 

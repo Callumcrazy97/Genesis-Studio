@@ -132,6 +132,8 @@ public sealed class GpuParticleDefinition
     public Vector3 BoundsCenter { get; init; }
     public float BoundsRadius { get; init; }
     public int BlendMode { get; init; }
+    /// <summary>Nearest sampling of the texture (pixel art) instead of linear.</summary>
+    public bool PointSampling { get; init; }
 }
 
 public readonly record struct ParticleDiagnostics(

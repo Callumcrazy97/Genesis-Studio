@@ -339,6 +339,7 @@ public sealed partial class ParticleSimulation
         float sizeXScale  = (float)_config.SizeXScale;
         float sizeYScale  = (float)_config.SizeYScale;
         float flipFps     = frames.Length > 1 ? (float)_config.FlipbookFps : 0f;
+        bool  randomStart = frames.Length > 1 && _config.FlipbookRandomStart;
         int   totalFrames = Math.Max(1, frames.Length);
         bool  hasRotation = _config.RotationSpeed != 0.0 || _config.RotationVariance != 0.0;
 
@@ -387,7 +388,9 @@ public sealed partial class ParticleSimulation
             RenderColor col    = ApplyColorJitter(EvaluateGradient(t, sc, mc, ec, midPt, _config.AlphaCurve), p.ColorJitter);
             float rotRad       = p.Rotation * (MathF.PI / 180f);
 
-            int frameIdx = flipFps > 0f ? ((int)(p.Age * flipFps)) % totalFrames : 0;
+            int frameIdx = flipFps > 0f || randomStart
+                ? (int)(((uint)(p.Age * flipFps) + (randomStart ? FrameHash(p.Serial) : 0u)) % (uint)totalFrames)
+                : 0;
             _frameIndexBuffer[i] = frameIdx;
 
             // Build billboard world matrix without CreateBillboard / CreateScale / CreateRotationZ.
@@ -580,7 +583,8 @@ public sealed partial class ParticleSimulation
             if (_config.UseFlipbook)
             {
                 int columns = Math.Clamp(_config.FlipbookColumns, 1, 64), rows = Math.Clamp(_config.FlipbookRows, 1, 64);
-                int frame = (int)(p.Age * Math.Max(0, _config.FlipbookFps)) % (columns * rows);
+                uint start = _config.FlipbookRandomStart ? FrameHash(p.Serial) : 0u;
+                int frame = (int)(((uint)(p.Age * Math.Max(0, _config.FlipbookFps)) + start) % (uint)(columns * rows));
                 int column = frame % columns, row = frame / columns;
                 uv = new Vector4(column / (float)columns, row / (float)rows,
                     (column + 1) / (float)columns, (row + 1) / (float)rows);
@@ -592,7 +596,7 @@ public sealed partial class ParticleSimulation
                 {
                     ParticleBlendMode.Additive => BlendMode.Additive, ParticleBlendMode.Multiply => BlendMode.Multiply, _ => BlendMode.Alpha,
                 },
-                SmoothSampling = true,
+                SmoothSampling = !_config.PixelSampling,
                 Texture  = texture,
                 X        = centerX + position.X * zoom,
                 Y        = centerY + position.Y * zoom,
@@ -975,4 +979,13 @@ public sealed partial class ParticleSimulation
 
     private float RandSym() => _rng.NextSingle() * 2f - 1f;
     private static float Lerp(float a, float b, float t) => a + (b - a) * t;
+
+    // A particle's random first frame of a flipbook, the same all its life.
+    private static uint FrameHash(uint serial)
+    {
+        uint x = serial * 0x9E3779B1u;
+        x ^= x >> 15;
+        x *= 0x85EBCA6Bu;
+        return x ^ (x >> 13);
+    }
 }
