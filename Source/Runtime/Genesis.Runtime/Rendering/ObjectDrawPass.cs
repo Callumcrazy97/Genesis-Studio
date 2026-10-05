@@ -267,7 +267,7 @@ namespace Genesis.Runtime.Rendering
                                 int originalCount = drawCount - before;
                                 int passCount = Math.Max(1, shader.PassHandles.Length);
                                 int retainedOriginals = Math.Min(originalCount, (buffer.Length - before) / passCount);
-                                BindAuthoredTextures(renderer, projectPath, assets, shader,ShaderAssetPipeline.Mesh, ref buffer[before].AuthoredTextures);
+                                BindAuthoredTextures(renderer, projectPath, assets, shader, ShaderAssetPipeline.Mesh, ref buffer[before].AuthoredTextures);
                                 AuthoredShaderTextures textures = buffer[before].AuthoredTextures;
                                 for (int original = retainedOriginals - 1; original >= 0; original--)
                                 {
@@ -432,7 +432,7 @@ namespace Genesis.Runtime.Rendering
                     && TryResolveShader(renderer, projectPath, visualAssets, ShaderAssetPipeline.Mesh, out ShaderCacheEntry modelShader))
                 {
                     AuthoredShaderTextures textures = default;
-                    BindAuthoredTextures(renderer, projectPath, visualAssets, modelShader,ShaderAssetPipeline.Mesh, ref textures);
+                    BindAuthoredTextures(renderer, projectPath, visualAssets, modelShader, ShaderAssetPipeline.Mesh, ref textures);
                     destination = new ShaderPassDrawList(queue, modelShader, textures);
                 }
                 if (!string.IsNullOrWhiteSpace(model.ModelAsset)
@@ -662,7 +662,7 @@ namespace Genesis.Runtime.Rendering
         {
             if (!TryResolveShader(renderer, projectPath, assets, expectedPipeline, out ShaderCacheEntry shader)) return;
             ApplyResolvedShader(shader, shader.Handle, ref call);
-            BindAuthoredTextures(renderer, projectPath, assets, shader,expectedPipeline, ref call.AuthoredTextures);
+            BindAuthoredTextures(renderer, projectPath, assets, shader, expectedPipeline, ref call.AuthoredTextures);
         }
 
         private static void ApplyShader(
@@ -674,7 +674,7 @@ namespace Genesis.Runtime.Rendering
         {
             if (!TryResolveShader(renderer, projectPath, assets, expectedPipeline, out ShaderCacheEntry shader)) return;
             ApplyResolvedShader(shader, shader.Handle, ref call);
-            BindAuthoredTextures(renderer, projectPath, assets, shader,expectedPipeline, ref call.AuthoredTextures);
+            BindAuthoredTextures(renderer, projectPath, assets, shader, expectedPipeline, ref call.AuthoredTextures);
         }
 
         private static void ApplyResolvedShader(
@@ -713,7 +713,7 @@ namespace Genesis.Runtime.Rendering
                 return 1;
             }
 
-            BindAuthoredTextures(renderer, projectPath, assets, shader,ShaderAssetPipeline.Mesh, ref call.AuthoredTextures);
+            BindAuthoredTextures(renderer, projectPath, assets, shader, ShaderAssetPipeline.Mesh, ref call.AuthoredTextures);
             int added = 0;
             foreach (RuntimeShaderHandle handle in shader.PassHandles)
             {
@@ -740,7 +740,7 @@ namespace Genesis.Runtime.Rendering
                 return;
             }
 
-            BindAuthoredTextures(renderer, projectPath, assets, shader,ShaderAssetPipeline.Mesh, ref call.AuthoredTextures);
+            BindAuthoredTextures(renderer, projectPath, assets, shader, ShaderAssetPipeline.Mesh, ref call.AuthoredTextures);
             foreach (RuntimeShaderHandle handle in shader.PassHandles)
             {
                 MeshDrawCall pass = call;
@@ -763,7 +763,7 @@ namespace Genesis.Runtime.Rendering
                 return;
             }
 
-            BindAuthoredTextures(renderer, projectPath, assets, shader,ShaderAssetPipeline.Sprite, ref call.AuthoredTextures);
+            BindAuthoredTextures(renderer, projectPath, assets, shader, ShaderAssetPipeline.Sprite, ref call.AuthoredTextures);
             foreach (RuntimeShaderHandle handle in shader.PassHandles)
             {
                 SpriteDrawCall pass = call;
@@ -835,7 +835,7 @@ namespace Genesis.Runtime.Rendering
 
                 // The textures the shader declares, as for a placed Object's or a material's shader:
                 // a script's DrawModelShader3D sees the same resources.
-                BindAuthoredTextures(renderer, projectPath, _materialShaderLookup, shader.Document, ShaderAssetPipeline.Mesh, ref call.AuthoredTextures);
+                BindAuthoredTextures(renderer, projectPath, _materialShaderLookup, shader, ShaderAssetPipeline.Mesh, ref call.AuthoredTextures);
                 call.Shader = shader.Handle;
                 call.ShaderParams0 = shader.Row0;
                 call.ShaderParams1 = shader.Row1;
@@ -883,7 +883,7 @@ namespace Genesis.Runtime.Rendering
                 return false;
             RuntimeShaderHandle handle = shader.PassHandles.Length > 0 ? shader.PassHandles[0] : shader.Handle;
             if (!handle.IsValid) return false;
-            BindAuthoredTextures(renderer, projectPath, _materialShaderLookup, shader,ShaderAssetPipeline.Mesh, ref call.AuthoredTextures);
+            BindAuthoredTextures(renderer, projectPath, _materialShaderLookup, shader, ShaderAssetPipeline.Mesh, ref call.AuthoredTextures);
             ApplyResolvedShader(shader, handle, ref call);
             return true;
         }

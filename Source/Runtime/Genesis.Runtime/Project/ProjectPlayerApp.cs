@@ -74,15 +74,12 @@ namespace Genesis.Runtime.Project
             // A game plays its project; it never cooks a model into it (see StudioModelResourceLoader).
             Genesis.Runtime.Modeling.StudioModelResourceLoader.WriteReimportsToProject = false;
             ScriptScreenshots.Reset();
-<<<<<<< HEAD
             Genesis.Runtime.Rendering.ScriptMeshes.Reset();
             Genesis.Runtime.Rendering.ModelLayers.Reset();
-=======
             Genesis.Runtime.Input.InputReplay.Reset();
             Genesis.Runtime.Input.InputReplay.ReplayEnded -= OnInputReplayEnded;
             Genesis.Runtime.Input.InputReplay.ReplayEnded += OnInputReplayEnded;
             _quitWhenReplayEnds = false;
->>>>>>> worktree-agent-a2ac6936599bfd540
             try
             {
                 if (TryRunScriptEntryPoint(args, out int customExit))

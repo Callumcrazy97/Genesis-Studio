@@ -1129,11 +1129,7 @@ internal static class HeadlessTestRunner
     {
         ["tier-editor"] = ["studio-foundation", "shell-layout", "resource-names", "code-assistance", "editor-suite", "room-workspace", "model-intake", "model-sprites", "pixel-model", "menu-clips"],
         ["tier-engine"] = ["engine-systems", "asset-import", "readback-alpha", "post-effects", "large-world", "runtime", "model-system", "debug-screen", "terrain-layers-grass"],
-        ["tier-pgsl"] = ["pgsl-values", "pgsl-cache", "pgsl-scripts", "pgsl-logic", "pgsl-project", "export-pgsl"],
-                break;
-        ["tier-editor"] = ["studio-foundation", "shell-layout", "resource-names", "code-assistance", "editor-suite", "room-workspace", "model-intake"],
-        ["tier-engine"] = ["engine-systems", "asset-import", "readback-alpha", "post-effects", "large-world", "runtime", "model-system"],
-        ["tier-pgsl"] = ["pgsl-values", "pgsl-cache", "pgsl-scripts", "pgsl-logic", "input-replay", "pgsl-project"],
+        ["tier-pgsl"] = ["pgsl-values", "pgsl-cache", "pgsl-scripts", "pgsl-logic", "input-replay", "pgsl-project", "export-pgsl"],
     };
 
     private static void RunFocusedTarget(HeadlessContext ctx, string target)
