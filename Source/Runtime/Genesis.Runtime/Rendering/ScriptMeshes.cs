@@ -106,7 +106,14 @@ namespace Genesis.Runtime.Rendering
         /// A cube's chosen faces (a voxel's faces that touch air), centred on a point, each with the
         /// same texture rectangle of an atlas. Returns the faces added.
         /// </summary>
-        public static int AddCube(int id, Vector3 centre, float size, int faces, Vector4 colour, Vector4 uv)
+        public static int AddCube(int id, Vector3 centre, float size, int faces, Vector4 colour, Vector4 uv) =>
+            AddCube(id, centre, size, faces, colour, uv, uv, uv);
+
+        /// <summary>
+        /// The same with a tile of its own for the top (+Y), the four sides and the bottom (-Y): a
+        /// grass block, a log, a crate.
+        /// </summary>
+        public static int AddCube(int id, Vector3 centre, float size, int faces, Vector4 colour, Vector4 top, Vector4 side, Vector4 bottom)
         {
             if (!TryGet(id, out Builder mesh)) return 0;
             float h = size * 0.5f;
@@ -114,6 +121,7 @@ namespace Genesis.Runtime.Rendering
             void Face(int bit, Vector3 normal, Vector3 up, Vector3 right)
             {
                 if ((faces & bit) == 0) return;
+                Vector4 uv = bit == PositiveY ? top : bit == NegativeY ? bottom : side;
                 if (mesh.Vertices.Count + 4 > MaxVertices) { mesh.Overflowed = true; return; }
                 Vector3 c = centre + normal * h;
                 ushort start = (ushort)mesh.Vertices.Count;
@@ -134,6 +142,27 @@ namespace Genesis.Runtime.Rendering
             Face(NegativeZ, -Vector3.UnitZ, new Vector3(0, h, 0), new Vector3(h, 0, 0));
             if (added > 0) mesh.Dirty = true;
             return added;
+        }
+
+        /// <summary>
+        /// A four-cornered face in one call: corners in order around it, turning the way
+        /// <see cref="AddTriangle"/> expects, all with one normal and colour, the texture rectangle
+        /// u0, v0 (first corner) to u1, v1 (third corner). Returns the first corner's index, -1 when full.
+        /// </summary>
+        public static int AddQuad(int id, Vector3 p0, Vector3 p1, Vector3 p2, Vector3 p3, Vector3 normal, Vector4 uv, Vector4 colour)
+        {
+            if (!TryGet(id, out Builder mesh)) return -1;
+            if (mesh.Vertices.Count + 4 > MaxVertices) { mesh.Overflowed = true; return -1; }
+            Vector3 n = normal.LengthSquared() > 1e-12f ? Vector3.Normalize(normal) : Vector3.UnitY;
+            int start = mesh.Vertices.Count;
+            mesh.Vertices.Add(new MeshVertex { Position = p0, Normal = n, Color = colour, UV = new Vector2(uv.X, uv.Y) });
+            mesh.Vertices.Add(new MeshVertex { Position = p1, Normal = n, Color = colour, UV = new Vector2(uv.Z, uv.Y) });
+            mesh.Vertices.Add(new MeshVertex { Position = p2, Normal = n, Color = colour, UV = new Vector2(uv.Z, uv.W) });
+            mesh.Vertices.Add(new MeshVertex { Position = p3, Normal = n, Color = colour, UV = new Vector2(uv.X, uv.W) });
+            mesh.Indices.Add((ushort)start); mesh.Indices.Add((ushort)(start + 1)); mesh.Indices.Add((ushort)(start + 2));
+            mesh.Indices.Add((ushort)start); mesh.Indices.Add((ushort)(start + 2)); mesh.Indices.Add((ushort)(start + 3));
+            mesh.Dirty = true;
+            return start;
         }
 
         public static int VertexCount(int id) => TryGet(id, out Builder mesh) ? mesh.Vertices.Count : 0;

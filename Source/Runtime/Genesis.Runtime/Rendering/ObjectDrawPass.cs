@@ -819,6 +819,19 @@ namespace Genesis.Runtime.Rendering
             IRenderController renderer,
             string projectPath,
             string shaderAsset,
+            ref MeshDrawCall call) =>
+            TryApplyMeshShader(renderer, projectPath, shaderAsset, null, null, ref call);
+
+        /// <summary>
+        /// The same with an instance's own shader values and texture overrides (a script's mesh draw
+        /// uses the values its instance set with ShaderSetParameter).
+        /// </summary>
+        public static bool TryApplyMeshShader(
+            IRenderController renderer,
+            string projectPath,
+            string shaderAsset,
+            IReadOnlyDictionary<string, float[]> parameters,
+            IReadOnlyDictionary<string, string> resources,
             ref MeshDrawCall call)
         {
             if (renderer == null || string.IsNullOrWhiteSpace(shaderAsset)) return false;
@@ -826,6 +839,14 @@ namespace Genesis.Runtime.Rendering
             {
                 _materialShaderLookup ??= new ObjectDrawAssetEntry();
                 _materialShaderLookup.Shader = shaderAsset;
+                _materialShaderLookup.ShaderParameters.Clear();
+                _materialShaderLookup.ShaderResources.Clear();
+                if (parameters != null)
+                    foreach (KeyValuePair<string, float[]> parameter in parameters)
+                        _materialShaderLookup.ShaderParameters[parameter.Key] = parameter.Value;
+                if (resources != null)
+                    foreach (KeyValuePair<string, string> resource in resources)
+                        _materialShaderLookup.ShaderResources[resource.Key] = resource.Value;
                 if (!TryResolveShader(renderer, projectPath, _materialShaderLookup, ShaderAssetPipeline.Mesh, out ShaderCacheEntry shader)
                     || shader == null
                     || !shader.Handle.IsValid)
@@ -879,6 +900,8 @@ namespace Genesis.Runtime.Rendering
             if (string.IsNullOrWhiteSpace(shaderName)) return false;
             _materialShaderLookup ??= new ObjectDrawAssetEntry();
             _materialShaderLookup.Shader = shaderName.Trim();
+            _materialShaderLookup.ShaderParameters.Clear();
+            _materialShaderLookup.ShaderResources.Clear();
             if (!TryResolveShader(renderer, projectPath, _materialShaderLookup, ShaderAssetPipeline.Mesh, out ShaderCacheEntry shader))
                 return false;
             RuntimeShaderHandle handle = shader.PassHandles.Length > 0 ? shader.PassHandles[0] : shader.Handle;

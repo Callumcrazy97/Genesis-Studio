@@ -20,6 +20,16 @@ public sealed class ProjectValidator
             return issues;
         }
 
+        // Rooms and scripts name resources without their kind, so two kinds sharing a name stop the game.
+        foreach (Genesis.Shared.Assets.NamedResource[] named in Genesis.Shared.Assets.ResourceCatalog.For(session.RootPath).DuplicateNames)
+        {
+            issues.Add(new ProjectValidationIssue(
+                ProjectValidationSeverity.Error,
+                "RESOURCE_NAME_DUPLICATE",
+                Genesis.Shared.Assets.ResourceCatalog.DescribeDuplicate(named, session.RootPath),
+                named[0].FullPath));
+        }
+
         string[] resourceFiles = Directory.EnumerateFiles(
                 session.AssetsPath,
                 "*",

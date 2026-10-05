@@ -82,6 +82,8 @@ namespace Genesis.Shared.Scripting
 
         public Color DrawColor { get; set; } = Color.White;
         public double DrawAlpha { get; set; } = 1.0;
+        /// <summary>How this instance's later script-mesh draws look (DrawMeshSet*), until changed.</summary>
+        public Genesis.Shared.Interfaces.ScriptMeshDrawOptions MeshDrawOptions;
         public string DrawFont { get; set; } = "Arial";
         public double DrawFontSize { get; set; } = 12.0;
         /// <summary>Pixels added between the letters of later text (DrawSetTextTracking).</summary>

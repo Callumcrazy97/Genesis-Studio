@@ -336,23 +336,37 @@ namespace Genesis.Runtime.Scripting
             QueueGuiSprite(queue => queue.DrawSprite(call));
         }
 
-        public void QueueScriptMesh3D(int meshId, Matrix4x4 world, string image, Color tint, float alpha)
+        public void QueueScriptMesh3D(int meshId, Matrix4x4 world, string image, string shader, Color tint, float alpha,
+            ScriptMeshDrawOptions options)
         {
             if (!_is3DActive || _renderer == null) return;
             MeshHandle mesh = Genesis.Runtime.Rendering.ScriptMeshes.Resolve(meshId, _renderer);
             if (!mesh.IsValid) return;
             float a = Math.Clamp(alpha, 0f, 1f) * (tint.A / 255f);
+            MeshDrawFlags flags = a < 0.999f || options.Transparent
+                ? MeshDrawFlags.Transparent | MeshDrawFlags.NoDepthWrite | MeshDrawFlags.NoShadow
+                : MeshDrawFlags.None;
+            if (options.NoCastShadow) flags |= MeshDrawFlags.NoShadow;
+            if (options.NoReceiveShadow) flags |= MeshDrawFlags.NoReceiveShadow;
+            if (options.NoFog) flags |= MeshDrawFlags.NoFog;
+            if (options.TwoSided) flags |= MeshDrawFlags.NoCull;
+            float glow = float.IsFinite(options.Glow) ? Math.Max(0f, options.Glow) : 0f;
+            if (glow > 0.001f) flags |= MeshDrawFlags.Emissive;
+            string projectPath = _projectPath ?? PgslCommands.ProjectPath;
             MeshDrawCall call = new()
             {
                 Mesh = mesh,
                 World = world,
                 Texture = string.IsNullOrWhiteSpace(image)
                     ? TextureHandle.Invalid
-                    : ObjectDrawPass.ResolveImageTexture(_renderer, _projectPath ?? PgslCommands.ProjectPath, image),
+                    : ObjectDrawPass.ResolveImageTexture(_renderer, projectPath, image),
                 Tint = new RenderColor(tint.R / 255f, tint.G / 255f, tint.B / 255f, a),
                 Alpha = a,
-                Flags = a < 0.999f ? MeshDrawFlags.Transparent | MeshDrawFlags.NoDepthWrite | MeshDrawFlags.NoShadow : MeshDrawFlags.None,
+                Emissive = glow,
+                Flags = flags,
             };
+            if (!string.IsNullOrWhiteSpace(shader))
+                ObjectDrawPass.TryApplyMeshShader(_renderer, projectPath, shader, options.ShaderParameters, options.ShaderResources, ref call);
             if (_commands != null) _commands.DrawMesh(call);
             else _renderer.DrawMesh(call);
         }

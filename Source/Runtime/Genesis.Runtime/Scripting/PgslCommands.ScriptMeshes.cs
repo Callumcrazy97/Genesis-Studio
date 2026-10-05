@@ -48,6 +48,38 @@ public static partial class PgslCommands
             (int)faces & ScriptMeshes.AllFaces, Colour(r, g, b, 1), uv);
     }
 
+    [PgslCommand("MeshAddCubeTiles", "MeshAddCubeTiles(mesh, x, y, z, size, faces, r, g, b, topU0, topV0, topU1, topV1, sideU0, sideV0, sideU1, sideV1, bottomU0, bottomV0, bottomU1, bottomV1) -> faces added",
+        "MeshAddCube with a tile of its own for the top (+Y), the four sides and the bottom (-Y): a grass block, a log, a crate",
+        "Meshes")]
+    public static double MeshAddCubeTiles(double mesh, double x, double y, double z, double size, double faces,
+        double r, double g, double b,
+        double topU0, double topV0, double topU1, double topV1,
+        double sideU0, double sideV0, double sideU1, double sideV1,
+        double bottomU0, double bottomV0, double bottomU1, double bottomV1)
+    {
+        if (!Finite3(x, y, z) || !(size > 0) || !double.IsFinite(size)) return 0;
+        return ScriptMeshes.AddCube((int)mesh, new Vector3((float)x, (float)y, (float)z), (float)size,
+            (int)faces & ScriptMeshes.AllFaces, Colour(r, g, b, 1),
+            Tile(topU0, topV0, topU1, topV1), Tile(sideU0, sideV0, sideU1, sideV1), Tile(bottomU0, bottomV0, bottomU1, bottomV1));
+    }
+
+    [PgslCommand("MeshAddQuad", "MeshAddQuad(mesh, x0, y0, z0, x1, y1, z1, x2, y2, z2, x3, y3, z3, nx, ny, nz, u0, v0, u1, v1, r, g, b, a) -> index",
+        "Add a four-cornered face in one call: corners in order around it (turning like MeshAddTriangle), one normal, the texture rectangle u0, v0 (first corner) to u1, v1 (third), colour 0-255 and alpha 0-1. Returns the first corner's index, -1 when the mesh is full",
+        "Meshes")]
+    public static double MeshAddQuad(double mesh,
+        double x0, double y0, double z0, double x1, double y1, double z1,
+        double x2, double y2, double z2, double x3, double y3, double z3,
+        double nx, double ny, double nz, double u0, double v0, double u1, double v1,
+        double r, double g, double b, double a)
+    {
+        if (!Finite3(x0, y0, z0) || !Finite3(x1, y1, z1) || !Finite3(x2, y2, z2) || !Finite3(x3, y3, z3) || !Finite3(nx, ny, nz))
+            return -1;
+        return ScriptMeshes.AddQuad((int)mesh,
+            new Vector3((float)x0, (float)y0, (float)z0), new Vector3((float)x1, (float)y1, (float)z1),
+            new Vector3((float)x2, (float)y2, (float)z2), new Vector3((float)x3, (float)y3, (float)z3),
+            new Vector3((float)nx, (float)ny, (float)nz), Tile(u0, v0, u1, v1), Colour(r, g, b, a));
+    }
+
     [PgslCommand("MeshVertexCount", "MeshVertexCount(mesh) -> number", "Vertices in a mesh", "Meshes")]
     public static double MeshVertexCount(double mesh) => ScriptMeshes.VertexCount((int)mesh);
 
@@ -62,6 +94,13 @@ public static partial class PgslCommands
     [PgslCommand("DrawMesh3DTransform", "DrawMesh3DTransform(mesh, x, y, z, sx, sy, sz, yaw, image)",
         "Draw a script's mesh scaled and turned about the vertical axis (degrees)", "Meshes")]
     public static void DrawMesh3DTransform(double mesh, double x, double y, double z, double sx, double sy, double sz,
+        double yaw, string image) =>
+        DrawMeshShader3D(mesh, string.Empty, x, y, z, sx, sy, sz, yaw, image);
+
+    [PgslCommand("DrawMeshShader3D", "DrawMeshShader3D(mesh, shader, x, y, z, sx, sy, sz, yaw, image)",
+        "Draw a script's mesh through a mesh Shader resource (empty for the engine's own shading), with this instance's ShaderSetParameter / ShaderSetVector values",
+        "Meshes")]
+    public static void DrawMeshShader3D(double mesh, string shader, double x, double y, double z, double sx, double sy, double sz,
         double yaw, string image)
     {
         IPgslDrawSurface surface = Draw;
@@ -70,8 +109,66 @@ public static partial class PgslCommands
             * Matrix4x4.CreateRotationY((float)(yaw * Math.PI / 180))
             * Matrix4x4.CreateTranslation((float)x, (float)y, (float)z);
         PgslContext ctx = GetContext();
-        surface.QueueScriptMesh3D((int)mesh, world, image ?? string.Empty, ctx?.ImageBlend ?? Color.White, (float)(ctx?.DrawAlpha ?? 1));
+        ScriptMeshDrawOptions options = ctx?.MeshDrawOptions ?? default;
+        if (!string.IsNullOrWhiteSpace(shader) && InstanceDrawAssets(ctx) is { } assets)
+        {
+            options.ShaderParameters = assets.ShaderParameters;
+            options.ShaderResources = assets.ShaderResources;
+        }
+        surface.QueueScriptMesh3D((int)mesh, world, image ?? string.Empty, shader ?? string.Empty,
+            ctx?.ImageBlend ?? Color.White, (float)(ctx?.DrawAlpha ?? 1), options);
     }
+
+    [PgslCommand("DrawMeshSetShadows", "DrawMeshSetShadows(cast, receive)",
+        "Whether this instance's later script-mesh draws cast shadows and are shadowed (both on by default)", "Meshes")]
+    public static void DrawMeshSetShadows(bool cast, bool receive) => EditMeshOptions((ref ScriptMeshDrawOptions options) =>
+    {
+        options.NoCastShadow = !cast;
+        options.NoReceiveShadow = !receive;
+    });
+
+    [PgslCommand("DrawMeshSetGlow", "DrawMeshSetGlow(amount)",
+        "Add the mesh's own colours over its lighting in later script-mesh draws: 0 none (default), 1 fully self-lit (lamps, lava, screens)", "Meshes")]
+    public static void DrawMeshSetGlow(double amount) => EditMeshOptions((ref ScriptMeshDrawOptions options) =>
+        options.Glow = double.IsFinite(amount) ? (float)Math.Clamp(amount, 0, 16) : 0f);
+
+    [PgslCommand("DrawMeshSetFog", "DrawMeshSetFog(enabled)", "Whether later script-mesh draws are fogged (on by default)", "Meshes")]
+    public static void DrawMeshSetFog(bool enabled) => EditMeshOptions((ref ScriptMeshDrawOptions options) => options.NoFog = !enabled);
+
+    [PgslCommand("DrawMeshSetCull", "DrawMeshSetCull(enabled)",
+        "Whether later script-mesh draws hide faces seen from behind (on by default); off draws both sides (leaves, crossed plants)", "Meshes")]
+    public static void DrawMeshSetCull(bool enabled) => EditMeshOptions((ref ScriptMeshDrawOptions options) => options.TwoSided = !enabled);
+
+    [PgslCommand("DrawMeshSetTransparent", "DrawMeshSetTransparent(enabled)",
+        "Blend later script-mesh draws as see-through even at full alpha (glass, water); off by default, when only alpha below 1 blends", "Meshes")]
+    public static void DrawMeshSetTransparent(bool enabled) => EditMeshOptions((ref ScriptMeshDrawOptions options) => options.Transparent = enabled);
+
+    [PgslCommand("DrawMeshResetState", "DrawMeshResetState()", "Put the script-mesh draw options back to their defaults", "Meshes")]
+    public static void DrawMeshResetState() => EditMeshOptions((ref ScriptMeshDrawOptions options) => options = default);
+
+    private delegate void MeshOptionsEdit(ref ScriptMeshDrawOptions options);
+
+    private static void EditMeshOptions(MeshOptionsEdit edit)
+    {
+        PgslContext ctx = GetContext();
+        if (ctx == null) return;
+        ScriptMeshDrawOptions options = ctx.MeshDrawOptions;
+        edit(ref options);
+        ctx.MeshDrawOptions = options;
+    }
+
+    private static Genesis.Runtime.Rendering.ObjectDrawAssetEntry InstanceDrawAssets(PgslContext ctx)
+    {
+        var world = World;
+        if (world is null || ctx == null || ctx.InstanceId < 1) return null;
+        var entity = world.GetEntity(ctx.InstanceId);
+        return world.IsAlive(entity) && Genesis.Runtime.Rendering.ObjectDrawAssetRegistry.TryGet(entity, out var assets) ? assets : null;
+    }
+
+    private static Vector4 Tile(double u0, double v0, double u1, double v1) =>
+        Finite3(u0, v0, u1) && double.IsFinite(v1) && (u1 != u0 || v1 != v0)
+            ? new Vector4((float)u0, (float)v0, (float)u1, (float)v1)
+            : new Vector4(0, 0, 1, 1);
 
     [PgslCommand("InstanceSetMeshCollider", "InstanceSetMeshCollider(id, mesh) -> bool",
         "Give an instance a fixed collider of a script's mesh (rebuilt by calling again after the mesh changes)", "Meshes")]

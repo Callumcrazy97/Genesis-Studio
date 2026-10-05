@@ -641,10 +641,7 @@ public class PgslVm
     private object GetIndexValue(object collection, object index)
     {
         if (collection is PGList pgList)
-        {
-            int i = AsInt32(index);
-            return pgList.Get(i);
-        }
+            return Genesis.Runtime.Scripting.PgslCommands.ReadListEntry(pgList, AsNumber(index));
         if (collection is PGMap pgMap)
         {
             return pgMap.Get(index?.ToString() ?? "");
@@ -666,7 +663,7 @@ public class PgslVm
     {
         if (collection is PGList pgList)
         {
-            pgList.Set(AsInt32(index), value);
+            Genesis.Runtime.Scripting.PgslCommands.WriteListEntry(pgList, AsNumber(index), value);
             return;
         }
         if (collection is PGMap pgMap)

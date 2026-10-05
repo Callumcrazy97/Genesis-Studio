@@ -225,6 +225,36 @@ internal static class PgslLogicSuite
             t_save_slot_read = (SaveSlotExists("pgsl_logic") == 1 && SaveSlotRead("pgsl_logic") == json) ? 1 : 0;
             t_save_slot_delete = (SaveSlotDelete("pgsl_logic") == 1 && SaveSlotExists("pgsl_logic") == 0) ? 1 : 0;
             """),
+        ("Lists", """
+            var a = [1, 2, 3];
+            a[1] = 9;
+            t_literal_index = (a[1] + a[2] == 12) ? 1 : 0;
+            var e = [];
+            t_empty = (PgListSize(e) == 0) ? 1 : 0;
+            var words = ["oak", "birch"];
+            t_strings = (words[1] == "birch" && PgListSize(words) == 2) ? 1 : 0;
+            var grid = [[1, 2], [3, 4]];
+            t_nested = (grid[1][0] == 3) ? 1 : 0;
+            grid[0][1] = 7;
+            t_nested_write = (grid[0][1] == 7 && grid[0][0] == 1) ? 1 : 0;
+            a[5] = 1;
+            t_write_grows = (PgListSize(a) == 6 && a[4] == 0) ? 1 : 0;
+            PgListAdd(e, 4);
+            PgListInsert(e, 0, 5);
+            t_add_insert = (e[0] == 5 && e[1] == 4) ? 1 : 0;
+            PgListSort(e, true);
+            t_sort = (e[0] == 4 && e[1] == 5) ? 1 : 0;
+            t_find = (PgListFind(words, "birch") == 1 && PgListFind(words, "elm") == -1) ? 1 : 0;
+            var b = a;
+            b[0] = 42;
+            t_shared_reference = (a[0] == 42) ? 1 : 0;
+            var c = PgListCopy(a);
+            c[0] = 1;
+            t_copy_is_separate = (a[0] == 42 && c[0] == 1) ? 1 : 0;
+            t_pop = (PgListPop(a) == 1 && PgListSize(a) == 5) ? 1 : 0;
+            t_is_list = (IsList(a) == 1 && IsList(3) == 0) ? 1 : 0;
+            t_text = (String([1, "x", [2.5]]) == "[1, \"x\", [2.5]]") ? 1 : 0;
+            """),
     ];
 
     public static void Run(HeadlessContext ctx)
@@ -292,6 +322,7 @@ internal static class PgslLogicSuite
             ("JsonDecode with an unknown kind", "v = JsonDecode(\"{}\", \"tree\"); after = 1;"),
             ("Reading a variable never set", "v = neverSetAnywhere + 1; after = 1;"),
             ("Calling a command that does not exist", "NoSuchCommand(1); after = 1;"),
+            ("A list read past its end", "var a = [1, 2]; v = a[5]; after = 1;"),
             ("Calling a command with too few arguments", "v = Clamp(1); after = 1;"),
             ("A syntax error", "v = (1 + ; after = 1;"),
             ("from used as a variable name", "from = 1; after = 1;"),
@@ -316,6 +347,9 @@ internal static class PgslLogicSuite
                 if (name == "DsListAdd given text")
                     HeadlessHarness.Assert(errors.Contains("DsListAddString", StringComparison.Ordinal),
                         $"Giving DsListAdd text did not point to DsListAddString: {errors}");
+                if (name == "A list read past its end")
+                    HeadlessHarness.Assert(errors.Contains("it has 2 entries, 0 to 1", StringComparison.Ordinal),
+                        $"Reading past a list's end did not say how long the list is: {errors}");
                 if (name == "Recursion 5000 deep")
                     HeadlessHarness.Assert(errors.Contains("Too much recursion", StringComparison.Ordinal),
                         $"Deep recursion did not end in a recursion error: {errors}");

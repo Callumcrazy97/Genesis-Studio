@@ -514,8 +514,12 @@ It holds up to 65,535 vertices; a bigger world is split into chunks.
 | `MeshAddVertex(mesh, x, y, z, nx, ny, nz, u, v, r, g, b, a)` | A vertex (position, normal, texture coordinate, colour 0-255, alpha 0-1); returns its index, or -1 when the mesh is full. |
 | `MeshAddTriangle(mesh, a, b, c)` | A triangle of three vertex indices, counter-clockwise seen from its front. |
 | `MeshAddCube(mesh, x, y, z, size, faces, r, g, b, u0, v0, u1, v1)` | A cube's chosen faces centred on a point: `faces` adds 1 (+X), 2 (-X), 4 (+Y), 8 (-Y), 16 (+Z) and 32 (-Z), 63 for all, so a voxel adds only the faces that touch air. `u0, v0` to `u1, v1` is its tile of a texture atlas. Returns the faces added. |
+| `MeshAddCubeTiles(mesh, x, y, z, size, faces, r, g, b, top u0 v0 u1 v1, side u0 v0 u1 v1, bottom u0 v0 u1 v1)` | The same with its own atlas tile for the top, the four sides and the bottom (a grass block, a log). |
+| `MeshAddQuad(mesh, x0, y0, z0, x1, y1, z1, x2, y2, z2, x3, y3, z3, nx, ny, nz, u0, v0, u1, v1, r, g, b, a)` | Any textured four-cornered face in one call (crossed plants, decals, trails): corners in order around it, turning like `MeshAddTriangle`; returns the first corner's index. |
 | `MeshVertexCount(mesh)`, `MeshTriangleCount(mesh)` | Its size. |
 | `DrawMesh3D(mesh, x, y, z, image)`, `DrawMesh3DTransform(mesh, x, y, z, sx, sy, sz, yaw, image)` | In a Draw event of a 3D room: the mesh at a place, textured by an Image (empty for none), tinted by the instance's image blend and alpha. |
+| `DrawMeshShader3D(mesh, shader, x, y, z, sx, sy, sz, yaw, image)` | Draw it through a mesh Shader resource, with the instance's `ShaderSetParameter` / `ShaderSetVector` values and the textures the shader declares. |
+| `DrawMeshSetShadows(cast, receive)`, `DrawMeshSetGlow(amount)`, `DrawMeshSetFog(enabled)`, `DrawMeshSetCull(enabled)`, `DrawMeshSetTransparent(enabled)`, `DrawMeshResetState()` | How this instance's later mesh draws look, until changed: shadows, self-lit glow (0 to 1 and beyond), fog, both sides drawn (cull off), blended at full alpha. |
 | `InstanceSetMeshCollider(id, mesh)` | A fixed collider of the mesh's triangles for an instance; call it again after the mesh changes. |
 
 ```pgsl

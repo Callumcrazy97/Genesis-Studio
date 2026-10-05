@@ -83,6 +83,8 @@ internal static class PgslProjectSuite
             // 6 faces of 4 vertices; then 5 + 4 + 5 faces of a strip; the ray from 3.2 m lands on its top at 0.7 m.
             HeadlessHarness.Assert(mesh == "full=6;single=24;vertices=56;triangles=28;collider=true;hit=2.5;",
                 $"The script-built mesh: '{mesh}'.");
+            string quad = Results("quad");
+            HeadlessHarness.Assert(quad == "quad=0;tiles=6;vertices=28;", $"MeshAddQuad / MeshAddCubeTiles: '{quad}'.");
             HeadlessHarness.Assert(world == "spawned=20;tagged=20;library=5;afterDestroy=15;childSteps=1;",
                 $"Instances, with and the library Script in room one: '{world}'.");
             HeadlessHarness.Assert(second == "visits=2;children=0;",
@@ -362,8 +364,13 @@ internal static class PgslProjectSuite
                 FileWriteText("pgsl-results/mesh.txt", "full=" + String(full) + ";single=" + String(single)
                     + ";vertices=" + String(MeshVertexCount(m)) + ";triangles=" + String(MeshTriangleCount(m))
                     + ";collider=" + String(collider) + ";hit=" + String(Round(hit * 10) / 10) + ";");
+                q = MeshCreate();
+                quad = MeshAddQuad(q, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 255, 255, 255, 1);
+                tiles = MeshAddCubeTiles(q, 0, 0, 0, 1, 63, 255, 255, 255, 0, 0, 0.5, 0.5, 0.5, 0, 1, 0.5, 0, 0.5, 0.5, 1);
+                FileWriteText("pgsl-results/quad.txt", "quad=" + String(quad) + ";tiles=" + String(tiles)
+                    + ";vertices=" + String(MeshVertexCount(q)) + ";");
                 """,
-            ["Draw"] = "DrawMesh3D(m, x, y, z, \"\");",
+            ["Draw"] = "DrawMeshSetShadows(false, true); DrawMeshSetCull(false); DrawMesh3D(m, x, y, z, \"\"); DrawMeshResetState();",
         });
         string thirdFile = resources.CreateResource(Path.GetDirectoryName(roomFile)!, ResourceKind.Room, "Third");
         RoomAsset third = RoomAsset.Create("Third", RoomDimension.ThreeD);

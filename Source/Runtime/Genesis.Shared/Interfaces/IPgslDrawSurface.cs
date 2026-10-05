@@ -4,6 +4,27 @@ using System.Numerics;
 
 namespace Genesis.Shared.Interfaces
 {
+    /// <summary>
+    /// How a script mesh is drawn (PGSL DrawMeshSet*): the defaults are an ordinary lit, shadowed,
+    /// fogged, one-sided mesh that is see-through only when its alpha is below 1.
+    /// </summary>
+    public struct ScriptMeshDrawOptions
+    {
+        public bool NoCastShadow;
+        public bool NoReceiveShadow;
+        public bool NoFog;
+        /// <summary>Both sides drawn (no back-face culling): leaves, crossed plants, flat panels.</summary>
+        public bool TwoSided;
+        /// <summary>Blended and not writing depth even at full alpha (glass, water).</summary>
+        public bool Transparent;
+        /// <summary>The mesh's own colours added over its lighting: 0 none, 1 fully self-lit.</summary>
+        public float Glow;
+        /// <summary>The calling instance's shader values by parameter name (ShaderSetParameter); may be null.</summary>
+        public System.Collections.Generic.IReadOnlyDictionary<string, float[]> ShaderParameters;
+        /// <summary>The calling instance's shader texture overrides by resource name; may be null.</summary>
+        public System.Collections.Generic.IReadOnlyDictionary<string, string> ShaderResources;
+    }
+
     /// <summary>2D/3D draw surface used by PGSL commands during sandbox and play mode.</summary>
     public interface IPgslDrawSurface
     {
@@ -50,8 +71,12 @@ namespace Genesis.Shared.Interfaces
         /// </summary>
         void DrawModelGui(string modelName, RectangleF destination, float yaw, float pitch, float zoom, string clip, float time, float alpha) { }
 
-        /// <summary>A script-built mesh (PGSL MeshCreate) drawn in a 3D room, textured by an Image.</summary>
-        void QueueScriptMesh3D(int meshId, System.Numerics.Matrix4x4 world, string image, Color tint, float alpha) { }
+        /// <summary>
+        /// A script-built mesh (PGSL MeshCreate) drawn in a 3D room, textured by an Image, optionally
+        /// through a mesh Shader resource, with the script's mesh draw options.
+        /// </summary>
+        void QueueScriptMesh3D(int meshId, System.Numerics.Matrix4x4 world, string image, string shader, Color tint, float alpha,
+            ScriptMeshDrawOptions options) { }
 
         bool Is3DActive { get; }
         void QueueCube3D(float x, float y, float z, float sx, float sy, float sz, Color color, float alpha);

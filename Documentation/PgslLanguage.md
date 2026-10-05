@@ -86,6 +86,25 @@ replaces the first match, `StringReplaceAll` every one. Lists, grids and arrays 
 `Round` rounds halves away from zero (2.5 is 3, -2.5 is -3). `Sin`, `Cos` and `PointDirection` work
 in degrees; `PointDirection` is in screen space (straight up, towards -y, is 90).
 
+### List values
+
+`var a = [1, 2, 3];` makes a list; `a[1]` reads it and `a[1] = 9` writes it. Lists can hold numbers,
+text and other lists (`grid[1][0]`). A list is held by reference: `var b = a;` names the same list,
+and `PgListCopy(a)` makes a separate one. Reading past the end is an error that says how long the
+list is; writing past the end grows the list, filling the gap with 0. `String(a)` writes it as
+`[1, 9, 3]`.
+
+| Command | What it does |
+|---|---|
+| `PgListCreate(values...)` | A list of the values (what `[...]` makes). |
+| `PgListSize(list)`, `IsList(value)` | Its length; whether a value is a list. |
+| `PgListGet(list, i)`, `PgListSet(list, i, v)` | The same as `list[i]` and `list[i] = v`. |
+| `PgListAdd`, `PgListInsert(list, i, v)`, `PgListRemove(list, i)`, `PgListClear` | Change the entries. |
+| `PgListPop`, `PgListDequeue` | Remove and return the last or first entry (0 when empty). |
+| `PgListFind(list, v)`, `PgListSort(list, ascending)`, `PgListShuffle`, `PgListCopy` | Search, order and copy. |
+
+Like the other collection commands they ignore a value that is not a list.
+
 ## Events
 
 In one frame: Step Begin, Step, Step End, then alarms, Draw and Draw GUI. Create runs once before

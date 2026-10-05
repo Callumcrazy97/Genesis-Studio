@@ -92,6 +92,96 @@ namespace Genesis.Runtime.Scripting.PG
                 _numbers.RemoveAt(index);
         }
 
+        /// <summary>Puts a value at an index, moving the later ones up; past the end it is added.</summary>
+        public void Insert(int index, object value)
+        {
+            index = Math.Clamp(index, 0, Count);
+            if (!_useObjects && value is double or int or float)
+            {
+                _numbers.Insert(index, Convert.ToDouble(value, System.Globalization.CultureInfo.InvariantCulture));
+                return;
+            }
+            PromoteToObjects();
+            _objects.Insert(index, Coerce(value));
+        }
+
+        /// <summary>The first index holding an equal value (numbers by value, text exactly), or -1.</summary>
+        public int IndexOf(object value)
+        {
+            for (int index = 0; index < Count; index++)
+                if (SameValue(Get(index), value)) return index;
+            return -1;
+        }
+
+        /// <summary>Numbers before text; numbers by value and text in ordinal order.</summary>
+        public void Sort(bool ascending)
+        {
+            if (!_useObjects) _numbers.Sort();
+            else _objects.Sort(CompareValues);
+            if (ascending) return;
+            if (_useObjects) _objects.Reverse();
+            else _numbers.Reverse();
+        }
+
+        /// <summary>Swaps entries into a random order, drawing indices from <paramref name="next"/> (0 to n-1).</summary>
+        public void Shuffle(Func<int, int> next)
+        {
+            for (int index = Count - 1; index > 0; index--)
+            {
+                int swap = next(index + 1);
+                object held = Get(index);
+                Set(index, Get(swap));
+                Set(swap, held);
+            }
+        }
+
+        public PGList Copy()
+        {
+            var copy = new PGList();
+            for (int index = 0; index < Count; index++) copy.Add(Get(index));
+            return copy;
+        }
+
+        /// <summary>The list as text, such as [1, 2.5, "a"]; nested lists are written inside.</summary>
+        public override string ToString()
+        {
+            var text = new System.Text.StringBuilder("[");
+            for (int index = 0; index < Count; index++)
+            {
+                if (index > 0) text.Append(", ");
+                object value = Get(index);
+                text.Append(value switch
+                {
+                    string s => "\"" + s + "\"",
+                    bool flag => flag ? "true" : "false",
+                    IFormattable number => number.ToString(null, System.Globalization.CultureInfo.InvariantCulture),
+                    _ => value?.ToString() ?? "",
+                });
+            }
+            return text.Append(']').ToString();
+        }
+
+        private static bool SameValue(object left, object right)
+        {
+            if (left is string || right is string) return string.Equals(left as string, right as string, StringComparison.Ordinal);
+            if (IsNumber(left) && IsNumber(right))
+                return Convert.ToDouble(left, System.Globalization.CultureInfo.InvariantCulture)
+                    == Convert.ToDouble(right, System.Globalization.CultureInfo.InvariantCulture);
+            return Equals(left, right);
+        }
+
+        private static int CompareValues(object left, object right)
+        {
+            bool leftNumber = IsNumber(left), rightNumber = IsNumber(right);
+            if (leftNumber && rightNumber)
+                return Convert.ToDouble(left, System.Globalization.CultureInfo.InvariantCulture)
+                    .CompareTo(Convert.ToDouble(right, System.Globalization.CultureInfo.InvariantCulture));
+            if (leftNumber != rightNumber) return leftNumber ? -1 : 1;
+            return string.CompareOrdinal(left?.ToString(), right?.ToString());
+        }
+
+        private static bool IsNumber(object value) => value is double or int or float or bool;
+
         private void PromoteToObjects()
         {
             if (_useObjects) return;

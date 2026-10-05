@@ -157,6 +157,18 @@ namespace Genesis.Runtime.Project
                     return 2;
                 }
 
+                // Rooms and scripts name resources without their kind: say which resources clash
+                // before anything trips over the name.
+                System.Collections.Generic.IReadOnlyList<Genesis.Shared.Assets.NamedResource[]> duplicateNames =
+                    Genesis.Shared.Assets.ResourceCatalog.For(projectPath).DuplicateNames;
+                if (duplicateNames.Count > 0)
+                {
+                    LastError = string.Join(Environment.NewLine + Environment.NewLine, duplicateNames
+                        .Select(named => Genesis.Shared.Assets.ResourceCatalog.DescribeDuplicate(named, projectPath)));
+                    Console.Error.WriteLine(LastError);
+                    return 2;
+                }
+
                 GameLaunchSettings launchSettings = LoadPackagedLaunchSettings();
                 if (!string.IsNullOrWhiteSpace(launchSettings.Icon))
                 {

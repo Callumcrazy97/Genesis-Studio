@@ -139,7 +139,7 @@ public sealed class ResourceCatalog
         string value = reference.Trim();
         if (_names.TryGetValue(value, out NamedResource[] named))
         {
-            if (named.Length != 1) throw new InvalidDataException($"Resource name '{value}' is not unique. Rename the duplicate resources before running the project.");
+            if (named.Length != 1) throw new InvalidDataException(DescribeDuplicate(named, ProjectRoot));
             return expected == ResourceType.Unknown || named[0].Type == expected ? named[0] : null;
         }
         // Read compatibility for existing documents. New authoring only emits Name.
@@ -161,6 +161,21 @@ public sealed class ResourceCatalog
             if (matches.Length == 1 && (expected == ResourceType.Unknown || matches[0].Type == expected)) return matches[0];
         }
         return null;
+    }
+
+    /// <summary>Every name more than one resource uses, each with its resources (a Model and an Object called the same).</summary>
+    public IReadOnlyList<NamedResource[]> DuplicateNames => _names.Values.Where(named => named.Length > 1).ToArray();
+
+    /// <summary>Which resources share a name, by kind and path, and how to put it right.</summary>
+    public static string DescribeDuplicate(IReadOnlyList<NamedResource> named, string projectRoot)
+    {
+        string root = string.IsNullOrEmpty(projectRoot) ? string.Empty : Path.GetFullPath(projectRoot);
+        string Where(NamedResource resource) => root.Length > 0 && IsInside(resource.FullPath, root)
+            ? Path.GetRelativePath(root, resource.FullPath)
+            : resource.FullPath;
+        string list = string.Join(", ", named.Select(resource => $"{resource.Type} ({Where(resource)})"));
+        return $"Resource name '{named[0].Name}' is used by {named.Count} resources: {list}. Names are shared by every kind of resource, "
+            + "so scripts and rooms can name them without saying the kind; rename one in Studio (Rename updates the references to it).";
     }
 
     public static string Resolve(string projectRoot, string reference, ResourceType expected = ResourceType.Unknown) => For(projectRoot).Find(reference, expected)?.FullPath ?? string.Empty;
