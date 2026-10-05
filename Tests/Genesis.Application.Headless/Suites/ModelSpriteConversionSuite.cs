@@ -84,6 +84,11 @@ internal static class ModelSpriteConversionSuite
             HeadlessHarness.Assert(document.Frames.Count == 8 && meta is { Count: 8, FramesPerDirection: 1 } && meta.SourceModel == "Faces"
                 && Math.Abs(meta.ElevationDegrees - 30) < .001 && document.Canvas.Width == 64 && document.Canvas.Height == 64,
                 $"Expected 8 frames of 64x64 with direction metadata; found {document.Frames.Count} frames, {document.Canvas.Width}x{document.Canvas.Height}.");
+            Genesis.Application.Editors.Image.Imaging.ImageWorkspace reopened = Genesis.Application.Editors.Image.Imaging.ImageWorkspaceStorage.Load(
+                new ImageDocumentSession(document, stillImage, ImageDocumentAccess.Viewer));
+            HeadlessHarness.Assert(reopened.Frames.Count == 8 && reopened.Width == 64 && reopened.Frames.All(frame => frame.Layers.Count == 1
+                && frame.Layers[0].Pixels.Where((_, index) => index % 4 == 3).Any(alpha => alpha == 255)),
+                "The Image editor cannot reopen the frames as editable layers.");
             SpriteRuntimeAsset runtime = SpriteAssetLoader.Load(stillImage);
             HeadlessHarness.Assert(runtime.Frames.Count == 8 && runtime.Usage.Directions is { Count: 8, FramesPerDirection: 1 },
                 "The runtime loader does not see the direction metadata.");
