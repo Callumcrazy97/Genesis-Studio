@@ -261,7 +261,7 @@ public sealed class TerrainGrassField : IDisposable
         _visibleCells = _visible.Count;
         int budget = _tuftBudget;
         int near = 0, far = 0;
-        float nearDistance = _settings.NearDistance;
+        float nearDistance = _settings.DetailDistance;
         foreach ((Cell cell, float distance) in _visible)
         {
             if (budget <= 0) break;
@@ -344,10 +344,10 @@ public sealed class TerrainGrassField : IDisposable
         float step = _step;
         float jitter = settings.Jitter;
         float minScale = settings.MinimumScale, scaleRange = settings.MaximumScale - settings.MinimumScale;
-        bool slopeLimited = settings.MaximumSlopeDegrees < 89.9f;
-        float minimumUp = MathF.Cos(settings.MaximumSlopeDegrees * MathF.PI / 180f);
+        bool slopeLimited = settings.SteepestSlopeDegrees < 89.9f;
+        float minimumUp = MathF.Cos(settings.SteepestSlopeDegrees * MathF.PI / 180f);
         float normalStep = MathF.Max(terrain.CellSize, 0.1f);
-        uint seed = unchecked((uint)settings.Seed * 0x9E3779B9u);
+        uint seed = unchecked((uint)settings.PatternSeed * 0x9E3779B9u);
         Vector3 localMin = new(float.MaxValue), localMax = new(float.MinValue);
         int count = 0;
         Span<float> weights = stackalloc float[TerrainGrassLayerWeights.LayerCount];

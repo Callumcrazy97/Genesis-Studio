@@ -27,8 +27,9 @@ public sealed class TerrainGrassRuleSettings
     [Description("Fraction of the radius that keeps full density; beyond it the grass thins out to nothing at the radius.")]
     public float FullDensityFraction { get; set; } = 0.45f;
 
+    // Named apart from the scatter settings' fields, which share a page and are found by name.
     [Description("Tufts nearer than this, in metres, draw with the detailed blade mesh; further ones with the simple one.")]
-    public float NearDistance { get; set; } = 30f;
+    public float DetailDistance { get; set; } = 30f;
 
     [Description("How far a tuft may wander from its lattice point, as a fraction of the spacing.")]
     public float Jitter { get; set; } = 0.9f;
@@ -37,12 +38,13 @@ public sealed class TerrainGrassRuleSettings
     public float MaximumScale { get; set; } = 1.2f;
 
     [Description("Steepest ground, in degrees, grass grows on.")]
-    public float MaximumSlopeDegrees { get; set; } = 40f;
+    public float SteepestSlopeDegrees { get; set; } = 40f;
 
     [Description("Which tuft to grow. Meadow grass looks like the scattered grass.")]
     public FoliageSpecies Species { get; set; } = FoliageSpecies.MeadowGrass;
 
-    public int Seed { get; set; } = 1;
+    [Description("Picks the pattern: where each tuft stands, its size, turn and tone.")]
+    public int PatternSeed { get; set; } = 1;
 
     [Description("Side of the square cells grass is grown and recycled in, in metres.")]
     public float CellSize { get; set; } = 8f;
@@ -91,11 +93,11 @@ public sealed class TerrainGrassRuleSettings
         Radius = Clamp(Radius, 4f, 2000f, 100f);
         Spacing = Clamp(Spacing, 0.1f, 16f, 0.5f);
         FullDensityFraction = Clamp(FullDensityFraction, 0f, 1f, 0.45f);
-        NearDistance = Clamp(NearDistance, 0f, 2000f, 30f);
+        DetailDistance = Clamp(DetailDistance, 0f, 2000f, 30f);
         Jitter = Clamp(Jitter, 0f, 1f, 0.9f);
         MinimumScale = Clamp(MinimumScale, 0.05f, 16f, 0.75f);
         MaximumScale = Clamp(MaximumScale, MinimumScale, 16f, MinimumScale);
-        MaximumSlopeDegrees = Clamp(MaximumSlopeDegrees, 0f, 90f, 40f);
+        SteepestSlopeDegrees = Clamp(SteepestSlopeDegrees, 0f, 90f, 40f);
         if (!Enum.IsDefined(Species)) Species = FoliageSpecies.MeadowGrass;
         CellSize = Clamp(CellSize, 2f, 64f, 8f);
         // A cell holds at most 128 x 128 tufts, so a tiny spacing cannot make one cell enormous.
@@ -127,9 +129,9 @@ public sealed class TerrainGrassRuleSettings
     {
         if (other == null) return false;
         if (Enabled != other.Enabled || Radius != other.Radius || Spacing != other.Spacing
-            || FullDensityFraction != other.FullDensityFraction || NearDistance != other.NearDistance
+            || FullDensityFraction != other.FullDensityFraction || DetailDistance != other.DetailDistance
             || Jitter != other.Jitter || MinimumScale != other.MinimumScale || MaximumScale != other.MaximumScale
-            || MaximumSlopeDegrees != other.MaximumSlopeDegrees || Species != other.Species || Seed != other.Seed
+            || SteepestSlopeDegrees != other.SteepestSlopeDegrees || Species != other.Species || PatternSeed != other.PatternSeed
             || CellSize != other.CellSize || CellsPerFrame != other.CellsPerFrame || MaximumDrawnTufts != other.MaximumDrawnTufts
             || GenerationBudgetMilliseconds != other.GenerationBudgetMilliseconds)
             return false;

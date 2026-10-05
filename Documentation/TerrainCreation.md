@@ -64,9 +64,9 @@ Set it on the **Foliage** page of the Terrain editor, under **Grass Around the C
 - **Spacing** (0.5 m): distance between neighbouring tufts where a layer's density is 1. A whole number of tufts fits along each side of a cell, so the spacing used may be a little larger.
 - **Layer 1 to Layer 8 density** (1 for layer 1, 0 for the rest): the chance, 0 to 1, that a spot grows a tuft on each painted layer. A spot's chance blends the densities of the layers painted there, so a meadow at 1 is full, a dirt road at 0 stays bare and a half-painted verge is half full. They are saved as the `layerDensities` array.
 - **Full density fraction** (0.45): the share of the radius at full density. Beyond it fewer and fewer of each cell's tufts are drawn, down to none at the radius, so the grass fades out instead of ending at a line.
-- **Near distance** (30 m): tufts nearer than this draw with the detailed blade mesh, further ones with the simple one.
-- **Jitter**, **Minimum scale**, **Maximum scale**, **Seed**: how far each tuft wanders from its lattice point, its size range and the pattern. Position, size, turn and tone come from the spot's lattice coordinates and the seed, so the same ground always grows the same grass however the camera arrived.
-- **Maximum slope degrees** (40): steeper ground stays bare.
+- **Detail distance** (30 m): tufts nearer than this draw with the detailed blade mesh, further ones with the simple one.
+- **Jitter**, **Minimum scale**, **Maximum scale**, **Pattern seed**: how far each tuft wanders from its lattice point, its size range and the pattern. Position, size, turn and tone come from the spot's lattice coordinates and the seed, so the same ground always grows the same grass however the camera arrived.
+- **Steepest slope degrees** (40): steeper ground stays bare.
 - **Species** (Meadow grass): the tuft drawn. Tufts use the same meshes and foliage shading as scattered grass, so the two look alike.
 - **Cell size** (8 m), **Cells per frame** (8), **Generation budget milliseconds** (1.5), **Maximum drawn tufts** (16,000): growing is limited to that many cells and that much time a frame, nearest first, so walking or driving never holds a frame up; drawing culls whole cells against the view and draws the nearest first up to the tuft limit. In the game the limit also shrinks to what the renderer's 32,768-instance frame buffer has left after scattered foliage and the forests and rocks, less 4,096 kept for everything else, so switching grass on never drops a tree.
 

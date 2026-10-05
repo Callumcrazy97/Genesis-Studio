@@ -52,13 +52,13 @@ internal static partial class TerrainLayersGrassSuite
             }
 
             TerrainGrassRuleSettings rule = editor.GrassRule;
-            rule.Enabled = true; rule.Layer1Density = 1f; rule.Layer2Density = 0f; rule.Seed = 11; rule.Radius = 60f;
+            rule.Enabled = true; rule.Layer1Density = 1f; rule.Layer2Density = 0f; rule.PatternSeed = 11; rule.Radius = 60f;
             editor.ApplyGrassRule(rule);
-            GrassAssert(editor.GrassRule is { Enabled: true, Seed: 11 } && editor.IsDirty, "Apply did not set the grass rule.");
+            GrassAssert(editor.GrassRule is { Enabled: true, PatternSeed: 11 } && editor.IsDirty, "Apply did not set the grass rule.");
             editor.Undo();
             GrassAssert(!editor.GrassRule.Enabled, "Undo did not restore the previous grass rule.");
             editor.Redo();
-            GrassAssert(editor.GrassRule is { Enabled: true, Seed: 11 }, "Redo did not bring the grass rule back.");
+            GrassAssert(editor.GrassRule is { Enabled: true, PatternSeed: 11 }, "Redo did not bring the grass rule back.");
             expected = editor.GrassRule;
             editor.Save();
         }
@@ -138,8 +138,9 @@ internal static partial class TerrainLayersGrassSuite
         string path = Path.Combine(folder, "Rule.terrain.json");
         var document = new TerrainNatureDocument();
         TerrainGrassRuleSettings rule = document.GrassRule;
-        rule.Enabled = true; rule.Radius = 80f; rule.Spacing = 0.6f; rule.Seed = 42; rule.CellsPerFrame = 5;
-        rule.MinimumScale = 0.6f; rule.MaximumScale = 1.4f; rule.MaximumSlopeDegrees = 33f; rule.CellSize = 12f;
+        rule.Enabled = true; rule.Radius = 80f; rule.Spacing = 0.6f; rule.PatternSeed = 42; rule.CellsPerFrame = 5;
+        rule.MinimumScale = 0.6f; rule.MaximumScale = 1.4f; rule.SteepestSlopeDegrees = 33f; rule.CellSize = 12f;
+        rule.DetailDistance = 22f;
         rule.MaximumDrawnTufts = 9000; rule.Species = FoliageSpecies.TallGrass; rule.FullDensityFraction = 0.3f;
         rule.GenerationBudgetMilliseconds = 2.5f;
         rule.Layer1Density = 0.9f; rule.Layer2Density = 0f; rule.Layer3Density = 0.25f; rule.Layer8Density = 0.75f;
@@ -170,8 +171,12 @@ internal static partial class TerrainLayersGrassSuite
         var rule = new TerrainGrassRuleSettings();
         using TableLayoutPanel form = Genesis.Application.Editors.Suite.Inspector.InspectorBuilder.BuildForObject(rule, "", inline: true);
         var names = new HashSet<string>(GrassControls(form).Select(control => control.Name), StringComparer.Ordinal);
-        foreach (string property in new[] { "Enabled", "Radius", "Spacing", "Seed", "CellsPerFrame", "GenerationBudgetMilliseconds", "MaximumDrawnTufts", "MinimumScale", "MaximumScale" })
+        foreach (string property in new[] { "Enabled", "Radius", "Spacing", "PatternSeed", "DetailDistance", "SteepestSlopeDegrees", "CellsPerFrame",
+            "GenerationBudgetMilliseconds", "MaximumDrawnTufts", "MinimumScale", "MaximumScale" })
             GrassAssert(names.Contains("InspectorDrawer_" + property), $"The inspector does not show the grass rule's {property}.");
+        // It shares the foliage page with the scatter settings, whose fields are found by name.
+        var scatterNames = typeof(FoliageScatterSettings).GetProperties().Select(property => "InspectorDrawer_" + property.Name).ToHashSet();
+        GrassAssert(!names.Overlaps(scatterNames), $"A grass rule field has the same name as a scatter field: {string.Join(", ", names.Intersect(scatterNames))}.");
         for (int layer = 1; layer <= TerrainGrassRuleSettings.LayerCount; layer++)
             GrassAssert(names.Contains($"InspectorDrawer_Layer{layer}Density"), $"The inspector does not show layer {layer}'s density.");
         GrassAssert(!names.Contains("InspectorDrawer_LayerDensities"), "The raw density array should not be shown as well.");
@@ -235,14 +240,14 @@ internal static partial class TerrainLayersGrassSuite
         TerrainAsset steep = GrassSplitTerrain(129, 0.5f, slope: 1.6f, minHeight: -10f, maxHeight: 200f);
         GrassAssert(new TerrainGrassField(steep, rule).GenerateCell(2, 2, tufts) == 0, "Grass grew on a slope steeper than the rule allows.");
         var anySlope = rule.Clone();
-        anySlope.MaximumSlopeDegrees = 90f;
+        anySlope.SteepestSlopeDegrees = 90f;
         GrassAssert(new TerrainGrassField(steep, anySlope).GenerateCell(2, 2, tufts) == field.CellCapacity, "A 90 degree limit still rejected tufts.");
     }
 
     private static void GrassDeterministic()
     {
         TerrainAsset terrain = GrassSplitTerrain(129, 0.5f, slope: 0.03f);
-        var rule = new TerrainGrassRuleSettings { Enabled = true, Seed = 7 };
+        var rule = new TerrainGrassRuleSettings { Enabled = true, PatternSeed = 7 };
         rule.Layer2Density = 0.35f;
         var first = new MeshInstanceData[new TerrainGrassField(terrain, rule).CellCapacity];
         var second = new MeshInstanceData[first.Length];
@@ -257,7 +262,7 @@ internal static partial class TerrainLayersGrassSuite
         }
 
         var reseeded = rule.Clone();
-        reseeded.Seed = 8;
+        reseeded.PatternSeed = 8;
         int count = new TerrainGrassField(terrain, rule).GenerateCell(1, 1, first);
         int otherCount = new TerrainGrassField(terrain, reseeded).GenerateCell(1, 1, other);
         GrassAssert(count > 0 && otherCount > 0 && !first[0].World.Equals(other[0].World), "Changing the seed did not move the tufts.");
