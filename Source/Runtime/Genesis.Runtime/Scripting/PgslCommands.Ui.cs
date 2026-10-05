@@ -272,20 +272,4 @@ public static partial class PgslCommands
 
     private static string UiOverrideKey(string asset, string id, string property) =>
         "__ui:" + asset + ":" + id + ":" + property;
-
-    private static Color ParseUiColor(string value, Color fallback)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return fallback;
-        string hex = value.Trim().TrimStart('#');
-        try
-        {
-            return hex.Length switch
-            {
-                6 => Color.FromArgb(255, Convert.ToInt32(hex[..2], 16), Convert.ToInt32(hex[2..4], 16), Convert.ToInt32(hex[4..6], 16)),
-                8 => Color.FromArgb(Convert.ToInt32(hex[..2], 16), Convert.ToInt32(hex[2..4], 16), Convert.ToInt32(hex[4..6], 16), Convert.ToInt32(hex[6..8], 16)),
-                _ => fallback,
-            };
-        }
-        catch (FormatException) { return fallback; }
-    }
 }
