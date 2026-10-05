@@ -224,7 +224,13 @@ public sealed class DebugProfileRecording : IDisposable
         _csv.Dispose();
 
         DebugProfileSummary summary = BuildSummary(pgsl ?? Array.Empty<PgslEventProfile>(), gc);
-        var options = new JsonSerializerOptions { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+        var options = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            // A figure a driver reported as NaN must not cost the whole summary.
+            NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals,
+        };
         File.WriteAllText(Path.Combine(Folder, SummaryFileName), JsonSerializer.Serialize(summary, options), new UTF8Encoding(false));
         File.WriteAllText(Path.Combine(Folder, ReportFileName), BuildReport(summary), new UTF8Encoding(false));
         return Folder;

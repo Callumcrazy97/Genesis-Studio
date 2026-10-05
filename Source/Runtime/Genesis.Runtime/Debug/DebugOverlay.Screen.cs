@@ -177,8 +177,10 @@ namespace Genesis.Runtime.Debugger
                 RecordingSaved?.Invoke(folder);
                 return folder;
             }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+                or ArgumentException or InvalidOperationException or NotSupportedException)
             {
+                // The rows already in frames.csv stay; only the summary and report are missing.
                 Log("[ERROR] Could not finish recording: " + exception.Message);
                 return null;
             }
