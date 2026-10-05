@@ -102,6 +102,8 @@ internal static class DebugScreenSuite
                 overlay.HandleInput(input, debugMode: true);
                 HeadlessHarness.Assert(overlay.ResourceSearch == "gr", "Backspace must delete the last character.");
                 HeadlessHarness.Assert(!overlay.IsPaused, "While typing a search, P must not pause the game.");
+                HeadlessHarness.Assert(!input.IsDown(Key.P) && !input.WasPressed(Key.P),
+                    "While typing a search, the game must not see the keys typed.");
                 overlay.RefreshResourcesNow();
                 HeadlessHarness.Assert(overlay.VisibleResourceRows.Count == 1 && overlay.VisibleResourceRows[0].Name == "grass_albedo.png",
                     "The Resources tab must list only rows matching its search.");

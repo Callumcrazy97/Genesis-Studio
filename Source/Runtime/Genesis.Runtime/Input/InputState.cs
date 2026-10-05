@@ -172,6 +172,14 @@ namespace Genesis.Runtime.Input
         public void OnMouseMove(float x, float y) => MousePosition = new Vector2(x, y);
         public void OnWheel(float detents) => WheelDelta += detents;
 
+        /// <summary>Hides the keyboard from the game for this frame (a debug text box has it).</summary>
+        public void SuppressKeyboard()
+        {
+            _down.Clear();
+            _pressed.Clear();
+            _released.Clear();
+        }
+
         public void ClearHeld()
         {
             _down.Clear();

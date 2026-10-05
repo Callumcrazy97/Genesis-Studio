@@ -10,6 +10,7 @@ Genesis Studio makes 2D and 3D games for Windows. These guides are installed wit
 | [Large worlds](LargeWorlds.md) | Kilometre-scale terrain, scattered forests, automatic model detail, long views, loading, sharing a world between players, and what is not done yet. |
 | [Terrain creation](TerrainCreation.md) | Making, sculpting and painting a terrain, and its materials. |
 | [Image to 3D Model](ImageToModel.md) | Turning pixel art into a voxel Model in the Image Editor, with its frames as a flipbook animation. |
+| [Model to 2D sprites](ModelToSprites.md) | Rendering a Model from 8, 16 or 32 angles into an Image of sprites, and picking the frame for a direction in PGSL. |
 | [Post effects](PostEffects.md) | The project's own full-screen shaders over the finished frame, such as an ink outline. |
 | [PGSL language notes](PgslLanguage.md) | Operators, loops, scope, the names the engine owns, limits and what happens on a mistake. |
 | [Mesh shaders](MeshShaders.md) | A model's own pixel shader: per material, per instance from scripts, and the inputs it can rely on. |

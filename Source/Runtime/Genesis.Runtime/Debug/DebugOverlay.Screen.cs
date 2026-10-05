@@ -221,6 +221,8 @@ namespace Genesis.Runtime.Debugger
                 ResourceSearch = ResourceSearch[..^1];
             if (input.WasPressed(Key.Delete)) ResourceSearch = string.Empty;
             if (input.WasPressed(Key.Enter)) IsSearchFocused = false;
+            // The letters are search text: the game does not also walk or jump with them.
+            input.SuppressKeyboard();
             return true;
         }
 
