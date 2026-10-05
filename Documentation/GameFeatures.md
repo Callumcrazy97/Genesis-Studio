@@ -435,6 +435,19 @@ if (CharacterGrounded()) { fallSpeed = 0; } else { fallSpeed = fallSpeed - 9.8 *
 x = CharacterX(); y = CharacterY(); z = CharacterZ();
 ```
 
+## First-person layer and models in the GUI
+
+| Command | What it does |
+|---|---|
+| `ModelSetViewLayer(enabled)`, `InstanceSetViewLayer(id, enabled)` | Draw a model in the first-person layer: over the world and under the GUI, with its own field of view and near plane, never inside a wall, casting no shadow (arms, a held weapon). It is lit and shadowed by the world like any model. |
+| `ViewLayerSetFov(degrees)`, `ViewLayerSetNear(distance)` | The layer's field of view (0 = the camera's, so zooming the world does not zoom the weapon) and near plane (default 0.01). |
+| `DrawModelGui(model, x, y, width, height, yaw, pitch, zoom)` | In Draw GUI: a Model drawn into a rectangle, turned by yaw and pitch and framed to fit (zoom 1), layered with the other GUI drawing in call order (an inventory portrait, a character on a menu). |
+| `DrawModelGuiPose(model, x, y, width, height, yaw, pitch, zoom, clip, time)` | The same, posed at an animation clip's time. |
+
+A GUI model is drawn while the next frame's 3D is drawn, so it appears one frame after the first
+call and follows changes a frame late. The same sequence of calls each frame keeps each model in
+its own image; up to 64 are drawn.
+
 ## The mood of a room from a script
 
 A room's atmosphere and grading can follow the hour (a hazy morning, a golden hour, dusk):

@@ -424,6 +424,7 @@ namespace Genesis.Runtime
                 ScriptHost?.DispatchRenderFrame(_renderer, _frameQueue);
                 ScriptHost?.DispatchPgslWorldDraw(_renderer, _frameQueue);
                 _frameQueue.Flush(_renderer, includeMeshes: false, includeSprites: true);
+                Genesis.Runtime.Rendering.ModelLayers.Submit(_renderer, Genesis.Runtime.Scripting.PgslCommands.ProjectPath, null, OverlayWidth, OverlayHeight);
 
                 RenderAutoState.AllowDrawSubmit = false;
                 Engine.SetDrawCommandSink(null);
@@ -487,6 +488,8 @@ namespace Genesis.Runtime
                 _scene.CollectMeshes(_meshBuffer, ref drawCount, _renderer);
                 LastCollectMilliseconds += System.Diagnostics.Stopwatch.GetElapsedTime(collectStarted).TotalMilliseconds;
                 int instanceCount = _scene.SubmitInstanceBatches(_renderer);
+                Genesis.Runtime.Rendering.ModelLayers.Submit(_renderer, Genesis.Runtime.Scripting.PgslCommands.ProjectPath,
+                    _scene.Camera3D, OverlayWidth, OverlayHeight);
                 _renderer.Set3DFrameActive(drawCount > 0 || instanceCount > 0 || _frameQueue.MeshCount > 0 || meshState.AuthoredSkyEnabled);
                 if (drawCount > 0)
                     _renderer.DrawMeshBatch(_meshBuffer.AsSpan(0, drawCount));
@@ -647,6 +650,13 @@ namespace Genesis.Runtime
             bool scriptsReady = ScriptHost != null && (BootSplash == null || BootSplash.IsComplete)
                 && (StartupGate == null || StartupGate.IsActivated);
             _pgslHud.Reset(OverlayWidth, OverlayHeight);
+            // The first-person layer: over the world, under the GUI.
+            if (_renderer.TryGetModelLayerTexture(Genesis.Runtime.Rendering.ModelLayers.FirstPerson, out TextureHandle firstPerson))
+                _renderer.DrawSprite(new SpriteDrawCall
+                {
+                    Texture = firstPerson, Width = OverlayWidth, Height = OverlayHeight,
+                    ScaleX = 1f, ScaleY = 1f, Alpha = 1f, Tint = RenderColor.White, SmoothSampling = true,
+                });
             if (scriptsReady)
             {
                 // A PGSL GUI's shapes, text and images are buffered together and replayed onto the

@@ -137,6 +137,20 @@ namespace Genesis.Shared.Interfaces
 
         // ── Camera ──────────────────────────────────────────────────────────────
         void SetCamera2D(float x, float y, float zoom, float rotation);
+        /// <summary>
+        /// The camera and image size of a model layer this frame (see MeshDrawCall.Layer): 1 is the
+        /// first-person layer, more than 99 GUI models.
+        /// </summary>
+        void SetModelLayerCamera(int layer, System.Numerics.Matrix4x4 view, System.Numerics.Matrix4x4 projection,
+            int width, int height, bool receiveShadows) { }
+
+        /// <summary>The image a model layer was drawn into by the last frame, as a texture GUI drawing can use.</summary>
+        bool TryGetModelLayerTexture(int layer, out TextureHandle texture)
+        {
+            texture = TextureHandle.Invalid;
+            return false;
+        }
+
         void SetCamera3D(Matrix4x4 view, Matrix4x4 projection);
 
         // ── Texture management ──────────────────────────────────────────────────

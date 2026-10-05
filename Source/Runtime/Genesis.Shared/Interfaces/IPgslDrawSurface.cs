@@ -44,6 +44,12 @@ namespace Genesis.Shared.Interfaces
         void DrawSpritePart(string spriteName, int frame, RectangleF source, RectangleF destination, Color blend, float alpha)
             => DrawSpriteRectangle(spriteName, destination, frame, blend, alpha);
 
+        /// <summary>
+        /// A Model drawn into a GUI rectangle, turned by yaw and pitch (degrees) and framed to fit
+        /// (zoom 1), optionally posed at a clip's time. Drawn in GUI order like an image.
+        /// </summary>
+        void DrawModelGui(string modelName, RectangleF destination, float yaw, float pitch, float zoom, string clip, float time, float alpha) { }
+
         bool Is3DActive { get; }
         void QueueCube3D(float x, float y, float z, float sx, float sy, float sz, Color color, float alpha);
         void QueueSphere3D(float x, float y, float z, float radius, Color color, float alpha);

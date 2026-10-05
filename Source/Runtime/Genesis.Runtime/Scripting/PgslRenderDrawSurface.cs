@@ -314,6 +314,28 @@ namespace Genesis.Runtime.Scripting
                 ToRender(blend), destination, source, SpriteClip));
         }
 
+        public void DrawModelGui(string modelName, RectangleF destination, float yaw, float pitch, float zoom, string clip, float time, float alpha)
+        {
+            if (_renderer == null || !(destination.Width >= 1f) || !(destination.Height >= 1f)) return;
+            // The image is made while the next frame's 3D is drawn: the previous one is drawn now.
+            int layer = Genesis.Runtime.Rendering.ModelLayers.RequestGuiModel(modelName,
+                (int)MathF.Round(destination.Width), (int)MathF.Round(destination.Height), yaw, pitch, zoom, clip, time);
+            if (layer <= 0 || !_renderer.TryGetModelLayerTexture(layer, out TextureHandle texture)) return;
+            SpriteDrawCall call = new()
+            {
+                Texture = texture,
+                X = destination.X, Y = destination.Y,
+                Width = destination.Width, Height = destination.Height,
+                ScaleX = 1f, ScaleY = 1f,
+                Alpha = Math.Clamp(alpha, 0f, 1f),
+                Tint = RenderColor.White,
+                Depth = (int)SpriteDepth,
+                SmoothSampling = true,
+                ClipRect = SpriteClip,
+            };
+            QueueGuiSprite(queue => queue.DrawSprite(call));
+        }
+
         public void QueueCube3D(float x, float y, float z, float sx, float sy, float sz, Color color, float alpha)
         {
             QueuePrimitive(BuiltinMeshKind.Cube, x, y, z, sx, sy, sz, color, alpha);

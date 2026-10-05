@@ -953,6 +953,11 @@ namespace Genesis.Shared.Interfaces
         /// With an ORM map the factors scale its roughness and metallic channels.
         /// </summary>
         public Vector4 MaterialFactors;
+        /// <summary>
+        /// 0 draws in the world. 1 is the first-person layer, more than 99 a GUI model's layer: the
+        /// draw goes to that layer's own image and camera (see IRenderController.SetModelLayerCamera).
+        /// </summary>
+        public int Layer;
         public Matrix4x4     World;
         public RenderColor   Tint;
         public MeshDrawFlags Flags;

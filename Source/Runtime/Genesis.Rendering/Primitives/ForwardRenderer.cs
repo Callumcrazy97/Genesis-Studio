@@ -530,6 +530,9 @@ namespace Genesis.Rendering.Primitives
             public Vector4 ShaderParams0, ShaderParams1, ShaderParams2, ShaderParams3;
             public AuthoredGpuTextures AuthoredTextures;
             public Vector4 MaterialFactors;
+            /// <summary>A model layer's draws keep their material maps (see ForwardRenderer.ModelLayers).</summary>
+            public GpuTextureHandle Normal, Orm, EmissionMap;
+            public Vector4 SurfaceParams, DetailParams;
         }
 
         private struct WaterMesh
@@ -2619,7 +2622,7 @@ namespace Genesis.Rendering.Primitives
             SkinPaletteHandle skinPalette = default, RuntimeShaderHandle shader = default,
             Vector4 shaderParams0 = default, Vector4 shaderParams1 = default,
             Vector4 shaderParams2 = default, Vector4 shaderParams3 = default,
-            AuthoredGpuTextures authoredTextures = default, Vector4 materialFactors = default)
+            AuthoredGpuTextures authoredTextures = default, Vector4 materialFactors = default, int layer = 0)
         {
             if (!mesh.IsValid) return;
             if (!TryGetMesh(mesh.Id, out MeshEntry meshEntrySource))
@@ -2646,6 +2649,24 @@ namespace Genesis.Rendering.Primitives
             SkinPaletteEntry skinPaletteEntry = default;
             bool gpuSkinned  = meshEntrySource.IsSkinned && skinPalette.IsValid && TryGetSkinPalette(skinPalette.Id, out skinPaletteEntry);
             if (gpuSkinned) _submittedSkinPalettes.Add(skinPalette.Id);
+
+            // A model layer's draw goes to its own image, culled by nothing the world camera sees.
+            if (layer > 0)
+            {
+                AddToModelLayer(layer, new WorldMesh
+                {
+                    MeshId = mesh.Id, Texture = texture, World = world, Color = color,
+                    Unlit = (flags & MeshDrawFlags.Emissive) != 0 && emissive >= 1f,
+                    Emissive = emissive, NoFog = true, NoReceiveShadow = noReceiveShadow,
+                    RasterOverride = rasterOverride, SkinPaletteId = gpuSkinned ? skinPalette.Id : 0,
+                    Shader = shader, ShaderParams0 = shaderParams0, ShaderParams1 = shaderParams1,
+                    ShaderParams2 = shaderParams2, ShaderParams3 = shaderParams3, AuthoredTextures = authoredTextures,
+                    MaterialFactors = materialFactors, Normal = normal, Orm = orm, EmissionMap = emission,
+                    SurfaceParams = surfaceParams, DetailParams = detailParams,
+                });
+                LastInstancesDrawn++;
+                return;
+            }
 
             // Culling and shadow classification test where the mesh is drawn. For a skinned mesh
             // that is its posed position; the bind-pose sphere made parts of animated characters
@@ -3493,6 +3514,7 @@ namespace Genesis.Rendering.Primitives
 
             EndGpuTiming();
 
+            RenderModelLayers(whiteTexture);
             ClearAccumulators();
         }
 
@@ -6181,6 +6203,7 @@ namespace Genesis.Rendering.Primitives
         public void Dispose()
         {
             ReleasePostEffectTargets();
+            ReleaseModelLayers();
             if (_reflectionTarget.IsValid) _gpu.ReleaseRenderTarget(_reflectionTarget);
             _gpu.ReleaseVertexLayout(_layout);
             _gpu.ReleaseVertexLayout(_layoutSkinned);

@@ -110,6 +110,23 @@ internal static class PgslProjectSuite
                 Color outside = one.GetPixel(70, 200);
                 HeadlessHarness.Assert(!(outside.R > 200 && outside.G < 60 && outside.B < 60), "The red square spread past its edges.");
             }
+            using (Bitmap gui = new(first))
+            {
+                Color model = gui.GetPixel(580, 80);
+                HeadlessHarness.Assert(model.R > 120 && model.R > model.B + 60,
+                    $"DrawModelGui did not draw the orange box into its rectangle ({model}).");
+            }
+            string third = Path.Combine(images, "pgsl-room-three.png");
+            HeadlessHarness.Assert(File.Exists(third), "Room three took no picture.");
+            File.Copy(third, Path.Combine(ctx.Captures, "pgsl-room-three.png"), overwrite: true);
+            using (Bitmap three = new(third))
+            {
+                Color centre = three.GetPixel(three.Width / 2, three.Height / 2);
+                Color side = three.GetPixel(three.Width / 2 + three.Width / 5, three.Height / 2);
+                HeadlessHarness.Assert(centre.R > 45 && centre.R > centre.B + 40,
+                    $"The first-person box behind the wall was not drawn over it ({centre}).");
+                HeadlessHarness.Assert(side.B > side.R + 25, $"The wall beside the box is not blue ({side}).");
+            }
             using Bitmap two = new(secondPicture);
             Expect(two, 70, 70, Color.FromArgb(255, 255, 0), "yellow square in room two");
             Color left = two.GetPixel(150, 230), right = two.GetPixel(350, 230);
@@ -155,16 +172,19 @@ internal static class PgslProjectSuite
         string objects = Path.Combine(project.AssetsPath, "Objects");
         Directory.CreateDirectory(objects);
 
-        string Object(string name, Dictionary<string, string> events)
+        string Object(string name, Dictionary<string, string> events, string? model = null)
         {
             string file = resources.CreateResource(objects, ResourceKind.GameObject, name);
+            var components = new JsonArray(new JsonObject
+            {
+                ["type"] = "ScriptComponent", ["props"] = new JsonObject { ["ScriptClass"] = name },
+            });
+            if (model != null)
+                components.Add(new JsonObject { ["type"] = "ModelRendererComponent", ["props"] = new JsonObject { ["ModelAsset"] = model } });
             File.WriteAllText(file, new JsonObject
             {
-                ["schemaVersion"] = 2, ["dimension"] = "TwoD",
-                ["components"] = new JsonArray(new JsonObject
-                {
-                    ["type"] = "ScriptComponent", ["props"] = new JsonObject { ["ScriptClass"] = name },
-                }),
+                ["schemaVersion"] = 2, ["dimension"] = model != null ? "ThreeD" : "TwoD",
+                ["components"] = components,
                 ["events"] = new JsonArray(events.Keys.Select(key => (JsonNode)key).ToArray()),
             }.ToJsonString());
             string folder = Path.Combine(objects, name);
@@ -172,6 +192,20 @@ internal static class PgslProjectSuite
             foreach ((string eventName, string code) in events) File.WriteAllText(Path.Combine(folder, eventName + ".pgsl"), code);
             return Path.GetRelativePath(project.RootPath, file).Replace('\\', '/');
         }
+
+        // Two plain models: an orange box (drawn in the GUI and in the first-person layer) and a blue wall.
+        string models = Path.Combine(project.AssetsPath, "Models");
+        Directory.CreateDirectory(models);
+        void Model(string name, System.Numerics.Vector4 colour)
+        {
+            string file = Path.Combine(models, name + ".model.json");
+            File.WriteAllText(file, "{}");
+            var asset = Genesis.Runtime.Modeling.GModelPrimitiveFactory.CreateCube(name, 1f);
+            asset.Materials[0].BaseColor = colour;
+            Genesis.Runtime.Modeling.StudioModelResourceLoader.SaveCanonical(file, asset);
+        }
+        Model("Box", new System.Numerics.Vector4(1f, 0.45f, 0f, 1f));
+        Model("Wall", new System.Numerics.Vector4(0.1f, 0.2f, 1f, 1f));
 
         // The library every room's objects can call.
         string scripts = Path.Combine(project.AssetsPath, "Scripts");
@@ -245,6 +279,7 @@ internal static class PgslProjectSuite
                 DrawSetColorRgb(0, 0, 255); DrawRectangle(260, 20, 360, 120);
                 if (GlobalGet("fails") == 0) { DrawSetColorRgb(0, 255, 0); } else { DrawSetColorRgb(255, 0, 0); }
                 DrawRectangle(380, 20, 480, 120);
+                DrawModelGui("Box", 520, 20, 120, 120, 35, 25, 1);
                 """,
         }));
         string final = Object("Final Probe", new()
@@ -253,7 +288,7 @@ internal static class PgslProjectSuite
             ["Step"] = """
                 frame += 1;
                 if (frame == 6) { ScreenshotSave("pgsl-room-two"); }
-                if (frame == 10) { Print("GENESIS_PGSL_PROJECT_DONE"); GameQuit(); }
+                if (frame == 10) { RoomGoto("Third"); }
                 """,
             ["DrawGui"] = """
                 DrawSetAlpha(1);
@@ -282,6 +317,34 @@ internal static class PgslProjectSuite
             GameObject = new RoomGameObjectData { Prefab = final },
         });
         RoomAssetLoader.Save(second, secondFile);
+
+        // Room three (3D): an orange box in the first-person layer stands behind a blue wall, yet
+        // must be drawn over it.
+        string probe = Object("Third Probe", new()
+        {
+            ["Create"] = "frame = 0; SetCameraPosition(0, 1, 0); SetCameraTarget(0, 1, 10);",
+            ["Step"] = """
+                frame += 1;
+                SetCameraPosition(0, 1, 0); SetCameraTarget(0, 1, 10);
+                if (frame == 10) { ScreenshotSave("pgsl-room-three"); }
+                if (frame == 14) { Print("GENESIS_PGSL_PROJECT_DONE"); GameQuit(); }
+                """,
+        });
+        string arms = Object("Arms", new() { ["Create"] = "ModelSetViewLayer(true); ViewLayerSetFov(60);" }, model: "Box");
+        string wall = Object("Wall", new() { ["Create"] = "noop = 0;" }, model: "Wall");
+        string thirdFile = resources.CreateResource(Path.GetDirectoryName(roomFile)!, ResourceKind.Room, "Third");
+        RoomAsset third = RoomAsset.Create("Third", RoomDimension.ThreeD);
+        third.Settings.CaptureMouse = false;
+        void Place(string name, string prefab, float[] position, float[] scale) => third.Nodes.Add(new RoomNode
+        {
+            Kind = RoomNodeKind.GameObject, Name = name, LayerId = third.Layers[0].Id,
+            Transform = new RoomTransform { Position = position, Scale = scale },
+            GameObject = new RoomGameObjectData { Prefab = prefab },
+        });
+        Place("Third Probe", probe, [0f, 0f, 0f], [1f, 1f, 1f]);
+        Place("Wall", wall, [0f, 1f, 3f], [6f, 6f, 0.3f]);
+        Place("Arms", arms, [0f, 1f, 6f], [1.5f, 1.5f, 1.5f]);
+        RoomAssetLoader.Save(third, thirdFile);
         return project;
     }
 }

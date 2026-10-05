@@ -220,6 +220,8 @@ namespace Genesis.Rendering.Core
             _activeRenderTarget = 0;
 
             DrainDeferredTextureReleases();
+            // Model layer images belong to the forward renderer's targets.
+            foreach (int slot in _modelLayerTextureSlots.Values) _texGpu[slot] = GpuTextureHandle.Invalid;
             for (int i = 0; i < _texGpu.Count; i++)
             {
                 if (_texGpu[i].IsValid) _gpu.ReleaseTexture(_texGpu[i]);
@@ -339,7 +341,11 @@ namespace Genesis.Rendering.Core
                 _fwd?.Flush(gpuTarget, _whiteTexture, width, height, depthTexture,
                     allowPostProcess: !offscreen || _cameraPostProcessing);
             else
+            {
+                // A 2D frame still draws its GUI models' layers.
+                _fwd?.RenderModelLayers(_whiteTexture);
                 _fwd?.BeginSubmitFrame();
+            }
 
             // Reopen the target: the forward renderer's own passes (shadow map, post-process)
             // rebound it. Depth is cleared because UI sprites use an orthographic range
@@ -785,6 +791,28 @@ namespace Genesis.Rendering.Core
             _fwd?.SetCamera(view, projection);
         }
 
+        // Model layer images, given texture ids so GUI drawing can use them like any image.
+        private readonly Dictionary<int, int> _modelLayerTextureSlots = new();
+
+        public void SetModelLayerCamera(int layer, Matrix4x4 view, Matrix4x4 projection, int width, int height, bool receiveShadows) =>
+            _fwd?.SetModelLayerCamera(layer, view, projection, width, height, receiveShadows);
+
+        public bool TryGetModelLayerTexture(int layer, out TextureHandle texture)
+        {
+            texture = TextureHandle.Invalid;
+            if (_fwd == null || !_fwd.TryGetModelLayerTexture(layer, out GpuTextureHandle image)) return false;
+            if (_modelLayerTextureSlots.TryGetValue(layer, out int slot))
+                _texGpu[slot] = image;
+            else
+            {
+                _texGpu.Add(image);
+                slot = _texGpu.Count - 1;
+                _modelLayerTextureSlots[layer] = slot;
+            }
+            texture = new TextureHandle(slot + 1);
+            return true;
+        }
+
         public void SetBlendMode(BlendMode mode)    { }
         public void SetSamplerState(SamplerFilter f) => _spr?.SetSamplerFilter(f);
 
@@ -926,7 +954,7 @@ namespace Genesis.Rendering.Core
                     shader: c.Shader, shaderParams0: c.ShaderParams0, shaderParams1: c.ShaderParams1,
                     shaderParams2: c.ShaderParams2, shaderParams3: c.ShaderParams3,
                     authoredTextures: ResolveAuthoredTextures(c.AuthoredTextures),
-                    materialFactors: c.MaterialFactors);
+                    materialFactors: c.MaterialFactors, layer: c.Layer);
             }
         }
 
