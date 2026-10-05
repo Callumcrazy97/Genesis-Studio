@@ -151,8 +151,13 @@ namespace Genesis.Runtime
             _windowH = _window.Height;
 
             StartupGate?.Report("Game runtime", "Native game window created", 1, 4);
-            _renderer = RenderControllerFactory.Create();
-            _renderer.Initialize(_window.NativeHandle, _windowW, _windowH);
+            Genesis.Shared.Diagnostics.LoadProfile.Mark("window open");
+            using (Genesis.Shared.Diagnostics.LoadProfile.Begin("create the graphics device and its built-in pipelines"))
+            {
+                _renderer = RenderControllerFactory.Create();
+                _renderer.Initialize(_window.NativeHandle, _windowW, _windowH);
+            }
+            Genesis.Shared.Diagnostics.LoadProfile.Mark("graphics device ready");
             StartupGate?.Report("Game runtime", "Game-owned graphics device and pipelines initialized", 2, 4);
             _renderer.SetVSync(_window.VSync);
 
@@ -162,7 +167,8 @@ namespace Genesis.Runtime
             _scene = new RuntimeScene("Runtime");
             _commandBinding = new EngineRuntimeCommandBinding(_scene, _window, _options, _renderer);
             SceneDefaults.PrepareDemo(_options);
-            _build(_scene, _renderer);
+            using (Genesis.Shared.Diagnostics.LoadProfile.Begin("set up the game and build its first room"))
+                _build(_scene, _renderer);
 
             _scene.Input = _window.Input;
 
@@ -220,6 +226,12 @@ namespace Genesis.Runtime
         private void OnUpdate(double dt)
         {
             if (!_ready) return;
+            using Genesis.Shared.Diagnostics.LoadProfile.Span profiled = Genesis.Shared.Diagnostics.LoadProfile.Begin("frames: update");
+            UpdateFrame(dt);
+        }
+
+        private void UpdateFrame(double dt)
+        {
             float fdt = (float)dt * (Debugger != null && Debugger.TimeScale > 0f ? Debugger.TimeScale : 1.0f);
 
             SyncLiveWindowSize();
@@ -235,7 +247,11 @@ namespace Genesis.Runtime
             Debugger?.HandleInput(_scene?.Input, true);
             Debugger?.Advance((float)dt);
 
-            BootSplash?.Update(fdt, _renderer);
+            if (BootSplash != null && !BootSplash.IsComplete)
+            {
+                using (Genesis.Shared.Diagnostics.LoadProfile.Begin("start-up screen: preparing the first room's assets"))
+                    BootSplash.Update(fdt, _renderer);
+            }
             if (BootSplash != null && StartupGate != null && !_startupReadySent)
                 StartupGate.Report("Game resource preparation", BootSplash.Status, BootSplash.JobsDone, BootSplash.JobsTotal);
             if (StartupGate?.Failure != null) { FailStartup(StartupGate.Failure); return; }
@@ -287,11 +303,13 @@ namespace Genesis.Runtime
                 for (int i = 0; i < steps; i++)
                 {
                     FixedStepStarting?.Invoke();
-                    _scene.UpdateFixed(_scene.FixedTimestep.FixedDelta);
+                    using (Genesis.Shared.Diagnostics.LoadProfile.Begin("fixed steps"))
+                        _scene.UpdateFixed(_scene.FixedTimestep.FixedDelta);
                 }
 
                 VariableUpdateStarting?.Invoke();
-                _scene.UpdateVariable(gameDelta);
+                using (Genesis.Shared.Diagnostics.LoadProfile.Begin("scene update"))
+                    _scene.UpdateVariable(gameDelta);
             }
 
             // Per-frame host hook (audio voice recycling, network pump, etc.).
@@ -354,6 +372,12 @@ namespace Genesis.Runtime
         private void OnRender(double dt)
         {
             if (!_ready || _renderer == null) return;
+            using Genesis.Shared.Diagnostics.LoadProfile.Span profiled = Genesis.Shared.Diagnostics.LoadProfile.Begin("frames: render");
+            RenderFrame(dt);
+        }
+
+        private void RenderFrame(double dt)
+        {
 
             SyncLiveWindowSize();
 
@@ -367,7 +391,8 @@ namespace Genesis.Runtime
             if ((_frame++ % 120) == 0)
                 RenderLog.Line($"render frame={_frame} buffer={_renderer.PixelWidth}x{_renderer.PixelHeight} window={_windowW}x{_windowH} fps={_window.CurrentFps:F0}");
 
-            _renderer.BeginFrame();
+            using (Genesis.Shared.Diagnostics.LoadProfile.Begin("beginning the frame"))
+                _renderer.BeginFrame();
 
             bool booting = BootSplash != null && !BootSplash.IsComplete;
             _startupFrameWasSplash = booting;
@@ -384,8 +409,11 @@ namespace Genesis.Runtime
             if (roomPresentation != null) _renderer.SetSamplerState(roomPresentation.SpriteFilter);
             // The project's post effects (Fullscreen Shader resources) the room and its scripts ask for.
             if (!booting)
-                _renderer.SetPostEffects(Genesis.Runtime.Rendering.ProjectPostEffects.RequestsFor(
-                    Genesis.Runtime.Scripting.PgslCommands.ProjectPath));
+            {
+                using (Genesis.Shared.Diagnostics.LoadProfile.Begin("project post effects"))
+                    _renderer.SetPostEffects(Genesis.Runtime.Rendering.ProjectPostEffects.RequestsFor(
+                        Genesis.Runtime.Scripting.PgslCommands.ProjectPath));
+            }
             RoomFogState spriteFog = twoDRoom
                 ? RoomFogState.Create(
                     _scene.Environment.FogEnabled,
@@ -510,13 +538,18 @@ namespace Genesis.Runtime
                 Engine.SetDrawCommandSink(_frameQueue);
                 _frameQueue.Reset();
                 _commandBinding?.ApplyFrameRenderState();
-                BeforeRenderSubmit?.Invoke();
-                ScriptHost?.DispatchRenderFrame(_renderer, _frameQueue);
-                ScriptHost?.DispatchPgslWorldDraw(_renderer, _frameQueue);
+                using (Genesis.Shared.Diagnostics.LoadProfile.Begin("scripts' render-frame events and lights"))
+                {
+                    BeforeRenderSubmit?.Invoke();
+                    ScriptHost?.DispatchRenderFrame(_renderer, _frameQueue);
+                    ScriptHost?.DispatchPgslWorldDraw(_renderer, _frameQueue);
+                }
                 int drawCount = 0;
                 long collectStarted = System.Diagnostics.Stopwatch.GetTimestamp();
-                _scene.CollectMeshes(_meshBuffer, ref drawCount, _renderer);
+                using (Genesis.Shared.Diagnostics.LoadProfile.Begin("gathering what to draw"))
+                    _scene.CollectMeshes(_meshBuffer, ref drawCount, _renderer);
                 LastCollectMilliseconds += System.Diagnostics.Stopwatch.GetElapsedTime(collectStarted).TotalMilliseconds;
+                Genesis.Shared.Diagnostics.LoadProfile.Span submitProfile = Genesis.Shared.Diagnostics.LoadProfile.Begin("submitting instances, layers and draws");
                 int instanceCount = _scene.SubmitInstanceBatches(_renderer);
                 Genesis.Runtime.Rendering.ModelLayers.Submit(_renderer, Genesis.Runtime.Scripting.PgslCommands.ProjectPath,
                     _scene.Camera3D, OverlayWidth, OverlayHeight);
@@ -524,6 +557,7 @@ namespace Genesis.Runtime
                 if (drawCount > 0)
                     _renderer.DrawMeshBatch(_meshBuffer.AsSpan(0, drawCount));
                 _frameQueue.Flush(_renderer, includeMeshes: true, includeSprites: true);
+                submitProfile.Dispose();
                 RenderAutoState.AllowDrawSubmit = false;
                 Engine.SetDrawCommandSink(null);
                 pipeline.Enter(ComponentPipelinePhase.Present);
@@ -536,7 +570,8 @@ namespace Genesis.Runtime
             long drawStarted = System.Diagnostics.Stopwatch.GetTimestamp();
             try
             {
-                _renderer.EndFrame();
+                using (Genesis.Shared.Diagnostics.LoadProfile.Begin("drawing"))
+                    _renderer.EndFrame();
                 LastDrawMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(drawStarted).TotalMilliseconds;
             }
             catch (Exception ex)
@@ -586,7 +621,8 @@ namespace Genesis.Runtime
             try
             {
                 long presentStarted = System.Diagnostics.Stopwatch.GetTimestamp();
-                _renderer?.Present();
+                using (Genesis.Shared.Diagnostics.LoadProfile.Begin("presenting"))
+                    _renderer?.Present();
                 LastPresentMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(presentStarted).TotalMilliseconds;
                 // The debug screen's figures and recording see each presented game frame (not the
                 // start-up splash). With the screen closed and nothing recording this is one timestamp.
@@ -619,6 +655,7 @@ namespace Genesis.Runtime
         /// </summary>
         private void InvokePostRenderHooks()
         {
+            using Genesis.Shared.Diagnostics.LoadProfile.Span profiled = Genesis.Shared.Diagnostics.LoadProfile.Begin("HUD and hooks");
             long hooksStarted = System.Diagnostics.Stopwatch.GetTimestamp();
             // Asked before the cover is faded: the frame in which the last of it is drawn is
             // still a covered frame, though nothing is left of the change once it has been.

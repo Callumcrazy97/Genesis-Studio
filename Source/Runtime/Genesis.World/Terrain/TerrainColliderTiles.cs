@@ -185,6 +185,7 @@ public sealed class TerrainColliderTiles : IDisposable
             Task.Run(() =>
             {
                 PhysicsWorld.PreparedStaticMesh mesh = null;
+                using Genesis.Shared.Diagnostics.LoadProfile.Span profiled = Genesis.Shared.Diagnostics.LoadProfile.Begin("terrain collision tile made on a worker");
                 try
                 {
                     TerrainColliderMesh.BuildRegion(_terrain, x * TileCells, z * TileCells, TileCells, TileCells,

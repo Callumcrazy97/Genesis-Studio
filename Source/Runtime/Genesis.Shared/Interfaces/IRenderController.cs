@@ -171,6 +171,16 @@ namespace Genesis.Shared.Interfaces
 
         /// <summary>Textures asked for with <see cref="LoadTextureInBackground"/> that are not ready yet.</summary>
         int BackgroundTexturesPending => 0;
+
+        /// <summary>
+        /// Time one frame may spend sending textures read in the background to the graphics card,
+        /// in milliseconds; 0 for a renderer without background loading, which ignores a new value.
+        /// </summary>
+        double BackgroundTextureUploadMilliseconds
+        {
+            get => 0;
+            set { }
+        }
         TextureHandle CreateTexture(int width, int height, ReadOnlySpan<byte> rgba);
         /// <summary>Creates a texture for a specific use; lit colour/data textures get mipmaps.</summary>
         TextureHandle CreateTexture(int width, int height, ReadOnlySpan<byte> rgba, TextureColorSpace colorSpace)

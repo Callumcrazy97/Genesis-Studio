@@ -1169,10 +1169,17 @@ namespace Genesis.Rendering.Core
                     }
                 }
 
+                // The pixels an earlier run decoded from this same file, if it is unchanged.
+                if (Genesis.Rendering.Textures.DecodedTextureCache.TryLoad(fullPath, Genesis.Rendering.Textures.DecodedTextureKind.Pixels,
+                        out int cachedWidth, out int cachedHeight, out _, out byte[] cachedPixels))
+                    return CreateTexture(cachedWidth, cachedHeight, cachedPixels, colorSpace);
+                (long Length, long Ticks)? stamp = Genesis.Rendering.Textures.DecodedTextureCache.StampForSaving(fullPath);
                 using var stream = File.OpenRead(fullPath);
                 ImageResult image = ImageResult.FromStream(stream, ColorComponents.RedGreenBlueAlpha);
                 if (image == null || image.Width <= 0 || image.Height <= 0)
                     return TextureHandle.Invalid;
+                Genesis.Rendering.Textures.DecodedTextureCache.SaveInBackground(fullPath, stamp,
+                    Genesis.Rendering.Textures.DecodedTextureKind.Pixels, image.Width, image.Height, 1, image.Data);
                 return CreateTexture(image.Width, image.Height, image.Data, colorSpace);
             }
             catch (Exception ex)

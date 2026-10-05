@@ -429,6 +429,7 @@ public sealed class TerrainLodGround : IDisposable
             CancellationToken token = _lifetime.Token;
             Task.Run(() =>
             {
+                using Genesis.Shared.Diagnostics.LoadProfile.Span profiled = Genesis.Shared.Diagnostics.LoadProfile.Begin("terrain ground mesh made on a worker");
                 try
                 {
                     if (token.IsCancellationRequested) return;

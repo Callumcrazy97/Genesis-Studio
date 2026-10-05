@@ -233,10 +233,13 @@ public static class StudioModelResourceLoader
         Document document = ReadDocument(path);
         string canonical = CanonicalPath(path);
         string source = ResolveSource(path, document);
-        if (File.Exists(canonical)
-            && (!allowReimport || string.IsNullOrWhiteSpace(source)
-                || !File.Exists(source)
-                || CanonicalMatchesSource(path, document, canonical, source)))
+        bool useCanonical;
+        using (Genesis.Shared.Diagnostics.LoadProfile.Begin("model resource: is the cooked model current"))
+            useCanonical = File.Exists(canonical)
+                && (!allowReimport || string.IsNullOrWhiteSpace(source)
+                    || !File.Exists(source)
+                    || CanonicalMatchesSource(path, document, canonical, source));
+        if (useCanonical)
         {
             GModelAsset canonicalAsset = RuntimeModelStore.Load(canonical);
             canonicalAsset.Culling = document.Culling;
@@ -254,7 +257,9 @@ public static class StudioModelResourceLoader
                 string projectRoot = FindProjectRoot(path);
                 bool convert = document.ConvertRightHanded
                     ?? Genesis.Runtime.Project.ProjectPaths.ReadConvertRightHandedModels(projectRoot);
-                GModelAsset imported = ExternalModelImporter.Import(source, projectRoot, path, convertRightHanded: convert);
+                GModelAsset imported;
+                using (Genesis.Shared.Diagnostics.LoadProfile.Begin("model resource: import its source again (the cooked model is older)"))
+                    imported = ExternalModelImporter.Import(source, projectRoot, path, convertRightHanded: convert);
                 imported.Culling = document.Culling;
                 imported.WindingOrder = document.WindingOrder;
                 if (WriteReimportsToProject)
@@ -360,6 +365,7 @@ public static class StudioModelResourceLoader
 
     private static Document ReadDocument(string path)
     {
+        using Genesis.Shared.Diagnostics.LoadProfile.Span profiled = Genesis.Shared.Diagnostics.LoadProfile.Begin("model resource: read its descriptor");
         try
         {
             return JsonSerializer.Deserialize<Document>(File.ReadAllText(path), JsonOptions) ?? new Document();

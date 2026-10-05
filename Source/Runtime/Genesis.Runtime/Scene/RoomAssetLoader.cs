@@ -292,7 +292,8 @@ public sealed class RoomSceneBuilder
                 {
                     if (TryDeferScenery(asset, node)) continue;
                     long one = System.Diagnostics.Stopwatch.GetTimestamp();
-                    SpawnGameObject(world, asset, node, result);
+                    using (Genesis.Shared.Diagnostics.LoadProfile.Begin("room: place Objects"))
+                        SpawnGameObject(world, asset, node, result);
                     result.RecordSpawn(node.Name ?? node.GameObject.Prefab,
                         System.Diagnostics.Stopwatch.GetElapsedTime(one).TotalMilliseconds);
                     spawnTicks += System.Diagnostics.Stopwatch.GetTimestamp() - mark;
@@ -323,7 +324,8 @@ public sealed class RoomSceneBuilder
 
         result.SpawnMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(0, spawnTicks).TotalMilliseconds;
         long createStarted = System.Diagnostics.Stopwatch.GetTimestamp();
-        _scriptHost?.FlushDeferredCreates();
+        using (Genesis.Shared.Diagnostics.LoadProfile.Begin("room: Create events"))
+            _scriptHost?.FlushDeferredCreates();
         result.CreateEventsMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(createStarted).TotalMilliseconds;
     }
 
@@ -361,8 +363,11 @@ public sealed class RoomSceneBuilder
                 GameObject = new RoomGameObjectData { Prefab = placed.Entity },
             };
             if (isObject && TryDeferScenery(room, node)) continue;
-            if (isObject) SpawnGameObject(world, room, node, result);
-            else SpawnResolvedObject(world, room, node, result, part.Definition, part.Events);
+            using (Genesis.Shared.Diagnostics.LoadProfile.Begin("room: place a terrain's Objects"))
+            {
+                if (isObject) SpawnGameObject(world, room, node, result);
+                else SpawnResolvedObject(world, room, node, result, part.Definition, part.Events);
+            }
             if (result.EntitiesByNodeId.TryGetValue(node.Id, out Entity entity))
                 result.TerrainParts.Add((entity, terrain, local));
             yield return placedCount / (float)placedTotal;

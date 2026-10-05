@@ -69,6 +69,10 @@ namespace Genesis.Runtime.Project
 
         public static int Run(string[] args)
         {
+            // GENESIS_LOAD_PROFILE=1: where start-up and each room's loading time goes, written to the log.
+            Genesis.Shared.Diagnostics.LoadProfile.UseCurrentThreadAsGameThread();
+            Genesis.Shared.Diagnostics.LoadProfile.Mark("player started");
+            Genesis.Shared.Diagnostics.LoadProfile.Span startProfile = Genesis.Shared.Diagnostics.LoadProfile.Begin("start-up before the window");
             LastError = null;
             _exitCode = 0;
             // A game plays its project; it never cooks a model into it (see StudioModelResourceLoader).
@@ -82,7 +86,11 @@ namespace Genesis.Runtime.Project
             _quitWhenReplayEnds = false;
             try
             {
-                if (TryRunScriptEntryPoint(args, out int customExit))
+                bool customEntry;
+                int customExit;
+                using (Genesis.Shared.Diagnostics.LoadProfile.Begin("look for a Main in the game's scripts"))
+                    customEntry = TryRunScriptEntryPoint(args, out customExit);
+                if (customEntry)
                     return customExit;
 
                 ParseArgs(args, out string roomArg, out float autoshotSeconds, out string perfLabel, out bool debugMode);
@@ -135,6 +143,7 @@ namespace Genesis.Runtime.Project
                 // The built-in shaders compile on worker threads while the project and room are
                 // read and the window is made; the renderer then finds them ready. After an engine
                 // update (nothing cached yet) that compile used to hold a blank window for seconds.
+                Genesis.Shared.Diagnostics.LoadProfile.Span shaderStartProfile = Genesis.Shared.Diagnostics.LoadProfile.Begin("start compiling the built-in shaders on workers");
                 try
                 {
                     if (Environment.GetEnvironmentVariable("GENESIS_SHADER_WARMUP") != "0"
@@ -145,7 +154,9 @@ namespace Genesis.Runtime.Project
                 {
                     // An unknown backend name is reported by the renderer itself when it starts.
                 }
+                shaderStartProfile.Dispose();
 
+                Genesis.Shared.Diagnostics.LoadProfile.Span findProfile = Genesis.Shared.Diagnostics.LoadProfile.Begin("find the project and its start room");
                 string projectPath = Environment.GetEnvironmentVariable("GENESIS_PROJECT_PATH");
                 if (string.IsNullOrWhiteSpace(projectPath))
                     projectPath = ProjectRoomResolver.ResolveStandaloneProjectRoot(AppContext.BaseDirectory);
@@ -182,6 +193,7 @@ namespace Genesis.Runtime.Project
                     Console.Error.WriteLine($"Room file not found: {roomName}");
                     return 2;
                 }
+                findProfile.Dispose();
 
                 if (autoshotSeconds <= 0f
                     && float.TryParse(Environment.GetEnvironmentVariable("GENESIS_AUTOSHOT"), out float envShot)
@@ -195,8 +207,11 @@ namespace Genesis.Runtime.Project
                 if (string.IsNullOrEmpty(perfLabel))
                     perfLabel = Environment.GetEnvironmentVariable("GENESIS_PERF_LABEL");
 
-                RoomAsset room = RoomAssetLoader.Parse(roomFile);
+                RoomAsset room;
+                using (Genesis.Shared.Diagnostics.LoadProfile.Begin("read the room file"))
+                    room = RoomAssetLoader.Parse(roomFile);
                 using var logger = new ProjectLogger(projectPath);
+                Genesis.Shared.Diagnostics.LoadProfile.Mark("log open");
                 logger.Line($"project={projectPath}");
                 logger.Line($"room={roomName} file={roomFile}");
                 logger.Line($"autoshot={autoshotSeconds} label={perfLabel ?? "(none)"}");
@@ -206,7 +221,9 @@ namespace Genesis.Runtime.Project
                 // them one after another when it is built and first drawn.
                 try
                 {
-                    int named = new RoomSceneBuilder(projectPath).PrefetchModels(room, ProjectRoomLoader.PreloadKeepMilliseconds);
+                    int named;
+                    using (Genesis.Shared.Diagnostics.LoadProfile.Begin("queue the first room's models to read ahead"))
+                        named = new RoomSceneBuilder(projectPath).PrefetchModels(room, ProjectRoomLoader.PreloadKeepMilliseconds);
                     if (named > 0) logger.Line($"reading {named} models ahead for {roomName}");
                 }
                 catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException
@@ -215,9 +232,12 @@ namespace Genesis.Runtime.Project
                     logger.Line($"reading models ahead failed: {ex.Message}");
                 }
 
-                ProjectPaths.EnsureDebugDirs(projectPath);
-                RenderLog.Init();
-                StartInputReplayFromLaunch(args, projectPath, logger);
+                using (Genesis.Shared.Diagnostics.LoadProfile.Begin("debug folders, render log and input replay"))
+                {
+                    ProjectPaths.EnsureDebugDirs(projectPath);
+                    RenderLog.Init();
+                    StartInputReplayFromLaunch(args, projectPath, logger);
+                }
 
                 System.Drawing.Size display = RoomDisplayLayout.WindowSize(room);
                 int width = display.Width;
@@ -231,6 +251,7 @@ namespace Genesis.Runtime.Project
                 GenesisRuntimeHost host = null;
                 ProjectBootSplash bootSplash = new ProjectBootSplash(projectPath, logger, roomName);
 
+                Genesis.Shared.Diagnostics.LoadProfile.Span windowProfile = Genesis.Shared.Diagnostics.LoadProfile.Begin("make the game window object");
                 host = new GenesisRuntimeHost(title, width, height, (scene, renderer) =>
                 {
                     var window = host.Window as SilkGameWindow;
@@ -239,25 +260,39 @@ namespace Genesis.Runtime.Project
                     scene.Input = window?.Input ?? scene.Input;
                     // The window is open and the graphics card ready: say so at once. Everything
                     // below (textures, sound, the first room) used to happen behind a blank window.
-                    if (host.ShowStartupProgress("Starting " + title, 0.02f))
-                        logger.Line("Loading screen shown");
+                    using (Genesis.Shared.Diagnostics.LoadProfile.Begin("show the loading screen"))
+                    {
+                        if (host.ShowStartupProgress("Starting " + title, 0.02f))
+                            logger.Line("Loading screen shown");
+                    }
+                    Genesis.Shared.Diagnostics.LoadProfile.Mark("loading screen shown");
 
                     if (room.Dimension == RoomDimension.ThreeD && room.Settings.VoxelWorld)
                         SceneDefaults.ApplyVoxelWorld(scene);
 
+                    Genesis.Shared.Diagnostics.LoadProfile.Span scriptsProfile = Genesis.Shared.Diagnostics.LoadProfile.Begin("load the game's scripts");
                     scriptHost = new ScriptHostSystem();
                     scriptHost.DiagnosticReported += logger.WriteScriptDiagnostic;
                     string dllPath = RuntimePaths.PlayerGameScriptsDll();
                     if (File.Exists(dllPath))
                     {
-                        byte[] dllBytes = File.ReadAllBytes(dllPath);
-                        scriptHost.LoadAssembly(Assembly.Load(dllBytes));
+                        // The assembly the entry-point check loaded, when it read this same file; a
+                        // second copy of the scripts in the process costs time and memory and nothing else.
+                        byte[] dllBytes = _scriptsBytes != null && string.Equals(_scriptsPath, dllPath, StringComparison.OrdinalIgnoreCase)
+                            ? _scriptsBytes : File.ReadAllBytes(dllPath);
+                        Assembly scripts = ReferenceEquals(dllBytes, _scriptsBytes) && _scriptsAssembly != null
+                            ? _scriptsAssembly : Assembly.Load(dllBytes);
+                        scriptHost.LoadAssembly(scripts);
                         logger.Line($"loaded GameScripts.dll ({dllBytes.Length} bytes)");
                     }
                     else
                     {
                         logger.Line("GameScripts.dll not found — PGSL objects will run on the validated VM backend.");
                     }
+                    _scriptsBytes = null;
+                    _scriptsAssembly = null;
+                    _scriptsPath = null;
+                    scriptsProfile.Dispose();
 
                     gameContext = new ProjectGameContext(projectPath, scene, renderer, window, room, logger);
                     scriptHost.SetContext(gameContext);
@@ -270,7 +305,8 @@ namespace Genesis.Runtime.Project
                     host.ShowStartupProgress("Preparing textures", 0.05f);
                     try
                     {
-                        Genesis.Runtime.Textures.RuntimeTextureAtlas.Build(projectPath, renderer);
+                        using (Genesis.Shared.Diagnostics.LoadProfile.Begin("stitch texture groups"))
+                            Genesis.Runtime.Textures.RuntimeTextureAtlas.Build(projectPath, renderer);
                         logger.Line(
                             $"texture groups stitched: sheets={Genesis.Runtime.Textures.RuntimeTextureAtlas.AtlasSheetCount} "
                             + $"sprites={Genesis.Runtime.Textures.RuntimeTextureAtlas.MappedSpriteCount} "
@@ -289,6 +325,7 @@ namespace Genesis.Runtime.Project
                     // Genesis.Audio library compiled but was never instantiated, so the
                     // runtime was silent.
                     XAudioSystem audioSystem = null;
+                    Genesis.Shared.Diagnostics.LoadProfile.Span servicesProfile = Genesis.Shared.Diagnostics.LoadProfile.Begin("start sound and networking");
                     try
                     {
                         audioSystem = new XAudioSystem(projectPath);
@@ -335,11 +372,17 @@ namespace Genesis.Runtime.Project
                     _replication.CreateCopy = copyBuilder.SpawnCopy;
                     _replication.Attach(_activeNet);
                     Genesis.Runtime.Scripting.PgslCommands.ActiveReplication = _replication;
+                    servicesProfile.Dispose();
 
                     host.ShowStartupProgress("Building " + (string.IsNullOrEmpty(room.Name) ? roomName : room.Name), 0.1f);
-                    RoomAsset loaded = RoomAssetLoader.Parse(roomFile);
-                    RoomBuildResult build = ProjectRoomLoader.Build(projectPath, scene, loaded,
-                        scriptHost, gameContext, beginGame: true);
+                    RoomAsset loaded;
+                    using (Genesis.Shared.Diagnostics.LoadProfile.Begin("read the room file again"))
+                        loaded = RoomAssetLoader.Parse(roomFile);
+                    RoomBuildResult build;
+                    using (Genesis.Shared.Diagnostics.LoadProfile.Begin("build the first room"))
+                        build = ProjectRoomLoader.Build(projectPath, scene, loaded, scriptHost, gameContext, beginGame: true);
+                    Genesis.Shared.Diagnostics.LoadProfile.Mark("first room built");
+                    Genesis.Shared.Diagnostics.LoadProfile.Span finishProfile = Genesis.Shared.Diagnostics.LoadProfile.Begin("add the room's subsystems and the start-up screen");
                     host.ShowStartupProgress("Preparing what the first room shows", 0.15f);
                     if (RoomEnvironmentAudioSubsystem.ShouldRegister(loaded.Environment))
                         scene.AddSubsystem(new RoomEnvironmentAudioSubsystem(loaded.Environment, gameContext));
@@ -405,6 +448,7 @@ namespace Genesis.Runtime.Project
                     host.BootSplash = bootSplash;
 
                     ApplyRoomPresentation(window, renderer, loaded);
+                    finishProfile.Dispose();
                     logger.Line($"room loaded entities={build.SpawnedEntities.Count} dimension={loaded.Dimension}");
                     // The same breakdown a room change logs, for the first room.
                     logger.Line($"Room load timing: terrain {build.TerrainMilliseconds:F0} ms, placing objects {build.SpawnMilliseconds:F0} ms, "
@@ -413,6 +457,7 @@ namespace Genesis.Runtime.Project
                             System.Linq.Enumerable.Select(build.SlowestSpawns, spawn => $"{spawn.Name} {spawn.Milliseconds:F0} ms"))));
                     Console.WriteLine("GENESIS_PLAYER_STATE running");
                 });
+                windowProfile.Dispose();
 
                 // Apply the launch mode before OnLoad creates the swap chain, so its actual
                 // pixel dimensions agree with the requested startup presentation.
@@ -454,6 +499,7 @@ namespace Genesis.Runtime.Project
                 bool allowEscapeToClose = string.IsNullOrWhiteSpace(escapeSetting)
                     ? launchSettings.AllowEscapeToClose : escapeSetting != "0";
                 logger.Line($"allowEscapeToClose={allowEscapeToClose}");
+                startProfile.Dispose();
 
                 using (host)
                 {
@@ -967,16 +1013,33 @@ namespace Genesis.Runtime.Project
         /// <summary>
         /// If the project's compiled scripts define their own <c>Program.Main</c>, hand off entirely.
         /// </summary>
+        // The game's scripts as the entry-point check loaded them, for the game's own start to reuse.
+        private static byte[] _scriptsBytes;
+        private static Assembly _scriptsAssembly;
+        private static string _scriptsPath;
+
         private static bool TryRunScriptEntryPoint(string[] args, out int exitCode)
         {
             exitCode = 0;
             string dllPath = RuntimePaths.PlayerGameScriptsDll();
+            _scriptsBytes = null;
+            _scriptsAssembly = null;
+            _scriptsPath = null;
             if (!File.Exists(dllPath))
                 return false;
 
             Assembly asm;
-            try { asm = Assembly.Load(File.ReadAllBytes(dllPath)); }
+            byte[] bytes;
+            try
+            {
+                bytes = File.ReadAllBytes(dllPath);
+                asm = Assembly.Load(bytes);
+            }
             catch { return false; }
+            // Kept for the game's own start, which loads the same scripts (see Run).
+            _scriptsBytes = bytes;
+            _scriptsAssembly = asm;
+            _scriptsPath = dllPath;
 
             foreach (Type type in asm.GetTypes())
             {

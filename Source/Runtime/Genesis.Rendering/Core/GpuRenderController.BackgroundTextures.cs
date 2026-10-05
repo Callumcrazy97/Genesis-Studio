@@ -165,7 +165,11 @@ namespace Genesis.Rendering.Core
             await TextureReaders.WaitAsync().ConfigureAwait(false);
             try
             {
-                return await Task.Run(() => PrepareTexture(fullPath, colorSpace, softwareRasterizer)).ConfigureAwait(false);
+                return await Task.Run(() =>
+                {
+                    using (Genesis.Shared.Diagnostics.LoadProfile.Begin("texture read and decoded on a worker"))
+                        return PrepareTexture(fullPath, colorSpace, softwareRasterizer);
+                }).ConfigureAwait(false);
             }
             finally
             {
@@ -203,17 +207,49 @@ namespace Genesis.Rendering.Core
                     };
                 }
 
-                using FileStream stream = File.OpenRead(fullPath);
-                ImageResult image = ImageResult.FromStream(stream, ColorComponents.RedGreenBlueAlpha);
-                if (image == null || image.Width <= 0 || image.Height <= 0) return null;
-                if (colorSpace == TextureColorSpace.Display)
+                bool display = colorSpace == TextureColorSpace.Display;
+                bool srgb = colorSpace == TextureColorSpace.Srgb;
+                DecodedTextureKind kind = display ? DecodedTextureKind.Pixels
+                    : srgb ? DecodedTextureKind.ColourMips : DecodedTextureKind.DataMips;
+                // What this picture decoded to on an earlier run, mips and all, if the file is unchanged.
+                bool cachedDecode;
+                int width, height, mipLevels;
+                byte[] payload;
+                using (Genesis.Shared.Diagnostics.LoadProfile.Begin("read the decoded picture's cache"))
+                    cachedDecode = DecodedTextureCache.TryLoad(fullPath, kind, out width, out height, out mipLevels, out payload);
+                if (!cachedDecode)
+                {
+                    (long Length, long Ticks)? stamp = DecodedTextureCache.StampForSaving(fullPath);
+                    ImageResult image;
+                    using (Genesis.Shared.Diagnostics.LoadProfile.Begin("decode the image file"))
+                    {
+                        using FileStream stream = File.OpenRead(fullPath);
+                        image = ImageResult.FromStream(stream, ColorComponents.RedGreenBlueAlpha);
+                    }
+                    if (image == null || image.Width <= 0 || image.Height <= 0) return null;
+                    width = image.Width;
+                    height = image.Height;
+                    if (display)
+                    {
+                        mipLevels = 1;
+                        payload = image.Data;
+                    }
+                    else
+                    {
+                        using (Genesis.Shared.Diagnostics.LoadProfile.Begin("build the mip chain"))
+                            payload = TextureMipBuilder.BuildChain(image.Data, image.Width, image.Height, srgb, out mipLevels);
+                    }
+                    DecodedTextureCache.SaveInBackground(fullPath, stamp, kind, width, height, mipLevels, payload);
+                }
+
+                if (display)
                 {
                     return new PreparedTexture
                     {
                         Desc = new GpuTextureDesc
                         {
-                            Width = image.Width,
-                            Height = image.Height,
+                            Width = width,
+                            Height = height,
                             MipLevels = 1,
                             ArrayLayers = 1,
                             Format = GpuFormat.R8G8B8A8UNorm,
@@ -221,18 +257,17 @@ namespace Genesis.Rendering.Core
                             BindFlags = GpuBindFlags.ShaderResource,
                             DebugName = "Renderer.Texture",
                         },
-                        Payload = image.Data,
+                        Payload = payload,
                     };
                 }
 
-                bool srgb = colorSpace == TextureColorSpace.Srgb;
-                byte[] chain = TextureMipBuilder.BuildChain(image.Data, image.Width, image.Height, srgb, out int mipLevels);
+                byte[] chain = payload;
                 return new PreparedTexture
                 {
                     Desc = new GpuTextureDesc
                     {
-                        Width = image.Width,
-                        Height = image.Height,
+                        Width = width,
+                        Height = height,
                         MipLevels = mipLevels,
                         ArrayLayers = 1,
                         Format = GpuFormat.R8G8B8A8UNorm,

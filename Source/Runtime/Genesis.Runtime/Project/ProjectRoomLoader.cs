@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Genesis.Runtime.Scene;
 using Genesis.Runtime.Scripting;
+using Genesis.Shared.Diagnostics;
 
 namespace Genesis.Runtime.Project;
 
@@ -51,11 +52,14 @@ public static class ProjectRoomLoader
     public static IEnumerable<(float Progress, bool Wait)> BuildSteps(string projectPath, RuntimeScene scene, RoomAsset room,
         ScriptHostSystem scripts, ProjectGameContext context, bool beginGame, RoomBuildResult result, bool spread)
     {
-        context.SetRoom(room);
         var builder = new RoomSceneBuilder(projectPath, scripts);
-        // Worker threads read the room's models while this thread loads the terrain and creates
-        // the objects; the first frame then finds them read instead of reading each in turn.
-        builder.PrefetchModels(room);
+        using (LoadProfile.Begin("room: set the room and queue its models to read ahead"))
+        {
+            context.SetRoom(room);
+            // Worker threads read the room's models while this thread loads the terrain and creates
+            // the objects; the first frame then finds them read instead of reading each in turn.
+            builder.PrefetchModels(room);
+        }
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
         if (RoomTerrainSubsystem.ShouldRegister(room))
         {
@@ -64,19 +68,27 @@ public static class ProjectRoomLoader
                 // Reading a terrain touches nothing of the scene and no graphics card, so a worker
                 // reads it while this thread goes on drawing frames.
                 System.Threading.Tasks.Task<RoomTerrainSubsystem> reading =
-                    System.Threading.Tasks.Task.Run(() => new RoomTerrainSubsystem(projectPath, room, context));
+                    System.Threading.Tasks.Task.Run(() =>
+                    {
+                        using (LoadProfile.Begin("room: read the terrain"))
+                            return new RoomTerrainSubsystem(projectPath, room, context);
+                    });
                 while (!reading.IsCompleted) yield return (0.02f, true);
                 scene.AddSubsystem(reading.GetAwaiter().GetResult());
             }
             else
             {
-                scene.AddSubsystem(new RoomTerrainSubsystem(projectPath, room, context));
+                using (LoadProfile.Begin("room: read the terrain"))
+                    scene.AddSubsystem(new RoomTerrainSubsystem(projectPath, room, context));
             }
         }
 
         double terrainMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
         if (RoomWeatherEffectsSubsystem.ShouldRegister(room))
-            scene.AddSubsystem(new RoomWeatherEffectsSubsystem(room.Environment, context.Audio));
+        {
+            using (LoadProfile.Begin("room: weather effects"))
+                scene.AddSubsystem(new RoomWeatherEffectsSubsystem(room.Environment, context.Audio));
+        }
         float sceneryDistance = room.Environment?.SceneryDistance ?? 0f;
         RoomSceneryStreamer scenery = room.Dimension == RoomDimension.ThreeD && float.IsFinite(sceneryDistance) && sceneryDistance > 0f
             ? new RoomSceneryStreamer(sceneryDistance)
@@ -98,7 +110,8 @@ public static class ProjectRoomLoader
         // The room-start events are a piece of their own.
         yield return (0.97f, false);
         long roomStart = System.Diagnostics.Stopwatch.GetTimestamp();
-        scripts.BeginRoom(beginGame);
+        using (LoadProfile.Begin("room: room-start events"))
+            scripts.BeginRoom(beginGame);
         result.RoomStartMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(roomStart).TotalMilliseconds;
     }
 }
