@@ -1218,6 +1218,10 @@ internal static class HeadlessTestRunner
             case "engine-systems":
                 Suites.EngineSystemsSuite.Run(ctx);
                 Suites.FramePathAssetIoSuite.Run(ctx);
+                Suites.LoadCacheSuite.Run(ctx);
+                break;
+            case "load-cache":
+                Suites.LoadCacheSuite.Run(ctx);
                 break;
             case "frame-path":
                 Suites.FramePathAssetIoSuite.Run(ctx);

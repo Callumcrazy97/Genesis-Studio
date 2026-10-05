@@ -35,6 +35,18 @@ public sealed partial class PhysicsWorld
         /// <summary>How many triangles the mesh has.</summary>
         public int TriangleCount { get; internal init; }
 
+        /// <summary>
+        /// The physics engine's stored form of this mesh: its triangles, scale and search tree.
+        /// Two meshes with the same bytes collide identically. Not valid once registered or disposed.
+        /// </summary>
+        public byte[] ToBytes()
+        {
+            if (Pool == null) throw new ObjectDisposedException(nameof(PreparedStaticMesh), "The prepared mesh was disposed or is already registered.");
+            byte[] bytes = new byte[Mesh.GetSerializedByteCount()];
+            Mesh.Serialize(bytes);
+            return bytes;
+        }
+
         public void Dispose()
         {
             BufferPool? pool = System.Threading.Interlocked.Exchange(ref Pool, null);
