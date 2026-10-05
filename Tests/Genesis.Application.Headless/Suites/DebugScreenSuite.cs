@@ -241,6 +241,18 @@ internal static class DebugScreenSuite
             HeadlessHarness.Assert(flipped[DebugCategories.RecordOnStartEnvironmentVariable] == "0"
                 && flipped[DebugCategories.EngineEnvironmentVariable] == "1",
                 "The preferences must reach the Player environment when changed.");
+
+            // Both survive a save and reload of Studio's preferences.
+            string settingsFile = Path.Combine(ctx.Workspace, "DebugScreen", "UserData", "preferences.json");
+            SettingsService settings = new(settingsFile);
+            HeadlessHarness.Assert(settings.Current.Runtime.RecordProfileWhenDebugging && !settings.Current.Runtime.ShowEngineDebugCategory,
+                "New preferences must default to recording on and the Engine category off.");
+            settings.Current.Runtime.RecordProfileWhenDebugging = false;
+            settings.Current.Runtime.ShowEngineDebugCategory = true;
+            settings.Save();
+            SettingsService reloaded = new(settingsFile);
+            HeadlessHarness.Assert(!reloaded.Current.Runtime.RecordProfileWhenDebugging && reloaded.Current.Runtime.ShowEngineDebugCategory,
+                "The debug screen preferences did not survive a save and reload.");
         });
 
         HeadlessHarness.RunCase(ctx.Report, "Runtime.DebugScreen.ClosedOverlayCostsNothing", () =>

@@ -51,6 +51,12 @@ namespace Genesis.Runtime.Debugger
         /// <summary>The folder of the last recording that finished, or null.</summary>
         public string LastRecordingFolder { get; private set; }
 
+        /// <summary>Raised with the session folder when a recording starts.</summary>
+        public event Action<string> RecordingStarted;
+
+        /// <summary>Raised with the session folder once a recording's summary and report are written.</summary>
+        public event Action<string> RecordingSaved;
+
         /// <summary>The Resources tab's search text.</summary>
         public string ResourceSearch { get; set; } = string.Empty;
 
@@ -147,6 +153,7 @@ namespace Genesis.Runtime.Debugger
                 if (!pgslWasEnabled) _pgslEnabledByOverlay = true;
                 Log($"[INFO] Recording profile to {recording.Folder}");
                 Console.WriteLine("GENESIS_PROFILE_RECORDING " + recording.Folder);
+                RecordingStarted?.Invoke(recording.Folder);
                 return true;
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
@@ -167,6 +174,7 @@ namespace Genesis.Runtime.Debugger
                 _recordingNoticeUntil = Environment.TickCount64 + 6000;
                 Log($"[INFO] Profile saved: {folder}");
                 Console.WriteLine("GENESIS_PROFILE_SAVED " + folder);
+                RecordingSaved?.Invoke(folder);
                 return folder;
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)

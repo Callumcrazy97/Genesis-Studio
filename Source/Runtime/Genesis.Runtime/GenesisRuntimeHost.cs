@@ -176,11 +176,12 @@ namespace Genesis.Runtime
             Debugger.ProfilesDirectory = DebugProfilesDirectory;
             Debugger.ProjectName = DebugProjectName ?? string.Empty;
             Debugger.EngineCategoryEnabled = DebugEngineCategory;
-            if (IsDebugMode && DebugRecordOnStart) Debugger.StartRecording();
 
             _options.FrustumCulling = RenderAutoState.FrustumCulling;
 
             SceneBuilt?.Invoke(this);
+            // After SceneBuilt, so whoever listens for recordings hears this one start.
+            if (IsDebugMode && DebugRecordOnStart) Debugger.StartRecording();
             StartupGate?.Report("Game runtime", "Scene and runtime services constructed", 3, 4);
             _ready = true;
         }

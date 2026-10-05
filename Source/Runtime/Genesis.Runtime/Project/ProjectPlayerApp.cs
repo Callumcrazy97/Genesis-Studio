@@ -451,6 +451,12 @@ namespace Genesis.Runtime.Project
                     host.DebugProjectName = Path.GetFileName(Path.TrimEndingDirectorySeparator(projectPath));
                     host.DebugRecordOnStart = debugMode && DebugCategories.RecordOnStartRequested;
                     host.DebugEngineCategory = DebugCategories.EngineRequested;
+                    host.SceneBuilt += built =>
+                    {
+                        if (built.Debugger == null) return;
+                        built.Debugger.RecordingStarted += folder => logger.Line("profile recording: " + folder);
+                        built.Debugger.RecordingSaved += folder => logger.Line("profile saved: " + folder);
+                    };
                     if (debugMode && host.Debugger != null)
                     {
                         host.Debugger.IsVisible = true;
