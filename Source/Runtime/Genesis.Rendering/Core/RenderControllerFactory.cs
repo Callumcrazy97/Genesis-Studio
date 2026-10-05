@@ -11,12 +11,15 @@ namespace Genesis.Rendering.Core
         /// Creates the effective process backend. An unavailable requested backend falls back to
         /// DX11 until its Phase 6 controller is promoted to implemented in <see cref="RenderBackendCatalog"/>.
         /// </summary>
-        public static IRenderController Create()
+        public static IRenderController Create() => Create(ResolveBackend());
+
+        /// <summary>The backend <see cref="Create()"/> uses: the explicit environment choice, else the effective one.</summary>
+        public static RenderBackendOption ResolveBackend()
         {
             string explicitBackend = Environment.GetEnvironmentVariable(RenderBackendSelection.EnvironmentVariable);
-            return Create(string.IsNullOrWhiteSpace(explicitBackend)
+            return string.IsNullOrWhiteSpace(explicitBackend)
                 ? RenderBackendSelection.EffectiveBackend
-                : RenderBackendCatalog.ParseExplicitValue(explicitBackend));
+                : RenderBackendCatalog.ParseExplicitValue(explicitBackend);
         }
 
         /// <summary>

@@ -922,6 +922,8 @@ public sealed class ProjectHubForm : DpiAwareForm
     {
         try
         {
+            // Shown until Studio's window is up: ProjectOpened builds it.
+            using IDisposable notice = ProjectOpeningNotice.Begin(Path.GetFileNameWithoutExtension(path));
             ProjectSession session = _services.Projects.OpenProject(path);
             _services.Settings.AddRecentProject(session.Manifest.Name, session.ProjectFile);
             _services.Log.Information("ProjectHub", $"Opened project '{session.Manifest.Name}'.");

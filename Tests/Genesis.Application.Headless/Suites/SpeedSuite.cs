@@ -49,31 +49,22 @@ internal static class SpeedSuite
             services.Settings.Current.Editing.AutoSave = false;
             services.Settings.Current.General.CheckForExternalChanges = false;
 
-            // A cold open, as after starting Studio: nothing of this project is cached in the process.
-            ResourceNames.Invalidate(created.RootPath);
-            Stopwatch clock = Stopwatch.StartNew();
-            project = services.Projects.OpenProject(created.ProjectFile);
-            Record("Project open: read and upgrade the project", clock.Elapsed.TotalMilliseconds);
-
-            clock.Restart();
-            using StudioShellForm shell = new(services, project, persistLayout: false);
-            Record("Project open: build the Studio window", clock.Elapsed.TotalMilliseconds);
-
-            clock.Restart();
-            GateSuite.ShowHost(shell);
-            System.Windows.Forms.Application.DoEvents();
-            Record("Project open: show the Studio window", clock.Elapsed.TotalMilliseconds);
-            double shown = Total("Project open:");
-            Record("Project open: total until the window is usable", shown);
-
-            // What still runs after the window is shown (previews, the dependency graph): pumped
-            // until the browser has nothing left to do.
-            clock.Restart();
-            for (int i = 0; i < 400 && shell.AssetBrowser.PreviewBusy; i++) GateSuite.Pump(1, 5);
-            Record("Project open: background work after showing", clock.Elapsed.TotalMilliseconds);
-            HeadlessHarness.Assert(shell.AssetBrowser.ResourceTreeSnapshot is not null, "The resource tree was not built.");
-            HeadlessHarness.Assert(shown < 60_000, $"Opening the project took {shown:F0} ms.");
+            project = OpenInStudio(services, created.ProjectFile, "Project open");
         });
+
+        // GENESIS_SPEED_PROJECT=<a copy of a real project> also times opening that one. The
+        // project is opened for real (Studio may add .meta files), so point it at a copy.
+        string? given = Environment.GetEnvironmentVariable("GENESIS_SPEED_PROJECT");
+        if (!string.IsNullOrWhiteSpace(given))
+        {
+            HeadlessHarness.RunCase(ctx.Report, "Speed.ProjectOpen.Given", () =>
+            {
+                string file = File.Exists(given) ? given
+                    : Directory.EnumerateFiles(given, "*.genesisproj").FirstOrDefault()
+                      ?? throw new CheckNotRunException("No .genesisproj in " + given);
+                OpenInStudio(services!, file, "Given project open");
+            });
+        }
 
         // GENESIS_SPEED_ONLY=Terrain,Room limits a local investigation to some of the editors.
         string[] only = (Environment.GetEnvironmentVariable("GENESIS_SPEED_ONLY") ?? "")
@@ -109,6 +100,36 @@ internal static class SpeedSuite
         }
 
         WriteResults(ctx);
+    }
+
+    /// <summary>Opens a project the way Studio does and times each part until the window is usable.</summary>
+    private static ProjectSession OpenInStudio(StudioServices services, string projectFile, string label)
+    {
+        // A cold open, as after starting Studio: nothing of this project is cached in the process.
+        ResourceNames.Invalidate(Path.GetDirectoryName(projectFile)!);
+        Stopwatch clock = Stopwatch.StartNew();
+        ProjectSession project = services.Projects.OpenProject(projectFile);
+        Record(label + ": read and upgrade the project", clock.Elapsed.TotalMilliseconds);
+
+        clock.Restart();
+        using StudioShellForm shell = new(services, project, persistLayout: false);
+        Record(label + ": build the Studio window", clock.Elapsed.TotalMilliseconds);
+
+        clock.Restart();
+        GateSuite.ShowHost(shell);
+        System.Windows.Forms.Application.DoEvents();
+        Record(label + ": show the Studio window", clock.Elapsed.TotalMilliseconds);
+        double shown = Total(label + ":");
+        Record(label + ": total until the window is usable", shown);
+
+        // What still runs after the window is shown (previews, the dependency graph): pumped
+        // until it has nothing left to do.
+        clock.Restart();
+        for (int i = 0; i < 2000 && (shell.AssetBrowser.PreviewBusy || shell.IsProjectStillLoading); i++) GateSuite.Pump(1, 5);
+        Record(label + ": background work after showing", clock.Elapsed.TotalMilliseconds);
+        HeadlessHarness.Assert(shell.AssetBrowser.ResourceTreeSnapshot is not null, "The resource tree was not built.");
+        HeadlessHarness.Assert(shown < 60_000, $"Opening the project took {shown:F0} ms.");
+        return project;
     }
 
     private static double OpenEditor(ProjectSession project, string editor, string pass)

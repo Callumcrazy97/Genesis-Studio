@@ -24,6 +24,7 @@ internal sealed class StudioApplicationContext : ApplicationContext
         {
             try
             {
+                using IDisposable notice = ProjectOpeningNotice.Begin(Path.GetFileNameWithoutExtension(projectArgument));
                 ProjectSession project = _services.Projects.OpenProject(projectArgument);
                 _services.Settings.AddRecentProject(project.Manifest.Name, project.ProjectFile);
                 ShowStudio(project, null);
@@ -67,6 +68,8 @@ internal sealed class StudioApplicationContext : ApplicationContext
 
         try
         {
+            // The splash has finished: from here until Studio shows, say what is happening.
+            using IDisposable notice = ProjectOpeningNotice.Begin(recent.Name);
             ProjectSession project = _services.Projects.OpenProject(recent.ProjectFile);
             _services.Settings.AddRecentProject(project.Manifest.Name, project.ProjectFile);
             ShowStudio(project, previous);
@@ -166,9 +169,12 @@ internal sealed class StudioApplicationContext : ApplicationContext
         // Build the next window before hiding the hub. A resource error must leave a
         // visible, usable window instead of an invisible message loop in Task Manager.
         StudioShellForm? studio = null;
+        using IDisposable notice = ProjectOpeningNotice.Begin(project.Manifest.Name);
         try
         {
+            ProjectOpeningNotice.Step("Indexing the project's resources…");
             studio = new(_services, project);
+            ProjectOpeningNotice.Step("Laying out the workspace…");
             TransitionFrom(previous);
             MainForm = studio;
             studio.CloseProjectRequested += (_, _) => ShowProjectHub(studio);

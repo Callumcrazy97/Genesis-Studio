@@ -85,12 +85,23 @@ namespace Genesis.Runtime.Project
         public void DrawOverlay(IOverlayCanvas canvas, int width, int height)
         {
             if (IsComplete || canvas == null) return;
+            DrawStartupOverlay(canvas, width, height, Status, Progress);
+        }
+
+        /// <summary>
+        /// The loading screen's words and bar. Shared by this splash and by the screens shown while
+        /// the game is still being made, before the splash can start (see
+        /// <see cref="GenesisRuntimeHost.ShowStartupProgress"/>), so the two look the same.
+        /// </summary>
+        public static void DrawStartupOverlay(IOverlayCanvas canvas, int width, int height, string status, float progress)
+        {
+            if (canvas == null) return;
             float bw = MathF.Min(480, width * .72f), x = (width - bw) / 2, y = height * .77f;
             canvas.DrawTextCentered(GenesisBranding.EngineName, width / 2f, height * .68f, width, 24,
                 new Vector4(.92f, .96f, 1, 1), bold: true);
             canvas.DrawRect(x, y, bw, 8, new Vector4(.1f, .14f, .2f, 1), filled: true);
-            canvas.DrawRect(x, y, bw * Progress, 8, new Vector4(.35f, .8f, 1, 1), filled: true);
-            canvas.DrawTextCentered(Status, width / 2f, y + 22, width * .9f, 15, new Vector4(.65f, .74f, .84f, 1));
+            canvas.DrawRect(x, y, bw * Math.Clamp(progress, 0f, 1f), 8, new Vector4(.35f, .8f, 1, 1), filled: true);
+            canvas.DrawTextCentered(status ?? string.Empty, width / 2f, y + 22, width * .9f, 15, new Vector4(.65f, .74f, .84f, 1));
         }
         public void Dispose()
         {

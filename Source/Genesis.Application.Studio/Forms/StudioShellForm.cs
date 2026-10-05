@@ -67,6 +67,7 @@ public sealed partial class StudioShellForm : DpiAwareForm
         RenderingPreferencesBridge.ApplyProject(project.Manifest);
         _persistLayout = persistLayout;
         _resources = new ResourceService(project);
+        ProjectOpeningNotice.Step("Reading how the project's resources refer to each other…");
         _assetMonitor = new ProjectAssetMonitor(project.RootPath);
         _assetMonitor.Changed += OnProjectAssetsChanged;
         _assetMonitor.Error += OnAssetMonitorError;
@@ -141,11 +142,13 @@ public sealed partial class StudioShellForm : DpiAwareForm
         _dockPanel.BringToFront();
         BackdropSurface.Attach(_dockPanel, ThemeBackdrop.OpenScrim);
 
+        ProjectOpeningNotice.Step("Listing the project's resources…");
         _assetBrowser = new ResourceBrowserDock(_resources, services.Settings);
         _assetBrowser.HostFinderControls(_finderSearch, _finderFilter);
         _inspector = new InspectorDock();
         _inspector.ResourceOpenRequested += (_, resource) => OpenResource(resource);
         _console = new ConsoleDock(services.Log);
+        ProjectOpeningNotice.Step("Preparing the start page…");
         _welcome = new WelcomeDocument(project);
         foreach (GenesisDockContent dock in new GenesisDockContent[] { _assetBrowser, _inspector, _console, _welcome })
             dock.SetProjectShortcutRouter(RouteSharedWindowShortcut);
@@ -170,6 +173,7 @@ public sealed partial class StudioShellForm : DpiAwareForm
         ThemeService.ThemeChanged += OnThemeChanged;
         ApplyRuntimePreferences();
 
+        ProjectOpeningNotice.Step("Applying the theme…");
         ThemeService.Apply(this);
         menu.Renderer = ThemeService.CreateToolStripRenderer();
 
@@ -195,6 +199,9 @@ public sealed partial class StudioShellForm : DpiAwareForm
         _dockPanel.Contents.OfType<IStudioDocument>().ToArray();
 
     internal ProjectAssetMonitor AssetMonitor => _assetMonitor;
+
+    /// <summary>True while work started by opening the project is still running in the background.</summary>
+    internal bool IsProjectStillLoading => false;
 
     public ResourceDocument OpenResourceDocument(ResourceItem resource)
     {
@@ -1080,11 +1087,14 @@ public sealed partial class StudioShellForm : DpiAwareForm
             return;
         }
 
-        GenesisDockContent document = _editorRegistry.Create(
-            resource,
-            item => new ResourceDocument(item, _services.Log));
-        document.SetProjectShortcutRouter(RouteSharedWindowShortcut);
-        document.Show(_dockPanel, DockState.Document);
+        using (ShowOpeningPlaceholder(resource))
+        {
+            GenesisDockContent document = _editorRegistry.Create(
+                resource,
+                item => new ResourceDocument(item, _services.Log));
+            document.SetProjectShortcutRouter(RouteSharedWindowShortcut);
+            document.Show(_dockPanel, DockState.Document);
+        }
         SetStatus($"Opened {resource.Name}");
         _assetBrowser.RememberOpened(resource);
     }
