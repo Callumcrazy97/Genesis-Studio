@@ -107,7 +107,8 @@ public sealed partial class ObjectCompositionSubsystem
         foreach (ParticleLayerState layer in state.Layers)
         {
             GpuParticleDefinition definition = GpuParticleDefinitionBuilder.Build(
-                layer.Config, layer.World, layer.MeshSurfaceSamples);
+                layer.Config, layer.World, layer.MeshSurfaceSamples, previousLookup: layer.GpuLookup);
+            layer.GpuLookup = definition.Lookup;
 
             bool replace = layer.GpuEmitter is null
                 || layer.GpuEmitter.IsDisposed
@@ -171,7 +172,8 @@ public sealed partial class ObjectCompositionSubsystem
         if (emitter is null || emitter.IsDisposed) return;
 
         GpuParticleDefinition definition = GpuParticleDefinitionBuilder.Build(
-            layer.Config, layer.World, layer.MeshSurfaceSamples);
+            layer.Config, layer.World, layer.MeshSurfaceSamples, previousLookup: layer.GpuLookup);
+        layer.GpuLookup = definition.Lookup;
         emitter.UpdateDefinition(definition);
 
         ParticleEventConnection[] links = BuildEventConnections(state, layer);

@@ -48,6 +48,8 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomW
         public ParticleSimulation? Simulation;
         public GpuParticleEmitter? GpuEmitter;
         public IGpuParticleRenderer? GpuOwner;
+        /// <summary>The lookup table of the last GPU definition, reused while its values stay the same.</summary>
+        public Vector4[]? GpuLookup;
         public Vector3[] MeshSurfaceSamples = [];
         public SpriteDrawCall[] SpriteCalls = [];
         public MeshHandle Quad;

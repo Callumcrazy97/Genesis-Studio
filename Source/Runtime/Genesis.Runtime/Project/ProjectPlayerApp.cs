@@ -480,9 +480,13 @@ namespace Genesis.Runtime.Project
                     // Only this thread's loading holds a frame up, so only this thread's is counted.
                     Genesis.Shared.Assets.LoadClock.UseCurrentThread();
                     var slowFrames = new SlowFrameLog(logger.Line);
+                    AllocationRateLog allocations = AllocationRateLog.Requested(debugMode) ? new AllocationRateLog(logger.Line) : null;
+                    allocations?.SampleTypes();
                     host.AfterPresent += () =>
                     {
                         Genesis.Runtime.Diagnostics.SceneWorkTimes parts = host.Scene?.WorkTimes;
+                        allocations?.FrameEnded((host.BootSplash == null || host.BootSplash.IsComplete)
+                            && host.Scene != null && host.Scene.RoomChange == null);
                         slowFrames.FrameEnded(
                             gameContext?.Room?.Name ?? roomName,
                             counted: host.BootSplash == null || host.BootSplash.IsComplete,
