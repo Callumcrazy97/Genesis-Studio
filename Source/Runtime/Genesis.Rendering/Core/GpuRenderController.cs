@@ -95,6 +95,11 @@ namespace Genesis.Rendering.Core
             // The debug screen's Resources tab lists the textures this renderer has read from files.
             Genesis.Shared.Diagnostics.DebugResourceCatalog.Register("textures", this, DescribeTextureResources);
             _gpuSwapChain = _gpu.CreateSwapChain(windowHandle, width, height);
+            // The built-in programs below are independent: start making all of them side by side
+            // (once per process) so this thread only waits for whichever is still being made.
+            if (Environment.GetEnvironmentVariable("GENESIS_SHADER_WARMUP") != "0"
+                && !string.Equals(_gpu.BackendName, "Software", StringComparison.OrdinalIgnoreCase))
+                ShaderCompiler.WarmBuiltInInBackground(_gpu.ShaderBinaryFormat);
             _fwd = new ForwardRenderer(_gpu);
             _fwd.ExternalParticles = DrawSubmittedParticles3D;
             _fwd.ExternalParticlesPending = HasLayerParticles;

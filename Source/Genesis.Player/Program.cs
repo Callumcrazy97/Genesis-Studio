@@ -12,6 +12,11 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        // Packaging step: compile the engine's built-in shaders into the folder shipped beside
+        // Studio and the Player. Opens no window and plays nothing.
+        if (args.Length > 0 && string.Equals(args[0], Genesis.Rendering.Primitives.PrecompiledShaders.CommandLineSwitch, StringComparison.OrdinalIgnoreCase))
+            return Genesis.Rendering.Primitives.PrecompiledShaders.RunCommandLine(args);
+
         string packagedShaderCache = Path.Combine(AppContext.BaseDirectory, ".genesis-shaders");
         if (Directory.Exists(packagedShaderCache)
             && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("GENESIS_SHADER_CACHE")))

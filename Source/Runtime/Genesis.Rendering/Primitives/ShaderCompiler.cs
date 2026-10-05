@@ -231,10 +231,29 @@ namespace Genesis.Rendering.Primitives
             string root, string key, string expanded, string entry, string profile,
             GpuShaderBinaryFormat binaryFormat, string sourcePath)
         {
+            // The engine's own shaders ship compiled beside the program (same key), so a new
+            // engine version starts without compiling them; a project's shaders never match there.
+            if (ShaderBinaryCache.TryReadPrecompiled(key, binaryFormat, out byte[] shipped))
+            {
+                System.Threading.Interlocked.Increment(ref _precompiledReads);
+                _threadPrecompiledReads++;
+                return (shipped, true);
+            }
+
             if (ShaderBinaryCache.TryRead(root, key, binaryFormat, out byte[] cached))
                 return (cached, true);
 
-            byte[] blob = binaryFormat switch
+            byte[] blob = CompileExpanded(expanded, entry, profile, binaryFormat, sourcePath);
+            ShaderBinaryCache.TryWrite(root, key, binaryFormat, blob);
+            return (blob, false);
+        }
+
+        private static byte[] CompileExpanded(
+            string expanded, string entry, string profile, GpuShaderBinaryFormat binaryFormat, string sourcePath)
+        {
+            System.Threading.Interlocked.Increment(ref _compiles);
+            _threadCompiles++;
+            return binaryFormat switch
             {
                 GpuShaderBinaryFormat.Dxbc => CompileDxbcExpanded(expanded, entry, profile, sourcePath),
                 GpuShaderBinaryFormat.Dxil => DxcToolchain.CompileDxil(expanded, entry, profile, sourcePath),
@@ -242,24 +261,78 @@ namespace Genesis.Rendering.Primitives
                 GpuShaderBinaryFormat.GlslUtf8 => CompileGlsl(expanded, entry, profile, sourcePath),
                 _ => throw new ArgumentOutOfRangeException(nameof(binaryFormat), binaryFormat, null),
             };
+        }
 
-            ShaderBinaryCache.TryWrite(root, key, binaryFormat, blob);
-            return (blob, false);
+        private static long _compiles;
+        private static long _precompiledReads;
+
+        /// <summary>Shaders this process has actually compiled (not read from any cache).</summary>
+        public static long CompilesPerformed => System.Threading.Interlocked.Read(ref _compiles);
+
+        /// <summary>Shaders this process has read from the precompiled folder shipped with it.</summary>
+        public static long PrecompiledReads => System.Threading.Interlocked.Read(ref _precompiledReads);
+
+        // Per thread, for tests that count what one request did while warm-up threads run.
+        [ThreadStatic] private static int _threadCompiles;
+        [ThreadStatic] private static int _threadPrecompiledReads;
+        internal static int CompilesOnThisThread => _threadCompiles;
+        internal static int PrecompiledReadsOnThisThread => _threadPrecompiledReads;
+
+        /// <summary>
+        /// Appended to the compiler identity of compiles requested on this thread. Tests use it to
+        /// stand for a different compiler version; it is null otherwise.
+        /// </summary>
+        [ThreadStatic] internal static string CompilerIdentitySuffix;
+
+        /// <summary>
+        /// Compiles one stage with no cache at all, returning the key the runtime cache would file
+        /// it under. Used to build the precompiled folder, which must never inherit a damaged or
+        /// stale entry from this machine's own cache.
+        /// </summary>
+        internal static (string Key, byte[] Blob) CompileForPrecompiledFolder(
+            string source, string entry, GpuShaderStage stage, GpuShaderBinaryFormat binaryFormat, string sourcePath)
+        {
+            string profile = GetProfile(stage, binaryFormat);
+            string expanded = ExpandIncludes(source, sourcePath, null);
+            string key = ShaderBinaryCache.BuildKey(expanded, entry, profile, binaryFormat, CompilerIdentity(binaryFormat));
+            return (key, CompileExpanded(expanded, entry, profile, binaryFormat, sourcePath));
+        }
+
+        /// <summary>The cache key of one stage, exactly as <see cref="CompileForBackend"/> files it.</summary>
+        internal static string CacheKey(string source, string entry, GpuShaderStage stage, GpuShaderBinaryFormat binaryFormat, string sourcePath = null)
+        {
+            string profile = GetProfile(stage, binaryFormat);
+            return ShaderBinaryCache.BuildKey(
+                ExpandIncludes(source, sourcePath, null), entry, profile, binaryFormat, CompilerIdentity(binaryFormat));
         }
 
         /// <summary>
         /// Starts compiling every built-in Direct3D 11 program on worker threads, so a game window
         /// that is about to open finds them made (or being made) instead of compiling them one
-        /// after another while its window stays blank. Only DXBC: the DXC toolchain behind the
-        /// other formats is not shared between threads.
+        /// after another while its window stays blank.
         /// </summary>
-        public static void WarmBuiltInDxbcInBackground()
+        public static void WarmBuiltInDxbcInBackground() => WarmBuiltInInBackground(GpuShaderBinaryFormat.Dxbc);
+
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<GpuShaderBinaryFormat, bool> Warming = new();
+
+        /// <summary>
+        /// Starts making every built-in program for one backend's format on worker threads (once
+        /// per process and format). The renderer then finds each one made, or waits for the
+        /// worker already making it, instead of making them one after another. With the
+        /// precompiled folder present this only reads files; without it (an engine built without
+        /// that step) the independent programs compile side by side. DXC runs as one process per
+        /// compile, so the DXIL, SPIR-V and GLSL formats compile in parallel as well as DXBC.
+        /// </summary>
+        public static void WarmBuiltInInBackground(GpuShaderBinaryFormat binaryFormat)
         {
+            if (!Warming.TryAdd(binaryFormat, true)) return;
+
             // The largest programs first, so the longest compile starts at once. Dedicated
             // threads, not the thread pool: start-up work that waits on a pool thread must not
             // queue behind seconds of compiling.
-            EngineShaderJob[] jobs = new EngineShaderJob[EngineShaderCatalog.Jobs.Count];
-            for (int i = 0; i < jobs.Length; i++) jobs[i] = EngineShaderCatalog.Jobs[i];
+            IReadOnlyList<EngineShaderJob> catalog = EngineShaderCatalog.PrecompiledJobs;
+            EngineShaderJob[] jobs = new EngineShaderJob[catalog.Count];
+            for (int i = 0; i < jobs.Length; i++) jobs[i] = catalog[i];
             Array.Sort(jobs, static (a, b) => b.Source.Length.CompareTo(a.Source.Length));
             int next = -1;
             int workers = Math.Clamp(Environment.ProcessorCount / 2, 1, 4);
@@ -270,7 +343,7 @@ namespace Genesis.Rendering.Primitives
                     for (int index = System.Threading.Interlocked.Increment(ref next); index < jobs.Length;
                          index = System.Threading.Interlocked.Increment(ref next))
                     {
-                        try { EngineShaderCatalog.Compile(jobs[index], GpuShaderBinaryFormat.Dxbc); }
+                        try { EngineShaderCatalog.Compile(jobs[index], binaryFormat); }
                         catch (Exception) { /* The renderer compiles it again and reports the error itself. */ }
                     }
                 })
@@ -285,7 +358,10 @@ namespace Genesis.Rendering.Primitives
             }
         }
 
-        private static string CompilerIdentity(GpuShaderBinaryFormat binaryFormat) => binaryFormat switch
+        private static string CompilerIdentity(GpuShaderBinaryFormat binaryFormat) =>
+            BaseCompilerIdentity(binaryFormat) + (CompilerIdentitySuffix ?? string.Empty);
+
+        private static string BaseCompilerIdentity(GpuShaderBinaryFormat binaryFormat) => binaryFormat switch
         {
             GpuShaderBinaryFormat.Dxbc => DxbcCompilerIdentity,
             GpuShaderBinaryFormat.Dxil => DxcToolchain.CompilerIdentity(GpuShaderBinaryFormat.Dxil),
