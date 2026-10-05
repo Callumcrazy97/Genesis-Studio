@@ -26,6 +26,70 @@ internal static partial class TerrainLayersGrassSuite
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.GrassRule.CellsRecycleWithinFrameBudget", GrassRecycling);
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.GrassRule.Dx11DrawsMeadowNotDirt", () => GrassDx11Capture(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.GrassRule.Dx11FrameCostBeforeAndAfter", () => GrassDx11FrameCost(ctx));
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.GrassRule.TerrainEditorAppliesSavesAndDrawsRule", () => GrassTerrainEditor(ctx));
+    }
+
+    private static void GrassTerrainEditor(HeadlessContext ctx)
+    {
+        ProjectSession project = new ProjectService().CreateProject(Path.Combine(ctx.Workspace, "GrassRuleEditor"), "Grass rule editor");
+        var resources = new Genesis.Application.Core.Resources.ResourceService(project);
+        string terrainFile = resources.CreateResource(resources.AssetsRoot, Genesis.Application.Core.Resources.ResourceKind.Terrain, "Meadow strip");
+        GrassSplitTerrain(129, 0.5f, slope: 0f).Save(terrainFile + ".gterrain");
+        TerrainGrassRuleSettings expected;
+        using (var editor = new Genesis.Application.Editors.Suite.Terrain.TerrainEditorControl(terrainFile, project.RootPath))
+        {
+            GrassAssert(!editor.GrassRule.Enabled, "A new terrain starts with grass around the camera on.");
+            using (Form dialog = editor.CreateScatterSettingsDialog())
+            {
+                List<Control> controls = GrassControls(dialog).ToList();
+                GrassAssert(controls.Any(control => control.Name == "InspectorDrawer_Layer8Density")
+                    && controls.Any(control => control.Name == "InspectorDrawer_Radius")
+                    && controls.Any(control => control is Button && control.Text.Contains("Apply Grass Rule", StringComparison.Ordinal)),
+                    "The foliage page does not show the grass rule with an Apply action.");
+            }
+
+            TerrainGrassRuleSettings rule = editor.GrassRule;
+            rule.Enabled = true; rule.Layer1Density = 1f; rule.Layer2Density = 0f; rule.Seed = 11; rule.Radius = 60f;
+            editor.ApplyGrassRule(rule);
+            GrassAssert(editor.GrassRule is { Enabled: true, Seed: 11 } && editor.IsDirty, "Apply did not set the grass rule.");
+            editor.Undo();
+            GrassAssert(!editor.GrassRule.Enabled, "Undo did not restore the previous grass rule.");
+            editor.ApplyGrassRule(rule);
+            expected = editor.GrassRule;
+            editor.Save();
+        }
+
+        GrassAssert(TerrainNatureSerializer.LoadOrDefault(terrainFile).GrassRule.SameAs(expected), "Saving the terrain did not write the grass rule.");
+        using var reopened = new Genesis.Application.Editors.Suite.Terrain.TerrainEditorControl(terrainFile, project.RootPath);
+        GrassAssert(reopened.GrassRule.SameAs(expected), "Reopening the terrain lost the grass rule.");
+
+        // The Terrain view grows and draws the same grass around its own camera.
+        reopened.Viewport.BackendOverride = RenderBackendOption.SilkNetDx11;
+        using Form host = UnattendedWindowing.NewHost(1360, 880);
+        reopened.Dock = DockStyle.Fill; host.Controls.Add(reopened);
+        Genesis.Application.Studio.Theme.ThemeService.Apply(host); UnattendedWindowing.ShowWithoutFocus(host);
+        reopened.Viewport.Host.TimerEnabled = false;
+        reopened.Viewport.Camera.Target = new Vector3(0f, 0f, 4f);
+        reopened.Viewport.Camera.Distance = 22f; reopened.Viewport.Camera.Pitch = -0.32f; reopened.Viewport.Camera.Yaw = 0f;
+        DateTime deadline = DateTime.UtcNow.AddSeconds(20);
+        Bitmap? captured = null;
+        while (DateTime.UtcNow < deadline)
+        {
+            System.Windows.Forms.Application.DoEvents();
+            captured?.Dispose();
+            captured = reopened.Viewport.CaptureFrame(2);
+            TerrainGrassStatistics drawn = reopened.LastGrassRuleStatistics;
+            if (captured is not null && drawn.TuftsDrawn > 500 && drawn.PendingCells == 0) break;
+            Thread.Sleep(25);
+        }
+
+        GrassAssert(captured is not null, "The Terrain view produced no frame.");
+        captured!.Save(Path.Combine(ctx.Captures, "terrain-grass-rule-editor.png"));
+        ctx.Report.Images.Add(new ImageResult("terrain-grass-rule-editor", "terrain-grass-rule-editor.png", captured.Width, captured.Height, 0, 0));
+        TerrainGrassStatistics stats = reopened.LastGrassRuleStatistics;
+        captured.Dispose();
+        Console.WriteLine($"[GrassRule] Terrain view: {stats.TuftsDrawn} tufts drawn from {stats.ResidentCells} cells.");
+        GrassAssert(stats.TuftsDrawn > 500, $"The Terrain view drew {stats.TuftsDrawn} rule tufts.");
     }
 
     private static void GrassSettingsRoundTrip(HeadlessContext ctx)
