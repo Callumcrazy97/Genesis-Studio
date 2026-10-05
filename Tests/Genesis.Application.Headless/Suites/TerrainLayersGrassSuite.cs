@@ -64,6 +64,11 @@ internal static partial class TerrainLayersGrassSuite
             Assert(Math.Abs(total - 255) <= 8, $"Eight-layer weights at {x},{z} sum to {total}, not 255.");
         }
         Assert(terrain.GetLayerWeight(20, 20, 2) < 40, "Painting layer 6 did not lower the other layers.");
+        // Rules that read paint (grass around the camera) see layers 5-8 too.
+        Span<float> grassWeights = stackalloc float[Genesis.World.Foliage.TerrainGrassLayerWeights.LayerCount];
+        Genesis.World.Foliage.TerrainGrassLayerWeights.Sample(terrain, 20, 20, grassWeights);
+        Assert(MathF.Abs(grassWeights[5] - terrain.GetLayerWeight(20, 20, 5) / 255f) < .001f && grassWeights[5] > .78f,
+            "Grass layer densities do not read paint layer 6.");
         string extended = Path.Combine(folder, "eight.gterrain"); terrain.Save(extended);
         byte[] extendedBytes = File.ReadAllBytes(extended);
         Assert(BitConverter.ToInt32(extendedBytes, 4) == 2 && extendedBytes.Length == 36 + 33 * 33 * 10, "An eight-layer terrain did not save version 2.");
