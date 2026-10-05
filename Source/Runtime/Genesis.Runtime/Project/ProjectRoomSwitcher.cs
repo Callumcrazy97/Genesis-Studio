@@ -61,6 +61,13 @@ namespace Genesis.Runtime.Project
         /// <summary>True while a room change is under way across frames.</summary>
         public bool Changing => _change != null;
 
+        /// <summary>
+        /// Time a frame drawn behind the cover may spend sending textures to the graphics card, in
+        /// milliseconds; the renderer's own, smaller, budget for a frame of play applies again once
+        /// the room is shown.
+        /// </summary>
+        public const double CoverTextureUploadMilliseconds = 24;
+
         private double Budget => Math.Max(0, RoomChangeScreen.FrameBudgetMilliseconds ?? FrameBudgetMilliseconds);
 
         public ProjectRoomSwitcher(
@@ -114,6 +121,7 @@ namespace Genesis.Runtime.Project
         {
             _change?.Dispose();
             _change = null;
+            RestorePlayUploadBudget();
         }
 
         public void RequestLiveReload(ProjectAssetChangeSet changes)
@@ -171,6 +179,8 @@ namespace Genesis.Runtime.Project
         {
             // An asset saved in Studio rebuilds the room in one step: a loading screen on every save would be a nuisance.
             _spread = Budget > 0 && !liveReload;
+            // The load profile of a room change covers the change alone, not the play before it.
+            Genesis.Shared.Diagnostics.LoadProfile.Reset();
             _framesSpread = 0;
             _longestPieceMilliseconds = 0;
             _progress = new RoomChangeProgress { RoomName = roomName, Advance = Advance };
@@ -220,10 +230,23 @@ namespace Genesis.Runtime.Project
             scene.RoomChange ??= _progress;
         }
 
+        // The renderer's upload budget for a frame of play while the cover has a larger one; null otherwise.
+        private double? _playUploadBudget;
+
+        /// <summary>Gives play its own texture upload budget back, however the warm-up ended.</summary>
+        private void RestorePlayUploadBudget()
+        {
+            if (_playUploadBudget is not double budget) return;
+            _playUploadBudget = null;
+            if (_renderer != null && _renderer.BackgroundTextureUploadMilliseconds == CoverTextureUploadMilliseconds)
+                _renderer.BackgroundTextureUploadMilliseconds = budget;
+        }
+
         private void Finish(RuntimeScene scene)
         {
             _change?.Dispose();
             _change = null;
+            RestorePlayUploadBudget();
             if (!ReferenceEquals(scene.RoomChange, _progress)) return;
             scene.RoomChange = null;
             _progress.Progress = 1f;
@@ -339,17 +362,37 @@ namespace Genesis.Runtime.Project
             Genesis.Shared.Assets.LoadClockSnapshot loaded = Genesis.Shared.Assets.LoadClock.Capture();
             double quickest = double.MaxValue, slowest1 = 0;
             int frames = 0, settled = 0;
+            // With GENESIS_LOAD_PROFILE=1: how many frames the cover stayed up waiting for what.
+            int waitedModels = 0, waitedTextures = 0, waitedSubsystems = 0, waitedSettling = 0;
+            // Nothing behind the cover moves, so its frames may send the room's textures to the
+            // graphics card several times faster than a frame of play would. At four milliseconds
+            // a frame a room of eighty pictures kept its cover up for twenty frames for them alone.
+            double playUploadBudget = _renderer?.BackgroundTextureUploadMilliseconds ?? 0;
+            if (_playUploadBudget == null && playUploadBudget > 0 && playUploadBudget < CoverTextureUploadMilliseconds)
+            {
+                _playUploadBudget = playUploadBudget;
+                _renderer.BackgroundTextureUploadMilliseconds = CoverTextureUploadMilliseconds;
+            }
             while (true)
             {
-                bool ready = Genesis.Runtime.Modeling.RuntimeModelStore.PrefetchesPending == 0
-                    && (_renderer?.BackgroundTexturesPending ?? 0) == 0;
+                bool modelsReady = Genesis.Runtime.Modeling.RuntimeModelStore.PrefetchesPending == 0;
+                bool texturesReady = (_renderer?.BackgroundTexturesPending ?? 0) == 0;
+                bool ready = modelsReady && texturesReady;
+                bool subsystemsReady = true;
                 long mark = Stopwatch.GetTimestamp();
                 for (int i = 0; i < scene.Subsystems.Count; i++)
                 {
                     if (scene.Subsystems[i] is not IRoomWarmUpSubsystem warming) continue;
-                    if (!warming.WarmUp(scene)) ready = false;
-                    mark = scene.WorkTimes.Add(Genesis.Runtime.Diagnostics.SceneWorkTimes.NameOf(warming, "warm-up"), mark);
+                    string part = Genesis.Runtime.Diagnostics.SceneWorkTimes.NameOf(warming, "warm-up");
+                    using (Genesis.Shared.Diagnostics.LoadProfile.Begin(part))
+                        if (!warming.WarmUp(scene)) ready = subsystemsReady = false;
+                    mark = scene.WorkTimes.Add(part, mark);
                 }
+
+                if (!modelsReady) waitedModels++;
+                if (!texturesReady) waitedTextures++;
+                if (!subsystemsReady) waitedSubsystems++;
+                if (ready) waitedSettling++;
 
                 // A frame that loaded something, or took far longer than the quickest frame so
                 // far, shows the room is still settling.
@@ -373,6 +416,7 @@ namespace Genesis.Runtime.Project
                 yield return (0.7f + 0.3f * frames / (frames + 8f), true);
             }
 
+            RestorePlayUploadBudget();
             _logger?.Line((firstRoom ? "First room: " : "Room change: ")
                 + $"{roomName} was prepared behind the cover for {frames} frames "
                 + $"({Stopwatch.GetElapsedTime(warmUpStarted).TotalMilliseconds:F0} ms, longest frame {slowest1:F0} ms)"
@@ -381,6 +425,14 @@ namespace Genesis.Runtime.Project
                     : $" and shown {Stopwatch.GetElapsedTime(changeStarted).TotalMilliseconds:F0} ms after the change began, over {_framesSpread} frames; ")
                 + $"the longest single piece {(firstRoom ? "of that" : "of the change")} took {_longestPieceMilliseconds:F0} ms"
                 + (Stopwatch.GetElapsedTime(warmUpStarted).TotalSeconds >= WarmUpTimeoutSeconds ? "; it was shown before it had settled, at the time limit" : string.Empty));
+            if (Genesis.Shared.Diagnostics.LoadProfile.Enabled)
+            {
+                Genesis.Shared.Diagnostics.LoadProfile.Mark(firstRoom ? "first room ready" : "room ready");
+                _logger?.Line($"Load profile: the cover waited {waitedModels} frames for model files read ahead, {waitedTextures} for textures, "
+                    + $"{waitedSubsystems} for a subsystem's warm-up and {waitedSettling} with everything loaded, for frames to settle");
+                foreach (string line in Genesis.Shared.Diagnostics.LoadProfile.TakeReport((firstRoom ? "start-up and first room " : "room change to ") + roomName))
+                    _logger?.Line(line);
+            }
         }
 
         // GENESIS_ROOM_CHANGE_MEMORY=1 collects before measuring, so the managed figure is what is

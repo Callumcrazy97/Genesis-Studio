@@ -295,7 +295,8 @@ namespace Genesis.Runtime
                     if (AllowStreamingUpdates) Streaming.UpdateProviders(this, GameTime);
                 }
 
-                change.Advance?.Invoke(this);
+                using (Genesis.Shared.Diagnostics.LoadProfile.Begin("room change"))
+                    change.Advance?.Invoke(this);
                 WorkTimes.Add("room change", mark);
                 return;
             }
@@ -323,8 +324,10 @@ namespace Genesis.Runtime
             for (int i = 0; i < _subsystems.Count; i++)
             {
                 ISceneSubsystem subsystem = _subsystems[i];
-                subsystem.Update(this, GameTime);
-                mark = WorkTimes.Add(Genesis.Runtime.Diagnostics.SceneWorkTimes.NameOf(subsystem, "update"), mark);
+                string part = Genesis.Runtime.Diagnostics.SceneWorkTimes.NameOf(subsystem, "update");
+                using (Genesis.Shared.Diagnostics.LoadProfile.Begin(part))
+                    subsystem.Update(this, GameTime);
+                mark = WorkTimes.Add(part, mark);
             }
         }
 
@@ -411,8 +414,10 @@ namespace Genesis.Runtime
                 for (int i = 0; i < _subsystems.Count; i++)
                 {
                     ISceneSubsystem subsystem = _subsystems[i];
-                    subsystem.SubmitMeshes(this, buffer, ref count, renderer);
-                    mark = WorkTimes.Add(Genesis.Runtime.Diagnostics.SceneWorkTimes.NameOf(subsystem, "draws"), mark);
+                    string part = Genesis.Runtime.Diagnostics.SceneWorkTimes.NameOf(subsystem, "draws");
+                    using (Genesis.Shared.Diagnostics.LoadProfile.Begin(part))
+                        subsystem.SubmitMeshes(this, buffer, ref count, renderer);
+                    mark = WorkTimes.Add(part, mark);
                 }
             }
             finally

@@ -48,26 +48,47 @@ namespace Genesis.Shared.Assets
         {
             private readonly LoadWork _work;
             private readonly long _started;
+            private readonly Genesis.Shared.Diagnostics.LoadProfile.Span _profile;
 
-            internal Scope(LoadWork work, long started)
+            internal Scope(LoadWork work, long started, Genesis.Shared.Diagnostics.LoadProfile.Span profile)
             {
                 _work = work;
                 _started = started;
+                _profile = profile;
             }
 
             public void Dispose()
             {
+                _profile.Dispose();
                 if (_started == 0) return;
                 Interlocked.Add(ref Ticks[(int)_work], Stopwatch.GetTimestamp() - _started);
                 Interlocked.Increment(ref Counts[(int)_work]);
             }
         }
 
-        /// <summary>Times the work until the returned value is disposed.</summary>
-        public static Scope Measure(LoadWork work) =>
-            _gameThread != 0 && Environment.CurrentManagedThreadId != _gameThread
-                ? default
-                : new Scope(work, Stopwatch.GetTimestamp());
+        private static readonly string[] ProfileNames = BuildProfileNames();
+
+        private static string[] BuildProfileNames()
+        {
+            var names = new string[Kinds];
+            for (int kind = 0; kind < Kinds; kind++)
+                names[kind] = new LoadClockSnapshot(null, null).NameOf((LoadWork)kind);
+            return names;
+        }
+
+        /// <summary>
+        /// Times the work until the returned value is disposed. With GENESIS_LOAD_PROFILE=1 the
+        /// work is also a span in the load profile, on whichever thread it is done.
+        /// </summary>
+        public static Scope Measure(LoadWork work)
+        {
+            Genesis.Shared.Diagnostics.LoadProfile.Span profile = Genesis.Shared.Diagnostics.LoadProfile.Enabled
+                ? Genesis.Shared.Diagnostics.LoadProfile.Begin(ProfileNames[(int)work])
+                : default;
+            return _gameThread != 0 && Environment.CurrentManagedThreadId != _gameThread
+                ? new Scope(work, 0, profile)
+                : new Scope(work, Stopwatch.GetTimestamp(), profile);
+        }
 
         /// <summary>How many pieces of one kind of work have been done since the process started.</summary>
         public static int Count(LoadWork work) => Volatile.Read(ref Counts[(int)work]);
@@ -120,6 +141,8 @@ namespace Genesis.Shared.Assets
 
             return text.ToString();
         }
+
+        internal string NameOf(LoadWork work) => Name(work, 2);
 
         private static string Name(LoadWork work, int count) => work switch
         {

@@ -150,8 +150,11 @@ public sealed class TerrainScatterColliders
                         else
                         {
                             int cellX = cx, cellZ = cz;
-                            _making[cellKey] = System.Threading.Tasks.Task.Run(
-                                () => Bucket(TerrainScatterPlacement.Generate(_terrain, layer, cellX, cellZ), cellX, cellZ));
+                            _making[cellKey] = System.Threading.Tasks.Task.Run(() =>
+                            {
+                                using (Genesis.Shared.Diagnostics.LoadProfile.Begin("scatter collision cell made on a worker"))
+                                    return Bucket(TerrainScatterPlacement.Generate(_terrain, layer, cellX, cellZ), cellX, cellZ);
+                            });
                             _waiting = true;
                             continue;
                         }

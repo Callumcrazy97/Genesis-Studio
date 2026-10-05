@@ -46,6 +46,8 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
         public int ColliderRegistrationId;
         /// <summary>A small terrain's collision being prepared on a worker thread; null once it is solid, and for a large terrain.</summary>
         public System.Threading.Tasks.Task<PhysicsWorld.PreparedStaticMesh> ColliderPreparing;
+        /// <summary>Where a small terrain's prepared collision is kept between runs, in the project's own cache folder.</summary>
+        public string ColliderCacheDirectory;
         /// <summary>
         /// True for a terrain that arrived as the camera neared it. Nothing stands on it yet, so
         /// it becomes solid when its collision is ready rather than holding a frame up for it.
@@ -125,10 +127,17 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
         TerrainAsset terrain = entry.Terrain;
         RoomTransform transform = RoomHierarchyTransforms.World(entry.Room, entry.Node);
         var scale = new Vector3(transform.ScaleX, transform.ScaleY, transform.ScaleZ);
+        string cache = entry.ColliderCacheDirectory;
         entry.ColliderPreparing = System.Threading.Tasks.Task.Run(() =>
         {
-            TerrainColliderMesh.Build(terrain, out Vector3[] vertices, out int[] indices);
-            return PhysicsWorld.PrepareStaticTriangleMesh(vertices, indices, scale);
+            Vector3[] vertices;
+            int[] indices;
+            using (Genesis.Shared.Diagnostics.LoadProfile.Begin("terrain collision: triangles made on a worker"))
+                TerrainColliderMesh.Build(terrain, out vertices, out indices);
+            // Building the physics engine's search tree over a terrain's triangles is seconds of
+            // work; the same triangles give the same tree, so it is kept and read back next time.
+            using (Genesis.Shared.Diagnostics.LoadProfile.Begin("terrain collision: physics tree made or read on a worker"))
+                return PhysicsWorld.PrepareStaticTriangleMesh(vertices, indices, scale, cache);
         });
     }
 
@@ -228,6 +237,7 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
             Node = node,
             BinaryPath = binaryPath,
             ResourcePath = resourcePath,
+            ColliderCacheDirectory = Path.Combine(_projectPath, ".genesis", "Cache", "Colliders"),
             Terrain = terrain,
             Ground = new AuthoredTerrainGround(terrain),
             Nature = nature,

@@ -35,6 +35,8 @@ namespace Genesis.Runtime.Modeling
             public long NextFreshnessCheckMilliseconds;
             public int FrameGeneration;
             public long AssetGeneration;
+            /// <summary>The file a pending texture was found at, so asking again next frame does not search for it again.</summary>
+            public string PendingPath;
         }
         // Weakly keyed by renderer: several of these systems are static, and a strong key pinned
         // every disposed editor/preview renderer (and its GPU cache) for the life of the process.
@@ -263,14 +265,23 @@ namespace Genesis.Runtime.Modeling
             List<ModelGpuCache.CachedMesh> drawn = null)
         {
             if (queue == null || renderer == null || asset == null) return false;
-            ModelGpuCache.CachedAsset gpuAsset = _gpu.GetOrCreate(renderer, asset);
+            ModelGpuCache.CachedAsset gpuAsset;
+            using (Genesis.Shared.Diagnostics.LoadProfile.Begin("model: find or make its graphics-card copy"))
+                gpuAsset = _gpu.GetOrCreate(renderer, asset);
             if (gpuAsset == null || gpuAsset.Meshes.Count == 0)
                 return false;
 
-            IReadOnlyDictionary<string, float> morphWeights = ModelMorphEvaluator.ResolveWeights(asset, animation);
-            IReadOnlyList<ModelGpuCache.CachedMesh> renderMeshes = _gpu.ResolveMeshes(renderer, asset, gpuAsset, morphWeights);
+            IReadOnlyDictionary<string, float> morphWeights;
+            IReadOnlyList<ModelGpuCache.CachedMesh> renderMeshes;
+            using (Genesis.Shared.Diagnostics.LoadProfile.Begin("model: morph weights and meshes"))
+            {
+                morphWeights = ModelMorphEvaluator.ResolveWeights(asset, animation);
+                renderMeshes = _gpu.ResolveMeshes(renderer, asset, gpuAsset, morphWeights);
+            }
 
-            SkinPaletteHandle palette = _gpu.UpdatePalette(renderer, asset, gpuAsset, animation);
+            SkinPaletteHandle palette;
+            using (Genesis.Shared.Diagnostics.LoadProfile.Begin("model: skinning palette"))
+                palette = _gpu.UpdatePalette(renderer, asset, gpuAsset, animation);
             ModelHairSelection hair = ModelHairRuntime.Resolve(asset, rendererComponent.Hair);
             Vector3 pivot = asset.Pivot?.Position ?? Vector3.Zero;
             bool drawsMaterialFactors = asset.DrawsMaterialFactors();
@@ -334,6 +345,7 @@ namespace Genesis.Runtime.Modeling
                     if (material?.AlphaMode == GModelAlphaMode.Blend)
                         flags |= MeshDrawFlags.Transparent | MeshDrawFlags.NoDepthWrite | MeshDrawFlags.NoShadow;
                     bool hasOverride = !string.IsNullOrWhiteSpace(materialOverride);
+                    Genesis.Shared.Diagnostics.LoadProfile.Span texturesProfile = Genesis.Shared.Diagnostics.LoadProfile.Begin("model: material textures");
                     texture = animation.IgnoreTextures ? TextureHandle.Invalid : LoadMaterialTexture(
                         renderer,
                         projectPath,
@@ -345,6 +357,7 @@ namespace Genesis.Runtime.Modeling
                         ormMap = LoadMaterialTexture(renderer, projectPath, material.MetallicRoughnessTexture, TextureColorSpace.Linear, background, ref texturesPending);
                         emissionMap = LoadMaterialTexture(renderer, projectPath, material.EmissiveTexture, TextureColorSpace.Srgb, background, ref texturesPending);
                     }
+                    texturesProfile.Dispose();
 
                     // A worker is still reading one of them. Asking has started them all; the mesh waits.
                     if (texturesPending) continue;
@@ -418,7 +431,10 @@ namespace Genesis.Runtime.Modeling
                 // A material may name a mesh Shader resource of its own: a building's glass and walls
                 // are one model.
                 if (!string.IsNullOrWhiteSpace(material?.Shader) && !animation.FlatUntextured)
-                    Genesis.Runtime.Rendering.ObjectDrawPass.TryApplyMaterialShader(renderer, projectPath, material.Shader, ref draw);
+                {
+                    using (Genesis.Shared.Diagnostics.LoadProfile.Begin("model: material's own shader"))
+                        Genesis.Runtime.Rendering.ObjectDrawPass.TryApplyMaterialShader(renderer, projectPath, material.Shader, ref draw);
+                }
                 queue.Add(draw);
             }
             return true;
@@ -515,10 +531,25 @@ namespace Genesis.Runtime.Modeling
                 return cached.Handle;
             }
 
-            TextureHandle texture = ResolveMaterialTexture(renderer, projectPath, texturePath, colorSpace, background, out bool waiting);
+            TextureHandle texture;
+            bool waiting;
+            string found;
+            // A texture a worker is still reading was found last frame: ask the renderer about the
+            // same file rather than searching the project for it again in every frame it is awaited.
+            if (cached is { Pending: true, PendingPath: not null } && background && cached.AssetGeneration == assetGeneration)
+            {
+                found = cached.PendingPath;
+                using (Genesis.Shared.Diagnostics.LoadProfile.Begin("ask the renderer for it"))
+                    texture = renderer.LoadTextureInBackground(found, colorSpace, out waiting);
+            }
+            else
+            {
+                texture = ResolveMaterialTexture(renderer, projectPath, texturePath, colorSpace, background, out waiting, out found);
+            }
             pending |= waiting;
             cached ??= new CachedTexture();
             cached.Pending = waiting;
+            cached.PendingPath = waiting ? found : null;
             cached.Handle = texture;
             cached.FrameGeneration = _frameGeneration;
             cached.AssetGeneration = assetGeneration;
@@ -532,21 +563,29 @@ namespace Genesis.Runtime.Modeling
         }
 
         private static TextureHandle ResolveMaterialTexture(IRenderController renderer, string projectPath, string texturePath,
-            TextureColorSpace colorSpace, bool background, out bool pending)
+            TextureColorSpace colorSpace, bool background, out bool pending, out string resolved)
         {
             pending = false;
-            string resolved = ResolveTexturePath(projectPath, texturePath);
-            if (string.IsNullOrWhiteSpace(resolved)) return TextureHandle.Invalid;
-            if (Genesis.Runtime.Assets.SpriteAssetLoader.IsSpriteDescriptorPath(resolved))
+            using (Genesis.Shared.Diagnostics.LoadProfile.Begin("find the texture file"))
             {
-                Genesis.Shared.Assets.SpriteRuntimeAsset image = Genesis.Runtime.Assets.SpriteAssetLoader.Load(resolved);
-                resolved = Genesis.Runtime.Assets.SpriteAssetLoader.ResolveFrameTexturePath(resolved, image, 0);
+                resolved = ResolveTexturePath(projectPath, texturePath);
+                if (string.IsNullOrWhiteSpace(resolved)) return TextureHandle.Invalid;
+                if (Genesis.Runtime.Assets.SpriteAssetLoader.IsSpriteDescriptorPath(resolved))
+                {
+                    Genesis.Shared.Assets.SpriteRuntimeAsset image = Genesis.Runtime.Assets.SpriteAssetLoader.Load(resolved);
+                    resolved = Genesis.Runtime.Assets.SpriteAssetLoader.ResolveFrameTexturePath(resolved, image, 0);
+                }
+                Genesis.Shared.Assets.AssetIoCounters.Check();
+                if (string.IsNullOrWhiteSpace(resolved) || !File.Exists(resolved))
+                {
+                    resolved = null;
+                    return TextureHandle.Invalid;
+                }
             }
-            Genesis.Shared.Assets.AssetIoCounters.Check();
-            if (string.IsNullOrWhiteSpace(resolved) || !File.Exists(resolved)) return TextureHandle.Invalid;
-            return background
-                ? renderer.LoadTextureInBackground(resolved, colorSpace, out pending)
-                : renderer.LoadTexture(resolved, colorSpace);
+            using (Genesis.Shared.Diagnostics.LoadProfile.Begin("ask the renderer for it"))
+                return background
+                    ? renderer.LoadTextureInBackground(resolved, colorSpace, out pending)
+                    : renderer.LoadTexture(resolved, colorSpace);
         }
 
         private static string ResolveTexturePath(string projectPath, string texturePath)

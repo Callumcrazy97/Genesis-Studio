@@ -68,11 +68,17 @@ namespace Genesis.Runtime.Project
                 string ext = Path.GetExtension(path).ToLowerInvariant();
                 if (ext is ".png" or ".jpg" or ".jpeg" or ".bmp" or ".tga")
                 {
+                    using Genesis.Shared.Diagnostics.LoadProfile.Span profiled = Genesis.Shared.Diagnostics.LoadProfile.Begin("load a texture");
                     TextureHandle texture = renderer.LoadTexture(path);
                     if (!texture.IsValid) throw new InvalidDataException("The renderer could not prepare texture: " + path);
                 }
-                else
+                else if (ext != ".gmodel" || !Genesis.Runtime.Modeling.RuntimeModelStore.PrefetchEnabled)
                 {
+                    // A model is not read here: the room's model read-ahead has workers reading each
+                    // one (or its much smaller binary cache) since the game started, and reading the
+                    // text through again on this thread held the start-up screen up for nothing.
+                    using Genesis.Shared.Diagnostics.LoadProfile.Span profiled = Genesis.Shared.Diagnostics.LoadProfile.Enabled
+                        ? Genesis.Shared.Diagnostics.LoadProfile.Begin("read a file through (" + ext + ")") : default;
                     // Non-texture parsing remains the scene/game loader's responsibility. Do not
                     // claim that reading model/audio/shader bytes creates a GPU or audio resource.
                     using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,

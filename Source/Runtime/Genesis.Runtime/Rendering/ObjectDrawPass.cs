@@ -206,8 +206,12 @@ namespace Genesis.Runtime.Rendering
                 if (world.Has<ModelRendererComponent>(entity))
                 {
                     ref ModelRendererComponent modelBounds = ref world.GetRef<ModelRendererComponent>(entity);
-                    if (!string.IsNullOrWhiteSpace(modelBounds.ModelAsset)
-                        && ModelRenderer.TryGetBounds(projectPath, modelBounds.ModelAsset, out Vector3 min, out Vector3 max, includePivot: true))
+                    bool bounded;
+                    Vector3 min = default, max = default;
+                    using (Genesis.Shared.Diagnostics.LoadProfile.Begin("model bounds for culling"))
+                        bounded = !string.IsNullOrWhiteSpace(modelBounds.ModelAsset)
+                            && ModelRenderer.TryGetBounds(projectPath, modelBounds.ModelAsset, out min, out max, includePivot: true);
+                    if (bounded)
                     {
                         Matrix4x4 matrix = RuntimeModelRenderSystem.TransformMatrix(transform, modelBounds);
                         pos = Vector3.Transform((min + max) * .5f, matrix);
@@ -253,16 +257,23 @@ namespace Genesis.Runtime.Rendering
                     {
                         RuntimeModelAnimationState anim = ReadAnimation(world, entity, model.KeepPreviousTransform);
                         var queue = ModelRenderQueue.Rent();
-                        if (ModelRenderer.Enqueue(queue, projectPath, model.ModelAsset, model.MaterialOverride,
-                            RuntimeModelRenderSystem.TransformMatrix(transform, model), draw3d, model, anim, renderer))
+                        bool enqueued;
+                        using (Genesis.Shared.Diagnostics.LoadProfile.Begin("models enqueued"))
+                            enqueued = ModelRenderer.Enqueue(queue, projectPath, model.ModelAsset, model.MaterialOverride,
+                                RuntimeModelRenderSystem.TransformMatrix(transform, model), draw3d, model, anim, renderer);
+                        if (enqueued)
                         {
                             int before = drawCount;
                             drawCount = queue.CopyTo(buffer, drawCount);
                             if (hasAssets && assets.TerrainTextureMode != null)
                                 for (int index = before; index < drawCount; index++)
                                     ApplyTerrainImageMaterial(renderer, projectPath, assets, ReadSpriteFrameIndex(world, entity), ref buffer[index]);
-                            if (hasAssets && drawCount > before
-                                && TryResolveShader(renderer, projectPath, assets, ShaderAssetPipeline.Mesh, out ShaderCacheEntry shader))
+                            bool shaded;
+                            ShaderCacheEntry shader = default;
+                            using (Genesis.Shared.Diagnostics.LoadProfile.Begin("Object's mesh shader"))
+                                shaded = hasAssets && drawCount > before
+                                    && TryResolveShader(renderer, projectPath, assets, ShaderAssetPipeline.Mesh, out shader);
+                            if (shaded)
                             {
                                 int originalCount = drawCount - before;
                                 int passCount = Math.Max(1, shader.PassHandles.Length);

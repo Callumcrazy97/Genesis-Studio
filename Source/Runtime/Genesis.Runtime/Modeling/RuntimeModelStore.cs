@@ -160,7 +160,11 @@ namespace Genesis.Runtime.Modeling
                 // The loader may have reached this file first and be reading it itself.
                 if (Interlocked.CompareExchange(ref entry.State, PrefetchReading, PrefetchWaiting) != PrefetchWaiting)
                     return null;
-                return await Task.Run(() => Read(full)).ConfigureAwait(false);
+                return await Task.Run(() =>
+                {
+                    using (Genesis.Shared.Diagnostics.LoadProfile.Begin("model file read ahead"))
+                        return Read(full);
+                }).ConfigureAwait(false);
             }
             finally
             {
@@ -176,7 +180,8 @@ namespace Genesis.Runtime.Modeling
             if (!PrefetchedByPath.TryRemove(full, out Prefetched entry)) return false;
             // No worker has started on it: reading it here is quicker than waiting for a free one.
             if (Interlocked.CompareExchange(ref entry.State, PrefetchReclaimed, PrefetchWaiting) == PrefetchWaiting) return false;
-            asset = entry.Reading.GetAwaiter().GetResult();
+            using (Genesis.Shared.Diagnostics.LoadProfile.Begin("wait for a worker reading it ahead"))
+                asset = entry.Reading.GetAwaiter().GetResult();
             if (asset == null) return false;
             var file = new FileInfo(full);
             if (!file.Exists || file.Length != entry.Length || file.LastWriteTimeUtc.Ticks != entry.WriteTicks)
@@ -262,12 +267,19 @@ namespace Genesis.Runtime.Modeling
             try
             {
                 // A cache made from this exact file reads back many times faster than the JSON.
-                bool cached = ModelBinaryCache.TryLoad(path, out GModelAsset asset);
+                bool cached;
+                GModelAsset asset;
+                using (Genesis.Shared.Diagnostics.LoadProfile.Begin("model file: read its binary cache"))
+                    cached = ModelBinaryCache.TryLoad(path, out asset);
                 if (!cached)
-                    asset = JsonConvert.DeserializeObject<GModelAsset>(File.ReadAllText(path), Settings);
+                {
+                    using (Genesis.Shared.Diagnostics.LoadProfile.Begin("model file: parse the JSON (no cache yet)"))
+                        asset = JsonConvert.DeserializeObject<GModelAsset>(File.ReadAllText(path), Settings);
+                }
                 bool parsed = !cached && asset != null;
                 asset ??= CreateEmpty(Path.GetFileNameWithoutExtension(path), "Invalid .gmodel asset");
-                Finish(asset, path);
+                using (Genesis.Shared.Diagnostics.LoadProfile.Begin("model file: bounds and rig check"))
+                    Finish(asset, path);
                 if (parsed) ModelBinaryCache.SaveInBackground(path, asset);
                 return asset;
             }

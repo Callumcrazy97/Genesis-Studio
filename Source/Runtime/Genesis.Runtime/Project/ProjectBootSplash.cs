@@ -39,7 +39,8 @@ namespace Genesis.Runtime.Project
                 _logo = renderer.LoadTexture(logo);
                 if (_logo.IsValid) _logger?.Line("Boot splash logo: " + Path.GetFullPath(logo));
             }
-            _warm.BuildCriticalList(_projectPath, _startRoom);
+            using (Genesis.Shared.Diagnostics.LoadProfile.Begin("list what the first room uses"))
+                _warm.BuildCriticalList(_projectPath, _startRoom);
             _initialized = true;
             _logger?.Line($"Measured runtime preload: {_warm.JobsTotal} asset jobs ({_warm.Scope}) + one presented graphics warmup.");
         }
@@ -80,6 +81,7 @@ namespace Genesis.Runtime.Project
         {
             if (!IsComplete || _readinessLogged) return;
             _readinessLogged = true;
+            Genesis.Shared.Diagnostics.LoadProfile.Mark("start-up screen done");
             _logger?.Line("Runtime boot ready: critical assets prepared and graphics warmup presented.");
         }
         public void DrawOverlay(IOverlayCanvas canvas, int width, int height)
