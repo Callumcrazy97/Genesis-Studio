@@ -706,9 +706,13 @@ public sealed class TerrainNatureDocument
     public List<TerrainPlacedEntity> PlacedEntities { get; set; } = new();
     /// <summary>Rules that populate the terrain with many copies of a Model (forests, rocks).</summary>
     public List<TerrainScatterLayer> ScatterLayers { get; set; } = new();
+    /// <summary>Grass grown from a rule around the camera; off unless switched on.</summary>
+    public TerrainGrassRuleSettings GrassRule { get; set; } = new();
 
     public void Normalize()
     {
+        GrassRule ??= new TerrainGrassRuleSettings();
+        GrassRule.Normalize();
         Schema = SchemaName;
         Version = CurrentVersion;
         PathSettings ??= new TerrainPathSettings();

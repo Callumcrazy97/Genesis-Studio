@@ -26,6 +26,7 @@ internal static partial class TerrainLayersGrassSuite
         HeadlessHarness.RunCase(ctx.Report, "Render.Terrain.Layers.EachLayerTilesItsOwnNormalMap", () => TiledNormals(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Render.Terrain.Layers.FullSizeAtlasBuildUploadAndFrameCost", () => FullSizeCost(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Editor.Suite.Terrain.EightLayers.PaintSixthLayerSaveReopenAndCap", () => EditorEightLayers(ctx));
+        RunGrass(ctx);
     }
 
     private static readonly float[][] LayerColors =
