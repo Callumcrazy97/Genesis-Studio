@@ -97,6 +97,12 @@ public sealed class SpriteRuntimeUsage
     public SpriteRuntimeTileset Tileset { get; set; } = new();
 
     /// <summary>
+    /// Present when the frames are pre-rendered facing angles (Model Viewer, Convert to 2D sprites).
+    /// Null for an ordinary sprite.
+    /// </summary>
+    public SpriteRuntimeDirections Directions { get; set; }
+
+    /// <summary>
     /// True when the Image's allowed use is only "texture" (a model texture): it is never drawn as
     /// a sprite, so it is not packed into the sprite sheets. Set by the loader from usage.allowed.
     /// </summary>

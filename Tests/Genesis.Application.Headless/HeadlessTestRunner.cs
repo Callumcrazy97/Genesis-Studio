@@ -1553,6 +1553,9 @@ internal static class HeadlessTestRunner
             case "pgsl-project":
                 Suites.PgslProjectSuite.Run(ctx);
                 break;
+            case "model-sprites":
+                Suites.ModelSpriteConversionSuite.Run(ctx);
+                break;
             case "asset-import":
                 Suites.AssetImportSuite.Run(ctx);
                 break;

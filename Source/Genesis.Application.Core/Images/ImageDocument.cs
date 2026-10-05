@@ -131,7 +131,41 @@ public sealed class ImageUsageProfile
     /// <summary>Surface settings used when this image is a model texture (the old Material kind).</summary>
     public ImageMaterialSettings Material { get; set; } = new();
 
+    /// <summary>
+    /// Set when the frames are a model pre-rendered from evenly spaced facing angles. The runtime
+    /// reads it to pick a frame by angle (PGSL <c>SpriteDirectionFrame</c>, <c>SpriteSetDirection</c>).
+    /// </summary>
+    public ImageDirectionalSpriteSettings? Directions { get; set; }
+
     public bool Supports(ImageUsage usage) => (Allowed & usage) == usage;
+}
+
+/// <summary>
+/// Layout of a directional sprite: <see cref="Count"/> facing angles with
+/// <see cref="FramesPerDirection"/> animation frames each, ordered direction-major. Direction
+/// <c>d</c> faces <c>StartAngleDegrees + d * 360 / Count</c>; 0 faces +X (screen right) and angles
+/// grow counter-clockwise, like <c>PointDirection</c>.
+/// </summary>
+public sealed class ImageDirectionalSpriteSettings
+{
+    public int Count { get; set; }
+
+    public int FramesPerDirection { get; set; } = 1;
+
+    public double StartAngleDegrees { get; set; }
+
+    /// <summary>Camera elevation the frames were rendered at, for reference.</summary>
+    public double ElevationDegrees { get; set; }
+
+    public bool Orthographic { get; set; } = true;
+
+    /// <summary>Resource name of the model the frames came from.</summary>
+    public string? SourceModel { get; set; }
+
+    /// <summary>Animation clip rendered into each direction; empty for a still pose.</summary>
+    public string? Clip { get; set; }
+
+    public double FramesPerSecond { get; set; }
 }
 
 /// <summary>
