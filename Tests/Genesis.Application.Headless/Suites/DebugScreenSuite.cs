@@ -310,6 +310,17 @@ internal static class DebugScreenSuite
                 HeadlessHarness.Assert(overlay.VisibleResourceRows.Count >= 2 && overlay.VisibleResourceRows.All(row => row.Kind == "Texture"),
                     "The captured Resources tab must be filtered to textures.");
                 Capture(ctx, scenePath, overlay, renderer, "debug-screen-game.png", "Debug screen Game tab", DebugHudPanel.Game);
+                Capture(ctx, scenePath, overlay, renderer, "debug-screen-world.png", "Debug screen World tab", DebugHudPanel.World);
+
+                // The strip while recording, and the notice that says where the profile went.
+                overlay.ProfilesDirectory = Path.Combine(ctx.Workspace, "DebugScreen", "CaptureProfiles");
+                HeadlessHarness.Assert(overlay.StartRecording(), "Recording did not start for the capture.");
+                for (int frame = 0; frame < 10; frame++) overlay.ObserveFrame(1.2, 0.3, 0.6, 0.2, 0.1, renderer);
+                Capture(ctx, scenePath, overlay, renderer, "debug-screen-recording.png", "Debug screen while recording", null);
+                string saved = overlay.StopRecording() ?? throw new InvalidOperationException("The capture recording did not finish.");
+                HeadlessHarness.Assert(File.ReadAllLines(Path.Combine(saved, DebugProfileRecording.CsvFileName)).Length == 11,
+                    "The capture recording must hold its ten frames.");
+                Capture(ctx, scenePath, overlay, renderer, "debug-screen-saved.png", "Debug screen after a recording", null);
                 overlay.EngineCategoryEnabled = true;
                 Capture(ctx, scenePath, overlay, renderer, "debug-screen-engine.png", "Debug screen Engine tab (developer)", DebugHudPanel.Engine);
             }

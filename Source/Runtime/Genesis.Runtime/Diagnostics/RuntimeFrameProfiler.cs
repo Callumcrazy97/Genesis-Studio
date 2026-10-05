@@ -270,6 +270,17 @@ public sealed class RuntimeFrameProfiler : IDisposable
         return average > 0 ? 1000d / average : 0;
     }
 
+    /// <summary>Average of the most recent <paramref name="frames"/> frame times (about half a second at 60 FPS).</summary>
+    public double RecentFrameMilliseconds(int frames = 30)
+    {
+        int count = Math.Min(Math.Max(1, frames), _historyCount);
+        if (count == 0) return 0;
+        double sum = 0;
+        for (int step = 1; step <= count; step++)
+            sum += _history[(_historyNext - step + HistoryLength) % HistoryLength];
+        return sum / count;
+    }
+
     public double AverageFrameMilliseconds()
     {
         if (_historyCount == 0) return 0;

@@ -64,6 +64,9 @@ namespace Genesis.Runtime.Debugger
         private bool _pgslEnabledByOverlay;
         private long _stripRefreshStamp;
         private string[] _stripTexts = Array.Empty<string>();
+        private string[] _measuredStripTexts;
+        private float[] _stripWidths = Array.Empty<float>();
+        private long _recordingNoticeUntil;
         private Vector4[] _stripColors = Array.Empty<Vector4>();
         private long _resourceRefreshStamp;
         private List<DebugResourceRow> _resourceRows = new();
@@ -161,6 +164,7 @@ namespace Genesis.Runtime.Debugger
             {
                 string folder = Profiler.StopRecording();
                 LastRecordingFolder = folder;
+                _recordingNoticeUntil = Environment.TickCount64 + 6000;
                 Log($"[INFO] Profile saved: {folder}");
                 Console.WriteLine("GENESIS_PROFILE_SAVED " + folder);
                 return folder;
@@ -229,7 +233,7 @@ namespace Genesis.Runtime.Debugger
             _stripRefreshStamp = now;
 
             DebugFrameSample last = Profiler.Last;
-            double frameMs = Profiler.AverageFrameMilliseconds();
+            double frameMs = Profiler.RecentFrameMilliseconds();
             if (frameMs <= 0) frameMs = _frameGraph.CurrentMs;
             double fps = frameMs > 0 ? 1000d / frameMs : _frameGraph.SmoothedFps;
             RenderStats stats = _renderer?.GetStats() ?? default;
@@ -271,6 +275,15 @@ namespace Genesis.Runtime.Debugger
             float right = width - 8f;
             float rowStart = x;
 
+            // Text widths are measured when the figures change (four times a second), not every frame.
+            if (!ReferenceEquals(_measuredStripTexts, _stripTexts))
+            {
+                _measuredStripTexts = _stripTexts;
+                _stripWidths = new float[_stripTexts.Length];
+                for (int index = 0; index < _stripTexts.Length; index++)
+                    _stripWidths[index] = Math.Max(24f, hud.MeasureText(_stripTexts[index], textSize).X);
+            }
+
             // Lay the figures out left to right, wrapping to a second row on a narrow window.
             var placed = new List<(string Text, Vector4 Color, float X, float Y)>(_stripTexts.Length);
             float cursor = rowStart + 8f;
@@ -279,7 +292,7 @@ namespace Genesis.Runtime.Debugger
             const float buttonsWidth = 196f;
             for (int index = 0; index < _stripTexts.Length; index++)
             {
-                float textWidth = Math.Max(24f, hud.MeasureText(_stripTexts[index], textSize).X);
+                float textWidth = _stripWidths[index];
                 if (cursor + textWidth > right - buttonsWidth && cursor > rowStart + 8f)
                 {
                     widest = Math.Max(widest, cursor);
@@ -307,7 +320,17 @@ namespace Genesis.Runtime.Debugger
                     ShowExpandedPanels, DebugOverlayPalette.Accent))
                 ShowExpandedPanels = !ShowExpandedPanels;
 
-            return y + stripHeight;
+            float bottom = y + stripHeight;
+            // For a few seconds after a recording stops, say where it went.
+            if (!IsRecording && LastRecordingFolder != null && Environment.TickCount64 < _recordingNoticeUntil)
+            {
+                string notice = "Profile saved: " + Path.Combine(LastRecordingFolder, DebugProfileRecording.ReportFileName);
+                hud.Rect(x, bottom + 2f, Math.Min(right - x, hud.MeasureText(notice, 9.5f).X + 16f), 20f, DebugOverlayPalette.Canvas, filled: true);
+                hud.Text(notice, x + 8f, bottom + 6f, 9.5f, DebugOverlayPalette.Success);
+                bottom += 22f;
+            }
+
+            return bottom;
         }
 
         // ── Full panel ─────────────────────────────────────────────────────────

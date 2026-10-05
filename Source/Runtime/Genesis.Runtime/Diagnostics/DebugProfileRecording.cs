@@ -144,6 +144,8 @@ public sealed class DebugProfileRecording : IDisposable
         }
 
         WriteCsv(sample);
+        // Flushed every couple of seconds, so a game that is killed keeps nearly all its rows.
+        if ((index & 127) == 127) _csv.Flush();
     }
 
     public void NoteScriptError(ScriptDiagnostic diagnostic)
