@@ -45,7 +45,7 @@ public sealed class PixelModelDialog : DpiAwareForm
         ShowInTaskbar = false; MinimizeBox = false;
         BackColor = EditorChrome.Canvas; ForeColor = EditorChrome.Text; Font = EditorChrome.BaseFont;
 
-        Viewport = new EditorViewport3D { Name = "PixelModelPreview", Dock = DockStyle.Fill, FloorStyle = EditorFloorStyle.GridOnly };
+        Viewport = new EditorViewport3D { Name = "PixelModelPreview", Dock = DockStyle.Fill, FloorStyle = EditorFloorStyle.GridOnly, MiddleButtonPans = true };
         Viewport.SceneStateFactory = () =>
         {
             var state = EditorSceneLighting.Create(false);
@@ -76,11 +76,9 @@ public sealed class PixelModelDialog : DpiAwareForm
         _frames.SelectedIndex = 0;
 
         Add("1. Name the Model", _name);
-        Add("2. Shape the pixels", Caption("Size per pixel is in world units: 0.0625 makes 16 pixels one unit."));
-        Add("Size per pixel (units)", _pixelSize);
+        Add("2. Size per pixel (units; 0.0625 = 16 pixels a unit)", _pixelSize);
         Add("Depth (pixels)", _depth);
-        Add("Alpha threshold (1–255)", _alpha);
-        Add("", Caption("Pixels at least this opaque become solid; fainter ones are left out."));
+        Add("Alpha threshold (this opaque or more is solid, 1–255)", _alpha);
         Add("Frames", _frames);
         Add("", _summary);
         FlowLayoutPanel modes = new() { AutoSize = true, WrapContents = true, FlowDirection = FlowDirection.LeftToRight, Margin = Padding.Empty };
@@ -107,7 +105,8 @@ public sealed class PixelModelDialog : DpiAwareForm
         foreach (Button action in new[] { _create, cancel }) { EditorChrome.StyleField(action); footer.Controls.Add(action); }
         Controls.Add(_body); Controls.Add(footer); AcceptButton = _create; CancelButton = cancel;
         SizeChanged += (_, _) => ApplyInterfaceLayout();
-        Shown += (_, _) => FramePreview();
+        // A theme applied after construction repaints every button; the active gizmo mode is restored.
+        Shown += (_, _) => { SetGizmoMode(_mode); FramePreview(); };
         Disposed += (_, _) => { if (Viewport.Host.Renderer is { } renderer) _renderer.InvalidateAssets(renderer); };
         SetGizmoMode(EditorGizmoMode.Move);
         Rebuild();
@@ -117,7 +116,7 @@ public sealed class PixelModelDialog : DpiAwareForm
         {
             if (caption.Length > 0) fields.Controls.Add(Caption(caption));
             field.Dock = DockStyle.Top; field.Margin = new Padding(0, 0, 0, 10);
-            if (field is not FlowLayoutPanel) EditorChrome.StyleField(field);
+            if (field is not FlowLayoutPanel and not Label) EditorChrome.StyleField(field);
             fields.Controls.Add(field);
             if (field is Label label) _labels.Add(label);
         }

@@ -129,6 +129,19 @@ internal static class PixelModelSuite
                 && VisibleFrames(reopened, GModelPrimitiveFactory.EvaluateSkinPalette(reopened.Rig,
                     GModelPrimitiveFactory.EvaluateAnimatedLocals(reopened, RuntimeModelAnimationState.From(saved, false)))).SequenceEqual([2]),
                 "Save and reopen lost the flipbook rig or clip.");
+
+            // The Model Editor opens it as a skinned, animated model and saves it without breaking the flipbook.
+            using (ModelEditorControl modelEditor = new(model, project.RootPath))
+            {
+                Check(modelEditor.AnimationClipCount == 1 && modelEditor.CanonicalMeshCount == 3 && modelEditor.HasPersistedSkin,
+                    $"The Model Editor opened {modelEditor.CanonicalMeshCount} meshes and {modelEditor.AnimationClipCount} clips.");
+                modelEditor.Save();
+            }
+            GModelAsset resaved = StudioModelResourceLoader.Load(model);
+            Check(VisibleFrames(resaved, GModelPrimitiveFactory.EvaluateBindPosePalette(resaved.Rig)).SequenceEqual([0])
+                && VisibleFrames(resaved, GModelPrimitiveFactory.EvaluateSkinPalette(resaved.Rig,
+                    GModelPrimitiveFactory.EvaluateAnimatedLocals(resaved, RuntimeModelAnimationState.From(saved, false)))).SequenceEqual([2]),
+                "Saving from the Model Editor broke the flipbook.");
         });
 
         HeadlessHarness.RunCase(ctx.Report, "Editor.Image.ToModel.EditorCommandSendsCompositedFrames", () =>
@@ -142,17 +155,23 @@ internal static class PixelModelSuite
             ImageWorkspaceStorage.Save(session, workspace);
             ImageWorkspace loaded = ImageWorkspaceStorage.Load(session);
             using ImageEditorControl editor = new(session, loaded);
+            using Form host = UnattendedWindowing.NewHost(1280, 780); host.Controls.Add(editor); UnattendedWindowing.ShowWithoutFocus(host);
             Func<IWin32Window?, PixelModelSource, string?>? previous = ImageEditorControl.ModelConversionDialog;
             PixelModelSource? received = null;
+            int opened = 0;
             try
             {
-                ImageEditorControl.ModelConversionDialog = (_, source) => { received = source; return null; };
+                ImageEditorControl.ModelConversionDialog = (_, source) => { received = source; opened++; return null; };
                 ToolStripItem? command = FindItem(editor.CommandBar.Items, "Convert to 3D Model…");
                 Check(command is not null, "The Image Editor's Options menu has no Convert to 3D Model command.");
                 command!.PerformClick();
+                editor.CommandBar.Items.OfType<ToolStripButton>().Single(item => item.Text == "Use in game").PerformClick();
+                System.Windows.Forms.Application.DoEvents();
+                Button guide = (Button)editor.Controls.Find("ImageConvertToModel", true).Single();
+                guide.PerformClick();
             }
             finally { ImageEditorControl.ModelConversionDialog = previous; }
-            Check(received is not null, "The command did not open the conversion dialog.");
+            Check(received is not null && opened == 2, $"The menu command and the Use in game button should both open the conversion dialog; opened {opened} times.");
             Check(received!.Width == 8 && received.Height == 8 && received.Frames.Count == 2 && received.ImagePath == image
                 && received.Frames[0].DurationMilliseconds == 120 && received.Frames[1].DurationMilliseconds == 250,
                 "The conversion did not receive the Image's size, frames and durations.");

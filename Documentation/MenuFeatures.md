@@ -211,6 +211,13 @@ one skeleton then keep one set of clips between them instead of a copy each.
 - **One file that cannot be imported no longer stops the others.** The rest of the batch is
   imported, then the failures are reported together ("Imported 9 of 10 file(s). Not imported: ...").
 
+## Images to 3D Models
+
+The Image Editor's **Options → File → Convert to 3D Model…** (also at the bottom of **Use in game**)
+turns pixel art into a voxel Model resource: merged faces, vertex colours, and with all frames a
+looping `Frames` flipbook clip that the Animator plays. A 3D preview with the shared gizmo moves,
+rotates and resizes it before it is saved. See [Convert an Image to a 3D Model](ImageToModel.md).
+
 ## Start-up
 
 - **Only the first room is prepared before it starts.** The Player used to prepare every texture,

@@ -170,6 +170,10 @@ public sealed partial class ImageEditorControl
         }
         choice.SelectedIndexChanged += (_, _) => RefreshCode(); RefreshCode(); _imageGameGuide.Controls.Add(code);
         _imageGameGuide.Controls.Add(ImageWorkflowText("For a gameplay state change in Step, start a clip when the state changes. Use SpriteRigPlay with restart set to false when calling it every Step, so playback can advance. Animate: add or duplicate frames, set duration, tag a range, then Play. Rig: draw bones, Rig pixels, save poses, assign frame numbers on Animation and Generate frames. You can retain the saved rig for direct SpriteRigPlay use and undo generated frames. Optional effects, canvas operations and exports are under Options."));
+        _imageGameGuide.Controls.Add(ImageWorkflowText("Or make it a 3D Model", true));
+        _imageGameGuide.Controls.Add(ImageWorkflowText("Convert to 3D Model extrudes the solid pixels into a voxel Model beside this Image, for 3D Rooms. With all frames, the Model plays them as a looping \"Frames\" animation."));
+        Button toModel = new() { Name = "ImageConvertToModel", Text = "Convert to 3D Model…" }; ImageEditorChrome.StyleButton(toModel);
+        toModel.Click += (_, _) => ConvertToModel(); _imageGameGuide.Controls.Add(toModel);
         RefreshImageWorkflow(); LayoutImageGameGuide();
     }
 
