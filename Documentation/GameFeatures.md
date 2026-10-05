@@ -337,6 +337,30 @@ work: the window's messages, or another program holding the processor or the gra
 change adds one line saying how long the room was prepared behind the cover and how long its
 longest single piece took.
 
+### Finding what a game allocates every frame
+
+With `GENESIS_ALLOCATION_LOG=1` (or when the game runs with the debugger) the Player writes, every
+five seconds of play, how much managed memory the game allocated and how many collections that
+cost; `GENESIS_ALLOCATION_LOG=types` also names the types allocated most:
+
+```
+Managed allocations: 14.5 MB in 5.0 s over 300 frames (49.5 KB a frame, 2.9 MB/s), 1 gen0 collections
+Most allocated types: System.Double 5.1 MB, System.Threading.ExecutionContext 1.3 MB, ...
+```
+
+Frames behind the start-up screen or a room change's cover are not counted. An idle Verdant
+Hollow allocated 3.9 MB a frame (a simulated lake rebuilt its whole surface, the foliage planner
+regrew its lists and every particle layer rebuilt its colour table, each frame); it now allocates
+about 50 KB. The `speed` headless target fails when an idle game allocates 1 MB a frame or more.
+
+### What a game shows while it starts
+
+The Player draws a loading screen (the engine's name, a bar and what it is doing) as soon as its
+graphics device is ready, and again before it reads the textures and builds the first room; the
+start-up screen then takes over. Its built-in DX11 shaders compile on worker threads from the
+moment it starts (`GENESIS_SHADER_WARMUP=0` turns that off), which matters after an engine update,
+when nothing is in the shader cache yet.
+
 ### Finding what a game holds on to
 
 Every room change also writes what the game holds once the new room is built:

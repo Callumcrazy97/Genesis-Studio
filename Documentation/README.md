@@ -1540,6 +1540,10 @@ language checks, and `pgsl-project`: a two-room game the staged Player runs on D
 language group, instances, `with`, a library Script, the event order, a room change and two
 pictures by their pixels). Each tier is also a target on its own (`--test tier-pgsl`); the members
 are listed in `HeadlessTestRunner.Tiers`. The Full Build remains the release check.
+`--test speed` times opening the 3D Nature Walk project in Studio, opening each 3D editor, F5's
+script check, and the newest built Player's start and idle allocation rate, and writes the numbers
+to `Logs\speed-timings.json`; `GENESIS_SPEED_PROJECT=<a copy of a project>` also times opening that
+project and `GENESIS_SPEED_ONLY=Terrain,Room` limits it to some editors.
 `--check` adds the 15-workflow gate and DX11/DX12 smokes to Quick. `--full-tests` adds the entire
 regression suite; `--full-smoke` adds all five renderer smokes; `--quick-smoke` adds DX11/DX12.
 `--skip-tests` is a legacy Quick alias and still runs package/startup checks. Full rejects Quick,
