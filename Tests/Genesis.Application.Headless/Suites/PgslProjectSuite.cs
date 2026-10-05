@@ -79,6 +79,10 @@ internal static class PgslProjectSuite
         {
             HeadlessHarness.Assert(project != null, "The game did not run.");
             string world = Results("world"), second = Results("second");
+            string mesh = Results("mesh");
+            // 6 faces of 4 vertices; then 5 + 4 + 5 faces of a strip; the ray from 3.2 m lands on its top at 0.7 m.
+            HeadlessHarness.Assert(mesh == "full=6;single=24;vertices=56;triangles=28;collider=true;hit=2.5;",
+                $"The script-built mesh: '{mesh}'.");
             HeadlessHarness.Assert(world == "spawned=20;tagged=20;library=5;afterDestroy=15;childSteps=1;",
                 $"Instances, with and the library Script in room one: '{world}'.");
             HeadlessHarness.Assert(second == "visits=2;children=0;",
@@ -124,8 +128,16 @@ internal static class PgslProjectSuite
                 Color centre = three.GetPixel(three.Width / 2, three.Height / 2);
                 Color side = three.GetPixel(three.Width / 2 + three.Width / 5, three.Height / 2);
                 HeadlessHarness.Assert(centre.R > 45 && centre.R > centre.B + 40,
-                    $"The first-person box behind the wall was not drawn over it ({centre}).");
+                    $"The layer-2 box behind the wall was not drawn over it (or hidden layer 3 covered it) ({centre}).");
                 HeadlessHarness.Assert(side.B > side.R + 25, $"The wall beside the box is not blue ({side}).");
+                int green = 0;
+                for (int y = three.Height / 2; y < three.Height; y += 4)
+                    for (int x = 0; x < three.Width; x += 4)
+                    {
+                        Color c = three.GetPixel(x, y);
+                        if (c.G > c.R + 30 && c.G > c.B + 15) green++;
+                    }
+                HeadlessHarness.Assert(green > 40, $"The script-built green mesh was not drawn ({green} green samples).");
             }
             using Bitmap two = new(secondPicture);
             Expect(two, 70, 70, Color.FromArgb(255, 255, 0), "yellow square in room two");
@@ -318,7 +330,7 @@ internal static class PgslProjectSuite
         });
         RoomAssetLoader.Save(second, secondFile);
 
-        // Room three (3D): an orange box in the first-person layer stands behind a blue wall, yet
+        // Room three (3D): an orange box in model layer 2 stands behind a blue wall, yet
         // must be drawn over it.
         string probe = Object("Third Probe", new()
         {
@@ -330,8 +342,29 @@ internal static class PgslProjectSuite
                 if (frame == 14) { Print("GENESIS_PGSL_PROJECT_DONE"); GameQuit(); }
                 """,
         });
-        string arms = Object("Arms", new() { ["Create"] = "ModelSetViewLayer(true); ViewLayerSetFov(60);" }, model: "Box");
+        string arms = Object("Arms", new() { ["Create"] = "ModelSetLayer(2); ModelLayerSetFov(2, 60);" }, model: "Box");
+        // Layer 3 is drawn after layer 2 and would cover the box in blue, but it is hidden.
+        string cover = Object("Cover", new() { ["Create"] = "ModelSetLayer(3); ModelLayerSetVisible(3, false);" }, model: "Wall");
         string wall = Object("Wall", new() { ["Create"] = "noop = 0;" }, model: "Wall");
+        // A script-built voxel strip: three green cubes in one mesh, only their outer faces.
+        string chunk = Object("Chunk", new()
+        {
+            ["Create"] = """
+                m = MeshCreate();
+                full = MeshAddCube(m, 0, 0, 0, 1, 63, 255, 255, 255, 0, 0, 1, 1);
+                single = MeshVertexCount(m);
+                MeshClear(m);
+                MeshAddCube(m, -1, 0, 0, 1, 1 + 2 + 4 + 8 + 16 + 32 - 1, 60, 200, 60, 0, 0, 1, 1);
+                MeshAddCube(m, 0, 0, 0, 1, 4 + 8 + 16 + 32, 60, 200, 60, 0, 0, 1, 1);
+                MeshAddCube(m, 1, 0, 0, 1, 63 - 2, 60, 200, 60, 0, 0, 1, 1);
+                collider = InstanceSetMeshCollider(id, m);
+                hit = PhysicsRaycast(0, 3.2, 2.2, 0, -1, 0, 10);
+                FileWriteText("pgsl-results/mesh.txt", "full=" + String(full) + ";single=" + String(single)
+                    + ";vertices=" + String(MeshVertexCount(m)) + ";triangles=" + String(MeshTriangleCount(m))
+                    + ";collider=" + String(collider) + ";hit=" + String(Round(hit * 10) / 10) + ";");
+                """,
+            ["Draw"] = "DrawMesh3D(m, x, y, z, \"\");",
+        });
         string thirdFile = resources.CreateResource(Path.GetDirectoryName(roomFile)!, ResourceKind.Room, "Third");
         RoomAsset third = RoomAsset.Create("Third", RoomDimension.ThreeD);
         third.Settings.CaptureMouse = false;
@@ -344,6 +377,8 @@ internal static class PgslProjectSuite
         Place("Third Probe", probe, [0f, 0f, 0f], [1f, 1f, 1f]);
         Place("Wall", wall, [0f, 1f, 3f], [6f, 6f, 0.3f]);
         Place("Arms", arms, [0f, 1f, 6f], [1.5f, 1.5f, 1.5f]);
+        Place("Cover", cover, [0f, 1f, 5f], [3f, 3f, 0.3f]);
+        Place("Chunk", chunk, [0f, 0.2f, 2.2f], [1f, 1f, 1f]);
         RoomAssetLoader.Save(third, thirdFile);
         return project;
     }

@@ -336,6 +336,27 @@ namespace Genesis.Runtime.Scripting
             QueueGuiSprite(queue => queue.DrawSprite(call));
         }
 
+        public void QueueScriptMesh3D(int meshId, Matrix4x4 world, string image, Color tint, float alpha)
+        {
+            if (!_is3DActive || _renderer == null) return;
+            MeshHandle mesh = Genesis.Runtime.Rendering.ScriptMeshes.Resolve(meshId, _renderer);
+            if (!mesh.IsValid) return;
+            float a = Math.Clamp(alpha, 0f, 1f) * (tint.A / 255f);
+            MeshDrawCall call = new()
+            {
+                Mesh = mesh,
+                World = world,
+                Texture = string.IsNullOrWhiteSpace(image)
+                    ? TextureHandle.Invalid
+                    : ObjectDrawPass.ResolveImageTexture(_renderer, _projectPath ?? PgslCommands.ProjectPath, image),
+                Tint = new RenderColor(tint.R / 255f, tint.G / 255f, tint.B / 255f, a),
+                Alpha = a,
+                Flags = a < 0.999f ? MeshDrawFlags.Transparent | MeshDrawFlags.NoDepthWrite | MeshDrawFlags.NoShadow : MeshDrawFlags.None,
+            };
+            if (_commands != null) _commands.DrawMesh(call);
+            else _renderer.DrawMesh(call);
+        }
+
         public void QueueCube3D(float x, float y, float z, float sx, float sy, float sz, Color color, float alpha)
         {
             QueuePrimitive(BuiltinMeshKind.Cube, x, y, z, sx, sy, sz, color, alpha);

@@ -7,9 +7,10 @@ using Genesis.Shared.Interfaces;
 namespace Genesis.Rendering.Primitives
 {
     // Model layers: models drawn into an image of their own, with a camera of their own, after the
-    // world. Layer 1 is the first-person layer (arms and a held weapon: their own field of view and
-    // near plane, never inside a wall, casting no shadow); layers from 100 up are models drawn into
-    // GUI rectangles (an inventory portrait). The images are then drawn like any GUI image.
+    // world. Layers 1-8 follow the game camera with their own field of view and near plane and are
+    // drawn over the world (a held tool, a cockpit, a compass, never inside a wall); layers from 100
+    // up are models drawn into GUI rectangles (an inventory portrait). The images are then drawn like
+    // any GUI image.
     internal sealed partial class ForwardRenderer
     {
         private sealed class ModelLayer
@@ -58,26 +59,19 @@ namespace Genesis.Rendering.Primitives
         public void RenderModelLayers(GpuTextureHandle whiteTexture)
         {
             if (_modelLayers.Count == 0) return;
-            List<int> stale = null;
             foreach ((int id, ModelLayer layer) in _modelLayers)
             {
                 if (layer.Meshes.Count == 0)
                 {
                     layer.Drawn = false;
-                    // A layer nothing has used for a while gives its image back.
-                    if (++layer.IdleFrames > 120) (stale ??= new List<int>()).Add(id);
+                    // A layer nothing has used for a while gives its image back (and keeps its camera).
+                    if (++layer.IdleFrames == 120) ReleaseModelLayer(layer);
                     continue;
                 }
                 layer.IdleFrames = 0;
                 DrawModelLayer(layer, whiteTexture);
                 layer.Meshes.Clear();
             }
-            if (stale != null)
-                foreach (int id in stale)
-                {
-                    ReleaseModelLayer(_modelLayers[id]);
-                    _modelLayers.Remove(id);
-                }
         }
 
         private void EnsureModelLayerTarget(ModelLayer layer)
