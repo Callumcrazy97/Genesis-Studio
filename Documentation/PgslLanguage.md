@@ -37,6 +37,10 @@ limits, and what happens on a mistake. Every statement below is checked by the h
   function that called it.
 - A function that reads a name it has not set itself finds the variable of the function calling it,
   if that one has it, before the instance's. Give such values as parameters rather than rely on it.
+- **Inside `with (target)`** a name not declared with `var` is the target instance's: in
+  `var n = 0; with ("Child") { if (n < 5) { InstanceDestroy(id); n += 1; } }` the counter is the
+  caller's because of `var`; without it every child would have its own and all would go.
+- A function defined in a project **Script** (a library) can be called from any object directly.
 - `GlobalSet` / `GlobalGet` (and `GlobalSetString`, `GlobalExists`, `GlobalDelete`) hold values
   every instance and script sees.
 - Reading a name nothing has set gives 0 (and a runtime note), not an error.

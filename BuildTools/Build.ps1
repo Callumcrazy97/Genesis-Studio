@@ -14,6 +14,8 @@ Genesis Studio - Quick Build / Full Build
   --quick                  Same as default. Produces Studio and matching Player.
   --full                   Clean Release build, full regression, all five renderer smokes.
   --check                  Quick plus fast regression and DX11/DX12 smokes.
+  --tiers                  Quick plus the three quick tiers in order (Editor, Engine, PGSL in a
+                           real DX11 game) and a DX11 smoke. Minutes, not the Full regression.
   --test TARGET            Add one editor/feature test, e.g. Room or Shader.
   --backend NAME           Add dx11, dx12, vulkan, opengl or software smoke.
   --full-tests             Add full regression to Quick.
@@ -36,6 +38,7 @@ These profiles build Genesis Studio and Player. Game export is separate.
             '--run' { $launch = $true }
             '--installer' { $installer = $true }
             '--check' { $tests = 'Fast'; $backends += @('dx11','dx12') }
+            '--tiers' { $tests = 'Tiers'; $backends += @('dx11') }
             '--full-tests' { $tests = 'Full' }
             '--quick-smoke' { $backends += @('dx11','dx12') }
             '--full-smoke' { $backends += @('dx11','dx12','vulkan','opengl','software') }
@@ -190,7 +193,14 @@ try {
             Copy-Tree (Join-Path $staging 'Player') (Join-Path $testBin 'Player')
         }
         $testExe = Join-Path $testBin 'Genesis.Application.Headless.exe'
-        if ($tests -ne 'Skipped') {
+        if ($tests -eq 'Tiers') {
+            foreach ($tier in @('editor','engine','pgsl')) {
+                Invoke-BuildStep "Tier: $tier" {
+                    Invoke-Logged $testExe @('--test',"tier-$tier",'--output',(Join-Path $reportDir "Tests/$tier")) "tier-$tier.log"
+                }
+            }
+        }
+        elseif ($tests -ne 'Skipped') {
             Invoke-BuildStep "$tests regression tests" {
                 $testArgs = @('--output',(Join-Path $reportDir 'Tests'))
                 if ($tests -eq 'Fast') { $testArgs += '--fast-tests' }

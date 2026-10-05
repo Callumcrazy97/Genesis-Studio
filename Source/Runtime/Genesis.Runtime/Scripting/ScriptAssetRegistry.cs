@@ -25,6 +25,8 @@ namespace Genesis.Runtime.Scripting
     private const int MaxCallDepth = 64;
     // Scripts that did not compile, by name: their file, line and message. A call to one of their
     // functions then says why it is unknown instead of only that it is.
+    // Every function the loaded Scripts define, built on first use and dropped when one changes.
+    private static Dictionary<string, UserFunction> _functions;
     private static readonly Dictionary<string, string> _loadErrors = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Script resources that failed to compile when loaded: name to "file, line N: message".</summary>
@@ -63,6 +65,7 @@ namespace Genesis.Runtime.Scripting
       {
         _projectPath = projectPath;
         _byName.Clear();
+        _functions = null;
         _byHash.Clear();
         _sourceByName.Clear();
         _loadErrors.Clear();
@@ -140,6 +143,28 @@ namespace Genesis.Runtime.Scripting
         }
         _byName[name] = asset;
         _byHash[asset.SourceHash] = asset;
+        _functions = null;
+      }
+    }
+
+    /// <summary>
+    /// A function some project Script defines, so an object can call it without running that Script
+    /// first. When two Scripts define it, the first by name wins.
+    /// </summary>
+    public static bool TryFindFunction(string name, out UserFunction function)
+    {
+      function = null;
+      if (string.IsNullOrWhiteSpace(name)) return false;
+      lock (_lock)
+      {
+        if (_functions == null)
+        {
+          _functions = new Dictionary<string, UserFunction>(StringComparer.OrdinalIgnoreCase);
+          foreach (CompiledScriptAsset asset in _byName.Values.OrderByDescending(a => a.Name, StringComparer.OrdinalIgnoreCase))
+            if (asset.CompileResult?.UserFunctions != null)
+              foreach (var pair in asset.CompileResult.UserFunctions) _functions[pair.Key] = pair.Value;
+        }
+        return _functions.TryGetValue(name, out function);
       }
     }
 
@@ -231,6 +256,7 @@ namespace Genesis.Runtime.Scripting
       lock (_lock)
       {
         _byName.Clear();
+        _functions = null;
         _byHash.Clear();
         _sourceByName.Clear();
         _projectPath = null;

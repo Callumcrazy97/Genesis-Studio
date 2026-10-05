@@ -1519,6 +1519,7 @@ them.
 #### Additional commands
 
 ```bat
+Build.bat --tiers
 Build.bat --check
 Build.bat --test Room
 Build.bat --test 2d-pipeline
@@ -1531,6 +1532,14 @@ Build.bat --quick --run
 Build.bat --help
 ```
 
+`--tiers` is the everyday check, about six minutes: Quick, then three quick tiers in order and a
+DX11 smoke. **Editor** (Studio foundation, shell, resource names, code assistance, the editor suite,
+room workspace, model intake), **Engine** (engine systems, asset import, readback, post effects,
+large worlds, runtime, model system) and **PGSL** (values, caches, scripts, the `pgsl-logic`
+language checks, and `pgsl-project`: a two-room game the staged Player runs on DX11, checking every
+language group, instances, `with`, a library Script, the event order, a room change and two
+pictures by their pixels). Each tier is also a target on its own (`--test tier-pgsl`); the members
+are listed in `HeadlessTestRunner.Tiers`. The Full Build remains the release check.
 `--check` adds the 15-workflow gate and DX11/DX12 smokes to Quick. `--full-tests` adds the entire
 regression suite; `--full-smoke` adds all five renderer smokes; `--quick-smoke` adds DX11/DX12.
 `--skip-tests` is a legacy Quick alias and still runs package/startup checks. Full rejects Quick,

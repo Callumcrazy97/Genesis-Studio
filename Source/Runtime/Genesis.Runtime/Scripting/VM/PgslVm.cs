@@ -776,6 +776,11 @@ public class PgslVm
         if (_stack.Count < argCount)
             throw new InvalidOperationException($"Not enough arguments for {funcName}");
 
+        // A function of a project Script (a library) is callable directly, the first call loading it.
+        if (!_userFunctions.ContainsKey(funcName)
+            && Genesis.Runtime.Scripting.ScriptAssetRegistry.TryFindFunction(funcName, out UserFunction library))
+            _userFunctions[funcName] = library;
+
         if (_userFunctions.TryGetValue(funcName, out UserFunction userFunc))
         {
             if (argCount != userFunc.Parameters.Count)

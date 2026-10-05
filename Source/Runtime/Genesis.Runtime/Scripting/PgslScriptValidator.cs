@@ -59,6 +59,8 @@ namespace Genesis.Runtime.Scripting
                 var functions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 try { CollectSourceWrites(File.ReadAllText(file), writes, functions); }
                 catch { /* the validation pass below reports the actual read/parse failure */ }
+                // A library Script's functions are callable from any object.
+                if (!objectEvent) externalFunctions.UnionWith(functions);
 
                 if (objectEvent)
                 {

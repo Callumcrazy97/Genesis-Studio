@@ -1120,9 +1120,35 @@ internal static class HeadlessTestRunner
         return Finish(report, outputRoot, fastBuildGate: false);
     }
 
+    /// <summary>
+    /// The quick tiers Build.bat --tiers runs in order, each a few minutes at most: Studio's editors,
+    /// the engine, then PGSL in a real game. The full regression stays for releases.
+    /// </summary>
+    internal static readonly IReadOnlyDictionary<string, string[]> Tiers = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["tier-editor"] = ["studio-foundation", "shell-layout", "resource-names", "code-assistance", "editor-suite", "room-workspace", "model-intake"],
+        ["tier-engine"] = ["engine-systems", "asset-import", "readback-alpha", "post-effects", "large-world", "runtime", "model-system"],
+        ["tier-pgsl"] = ["pgsl-values", "pgsl-cache", "pgsl-scripts", "pgsl-logic", "pgsl-project"],
+    };
+
     private static void RunFocusedTarget(HeadlessContext ctx, string target)
     {
         string normalized = target.Trim().TrimStart('-').Replace('_', '-').ToLowerInvariant();
+        if (Tiers.TryGetValue(normalized, out string[]? members))
+        {
+            // Each member gets its own workspace: several create the same fixture project.
+            foreach (string member in members)
+            {
+                string workspace = Path.Combine(ctx.Workspace, member);
+                Directory.CreateDirectory(workspace);
+                RunFocusedTarget(new HeadlessContext
+                {
+                    Report = ctx.Report, OutputRoot = ctx.OutputRoot, Workspace = workspace,
+                    Captures = ctx.Captures, Logs = ctx.Logs, UpdateBaselines = ctx.UpdateBaselines,
+                }, member);
+            }
+            return;
+        }
         switch (normalized)
         {
             case "particle-planar":
@@ -1523,6 +1549,9 @@ internal static class HeadlessTestRunner
                 break;
             case "pgsl-logic":
                 Suites.PgslLogicSuite.Run(ctx);
+                break;
+            case "pgsl-project":
+                Suites.PgslProjectSuite.Run(ctx);
                 break;
             case "asset-import":
                 Suites.AssetImportSuite.Run(ctx);
