@@ -1862,6 +1862,21 @@ findings and hash-bound development usability/aesthetics ratings of **4/5**. Rel
 zero warnings/errors. Final shared-build, native monitor DPI and refreshed exported Player acceptance
 remain pending.
 
+### UI menus and animation libraries — 5 October 2026
+
+User Interface resources can now be styled game menus: per-element corner radius, border width and
+colour, vertical or horizontal gradient fills, text alignment across and down with letter spacing,
+hover/pressed/selected/disabled looks, Slider and Toggle elements the pointer drives, and
+contain/cover/crop image fits. The UI Editor's Inspector edits all of them and its canvas previews a
+chosen look; the game draws them with the smooth-shape, gradient, spaced-text and image-part paths.
+PGSL reads the player's changes with `UiGetValue`, `UiValueChanged`, `UiClicked` and `UiGetHovered`
+and sets `UiSetSelected` / `UiSetEnabled`; older UI files draw exactly as before. The Model editor and
+Model Viewer open clips-only Models as an **Animation library**: clip list, play/stop, timeline
+scrubbing, bone-line preview, or preview on a body Model picked from the project. Details:
+[MenuFeatures.md](MenuFeatures.md). Focused check: `--test menu-clips` (11 checks, all five
+renderers). Pre-existing and unchanged: at 200% interface scale the UI Inspector's paired number
+inputs (Position, Size) are clipped by their row height.
+
 ### Audio novice workflow and real gameplay playback — 28 September 2026
 
 The primary toolbar is **Quick setup / Use in game / Options**, with pinned Save and state. Play/Stop
