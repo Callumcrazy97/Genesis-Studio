@@ -43,7 +43,8 @@ public sealed record GameExportResult(
     string ExecutableName,
     int ModelsCooked,
     int ShadersCooked,
-    string ErrorMessage = "");
+    string ErrorMessage = "",
+    bool CompiledCSharpScripts = false);
 
 /// <summary>Creates a Player-only, self-contained Windows release from a Studio project.</summary>
 public static partial class GameExportService
@@ -121,13 +122,36 @@ public static partial class GameExportService
             progress?.Report("Preparing models to load quickly…");
             Genesis.Runtime.Modeling.RuntimeModelStore.WriteSealedCaches(staging, cancellationToken);
 
-            progress?.Report("Compiling game scripts…");
-            ProjectRunLauncher.CompileOutcome scripts = ProjectRunLauncher.CompileScripts(projectRoot, staging);
-            if (!scripts.Success)
+            // Only a game with C# scripts is compiled. A game written only in PGSL runs the PGSL
+            // copied above on the Player's VM, so it gets the same strict check as Run but no C#
+            // compiler and no GameScripts.dll.
+            bool compiledCSharpScripts = ProjectRunLauncher.HasCSharpScripts(projectRoot);
+            if (compiledCSharpScripts)
             {
-                return new GameExportResult(
-                    false, outputPath, executableName, models.CookedCount, 0,
-                    "Game script compilation failed:" + Environment.NewLine + scripts.ErrorMessage);
+                progress?.Report("Compiling game scripts…");
+                ProjectRunLauncher.CompileOutcome scripts = ProjectRunLauncher.CompileScripts(projectRoot, staging);
+                if (!scripts.Success)
+                {
+                    return new GameExportResult(
+                        false, outputPath, executableName, models.CookedCount, 0,
+                        "Game script compilation failed:" + Environment.NewLine + scripts.ErrorMessage);
+                }
+            }
+            else
+            {
+                progress?.Report("Checking PGSL scripts…");
+                ProjectRunLauncher.CompileOutcome scripts = ProjectRunLauncher.ValidatePgslScripts(projectRoot);
+                if (!scripts.Success)
+                {
+                    return new GameExportResult(
+                        false, outputPath, executableName, models.CookedCount, 0,
+                        "Game script check failed:" + Environment.NewLine + scripts.ErrorMessage);
+                }
+
+                // A Player folder from an older Studio can still hold another game's compiled
+                // scripts; this game has none, so none may ship with it.
+                string strayScripts = Path.Combine(staging, "GameScripts.dll");
+                if (File.Exists(strayScripts)) File.Delete(strayScripts);
             }
 
             if (request.PrecompileShaders)
@@ -148,7 +172,8 @@ public static partial class GameExportService
             progress?.Report("Export complete.");
             return new GameExportResult(
                 true, outputPath, executableName,
-                models.CookedCount, shaderCount);
+                models.CookedCount, shaderCount,
+                CompiledCSharpScripts: compiledCSharpScripts);
         }
         catch (OperationCanceledException)
         {

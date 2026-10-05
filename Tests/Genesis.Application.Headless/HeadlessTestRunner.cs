@@ -1572,6 +1572,9 @@ internal static class HeadlessTestRunner
                 PrepareFocusedProject(ctx, requireStudioServices: true);
                 Suites.TerrainLayersGrassSuite.Run(ctx);
                 break;
+            case "export-pgsl":
+                Suites.PgslExportSuite.Run(ctx);
+                break;
             case "asset-import":
                 Suites.AssetImportSuite.Run(ctx);
                 break;

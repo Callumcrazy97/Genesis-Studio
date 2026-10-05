@@ -26,6 +26,10 @@ Player renamed to your game's title, and a `Licenses` folder.
   the Player require every copy to carry.
 - A game may be put anywhere, including a folder it cannot write to such as `Program Files`.
   It then keeps its log in the player's own folder (below) instead of beside itself.
+- A game written only in PGSL is exported without compiling any C#: its PGSL is checked as
+  strictly as Run checks it and shipped as it is, the project file keeps its chosen backend,
+  and there is no `GameScripts.dll`. Only a game with C# scripts (`Assets\Scripts\*.cs`) has
+  them compiled into `GameScripts.dll` beside its executable.
 - Windows x64 is the only platform.
 
 ## Where Genesis keeps things

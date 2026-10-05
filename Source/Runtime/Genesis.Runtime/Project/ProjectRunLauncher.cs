@@ -96,6 +96,44 @@ namespace Genesis.Runtime.Project
         }
 
         /// <summary>
+        /// Whether the project has C# game scripts for <see cref="CompileScripts"/> to build. A game
+        /// written only in PGSL has none: its scripts run on the VM and need no C# compiler.
+        /// </summary>
+        public static bool HasCSharpScripts(string projectPath)
+        {
+            projectPath = ProjectRoomResolver.ResolveProjectRoot(projectPath);
+            return !string.IsNullOrEmpty(projectPath)
+                && CSharpScriptCompiler.FindProjectScriptSources(projectPath).Count > 0;
+        }
+
+        /// <summary>
+        /// The strict PGSL check that <see cref="CompileScripts"/> begins with, and nothing else:
+        /// no C# is compiled, no <c>GameScripts.dll</c> is written or removed and the project is
+        /// left as it was. Export uses this for a game written only in PGSL.
+        /// </summary>
+        public static CompileOutcome ValidatePgslScripts(string projectPath)
+        {
+            projectPath = ProjectRoomResolver.ResolveProjectRoot(projectPath);
+            if (string.IsNullOrEmpty(projectPath))
+                return new CompileOutcome { Success = false, ErrorMessage = "Invalid project path." };
+
+            PgslValidationReport validation = PgslScriptValidator.ValidateProject(projectPath, strict: true);
+            var result = new ScriptCompileResult
+            {
+                Success = validation.Success,
+                Errors = validation.Errors,
+                Warnings = validation.Warnings,
+                BehaviorTypeNames = Array.Empty<string>(),
+            };
+            return new CompileOutcome
+            {
+                Success = validation.Success,
+                Result = result,
+                ErrorMessage = validation.Success ? null : string.Join(Environment.NewLine, validation.Errors.Take(8)),
+            };
+        }
+
+        /// <summary>
         /// Earlier versions wrote every project's scripts beside the Player. One left there would
         /// be loaded by a project that has no C# of its own, so it is removed where that is allowed.
         /// </summary>
