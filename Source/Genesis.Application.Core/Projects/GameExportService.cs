@@ -101,6 +101,7 @@ public static partial class GameExportService
                 ?? throw new DirectoryNotFoundException(
                     "Genesis Player was not found. Publish the Player before exporting a game.");
             StudioExport.CopyEnginePayload(RuntimePaths.StudioDir, staging, runtimeDir);
+            CopyPrecompiledShadersIfMissing(staging);
             string playerExecutable = Path.Combine(staging, RuntimePaths.RuntimeExeName);
             string gameExecutable = Path.Combine(staging, executableName);
             if (!string.Equals(playerExecutable, gameExecutable, StringComparison.OrdinalIgnoreCase))
@@ -238,6 +239,25 @@ public static partial class GameExportService
             }
         }
         return false;
+    }
+
+    /// <summary>
+    /// The engine's own shaders ship compiled in the Player's PrecompiledShaders folder, and the
+    /// shader cook below finds them there rather than writing them into the game's cache. A
+    /// Player folder without one (an older layout) gets Studio's, so the game never has to compile
+    /// them at its first start.
+    /// </summary>
+    private static void CopyPrecompiledShadersIfMissing(string staging)
+    {
+        string target = Path.Combine(staging, PrecompiledShaders.FolderName);
+        string source = Path.Combine(AppContext.BaseDirectory, PrecompiledShaders.FolderName);
+        if (Directory.Exists(target) || !File.Exists(Path.Combine(source, "manifest.txt"))) return;
+        foreach (string file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
+        {
+            string destination = Path.Combine(target, Path.GetRelativePath(source, file));
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            File.Copy(file, destination, overwrite: true);
+        }
     }
 
     private static int CookShaders(string projectRoot, string cacheRoot)

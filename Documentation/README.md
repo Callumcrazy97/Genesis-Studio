@@ -1551,7 +1551,9 @@ Build.bat --help
 `--tiers` is the everyday check, about six minutes: Quick, then three quick tiers in order and a
 DX11 smoke. **Editor** (Studio foundation, shell, resource names, code assistance, the editor suite,
 room workspace, model intake), **Engine** (engine systems, asset import, readback, post effects,
-large worlds, runtime, model system) and **PGSL** (values, caches, scripts, the `pgsl-logic`
+large worlds, runtime, model system, `shader-precompiled`: built-in shaders read from the shipped
+folder without compiling, and compiled when the source, the compiler or the file is not what it
+was) and **PGSL** (values, caches, scripts, the `pgsl-logic`
 language checks, `input-replay` (a script's input recorded and replayed frame for frame), and
 `pgsl-project`: a two-room game the staged Player runs on DX11, checking every
 language group, instances, `with`, a library Script, the event order, a room change and two
