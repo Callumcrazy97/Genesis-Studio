@@ -40,6 +40,9 @@ public sealed partial class StudioShellForm
         return new PlaceholderScope(placeholder, previousCursor);
     }
 
+    /// <summary>The placeholder tab's content, for the headless suite to picture.</summary>
+    internal static GenesisDockContent CreateOpeningPlaceholderPreview(string name) => new OpeningPlaceholderDocument(name);
+
     private sealed class PlaceholderScope(OpeningPlaceholderDocument? placeholder, Cursor? previousCursor) : IDisposable
     {
         public void Dispose()

@@ -64,6 +64,19 @@ internal sealed class ProjectOpeningNotice : Form
         return new Ending(notice);
     }
 
+    /// <summary>
+    /// The notice at its second step, not shown, for the headless suite to picture
+    /// (<see cref="Begin"/> shows nothing in an unattended session).
+    /// </summary>
+    internal static Form CreatePreview(string projectName, string status)
+    {
+        ProjectOpeningNotice notice = new(projectName);
+        notice._status.Text = status;
+        notice._steps = 2;
+        notice.Load += (_, _) => notice._fill.Width = (int)(notice._bar.ClientSize.Width * (1 - Math.Pow(0.72, notice._steps)));
+        return notice;
+    }
+
     /// <summary>Says what opening the project is doing now. Does nothing when no notice is showing.</summary>
     public static void Step(string status)
     {

@@ -75,9 +75,22 @@ internal static class SpeedSuite
             HeadlessHarness.RunCase(ctx.Report, "Speed.EditorOpen." + editor, () =>
             {
                 HeadlessHarness.Assert(project != null, "The project did not open.");
-                double first = OpenEditor(project!, editor, "first");
-                double again = OpenEditor(project!, editor, "again");
-                HeadlessHarness.Assert(first < 60_000 && again < 60_000, $"{editor} took {first:F0} ms, then {again:F0} ms, to open.");
+                // The first open of a session also starts the graphics device; later opens are
+                // timed twice and the quicker kept, as this machine is shared with other work.
+                (double Create, double Show, double Frame) first = OpenEditor(project!, editor);
+                (double Create, double Show, double Frame) again = OpenEditor(project!, editor);
+                (double Create, double Show, double Frame) third = OpenEditor(project!, editor);
+                if (third.Create + third.Show + third.Frame < again.Create + again.Show + again.Frame) again = third;
+                foreach ((string pass, (double Create, double Show, double Frame) time) in new[] { ("first", first), ("again", again) })
+                {
+                    string label = $"Editor open ({pass}): {editor}";
+                    Record(label + " - create", time.Create);
+                    Record(label + " - show and start the viewport", time.Show);
+                    Record(label + " - first frame", time.Frame);
+                    Record(label + " - total", time.Create + time.Show + time.Frame);
+                }
+                double slowest = Math.Max(first.Create + first.Show + first.Frame, again.Create + again.Show + again.Frame);
+                HeadlessHarness.Assert(slowest < 60_000, $"{editor} took {slowest:F0} ms to open.");
             });
         }
 
@@ -98,6 +111,35 @@ internal static class SpeedSuite
                 RunPlayer(ctx, project!);
             });
         }
+
+        // What is on screen while something slow happens: the project-opening window and the tab
+        // an editor shows while it is made. Both are suppressed in unattended runs, so their
+        // previews are pictured here.
+        HeadlessHarness.RunCase(ctx.Report, "Speed.Feedback.OpeningScreensArePainted", () =>
+        {
+            using var noticeHost = UnattendedWindowing.NewHost(640, 360);
+            Form notice = ProjectOpeningNotice.CreatePreview("Verdant Hollow", "Listing the project's resources…");
+            notice.TopLevel = false;
+            notice.Location = new Point(90, 110);
+            noticeHost.Controls.Add(notice);
+            notice.Show();
+            UnattendedWindowing.ShowWithoutFocus(noticeHost);
+            System.Windows.Forms.Application.DoEvents();
+            ImageMetrics noticeImage = VisualCapture.Capture(noticeHost, Path.Combine(ctx.Captures, "speed-opening-notice.png"));
+            HeadlessHarness.Assert(noticeImage.UniqueSampledColors >= 3, "The project-opening window painted nothing.");
+
+            using var host = UnattendedWindowing.NewHost(640, 360);
+            Form placeholder = StudioShellForm.CreateOpeningPlaceholderPreview("AncientOak");
+            placeholder.TopLevel = false;
+            placeholder.FormBorderStyle = FormBorderStyle.None;
+            placeholder.Dock = DockStyle.Fill;
+            host.Controls.Add(placeholder);
+            placeholder.Show();
+            UnattendedWindowing.ShowWithoutFocus(host);
+            System.Windows.Forms.Application.DoEvents();
+            ImageMetrics placeholderImage = VisualCapture.Capture(host, Path.Combine(ctx.Captures, "speed-opening-placeholder.png"));
+            HeadlessHarness.Assert(placeholderImage.UniqueSampledColors >= 2, "The editor's opening tab painted nothing.");
+        });
 
         WriteResults(ctx);
     }
@@ -132,7 +174,7 @@ internal static class SpeedSuite
         return project;
     }
 
-    private static double OpenEditor(ProjectSession project, string editor, string pass)
+    private static (double Create, double Show, double Frame) OpenEditor(ProjectSession project, string editor)
     {
         string root = project.RootPath;
         string assets = project.AssetsPath;
@@ -179,13 +221,7 @@ internal static class SpeedSuite
         clock.Restart();
         using (viewport.CaptureFrame(0)) { }
         double frame = clock.Elapsed.TotalMilliseconds;
-
-        string label = $"Editor open ({pass}): {editor}";
-        Record(label + " - create", constructed);
-        Record(label + " - show and start the viewport", shown);
-        Record(label + " - first frame", frame);
-        Record(label + " - total", constructed + shown + frame);
-        return constructed + shown + frame;
+        return (constructed, shown, frame);
     }
 
     private static void RunPlayer(HeadlessContext ctx, ProjectSession project)

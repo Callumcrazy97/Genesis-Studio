@@ -126,7 +126,20 @@ internal sealed class StudioApplicationContext : ApplicationContext
             Theme.ThemeService.ApplySettings(_services.Settings.Current));
 
         sequence.Add("Preparing the rendering backend…", () =>
-            RenderingPreferencesBridge.Apply(_services.Settings.Current.Rendering));
+        {
+            RenderingPreferencesBridge.Apply(_services.Settings.Current.Rendering);
+            // The built-in 3D shaders are read (or, after an update, compiled) on worker threads
+            // now, so the first 3D editor opened finds them ready instead of making them itself.
+            try
+            {
+                if (Genesis.Rendering.Core.RenderControllerFactory.ResolveBackend() == Genesis.Rendering.Core.RenderBackendOption.SilkNetDx11)
+                    Genesis.Rendering.Primitives.ShaderCompiler.WarmBuiltInDxbcInBackground();
+            }
+            catch (ArgumentException)
+            {
+                // An unknown backend name is reported when a viewport starts.
+            }
+        });
 
         sequence.Add("Building the PGSL command surface…", () =>
             Genesis.Runtime.Scripting.VM.VMEngine.Initialize());
