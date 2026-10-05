@@ -534,7 +534,8 @@ namespace Genesis.Runtime.Modeling
             Controller = controller;
             ClipName = clipName ?? "";
             TimeSeconds = timeSeconds;
-            Fps = fps <= 0f ? 60f : fps;
+            // 0 plays each clip at the rate it was authored at (an Animator's Clip FPS of 0).
+            Fps = float.IsFinite(fps) && fps > 0f ? fps : 0f;
             Loop = loop;
             FlatUntextured = flatUntextured;
             IgnoreTextures = ignoreTextures;
