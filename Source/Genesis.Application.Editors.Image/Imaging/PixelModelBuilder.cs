@@ -8,6 +8,9 @@ namespace Genesis.Application.Editors.Image.Imaging;
 /// <summary>One composited frame of pixel art handed to <see cref="PixelModelBuilder"/>.</summary>
 public sealed record PixelModelFrame(string Name, byte[] Rgba, int DurationMilliseconds);
 
+/// <summary>A tagged run of frames (indices into the source's frames, in play order) that becomes its own clip.</summary>
+public sealed record PixelModelClip(string Name, IReadOnlyList<int> Frames, bool Loop);
+
 /// <summary>The pixels an Image Editor hands to "Convert to 3D Model": every frame, already flattened.</summary>
 public sealed class PixelModelSource
 {
@@ -20,6 +23,8 @@ public sealed class PixelModelSource
     /// <summary>Normalised image origin (0..1); the pixel there becomes the model's origin.</summary>
     public Vector2 Origin { get; init; } = new(0.5f, 0.5f);
     public string SuggestedName { get; init; } = "Pixel Model";
+    /// <summary>The Image's animation tags; with all frames converted, each becomes a clip beside "Frames".</summary>
+    public IReadOnlyList<PixelModelClip> Clips { get; init; } = [];
 }
 
 /// <summary>How pixels become voxels, and the move/rotate/resize baked into the result.</summary>
@@ -129,7 +134,12 @@ public static class PixelModelBuilder
 
         if (asset.Meshes.Count == 0)
             throw new InvalidOperationException("No pixels are solid enough to convert. Lower the alpha threshold or draw something first.");
-        if (animated) AddFlipbook(asset, frames.Select(index => source.Frames[index]).ToArray(), centres);
+        if (animated)
+        {
+            AddFlipbook(asset, frames.Select(index => source.Frames[index]).ToArray(), centres, source.Clips
+                .Select(clip => clip with { Frames = clip.Frames.Select(index => IndexOf(frames, index)).ToArray() })
+                .Where(clip => clip.Frames.Count > 0 && clip.Frames.All(index => index >= 0)).ToArray());
+        }
         asset.RecalculateBounds();
         return asset;
     }
@@ -291,13 +301,21 @@ public static class PixelModelBuilder
         return mesh;
     }
 
+    private static int IndexOf(IReadOnlyList<int> list, int value)
+    {
+        for (int i = 0; i < list.Count; i++)
+            if (list[i] == value) return i;
+        return -1;
+    }
+
     /// <summary>
-    /// A root bone, one bone per frame and the "Frames" clip. The bind pose shows the first frame
-    /// only (the other frame bones rest at scale 0), so a model placed without an animator still
-    /// shows one clean frame. A hidden frame shrinks onto its own centre rather than the origin,
-    /// so it never stretches the model's bounds after a move.
+    /// A root bone, one bone per frame, the "Frames" clip and one clip per tag. The bind pose shows
+    /// the first frame only (the other frame bones rest at scale 0), so a model placed without an
+    /// animator still shows one clean frame. A hidden frame shrinks onto its own centre rather than
+    /// the origin, so it never stretches the model's bounds after a move.
     /// </summary>
-    private static void AddFlipbook(GModelAsset asset, IReadOnlyList<PixelModelFrame> frames, IReadOnlyList<Vector3> centres)
+    private static void AddFlipbook(GModelAsset asset, IReadOnlyList<PixelModelFrame> frames, IReadOnlyList<Vector3> centres,
+        IReadOnlyList<PixelModelClip> tags)
     {
         Matrix4x4 Hidden(int frame) =>
             Matrix4x4.CreateTranslation(-centres[frame]) * Matrix4x4.CreateScale(0f) * Matrix4x4.CreateTranslation(centres[frame]);
@@ -310,16 +328,28 @@ public static class PixelModelBuilder
         rig.InverseBindMatrices = Enumerable.Repeat(Matrix4x4.Identity, rig.Bones.Count).ToArray();
         asset.Rig = rig;
 
-        GModelAnimationClip clip = new() { Name = ClipName, Fps = ClipFps, Loop = true };
-        for (int i = 0; i < frames.Count; i++)
+        asset.Animations.Add(Clip(ClipName, true, Enumerable.Range(0, frames.Count)));
+        foreach (PixelModelClip tag in tags)
         {
-            int count = Math.Max(1, (int)MathF.Round(Math.Max(1, frames[i].DurationMilliseconds) * ClipFps / 1000f));
-            Matrix4x4[] pose = new Matrix4x4[rig.Bones.Count];
-            pose[0] = Matrix4x4.Identity;
-            for (int bone = 1; bone < pose.Length; bone++) pose[bone] = bone == i + 1 ? Matrix4x4.Identity : Hidden(bone - 1);
-            for (int k = 0; k < count; k++)
-                clip.Frames.Add(new GModelAnimationFrame { LocalBoneTransforms = (Matrix4x4[])pose.Clone() });
+            string name = tag.Name?.Trim() ?? string.Empty;
+            if (name.Length == 0 || asset.Animations.Any(clip => string.Equals(clip.Name, name, StringComparison.OrdinalIgnoreCase))) continue;
+            asset.Animations.Add(Clip(name, tag.Loop, tag.Frames));
         }
-        asset.Animations.Add(clip);
+
+        GModelAnimationClip Clip(string name, bool loop, IEnumerable<int> order)
+        {
+            GModelAnimationClip clip = new() { Name = name, Fps = ClipFps, Loop = loop };
+            foreach (int i in order)
+            {
+                // Each frame is held for its own duration, at 60 samples a second.
+                int count = Math.Max(1, (int)MathF.Round(Math.Max(1, frames[i].DurationMilliseconds) * ClipFps / 1000f));
+                Matrix4x4[] pose = new Matrix4x4[rig.Bones.Count];
+                pose[0] = Matrix4x4.Identity;
+                for (int bone = 1; bone < pose.Length; bone++) pose[bone] = bone == i + 1 ? Matrix4x4.Identity : Hidden(bone - 1);
+                for (int k = 0; k < count; k++)
+                    clip.Frames.Add(new GModelAnimationFrame { LocalBoneTransforms = (Matrix4x4[])pose.Clone() });
+            }
+            return clip;
+        }
     }
 }

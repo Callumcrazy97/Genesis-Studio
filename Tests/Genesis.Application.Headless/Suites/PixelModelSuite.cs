@@ -125,6 +125,24 @@ internal static class PixelModelSuite
                 Check(shown.SequenceEqual([expected]), $"AnimationController at {time:0.00}s showed frames [{string.Join(",", shown)}], expected {expected}.");
             }
 
+            // An animation tag becomes its own clip: frames 3 then 1, played once.
+            PixelModelSource tagged = new()
+            {
+                Width = 4, Height = 4, Frames = source.Frames, Origin = source.Origin,
+                Clips = [new PixelModelClip("Ends", [2, 0], false), new PixelModelClip("frames", [1], true)],
+            };
+            GModelAsset withTags = PixelModelBuilder.Build(tagged, new PixelModelSettings { AllFrames = true });
+            GModelAnimationClip ends = withTags.Animations.Single(clip => clip.Name == "Ends");
+            Check(withTags.Animations.Count == 2 && !ends.Loop && ends.Frames.Count == 12,
+                "A tag should add one clip (and never replace Frames).");
+            foreach ((float time, int expected) in new[] { (.05f, 2), (.15f, 0) })
+            {
+                ModelAnimatorComponent tagAnimator = new() { ClipName = "Ends", TimeSeconds = time, Loop = false, Playing = true, PlaybackSpeed = 1f };
+                int[] shown = VisibleFrames(withTags, GModelPrimitiveFactory.EvaluateSkinPalette(withTags.Rig,
+                    GModelPrimitiveFactory.EvaluateAnimatedLocals(withTags, RuntimeModelAnimationState.From(tagAnimator, false))));
+                Check(shown.SequenceEqual([expected]), $"The tag clip at {time:0.00}s showed [{string.Join(",", shown)}], expected {expected}.");
+            }
+
             string image = resources.CreateResource(resources.AssetsRoot, ResourceKind.Image, "Three frames");
             string model = PixelModelResource.Create(image, PixelModelBuilder.Build(Source(4, 4, source.Frames, image), new PixelModelSettings { AllFrames = true }), "Three frames 3D");
             GModelAsset reopened = StudioModelResourceLoader.Load(model);
@@ -195,6 +213,11 @@ internal static class PixelModelSuite
             RasterPaint(workspace.Frames[1].Layers[0].Pixels, 8, (x, y) => y < 4 ? Blue : Color.Transparent);
             ImageWorkspaceStorage.Save(session, workspace);
             ImageWorkspace loaded = ImageWorkspaceStorage.Load(session);
+            session.Document.Tags.Add(new ImageAnimationTag
+            {
+                Name = "Bounce", StartFrameId = loaded.Frames[0].Id.ToString("N"), EndFrameId = loaded.Frames[1].Id.ToString("N"),
+                Direction = ImagePlaybackDirection.Reverse, Loop = true,
+            });
             using ImageEditorControl editor = new(session, loaded);
             using Form host = UnattendedWindowing.NewHost(1280, 780); host.Controls.Add(editor); UnattendedWindowing.ShowWithoutFocus(host);
             Func<IWin32Window?, PixelModelSource, string?>? previous = ImageEditorControl.ModelConversionDialog;
@@ -219,7 +242,9 @@ internal static class PixelModelSuite
             Check(received.Frames[1].Rgba[3] == 255 && received.Frames[1].Rgba[2] == Blue.B && received.Frames[1].Rgba[(7 * 8) * 4 + 3] == 0,
                 "Frame pixels were not composited as the canvas shows them.");
             GModelAsset asset = PixelModelBuilder.Build(received, new PixelModelSettings { AllFrames = true });
-            Check(asset.Animations.Single().Frames.Count == 7 + 15, "Frame durations did not set the clip timing.");
+            Check(asset.Animations[0].Name == "Frames" && asset.Animations[0].Frames.Count == 7 + 15, "Frame durations did not set the clip timing.");
+            Check(received.Clips.Count == 1 && received.Clips[0].Name == "Bounce" && received.Clips[0].Frames.SequenceEqual([1, 0])
+                && asset.Animations.Count == 2 && asset.Animations[1].Name == "Bounce", "The Image's reversed animation tag did not become a clip.");
         });
 
         HeadlessHarness.RunCase(ctx.Report, "Editor.Image.ToModel.PreviewRendersAndGizmoBakesTransform", () =>

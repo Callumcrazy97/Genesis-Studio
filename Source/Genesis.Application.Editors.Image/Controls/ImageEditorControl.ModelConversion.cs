@@ -34,7 +34,30 @@ public sealed partial class ImageEditorControl
             ImagePath = _session.DocumentPath,
             Origin = new Vector2(float.IsFinite(normalized.X) ? normalized.X : .5f, float.IsFinite(normalized.Y) ? normalized.Y : .5f),
             SuggestedName = (_session.DocumentPath is { } path ? ResourceDisplayName.Format(path) : "Pixel") + " 3D",
+            Clips = TagClips(),
         };
+    }
+
+    /// <summary>Each animation tag as a run of frame indices in play order (reverse and ping-pong included).</summary>
+    private PixelModelClip[] TagClips()
+    {
+        List<PixelModelClip> clips = [];
+        foreach (ImageAnimationTag tag in _session.Document.Tags)
+        {
+            int start = _workspace.Frames.FindIndex(frame => frame.Id.ToString("N") == tag.StartFrameId);
+            int end = _workspace.Frames.FindIndex(frame => frame.Id.ToString("N") == tag.EndFrameId);
+            if (start < 0 || end < 0 || string.IsNullOrWhiteSpace(tag.Name)) continue;
+            if (end < start) (start, end) = (end, start);
+            int[] forward = Enumerable.Range(start, end - start + 1).ToArray();
+            int[] order = tag.Direction switch
+            {
+                ImagePlaybackDirection.Reverse => Enumerable.Reverse(forward).ToArray(),
+                ImagePlaybackDirection.PingPong => forward.Concat(Enumerable.Reverse(forward).Skip(1).SkipLast(1)).ToArray(),
+                _ => forward,
+            };
+            clips.Add(new PixelModelClip(tag.Name.Trim(), order, tag.Loop));
+        }
+        return clips.ToArray();
     }
 
     /// <summary>Opens the conversion dialog, then offers to open the new Model.</summary>

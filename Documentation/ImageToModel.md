@@ -43,5 +43,10 @@ for its duration from the Image's timeline (rounded to 1/60 s). It is an ordinar
 the Animator component, `AnimationController` state machines and scripts play it like any other:
 `ModelAnimationPlay("Frames", true, 0)`. Without an animator the Model shows its first frame.
 
+Each of the Image's animation tags (Animate → Tag range) also becomes a clip of the same name over
+its frames, honouring its direction (forward, reverse or ping-pong) and its loop setting, so a
+sprite sheet tagged `Idle` and `Walk` gives a Model with `Idle` and `Walk` clips. A tag named
+`Frames` is left out, since that name is the whole flipbook.
+
 The new Model is created beside the Image when that folder may hold Models, otherwise in the
 project's Models folder, and Studio offers to open it in the Model Editor.

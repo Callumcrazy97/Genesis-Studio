@@ -240,7 +240,7 @@ public sealed class PixelModelDialog : DpiAwareForm
             int naive = frames.Sum(index => PixelModelBuilder.NaiveCubeTriangles(_source.Frames[index], _source.Width, _source.Height, _settings));
             int triangles = PixelModelBuilder.TriangleCount(Preview);
             _summary.Text = $"{triangles:N0} triangles (one cube per pixel would be {naive:N0})"
-                + (frames.Count > 1 ? $" · {frames.Count} frames, each on its own bone" : string.Empty);
+                + (frames.Count > 1 ? $" · {frames.Count} frames, each on its own bone · clips: {string.Join(", ", Preview.Animations.Select(clip => clip.Name))}" : string.Empty);
             _summary.ForeColor = EditorChrome.Muted;
         }
         catch (Exception exception) when (exception is InvalidOperationException or ArgumentException)
