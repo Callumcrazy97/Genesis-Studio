@@ -1568,6 +1568,10 @@ internal static class HeadlessTestRunner
                 Suites.UiMenuStyleSuite.Run(ctx);
                 Suites.ModelClipsOnlySuite.Run(ctx);
                 break;
+            case "terrain-layers-grass":
+                PrepareFocusedProject(ctx, requireStudioServices: true);
+                Suites.TerrainLayersGrassSuite.Run(ctx);
+                break;
             case "asset-import":
                 Suites.AssetImportSuite.Run(ctx);
                 break;

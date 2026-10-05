@@ -45,7 +45,7 @@ public sealed partial class RoomTerrainSubsystem
         }
         if (state.Pixels is { } pixels && !state.Draw.HasValue)
         {
-            state.Draw = TerrainSurfaceMaterialBinding.Create(renderer, pixels, entry.Terrain.SplatmapData, entry.Terrain.ResolutionX, entry.Terrain.ResolutionZ);
+            state.Draw = TerrainSurfaceMaterialBinding.Create(renderer, pixels, entry.Terrain.CaptureSplatState(), entry.Terrain.ResolutionX, entry.Terrain.ResolutionZ);
             entry.Ground.SurfaceMaterial = state.Draw;
             if (entry.Bound) entry.Ground.Bind(renderer, state.Draw.Value.Texture, 1);
         }
@@ -53,7 +53,7 @@ public sealed partial class RoomTerrainSubsystem
         state.NextCheck = DateTime.UtcNow.AddSeconds(1);
         try
         {
-            List<TerrainMaterialLayer> layers = TerrainSurfaceMaterialBaker.LoadLayers(entry.ResourcePath);
+            (List<TerrainMaterialLayer> layers, TerrainSurfaceOptions options) = TerrainSurfaceMaterialBaker.LoadSurface(entry.ResourcePath);
             if (layers.Count == 0) return;
             long ImageStamp(TerrainMaterialLayer layer)
             {
@@ -64,10 +64,10 @@ public sealed partial class RoomTerrainSubsystem
                 + "|" + string.Join('|', layers.Select(ImageStamp));
             if (signature == state.Signature) return;
             state.PendingSignature = signature;
-            byte[] splats = (byte[])entry.Terrain.SplatmapData.Clone();
+            byte[] splats = entry.Terrain.CaptureSplatState();
             int width = entry.Terrain.ResolutionX, height = entry.Terrain.ResolutionZ;
             float worldWidth = (width - 1) * entry.Terrain.CellSize, worldHeight = (height - 1) * entry.Terrain.CellSize;
-            state.Pending = Task.Run(() => TerrainSurfaceMaterialBaker.Bake(_projectPath, layers, splats, width, height, worldWidth, worldHeight));
+            state.Pending = Task.Run(() => TerrainSurfaceMaterialBaker.Bake(_projectPath, layers, splats, width, height, worldWidth, worldHeight, options: options));
         }
         catch (Exception exception) when (exception is IOException or System.Text.Json.JsonException or UnauthorizedAccessException)
         { RuntimeDiagnostics.ReportAssetProblem($"Terrain material '{entry.Node.Name}': {exception.Message}"); }

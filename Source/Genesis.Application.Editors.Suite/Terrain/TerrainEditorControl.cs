@@ -68,6 +68,10 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
         public FaceCullingOverride Culling { get; set; } = FaceCullingOverride.Default;
         public FrontFaceWindingOverride WindingOrder { get; set; } = FrontFaceWindingOverride.Default;
         public List<TerrainLayerDocument> Layers { get; set; } = [];
+        /// <summary>Each layer's normal and ORM maps tiled like its albedo (always on above four layers).</summary>
+        public bool TiledLayerMaps { get; set; }
+        /// <summary>0 blends layers linearly; above 0 layers meet along their albedo alpha (height), sharper toward 1.</summary>
+        public float HeightBlendSharpness { get; set; }
         public List<string> Entities { get; set; } = [];
         public Dictionary<string, string> ComponentShaders { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     }
@@ -687,7 +691,10 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
     {
         _stroking = true;
         _strokeHeightsBefore = (ushort[])_terrain.HeightsData.Clone();
-        _strokeSplatBefore = (byte[])_terrain.SplatmapData.Clone();
+        // Layers 5-8 live in a second plane created on first use: create it before the snapshot so
+        // before and after cover the same planes.
+        if (ActiveBrush == TerrainBrush.Paint && SelectedLayer >= 4) _terrain.EnsureExtendedSplatmap();
+        _strokeSplatBefore = _terrain.CaptureSplatState();
         _flattenTarget = _terrain.SampleHeight(worldX, worldZ);
     }
 
@@ -707,9 +714,16 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
         ushort[] before = _strokeHeightsBefore;
         byte[] beforeSplat = _strokeSplatBefore;
         ushort[] after = (ushort[])_terrain.HeightsData.Clone();
-        byte[] afterSplat = (byte[])_terrain.SplatmapData.Clone();
+        byte[] afterSplat = _terrain.CaptureSplatState();
         _strokeHeightsBefore = null;
         _strokeSplatBefore = null;
+        // A brush that reached layers 5-8 for the first time mid-stroke: the plane was empty before.
+        if (afterSplat.Length != beforeSplat.Length)
+        {
+            byte[] widened = new byte[afterSplat.Length];
+            beforeSplat.CopyTo(widened, 0);
+            beforeSplat = widened;
+        }
         if (before.AsSpan().SequenceEqual(after) && beforeSplat.AsSpan().SequenceEqual(afterSplat))
         {
             return;
@@ -724,7 +738,8 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
         void Restore(bool redo)
         {
             ushort[] heights = (ushort[])_terrain.HeightsData.Clone();
-            byte[] splats = (byte[])_terrain.SplatmapData.Clone();
+            if (afterSplat.Length > _terrain.SplatmapData.Length) _terrain.EnsureExtendedSplatmap();
+            byte[] splats = _terrain.CaptureSplatState();
             (redo ? heightChange.After : heightChange.Before).CopyTo(heights, heightChange.Start);
             (redo ? splatChange.After : splatChange.Before).CopyTo(splats, splatChange.Start);
             _terrain.RestoreState(heights, splats);
@@ -1117,7 +1132,7 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
         List<TerrainPathDefinition> oldPaths = Clone(_nature.Paths);
         FoliageField oldFoliage = _foliage;
         ushort[] oldHeights = (ushort[])_terrain.HeightsData.Clone();
-        byte[] oldSplat = (byte[])_terrain.SplatmapData.Clone();
+        byte[] oldSplat = _terrain.CaptureSplatState();
         TerrainPathSettings nextSettings = Clone(settings);
         TerrainPathNetwork generated = TerrainPathNetwork.Generate(_terrain, nextSettings);
         generated.ApplyTo(_terrain, nextSettings.GradeStrength, nextSettings.SplatChannel);
@@ -1130,7 +1145,7 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
             ? new Dictionary<string, HeldFoliageInstance[]>(StringComparer.OrdinalIgnoreCase)
             : CloneHold(holdBefore);
         ushort[] nextHeights = (ushort[])_terrain.HeightsData.Clone();
-        byte[] nextSplat = (byte[])_terrain.SplatmapData.Clone();
+        byte[] nextSplat = _terrain.CaptureSplatState();
         ApplyNaturalState(nextSettings, nextPaths, nextFoliage, nextHeights, nextSplat, holdAfter);
         PushEdit("Generate connected terrain paths",
             () => ApplyNaturalState(nextSettings, nextPaths, nextFoliage, nextHeights, nextSplat, holdAfter),
@@ -1325,11 +1340,13 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
     private void RegenerateFromSeed()
     {
         ushort[] before = (ushort[])_terrain.HeightsData.Clone();
-        byte[] beforeSplat = (byte[])_terrain.SplatmapData.Clone();
+        byte[] beforeSplat = _terrain.CaptureSplatState();
         TerrainAsset generated = GenerateFromSeed();
-        _terrain.RestoreState(generated.HeightsData, generated.SplatmapData);
+        // Generation paints layers 1-4; clear any paint of layers 5-8 with them.
+        if (_terrain.HasExtendedLayers) generated.EnsureExtendedSplatmap();
+        _terrain.RestoreState(generated.HeightsData, generated.CaptureSplatState());
         ushort[] after = (ushort[])_terrain.HeightsData.Clone();
-        byte[] afterSplat = (byte[])_terrain.SplatmapData.Clone();
+        byte[] afterSplat = _terrain.CaptureSplatState();
         _meshDirty = true;
         PushEdit(
             "Regenerate terrain",
@@ -1459,7 +1476,7 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
         Action<TerrainGenParams> process)
     {
         ushort[] before = (ushort[])_terrain.HeightsData.Clone();
-        byte[] beforeSplat = (byte[])_terrain.SplatmapData.Clone();
+        byte[] beforeSplat = _terrain.CaptureSplatState();
         TerrainGenParams beforeParameters = CurrentGenParams();
         TerrainGenParams afterParameters = beforeParameters.Clone();
         configure(afterParameters);
@@ -1467,7 +1484,7 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
         TerrainGenerator.SeedSplatFromSlope(_terrain, _terrain.CellSize);
         StoreProcessSettings(afterParameters);
         ushort[] after = (ushort[])_terrain.HeightsData.Clone();
-        byte[] afterSplat = (byte[])_terrain.SplatmapData.Clone();
+        byte[] afterSplat = _terrain.CaptureSplatState();
         _meshDirty = true;
 
         void Restore(ushort[] heights, byte[] splat, TerrainGenParams parameters)
@@ -1725,6 +1742,8 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
                 };
                 renderer.DrawMeshInstances(template, instances);
             }
+
+            DrawGrassRule(renderer, camera, viewProjection);
         }
     }
 

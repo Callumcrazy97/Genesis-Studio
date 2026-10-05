@@ -239,6 +239,15 @@ public static class InspectorBuilder
                 ? "Path surface"
                 : "Generation";
         }
+        if (owner.Name == "TerrainGrassRuleSettings")
+        {
+            return property switch
+            {
+                "CellSize" or "CellsPerFrame" or "GenerationBudgetMilliseconds" or "MaximumDrawnTufts" => "Streaming & budgets",
+                _ when property.StartsWith("Layer", StringComparison.Ordinal) => "Density per paint layer",
+                _ => "Grass around the camera",
+            };
+        }
         return "Settings";
     }
 
@@ -272,6 +281,24 @@ public static class InspectorBuilder
                 "ResidentMemoryBudgetMegabytes" => new DrawerRange(0.25m, 1024m, 0.25m, 2),
                 "GpuUploadBudgetMegabytes" => new DrawerRange(0.25m, 64m, 0.25m, 2),
                 "TargetGpuMilliseconds" => new DrawerRange(0.25m, 33.3m, 0.05m, 2),
+                _ => null,
+            };
+        }
+        if (owner.Name == "TerrainGrassRuleSettings")
+        {
+            return property switch
+            {
+                "Radius" => new DrawerRange(4m, 2000m, 1m, 1),
+                "Spacing" => new DrawerRange(0.1m, 16m, 0.05m, 2),
+                "FullDensityFraction" or "Jitter" => new DrawerRange(0m, 1m, 0.01m, 2),
+                "DetailDistance" => new DrawerRange(0m, 2000m, 1m, 1),
+                "MinimumScale" or "MaximumScale" => new DrawerRange(0.05m, 16m, 0.05m, 2),
+                "SteepestSlopeDegrees" => new DrawerRange(0m, 90m, 1m, 1),
+                "CellSize" => new DrawerRange(2m, 64m, 1m, 1),
+                "CellsPerFrame" => new DrawerRange(1m, 256m, 1m, 0),
+                "GenerationBudgetMilliseconds" => new DrawerRange(0.1m, 33m, 0.1m, 1),
+                "MaximumDrawnTufts" => new DrawerRange(0m, 32768m, 256m, 0),
+                _ when property.StartsWith("Layer", StringComparison.Ordinal) => new DrawerRange(0m, 1m, 0.05m, 2),
                 _ => null,
             };
         }

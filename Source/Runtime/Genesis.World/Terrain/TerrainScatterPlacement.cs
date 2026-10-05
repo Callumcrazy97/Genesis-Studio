@@ -142,9 +142,14 @@ public static class TerrainScatterPlacement
         int sx = Math.Clamp((int)MathF.Round((x - terrain.OriginX) / terrain.CellSize), 0, terrain.ResolutionX - 1);
         int sz = Math.Clamp((int)MathF.Round((z - terrain.OriginZ) / terrain.CellSize), 0, terrain.ResolutionZ - 1);
         (byte r, byte g, byte b, byte a) = terrain.GetSplat(sx, sz);
-        int total = r + g + b + a;
+        // Paint layers 5-8 count as ground only for "any ground" (all four mask bits).
+        int extra = 0;
+        if (terrain.HasExtendedLayers)
+            for (int layer = 4; layer < TerrainAsset.MaximumPaintLayers; layer++) extra += terrain.GetLayerWeight(sx, sz, layer);
+        int total = r + g + b + a + extra;
         if (total == 0) return (mask & 1) != 0 ? 1f : 0f;
-        int allowed = ((mask & 1) != 0 ? r : 0) + ((mask & 2) != 0 ? g : 0) + ((mask & 4) != 0 ? b : 0) + ((mask & 8) != 0 ? a : 0);
+        int allowed = ((mask & 1) != 0 ? r : 0) + ((mask & 2) != 0 ? g : 0) + ((mask & 4) != 0 ? b : 0) + ((mask & 8) != 0 ? a : 0)
+            + ((mask & 15) == 15 ? extra : 0);
         return allowed / (float)total;
     }
 

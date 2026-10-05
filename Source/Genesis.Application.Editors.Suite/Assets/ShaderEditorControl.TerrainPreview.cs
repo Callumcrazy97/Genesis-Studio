@@ -241,14 +241,16 @@ public sealed partial class ShaderEditorControl
         if (!File.Exists(path)) return;
         using FileStream stream = File.OpenRead(path);
         using BinaryReader reader = new(stream);
-        if (stream.Length < 36 || reader.ReadInt32() != 0x4E525447 || reader.ReadInt32() != 1)
+        int version = stream.Length < 36 || reader.ReadInt32() != 0x4E525447 ? 0 : reader.ReadInt32();
+        if (version is not (1 or 2))
             throw new InvalidDataException("The terrain data header is invalid or unsupported.");
         int width = reader.ReadInt32(), depth = reader.ReadInt32();
         // Check before TerrainAsset.Load allocates from the header. The shader preview is
         // bounded to 4097 samples per axis; malformed/truncated files never reach allocation.
         if (width < 2 || depth < 2 || width > 4097 || depth > 4097)
             throw new InvalidDataException("Terrain shader previews support 2–4097 samples per axis.");
-        long expected = 36L + (long)width * depth * 6L;
+        // Version 2 appends a second four-byte splat plane (paint layers 5-8).
+        long expected = 36L + (long)width * depth * (version == 2 ? 10L : 6L);
         if (stream.Length != expected)
             throw new InvalidDataException("Terrain data dimensions do not match its height and material samples.");
     }

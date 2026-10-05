@@ -1,5 +1,6 @@
 using System.Numerics;
 using Genesis.Application.Core.Resources;
+using Genesis.World.Terrain;
 
 namespace Genesis.Application.Editors.Suite.Terrain;
 
@@ -81,14 +82,14 @@ public sealed partial class TerrainEditorControl
 
     public void FillPaintSelection()
     {
-        int channel = Math.Clamp(SelectedLayer, 0, 3);
+        int channel = Math.Clamp(SelectedLayer, 0, TerrainAsset.MaximumPaintLayers - 1);
+        if (channel >= 4) _terrain.EnsureExtendedSplatmap();
         BeginStroke(0, 0);
         for (int z = 0; z < _terrain.ResolutionZ; z++)
         for (int x = 0; x < _terrain.ResolutionX; x++)
         {
             if (_paintSelection.Count >= 3 && !InsidePolygon(_paintSelection, _terrain.OriginX + x * _terrain.CellSize, _terrain.OriginZ + z * _terrain.CellSize)) continue;
-            int at = (z * _terrain.ResolutionX + x) * 4;
-            for (int c = 0; c < 4; c++) _terrain.SplatmapData[at + c] = (byte)(c == channel ? 255 : 0);
+            _terrain.SetLayerAt(z * _terrain.ResolutionX + x, channel);
         }
         InvalidatePaint(); EndStroke(); SetMode(TerrainEditorMode.Paint); _viewport.Invalidate();
     }
@@ -121,9 +122,7 @@ public sealed partial class TerrainEditorControl
             int at = z * _terrain.ResolutionX + x;
             if (brush == TerrainBrush.Paint)
             {
-                int channel = Math.Clamp(SelectedLayer, 0, 3), sum = 0;
-                for (int c = 0; c < 4; c++) { int value = (int)MathF.Round(float.Lerp(_terrain.SplatmapData[at * 4 + c], c == channel ? 255 : 0, blend)); _terrain.SplatmapData[at * 4 + c] = (byte)value; sum += value; }
-                _terrain.SplatmapData[at * 4 + channel] = (byte)Math.Clamp(_terrain.SplatmapData[at * 4 + channel] + 255 - sum, 0, 255);
+                _terrain.BlendLayerAt(at, Math.Clamp(SelectedLayer, 0, TerrainAsset.MaximumPaintLayers - 1), blend);
                 continue;
             }
             float current = _terrain.GetHeight(x, z), target = current;

@@ -47,10 +47,16 @@ public class TerrainAsset
     public float OriginX { get; private set; }
     public float OriginZ { get; private set; }
 
+    /// <summary>Paint layers a terrain can hold: two RGBA splat planes of four layers each.</summary>
+    public const int MaximumPaintLayers = 8;
+
     // 16-bit height values
     private readonly ushort[] _heights;
-    // 4-channel splatmap
+    // 4-channel splatmap (layers 1-4)
     private readonly byte[] _splatmap;
+    // Second 4-channel splatmap (layers 5-8). Absent until a layer above four is painted, so a
+    // four-layer terrain keeps its memory use and saves the original version 1 file unchanged.
+    private byte[] _splatmap2;
 
     public TerrainAsset(int resX, int resZ, float cellSize, float originX, float originZ, float minHeight, float maxHeight)
         : this(resX, resZ, cellSize, originX, originZ, minHeight, maxHeight, initialise: true)
@@ -85,6 +91,76 @@ public class TerrainAsset
     /// <summary>Raw RGBA splat weights, one 4-byte pixel per height sample (editor paint).</summary>
     public byte[] SplatmapData => _splatmap;
 
+    /// <summary>Weights of layers 5-8 in the same layout as <see cref="SplatmapData"/>, or null when none are painted.</summary>
+    public byte[] ExtendedSplatmapData => _splatmap2;
+
+    /// <summary>True once the terrain holds paint for layers 5-8.</summary>
+    public bool HasExtendedLayers => _splatmap2 is not null;
+
+    /// <summary>Creates the second splat plane (all zero) if it does not exist yet.</summary>
+    public byte[] EnsureExtendedSplatmap() => _splatmap2 ??= new byte[_splatmap.Length];
+
+    /// <summary>
+    /// A copy of every splat plane: four bytes per sample, or eight (the first plane followed by
+    /// the second) once layers 5-8 exist. <see cref="RestoreState"/> and the material bakers take
+    /// either form.
+    /// </summary>
+    public byte[] CaptureSplatState()
+    {
+        if (_splatmap2 is null) return (byte[])_splatmap.Clone();
+        byte[] state = new byte[_splatmap.Length * 2];
+        Buffer.BlockCopy(_splatmap, 0, state, 0, _splatmap.Length);
+        Buffer.BlockCopy(_splatmap2, 0, state, _splatmap.Length, _splatmap2.Length);
+        return state;
+    }
+
+    /// <summary>Weight (0-255) of one paint layer (0-7) at a sample.</summary>
+    public byte GetLayerWeight(int x, int z, int layer)
+    {
+        if ((uint)layer >= MaximumPaintLayers) return 0;
+        if (x < 0 || x >= ResolutionX || z < 0 || z >= ResolutionZ) return layer == 0 ? (byte)255 : (byte)0;
+        int i = (z * ResolutionX + x) * 4 + (layer & 3);
+        return layer < 4 ? _splatmap[i] : _splatmap2 is { } second ? second[i] : (byte)0;
+    }
+
+    /// <summary>Fills up to eight layer weights (0-255) for one sample.</summary>
+    public void GetLayerWeights(int x, int z, Span<byte> weights)
+    {
+        for (int layer = 0; layer < weights.Length; layer++) weights[layer] = GetLayerWeight(x, z, layer);
+    }
+
+    /// <summary>
+    /// Moves one sample toward a paint layer (0-7) by <paramref name="blend"/> (0-1), lowering every
+    /// other layer so the weights still sum to 255. Layers 5-8 create the second plane on first use.
+    /// </summary>
+    public void BlendLayerAt(int sampleIndex, int layer, float blend)
+    {
+        layer = Math.Clamp(layer, 0, MaximumPaintLayers - 1);
+        if (layer >= 4) EnsureExtendedSplatmap();
+        int at = sampleIndex * 4, planes = _splatmap2 is null ? 1 : 2, sum = 0;
+        for (int index = 0; index < planes * 4; index++)
+        {
+            byte[] plane = index < 4 ? _splatmap : _splatmap2;
+            int value = (int)MathF.Round(float.Lerp(plane[at + (index & 3)], index == layer ? 255 : 0, Math.Clamp(blend, 0f, 1f)));
+            plane[at + (index & 3)] = (byte)value; sum += value;
+        }
+        byte[] target = layer < 4 ? _splatmap : _splatmap2;
+        target[at + (layer & 3)] = (byte)Math.Clamp(target[at + (layer & 3)] + 255 - sum, 0, 255);
+    }
+
+    /// <summary>Sets one sample entirely to a paint layer (0-7).</summary>
+    public void SetLayerAt(int sampleIndex, int layer)
+    {
+        layer = Math.Clamp(layer, 0, MaximumPaintLayers - 1);
+        if (layer >= 4) EnsureExtendedSplatmap();
+        int at = sampleIndex * 4;
+        for (int c = 0; c < 4; c++)
+        {
+            _splatmap[at + c] = (byte)(c == layer ? 255 : 0);
+            if (_splatmap2 is { } second) second[at + c] = (byte)(c + 4 == layer ? 255 : 0);
+        }
+    }
+
     public float GetHeight(int x, int z)
     {
         if (x < 0 || x >= ResolutionX || z < 0 || z >= ResolutionZ) return 0f;
@@ -110,10 +186,15 @@ public class TerrainAsset
         _splatmap[i + 3] = a;
     }
 
-    /// <summary>Paint one splat channel (0..3) with smooth falloff; other channels renormalise.</summary>
+    /// <summary>Paint one layer (0..7) with smooth falloff; other layers renormalise.</summary>
     public void ApplyPaintBrush(float worldX, float worldZ, float radius, float strength, int channel)
     {
-        channel = Math.Clamp(channel, 0, 3);
+        channel = Math.Clamp(channel, 0, MaximumPaintLayers - 1);
+        if (channel >= 4 || _splatmap2 is not null)
+        {
+            ApplyExtendedPaintBrush(worldX, worldZ, radius, strength, channel);
+            return;
+        }
         float cx = (worldX - OriginX) / CellSize;
         float cz = (worldZ - OriginZ) / CellSize;
         float cellRadius = radius / CellSize;
@@ -149,6 +230,42 @@ public class TerrainAsset
                 if (sum < 0.001f) { weights[channel] = 1f; sum = 1f; }
                 for (int c = 0; c < 4; c++)
                     _splatmap[i + c] = (byte)Math.Clamp((int)MathF.Round(weights[c] / sum * 255f), 0, 255);
+            }
+        }
+    }
+
+    // The eight-layer form of ApplyPaintBrush: the same falloff, renormalised across both planes.
+    private void ApplyExtendedPaintBrush(float worldX, float worldZ, float radius, float strength, int channel)
+    {
+        byte[] second = EnsureExtendedSplatmap();
+        float cx = (worldX - OriginX) / CellSize;
+        float cz = (worldZ - OriginZ) / CellSize;
+        float cellRadius = radius / CellSize;
+        int minX = Math.Max(0, (int)Math.Floor(cx - cellRadius));
+        int maxX = Math.Min(ResolutionX - 1, (int)Math.Ceiling(cx + cellRadius));
+        int minZ = Math.Max(0, (int)Math.Floor(cz - cellRadius));
+        int maxZ = Math.Min(ResolutionZ - 1, (int)Math.Ceiling(cz + cellRadius));
+        Span<float> weights = stackalloc float[MaximumPaintLayers];
+        for (int z = minZ; z <= maxZ; z++)
+        for (int x = minX; x <= maxX; x++)
+        {
+            float dx = x - cx, dz = z - cz, distSq = dx * dx + dz * dz;
+            if (distSq > cellRadius * cellRadius) continue;
+            float t = 1f - Math.Clamp(MathF.Sqrt(distSq) / MathF.Max(0.001f, cellRadius), 0f, 1f);
+            float blend = Math.Clamp(strength * t * t * (3f - 2f * t), 0f, 1f);
+            int i = (z * ResolutionX + x) * 4;
+            float sum = 0f;
+            for (int c = 0; c < MaximumPaintLayers; c++)
+            {
+                float w = (c < 4 ? _splatmap[i + c] : second[i + c - 4]) / 255f;
+                weights[c] = c == channel ? w + (1f - w) * blend : w * (1f - blend);
+                sum += weights[c];
+            }
+            if (sum < 0.001f) { weights[channel] = 1f; sum = 1f; }
+            for (int c = 0; c < MaximumPaintLayers; c++)
+            {
+                byte value = (byte)Math.Clamp((int)MathF.Round(weights[c] / sum * 255f), 0, 255);
+                if (c < 4) _splatmap[i + c] = value; else second[i + c - 4] = value;
             }
         }
     }
@@ -254,13 +371,22 @@ public class TerrainAsset
         stamp.ApplyTo(this);
     }
 
-    /// <summary>Bulk restore for editor undo (arrays must match this asset's resolution).</summary>
+    /// <summary>
+    /// Bulk restore for editor undo (arrays must match this asset's resolution). A four-byte-per-sample
+    /// splat array restores layers 1-4 only; an eight-byte one (see <see cref="CaptureSplatState"/>)
+    /// restores all eight layers.
+    /// </summary>
     public void RestoreState(ushort[] heights, byte[] splat)
     {
         if (heights != null && heights.Length == _heights.Length)
             Array.Copy(heights, _heights, _heights.Length);
         if (splat != null && splat.Length == _splatmap.Length)
             Array.Copy(splat, _splatmap, _splatmap.Length);
+        else if (splat != null && splat.Length == _splatmap.Length * 2)
+        {
+            Array.Copy(splat, _splatmap, _splatmap.Length);
+            Array.Copy(splat, _splatmap.Length, EnsureExtendedSplatmap(), 0, _splatmap.Length);
+        }
     }
 
     public void SetHeight(int x, int z, float height)
@@ -333,8 +459,12 @@ public class TerrainAsset
     {
         using var fs = File.Create(path);
         using var bw = new BinaryWriter(fs);
+        // Version 1 holds four paint layers. Version 2 appends the second splat plane (layers 5-8)
+        // and is written only when one of those layers carries paint, so four-layer terrains keep
+        // the file older readers understand.
+        bool extended = _splatmap2 is { } second && second.AsSpan().ContainsAnyExcept((byte)0);
         bw.Write(0x4E525447); // 'GTRN'
-        bw.Write(1);
+        bw.Write(extended ? 2 : 1);
         bw.Write(ResolutionX);
         bw.Write(ResolutionZ);
         bw.Write(CellSize);
@@ -345,6 +475,7 @@ public class TerrainAsset
         // One block write: a sample-at-a-time loop took seconds on a multi-kilometre terrain.
         bw.Write(System.Runtime.InteropServices.MemoryMarshal.AsBytes(_heights.AsSpan()));
         bw.Write(_splatmap);
+        if (extended) bw.Write(_splatmap2);
     }
 
     public static TerrainAsset Load(string path)
@@ -354,7 +485,7 @@ public class TerrainAsset
         if (br.ReadInt32() != 0x4E525447)
             throw new InvalidDataException("Not a Genesis terrain file (.gterrain).");
         int version = br.ReadInt32();
-        if (version != 1)
+        if (version is not (1 or 2))
             throw new InvalidDataException($"Unsupported terrain version {version}.");
         int resX = br.ReadInt32();
         int resZ = br.ReadInt32();
@@ -374,6 +505,9 @@ public class TerrainAsset
         // An absent or short splat plane keeps the default (all first layer), as it always has.
         if (ReadFully(fs, asset._splatmap) != asset._splatmap.Length)
             asset.FillDefaultSplat();
+        // Version 2: layers 5-8. A short plane keeps whatever was read; the rest stays unpainted.
+        else if (version == 2)
+            ReadFully(fs, asset.EnsureExtendedSplatmap());
         return asset;
     }
 

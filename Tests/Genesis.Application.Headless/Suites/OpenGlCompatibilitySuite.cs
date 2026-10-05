@@ -20,6 +20,7 @@ internal static class OpenGlCompatibilitySuite
             jobs.Add(new("ParticleDraw", GpuParticleShaders.Draw, "PS", GpuShaderStage.Pixel));
             jobs.Add(new("TerrainImages", TerrainSurfaceShaders.Source, "VS", GpuShaderStage.Vertex));
             jobs.Add(new("TerrainImages", TerrainSurfaceShaders.Source, "PS", GpuShaderStage.Pixel));
+            jobs.Add(new("TerrainLayerAtlas", TerrainSurfaceShaders.LayerAtlasSource, "PS", GpuShaderStage.Pixel));
             foreach (EngineShaderJob job in jobs)
             {
                 ShaderCompileResult first = EngineShaderCatalog.Compile(job, GpuShaderBinaryFormat.GlslUtf8, root);
@@ -46,6 +47,7 @@ internal static class OpenGlCompatibilitySuite
             Link(ForwardShaders.Source, "VS", "PS", "GL45.Model");
             Link(ForwardShaders.Source, "VS_Skinned", "PS", "GL45.AnimatedModel");
             Link(TerrainSurfaceShaders.Source, "VS", "PS", "GL45.TiledTerrain");
+            Link(TerrainSurfaceShaders.LayerAtlasSource, "VS", "PS", "GL45.TerrainLayerAtlas");
             Link(WaterShaders.Source, "VS_Water", "PS_Water", "GL45.Water");
             using GpuParticleLibrary particles = new(device);
             Check(particles.DrawProgram.IsValid && GpuParticleShaders.ComputeEntries.All(entry => particles.Kernel(entry).IsValid),
