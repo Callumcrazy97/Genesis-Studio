@@ -21,7 +21,8 @@ public readonly record struct TerrainGrassStatistics(
     double GenerationMilliseconds,
     long CellsAllocated,
     long CellsReused,
-    long CellsRecycled);
+    long CellsRecycled,
+    int TuftBudget);
 
 /// <summary>
 /// Grass grown from a <see cref="TerrainGrassRuleSettings"/> rule in square cells around the camera.
@@ -80,7 +81,7 @@ public sealed class TerrainGrassField : IDisposable
     private MeshInstanceData[] _farScratch = Array.Empty<MeshInstanceData>();
     private IRenderController _renderer;
     private MeshHandle _nearMesh, _farMesh;
-    private int _generatedLastUpdate, _tuftsResident, _tuftsDrawn, _nearDrawn, _visibleCells;
+    private int _generatedLastUpdate, _tuftsResident, _tuftsDrawn, _nearDrawn, _visibleCells, _tuftBudget;
     private double _generationMilliseconds;
     private long _allocated, _reused, _recycled;
 
@@ -122,7 +123,7 @@ public sealed class TerrainGrassField : IDisposable
 
     public TerrainGrassStatistics Statistics => new(
         _cells.Count, _pool.Count, _wanted.Count, _generatedLastUpdate, _tuftsResident, _tuftsDrawn, _nearDrawn,
-        _visibleCells, _generationMilliseconds, _allocated, _reused, _recycled);
+        _visibleCells, _generationMilliseconds, _allocated, _reused, _recycled, _tuftBudget);
 
     /// <summary>Tufts in a grown cell, or -1 when that cell is not resident.</summary>
     public int ResidentTufts(int cellX, int cellZ) =>
@@ -237,11 +238,13 @@ public sealed class TerrainGrassField : IDisposable
 
     /// <summary>
     /// Draws the grown grass in view: nearest cells first, thinned towards the radius, at most
-    /// <see cref="TerrainGrassRuleSettings.MaximumDrawnTufts"/> tufts.
+    /// <see cref="TerrainGrassRuleSettings.MaximumDrawnTufts"/> tufts and at most
+    /// <paramref name="maximumTufts"/>, the room the caller has left in the renderer's instance buffer.
     /// </summary>
-    public void Draw(IRenderController renderer, Vector3 camera, in Matrix4x4 viewProjection)
+    public void Draw(IRenderController renderer, Vector3 camera, in Matrix4x4 viewProjection, int maximumTufts = int.MaxValue)
     {
         _tuftsDrawn = _nearDrawn = _visibleCells = 0;
+        _tuftBudget = Math.Max(0, Math.Min(_settings.MaximumDrawnTufts, maximumTufts));
         if (renderer == null || _cells.Count == 0) return;
         EnsureMeshes(renderer);
         if (!_nearMesh.IsValid || !_farMesh.IsValid) return;
@@ -256,7 +259,7 @@ public sealed class TerrainGrassField : IDisposable
 
         _visible.Sort(static (a, b) => a.Distance.CompareTo(b.Distance));
         _visibleCells = _visible.Count;
-        int budget = _settings.MaximumDrawnTufts;
+        int budget = _tuftBudget;
         int near = 0, far = 0;
         float nearDistance = _settings.NearDistance;
         foreach ((Cell cell, float distance) in _visible)

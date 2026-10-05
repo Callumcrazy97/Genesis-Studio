@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
@@ -45,6 +46,14 @@ public sealed partial class RoomTerrainSubsystem
 
         entry.GrassField ??= new TerrainGrassField(entry.Terrain, rule, entry.Nature.WaterBodies);
         entry.GrassField.Update(camera, placement);
-        entry.GrassField.Draw(renderer, camera, viewProjection);
+        // The renderer draws a fixed number of instances a frame and drops the rest. Grass takes
+        // only what the scattered foliage and the forests and rocks have left, less a reserve for
+        // everything else, so switching it on never costs a tree.
+        int taken = entry.FoliagePerformance.SubmittedInstances + (entry.Scatter?.Statistics.NearCopies ?? 0);
+        int room = RenderCapacityDefaults.MeshInstanceCap - GrassInstanceReserve - taken;
+        entry.GrassField.Draw(renderer, camera, viewProjection, Math.Max(0, room));
     }
+
+    /// <summary>Instances grass leaves for objects, characters and particles.</summary>
+    private const int GrassInstanceReserve = 4096;
 }

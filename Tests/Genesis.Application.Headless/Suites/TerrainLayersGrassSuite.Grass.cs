@@ -27,6 +27,7 @@ internal static partial class TerrainLayersGrassSuite
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.GrassRule.CellsRecycleWithinFrameBudget", GrassRecycling);
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.GrassRule.RefreshFollowsPaintWithoutGoingBare", GrassRefresh);
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.GrassRule.Dx11DrawsMeadowNotDirt", () => GrassDx11Capture(ctx));
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.GrassRule.DrawStaysWithinInstanceRoom", GrassDrawBudget);
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.GrassRule.Dx11FrameCostBeforeAndAfter", () => GrassDx11FrameCost(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.GrassRule.TerrainEditorAppliesSavesAndDrawsRule", () => GrassTerrainEditor(ctx));
     }
@@ -437,6 +438,36 @@ internal static partial class TerrainLayersGrassSuite
             + $"{stats[0].TuftsDrawn} tufts drawn ({stats[0].NearTuftsDrawn} near) from {stats[0].ResidentCells} cells.");
         GrassAssert(meadow > 20000, $"Too little grass over the meadow half ({meadow} pixels).");
         GrassAssert(dirt < meadow / 100, $"Grass appeared over the dirt half ({dirt} pixels against {meadow}).");
+    }
+
+    private static void GrassDrawBudget()
+    {
+        using Form host = UnattendedWindowing.NewHost(GrassWidth, GrassHeight);
+        UnattendedWindowing.ShowWithoutFocus(host);
+        using IRenderController renderer = RenderControllerFactory.Create(RenderBackendOption.SilkNetDx11);
+        renderer.Initialize(host.Handle, GrassWidth, GrassHeight);
+        GrassPrepare(renderer);
+        TerrainAsset terrain = GrassSplitTerrain(129, 0.5f, slope: 0f);
+        var rule = new TerrainGrassRuleSettings { Enabled = true, MaximumDrawnTufts = 3000 };
+        using var field = new TerrainGrassField(terrain, rule);
+        Vector3 eye = new(-16f, 2f, -28f), target = new(-16f, 0f, 0f);
+        for (int i = 0; i < 50 && (field.Pending || i == 0); i++) field.Update(eye, Matrix4x4.Identity);
+        Matrix4x4 viewProjection = GrassView(eye, target) * GrassProjection();
+        int Drawn(int room)
+        {
+            renderer.SetCamera3D(GrassView(eye, target), GrassProjection());
+            renderer.BeginFrame();
+            renderer.Clear(0f, 0f, 0f);
+            field.Draw(renderer, eye, viewProjection, room);
+            renderer.EndFrame();
+            renderer.Present();
+            return field.Statistics.TuftsDrawn;
+        }
+
+        int ruleLimited = Drawn(int.MaxValue), roomLimited = Drawn(500), none = Drawn(0);
+        GrassAssert(ruleLimited == 3000, $"The rule's 3,000 tuft limit drew {ruleLimited}.");
+        GrassAssert(roomLimited == 500 && field.Statistics.TuftBudget == 0 && none == 0,
+            $"The room left in the instance buffer was not respected ({roomLimited} of 500, {none} of 0).");
     }
 
     private static byte[] GrassRenderOnce(HeadlessContext ctx, string root, RoomAsset room, Vector3 eye, Vector3 target, string capture,

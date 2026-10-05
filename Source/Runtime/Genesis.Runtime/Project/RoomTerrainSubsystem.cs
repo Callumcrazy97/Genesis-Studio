@@ -673,8 +673,8 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
             SubmitPaths(entry, placement, buffer, ref count);
             long afterGround = System.Diagnostics.Stopwatch.GetTimestamp();
             SubmitFoliage(entry, camera, viewProjection, placement, renderer);
-            SubmitGrassRule(entry, camera, viewProjection, placement, renderer);
             entry.Scatter?.Submit(renderer, camera, viewProjection, placement, buffer, ref count);
+            SubmitGrassRule(entry, camera, viewProjection, placement, renderer);
             long afterScatter = System.Diagnostics.Stopwatch.GetTimestamp();
             SubmitWater(entry, camera, placement, renderer, buffer, ref count);
             ReportSlowSubmit(started, afterGround, afterScatter, System.Diagnostics.Stopwatch.GetTimestamp(), entry.Scatter);
