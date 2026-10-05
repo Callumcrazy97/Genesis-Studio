@@ -24,6 +24,7 @@ internal static partial class TerrainLayersGrassSuite
         HeadlessHarness.RunCase(ctx.Report, "Render.Terrain.Layers.EightLayersRenderOnEveryBackend", () => EightLayerRender(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Render.Terrain.Layers.HeightBlendSharpensTheTransition", () => HeightBlend(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Render.Terrain.Layers.EachLayerTilesItsOwnNormalMap", () => TiledNormals(ctx));
+        HeadlessHarness.RunCase(ctx.Report, "Render.Terrain.Layers.FullSizeAtlasBuildUploadAndFrameCost", () => FullSizeCost(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Editor.Suite.Terrain.EightLayers.PaintSixthLayerSaveReopenAndCap", () => EditorEightLayers(ctx));
     }
 
@@ -284,6 +285,68 @@ internal static partial class TerrainLayersGrassSuite
         int tiled = Bands(new TerrainSurfaceOptions(TiledLayerMaps: true), "terrain-normals-tiled-dx11");
         File.WriteAllText(Path.Combine(ctx.Logs, "terrain-tiled-normals.txt"), $"shading bands across the middle half: baked={baked} tiled={tiled}");
         Assert(tiled >= 8 && baked <= 2, $"Per-layer normal maps did not tile across the terrain (baked {baked}, tiled {tiled}).");
+    }
+
+    // Full-size maps: eight 1024 layers become three 4608 x 2304 atlases with mipmaps. Logs the
+    // bake, the upload and the frame cost of the eight-layer shader against the four-layer one.
+    private static void FullSizeCost(HeadlessContext ctx)
+    {
+        const int size = 1024;
+        Random random = new(7);
+        ImageMaterialPixels Layer(int index)
+        {
+            byte[] albedo = new byte[size * size * 4], normal = new byte[albedo.Length], orm = new byte[albedo.Length];
+            random.NextBytes(albedo); random.NextBytes(normal); random.NextBytes(orm);
+            return new(size, size, albedo, normal, orm);
+        }
+        ImageMaterialPixels[] images = Enumerable.Range(0, 8).Select(Layer).ToArray();
+        List<TerrainMaterialLayer> layers = Enumerable.Range(0, 8).Select(index => new TerrainMaterialLayer { Name = "L" + index, Image = "x", Tiling = 64 }).ToList();
+        System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
+        TerrainLayerAtlas atlas = TerrainSurfaceMaterialBaker.BuildAtlas(layers, images);
+        long bakeMs = watch.ElapsedMilliseconds;
+        Assert(atlas.Width == 4608 && atlas.Height == 2304, $"Eight 1024 layers made a {atlas.Width} x {atlas.Height} atlas.");
+        const int paintSize = 64;
+        byte[] paint = new byte[paintSize * paintSize * 8];
+        for (int i = 0; i < paintSize * paintSize; i++) { paint[i * 4 + i % 4] = 128; paint[paintSize * paintSize * 4 + i * 4 + (i / 7) % 4] = 127; }
+        byte[] flat = Enumerable.Repeat(new byte[] { 128, 128, 255, 255 }, 4).SelectMany(pixel => pixel).ToArray();
+        TerrainSurfaceMaterialPixels eight = new(2, flat, flat, flat, layers, images, 2048, 2048) { Atlas = atlas, Options = new(true) };
+        TerrainSurfaceMaterialPixels four = new(2, flat, flat, flat, layers.Take(4).ToList(), images.Take(4).ToArray(), 2048, 2048);
+        using Form host = UnattendedWindowing.NewHost(1280, 720); UnattendedWindowing.ShowWithoutFocus(host);
+        using IRenderController renderer = RenderControllerFactory.Create(RenderBackendOption.SilkNetDx11); renderer.Initialize(host.Handle, 1280, 720);
+        watch.Restart();
+        MeshDrawCall eightMaterial = TerrainSurfaceMaterialBinding.Create(renderer, eight, paint, paintSize, paintSize);
+        long uploadMs = watch.ElapsedMilliseconds;
+        MeshDrawCall fourMaterial = TerrainSurfaceMaterialBinding.Create(renderer, four, paint.AsSpan(0, paintSize * paintSize * 4).ToArray(), paintSize, paintSize);
+        double Frames(MeshDrawCall material)
+        {
+            Vector3[] positions = [new(-1024, 0, -1024), new(1024, 0, -1024), new(1024, 0, 1024), new(-1024, 0, 1024)];
+            Vector2[] uv = [new(0, 0), new(1, 0), new(1, 1), new(0, 1)];
+            material.Mesh = renderer.RegisterMesh(positions.Select((position, index) => new MeshVertex
+            { Position = position, Normal = Vector3.UnitY, Color = Vector4.One, UV = uv[index] }).ToArray(), [0, 1, 2, 0, 2, 3]);
+            try
+            {
+                material.Flags = MeshDrawFlags.TerrainGround | MeshDrawFlags.NoShadow | MeshDrawFlags.NoCull | MeshDrawFlags.NoFog;
+                Mesh3DState state = Mesh3DState.Default; state.FogEnabled = false; state.ShowFloor = false; state.ShowSunVisual = false;
+                renderer.SetMesh3DState(state); renderer.Set3DFrameActive(true);
+                // A walker's view across the ground: near detail and kilometres of far terrain.
+                renderer.SetCamera3D(Matrix4x4.CreateLookAt(new(0, 2, -1000), new(0, 0, -900), Vector3.UnitY),
+                    Matrix4x4.CreatePerspectiveFieldOfView(MathF.PI / 3, 1280f / 720f, .1f, 5000));
+                void Frame() { renderer.BeginFrame(); renderer.Clear(.02f, .02f, .02f); renderer.DrawMesh(material); renderer.EndFrame(); renderer.Present(); }
+                for (int i = 0; i < 10; i++) Frame();
+                renderer.TryReadSubmittedFramePixels(out _, out _, out _);
+                System.Diagnostics.Stopwatch frames = System.Diagnostics.Stopwatch.StartNew();
+                for (int i = 0; i < 120; i++) Frame();
+                renderer.TryReadSubmittedFramePixels(out _, out _, out _);
+                return frames.Elapsed.TotalMilliseconds / 120;
+            }
+            finally { renderer.ReleaseMesh(material.Mesh); }
+        }
+        double fourMs = Frames(fourMaterial), eightMs = Frames(eightMaterial);
+        TerrainSurfaceMaterialBinding.Release(renderer, eightMaterial); TerrainSurfaceMaterialBinding.Release(renderer, fourMaterial);
+        string report = $"atlas {atlas.Width}x{atlas.Height}: build {bakeMs} ms, upload with mips {uploadMs} ms; 1280x720 DX11 frame: four-layer {fourMs:F2} ms, eight-layer atlas {eightMs:F2} ms";
+        File.WriteAllText(Path.Combine(ctx.Logs, "terrain-eight-layer-cost.txt"), report);
+        Console.WriteLine(report);
+        Assert(bakeMs < 10_000 && uploadMs < 10_000, report);
     }
 
     private static void EditorEightLayers(HeadlessContext ctx)

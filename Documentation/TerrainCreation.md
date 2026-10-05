@@ -59,6 +59,8 @@ The `.gterrain` file stays **version 1** (heights, then one splat plane) while l
 
 The Software renderer draws all eight layers from its whole-terrain bake.
 
+Measured on the development PC (DX11, 1280 × 720, a 2 km terrain seen from walking height): eight 1024² layers pack in about 0.7 s on the background bake, upload with mipmaps in about 0.2 s when the material is first bound, and the frame cost was 0.36 ms against 0.33 ms for the four-layer shader on the same view. Layers with no paint at a pixel are skipped, so cost follows how many layers overlap rather than how many exist.
+
 **Generate PBR** preserves existing channels and saves missing channels into the assigned Image. Albedo, Normal, Roughness and AO update the open terrain and entity previews. Normal relief does not displace geometry. Texture components expose the same generation action. Generation saves to the Image; terrain material assignment and Fill use terrain undo.
 
 ## Verification scope
