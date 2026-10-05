@@ -617,6 +617,8 @@ A room's atmosphere and grading can follow the hour (a hazy morning, a golden ho
 | `Engine.Sky.AmbientScale` | Scales the sky's ambient light, 0 to 8. |
 | `Engine.Sky.SetAtmospherePreset(name)`, `Engine.Sky.AtmospherePreset` | Natural, ClearDay, GoldenHour, Overcast, Storm, Night or Alien; false for an unknown name. |
 | `Engine.Rendering.Contrast`, `Engine.Rendering.Saturation`, `Engine.Rendering.Vignette` | Colour grading, beside the existing `Engine.Rendering.Exposure`. |
+| `Engine.SetShadowStrength(amount)`, `Engine.GetShadowStrength()` | How dark shadows are, 0 (none) to 1 (full): lower it for a flat look. |
+| `Engine.SetGlobalShadows(enabled)`, `Engine.GetGlobalShadows()` | Turn the scene's shadows off or on (sun and lamps). `Engine.Rendering.ContactShadowsEnabled` controls the small screen-space contact shadows separately. |
 
 Colour tints belong to the game's look, so they are a project post effect (see
 [Post effects](PostEffects.md)) with its parameters set by `PostEffectSetParameter`.

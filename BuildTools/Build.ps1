@@ -194,11 +194,20 @@ try {
         $toolArgs = @('--precompile-shaders', "`"$precompiled`"")
         $last = Join-Path $output 'Player/PrecompiledShaders'
         if (Test-Path -LiteralPath (Join-Path $last 'manifest.txt')) { $toolArgs += @('--reuse', "`"$last`"") }
+        # The staged compiler, for this tool only: later steps (the test harness) find theirs as usual.
+        $previousLocalOnly = $env:GENESIS_DXC_LOCAL_ONLY
+        $previousDxcPath = $env:GENESIS_DXC_PATH
         $env:GENESIS_DXC_LOCAL_ONLY = '1'
         $env:GENESIS_DXC_PATH = Join-Path $staging 'Player/Tools/DXC/dxc.exe'
         $log = Join-Path $reportDir 'precompile-shaders.log'
-        $tool = Start-Process -FilePath (Join-Path $staging 'Player/GenesisEngine.exe') -ArgumentList $toolArgs -WindowStyle Hidden -PassThru `
-            -RedirectStandardOutput $log -RedirectStandardError (Join-Path $reportDir 'precompile-shaders.err.log')
+        try {
+            $tool = Start-Process -FilePath (Join-Path $staging 'Player/GenesisEngine.exe') -ArgumentList $toolArgs -WindowStyle Hidden -PassThru `
+                -RedirectStandardOutput $log -RedirectStandardError (Join-Path $reportDir 'precompile-shaders.err.log')
+        }
+        finally {
+            $env:GENESIS_DXC_LOCAL_ONLY = $previousLocalOnly
+            $env:GENESIS_DXC_PATH = $previousDxcPath
+        }
         [void]$tool.Handle
         if (-not $tool.WaitForExit(600000)) {
             Stop-Process -Id $tool.Id -ErrorAction SilentlyContinue
