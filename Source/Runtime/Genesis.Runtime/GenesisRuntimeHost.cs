@@ -260,6 +260,17 @@ namespace Genesis.Runtime
             bool paused = IsPlayPaused || (Debugger != null && Debugger.IsPaused && !Debugger.ConsumeStepRequest());
             if (!paused)
             {
+                // A recording takes this frame's input and time step; a replay replaces them with
+                // the recorded ones (and asks the window for the recorded size) before anything reads them.
+                if (InputReplay.IsActive)
+                {
+                    int replayWidth = _windowW, replayHeight = _windowH;
+                    InputReplay.BeginFrame(_scene.Input, ref fdt, ref replayWidth, ref replayHeight, out bool replayStarted);
+                    if (replayStarted) _scene.FixedTimestep.Reset();
+                    if ((replayWidth != _windowW || replayHeight != _windowH) && replayWidth > 0 && replayHeight > 0)
+                        _window.SetSize(replayWidth, replayHeight);
+                }
+
                 // The 2D spatial grid is not queried by collisions or scripts, so it is no longer
                 // cleared and rebuilt (with string matching per entity) every update. Callers that
                 // need it can call RuntimeScene.RebuildSpatialGrid on demand.
@@ -804,6 +815,8 @@ namespace Genesis.Runtime
             if (_closing) return; _closing = true; _ready = false;
             Exception first = null;
             void Clean(Action action) { try { action(); } catch (Exception error) { first ??= error; } }
+            // A recording still running when the game closes is saved, not cut off mid-buffer.
+            Clean(InputReplay.StopAll);
             if (ShuttingDown != null)
                 foreach (Action handler in ShuttingDown.GetInvocationList()) Clean(handler);
             Clean(() => _commandBinding?.Dispose()); _commandBinding = null;

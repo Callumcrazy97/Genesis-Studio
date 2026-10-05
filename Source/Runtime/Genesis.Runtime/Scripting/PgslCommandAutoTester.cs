@@ -126,6 +126,9 @@ public static class PgslCommandAutoTester
             Path.Combine(Path.GetTempPath(), "Genesis", "CommandChecks", Guid.NewGuid().ToString("N")));
         Stopwatch clock = new();
         double totalMicroseconds = 0;
+        // InputRecordStart, InputReplayStart and RandomSeed change process-wide state; a sweep
+        // started with none of it running leaves none of it running, and no recording behind.
+        bool inputReplayIdle = !Genesis.Runtime.Input.InputReplay.IsActive;
 
         try
         {
@@ -147,6 +150,16 @@ public static class PgslCommandAutoTester
         }
         finally
         {
+            if (inputReplayIdle)
+            {
+                string recorded = Genesis.Runtime.Input.InputReplay.FilePath;
+                Genesis.Runtime.Input.InputReplay.Reset();
+                if (!string.IsNullOrEmpty(recorded)
+                    && Path.GetFileNameWithoutExtension(recorded).Equals("PgslAutoTest", StringComparison.Ordinal))
+                {
+                    try { File.Delete(recorded); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+                }
+            }
             PgslCommands.ReleaseJobs(scratch);
             PgslCommands.BindPersistenceProject(previousPersistence);
             PgslCommands.BindContext(previous);

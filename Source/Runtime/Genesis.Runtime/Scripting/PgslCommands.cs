@@ -160,17 +160,17 @@ public static partial class PgslCommands
     #region Math
 
     [PgslCommand("Random", "Random(n)", "Random 0..n", "Math")]
-    public static double Random(double n) => System.Random.Shared.NextDouble() * n;
+    public static double Random(double n) => NextRandomDouble() * n;
 
     [PgslCommand("RandomRange", "RandomRange(min, max)", "Random in range", "Math")]
     public static double RandomRange(double min, double max) =>
-        System.Random.Shared.NextDouble() * (max - min) + min;
+        NextRandomDouble() * (max - min) + min;
 
     [PgslCommand("Choose", "Choose(a, b, ...)", "Pick random argument", "Math")]
     public static object Choose(params object[] options)
     {
         if (options == null || options.Length == 0) return null;
-        return options[System.Random.Shared.Next(options.Length)];
+        return options[NextRandomInt(options.Length)];
     }
 
     // ── Core maths ───────────────────────────────────────────────────────────────

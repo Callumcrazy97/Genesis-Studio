@@ -1536,7 +1536,8 @@ Build.bat --help
 DX11 smoke. **Editor** (Studio foundation, shell, resource names, code assistance, the editor suite,
 room workspace, model intake), **Engine** (engine systems, asset import, readback, post effects,
 large worlds, runtime, model system) and **PGSL** (values, caches, scripts, the `pgsl-logic`
-language checks, and `pgsl-project`: a two-room game the staged Player runs on DX11, checking every
+language checks, `input-replay` (a script's input recorded and replayed frame for frame), and
+`pgsl-project`: a two-room game the staged Player runs on DX11, checking every
 language group, instances, `with`, a library Script, the event order, a room change and two
 pictures by their pixels). Each tier is also a target on its own (`--test tier-pgsl`); the members
 are listed in `HeadlessTestRunner.Tiers`. The Full Build remains the release check.

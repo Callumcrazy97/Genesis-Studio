@@ -1112,6 +1112,7 @@ internal static class HeadlessTestRunner
         Suites.RoomOrderSuite.Run(ctx);
         Suites.PgslScriptsSuite.Run(ctx);
         Suites.PgslLogicSuite.Run(ctx);
+        Suites.InputReplaySuite.Run(ctx);
         Suites.AssetImportSuite.Run(ctx);
         Suites.TextRenderingSuite.Run(ctx);
         Suites.Effects2DSuite.Run(ctx);
@@ -1128,7 +1129,7 @@ internal static class HeadlessTestRunner
     {
         ["tier-editor"] = ["studio-foundation", "shell-layout", "resource-names", "code-assistance", "editor-suite", "room-workspace", "model-intake"],
         ["tier-engine"] = ["engine-systems", "asset-import", "readback-alpha", "post-effects", "large-world", "runtime", "model-system"],
-        ["tier-pgsl"] = ["pgsl-values", "pgsl-cache", "pgsl-scripts", "pgsl-logic", "pgsl-project"],
+        ["tier-pgsl"] = ["pgsl-values", "pgsl-cache", "pgsl-scripts", "pgsl-logic", "input-replay", "pgsl-project"],
     };
 
     private static void RunFocusedTarget(HeadlessContext ctx, string target)
@@ -1552,6 +1553,9 @@ internal static class HeadlessTestRunner
                 break;
             case "pgsl-project":
                 Suites.PgslProjectSuite.Run(ctx);
+                break;
+            case "input-replay":
+                Suites.InputReplaySuite.Run(ctx);
                 break;
             case "asset-import":
                 Suites.AssetImportSuite.Run(ctx);

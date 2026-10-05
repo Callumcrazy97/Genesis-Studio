@@ -74,6 +74,10 @@ namespace Genesis.Runtime.Project
             // A game plays its project; it never cooks a model into it (see StudioModelResourceLoader).
             Genesis.Runtime.Modeling.StudioModelResourceLoader.WriteReimportsToProject = false;
             ScriptScreenshots.Reset();
+            Genesis.Runtime.Input.InputReplay.Reset();
+            Genesis.Runtime.Input.InputReplay.ReplayEnded -= OnInputReplayEnded;
+            Genesis.Runtime.Input.InputReplay.ReplayEnded += OnInputReplayEnded;
+            _quitWhenReplayEnds = false;
             try
             {
                 if (TryRunScriptEntryPoint(args, out int customExit))
@@ -197,6 +201,7 @@ namespace Genesis.Runtime.Project
 
                 ProjectPaths.EnsureDebugDirs(projectPath);
                 RenderLog.Init();
+                StartInputReplayFromLaunch(args, projectPath, logger);
 
                 System.Drawing.Size display = RoomDisplayLayout.WindowSize(room);
                 int width = display.Width;
@@ -830,6 +835,64 @@ namespace Genesis.Runtime.Project
 
         private static void ApplyRoomPresentation(SilkGameWindow window, Genesis.Shared.Interfaces.IRenderController renderer, RoomAsset room)
             => ProjectRoomPresentation.Apply(window, renderer, room);
+
+        /// <summary>Plays this input recording from the first frame of play, then closes the game: <c>--replay name-or-file</c>.</summary>
+        public const string ReplayArgument = "--replay";
+
+        /// <summary>Records the input from the first frame of play until the game closes: <c>--record name-or-file</c>.</summary>
+        public const string RecordArgument = "--record";
+
+        private static bool _quitWhenReplayEnds;
+
+        private static void OnInputReplayEnded()
+        {
+            if (_quitWhenReplayEnds) RequestStop();
+        }
+
+        /// <summary>
+        /// An acceptance run plays a recording without any script asking for it: <c>--replay</c> (or
+        /// GENESIS_INPUT_REPLAY) plays it from the first frame of play and closes the game when it
+        /// ends; <c>--record</c> (or GENESIS_INPUT_RECORD) records until the game closes. A plain
+        /// name is a file in the project's debug Replays folder; a path is used as it is.
+        /// </summary>
+        private static void StartInputReplayFromLaunch(string[] args, string projectPath, ProjectLogger logger)
+        {
+            string replay = ArgumentValue(args, ReplayArgument)
+                ?? Environment.GetEnvironmentVariable(Genesis.Runtime.Input.InputReplay.ReplayEnvironmentVariable);
+            string record = ArgumentValue(args, RecordArgument)
+                ?? Environment.GetEnvironmentVariable(Genesis.Runtime.Input.InputReplay.RecordEnvironmentVariable);
+            bool replaying = !string.IsNullOrWhiteSpace(replay);
+            if (replaying && !string.IsNullOrWhiteSpace(record))
+                throw new ArgumentException("Choose --replay or --record, not both.");
+            string name = replaying ? replay : record;
+            if (string.IsNullOrWhiteSpace(name)) return;
+
+            string path = File.Exists(name) || name.IndexOfAny(new[] { '\\', '/' }) >= 0
+                ? Path.GetFullPath(name)
+                : Genesis.Runtime.Input.InputReplay.ResolvePath(projectPath, name);
+            if (replaying)
+            {
+                if (!Genesis.Runtime.Input.InputReplay.StartReplay(path))
+                    throw new ArgumentException("--replay: " + Genesis.Runtime.Input.InputReplay.LastError);
+                _quitWhenReplayEnds = true;
+                logger.Line($"replaying input from {path} ({Genesis.Runtime.Input.InputReplay.FrameCount} frames)");
+            }
+            else
+            {
+                if (!Genesis.Runtime.Input.InputReplay.StartRecording(path))
+                    throw new ArgumentException("--record: " + Genesis.Runtime.Input.InputReplay.LastError);
+                logger.Line($"recording input to {path}");
+            }
+        }
+
+        private static string ArgumentValue(string[] args, string name)
+        {
+            int index = Array.FindIndex(args, value => string.Equals(value, name, StringComparison.OrdinalIgnoreCase));
+            if (index < 0) return null;
+            if (index + 1 >= args.Length || args[index + 1].StartsWith("--", StringComparison.Ordinal))
+                throw new ArgumentException(name + " needs a recording name or file.");
+            return args[index + 1];
+        }
 
         private static void ParseArgs(string[] args, out string room, out float autoshotSeconds, out string perfLabel, out bool debug)
         {
