@@ -91,7 +91,9 @@ internal sealed class ModelFrameRuler : Control
             }
             Invalidate();
         }
-        if (!Visible || !Enabled || _error.Length > 0 || _asset is null || _clip is not { Frames.Count: > 0 }
+        // A Model with no mesh (an animation library previewed on its skeleton) has nothing to draw
+        // in a thumbnail; its cards stay plain frame numbers.
+        if (!Visible || !Enabled || _error.Length > 0 || _asset is not { HasRenderableMeshes: true } || _clip is not { Frames.Count: > 0 }
             || Environment.TickCount64 - _changedAt < 150) return;
         int first = _scroll.Value / CardWidth, last = Math.Min(Maximum, first + Math.Max(1, Width / CardWidth) + 1);
         int[] missing = Enumerable.Range(first, Math.Max(0, last - first + 1)).Where(f => !_requested.Contains(f)).ToArray();
@@ -120,7 +122,7 @@ internal sealed class ModelFrameRuler : Control
             int x = frame * CardWidth - _scroll.Value + 4;
             var rectangle = new Rectangle(x, 4, ModelFramePreviews.Size, size);
             if (_images.TryGetValue(frame, out var image)) g.DrawImage(image, new Rectangle(x + (ModelFramePreviews.Size - size) / 2, 4, size, size));
-            else TextRenderer.DrawText(g, _error.Length > 0 ? "Unavailable" : "Loading…", Font, rectangle, ImageEditorChrome.Muted, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            else if (_asset is { HasRenderableMeshes: true }) TextRenderer.DrawText(g, _error.Length > 0 ? "Unavailable" : "Loading…", Font, rectangle, ImageEditorChrome.Muted, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             using var border = new Pen(frame == Value ? ImageEditorChrome.Accent : ImageEditorChrome.Border, frame == Value ? 2 : 1);
             g.DrawRectangle(border, rectangle);
             string label = $"{frame + 1}" + (PoseFrames.Contains(frame) ? "  ◆" : "");

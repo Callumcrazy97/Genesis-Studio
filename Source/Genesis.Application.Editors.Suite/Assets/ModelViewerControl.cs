@@ -354,7 +354,8 @@ public partial class ModelViewerControl : EditorSurfaceControl
         int count = SelectedClip?.Frames.Count ?? 0;
         _play.Enabled = count > 0; _timeline.Enabled = count > 0; _timeline.Maximum = Math.Max(0, count - 1);
         _timeline.Visible = count > 0;
-        _timeline.SetSource(Asset, SelectedClip, ProjectRoot);
+        (GModelAsset timelineAsset, GModelAnimationClip? timelineClip) = TimelineSource();
+        _timeline.SetSource(timelineAsset, timelineClip, ProjectRoot);
         _timeline.Value = Math.Clamp(CurrentFrame, 0, _timeline.Maximum);
         _timeline.PoseFrames = Asset.PoseAnimations.FirstOrDefault(a => a.Id == SelectedClip?.PoseAnimationId)?.Keys.Select(k => k.Frame - 1).ToArray() ?? []; _timeline.Invalidate();
         _frameLabel.Text = count == 0 ? "No animation" : $"Frame {Math.Min(count, CurrentFrame + 1)} / {count}\n{SelectedClip!.Fps:0.#} FPS \u00B7 {_time:0.00}s";

@@ -120,6 +120,12 @@ public partial class ModelViewerControl
     /// <summary>The body when one is picked; otherwise the library's skeleton (its rig, or its node hierarchy).</summary>
     private GModelAsset? LibraryPreviewSkeleton => _libraryBody ?? (Asset.Rig.IsValid ? Asset : _libraryNodeSkeleton);
 
+    /// <summary>The timeline's thumbnails show the picked body playing the clip; a library alone has no mesh to show.</summary>
+    private (GModelAsset Asset, GModelAnimationClip? Clip) TimelineSource() =>
+        IsAnimationLibrary && _libraryBody is { } body && body.Animations.FirstOrDefault(clip => clip.Name == ActiveClip) is { } borrowed
+            ? (body, borrowed)
+            : (Asset, SelectedClip);
+
     private int AddLibraryClips(GModelAsset body)
     {
         int added = ModelAnimationLibraries.AddClips(body, Asset);
@@ -239,6 +245,7 @@ public partial class ModelViewerControl
         _libraryBounds = LibraryPreviewBounds();
         Surface.FloorHeight = _libraryBounds.Min.Y;
         _gridDirty = _gpuDirty = true;
+        UpdatePlayback();
         SyncAnimationLibrarySelection();
         if (frame) FrameModel();
         Surface.Invalidate(true);
