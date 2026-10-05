@@ -456,18 +456,54 @@ if (CharacterGrounded()) { fallSpeed = 0; } else { fallSpeed = fallSpeed - 9.8 *
 x = CharacterX(); y = CharacterY(); z = CharacterZ();
 ```
 
-## First-person layer and models in the GUI
+## Model layers and models in the GUI
+
+A model layer is a model drawn over the world instead of in it. Layers 1 to 8 follow the game
+camera, each with its own field of view and near plane, and are drawn over the world and under the
+GUI in number order (layer 2 covers layer 1). A model in a layer is never cut by a wall, does not
+zoom when the world's camera zooms, casts no shadow, and is lit by the world like any model. Use one
+for anything that must stay in front: a held tool or weapon, a cockpit or dashboard, a compass, a
+map in the hand, a magnifying glass. What goes in each layer is up to the game.
 
 | Command | What it does |
 |---|---|
-| `ModelSetViewLayer(enabled)`, `InstanceSetViewLayer(id, enabled)` | Draw a model in the first-person layer: over the world and under the GUI, with its own field of view and near plane, never inside a wall, casting no shadow (arms, a held weapon). It is lit and shadowed by the world like any model. |
-| `ViewLayerSetFov(degrees)`, `ViewLayerSetNear(distance)` | The layer's field of view (0 = the camera's, so zooming the world does not zoom the weapon) and near plane (default 0.01). |
+| `ModelSetLayer(layer)`, `InstanceSetModelLayer(id, layer)` | Draw a model in a layer: 0 is the world, 1 to 8 are drawn over it. |
+| `ModelLayerSetFov(layer, degrees)`, `ModelLayerSetNear(layer, distance)` | A layer's field of view (0 = the camera's) and near plane (default 0.01). |
+| `ModelLayerSetVisible(layer, visible)` | Hide or show a whole layer; its models keep animating. |
+| `ModelSetViewLayer(enabled)`, `InstanceSetViewLayer(id, enabled)`, `ViewLayerSetFov(degrees)`, `ViewLayerSetNear(distance)` | Shorter names for layer 1. |
 | `DrawModelGui(model, x, y, width, height, yaw, pitch, zoom)` | In Draw GUI: a Model drawn into a rectangle, turned by yaw and pitch and framed to fit (zoom 1), layered with the other GUI drawing in call order (an inventory portrait, a character on a menu). |
 | `DrawModelGuiPose(model, x, y, width, height, yaw, pitch, zoom, clip, time)` | The same, posed at an animation clip's time. |
 
 A GUI model is drawn while the next frame's 3D is drawn, so it appears one frame after the first
 call and follows changes a frame late. The same sequence of calls each frame keeps each model in
 its own image; up to 64 are drawn.
+
+## Meshes a script builds
+
+A script can build a mesh of its own (a voxel chunk, a procedural rock, a trail) and draw it as one
+draw instead of thousands of instances. A mesh is uploaded again only when drawn after it changed.
+It holds up to 65,535 vertices; a bigger world is split into chunks.
+
+| Command | What it does |
+|---|---|
+| `MeshCreate()`, `MeshClear(mesh)`, `MeshDestroy(mesh)` | A new empty mesh, emptied to build again, or freed. |
+| `MeshAddVertex(mesh, x, y, z, nx, ny, nz, u, v, r, g, b, a)` | A vertex (position, normal, texture coordinate, colour 0-255, alpha 0-1); returns its index, or -1 when the mesh is full. |
+| `MeshAddTriangle(mesh, a, b, c)` | A triangle of three vertex indices, counter-clockwise seen from its front. |
+| `MeshAddCube(mesh, x, y, z, size, faces, r, g, b, u0, v0, u1, v1)` | A cube's chosen faces centred on a point: `faces` adds 1 (+X), 2 (-X), 4 (+Y), 8 (-Y), 16 (+Z) and 32 (-Z), 63 for all, so a voxel adds only the faces that touch air. `u0, v0` to `u1, v1` is its tile of a texture atlas. Returns the faces added. |
+| `MeshVertexCount(mesh)`, `MeshTriangleCount(mesh)` | Its size. |
+| `DrawMesh3D(mesh, x, y, z, image)`, `DrawMesh3DTransform(mesh, x, y, z, sx, sy, sz, yaw, image)` | In a Draw event of a 3D room: the mesh at a place, textured by an Image (empty for none), tinted by the instance's image blend and alpha. |
+| `InstanceSetMeshCollider(id, mesh)` | A fixed collider of the mesh's triangles for an instance; call it again after the mesh changes. |
+
+```pgsl
+// Create: a strip of three blocks, with no faces between them.
+m = MeshCreate();
+MeshAddCube(m, -1, 0, 0, 1, 63 - 1, 255, 255, 255, 0, 0, 0.25, 0.25);
+MeshAddCube(m,  0, 0, 0, 1, 63 - 1 - 2, 255, 255, 255, 0, 0, 0.25, 0.25);
+MeshAddCube(m,  1, 0, 0, 1, 63 - 2, 255, 255, 255, 0, 0, 0.25, 0.25);
+InstanceSetMeshCollider(id, m);
+// Draw:
+DrawMesh3D(m, x, y, z, "Blocks");
+```
 
 ## The mood of a room from a script
 

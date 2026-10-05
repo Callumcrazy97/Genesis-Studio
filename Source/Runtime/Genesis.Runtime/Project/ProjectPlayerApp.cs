@@ -74,6 +74,8 @@ namespace Genesis.Runtime.Project
             // A game plays its project; it never cooks a model into it (see StudioModelResourceLoader).
             Genesis.Runtime.Modeling.StudioModelResourceLoader.WriteReimportsToProject = false;
             ScriptScreenshots.Reset();
+            Genesis.Runtime.Rendering.ScriptMeshes.Reset();
+            Genesis.Runtime.Rendering.ModelLayers.Reset();
             try
             {
                 if (TryRunScriptEntryPoint(args, out int customExit))

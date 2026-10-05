@@ -41,9 +41,10 @@ internal readonly struct VmValue
     }
     public override string ToString()
     {
-        if (ReferenceEquals(_reference, DoubleMarker)) return _number.ToString();
-        if (ReferenceEquals(_reference, IntegerMarker)) return ((int)_number).ToString();
-        if (IsBoolean) return (_number != 0).ToString();
+        // Text the same on every PC: a decimal point whatever the locale, and true/false as written.
+        if (ReferenceEquals(_reference, DoubleMarker)) return _number.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (ReferenceEquals(_reference, IntegerMarker)) return ((int)_number).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (IsBoolean) return _number != 0 ? "true" : "false";
         return _reference?.ToString() ?? "";
     }
     [MethodImpl(MethodImplOptions.AggressiveInlining)] public static implicit operator VmValue(double value) => new(value, DoubleMarker);

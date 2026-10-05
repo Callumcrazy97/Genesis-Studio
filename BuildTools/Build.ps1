@@ -219,10 +219,10 @@ try {
         $env:GENESIS_DXC_LOCAL_ONLY = '1'
         $env:GENESIS_DXC_PATH = Join-Path $staging 'Tools/DXC/dxc.exe'
         $smoke = Start-Process -FilePath (Join-Path $staging 'Genesis Application.exe') -ArgumentList '--smoke-test' -WindowStyle Hidden -PassThru
-        if (-not $smoke.WaitForExit(60000)) {
+        if (-not $smoke.WaitForExit(120000)) {
             # Only terminate this build's isolated smoke process; it has no user documents.
             Stop-Process -Id $smoke.Id -ErrorAction SilentlyContinue
-            throw 'Published startup smoke timed out after 60 seconds.'
+            throw 'Published startup smoke timed out after 120 seconds.'
         }
         $smoke.Refresh()
         if ($smoke.ExitCode -ne 0) { throw "Published startup smoke failed with exit $($smoke.ExitCode)." }

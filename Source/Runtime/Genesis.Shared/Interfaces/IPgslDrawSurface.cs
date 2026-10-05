@@ -50,6 +50,9 @@ namespace Genesis.Shared.Interfaces
         /// </summary>
         void DrawModelGui(string modelName, RectangleF destination, float yaw, float pitch, float zoom, string clip, float time, float alpha) { }
 
+        /// <summary>A script-built mesh (PGSL MeshCreate) drawn in a 3D room, textured by an Image.</summary>
+        void QueueScriptMesh3D(int meshId, System.Numerics.Matrix4x4 world, string image, Color tint, float alpha) { }
+
         bool Is3DActive { get; }
         void QueueCube3D(float x, float y, float z, float sx, float sy, float sz, Color color, float alpha);
         void QueueSphere3D(float x, float y, float z, float radius, Color color, float alpha);

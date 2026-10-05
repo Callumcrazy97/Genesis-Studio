@@ -672,13 +672,15 @@ namespace Genesis.Runtime
             bool scriptsReady = ScriptHost != null && (BootSplash == null || BootSplash.IsComplete)
                 && (StartupGate == null || StartupGate.IsActivated);
             _pgslHud.Reset(OverlayWidth, OverlayHeight);
-            // The first-person layer: over the world, under the GUI.
-            if (_renderer.TryGetModelLayerTexture(Genesis.Runtime.Rendering.ModelLayers.FirstPerson, out TextureHandle firstPerson))
-                _renderer.DrawSprite(new SpriteDrawCall
-                {
-                    Texture = firstPerson, Width = OverlayWidth, Height = OverlayHeight,
-                    ScaleX = 1f, ScaleY = 1f, Alpha = 1f, Tint = RenderColor.White, SmoothSampling = true,
-                });
+            // Model layers 1-8: over the world, under the GUI, in number order.
+            for (int layer = 1; layer <= Genesis.Runtime.Rendering.ModelLayers.MaxOverlay; layer++)
+                if (Genesis.Runtime.Rendering.ModelLayers.IsVisible(layer)
+                    && _renderer.TryGetModelLayerTexture(layer, out TextureHandle layerImage))
+                    _renderer.DrawSprite(new SpriteDrawCall
+                    {
+                        Texture = layerImage, Width = OverlayWidth, Height = OverlayHeight,
+                        ScaleX = 1f, ScaleY = 1f, Alpha = 1f, Tint = RenderColor.White, SmoothSampling = true,
+                    });
             if (scriptsReady)
             {
                 // A PGSL GUI's shapes, text and images are buffered together and replayed onto the

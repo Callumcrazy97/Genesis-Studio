@@ -1165,6 +1165,10 @@ namespace Genesis.Runtime.Rendering
             return 0;
         }
 
+        /// <summary>An Image's first frame as a texture (for script-built meshes); invalid when there is none.</summary>
+        internal static TextureHandle ResolveImageTexture(IRenderController renderer, string projectPath, string image) =>
+            TryGetTexture(renderer, projectPath, image, 0, out TextureHandle handle, out _, out _) ? handle : TextureHandle.Invalid;
+
         private static bool TryGetTexture(
             IRenderController renderer,
             string projectPath,

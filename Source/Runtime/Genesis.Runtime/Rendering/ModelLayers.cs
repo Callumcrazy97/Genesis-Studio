@@ -9,23 +9,58 @@ using Genesis.Shared.Rendering;
 namespace Genesis.Runtime.Rendering
 {
     /// <summary>
-    /// Models drawn into images of their own with cameras of their own (see MeshDrawCall.Layer):
-    /// the first-person layer (an instance's arms and weapon, with their own field of view and
-    /// near plane, drawn over the world and under the GUI, never inside a wall) and GUI models (a
-    /// model drawn into a GUI rectangle, such as an inventory portrait). GUI requests are made
-    /// while the GUI draws, which is after the frame's 3D, so each shows the next frame.
+    /// Models drawn into images of their own with cameras of their own (see MeshDrawCall.Layer).
+    /// Layers 1-8 follow the game camera, each with its own field of view and near plane, and are
+    /// drawn over the world and under the GUI in number order: whatever a game needs in front of
+    /// everything (a held tool or weapon, a cockpit, a compass, a map in hand), never cut by a wall
+    /// and unchanged when the world's camera zooms. GUI models (layers from 100) are a model drawn
+    /// into a GUI rectangle, such as an inventory portrait; they are asked for while the GUI draws,
+    /// which is after the frame's 3D, so each shows the next frame.
     /// </summary>
     public static class ModelLayers
     {
-        public const int FirstPerson = 1;
+        public const int MaxOverlay = 8;
         public const int FirstGui = 100;
         private const int MaxGuiModels = 64;
+        private const float DefaultNear = 0.01f;
 
-        /// <summary>The first-person layer's vertical field of view in degrees; 0 uses the camera's.</summary>
-        public static float FirstPersonFieldOfView { get; set; }
+        private static readonly float[] FieldOfView = new float[MaxOverlay + 1];
+        private static readonly float[] NearPlane = NewNearPlanes();
+        private static readonly bool[] Hidden = new bool[MaxOverlay + 1];
 
-        /// <summary>The first-person layer's near plane in world units.</summary>
-        public static float FirstPersonNearPlane { get; set; } = 0.01f;
+        private static float[] NewNearPlanes()
+        {
+            float[] near = new float[MaxOverlay + 1];
+            Array.Fill(near, DefaultNear);
+            return near;
+        }
+
+        /// <summary>Whether a number is one of the layers drawn over the world (1-8).</summary>
+        public static bool IsOverlay(int layer) => layer >= 1 && layer <= MaxOverlay;
+
+        /// <summary>A layer's vertical field of view in degrees; 0 uses the camera's.</summary>
+        public static void SetFieldOfView(int layer, float degrees)
+        {
+            if (IsOverlay(layer)) FieldOfView[layer] = float.IsFinite(degrees) ? Math.Clamp(degrees, 0f, 170f) : 0f;
+        }
+
+        public static float GetFieldOfView(int layer) => IsOverlay(layer) ? FieldOfView[layer] : 0f;
+
+        /// <summary>A layer's near plane in world units.</summary>
+        public static void SetNearPlane(int layer, float distance)
+        {
+            if (IsOverlay(layer) && float.IsFinite(distance) && distance > 0f) NearPlane[layer] = Math.Min(distance, 10f);
+        }
+
+        public static float GetNearPlane(int layer) => IsOverlay(layer) ? NearPlane[layer] : DefaultNear;
+
+        /// <summary>Hides or shows a whole layer (its models keep animating).</summary>
+        public static void SetVisible(int layer, bool visible)
+        {
+            if (IsOverlay(layer)) Hidden[layer] = !visible;
+        }
+
+        public static bool IsVisible(int layer) => IsOverlay(layer) && !Hidden[layer];
 
         private readonly record struct GuiModel(string Model, int Width, int Height, float Yaw, float Pitch, float Zoom, string Clip, float Time);
 
@@ -57,6 +92,9 @@ namespace Genesis.Runtime.Rendering
                 _requested.Clear();
                 _submitting.Clear();
             }
+            Array.Clear(FieldOfView);
+            Array.Fill(NearPlane, DefaultNear);
+            Array.Clear(Hidden);
         }
 
         /// <summary>
@@ -67,12 +105,13 @@ namespace Genesis.Runtime.Rendering
         {
             if (renderer == null) return;
             if (camera != null && viewWidth > 0 && viewHeight > 0)
-            {
-                float fov = FirstPersonFieldOfView > 1f ? FirstPersonFieldOfView * MathF.PI / 180f : camera.FieldOfView;
-                float near = Math.Clamp(FirstPersonNearPlane, 0.001f, 10f);
-                Matrix4x4 projection = Conventions.CreatePerspective(Math.Clamp(fov, 0.1f, 3f), viewWidth / (float)viewHeight, near, 200f);
-                renderer.SetModelLayerCamera(FirstPerson, camera.ViewMatrix, projection, viewWidth, viewHeight, receiveShadows: true);
-            }
+                for (int layer = 1; layer <= MaxOverlay; layer++)
+                {
+                    float fov = FieldOfView[layer] > 1f ? FieldOfView[layer] * MathF.PI / 180f : camera.FieldOfView;
+                    float near = Math.Clamp(NearPlane[layer], 0.001f, 10f);
+                    Matrix4x4 projection = Conventions.CreatePerspective(Math.Clamp(fov, 0.1f, 3f), viewWidth / (float)viewHeight, near, 200f);
+                    renderer.SetModelLayerCamera(layer, camera.ViewMatrix, projection, viewWidth, viewHeight, receiveShadows: true);
+                }
 
             lock (Gate)
             {

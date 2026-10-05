@@ -12,8 +12,11 @@ namespace Genesis.Runtime.ECS.Components
         public float ScaleY;
         public float ScaleZ;
         public bool CastShadows;
-        /// <summary>Drawn in the first-person layer: over the world with its own field of view, casting no shadow.</summary>
-        public bool ViewLayer;
+        /// <summary>
+        /// 0 draws in the world; 1-8 draws in that model layer, over the world with the layer's own field of
+        /// view and near plane, casting no shadow (see ModelLayers).
+        /// </summary>
+        public int ModelLayer;
         public bool ReceiveShadows;
         public bool KeepPreviousTransform;
         public int LodPolicy;

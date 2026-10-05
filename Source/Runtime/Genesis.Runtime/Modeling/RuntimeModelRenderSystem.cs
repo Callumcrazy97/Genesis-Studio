@@ -324,7 +324,7 @@ namespace Genesis.Runtime.Modeling
                 }
                 else
                 {
-                    if (!draw3d.CastShadows || !rendererComponent.CastShadows || rendererComponent.ViewLayer) flags |= MeshDrawFlags.NoShadow;
+                    if (!draw3d.CastShadows || !rendererComponent.CastShadows || rendererComponent.ModelLayer > 0) flags |= MeshDrawFlags.NoShadow;
                     if (!draw3d.ReceiveShadows || !rendererComponent.ReceiveShadows)
                         flags |= MeshDrawFlags.NoReceiveShadow;
                     if (material?.DoubleSided == true) flags |= MeshDrawFlags.NoCull;
@@ -410,7 +410,7 @@ namespace Genesis.Runtime.Modeling
                     Alpha = alpha,
                     Emissive = emissive,
                     Flags = flags,
-                    Layer = rendererComponent.ViewLayer ? Genesis.Runtime.Rendering.ModelLayers.FirstPerson : 0,
+                    Layer = Genesis.Runtime.Rendering.ModelLayers.IsOverlay(rendererComponent.ModelLayer) ? rendererComponent.ModelLayer : 0,
                 };
                 // A material may name a mesh Shader resource of its own: a building's glass and walls
                 // are one model.

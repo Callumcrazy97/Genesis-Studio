@@ -729,7 +729,13 @@ public static partial class PgslCommands
     }
 
     [PgslCommand("String", "String(val)", "To string", "General")]
-    public static string PGSLToString(object val) => val?.ToString() ?? "";
+    public static string PGSLToString(object val) => val switch
+    {
+        null => "",
+        bool flag => flag ? "true" : "false",
+        IFormattable number => number.ToString(null, System.Globalization.CultureInfo.InvariantCulture),
+        _ => val.ToString() ?? "",
+    };
 
     [PgslCommand("Real", "Real(val)", "To number", "General")]
     public static double Real(object val) { try { return Convert.ToDouble(val); } catch { return 0; } }
