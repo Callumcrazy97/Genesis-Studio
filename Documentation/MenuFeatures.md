@@ -208,6 +208,16 @@ one skeleton then keep one set of clips between them instead of a copy each.
   60 explicitly keeps 60); scripts can set it too.
 - **A GLB of clips with no meshes** (an animation library exported on its own) now imports as a
   clips-only Model to use as a library; it used to be refused, and stopped the whole import.
+- **Clips-only Models open as an animation library.** The Model Viewer and the Model editor used
+  to show such a Model as empty ("No model loaded", mesh tools with nothing to work on). They now
+  show an **Animation library** panel instead of the mesh tools: the clips with their lengths, Play
+  and Stop, and the usual timeline to scrub the selected clip. The clip plays on the library's own
+  skeleton, drawn as bone lines and joints. **Choose body Model…** lists the project's Models and
+  plays the clip on the one you pick (the library's clips are added to it exactly as
+  `animationLibraries` would, retargeted to its proportions), with its frames in the timeline;
+  **Skeleton only** returns to the bone lines. The clips are read-only there: Save leaves the
+  library's files unchanged, and Import / Replace is off, so a library is never given a mesh by
+  accident. Regression: `--test model-clips`.
 - **One file that cannot be imported no longer stops the others.** The rest of the batch is
   imported, then the failures are reported together ("Imported 9 of 10 file(s). Not imported: ...").
 

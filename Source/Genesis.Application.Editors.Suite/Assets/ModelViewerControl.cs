@@ -82,6 +82,8 @@ public partial class ModelViewerControl : EditorSurfaceControl
         foreach (Control control in Body.Controls) control.Margin = Padding.Empty;
         Controls.Add(root);
         BuildMenus(); BuildSidebar();
+        IsAnimationLibrary = IsClipsOnlyModel(Asset);
+        if (IsAnimationLibrary) BuildAnimationLibraryView();
         Surface.SceneStateFactory = CreateSceneState;
         Surface.DrawScene += DrawPreview;
         Surface.CameraOverrideFactory = CameraOverride;
@@ -120,7 +122,8 @@ public partial class ModelViewerControl : EditorSurfaceControl
     public (Vector3 Min, Vector3 Max) ModelBounds => (Asset.Bounds.Min - Asset.Pivot.Position, Asset.Bounds.Max - Asset.Pivot.Position);
     protected GModelAnimationClip? SelectedClip => Asset.Animations.FirstOrDefault(c => c.Name == _clip);
     protected bool ModelImportInProgress => _importing;
-    public override void Save() { if (!_importing && IsDirty) { PersistModelChanges(Asset); AcceptSave(); } }
+    // An animation library's clips are read-only here; saving leaves its file exactly as it is.
+    public override void Save() { if (!_importing && IsDirty && !IsAnimationLibrary) { PersistModelChanges(Asset); AcceptSave(); } }
     public override void Undo() { if (!_importing) base.Undo(); }
     public override void Redo() { if (!_importing) base.Redo(); }
     public void RequestCompose() { if (IsDirty) Save(); ComposeRequested?.Invoke(this, EventArgs.Empty); }
@@ -254,11 +257,12 @@ public partial class ModelViewerControl : EditorSurfaceControl
         _materials.Items.Clear(); foreach (var material in Asset.Materials) _materials.Items.Add(material.Name);
         _syncing = true; _clips.Items.Clear(); _clips.Items.Add("None"); foreach (var clip in Asset.Animations) _clips.Items.Add(clip.Name);
         _clips.SelectedIndex = 0; _syncing = false; SelectClip(previousClip);
-        _empty.Visible = EmptyModelHintEnabled && !Asset.HasRenderableMeshes;
+        _empty.Visible = EmptyModelHintEnabled && !Asset.HasRenderableMeshes && !IsAnimationLibrary;
         if (_openModelEditor is not null)
-            _openModelEditor.Text = Asset.HasRenderableMeshes ? "Edit Model" : "Create Model";
+            _openModelEditor.Text = Asset.HasRenderableMeshes || IsAnimationLibrary ? "Edit Model" : "Create Model";
         _moreOptions.Enabled = Asset.HasRenderableMeshes;
         RefreshDetails();
+        RefreshAnimationLibrary();
         bool HasAncestor(int node, int sought)
         {
             var visited = new HashSet<int>();
@@ -301,10 +305,10 @@ public partial class ModelViewerControl : EditorSurfaceControl
     }
     public void FrameModel()
     {
-        var (min, max) = ModelBounds;
+        var (min, max) = IsAnimationLibrary ? _libraryBounds : ModelBounds;
         // An empty workspace needs room to draw on the one-unit snapping grid.
         // Framing its placeholder bounds makes ordinary drags snap to one point.
-        float radius = Asset.HasRenderableMeshes ? Math.Max(.1f, Vector3.Distance(min, max) * .5f) : 3f;
+        float radius = Asset.HasRenderableMeshes || IsAnimationLibrary ? Math.Max(.1f, Vector3.Distance(min, max) * .5f) : 3f;
         Surface.Camera.Target = (min + max) * .5f;
         float aspect = Math.Max(.3f, Surface.ClientSize.Width / (float)Math.Max(1, Surface.ClientSize.Height));
         float angle = Math.Min(.5f, MathF.Atan(MathF.Tan(.5f) * aspect));
@@ -326,10 +330,15 @@ public partial class ModelViewerControl : EditorSurfaceControl
         _clip = Asset.Animations.Any(c => c.Name == name) ? name : ""; _time = 0; SetPlaying(false);
         _syncing = true; _clips.SelectedIndex = string.IsNullOrEmpty(_clip) ? 0 : _clips.Items.IndexOf(_clip); _syncing = false;
         UpdatePlayback();
+        SyncAnimationLibrarySelection();
         ApplyInterfaceLayout();
         InspectorStateChanged?.Invoke(this, EventArgs.Empty);
     }
-    public void SetPlaying(bool playing) { _playing = playing && SelectedClip is { Frames.Count: > 0 }; _play.Text = _playing ? "Pause" : "Play"; _lastTick = Stopwatch.GetTimestamp(); }
+    public void SetPlaying(bool playing)
+    {
+        _playing = playing && SelectedClip is { Frames.Count: > 0 }; _play.Text = _playing ? "Pause" : "Play"; _lastTick = Stopwatch.GetTimestamp();
+        if (IsAnimationLibrary) _libraryPlay.Text = _play.Text;
+    }
     public void SetFrame(int frame) { _time = Math.Clamp(frame, 0, Math.Max(0, (SelectedClip?.Frames.Count ?? 1) - 1)) / Math.Max(1, SelectedClip?.Fps ?? 30); UpdatePlayback(); Surface.Invalidate(true); }
     public void AdvancePreview(float seconds)
     {
@@ -345,7 +354,8 @@ public partial class ModelViewerControl : EditorSurfaceControl
         int count = SelectedClip?.Frames.Count ?? 0;
         _play.Enabled = count > 0; _timeline.Enabled = count > 0; _timeline.Maximum = Math.Max(0, count - 1);
         _timeline.Visible = count > 0;
-        _timeline.SetSource(Asset, SelectedClip, ProjectRoot);
+        (GModelAsset timelineAsset, GModelAnimationClip? timelineClip) = TimelineSource();
+        _timeline.SetSource(timelineAsset, timelineClip, ProjectRoot);
         _timeline.Value = Math.Clamp(CurrentFrame, 0, _timeline.Maximum);
         _timeline.PoseFrames = Asset.PoseAnimations.FirstOrDefault(a => a.Id == SelectedClip?.PoseAnimationId)?.Keys.Select(k => k.Frame - 1).ToArray() ?? []; _timeline.Invalidate();
         _frameLabel.Text = count == 0 ? "No animation" : $"Frame {Math.Min(count, CurrentFrame + 1)} / {count}\n{SelectedClip!.Fps:0.#} FPS \u00B7 {_time:0.00}s";
@@ -366,7 +376,8 @@ public partial class ModelViewerControl : EditorSurfaceControl
         long ticks = Environment.TickCount64;
         if (ticks < _nextStatusRefresh) return;
         _nextStatusRefresh = ticks + 250;
-        if (!_importing) Status.Text = DateTime.UtcNow < _motionFeedbackUntil ? LastMotionImportMessage : $"{(IsDirty ? "Unsaved \u00B7 " : "")}{Asset.Meshes.Sum(mesh => mesh.Indices.Length / 3):N0} triangles{PreviewStatusDetail} \u00B7 {(_orthographic ? "Orthographic" : "Perspective")} \u00B7 {_shading} \u00B7 RMB orbit \u00B7 MMB pan \u00B7 Wheel zoom \u00B7 Ground at {GroundHeight:0.###}";
+        if (!_importing && IsAnimationLibrary) Status.Text = AnimationLibraryStatus();
+        else if (!_importing) Status.Text = DateTime.UtcNow < _motionFeedbackUntil ? LastMotionImportMessage : $"{(IsDirty ? "Unsaved \u00B7 " : "")}{Asset.Meshes.Sum(mesh => mesh.Indices.Length / 3):N0} triangles{PreviewStatusDetail} \u00B7 {(_orthographic ? "Orthographic" : "Perspective")} \u00B7 {_shading} \u00B7 RMB orbit \u00B7 MMB pan \u00B7 Wheel zoom \u00B7 Ground at {GroundHeight:0.###}";
     }
     protected virtual string PreviewStatusDetail => "";
 
@@ -374,6 +385,7 @@ public partial class ModelViewerControl : EditorSurfaceControl
     {
         if (_gpuDirty) { PreviewRenderer.InvalidateAssets(renderer); _gpuDirty = false; }
         DrawGrid(renderer);
+        if (IsAnimationLibrary) { DrawAnimationLibraryBody(renderer); return; }
         if (!Asset.HasRenderableMeshes) return;
         var center = (ModelBounds.Min + ModelBounds.Max) * .5f;
         Matrix4x4 world = Matrix4x4.CreateTranslation(-center) * Matrix4x4.CreateRotationY(_spin) * Matrix4x4.CreateTranslation(center);
@@ -515,6 +527,7 @@ public partial class ModelViewerControl : EditorSurfaceControl
         foreach (Control control in new Control[] { LeftPanel, _hierarchy, _materials, _details, Status }) { control.BackColor = EditorChrome.Surface; control.ForeColor = EditorChrome.Text; control.Font = EditorChrome.BaseFont; }
         _timeline.BackColor = EditorChrome.Surface;
         _timeline.Font = _frameLabel.Font = _sourceInfo.Font = EditorChrome.BaseFont;
+        ApplyAnimationLibraryTheme();
         ApplyInterfaceLayout();
     }
     protected override void OnAssetDependenciesChanged(ProjectAssetChangeSet changes) { base.OnAssetDependenciesChanged(changes); Asset = StudioModelResourceLoader.Load(ResourcePath); RefreshAssetPresentation(recalculateBounds: false); }

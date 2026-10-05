@@ -408,7 +408,7 @@ public sealed partial class ModelEditorControl
     }
 
     /// <summary>The Model editor's steps follow its tool pages; the viewer keeps its own.</summary>
-    private protected override IReadOnlyList<Genesis.Application.Core.UI.WorkflowStep> CreateModelWorkflowSteps(ToolStripItem import) => !IsComposer
+    private protected override IReadOnlyList<Genesis.Application.Core.UI.WorkflowStep> CreateModelWorkflowSteps(ToolStripItem import) => !IsComposer || IsAnimationLibrary
         ? base.CreateModelWorkflowSteps(import)
         :
         [

@@ -1554,8 +1554,10 @@ internal static class HeadlessTestRunner
                 Suites.PgslProjectSuite.Run(ctx);
                 break;
             case "menu-clips":
+                // Game-menu UI styling, then clips-only animation libraries in the Model editor.
                 PrepareFocusedProject(ctx, requireStudioServices: false);
                 Suites.UiMenuStyleSuite.Run(ctx);
+                Suites.ModelClipsOnlySuite.Run(ctx);
                 break;
             case "asset-import":
                 Suites.AssetImportSuite.Run(ctx);
