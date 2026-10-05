@@ -9,8 +9,12 @@ using Genesis.Application.Editors.Image.Imaging;
 using Genesis.Application.Editors.Suite;
 using Genesis.Application.Editors.Suite.Assets;
 using Genesis.Application.Studio.Theme;
+using Genesis.Rendering.Core;
+using Genesis.Runtime;
+using Genesis.Runtime.ECS;
 using Genesis.Runtime.ECS.Components;
 using Genesis.Runtime.Modeling;
+using Genesis.Runtime.Scripting;
 using Genesis.Shared.Assets;
 using Genesis.Shared.Interfaces;
 
@@ -144,6 +148,43 @@ internal static class PixelModelSuite
                 "Saving from the Model Editor broke the flipbook.");
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Image.ToModel.AnimatorPlaysFlipbookInGameplay", () =>
+        {
+            string image = resources.CreateResource(resources.AssetsRoot, ResourceKind.Image, "Traffic light");
+            PixelModelSource source = Source(4, 4,
+                [Frame("Red", 100, (_, _) => Red), Frame("Green", 100, (_, _) => Green), Frame("Blue", 100, (_, _) => Blue)], image);
+            string model = PixelModelResource.Create(image,
+                PixelModelBuilder.Build(source, new PixelModelSettings { AllFrames = true, PixelSize = .25f }), "Traffic light 3D");
+            using RuntimeScene scene = new("Pixel model flipbook");
+            var world = scene.World;
+            var entity = world.CreateEntity();
+            world.Set(entity, new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+            world.Set(entity, new Draw3DComponent { Visible = true });
+            world.Set(entity, new ModelRendererComponent { ModelAsset = ResourceNames.Name(project.RootPath, model), ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+            world.Set(entity, new ModelAnimatorComponent { ClipName = "Frames", Playing = true, Loop = true, PlaybackSpeed = 1 });
+            using Form host = UnattendedWindowing.NewHost(320, 240); UnattendedWindowing.ShowWithoutFocus(host);
+            RenderBackendDescriptor backend = RenderBackendCatalog.All.First();
+            using IRenderController renderer = RenderControllerFactory.Create(backend.Backend); renderer.Initialize(host.Handle, 320, 240);
+            RuntimeModelRenderSystem models = new();
+            string previousProject = PgslCommands.ProjectPath;
+            try
+            {
+                PgslCommands.ProjectPath = project.RootPath;
+                int stepped = 0;
+                // Each frame lasts 6 ticks at 60 per second; sample the middle of each, then after the loop.
+                foreach ((int tick, string expected) in new[] { (3, "red"), (9, "green"), (15, "blue"), (21, "red") })
+                {
+                    for (; stepped < tick; stepped++) ComponentLifecycle.OnUpdate(world, entity, 1f / 60f);
+                    (int red, int green, int blue) = RenderCounts(renderer, models, world, project.RootPath, ctx, $"pixel-model-game-{tick}");
+                    string shown = red > green && red > blue ? "red" : green > blue ? "green" : "blue";
+                    Check(Math.Max(red, Math.Max(green, blue)) > 2000 && shown == expected
+                        && new[] { red, green, blue }.Count(count => count > 200) == 1,
+                        $"At tick {tick} gameplay drew red {red}, green {green}, blue {blue}; expected only {expected}.");
+                }
+            }
+            finally { models.InvalidateAssets(renderer); PgslCommands.ProjectPath = previousProject; }
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Editor.Image.ToModel.EditorCommandSendsCompositedFrames", () =>
         {
             string image = resources.CreateResource(resources.AssetsRoot, ResourceKind.Image, "Editor frames");
@@ -268,6 +309,39 @@ internal static class PixelModelSuite
         if (y > 8 && y < 15 && x is >= 5 and <= 10) return Color.FromArgb(255, 235, 220, 190);
         return Color.Transparent;
     };
+
+    /// <summary>Draws the world's models the way gameplay submits them and counts strongly red, green and blue pixels.</summary>
+    private static (int Red, int Green, int Blue) RenderCounts(IRenderController renderer, RuntimeModelRenderSystem models,
+        Genesis.Runtime.ECS.World world, string projectRoot, HeadlessContext ctx, string name)
+    {
+        Mesh3DState lighting = Mesh3DState.Default; lighting.LightingEnabled = false; lighting.FogEnabled = false;
+        lighting.ShowFloor = lighting.ShowSunVisual = false;
+        renderer.SetMesh3DState(lighting); renderer.Set3DFrameActive(true);
+        renderer.SetCamera3D(Matrix4x4.CreateLookAt(new Vector3(.4f, .3f, 3f), Vector3.Zero, Vector3.UnitY),
+            Matrix4x4.CreatePerspectiveFieldOfView(MathF.PI / 3, 320f / 240f, .1f, 100));
+        MeshDrawCall[] draws = new MeshDrawCall[16]; models.BeginFrame();
+        int count = models.SubmitWorld(world, projectRoot, draws, 0, renderer); models.EndFrame();
+        Check(count > 0, "Gameplay submitted no Model geometry.");
+        renderer.BeginFrame(); renderer.Clear(.02f, .02f, .03f);
+        for (int index = 0; index < count; index++) { MeshDrawCall draw = draws[index]; draw.Flags |= MeshDrawFlags.NoShadow | MeshDrawFlags.NoFog; renderer.DrawMesh(draw); }
+        renderer.EndFrame();
+        Check(renderer.TryReadSubmittedFramePixels(out int width, out int height, out byte[] pixels), "No gameplay pixels were read back.");
+        int red = 0, green = 0, blue = 0;
+        for (int i = 0; i < pixels.Length; i += 4)
+        {
+            int b = pixels[i], g = pixels[i + 1], r = pixels[i + 2];
+            if (r > 100 && r > g * 2 && r > b * 2) red++;
+            else if (g > 100 && g > r * 2 && g > b * 1.5) green++;
+            else if (b > 100 && b > r * 2 && b > g * 1.5) blue++;
+        }
+        using Bitmap bitmap = new(width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        var data = bitmap.LockBits(new Rectangle(0, 0, width, height), System.Drawing.Imaging.ImageLockMode.WriteOnly, bitmap.PixelFormat);
+        try { System.Runtime.InteropServices.Marshal.Copy(pixels, 0, data.Scan0, pixels.Length); } finally { bitmap.UnlockBits(data); }
+        string file = Path.Combine(ctx.Captures, name + ".png"); bitmap.Save(file);
+        ctx.Report.Images.Add(ImageResult.From(name, file, VisualCapture.Measure(bitmap)));
+        renderer.Present();
+        return (red, green, blue);
+    }
 
     /// <summary>Which frames' meshes have any extent under a skin palette.</summary>
     private static int[] VisibleFrames(GModelAsset asset, Matrix4x4[] palette)
