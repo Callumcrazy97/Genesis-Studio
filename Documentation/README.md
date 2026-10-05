@@ -20,6 +20,7 @@ people as an early release (the version is 0.1.0) once the owner's decisions bel
 | Reading the template's provenance file | The installer bundled the Luigi's Mansion fan-game template: about 1,500 files, 617 of them images and sounds taken unchanged from a fan game about another publisher's characters. | Removed from Genesis on 3 October at the owner's request: template, loader, tests and build steps. Its artwork and audio had never been in this repository (`.gitignore` keeps every template's assets out); the local copy was moved to the owner's Backups folder. The engine features it used (2D lights, numeric saves, smooth effect sprites) remain, with their checks in `Effects2DSuite`. `Release.Templates.NoFanGameTemplateRemains`. |
 | Reading the installer script | The installed "documentation" was this development record, with links to pages that were not installed. | The installer carries the user's guides ([ProductGuide.md](ProductGuide.md) as its README); the package audit fails on a link to a page the product does not carry. |
 | Twenty minutes of room changes with memory measured | A scene registered each terrain with its streaming manager and never removed it when the room was left: a game kept every terrain room it had visited in memory and went on running it every frame. | Removed when the room unloads. `Engine.Rooms.Change.ARoomThatWasLeftIsNeitherStreamedNorKept`; measurements in [LargeWorlds.md](LargeWorlds.md). Every room change now logs what the game holds, and `GENESIS_ROOM_CHANGE_MEMORY=1` names what a left room still has alive. |
+| The owner pressing Run after an engine update (5 October) | With no shader cache, as after every engine update, the game window stayed blank for about 9.5 s while fxc compiled the forward shader, and the first room then waited another 7-8 s behind its cover for the tiled-terrain shader: about 21 s to the first frame of the Nature Walk template on DX11 (DX12 10 s, Vulkan 7 s, OpenGL 15 s). Studio's 3D views compiled the same programs. | The engine's own shaders ship compiled for all four GPU backends in `PrecompiledShaders` beside Studio and the Player, made by the build (see Build, validation and recovery) and read before compiling. Measured cold from `GenesisEngine.exe` start: loading screen at 0.8 s (was 9.3 s) and first room frame at 4.4 s (was 21.3 s) on DX11; DX12 0.8 s / 5.0 s, Vulkan 0.8 s / 3.0 s, OpenGL 0.9 s / 3.7 s; a warm cache is unchanged (0.8 s / 4.4 s). fxc spent most of its ~10 s on the forward shader unrolling the eight-light constant-buffer fallback and the terrain noise; both are real loops now (same lights and octaves in the same order; screenshots differ by run-to-run noise only), so the forward shader compiles in about 2 s and the tiled-terrain shaders built from it in 4-6 s instead of 13-20 s. The start-up warm-up now runs on every GPU backend in the Player and Studio, and every renderer starts it, so a program that is not precompiled compiles side by side with the rest: with the folder turned off (`GENESIS_PRECOMPILED_SHADERS=0`) and no cache, DX11 shows the loading screen at 2.7 s (was 9.1 s) and the first room frame at 6.6 s (was 19.7 s). `--test shader-precompiled`. |
 | Installing | Installing needed an administrator, and nothing had ever run the installer. | "Install for me only" needs none. `BuildTools/InstallDrill.ps1` installs, checks, starts Studio from a read-only folder, upgrades and uninstalls a trial copy. *Help › About* shows the product version. |
 
 ### What was checked
@@ -1494,10 +1495,24 @@ Player**. They are separate from exporting a user's game. Run commands from the 
 | Compilation | Incremental publish, warnings as errors | Explicit restore and clean, warnings as errors |
 | Product | Self-contained Studio and `Player/GenesisEngine.exe` | Same |
 | Package validation | Required files, DXC, VC++ runtime, matching shared DLL hashes, retired dependency rejection | Same |
+| Engine shaders | Precompiled for DX11, DX12, Vulkan and OpenGL into `PrecompiledShaders` (Studio and Player); unchanged programs kept from the last promoted package | Same |
 | Regression | Skipped unless requested | Complete headless regression |
 | Renderer tests | Skipped unless requested | DX11, DX12, Vulkan, OpenGL, Software, each explicitly requested |
 | Startup | Staged Studio and bundled shader compiler smoke | Same |
 | Promotion | Only after requested checks pass | Only after all checks pass |
+
+The step "Precompile engine shaders for Studio and Player" runs
+`Player\GenesisEngine.exe --precompile-shaders <folder> [--formats dxbc,dxil,spirv,glsl] [--reuse <older folder>]`
+with the staged DXC, writes `Player\PrecompiledShaders` and copies it beside Studio. Every program in
+`EngineShaderCatalog.PrecompiledJobs` is compiled (about 10 s cold, 204 programs, 3.6 MB; the
+fxc builds of the forward and tiled-terrain pixel shaders take 2-6 s each and run side by side
+with the rest), or kept from the last promoted package when its key and SHA-256 still match
+(under a second). Its log is `precompile-shaders.log` in the build's report folder. The runtime reads this
+folder before its own cache, with the same keys (expanded source, entry, profile, format,
+compiler identity): a changed shader or another compiler misses it and compiles as before, and a
+file whose length or hash differs from `manifest.txt` is compiled instead of used. Project
+shaders are never in it. `GENESIS_PRECOMPILED_SHADERS=<folder>` points the runtime at another
+folder and `=0` turns it off; `--test shader-precompiled` covers it.
 
 No GPU test is silently counted as passed through fallback. A requested renderer failure fails the
 build. Software smoke coverage does not imply hardware-feature parity. `BuildSummary.json` separates
@@ -1536,7 +1551,9 @@ Build.bat --help
 `--tiers` is the everyday check, about six minutes: Quick, then three quick tiers in order and a
 DX11 smoke. **Editor** (Studio foundation, shell, resource names, code assistance, the editor suite,
 room workspace, model intake), **Engine** (engine systems, asset import, readback, post effects,
-large worlds, runtime, model system) and **PGSL** (values, caches, scripts, the `pgsl-logic`
+large worlds, runtime, model system, `shader-precompiled`: built-in shaders read from the shipped
+folder without compiling, and compiled when the source, the compiler or the file is not what it
+was) and **PGSL** (values, caches, scripts, the `pgsl-logic`
 language checks, `input-replay` (a script's input recorded and replayed frame for frame), and
 `pgsl-project`: a two-room game the staged Player runs on DX11, checking every
 language group, instances, `with`, a library Script, the event order, a room change and two

@@ -132,14 +132,18 @@ namespace Genesis.Runtime.Project
                 Genesis.Runtime.Scripting.PgslCommands.GameQuitHandler = RequestStop;
                 PgslProfiler.Enabled = debugMode || benchmarkOutput != null;
 
-                // The built-in shaders compile on worker threads while the project and room are
-                // read and the window is made; the renderer then finds them ready. After an engine
-                // update (nothing cached yet) that compile used to hold a blank window for seconds.
+                // The built-in shaders are read (from the precompiled folder shipped with the
+                // engine) or compiled on worker threads while the project and room are read and
+                // the window is made; the renderer then finds them ready. After an engine update
+                // (nothing cached yet) compiling them one by one used to hold a blank window for
+                // seconds. Every GPU backend: DXC compiles in its own processes, side by side.
                 try
                 {
+                    Genesis.Rendering.Core.RenderBackendOption backend = Genesis.Rendering.Core.RenderControllerFactory.ResolveBackend();
                     if (Environment.GetEnvironmentVariable("GENESIS_SHADER_WARMUP") != "0"
-                        && Genesis.Rendering.Core.RenderControllerFactory.ResolveBackend() == Genesis.Rendering.Core.RenderBackendOption.SilkNetDx11)
-                        Genesis.Rendering.Primitives.ShaderCompiler.WarmBuiltInDxbcInBackground();
+                        && backend != Genesis.Rendering.Core.RenderBackendOption.Software)
+                        Genesis.Rendering.Primitives.ShaderCompiler.WarmBuiltInInBackground(
+                            Genesis.Rendering.Core.RenderBackendCatalog.Describe(backend).ShaderBinaryFormat);
                 }
                 catch (Exception warmError) when (warmError is ArgumentException or InvalidOperationException)
                 {
@@ -253,6 +257,8 @@ namespace Genesis.Runtime.Project
                     // below (textures, sound, the first room) used to happen behind a blank window.
                     if (host.ShowStartupProgress("Starting " + title, 0.02f))
                         logger.Line("Loading screen shown");
+                    logger.Line($"engine shaders so far: {Genesis.Rendering.Primitives.ShaderCompiler.PrecompiledReads} precompiled, "
+                        + $"{Genesis.Rendering.Primitives.ShaderCompiler.CompilesPerformed} compiled here");
 
                     if (room.Dimension == RoomDimension.ThreeD && room.Settings.VoxelWorld)
                         SceneDefaults.ApplyVoxelWorld(scene);

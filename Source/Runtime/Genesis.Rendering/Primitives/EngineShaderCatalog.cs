@@ -52,6 +52,26 @@ namespace Genesis.Rendering.Primitives
             new("ShaderPreviewFullscreenShaders.hlsl", ShaderPreviewFullscreenShaders.Source, "PreviewVS", GpuShaderStage.Vertex),
         };
 
+        /// <summary>
+        /// Every program the engine itself may compile while a game or an editor viewport starts:
+        /// <see cref="Jobs"/>, plus the GPU particle kernels and the tiled-terrain programs that
+        /// are made when a room first needs them. This is what ships precompiled beside Studio and
+        /// the Player (<see cref="PrecompiledShaders"/>) and what the start-up warm-up makes.
+        /// </summary>
+        public static IReadOnlyList<EngineShaderJob> PrecompiledJobs { get; } = BuildPrecompiledJobs();
+
+        private static EngineShaderJob[] BuildPrecompiledJobs()
+        {
+            var jobs = new List<EngineShaderJob>(Jobs);
+            foreach (string entry in Genesis.Rendering.Particles.GpuParticleShaders.ComputeEntries)
+                jobs.Add(new("GpuParticleShaders.Compute.hlsl", Genesis.Rendering.Particles.GpuParticleShaders.Compute, entry, GpuShaderStage.Compute));
+            jobs.Add(new("GpuParticleShaders.Draw.hlsl", Genesis.Rendering.Particles.GpuParticleShaders.Draw, "VS", GpuShaderStage.Vertex));
+            jobs.Add(new("GpuParticleShaders.Draw.hlsl", Genesis.Rendering.Particles.GpuParticleShaders.Draw, "PS", GpuShaderStage.Pixel));
+            jobs.Add(new("TerrainSurfaceShaders.hlsl", TerrainSurfaceShaders.Source, "PS", GpuShaderStage.Pixel));
+            jobs.Add(new("TerrainSurfaceShaders.LayerAtlas.hlsl", TerrainSurfaceShaders.LayerAtlasSource, "PS", GpuShaderStage.Pixel));
+            return jobs.ToArray();
+        }
+
         public static IReadOnlyList<ShaderCompileResult> CompileAll(GpuShaderBinaryFormat binaryFormat, string cacheRoot = null)
         {
             var results = new List<ShaderCompileResult>(Jobs.Count);

@@ -1117,6 +1117,7 @@ internal static class HeadlessTestRunner
         Suites.TextRenderingSuite.Run(ctx);
         Suites.Effects2DSuite.Run(ctx);
         Suites.PostEffectsSuite.Run(ctx);
+        Suites.ShaderPrecompiledSuite.Run(ctx);
 
         return Finish(report, outputRoot, fastBuildGate: false);
     }
@@ -1128,7 +1129,7 @@ internal static class HeadlessTestRunner
     internal static readonly IReadOnlyDictionary<string, string[]> Tiers = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
     {
         ["tier-editor"] = ["studio-foundation", "shell-layout", "resource-names", "code-assistance", "editor-suite", "room-workspace", "model-intake", "model-sprites", "pixel-model", "menu-clips"],
-        ["tier-engine"] = ["engine-systems", "asset-import", "readback-alpha", "post-effects", "large-world", "runtime", "model-system", "debug-screen", "terrain-layers-grass"],
+        ["tier-engine"] = ["engine-systems", "asset-import", "readback-alpha", "post-effects", "large-world", "runtime", "model-system", "debug-screen", "terrain-layers-grass", "shader-precompiled"],
         ["tier-pgsl"] = ["pgsl-values", "pgsl-cache", "pgsl-scripts", "pgsl-logic", "input-replay", "pgsl-project", "export-pgsl"],
     };
 
@@ -1553,6 +1554,9 @@ internal static class HeadlessTestRunner
                 break;
             case "pgsl-project":
                 Suites.PgslProjectSuite.Run(ctx);
+                break;
+            case "shader-precompiled":
+                Suites.ShaderPrecompiledSuite.Run(ctx);
                 break;
             case "model-sprites":
                 Suites.ModelSpriteConversionSuite.Run(ctx);

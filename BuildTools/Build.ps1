@@ -115,7 +115,7 @@ function Assert-Package {
         $entry = if ($prefix) { 'GenesisEngine' } else { 'Genesis Application' }
         foreach ($relative in @("$entry.exe", "$entry.dll", "$entry.deps.json", "$entry.runtimeconfig.json", 'vcruntime140.dll', 'Tools/DXC/dxc.exe', 'Tools/DXC/dxcompiler.dll', 'Tools/DXC/dxil.dll',
                 'Licenses/Genesis-LICENSE.txt', 'Licenses/ThirdPartyNotices.txt', 'Licenses/SkiaSharp-THIRD-PARTY-NOTICES.txt', 'Licenses/DotNet-LICENSE.txt', 'Licenses/DotNet-THIRD-PARTY-NOTICES.txt',
-                'Tools/DXC/LICENSE-MS.txt', 'Tools/DXC/LICENSE-LLVM.txt')) {
+                'Tools/DXC/LICENSE-MS.txt', 'Tools/DXC/LICENSE-LLVM.txt', 'PrecompiledShaders/manifest.txt')) {
             $path = Join-Path $staging ($prefix + $relative)
             if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Incomplete package: $path" }
         }
@@ -185,6 +185,29 @@ try {
         foreach ($guide in $productGuides) {
             Copy-Item -LiteralPath (Join-Path $repo "Documentation/$guide") -Destination (Join-Path $staging "Documentation/$guide")
         }
+    }
+    Invoke-BuildStep 'Precompile engine shaders for Studio and Player' {
+        # The engine's own shaders ship compiled for DX11, DX12, Vulkan and OpenGL, so the first
+        # game or 3D view after an engine update draws at once instead of compiling them. Programs
+        # unchanged since the last promoted package are kept rather than compiled again.
+        $precompiled = Join-Path $staging 'Player/PrecompiledShaders'
+        $toolArgs = @('--precompile-shaders', "`"$precompiled`"")
+        $last = Join-Path $output 'Player/PrecompiledShaders'
+        if (Test-Path -LiteralPath (Join-Path $last 'manifest.txt')) { $toolArgs += @('--reuse', "`"$last`"") }
+        $env:GENESIS_DXC_LOCAL_ONLY = '1'
+        $env:GENESIS_DXC_PATH = Join-Path $staging 'Player/Tools/DXC/dxc.exe'
+        $log = Join-Path $reportDir 'precompile-shaders.log'
+        $tool = Start-Process -FilePath (Join-Path $staging 'Player/GenesisEngine.exe') -ArgumentList $toolArgs -WindowStyle Hidden -PassThru `
+            -RedirectStandardOutput $log -RedirectStandardError (Join-Path $reportDir 'precompile-shaders.err.log')
+        [void]$tool.Handle
+        if (-not $tool.WaitForExit(600000)) {
+            Stop-Process -Id $tool.Id -ErrorAction SilentlyContinue
+            throw "Precompiling engine shaders timed out after 10 minutes. See $log"
+        }
+        $tool.Refresh()
+        if ($tool.ExitCode -ne 0) { throw "Precompiling engine shaders failed (exit $($tool.ExitCode)). See $log" }
+        Get-Content -LiteralPath $log -Tail 1 | Out-Host
+        Copy-Tree $precompiled (Join-Path $staging 'PrecompiledShaders')
     }
     Invoke-BuildStep 'Audit package and engine assembly consistency' { Assert-Package }
     if ($tests -ne 'Skipped' -or $backends.Count) {

@@ -128,12 +128,15 @@ internal sealed class StudioApplicationContext : ApplicationContext
         sequence.Add("Preparing the rendering backend…", () =>
         {
             RenderingPreferencesBridge.Apply(_services.Settings.Current.Rendering);
-            // The built-in 3D shaders are read (or, after an update, compiled) on worker threads
-            // now, so the first 3D editor opened finds them ready instead of making them itself.
+            // The built-in 3D shaders are read (from the PrecompiledShaders folder shipped beside
+            // Studio, or compiled when a program is not there) on worker threads now, so the first
+            // 3D editor opened finds them ready instead of making them itself. Any GPU backend.
             try
             {
-                if (Genesis.Rendering.Core.RenderControllerFactory.ResolveBackend() == Genesis.Rendering.Core.RenderBackendOption.SilkNetDx11)
-                    Genesis.Rendering.Primitives.ShaderCompiler.WarmBuiltInDxbcInBackground();
+                Genesis.Rendering.Core.RenderBackendOption backend = Genesis.Rendering.Core.RenderControllerFactory.ResolveBackend();
+                if (backend != Genesis.Rendering.Core.RenderBackendOption.Software)
+                    Genesis.Rendering.Primitives.ShaderCompiler.WarmBuiltInInBackground(
+                        Genesis.Rendering.Core.RenderBackendCatalog.Describe(backend).ShaderBinaryFormat);
             }
             catch (ArgumentException)
             {

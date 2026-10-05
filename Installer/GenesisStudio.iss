@@ -86,6 +86,11 @@ SetupWindowTitle={#MyAppName} Setup
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: checkedonce
 
+[InstallDelete]
+; The engine's shaders compiled for the version being replaced; this one brings its own.
+Type: filesandordirs; Name: "{app}\PrecompiledShaders"
+Type: filesandordirs; Name: "{app}\Player\PrecompiledShaders"
+
 [Files]
 ; Runtime components are extracted in PrepareToInstall so they can run before the app files copy.
 Source: "redist\VC_redist.x64.exe"; DestDir: "{tmp}"; Flags: dontcopy nocompression
