@@ -25,6 +25,9 @@ internal static class Program
         RenderingPreferencesBridge.Apply(services.Settings.Current);
         ThemeService.ApplySettings(services.Settings.Current);
         WinFormsApplication.SetDefaultFont(ThemeService.InterfaceFont);
+        // The Image Editor cannot reference the editor suite's 3D viewport, so the Studio supplies it.
+        Editors.Image.Controls.ImageEditorControl.ModelConversionDialog = (owner, source) =>
+            Editors.Suite.Assets.PixelModelDialog.Show(owner, source, ThemeService.Apply);
 
         WinFormsApplication.ThreadException += (_, eventArgs) =>
         {
