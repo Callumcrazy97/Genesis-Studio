@@ -54,6 +54,8 @@ public sealed class TerrainGrassField : IDisposable
         public MeshInstanceData[] Instances;
         public int Count;
         public Vector3 Min, Max;
+        /// <summary>The <see cref="_growth"/> it was grown in; older ones are regrown by <see cref="Refresh"/>.</summary>
+        public int Growth;
     }
 
     private readonly TerrainAsset _terrain;
@@ -72,6 +74,7 @@ public sealed class TerrainGrassField : IDisposable
     private bool _placed;
     private int _lastCameraCellX = int.MinValue, _lastCameraCellZ = int.MinValue;
     private bool _pending = true;
+    private int _growth;
     private MeshInstanceData[] _nearScratch = Array.Empty<MeshInstanceData>();
     private MeshInstanceData[] _farScratch = Array.Empty<MeshInstanceData>();
     private IRenderController _renderer;
@@ -192,7 +195,7 @@ public sealed class TerrainGrassField : IDisposable
             for (int x = x0; x <= x1; x++)
             {
                 float distance = DistanceToCell(x, z, originX, originZ);
-                if (distance > radius || _cells.ContainsKey(Key(x, z))) continue;
+                if (distance > radius || (_cells.TryGetValue(Key(x, z), out Cell grownCell) && grownCell.Growth == _growth)) continue;
                 _wanted.Add((x, z, distance));
             }
         }
@@ -208,10 +211,13 @@ public sealed class TerrainGrassField : IDisposable
                 // The nearest cell always grows, so a slow machine still fills in, nearest first.
                 if (i > 0 && Stopwatch.GetElapsedTime(started).TotalMilliseconds >= timeBudget) break;
                 (int x, int z, float _) = _wanted[i];
-                Cell cell = Rent();
+                // A cell grown before a refresh is regrown in place; it is drawn as it was until then.
+                if (_cells.TryGetValue(Key(x, z), out Cell cell)) _tuftsResident -= cell.Count;
+                else cell = Rent();
                 cell.X = x;
                 cell.Z = z;
                 cell.Count = Generate(x, z, _placement, cell.Instances, out cell.Min, out cell.Max);
+                cell.Growth = _growth;
                 _cells[Key(x, z)] = cell;
                 _tuftsResident += cell.Count;
                 _generatedLastUpdate++;
@@ -274,6 +280,17 @@ public sealed class TerrainGrassField : IDisposable
         if (far > 0) renderer.DrawMeshInstances(Template(_farMesh), _farScratch.AsSpan(0, far));
         _nearDrawn = near;
         _tuftsDrawn = near + far;
+    }
+
+    /// <summary>
+    /// Regrows every resident cell from the terrain as it is now (after a sculpt or paint stroke),
+    /// nearest first and within the per-frame budget. Each cell keeps drawing its old tufts until
+    /// its turn comes, so the grass changes without going bare.
+    /// </summary>
+    public void Refresh()
+    {
+        _growth++;
+        _pending = true;
     }
 
     /// <summary>Hands every grown cell back to the pool; the next update grows them again.</summary>

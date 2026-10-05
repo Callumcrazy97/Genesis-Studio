@@ -14,6 +14,7 @@ public sealed partial class TerrainEditorControl
     private TerrainGrassField? _grassField;
     private TerrainAsset? _grassFieldTerrain;
     private int _grassFieldGroundRevision;
+    private int _grassFieldPaintRevision;
 
     /// <summary>What the viewport's grass around the camera held and drew in the last frame.</summary>
     public TerrainGrassStatistics LastGrassRuleStatistics => _grassField?.Statistics ?? default;
@@ -81,9 +82,8 @@ public sealed partial class TerrainEditorControl
             return;
         }
 
-        // Sculpted or replaced ground: grow the grass again on the new heights.
-        if (_grassField is not null
-            && (!ReferenceEquals(_grassFieldTerrain, _terrain) || _grassFieldGroundRevision != _groundRevision || !_grassField.GrowsFrom(rule)))
+        // Replaced ground or a changed rule starts again.
+        if (_grassField is not null && (!ReferenceEquals(_grassFieldTerrain, _terrain) || !_grassField.GrowsFrom(rule)))
             ResetGrassField();
 
         if (_grassField is null)
@@ -91,6 +91,14 @@ public sealed partial class TerrainEditorControl
             _grassField = new TerrainGrassField(_terrain, rule);
             _grassFieldTerrain = _terrain;
             _grassFieldGroundRevision = _groundRevision;
+            _grassFieldPaintRevision = MaterialPreviewRevision;
+        }
+        else if (_grassFieldGroundRevision != _groundRevision || _grassFieldPaintRevision != MaterialPreviewRevision)
+        {
+            // Sculpted or painted: regrow in place, so the grass follows the stroke without going bare.
+            _grassField.Refresh();
+            _grassFieldGroundRevision = _groundRevision;
+            _grassFieldPaintRevision = MaterialPreviewRevision;
         }
 
         _grassField.Update(camera, Matrix4x4.Identity);

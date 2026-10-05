@@ -24,6 +24,7 @@ internal static partial class TerrainLayersGrassSuite
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.GrassRule.TuftsStandOnGroundAndAvoidSteepSlopes", GrassHeightAndSlope);
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.GrassRule.SameSeedSameTufts", GrassDeterministic);
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.GrassRule.CellsRecycleWithinFrameBudget", GrassRecycling);
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.GrassRule.RefreshFollowsPaintWithoutGoingBare", GrassRefresh);
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.GrassRule.Dx11DrawsMeadowNotDirt", () => GrassDx11Capture(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.GrassRule.Dx11FrameCostBeforeAndAfter", () => GrassDx11FrameCost(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.GrassRule.TerrainEditorAppliesSavesAndDrawsRule", () => GrassTerrainEditor(ctx));
@@ -90,6 +91,21 @@ internal static partial class TerrainLayersGrassSuite
         captured.Dispose();
         Console.WriteLine($"[GrassRule] Terrain view: {stats.TuftsDrawn} tufts drawn from {stats.ResidentCells} cells.");
         GrassAssert(stats.TuftsDrawn > 500, $"The Terrain view drew {stats.TuftsDrawn} rule tufts.");
+
+        // Painting the meadow over with dirt clears its grass in the view.
+        reopened.SelectPaintLayer(1);
+        reopened.SetPaintSelection([new(-40f, -40f), new(40f, -40f), new(40f, 40f), new(-40f, 40f)]);
+        reopened.FillPaintSelection();
+        deadline = DateTime.UtcNow.AddSeconds(20);
+        while (DateTime.UtcNow < deadline && reopened.LastGrassRuleStatistics.TuftsResident > 0)
+        {
+            System.Windows.Forms.Application.DoEvents();
+            using (reopened.Viewport.CaptureFrame(2)) { }
+            Thread.Sleep(25);
+        }
+
+        GrassAssert(reopened.LastGrassRuleStatistics.TuftsResident == 0,
+            $"Painting the meadow to dirt left {reopened.LastGrassRuleStatistics.TuftsResident} rule tufts in the Terrain view.");
     }
 
     private static void GrassSettingsRoundTrip(HeadlessContext ctx)
@@ -309,6 +325,31 @@ internal static partial class TerrainLayersGrassSuite
             $"Walking back and forth allocated {field.Statistics.CellsAllocated - allocated} new cells instead of reusing the pool.");
         Console.WriteLine($"[GrassRule] recycling: max resident {maxResident} (limit {residentLimit}), max grown per frame {maxGenerated}, "
             + $"allocated {field.Statistics.CellsAllocated}, reused {field.Statistics.CellsReused}, recycled {field.Statistics.CellsRecycled}.");
+    }
+
+    private static void GrassRefresh()
+    {
+        TerrainAsset terrain = GrassSplitTerrain(129, 0.5f, slope: 0f);
+        var rule = new TerrainGrassRuleSettings { Enabled = true, CellsPerFrame = 2, GenerationBudgetMilliseconds = 33f };
+        var field = new TerrainGrassField(terrain, rule);
+        Vector3 camera = new(-16f, 2f, 0f);
+        for (int i = 0; i < 100 && (field.Pending || i == 0); i++) field.Update(camera, Matrix4x4.Identity);
+        int before = field.Statistics.TuftsResident;
+        (int cx, int cz) = field.CellAt(-20f, 4f);
+        GrassAssert(field.ResidentTufts(cx, cz) == field.CellCapacity, "The meadow cell was not full before painting.");
+
+        // Paint the whole meadow over with dirt (layer 2), as a Fill would.
+        for (int z = 0; z < terrain.ResolutionZ; z++)
+        for (int x = 0; x < terrain.ResolutionX; x++) terrain.SetSplat(x, z, 0, 255, 0, 0);
+        field.Refresh();
+        field.Update(camera, Matrix4x4.Identity);
+        TerrainGrassStatistics partway = field.Statistics;
+        GrassAssert(partway.CellsGeneratedLastUpdate == 2 && partway.TuftsResident > 0 && partway.ResidentCells == 64,
+            "A refresh dropped the grass instead of regrowing it two cells a frame.");
+        GrassAssert(partway.CellsAllocated == 64, "A refresh took new cells from the heap instead of regrowing in place.");
+        for (int i = 0; i < 100 && field.Pending; i++) field.Update(camera, Matrix4x4.Identity);
+        GrassAssert(before > 0 && field.Statistics.TuftsResident == 0 && field.ResidentTufts(cx, cz) == 0,
+            $"After painting the meadow to dirt {field.Statistics.TuftsResident} tufts are left.");
     }
 
     private const int GrassWidth = 960, GrassHeight = 540;
