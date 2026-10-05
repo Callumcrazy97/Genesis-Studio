@@ -133,7 +133,8 @@ public static class TerrainSurfaceShaders
         };
         float TerrainLayerWeight(TerrainBlend blend, int index)
         {
-            return index < 4 ? blend.W0[index] : blend.W1[index - 4];
+            // "& 3" keeps both sides of the select in range: FXC evaluates them for every index.
+            return index < 4 ? blend.W0[index & 3] : blend.W1[index & 3];
         }
         float TerrainLayerMode(int index)
         {
@@ -151,7 +152,7 @@ public static class TerrainSurfaceShaders
         void TerrainAtlasCoords(int index, float2 uv, float2 dx, float2 dy, bool broad,
             out float2 atlasUv, out float2 atlasDx, out float2 atlasDy)
         {
-            float repeat = index < 4 ? TerrainRepeatLo[index] : TerrainRepeatHi[index - 4];
+            float repeat = index < 4 ? TerrainRepeatLo[index & 3] : TerrainRepeatHi[index & 3];
             float mode = TerrainLayerMode(index);
             float2 scale = float2(repeat, (mode > 0.5 && mode < 1.5) ? repeat * TerrainModes.z : repeat);
             float2 tile = uv * scale, tdx = dx * scale, tdy = dy * scale;
@@ -238,7 +239,7 @@ public static class TerrainSurfaceShaders
                 {
                     float w = TerrainLayerWeight(blend, q);
                     float v = w > 0.0001 ? max(w + samples[q].a - (peak - band), 0.0) : 0.0;
-                    if (q < 4) h0[q] = v; else h1[q - 4] = v;
+                    if (q < 4) h0[q & 3] = v; else h1[q & 3] = v;
                     sum += v;
                 }
                 if (sum > 0.0001) { blend.W0 = h0 / sum; blend.W1 = h1 / sum; }
