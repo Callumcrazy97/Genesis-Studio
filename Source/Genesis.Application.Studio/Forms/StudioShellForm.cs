@@ -1778,7 +1778,14 @@ public sealed partial class StudioShellForm : DpiAwareForm
         // falls back through ProjectRoomResolver, but that's a filesystem heuristic search —
         // an explicit, direct check here gives a faster, unambiguous error instead of relying
         // on that fallback finding nothing several steps into the run.
-        bool hasRoom = Flatten(_resources.BuildTree()).Any(item => item.Kind == ResourceKind.Room && !item.IsFolder);
+        // The resource browser's tree is checked first: listing the whole project again took about
+        // a second on a large one. Only when it shows no Room is the project listed afresh, so a
+        // Room made a moment ago is still found.
+        static bool HasRoom(ResourceItem root) => Flatten(root).Any(item => item.Kind == ResourceKind.Room && !item.IsFolder);
+        bool hasRoom;
+        try { hasRoom = HasRoom(_assetBrowser.ResourceTreeSnapshot); }
+        catch (InvalidOperationException) { hasRoom = false; }
+        if (!hasRoom) hasRoom = HasRoom(_resources.BuildTree());
         if (!hasRoom)
         {
             _services.Log.Error("Runner", "Cannot run — the project has no Room. Create at least one Room before pressing F5.");

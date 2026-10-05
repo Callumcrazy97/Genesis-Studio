@@ -63,6 +63,9 @@ internal static class SpeedSuite
                     : Directory.EnumerateFiles(given, "*.genesisproj").FirstOrDefault()
                       ?? throw new CheckNotRunException("No .genesisproj in " + given);
                 ProjectSession opened = OpenInStudio(services!, file, "Given project open");
+                Stopwatch tree = Stopwatch.StartNew();
+                new ResourceService(opened).BuildTree();
+                Record("Given project: list every resource (as F5 does to find a Room)", tree.Elapsed.TotalMilliseconds);
                 Stopwatch validation = Stopwatch.StartNew();
                 Genesis.Runtime.Scripting.PgslScriptValidator.ValidateProject(opened.RootPath, strict: true);
                 Record("Given project Run (F5): PGSL check alone", validation.Elapsed.TotalMilliseconds);
@@ -326,7 +329,7 @@ internal static class SpeedSuite
 
         Mark("Player start: process running and log open", "project=");
         Mark("Player start: first loading frame shown", "Loading screen shown");
-        Mark("Player start: graphics device ready", "texture groups stitched");
+        Mark("Player start: textures prepared", "texture groups stitched");
         Mark("Player start: first room built", "room loaded entities=");
         Mark("Player start: start-up screen finished", "Runtime boot ready");
         Mark("Player start: first room ready to play", "First room:");
