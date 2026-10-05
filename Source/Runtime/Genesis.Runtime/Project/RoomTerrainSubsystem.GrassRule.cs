@@ -43,7 +43,7 @@ public sealed partial class RoomTerrainSubsystem
             entry.GrassField = null;
         }
 
-        entry.GrassField ??= new TerrainGrassField(entry.Terrain, rule);
+        entry.GrassField ??= new TerrainGrassField(entry.Terrain, rule, entry.Nature.WaterBodies);
         entry.GrassField.Update(camera, placement);
         entry.GrassField.Draw(renderer, camera, viewProjection);
     }

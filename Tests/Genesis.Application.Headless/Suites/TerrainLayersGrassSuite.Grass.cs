@@ -23,6 +23,7 @@ internal static partial class TerrainLayersGrassSuite
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.GrassRule.LayerDensityDecidesTuftCount", GrassLayerDensity);
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.GrassRule.TuftsStandOnGroundAndAvoidSteepSlopes", GrassHeightAndSlope);
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.GrassRule.SameSeedSameTufts", GrassDeterministic);
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.GrassRule.WaterKeepsGrassOut", GrassWater);
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.GrassRule.CellsRecycleWithinFrameBudget", GrassRecycling);
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.GrassRule.RefreshFollowsPaintWithoutGoingBare", GrassRefresh);
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.GrassRule.Dx11DrawsMeadowNotDirt", () => GrassDx11Capture(ctx));
@@ -325,6 +326,53 @@ internal static partial class TerrainLayersGrassSuite
             $"Walking back and forth allocated {field.Statistics.CellsAllocated - allocated} new cells instead of reusing the pool.");
         Console.WriteLine($"[GrassRule] recycling: max resident {maxResident} (limit {residentLimit}), max grown per frame {maxGenerated}, "
             + $"allocated {field.Statistics.CellsAllocated}, reused {field.Statistics.CellsReused}, recycled {field.Statistics.CellsRecycled}.");
+    }
+
+    private static void GrassWater()
+    {
+        TerrainAsset terrain = GrassSplitTerrain(129, 0.5f, slope: 0f);
+        for (int z = 0; z < terrain.ResolutionZ; z++)
+        for (int x = 0; x < terrain.ResolutionX; x++) terrain.SetSplat(x, z, 255, 0, 0, 0);
+        var pond = new TerrainWaterDefinition { Center = new Vector3(0f, 0f, 0f), SizeX = 12f, SizeZ = 12f };
+        var river = new TerrainWaterDefinition { Kind = TerrainWaterKind.River };
+        river.RiverPoints.Add(new Genesis.World.Water.WaterSplinePoint { Position = new Vector3(-31f, 0f, 20f), Width = 4f });
+        river.RiverPoints.Add(new Genesis.World.Water.WaterSplinePoint { Position = new Vector3(31f, 0f, 20f), Width = 4f });
+        var marsh = new TerrainWaterDefinition
+        {
+            Center = new Vector3(14f, 0f, -26f), SizeX = 8f, SizeZ = 8f,
+            FootprintOriginX = 10f, FootprintOriginZ = -30f, FootprintWidth = 4, FootprintHeight = 4, FootprintCellSize = 2f,
+            Footprint = TerrainWaterDefinition.PackBits(Enumerable.Repeat(true, 16).ToArray()),
+        };
+        var rule = new TerrainGrassRuleSettings { Enabled = true };
+        var field = new TerrainGrassField(terrain, rule, [pond, river, marsh]);
+        var dry = new TerrainGrassField(terrain, rule);
+        var tufts = new MeshInstanceData[field.CellCapacity];
+        int total = 0, dryTotal = 0;
+        float pad = TerrainWaterDefinition.FoliageExclusionPadding;
+        long bytes = 0;
+        for (int cz = 0; cz < 8; cz++)
+        for (int cx = 0; cx < 8; cx++)
+        {
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            int count = field.GenerateCell(cx, cz, tufts);
+            bytes += GC.GetAllocatedBytesForCurrentThread() - before;
+            total += count;
+            dryTotal += dry.GenerateCell(cx, cz, tufts.AsSpan().ToArray());
+            for (int i = 0; i < count; i++)
+            {
+                Vector3 position = tufts[i].World.Translation;
+                GrassAssert(new Vector2(position.X, position.Z).Length() > 6f + pad - 0.01f, $"A tuft grew in the pond at {position}.");
+                GrassAssert(MathF.Abs(position.Z - 20f) > 2f + pad - 0.01f || MathF.Abs(position.X) > 31f, $"A tuft grew in the river at {position}.");
+                // The footprint's bank rounds its corners: distance to the marked square, not to a larger square.
+                float outX = MathF.Max(0f, MathF.Max(10f - position.X, position.X - 18f));
+                float outZ = MathF.Max(0f, MathF.Max(-30f - position.Z, position.Z + 22f));
+                GrassAssert(MathF.Sqrt(outX * outX + outZ * outZ) > pad - 0.01f, $"A tuft grew in the marsh footprint at {position}.");
+            }
+        }
+
+        // The pond, river and marsh with their banks cover roughly 200 + 400 + 110 square metres: about 2,800 tufts.
+        GrassAssert(dryTotal - total is > 2000 and < 4000, $"Water removed {dryTotal - total} tufts, not the expected 2,000 to 4,000.");
+        GrassAssert(bytes < 4096, $"Growing beside water allocated {bytes} bytes.");
     }
 
     private static void GrassRefresh()

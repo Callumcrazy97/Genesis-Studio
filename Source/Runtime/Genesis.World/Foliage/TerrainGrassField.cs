@@ -61,6 +61,7 @@ public sealed class TerrainGrassField : IDisposable
     private readonly TerrainAsset _terrain;
     private readonly TerrainGrassRuleSettings _settings;
     private readonly TerrainGrassRuleSettings _source;
+    private readonly TerrainGrassWaterMask _water;
     private readonly Dictionary<long, Cell> _cells = new();
     private readonly Stack<Cell> _pool = new();
     private readonly List<long> _leaving = new();
@@ -83,9 +84,12 @@ public sealed class TerrainGrassField : IDisposable
     private double _generationMilliseconds;
     private long _allocated, _reused, _recycled;
 
-    public TerrainGrassField(TerrainAsset terrain, TerrainGrassRuleSettings settings)
+    /// <param name="waters">Authored water the grass keeps out of, as scattered foliage does; null for none.</param>
+    public TerrainGrassField(TerrainAsset terrain, TerrainGrassRuleSettings settings,
+        IReadOnlyList<TerrainWaterDefinition> waters = null)
     {
         _terrain = terrain ?? throw new ArgumentNullException(nameof(terrain));
+        _water = new TerrainGrassWaterMask(waters, TerrainWaterDefinition.FoliageExclusionPadding);
         _source = (settings ?? new TerrainGrassRuleSettings()).Clone();
         _settings = _source.Clone();
         _settings.Normalize();
@@ -344,6 +348,13 @@ public sealed class TerrainGrassField : IDisposable
         Vector3 localMin = new(float.MaxValue), localMax = new(float.MinValue);
         int count = 0;
         Span<float> weights = stackalloc float[TerrainGrassLayerWeights.LayerCount];
+        bool water = !_water.IsEmpty;
+        if (water)
+        {
+            float cellMinX = terrain.OriginX + cellX * perSide * step, cellMinZ = terrain.OriginZ + cellZ * perSide * step;
+            _water.BeginCell(cellMinX - step, cellMinZ - step, cellMinX + (perSide + 1) * step, cellMinZ + (perSide + 1) * step);
+        }
+
         for (int j = 0; j < perSide; j++)
         {
             int latticeZ = cellZ * perSide + j;
@@ -359,6 +370,7 @@ public sealed class TerrainGrassField : IDisposable
                 if (density <= 0f || Random01(hash + 3u) >= density) continue;
 
                 float x = terrain.OriginX + offsetX, z = terrain.OriginZ + offsetZ;
+                if (water && _water.Excludes(x, z)) continue;
                 if (slopeLimited)
                 {
                     float left = terrain.SampleHeight(x - normalStep, z), right = terrain.SampleHeight(x + normalStep, z);

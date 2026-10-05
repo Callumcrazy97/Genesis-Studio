@@ -15,6 +15,7 @@ public sealed partial class TerrainEditorControl
     private TerrainAsset? _grassFieldTerrain;
     private int _grassFieldGroundRevision;
     private int _grassFieldPaintRevision;
+    private List<TerrainWaterDefinition>? _grassFieldWaters;
 
     /// <summary>What the viewport's grass around the camera held and drew in the last frame.</summary>
     public TerrainGrassStatistics LastGrassRuleStatistics => _grassField?.Statistics ?? default;
@@ -70,6 +71,7 @@ public sealed partial class TerrainEditorControl
         _grassField?.Dispose();
         _grassField = null;
         _grassFieldTerrain = null;
+        _grassFieldWaters = null;
     }
 
     /// <summary>Grows and draws the rule's grass around the viewport camera when the rule is on.</summary>
@@ -82,14 +84,16 @@ public sealed partial class TerrainEditorControl
             return;
         }
 
-        // Replaced ground or a changed rule starts again.
-        if (_grassField is not null && (!ReferenceEquals(_grassFieldTerrain, _terrain) || !_grassField.GrowsFrom(rule)))
+        // Replaced ground, changed water or a changed rule starts again.
+        if (_grassField is not null && (!ReferenceEquals(_grassFieldTerrain, _terrain)
+            || !ReferenceEquals(_grassFieldWaters, _nature.WaterBodies) || !_grassField.GrowsFrom(rule)))
             ResetGrassField();
 
         if (_grassField is null)
         {
-            _grassField = new TerrainGrassField(_terrain, rule);
+            _grassField = new TerrainGrassField(_terrain, rule, _nature.WaterBodies);
             _grassFieldTerrain = _terrain;
+            _grassFieldWaters = _nature.WaterBodies;
             _grassFieldGroundRevision = _groundRevision;
             _grassFieldPaintRevision = MaterialPreviewRevision;
         }
