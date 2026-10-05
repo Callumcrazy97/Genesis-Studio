@@ -80,6 +80,18 @@ public sealed class RuntimeSettings
 
     public bool EnableRuntimeDiagnostics { get; set; } = true;
 
+    /// <summary>
+    /// A debug run (F6) starts recording a profile straight away: frames.csv, summary.json and
+    /// report.md in the project's Debug/Profiles folder. F8 in the game starts and stops it too.
+    /// </summary>
+    public bool RecordProfileWhenDebugging { get; set; } = true;
+
+    /// <summary>
+    /// Developer setting: show the debug screen's Engine tab (render passes, draw calls, subsystem
+    /// times) and add Engine columns to recordings. Off by default; exported games never show it.
+    /// </summary>
+    public bool ShowEngineDebugCategory { get; set; }
+
     /// <summary>Default Texture Group atlas resolution (2048 default, or 4096).</summary>
     public int DefaultTextureGroupSize { get; set; } = 2048;
 

@@ -92,6 +92,8 @@ namespace Genesis.Rendering.Core
         public void Initialize(IntPtr windowHandle, int width, int height)
         {
             if (_initialized) return;
+            // The debug screen's Resources tab lists the textures this renderer has read from files.
+            Genesis.Shared.Diagnostics.DebugResourceCatalog.Register("textures", this, DescribeTextureResources);
             _gpuSwapChain = _gpu.CreateSwapChain(windowHandle, width, height);
             _fwd = new ForwardRenderer(_gpu);
             _fwd.ExternalParticles = DrawSubmittedParticles3D;
@@ -202,6 +204,7 @@ namespace Genesis.Rendering.Core
                 _gpu.ReleaseBuffer(_previewParametersCb);
                 _previewParametersCb = GpuBufferHandle.Invalid;
             }
+            Genesis.Shared.Diagnostics.DebugResourceCatalog.Unregister("textures", this);
             DisposeParticles();
             _fwd?.Dispose(); _fwd = null;
             _spr?.Dispose(); _spr = null;
@@ -1242,6 +1245,13 @@ namespace Genesis.Rendering.Core
             GpuTextureHandle texture = ResolveGpuTexture(handle.Id);
             if (!texture.IsValid) return;
             _gpu.UpdateTexture(texture, 0, 0, w, h, rgba);
+        }
+
+        private IEnumerable<Genesis.Shared.Diagnostics.DebugResourceRow> DescribeTextureResources()
+        {
+            foreach ((string path, string colorSpace, long fileBytes) in _textureCache.Describe())
+                yield return new Genesis.Shared.Diagnostics.DebugResourceRow(
+                    "Texture", Path.GetFileName(path), 1, fileBytes, colorSpace + " · " + path);
         }
 
         public void ReleaseTexture(TextureHandle handle)

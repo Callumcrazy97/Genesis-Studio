@@ -1784,6 +1784,8 @@ public sealed partial class StudioShellForm : DpiAwareForm
         Dictionary<string, string> playerEnvironment = new(
             RenderingPreferencesBridge.BuildPlayerEnvironment(_services.Settings.Current.Rendering, _project.Manifest),
             StringComparer.OrdinalIgnoreCase);
+        foreach ((string key, string value) in RenderingPreferencesBridge.BuildDebugEnvironment(_services.Settings.Current.Runtime))
+            playerEnvironment[key] = value;
         if (additionalEnvironment is not null)
             foreach ((string key, string value) in additionalEnvironment)
                 playerEnvironment[key] = value;

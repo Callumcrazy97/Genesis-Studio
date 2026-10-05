@@ -1119,7 +1119,7 @@ internal static class RuntimeSuite
 
                 var overlay = new DebugOverlay();
                 overlay.BindScriptHost(scriptHost);
-                overlay.ShowExpandedPanels = true;
+                overlay.SelectPanel(DebugHudPanel.Game);
                 var input = new InputState();
                 input.OnKeyDown(Key.F6);
                 overlay.HandleInput(input, debugMode: true);
@@ -1158,7 +1158,9 @@ internal static class RuntimeSuite
                 + $"expected lights={RenderCapacityDefaults.DefaultSceneLocalLightCap} after R7.5).");
 
             var overlay = new DebugOverlay();
-            overlay.ShowExpandedPanels = true;
+            // Render passes, draw calls and caps are Engine figures: developer builds only.
+            overlay.EngineCategoryEnabled = true;
+            overlay.SelectPanel(DebugHudPanel.Engine);
             var input = new InputState();
             input.OnKeyDown(Key.F6);
             overlay.HandleInput(input, debugMode: true);
@@ -1186,26 +1188,13 @@ internal static class RuntimeSuite
                 && !joined.Contains("Player, Coin, Tiles", StringComparison.Ordinal)
                 && !joined.Contains("GPU: 11.8%", StringComparison.Ordinal),
                 "F6 still contains hardcoded placeholder telemetry.");
-
-            // Textures tab: click the tab button (panel at right; Textures is the middle tab).
-            float panelX = hud.Width - 230f - 8f;
-            float texturesBtnX = panelX + 6f + 72f + 37f;
-            float texturesBtnY = 40f + 6f + 10f;
-            var textureInput = new InputState();
-            textureInput.OnMouseMove(texturesBtnX, texturesBtnY);
-            textureInput.OnMouseDown(MouseButton.Left);
-            overlay.HandleInput(textureInput, debugMode: true);
-            hud.Texts.Clear();
-            overlay.Draw(hud, renderer, hud.Width, hud.Height);
-            string textureJoined = string.Join('\n', hud.Texts);
             HeadlessHarness.Assert(
-                textureJoined.Contains("Runtime atlas stitch", StringComparison.Ordinal)
-                && textureJoined.Contains("Texture switches", StringComparison.Ordinal),
-                "F6 Textures tab did not show live atlas stitch / switch stats.\n" + textureJoined);
+                joined.Contains("Runtime atlas stitch", StringComparison.Ordinal)
+                && joined.Contains("Texture switches", StringComparison.Ordinal),
+                "F6 Engine tab did not show live atlas stitch / switch stats.\n" + joined);
             HeadlessHarness.Assert(
-                !textureJoined.Contains("Player, Coin, Tiles", StringComparison.Ordinal)
-                && !textureJoined.Contains("Occupancy: 4.8%", StringComparison.Ordinal),
-                "F6 Textures tab still shows fake atlas occupancy.");
+                !joined.Contains("Occupancy: 4.8%", StringComparison.Ordinal),
+                "F6 Engine tab still shows fake atlas occupancy.");
         });
 
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Debug.F6SceneGizmos", () =>
@@ -1238,18 +1227,23 @@ internal static class RuntimeSuite
             HeadlessHarness.Assert(overlay.IsVisible && overlay.ShowWireframe,
                 "F6 wireframe/gizmo probe did not open with wireframe enabled.");
 
+            var compact = new DiagnosticHudCanvas();
+            overlay.Draw(compact, renderer: null, compact.Width, compact.Height);
+            HeadlessHarness.Assert(
+                !overlay.ShowExpandedPanels && compact.LineCount == 0
+                && compact.Texts.Any(text => text.Contains("DEBUG F6", StringComparison.Ordinal)),
+                $"The compact debug strip should show its figures and keep the game view clear (lines={compact.LineCount}).");
+
+            overlay.SelectPanel(DebugHudPanel.World);
             var hud = new DiagnosticHudCanvas();
             overlay.Draw(hud, renderer: null, hud.Width, hud.Height);
             HeadlessHarness.Assert(
                 hud.LineCount >= 4 && hud.RectCount >= 2,
                 $"F6 scene gizmos did not draw light/audio markers (lines={hud.LineCount}, rects={hud.RectCount}).");
             HeadlessHarness.Assert(
-                hud.Texts.Any(text => text.Contains("Genesis Engine Runtime Debug (F6)", StringComparison.Ordinal))
-                && hud.Texts.Any(text => text.Contains("F6: Close Debug HUD", StringComparison.Ordinal)),
-                "F6 compact card / footer chrome missing from gizmo draw.");
-            HeadlessHarness.Assert(
-                !overlay.ShowExpandedPanels,
-                "F6SceneGizmos should exercise the compact mock layout by default.");
+                hud.Texts.Any(text => text.Contains("F6 hide", StringComparison.Ordinal) && text.Contains("F8 record", StringComparison.Ordinal))
+                && hud.Texts.Any(text => text.Contains("World & Inspector", StringComparison.Ordinal)),
+                "The World tab's key hints / inspector are missing from the gizmo draw.");
         });
 
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Pgsl.CommandAutoTest", () =>

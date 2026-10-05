@@ -146,6 +146,21 @@ internal static class RenderingPreferencesBridge
     }
 
     /// <summary>
+    /// What a run tells the Player's debug screen: whether a debug run starts recording a profile
+    /// (<see cref="RuntimeSettings.RecordProfileWhenDebugging"/>) and whether the developer-only
+    /// Engine category is shown (<see cref="RuntimeSettings.ShowEngineDebugCategory"/>).
+    /// </summary>
+    public static IDictionary<string, string> BuildDebugEnvironment(RuntimeSettings runtime)
+    {
+        ArgumentNullException.ThrowIfNull(runtime);
+        return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            [Genesis.Runtime.Diagnostics.DebugCategories.RecordOnStartEnvironmentVariable] = runtime.RecordProfileWhenDebugging ? "1" : "0",
+            [Genesis.Runtime.Diagnostics.DebugCategories.EngineEnvironmentVariable] = runtime.ShowEngineDebugCategory ? "1" : "0",
+        };
+    }
+
+    /// <summary>
     /// The environment F5 hands to <c>GenesisEngine.exe</c>: this machine's backend, and the
     /// project's own engine defaults.
     /// </summary>

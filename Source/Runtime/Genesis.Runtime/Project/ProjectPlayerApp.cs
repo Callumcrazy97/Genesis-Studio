@@ -274,6 +274,11 @@ namespace Genesis.Runtime.Project
                             logger.Line("audio muted: unattended window (set GENESIS_UNATTENDED_AUDIO=1 to hear it)");
                         }
                         gameContext.SetAudio(audioSystem);
+                        XAudioSystem describedAudio = audioSystem;
+                        Genesis.Shared.Diagnostics.DebugResourceCatalog.Register("sounds", describedAudio, () =>
+                            describedAudio.DescribeSounds().Select(sound => new Genesis.Shared.Diagnostics.DebugResourceRow(
+                                "Sound", Path.GetFileName(sound.Name), 1, sound.Bytes,
+                                $"{sound.Seconds:0.0} s{(sound.Playing > 0 ? $" · {sound.Playing} playing" : string.Empty)} · {sound.Name}")));
                         Engine.SetAudioSystem(
                             loadSound: name => audioSystem.LoadSound(name),
                             playSound: (sid, vol, pitch, loop) => audioSystem.Play(sid, vol, pitch, loop).Id);
@@ -440,6 +445,12 @@ namespace Genesis.Runtime.Project
                         : null;
                     host.ScreenshotProjectPath = projectPath;
                     host.IsDebugMode = debugMode;
+                    // The debug screen records into the project's debug folder; a debug run starts
+                    // recording at once unless Studio's preference (GENESIS_DEBUG_RECORD=0) says not to.
+                    host.DebugProfilesDirectory = Path.Combine(ProjectPaths.DebugRoot(projectPath), "Profiles");
+                    host.DebugProjectName = Path.GetFileName(Path.TrimEndingDirectorySeparator(projectPath));
+                    host.DebugRecordOnStart = debugMode && DebugCategories.RecordOnStartRequested;
+                    host.DebugEngineCategory = DebugCategories.EngineRequested;
                     if (debugMode && host.Debugger != null)
                     {
                         host.Debugger.IsVisible = true;
@@ -558,6 +569,7 @@ namespace Genesis.Runtime.Project
             }
             finally
             {
+                if (_activeAudio != null) Genesis.Shared.Diagnostics.DebugResourceCatalog.Unregister("sounds", _activeAudio);
                 try { _activeAudio?.Dispose(); } catch (Exception ex) { Console.Error.WriteLine(ex); }
                 try { _activeNet?.Dispose(); } catch (Exception ex) { Console.Error.WriteLine(ex); }
                 Genesis.Runtime.Scripting.PgslCommands.ActiveNetwork = null;

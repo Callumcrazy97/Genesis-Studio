@@ -390,6 +390,30 @@ namespace Genesis.Audio
 
         public void Dispose() => _engine?.Dispose();
 
+        /// <summary>
+        /// Each loaded sound with the memory its samples take and how many of its voices are
+        /// playing, for the debug screen's Resources tab.
+        /// </summary>
+        public List<(string Name, long Bytes, int Playing, float Seconds)> DescribeSounds()
+        {
+            var playing = new Dictionary<int, int>();
+            foreach (ChannelState channel in _channels.Values)
+            {
+                playing.TryGetValue(channel.SoundId, out int count);
+                playing[channel.SoundId] = count + 1;
+            }
+
+            var rows = new List<(string Name, long Bytes, int Playing, float Seconds)>(_pathToId.Count);
+            foreach (KeyValuePair<string, int> sound in _pathToId)
+            {
+                if (!_sounds.TryGetValue(sound.Value, out SoundEntry? entry) || entry.Effect == null) continue;
+                playing.TryGetValue(sound.Value, out int voices);
+                rows.Add((sound.Key, entry.Effect.SampleBytes, voices, entry.Effect.DurationInSeconds));
+            }
+
+            return rows;
+        }
+
         // The master volume is the device's (MasterVolume); a bus scales only its own sounds.
         private float BusGain(string bus)
         {
