@@ -26,6 +26,7 @@ public sealed partial class UiEditorControl
             (UiElementType.Panel, "Panel — group and background"), (UiElementType.Text, "Text — score or title"),
             (UiElementType.Image, "Image — saved sprite artwork"), (UiElementType.Button, "Button — clickable menu item"),
             (UiElementType.ProgressBar, "Progress bar — health or loading"),
+            (UiElementType.Slider, "Slider — volume or brightness"), (UiElementType.Toggle, "Toggle — on/off option"),
         }) add.DropDownItems.Add(EditorDocumentMenuChrome.Item(caption, "Add and select this element", () => AddElement(type)));
         _gameButton = EditorChrome.ToolButton("Use in game", "Create a saved GUI Object and learn how to draw and interact", ShowUiGameGuide, toggle: true);
         ToolStripDropDownButton options = new("Options") { ForeColor = EditorChrome.Text };

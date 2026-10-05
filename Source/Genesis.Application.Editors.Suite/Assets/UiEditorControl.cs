@@ -186,6 +186,7 @@ public sealed partial class UiEditorControl : EditorSurfaceControl, IResourceIns
         fields.Controls.Add(_backgroundRow = Field("Background", _background));
         fields.Controls.Add(_foregroundRow = Field("Text colour", _foreground));
         fields.Controls.Add(_accentRow = Field("Accent colour", _accent));
+        AddStyleFields(fields);
         fields.Controls.Add(_visible);
 
         TableLayoutPanel order = new() { Dock = DockStyle.Top, Height = 40, ColumnCount = 2 };
@@ -256,14 +257,18 @@ public sealed partial class UiEditorControl : EditorSurfaceControl, IResourceIns
             {
                 UiElementType.Text => "Text",
                 UiElementType.Button => "Button",
+                UiElementType.Toggle => "Option",
                 _ => string.Empty,
             },
-            Width = type == UiElementType.ProgressBar ? 320f : type == UiElementType.Text ? 180f : 240f,
-            Height = type == UiElementType.ProgressBar ? 28f : type == UiElementType.Text ? 42f : 80f,
+            Width = type is UiElementType.ProgressBar or UiElementType.Slider ? 320f : type == UiElementType.Text ? 180f : 240f,
+            Height = type == UiElementType.ProgressBar ? 28f : type == UiElementType.Text ? 42f
+                : type is UiElementType.Slider or UiElementType.Toggle ? 36f : 80f,
             X = 40 + (_document.Elements.Count % 8) * 18,
             Y = 40 + (_document.Elements.Count % 8) * 18,
             Order = _document.Elements.Count,
         };
+        if (type == UiElementType.Slider) { element.Value = 50; element.CornerRadius = 6; }
+        if (type == UiElementType.Toggle) { element.Value = 0; element.Maximum = 1; element.Background = "#FF3A4250"; }
         _document.Elements.Add(element);
         _canvas.SelectedElement = element;
         RefreshHierarchy();
@@ -339,6 +344,10 @@ public sealed partial class UiEditorControl : EditorSurfaceControl, IResourceIns
             SetContextualFields(element);
             foreach (Control control in new Control[] { _id, _text, _image, _font, _imageScaleX, _imageScaleY, _x, _y, _width, _height, _fontSize, _value, _maximum, _parent, _anchor, _visible, _background, _foreground, _accent })
                 control.Enabled = element is not null;
+            foreach (Control control in new Control[] { _cornerRadius, _borderWidth, _borderColor, _fill, _gradientEnd, _textAlign, _textVerticalAlign,
+                         _letterSpacing, _minimum, _step, _imageFit, _cropX, _cropY, _cropWidth, _cropHeight, _enabled, _stateChoice,
+                         _stateBackground, _stateForeground, _stateBorder })
+                control.Enabled = element is not null;
             if (element is null) return;
             string parentSelection = string.IsNullOrWhiteSpace(element.ParentId) ? "(Canvas)" : element.ParentId;
             _parent.Items.Clear();
@@ -367,6 +376,7 @@ public sealed partial class UiEditorControl : EditorSurfaceControl, IResourceIns
             _background.BackColor = ParseColor(element.Background, EditorChrome.Raised);
             _foreground.BackColor = ParseColor(element.Foreground, EditorChrome.Text);
             _accent.BackColor = ParseColor(element.Accent, EditorChrome.Accent);
+            RefreshStyleFields(element);
             UpdateColourButtons();
         }
         finally { _syncing = false; }
@@ -402,11 +412,13 @@ public sealed partial class UiEditorControl : EditorSurfaceControl, IResourceIns
         element.Y = (float)_y.Value;
         element.Width = (float)_width.Value;
         element.Height = (float)_height.Value;
-        if (element.Type == UiElementType.ProgressBar)
+        if (HasRange(element.Type))
         {
             element.Value = (float)_value.Value;
-            element.Maximum = (float)_maximum.Value;
+            float maximum = (float)_maximum.Value;
+            if (element.Type != UiElementType.Slider || maximum > element.Minimum) element.Maximum = maximum;
         }
+        ApplyStyleFields(element);
         element.Anchor = _anchor.SelectedItem is UiAnchor anchor ? anchor : UiAnchor.TopLeft;
         if (element.Anchor != UiAnchor.Stretch)
         {
@@ -442,12 +454,19 @@ public sealed partial class UiEditorControl : EditorSurfaceControl, IResourceIns
     {
         UiElement? element = _canvas.SelectedElement;
         if (element is null) return;
-        string original = property switch { "Background" => element.Background, "Foreground" => element.Foreground, _ => element.Accent };
-        using ColorDialog dialog = new() { FullOpen = true, Color = ParseColor(original, Color.White) };
+        UiLook look = UiLook.Resolve(element, string.Empty);
+        Color original = property switch
+        {
+            "Background" => look.Background, "Foreground" => look.Foreground, "BorderColor" => look.Border,
+            "GradientEnd" => look.GradientEnd, _ => look.Accent,
+        };
+        using ColorDialog dialog = new() { FullOpen = true, Color = original };
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
         string value = "#" + dialog.Color.ToArgb().ToString("X8");
         if (property == "Background") element.Background = value;
         else if (property == "Foreground") element.Foreground = value;
+        else if (property == "BorderColor") element.BorderColor = value;
+        else if (property == "GradientEnd") element.GradientEnd = value;
         else element.Accent = value;
         RefreshInspector();
         _canvas.Invalidate();
@@ -518,10 +537,10 @@ public sealed partial class UiEditorControl : EditorSurfaceControl, IResourceIns
             new("UI element", "Ui.Maximum", "Maximum", element.Maximum, Minimum: .001m, Maximum: 100000),
             new("UI element", "Ui.Visible", "Visible", element.Visible),
             new("UI element", "Ui.Background", "Background colour", element.Background),
-            new("UI element", "Ui.Foreground", element.Type == UiElementType.ProgressBar ? "Border colour" : "Text colour", element.Foreground),
+            new("UI element", "Ui.Foreground", ForegroundCaption(element.Type), element.Foreground),
             new("UI element", "Ui.Accent", "Accent colour", element.Accent),
         ];
-        return values.Where(value => IsApplicable(element.Type, value.PropertyPath)).ToArray();
+        return values.Concat(StyleLiveValues(element)).Where(value => IsApplicable(element.Type, value.PropertyPath)).ToArray();
     }
 
     public bool TryApplyInspectorValue(string propertyPath, object? value) => TryApplyLiveInspectorValue(propertyPath, value);
@@ -550,7 +569,7 @@ public sealed partial class UiEditorControl : EditorSurfaceControl, IResourceIns
             case "Ui.Width" when number && (scalar > 0 || scalar == 0 && element.Anchor == UiAnchor.Stretch): element.Width = scalar; break;
             case "Ui.Height" when number && (scalar > 0 || scalar == 0 && element.Anchor == UiAnchor.Stretch): element.Height = scalar; break;
             case "Ui.Value" when number: element.Value = scalar; break;
-            case "Ui.Maximum" when number && scalar > 0: element.Maximum = scalar; break;
+            case "Ui.Maximum" when number && scalar > 0 && (element.Type != UiElementType.Slider || scalar > element.Minimum): element.Maximum = scalar; break;
             case "Ui.Visible" when bool.TryParse(text, out bool visible): element.Visible = visible; break;
             case "Ui.Background" when IsColour(text): element.Background = text; break;
             case "Ui.Foreground" when IsColour(text): element.Foreground = text; break;
@@ -560,7 +579,9 @@ public sealed partial class UiEditorControl : EditorSurfaceControl, IResourceIns
                 element.Id = text;
                 foreach (UiElement child in _document.Elements.Where(item => item.ParentId.Equals(previous, StringComparison.OrdinalIgnoreCase))) child.ParentId = text;
                 break;
-            default: return false;
+            default:
+                if (TryApplyStyleValue(element, propertyPath, text) != true) return false;
+                break;
         }
         if (element.Anchor != UiAnchor.Stretch)
         {
@@ -652,6 +673,8 @@ public sealed partial class UiEditorControl : EditorSurfaceControl, IResourceIns
         UiElementType.Image => "▧",
         UiElementType.Button => "▣",
         UiElementType.ProgressBar => "▬",
+        UiElementType.Slider => "━",
+        UiElementType.Toggle => "◑",
         _ => "□",
     };
 
@@ -666,9 +689,17 @@ public sealed partial class UiEditorControl : EditorSurfaceControl, IResourceIns
     }
 }
 
-internal sealed class UiDesignCanvas : Control
+internal sealed partial class UiDesignCanvas : Control
 {
     private UiElement? _selected;
+    private string _previewState = string.Empty;
+
+    /// <summary>The state (Hover, Pressed, Selected, Disabled) the selected element is shown in; empty is normal.</summary>
+    public string PreviewState
+    {
+        get => _previewState;
+        set { _previewState = value ?? string.Empty; Invalidate(); }
+    }
     private Point _dragStart;
     private float _elementStartX;
     private float _elementStartY;
@@ -726,46 +757,8 @@ internal sealed class UiDesignCanvas : Control
         {
             if (!IsVisible(element)) continue;
             if (!elementRects.TryGetValue(element.Id, out RectangleF rect)) continue;
-            Color background = UiEditorControl.ParseColor(element.Background, Color.FromArgb(204, 22, 27, 34));
-            Color foreground = UiEditorControl.ParseColor(element.Foreground, Color.White);
-            Color accent = UiEditorControl.ParseColor(element.Accent, Color.FromArgb(108, 140, 255));
-            using Font elementFont = new(string.IsNullOrWhiteSpace(element.Font) ? "Segoe UI" : element.Font,
-                Math.Max(1f, element.FontSize * canvas.Width / Math.Max(1, Document.DesignWidth)), GraphicsUnit.Pixel);
-            switch (element.Type)
-            {
-                case UiElementType.Panel:
-                    using (SolidBrush brush = new(background)) e.Graphics.FillRectangle(brush, rect);
-                    break;
-                case UiElementType.Text:
-                    TextRenderer.DrawText(e.Graphics, element.Text, elementFont, Rectangle.Round(rect), foreground, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
-                    break;
-                case UiElementType.Image:
-                    Bitmap? image = LoadImage(element.Image);
-                    if (image is not null)
-                    {
-                        using System.Drawing.Imaging.ImageAttributes attributes = new();
-                        attributes.SetColorMatrix(new System.Drawing.Imaging.ColorMatrix { Matrix33 = foreground.A / 255f });
-                        e.Graphics.DrawImage(image,
-                            Rectangle.Round(new RectangleF(rect.X, rect.Y, rect.Width * element.ImageScaleX, rect.Height * element.ImageScaleY)),
-                            0, 0, image.Width, image.Height, GraphicsUnit.Pixel, attributes);
-                        break;
-                    }
-                    using (SolidBrush brush = new(Color.FromArgb(42, accent))) e.Graphics.FillRectangle(brush, rect);
-                    using (Pen pen = new(accent)) { e.Graphics.DrawRectangle(pen, Rectangle.Round(rect)); e.Graphics.DrawLine(pen, rect.Left, rect.Top, rect.Right, rect.Bottom); e.Graphics.DrawLine(pen, rect.Right, rect.Top, rect.Left, rect.Bottom); }
-                    TextRenderer.DrawText(e.Graphics, string.IsNullOrWhiteSpace(element.Image) ? "Choose Image" : ResourceDisplayName.Format(element.Image), Font, Rectangle.Round(rect), foreground, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
-                    break;
-                case UiElementType.Button:
-                    using (SolidBrush brush = new(background)) e.Graphics.FillRectangle(brush, rect);
-                    using (Pen pen = new(accent, 1.5f)) e.Graphics.DrawRectangle(pen, Rectangle.Round(rect));
-                    TextRenderer.DrawText(e.Graphics, element.Text, elementFont, Rectangle.Round(rect), foreground, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
-                    break;
-                case UiElementType.ProgressBar:
-                    using (SolidBrush brush = new(background)) e.Graphics.FillRectangle(brush, rect);
-                    float amount = Math.Clamp(element.Value / Math.Max(0.001f, element.Maximum), 0f, 1f);
-                    using (SolidBrush brush = new(accent)) e.Graphics.FillRectangle(brush, new RectangleF(rect.X, rect.Y, rect.Width * amount, rect.Height));
-                    using (Pen pen = new(foreground)) e.Graphics.DrawRectangle(pen, Rectangle.Round(rect));
-                    break;
-            }
+            string state = ReferenceEquals(element, _selected) && PreviewState.Length > 0 ? PreviewState : element.Enabled ? string.Empty : "Disabled";
+            PaintElement(e.Graphics, element, rect, canvas.Width / Math.Max(1, Document.DesignWidth), state);
             if (ReferenceEquals(element, _selected))
             {
                 using Pen selected = new(Color.FromArgb(68, 180, 255), 2f) { DashStyle = DashStyle.Dash };
