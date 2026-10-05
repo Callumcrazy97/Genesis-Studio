@@ -15,7 +15,7 @@ It compiles the engine's built-in shaders (`EngineShaderCatalog.PrecompiledJobs`
 DX12 (DXIL), Vulkan (SPIR-V) and OpenGL (GLSL) into `Player\PrecompiledShaders`, which the build
 copies beside Studio as well. Programs whose key and SHA-256 match the last promoted package's
 folder are kept instead of compiled (`--reuse`), so the step takes under a second when no engine
-shader changed and about 25 seconds when they all did. Exit code 0 means every program compiled;
+shader changed and about 10 seconds when they all did. Exit code 0 means every program compiled;
 the log is `TestResults\Builds\<run>\precompile-shaders.log`.
 
 At run time the folder is read before the user's shader cache, with the same keys, so the first
