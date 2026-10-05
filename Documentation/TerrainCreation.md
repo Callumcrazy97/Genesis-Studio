@@ -9,7 +9,7 @@ Use **Create** in the left palette:
 - **Lasso** creates a flat section from a drawn outline. Release to close the outline; self-crossing outlines are rejected.
 - **Create From Heightmap** and **Create From Code** open a source wizard with separate 3D terrain and grayscale heightmap / volume cross-section tabs. Placement controls stay beneath the preview: enter X/Y/Z or choose manual placement.
 
-Region and Lasso use the height beneath the first click, or the zero-height plane outside the landscape. Escape cancels the drawing. New sections are separate terrain-owned mesh parts: they preserve the base landscape, appear in the Terrain tree, and support placement transforms and components. The existing sculpt and four-channel paint brushes continue to edit the base landscape; they do not sculpt these mesh sections.
+Region and Lasso use the height beneath the first click, or the zero-height plane outside the landscape. Escape cancels the drawing. New sections are separate terrain-owned mesh parts: they preserve the base landscape, appear in the Terrain tree, and support placement transforms and components. The existing sculpt and paint brushes (up to eight layers) continue to edit the base landscape; they do not sculpt these mesh sections.
 
 ## Heightmap and code wizard
 
@@ -45,10 +45,24 @@ Add/Edit Terrain Object follows **Identity → Category → Components → Revie
 
 The fixed **Current Tool** card identifies the tool and active asset. Brush radius, strength/opacity and Smooth/Linear/Hard falloff sit directly below it. The remaining cards scroll. Select uses surface raycasts; Place arms the chosen library definition. Select Region / Select Lasso restrict painting and Fill; Clear Selection returns to the entire heightfield.
 
-The four paint swatches only select a brush channel. **Fill** paints that channel over the heightfield or active selection, with Undo. To change the layer definition, select Terrain and use **Image / Colour / Mapping / PBR…** in the Inspector. Choose an Image or colour, Repeat/Clamp/Tile/Stretch mapping, tiling and map resolution. Repeat uses a repeat count; Tile uses metres per tile; Stretch covers the terrain once.
+The paint swatches only select a brush channel. **Fill** paints that channel over the heightfield or active selection, with Undo. To change the layer definition, select Terrain and use **Image / Colour / Mapping / PBR…** in the Inspector. Choose an Image or colour, Repeat/Clamp/Tile/Stretch mapping, tiling and map resolution. Repeat uses a repeat count; Tile uses metres per tile; Stretch covers the terrain once.
+
+### Eight paint layers
+
+A terrain holds up to **eight** paint layers (**Add layer** stops at eight). Layers 1-4 are stored in the first RGBA splat plane, as always; layers 5-8 in a second plane that is created the first time one of them is painted. Painting any layer lowers all the others so the eight weights still add up to one, and every paint, fill, path, river and regeneration step undoes both planes together.
+
+The `.gterrain` file stays **version 1** (heights, then one splat plane) while layers 5-8 carry no paint, so terrains that use four layers save exactly the file they always did and older builds can still read them. Once layers 5-8 are painted the file is **version 2**: the same header and planes followed by the second splat plane. Version 1 files load unchanged.
+
+**Per-layer detail maps.** With more than four layers, or with **Tile each layer's normal and ORM maps** ticked in the layer material dialog, every layer's albedo, normal and ORM (occlusion, roughness, metallic) are tiled in the shader at the layer's own repeat, instead of normal and ORM coming from one whole-terrain bake of at most 2048² (a metre per texel on a 2 km island). The layers' maps are packed into three atlas textures (albedo, normal, ORM), each layer in its own cell with a wrapped border a sixteenth of its size so mipmapped, tiled sampling never bleeds into the next layer. A cell is at most 1024² (a layer's map resolution above that is reduced), so eight layers cost three 4608 × 2304 textures. Atlases rather than texture arrays because the OpenGL backend has no array textures; with the two splat planes on the FlowMap and HeightMap slots, the shader uses the same three extra texture slots (t21-t23) as the four-layer surface on DX11, DX12, Vulkan and OpenGL. Terrains with four or fewer layers and the option off keep the original four-layer shader and look exactly as before.
+
+**Height blend.** **Height blend sharpness** (0-1, saved as `HeightBlendSharpness` in the terrain document) replaces the linear cross-fade: where layers meet, the layer standing highest (its paint weight plus its albedo **alpha**, used as height) wins, and the others fade out within a band that narrows as sharpness rises (0.5 wide at 0, 0.02 at 1). Paint an alpha height channel into a layer's Image (stones high, mortar low) for natural edges; with opaque albedo the result is a sharpened paint boundary. 0 keeps linear blending. Height blending also uses the per-layer shader.
+
+The Software renderer draws all eight layers from its whole-terrain bake.
 
 **Generate PBR** preserves existing channels and saves missing channels into the assigned Image. Albedo, Normal, Roughness and AO update the open terrain and entity previews. Normal relief does not displace geometry. Texture components expose the same generation action. Generation saves to the Image; terrain material assignment and Fill use terrain undo.
 
 ## Verification scope
+
+`Genesis.Application.Headless.exe --test terrain-layers-grass` checks eight-layer paint, version 1/2 files and undo snapshots, atlas cells, compiles the per-layer shader to DXBC, DXIL, SPIR-V and GLSL, renders all eight layers on DX11, DX12, Vulkan and OpenGL, and captures height blending and tiled per-layer normals on DX11.
 
 The focused standalone review includes inspected captures, menu reopen after selection, fixed-header spacing, six sculpt brushes and undo, selection-only swatches, masked Fill, surface picking, manual preview/placement, the actual Image Editor bridge window, heightfield save/reopen/undo, four wizard pages, component/icon persistence, visibly alternating sprite frames and live PBR. Evidence is in `.validation/terrain-authoring-04` and the Terrain capture gallery. Full regression, the five-renderer sweep, Room/F5 terrain-part parity and package publication remain deferred. Physics/PGSL hooks are authorable data; this preview does not execute player collision events or player-driven foliage bending.
