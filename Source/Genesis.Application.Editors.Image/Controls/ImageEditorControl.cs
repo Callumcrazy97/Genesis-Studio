@@ -630,7 +630,9 @@ public sealed partial class ImageEditorControl : UserControl, IEditCommandTarget
             new ToolStripSeparator(),
             Item("Export Current Frame…", (_, _) => ExportCurrent()),
             Item("Export PNG Sequence…", (_, _) => ExportSequence()),
-            Item("Export Sprite Sheet…", (_, _) => ExportSpriteSheet())));
+            Item("Export Sprite Sheet…", (_, _) => ExportSpriteSheet()),
+            new ToolStripSeparator(),
+            Item("Convert to 3D Model…", (_, _) => ConvertToModel())));
         menu.Items.Add(Menu("Edit",
             Item("Undo", (_, _) => Undo(), Keys.Control | Keys.Z),
             Item("Redo", (_, _) => Redo(), Keys.Control | Keys.Y),

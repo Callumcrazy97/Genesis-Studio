@@ -77,7 +77,7 @@ $studioRevision = $studioProjectXml.SelectSingleNode('/Project/PropertyGroup/Gen
 if ([string]::IsNullOrWhiteSpace($studioRevision)) { throw 'Studio source revision is missing.' }
 $testProject = Join-Path $repo 'Tests/Genesis.Application.Headless/Genesis.Application.Headless.csproj'
 # The guides a user gets. ProductGuide.md is installed as the product's README.
-$productGuides = @('GettingStarted.md','GameFeatures.md','LargeWorlds.md','TerrainCreation.md','MenuFeatures.md','PostEffects.md','MeshShaders.md','PgslLanguage.md')
+$productGuides = @('GettingStarted.md','GameFeatures.md','LargeWorlds.md','TerrainCreation.md','MenuFeatures.md','ImageToModel.md','PostEffects.md','MeshShaders.md','PgslLanguage.md')
 $stages = [Collections.Generic.List[object]]::new()
 $clock = [Diagnostics.Stopwatch]::StartNew(); $stepNumber = 0; $promoted = $false; $failure = $null
 $oldEnvironment = @{}
