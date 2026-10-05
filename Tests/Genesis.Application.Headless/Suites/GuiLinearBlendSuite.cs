@@ -6,9 +6,12 @@ using Genesis.Application.Core.Resources;
 using Genesis.Application.Editors.Image.Imaging;
 using Genesis.Rendering.Core;
 using Genesis.Rendering.Viewport;
+using Genesis.Runtime;
 using Genesis.Runtime.Project;
+using Genesis.Runtime.Scene;
 using Genesis.Runtime.Scripting;
 using Genesis.Shared.Assets;
+using Genesis.Shared.Interfaces;
 using Genesis.Shared.Scripting;
 
 namespace Genesis.Application.Headless.Suites;
@@ -152,6 +155,122 @@ internal static class GuiLinearBlendSuite
             }
             File.WriteAllLines(Path.Combine(ctx.Logs, "gui-linear-readings.txt"), readings);
             Console.WriteLine("GuiLinearBlend readings: " + string.Join(", ", readings));
+            HeadlessHarness.Assert(failures.Count == 0, string.Join(" | ", failures));
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.GuiLinearBlend.DrawGuiEventStartsFromTheProjectSettingThroughTheGameOverlay", () =>
+        {
+            // A real Object's Draw GUI event, run by the script host as the game runs it: into the
+            // host's buffered GUI canvas, replayed onto the overlay in order.
+            string objectPath = resources.CreateResource(ResourceFolderPolicy.RootFor(project, ResourceKind.GameObject), ResourceKind.GameObject, "Linear Gui");
+            File.WriteAllText(objectPath, """
+                { "name": "Linear Gui", "components": [
+                  { "id": "cmp-script", "type": "ScriptComponent", "enabled": true, "props": { "ScriptClass": "Linear Gui" } } ] }
+                """);
+            ObjectEventStore.Save(objectPath, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Create"] = "startLinear = -1;\n",
+                ["DrawGui"] = """
+                    if (DrawGetBlendLinear()) { startLinear = 1; } else { startLinear = 0; }
+                    DrawSetColorRgb(255, 255, 255);
+                    DrawSetAlpha(0.08);
+                    DrawRectangle(10, 10, 90, 90);
+                    DrawSetBlendLinear(false);
+                    DrawRectangle(110, 10, 190, 90);
+                    DrawSetBlendLinear(true);
+                    DrawRectangle(210, 10, 290, 90);
+                    """,
+            });
+            ResourceCatalog.Invalidate(project.RootPath);
+
+            Type bufferedType = typeof(Genesis.Runtime.GenesisRuntimeHost).GetNestedType("BufferedHudCanvas", System.Reflection.BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("The game's buffered GUI canvas was not found.");
+            IHudCanvas buffered = (IHudCanvas)Activator.CreateInstance(bufferedType, nonPublic: true)!;
+
+            using Form gameHost = GateSuite.NewHost(640, 360);
+            using D3DViewportControl viewport = new() { Dock = DockStyle.Fill, DriveMode = ViewportDriveMode.External, VSync = false };
+            gameHost.Controls.Add(viewport); GateSuite.ShowHost(gameHost);
+            Genesis.Runtime.Scripting.VM.VMEngine.Initialize();
+            List<string> failures = [];
+            List<string> readings = [];
+            foreach (RenderBackendDescriptor backend in RenderBackendCatalog.All)
+            {
+                viewport.BackendOverride = backend.Backend; GateSuite.Pump(3, 15);
+                using (Bitmap? warm = viewport.ReadbackFrameToBitmap(3)) { }
+                var renderer = viewport.Renderer ?? throw new InvalidOperationException("No renderer.");
+                RoomAsset room = RoomAsset.Create("Linear GUI Room", RoomDimension.TwoD);
+                room.Nodes.Add(new RoomNode
+                {
+                    Kind = RoomNodeKind.GameObject, Name = "Linear GUI", Transform = new() { X = 20, Y = 20 },
+                    GameObject = new() { Prefab = ResourceNames.Name(project.RootPath, objectPath) },
+                });
+                using RuntimeScene scene = new("Linear GUI") { Input = new Genesis.Runtime.Input.InputState() };
+                ProjectGameContext game = new(project.RootPath, scene, renderer, null, room, null);
+                ScriptHostSystem scripts = new(); scripts.SetContext(game);
+                IGameContext? oldGame = PgslCommands.ActiveGameContext; string oldPath = PgslCommands.ProjectPath;
+                PgslContext? oldContext = PgslCommands.BindContext(new PgslContext());
+                PgslCommands.ActiveGameContext = game; PgslCommands.ProjectPath = project.RootPath;
+                bool projectLinear = true;
+                Action<Genesis.Shared.Interfaces.IRenderController> clear = current =>
+                {
+                    current.Clear(0f, 0f, 0f); current.Set3DFrameActive(false);
+                    current.SetCamera2D(current.PixelWidth / 2f, current.PixelHeight / 2f, 1, 0);
+                };
+                // GenesisRuntimeHost.ComposeGameplayOverlay, in short.
+                Action<Genesis.Shared.Interfaces.IRenderController> overlay = current =>
+                {
+                    scripts.BlendGuiInLinearLight = projectLinear;
+                    bufferedType.GetMethod("Reset")!.Invoke(buffered, [current.PixelWidth, current.PixelHeight]);
+                    scripts.DispatchPgslGuiDraw(current, buffered);
+                    current.FlushOverlaySprites();
+                    current.ComposeOverlay(canvas => bufferedType.GetMethod("Replay")!.Invoke(buffered,
+                        [new OverlayHudCanvas(canvas, current.PixelWidth, current.PixelHeight)]));
+                };
+                try
+                {
+                    new RoomSceneBuilder(project.RootPath, scripts).Build(scene, room);
+                    scripts.Update(1f / 60);
+                    PgslBehavior behavior = scripts.Instances.OfType<PgslBehavior>().Single();
+                    HeadlessHarness.Assert(behavior.HasGuiDrawScript && scripts.RecentDiagnostics.Count == 0,
+                        "The Draw GUI event did not compile: " + string.Join(';', scripts.RecentDiagnostics));
+                    viewport.OnRender += clear;
+                    viewport.OnPostFrame += overlay;
+                    using Bitmap? linear = viewport.ReadbackFrameToBitmap(2);
+                    object? startedLinear = behavior.GetVariablesSnapshot().GetValueOrDefault("startLinear");
+                    projectLinear = false;
+                    using Bitmap? stored = viewport.ReadbackFrameToBitmap(2);
+                    object? startedStored = behavior.GetVariablesSnapshot().GetValueOrDefault("startLinear");
+                    if (linear is null || stored is null || viewport.RenderFaultCount != 0)
+                    { failures.Add(backend.ShortName + ": no frame " + viewport.LastRenderException); continue; }
+                    if (backend.Backend == RenderBackendOption.SilkNetDx11)
+                        linear.Save(Path.Combine(ctx.Captures, "gui-linear-event-dx11.png"), System.Drawing.Imaging.ImageFormat.Png);
+
+                    void Check(Bitmap image, string what, int x, int low, int high)
+                    {
+                        int value = image.GetPixel(x, 50).R;
+                        readings.Add(backend.ShortName + " " + what + "=" + value);
+                        if (value < low || value > high) failures.Add(backend.ShortName + ": " + what + " is " + value + ", expected " + low + "-" + high);
+                    }
+                    // Project setting on: the event starts linear, switches off, then on again.
+                    Check(linear, "settingOnFirst", 50, 76, 82);
+                    Check(linear, "settingOnAfterOff", 150, 19, 21);
+                    Check(linear, "settingOnAfterOn", 250, 76, 82);
+                    // Setting off: the event starts as stored; its own DrawSetBlendLinear(true) still counts.
+                    Check(stored, "settingOffFirst", 50, 19, 21);
+                    Check(stored, "settingOffAfterOff", 150, 19, 21);
+                    Check(stored, "settingOffAfterOn", 250, 76, 82);
+                    if (Convert.ToDouble(startedLinear) != 1 || Convert.ToDouble(startedStored) != 0)
+                        failures.Add(backend.ShortName + ": DrawGetBlendLinear at the start of the event read " + startedLinear + " then " + startedStored);
+                }
+                finally
+                {
+                    viewport.OnRender -= clear;
+                    viewport.OnPostFrame -= overlay;
+                    PgslCommands.BindContext(oldContext); PgslCommands.ActiveGameContext = oldGame; PgslCommands.ProjectPath = oldPath;
+                }
+            }
+            File.AppendAllLines(Path.Combine(ctx.Logs, "gui-linear-readings.txt"), readings);
+            Console.WriteLine("GuiLinearBlend event readings: " + string.Join(", ", readings));
             HeadlessHarness.Assert(failures.Count == 0, string.Join(" | ", failures));
         });
     }
