@@ -214,6 +214,12 @@ namespace Genesis.Runtime.Scripting
                 case ReturnStmt ret:
                     return ret.Value != null ? $"{indent}return {EmitExpr(ret.Value)};\n" : $"{indent}return;\n";
 
+                case BreakStmt:
+                    return indent + "break;\n";
+
+                case ContinueStmt:
+                    return indent + "continue;\n";
+
                 case FunctionDeclStmt fn:
                     // Emit a private C# method for user-defined functions.
                     var parms = string.Join(", ", fn.Parameters.ConvertAll(p => $"double {p}"));

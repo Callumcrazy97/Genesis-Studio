@@ -99,6 +99,12 @@ public sealed class ReturnStmt : Stmt
     public Expr Value { get; set; }          // may be null (bare return)
 }
 
+/// <summary><c>break;</c>: leaves the innermost loop.</summary>
+public sealed class BreakStmt : Stmt { }
+
+/// <summary><c>continue;</c>: goes on to the innermost loop's next pass.</summary>
+public sealed class ContinueStmt : Stmt { }
+
 public sealed class FunctionDeclStmt : Stmt
 {
     public string Name { get; set; }

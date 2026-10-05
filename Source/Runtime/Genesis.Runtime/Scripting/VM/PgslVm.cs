@@ -73,7 +73,9 @@ public class PgslVm
     private int _instructionCounter = 0;
     private bool _returnRequested;
     private VmValue _returnValue;
-    private const int MAX_INSTRUCTIONS = 100000; // Hard limit per event to prevent hangs
+    private const int MAX_INSTRUCTIONS = 100000; // Hard limit per call to prevent hangs
+    /// <summary>Most user-function calls in progress at once (recursion depth).</summary>
+    public const int MaxCallDepth = 200;
     private static readonly string[] LocalSlotNames = CreateSlotNames("@local", 256);
     private static readonly string[] ArgumentNames = CreateSlotNames("argument", 64);
 
@@ -225,7 +227,7 @@ public class PgslVm
             {
                 if (++_instructionCounter > MAX_INSTRUCTIONS)
                 {
-                    throw new InvalidOperationException($"Infinite loop detected: Maximum instruction limit ({MAX_INSTRUCTIONS}) exceeded.");
+                    ThrowInstructionLimit(_debugCallStack.Count > 0 ? _debugCallStack.Peek() : null);
                 }
 
                 var instr = instructions[pc];
@@ -265,7 +267,9 @@ public class PgslVm
         {
             throw;
         }
-        catch (Exception ex)
+        // An error already given its line by a deeper call passes through untouched: catching and
+        // re-throwing it at every level of a deep recursion would overflow the stack while unwinding.
+        catch (Exception ex) when (ex.Data["PgslWrapped"] is not true)
         {
             var currentInstr = (pc < instructions.Count) ? instructions[pc] : null;
             int line = currentInstr?.LineNumber ?? 0;
@@ -274,9 +278,11 @@ public class PgslVm
                 Debugger.OnError(CreateDebugLocation(currentInstr, pc, ex.Message));
                 ex.Data["PgslDebugReported"] = true;
             }
-            var vmEx = new Exception($"Line {line}: {ex.Message}");
+            // A callee's error already names its line; do not prefix the caller's line again.
+            var vmEx = new Exception(ex.Message.StartsWith("Line ", StringComparison.Ordinal) ? ex.Message : $"Line {line}: {ex.Message}");
             vmEx.Data["Line"] = line;
             vmEx.Data["PgslDebugReported"] = true;
+            vmEx.Data["PgslWrapped"] = true;
             throw vmEx;
         }
         finally
@@ -777,6 +783,11 @@ public class PgslVm
                 throw new InvalidOperationException($"Function '{funcName}' expects {userFunc.Parameters.Count} arguments, got {argCount}");
             }
 
+            // Deep recursion ends in an error the game can report, never in a stack overflow that
+            // takes the whole process down.
+            if (_variableFrames.Count >= MaxCallDepth || !System.Runtime.CompilerServices.RuntimeHelpers.TryEnsureSufficientExecutionStack())
+                ThrowTooDeep(funcName, _variableFrames.Count);
+
             Dictionary<string, VmValue> frame = AcquireVariableFrame();
 
             try
@@ -822,6 +833,20 @@ public class PgslVm
             ReleaseArgumentArray(args);
         }
     }
+
+    // The budget is per event body and per function call: each call starts its own count.
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static void ThrowInstructionLimit(string function) =>
+        throw new InvalidOperationException(
+            $"Infinite loop detected: Maximum instruction limit ({MAX_INSTRUCTIONS}) exceeded"
+            + (function != null ? $" in function '{function}'" : " in this event")
+            + ". Each event and each function call may run that many instructions; split long work across frames.");
+
+    // Kept out of ExecuteCall so its message does not enlarge every call's stack frame.
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static void ThrowTooDeep(string function, int depth) =>
+        throw new InvalidOperationException(
+            "Too much recursion: '" + function + "' is " + depth + " calls deep. Use a loop with a list or stack for deep work.");
 
     private object ExecuteCommand(string name, object[] args)
     {

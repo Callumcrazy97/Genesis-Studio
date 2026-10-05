@@ -66,6 +66,14 @@ namespace Genesis.Runtime.Scripting
             if (Match(TokenType.With))     return WithStatement();
             if (Match(TokenType.From))     return NamespaceStatement();
             if (Match(TokenType.Return))   return ReturnStatement();
+            if (Match(TokenType.Break) || Match(TokenType.Continue))
+            {
+                Token keyword = Previous();
+                Match(TokenType.Semicolon);
+                return keyword.Type == TokenType.Break
+                    ? new BreakStmt { Line = keyword.Line, Column = keyword.Column }
+                    : new ContinueStmt { Line = keyword.Line, Column = keyword.Column };
+            }
             if (Check(TokenType.Function)) return FunctionDeclaration();
             if (Match(TokenType.LeftBrace)) return Block();
 

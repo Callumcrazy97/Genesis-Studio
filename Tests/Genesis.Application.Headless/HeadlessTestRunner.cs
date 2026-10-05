@@ -1111,6 +1111,7 @@ internal static class HeadlessTestRunner
         Suites.ReleaseSuite.Run(ctx);
         Suites.RoomOrderSuite.Run(ctx);
         Suites.PgslScriptsSuite.Run(ctx);
+        Suites.PgslLogicSuite.Run(ctx);
         Suites.AssetImportSuite.Run(ctx);
         Suites.TextRenderingSuite.Run(ctx);
         Suites.Effects2DSuite.Run(ctx);
@@ -1519,6 +1520,9 @@ internal static class HeadlessTestRunner
                 break;
             case "pgsl-scripts":
                 Suites.PgslScriptsSuite.Run(ctx);
+                break;
+            case "pgsl-logic":
+                Suites.PgslLogicSuite.Run(ctx);
                 break;
             case "asset-import":
                 Suites.AssetImportSuite.Run(ctx);

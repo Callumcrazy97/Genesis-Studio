@@ -70,8 +70,42 @@ public static partial class PgslCommands
     [PgslCommand("ModelNodeClear", "ModelNodeClear(node)", "Return one of this instance's model nodes to its authored pose", "Models")]
     public static void ModelNodeClear(string node)
     {
-        if (ThisModel(out var world, out var entity) && !string.IsNullOrWhiteSpace(node))
+        if (NodeModel(out var world, out var entity) && !string.IsNullOrWhiteSpace(node))
             world.GetRef<ModelRendererComponent>(entity).NodePoses?.Remove(node.Trim());
+    }
+
+    [PgslCommand("InstanceModelNodeSetRotation", "InstanceModelNodeSetRotation(id, node, pitch, yaw, roll) -> bool",
+        "Turn one of another instance's model nodes by degrees from its authored pose", "Models")]
+    public static bool InstanceModelNodeSetRotation(double id, string node, double pitch, double yaw, double roll) =>
+        ForNodeTarget(id, () => ModelNodeSetRotation(node, pitch, yaw, roll));
+
+    [PgslCommand("InstanceModelNodeSetTranslation", "InstanceModelNodeSetTranslation(id, node, x, y, z) -> bool",
+        "Move one of another instance's model nodes by an offset in its parent's space", "Models")]
+    public static bool InstanceModelNodeSetTranslation(double id, string node, double x, double y, double z) =>
+        ForNodeTarget(id, () => ModelNodeSetTranslation(node, x, y, z));
+
+    [PgslCommand("InstanceModelNodeClear", "InstanceModelNodeClear(id, node)", "Return one of another instance's model nodes to its authored pose", "Models")]
+    public static void InstanceModelNodeClear(double id, string node) =>
+        ForNodeTarget(id, () => { ModelNodeClear(node); return true; });
+
+    // The instance the node commands act on when given an id (0: the calling instance).
+    [ThreadStatic] private static int _nodeTarget;
+
+    private static bool ForNodeTarget(double id, Func<bool> action)
+    {
+        if (!double.IsFinite(id) || id < 1 || id > int.MaxValue) return false;
+        int previous = _nodeTarget;
+        _nodeTarget = (int)id;
+        try { return action(); }
+        finally { _nodeTarget = previous; }
+    }
+
+    private static bool NodeModel(out Genesis.Runtime.ECS.World world, out Genesis.Shared.ECS.Entity entity)
+    {
+        if (_nodeTarget <= 0) return ThisModel(out world, out entity);
+        world = ActiveGameContext?.World!;
+        entity = world != null ? world.GetEntity(_nodeTarget) : Genesis.Shared.ECS.Entity.Null;
+        return world != null && world.IsAlive(entity) && world.Has<ModelRendererComponent>(entity);
     }
 
     private static bool ThisModelNode(string node, out Genesis.Runtime.Modeling.ModelNodePose pose,
@@ -80,7 +114,7 @@ public static partial class PgslCommands
         pose = Genesis.Runtime.Modeling.ModelNodePose.Identity;
         poses = null!;
         name = node?.Trim() ?? string.Empty;
-        if (name.Length == 0 || !ThisModel(out var world, out var entity)) return false;
+        if (name.Length == 0 || !NodeModel(out var world, out var entity)) return false;
         ref var component = ref world.GetRef<ModelRendererComponent>(entity);
         var asset = SocketModelAssets.Load(ProjectPath, component.ModelAsset);
         string wanted = name;

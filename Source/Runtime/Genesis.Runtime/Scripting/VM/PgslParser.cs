@@ -25,6 +25,12 @@ public class PgslParser
     // built-in's name (x, y, speed...): they live in the function's frame, never the instance.
     internal const string FunctionLocalPrefix = "@fn.";
     private int _functionDepth;
+    // The loops being compiled, innermost on top: where break and continue jump, and how deep in
+    // with-blocks the loop began (a jump out of a with-block would leave the wrong instance active).
+    private Stack<(string Break, string Continue, int WithDepth)> _loops = new();
+    // Functions this script declares: a call to one of them is the script's, even when a built-in
+    // command has the same name.
+    private HashSet<string> _declaredFunctions = new(StringComparer.OrdinalIgnoreCase);
 
     public PgslParser(List<Token> tokens, IReadOnlyDictionary<string, int> nativeIdMap = null)
     {
@@ -40,7 +46,17 @@ public class PgslParser
 
     // Emit a variable load — uses LOAD_REG (slot-indexed) for known instance registers,
     // falls back to LOAD_VAR (string-keyed) for locals and unknown names.
+    // `self.name` is the variable of the instance the code runs as, also inside a function (where a
+    // plain assignment makes a local of the function).
+    private static string SelfScoped(string name)
+    {
+        if (name.Length <= 5 || !name.StartsWith("self.", StringComparison.OrdinalIgnoreCase)) return null;
+        string member = name.Substring(5);
+        return PgslRegisterFile.Slots.ContainsKey(member) ? member : InstanceVariablePrefix + member;
+    }
+
     private string Scoped(string name) =>
+        SelfScoped(name) is { } self ? self :
         _functionDepth > 0 && !name.StartsWith("@") && _declaredLocals.Contains(name)
             ? FunctionLocalPrefix + name
             : WithScoped(name);
@@ -86,6 +102,11 @@ public class PgslParser
         _declaredLocals = new HashSet<string>(StringComparer.Ordinal);
         _withDepth = 0;
         _functionDepth = 0;
+        _loops = new Stack<(string, string, int)>();
+        _declaredFunctions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i + 1 < _tokens.Count; i++)
+            if (_tokens[i].Type == TokenType.Function && _tokens[i + 1].Type == TokenType.Identifier)
+                _declaredFunctions.Add(_tokens[i + 1].Value);
 
         while (!IsAtEnd())
         {
@@ -131,10 +152,34 @@ public class PgslParser
         {
             ParseReturnStatement();
         }
+        else if (Match(TokenType.Break) || Match(TokenType.Continue))
+        {
+            ParseLoopJump(Previous());
+        }
         else
         {
             ParseExpressionStatement();
         }
+    }
+
+    private void ParseLoopJump(Token keyword)
+    {
+        string word = keyword.Type == TokenType.Break ? "break" : "continue";
+        if (_loops.Count == 0)
+        {
+            var outside = new Exception($"'{word}' is only allowed inside a loop (line {keyword.Line})");
+            outside.Data["Line"] = keyword.Line;
+            throw outside;
+        }
+        var loop = _loops.Peek();
+        if (loop.WithDepth != _withDepth)
+        {
+            var through = new Exception($"'{word}' cannot jump out of a 'with' block (line {keyword.Line})");
+            through.Data["Line"] = keyword.Line;
+            throw through;
+        }
+        Emit(Opcode.JUMP, keyword.Type == TokenType.Break ? loop.Break : loop.Continue);
+        Match(TokenType.Semicolon);
     }
 
     private void ParseExpressionStatement()
@@ -257,8 +302,10 @@ public class PgslParser
         ParseExpression();
         if (hasParen) Consume(TokenType.RightParen, "Expected ')' after condition");
         Emit(Opcode.JUMP_IF_FALSE, endLabel);
-        
-        ParseBlockOrStatement();
+
+        _loops.Push((endLabel, startLabel, _withDepth));
+        try { ParseBlockOrStatement(); }
+        finally { _loops.Pop(); }
         Emit(Opcode.JUMP, startLabel);
 
         DefineLabel(endLabel);
@@ -299,7 +346,9 @@ public class PgslParser
 
         // Body
         DefineLabel(bodyLabel);
-        ParseBlockOrStatement();
+        _loops.Push((endLabel, incrementLabel, _withDepth));
+        try { ParseBlockOrStatement(); }
+        finally { _loops.Pop(); }
         Emit(Opcode.JUMP, incrementLabel);
 
         DefineLabel(endLabel);
@@ -372,8 +421,12 @@ public class PgslParser
         Emit(Opcode.GTE);
         Emit(Opcode.JUMP_IF_TRUE, endLabel);
 
-        ParseBlockOrStatement();
+        string nextLabel = GenerateLabel("repeat_next");
+        _loops.Push((endLabel, nextLabel, _withDepth));
+        try { ParseBlockOrStatement(); }
+        finally { _loops.Pop(); }
 
+        DefineLabel(nextLabel);
         Emit(Opcode.LOAD_VAR, iVar);
         Emit(Opcode.LOAD_CONST, AddConstant(1.0));
         Emit(Opcode.ADD);
@@ -444,6 +497,8 @@ public class PgslParser
         _declaredLocals = new HashSet<string>(parameters, StringComparer.Ordinal);
         _withDepth = 0;
         _functionDepth++;
+        var savedLoops = _loops;
+        _loops = new Stack<(string, string, int)>();
 
         var savedInstructions = _instructions;
         var savedConstants = _constants;
@@ -468,6 +523,7 @@ public class PgslParser
         _labelReferences = savedLabelReferences;
         _declaredLocals = savedLocals;
         _withDepth = savedWithDepth;
+        _loops = savedLoops;
         _functionDepth--;
 
         _userFunctions[funcName] = userFunc;
@@ -511,10 +567,19 @@ public class PgslParser
     {
         ParseLogicalAnd();
 
+        // Short-circuit: when the left side is true, the right side is not evaluated.
         while (Match(TokenType.Or))
         {
+            string right = GenerateLabel("or_right");
+            string end = GenerateLabel("or_end");
+            Emit(Opcode.JUMP_IF_FALSE, right);
+            Emit(Opcode.LOAD_CONST, AddConstant(1.0));
+            Emit(Opcode.JUMP, end);
+            DefineLabel(right);
             ParseLogicalAnd();
-            Emit(Opcode.OR);
+            Emit(Opcode.NOT);
+            Emit(Opcode.NOT);
+            DefineLabel(end);
         }
     }
 
@@ -522,10 +587,19 @@ public class PgslParser
     {
         ParseBitwiseOr();
 
+        // Short-circuit: when the left side is false, the right side is not evaluated.
         while (Match(TokenType.And))
         {
+            string falseLabel = GenerateLabel("and_false");
+            string end = GenerateLabel("and_end");
+            Emit(Opcode.JUMP_IF_FALSE, falseLabel);
             ParseBitwiseOr();
-            Emit(Opcode.AND);
+            Emit(Opcode.NOT);
+            Emit(Opcode.NOT);
+            Emit(Opcode.JUMP, end);
+            DefineLabel(falseLabel);
+            Emit(Opcode.LOAD_CONST, AddConstant(0.0));
+            DefineLabel(end);
         }
     }
 
@@ -790,7 +864,7 @@ public class PgslParser
 
         // Emit CALL_NATIVE when the command is in the pre-built native table (skips dictionary lookup at runtime).
         // Fall back to CALL for user functions, script assets, and any command not yet in the table.
-        if (_nativeIdMap != null && _nativeIdMap.TryGetValue(dispatchName, out int nativeId))
+        if (_nativeIdMap != null && !_declaredFunctions.Contains(functionName) && _nativeIdMap.TryGetValue(dispatchName, out int nativeId))
             Emit(Opcode.CALL_NATIVE, (nativeId, argCount));
         else
             Emit(Opcode.CALL, (dispatchName, argCount));

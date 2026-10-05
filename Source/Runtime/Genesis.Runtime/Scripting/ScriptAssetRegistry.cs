@@ -23,6 +23,26 @@ namespace Genesis.Runtime.Scripting
     private static string _projectPath;
     private static int _callDepth;
     private const int MaxCallDepth = 64;
+    // Scripts that did not compile, by name: their file, line and message. A call to one of their
+    // functions then says why it is unknown instead of only that it is.
+    private static readonly Dictionary<string, string> _loadErrors = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Script resources that failed to compile when loaded: name to "file, line N: message".</summary>
+    public static IReadOnlyDictionary<string, string> LoadErrors
+    {
+      get { lock (_lock) return new Dictionary<string, string>(_loadErrors, StringComparer.OrdinalIgnoreCase); }
+    }
+
+    private static void RecordLoadError(string name, string file, Exception ex)
+    {
+      int line = ex.Data["Line"] is int number ? number : 0;
+      string where = _projectPath != null && file.StartsWith(_projectPath, StringComparison.OrdinalIgnoreCase)
+        ? Path.GetRelativePath(_projectPath, file) : file;
+      string message = line > 0 ? $"{where}, line {line}: {ex.Message}" : $"{where}: {ex.Message}";
+      lock (_lock) _loadErrors[name] = message;
+      Genesis.Rendering.Diagnostics.RenderLog.Line("PGSL script failed to compile: " + message);
+      VMLogger.LogError(name, "Script", "load", file, ex.Message, line);
+    }
 
     /// <summary>Loads Scripts/*.pgsl once per project path (safe to call every frame).</summary>
     public static void EnsureProjectLoaded(string projectPath)
@@ -45,6 +65,7 @@ namespace Genesis.Runtime.Scripting
         _byName.Clear();
         _byHash.Clear();
         _sourceByName.Clear();
+        _loadErrors.Clear();
         VMEngine.ClearCompileCache();
         if (string.IsNullOrEmpty(projectPath)) return;
         ResourceNames.Invalidate(projectPath);
@@ -61,7 +82,7 @@ namespace Genesis.Runtime.Scripting
           }
           catch (Exception ex)
           {
-            VMLogger.LogError(name, "Script", "load", file, ex.Message, 0);
+            RecordLoadError(name, file, ex);
           }
         }
       }
@@ -152,8 +173,9 @@ namespace Genesis.Runtime.Scripting
           return _byName.TryGetValue(name, out var a) ? a : null;
         }
       }
-      catch
+      catch (Exception ex)
       {
+        RecordLoadError(name, path, ex);
         return null;
       }
     }

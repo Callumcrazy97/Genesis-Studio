@@ -183,7 +183,11 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
             }
 
             VMLogger.LogWarn1D($"Unknown PGSL command: {name}");
-            throw new InvalidOperationException($"Unknown command: {name}");
+            // A function of a library Script that did not compile is unknown for that reason.
+            IReadOnlyDictionary<string, string> failed = Genesis.Runtime.Scripting.ScriptAssetRegistry.LoadErrors;
+            throw new InvalidOperationException(failed.Count == 0
+                ? $"Unknown command: {name}"
+                : $"Unknown command: {name}. A Script that did not compile may define it: {string.Join("; ", failed.Values)}");
         }
 
         if (def.IsProperty)
@@ -282,13 +286,17 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
                     callArgs[i] = tail;
                 }
                 else if (i < args.Length)
-                    callArgs[i] = ConvertArg(args[i], parameters[i].ParameterType);
+                    callArgs[i] = ConvertArgument(method, parameters[i], i, args[i]);
                 else if (parameters[i].HasDefaultValue && parameters[i].DefaultValue != DBNull.Value)
                     callArgs[i] = parameters[i].DefaultValue;
                 else
+                {
+                    Genesis.Runtime.Scripting.PgslRuntimeDiagnostics.Note(Genesis.Runtime.Scripting.PgslNoteKind.MissingArgument, method.Name,
+                        $"{method.Name} takes {parameters.Length} arguments and was given {args.Length}; '{parameters[i].Name}' was filled with 0.");
                     callArgs[i] = parameters[i].ParameterType.IsValueType
                         ? Activator.CreateInstance(parameters[i].ParameterType)
                         : null;
+                }
             }
             return GetOrCreateDelegate(method)(callArgs);
         }
@@ -329,6 +337,23 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
             Expression.Convert(callExpression, typeof(object)), paramsParameter).Compile();
     }
 
+    // A value of the wrong kind names the command and the argument, and the command for text
+    // when there is one (DsListAdd with text: DsListAddString).
+    private static object ConvertArgument(MethodInfo method, ParameterInfo parameter, int index, object value)
+    {
+        try { return ConvertArg(value, parameter.ParameterType); }
+        catch (Exception exception) when (exception is FormatException or InvalidCastException or OverflowException)
+        {
+            string kind = parameter.ParameterType == typeof(string) ? "text"
+                : parameter.ParameterType == typeof(bool) ? "true or false" : "a number";
+            string given = value is string text ? $"the text \"{text}\"" : $"'{value}'";
+            string hint = value is string && method.DeclaringType?.GetMethod(method.Name + "String") != null
+                ? $" Use {method.Name}String for text." : string.Empty;
+            throw new InvalidOperationException(
+                $"{method.Name}: argument {index + 1} ({parameter.Name}) must be {kind}, but was given {given}.{hint}", exception);
+        }
+    }
+
     private static object ConvertArg(object value, Type targetType)
     {
         if (value == null) return null;
@@ -339,9 +364,10 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
             if (targetType == typeof(int)) return c.ToArgb();
             if (targetType == typeof(string)) return c.Name;
         }
-        if (targetType == typeof(double)) return Convert.ToDouble(value);
-        if (targetType == typeof(float)) return (float)Convert.ToDouble(value);
-        if (targetType == typeof(int)) return Convert.ToInt32(Convert.ToDouble(value));
+        // Text holding a number reads the same on every machine, whatever its language settings.
+        if (targetType == typeof(double)) return Convert.ToDouble(value, System.Globalization.CultureInfo.InvariantCulture);
+        if (targetType == typeof(float)) return (float)Convert.ToDouble(value, System.Globalization.CultureInfo.InvariantCulture);
+        if (targetType == typeof(int)) return Convert.ToInt32(Convert.ToDouble(value, System.Globalization.CultureInfo.InvariantCulture));
         if (targetType == typeof(bool)) return Convert.ToBoolean(value);
         if (targetType == typeof(string)) return value.ToString();
         if (targetType == typeof(Color))

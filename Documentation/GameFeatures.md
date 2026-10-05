@@ -409,7 +409,8 @@ at the start plus the direction times the distance). They work in 3D rooms, in m
 | `SetCameraRoll(degrees)`, `GetCameraRoll()` | Roll the 3D camera about its direction of view; positive leans it right. It stays until set again, and a shake's tilt adds to it. |
 | `ModelSetCastShadows(enabled)`, `InstanceSetCastShadows(id, enabled)` | Whether a model casts a shadow: first-person arms and weapons should not. |
 | `AnimationBoneSetTranslation(bone, x, y, z)`, `AnimationBoneClearTranslation(bone)` | Move a bone by a local offset (its parent's space, model units) after animation, as `AnimationBoneSetRotation` turns it: a shoulder slid towards a grip. |
-| `ModelNodeSetRotation(node, pitch, yaw, roll)`, `ModelNodeSetTranslation(node, x, y, z)`, `ModelNodeClear(node)` | Turn or move one of this instance's model nodes from its authored pose (propellers, a gun's bolt, slide or magazine); the nodes below it follow. Skinned meshes follow their bones instead. |
+| `ModelNodeSetRotation(node, pitch, yaw, roll)`, `ModelNodeSetTranslation(node, x, y, z)`, `ModelNodeClear(node)` | Turn or move one of this instance's model nodes from its authored pose (propellers, a gun's bolt, slide or magazine); the nodes below it follow. Skinned meshes follow their bones instead. Each instance keeps its own poses, however many share the model. |
+| `InstanceModelNodeSetRotation(id, node, ...)`, `InstanceModelNodeSetTranslation(id, node, ...)`, `InstanceModelNodeClear(id, node)` | The same for another instance, without a `with` block. |
 
 Bone turns and offsets set on another instance through `with` reach its model at the end of the
 block, also on an instance that has no events of its own.

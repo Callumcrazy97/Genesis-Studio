@@ -130,7 +130,17 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomW
             if (!component.Emitting || string.IsNullOrWhiteSpace(component.Asset)) return;
             _seenParticles.Add(entity.Id);
             ParticleState? state = EnsureParticle(entity, component, scene);
-            if (state == null) return;
+            if (state == null)
+            {
+                // A burst whose effect cannot be loaded would otherwise wait for ever: give it a few
+                // seconds (the file may be being written), then let it go.
+                if (component.RemoveWhenDone)
+                {
+                    component.Age += dt;
+                    if (component.Age >= 5f) scene.World.DestroyEntity(entity);
+                }
+                return;
+            }
             if (component.Restart)
             {
                 // The same emitter fires its burst again: a second blow, a second footfall.

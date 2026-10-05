@@ -14,6 +14,9 @@ public enum PgslNoteKind
 
     /// <summary>A command ran, for the caller to decide whether it could have meant anything.</summary>
     CommandCalled,
+
+    /// <summary>A command was called with fewer arguments than it takes, and 0 or "" filled the rest.</summary>
+    MissingArgument,
 }
 
 /// <summary>One thing the VM did quietly.</summary>
