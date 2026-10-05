@@ -337,6 +337,27 @@ work: the window's messages, or another program holding the processor or the gra
 change adds one line saying how long the room was prepared behind the cover and how long its
 longest single piece took.
 
+### The debug screen and profile recordings
+
+In a running game **F6** shows a one-line strip: FPS, frame time, CPU time on the game's thread,
+GPU time (when the renderer measures it), memory (working set and private), the managed heap and
+video memory. **F7** opens the full panel:
+
+- **Overview**: process CPU, frame-time percentiles, collections per generation, allocation rate,
+  threads and handles.
+- **Resources**: the textures, models, sounds, particles, objects and instances the game holds.
+  Click the search box and type (`grass`, `kind:texture`, `>1mb`); sort by size, count, name or kind.
+- **Game**: each PGSL object's instances, event calls and time, the slowest events, script errors.
+- **World** and **AI & Navigation**: the inspector, view toggles and navigation telemetry.
+- **Engine** appears only when Studio's developer setting *Show Engine debug category* is on.
+
+**F8** (or the Record button) records a profile. A debug run (Studio's Debug button) records from
+the start unless *Start recording when debugging starts* is turned off in Preferences → Runtime.
+Each recording is a folder in `Debug/Profiles/` holding `frames.csv` (one row per frame),
+`summary.json` and `report.md`: the slowest frames, the hottest PGSL objects and events, and
+warnings about allocation, garbage collection, long frames and script errors. The recording
+finishes when F8 is pressed again or the game closes.
+
 ### Finding what a game holds on to
 
 Every room change also writes what the game holds once the new room is built:

@@ -26,7 +26,7 @@ public sealed class DebugProfileRecording : IDisposable
     public static readonly string[] GameColumns =
     {
         "frame", "time_ms", "frame_ms", "fps", "cpu_ms", "gpu_ms", "process_cpu_pct",
-        "working_set_mb", "private_mb", "managed_heap_mb", "alloc_kb", "gen0", "gen1", "gen2",
+        "working_set_mb", "private_mb", "managed_heap_mb", "vram_mb", "alloc_kb", "gen0", "gen1", "gen2",
         "gc_pause_ms", "pgsl_ms", "pgsl_calls", "script_errors",
     };
 
@@ -60,6 +60,7 @@ public sealed class DebugProfileRecording : IDisposable
     private double _engineAo, _engineContact, _engineVolumetric, _engineBloom, _engineClouds, _engineAtmosphere;
     private long _drawCallsSum, _trianglesSum;
     private int _drawCallsMax, _trianglesMax;
+    private long _videoMemoryPeak;
     private long _pgslCalls, _allocated, _workingSetPeak, _privatePeak, _privateFirst, _privateLast, _heapFirst, _heapLast, _heapPeak;
     private int _gen0, _gen1, _gen2, _longFrames;
 
@@ -110,6 +111,7 @@ public sealed class DebugProfileRecording : IDisposable
         _workingSetPeak = Math.Max(_workingSetPeak, sample.WorkingSetBytes);
         _privatePeak = Math.Max(_privatePeak, sample.PrivateBytes);
         _heapPeak = Math.Max(_heapPeak, sample.ManagedHeapBytes);
+        _videoMemoryPeak = Math.Max(_videoMemoryPeak, sample.VideoMemoryBytes);
         if (index == 0) { _privateFirst = sample.PrivateBytes; _heapFirst = sample.ManagedHeapBytes; }
         _privateLast = sample.PrivateBytes;
         _heapLast = sample.ManagedHeapBytes;
@@ -166,7 +168,8 @@ public sealed class DebugProfileRecording : IDisposable
         Append(line, s.FrameMilliseconds > 0 ? 1000d / s.FrameMilliseconds : 0, "0.##");
         Append(line, s.CpuMilliseconds, "0.###"); Append(line, s.GpuMilliseconds, "0.###"); Append(line, s.ProcessCpuPercent, "0.##");
         Append(line, s.WorkingSetBytes / 1048576d, "0.##"); Append(line, s.PrivateBytes / 1048576d, "0.##");
-        Append(line, s.ManagedHeapBytes / 1048576d, "0.##"); Append(line, s.AllocatedBytes / 1024d, "0.##");
+        Append(line, s.ManagedHeapBytes / 1048576d, "0.##"); Append(line, s.VideoMemoryBytes / 1048576d, "0.##");
+        Append(line, s.AllocatedBytes / 1024d, "0.##");
         Append(line, s.Gen0Collections); Append(line, s.Gen1Collections); Append(line, s.Gen2Collections);
         Append(line, s.GcPauseMilliseconds, "0.###"); Append(line, s.PgslMilliseconds, "0.####"); Append(line, s.PgslCalls);
         Append(line, s.ScriptErrors);
@@ -271,6 +274,7 @@ public sealed class DebugProfileRecording : IDisposable
                 ManagedHeapStartMegabytes = _heapFirst / mb,
                 ManagedHeapEndMegabytes = _heapLast / mb,
                 ManagedHeapPeakMegabytes = _heapPeak / mb,
+                VideoMemoryPeakMegabytes = _videoMemoryPeak / mb,
             },
             Allocations = new DebugProfileAllocations
             {
@@ -443,6 +447,7 @@ public sealed class DebugProfileRecording : IDisposable
         Line($"| Process CPU avg / max | {F(s.ProcessCpuPercent.Average, "0.0")} / {F(s.ProcessCpuPercent.Maximum, "0.0")} % of all cores |");
         Line($"| Working set peak | {F(s.Memory.WorkingSetPeakMegabytes, "0.0")} MB |");
         Line($"| Private memory start / end / peak | {F(s.Memory.PrivateStartMegabytes, "0.0")} / {F(s.Memory.PrivateEndMegabytes, "0.0")} / {F(s.Memory.PrivatePeakMegabytes, "0.0")} MB |");
+        Line($"| Video memory peak | {(s.Memory.VideoMemoryPeakMegabytes > 0 ? F(s.Memory.VideoMemoryPeakMegabytes, "0.0") + " MB" : "not reported by the driver")} |");
         Line($"| Managed heap start / end / peak | {F(s.Memory.ManagedHeapStartMegabytes, "0.0")} / {F(s.Memory.ManagedHeapEndMegabytes, "0.0")} / {F(s.Memory.ManagedHeapPeakMegabytes, "0.0")} MB |");
         Line($"| Allocated | {F(s.Allocations.TotalMegabytes, "0.0")} MB ({F(s.Allocations.MegabytesPerSecond)} MB/s, {F(s.Allocations.KilobytesPerFrame, "0.0")} KB/frame) |");
         Line($"| Collections gen0 / gen1 / gen2 | {s.Gc.Gen0} / {s.Gc.Gen1} / {s.Gc.Gen2} (pauses {F(s.Gc.PauseTotalMilliseconds)} ms total, {F(s.Gc.PauseMaximumMilliseconds)} ms longest) |");
@@ -610,6 +615,8 @@ public sealed class DebugProfileMemory
     public double ManagedHeapStartMegabytes { get; set; }
     public double ManagedHeapEndMegabytes { get; set; }
     public double ManagedHeapPeakMegabytes { get; set; }
+    /// <summary>Dedicated video memory this process used at most; 0 when the driver did not say.</summary>
+    public double VideoMemoryPeakMegabytes { get; set; }
 }
 
 public sealed class DebugProfileAllocations

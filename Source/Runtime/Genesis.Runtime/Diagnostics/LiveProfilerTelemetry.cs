@@ -100,7 +100,8 @@ public sealed class LiveProfilerTelemetry : IDisposable
             FrameMilliseconds = averageMs,
             CpuPercent = cpuPercent,
             GpuMilliseconds = stats.GpuMs,
-            WorkingSetBytes = _process.WorkingSet64,
+            // Read fresh: a Process object's WorkingSet64 is a snapshot taken when first read.
+            WorkingSetBytes = RuntimeFrameProfiler.TryReadProcessMemory(out long workingSet, out _, out _) ? workingSet : _process.WorkingSet64,
             ManagedHeapBytes = GC.GetTotalMemory(forceFullCollection: false),
             DrawCalls = stats.DrawCalls,
             DrawCalls2D = stats.DrawCalls2D,

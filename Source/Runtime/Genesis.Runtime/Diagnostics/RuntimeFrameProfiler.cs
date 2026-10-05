@@ -34,6 +34,8 @@ public struct DebugFrameSample
     public long WorkingSetBytes;
     public long PrivateBytes;
     public long ManagedHeapBytes;
+    /// <summary>Video memory this process uses (0 when the driver does not say).</summary>
+    public long VideoMemoryBytes;
     public long AllocatedBytes;
     public int Gen0Collections;
     public int Gen1Collections;
@@ -116,6 +118,10 @@ public sealed class RuntimeFrameProfiler : IDisposable
     public long PrivateBytes { get; private set; }
     public long ManagedHeapBytes { get; private set; }
     public long CommittedBytes { get; private set; }
+    /// <summary>Dedicated video memory this process uses, per the display driver; 0 when unknown.</summary>
+    public long VideoMemoryBytes { get; private set; }
+    /// <summary>The video memory budget the driver offers this process; 0 when unknown.</summary>
+    public long VideoMemoryBudgetBytes { get; private set; }
     public double GcPauseTimePercent { get; private set; }
     public double AllocationMegabytesPerSecond { get; private set; }
     public int HandleCount { get; private set; }
@@ -188,6 +194,7 @@ public sealed class RuntimeFrameProfiler : IDisposable
         sample.WorkingSetBytes = WorkingSetBytes;
         sample.PrivateBytes = PrivateBytes;
         sample.ManagedHeapBytes = ManagedHeapBytes;
+        sample.VideoMemoryBytes = VideoMemoryBytes;
 
         if (renderer != null)
         {
@@ -371,6 +378,12 @@ public sealed class RuntimeFrameProfiler : IDisposable
 
         if (OperatingSystem.IsWindows() && GetProcessHandleCount(GetCurrentProcess(), out uint handles))
             HandleCount = (int)handles;
+
+        if (Genesis.Rendering.Diagnostics.VideoMemoryProbe.TryQuery(out long videoMemory, out long videoBudget))
+        {
+            VideoMemoryBytes = videoMemory;
+            VideoMemoryBudgetBytes = videoBudget;
+        }
 
         GCMemoryInfo info = GC.GetGCMemoryInfo();
         ManagedHeapBytes = info.HeapSizeBytes > 0 ? info.HeapSizeBytes : GC.GetTotalMemory(false);

@@ -248,7 +248,7 @@ namespace Genesis.Runtime.Debugger
                 gpu > 0.001 ? $"GPU {gpu:0.00} ms" : "GPU —",
                 $"RAM {workingSet / 1048576d:0} MB · priv {privateBytes / 1048576d:0} MB",
                 $"Heap {heap / 1048576d:0.0} MB",
-                "VRAM n/a",
+                Profiler.VideoMemoryBytes > 0 ? $"VRAM {Profiler.VideoMemoryBytes / 1048576d:0} MB" : "VRAM n/a",
             };
             Vector4 frameColor = frameMs <= 16.7 ? DebugOverlayPalette.Success
                 : frameMs <= 33.4 ? DebugOverlayPalette.Warning : DebugOverlayPalette.Error;
@@ -407,7 +407,10 @@ namespace Genesis.Runtime.Debugger
             hud.Text($"Working set {p.WorkingSetBytes / mb:0.0} MB (peak {p.PeakWorkingSetBytes / mb:0.0})   Private {p.PrivateBytes / mb:0.0} MB",
                 x, y, 10f, DebugOverlayPalette.Text);
             y += 16f;
-            hud.Text($"Managed heap {p.ManagedHeapBytes / mb:0.0} MB   GC committed {p.CommittedBytes / mb:0.0} MB   VRAM n/a (not reported by the renderer)",
+            string videoMemory = p.VideoMemoryBytes > 0
+                ? $"VRAM {p.VideoMemoryBytes / mb:0.0} MB of {p.VideoMemoryBudgetBytes / mb:0} MB budget"
+                : "VRAM n/a (not reported by the driver)";
+            hud.Text($"Managed heap {p.ManagedHeapBytes / mb:0.0} MB   GC committed {p.CommittedBytes / mb:0.0} MB   {videoMemory}",
                 x, y, 10f, DebugOverlayPalette.Text);
             y += 24f;
 

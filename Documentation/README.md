@@ -5028,8 +5028,65 @@ frame-time graph (`DebugFrameGraph`), a render-pass viewer, and playback-speed c
 The Engine tab's draw-call / batch / triangle / WorldMeshes / lights / sprite-and-mesh instance
 caps / foliage numbers are live (`GpuRenderController.GetStats()` + `AdapterName`). **R7.1
 (2026-09-04)** replaced the hardcoded “Intel Iris Xe” device string and the fake Textures-tab
-atlas (“Player, Coin, Tiles”, 4.8%). The Textures tab now reports live atlas sheet/occupancy counts
-after Player stitch (R7.4) and texture-switch counts when stitch is idle.
+atlas (“Player, Coin, Tiles”, 4.8%). The atlas sheet/occupancy counts after Player stitch (R7.4)
+and texture-switch counts now sit in the Engine tab's Textures section.
+
+**Debug screen redesign and profile recording (2026-10-05).** The overlay no longer shows every
+panel at once. Keys: **F6** shows/hides it, **F7** opens/closes the full panel, **F8** starts/stops
+a recording (P pauses, N steps while paused).
+
+- *Compact strip* (default): FPS, frame ms, CPU ms (game-thread work: update, gathering,
+  draw submission and overlay, excluding the wait to present), GPU ms when the renderer measures
+  it, RAM (working set and private bytes, read from the process's own memory counters each
+  quarter second), managed heap and VRAM (this process's dedicated video memory from DXGI
+  `QueryVideoMemoryInfo`, any backend). Record and Panel buttons are clickable.
+- *Overview*: process CPU % over quarter-second windows, frame-time avg/p50/p90/p95/p99/max over the
+  last 600 frames, 1% low FPS, GC counts per generation, allocation rate (MB/s from
+  `GC.GetTotalAllocatedBytes`), GC pause %, the last collection (generation, reason, pause, from an
+  in-process `EventListener` on the runtime's own event source, `RuntimeGcEventListener`), threads,
+  handles, VRAM budget and the recording state.
+- *Resources*: everything the game holds, from providers registered with
+  `Genesis.Shared.Diagnostics.DebugResourceCatalog` (textures from the renderer's texture cache,
+  models from `RuntimeModelAssetRegistry.Shared`, sounds from `XAudioSystem`) plus objects
+  (instances per object), individual instances, entities and particles from the room. Click the
+  search box and type; words must all match, `kind:texture` matches the kind, `>1mb` keeps large
+  rows; Enter hands the keyboard back. Sort by Size, Count, Name or Kind (click again to reverse).
+  The search and sort are `DebugResourceFilter.Apply`.
+- *Game*: PGSL time and calls this frame, objects with instances, calls, total and max time and
+  failures, the top events (`PgslProfiler`), and recent script errors.
+- *Engine* (developer builds only): render passes, draw calls, triangles, caps, CPU split
+  (simulation / gather / draw / overlay / present), subsystem times (`SceneWorkTimes`), textures.
+- *World* (transport, view toggles, render pass, inspector and scene gizmos) and *AI & Navigation*.
+
+Opening the screen (or recording) switches `PgslProfiler` on and closing it hands it back; with the
+screen closed and nothing recording `DebugOverlay.ObserveFrame` reads one timestamp per frame and
+allocates nothing (`Runtime.DebugScreen.ClosedOverlayCostsNothing`).
+
+*Recording* (`RuntimeFrameProfiler`, `DebugProfileRecording`) writes a session folder
+`Debug/Profiles/<yyyy-MM-dd_HH-mm-ss>/` in the project's debug folder (`ProjectPaths.DebugRoot`):
+
+- `frames.csv`: one row per frame. Game columns `frame, time_ms, frame_ms, fps, cpu_ms, gpu_ms,
+  process_cpu_pct, working_set_mb, private_mb, managed_heap_mb, vram_mb, alloc_kb, gen0, gen1, gen2,
+  gc_pause_ms, pgsl_ms, pgsl_calls, script_errors`; developer builds add `sim_ms, collect_ms,
+  draw_ms, present_ms, overlay_ms, draw_calls, triangles, batches, instances, ao_ms,
+  contact_shadow_ms, volumetric_ms, bloom_ms, clouds_ms, atmosphere_ms, parts`.
+- `summary.json` (`genesis.profile/1`): frame distribution, FPS and 1% low, CPU/GPU, memory
+  start/end/peak, allocation totals and rate with the top sampled allocating types, GC counts,
+  pauses and reasons, long frames and hitches, PGSL objects (with peak instances) and events,
+  script errors, the ten slowest frames, warnings, and `engine` only in developer builds.
+- `report.md`: the same for a person, in the spirit of ProfileWiz's Markdown report — summary
+  table, warnings (allocation rate, gen 2 collections, long GC pauses, long frames and hitches,
+  stutter, script errors, PGSL share of the frame, private-memory growth), slowest frames, hottest
+  PGSL objects and events, allocation and GC, script errors, and the Engine section when enabled.
+
+Starting a recording resets `PgslProfiler`, so its object and event figures are the recording's
+own. Closing the game finishes a recording. Studio's Preferences → Runtime has **Start recording
+when debugging starts** (on by default, `RuntimeSettings.RecordProfileWhenDebugging`, passed as
+`GENESIS_DEBUG_RECORD=1/0`) and the developer setting **Show Engine debug category** (off by
+default, `RuntimeSettings.ShowEngineDebugCategory`, passed as `GENESIS_ENGINE_DEBUG=1/0`). An
+exported game never sets the latter, so it never shows or records Engine figures. Focused test:
+`--test debug-screen` (`DebugScreenSuite`: filter logic, typed search, recording files and
+columns, Engine gating, idle cost, and captures `debug-screen-{compact,overview,resources,game,engine}.png`).
 
 The detached debugger UI files previously listed here are absent from current Source (5 September
 inspection). Their cleanup task is retired; the implemented in-game F6 overlay is the current path.
