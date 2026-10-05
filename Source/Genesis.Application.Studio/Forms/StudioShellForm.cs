@@ -179,9 +179,24 @@ public sealed partial class StudioShellForm : DpiAwareForm
 
         StartCommandStateUpdates();
 
-        Shown += (_, _) => _services.Log.Information(
-            "Studio",
-            $"Workspace opened for '{_project.Manifest.Name}'.");
+        Shown += (_, _) =>
+        {
+            _services.Log.Information(
+                "Studio",
+                $"Workspace opened for '{_project.Manifest.Name}'.");
+            // A project with C# scripts compiles them on F5. What the compiler references is
+            // worked out now, on a worker thread, instead of on the first F5.
+            try
+            {
+                if (ResourceNames.For(_project.RootPath).Entries.Any(entry => entry.Type == ResourceType.Script
+                        && entry.Extension.Equals(".cs", StringComparison.OrdinalIgnoreCase)))
+                    _ = Genesis.Runtime.Scripting.CSharpScriptCompiler.WarmReferencesInBackground(_project.RootPath);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
+            {
+                // Only a head start; F5 works the references out itself.
+            }
+        };
     }
 
     public ProjectSession Project => _project;
@@ -1779,8 +1794,20 @@ public sealed partial class StudioShellForm : DpiAwareForm
 
         // Strictly validate every saved PGSL event before launch. Hand-written compatibility C# is
         // compiled separately; authored PGSL runs on the same validated VM in Studio and Player.
-        Genesis.Runtime.Project.ProjectRunLauncher.CompileOutcome compile =
-            Genesis.Runtime.Project.ProjectRunLauncher.CompileScripts(projectRoot);
+        // Say so first: compiling a project's C# can take a few seconds.
+        _status.Text = debug ? "Preparing to debug: checking scripts…" : "Preparing to play: checking scripts…";
+        _status.Owner?.Refresh();
+        Cursor? previousCursor = Cursor.Current;
+        Cursor.Current = Cursors.WaitCursor;
+        Genesis.Runtime.Project.ProjectRunLauncher.CompileOutcome compile;
+        try
+        {
+            compile = Genesis.Runtime.Project.ProjectRunLauncher.CompileScripts(projectRoot);
+        }
+        finally
+        {
+            Cursor.Current = previousCursor ?? Cursors.Default;
+        }
         if (!compile.Success)
         {
             _services.Log.Error(

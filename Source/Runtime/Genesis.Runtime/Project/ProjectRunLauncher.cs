@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using Genesis.Runtime.Scripting;
+using Genesis.Shared.Assets;
 
 namespace Genesis.Runtime.Project
 {
@@ -52,9 +53,34 @@ namespace Genesis.Runtime.Project
                 };
             }
 
+            // Run (F5) compiled every C# script again on every press, seconds on the UI thread for
+            // a project with a few dozen. When the scripts, their resource names and the engine are
+            // what the compiled scripts in the project were made from, those are used again; PGSL
+            // is still checked in full.
+            string inputs = intoProject ? ScriptInputsFingerprint(projectPath) : null;
+            if (inputs != null && File.Exists(targetDll) && ReadText(targetDll + InputsSuffix) == inputs)
+            {
+                PgslValidationReport validation = PgslScriptValidator.ValidateProject(projectPath, strict: true);
+                if (validation.Success)
+                {
+                    return new CompileOutcome
+                    {
+                        Success = true,
+                        TargetDll = targetDll,
+                        Result = new ScriptCompileResult
+                        {
+                            Success = true,
+                            Warnings = validation.Warnings,
+                            BehaviorTypeNames = Array.Empty<string>(),
+                        },
+                    };
+                }
+            }
+
             var result = CSharpScriptCompiler.CompileProjectScripts(projectPath);
             if (!result.Success)
             {
+                TryDelete(targetDll + InputsSuffix);
                 QuarantineStaleScriptDll(targetDll);
                 string errors = string.Join(Environment.NewLine, result.Errors.Take(8));
                 return new CompileOutcome
@@ -70,10 +96,16 @@ namespace Genesis.Runtime.Project
             {
                 try
                 {
+                    TryDelete(targetDll + InputsSuffix);
                     if (result.AssemblyBytes != null && result.AssemblyBytes.Length > 0)
                     {
                         Directory.CreateDirectory(Path.GetDirectoryName(targetDll));
                         File.WriteAllBytes(targetDll, result.AssemblyBytes);
+                        if (inputs != null)
+                        {
+                            try { File.WriteAllText(targetDll + InputsSuffix, inputs); }
+                            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+                        }
                     }
                     else if (File.Exists(targetDll))
                     {
@@ -93,6 +125,69 @@ namespace Genesis.Runtime.Project
             }
 
             return new CompileOutcome { Success = true, Result = result, TargetDll = targetDll };
+        }
+
+        /// <summary>Beside the compiled scripts: what they were compiled from (see <see cref="ScriptInputsFingerprint"/>).</summary>
+        private const string InputsSuffix = ".inputs";
+
+        /// <summary>
+        /// A digest of everything a project's compiled C# depends on: the engine build, and each
+        /// script's path, resource names and text. Null when the project has no C# scripts.
+        /// </summary>
+        private static string ScriptInputsFingerprint(string projectPath)
+        {
+            try
+            {
+                var scripts = new List<NamedResource>();
+                foreach (NamedResource entry in ResourceNames.For(projectPath).Entries)
+                    if (entry.Type == ResourceType.Script && entry.Extension.Equals(".cs", StringComparison.OrdinalIgnoreCase))
+                        scripts.Add(entry);
+                if (scripts.Count == 0) return null;
+                scripts.Sort((a, b) => string.Compare(a.FullPath, b.FullPath, StringComparison.OrdinalIgnoreCase));
+
+                using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+                void Add(string text) => hash.AppendData(System.Text.Encoding.UTF8.GetBytes((text ?? string.Empty) + "\n"));
+                Add("genesis-script-inputs-v1");
+                Add(typeof(CSharpScriptCompiler).Assembly.ManifestModule.ModuleVersionId.ToString("N"));
+                Add(typeof(Genesis.Shared.Assets.ResourceCatalog).Assembly.ManifestModule.ModuleVersionId.ToString("N"));
+                // Every engine library the scripts may be compiled against, by size and time.
+                foreach (string folder in new[] { AppContext.BaseDirectory, RuntimePaths.ResolveRuntimeDir() })
+                {
+                    if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder)) continue;
+                    string[] engine = Directory.GetFiles(folder, "Genesis*.dll");
+                    Array.Sort(engine, StringComparer.OrdinalIgnoreCase);
+                    foreach (string library in engine)
+                    {
+                        var info = new FileInfo(library);
+                        Add(library + "|" + info.Length + "|" + info.LastWriteTimeUtc.Ticks);
+                    }
+                }
+                foreach (NamedResource script in scripts)
+                {
+                    Add(script.FullPath);
+                    Add(script.Name);
+                    Add(script.StorageName);
+                    hash.AppendData(File.ReadAllBytes(script.FullPath));
+                    Add(string.Empty);
+                }
+                return Convert.ToHexString(hash.GetHashAndReset());
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+            {
+                return null;
+            }
+        }
+
+        private static string ReadText(string path)
+        {
+            try { return File.Exists(path) ? File.ReadAllText(path) : null; }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
+        }
+
+        private static void TryDelete(string path)
+        {
+            try { if (File.Exists(path)) File.Delete(path); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
         }
 
         /// <summary>

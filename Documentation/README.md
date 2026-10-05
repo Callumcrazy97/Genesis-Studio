@@ -1543,7 +1543,12 @@ are listed in `HeadlessTestRunner.Tiers`. The Full Build remains the release che
 `--test speed` times opening the 3D Nature Walk project in Studio, opening each 3D editor, F5's
 script check, and the newest built Player's start and idle allocation rate, and writes the numbers
 to `Logs\speed-timings.json`; `GENESIS_SPEED_PROJECT=<a copy of a project>` also times opening that
-project and `GENESIS_SPEED_ONLY=Terrain,Room` limits it to some editors.
+project and `GENESIS_SPEED_ONLY=Terrain,Room` limits it to some editors. Run (F5) reuses
+`<project>\.genesis\Run\GameScripts.dll` when the project's C# scripts, their resource names and the
+engine libraries are what it was compiled from (a digest of them is kept beside it in
+`GameScripts.dll.inputs`); PGSL is still checked on every press. On Golden Stag (27 C# scripts) a
+press with nothing changed went from about 4.3 s to 16 ms
+(`Speed.Run.UnchangedScriptsAreNotCompiledAgain`).
 `--check` adds the 15-workflow gate and DX11/DX12 smokes to Quick. `--full-tests` adds the entire
 regression suite; `--full-smoke` adds all five renderer smokes; `--quick-smoke` adds DX11/DX12.
 `--skip-tests` is a legacy Quick alias and still runs package/startup checks. Full rejects Quick,

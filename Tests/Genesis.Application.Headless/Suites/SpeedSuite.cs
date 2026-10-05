@@ -62,7 +62,17 @@ internal static class SpeedSuite
                 string file = File.Exists(given) ? given
                     : Directory.EnumerateFiles(given, "*.genesisproj").FirstOrDefault()
                       ?? throw new CheckNotRunException("No .genesisproj in " + given);
-                OpenInStudio(services!, file, "Given project open");
+                ProjectSession opened = OpenInStudio(services!, file, "Given project open");
+                Stopwatch validation = Stopwatch.StartNew();
+                Genesis.Runtime.Scripting.PgslScriptValidator.ValidateProject(opened.RootPath, strict: true);
+                Record("Given project Run (F5): PGSL check alone", validation.Elapsed.TotalMilliseconds);
+                for (int run = 1; run <= 2; run++)
+                {
+                    Stopwatch clock = Stopwatch.StartNew();
+                    ProjectRunLauncher.CompileOutcome compile = ProjectRunLauncher.CompileScripts(opened.RootPath);
+                    Record($"Given project Run (F5) {run}: check and compile scripts", clock.Elapsed.TotalMilliseconds);
+                    HeadlessHarness.Assert(compile.Success, "The given project's scripts did not compile: " + compile.ErrorMessage);
+                }
             });
         }
 
@@ -101,6 +111,42 @@ internal static class SpeedSuite
             ProjectRunLauncher.CompileOutcome compile = ProjectRunLauncher.CompileScripts(project!.RootPath);
             Record("Run (F5): check and compile scripts", clock.Elapsed.TotalMilliseconds);
             HeadlessHarness.Assert(compile.Success, "The project's scripts did not compile: " + compile.ErrorMessage);
+        });
+
+        // F5 compiles a project's C# scripts. Pressed again with nothing changed it must reuse what
+        // it made (seconds saved on every press), and an edited script must still be compiled.
+        HeadlessHarness.RunCase(ctx.Report, "Speed.Run.UnchangedScriptsAreNotCompiledAgain", () =>
+        {
+            ProjectSession scripted = new ProjectService().CreateProject(parent, "Scripted", "Blank");
+            string folder = Path.Combine(scripted.AssetsPath, "Scripts");
+            Directory.CreateDirectory(folder);
+            string script = Path.Combine(folder, "SpeedProbe.cs");
+            File.WriteAllText(script, "namespace SpeedProbeGame { public static class SpeedProbe { public static int Answer() => 42; } }\n");
+            ResourceNames.Invalidate(scripted.RootPath);
+            string dll = RuntimePaths.ProjectScriptsDll(scripted.RootPath);
+
+            Stopwatch clock = Stopwatch.StartNew();
+            HeadlessHarness.Assert(ProjectRunLauncher.CompileScripts(scripted.RootPath).Success, "The first compile failed.");
+            Record("Run (F5) with C#: first press", clock.Elapsed.TotalMilliseconds);
+            DateTime written = File.GetLastWriteTimeUtc(dll);
+
+            clock.Restart();
+            HeadlessHarness.Assert(ProjectRunLauncher.CompileScripts(scripted.RootPath).Success, "The second compile failed.");
+            Record("Run (F5) with C#: pressed again, nothing changed", clock.Elapsed.TotalMilliseconds);
+            HeadlessHarness.Assert(File.GetLastWriteTimeUtc(dll) == written, "Unchanged scripts were compiled again.");
+
+            File.WriteAllText(script, "namespace SpeedProbeGame { public static class SpeedProbe { public static int Answer() => 43; } }\n");
+            clock.Restart();
+            HeadlessHarness.Assert(ProjectRunLauncher.CompileScripts(scripted.RootPath).Success, "The edited script did not compile.");
+            Record("Run (F5) with C#: pressed after an edit", clock.Elapsed.TotalMilliseconds);
+            byte[] bytes = File.ReadAllBytes(dll);
+            HeadlessHarness.Assert(File.GetLastWriteTimeUtc(dll) != written || bytes.Length == 0, "An edited script was not compiled again.");
+
+            File.WriteAllText(script, "namespace SpeedProbeGame { public static class SpeedProbe { public static int Answer() => ; } }\n");
+            HeadlessHarness.Assert(!ProjectRunLauncher.CompileScripts(scripted.RootPath).Success, "A broken script was not reported.");
+            File.WriteAllText(script, "namespace SpeedProbeGame { public static class SpeedProbe { public static int Answer() => 43; } }\n");
+            HeadlessHarness.Assert(ProjectRunLauncher.CompileScripts(scripted.RootPath).Success && File.Exists(dll),
+                "Fixing the script did not bring the compiled scripts back.");
         });
 
         if (only.Length == 0 || only.Contains("Player", StringComparer.OrdinalIgnoreCase))
