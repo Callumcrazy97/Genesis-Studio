@@ -76,12 +76,14 @@ namespace Genesis.Rendering.SilkNet.Vulkan
 
             RenderPass previous = _inner.RenderPass;
             RenderPass previousColorOnly = _inner.ColorOnlyRenderPass;
+            RenderPass previousSrgb = _inner.SrgbRenderPass;
             bool rebuilt = _inner.Recreate(width, height);
 
             // Pipelines are only compatible with the pass they were built against, and a resize
             // creates a new one; a draw through a stale pipeline is undefined rather than an error.
             if (previous.Handle != 0) _device.OnSwapChainRecreated(previous);
             if (previousColorOnly.Handle != 0) _device.OnSwapChainRecreated(previousColorOnly);
+            if (previousSrgb.Handle != 0) _device.OnSwapChainRecreated(previousSrgb);
             _needsRecreate = false;
             return rebuilt;
         }

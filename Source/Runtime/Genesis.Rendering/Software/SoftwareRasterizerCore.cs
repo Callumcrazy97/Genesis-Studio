@@ -347,6 +347,15 @@ namespace Genesis.Rendering.Software
             float tintB = inst.Color.Z;
             float tintA = inst.Color.W;
             int blend = (int)inst.DepthPad.Z;
+            // A GUI draw that blends in linear light: colour, texture and screen are decoded from
+            // sRGB, mixed, and the result encoded again (what an sRGB view does on the GPU).
+            bool linear = inst.DepthPad.W > 0.5f;
+            if (linear)
+            {
+                tintR = SrgbToLinear(tintR);
+                tintG = SrgbToLinear(tintG);
+                tintB = SrgbToLinear(tintB);
+            }
 
             float x0 = -ox, y0 = -oy;
             float x1 = w - ox, y1 = -oy;
@@ -447,6 +456,15 @@ namespace Genesis.Rendering.Software
                     float finalA = sampleA * tintA;
                     if (finalA <= 0.005f) continue;
 
+                    if (linear)
+                    {
+                        int dst = pixelRowOffset + px * 4;
+                        if (dst + 3 < framePixels.Length)
+                            BlendLinear(framePixels, dst, SrgbToLinear(sampleR) * tintR, SrgbToLinear(sampleG) * tintG,
+                                SrgbToLinear(sampleB) * tintB, finalA, blend);
+                        continue;
+                    }
+
                     float finalR = sampleR * tintR;
                     float finalG = sampleG * tintG;
                     float finalB = sampleB * tintB;
@@ -492,6 +510,56 @@ namespace Genesis.Rendering.Software
                     }
                 }
             }
+        }
+
+        private static readonly float[] SrgbDecodeTable = BuildSrgbDecodeTable();
+
+        private static float[] BuildSrgbDecodeTable()
+        {
+            var table = new float[256];
+            for (int i = 0; i < table.Length; i++) table[i] = SrgbToLinear(i / 255f);
+            return table;
+        }
+
+        private static float SrgbToLinear(float c)
+        {
+            c = Math.Clamp(c, 0f, 1f);
+            return c <= 0.04045f ? c / 12.92f : MathF.Pow((c + 0.055f) / 1.055f, 2.4f);
+        }
+
+        private static byte LinearToSrgbByte(float c)
+        {
+            c = Math.Clamp(c, 0f, 1f);
+            float encoded = c <= 0.0031308f ? c * 12.92f : (1.055f * MathF.Pow(c, 1f / 2.4f)) - 0.055f;
+            return (byte)Math.Clamp((int)((encoded * 255f) + 0.5f), 0, 255);
+        }
+
+        /// <summary>One pixel blended in linear light: the screen is decoded, mixed and encoded with rounding.</summary>
+        private static void BlendLinear(byte[] framePixels, int dstIdx, float r, float g, float b, float a, int blend)
+        {
+            float dstB = SrgbDecodeTable[framePixels[dstIdx + 0]];
+            float dstG = SrgbDecodeTable[framePixels[dstIdx + 1]];
+            float dstR = SrgbDecodeTable[framePixels[dstIdx + 2]];
+            float outR, outG, outB;
+            switch (blend)
+            {
+                case 1:
+                    outR = (r * a) + dstR; outG = (g * a) + dstG; outB = (b * a) + dstB;
+                    break;
+                case 2:
+                    outR = dstR * ((r * a) + 1 - a); outG = dstG * ((g * a) + 1 - a); outB = dstB * ((b * a) + 1 - a);
+                    break;
+                case 3:
+                    outR = r; outG = g; outB = b;
+                    break;
+                default:
+                    outR = (r * a) + (dstR * (1f - a)); outG = (g * a) + (dstG * (1f - a)); outB = (b * a) + (dstB * (1f - a));
+                    break;
+            }
+            framePixels[dstIdx + 0] = LinearToSrgbByte(outB);
+            framePixels[dstIdx + 1] = LinearToSrgbByte(outG);
+            framePixels[dstIdx + 2] = LinearToSrgbByte(outR);
+            framePixels[dstIdx + 3] = 255;
         }
 
         // ── 3D Mesh Rasterization (Indexed, Non-Indexed, Instanced) ────────────────

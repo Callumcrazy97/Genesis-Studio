@@ -1128,7 +1128,7 @@ internal static class HeadlessTestRunner
     internal static readonly IReadOnlyDictionary<string, string[]> Tiers = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
     {
         ["tier-editor"] = ["studio-foundation", "shell-layout", "resource-names", "code-assistance", "editor-suite", "room-workspace", "model-intake", "model-sprites", "pixel-model", "menu-clips"],
-        ["tier-engine"] = ["engine-systems", "asset-import", "readback-alpha", "post-effects", "large-world", "runtime", "model-system", "debug-screen", "terrain-layers-grass"],
+        ["tier-engine"] = ["engine-systems", "asset-import", "readback-alpha", "post-effects", "large-world", "runtime", "model-system", "debug-screen", "terrain-layers-grass", "gui-linear"],
         ["tier-pgsl"] = ["pgsl-values", "pgsl-cache", "pgsl-scripts", "pgsl-logic", "input-replay", "pgsl-project", "export-pgsl"],
     };
 
@@ -1553,6 +1553,11 @@ internal static class HeadlessTestRunner
                 break;
             case "pgsl-project":
                 Suites.PgslProjectSuite.Run(ctx);
+                break;
+            case "gui-linear":
+                // GUI draws blended in linear light (DrawSetBlendLinear) on every renderer.
+                PrepareFocusedProject(ctx, requireStudioServices: false);
+                Suites.GuiLinearBlendSuite.Run(ctx);
                 break;
             case "model-sprites":
                 Suites.ModelSpriteConversionSuite.Run(ctx);

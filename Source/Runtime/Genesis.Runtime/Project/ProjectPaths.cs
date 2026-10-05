@@ -120,6 +120,29 @@ namespace Genesis.Runtime.Project
             }
         }
 
+        /// <summary>
+        /// The project's <c>rendering.blendGuiInLinearLight</c> setting: whether each GUI draw event
+        /// starts blending in linear light (DrawSetBlendLinear). Off unless the project says so.
+        /// </summary>
+        public static bool ReadBlendGuiInLinearLight(string projectPath)
+        {
+            if (string.IsNullOrEmpty(projectPath) || !Directory.Exists(projectPath)) return false;
+            try
+            {
+                string[] projects = Directory.EnumerateFiles(projectPath, "*.genesisproj", SearchOption.TopDirectoryOnly).ToArray();
+                if (projects.Length != 1) return false;
+                using JsonDocument manifest = JsonDocument.Parse(File.ReadAllText(projects[0]));
+                return manifest.RootElement.TryGetProperty("rendering", out JsonElement rendering)
+                    && rendering.ValueKind == JsonValueKind.Object
+                    && rendering.TryGetProperty("blendGuiInLinearLight", out JsonElement value)
+                    && value.ValueKind == JsonValueKind.True;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+            {
+                return false;
+            }
+        }
+
         public static string ReadStartRoom(string projectPath)
         {
             if (string.IsNullOrEmpty(projectPath)) return null;

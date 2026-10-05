@@ -116,6 +116,18 @@ namespace Genesis.Runtime.Scripting
             _hud?.SetClip(clip.X, clip.Y, clip.Width, clip.Height);
         }
 
+        // DrawSetBlendLinear: later GUI shapes, text and images blend in linear light. Only the
+        // HUD canvas carries it; drawing that does not go there keeps blending as stored.
+        private bool _blendLinear;
+        public bool BlendLinear => _blendLinear;
+
+        public void SetBlendLinear(bool linear)
+        {
+            if (!_isGui || linear == _blendLinear) return;
+            _blendLinear = linear;
+            _hud?.SetBlendLinear(linear);
+        }
+
         private void Rect(float x, float y, float width, float height, Color color, bool filled)
         {
             if (ShapesWithText) _hud.Rect(x, y, width, height, ToVector(color), filled);

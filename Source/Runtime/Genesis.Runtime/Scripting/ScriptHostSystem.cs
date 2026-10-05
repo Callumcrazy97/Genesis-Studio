@@ -515,11 +515,30 @@ namespace Genesis.Runtime.Scripting
                     hud?.Height > 0 ? hud.Height : renderer?.PixelHeight > 0 ? renderer.PixelHeight : 720,
                     projectPath: _context.ResolveAssetPath("."),
                     isGui: true);
+                // Each event starts blending as the project says (Blend GUI in linear light).
+                bool linearDefault = BlendGuiInLinearLight;
+                if (linearDefault) surface.SetBlendLinear(true);
                 try { pgsl.OnDrawGuiFrame(surface); }
                 catch (Exception ex) { LogBehaviorError(b, "PGSL DrawGui", ex); }
-                // One instance's clip rectangle ends with its event.
-                finally { surface.SetClip(System.Drawing.RectangleF.Empty); }
+                // One instance's clip rectangle and blending end with its event.
+                finally
+                {
+                    surface.SetClip(System.Drawing.RectangleF.Empty);
+                    if (linearDefault || surface.BlendLinear) surface.SetBlendLinear(false);
+                }
             }
+        }
+
+        private bool? _blendGuiInLinearLight;
+
+        /// <summary>
+        /// The project's Blend GUI in linear light setting, read from its manifest once per game.
+        /// Settable so a host or a test can decide it without a project file.
+        /// </summary>
+        public bool BlendGuiInLinearLight
+        {
+            get => _blendGuiInLinearLight ??= Genesis.Runtime.Project.ProjectPaths.ReadBlendGuiInLinearLight(_context.ResolveAssetPath("."));
+            set => _blendGuiInLinearLight = value;
         }
 
         /// <summary>Compatibility alias for callers that historically meant the overlay pass.</summary>

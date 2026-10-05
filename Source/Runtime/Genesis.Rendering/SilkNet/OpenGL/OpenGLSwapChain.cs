@@ -28,6 +28,11 @@ namespace Genesis.Rendering.SilkNet.OpenGL
         private readonly IntPtr _hdc;
 
         private uint _framebuffer;
+        // The colour texture seen as sRGB (a texture view) in a framebuffer of its own, for GUI
+        // draws that blend in linear light: with GL_FRAMEBUFFER_SRGB on, blending decodes the
+        // screen, mixes and encodes. Zero where the view could not be made.
+        private uint _srgbView;
+        private uint _srgbFramebuffer;
         private GpuTextureHandle _color = GpuTextureHandle.Invalid;
         private GpuTextureHandle _depth = GpuTextureHandle.Invalid;
         private bool _disposed;
@@ -59,6 +64,9 @@ namespace Genesis.Rendering.SilkNet.OpenGL
 
         /// <summary>The framebuffer object every back-buffer pass renders into.</summary>
         public uint Framebuffer => _framebuffer;
+
+        /// <summary>The same surface through an sRGB view of its colour; zero when there is none.</summary>
+        public uint SrgbFramebuffer => _srgbFramebuffer;
 
         public GpuTextureHandle ColorTexture => _color;
 
@@ -166,12 +174,58 @@ namespace Genesis.Rendering.SilkNet.OpenGL
                 throw new InvalidOperationException(
                     $"The OpenGL viewport framebuffer is incomplete ({status}) at {width}x{height}.");
             }
+
+            CreateSrgbSurface(gl);
+            gl.BindFramebuffer(FramebufferTarget.Framebuffer, _framebuffer);
+        }
+
+        private void CreateSrgbSurface(GL gl)
+        {
+            // RGBA8 and SRGB8_ALPHA8 share a view class, and the colour texture has immutable
+            // storage, so a view of it needs no copy. Optional: without it GUI draws asked to blend
+            // in linear light blend as stored.
+            try
+            {
+                for (int i = 0; i < 16 && gl.GetError() != GLEnum.NoError; i++) { }
+                _srgbView = gl.GenTexture();
+                gl.TextureView(_srgbView, GLEnum.Texture2D, _device.TextureName(_color), GLEnum.Srgb8Alpha8, 0, 1, 0, 1);
+                _srgbFramebuffer = gl.GenFramebuffer();
+                gl.BindFramebuffer(FramebufferTarget.Framebuffer, _srgbFramebuffer);
+                gl.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.ColorAttachment0,
+                    TextureTarget.Texture2D, _srgbView, 0);
+                gl.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.DepthAttachment,
+                    TextureTarget.Texture2D, _device.TextureName(_depth), 0);
+                if (gl.GetError() == GLEnum.NoError
+                    && gl.CheckFramebufferStatus(FramebufferTarget.Framebuffer) == GLEnum.FramebufferComplete)
+                    return;
+            }
+            catch (Exception)
+            {
+                // A driver without texture views keeps the plain surface only.
+            }
+            DestroySrgbSurface(gl);
+        }
+
+        private void DestroySrgbSurface(GL gl)
+        {
+            if (_srgbFramebuffer != 0)
+            {
+                gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+                gl.DeleteFramebuffer(_srgbFramebuffer);
+                _srgbFramebuffer = 0;
+            }
+            if (_srgbView != 0)
+            {
+                gl.DeleteTexture(_srgbView);
+                _srgbView = 0;
+            }
         }
 
         private void DestroySurface()
         {
             GL gl = _runtime.Api;
 
+            DestroySrgbSurface(gl);
             if (_framebuffer != 0)
             {
                 gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);

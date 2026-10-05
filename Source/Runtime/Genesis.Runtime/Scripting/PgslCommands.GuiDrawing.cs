@@ -92,6 +92,13 @@ public static partial class PgslCommands
     [PgslCommand("DrawResetClip", "DrawResetClip()", "Draw everywhere again after DrawSetClip", "Drawing 2D")]
     public static void DrawResetClip() => Draw?.SetClip(RectangleF.Empty);
 
+    [PgslCommand("DrawSetBlendLinear", "DrawSetBlendLinear(enabled)",
+        "Blend later GUI drawing (shapes, text and images) in linear light, as a linear-light UI does, until it is set again or the event ends; the project's Blend GUI in linear light setting is where each event starts", "Drawing 2D")]
+    public static void DrawSetBlendLinear(bool enabled) => Draw?.SetBlendLinear(enabled);
+
+    [PgslCommand("DrawGetBlendLinear", "DrawGetBlendLinear() -> bool", "Whether GUI drawing blends in linear light now", "Drawing 2D")]
+    public static bool DrawGetBlendLinear() => Draw?.BlendLinear ?? false;
+
     [PgslCommand("DrawLineWidth", "DrawLineWidth(x1, y1, x2, y2, width)", "Line of a given width in pixels", "Drawing 2D")]
     public static void DrawLineWidth(double x1, double y1, double x2, double y2, double width) =>
         Draw?.DrawLine((float)x1, (float)y1, (float)x2, (float)y2, CurrentColor(), (float)Math.Clamp(width, 0.1, 512));

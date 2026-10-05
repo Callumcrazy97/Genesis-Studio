@@ -50,6 +50,8 @@ namespace Genesis.Runtime.Project
         public void SetClip(float x, float y, float width, float height)
             => _overlay.SetClip(new Vector4(x, y, width, height));
 
+        public void SetBlendLinear(bool linear) => _overlay.SetBlendLinear(linear);
+
         public bool SupportsSprites => _overlay.SupportsSprites;
 
         public void Sprite(in SpriteDrawCall call) => _overlay.DrawSprite(call);

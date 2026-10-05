@@ -92,6 +92,7 @@ public sealed class PreferencesForm : DpiAwareForm
     private readonly NumericUpDown _fogThickness = new();
     private readonly NumericUpDown _fogAlpha = new();
     private readonly CheckBox _allowEscapeToClose = new();
+    private readonly CheckBox _blendGuiInLinearLight = new() { Name = "BlendGuiInLinearLightPicker" };
 
     private readonly Genesis.Application.Studio.Controls.AnimatedIconPlayer _projectIconPreview = new() { Size = new Size(128, 128), SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.FromArgb(40, 44, 52), Cursor = Cursors.Hand };
     private readonly NumericUpDown _projectIconFps = new();
@@ -704,6 +705,7 @@ public sealed class PreferencesForm : DpiAwareForm
 
         ConfigureCheckBox(_allowEscapeToClose, "Allow ESC to close the game");
         ConfigureCheckBox(_fogEnabled, "Enable engine-default fog");
+        ConfigureCheckBox(_blendGuiInLinearLight, "Blend GUI in linear light");
 
         _fogColor.Size = new Size(120, 32);
         _fogColor.MaxLength = 7;
@@ -723,6 +725,11 @@ public sealed class PreferencesForm : DpiAwareForm
         page.Controls.Add(Field("Fog depth / start (3D distance; 2D Z/layer depth)", _fogDepth));
         page.Controls.Add(Field("Fog thickness", _fogThickness));
         page.Controls.Add(Field("Fog alpha (%)", _fogAlpha));
+        page.Controls.Add(_blendGuiInLinearLight);
+        page.Controls.Add(Note(
+            "Draw GUI shapes, text and images mix with the screen in linear light, as a linear-light UI "
+            + "does (a white panel at 8% over black shows as 80/255, not 20/255). DrawSetBlendLinear "
+            + "switches it per draw. Off renders exactly as before."));
 
         ConfigureNumeric(_projectIconFps, 0, 60, 1, 80);
         _projectIconFps.DecimalPlaces = 0;
@@ -1411,6 +1418,7 @@ public sealed class PreferencesForm : DpiAwareForm
         ProjectRenderingSettings fog = _project?.Manifest.Rendering ?? new ProjectRenderingSettings();
         _allowEscapeToClose.Checked = _project?.Manifest.Runtime?.AllowEscapeToClose ?? true;
         _fogEnabled.Checked = fog.FogEnabled;
+        _blendGuiInLinearLight.Checked = fog.BlendGuiInLinearLight;
         _fogColor.Text = NormalizeFogHex(fog.FogColorHex);
 
         if (_project != null && _project.Manifest != null)
@@ -1547,6 +1555,7 @@ public sealed class PreferencesForm : DpiAwareForm
 
         ProjectRenderingSettings fog = _project.Manifest.Rendering;
         fog.FogEnabled = _fogEnabled.Checked;
+        fog.BlendGuiInLinearLight = _blendGuiInLinearLight.Checked;
         fog.FogColorHex = NormalizeFogHex(_fogColor.Text);
         fog.FogStart = (float)_fogDepth.Value;
         fog.FogEnd = fog.FogStart + Math.Max(0.1f, (float)_fogThickness.Value);

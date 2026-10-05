@@ -152,6 +152,12 @@ namespace Genesis.Rendering.Abstractions
         public GpuAttachmentAction   DepthAction;
         public bool                  HasDepth;
         public string                DebugName;
+        /// <summary>
+        /// For a back-buffer pass: draw through an sRGB view of it, so blending decodes the screen,
+        /// mixes in linear light and encodes the result. Only honoured where
+        /// <see cref="GpuCapabilities.SupportsLinearBlendPass"/> says so; ignored on offscreen targets.
+        /// </summary>
+        public bool                  LinearBlend;
 
         public static GpuRenderPassDesc BackBuffer(GpuAttachmentAction color, GpuAttachmentAction depth) =>
             new GpuRenderPassDesc

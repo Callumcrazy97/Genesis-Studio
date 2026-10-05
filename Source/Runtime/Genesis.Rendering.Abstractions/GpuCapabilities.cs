@@ -33,6 +33,13 @@ namespace Genesis.Rendering.Abstractions
         public bool SupportsComputeShaders;
         public bool SupportsIndirectDraw;
 
+        /// <summary>
+        /// True when a back-buffer pass can blend in linear light (<see cref="GpuRenderPassDesc.LinearBlend"/>):
+        /// the screen is decoded from sRGB, blended and encoded again. Where it is false, GUI draws
+        /// asked to blend in linear light blend the stored sRGB values as before.
+        /// </summary>
+        public bool SupportsLinearBlendPass;
+
         public int  MaxTextureArrayLayers;
         public int  MaxAnisotropy;
         public int  MaxColorAttachments;

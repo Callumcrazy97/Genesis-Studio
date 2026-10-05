@@ -56,6 +56,8 @@ namespace Genesis.Rendering.Core
 
         private readonly OverlayCommandList _overlayCommands = new();
         private Vector4 _overlayClip;
+        // The overlay command being submitted blends in linear light (and the device can).
+        private bool _overlayLinear;
         private readonly List<GlyphQuad> _glyphQuads = new();
         private GlyphAtlas _glyphAtlas;
         private GpuTextureHandle _glyphAtlasGpuTexture = GpuTextureHandle.Invalid;
@@ -168,7 +170,8 @@ namespace Genesis.Rendering.Core
             int width,
             int height,
             bool clearDepth,
-            string debugName)
+            string debugName,
+            bool linearBlend = false)
         {
             GpuRenderPassDesc desc = new()
             {
@@ -180,6 +183,7 @@ namespace Genesis.Rendering.Core
                     : GpuAttachmentAction.Keep(),
                 HasDepth = true,
                 DebugName = debugName,
+                LinearBlend = linearBlend,
             };
 
             _gpu.BeginRenderPass(desc);
@@ -453,8 +457,22 @@ namespace Genesis.Rendering.Core
             bool submitted = false;
             _glyphQuads.Clear();
 
+            // Draws that blend in linear light go through the back buffer's sRGB view, so the
+            // overlay is drawn as runs of passes, one per change of blending, in authored order.
+            // A frame without them (or a device without that view) is drawn in one pass as before.
+            bool linearPasses = _overlayCommands.HasLinearCommands && _gpu.Capabilities.SupportsLinearBlendPass;
+            bool segmentLinear = false;
+            bool drawn = false;
+
             foreach (OverlayCommand command in _overlayCommands.Commands)
             {
+                if (linearPasses && command.Linear != segmentLinear)
+                {
+                    if (submitted || (_spr?.HasPending ?? false)) drawn |= DrawOverlayRun(segmentLinear);
+                    submitted = false;
+                    segmentLinear = command.Linear;
+                }
+                _overlayLinear = linearPasses && command.Linear;
                 // A GUI clip rectangle travels with each command and becomes each quad's scissor.
                 _overlayClip = command.Clip;
                 switch (command.Kind)
@@ -479,6 +497,7 @@ namespace Genesis.Rendering.Core
                     {
                         SpriteDrawCall sprite = command.Sprite;
                         sprite.Depth = OverlayDepth;
+                        if (_overlayLinear) sprite.LinearLight = true;
                         if (_overlayClip.Z > 0f && _overlayClip.W > 0f)
                             sprite.ClipRect = IntersectClip(sprite.ClipRect, _overlayClip);
                         _spr?.Submit(sprite);
@@ -498,7 +517,15 @@ namespace Genesis.Rendering.Core
             }
 
             _overlayClip = default;
+            _overlayLinear = false;
             _overlayCommands.Reset(_gpuSwapChain.Width, _gpuSwapChain.Height);
+
+            if (linearPasses)
+            {
+                if (submitted) return DrawOverlayRun(segmentLinear) | drawn;
+                UploadNewGlyphs();
+                return drawn;
+            }
 
             // Newly rasterised glyphs are the only CPU→GPU traffic the overlay ever generates, and
             // only on a glyph's first appearance. A steady HUD drains nothing here.
@@ -511,6 +538,22 @@ namespace Genesis.Rendering.Core
                 _gpuSwapChain.Width, _gpuSwapChain.Height, clearDepth: false, "Controller.OverlayCompose");
 
             // The overlay is screen-space, like the GUI sprite pass: legible whatever the room's fog.
+            _spr?.SetFog(RoomFogState.Disabled);
+            _spr?.Flush(_gpuSwapChain.Width, _gpuSwapChain.Height, ResolveGpuTexture, _whiteTexture,
+                _gpuSwapChain.Width / 2f, _gpuSwapChain.Height / 2f, 1f);
+            _spr?.SetFog(_spriteFog);
+            _gpu.EndRenderPass();
+            return true;
+        }
+
+        /// <summary>Draws the overlay quads submitted so far in one pass, through the sRGB view when linear.</summary>
+        private bool DrawOverlayRun(bool linear)
+        {
+            UploadNewGlyphs();
+            _spr?.UploadPendingInstances();
+            BeginPass(GpuRenderTargetHandle.Invalid, GpuTextureHandle.Invalid,
+                _gpuSwapChain.Width, _gpuSwapChain.Height, clearDepth: false,
+                linear ? "Controller.OverlayComposeLinear" : "Controller.OverlayCompose", linearBlend: linear);
             _spr?.SetFog(RoomFogState.Disabled);
             _spr?.Flush(_gpuSwapChain.Width, _gpuSwapChain.Height, ResolveGpuTexture, _whiteTexture,
                 _gpuSwapChain.Width / 2f, _gpuSwapChain.Height / 2f, 1f);
@@ -565,6 +608,7 @@ namespace Genesis.Rendering.Core
                 Depth = OverlayDepth,
                 UvRect = OverlaySolidUv,
                 ClipRect = _overlayClip,
+                LinearLight = _overlayLinear,
             });
         }
 
@@ -599,6 +643,7 @@ namespace Genesis.Rendering.Core
                 Depth = OverlayDepth,
                 UvRect = OverlaySolidUv,
                 ClipRect = _overlayClip,
+                LinearLight = _overlayLinear,
             });
         }
 
@@ -630,6 +675,7 @@ namespace Genesis.Rendering.Core
                     Depth = OverlayDepth,
                     UvRect = new Vector4(quad.U0, quad.V0, quad.U1, quad.V1),
                     ClipRect = _overlayClip,
+                    LinearLight = _overlayLinear,
                 });
             }
 

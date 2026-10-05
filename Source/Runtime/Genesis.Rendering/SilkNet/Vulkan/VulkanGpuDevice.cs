@@ -98,6 +98,8 @@ namespace Genesis.Rendering.SilkNet.Vulkan
                 SupportsTimestampQueries = false,
                 SupportsComputeShaders = true,
                 SupportsIndirectDraw = true,
+                // Swap-chain images get sRGB views where VK_KHR_swapchain_mutable_format is present.
+                SupportsLinearBlendPass = _runtime.SwapchainMutableFormatEnabled,
                 MaxTextureArrayLayers = 2048,
                 MaxAnisotropy = 16,
                 MaxColorAttachments = 8,
@@ -383,6 +385,14 @@ namespace Genesis.Rendering.SilkNet.Vulkan
                 _activeFramebuffer = useDepth
                     ? swapChain.Inner.AcquiredFramebuffer
                     : swapChain.Inner.AcquiredColorOnlyFramebuffer;
+                // A linear-light pass draws through the images' sRGB views (pipelines are cached
+                // per render pass, so it gets its own).
+                if (desc.LinearBlend && useDepth && swapChain.Inner.SrgbRenderPass.Handle != 0
+                    && swapChain.Inner.AcquiredSrgbFramebuffer.Handle != 0)
+                {
+                    _activeRenderPass = swapChain.Inner.SrgbRenderPass;
+                    _activeFramebuffer = swapChain.Inner.AcquiredSrgbFramebuffer;
+                }
                 _passWidth = swapChain.Inner.Width;
                 _passHeight = swapChain.Inner.Height;
                 _passColorCount = 1;

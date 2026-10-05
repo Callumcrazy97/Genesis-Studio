@@ -160,6 +160,14 @@ public sealed class ProjectRenderingSettings
 
     /// <summary>AF1.5 project override for the local volumetric light budget (0–4, default 1).</summary>
     public int LocalVolumetricLightBudget { get; set; } = 1;
+
+    /// <summary>
+    /// Blend the GUI (a Draw GUI event's shapes, text and images) in linear light, as a linear-light
+    /// UI does: a white panel at 8% over black shows as 80/255 rather than 20/255. Each event starts
+    /// this way and <c>DrawSetBlendLinear</c> switches it per draw. Off by default, so existing
+    /// games render exactly as before.
+    /// </summary>
+    public bool BlendGuiInLinearLight { get; set; }
 }
 
 public sealed record ProjectSession(

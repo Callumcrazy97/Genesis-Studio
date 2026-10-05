@@ -34,6 +34,9 @@ namespace Genesis.Rendering.SilkNet.DX11
 
         private ComPtr<IDXGISwapChain1>        _swapChain;
         private ComPtr<ID3D11RenderTargetView> _rtv;
+        // The same back buffer seen as sRGB, for GUI draws that blend in linear light. Flip-model
+        // buffers may not be sRGB themselves, but they take an sRGB view.
+        private ComPtr<ID3D11RenderTargetView> _srgbRtv;
         private ComPtr<ID3D11Texture2D>        _depthTex;
         private ComPtr<ID3D11DepthStencilView> _dsv;
         private ComPtr<ID3D11ShaderResourceView> _depthSrv;
@@ -42,6 +45,8 @@ namespace Genesis.Rendering.SilkNet.DX11
         public int Height { get; private set; }
 
         public ID3D11RenderTargetView* Rtv => _rtv.Handle;
+        /// <summary>An sRGB view of the back buffer; null where the driver refused one.</summary>
+        public ID3D11RenderTargetView* SrgbRtv => _srgbRtv.Handle;
         public ID3D11DepthStencilView* Dsv => _dsv.Handle;
         public nint DepthSrv => (nint)_depthSrv.Handle;
         internal ID3D11Texture2D* DepthTextureHandle => _depthTex.Handle;
@@ -354,6 +359,18 @@ namespace Genesis.Rendering.SilkNet.DX11
             SilkMarshal.ThrowHResult(dev->CreateRenderTargetView((ID3D11Resource*)bb, null, &rtv));
             _rtv = new ComPtr<ID3D11RenderTargetView>(rtv);
             DropCreationReference(rtv);
+
+            var srgbDesc = new RenderTargetViewDesc
+            {
+                Format = Format.FormatB8G8R8A8UnormSrgb,
+                ViewDimension = RtvDimension.Texture2D,
+            };
+            ID3D11RenderTargetView* srgbRtv = null;
+            if (dev->CreateRenderTargetView((ID3D11Resource*)bb, &srgbDesc, &srgbRtv) >= 0 && srgbRtv != null)
+            {
+                _srgbRtv = new ComPtr<ID3D11RenderTargetView>(srgbRtv);
+                DropCreationReference(srgbRtv);
+            }
             bb->Release();
 
             // Depth/stencil (D24S8, matches EngineTest).
@@ -430,6 +447,7 @@ namespace Genesis.Rendering.SilkNet.DX11
                 ctx->OMSetRenderTargets(0, (ID3D11RenderTargetView**)null, (ID3D11DepthStencilView*)null);
 
             _rtv.Dispose();      _rtv      = default;
+            _srgbRtv.Dispose();  _srgbRtv  = default;
             _dsv.Dispose();      _dsv      = default;
             _depthSrv.Dispose(); _depthSrv = default;
             _depthTex.Dispose(); _depthTex = default;

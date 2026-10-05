@@ -35,6 +35,8 @@ namespace Genesis.Shared.Overlay
         public readonly Vector4 Clip;
         /// <summary>The textured quad of a <see cref="OverlayCommandKind.Sprite"/> command.</summary>
         public readonly SpriteDrawCall Sprite;
+        /// <summary>Blended in linear light rather than on the stored sRGB values (DrawSetBlendLinear).</summary>
+        public readonly bool Linear;
 
         public OverlayCommand(
             OverlayCommandKind kind,
@@ -51,8 +53,10 @@ namespace Genesis.Shared.Overlay
             Vector4 color,
             float tracking = 0f,
             Vector4 clip = default,
-            SpriteDrawCall sprite = default)
+            SpriteDrawCall sprite = default,
+            bool linear = false)
         {
+            Linear = linear;
             Tracking = tracking;
             Clip = clip;
             Sprite = sprite;
@@ -86,6 +90,7 @@ namespace Genesis.Shared.Overlay
         private readonly List<OverlayCommand> _commands = new();
         private ulong _hash = Fnv1aOffset;
         private Vector4 _clip;
+        private bool _linear;
 
         private const ulong Fnv1aOffset = 14695981039346656037;
         private const ulong Fnv1aPrime = 1099511628211;
@@ -109,6 +114,8 @@ namespace Genesis.Shared.Overlay
         {
             _commands.Clear();
             _clip = default;
+            _linear = false;
+            HasLinearCommands = false;
             Width = width;
             Height = height;
             _hash = Fnv1aOffset;
@@ -161,6 +168,12 @@ namespace Genesis.Shared.Overlay
         public void SetClip(Vector4 clip) =>
             _clip = clip.Z > 0f && clip.W > 0f ? clip : default;
 
+        /// <summary>Every command added after this blends in linear light, or not, until the next call or frame.</summary>
+        public void SetBlendLinear(bool linear) => _linear = linear;
+
+        /// <summary>True when any recorded command blends in linear light.</summary>
+        public bool HasLinearCommands { get; private set; }
+
         public void DrawTextCentered(
             string text,
             float centerX,
@@ -208,16 +221,21 @@ namespace Genesis.Shared.Overlay
 
         private void Add(OverlayCommand command)
         {
-            if (_clip != default || command.Tracking != 0f)
+            if (_clip != default || command.Tracking != 0f || _linear)
             {
                 command = new OverlayCommand(command.Kind, command.Text, command.FontFamily, command.Bold, command.Filled,
                     command.A, command.B, command.C, command.D, command.Size, command.Stroke, command.Color,
-                    command.Tracking, _clip, command.Sprite);
+                    command.Tracking, _clip, command.Sprite, _linear);
                 Hash(command.Tracking);
                 Hash(_clip.X);
                 Hash(_clip.Y);
                 Hash(_clip.Z);
                 Hash(_clip.W);
+                if (_linear)
+                {
+                    Hash(0x4C494E); // Only hashed when set, so a frame without it hashes as before.
+                    HasLinearCommands = true;
+                }
             }
             _commands.Add(command);
             Hash((int)command.Kind);

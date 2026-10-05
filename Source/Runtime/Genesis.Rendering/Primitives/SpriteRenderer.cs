@@ -342,6 +342,9 @@ namespace Genesis.Rendering.Primitives
             _gpu.ReleaseShaderProgram(program);
         }
 
+        /// <summary>True while sprites are waiting for <see cref="Flush"/>.</summary>
+        public bool HasPending => _pending.Count > 0;
+
         public void SetSamplerFilter(SamplerFilter filter) => _samplerFilter = filter;
 
         public void SetFog(RoomFogState fog) => _fog = fog;
@@ -692,7 +695,7 @@ namespace Genesis.Rendering.Primitives
             // x drives the orthographic clip-space Z. y preserves the authored 2D Z/layer
             // depth so fog can use the same conceptual depth axis as 3D without confusing it with
             // the renderer's normalized clip-depth encoding.
-            instance.DepthPad = new Vector4(DepthToWorldZ(call.Depth), call.Depth, (float)call.Blend, 0f);
+            instance.DepthPad = new Vector4(DepthToWorldZ(call.Depth), call.Depth, (float)call.Blend, call.LinearLight ? 1f : 0f);
             Vector4 uv = call.UvRect;
             if (uv.Z <= uv.X || uv.W <= uv.Y) uv = new Vector4(0f, 0f, 1f, 1f);
             instance.UvRect = uv;

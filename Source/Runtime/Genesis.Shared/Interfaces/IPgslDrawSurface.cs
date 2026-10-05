@@ -38,6 +38,15 @@ namespace Genesis.Shared.Interfaces
         void SetClip(RectangleF clip) { }
 
         /// <summary>
+        /// Whether later GUI drawing blends in linear light (DrawSetBlendLinear) rather than on the
+        /// stored sRGB values. Surfaces that cannot ignore it.
+        /// </summary>
+        void SetBlendLinear(bool linear) { }
+
+        /// <summary>What <see cref="SetBlendLinear"/> last set.</summary>
+        bool BlendLinear => false;
+
+        /// <summary>
         /// Part of an image frame into a rectangle: <paramref name="source"/> is in fractions of the
         /// frame (0 to 1), so (0.25, 0, 0.5, 1) is the middle half of its width.
         /// </summary>

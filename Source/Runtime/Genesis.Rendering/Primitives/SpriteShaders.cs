@@ -26,7 +26,7 @@ struct SpriteInstanceData
     float4 PosOrigin; // xy = position, zw = origin
     float4 SizeRot;   // xy = width/height, zw = cos/sin rotation
     float4 Color;
-    float4 DepthPad;  // x = clip-space Z, y = authored 2D Z/layer depth
+    float4 DepthPad;  // x = clip-space Z, y = authored 2D Z/layer depth, z = blend, w = 1 in linear light
     float4 UvRect;    // u0,v0,u1,v1 — zero extent = full texture
 };
 
@@ -48,7 +48,18 @@ struct VSOut
     float4 Color    : COLOR;
     float  FogDepth : TEXCOORD1;
     nointerpolation float Blend : TEXCOORD2;
+    nointerpolation float Linear : TEXCOORD3;
 };
+
+// The exact sRGB curve: a GUI draw blended in linear light has its colour and texture decoded
+// here, and the pass's sRGB view of the screen decodes, blends and encodes the rest.
+float3 SrgbToLinear(float3 c)
+{
+    c = saturate(c);
+    float3 low = c / 12.92;
+    float3 high = pow((c + 0.055) / 1.055, 2.4);
+    return lerp(high, low, step(c, 0.04045));
+}
 
 VSOut VS(VSIn IN, uint instanceId : SV_InstanceID)
 {
@@ -76,6 +87,7 @@ VSOut VS(VSIn IN, uint instanceId : SV_InstanceID)
     OUT.Color    = inst.Color;
     OUT.FogDepth = inst.DepthPad.y;
     OUT.Blend = inst.DepthPad.z;
+    OUT.Linear = inst.DepthPad.w;
     return OUT;
 }
 
@@ -83,6 +95,8 @@ float4 PS(VSOut IN) : SV_Target
 {
     float4 tex = SpriteTex.Sample(SpriteSamp, IN.UV);
     float4 col = tex * IN.Color;
+    if (IN.Linear > 0.5)
+        col.rgb = SrgbToLinear(tex.rgb) * SrgbToLinear(IN.Color.rgb);
     // wgpu/Naga requires every VS interpolator location to exist on the FS. DXC -O3 can
     // drop FogDepth because it is only read behind a uniform FogParams branch.
     if (IN.FogDepth + IN.UV.x + IN.Color.x < -1e20)
