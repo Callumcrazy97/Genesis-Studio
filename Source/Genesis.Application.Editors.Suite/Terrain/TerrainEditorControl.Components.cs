@@ -44,6 +44,12 @@ public sealed partial class TerrainEditorControl
 
     public void AddPaintLayer(string? name = null)
     {
+        // Two RGBA splat planes hold eight paint layers.
+        if (_settings.Layers.Count >= Genesis.World.Terrain.TerrainAsset.MaximumPaintLayers)
+        {
+            _statusLabel.Text = $"A terrain holds up to {Genesis.World.Terrain.TerrainAsset.MaximumPaintLayers} paint layers.";
+            return;
+        }
         List<TerrainLayerDocument> before = CloneLayers(_settings.Layers);
         List<TerrainLayerDocument> after = CloneLayers(before);
         after.Add(new TerrainLayerDocument

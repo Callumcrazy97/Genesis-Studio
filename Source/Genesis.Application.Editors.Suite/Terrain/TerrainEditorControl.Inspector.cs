@@ -549,7 +549,7 @@ public sealed partial class TerrainEditorControl
         }
         if (_selectedComponentKind is null || string.IsNullOrWhiteSpace(_selectedComponentId))
         {
-            _selectionInspector.ShowTerrainMaterials(_settings.Layers.Take(4).Select((layer, index) => (layer.Name, layer.Image, (Action)(() => OpenLayerMaterial(index)))));
+            _selectionInspector.ShowTerrainMaterials(_settings.Layers.Take(Genesis.World.Terrain.TerrainAsset.MaximumPaintLayers).Select((layer, index) => (layer.Name, layer.Image, (Action)(() => OpenLayerMaterial(index)))));
             return;
         }
 
@@ -720,7 +720,7 @@ public sealed partial class TerrainEditorControl
             return;
         }
         _selectedComponentKind = null; _selectedComponentId = null;
-        _selectionInspector.ShowTerrainMaterials(_settings.Layers.Take(4).Select((layer, index) => (layer.Name, layer.Image, (Action)(() => OpenLayerMaterial(index)))));
+        _selectionInspector.ShowTerrainMaterials(_settings.Layers.Take(Genesis.World.Terrain.TerrainAsset.MaximumPaintLayers).Select((layer, index) => (layer.Name, layer.Image, (Action)(() => OpenLayerMaterial(index)))));
     }
 
     private void ApplySelectionInspectorFields(TerrainSelectionFields fields)

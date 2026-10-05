@@ -5,6 +5,7 @@ using Genesis.Application.Core.Resources;
 using Genesis.Application.Editors.Suite.UiKit;
 using Genesis.Application.Editors.Suite.Inspector;
 using Genesis.Shared.Interfaces;
+using Genesis.World.Terrain;
 
 namespace Genesis.Application.Editors.Suite.Terrain;
 
@@ -112,10 +113,20 @@ public sealed partial class TerrainEditorControl
             _nextMaterialCheck = DateTime.MinValue; _viewport.Invalidate();
             if (!dialog.IsDisposed) Refresh();
         };
+        // Terrain-wide: per-layer tiled normal/ORM maps (always on above four layers) and height blending.
+        var tiledMaps = new CheckBox { Name = "TerrainTiledLayerMaps", Text = "Tile each layer's normal and ORM maps", AutoSize = true,
+            Checked = _settings.TiledLayerMaps, ForeColor = EditorChrome.Text };
+        var sharpness = new NumericUpDown { Name = "TerrainHeightBlendSharpness", Minimum = 0, Maximum = 1, DecimalPlaces = 2, Increment = .05m,
+            Value = (decimal)Math.Clamp(_settings.HeightBlendSharpness, 0f, 1f), Width = 120 };
+        EditorChrome.StyleField(sharpness);
+        void BlendingChanged() => SetLayerSurfaceOptions(tiledMaps.Checked, (float)sharpness.Value);
+        tiledMaps.CheckedChanged += (_, _) => BlendingChanged(); sharpness.ValueChanged += (_, _) => BlendingChanged();
         column.Controls.AddRange([image, colour, name, status, generate,
             new Label { Text = "Addressing (Tile uses metres per tile)", AutoSize = true }, addressing,
             new Label { Text = "Repeat count / tile size", AutoSize = true }, tiling,
-            new Label { Text = "Material map resolution", AutoSize = true }, resolution]);
+            new Label { Text = "Material map resolution", AutoSize = true }, resolution,
+            new Label { Text = "All layers · blending (more than four layers always tile their maps)", AutoSize = true }, tiledMaps,
+            new Label { Text = "Height blend sharpness (0 = linear; layers meet along their albedo alpha)", AutoSize = true }, sharpness]);
         column.Controls.Add(new Label { Text = "Changes apply live. Ctrl+Z in Terrain undoes them.", AutoSize = true, ForeColor = EditorChrome.Muted });
         dialog.Controls.Add(column);
         Button done = new() { Text = "Done", AutoSize = true, DialogResult = DialogResult.OK };
@@ -182,16 +193,39 @@ public sealed partial class TerrainEditorControl
         UpdatePaintPreview();
         if (_materialPreparation is not null || DateTime.UtcNow < _nextMaterialCheck) return;
         _nextMaterialCheck = DateTime.UtcNow.AddSeconds(1);
-        var layers = CloneLayers(_settings.Layers.Take(4));
+        var layers = CloneLayers(_settings.Layers.Take(TerrainAsset.MaximumPaintLayers));
+        var options = SurfaceOptions;
         string signature = string.Join('|', layers.Select(layer => $"{layer.Image}:{layer.Tiling}:{layer.Addressing}:{layer.Resolution}:{string.Join(',', layer.Color)}:{MaterialSourceTimestamp(layer.Image)}"))
-            + $"|{System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(_terrain)}:{_terrain.ResolutionX}:{_terrain.ResolutionZ}:{_terrain.CellSize}";
+            + $"|{System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(_terrain)}:{_terrain.ResolutionX}:{_terrain.ResolutionZ}:{_terrain.CellSize}"
+            + $"|{options.TiledLayerMaps}:{options.HeightBlendSharpness}";
         if (signature == _materialSignature) return;
         _pendingMaterialSignature = signature;
-        byte[] splats = (byte[])_terrain.SplatmapData.Clone(); int width = _terrain.ResolutionX, height = _terrain.ResolutionZ;
+        byte[] splats = _terrain.CaptureSplatState(); int width = _terrain.ResolutionX, height = _terrain.ResolutionZ;
         _materialPaintVersion = _paintVersion;
         MaterialPreviewStatus = "Preparing terrain material…";
         float worldWidth = (width - 1) * _terrain.CellSize, worldHeight = (height - 1) * _terrain.CellSize;
-        _materialPreparation = Task.Run(() => BakeSurface(layers, splats, width, height, worldWidth, worldHeight));
+        _materialPreparation = Task.Run(() => BakeSurface(layers, splats, width, height, worldWidth, worldHeight, options));
+    }
+
+    private TerrainSurfaceOptions SurfaceOptions => new(_settings.TiledLayerMaps,
+        float.IsFinite(_settings.HeightBlendSharpness) ? Math.Clamp(_settings.HeightBlendSharpness, 0f, 1f) : 0f);
+
+    /// <summary>True while the terrain draws each layer's own tiled normal/ORM maps (eight-layer shader).</summary>
+    public bool UsesLayerAtlas => _surfacePixels?.Atlas is not null;
+
+    /// <summary>Per-layer tiled normal/ORM maps and height blending (undoable, applied live).</summary>
+    public void SetLayerSurfaceOptions(bool tiledLayerMaps, float heightBlendSharpness)
+    {
+        float sharpness = float.IsFinite(heightBlendSharpness) ? Math.Clamp(heightBlendSharpness, 0f, 1f) : 0f;
+        bool beforeTiled = _settings.TiledLayerMaps; float beforeSharpness = _settings.HeightBlendSharpness;
+        if (beforeTiled == tiledLayerMaps && beforeSharpness == sharpness) return;
+        void Apply(bool tiled, float value)
+        {
+            _settings.TiledLayerMaps = tiled; _settings.HeightBlendSharpness = value;
+            _nextMaterialCheck = DateTime.MinValue; _viewport.Invalidate();
+        }
+        Apply(tiledLayerMaps, sharpness);
+        PushEdit("Change terrain layer blending", () => Apply(tiledLayerMaps, sharpness), () => Apply(beforeTiled, beforeSharpness));
     }
 
     private long MaterialSourceTimestamp(string? image)
@@ -201,11 +235,12 @@ public sealed partial class TerrainEditorControl
         return string.IsNullOrWhiteSpace(path) || !File.Exists(path) ? 0 : File.GetLastWriteTimeUtc(path).Ticks;
     }
 
-    private SurfacePixels BakeSurface(List<TerrainLayerDocument> layers, byte[] splats, int width, int height, float worldWidth, float worldHeight)
+    private SurfacePixels BakeSurface(List<TerrainLayerDocument> layers, byte[] splats, int width, int height, float worldWidth, float worldHeight,
+        TerrainSurfaceOptions options)
     {
         var authored = layers.Select(layer => new TerrainMaterialLayer { Name = layer.Name, Color = (float[])layer.Color.Clone(),
             Image = layer.Image, Tiling = layer.Tiling, Addressing = layer.Addressing, Resolution = layer.Resolution }).ToList();
-        return TerrainSurfaceMaterialBaker.Bake(ProjectRoot, authored, splats, width, height, worldWidth, worldHeight);
+        return TerrainSurfaceMaterialBaker.Bake(ProjectRoot, authored, splats, width, height, worldWidth, worldHeight, options: options);
     }
     // Brush input invalidates only the affected atlas area. Image loading and full material
     // preparation are independent; neither the inspector nor terrain meshes change for paint.
@@ -246,7 +281,7 @@ public sealed partial class TerrainEditorControl
             Math.Min(size, (int)Math.Ceiling((cells.Right + 1f) / (width - 1) * (size - 1)) + 1),
             Math.Min(size, (int)Math.Ceiling((cells.Bottom + 1f) / (height - 1) * (size - 1)) + 1));
         if (area.Width <= 0 || area.Height <= 0) return;
-        byte[] splats = (byte[])_terrain.SplatmapData.Clone();
+        byte[] splats = _terrain.CaptureSplatState();
         _paintPreparation = Task.Run(() =>
         {
             int length = area.Width * area.Height * 4;
@@ -263,12 +298,12 @@ public sealed partial class TerrainEditorControl
         {
             if (_surfaceUploadVersions.GetValueOrDefault(renderer, -1) != _paintUploadVersion)
             {
-                TerrainSurfaceMaterialBinding.UpdatePaint(renderer, existing, pixels, _terrain.SplatmapData, _terrain.ResolutionX, _terrain.ResolutionZ);
+                TerrainSurfaceMaterialBinding.UpdatePaint(renderer, existing, pixels, _terrain.CaptureSplatState(), _terrain.ResolutionX, _terrain.ResolutionZ);
                 _surfaceUploadVersions[renderer] = _paintUploadVersion;
             }
             return existing;
         }
-        var material = TerrainSurfaceMaterialBinding.Create(renderer, pixels, _terrain.SplatmapData, _terrain.ResolutionX, _terrain.ResolutionZ);
+        var material = TerrainSurfaceMaterialBinding.Create(renderer, pixels, _terrain.CaptureSplatState(), _terrain.ResolutionX, _terrain.ResolutionZ);
         _surfaceMaterials[renderer] = material; _surfaceUploadVersions[renderer] = _paintUploadVersion; return material;
     }
 

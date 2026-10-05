@@ -74,7 +74,7 @@ public sealed partial class TerrainEditorControl
         TerrainPathSettings settings = Clone(_pathAuthoringSettings);
         List<TerrainPathDefinition> oldPaths = Clone(_nature.Paths);
         ushort[] oldHeights = (ushort[])_terrain.HeightsData.Clone();
-        byte[] oldSplat = (byte[])_terrain.SplatmapData.Clone();
+        byte[] oldSplat = _terrain.CaptureSplatState();
 
         List<Vector3> points = [];
         foreach (Vector3 sample in _pathStrokePoints)
@@ -98,7 +98,7 @@ public sealed partial class TerrainEditorControl
         network.ApplyTo(_terrain, settings.GradeStrength, settings.SplatChannel);
 
         ushort[] nextHeights = (ushort[])_terrain.HeightsData.Clone();
-        byte[] nextSplat = (byte[])_terrain.SplatmapData.Clone();
+        byte[] nextSplat = _terrain.CaptureSplatState();
 
         void ApplyPaths(TerrainPathSettings pathSettings, List<TerrainPathDefinition> paths, ushort[] heights, byte[] splat)
         {

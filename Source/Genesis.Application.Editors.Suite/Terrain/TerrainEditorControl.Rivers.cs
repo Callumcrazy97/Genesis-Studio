@@ -245,7 +245,7 @@ public sealed partial class TerrainEditorControl
     private void ReplaceAuthoredRiver(TerrainWaterDefinition river, bool carve)
     {
         ushort[] heightsBefore = (ushort[])_terrain.HeightsData.Clone();
-        byte[] splatBefore = (byte[])_terrain.SplatmapData.Clone();
+        byte[] splatBefore = _terrain.CaptureSplatState();
         List<TerrainWaterDefinition> waterBefore = Clone(_nature.WaterBodies);
         FoliageField foliageBefore = _foliage;
         Dictionary<string, HeldFoliageInstance[]> holdBefore = CloneHold(_foliageHeldByWater);
@@ -255,7 +255,7 @@ public sealed partial class TerrainEditorControl
         if (index < 0) return;
         waterAfter[index] = river.Clone();
         ushort[] heightsAfter = (ushort[])_terrain.HeightsData.Clone();
-        byte[] splatAfter = (byte[])_terrain.SplatmapData.Clone();
+        byte[] splatAfter = _terrain.CaptureSplatState();
         Dictionary<string, HeldFoliageInstance[]> holdAfter = CloneHold(_foliageHeldByWater);
         FoliageField foliageAfter = FoliageScatter.ReconcileWithWater(foliageBefore, waterBefore, waterAfter, holdAfter);
 

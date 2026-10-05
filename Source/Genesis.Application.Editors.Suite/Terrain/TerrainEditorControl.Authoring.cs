@@ -1032,7 +1032,7 @@ public sealed partial class TerrainEditorControl
         ArgumentNullException.ThrowIfNull(water);
         water.Normalize();
         ushort[] heightsBefore = (ushort[])_terrain.HeightsData.Clone();
-        byte[] splatBefore = (byte[])_terrain.SplatmapData.Clone();
+        byte[] splatBefore = _terrain.CaptureSplatState();
         List<TerrainWaterDefinition> waterBefore = Clone(_nature.WaterBodies);
         FoliageField foliageBefore = _foliage;
         Dictionary<string, HeldFoliageInstance[]> holdBefore = CloneHold(_foliageHeldByWater);
@@ -1056,7 +1056,7 @@ public sealed partial class TerrainEditorControl
         List<TerrainWaterDefinition> waterAfter = Clone(waterBefore);
         waterAfter.Add(water.Clone());
         ushort[] heightsAfter = (ushort[])_terrain.HeightsData.Clone();
-        byte[] splatAfter = (byte[])_terrain.SplatmapData.Clone();
+        byte[] splatAfter = _terrain.CaptureSplatState();
         _nature.WaterBodies = Clone(waterAfter);
         Dictionary<string, HeldFoliageInstance[]> holdAfter = CloneHold(_foliageHeldByWater);
         FoliageField foliageAfter = FoliageScatter.ReconcileWithWater(foliageBefore, waterBefore, waterAfter, holdAfter);
