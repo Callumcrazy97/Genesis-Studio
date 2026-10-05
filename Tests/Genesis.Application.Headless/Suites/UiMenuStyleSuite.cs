@@ -132,9 +132,19 @@ internal static class UiMenuStyleSuite
             Control cornerInput = FindAll<NumericUpDown>(details).First(number => number.Value == 12);
             details.Controls.OfType<ScrollableControl>().FirstOrDefault()?.ScrollControlIntoView(cornerInput);
             GateSuite.Pump(3, 20);
-            HeadlessHarness.Assert(details.Visible && cornerInput.Visible, "The Inspector does not show the button's corner radius.");
+            Control centre = canvas.Parent!;
+            Control textRow = FindAll<TextBox>(details).Single(box => box.Text == "PLAY").Parent!;
+            Control sizeRow = FindAll<NumericUpDown>(details).First(number => number.Value == 60).Parent!.Parent!.Parent!;
+            HeadlessHarness.Assert(details.Visible && cornerInput.Visible && centre.Right <= details.Left && textRow.Top > sizeRow.Top && textRow.Top < cornerInput.Parent!.Top,
+                "The Inspector hides the corner radius, lies over the canvas or reorders rows: " + centre.Bounds + "; " + details.Bounds
+                + "; text " + textRow.Bounds + " size " + sizeRow.Bounds);
             string capture = "ui-menu-style-editor.png";
             ctx.Report.Images.Add(ImageResult.From("Editor.UI.MenuStyle", capture, VisualCapture.CaptureOpenForm(host, Path.Combine(ctx.Captures, capture))));
+            details.Controls.OfType<ScrollableControl>().FirstOrDefault()?.ScrollControlIntoView(states);
+            GateSuite.Pump(3, 20);
+            string stateCapture = "ui-menu-style-states.png";
+            ctx.Report.Images.Add(ImageResult.From("Editor.UI.MenuStyle.States", stateCapture,
+                VisualCapture.CaptureOpenForm(host, Path.Combine(ctx.Captures, stateCapture))));
             states.SelectedItem = "Normal"; GateSuite.Pump(2, 20);
         });
 

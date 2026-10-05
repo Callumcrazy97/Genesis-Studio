@@ -115,7 +115,12 @@ public sealed partial class UiEditorControl
                 _detailsDock.Width = (int)Math.Min(320 * scale, ClientSize.Width * .46f);
                 _detailsDock.Visible = !_showWorkflowGuide && (_detailsPreference ?? LogicalClientWidth >= 1000);
             }
-            if (_canvas.Parent is { } centre) centre.Visible = !_showWorkflowGuide;
+            if (_canvas.Parent is { } centre)
+            {
+                centre.Visible = !_showWorkflowGuide;
+                // The filling canvas must dock after both sidebars, or it spreads under the Inspector.
+                if (centre.Visible && _workspace.Controls.GetChildIndex(centre) != 0) centre.BringToFront();
+            }
             PerformLayout();
             _workspace.PerformLayout();
             _libraryDock?.PerformLayout(); _detailsDock?.PerformLayout();

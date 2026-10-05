@@ -204,6 +204,11 @@ public sealed partial class UiEditorControl : EditorSurfaceControl, IResourceIns
         delete.ForeColor = EditorChrome.Error;
         delete.Click += (_, _) => DeleteSelected();
         fields.Controls.Add(delete);
+        // Each property keeps its own row: a row hidden for one element type and shown for the
+        // next would otherwise be placed after every other property.
+        fields.RowCount = fields.Controls.Count;
+        for (int row = 0; row < fields.Controls.Count; row++)
+            fields.SetCellPosition(fields.Controls[row], new TableLayoutPanelCellPosition(0, row));
 
         foreach (Control control in new Control[] { _id, _text, _image, _font, _imageScaleX, _imageScaleY, _opacity, _x, _y, _width, _height, _fontSize, _value, _maximum, _parent, _anchor, _visible })
             EditorChrome.StyleField(control);
