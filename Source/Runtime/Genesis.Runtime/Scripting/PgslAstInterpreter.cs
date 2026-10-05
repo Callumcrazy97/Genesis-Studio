@@ -393,7 +393,7 @@ namespace Genesis.Runtime.Scripting
                 case "sign": return new PgslValue(Math.Sign(Arg(call, 0).AsNumber()));
                 case "random":
                     double max = call.Arguments.Count >= 1 ? Arg(call, 0).AsNumber() : 1.0;
-                    return new PgslValue(System.Random.Shared.NextDouble() * max);
+                    return new PgslValue(PgslCommands.NextRandomDouble() * max);
             }
 
             // User-defined function?

@@ -194,7 +194,7 @@ public static partial class PgslCommands
         if (list is null) return;
         for (int index = list.Count - 1; index > 0; index--)
         {
-            int swap = System.Random.Shared.Next(index + 1);
+            int swap = NextRandomInt(index + 1);
             (list[index], list[swap]) = (list[swap], list[index]);
         }
     }

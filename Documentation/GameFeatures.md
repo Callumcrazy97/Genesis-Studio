@@ -529,6 +529,64 @@ views. `ScreenshotPending()` counts pictures not yet taken and `ScreenshotLastPa
 the last one went to. A picture asked for during a room change's cover waits for the first frame
 without it.
 
+## Recording and replaying input
+
+A run can be recorded once with the real keyboard, mouse and controller and then played back in
+the real Player, so controller focus, held triggers, resizing and progress through a game can be
+checked again without a person at the machine. A recording keeps, for every frame, everything a
+game can read from the devices: the keys, mouse buttons and their presses and releases (a tap
+shorter than a frame included), the pointer, the wheel and mouse-look, the controller's buttons,
+sticks and triggers (as read and before the dead zone), typed characters, the frame's time step
+and the window's size. While a replay plays, the real devices are ignored, each frame steps by the
+recorded time step and the window is asked for the recorded size, so a script sees the same input
+on the same frame numbers and gets as far as it did.
+
+| Command | Meaning |
+|---|---|
+| `InputRecordStart(name)` | Record from the next frame into `name.ginput` in the project's debug folder under `Replays` (or at a full path). False when the file cannot be written. |
+| `InputRecordStop()` | Stop and save; the number of frames recorded. A recording still running when the game closes is saved. |
+| `InputReplayStart(name)` | Play a recording from the next frame. False when there is no such recording, or it is not one. |
+| `InputReplayStop()` | Stop a replay; the real devices are read again from the next frame. |
+| `InputReplayActive()`, `InputRecordActive()` | True while a replay plays, or a recording records. |
+| `InputReplayFrame()` | Frames recorded or played so far: 1 in the first, and the same number in the recording and its replay. |
+| `InputReplayFinished()` | True from the frame the last recorded frame is played. The real devices are back from the frame after. |
+| `RandomSeed(seed)` | Make `Random`, `RandomRange`, `Choose` and `DsListShuffle` give the same numbers every run. |
+
+Starting a recording gives those random numbers a new seed, kept in the file; starting its replay
+gives them the same seed again, so random choices made after the start repeat too. The frame in
+which a script starts a recording or a replay is not part of it, and the simulation's fixed-step
+clock restarts at the first recorded or replayed frame, so physics takes the same steps as well.
+Frames behind a room change's cover, where nothing steps and the count depends on how fast files
+are read, are neither recorded nor replayed. Pressing Escape during a replay stops it and hands
+the game back to the real devices (a Player started with `--replay` then stays open); that press
+is not passed to the game. Starting a recording or a replay stops one already running.
+
+One script can serve both runs: `if (!InputReplayStart("level1")) InputRecordStart("level1");`
+records the first time and replays every time after. An acceptance run needs no script at all:
+the Player's `--replay <name or file>` (or `GENESIS_INPUT_REPLAY`) plays a recording from the first
+frame of play and closes the game when it ends, and `--record <name or file>` (or
+`GENESIS_INPUT_RECORD`) records from the first frame of play until the game closes. A plain name is
+a file in the debug `Replays` folder; anything with a folder in it is a path. Pictures for such a
+run come from `ScreenshotSave` at the frames that matter, for example when
+`InputReplayFrame()` reaches them or when `InputReplayFinished()` turns true.
+
+The file is a small binary format (`GENINPUT`, a version number, the seed, then one fixed-size
+record per frame with the typed text after it); a Player refuses a version it does not know. A
+replay reproduces what the game was given, not what the hardware did: a game whose behaviour
+depends on something outside its input, time step and these random numbers (the clock on the
+wall, files, the network, `Random` in C# code, how long `ChangeRoomWhenLoaded` waits while the
+current room keeps running) can still go another way. A recording also starts
+from wherever the game is when it starts, so start both runs from the same point, such as the
+first frame of play or a fresh room. When nothing is recorded or replayed the cost is one check
+per frame.
+
+`Build.bat --test input-replay` records 40 frames of simulated keys, a tap shorter than a frame,
+a click-and-drag, the wheel, a controller and typing at uneven time steps and two window sizes,
+replays them while the simulated devices do something else, and checks that the script sees the
+same input, time steps, window size and random numbers on every frame and ends in the same place;
+then that Escape stops a replay and lets go of what it held, and that other files are refused.
+Not yet checked: a recording made with a physical controller and played back in the real Player.
+
 ## Smaller changes
 
 - **Bushes and saplings.** The `Shrub` and `Sapling` foliage shapes are built from rounded solid

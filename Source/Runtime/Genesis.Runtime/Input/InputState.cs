@@ -187,6 +187,131 @@ namespace Genesis.Runtime.Input
             Array.Clear(_padDown);
         }
 
+        // ── Recording and replay (InputReplay) ──
+
+        /// <summary>Copies everything a game can read this frame into <paramref name="frame"/>.</summary>
+        public void CaptureFrame(ref InputFrame frame)
+        {
+            frame.KeysDown = KeyBits(_down);
+            frame.KeysPressed = KeyBits(_pressed);
+            frame.KeysReleased = KeyBits(_released);
+            frame.MouseDown = MouseBits(_mouseDown);
+            frame.MousePressed = MouseBits(_mousePressed);
+            frame.MouseReleased = MouseBits(_mouseReleased);
+            frame.MouseX = MousePosition.X;
+            frame.MouseY = MousePosition.Y;
+            frame.Wheel = WheelDelta;
+            frame.LookX = LookDelta.X;
+            frame.LookY = LookDelta.Y;
+            frame.GamepadConnected = GamepadConnected;
+            frame.PadDown = PadBits(_padDown);
+            frame.PadPressed = PadBits(_padPressed);
+            frame.PadReleased = PadBits(_padReleased);
+            frame.PadEdges = (ushort)((StartPressed ? 1 : 0) | (BackPressed ? 2 : 0) | (ConfirmPressed ? 4 : 0)
+                | (XPressed ? 8 : 0) | (YPressed ? 16 : 0) | (DPadUpPressed ? 32 : 0) | (DPadDownPressed ? 64 : 0)
+                | (DPadLeftPressed ? 128 : 0) | (DPadRightPressed ? 256 : 0) | (LeftBumperPressed ? 512 : 0)
+                | (RightBumperPressed ? 1024 : 0) | (RecipeBookPressed ? 2048 : 0) | (LeftStickPressed ? 4096 : 0));
+            frame.LeftStick = LeftStick;
+            frame.RightStick = RightStick;
+            frame.LeftTrigger = LeftTrigger;
+            frame.RightTrigger = RightTrigger;
+            frame.LeftStickRaw = LeftStickRaw;
+            frame.RightStickRaw = RightStickRaw;
+            frame.LeftTriggerRaw = LeftTriggerRaw;
+            frame.RightTriggerRaw = RightTriggerRaw;
+            frame.Typed = _typed.Length > 0 ? _typed.ToString() : null;
+        }
+
+        /// <summary>
+        /// Replaces everything a game can read this frame with <paramref name="frame"/>: whatever the
+        /// keyboard, mouse and controller did since the last frame is overwritten.
+        /// </summary>
+        public void ApplyFrame(in InputFrame frame)
+        {
+            SetKeys(_down, frame.KeysDown);
+            SetKeys(_pressed, frame.KeysPressed);
+            SetKeys(_released, frame.KeysReleased);
+            SetMouse(_mouseDown, frame.MouseDown);
+            SetMouse(_mousePressed, frame.MousePressed);
+            SetMouse(_mouseReleased, frame.MouseReleased);
+            MousePosition = new Vector2(frame.MouseX, frame.MouseY);
+            WheelDelta = frame.Wheel;
+            LookDelta = new Vector2(frame.LookX, frame.LookY);
+            GamepadConnected = frame.GamepadConnected;
+            SetPad(_padDown, frame.PadDown);
+            SetPad(_padPressed, frame.PadPressed);
+            SetPad(_padReleased, frame.PadReleased);
+            int edges = frame.PadEdges;
+            StartPressed = (edges & 1) != 0;
+            BackPressed = (edges & 2) != 0;
+            ConfirmPressed = (edges & 4) != 0;
+            XPressed = (edges & 8) != 0;
+            YPressed = (edges & 16) != 0;
+            DPadUpPressed = (edges & 32) != 0;
+            DPadDownPressed = (edges & 64) != 0;
+            DPadLeftPressed = (edges & 128) != 0;
+            DPadRightPressed = (edges & 256) != 0;
+            LeftBumperPressed = (edges & 512) != 0;
+            RightBumperPressed = (edges & 1024) != 0;
+            RecipeBookPressed = (edges & 2048) != 0;
+            LeftStickPressed = (edges & 4096) != 0;
+            LeftStick = frame.LeftStick;
+            RightStick = frame.RightStick;
+            LeftTrigger = frame.LeftTrigger;
+            RightTrigger = frame.RightTrigger;
+            LeftStickRaw = frame.LeftStickRaw;
+            RightStickRaw = frame.RightStickRaw;
+            LeftTriggerRaw = frame.LeftTriggerRaw;
+            RightTriggerRaw = frame.RightTriggerRaw;
+            _typed.Clear();
+            if (!string.IsNullOrEmpty(frame.Typed)) _typed.Append(frame.Typed);
+        }
+
+        /// <summary>Lets go of every key, button, stick and trigger, as when a replay hands back to the real devices.</summary>
+        public void ReleaseAll()
+        {
+            // The pointer stays where it was: the real mouse reports a new place when it moves.
+            Vector2 mouse = MousePosition;
+            ApplyFrame(default);
+            MousePosition = mouse;
+        }
+
+        private static UInt128 KeyBits(HashSet<Key> keys)
+        {
+            UInt128 bits = UInt128.Zero;
+            foreach (Key key in keys)
+                if ((int)key > 0 && (int)key < 128) bits |= UInt128.One << (int)key;
+            return bits;
+        }
+
+        private static void SetKeys(HashSet<Key> keys, UInt128 bits)
+        {
+            keys.Clear();
+            for (int i = 1; i < 128 && bits != UInt128.Zero; i++)
+                if ((bits & (UInt128.One << i)) != UInt128.Zero) keys.Add((Key)i);
+        }
+
+        private static byte MouseBits(bool[] buttons) =>
+            (byte)((buttons[0] ? 1 : 0) | (buttons[1] ? 2 : 0) | (buttons[2] ? 4 : 0));
+
+        private static void SetMouse(bool[] buttons, byte bits)
+        {
+            for (int i = 0; i < buttons.Length; i++) buttons[i] = (bits & (1 << i)) != 0;
+        }
+
+        private static ushort PadBits(bool[] buttons)
+        {
+            int bits = 0;
+            for (int i = 0; i < buttons.Length; i++)
+                if (buttons[i]) bits |= 1 << i;
+            return (ushort)bits;
+        }
+
+        private static void SetPad(bool[] buttons, ushort bits)
+        {
+            for (int i = 0; i < buttons.Length; i++) buttons[i] = (bits & (1 << i)) != 0;
+        }
+
         public void NextFrame()
         {
             _pressed.Clear();
