@@ -785,8 +785,10 @@ float3 ComputePointLightsPbr(float3 worldPos, float3 n, float3 base, float4 svPo
     }
 
     // Fallback: EngineCB PointLights[8] (fog/Software path still fills these).
+    // A real loop, not unrolled: eight inlined copies of ShadeOnePointLight made fxc spend about
+    // five seconds on this shader (the same lights, in the same order, either way).
     int cbLights = min((int)PointLightCounts.w, 8);
-    [unroll]
+    [loop]
     for (int i = 0; i < 8; i++)
     {
         if (i >= cbLights) break;
@@ -874,7 +876,8 @@ float TerrainFbm(float2 p)
 {
     float v = 0.0;
     float amp = 0.55;
-    [unroll]
+    // A real loop: unrolled (three calls, four octaves each) it cost fxc about five seconds.
+    [loop]
     for (int i = 0; i < 4; i++)
     {
         v += TerrainValueNoise(p) * amp;
