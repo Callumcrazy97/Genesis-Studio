@@ -109,6 +109,9 @@ internal static class InputReplaySuite
             string project = Path.Combine(ctx.Workspace, "InputReplayEscape");
             Directory.CreateDirectory(project);
             string path = InputReplay.ResolvePath(project, "held");
+            bool? ranToEnd = null;
+            void OnEnded(bool toEnd) => ranToEnd = toEnd;
+            InputReplay.ReplayEnded += OnEnded;
             try
             {
                 InputReplay.Reset();
@@ -137,6 +140,17 @@ internal static class InputReplaySuite
                 HeadlessHarness.Assert(!input.IsDown(Key.W) && !input.IsDown(GamepadButton.RightTrigger) && input.RightTrigger == 0f
                     && !input.WasPressed(Key.Escape),
                     "Stopping the replay left its keys held, or passed the Escape press to the game.");
+                HeadlessHarness.Assert(ranToEnd == false, "A replay stopped by Escape was reported as having run to its end.");
+
+                // Played to its end: finished on the last frame, the devices back on the next.
+                ranToEnd = null;
+                HeadlessHarness.Assert(InputReplay.StartReplay(path), "The replay could not start again: " + InputReplay.LastError);
+                for (int i = 0; i < 10; i++) Step(input);
+                HeadlessHarness.Assert(InputReplay.Finished && InputReplay.Mode == InputReplayMode.Replaying && ranToEnd == null,
+                    "The replay should be finished, and still in charge, on its last frame.");
+                Step(input);
+                HeadlessHarness.Assert(InputReplay.Mode == InputReplayMode.Off && ranToEnd == true && !input.IsDown(Key.W),
+                    "The replay did not hand back to the devices, and let go of its keys, the frame after its last.");
 
                 // A file that is not a recording, and one that is not there, are refused with a reason.
                 string bogus = Path.Combine(project, "bogus.ginput");
@@ -151,6 +165,7 @@ internal static class InputReplaySuite
             }
             finally
             {
+                InputReplay.ReplayEnded -= OnEnded;
                 InputReplay.Reset();
             }
         });

@@ -844,9 +844,11 @@ namespace Genesis.Runtime.Project
 
         private static bool _quitWhenReplayEnds;
 
-        private static void OnInputReplayEnded()
+        private static void OnInputReplayEnded(bool ranToEnd)
         {
-            if (_quitWhenReplayEnds) RequestStop();
+            // Escape hands the game to the person at the machine instead of closing it.
+            if (_quitWhenReplayEnds && ranToEnd) RequestStop();
+            _quitWhenReplayEnds = false;
         }
 
         /// <summary>

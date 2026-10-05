@@ -261,8 +261,10 @@ namespace Genesis.Runtime
             if (!paused)
             {
                 // A recording takes this frame's input and time step; a replay replaces them with
-                // the recorded ones (and asks the window for the recorded size) before anything reads them.
-                if (InputReplay.IsActive)
+                // the recorded ones (and asks the window for the recorded size) before anything reads
+                // them. Frames behind a room change's cover step nothing and take as long as the
+                // files do, so they are neither recorded nor replayed.
+                if (InputReplay.IsActive && _scene.RoomChange == null)
                 {
                     int replayWidth = _windowW, replayHeight = _windowH;
                     InputReplay.BeginFrame(_scene.Input, ref fdt, ref replayWidth, ref replayHeight, out bool replayStarted);

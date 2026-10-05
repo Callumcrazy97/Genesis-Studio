@@ -101,8 +101,11 @@ namespace Genesis.Runtime.Input
         /// <summary>Why the last start failed; empty when it did not.</summary>
         public static string LastError { get; private set; } = string.Empty;
 
-        /// <summary>Raised in the frame after a replay's last, when the real devices are back.</summary>
-        public static event Action ReplayEnded;
+        /// <summary>
+        /// Raised when the real devices are back after a replay: true in the frame after its last
+        /// frame, false when Escape stopped it early.
+        /// </summary>
+        public static event Action<bool> ReplayEnded;
 
         /// <summary>
         /// The file for <paramref name="name"/>: a full path is used as it is; a plain name is
@@ -260,10 +263,11 @@ namespace Genesis.Runtime.Input
             if (_endAfterThisFrame || input.WasPressed(Key.Escape))
             {
                 // The last frame has been played, or the person at the machine took over.
+                bool ranToEnd = _endAfterThisFrame;
                 _endAfterThisFrame = false;
                 input.ReleaseAll();
                 End();
-                ReplayEnded?.Invoke();
+                ReplayEnded?.Invoke(ranToEnd);
                 return;
             }
 

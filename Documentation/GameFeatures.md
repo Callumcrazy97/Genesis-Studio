@@ -486,7 +486,9 @@ Starting a recording gives those random numbers a new seed, kept in the file; st
 gives them the same seed again, so random choices made after the start repeat too. The frame in
 which a script starts a recording or a replay is not part of it, and the simulation's fixed-step
 clock restarts at the first recorded or replayed frame, so physics takes the same steps as well.
-Pressing Escape during a replay stops it and hands the game back to the real devices; that press
+Frames behind a room change's cover, where nothing steps and the count depends on how fast files
+are read, are neither recorded nor replayed. Pressing Escape during a replay stops it and hands
+the game back to the real devices (a Player started with `--replay` then stays open); that press
 is not passed to the game. Starting a recording or a replay stops one already running.
 
 One script can serve both runs: `if (!InputReplayStart("level1")) InputRecordStart("level1");`
@@ -502,7 +504,8 @@ The file is a small binary format (`GENINPUT`, a version number, the seed, then 
 record per frame with the typed text after it); a Player refuses a version it does not know. A
 replay reproduces what the game was given, not what the hardware did: a game whose behaviour
 depends on something outside its input, time step and these random numbers (the clock on the
-wall, files, the network, `Random` in C# code) can still go another way. A recording also starts
+wall, files, the network, `Random` in C# code, how long `ChangeRoomWhenLoaded` waits while the
+current room keeps running) can still go another way. A recording also starts
 from wherever the game is when it starts, so start both runs from the same point, such as the
 first frame of play or a fresh room. When nothing is recorded or replayed the cost is one check
 per frame.
