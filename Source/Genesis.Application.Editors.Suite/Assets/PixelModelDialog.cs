@@ -142,6 +142,8 @@ public sealed class PixelModelDialog : DpiAwareForm
     public GModelAsset? Preview { get; private set; }
     public PixelModelSettings Settings => _settings.Clone();
     public EditorGizmoMode GizmoMode => _mode;
+    /// <summary>World length of each gizmo handle, sized to the model.</summary>
+    public float GizmoHandleLength => GizmoLength();
     public string? CreatedModelPath { get; private set; }
     /// <summary>A fixed preview time in seconds; null plays the animation in real time.</summary>
     public float? PreviewTime { get; set; }

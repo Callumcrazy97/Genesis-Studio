@@ -260,6 +260,31 @@ internal static class PixelModelSuite
             Check(create.Visible && create.Enabled && dialog.Viewport.Width >= 350 && dialog.Viewport.Height >= 350,
                 "The create action is hidden or the preview is crowded out.");
 
+            // A real mouse drag on the Resize gizmo's X handle, outward by one handle length, doubles the width.
+            dialog.SetTransform(Vector3.Zero, Vector3.Zero, Vector3.One);
+            dialog.SetGizmoMode(EditorGizmoMode.Scale);
+            using (dialog.Viewport.CaptureFrame(3)) { }
+            EditorViewport3D view = dialog.Viewport;
+            float handle = dialog.GizmoHandleLength;
+            Vector3 originSurface = view.WorldToSurface(Vector3.Zero), tipSurface = view.WorldToSurface(Vector3.UnitX * handle);
+            Vector3 grabSurface = view.WorldToSurface(Vector3.UnitX * handle * .8f);
+            PointF grab = view.SurfaceToControl(new PointF(grabSurface.X, grabSurface.Y));
+            PointF axisOnControl = view.SurfaceToControl(new PointF(tipSurface.X - originSurface.X, tipSurface.Y - originSurface.Y));
+            Point down = Point.Round(grab), up = Point.Round(new PointF(grab.X + axisOnControl.X, grab.Y + axisOnControl.Y));
+            RaiseMouse(view.Host, "OnMouseDown", down);
+            RaiseMouse(view.Host, "OnMouseMove", up);
+            RaiseMouse(view.Host, "OnMouseUp", up);
+            Check(MathF.Abs(dialog.Settings.Scale.X - 2f) < .1f && dialog.Settings.Scale.Y == 1f && dialog.Settings.Scale.Z == 1f,
+                $"Dragging the Resize gizmo's X handle gave scale {dialog.Settings.Scale}, expected about (2, 1, 1).");
+            using (Bitmap? resized = dialog.Viewport.CaptureFrame(3))
+            {
+                Check(resized is not null, "No preview frame after resizing.");
+                string file = Path.Combine(ctx.Captures, "pixel-model-resized.png");
+                resized!.Save(file);
+                ctx.Report.Images.Add(ImageResult.From("pixel-model-resized", file, VisualCapture.Measure(resized)));
+            }
+            dialog.SetGizmoMode(EditorGizmoMode.Move);
+
             dialog.SetTransform(Vector3.Zero, Vector3.Zero, Vector3.One);
             Vector3 before = dialog.BuildModel().Bounds.Size;
             dialog.ApplyGizmoDrag(EditorGizmoMode.Scale, 0, 1f);
@@ -359,6 +384,14 @@ internal static class PixelModelSuite
             if ((max - min).Length() > 1e-4f) visible.Add(bone - 1);
         }
         return visible.Distinct().ToArray();
+    }
+
+    /// <summary>Delivers a left-button mouse event to a control as Windows would.</summary>
+    private static void RaiseMouse(Control control, string method, Point location)
+    {
+        System.Reflection.MethodInfo handler = typeof(Control).GetMethod(method,
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        handler.Invoke(control, [new MouseEventArgs(MouseButtons.Left, 1, location.X, location.Y, 0)]);
     }
 
     private static ToolStripItem? FindItem(ToolStripItemCollection items, string text)
