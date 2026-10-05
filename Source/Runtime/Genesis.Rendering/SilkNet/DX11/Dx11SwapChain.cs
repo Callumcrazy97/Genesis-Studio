@@ -360,6 +360,8 @@ namespace Genesis.Rendering.SilkNet.DX11
             _rtv = new ComPtr<ID3D11RenderTargetView>(rtv);
             DropCreationReference(rtv);
 
+            // Never two of these alive: an orphaned view would hold the back buffer and block resizing.
+            _srgbRtv.Dispose(); _srgbRtv = default;
             var srgbDesc = new RenderTargetViewDesc
             {
                 Format = Format.FormatB8G8R8A8UnormSrgb,

@@ -3,6 +3,7 @@ using System.Windows.Forms;
 using Genesis.Application.Core.Images;
 using Genesis.Application.Core.Projects;
 using Genesis.Application.Core.Resources;
+using Genesis.Application.Core.Settings;
 using Genesis.Application.Editors.Image.Imaging;
 using Genesis.Rendering.Core;
 using Genesis.Rendering.Viewport;
@@ -66,6 +67,43 @@ internal static class GuiLinearBlendSuite
                 new ProjectService().Save(project);
             }
             HeadlessHarness.Assert(!ProjectPaths.ReadBlendGuiInLinearLight(project.RootPath), "Turning the setting off was not saved.");
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Studio.Preferences.Project.BlendGuiInLinearLightIsSavedWithTheProject", () =>
+        {
+            SettingsService settings = new(Path.Combine(ctx.OutputRoot, "UserData", "gui-linear-preferences.json"));
+            using Genesis.Application.Studio.Forms.PreferencesForm preferences = new(settings, project);
+            GateSuite.ShowHost(preferences);
+            GateSuite.Pump(3, 15);
+            HeadlessHarness.Assert(preferences.SelectCategory("Project"), "Preferences has no Project page.");
+            GateSuite.Pump(3, 15);
+            CheckBox box = Descendants(preferences).OfType<CheckBox>().Single(check => check.Name == "BlendGuiInLinearLightPicker");
+            HeadlessHarness.Assert(box.Visible && !box.Checked && box.Text == "Blend GUI in linear light",
+                "The Project page does not offer Blend GUI in linear light, unticked: visible=" + box.Visible + " checked=" + box.Checked + " '" + box.Text + "'");
+            box.Checked = true;
+            Button apply = Descendants(preferences).OfType<Button>().Single(button => button.Name == "ApplyPreferences");
+            apply.PerformClick();
+            GateSuite.Pump(2, 15);
+            for (Control? parent = box.Parent; parent is not null; parent = parent.Parent)
+                if (parent is ScrollableControl { AutoScroll: true } scroller) { scroller.ScrollControlIntoView(box); break; }
+            GateSuite.Pump(2, 15);
+            string capture = "gui-linear-preferences.png";
+            ctx.Report.Images.Add(ImageResult.From("Studio.Preferences.Project.BlendGuiInLinearLight", capture,
+                VisualCapture.CaptureOpenForm(preferences, Path.Combine(ctx.Captures, capture))));
+            try
+            {
+                HeadlessHarness.Assert(new ProjectService().OpenProject(project.RootPath).Manifest.Rendering.BlendGuiInLinearLight
+                    && ProjectPaths.ReadBlendGuiInLinearLight(project.RootPath),
+                    "Applying the Project page did not save Blend GUI in linear light to the project file.");
+            }
+            finally
+            {
+                box.Checked = false;
+                apply.PerformClick();
+                GateSuite.Pump(2, 15);
+                preferences.Close();
+            }
+            HeadlessHarness.Assert(!ProjectPaths.ReadBlendGuiInLinearLight(project.RootPath), "Unticking it was not saved.");
         });
 
         HeadlessHarness.RunCase(ctx.Report, "Runtime.GuiLinearBlend.OverlayBlendsInLinearLightOnEveryBackend", () =>
@@ -152,6 +190,20 @@ internal static class GuiLinearBlendSuite
                 Check(plain, "plainWhite50%OverGrey", 350, 50, 189, 193);
                 Check(plain, "plainSwitchOn", 150, 170, 19, 21);
                 Check(plain, "plainImage", 570, 50, 62, 66);
+
+                // The back buffer's sRGB view is remade with it: resizing still works and still blends.
+                Size before = game.ClientSize;
+                game.ClientSize = new Size(720, 400); GateSuite.Pump(4, 20);
+                linearScene = true;
+                using (Bitmap? resized = viewport.ReadbackFrameToBitmap(3))
+                {
+                    if (resized is null || resized.Width != 720 || resized.Height != 400 || viewport.RenderFaultCount != 0)
+                        failures.Add(backend.ShortName + ": resizing with the sRGB view failed: "
+                            + (resized is null ? "no frame" : resized.Width + "x" + resized.Height) + " " + viewport.LastRenderException);
+                    else
+                        Check(resized, "afterResizeLinear", 150, 50, 76, 82);
+                }
+                game.ClientSize = before; GateSuite.Pump(4, 20);
             }
             File.WriteAllLines(Path.Combine(ctx.Logs, "gui-linear-readings.txt"), readings);
             Console.WriteLine("GuiLinearBlend readings: " + string.Join(", ", readings));
@@ -320,6 +372,15 @@ internal static class GuiLinearBlendSuite
         PgslCommands.DrawSetAlpha(1);
         PgslCommands.DrawTextScaled(450, 150, "LINEAR", 28);
         Blend(false);
+    }
+
+    private static IEnumerable<Control> Descendants(Control root)
+    {
+        foreach (Control child in root.Controls)
+        {
+            yield return child;
+            foreach (Control nested in Descendants(child)) yield return nested;
+        }
     }
 
     private static Rectangle Ink(Bitmap frame, Rectangle area)
