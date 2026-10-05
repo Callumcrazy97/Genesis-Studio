@@ -233,6 +233,7 @@ namespace Genesis.Runtime.Input
                 // A replay that stopped: whatever it held is let go, and the devices are read again.
                 _releasePending = false;
                 input.ReleaseAll();
+                IsActive = Mode != InputReplayMode.Off;
                 if (!IsActive) return;
             }
 

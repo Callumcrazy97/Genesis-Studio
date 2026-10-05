@@ -142,6 +142,14 @@ internal static class InputReplaySuite
                     "Stopping the replay left its keys held, or passed the Escape press to the game.");
                 HeadlessHarness.Assert(ranToEnd == false, "A replay stopped by Escape was reported as having run to its end.");
 
+                // Stopped by a script: what it held is let go at the next frame, and then nothing is checked per frame.
+                HeadlessHarness.Assert(InputReplay.StartReplay(path), "The replay could not start again: " + InputReplay.LastError);
+                Step(input);
+                InputReplay.StopReplay();
+                Step(input);
+                HeadlessHarness.Assert(!InputReplay.IsActive && !input.IsDown(Key.W) && !InputReplay.Finished,
+                    "A replay stopped by a script kept its keys held, or kept the host checking it every frame.");
+
                 // Played to its end: finished on the last frame, the devices back on the next.
                 ranToEnd = null;
                 HeadlessHarness.Assert(InputReplay.StartReplay(path), "The replay could not start again: " + InputReplay.LastError);
