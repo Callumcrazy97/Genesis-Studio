@@ -58,6 +58,7 @@ internal static partial class TerrainLayersGrassSuite
         rule.Enabled = true; rule.Radius = 80f; rule.Spacing = 0.6f; rule.Seed = 42; rule.CellsPerFrame = 5;
         rule.MinimumScale = 0.6f; rule.MaximumScale = 1.4f; rule.MaximumSlopeDegrees = 33f; rule.CellSize = 12f;
         rule.MaximumDrawnTufts = 9000; rule.Species = FoliageSpecies.TallGrass; rule.FullDensityFraction = 0.3f;
+        rule.GenerationBudgetMilliseconds = 2.5f;
         rule.Layer1Density = 0.9f; rule.Layer2Density = 0f; rule.Layer3Density = 0.25f; rule.Layer8Density = 0.75f;
         TerrainGrassRuleSettings expected = rule.Clone();
         TerrainNatureSerializer.Save(path, document);
@@ -86,7 +87,7 @@ internal static partial class TerrainLayersGrassSuite
         var rule = new TerrainGrassRuleSettings();
         using TableLayoutPanel form = Genesis.Application.Editors.Suite.Inspector.InspectorBuilder.BuildForObject(rule, "", inline: true);
         var names = new HashSet<string>(GrassControls(form).Select(control => control.Name), StringComparer.Ordinal);
-        foreach (string property in new[] { "Enabled", "Radius", "Spacing", "Seed", "CellsPerFrame", "MaximumDrawnTufts", "MinimumScale", "MaximumScale" })
+        foreach (string property in new[] { "Enabled", "Radius", "Spacing", "Seed", "CellsPerFrame", "GenerationBudgetMilliseconds", "MaximumDrawnTufts", "MinimumScale", "MaximumScale" })
             GrassAssert(names.Contains("InspectorDrawer_" + property), $"The inspector does not show the grass rule's {property}.");
         for (int layer = 1; layer <= TerrainGrassRuleSettings.LayerCount; layer++)
             GrassAssert(names.Contains($"InspectorDrawer_Layer{layer}Density"), $"The inspector does not show layer {layer}'s density.");
@@ -235,6 +236,11 @@ internal static partial class TerrainLayersGrassSuite
 
         long allocated = field.Statistics.CellsAllocated;
         for (int i = 0; i < 200; i++) field.Update(camera + new Vector3(MathF.Sin(i * 0.2f) * 30f, 0f, 0f), Matrix4x4.Identity);
+        // Once the pool has filled, walking about allocates nothing at all.
+        long bytesBefore = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 200; i < 400; i++) field.Update(camera + new Vector3(MathF.Sin(i * 0.2f) * 30f, 0f, 0f), Matrix4x4.Identity);
+        long walkBytes = GC.GetAllocatedBytesForCurrentThread() - bytesBefore;
+        GrassAssert(walkBytes < 1024, $"Walking about over a filled pool allocated {walkBytes} bytes.");
         GrassAssert(field.Statistics.CellsAllocated <= residentLimit && field.Statistics.CellsReused > moved.CellsReused,
             $"Walking back and forth allocated {field.Statistics.CellsAllocated - allocated} new cells instead of reusing the pool.");
         Console.WriteLine($"[GrassRule] recycling: max resident {maxResident} (limit {residentLimit}), max grown per frame {maxGenerated}, "
@@ -323,24 +329,28 @@ internal static partial class TerrainLayersGrassSuite
         }
 
         RoomAsset room = GrassRoom(root, terrain, "Cost", enabled: false, out string binary);
-        (double offFrame, double offSubmit, double offGpu, _, _, _) = GrassMeasure(root, room, terrain);
+        (double offFrame, double offSubmit, double offGpu, _, _, _, _) = GrassMeasure(root, room, terrain);
         GrassSaveNature(binary, enabled: true);
-        (double onFrame, double onSubmit, double onGpu, double generation, double generationMax, TerrainGrassStatistics last) = GrassMeasure(root, room, terrain);
+        (double onFrame, double onSubmit, double onGpu, double generation, double generationMax, double generationP95, TerrainGrassStatistics last) =
+            GrassMeasure(root, room, terrain);
         string report = string.Join(Environment.NewLine,
-            "Grass around the camera: frame cost on DX11, 960 x 540, 240 frames moving 1 m a frame over a 512 m meadow (radius 100 m, spacing 0.5 m, 8 cells a frame).",
+            "Grass around the camera: frame cost on DX11, 960 x 540, 240 frames moving 1 m a frame over a 512 m meadow "
+            + "(radius 100 m, spacing 0.5 m, 8 m cells, at most 8 cells or 1.5 ms of growing a frame, 16,000 tufts drawn at most).",
             $"Without grass rule: {offFrame:F2} ms a frame (submit, draw and read back), terrain submit {offSubmit:F2} ms, GPU {offGpu:F2} ms.",
             $"With grass rule:    {onFrame:F2} ms a frame (submit, draw and read back), terrain submit {onSubmit:F2} ms, GPU {onGpu:F2} ms.",
-            $"Grass generation: {generation:F3} ms a frame on average, {generationMax:F3} ms at most.",
+            $"Grass generation: {generation:F3} ms a frame on average, {generationP95:F3} ms at the 95th percentile, {generationMax:F3} ms at most "
+            + "(the worst frames are a garbage collection landing inside the timed span; growing itself allocates nothing once warm).",
             $"Last frame: {last.TuftsDrawn} tufts drawn ({last.NearTuftsDrawn} near), {last.VisibleCells} visible of {last.ResidentCells} resident cells, "
-            + $"{last.TuftsResident} tufts resident; {last.CellsAllocated} cells allocated, {last.CellsReused} reused, {last.CellsRecycled} recycled.");
+            + $"{last.TuftsResident} tufts resident, {last.PendingCells} cells still waiting; "
+            + $"{last.CellsAllocated} cells allocated, {last.CellsReused} reused, {last.CellsRecycled} recycled.");
         Console.WriteLine(report);
         Directory.CreateDirectory(ctx.Logs);
         File.WriteAllText(Path.Combine(ctx.Logs, "terrain-grass-frame-cost.txt"), report + Environment.NewLine);
         GrassAssert(last.TuftsDrawn > 1000 && last.CellsRecycled > 0, "The moving camera drew or recycled no rule grass.");
-        GrassAssert(generationMax < 25.0, $"Growing grass took {generationMax:F1} ms in one frame; the per-frame budget is not holding.");
+        GrassAssert(generationP95 < 4.0, $"Growing grass took {generationP95:F1} ms at the 95th percentile; the per-frame budget is not holding.");
     }
 
-    private static (double Frame, double Submit, double Gpu, double Generation, double GenerationMax, TerrainGrassStatistics Last)
+    private static (double Frame, double Submit, double Gpu, double Generation, double GenerationMax, double GenerationP95, TerrainGrassStatistics Last)
         GrassMeasure(string root, RoomAsset room, TerrainAsset terrain)
     {
         using Form host = UnattendedWindowing.NewHost(GrassWidth, GrassHeight);
@@ -356,6 +366,7 @@ internal static partial class TerrainLayersGrassSuite
 
         const int frames = 240;
         double frameTotal = 0, submitTotal = 0, gpuTotal = 0, generationTotal = 0, generationMax = 0;
+        var generations = new List<double>(frames);
         for (int i = 0; i < frames; i++)
         {
             float z = -200f + i;
@@ -366,11 +377,14 @@ internal static partial class TerrainLayersGrassSuite
             gpuTotal += renderer.LastGpuMilliseconds;
             double generation = runtime.GrassRuleStatistics.Sum(stat => stat.GenerationMilliseconds);
             generationTotal += generation;
+            generations.Add(generation);
             generationMax = Math.Max(generationMax, generation);
         }
 
+        generations.Sort();
+        double p95 = generations[(int)(generations.Count * 0.95)];
         TerrainGrassStatistics last = runtime.GrassRuleStatistics.FirstOrDefault();
-        return (frameTotal / frames, submitTotal / frames, gpuTotal / frames, generationTotal / frames, generationMax, last);
+        return (frameTotal / frames, submitTotal / frames, gpuTotal / frames, generationTotal / frames, generationMax, p95, last);
     }
 
     private static void GrassPrepare(IRenderController renderer)

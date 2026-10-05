@@ -50,6 +50,9 @@ public sealed class TerrainGrassRuleSettings
     [Description("Most cells grown in one frame, so walking never holds a frame up.")]
     public int CellsPerFrame { get; set; } = 8;
 
+    [Description("Most time, in milliseconds, one frame spends growing cells; at least one cell grows each frame something is wanted.")]
+    public float GenerationBudgetMilliseconds { get; set; } = 1.5f;
+
     [Description("Most tufts drawn in one frame; nearest cells are drawn first.")]
     public int MaximumDrawnTufts { get; set; } = 16000;
 
@@ -98,6 +101,7 @@ public sealed class TerrainGrassRuleSettings
         // A cell holds at most 128 x 128 tufts, so a tiny spacing cannot make one cell enormous.
         Spacing = MathF.Max(Spacing, CellSize / 128f);
         CellsPerFrame = Math.Clamp(CellsPerFrame, 1, 256);
+        GenerationBudgetMilliseconds = Clamp(GenerationBudgetMilliseconds, 0.1f, 33f, 1.5f);
         MaximumDrawnTufts = Math.Clamp(MaximumDrawnTufts, 0, 32768);
 
         float[] densities = new float[LayerCount];
@@ -126,7 +130,8 @@ public sealed class TerrainGrassRuleSettings
             || FullDensityFraction != other.FullDensityFraction || NearDistance != other.NearDistance
             || Jitter != other.Jitter || MinimumScale != other.MinimumScale || MaximumScale != other.MaximumScale
             || MaximumSlopeDegrees != other.MaximumSlopeDegrees || Species != other.Species || Seed != other.Seed
-            || CellSize != other.CellSize || CellsPerFrame != other.CellsPerFrame || MaximumDrawnTufts != other.MaximumDrawnTufts)
+            || CellSize != other.CellSize || CellsPerFrame != other.CellsPerFrame || MaximumDrawnTufts != other.MaximumDrawnTufts
+            || GenerationBudgetMilliseconds != other.GenerationBudgetMilliseconds)
             return false;
         for (int layer = 0; layer < LayerCount; layer++)
             if (Density(layer) != other.Density(layer)) return false;

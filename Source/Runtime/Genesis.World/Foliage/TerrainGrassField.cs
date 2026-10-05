@@ -201,8 +201,12 @@ public sealed class TerrainGrassField : IDisposable
         {
             _wanted.Sort(static (a, b) => a.Distance.CompareTo(b.Distance));
             int budget = Math.Min(_settings.CellsPerFrame, _wanted.Count);
+            double timeBudget = _settings.GenerationBudgetMilliseconds;
+            int grown = 0;
             for (int i = 0; i < budget; i++)
             {
+                // The nearest cell always grows, so a slow machine still fills in, nearest first.
+                if (i > 0 && Stopwatch.GetElapsedTime(started).TotalMilliseconds >= timeBudget) break;
                 (int x, int z, float _) = _wanted[i];
                 Cell cell = Rent();
                 cell.X = x;
@@ -211,9 +215,10 @@ public sealed class TerrainGrassField : IDisposable
                 _cells[Key(x, z)] = cell;
                 _tuftsResident += cell.Count;
                 _generatedLastUpdate++;
+                grown++;
             }
 
-            _wanted.RemoveRange(0, budget);
+            _wanted.RemoveRange(0, grown);
         }
 
         _pending = _wanted.Count > 0;

@@ -243,7 +243,7 @@ public static class InspectorBuilder
         {
             return property switch
             {
-                "CellSize" or "CellsPerFrame" or "MaximumDrawnTufts" => "Streaming & budgets",
+                "CellSize" or "CellsPerFrame" or "GenerationBudgetMilliseconds" or "MaximumDrawnTufts" => "Streaming & budgets",
                 _ when property.StartsWith("Layer", StringComparison.Ordinal) => "Density per paint layer",
                 _ => "Grass around the camera",
             };
@@ -296,6 +296,7 @@ public static class InspectorBuilder
                 "MaximumSlopeDegrees" => new DrawerRange(0m, 90m, 1m, 1),
                 "CellSize" => new DrawerRange(2m, 64m, 1m, 1),
                 "CellsPerFrame" => new DrawerRange(1m, 256m, 1m, 0),
+                "GenerationBudgetMilliseconds" => new DrawerRange(0.1m, 33m, 0.1m, 1),
                 "MaximumDrawnTufts" => new DrawerRange(0m, 32768m, 256m, 0),
                 _ when property.StartsWith("Layer", StringComparison.Ordinal) => new DrawerRange(0m, 1m, 0.05m, 2),
                 _ => null,
