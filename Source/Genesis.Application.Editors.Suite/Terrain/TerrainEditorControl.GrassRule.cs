@@ -35,8 +35,7 @@ public sealed partial class TerrainEditorControl
         });
         _grassRuleDraft = _nature.GrassRule.Clone();
         Control inspector = _grassRuleInspector = Inspector.InspectorBuilder.BuildForObject(
-            _grassRuleDraft,
-            "The same rule grows the grass in this viewport, the room preview and the running game.", inline: true);
+            _grassRuleDraft, GrassRuleNote, inline: true);
         inspector.Dock = DockStyle.Top;
         page.Controls.Add(inspector);
         page.Controls.Add(MakeContextAction(
@@ -52,19 +51,28 @@ public sealed partial class TerrainEditorControl
         TerrainGrassRuleSettings before = _nature.GrassRule.Clone();
         TerrainGrassRuleSettings after = settings.Clone();
         after.Normalize();
-        void Use(TerrainGrassRuleSettings rule)
+        void Use(TerrainGrassRuleSettings rule, bool rebind)
         {
             _nature.GrassRule = rule.Clone();
             ResetGrassField();
+            // Undo and redo show the restored rule in the fields, as the scatter settings do.
+            if (rebind && _grassRuleInspector?.Parent is not null)
+            {
+                _grassRuleDraft = _nature.GrassRule.Clone();
+                ReplaceSettingsForm(ref _grassRuleInspector, _grassRuleDraft, GrassRuleNote);
+            }
+
             _viewport.Invalidate(true);
         }
 
-        Use(after);
+        Use(after, rebind: false);
         PushEdit(after.Enabled ? "Apply grass around the camera" : "Switch off grass around the camera",
-            () => Use(after),
-            () => Use(before));
+            () => Use(after, rebind: true),
+            () => Use(before, rebind: true));
         UpdateStatus();
     }
+
+    private const string GrassRuleNote = "The same rule grows the grass in this viewport, the room preview and the running game.";
 
     private void ResetGrassField()
     {

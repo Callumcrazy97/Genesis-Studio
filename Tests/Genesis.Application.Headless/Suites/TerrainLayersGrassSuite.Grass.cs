@@ -56,7 +56,8 @@ internal static partial class TerrainLayersGrassSuite
             GrassAssert(editor.GrassRule is { Enabled: true, Seed: 11 } && editor.IsDirty, "Apply did not set the grass rule.");
             editor.Undo();
             GrassAssert(!editor.GrassRule.Enabled, "Undo did not restore the previous grass rule.");
-            editor.ApplyGrassRule(rule);
+            editor.Redo();
+            GrassAssert(editor.GrassRule is { Enabled: true, Seed: 11 }, "Redo did not bring the grass rule back.");
             expected = editor.GrassRule;
             editor.Save();
         }
