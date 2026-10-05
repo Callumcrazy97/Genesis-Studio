@@ -1583,6 +1583,9 @@ internal static class HeadlessTestRunner
             case "input-replay":
                 Suites.InputReplaySuite.Run(ctx);
                 break;
+            case "speed":
+                Suites.SpeedSuite.Run(ctx);
+                break;
             case "asset-import":
                 Suites.AssetImportSuite.Run(ctx);
                 break;

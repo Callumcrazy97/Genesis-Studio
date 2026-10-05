@@ -67,6 +67,7 @@ public sealed partial class StudioShellForm : DpiAwareForm
         RenderingPreferencesBridge.ApplyProject(project.Manifest);
         _persistLayout = persistLayout;
         _resources = new ResourceService(project);
+        ProjectOpeningNotice.Step("Reading how the project's resources refer to each other…");
         _assetMonitor = new ProjectAssetMonitor(project.RootPath);
         _assetMonitor.Changed += OnProjectAssetsChanged;
         _assetMonitor.Error += OnAssetMonitorError;
@@ -141,11 +142,13 @@ public sealed partial class StudioShellForm : DpiAwareForm
         _dockPanel.BringToFront();
         BackdropSurface.Attach(_dockPanel, ThemeBackdrop.OpenScrim);
 
+        ProjectOpeningNotice.Step("Listing the project's resources…");
         _assetBrowser = new ResourceBrowserDock(_resources, services.Settings);
         _assetBrowser.HostFinderControls(_finderSearch, _finderFilter);
         _inspector = new InspectorDock();
         _inspector.ResourceOpenRequested += (_, resource) => OpenResource(resource);
         _console = new ConsoleDock(services.Log);
+        ProjectOpeningNotice.Step("Preparing the start page…");
         _welcome = new WelcomeDocument(project);
         foreach (GenesisDockContent dock in new GenesisDockContent[] { _assetBrowser, _inspector, _console, _welcome })
             dock.SetProjectShortcutRouter(RouteSharedWindowShortcut);
@@ -170,14 +173,30 @@ public sealed partial class StudioShellForm : DpiAwareForm
         ThemeService.ThemeChanged += OnThemeChanged;
         ApplyRuntimePreferences();
 
+        ProjectOpeningNotice.Step("Applying the theme…");
         ThemeService.Apply(this);
         menu.Renderer = ThemeService.CreateToolStripRenderer();
 
         StartCommandStateUpdates();
 
-        Shown += (_, _) => _services.Log.Information(
-            "Studio",
-            $"Workspace opened for '{_project.Manifest.Name}'.");
+        Shown += (_, _) =>
+        {
+            _services.Log.Information(
+                "Studio",
+                $"Workspace opened for '{_project.Manifest.Name}'.");
+            // A project with C# scripts compiles them on F5. What the compiler references is
+            // worked out now, on a worker thread, instead of on the first F5.
+            try
+            {
+                if (ResourceNames.For(_project.RootPath).Entries.Any(entry => entry.Type == ResourceType.Script
+                        && entry.Extension.Equals(".cs", StringComparison.OrdinalIgnoreCase)))
+                    _ = Genesis.Runtime.Scripting.CSharpScriptCompiler.WarmReferencesInBackground(_project.RootPath);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
+            {
+                // Only a head start; F5 works the references out itself.
+            }
+        };
     }
 
     public ProjectSession Project => _project;
@@ -195,6 +214,9 @@ public sealed partial class StudioShellForm : DpiAwareForm
         _dockPanel.Contents.OfType<IStudioDocument>().ToArray();
 
     internal ProjectAssetMonitor AssetMonitor => _assetMonitor;
+
+    /// <summary>True while work started by opening the project is still running in the background.</summary>
+    internal bool IsProjectStillLoading => false;
 
     public ResourceDocument OpenResourceDocument(ResourceItem resource)
     {
@@ -1080,11 +1102,14 @@ public sealed partial class StudioShellForm : DpiAwareForm
             return;
         }
 
-        GenesisDockContent document = _editorRegistry.Create(
-            resource,
-            item => new ResourceDocument(item, _services.Log));
-        document.SetProjectShortcutRouter(RouteSharedWindowShortcut);
-        document.Show(_dockPanel, DockState.Document);
+        using (ShowOpeningPlaceholder(resource))
+        {
+            GenesisDockContent document = _editorRegistry.Create(
+                resource,
+                item => new ResourceDocument(item, _services.Log));
+            document.SetProjectShortcutRouter(RouteSharedWindowShortcut);
+            document.Show(_dockPanel, DockState.Document);
+        }
         SetStatus($"Opened {resource.Name}");
         _assetBrowser.RememberOpened(resource);
     }
@@ -1753,7 +1778,14 @@ public sealed partial class StudioShellForm : DpiAwareForm
         // falls back through ProjectRoomResolver, but that's a filesystem heuristic search —
         // an explicit, direct check here gives a faster, unambiguous error instead of relying
         // on that fallback finding nothing several steps into the run.
-        bool hasRoom = Flatten(_resources.BuildTree()).Any(item => item.Kind == ResourceKind.Room && !item.IsFolder);
+        // The resource browser's tree is checked first: listing the whole project again took about
+        // a second on a large one. Only when it shows no Room is the project listed afresh, so a
+        // Room made a moment ago is still found.
+        static bool HasRoom(ResourceItem root) => Flatten(root).Any(item => item.Kind == ResourceKind.Room && !item.IsFolder);
+        bool hasRoom;
+        try { hasRoom = HasRoom(_assetBrowser.ResourceTreeSnapshot); }
+        catch (InvalidOperationException) { hasRoom = false; }
+        if (!hasRoom) hasRoom = HasRoom(_resources.BuildTree());
         if (!hasRoom)
         {
             _services.Log.Error("Runner", "Cannot run — the project has no Room. Create at least one Room before pressing F5.");
@@ -1769,8 +1801,20 @@ public sealed partial class StudioShellForm : DpiAwareForm
 
         // Strictly validate every saved PGSL event before launch. Hand-written compatibility C# is
         // compiled separately; authored PGSL runs on the same validated VM in Studio and Player.
-        Genesis.Runtime.Project.ProjectRunLauncher.CompileOutcome compile =
-            Genesis.Runtime.Project.ProjectRunLauncher.CompileScripts(projectRoot);
+        // Say so first: compiling a project's C# can take a few seconds.
+        _status.Text = debug ? "Preparing to debug: checking scripts…" : "Preparing to play: checking scripts…";
+        _status.Owner?.Refresh();
+        Cursor? previousCursor = Cursor.Current;
+        Cursor.Current = Cursors.WaitCursor;
+        Genesis.Runtime.Project.ProjectRunLauncher.CompileOutcome compile;
+        try
+        {
+            compile = Genesis.Runtime.Project.ProjectRunLauncher.CompileScripts(projectRoot);
+        }
+        finally
+        {
+            Cursor.Current = previousCursor ?? Cursors.Default;
+        }
         if (!compile.Success)
         {
             _services.Log.Error(

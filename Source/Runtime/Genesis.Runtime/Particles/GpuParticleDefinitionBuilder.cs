@@ -12,11 +12,21 @@ namespace Genesis.Runtime.Particles;
 /// </summary>
 public static class GpuParticleDefinitionBuilder
 {
+    /// <summary>Reused between builds on a thread: a running game rebuilds every emitter's definition each frame.</summary>
+    [ThreadStatic] private static List<Vector4> t_lookup;
+    [ThreadStatic] private static List<(double Position, Vector4 Color)> t_stops;
+
+    /// <param name="previousLookup">
+    /// The lookup table of this emitter's last definition. When the new table holds the same
+    /// values the same array is used again, so an emitter whose curves and colours have not
+    /// changed allocates no table.
+    /// </param>
     public static GpuParticleDefinition Build(
         ParticleConfig config,
         Matrix4x4 world,
         ReadOnlySpan<Vector3> meshSurfaceSamples = default,
-        ReadOnlySpan<Vector3> collisionTriangleVertices = default)
+        ReadOnlySpan<Vector3> collisionTriangleVertices = default,
+        Vector4[] previousLookup = null)
     {
         ArgumentNullException.ThrowIfNull(config);
         if (!Matrix4x4.Invert(world, out Matrix4x4 inverse))
@@ -24,7 +34,9 @@ public static class GpuParticleDefinitionBuilder
         if (collisionTriangleVertices.Length % 3 != 0)
             throw new ArgumentException("Collision geometry must contain complete triangles.", nameof(collisionTriangleVertices));
 
-        List<Vector4> lookup = new(GpuParticleProtocol.CurveSamples * 2
+        List<Vector4> lookup = t_lookup ??= new List<Vector4>(GpuParticleProtocol.CurveSamples * 2 + 3);
+        lookup.Clear();
+        lookup.EnsureCapacity(GpuParticleProtocol.CurveSamples * 2
             + meshSurfaceSamples.Length + collisionTriangleVertices.Length + 3);
 
         BuildCurveTable(config, lookup);
@@ -150,11 +162,14 @@ public static class GpuParticleDefinitionBuilder
         };
 
         ComputeBounds(config, world, out Vector3 boundsCenter, out float boundsRadius);
+        ReadOnlySpan<Vector4> built = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(lookup);
+        Vector4[] table = previousLookup != null && built.SequenceEqual(previousLookup) ? previousLookup : built.ToArray();
+        if (lookup.Capacity > 65_536) { lookup.Clear(); lookup.Capacity = GpuParticleProtocol.CurveSamples * 2 + 3; }
         return new GpuParticleDefinition
         {
             Capacity = Math.Clamp(config.MaxParticles, 1, GpuParticleProtocol.MaximumCapacity),
             Parameters = parameters,
-            Lookup = lookup.ToArray(),
+            Lookup = table,
             DebugName = string.IsNullOrWhiteSpace(config.EmitterName) ? "Particles" : config.EmitterName,
             BoundsCenter = boundsCenter,
             BoundsRadius = boundsRadius,
@@ -190,62 +205,66 @@ public static class GpuParticleDefinitionBuilder
 
     private static void BuildColourTable(ParticleConfig config, List<Vector4> output)
     {
-        List<ParticleGradientStop> stops = (config.GradientStops ?? [])
-            .Where(stop => stop?.Color is not null)
-            .OrderBy(stop => stop.Position)
-            .Select(stop => stop.Clone())
-            .ToList();
+        // The stops, in position order (a stable sort, as OrderBy was), read without copying the
+        // authored colours: this runs for every emitter on every frame of a game.
+        List<(double Position, Vector4 Color)> stops = t_stops ??= new List<(double Position, Vector4 Color)>();
+        stops.Clear();
+        if (config.GradientStops != null)
+        {
+            foreach (ParticleGradientStop stop in config.GradientStops)
+            {
+                if (stop?.Color is null) continue;
+                int at = stops.Count;
+                while (at > 0 && Comparer<double>.Default.Compare(stops[at - 1].Position, stop.Position) > 0) at--;
+                stops.Insert(at, (stop.Position, ToVector(stop.Color)));
+            }
+        }
 
         if (stops.Count < 2)
         {
-            stops =
-            [
-                new ParticleGradientStop { Position = 0, Color = config.StartColor?.Clone() ?? new ParticleColor() },
-                new ParticleGradientStop { Position = 1, Color = config.EndColor?.Clone() ?? new ParticleColor(1,1,1,0) },
-            ];
+            stops.Clear();
+            stops.Add((0, config.StartColor is null ? Vector4.One : ToVector(config.StartColor)));
+            stops.Add((1, config.EndColor is null ? new Vector4(1, 1, 1, 0) : ToVector(config.EndColor)));
             if (config.MidColor is not null)
-                stops.Insert(1, new ParticleGradientStop
-                {
-                    Position = Math.Clamp(config.ColorMidpoint, 0d, 1d),
-                    Color = config.MidColor.Clone(),
-                });
+                stops.Insert(1, (Math.Clamp(config.ColorMidpoint, 0d, 1d), ToVector(config.MidColor)));
         }
 
         for (int i = 0; i < GpuParticleProtocol.CurveSamples; i++)
         {
             float t = i / (float)(GpuParticleProtocol.CurveSamples - 1);
-            ParticleColor colour = SampleGradient(stops, t);
+            Vector4 colour = SampleGradient(stops, t);
             float alphaT = config.UseCustomAlphaCurve
                 ? Math.Clamp(config.AlphaOverLifetime?.Evaluate(t) ?? 1f, 0f, 1f)
                 : ParticleCurveMath.Evaluate(config.AlphaCurve, t);
-            float legacyAlpha = SampleGradient(stops, alphaT).A;
-            colour.A = Math.Clamp(legacyAlpha, 0f, 1f);
-            output.Add(new Vector4(colour.R, colour.G, colour.B, colour.A));
+            float legacyAlpha = SampleGradient(stops, alphaT).W;
+            output.Add(new Vector4(colour.X, colour.Y, colour.Z, Math.Clamp(legacyAlpha, 0f, 1f)));
         }
     }
 
-    private static ParticleColor SampleGradient(IReadOnlyList<ParticleGradientStop> stops, float time)
+    private static Vector4 ToVector(ParticleColor colour) => new(colour.R, colour.G, colour.B, colour.A);
+
+    private static Vector4 SampleGradient(List<(double Position, Vector4 Color)> stops, float time)
     {
         double t = Math.Clamp(time, 0f, 1f);
-        if (stops.Count == 0) return new ParticleColor();
-        if (t <= stops[0].Position) return stops[0].Color.Clone();
-        if (t >= stops[^1].Position) return stops[^1].Color.Clone();
+        if (stops.Count == 0) return Vector4.One;
+        if (t <= stops[0].Position) return stops[0].Color;
+        if (t >= stops[^1].Position) return stops[^1].Color;
 
         for (int i = 1; i < stops.Count; i++)
         {
             if (t > stops[i].Position) continue;
-            ParticleGradientStop left = stops[i - 1];
-            ParticleGradientStop right = stops[i];
-            double span = Math.Max(1e-9, right.Position - left.Position);
-            float amount = (float)Math.Clamp((t - left.Position) / span, 0d, 1d);
-            return new ParticleColor(
-                Lerp(left.Color.R, right.Color.R, amount),
-                Lerp(left.Color.G, right.Color.G, amount),
-                Lerp(left.Color.B, right.Color.B, amount),
-                Lerp(left.Color.A, right.Color.A, amount));
+            (double leftPosition, Vector4 left) = stops[i - 1];
+            (double rightPosition, Vector4 right) = stops[i];
+            double span = Math.Max(1e-9, rightPosition - leftPosition);
+            float amount = (float)Math.Clamp((t - leftPosition) / span, 0d, 1d);
+            return new Vector4(
+                Lerp(left.X, right.X, amount),
+                Lerp(left.Y, right.Y, amount),
+                Lerp(left.Z, right.Z, amount),
+                Lerp(left.W, right.W, amount));
         }
 
-        return stops[^1].Color.Clone();
+        return stops[^1].Color;
     }
 
     private static void ComputeBounds(ParticleConfig config, Matrix4x4 world, out Vector3 center, out float radius)

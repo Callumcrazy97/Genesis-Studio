@@ -195,11 +195,44 @@ namespace Genesis.Rendering.Primitives
             string key = ShaderBinaryCache.BuildKey(
                 expanded, entry, profile, binaryFormat, compilerIdentity);
 
-            if (ShaderBinaryCache.TryRead(root, key, binaryFormat, out byte[] cached))
+            // Every 3D viewport (each editor, each game window) asks for the same few dozen
+            // built-in programs. They are kept in memory once made, and a program another thread
+            // is already compiling (the start-up warm-up) is waited for rather than compiled twice.
+            string memoryKey = root + "|" + key;
+            if (Compiled.TryGetValue(memoryKey, out byte[] remembered))
+                return new ShaderCompileResult(remembered, entry, profile, binaryFormat, cacheHit: true);
+
+            Lazy<(byte[] Blob, bool CacheHit)> work = Compiling.GetOrAdd(memoryKey, _ => new Lazy<(byte[] Blob, bool CacheHit)>(
+                () => ReadOrCompile(root, key, expanded, entry, profile, binaryFormat, sourcePath),
+                System.Threading.LazyThreadSafetyMode.ExecutionAndPublication));
+            try
             {
-                return new ShaderCompileResult(
-                    cached, entry, profile, binaryFormat, cacheHit: true);
+                (byte[] blob, bool cacheHit) = work.Value;
+                // A shader being written in the Shader editor is a new program on every edit; the
+                // memory kept is bounded, and the disk cache still holds everything.
+                if (Compiled.Count >= 1024) Compiled.Clear();
+                Compiled.TryAdd(memoryKey, blob);
+                return new ShaderCompileResult(blob, entry, profile, binaryFormat, cacheHit);
             }
+            finally
+            {
+                // A failed compile is not remembered: the next request reports it again.
+                Compiling.TryRemove(new KeyValuePair<string, Lazy<(byte[] Blob, bool CacheHit)>>(memoryKey, work));
+            }
+        }
+
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte[]> Compiled =
+            new(StringComparer.Ordinal);
+
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<(byte[] Blob, bool CacheHit)>> Compiling =
+            new(StringComparer.Ordinal);
+
+        private static (byte[] Blob, bool CacheHit) ReadOrCompile(
+            string root, string key, string expanded, string entry, string profile,
+            GpuShaderBinaryFormat binaryFormat, string sourcePath)
+        {
+            if (ShaderBinaryCache.TryRead(root, key, binaryFormat, out byte[] cached))
+                return (cached, true);
 
             byte[] blob = binaryFormat switch
             {
@@ -211,7 +244,45 @@ namespace Genesis.Rendering.Primitives
             };
 
             ShaderBinaryCache.TryWrite(root, key, binaryFormat, blob);
-            return new ShaderCompileResult(blob, entry, profile, binaryFormat, cacheHit: false);
+            return (blob, false);
+        }
+
+        /// <summary>
+        /// Starts compiling every built-in Direct3D 11 program on worker threads, so a game window
+        /// that is about to open finds them made (or being made) instead of compiling them one
+        /// after another while its window stays blank. Only DXBC: the DXC toolchain behind the
+        /// other formats is not shared between threads.
+        /// </summary>
+        public static void WarmBuiltInDxbcInBackground()
+        {
+            // The largest programs first, so the longest compile starts at once. Dedicated
+            // threads, not the thread pool: start-up work that waits on a pool thread must not
+            // queue behind seconds of compiling.
+            EngineShaderJob[] jobs = new EngineShaderJob[EngineShaderCatalog.Jobs.Count];
+            for (int i = 0; i < jobs.Length; i++) jobs[i] = EngineShaderCatalog.Jobs[i];
+            Array.Sort(jobs, static (a, b) => b.Source.Length.CompareTo(a.Source.Length));
+            int next = -1;
+            int workers = Math.Clamp(Environment.ProcessorCount / 2, 1, 4);
+            for (int w = 0; w < workers; w++)
+            {
+                var thread = new System.Threading.Thread(() =>
+                {
+                    for (int index = System.Threading.Interlocked.Increment(ref next); index < jobs.Length;
+                         index = System.Threading.Interlocked.Increment(ref next))
+                    {
+                        try { EngineShaderCatalog.Compile(jobs[index], GpuShaderBinaryFormat.Dxbc); }
+                        catch (Exception) { /* The renderer compiles it again and reports the error itself. */ }
+                    }
+                })
+                {
+                    // Normal priority on purpose: the renderer waits for a program these threads
+                    // are already making, and a lower priority would make it wait behind every
+                    // other busy program on the machine.
+                    IsBackground = true,
+                    Name = "Genesis shader warm-up",
+                };
+                thread.Start();
+            }
         }
 
         private static string CompilerIdentity(GpuShaderBinaryFormat binaryFormat) => binaryFormat switch

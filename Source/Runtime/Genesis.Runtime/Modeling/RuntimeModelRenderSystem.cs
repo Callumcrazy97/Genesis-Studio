@@ -296,8 +296,11 @@ namespace Genesis.Runtime.Modeling
             if (viewLevel > 0 && !gpuAsset.AutoLodsRequested) _gpu.RequestAutoLods(asset, gpuAsset);
             int activeLod = ResolveLodLevel(asset, Math.Max(viewLevel, Math.Max(0, rendererComponent.LodPolicy)));
             bool automatic = viewLevel > 0 && gpuAsset.AutoLodsReady && ReferenceEquals(renderMeshes, gpuAsset.Meshes);
-            foreach (ModelGpuCache.CachedMesh mesh in renderMeshes)
+            // Indexed, not foreach: through the read-only list interface a foreach allocates an
+            // enumerator for every model drawn in every frame.
+            for (int meshIndex = 0; meshIndex < renderMeshes.Count; meshIndex++)
             {
+                ModelGpuCache.CachedMesh mesh = renderMeshes[meshIndex];
                 if (mesh.Lod != activeLod) continue;
                 if (ModelCollisionNames.IsCollisionOnly(asset, mesh.SourceIndex)) continue;
                 if (rendererComponent.HiddenMeshes?.Contains(mesh.SourceName) == true) continue;

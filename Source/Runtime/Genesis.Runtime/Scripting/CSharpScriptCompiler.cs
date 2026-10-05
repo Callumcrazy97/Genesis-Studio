@@ -253,6 +253,25 @@ namespace Genesis.Runtime.Scripting
         /// runtime DLLs, the .NET BCL, etc.) so scripts can call into Genesis.Runtime,
         /// Genesis.Physics, System.Numerics and friends without extra configuration.
         /// </summary>
+        /// <summary>
+        /// Works out the references a compile needs on a worker thread, so the first F5 of a
+        /// project with C# scripts does not spend seconds of it on the UI thread doing so.
+        /// </summary>
+        public static System.Threading.Tasks.Task WarmReferencesInBackground(string projectPath) =>
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                try { BuildMetadataReferences(projectPath); }
+                catch (Exception error) { System.Diagnostics.Trace.WriteLine("Script reference warm-up: " + error.Message); }
+            });
+
+        /// <summary>Each referenceable file's decision (null: not referenced) and reference, by path, until it changes.</summary>
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (long Ticks, long Length, MetadataReference Reference)> ReferenceFiles =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Whether a loaded assembly defines the GameSettings namespace; an assembly's types never change.</summary>
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Assembly, object> GameSettingsAssemblies = new();
+        private static readonly object DefinesGameSettings = new(), DoesNotDefineGameSettings = new();
+
         private static List<MetadataReference> BuildMetadataReferences(string projectPath = null)
         {
             var refs = new List<MetadataReference>();
@@ -262,7 +281,36 @@ namespace Genesis.Runtime.Scripting
             {
                 if (string.IsNullOrEmpty(path) || !File.Exists(path)) return;
                 string full = Path.GetFullPath(path);
-                if (addedFiles.Add(full))
+                if (!addedFiles.Add(full)) return;
+
+                // Deciding whether a file may be referenced loads it and walks its types, which for
+                // the 200-odd framework files took seconds on every F5 (and loaded each of them
+                // again, for good). The decision and the reference are kept until the file changes.
+                long ticks, length;
+                try
+                {
+                    FileInfo file = new(full);
+                    ticks = file.LastWriteTimeUtc.Ticks;
+                    length = file.Length;
+                }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                {
+                    TryAddUncached(full);
+                    return;
+                }
+                if (ReferenceFiles.TryGetValue(full, out var known) && known.Ticks == ticks && known.Length == length)
+                {
+                    if (known.Reference != null) refs.Add(known.Reference);
+                    return;
+                }
+
+                int before = refs.Count;
+                TryAddUncached(full);
+                ReferenceFiles[full] = (ticks, length, refs.Count > before ? refs[^1] : null);
+            }
+
+            void TryAddUncached(string full)
+            {
                 {
                     try
                     {
@@ -331,22 +379,28 @@ namespace Genesis.Runtime.Scripting
                     if (!string.IsNullOrEmpty(name) && name.Equals("GenesisEngine", StringComparison.OrdinalIgnoreCase))
                         continue;
 
-                    // Skip any assembly defining the GameSettings namespace
-                    bool hasGameSettings = false;
-                    try
+                    // Skip any assembly defining the GameSettings namespace (worked out once per assembly)
+                    if (!GameSettingsAssemblies.TryGetValue(asm, out object answer))
                     {
-                        foreach (var t in asm.GetTypes())
+                        bool hasGameSettings = false;
+                        try
                         {
-                            if (t.Namespace != null && (t.Namespace == "GameSettings" || t.Namespace.StartsWith("GameSettings.")))
+                            foreach (var t in asm.GetTypes())
                             {
-                                hasGameSettings = true;
-                                break;
+                                if (t.Namespace != null && (t.Namespace == "GameSettings" || t.Namespace.StartsWith("GameSettings.")))
+                                {
+                                    hasGameSettings = true;
+                                    break;
+                                }
                             }
                         }
-                    }
-                    catch { }
+                        catch { }
 
-                    if (hasGameSettings)
+                        answer = hasGameSettings ? DefinesGameSettings : DoesNotDefineGameSettings;
+                        GameSettingsAssemblies.AddOrUpdate(asm, answer);
+                    }
+
+                    if (ReferenceEquals(answer, DefinesGameSettings))
                         continue;
 
                     TryAdd(asm.Location);

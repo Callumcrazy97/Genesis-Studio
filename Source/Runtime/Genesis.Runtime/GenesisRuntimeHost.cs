@@ -840,6 +840,37 @@ namespace Genesis.Runtime
             }
         }
 
+        /// <summary>
+        /// Presents a loading screen saying what the game is doing while it is still being made,
+        /// before its first real frame: the window would otherwise stay blank (or white) for the
+        /// whole of that time. Call it between the long steps of starting a game. It draws no 3D
+        /// and never fails the start: a frame that cannot be shown is skipped.
+        /// </summary>
+        /// <returns>True when the screen was presented.</returns>
+        public bool ShowStartupProgress(string status, float progress)
+        {
+            if (_renderer == null || _closing || _window.Width <= 0 || _window.Height <= 0) return false;
+            try
+            {
+                if (!_renderer.IsFramebufferReady) return false;
+                _renderer.BeginFrame();
+                _renderer.Clear(0.07f, 0.09f, 0.14f, 1f);
+                _renderer.SetViewport(0, 0, _renderer.PixelWidth, _renderer.PixelHeight);
+                _renderer.Set3DFrameActive(false);
+                _renderer.Advance3DTime(0f);
+                _renderer.EndFrame();
+                int width = OverlayWidth, height = OverlayHeight;
+                _renderer.ComposeOverlay(canvas => ProjectBootSplash.DrawStartupOverlay(canvas, width, height, status, progress));
+                _renderer.Present();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                RenderLog.Line("Startup progress frame failed: " + ex.Message);
+                return false;
+            }
+        }
+
         private void ComposeBootOverlay()
         {
             if (BootSplash == null || BootSplash.IsComplete || _renderer == null) return;

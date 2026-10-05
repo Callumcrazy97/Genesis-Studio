@@ -129,6 +129,12 @@ namespace Genesis.World.Water
             return maxY - minY;
         }
 
+        /// <summary>
+        /// True when <see cref="BuildVisual"/> draws the body from its painted footprint, which
+        /// does not change with the body's simulation.
+        /// </summary>
+        public static bool HasFootprint(WaterBody body) => TryGetFootprintBits(body, out _);
+
         private static bool TryGetFootprintBits(WaterBody body, out byte[] bits)
         {
             bits = null;

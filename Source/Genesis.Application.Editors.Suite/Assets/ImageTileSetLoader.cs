@@ -55,6 +55,24 @@ public sealed record TileSetInfo(
             return null;
         }
 
+        // The Room editor asks for every Image in the project when it opens (its palette and its
+        // tile-set panel each do), so an answer is kept until the file changes on disk.
+        FileInfo file = new(imageResourcePath);
+        (long Ticks, long Length) stamp;
+        try { stamp = (file.LastWriteTimeUtc.Ticks, file.Length); }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { return null; }
+        if (Known.TryGetValue(imageResourcePath, out var known) && known.Stamp == stamp) return known.Info;
+        TileSetInfo? info = Read(imageResourcePath);
+        if (Known.Count > 4096) Known.Clear();
+        Known[imageResourcePath] = (stamp, info);
+        return info;
+    }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, ((long Ticks, long Length) Stamp, TileSetInfo? Info)> Known =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private static TileSetInfo? Read(string imageResourcePath)
+    {
         ImageDocument? document;
         try
         {

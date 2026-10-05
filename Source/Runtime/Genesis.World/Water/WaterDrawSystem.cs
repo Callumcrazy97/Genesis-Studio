@@ -40,6 +40,13 @@ namespace Genesis.World.Water
             if (body == null)
                 return MeshHandle.Invalid;
 
+            // A body drawn from its painted footprint has the same flat surface whatever its
+            // simulation does (WaterSurfaceMesh.BuildVisual prefers the footprint), so it is built
+            // once like any still body. Rebuilding it for every solver step built and uploaded the
+            // whole surface every frame: megabytes of garbage a frame in an idle room.
+            if (body.SimulationEnabled && simulation != null && HasFootprint(body))
+                simulation = null;
+
             if (body.SimulationEnabled && simulation != null)
                 return GetOrUpdateSimulated(body, cameraPos, simulation);
 
@@ -100,6 +107,25 @@ namespace Genesis.World.Water
             surface.Current = next;
             surface.Revision = simulation.Revision;
             return target;
+        }
+
+        private readonly Dictionary<string, (string Footprint, bool Valid)> _footprints = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Whether the body's surface is drawn from its painted footprint. The footprint is decoded
+        /// once for each footprint text, not on every frame.
+        /// </summary>
+        private bool HasFootprint(WaterBody body)
+        {
+            if (body.FootprintWidth <= 0 || body.FootprintHeight <= 0 || body.FootprintCellSize <= 0.0001f
+                || string.IsNullOrEmpty(body.Footprint))
+                return false;
+            string id = body.Id ?? string.Empty;
+            if (_footprints.TryGetValue(id, out var known) && ReferenceEquals(known.Footprint, body.Footprint))
+                return known.Valid;
+            bool valid = WaterSurfaceMesh.HasFootprint(body);
+            _footprints[id] = (body.Footprint, valid);
+            return valid;
         }
 
         private void ReleaseSimulated(SimulatedSurface surface)

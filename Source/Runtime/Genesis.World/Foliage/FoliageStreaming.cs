@@ -14,6 +14,9 @@ public sealed class FoliageRenderBatch
 
     public FoliageRenderKey Key { get; }
     public List<FoliageInstance> Instances { get; } = new();
+
+    /// <summary>The plan this batch was last part of, so a planner can keep its batches between frames.</summary>
+    internal int PlanFrame = -1;
     public int TrianglesPerInstance => FoliageGeometry.TriangleCount(Key.Species, Key.NearLod);
 }
 
@@ -75,6 +78,7 @@ public sealed class FoliageStreamingPlanner
     private readonly List<Cell> _visibleCells = new();
     private readonly Dictionary<FoliageRenderKey, FoliageRenderBatch> _batches = new();
     private readonly FoliageFramePlan _plan = new();
+    private int _planFrame;
 
     public FoliageStreamingPlanner(FoliageField field, float cellSize)
     {
@@ -179,6 +183,10 @@ public sealed class FoliageStreamingPlanner
                 {
                     batch = new FoliageRenderBatch(key);
                     _batches.Add(key, batch);
+                }
+                if (batch.PlanFrame != _planFrame)
+                {
+                    batch.PlanFrame = _planFrame;
                     _plan.MutableBatches.Add(batch);
                 }
                 batch.Instances.Add(instance);
@@ -255,7 +263,9 @@ public sealed class FoliageStreamingPlanner
         _visibleCells.Clear();
         foreach (FoliageRenderBatch batch in _plan.MutableBatches) batch.Instances.Clear();
         _plan.MutableBatches.Clear();
-        _batches.Clear();
+        // The batches themselves are kept (one per species and detail level), so their instance
+        // lists keep the room they grew to instead of being regrown from nothing every frame.
+        _planFrame++;
     }
 
     private static float DistanceSquaredToBounds(Vector3 point, Vector3 minimum, Vector3 maximum)

@@ -135,6 +135,20 @@ namespace Genesis.Runtime.Project
                 Genesis.Runtime.Scripting.PgslCommands.GameQuitHandler = RequestStop;
                 PgslProfiler.Enabled = debugMode || benchmarkOutput != null;
 
+                // The built-in shaders compile on worker threads while the project and room are
+                // read and the window is made; the renderer then finds them ready. After an engine
+                // update (nothing cached yet) that compile used to hold a blank window for seconds.
+                try
+                {
+                    if (Environment.GetEnvironmentVariable("GENESIS_SHADER_WARMUP") != "0"
+                        && Genesis.Rendering.Core.RenderControllerFactory.ResolveBackend() == Genesis.Rendering.Core.RenderBackendOption.SilkNetDx11)
+                        Genesis.Rendering.Primitives.ShaderCompiler.WarmBuiltInDxbcInBackground();
+                }
+                catch (Exception warmError) when (warmError is ArgumentException or InvalidOperationException)
+                {
+                    // An unknown backend name is reported by the renderer itself when it starts.
+                }
+
                 string projectPath = Environment.GetEnvironmentVariable("GENESIS_PROJECT_PATH");
                 if (string.IsNullOrWhiteSpace(projectPath))
                     projectPath = ProjectRoomResolver.ResolveStandaloneProjectRoot(AppContext.BaseDirectory);
@@ -226,6 +240,10 @@ namespace Genesis.Runtime.Project
                     _activeHost = host;
                     _activeWindow = window;
                     scene.Input = window?.Input ?? scene.Input;
+                    // The window is open and the graphics card ready: say so at once. Everything
+                    // below (textures, sound, the first room) used to happen behind a blank window.
+                    if (host.ShowStartupProgress("Starting " + title, 0.02f))
+                        logger.Line("Loading screen shown");
 
                     if (room.Dimension == RoomDimension.ThreeD && room.Settings.VoxelWorld)
                         SceneDefaults.ApplyVoxelWorld(scene);
@@ -252,6 +270,7 @@ namespace Genesis.Runtime.Project
                     Genesis.Runtime.Scripting.PgslCommands.ActiveGameContext = gameContext;
                     Genesis.Runtime.Scripting.PgslCommands.ProjectPath = projectPath;
 
+                    host.ShowStartupProgress("Preparing textures", 0.05f);
                     try
                     {
                         Genesis.Runtime.Textures.RuntimeTextureAtlas.Build(projectPath, renderer);
@@ -320,9 +339,11 @@ namespace Genesis.Runtime.Project
                     _replication.Attach(_activeNet);
                     Genesis.Runtime.Scripting.PgslCommands.ActiveReplication = _replication;
 
+                    host.ShowStartupProgress("Building " + (string.IsNullOrEmpty(room.Name) ? roomName : room.Name), 0.1f);
                     RoomAsset loaded = RoomAssetLoader.Parse(roomFile);
                     RoomBuildResult build = ProjectRoomLoader.Build(projectPath, scene, loaded,
                         scriptHost, gameContext, beginGame: true);
+                    host.ShowStartupProgress("Preparing what the first room shows", 0.15f);
                     if (RoomEnvironmentAudioSubsystem.ShouldRegister(loaded.Environment))
                         scene.AddSubsystem(new RoomEnvironmentAudioSubsystem(loaded.Environment, gameContext));
 
@@ -507,9 +528,13 @@ namespace Genesis.Runtime.Project
                     // Only this thread's loading holds a frame up, so only this thread's is counted.
                     Genesis.Shared.Assets.LoadClock.UseCurrentThread();
                     var slowFrames = new SlowFrameLog(logger.Line);
+                    AllocationRateLog allocations = AllocationRateLog.Requested(debugMode) ? new AllocationRateLog(logger.Line) : null;
+                    allocations?.SampleTypes();
                     host.AfterPresent += () =>
                     {
                         Genesis.Runtime.Diagnostics.SceneWorkTimes parts = host.Scene?.WorkTimes;
+                        allocations?.FrameEnded((host.BootSplash == null || host.BootSplash.IsComplete)
+                            && host.Scene != null && host.Scene.RoomChange == null);
                         slowFrames.FrameEnded(
                             gameContext?.Room?.Name ?? roomName,
                             counted: host.BootSplash == null || host.BootSplash.IsComplete,
