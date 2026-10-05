@@ -15,7 +15,7 @@ public sealed partial class UiEditorControl
     private sealed record UiFieldLayout(Label Caption, Control Input);
     private sealed record UiPairLayout(Label Title, TableLayoutPanel Columns, Control Left, Control Right);
 
-    private static bool HasText(UiElementType type) => type is UiElementType.Text or UiElementType.Button;
+    private static bool HasText(UiElementType type) => type is UiElementType.Text or UiElementType.Button or UiElementType.Toggle;
 
     private void SetContextualFields(UiElement? element)
     {
@@ -24,15 +24,18 @@ public sealed partial class UiEditorControl
             if (row is not null) row.Visible = type.HasValue && HasText(type.Value);
         foreach (Control? row in new[] { _imageRow, _imageScaleRow, _opacityRow })
             if (row is not null) row.Visible = type == UiElementType.Image;
-        if (_progressRow is not null) _progressRow.Visible = type == UiElementType.ProgressBar;
-        if (_backgroundRow is not null) _backgroundRow.Visible = type is UiElementType.Panel or UiElementType.Button or UiElementType.ProgressBar;
+        if (_progressRow is not null) _progressRow.Visible = type.HasValue && HasRange(type.Value);
+        if (_backgroundRow is not null) _backgroundRow.Visible = type.HasValue && HasBox(type.Value);
         if (_foregroundRow is not null)
         {
-            _foregroundRow.Visible = type is UiElementType.Text or UiElementType.Button or UiElementType.ProgressBar;
-            if (_foregroundRow.Tag is UiFieldLayout foreground) foreground.Caption.Text = type == UiElementType.ProgressBar ? "Border colour" : "Text colour";
-            _foreground.Text = type == UiElementType.ProgressBar ? "Border…" : "Text…";
+            _foregroundRow.Visible = type is UiElementType.Text or UiElementType.Button or UiElementType.ProgressBar
+                or UiElementType.Slider or UiElementType.Toggle;
+            if (_foregroundRow.Tag is UiFieldLayout foreground) foreground.Caption.Text = ForegroundCaption(type);
+            _foreground.Text = type == UiElementType.ProgressBar ? "Border…" : type == UiElementType.Slider ? "Knob…" : "Text…";
         }
-        if (_accentRow is not null) _accentRow.Visible = type is UiElementType.Button or UiElementType.ProgressBar;
+        if (_accentRow is not null) _accentRow.Visible = type is UiElementType.Button or UiElementType.ProgressBar
+            or UiElementType.Slider or UiElementType.Toggle;
+        SetStyleContextualFields(type);
         bool stretch = element?.Anchor == UiAnchor.Stretch;
         bool syncing = _syncing;
         _syncing = true;
@@ -47,9 +50,17 @@ public sealed partial class UiEditorControl
         QueueUiLayout();
     }
 
+    private static string ForegroundCaption(UiElementType? type) => type switch
+    {
+        UiElementType.ProgressBar => "Border colour",
+        UiElementType.Slider => "Knob colour",
+        UiElementType.Toggle => "Knob and text colour",
+        _ => "Text colour",
+    };
+
     private void UpdateColourButtons()
     {
-        foreach (Button button in new[] { _background, _foreground, _accent })
+        foreach (Button button in new[] { _background, _foreground, _accent }.Concat(StyleColourButtons))
         {
             Color colour = button.BackColor;
             float alpha = colour.A / 255f;
@@ -104,7 +115,12 @@ public sealed partial class UiEditorControl
                 _detailsDock.Width = (int)Math.Min(320 * scale, ClientSize.Width * .46f);
                 _detailsDock.Visible = !_showWorkflowGuide && (_detailsPreference ?? LogicalClientWidth >= 1000);
             }
-            if (_canvas.Parent is { } centre) centre.Visible = !_showWorkflowGuide;
+            if (_canvas.Parent is { } centre)
+            {
+                centre.Visible = !_showWorkflowGuide;
+                // The filling canvas must dock after both sidebars, or it spreads under the Inspector.
+                if (centre.Visible && _workspace.Controls.GetChildIndex(centre) != 0) centre.BringToFront();
+            }
             PerformLayout();
             _workspace.PerformLayout();
             _libraryDock?.PerformLayout(); _detailsDock?.PerformLayout();
@@ -172,11 +188,12 @@ public sealed partial class UiEditorControl
     private static bool IsApplicable(UiElementType type, string property) => property switch
     {
         "Ui.Text" or "Ui.Font" or "Ui.FontSize" => HasText(type),
-        "Ui.Foreground" => type is UiElementType.Text or UiElementType.Button or UiElementType.ProgressBar,
+        "Ui.Foreground" => type is UiElementType.Text or UiElementType.Button or UiElementType.ProgressBar
+            or UiElementType.Slider or UiElementType.Toggle,
         "Ui.Image" or "Ui.ImageScaleX" or "Ui.ImageScaleY" or "Ui.Opacity" => type == UiElementType.Image,
-        "Ui.Value" or "Ui.Maximum" => type == UiElementType.ProgressBar,
-        "Ui.Background" => type is UiElementType.Panel or UiElementType.Button or UiElementType.ProgressBar,
-        "Ui.Accent" => type is UiElementType.Button or UiElementType.ProgressBar,
-        _ => true,
+        "Ui.Value" or "Ui.Maximum" => HasRange(type),
+        "Ui.Background" => HasBox(type),
+        "Ui.Accent" => type is UiElementType.Button or UiElementType.ProgressBar or UiElementType.Slider or UiElementType.Toggle,
+        _ => IsStyleApplicable(type, property),
     };
 }

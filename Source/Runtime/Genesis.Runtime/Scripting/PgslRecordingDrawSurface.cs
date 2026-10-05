@@ -22,7 +22,8 @@ public sealed class PgslRecordingDrawSurface : IPgslDrawSurface
     public readonly record struct CircleRecord(float X, float Y, float Radius, bool Filled, Color Color);
     public readonly record struct LineRecord(float X1, float Y1, float X2, float Y2, float Thickness, Color Color);
     public readonly record struct TextRecord(string Text, float X, float Y, float Size, Color Color, string Font = "Segoe UI", Rectangle? UiBounds = null, bool Centered = false, float Tracking = 0f);
-    public readonly record struct SpriteRecord(string Sprite, float X, float Y, int Frame, float Angle, float Alpha, RectangleF? Destination = null);
+    public readonly record struct SpriteRecord(string Sprite, float X, float Y, int Frame, float Angle, float Alpha, RectangleF? Destination = null,
+        RectangleF? Source = null);
     public readonly record struct CubeRecord(float X, float Y, float Z, float SX, float SY, float SZ, Color Color);
     public readonly record struct SphereRecord(float X, float Y, float Z, float Radius, Color Color);
     public readonly record struct ModelRecord(string Name, float X, float Y, float Z, float Scale, Color Color);
@@ -106,6 +107,10 @@ public sealed class PgslRecordingDrawSurface : IPgslDrawSurface
 
     public void DrawSpriteRectangle(string spriteName, RectangleF destination, int frame, Color blend, float alpha) =>
         Sprites.Add(new SpriteRecord(spriteName, destination.X, destination.Y, frame, 0, alpha, destination));
+
+    /// <summary>Part of an image: recorded with the fractions of the frame it shows.</summary>
+    public void DrawSpritePart(string spriteName, int frame, RectangleF source, RectangleF destination, Color blend, float alpha) =>
+        Sprites.Add(new SpriteRecord(spriteName, destination.X, destination.Y, frame, 0, alpha, destination, source));
 
     public void QueueCube3D(float x, float y, float z, float sx, float sy, float sz, Color color, float alpha) =>
         Cubes.Add(new CubeRecord(x, y, z, sx, sy, sz, color));

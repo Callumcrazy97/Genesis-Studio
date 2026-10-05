@@ -188,6 +188,51 @@ room runs: `EnvironmentSetReflection(strength)`, `EnvironmentGetReflection()`.
 It is not a captured sky or a reflection probe: a metal mirrors the room's ambient colours, not the
 actual scene around it. Terrain and water keep their own shading.
 
+## User Interface resources that are game menus
+
+A User Interface resource (the UI Editor, drawn in game by `DrawUi`) can now express a styled menu
+without script drawing. Each element gains, in the UI Editor's Inspector:
+
+| Property | Elements | Meaning |
+|---|---|---|
+| Corner radius | Panel, Button, Progress bar, Slider, Toggle | Rounded corners in design pixels, smooth-edged. 0 is square. |
+| Border width, Border colour | the same | An outline of any width inside the box, rounded with it. Unset keeps the old look: buttons and progress bars outline one pixel (accent, text colour); a width of 0 removes it. An empty colour uses the accent (a progress bar's text colour). |
+| Fill, Gradient end colour | the same | `Solid`, `VerticalGradient` (Background at the top to Gradient end at the bottom) or `HorizontalGradient` (left to right). |
+| Text alignment (Across, Down), Letter spacing | Text, Button, Toggle | `Left`/`Center`/`Right` and `Top`/`Middle`/`Bottom`; `Auto` keeps the old placement (text left, buttons centred, both in the middle). Spacing adds design pixels between letters. |
+| Range (Minimum, Step) with Value and Maximum | Slider | The slider's value runs from Minimum to Maximum, snapped to Step (0 is continuous). |
+| Image fit, Crop | Image | `Stretch` (as before, times the image scale), `Contain` (whole picture, letterboxed, centred), `Cover` (fills the box, centred, overflow cut off) or `Crop` (the Crop X/Y/W/H part of the picture, in fractions 0 to 1, into the box). |
+| Enabled | all | A disabled element has its Disabled look and ignores the pointer. |
+| Look (state) and State colours | all | Pick Hover, Pressed, Selected or Disabled, then set its Background, Text and Border colours (and, through the live Inspector, gradient end and accent). Empty colours keep the normal ones. The canvas shows the selected element in the chosen look; **Clear look** removes it. A disabled element with no Disabled look of its own is drawn at half opacity. |
+
+Two element types are new: a **Slider** (track in the background colour, the filled part in the
+accent, a round knob in the text colour) and a **Toggle** (an on/off switch, accent when on, with
+its text to the right). Their Value is what the player sets: dragging the slider anywhere along it,
+or clicking the toggle, which flips its Value between 0 and 1.
+
+In game, `DrawUi` follows the pointer: an enabled Button, Slider or Toggle under it is hovered; it
+is pressed while the left button is held after pressing on it (a slider stays pressed while dragged
+off it). These commands read and change that state on the calling instance:
+
+| Command | Meaning |
+|---|---|
+| `UiUpdate(ui)` | Follow the pointer now (hover, press, clicks, slider drags, toggle flips). `DrawUi` does this too; call it in Step to read this frame's clicks before drawing. A press or release is seen once however often either is called. |
+| `UiGetValue(ui, id)` | A slider's, toggle's (0 or 1) or progress bar's value, as the player or `UiSetValue` left it. |
+| `UiValueChanged(ui, id)` | True once after the player moves a slider or flips a toggle; reading it clears it. |
+| `UiClicked(ui, id)` | True once after a press and release on the same button, slider or toggle; reading it clears it. |
+| `UiGetHovered(ui)` | The enabled button, slider or toggle under the pointer, or `""`. |
+| `UiSetSelected(ui, id, selected)` | Give an element its Selected look, for menus moved with keys or a controller. |
+| `UiSetEnabled(ui, id, enabled)` | Enable or disable one element on this instance. |
+
+The look order is Disabled, then Pressed, then Hover, then Selected. **Older UI files load and draw
+exactly as before:** every new property defaults to the old drawing (a square solid box is still one
+rectangle, an unaligned unspaced text is still drawn by the UI text call), and a file only gains the
+new keys when it is saved again. The UI Editor's Inspector now also stays beside the canvas instead
+of lying over its right side, and its property rows keep their order when an element type hides some.
+Regression: `--test menu-clips` (pixels on all five renderers: transparent rounded corners, gradient
+directions, the border, centred and right/bottom text, the hover look under the pointer, the slider
+and toggle; a slider and toggle driven by simulated pointer input and read from a PGSL script; image
+contain/cover/crop rectangles; an old file's draw calls unchanged; Inspector save/reopen).
+
 ## Models that share their clips
 
 A Model can play the clips of other Models as its own: list them in its `.model.json` as
@@ -208,6 +253,16 @@ one skeleton then keep one set of clips between them instead of a copy each.
   60 explicitly keeps 60); scripts can set it too.
 - **A GLB of clips with no meshes** (an animation library exported on its own) now imports as a
   clips-only Model to use as a library; it used to be refused, and stopped the whole import.
+- **Clips-only Models open as an animation library.** The Model Viewer and the Model editor used
+  to show such a Model as empty ("No model loaded", mesh tools with nothing to work on). They now
+  show an **Animation library** panel instead of the mesh tools: the clips with their lengths, Play
+  and Stop, and the usual timeline to scrub the selected clip. The clip plays on the library's own
+  skeleton, drawn as bone lines and joints. **Choose body Model…** lists the project's Models and
+  plays the clip on the one you pick (the library's clips are added to it exactly as
+  `animationLibraries` would, retargeted to its proportions), with its frames in the timeline;
+  **Skeleton only** returns to the bone lines. The clips are read-only there: Save leaves the
+  library's files unchanged, and Import / Replace is off, so a library is never given a mesh by
+  accident. Regression: `--test menu-clips`.
 - **One file that cannot be imported no longer stops the others.** The rest of the batch is
   imported, then the failures are reported together ("Imported 9 of 10 file(s). Not imported: ...").
 

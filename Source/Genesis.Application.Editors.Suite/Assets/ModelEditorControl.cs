@@ -47,6 +47,9 @@ public sealed partial class ModelEditorControl : ModelViewerControl
         if (role == ModelEditorRole.Viewer) return;
         EmptyModelHintEnabled = false;
         RefreshAssetPresentation(recalculateBounds: false);
+        // A clips-only Model has no mesh for the modelling tools to work on: it keeps the viewer's
+        // animation library view (clip list, timeline, bone-line and body preview) instead.
+        if (IsAnimationLibrary) return;
         var oldOpen = Commands.Items.Cast<ToolStripItem>().Single(i => i.Name == "OpenModelEditor"); Commands.Items.Remove(oldOpen); oldOpen.Dispose();
         Commands.Items[0].Text = "◆  " + ResourceDisplayName.Format(ResourcePath);
         Commands.Items[0].ToolTipText = ResourcePath;
@@ -502,13 +505,15 @@ public sealed partial class ModelEditorControl : ModelViewerControl
     public override void Save()
     {
         if (ModelImportInProgress) return;
-        if (IsViewer) { base.Save(); return; }
+        if (IsViewer || IsAnimationLibrary) { base.Save(); return; }
         FinishStroke();
         PersistModelChanges(Asset); AcceptSave();
     }
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
         if (ModelImportInProgress) return true;
+        // An animation library has no mesh tools: only the viewer's save, frame and play keys apply.
+        if (IsAnimationLibrary) return base.ProcessCmdKey(ref msg, keyData);
         if (EditorInputGuard.IsTextEntryFocused() || EditorInputGuard.IsLabelEditing(EditorInputGuard.FocusedControl()))
             return base.ProcessCmdKey(ref msg, keyData);
         if (keyData == (Keys.Control | Keys.S)) { Save(); return true; }

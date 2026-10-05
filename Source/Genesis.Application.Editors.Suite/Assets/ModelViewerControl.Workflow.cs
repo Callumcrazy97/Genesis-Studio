@@ -112,7 +112,9 @@ public partial class ModelViewerControl : IResourceInspectorTarget, ILiveResourc
     }
 
     /// <summary>The viewer's steps; the Model editor replaces them with its tool pages.</summary>
-    private protected virtual IReadOnlyList<WorkflowStep> CreateModelWorkflowSteps(ToolStripItem import) =>
+    private protected virtual IReadOnlyList<WorkflowStep> CreateModelWorkflowSteps(ToolStripItem import) => IsAnimationLibrary
+        ? AnimationLibraryWorkflowSteps()
+        :
     [
         new("Import", "Import", "Import a model file, or choose Edit to build one from shapes.", () => import.PerformClick()),
         new("Edit", "Edit", "Open the Model editor to shape, texture and rig this model.", RequestCompose),
@@ -159,6 +161,7 @@ public partial class ModelViewerControl : IResourceInspectorTarget, ILiveResourc
             _hierarchy.ItemHeight = _materials.ItemHeight = EditorChrome.BaseFont.Height + 12;
             _sourceInfo.Font = _details.Font = EditorChrome.BaseFont;
             LayoutSidebar();
+            LayoutAnimationLibrary();
             if (composer) ((ModelEditorControl)this).LayoutToolNavigation();
             foreach (FlowLayoutPanel page in ModelDescendants(LeftPanel).OfType<FlowLayoutPanel>())
             foreach (CollapsibleSection section in page.Controls.OfType<CollapsibleSection>())
@@ -300,7 +303,7 @@ public partial class ModelViewerControl : IResourceInspectorTarget, ILiveResourc
 
     public bool TryApplyInspectorValue(string propertyPath, object? value)
     {
-        if (_importing || !propertyPath.StartsWith("Model.Pivot.", StringComparison.Ordinal)
+        if (_importing || IsAnimationLibrary || !propertyPath.StartsWith("Model.Pivot.", StringComparison.Ordinal)
             || !float.TryParse(Convert.ToString(value, CultureInfo.InvariantCulture), NumberStyles.Float,
                 CultureInfo.InvariantCulture, out float number) || !float.IsFinite(number)) return false;
         var before = Asset.Pivot.Position; var after = before;

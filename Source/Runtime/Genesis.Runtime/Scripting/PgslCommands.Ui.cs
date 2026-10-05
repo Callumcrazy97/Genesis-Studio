@@ -44,6 +44,8 @@ public static partial class PgslCommands
         float scaleX = targetWidth / Math.Max(1, document.DesignWidth);
         float scaleY = targetHeight / Math.Max(1, document.DesignHeight);
         UiLayoutCache layout = GetUiLayout(document);
+        UpdateUiPointer(context, uiAsset, layout, scaleX, scaleY);
+        UiPointerState pointer = ReadUiPointer(context, uiAsset);
 
         foreach (UiElement element in layout.Ordered)
         {
@@ -54,39 +56,7 @@ public static partial class PgslCommands
                 designRect.Y * scaleY,
                 designRect.Width * scaleX,
                 designRect.Height * scaleY);
-            Color background = ParseUiColor(element.Background, Color.FromArgb(204, 22, 27, 34));
-            Color foreground = ParseUiColor(element.Foreground, Color.White);
-            Color accent = ParseUiColor(element.Accent, Color.FromArgb(108, 140, 255));
-            string text = TextOverride(context, uiAsset, element);
-
-            switch (element.Type)
-            {
-                case UiElementType.Panel:
-                    surface.FillRectangle(background, rect);
-                    break;
-                case UiElementType.Text:
-                    surface.DrawUiText(text, element.Font, element.FontSize * MathF.Min(scaleX, scaleY), foreground, Rectangle.Round(rect), centered: false);
-                    break;
-                case UiElementType.Image:
-                    if (!string.IsNullOrWhiteSpace(element.Image))
-                        surface.DrawSpriteRectangle(element.Image,
-                            new RectangleF(rect.X, rect.Y, rect.Width * element.ImageScaleX, rect.Height * element.ImageScaleY),
-                            0, Color.White, foreground.A / 255f);
-                    break;
-                case UiElementType.Button:
-                    surface.FillRectangle(background, rect);
-                    surface.DrawRectangle(accent, rect);
-                    surface.DrawUiText(text, element.Font, element.FontSize * MathF.Min(scaleX, scaleY), foreground, Rectangle.Round(rect), centered: true);
-                    break;
-                case UiElementType.ProgressBar:
-                    surface.FillRectangle(background, rect);
-                    float maximum = MathF.Max(0.0001f, element.Maximum);
-                    float value = ValueOverride(context, uiAsset, element);
-                    float amount = Math.Clamp(value / maximum, 0f, 1f);
-                    surface.FillRectangle(accent, new RectangleF(rect.X, rect.Y, rect.Width * amount, rect.Height));
-                    surface.DrawRectangle(foreground, rect);
-                    break;
-            }
+            DrawUiElement(surface, context, uiAsset, element, rect, MathF.Min(scaleX, scaleY), UiElementState(context, uiAsset, element, pointer));
         }
     }
 
@@ -302,20 +272,4 @@ public static partial class PgslCommands
 
     private static string UiOverrideKey(string asset, string id, string property) =>
         "__ui:" + asset + ":" + id + ":" + property;
-
-    private static Color ParseUiColor(string value, Color fallback)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return fallback;
-        string hex = value.Trim().TrimStart('#');
-        try
-        {
-            return hex.Length switch
-            {
-                6 => Color.FromArgb(255, Convert.ToInt32(hex[..2], 16), Convert.ToInt32(hex[2..4], 16), Convert.ToInt32(hex[4..6], 16)),
-                8 => Color.FromArgb(Convert.ToInt32(hex[..2], 16), Convert.ToInt32(hex[2..4], 16), Convert.ToInt32(hex[4..6], 16), Convert.ToInt32(hex[6..8], 16)),
-                _ => fallback,
-            };
-        }
-        catch (FormatException) { return fallback; }
-    }
 }

@@ -26,6 +26,7 @@ public sealed partial class UiEditorControl
             (UiElementType.Panel, "Panel — group and background"), (UiElementType.Text, "Text — score or title"),
             (UiElementType.Image, "Image — saved sprite artwork"), (UiElementType.Button, "Button — clickable menu item"),
             (UiElementType.ProgressBar, "Progress bar — health or loading"),
+            (UiElementType.Slider, "Slider — volume or brightness"), (UiElementType.Toggle, "Toggle — on/off option"),
         }) add.DropDownItems.Add(EditorDocumentMenuChrome.Item(caption, "Add and select this element", () => AddElement(type)));
         _gameButton = EditorChrome.ToolButton("Use in game", "Create a saved GUI Object and learn how to draw and interact", ShowUiGameGuide, toggle: true);
         ToolStripDropDownButton options = new("Options") { ForeColor = EditorChrome.Text };
@@ -121,9 +122,9 @@ public sealed partial class UiEditorControl
         }
         guide.Controls.Add(UiGuideButton("Open blank canvas", "UiOpenDesign", ShowUiDesign));
         guide.Controls.Add(UiGuideText("1. Design", true));
-        guide.Controls.Add(UiGuideText("Add element creates Text, Image, Button, Panel or Progress bar. Drag an element to move it; drag its corner handle to resize. Use the mouse wheel to zoom, middle drag to pan, and Fit to see the whole canvas."));
+        guide.Controls.Add(UiGuideText("Add element creates Text, Image, Button, Panel, Progress bar, Slider or Toggle. Drag an element to move it; drag its corner handle to resize. Use the mouse wheel to zoom, middle drag to pan, and Fit to see the whole canvas."));
         guide.Controls.Add(UiGuideText("2. Anchor and style", true));
-        guide.Controls.Add(UiGuideText("The Inspector shows only fields that affect the selected element. Parent groups elements; Anchor positions them within that parent. Stretch uses left/top position and right/bottom insets. Image picks saved artwork, so Image Editor saves update the preview."));
+        guide.Controls.Add(UiGuideText("The Inspector shows only fields that affect the selected element. Parent groups elements; Anchor positions them within that parent. Stretch uses left/top position and right/bottom insets. Image picks saved artwork, so Image Editor saves update the preview. Corner radius, border, gradient fill, text alignment and letter spacing style a box; Look (state) sets its hover, pressed, selected and disabled colours."));
         guide.Controls.Add(UiGuideText("3. Use in game", true));
         guide.Controls.Add(UiGuideText("Save, then choose Use in game. Create a normal GUI Object, place one instance in a Room, and Run. Buttons need gameplay actions; the created Object includes a working click example that you can edit in its Step event."));
         LayoutUiGuide();
