@@ -382,6 +382,78 @@ start-up screen then takes over. Its built-in DX11 shaders compile on worker thr
 moment it starts (`GENESIS_SHADER_WARMUP=0` turns that off), which matters after an engine update,
 when nothing is in the shader cache yet.
 
+### Finding where loading time goes
+
+With `GENESIS_LOAD_PROFILE=1` the Player writes a timing tree to `Debug/Logs/project_player.log`
+when the first room is ready, and again after every room change. Off, it costs nothing.
+
+```
+Load profile: the cover waited 0 frames for model files read ahead, 4 for textures, 1 for a subsystem's warm-up and 3 with everything loaded, for frames to settle
+Load profile: start-up and first room rm_InGame_Wilds_RiverRoad, 2.65 s after the process started
+  moments (s since the process started): player started 0.05, log open 0.28, window open 0.62, graphics device ready 0.89, loading screen shown 0.94, first room built 1.60, start-up screen done 1.72, first room ready 2.65
+  game thread (wall time on the game's thread):
+    frames: render 1102 ms (12 times, longest 494 ms)
+      gathering what to draw 913 ms (10 times, longest 389 ms)
+        RoomTerrain draws 452 ms (10 times, longest 205 ms)
+          textures 127 ms (11 times, longest 41 ms)
+  ...
+  worker threads (summed over threads, which overlap):
+    model file read ahead 1218 ms (52 times, longest 98 ms)
+      model file: read its binary cache 515 ms (52 times, longest 98 ms)
+    terrain collision: physics tree made or read on a worker 19 ms
+```
+
+A span opened inside another is listed beneath it, with how often it ran and its longest time;
+"(not in a smaller span)" is the work no smaller span names. The game thread's figures are time
+that held the game up. The workers' are added across threads, so they can exceed the wall time; a
+worker job the cover waited for shows in the first line, which says how many frames the cover
+stayed up for model files, textures, a subsystem (terrain collision, emitters) or for frames to
+settle. The moments line places each stage on one clock from the process start.
+
+What the Player keeps in the project's `.genesis/Cache` folder so that a game's second start is
+quicker than its first (deleting the folder costs one slow start; exports and resource scans leave
+it alone):
+
+- `Models`: each large model's parsed geometry (since 2 October).
+- `Textures`: each picture's decoded pixels and mip chain, deflated, valid while the picture's
+  size and modified time are unchanged (`GENESIS_TEXTURE_CACHE=0` turns it off). Only pictures
+  inside a project are cached.
+- `Colliders`: a terrain's collision mesh and the physics engine's search tree over it, named by a
+  hash of its triangles and scale, so a changed terrain can never find an old one
+  (`GENESIS_COLLIDER_CACHE=0` turns it off). Verdant Hollow's is about 60 MB.
+
+Frames behind a room change's cover send up to 24 ms of textures a frame to the graphics card
+(`ProjectRoomSwitcher.CoverTextureUploadMilliseconds`); a frame of play keeps its 4 ms.
+
+Measured on 5 October 2026 on copies of Golden Stag and of a new 3D Nature Walk, DX11, the base
+commit's Player against this one, medians of 4 warm and 2 cold starts on a busy machine (other
+sessions were compiling). Cold means no `.genesis/Cache`; Windows' file cache and the shader cache
+were warm. "Loading screen" and "First room ready" are seconds from the process start; the columns
+between them are how long each stage took, in seconds:
+
+| Room | Start | Loading screen | Room built | Start-up screen | Behind the cover | First room ready |
+|---|---|---|---|---|---|---|
+| Golden Stag tavern | warm, before → after | 0.84 → 0.86 | 0.25 → 0.26 | 0.09 → 0.05 | 0.95 → 0.56 | **2.15 → 1.72** |
+| | cold | 1.60 → 1.09 | 0.42 → 0.27 | 0.09 → 0.05 | 1.51 → 1.16 | **3.62 → 2.56** |
+| Alderford outside | warm | 0.86 → 0.89 | 0.28 → 0.29 | 0.13 → 0.05 | 1.15 → 0.80 | **2.42 → 2.03** |
+| | cold | 0.93 → 0.93 | 0.34 → 0.32 | 0.14 → 0.06 | 3.04 → 2.84 | **4.45 → 4.15** |
+| River road | warm | 0.89 → 0.88 | 0.68 → 0.68 | 0.11 → 0.05 | 1.96 → 1.10 | **3.64 → 2.71** |
+| | cold | 1.10 → 0.99 | 0.85 → 0.70 | 0.13 → 0.07 | 2.58 → 1.82 | **4.66 → 3.57** |
+| Verdant Hollow (template) | warm | 0.78 → 0.78 | 0.37 → 0.37 | 0.05 → 0.05 | 3.15 → 0.57 | **4.35 → 1.76** |
+| | cold | 0.77 → 0.77 | 0.37 → 0.38 | 0.04 → 0.05 | 3.31 → 3.28 | **4.49 → 4.48** |
+
+"Room built" is from the loading screen to the room's objects being placed; "behind the cover" is
+from the start-up screen finishing to the first room being shown. The owner had seen about 20 s
+behind Golden Stag's loading screen. On this engine and a copy of the project no start with a warm
+shader cache took more than 5.4 s, and with an empty one 12.5 s (the extra 9 to 10 s before the
+loading screen); one run lost 2.4 s creating the sound device while other programs were busy. So
+that figure most likely came from a cold shader cache, an older engine or a loaded machine. What
+is left: a cold start
+still parses each large model's JSON (8 s of worker time for the tavern's 40 models, 1.8 s for the
+largest) and decodes its pictures once; the river road's room-start script takes about 0.35 s; a
+cold shader cache (the first run after an engine update) adds 9 to 10 s before the loading screen
+while the built-in shaders compile.
+
 ### Finding what a game holds on to
 
 Every room change also writes what the game holds once the new room is built:

@@ -95,6 +95,8 @@ public sealed partial class PhysicsWorld
         BinaryPrimitives.WriteSingleLittleEndian(head[16..], scale.Y);
         BinaryPrimitives.WriteSingleLittleEndian(head[20..], scale.Z);
         hash.AppendData(head);
+        // The stored form is the physics engine's own: another version of it gets entries of its own.
+        hash.AppendData(System.Text.Encoding.UTF8.GetBytes(typeof(Mesh).Assembly.GetName().Version?.ToString() ?? "unknown"));
         hash.AppendData(MemoryMarshal.AsBytes(vertices.AsSpan()));
         hash.AppendData(MemoryMarshal.AsBytes(indices.AsSpan()));
         return Convert.ToHexString(hash.GetHashAndReset(), 0, 16).ToLowerInvariant();
