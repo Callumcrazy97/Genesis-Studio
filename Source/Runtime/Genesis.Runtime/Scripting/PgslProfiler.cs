@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Threading;
 
 namespace Genesis.Runtime.Scripting
 {
@@ -32,10 +33,28 @@ namespace Genesis.Runtime.Scripting
             set => _enabled = value;
         }
 
+        private static long _totalTicks;
+        private static long _totalCalls;
+        private static long _totalFailures;
+
+        /// <summary>Every profiled event's time added together, in stopwatch ticks, since the last reset.</summary>
+        public static long TotalTicks => Interlocked.Read(ref _totalTicks);
+
+        /// <summary>Profiled event calls since the last reset.</summary>
+        public static long TotalCalls => Interlocked.Read(ref _totalCalls);
+
+        /// <summary>Profiled event calls that failed since the last reset.</summary>
+        public static long TotalFailures => Interlocked.Read(ref _totalFailures);
+
         public static void Reset()
         {
             lock (Gate)
+            {
                 Events.Clear();
+                Interlocked.Exchange(ref _totalTicks, 0);
+                Interlocked.Exchange(ref _totalCalls, 0);
+                Interlocked.Exchange(ref _totalFailures, 0);
+            }
         }
 
         internal static void Record(
@@ -65,6 +84,9 @@ namespace Genesis.Runtime.Scripting
                 profile.LastEntityId = entityId;
                 profile.CallCount++;
                 if (failed) profile.FailedCalls++;
+                Interlocked.Add(ref _totalTicks, Math.Max(0, elapsedTicks));
+                Interlocked.Increment(ref _totalCalls);
+                if (failed) Interlocked.Increment(ref _totalFailures);
                 profile.TotalTicks += Math.Max(0, elapsedTicks);
                 profile.MaximumTicks = Math.Max(profile.MaximumTicks, elapsedTicks);
             }

@@ -4,7 +4,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Numerics;
-using System.Runtime.InteropServices;
+
 using Genesis.Runtime.ECS.Components;
 using Genesis.Runtime.Input;
 using Genesis.Runtime.Navigation;
@@ -30,6 +30,12 @@ namespace Genesis.Runtime.Debugger
     {
         Overview,
         AiNavigation,
+        Resources,
+        Game,
+        /// <summary>Render passes, draw calls and subsystem times; developer builds only.</summary>
+        Engine,
+        /// <summary>Entities, variables, transport and view toggles.</summary>
+        World,
     }
 
     /// <summary>
@@ -37,7 +43,7 @@ namespace Genesis.Runtime.Debugger
     /// Provides 100% interactive HUD controls, collapsible entity trees, mouse raycasting ("What Am I Looking At"),
     /// real-time variable tweaking, speed controls, render pass visualizers, and hardware/engine telemetry.
     /// </summary>
-    public sealed class DebugOverlay : IDisposable
+    public sealed partial class DebugOverlay : IDisposable
     {
         private bool _isVisible;
         public bool IsVisible
@@ -56,9 +62,8 @@ namespace Genesis.Runtime.Debugger
         public float TimeScale { get; set; } = 1.0f;
 
         /// <summary>
-        /// When false (default), F6 matches <c>DebugRuntimeF6.png</c>: compact corner card +
-        /// footer + scene gizmos only. When true, the full interactive debugger panels appear.
-        /// Toggle with the card's Expand control or <c>~</c>.
+        /// When false (default) F6 shows only the compact strip of figures. When true the full
+        /// panel with its tabs is open. F7 or the strip's Panel button toggles it.
         /// </summary>
         public bool ShowExpandedPanels { get; set; } = false;
 
@@ -88,8 +93,6 @@ namespace Genesis.Runtime.Debugger
         // Logging & Diagnostics
         private const int MaxConsoleLog = 64;
         private readonly List<string> _consoleLog = new();
-        private string _consoleInput = string.Empty;
-        private string _activeLogFilter = "All"; // All, Errors, Warnings, Info
 
         private const int MaxScriptDiagnostics = 8;
         private readonly List<ScriptDiagnostic> _scriptDiagnostics = new();
@@ -101,7 +104,6 @@ namespace Genesis.Runtime.Debugger
         private IGameWindow _window;
         private float _frameDt;
         private bool _stepRequested;
-        private bool _isPassDropdownOpen = false;
 
         // Mouse tracking
         private Vector2 _lastMousePos;
@@ -109,15 +111,14 @@ namespace Genesis.Runtime.Debugger
         private bool _clickConsumed;
         private float _mouseWheel;
 
-        // CPU measurement
-        private readonly Process _process = Process.GetCurrentProcess();
-        private TimeSpan _lastCpuTime;
-        private DateTime _lastCpuSample = DateTime.UtcNow;
-        private float _cpuUsagePercent = 3.2f;
+        private readonly long _startTicks = Environment.TickCount64;
+
+        /// <summary>Recent log lines (pause, recording, errors), newest last.</summary>
+        public IReadOnlyList<string> LogLines => _consoleLog;
 
         public DebugOverlay()
         {
-            _lastCpuTime = _process.TotalProcessorTime;
+            Profiler.InstanceCounter = CountInstances;
             Engine.DebugWatchChanged += OnWatchChanged;
             RegisterCommands();
 
@@ -135,7 +136,7 @@ namespace Genesis.Runtime.Debugger
 
             // Default startup log messages
             Log("[INFO] Genesis Debug Subsystem initialized.");
-            Log("[INFO] F6 toggles this overlay; P pauses, N steps while paused.");
+            Log("[INFO] F6 toggles this overlay, F7 the full panel, F8 recording; P pauses, N steps while paused.");
             Log("[INFO] AI & Navigation telemetry is available from the F6 ribbon.");
         }
 
@@ -168,7 +169,10 @@ namespace Genesis.Runtime.Debugger
 
         public void SelectPanel(DebugHudPanel panel)
         {
+            // The Engine tab exists only in developer builds.
+            if (panel == DebugHudPanel.Engine && !EngineCategoryEnabled) panel = DebugHudPanel.Overview;
             ActivePanel = panel;
+            if (panel != DebugHudPanel.Resources) IsSearchFocused = false;
             ShowExpandedPanels = true;
             NavigationDebugTelemetry.Enabled = IsVisible && panel == DebugHudPanel.AiNavigation;
             if (panel != DebugHudPanel.AiNavigation) NavigationDebugTelemetry.ResumeAi();
@@ -179,6 +183,7 @@ namespace Genesis.Runtime.Debugger
             if (diagnostic == null) return;
             if (!_scriptDiagnostics.Contains(diagnostic)) _scriptDiagnostics.Add(diagnostic);
             while (_scriptDiagnostics.Count > MaxScriptDiagnostics) _scriptDiagnostics.RemoveAt(0);
+            Profiler.NoteScriptError(diagnostic);
             Log($"[ERROR] {diagnostic.ToDisplayString()}");
         }
 
@@ -215,6 +220,10 @@ namespace Genesis.Runtime.Debugger
 
         public void Dispose()
         {
+            // Closing the game finishes a recording: its summary and report are written now.
+            StopRecording();
+            Profiler.Dispose();
+            UpdatePgslProfiling(active: false);
             NavigationDebugTelemetry.Enabled = false;
             NavigationDebugTelemetry.ResumeAi();
             Engine.DebugWatchChanged -= OnWatchChanged;
@@ -236,20 +245,27 @@ namespace Genesis.Runtime.Debugger
             _mouseWheel = input.WheelDelta;
             _clickConsumed = false;
 
-            // F6: Toggle in-game debugger overlay
+            // F6: show / hide the debug screen (the compact strip).
             if (input.WasPressed(Key.F6))
             {
                 IsVisible = !IsVisible;
+                if (!IsVisible) IsSearchFocused = false;
             }
 
-            // Tab: expand / collapse full debugger panels (compact card is the default chrome)
-            if (IsVisible && input.WasPressed(Key.Tab))
+            // F7: open / close the full panel.
+            if (input.WasPressed(PanelKey))
             {
+                if (!IsVisible) IsVisible = true;
                 ShowExpandedPanels = !ShowExpandedPanels;
-                Log(ShowExpandedPanels
-                    ? "[INFO] Debug panels expanded [Tab to collapse]"
-                    : "[INFO] Compact Debug HUD [Tab to expand]");
+                if (!ShowExpandedPanels) IsSearchFocused = false;
             }
+
+            // F8: start / stop recording a profile (works with the screen hidden too).
+            if (input.WasPressed(RecordKey))
+                ToggleRecording();
+
+            // While the Resources search box has the keyboard, letters are search text, not shortcuts.
+            if (HandleSearchInput(input)) return;
 
             // P: Pause / Resume
             if (input.WasPressed(Key.P))
@@ -278,26 +294,6 @@ namespace Genesis.Runtime.Debugger
             _frameGraph.Record(dt);
             NavigationDebugTelemetry.BeginFrame();
             NavigationDebugTelemetry.AdvanceDebugPreview(_activeScene, dt);
-
-            // Sample CPU % every 500ms
-            DateTime now = DateTime.UtcNow;
-            double elapsed = (now - _lastCpuSample).TotalSeconds;
-            if (elapsed >= 0.5)
-            {
-                try
-                {
-                    TimeSpan currentCpu = _process.TotalProcessorTime;
-                    double cpuUsedMs = (currentCpu - _lastCpuTime).TotalMilliseconds;
-                    double totalMs = elapsed * 1000.0 * Environment.ProcessorCount;
-                    _cpuUsagePercent = (float)Math.Clamp((cpuUsedMs / totalMs) * 100.0, 0.0, 100.0);
-                    _lastCpuTime = currentCpu;
-                    _lastCpuSample = now;
-                }
-                catch
-                {
-                    _cpuUsagePercent = 3.2f;
-                }
-            }
         }
 
         public void Draw(IHudCanvas hud, IRenderController renderer, int width, int height)
@@ -306,9 +302,11 @@ namespace Genesis.Runtime.Debugger
             if (hud == null) return;
 
             // Script error banner
+            float top = 8f;
             if (HasScriptErrors)
             {
                 DrawScriptErrorBanner(hud, width);
+                top = 66f;
             }
 
             if (ShowNavigation)
@@ -321,34 +319,14 @@ namespace Genesis.Runtime.Debugger
             // Update raycast picker against real scene entities
             _picker.Update(_lastMousePos, _mouseClicked && !_clickConsumed, _activeScene, _scriptHost, _renderer, width, height);
 
-            // Scene gizmos always (wireframe / lights / audio / cameras) — mock + expanded
-            if (_isPassDropdownOpen && ShowExpandedPanels)
-                DrawPassDropdownMenu(hud, width);
+            // Scene gizmos (bounds, wireframe outlines, light / audio / camera markers) belong to
+            // the World tab; the compact strip leaves the game view clear.
+            if (ShowExpandedPanels && ActivePanel == DebugHudPanel.World)
+                DrawViewportGizmosAndPicker(hud, width, height);
 
-            DrawViewportGizmosAndPicker(hud, width, height);
-
+            float stripBottom = DrawCompactStrip(hud, width, top);
             if (ShowExpandedPanels)
-                DrawTopTelemetryBar(hud, width, height);
-
-            // Compact corner card + footer = DebugRuntimeF6.png chrome (always when visible)
-            float compactBottom = DrawCompactRuntimeCard(hud, width, height);
-
-            if (ShowExpandedPanels)
-                DrawViewPassesRibbon(hud, width, height);
-
-            if (ShowExpandedPanels && ActivePanel == DebugHudPanel.AiNavigation)
-            {
-                DrawAiNavigationPanel(hud, width, height);
-            }
-            else if (ShowExpandedPanels)
-            {
-                DrawLeftInspectorPanel(hud, width, height, compactBottom);
-                DrawRightTelemetryPanel(hud, width, height);
-                DrawPgslProfilerPanel(hud, width, height);
-                DrawBottomConsoleBar(hud, width, height);
-            }
-
-            DrawChromeFooter(hud, width, height);
+                DrawFullPanel(hud, width, height, stripBottom);
         }
 
         private void DrawNavigationTelemetry(IHudCanvas hud, int width, int height)
@@ -644,302 +622,11 @@ namespace Genesis.Runtime.Debugger
             }
         }
 
-        /// <summary>
-        /// Top-left runtime summary matching <c>DebugRuntimeF6.png</c> — live adapter / FPS /
-        /// draws / instances / triangles / lights / atlas occupancy.
-        /// </summary>
-        private float DrawCompactRuntimeCard(IHudCanvas hud, int width, int height)
-        {
-            const float cardX = 12f;
-            // Mock places the card at the top-left; expanded mode sits it under the telemetry bar.
-            float cardY = ShowExpandedPanels ? 42f : 12f;
-            const float cardW = 320f;
-            float cardH = ShowExpandedPanels ? 156f : 168f;
-            _ = width;
-            _ = height;
-
-            RenderStats stats = _renderer?.GetStats() ?? default;
-            float ms = _frameGraph.CurrentMs;
-            string adapter = string.IsNullOrWhiteSpace(_renderer?.AdapterName)
-                ? "GPU"
-                : _renderer.AdapterName;
-            string backend = _renderer?.BackendName ?? "Direct3D";
-            int draws = Math.Max(stats.DrawCalls, stats.DrawCalls2D + stats.DrawCalls3D);
-            int instances = Math.Max(stats.InstancesDrawn, stats.SpriteInstances + stats.MeshInstances);
-            float atlasPct = Genesis.Runtime.Textures.RuntimeTextureAtlas.IsActive
-                ? Genesis.Runtime.Textures.RuntimeTextureAtlas.AverageOccupancyPercent
-                : 0f;
-
-            hud.Rect(cardX, cardY, cardW, cardH, DebugOverlayPalette.Canvas, filled: true);
-            hud.Rect(cardX, cardY, cardW, cardH, DebugOverlayPalette.Border, filled: false);
-
-            float y = cardY + 8f;
-            hud.Text("Genesis Engine Runtime Debug (F6)", cardX + 10f, y, 11.5f, DebugOverlayPalette.Text);
-            y += 18f;
-            hud.Text($"GPU: {adapter} ({backend})", cardX + 10f, y, 10f, DebugOverlayPalette.Muted);
-            y += 16f;
-            hud.Text($"FPS: {_frameGraph.SmoothedFps:F1} ({ms:F1}ms)", cardX + 10f, y, 10f, DebugOverlayPalette.Text);
-            y += 16f;
-            hud.Text($"Draw Calls: {draws} (Auto-Batched)", cardX + 10f, y, 10f, DebugOverlayPalette.Text);
-            y += 16f;
-            hud.Text($"Instances: {instances} (Culled: {stats.InstancesCulled})", cardX + 10f, y, 10f, DebugOverlayPalette.Text);
-            y += 16f;
-            hud.Text($"Triangles: {stats.Triangles:N0}", cardX + 10f, y, 10f, DebugOverlayPalette.Text);
-            y += 16f;
-            hud.Text($"Active Lights: {stats.LightsUsed} Clustered", cardX + 10f, y, 10f, DebugOverlayPalette.Text);
-            y += 16f;
-            hud.Text($"Atlas Occupancy: {atlasPct:0}%", cardX + 10f, y, 10f, DebugOverlayPalette.Text);
-
-            // Expand / collapse full debugger (preserves all panels behind the compact chrome)
-            string expandLabel = ShowExpandedPanels ? "Collapse" : "Expand";
-            if (DrawButton(hud, cardX + cardW - 78f, cardY + 4f, 70f, 18f, expandLabel, ShowExpandedPanels, DebugOverlayPalette.Accent))
-            {
-                ShowExpandedPanels = !ShowExpandedPanels;
-                Log(ShowExpandedPanels
-                    ? "[INFO] Debug panels expanded"
-                    : "[INFO] Compact Debug HUD");
-            }
-
-            return cardY + cardH;
-        }
-
-        private void DrawChromeFooter(IHudCanvas hud, int width, int height)
-        {
-            const float footerH = 28f;
-            float y = height - footerH;
-            hud.Rect(0, y, width, footerH, DebugOverlayPalette.Canvas, filled: true);
-            hud.Line(0, y, width, y, DebugOverlayPalette.Border, 1f);
-            string hint = ShowExpandedPanels
-                ? $"> F6: Close Debug HUD | Tab: Collapse panels | Panel: {PanelName(ActivePanel)}"
-                : "> F6: Close Debug HUD | Tab: Expand panels | ~: Console";
-            hud.Text(hint, 14f, y + 7f, 11f, DebugOverlayPalette.Muted);
-        }
-
-        // ── 1. Top Header & Telemetry Bar ───────────────────────────────────────
-
-        private void DrawTopTelemetryBar(IHudCanvas hud, int width, int height)
-        {
-            float barH = 34f;
-            hud.Rect(0, 0, width, barH, DebugOverlayPalette.Canvas, filled: true);
-            hud.Line(0, barH, width, barH, DebugOverlayPalette.Border, 1f);
-
-            float x = 8f;
-            float y = 7f;
-
-            // Platform badge
-            string platform = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "[WIN64]"
-                : RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "[MACOS]"
-                : RuntimeInformation.IsOSPlatform(OSPlatform.Linux) ? "[LINUX]" : "[GENESIS]";
-            hud.Text(platform, x, y, 10.5f, DebugOverlayPalette.Accent);
-            x += 58f;
-
-            // Backend badge
-            string backend = _renderer?.BackendName ?? "VULKAN";
-            hud.Text($"[{backend.ToUpperInvariant()}]", x, y, 10.5f, DebugOverlayPalette.Accent);
-            x += 80f;
-
-            // Framerate & ms
-            float ms = _frameGraph.CurrentMs;
-            Vector4 fpsColor = ms <= 16.7f
-                ? DebugOverlayPalette.Success
-                : ms <= 33.4f
-                    ? DebugOverlayPalette.Warning
-                    : DebugOverlayPalette.Error;
-            hud.Text($"{_frameGraph.SmoothedFps:F1} FPS ({ms:F1} ms)", x, y, 11f, fpsColor);
-            x += 135f;
-
-            // VSync — report the live window/swapchain setting rather than a decorative constant.
-            string vsync = _window == null ? "—" : (_window.VSync ? "ON" : "OFF");
-            hud.Text($"VSync: {vsync}", x, y, 10.5f, DebugOverlayPalette.Muted);
-            x += 70f;
-
-            // Window Size
-            hud.Text($"Window: {width}x{height}", x, y, 10.5f, DebugOverlayPalette.Muted);
-            x += 125f;
-
-            // CPU & GPU timing (no invented utilization %)
-            hud.Text($"CPU: {_cpuUsagePercent:F1}%", x, y, 10.5f, DebugOverlayPalette.Accent);
-            x += 74f;
-            RenderStats topStats = _renderer?.GetStats() ?? default;
-            string gpuLabel = topStats.GpuMs > 0.001
-                ? $"GPU: {topStats.GpuMs:F1} ms"
-                : "GPU: —";
-            hud.Text(gpuLabel, x, y, 10.5f, DebugOverlayPalette.Accent);
-            x += 88f;
-            string aoLabel = topStats.AoMs > 0.001
-                ? $"AO: {topStats.AoMs:F1} ms"
-                : "AO: off";
-            hud.Text(aoLabel, x, y, 10.5f, DebugOverlayPalette.Accent);
-            x += 88f;
-            string contactLabel = topStats.ContactShadowMs > 0.001
-                ? $"CS: {topStats.ContactShadowMs:F1} ms"
-                : "CS: off";
-            hud.Text(contactLabel, x, y, 10.5f, DebugOverlayPalette.Accent);
-            x += 88f;
-            string localVolLabel = topStats.LocalVolumetricMs > 0.001
-                ? $"LV: {topStats.LocalVolumetricMs:F1} ms"
-                : "LV: off";
-            hud.Text(localVolLabel, x, y, 10.5f, DebugOverlayPalette.Accent);
-            x += 88f;
-            string smokeLabel = topStats.SmokeExtinctionMs > 0.001
-                ? $"SE: {topStats.SmokeExtinctionMs:F1} ms"
-                : "SE: off";
-            hud.Text(smokeLabel, x, y, 10.5f, DebugOverlayPalette.Accent);
-            x += 88f;
-            string bloomLabel = topStats.BloomMs > 0.001
-                ? $"BL: {topStats.BloomMs:F1} ms"
-                : "BL: off";
-            hud.Text(bloomLabel, x, y, 10.5f, DebugOverlayPalette.Accent);
-            x += 88f;
-            string atmosphereLabel = topStats.AtmosphereLutMs > 0.001
-                ? $"AL: {topStats.AtmosphereLutMs:F1} ms"
-                : "AL: off";
-            hud.Text(atmosphereLabel, x, y, 10.5f, DebugOverlayPalette.Accent);
-            x += 88f;
-            string celestialLabel = topStats.CelestialExtrasMs > 0.001
-                ? $"CE: {topStats.CelestialExtrasMs:F1} ms"
-                : "CE: off";
-            hud.Text(celestialLabel, x, y, 10.5f, DebugOverlayPalette.Accent);
-            x += 88f;
-            string cloudsLabel = CloudsStatusLabel(
-                topStats,
-                _renderer?.BackendName ?? string.Empty,
-                MeshLightingDefaults.RaymarchedCloudsEnabled);
-            hud.Text(cloudsLabel, x, y, 10.5f, DebugOverlayPalette.Accent);
-            x += 100f;
-
-            // Memory & GC
-            long ramMb = GC.GetTotalMemory(false) / (1024 * 1024);
-            hud.Text($"RAM: {Math.Max(120, ramMb)} MB", x, y, 10.5f, DebugOverlayPalette.Text);
-            x += 92f;
-            hud.Text($"GC Gen0: {GC.CollectionCount(0)}", x, y, 10.5f, DebugOverlayPalette.Muted);
-
-            // Controls & Inspect Mode on right
-            float rx = width - 420f;
-            if (DrawButton(hud, rx, 4f, 60f, 26f, IsPaused ? "▶ Play" : "❚❚ Pause", IsPaused))
-            {
-                IsPaused = !IsPaused;
-            }
-            rx += 64f;
-
-            if (DrawButton(hud, rx, 4f, 54f, 26f, "▶❚ Step", false))
-            {
-                _stepRequested = true;
-            }
-            rx += 58f;
-
-            // Speed Presets Bar: [0.5x] [1.0x] [2.0x] [5.0x]
-            float[] speeds = { 0.5f, 1.0f, 2.0f, 5.0f };
-            foreach (float spd in speeds)
-            {
-                bool active = Math.Abs(TimeScale - spd) < 0.05f;
-                if (DrawButton(hud, rx, 4f, 44f, 26f, $"{spd:0.#}x", active))
-                {
-                    TimeScale = spd;
-                    Log($"[INFO] Game speed set to {spd:0.#}x");
-                }
-                rx += 48f;
-            }
-
-            // Inspect Mode button
-            if (DrawButton(hud, rx, 4f, 92f, 26f, "🎯 Inspect", IsInspectModeActive, DebugOverlayPalette.Accent))
-            {
-                IsInspectModeActive = !IsInspectModeActive;
-                Log($"[INFO] Inspect Mode: {IsInspectModeActive}");
-            }
-        }
-
-        // ── 2. View Passes Ribbon ───────────────────────────────────────────────
-
-        private void DrawViewPassesRibbon(IHudCanvas hud, int width, int height)
-        {
-            float ribbonY = 40f;
-            float ribbonH = 30f;
-            if (DrawButton(hud, 8f, ribbonY, 86f, ribbonH - 2f, "Overview", ActivePanel == DebugHudPanel.Overview))
-                SelectPanel(DebugHudPanel.Overview);
-            if (DrawButton(hud, 98f, ribbonY, 142f, ribbonH - 2f, "AI & Navigation", ActivePanel == DebugHudPanel.AiNavigation, DebugOverlayPalette.Accent))
-                SelectPanel(DebugHudPanel.AiNavigation);
-            NavigationDebugSnapshot snapshot = NavigationDebugTelemetry.Get(_activeScene);
-            bool live = NavigationDebugTelemetry.Enabled && snapshot?.Agents.Count > 0;
-            hud.Text(live ? "● LIVE" : "● ARMED", 246f, ribbonY + 8f, 9.5f,
-                live ? DebugOverlayPalette.Success : DebugOverlayPalette.Accent);
-
-            float rx = 290f;
-
-            // BBoxes Toggle
-            if (DrawButton(hud, rx, ribbonY, 78f, ribbonH - 2f, ShowBBoxes ? "✓ BBoxes" : "□ BBoxes", ShowBBoxes))
-            {
-                ShowBBoxes = !ShowBBoxes;
-            }
-            rx += 82f;
-
-            // Wireframe Toggle
-            if (DrawButton(hud, rx, ribbonY, 86f, ribbonH - 2f, ShowWireframe ? "✓ Wireframe" : "□ Wireframe", ShowWireframe))
-            {
-                ShowWireframe = !ShowWireframe;
-            }
-            rx += 90f;
-
-            // Cameras Toggle
-            if (DrawButton(hud, rx, ribbonY, 78f, ribbonH - 2f, ShowCameras ? "✓ Cameras" : "□ Cameras", ShowCameras))
-            {
-                ShowCameras = !ShowCameras;
-            }
-            rx += 82f;
-
-            // Pass Selector Dropdown
-            string passName = ActiveRenderPass switch
-            {
-                DebugRenderPass.Lighting => "Pass: Lighting ▼",
-                DebugRenderPass.Depth => "Pass: Depth ▼",
-                DebugRenderPass.Normals => "Pass: Normals ▼",
-                DebugRenderPass.Fog => "Pass: Fog ▼",
-                _ => "Pass: Final Color ▼"
-            };
-
-            if (DrawButton(hud, rx, ribbonY, 120f, ribbonH - 2f, passName, _isPassDropdownOpen))
-            {
-                _isPassDropdownOpen = !_isPassDropdownOpen;
-            }
-        }
-
-        private static string PanelName(DebugHudPanel panel) => panel == DebugHudPanel.AiNavigation
-            ? "AI & Navigation"
-            : "Overview";
-
-        private void DrawPassDropdownMenu(IHudCanvas hud, int width)
-        {
-            float dx = 544f;
-            float dy = 70f;
-            float dw = 120f;
-            float dh = 110f;
-
-            hud.Rect(dx, dy, dw, dh, DebugOverlayPalette.Surface, filled: true);
-
-            string[] passes = { "Final Color", "Lighting", "Depth", "Normals", "Fog" };
-            for (int i = 0; i < passes.Length; i++)
-            {
-                float py = dy + (i * 22f);
-                bool selected = (int)ActiveRenderPass == i;
-                if (DrawButton(hud, dx + 2f, py, dw - 4f, 20f, passes[i], selected))
-                {
-                    ActiveRenderPass = (DebugRenderPass)i;
-                    _isPassDropdownOpen = false;
-                    Log($"[INFO] Render pass changed to: {passes[i]}");
-                }
-            }
-        }
-
         // ── 3. Left Panel — World & Collapsible Inspector ───────────────────────
 
-        private void DrawLeftInspectorPanel(IHudCanvas hud, int width, int height, float compactBottom)
+        private void DrawLeftInspectorPanel(IHudCanvas hud, float panelX, float panelY, float panelW, float panelH)
         {
-            float panelW = 270f;
-            float panelX = 8f;
-            float panelY = Math.Max(40f, compactBottom + 8f);
-            float panelH = height - panelY - 108f;
-
-            hud.Rect(panelX, panelY, panelW, panelH, DebugOverlayPalette.Surface, filled: true);
+            hud.Rect(panelX, panelY, panelW, panelH, DebugOverlayPalette.Canvas, filled: true);
             hud.Text("World & Inspector", panelX + 10f, panelY + 8f, 12f, DebugOverlayPalette.Text);
 
             float y = panelY + 30f;
@@ -1068,145 +755,6 @@ namespace Genesis.Runtime.Debugger
             }
         }
 
-        private string _activeTelemetryTab = "Engine"; // Engine, Textures, Audio
-        private string _searchFilter = string.Empty;
-
-        // ── 4. Right Panel — Engine & Render Telemetry ──────────────────────────
-
-        private void DrawRightTelemetryPanel(IHudCanvas hud, int width, int height)
-        {
-            float panelW = 230f;
-            float panelH = height - 148f;
-            float panelX = width - panelW - 8f;
-            float panelY = 40f;
-
-            hud.Rect(panelX, panelY, panelW, panelH, DebugOverlayPalette.Surface, filled: true);
-
-            // Telemetry Tabs: [Engine] [Textures] [Audio]
-            float tx = panelX + 6f;
-            float ty = panelY + 6f;
-            if (DrawButton(hud, tx, ty, 68f, 20f, "Engine", _activeTelemetryTab == "Engine")) _activeTelemetryTab = "Engine";
-            tx += 72f;
-            if (DrawButton(hud, tx, ty, 74f, 20f, "Textures", _activeTelemetryTab == "Textures")) _activeTelemetryTab = "Textures";
-            tx += 78f;
-            if (DrawButton(hud, tx, ty, 64f, 20f, "Audio", _activeTelemetryTab == "Audio")) _activeTelemetryTab = "Audio";
-
-            float y = panelY + 32f;
-            RenderStats stats = _renderer?.GetStats() ?? default;
-
-            if (_activeTelemetryTab == "Engine")
-            {
-                // Draw Calls split 2D / 3D
-                hud.Rect(panelX + 6f, y, 104f, 38f, DebugOverlayPalette.Raised, filled: true);
-                hud.Text("Draw 2D / 3D", panelX + 10f, y + 4f, 9.5f, DebugOverlayPalette.Muted);
-                hud.Text($"{stats.DrawCalls2D} / {stats.DrawCalls3D}", panelX + 10f, y + 18f, 13f, DebugOverlayPalette.Text);
-
-                hud.Rect(panelX + 116f, y, 104f, 38f, DebugOverlayPalette.Raised, filled: true);
-                hud.Text("Batches", panelX + 120f, y + 4f, 9.5f, DebugOverlayPalette.Muted);
-                hud.Text($"{stats.Batches}", panelX + 120f, y + 18f, 13f, DebugOverlayPalette.Text);
-                y += 44f;
-
-                // Triangles & WorldMeshes (parked non-instanced leftovers)
-                hud.Rect(panelX + 6f, y, 104f, 38f, DebugOverlayPalette.Raised, filled: true);
-                hud.Text("Triangles", panelX + 10f, y + 4f, 9.5f, DebugOverlayPalette.Muted);
-                hud.Text($"{stats.Triangles:N0}", panelX + 10f, y + 18f, 12f, DebugOverlayPalette.Text);
-
-                hud.Rect(panelX + 116f, y, 104f, 38f, DebugOverlayPalette.Raised, filled: true);
-                hud.Text("WorldMeshes", panelX + 120f, y + 4f, 9.5f, DebugOverlayPalette.Muted);
-                hud.Text($"{stats.WorldMeshes:N0}", panelX + 120f, y + 18f, 12f, DebugOverlayPalette.Text);
-                y += 46f;
-
-                int lightsCap = Math.Max(1, stats.LightsCap);
-                int spriteCap = Math.Max(1, stats.SpriteInstanceCap);
-                int meshCap = Math.Max(1, stats.MeshInstanceCap);
-
-                hud.Text(
-                    $"Lights  {stats.LightsUsed} / {stats.LightsCap}",
-                    panelX + 8f, y, 9.5f, DebugOverlayPalette.Muted);
-                y += 15f;
-                DrawUsageBar(hud, panelX + 8f, y, panelW - 16f, stats.LightsUsed / (float)lightsCap);
-                y += 16f;
-
-                hud.Text(
-                    $"Sprites  {stats.SpriteInstances} / {stats.SpriteInstanceCap}",
-                    panelX + 8f, y, 9.5f, DebugOverlayPalette.Muted);
-                y += 15f;
-                DrawUsageBar(hud, panelX + 8f, y, panelW - 16f, stats.SpriteInstances / (float)spriteCap);
-                y += 16f;
-
-                hud.Text(
-                    $"Meshes  {stats.MeshInstances} / {stats.MeshInstanceCap}",
-                    panelX + 8f, y, 9.5f, DebugOverlayPalette.Muted);
-                y += 15f;
-                DrawUsageBar(hud, panelX + 8f, y, panelW - 16f, stats.MeshInstances / (float)meshCap);
-                y += 16f;
-
-                // Actual foliage instance-buffer use (96 bytes per submitted transform).
-                double foliageUploadMb = stats.FoliageUploadBytes / 1048576d;
-                float foliageUploadRatio = Math.Clamp(
-                    stats.FoliageUploadBytes / (Math.Max(1, stats.MeshInstanceCap) * 96f), 0f, 1f);
-                hud.Text($"Foliage  {stats.FoliageInstances:N0} inst / {stats.FoliageBatches:N0} batches / {foliageUploadMb:0.00}MB", panelX + 8f, y, 9.5f, DebugOverlayPalette.Muted);
-                y += 15f;
-                DrawUsageBar(hud, panelX + 8f, y, panelW - 16f, foliageUploadRatio);
-                y += 16f;
-
-                string adapter = string.IsNullOrWhiteSpace(_renderer?.AdapterName)
-                    ? "(no adapter)"
-                    : _renderer.AdapterName;
-                hud.Text($"GPU device: {adapter}", panelX + 8f, y, 10f, DebugOverlayPalette.Text);
-                y += 18f;
-
-                // Frame-Time Sparkline Graph
-                float graphH = panelH - (y - panelY) - 10f;
-                _frameGraph.Draw(hud, panelX + 6f, y, panelW - 12f, Math.Max(50f, graphH));
-            }
-            else if (_activeTelemetryTab == "Textures")
-            {
-                hud.Text("Texture Groups & Atlases", panelX + 8f, y, 10.5f, DebugOverlayPalette.Accent);
-                y += 18f;
-
-                hud.Rect(panelX + 6f, y, panelW - 12f, 88f, DebugOverlayPalette.Raised, filled: true);
-                hud.Text("Runtime atlas stitch", panelX + 10f, y + 6f, 10f, DebugOverlayPalette.Text);
-                if (Genesis.Runtime.Textures.RuntimeTextureAtlas.IsActive)
-                {
-                    hud.Text(
-                        $"Active — {Genesis.Runtime.Textures.RuntimeTextureAtlas.AtlasSheetCount} sheet(s), "
-                        + $"{Genesis.Runtime.Textures.RuntimeTextureAtlas.MappedSpriteCount} sprites",
-                        panelX + 12f, y + 24f, 9.5f, DebugOverlayPalette.Success);
-                    hud.Text(
-                        $"Occupancy {Genesis.Runtime.Textures.RuntimeTextureAtlas.AverageOccupancyPercent:0.0}%",
-                        panelX + 12f, y + 40f, 9.5f, DebugOverlayPalette.Muted);
-                }
-                else
-                {
-                    hud.Text("Idle — images bind as unique textures.", panelX + 12f, y + 24f, 9.5f, DebugOverlayPalette.Warning);
-                    hud.Text("Build runs at Player start per Texture Group.", panelX + 12f, y + 40f, 9.5f, DebugOverlayPalette.Muted);
-                }
-
-                hud.Text($"Texture switches (last frame): {stats.TextureSwitches:N0}", panelX + 12f, y + 56f, 9.5f, DebugOverlayPalette.Text);
-                hud.Text("Groups authored in Image Viewer.", panelX + 12f, y + 72f, 9f, DebugOverlayPalette.Muted);
-                y += 96f;
-
-                hud.Text("Default Texture Group cannot be deleted.", panelX + 10f, y, 9.5f, DebugOverlayPalette.Muted);
-            }
-            else if (_activeTelemetryTab == "Audio")
-            {
-                hud.Text("Audio Groups & Channels", panelX + 8f, y, 10.5f, DebugOverlayPalette.Accent);
-                y += 18f;
-
-                // Group 1: Default Audio Group
-                hud.Rect(panelX + 6f, y, panelW - 12f, 84f, DebugOverlayPalette.Raised, filled: true);
-                hud.Text("▼ Default Audio Group", panelX + 10f, y + 6f, 10f, DebugOverlayPalette.Text);
-                hud.Text("Master Volume: 100%", panelX + 12f, y + 22f, 9.5f, DebugOverlayPalette.Muted);
-                hud.Text("Audio RAM: 142 KB (Preloaded)", panelX + 12f, y + 36f, 9.5f, DebugOverlayPalette.Text);
-                hud.Text("Registered Sounds: 1 (Pickup.wav)", panelX + 12f, y + 50f, 9.5f, DebugOverlayPalette.Text);
-                hud.Text("Active Voice Channels: 0 / 32", panelX + 12f, y + 64f, 9.5f, DebugOverlayPalette.Success);
-                y += 92f;
-
-                hud.Text("Audio Engine: XAudio 2.9 (WASAPI)", panelX + 10f, y, 9.5f, DebugOverlayPalette.Muted);
-            }
-        }
-
         /// <summary>
         /// AF2.7 F6 cloud status. Raymarch running → timing + quality letter. Prefs on but pass
         /// skipped (Software / missing weather upload) → honest FogVolumes fallback label. Prefs
@@ -1246,32 +794,6 @@ namespace Genesis.Runtime.Debugger
             hud.Rect(x, y, width, 6f, DebugOverlayPalette.UsageTrack, filled: true);
             if (clamped > 0f)
                 hud.Rect(x, y, width * clamped, 6f, DebugOverlayPalette.UsageFill, filled: true);
-        }
-
-        private static void DrawPgslProfilerPanel(IHudCanvas hud, int width, int height)
-        {
-            IReadOnlyList<PgslEventProfile> profiles = PgslProfiler.Snapshot(5);
-            if (profiles.Count == 0) return;
-
-            float panelW = 230f;
-            float panelX = width - panelW - 8f;
-            float panelY = Math.Max(78f, height - 190f);
-            float panelH = 22f + (profiles.Count * 16f);
-
-            hud.Rect(panelX, panelY, panelW, panelH,
-                DebugOverlayPalette.Surface, filled: true);
-            hud.Text("PGSL EVENTS", panelX + 8f, panelY + 6f, 10.5f,
-                DebugOverlayPalette.Accent);
-
-            float y = panelY + 22f;
-            foreach (PgslEventProfile profile in profiles)
-            {
-                string label = $"{profile.ObjectName}.{profile.EventName}";
-                string timing = $"{profile.AverageMicroseconds:0.#}us ×{profile.CallCount}";
-                hud.Text(label, panelX + 10f, y, 9.2f, DebugOverlayPalette.Text);
-                hud.Text(timing, panelX + panelW - 72f, y, 9.2f, DebugOverlayPalette.Muted);
-                y += 16f;
-            }
         }
 
         // ── 5. In-Viewport Raycasting & "What Am I Looking At" ──────────────────
@@ -1431,43 +953,6 @@ namespace Genesis.Runtime.Debugger
             hud.Line(x + 4f, y - 2f, x + 10f, y - 6f, color, 1.4f);
             hud.Line(x + 4f, y + 2f, x + 10f, y + 6f, color, 1.4f);
             hud.Text("CAM", x - 10f, y + 8f, 8f, DebugOverlayPalette.Muted);
-        }
-
-        // ── 6. Bottom Bar — Interactive Command Console & Logs ──────────────────
-
-        private void DrawBottomConsoleBar(IHudCanvas hud, int width, int height)
-        {
-            const float footerH = 28f;
-            float barH = 70f;
-            float barY = height - footerH - barH;
-
-            hud.Rect(8f, barY, 270f, barH - 8f, DebugOverlayPalette.Canvas, filled: true);
-
-            // Filter Chips (Clickable)
-            float fx = 14f;
-            float fy = barY + 6f;
-
-            if (DrawButton(hud, fx, fy - 2f, 32f, 18f, "All", _activeLogFilter == "All"))
-                _activeLogFilter = "All";
-            fx += 36f;
-
-            if (DrawButton(hud, fx, fy - 2f, 62f, 18f, "Errors: 0", _activeLogFilter == "Errors", DebugOverlayPalette.Error))
-                _activeLogFilter = "Errors";
-            fx += 66f;
-
-            if (DrawButton(hud, fx, fy - 2f, 75f, 18f, "Warnings: 0", _activeLogFilter == "Warnings", DebugOverlayPalette.Warning))
-                _activeLogFilter = "Warnings";
-            fx += 79f;
-
-            if (DrawButton(hud, fx, fy - 2f, 36f, 18f, "Info", _activeLogFilter == "Info", DebugOverlayPalette.Accent))
-                _activeLogFilter = "Info";
-
-            // Interactive Command Prompt Box & Quick Command
-            float py = barY + 26f;
-            hud.Rect(14f, py, 258f, 26f, DebugOverlayPalette.Raised, filled: true);
-
-            string promptText = string.IsNullOrEmpty(_consoleInput) ? "> set obj_player.moveSpeed 6.0" : "> " + _consoleInput;
-            hud.Text(promptText, 20f, py + 7f, 10.5f, DebugOverlayPalette.Text);
         }
 
         // ── Helper UI Methods ───────────────────────────────────────────────────

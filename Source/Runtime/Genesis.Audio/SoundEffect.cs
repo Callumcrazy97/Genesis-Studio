@@ -28,6 +28,9 @@ namespace Genesis.Audio
         /// <summary>1 for mono, 2 for stereo.</summary>
         public int Channels => _format?.Channels ?? 0;
 
+        /// <summary>The memory the decoded samples take.</summary>
+        public long SampleBytes => _data?.LongLength ?? 0;
+
         private SoundEffect(WaveFormat fmt, byte[] data)
         {
             _format = fmt;

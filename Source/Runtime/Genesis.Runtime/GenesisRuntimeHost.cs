@@ -173,10 +173,15 @@ namespace Genesis.Runtime
             Debugger.BindScriptHost(ScriptHost);
             Debugger.BindScene(_scene, DebugRoomName);
             Debugger.BindWindow(_window);
+            Debugger.ProfilesDirectory = DebugProfilesDirectory;
+            Debugger.ProjectName = DebugProjectName ?? string.Empty;
+            Debugger.EngineCategoryEnabled = DebugEngineCategory;
 
             _options.FrustumCulling = RenderAutoState.FrustumCulling;
 
             SceneBuilt?.Invoke(this);
+            // After SceneBuilt, so whoever listens for recordings hears this one start.
+            if (IsDebugMode && DebugRecordOnStart) Debugger.StartRecording();
             StartupGate?.Report("Game runtime", "Scene and runtime services constructed", 3, 4);
             _ready = true;
         }
@@ -287,6 +292,18 @@ namespace Genesis.Runtime
 
         /// <summary>Current room name shown in the F6 debug overlay. Set by the player.</summary>
         public string DebugRoomName { get; set; }
+
+        /// <summary>Where the debug screen writes recordings (a folder per session). Null: recording is unavailable.</summary>
+        public string DebugProfilesDirectory { get; set; }
+
+        /// <summary>The project named in a recording's report.</summary>
+        public string DebugProjectName { get; set; }
+
+        /// <summary>True to start recording as soon as a debug run starts (Studio's preference, on by default).</summary>
+        public bool DebugRecordOnStart { get; set; }
+
+        /// <summary>True in developer builds: the debug screen's Engine tab and Engine recording columns.</summary>
+        public bool DebugEngineCategory { get; set; } = Genesis.Runtime.Diagnostics.DebugCategories.EngineRequested;
         public bool IsPlayPaused { get; set; }
 
         /// <summary>
@@ -558,6 +575,11 @@ namespace Genesis.Runtime
                 long presentStarted = System.Diagnostics.Stopwatch.GetTimestamp();
                 _renderer?.Present();
                 LastPresentMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(presentStarted).TotalMilliseconds;
+                // The debug screen's figures and recording see each presented game frame (not the
+                // start-up splash). With the screen closed and nothing recording this is one timestamp.
+                if (!_startupFrameWasSplash)
+                    Debugger?.ObserveFrame(LastSimulationMilliseconds, LastCollectMilliseconds, LastDrawMilliseconds,
+                        LastPresentMilliseconds, LastOverlayMilliseconds, _renderer);
                 BootSplash?.NotifyPresented();
                 if (StartupGate != null && !_startupReadySent && !_startupFrameWasSplash && (BootSplash == null || BootSplash.IsComplete))
                 {

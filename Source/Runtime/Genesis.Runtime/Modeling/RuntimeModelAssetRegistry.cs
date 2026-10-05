@@ -24,6 +24,10 @@ namespace Genesis.Runtime.Modeling
         public static RuntimeModelAssetRegistry Shared { get; } =
             new(RuntimeAssetPolicy.DefaultFramePathIntervalMilliseconds);
 
+        // The debug screen's Resources tab lists the shared registry's models.
+        static RuntimeModelAssetRegistry() =>
+            Genesis.Shared.Diagnostics.DebugResourceCatalog.Register("models", Shared, () => Shared.Describe());
+
         // Room loading and drawing normally share one thread; the lock keeps the cache whole if a
         // loader ever runs on another.
         private readonly object _gate = new();
@@ -39,6 +43,38 @@ namespace Genesis.Runtime.Modeling
         public GModelAsset Load(string projectPath, string modelName)
         {
             lock (_gate) return LoadCore(projectPath, modelName);
+        }
+
+        /// <summary>
+        /// Each loaded model, with the memory its vertices and indices take, for the debug screen's
+        /// Resources tab. Reads nothing from disk.
+        /// </summary>
+        public List<Genesis.Shared.Diagnostics.DebugResourceRow> Describe()
+        {
+            lock (_gate)
+            {
+                var rows = new List<Genesis.Shared.Diagnostics.DebugResourceRow>(_cache.Count);
+                foreach (KeyValuePair<string, Entry> entry in _cache)
+                {
+                    GModelAsset asset = entry.Value.Asset;
+                    if (asset == null) continue;
+                    long bytes = 0;
+                    int triangles = 0;
+                    foreach (GModelMesh mesh in asset.Meshes)
+                    {
+                        bytes += (long)(mesh.Vertices?.Length ?? 0) * System.Runtime.CompilerServices.Unsafe.SizeOf<Genesis.Shared.Interfaces.MeshVertex>();
+                        bytes += (long)(mesh.SkinnedVertices?.Length ?? 0) * System.Runtime.CompilerServices.Unsafe.SizeOf<Genesis.Shared.Interfaces.SkinnedMeshVertex>();
+                        bytes += (long)(mesh.Indices?.Length ?? 0) * sizeof(ushort);
+                        triangles += (mesh.Indices?.Length ?? 0) / 3;
+                    }
+
+                    string name = string.IsNullOrWhiteSpace(asset.Name) ? Path.GetFileNameWithoutExtension(entry.Key) : asset.Name;
+                    rows.Add(new Genesis.Shared.Diagnostics.DebugResourceRow(
+                        "Model", name, 1, bytes, $"{asset.Meshes.Count} meshes · {triangles:N0} triangles · {entry.Key}"));
+                }
+
+                return rows;
+            }
         }
 
         private GModelAsset LoadCore(string projectPath, string modelName)

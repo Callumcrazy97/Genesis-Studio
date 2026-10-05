@@ -123,6 +123,25 @@ namespace Genesis.Rendering.Textures
         }
 
         /// <summary>
+        /// Each cached texture's path, colour space and the size of the file it was read from (its
+        /// cook when there is one). For the debug screen's Resources tab; it reads no file.
+        /// </summary>
+        public List<(string Path, string ColorSpace, long FileBytes)> Describe()
+        {
+            lock (_gate)
+            {
+                var rows = new List<(string Path, string ColorSpace, long FileBytes)>(_entries.Count);
+                foreach (KeyValuePair<Key, Entry> entry in _entries)
+                {
+                    long bytes = entry.Value.Stamp.CookedLength > 0 ? entry.Value.Stamp.CookedLength : entry.Value.Stamp.SourceLength;
+                    rows.Add((entry.Key.Path, entry.Key.ColorSpace.ToString(), bytes));
+                }
+
+                return rows;
+            }
+        }
+
+        /// <summary>
         /// Returns one uploaded handle for a file/colour-space pair until its source/cook changes.
         /// </summary>
         /// <param name="loader">Uploads one uncached canonical file path.</param>

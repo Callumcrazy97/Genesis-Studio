@@ -50,6 +50,8 @@ public sealed class PreferencesForm : DpiAwareForm
     private readonly CheckBox _previewVsync = new();
     private readonly CheckBox _pauseUnfocused = new();
     private readonly CheckBox _runtimeDiagnostics = new();
+    private readonly CheckBox _recordWhenDebugging = new();
+    private readonly CheckBox _engineDebugCategory = new();
     private readonly ComboBox _renderBackend = new();
     private readonly ComboBox _faceCulling = new() { Name = "FaceCullingPicker" };
     private readonly ComboBox _frontFaceWinding = new() { Name = "FrontFaceWindingPicker" };
@@ -490,11 +492,15 @@ public sealed class PreferencesForm : DpiAwareForm
         ConfigureCheckBox(_previewVsync, "Use VSync in editor previews");
         ConfigureCheckBox(_pauseUnfocused, "Pause preview when Studio loses focus");
         ConfigureCheckBox(_runtimeDiagnostics, "Collect runtime diagnostics for Profiler");
+        ConfigureCheckBox(_recordWhenDebugging, "Start recording when debugging starts");
+        ConfigureCheckBox(_engineDebugCategory, "Show Engine debug category (developer)");
         page.Controls.Add(Field("Build configuration", _buildConfiguration));
         page.Controls.Add(Field("Player architecture", _architecture));
         page.Controls.Add(_previewVsync);
         page.Controls.Add(_pauseUnfocused);
         page.Controls.Add(_runtimeDiagnostics);
+        page.Controls.Add(_recordWhenDebugging);
+        page.Controls.Add(_engineDebugCategory);
         return page;
     }
 
@@ -1321,6 +1327,8 @@ public sealed class PreferencesForm : DpiAwareForm
         _previewVsync.Checked = settings.Runtime.VSyncInPreview;
         _pauseUnfocused.Checked = settings.Runtime.PauseWhenStudioLosesFocus;
         _runtimeDiagnostics.Checked = settings.Runtime.EnableRuntimeDiagnostics;
+        _recordWhenDebugging.Checked = settings.Runtime.RecordProfileWhenDebugging;
+        _engineDebugCategory.Checked = settings.Runtime.ShowEngineDebugCategory;
         // The open project wins when it names a backend; otherwise the installation default shows.
         string? projectBackend = _project?.Manifest.Rendering?.Backend;
         _renderBackend.SelectedIndex = BackendIndex(RenderBackendCatalog.ParseSettingsValue(
@@ -1452,6 +1460,8 @@ public sealed class PreferencesForm : DpiAwareForm
             settings.Runtime.VSyncInPreview = _previewVsync.Checked;
             settings.Runtime.PauseWhenStudioLosesFocus = _pauseUnfocused.Checked;
             settings.Runtime.EnableRuntimeDiagnostics = _runtimeDiagnostics.Checked;
+            settings.Runtime.RecordProfileWhenDebugging = _recordWhenDebugging.Checked;
+            settings.Runtime.ShowEngineDebugCategory = _engineDebugCategory.Checked;
             settings.Rendering.Backend = BackendAt(_renderBackend.SelectedIndex).SettingsValue;
             settings.Rendering.FaceCulling = _faceCulling.Text;
             settings.Rendering.FrontFaceWinding = _frontFaceWinding.Text;

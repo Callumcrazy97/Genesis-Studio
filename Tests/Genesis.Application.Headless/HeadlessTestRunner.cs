@@ -1559,6 +1559,9 @@ internal static class HeadlessTestRunner
             case "pixel-model":
                 Suites.PixelModelSuite.Run(ctx);
                 break;
+            case "debug-screen":
+                Suites.DebugScreenSuite.Run(ctx);
+                break;
             case "asset-import":
                 Suites.AssetImportSuite.Run(ctx);
                 break;
