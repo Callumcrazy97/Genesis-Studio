@@ -16,7 +16,6 @@ public partial class ModelViewerControl
     {
         _moreOptions.DropDownItems.Add(new ToolStripMenuItem("Import Rig From Model", null, (_, _) => ChooseMotionImport(false)) { Name = "ImportRigFromModel" });
         _moreOptions.DropDownItems.Add(new ToolStripMenuItem("Import Model as animation", null, (_, _) => ChooseMotionImport(true)) { Name = "ImportModelAsAnimation" });
-        _moreOptions.DropDownItems.Add(new ToolStripMenuItem("Convert to 2D sprites\u2026", null, (_, _) => ShowSpriteConversion()) { Name = "ConvertModelToSprites" });
         Commands.Items.Add(_moreOptions);
     }
 

@@ -64,7 +64,8 @@ internal static class ModelSpriteConversionSuite
             dialog.Configure(defaults with { Directions = 8, FrameSize = 96, OutlinePixels = 1 });
             using Bitmap preview = dialog.RenderPreview();
             HeadlessHarness.Assert(preview.Width == 4 * 96 && preview.Height == 2 * 96, $"The preview is {preview.Width}x{preview.Height}, not 4x2 frames.");
-            VisualCapture.Capture(dialog, Path.Combine(ctx.Captures, "model-sprites-panel.png"));
+            ctx.Report.Images.Add(ImageResult.From("Convert to 2D sprites panel", "model-sprites-panel.png",
+                VisualCapture.Capture(dialog, Path.Combine(ctx.Captures, "model-sprites-panel.png"))));
             dialog.Hide();
         });
 
@@ -151,6 +152,12 @@ internal static class ModelSpriteConversionSuite
             int outline = 0;
             for (int i = 0; i < first.Length; i += 4) if (first[i + 3] == 255 && first[i] < 30 && first[i + 1] < 30 && first[i + 2] < 30) outline++;
             HeadlessHarness.Assert(outline > 40 && first[3] == 0, $"The 1-pixel black outline is missing ({outline} outline pixels).");
+            // The panel bakes on a worker thread with its own hidden window; the result must match.
+            ModelSpriteBakeSettings still = settings with { Clip = "", OutlinePixels = 0 };
+            ModelSpriteSheet onThisThread = ModelSpriteBaker.Bake(bobbing, project.RootPath, still);
+            ModelSpriteSheet onWorker = Task.Run(() => ModelSpriteBaker.Bake(bobbing, project.RootPath, still)).GetAwaiter().GetResult();
+            HeadlessHarness.Assert(onWorker.Frames.Count == 8 && onWorker.Frames.Zip(onThisThread.Frames).All(pair => pair.First.AsSpan().SequenceEqual(pair.Second)),
+                "A bake on a worker thread differs from one on the UI thread.");
             animatedImage = ModelSpriteBaker.WriteImage(resources, ResourceFolderPolicy.RootFor(project, ResourceKind.Image), "Bobbing Sprites", sheet, "Faces");
             ImageDocument document = ImageDocumentSerializer.LoadAtomic(animatedImage).Document;
             HeadlessHarness.Assert(document.Frames.Count == 24 && document.Usage.Directions is { Count: 8, FramesPerDirection: 3, Clip: "Bob" }
@@ -203,6 +210,31 @@ internal static class ModelSpriteConversionSuite
                 PgslCommands.BindContext(previous!);
                 saved.Restore();
             }
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.SpriteDirections.ScriptsTurnTheirSprite", () =>
+        {
+            PgslStatics saved = PgslStatics.Take();
+            try
+            {
+                PgslCommands.ProjectPath = project.RootPath;
+                ScriptAssetRegistry.ClearCache();
+                ObjectSandboxResult result = ObjectSandbox.Run(new Dictionary<string, string>
+                {
+                    ["Create"] = "frame = SpriteDirectionFrame(\"Bobbing Sprites\", 90, 2);\n"
+                        + "count = SpriteDirectionCount(\"Bobbing Sprites\");\n"
+                        + "SpriteSet(\"Bobbing Sprites\");\n"
+                        + "SpriteSetDirection(180);\n"
+                        + "facingLeft = SpriteGetFrame();\n"
+                        + "SpriteSetDirection(-45, 1);\n"
+                        + "facingDownRight = SpriteGetFrame();\n",
+                }, 1);
+                HeadlessHarness.Assert(result.Errors.Count == 0, "The script stopped: " + string.Join(" | ", result.Errors));
+                double Number(string name) => result.Numbers.TryGetValue(name, out double value) ? value : double.NaN;
+                HeadlessHarness.Assert(Number("frame") == 8 && Number("count") == 8 && Number("facingLeft") == 12 && Number("facingDownRight") == 22,
+                    $"A PGSL script picked frame={Number("frame")}, count={Number("count")}, left={Number("facingLeft")}, down-right={Number("facingDownRight")}; expected 8, 8, 12, 22.");
+            }
+            finally { saved.Restore(); ScriptAssetRegistry.ClearCache(); }
         });
     }
 

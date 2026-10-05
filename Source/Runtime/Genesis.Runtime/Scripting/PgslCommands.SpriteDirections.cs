@@ -33,7 +33,7 @@ public static partial class PgslCommands
         TryResolveDirectionalImage(image, out SpriteRuntimeDirections directions) ? directions.FramesPerDirection : 0;
 
     [PgslCommand("SpriteSetDirection", "SpriteSetDirection(angleDegrees,animationFrame?) -> bool",
-        "Show this instance's directional sprite facing an angle (0 = right, counter-clockwise); without an animation frame the current one is kept, so ImageSpeed animates within the direction", "Sprites")]
+        "Show this instance's directional sprite facing an angle (0 = right, counter-clockwise); without an animation frame the current one is kept, so sprite playback animates within the direction", "Sprites")]
     public static bool SpriteSetDirection(double angleDegrees, double animationFrame = -1)
     {
         PgslContext ctx = GetContext();

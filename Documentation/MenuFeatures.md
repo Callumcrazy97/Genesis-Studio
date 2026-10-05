@@ -211,6 +211,17 @@ one skeleton then keep one set of clips between them instead of a copy each.
 - **One file that cannot be imported no longer stops the others.** The rest of the batch is
   imported, then the failures are reported together ("Imported 9 of 10 file(s). Not imported: ...").
 
+## Models as 2D sprites
+
+The Model viewer and Model editor have **2D sprites…** on the command bar: it renders the model
+with the engine renderer from 8, 16 or 32 facing angles (camera elevation, frame size,
+orthographic or perspective, an optional animation clip, engine lighting, outline, transparent
+background, with a live preview) into a new Image, frames ordered direction by direction, with the
+layout saved in `usage.directions`. PGSL picks the frame for an angle (0 = right,
+counter-clockwise, like `PointDirection`): `SpriteDirectionFrame(image, angle, frame?)`,
+`SpriteSetDirection(angle, frame?)` for the calling instance, `SpriteDirectionCount(image)` and
+`SpriteDirectionFrames(image)`. See [Convert a model to 2D sprites](ModelToSprites.md).
+
 ## Start-up
 
 - **Only the first room is prepared before it starts.** The Player used to prepare every texture,
@@ -237,4 +248,5 @@ its window is shown without being activated, and it neither reads nor vibrates t
 `Build.bat --test pgsl-scripts` (the language fixes, globals, quitting, `TimeMs`, inverse
 trigonometry, typed text), `--test effects-2d` (measuring, spacing, alignment, smooth shapes,
 gradients, clipping, GUI order, project fonts), `--test asset-import` (picture size, Ogg decoding,
-`SpriteWidth`) and `--test release` (an unattended Player never holds the foreground).
+`SpriteWidth`), `--test release` (an unattended Player never holds the foreground) and
+`--test model-sprites` (a model converted to directional sprites, and frame selection by angle).

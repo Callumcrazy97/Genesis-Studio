@@ -74,9 +74,9 @@ public partial class ModelViewerControl : IResourceInspectorTarget, ILiveResourc
         ToolStripItem? selectionFrame = composer ? previous.FirstOrDefault(item => item.Text == "Frame  F") : null;
         if (selectionFrame is not null) { selectionFrame.Text = "Frame"; Commands.Items.Add(selectionFrame); }
         else Commands.Items.Add(EditorChrome.ToolButton("Frame", "Fit the model in the view (F)", FrameModel));
-        Commands.Items.Add(EditorChrome.ToolButton("Use in game", "Create an Object using this saved model and animation", ShowModelGameGuide));
         ToolStripButton sprites = EditorChrome.ToolButton("2D sprites\u2026", "Convert to 2D sprites: render this model from every direction into an Image", ShowSpriteConversion);
         sprites.Name = "ModelConvertToSprites"; Commands.Items.Add(sprites);
+        Commands.Items.Add(EditorChrome.ToolButton("Use in game", "Create an Object using this saved model and animation", ShowModelGameGuide));
         foreach (ToolStripItem item in previous)
         {
             if (item.Owner == Commands) continue;
