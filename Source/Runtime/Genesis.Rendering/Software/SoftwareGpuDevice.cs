@@ -82,6 +82,8 @@ namespace Genesis.Rendering.Software
             SupportsTimestampQueries = true,
             SupportsStructuredBuffers = true,
             SupportsUInt32Indices = true,
+            // The sprite rasteriser blends a linear-light quad itself, per pixel.
+            SupportsLinearBlendPass = true,
             MaxColorAttachments = 4,
             MaxAnisotropy = 16,
             MaxTextureArrayLayers = 256

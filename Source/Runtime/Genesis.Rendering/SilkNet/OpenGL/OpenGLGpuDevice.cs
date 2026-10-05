@@ -108,6 +108,8 @@ namespace Genesis.Rendering.SilkNet.OpenGL
                 SupportsTimestampQueries = true,
                 SupportsComputeShaders = true,
                 SupportsIndirectDraw = true,
+                // GL 4.5 has texture views: the surface gets an sRGB view (OpenGLSwapChain.SrgbFramebuffer).
+                SupportsLinearBlendPass = true,
                 MaxTextureArrayLayers = 2048,
                 MaxAnisotropy = 16,
                 MaxColorAttachments = 8,
@@ -596,6 +598,7 @@ namespace Genesis.Rendering.SilkNet.OpenGL
 
         public void BeginRenderPass(in GpuRenderPassDesc desc)
         {
+            EndLinearBlend();
             if (desc.Target.IsValid && _renderTargets.TryGetValue(desc.Target.Id, out RenderTargetResource target))
             {
                 _boundFramebuffer = target.Framebuffer;
@@ -607,6 +610,13 @@ namespace Genesis.Rendering.SilkNet.OpenGL
                 _boundFramebuffer = _activeSwapChain.Framebuffer;
                 _passWidth = _activeSwapChain.Width;
                 _passHeight = _activeSwapChain.Height;
+                // A linear-light pass draws through the sRGB view of the same surface.
+                if (desc.LinearBlend && _activeSwapChain.SrgbFramebuffer != 0)
+                {
+                    _boundFramebuffer = _activeSwapChain.SrgbFramebuffer;
+                    _gl.Enable(EnableCap.FramebufferSrgb);
+                    _linearBlendPass = true;
+                }
             }
 
             _gl.BindFramebuffer(FramebufferTarget.Framebuffer, _boundFramebuffer);
@@ -656,8 +666,21 @@ namespace Genesis.Rendering.SilkNet.OpenGL
             }
         }
 
-        public void EndRenderPass()
+        public void EndRenderPass() => EndLinearBlend();
+
+        private bool _linearBlendPass;
+
+        // GL_FRAMEBUFFER_SRGB is global state; it is on only for the length of a linear-light pass.
+        private void EndLinearBlend()
         {
+            if (!_linearBlendPass) return;
+            _gl.Disable(EnableCap.FramebufferSrgb);
+            _linearBlendPass = false;
+            if (_activeSwapChain != null && _boundFramebuffer == _activeSwapChain.SrgbFramebuffer)
+            {
+                _boundFramebuffer = _activeSwapChain.Framebuffer;
+                _gl.BindFramebuffer(FramebufferTarget.Framebuffer, _boundFramebuffer);
+            }
         }
 
         public void UnbindRenderTargets()

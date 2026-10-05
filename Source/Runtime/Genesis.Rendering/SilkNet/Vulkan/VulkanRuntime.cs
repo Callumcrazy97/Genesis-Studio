@@ -82,6 +82,9 @@ namespace Genesis.Rendering.SilkNet.Vulkan
         /// <summary>True when the device accepts Direct3D-packed constant buffers.</summary>
         public bool ScalarBlockLayoutEnabled { get; private set; }
 
+        /// <summary>True when swap-chain images may be viewed as sRGB too (VK_KHR_swapchain_mutable_format).</summary>
+        public bool SwapchainMutableFormatEnabled { get; private set; }
+
         /// <summary>True when render targets may use different blend/write-mask states.</summary>
         public bool IndependentBlendEnabled { get; private set; }
 
@@ -587,6 +590,16 @@ namespace Genesis.Rendering.SilkNet.Vulkan
                 throw new InvalidOperationException(
                     "This Vulkan device does not support VK_EXT_scalar_block_layout, which Genesis's "
                     + "Direct3D-packed constant buffers require.");
+            }
+
+            // Optional: lets the swap chain's images take an sRGB view as well, for GUI draws that
+            // blend in linear light. Without it those draws blend as stored.
+            SwapchainMutableFormatEnabled = SupportsExtension("VK_KHR_swapchain_mutable_format")
+                && SupportsExtension("VK_KHR_image_format_list");
+            if (SwapchainMutableFormatEnabled)
+            {
+                extensions.Add("VK_KHR_image_format_list");
+                extensions.Add("VK_KHR_swapchain_mutable_format");
             }
 
             byte** extensionNames = (byte**)SilkMarshal.StringArrayToPtr(extensions.ToArray());

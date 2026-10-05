@@ -81,6 +81,12 @@ namespace Genesis.Shared.Interfaces
         /// </summary>
         void SetClip(Vector4 clip) { }
 
+        /// <summary>
+        /// Whether later draws blend in linear light (the screen decoded from sRGB, blended and
+        /// encoded again) rather than on the stored sRGB values. Canvases that cannot ignore it.
+        /// </summary>
+        void SetBlendLinear(bool linear) { }
+
         /// <summary>Whether <see cref="DrawSprite"/> draws; canvases that cannot leave sprites to the sprite pass.</summary>
         bool SupportsSprites => false;
 

@@ -216,6 +216,8 @@ namespace Genesis.Rendering.SilkNet.DX11
             SupportsTimestampQueries = true,
             SupportsComputeShaders = true,
             SupportsIndirectDraw = true,
+            // The flip-model back buffer takes an sRGB render-target view (Dx11SwapChain.SrgbRtv).
+            SupportsLinearBlendPass = true,
             MaxTextureArrayLayers = 2048,
             MaxAnisotropy = 16,
             MaxColorAttachments = 8,
@@ -795,7 +797,11 @@ namespace Genesis.Rendering.SilkNet.DX11
 
             if (_activeSwapChain == null || !_activeSwapChain.IsReady)
                 throw new InvalidOperationException("A back-buffer pass requires an active, ready swap chain.");
-            ID3D11RenderTargetView* back = _activeSwapChain.Native.Rtv;
+            // A linear-light pass draws through the back buffer's sRGB view: the hardware decodes
+            // the screen, blends and encodes the result.
+            ID3D11RenderTargetView* back = desc.LinearBlend && _activeSwapChain.Native.SrgbRtv != null
+                ? _activeSwapChain.Native.SrgbRtv
+                : _activeSwapChain.Native.Rtv;
             rtvs = &back;
             count = 1;
             dsv = _activeSwapChain.Native.Dsv;

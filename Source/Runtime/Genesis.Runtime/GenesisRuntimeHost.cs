@@ -772,7 +772,7 @@ namespace Genesis.Runtime
         /// </summary>
         private sealed class BufferedHudCanvas : IHudCanvas
         {
-            private enum Kind { Text, TextCentered, Rect, Line, Clip, Sprite }
+            private enum Kind { Text, TextCentered, Rect, Line, Clip, Sprite, BlendLinear }
 
             private readonly List<Command> _commands = new();
             private readonly List<SpriteDrawCall> _sprites = new();
@@ -830,6 +830,9 @@ namespace Genesis.Runtime
             public void SetClip(float x, float y, float width, float height) =>
                 _commands.Add(new Command(Kind.Clip, null, x, y, width, height, 0f, default));
 
+            public void SetBlendLinear(bool linear) =>
+                _commands.Add(new Command(Kind.BlendLinear, null, linear ? 1f : 0f, 0f, 0f, 0f, 0f, default));
+
             public void TextCentered(string text, float centerX, float y, float width, float size, Vector4 color) =>
                 _commands.Add(new Command(Kind.TextCentered, text, centerX, y, width, size, 0f, color));
             public void TextCentered(string text, float centerX, float y, float width, float size, Vector4 color, string font) =>
@@ -844,6 +847,7 @@ namespace Genesis.Runtime
             public void Replay(IHudCanvas destination)
             {
                 if (destination == null) return;
+                bool linear = false;
                 foreach (Command command in _commands)
                 {
                     switch (command.Type)
@@ -856,6 +860,10 @@ namespace Genesis.Runtime
                             break;
                         case Kind.Clip:
                             destination.SetClip(command.A, command.B, command.C, command.D);
+                            break;
+                        case Kind.BlendLinear:
+                            linear = command.A != 0f;
+                            destination.SetBlendLinear(linear);
                             break;
                         case Kind.Sprite:
                             destination.Sprite(_sprites[(int)command.A]);
@@ -874,6 +882,8 @@ namespace Genesis.Runtime
 
                 // A script that forgot DrawResetClip must not clip whatever is drawn after the GUI.
                 destination.SetClip(0f, 0f, 0f, 0f);
+                // Nor may linear blending reach the debug overlay drawn after it.
+                if (linear) destination.SetBlendLinear(false);
             }
         }
 

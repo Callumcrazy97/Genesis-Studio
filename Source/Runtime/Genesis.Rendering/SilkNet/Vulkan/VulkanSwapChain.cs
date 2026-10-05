@@ -43,6 +43,12 @@ namespace Genesis.Rendering.SilkNet.Vulkan
 
         private RenderPass _renderPass;
         private RenderPass _colorOnlyRenderPass;
+        // The images seen as sRGB, for GUI draws that blend in linear light: the hardware decodes
+        // the screen, blends and encodes. Only made where the device lets swap-chain images take a
+        // second format (VK_KHR_swapchain_mutable_format).
+        private ImageView[] _srgbImageViews = Array.Empty<ImageView>();
+        private Framebuffer[] _srgbFramebuffers = Array.Empty<Framebuffer>();
+        private RenderPass _srgbRenderPass;
         private VkFormat _colorFormat = VkFormat.B8G8R8A8Unorm;
         private VkSemaphore[] _renderFinishedSemaphores = Array.Empty<VkSemaphore>();
         private bool _disposed;
@@ -75,6 +81,12 @@ namespace Genesis.Rendering.SilkNet.Vulkan
         public RenderPass RenderPass => _renderPass;
 
         public RenderPass ColorOnlyRenderPass => _colorOnlyRenderPass;
+
+        /// <summary>The colour-and-depth pass through the sRGB views; zero when there are none.</summary>
+        public RenderPass SrgbRenderPass => _srgbRenderPass;
+
+        public Framebuffer AcquiredSrgbFramebuffer =>
+            AcquiredIndex >= 0 && AcquiredIndex < _srgbFramebuffers.Length ? _srgbFramebuffers[AcquiredIndex] : default;
 
         public VkFormat ColorFormat => _colorFormat;
 
@@ -214,6 +226,23 @@ namespace Genesis.Rendering.SilkNet.Vulkan
                 OldSwapchain = default,
             };
 
+            VkFormat srgbFormat = _runtime.SwapchainMutableFormatEnabled ? SrgbFormatOf(_colorFormat) : VkFormat.Undefined;
+            VkFormat* viewFormats = stackalloc VkFormat[2];
+            viewFormats[0] = _colorFormat;
+            viewFormats[1] = srgbFormat;
+            var formatList = new ImageFormatListCreateInfo
+            {
+                SType = StructureType.ImageFormatListCreateInfo,
+                ViewFormatCount = 2,
+                PViewFormats = viewFormats,
+            };
+            if (srgbFormat != VkFormat.Undefined)
+            {
+                // VK_SWAPCHAIN_CREATE_MUTABLE_FORMAT_BIT_KHR: the images may be viewed in either format.
+                createInfo.Flags = (SwapchainCreateFlagsKHR)0x4;
+                createInfo.PNext = &formatList;
+            }
+
             SwapchainKHR swapchain;
             VulkanRuntime.Check(
                 _swapchainApi.CreateSwapchain(_runtime.Device, &createInfo, null, &swapchain),
@@ -226,8 +255,23 @@ namespace Genesis.Rendering.SilkNet.Vulkan
             _colorOnlyRenderPass = CreateRenderPass(includeDepth: false);
             _framebuffers = CreateFramebuffers(_renderPass, includeDepth: true);
             _colorOnlyFramebuffers = CreateFramebuffers(_colorOnlyRenderPass, includeDepth: false);
+            if (srgbFormat != VkFormat.Undefined)
+            {
+                _srgbImageViews = new ImageView[_images.Length];
+                for (int i = 0; i < _images.Length; i++)
+                    _srgbImageViews[i] = CreateView(_images[i], srgbFormat, ImageAspectFlags.ColorBit);
+                _srgbRenderPass = CreateRenderPass(includeDepth: true, srgbFormat);
+                _srgbFramebuffers = CreateFramebuffers(_srgbRenderPass, includeDepth: true, _srgbImageViews);
+            }
             return true;
         }
+
+        private static VkFormat SrgbFormatOf(VkFormat format) => format switch
+        {
+            VkFormat.B8G8R8A8Unorm => VkFormat.B8G8R8A8Srgb,
+            VkFormat.R8G8B8A8Unorm => VkFormat.R8G8B8A8Srgb,
+            _ => VkFormat.Undefined,
+        };
 
         private SurfaceFormatKHR ChooseFormat()
         {
@@ -386,7 +430,7 @@ namespace Genesis.Rendering.SilkNet.Vulkan
             _depthView = CreateView(_depthImage, depthFormat, ImageAspectFlags.DepthBit);
         }
 
-        private RenderPass CreateRenderPass(bool includeDepth)
+        private RenderPass CreateRenderPass(bool includeDepth, VkFormat colorFormat = VkFormat.Undefined)
         {
             int attachmentCount = includeDepth ? 2 : 1;
             var attachments = stackalloc AttachmentDescription[attachmentCount];
@@ -397,7 +441,7 @@ namespace Genesis.Rendering.SilkNet.Vulkan
             // pass that samples depth cannot also attach it.
             attachments[0] = new AttachmentDescription
             {
-                Format = _colorFormat,
+                Format = colorFormat == VkFormat.Undefined ? _colorFormat : colorFormat,
                 Samples = SampleCountFlags.Count1Bit,
                 LoadOp = AttachmentLoadOp.Load,
                 StoreOp = AttachmentStoreOp.Store,
@@ -464,14 +508,15 @@ namespace Genesis.Rendering.SilkNet.Vulkan
             return renderPass;
         }
 
-        private Framebuffer[] CreateFramebuffers(RenderPass renderPass, bool includeDepth)
+        private Framebuffer[] CreateFramebuffers(RenderPass renderPass, bool includeDepth, ImageView[] colorViews = null)
         {
-            var framebuffers = new Framebuffer[_imageViews.Length];
+            colorViews ??= _imageViews;
+            var framebuffers = new Framebuffer[colorViews.Length];
             int viewCount = includeDepth ? 2 : 1;
             var views = stackalloc ImageView[viewCount];
-            for (int i = 0; i < _imageViews.Length; i++)
+            for (int i = 0; i < colorViews.Length; i++)
             {
-                views[0] = _imageViews[i];
+                views[0] = colorViews[i];
                 if (includeDepth)
                     views[1] = _depthView;
 
@@ -592,6 +637,26 @@ namespace Genesis.Rendering.SilkNet.Vulkan
             }
 
             _colorOnlyFramebuffers = Array.Empty<Framebuffer>();
+
+            foreach (Framebuffer framebuffer in _srgbFramebuffers)
+            {
+                if (framebuffer.Handle != 0) api.DestroyFramebuffer(device, framebuffer, null);
+            }
+
+            _srgbFramebuffers = Array.Empty<Framebuffer>();
+
+            if (_srgbRenderPass.Handle != 0)
+            {
+                api.DestroyRenderPass(device, _srgbRenderPass, null);
+                _srgbRenderPass = default;
+            }
+
+            foreach (ImageView view in _srgbImageViews)
+            {
+                if (view.Handle != 0) api.DestroyImageView(device, view, null);
+            }
+
+            _srgbImageViews = Array.Empty<ImageView>();
 
             if (_renderPass.Handle != 0)
             {

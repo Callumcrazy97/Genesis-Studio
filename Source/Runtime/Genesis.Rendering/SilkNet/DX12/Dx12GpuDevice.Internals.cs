@@ -911,7 +911,7 @@ namespace Genesis.Rendering.SilkNet.DX12
         {
             if (!_activeTarget.IsValid)
             {
-                return -1;
+                return _linearBackBuffer ? -2 : -1;
             }
 
             RenderTargetResource target = _renderTargets[_activeTarget.Id];
@@ -951,7 +951,7 @@ namespace Genesis.Rendering.SilkNet.DX12
             else
             {
                 desc.NumRenderTargets = 1u;
-                desc.RTVFormats[0] = Dx12SwapChain.ColorFormat;
+                desc.RTVFormats[0] = key.PassSignature == -2 ? Dx12SwapChain.SrgbColorFormat : Dx12SwapChain.ColorFormat;
                 desc.DSVFormat = Dx12SwapChain.DepthStencilFormat;
             }
 

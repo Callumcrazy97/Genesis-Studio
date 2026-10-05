@@ -167,6 +167,12 @@ namespace Genesis.Runtime.Scripting
         /// </summary>
         void SetClip(float x, float y, float width, float height) { }
 
+        /// <summary>
+        /// Whether later drawing blends in linear light rather than on the stored sRGB values, until
+        /// it is set again. Canvases that cannot blend in linear light ignore it.
+        /// </summary>
+        void SetBlendLinear(bool linear) { }
+
         /// <summary>Whether <see cref="Sprite"/> draws: then GUI images are ordered with this canvas's shapes and text.</summary>
         bool SupportsSprites => false;
 

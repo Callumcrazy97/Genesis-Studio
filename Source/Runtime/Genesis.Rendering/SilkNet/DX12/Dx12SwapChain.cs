@@ -81,10 +81,12 @@ namespace Genesis.Rendering.SilkNet.DX12
             created.Dispose();
             _swapChain = chain3;
 
+            // Each buffer has a plain view and, after them, an sRGB view for GUI draws that blend in
+            // linear light (the hardware decodes the screen, blends and encodes).
             var rtvHeapDesc = new DescriptorHeapDesc
             {
                 Type = DescriptorHeapType.Rtv,
-                NumDescriptors = BufferCount,
+                NumDescriptors = BufferCount * 2,
                 Flags = DescriptorHeapFlags.None,
             };
             ComPtr<ID3D12DescriptorHeap> rtvHeap = default;
@@ -149,9 +151,23 @@ namespace Genesis.Rendering.SilkNet.DX12
             }
         }
 
+        /// <summary>The current buffer's sRGB view.</summary>
+        public CpuDescriptorHandle CurrentSrgbRtv
+        {
+            get
+            {
+                CpuDescriptorHandle handle = _rtvHeap.Handle->GetCPUDescriptorHandleForHeapStart();
+                handle.Ptr += (BufferCount + CurrentBackBufferIndex) * _rtvStride;
+                return handle;
+            }
+        }
+
         public CpuDescriptorHandle Dsv => _dsvHeap.Handle->GetCPUDescriptorHandleForHeapStart();
 
         public static Format ColorFormat => BackBufferFormat;
+
+        /// <summary>The format of <see cref="CurrentSrgbRtv"/>.</summary>
+        public static Format SrgbColorFormat => Format.FormatR8G8B8A8UnormSrgb;
 
         public static Format DepthStencilFormat => DepthFormat;
 
@@ -217,6 +233,15 @@ namespace Genesis.Rendering.SilkNet.DX12
                 _backBuffers[i] = buffer;
 
                 _runtime.Device.Handle->CreateRenderTargetView(buffer, (RenderTargetViewDesc*)null, rtv);
+
+                CpuDescriptorHandle srgb = rtv;
+                srgb.Ptr += BufferCount * _rtvStride;
+                var srgbDesc = new RenderTargetViewDesc
+                {
+                    Format = SrgbColorFormat,
+                    ViewDimension = RtvDimension.Texture2D,
+                };
+                _runtime.Device.Handle->CreateRenderTargetView(buffer, &srgbDesc, srgb);
                 rtv.Ptr += _rtvStride;
             }
 

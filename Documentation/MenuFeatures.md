@@ -52,6 +52,28 @@ nearly every game draws its scaled sprites.)
 | `DrawSetClip(x, y, width, height)` | Later GUI drawing (shapes, text and images) shows only inside this rectangle. |
 | `DrawResetClip()` | Draw everywhere again. A clip also ends with the event that set it. |
 
+## GUI blending in linear light
+
+GUI drawing blends the stored sRGB values unless asked otherwise: a white panel at 8% over black
+shows as 20/255. A UI designed in linear light (as many are) mixes the light itself, and the same
+panel shows as about 80/255. A script cannot do that mix, because it needs the pixel underneath.
+
+| Setting or command | Meaning |
+|---|---|
+| Preferences › Project › **Blend GUI in linear light** (`rendering.blendGuiInLinearLight` in the project file) | Every DrawGui event starts blending in linear light. Off by default. |
+| `DrawSetBlendLinear(enabled)` | Later GUI shapes, text and images blend in linear light (true) or as stored (false), until set again; each event starts from the project setting. Draws keep their order across the switch. |
+| `DrawGetBlendLinear()` | Whether GUI drawing blends in linear light now. |
+
+In linear light a draw's colour and its image are decoded from sRGB, mixed with the decoded screen,
+and the result encoded again, so over black 8% white is 79/255 and half white over grey 128 is
+204/255 (191 as stored). Smooth shape edges, gradients and text edges also come out as they do in
+a linear-light UI. Every renderer does it: DX11 and DX12 draw those quads through an sRGB view of
+the back buffer, OpenGL through an sRGB texture view of its surface, Vulkan through sRGB views of
+the swap-chain images (where the driver has `VK_KHR_swapchain_mutable_format`; without it the
+draws blend as stored), and the software renderer in its own blend. Only the GUI overlay (DrawGui
+and the UI resources it draws) takes part; world drawing and the debug overlay blend as before,
+and a game that never asks for it renders exactly as it did.
+
 ## Images
 
 | Command | Meaning |
@@ -310,5 +332,7 @@ its window is shown without being activated, and it neither reads nor vibrates t
 `Build.bat --test pgsl-scripts` (the language fixes, globals, quitting, `TimeMs`, inverse
 trigonometry, typed text), `--test effects-2d` (measuring, spacing, alignment, smooth shapes,
 gradients, clipping, GUI order, project fonts), `--test asset-import` (picture size, Ogg decoding,
-`SpriteWidth`), `--test release` (an unattended Player never holds the foreground) and
-`--test model-sprites` (a model converted to directional sprites, and frame selection by angle).
+`SpriteWidth`), `--test release` (an unattended Player never holds the foreground),
+`--test model-sprites` (a model converted to directional sprites, and frame selection by angle) and
+`--test gui-linear` (GUI blending in linear light on all five renderers: 8% white, half white over
+grey, an image, a switch mid-frame and the order across it, and the same scene blended as stored).

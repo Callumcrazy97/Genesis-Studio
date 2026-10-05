@@ -911,6 +911,12 @@ namespace Genesis.Shared.Interfaces
         /// <summary>Force smooth sampling for this call, without changing a pixel-art room's sampler.
         /// Default false preserves the inherited room/global sampling contract.</summary>
         public bool SmoothSampling;
+        /// <summary>
+        /// Blend this quad in linear light: its colour and texture are decoded from sRGB and mixed
+        /// with the decoded screen (DrawSetBlendLinear). Honoured by the GUI overlay; default false
+        /// blends the stored sRGB values as always.
+        /// </summary>
+        public bool LinearLight;
         public TextureHandle Texture;
         public float X, Y;
         public float Width, Height;

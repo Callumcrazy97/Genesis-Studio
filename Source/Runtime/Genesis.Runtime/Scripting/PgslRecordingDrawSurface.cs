@@ -98,6 +98,11 @@ public sealed class PgslRecordingDrawSurface : IPgslDrawSurface
 
     public void SetClip(RectangleF clip) => Clip = clip;
 
+    /// <summary>What DrawSetBlendLinear last set.</summary>
+    public bool BlendLinear { get; private set; }
+
+    public void SetBlendLinear(bool linear) => BlendLinear = linear;
+
     public void DrawUiText(string text, string font, float size, Color color, Rectangle bounds, bool centered) =>
         Texts.Add(new TextRecord(text, bounds.X, bounds.Y, size, color, font, bounds, centered));
 

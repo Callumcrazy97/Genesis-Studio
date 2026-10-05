@@ -178,6 +178,8 @@ namespace Genesis.Rendering.SilkNet.DX12
         /// </remarks>
         internal GpuTextureHandle _depthTexture;
         private GpuRenderTargetHandle _activeTarget;
+        // The bound back-buffer pass draws through the sRGB view (GpuRenderPassDesc.LinearBlend).
+        private bool _linearBackBuffer;
         private GpuTextureHandle _dummyTexture;
         private GpuBufferHandle _indexBuffer;
         private GpuIndexFormat _indexFormat;
@@ -221,6 +223,8 @@ namespace Genesis.Rendering.SilkNet.DX12
             SupportsTimestampQueries = true,
             SupportsComputeShaders = true,
             SupportsIndirectDraw = true,
+            // Each back buffer has an sRGB render-target view as well (Dx12SwapChain.CurrentSrgbRtv).
+            SupportsLinearBlendPass = true,
             MaxTextureArrayLayers = 2048,
             MaxAnisotropy = 16,
             MaxColorAttachments = 8,
@@ -733,6 +737,7 @@ namespace Genesis.Rendering.SilkNet.DX12
             CpuDescriptorHandle dsv = default;
             bool hasDsv = false;
 
+            _linearBackBuffer = false;
             if (desc.Target.IsValid)
             {
                 RenderTargetResource target = Require(_renderTargets, desc.Target.Id, nameof(desc.Target));
@@ -777,7 +782,10 @@ namespace Genesis.Rendering.SilkNet.DX12
                 EnsureSwapChainDepthTexture(_activeSwapChain);
                 TransitionSwapChainDepth(ResourceStates.DepthWrite);
 
-                rtvs[rtvCount++] = _activeSwapChain.CurrentRtv;
+                // A linear-light pass draws through the buffer's sRGB view; its pipelines are built
+                // for that format (see PassSignature).
+                _linearBackBuffer = desc.LinearBlend;
+                rtvs[rtvCount++] = _linearBackBuffer ? _activeSwapChain.CurrentSrgbRtv : _activeSwapChain.CurrentRtv;
                 dsv = _activeSwapChain.Dsv;
                 hasDsv = true;
                 _activeTarget = GpuRenderTargetHandle.Invalid;
@@ -821,6 +829,7 @@ namespace Genesis.Rendering.SilkNet.DX12
             DrainDeferred(force: true);
             DisposeComputeResources();
             _activeTarget = GpuRenderTargetHandle.Invalid;
+            _linearBackBuffer = false;
             if (_backBufferTexture.IsValid)
             {
                 _textures.Remove(_backBufferTexture.Id);
