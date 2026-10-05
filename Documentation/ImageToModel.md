@@ -45,10 +45,3 @@ the Animator component, `AnimationController` state machines and scripts play it
 
 The new Model is created beside the Image when that folder may hold Models, otherwise in the
 project's Models folder, and Studio offers to open it in the Model Editor.
-
-## Tests
-
-`Tests/Genesis.Application.Headless/Suites/PixelModelSuite.cs`, run with
-`Genesis.Application.Headless.exe --test pixel-model`: merged faces, colours, size and baked
-transforms; a three-frame clip showing exactly one frame at each time through both the animator and
-`AnimationController`; the editor command and Use in game button; and a captured preview.

@@ -322,17 +322,4 @@ public static class PixelModelBuilder
         }
         asset.Animations.Add(clip);
     }
-
-    /// <summary>The image frame a "Frames" clip shows at a time, from its frame durations.</summary>
-    public static int FrameAt(IReadOnlyList<PixelModelFrame> frames, float seconds)
-    {
-        int total = frames.Sum(frame => Math.Max(1, (int)MathF.Round(Math.Max(1, frame.DurationMilliseconds) * ClipFps / 1000f)));
-        int clipFrame = ((int)MathF.Floor(seconds * ClipFps) % total + total) % total;
-        for (int i = 0; i < frames.Count; i++)
-        {
-            clipFrame -= Math.Max(1, (int)MathF.Round(Math.Max(1, frames[i].DurationMilliseconds) * ClipFps / 1000f));
-            if (clipFrame < 0) return i;
-        }
-        return frames.Count - 1;
-    }
 }
