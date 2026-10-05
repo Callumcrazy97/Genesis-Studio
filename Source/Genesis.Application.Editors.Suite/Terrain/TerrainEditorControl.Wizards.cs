@@ -249,6 +249,7 @@ public sealed partial class TerrainEditorControl
 
         page.Controls.Add(MakeSliderPanel("Radius", _foliageRadiusSlider));
         page.Controls.Add(MakeSliderPanel("Density", _foliageDensitySlider));
+        AddGrassRuleSection(page);
         return page;
     }
 }

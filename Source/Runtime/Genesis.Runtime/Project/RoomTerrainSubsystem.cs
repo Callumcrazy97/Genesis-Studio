@@ -63,6 +63,8 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
         public FoliageStreamingPlanner FoliagePlanner;
         public FoliagePerformanceSnapshot FoliagePerformance;
         public MeshInstanceData[] FoliageInstanceBuffer = Array.Empty<MeshInstanceData>();
+        /// <summary>Grass grown around the camera from the nature document's rule; null while the rule is off.</summary>
+        public TerrainGrassField GrassField;
         public WorldManifest Manifest;
         public WorldQuery Query;
         public WorldManifestStreamingProvider Streamer;
@@ -671,6 +673,7 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
             SubmitPaths(entry, placement, buffer, ref count);
             long afterGround = System.Diagnostics.Stopwatch.GetTimestamp();
             SubmitFoliage(entry, camera, viewProjection, placement, renderer);
+            SubmitGrassRule(entry, camera, viewProjection, placement, renderer);
             entry.Scatter?.Submit(renderer, camera, viewProjection, placement, buffer, ref count);
             long afterScatter = System.Diagnostics.Stopwatch.GetTimestamp();
             SubmitWater(entry, camera, placement, renderer, buffer, ref count);
@@ -772,6 +775,8 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
         entry.Ground?.Dispose();
         entry.Scatter?.Dispose();
         entry.Scatter = null;
+        entry.GrassField?.Dispose();
+        entry.GrassField = null;
         if (entry.Renderer != null)
         {
             foreach (MeshHandle mesh in entry.PathMeshes) if (mesh.IsValid) entry.Renderer.ReleaseMesh(mesh);

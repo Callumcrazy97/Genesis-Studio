@@ -1725,6 +1725,8 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
                 };
                 renderer.DrawMeshInstances(template, instances);
             }
+
+            DrawGrassRule(renderer, camera, viewProjection);
         }
     }
 
