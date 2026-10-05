@@ -83,7 +83,7 @@ public sealed record ModelSpriteSheet(int FrameWidth, int FrameHeight, int Direc
 /// them as an Image resource with direction metadata the runtime reads.
 /// </summary>
 /// <remarks>
-/// Frames are drawn by the engine's own frame orchestration (<see cref="GpuRenderController"/>) on
+/// Frames are drawn by the engine's own frame orchestration (through <see cref="IRenderController"/>) on
 /// the software device, the same path as the Model timeline and Room object previews, so materials,
 /// textures and the stylized engine lighting match the viewer. The frame readback is opaque, so
 /// each frame is drawn twice, over black and over white: where the two agree the model is solid,
