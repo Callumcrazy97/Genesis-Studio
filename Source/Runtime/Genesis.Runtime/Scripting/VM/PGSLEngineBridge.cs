@@ -110,7 +110,7 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
     private NativeCall[] _nativeCalls = Array.Empty<NativeCall>();
     private readonly Dictionary<MethodInfo, MethodPlan> _planCache = new();
 
-    /// <summary>Generation of the command table; bytecode caches made against an older table are not reused.</summary>
+    /// <summary>Generation of the command table: what the VM remembers about a name (not a property) holds for one generation.</summary>
     internal int Generation { get; private set; }
 
     internal NativeCall GetNativeCall(int id, int argumentCount)

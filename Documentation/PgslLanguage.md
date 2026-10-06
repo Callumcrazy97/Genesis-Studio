@@ -72,6 +72,39 @@ limits, and what happens on a mistake. Every statement below is checked by the h
 | Recursion | 200 calls deep | "Too much recursion: 'Name' is 200 calls deep". Use a loop with a list or stack (`DsStack*`) for deep work. |
 | Script calls | 64 Script resources deep | |
 
+## Speed
+
+The VM decodes each event body and function once (operands unboxed, constants converted, every
+name resolved) and reuses that. A function's parameters and `var` names live in numbered slots of
+its frame; a name it has not set is still looked for in each caller's frame and then the instance,
+exactly as before. A command whose arguments are all numbers (`DsGridGet`, `DsListGet`, `Floor`,
+`Clamp`, `MeshAddVertex`...) is called through a compiled call that takes them unboxed; a command
+given text, a list or an object, or one taking `params`, goes the general way with the same
+conversions and errors. Nothing about the language changed: scoping, `self.`, the instruction budget
+and every message are the same, and `--test vm-speed` checks that a voxel project's light spread
+and chunk mesher produce the same light, faces and vertices as before.
+
+`--test vm-speed` times the VM as the Player runs it (one instance's VM, no diagnostics collector)
+and writes `vm-speed.md` beside its captures and `Logs\vm-speed.json`. Before and after, run in
+turn three times each on the development PC, 6 Oct 2026; fastest runs (the medians, on a busy
+shared machine, show the same ratios):
+
+| Workload | Before | After |
+|---|---:|---:|
+| Arithmetic loop on locals (per instruction) | 10.9 ns | 4.4 ns |
+| Small user-function call, overhead per call (median) | 183 ns | 70 ns |
+| `DsGridSet` / `DsGridGet` / `DsListGet` in a loop (per command) | 1 060 ns | 59 ns |
+| `Clamp`, `Floor`, `Max`, a 13-argument `MeshAddVertex` in a loop (per command) | 376 ns | 47 ns |
+| Voxel light spread, 10 920 cells (`McLightSpreadSome`, about 640 instructions a cell) | 196 ms | 38 ms |
+| Voxel chunk mesh, 1 740 smooth-lit faces (`McBuildColumn` / `McCubeFaces` / `McFaceLit`) | 84 ms | 18 ms |
+
+What things cost now, roughly (one loop body, the loop itself subtracted): an instruction 2.5 to 5
+ns; `t = i` on locals 10 ns; reading an instance variable inside a function 12 ns, plus about 2 ns
+for each caller in between; `Floor(i)` 15 ns; `Clamp(i, 0, 9)`, `DsListGet`, `DsGridGet` 40 to 50
+ns; a call of a small function 60 to 95 ns. So keep hot values in `var` locals (copy an instance
+variable into one before a long loop), and prefer one command over a loop of small ones where the
+engine has it (`DsGridSetRegion`, `MeshAddCube`).
+
 ## Mistakes
 
 | Mistake | What happens |
