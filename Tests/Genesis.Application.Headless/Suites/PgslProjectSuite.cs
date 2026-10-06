@@ -83,6 +83,8 @@ internal static class PgslProjectSuite
             // 6 faces of 4 vertices; then 5 + 4 + 5 faces of a strip; the ray from 3.2 m lands on its top at 0.7 m.
             HeadlessHarness.Assert(mesh == "full=6;single=24;vertices=56;triangles=28;collider=true;hit=2.5;",
                 $"The script-built mesh: '{mesh}'.");
+            string pool = Results("pool");
+            HeadlessHarness.Assert(pool == "self=-50;other=-60;otherZ=7;", $"Moved instances did not stay moved: '{pool}'.");
             string quad = Results("quad");
             HeadlessHarness.Assert(quad == "quad=0;tiles=6;vertices=28;", $"MeshAddQuad / MeshAddCubeTiles: '{quad}'.");
             HeadlessHarness.Assert(world == "spawned=20;tagged=20;library=5;afterDestroy=15;childSteps=1;",
@@ -386,6 +388,28 @@ internal static class PgslProjectSuite
         Place("Arms", arms, [0f, 1f, 6f], [1.5f, 1.5f, 1.5f]);
         Place("Cover", cover, [0f, 1f, 5f], [3f, 3f, 0.3f]);
         Place("Chunk", chunk, [0f, 0.2f, 2.2f], [1f, 1f, 1f]);
+        // Pooling: a rotated instance moved away by InstanceSetY must stay there (the pose is
+        // copied back every frame), whether it moves itself or another instance moves it.
+        string pooled = Object("Pooled", new()
+        {
+            ["Create"] = "frame = 0; InstanceSetRotation3D(id, 0, 30, 0);",
+            ["Step"] = """
+                frame += 1;
+                if (frame == 2) {
+                    other = InstanceFind("Pooled Other", 0);
+                    InstanceSetY(id, -50);
+                    InstanceSetY(other, -60);
+                    InstanceVariableSet(other, "z", 7);
+                }
+                if (frame == 6) {
+                    FileWriteText("pgsl-results/pool.txt", "self=" + String(Round(InstanceGetY(id))) + ";other="
+                        + String(Round(InstanceGetY(other))) + ";otherZ=" + String(Round(InstanceGetZ(other))) + ";");
+                }
+                """,
+        }, model: "Box");
+        string pooledOther = Object("Pooled Other", new() { ["Create"] = "InstanceSetRotation3D(id, 0, 60, 0);" }, model: "Box");
+        Place("Pooled", pooled, [4f, 1f, 9f], [0.5f, 0.5f, 0.5f]);
+        Place("Pooled Other", pooledOther, [-4f, 1f, 9f], [0.5f, 0.5f, 0.5f]);
         RoomAssetLoader.Save(third, thirdFile);
         return project;
     }

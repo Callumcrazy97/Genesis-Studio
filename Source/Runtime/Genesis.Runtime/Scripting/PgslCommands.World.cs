@@ -83,30 +83,40 @@ public static partial class PgslCommands
         TryTransform(instanceId, out Entity entity, out EcsWorld world) ? world.GetRef<TransformComponent>(entity).Z : 0;
 
     [PgslCommand("InstanceSetX", "InstanceSetX(id, value)", "Move an instance on X", "Instances")]
-    public static void InstanceSetX(double instanceId, double value)
-    {
-        if (TryTransform(instanceId, out Entity entity, out EcsWorld world))
-        {
-            world.GetRef<TransformComponent>(entity).X = (float)value;
-        }
-    }
+    public static void InstanceSetX(double instanceId, double value) => MoveInstance(instanceId, 0, value);
 
     [PgslCommand("InstanceSetY", "InstanceSetY(id, value)", "Move an instance on Y", "Instances")]
-    public static void InstanceSetY(double instanceId, double value)
-    {
-        if (TryTransform(instanceId, out Entity entity, out EcsWorld world))
-        {
-            world.GetRef<TransformComponent>(entity).Y = (float)value;
-        }
-    }
+    public static void InstanceSetY(double instanceId, double value) => MoveInstance(instanceId, 1, value);
 
     [PgslCommand("InstanceSetZ", "InstanceSetZ(id, value)", "Move an instance on Z", "Instances")]
-    public static void InstanceSetZ(double instanceId, double value)
+    public static void InstanceSetZ(double instanceId, double value) => MoveInstance(instanceId, 2, value);
+
+    /// <summary>
+    /// A script's teleport of one axis. The instance's 3D pose and physics body follow, as they do
+    /// for its own x = ..., or the next frame (which copies the pose back) would undo the move; and
+    /// when it moves itself, its own x/y/z follow, or the end of its event would write the old one back.
+    /// </summary>
+    private static void MoveInstance(double instanceId, int axis, double value)
     {
-        if (TryTransform(instanceId, out Entity entity, out EcsWorld world))
+        if (!double.IsFinite(value) || !TryTransform(instanceId, out Entity entity, out EcsWorld world)) return;
+        ref TransformComponent t = ref world.GetRef<TransformComponent>(entity);
+        if (axis == 0) t.X = (float)value; else if (axis == 1) t.Y = (float)value; else t.Z = (float)value;
+        if (GetContext() is { } ctx && ctx.InstanceId == entity.Id)
         {
-            world.GetRef<TransformComponent>(entity).Z = (float)value;
+            if (axis == 0) ctx.X = value; else if (axis == 1) ctx.Y = value; else ctx.Z = value;
         }
+        if (!world.Has<Genesis.Shared.ECS.Components.Transform3DComponent>(entity)) return;
+        if (world.Has<Genesis.Runtime.Scene.SpritePhysicsBindingComponent>(entity))
+        {
+            world.GetRef<Genesis.Shared.ECS.Components.Transform3DComponent>(entity) =
+                Genesis.Runtime.Scene.SpritePhysicsBinding.Pose(world.GetRef<Genesis.Runtime.Scene.SpritePhysicsBindingComponent>(entity), t);
+            PhysicsWorld?.SynchronizeEntityTransform(world, entity, System.Numerics.Vector3.One);
+            return;
+        }
+        ref var pose = ref world.GetRef<Genesis.Shared.ECS.Components.Transform3DComponent>(entity);
+        pose.Position = new System.Numerics.Vector3(t.X, t.Y, t.Z);
+        pose.PoseHistoryValid = 0;
+        PhysicsWorld?.SynchronizeEntityTransform(world, entity, System.Numerics.Vector3.One);
     }
 
     [PgslCommand("InstanceAlive", "InstanceAlive(id) -> bool", "True when an instance still exists", "Instances")]

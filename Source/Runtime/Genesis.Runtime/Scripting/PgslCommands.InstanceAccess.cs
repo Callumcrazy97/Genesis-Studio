@@ -14,7 +14,15 @@ public static partial class PgslCommands
     public static void InstanceVariableSet(double id, string name, object value)
     {
         if (string.IsNullOrWhiteSpace(name)) return;
-        PgslBehavior.FindById(id)?.Vm?.SetVariable(name.Trim(), value);
+        string key = name.Trim();
+        PgslBehavior.FindById(id)?.Vm?.SetVariable(key, value);
+        // Its position lives on the instance, which reloads x/y/z from there before each event: move
+        // that too, or the value is lost.
+        int axis = key.Equals("x", StringComparison.OrdinalIgnoreCase) ? 0
+            : key.Equals("y", StringComparison.OrdinalIgnoreCase) ? 1
+            : key.Equals("z", StringComparison.OrdinalIgnoreCase) ? 2 : -1;
+        if (axis >= 0 && value is double or int or float)
+            MoveInstance(id, axis, Convert.ToDouble(value, System.Globalization.CultureInfo.InvariantCulture));
     }
 
     [PgslCommand("InstanceVariableGet", "InstanceVariableGet(id, name) -> any",
