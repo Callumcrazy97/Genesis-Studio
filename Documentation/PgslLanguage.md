@@ -43,12 +43,19 @@ limits, and what happens on a mistake. Every statement below is checked by the h
 - A function defined in a project **Script** (a library) can be called from any object directly.
 - `GlobalSet` / `GlobalGet` (and `GlobalSetString`, `GlobalExists`, `GlobalDelete`) hold values
   every instance and script sees.
-- Reading a name nothing has set gives 0 (and a runtime note), not an error.
+- Reading a name nothing has set gives 0 (and a runtime note), not an error. Run (F5) checks every
+  script first and stops on a name that nothing in the project sets or names: any script's
+  assignment (top level or in a function, `self.x` included) or any quoted name, such as
+  `VariableSet("plx", ...)` or `GlobalSet("score", ...)`, counts. A name set only under a computed
+  name (`VariableSet("slot" + i, ...)`) is not known: name it once in quotes. The Console lists every
+  error with the total.
 
 ## Names the engine owns
 
 - **Keywords**: `if else while for repeat with function return var true false from break continue`.
-  `from` starts a namespace block (`from Engine.Sky: ...`), so it cannot be a variable.
+  `from` starts a namespace block, so it cannot be a variable. The block is the one statement
+  after the colon: `from Engine.Sky: { AmbientScale = 1.2; Visibility = 600; }` needs the braces to
+  cover both. A setting can also be written in full: `Engine.Sky.AmbientScale = 1.2;`.
 - **Built-in instance variables**, the same whatever their case: `id instance_id self x y z hspeed
   vspeed speed direction friction gravity gravity_direction sprite_index image_index image_speed
   image_alpha image_angle image_xscale image_yscale visible depth solid room_width room_height

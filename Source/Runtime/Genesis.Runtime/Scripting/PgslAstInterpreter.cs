@@ -281,6 +281,9 @@ namespace Genesis.Runtime.Scripting
                         _   => PgslValue.Null,
                     };
 
+                case AssignExpr a when a.TargetExpr != null:
+                    throw new NotSupportedException("Assigning to an index (a[i] = v) is not supported by the AST interpreter; the VM runs it.");
+
                 case AssignExpr a:
                     var rhs = Eval(a.Value);
                     if (a.Op == "=") { SetVar(a.Target, rhs); return rhs; }

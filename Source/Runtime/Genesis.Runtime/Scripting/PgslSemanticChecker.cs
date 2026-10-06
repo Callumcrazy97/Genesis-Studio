@@ -107,19 +107,30 @@ namespace Genesis.Runtime.Scripting
             return diagnostics;
         }
 
-        /// <summary>Collect names written by an event so sibling events can share object state.</summary>
-        internal static void CollectWrittenVariables(ScriptAst ast, ISet<string> names)
+        /// <summary>
+        /// Collect names written by an event so sibling events can share object state: its own
+        /// writes, and self.x written inside its functions. <paramref name="includeFunctionBodies"/>
+        /// also takes every name a function writes (a library function sets its caller's variables),
+        /// for project-wide knowledge.
+        /// </summary>
+        internal static void CollectWrittenVariables(ScriptAst ast, ISet<string> names, bool includeFunctionBodies = false)
         {
             if (ast == null || names == null) return;
-            foreach (Stmt statement in ast.Body) CollectWrites(statement, names);
+            var raw = new HashSet<string>(StringComparer.Ordinal);
+            foreach (Stmt statement in ast.Body) CollectWrites(statement, raw, includeFunctionBodies);
+            foreach (string name in raw) names.Add(InstanceName(name));
         }
 
-        private static void CollectWrites(Stmt statement, ISet<string> names)
+        /// <summary>self.x names the instance's own x.</summary>
+        private static string InstanceName(string name) =>
+            name != null && name.StartsWith("self.", StringComparison.Ordinal) ? name.Substring(5) : name;
+
+        private static void CollectWrites(Stmt statement, ISet<string> names, bool all)
         {
             switch (statement)
             {
                 case BlockStmt block:
-                    foreach (Stmt child in block.Body) CollectWrites(child, names);
+                    foreach (Stmt child in block.Body) CollectWrites(child, names, all);
                     break;
                 case VarDeclStmt variable:
                     if (!string.IsNullOrEmpty(variable.Name)) names.Add(variable.Name);
@@ -130,36 +141,43 @@ namespace Genesis.Runtime.Scripting
                     break;
                 case IfStmt conditional:
                     CollectWrites(conditional.Condition, names);
-                    CollectWrites(conditional.ThenBranch, names);
-                    CollectWrites(conditional.ElseBranch, names);
+                    CollectWrites(conditional.ThenBranch, names, all);
+                    CollectWrites(conditional.ElseBranch, names, all);
                     break;
                 case WhileStmt loop:
                     CollectWrites(loop.Condition, names);
-                    CollectWrites(loop.Body, names);
+                    CollectWrites(loop.Body, names, all);
                     break;
                 case RepeatStmt repeat:
                     CollectWrites(repeat.Count, names);
-                    CollectWrites(repeat.Body, names);
+                    CollectWrites(repeat.Body, names, all);
                     break;
                 case ForStmt loop:
-                    CollectWrites(loop.Initializer, names);
+                    CollectWrites(loop.Initializer, names, all);
                     CollectWrites(loop.Condition, names);
                     CollectWrites(loop.Increment, names);
-                    CollectWrites(loop.Body, names);
+                    CollectWrites(loop.Body, names, all);
                     break;
                 case ReturnStmt returned:
                     CollectWrites(returned.Value, names);
                     break;
                 case WithStmt with:
                     CollectWrites(with.Target, names);
-                    CollectWrites(with.Body, names);
+                    CollectWrites(with.Body, names, all);
                     break;
                 case NamespaceBlockStmt ns:
-                    CollectWrites(ns.Body, names);
+                    CollectWrites(ns.Body, names, all);
                     break;
-                // Function variables are scoped and restored by the VM, so they are not object state.
-                case FunctionDeclStmt:
+                // A function's own variables are scoped and restored by the VM, so they are not object
+                // state; what it writes through self is.
+                case FunctionDeclStmt function:
+                {
+                    var inner = new HashSet<string>(StringComparer.Ordinal);
+                    CollectWrites(function.Body, inner, all);
+                    foreach (string name in inner)
+                        if (all || name.StartsWith("self.", StringComparison.Ordinal)) names.Add(name);
                     break;
+                }
             }
         }
 
@@ -171,6 +189,7 @@ namespace Genesis.Runtime.Scripting
                     return;
                 case AssignExpr assignment:
                     if (!string.IsNullOrEmpty(assignment.Target)) names.Add(assignment.Target);
+                    CollectWrites(assignment.TargetExpr, names);
                     CollectWrites(assignment.Value, names);
                     break;
                 case PostfixExpr postfix:
@@ -308,7 +327,8 @@ namespace Genesis.Runtime.Scripting
                     break;
 
                 case AssignExpr assignment:
-                    if (!string.IsNullOrEmpty(assignment.Target)) declared.Add(assignment.Target);
+                    if (!string.IsNullOrEmpty(assignment.Target)) declared.Add(InstanceName(assignment.Target));
+                    CheckExpr(assignment.TargetExpr, declared, functions, externalFunctions, options, diagnostics);
                     CheckExpr(assignment.Value, declared, functions, externalFunctions, options, diagnostics);
                     break;
 
@@ -525,6 +545,9 @@ namespace Genesis.Runtime.Scripting
 
             foreach (PropertyInfo property in typeof(PgslCommands).GetProperties(BindingFlags.Public | BindingFlags.Static))
             {
+                // A setting in a namespace (Engine.Rendering.Exposure) is reached by that name, not as a bare variable.
+                var commands = property.GetCustomAttributes<Genesis.Shared.Scripting.PgslCommandAttribute>().ToList();
+                if (commands.Count > 0 && commands.All(command => !string.IsNullOrEmpty(command.Namespace))) continue;
                 names.Add(property.Name);
                 names.Add(property.Name.ToLowerInvariant());
                 names.Add(ToSnakeCase(property.Name));

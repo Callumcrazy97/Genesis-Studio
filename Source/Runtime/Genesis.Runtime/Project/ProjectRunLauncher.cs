@@ -82,7 +82,7 @@ namespace Genesis.Runtime.Project
             {
                 TryDelete(targetDll + InputsSuffix);
                 QuarantineStaleScriptDll(targetDll);
-                string errors = string.Join(Environment.NewLine, result.Errors.Take(8));
+                string errors = DescribeErrors(result.Errors);
                 return new CompileOutcome
                 {
                     Success = false,
@@ -224,8 +224,15 @@ namespace Genesis.Runtime.Project
             {
                 Success = validation.Success,
                 Result = result,
-                ErrorMessage = validation.Success ? null : string.Join(Environment.NewLine, validation.Errors.Take(8)),
+                ErrorMessage = validation.Success ? null : DescribeErrors(validation.Errors),
             };
+        }
+
+        /// <summary>Every error with the count first: the Console is where the author fixes them, file by file.</summary>
+        private static string DescribeErrors(IEnumerable<string> errors)
+        {
+            List<string> all = errors?.ToList() ?? new List<string>();
+            return all.Count == 0 ? string.Empty : $"{all.Count} error(s):{Environment.NewLine}{string.Join(Environment.NewLine, all)}";
         }
 
         /// <summary>

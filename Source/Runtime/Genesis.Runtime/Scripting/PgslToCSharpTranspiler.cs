@@ -292,6 +292,9 @@ namespace Genesis.Runtime.Scripting
                 case UnaryExpr un:
                     return EmitUnary(un.Op, EmitExpr(un.Operand));
 
+                case AssignExpr a when a.TargetExpr != null:
+                    throw new NotSupportedException("Assigning to an index (a[i] = v) is not supported by the C# backend; the VM runs it.");
+
                 case AssignExpr a:
                     var target = ResolveIdentifier(a.Target);
                     var rhs = EmitExpr(a.Value);

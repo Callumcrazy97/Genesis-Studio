@@ -136,6 +136,8 @@ public sealed class NullExpr : Expr { }
 public sealed class IdentifierExpr : Expr
 {
     public string Name { get; set; }
+    /// <summary>Written as self.Name: this instance's own variable, even inside a function.</summary>
+    public bool OwnInstance { get; set; }
 }
 
 /// <summary>Binary operator expression: a + b, a == b, a &amp;&amp; b, etc.</summary>
@@ -153,10 +155,15 @@ public sealed class UnaryExpr : Expr
     public Expr Operand { get; set; }
 }
 
-/// <summary>Assignment: name = value. Also covers compound assignment via <see cref="Op"/>.</summary>
+/// <summary>
+/// Assignment: name = value (also a dotted name such as Engine.Sky.Haze, and self.x as x). Also
+/// covers compound assignment via <see cref="Op"/>. An indexed target (a[i] = v) is in
+/// <see cref="TargetExpr"/> and <see cref="Target"/> is then null.
+/// </summary>
 public sealed class AssignExpr : Expr
 {
     public string Target { get; set; }       // variable name being assigned
+    public Expr TargetExpr { get; set; }     // a[i] when the target is an index, else null
     public string Op { get; set; }           // "=", "+=", "-=", "*=", "/="
     public Expr Value { get; set; }
 }

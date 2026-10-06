@@ -1556,6 +1556,10 @@ internal static class HeadlessTestRunner
             case "pgsl-logic":
                 Suites.PgslLogicSuite.Run(ctx);
                 break;
+            case "validate-project":
+                // F5's script check over GENESIS_VALIDATE_PROJECT (any project folder).
+                Suites.PgslLogicSuite.ValidateProjectFromEnvironment(ctx);
+                break;
             case "pgsl-project":
                 Suites.PgslProjectSuite.Run(ctx);
                 break;

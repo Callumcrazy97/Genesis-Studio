@@ -289,16 +289,30 @@ namespace Genesis.Runtime.Scripting
         {
             Expr expr = Ternary();
 
-            // Only treat a bare identifier as an assignment target.
-            if (expr is IdentifierExpr id
-                && MatchAny(TokenType.Assign, TokenType.PlusEqual, TokenType.MinusEqual,
-                            TokenType.MultiplyEqual, TokenType.DivideEqual))
+            // The same targets as the game's compiler (PgslParser): a name, a dotted name
+            // (Engine.Sky.Haze = 1, a property), and an index (a[i] = v, plain '=' only).
+            if (!MatchAny(TokenType.Assign, TokenType.PlusEqual, TokenType.MinusEqual,
+                          TokenType.MultiplyEqual, TokenType.DivideEqual))
+                return expr;
+
+            var opTok = Previous();
+            switch (expr)
             {
-                var opTok = Previous();
-                Expr value = Assignment();
-                return new AssignExpr { Line = id.Line, Target = id.Name, Op = opTok.Value, Value = value };
+                case IdentifierExpr id:
+                    return new AssignExpr
+                    {
+                        Line = id.Line, Column = id.Column, Target = id.OwnInstance ? "self." + id.Name : id.Name,
+                        Op = opTok.Value, Value = Assignment(),
+                    };
+                case MemberExpr member when TryDottedName(member, out string dotted):
+                    return new AssignExpr { Line = member.Line, Column = member.Column, Target = dotted, Op = opTok.Value, Value = Assignment() };
+                case IndexExpr index:
+                    if (opTok.Type != TokenType.Assign)
+                        throw new System.Exception($"Compound assignment on an index is not supported ('{opTok.Value}' at line {opTok.Line}:{opTok.Column}); write a[i] = a[i] + v.");
+                    return new AssignExpr { Line = index.Line, Column = index.Column, TargetExpr = index, Op = opTok.Value, Value = Assignment() };
+                default:
+                    throw new System.Exception($"Invalid assignment target before '{opTok.Value}' at line {opTok.Line}:{opTok.Column}.");
             }
-            return expr;
         }
 
         private Expr Ternary()
@@ -454,7 +468,10 @@ namespace Genesis.Runtime.Scripting
                 if (Match(TokenType.Dot))
                 {
                     var member = Consume(TokenType.Identifier, "Expected member name after '.'.");
-                    expr = new MemberExpr { Line = member.Line, Target = expr, Member = member.Value };
+                    // self.x is this instance's own x, as the game's compiler reads it.
+                    expr = expr is IdentifierExpr { Name: "self", OwnInstance: false }
+                        ? new IdentifierExpr { Line = member.Line, Column = member.Column, Name = member.Value, OwnInstance = true }
+                        : new MemberExpr { Line = member.Line, Target = expr, Member = member.Value };
                 }
                 else if (Match(TokenType.LeftParen))
                 {
@@ -501,6 +518,19 @@ namespace Genesis.Runtime.Scripting
                 return inner;
             }
 
+            // [a, b, c]: a list, which the game's compiler makes with PgListCreate.
+            if (Match(TokenType.LeftBracket))
+            {
+                var list = new CallExpr { Line = Previous().Line, Column = Previous().Column, Name = "PgListCreate", Namespace = string.Empty };
+                if (!Check(TokenType.RightBracket))
+                {
+                    do { list.Arguments.Add(Expression()); }
+                    while (Match(TokenType.Comma));
+                }
+                Consume(TokenType.RightBracket, "Expected ']' after list items.");
+                return list;
+            }
+
             if (Check(TokenType.Identifier))
             {
                 var tok = Advance();
@@ -527,6 +557,23 @@ namespace Genesis.Runtime.Scripting
             throw new System.Exception($"Unexpected token '{Peek().Value}' at line {Peek().Line}:{Peek().Column}.");
         }
 
+
+        /// <summary>A chain of names (Engine.Sky.Haze) as one dotted name; false for anything else.</summary>
+        private static bool TryDottedName(Expr expression, out string name)
+        {
+            switch (expression)
+            {
+                case IdentifierExpr identifier:
+                    name = identifier.Name;
+                    return true;
+                case MemberExpr member when TryDottedName(member.Target, out string left):
+                    name = left + "." + member.Member;
+                    return true;
+                default:
+                    name = null;
+                    return false;
+            }
+        }
 
         private static string FlattenCallableName(Expr expression)
         {

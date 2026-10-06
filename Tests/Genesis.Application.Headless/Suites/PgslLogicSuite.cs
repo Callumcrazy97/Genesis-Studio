@@ -225,6 +225,17 @@ internal static class PgslLogicSuite
             t_save_slot_read = (SaveSlotExists("pgsl_logic") == 1 && SaveSlotRead("pgsl_logic") == json) ? 1 : 0;
             t_save_slot_delete = (SaveSlotDelete("pgsl_logic") == 1 && SaveSlotExists("pgsl_logic") == 0) ? 1 : 0;
             """),
+        ("Parameters", """
+            x = 5;
+            y = 7;
+            function Twice(x) { return x * 2; }
+            function Offset(id, y) { return id + y; }
+            t_parameter_x = (Twice(3) == 6) ? 1 : 0;
+            t_instance_x_kept = (x == 5) ? 1 : 0;
+            t_parameters_id_y = (Offset(2, 3) == 5 && y == 7) ? 1 : 0;
+            function LocalExposure() { var exposure = 3; exposure = exposure + 1; return exposure; }
+            t_local_named_like_an_engine_setting = (LocalExposure() == 4) ? 1 : 0;
+            """),
         ("Lists", """
             var a = [1, 2, 3];
             a[1] = 9;
@@ -256,6 +267,34 @@ internal static class PgslLogicSuite
             t_text = (String([1, "x", [2.5]]) == "[1, \"x\", [2.5]]") ? 1 : 0;
             """),
     ];
+
+    /// <summary>
+    /// F5's script check (strict, as Run uses it) over the project named by GENESIS_VALIDATE_PROJECT:
+    /// every error and warning goes to validate-project.txt beside the captures and to the log.
+    /// </summary>
+    internal static void ValidateProjectFromEnvironment(HeadlessContext ctx)
+    {
+        string path = Environment.GetEnvironmentVariable("GENESIS_VALIDATE_PROJECT") ?? string.Empty;
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.ValidateProject", () =>
+        {
+            HeadlessHarness.Assert(Directory.Exists(path), $"GENESIS_VALIDATE_PROJECT is not a folder: '{path}'.");
+            string previous = PgslCommands.ProjectPath;
+            try
+            {
+                PgslCommands.ProjectPath = path;
+                ScriptAssetRegistry.ClearCache();
+                PgslValidationReport report = PgslScriptValidator.ValidateProject(path, strict: true);
+                var text = new StringBuilder().AppendLine(report.Summary);
+                foreach (string error in report.Errors) text.AppendLine("ERROR   " + error);
+                foreach (string warning in report.Warnings) text.AppendLine("WARNING " + warning);
+                Directory.CreateDirectory(ctx.Captures);
+                File.WriteAllText(Path.Combine(ctx.Captures, "validate-project.txt"), text.ToString());
+                Console.WriteLine(text.ToString());
+                HeadlessHarness.Assert(report.Errors.Count == 0, $"{report.Errors.Count} error(s) in {report.ScriptCount} script(s).");
+            }
+            finally { PgslCommands.ProjectPath = previous; ScriptAssetRegistry.ClearCache(); }
+        });
+    }
 
     public static void Run(HeadlessContext ctx)
     {
@@ -308,6 +347,59 @@ internal static class PgslLogicSuite
 
 
         foreach ((string name, string code) in LogicScripts) Group(name, code);
+
+        // F5 checks scripts with the Studio checker (PgslAstBuilder + PgslSemanticChecker) before
+        // the game compiles them with its own parser: both must accept everything the game runs.
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.StudioCheckAcceptsWhatTheGameRuns", () =>
+        {
+            (string Name, string Code)[] constructs =
+            [
+                .. LogicScripts,
+                ("Property assignment", "Engine.Sky.AmbientScale = 1.5; Engine.Sky.Visibility = 520; t_ok = 1;"),
+                ("Namespace block", "from Engine.Sky: { AmbientScale = 1.2; Visibility = 600; } t_ok = 1;"),
+                ("self", "self.score = 3; t_ok = (self.score + score == 6) ? 1 : 0;"),
+                ("List literals and index assignment", "var a = [1, 2, 3]; a[1] = 9; var g = [[1], [2]]; g[0][0] = 4; var e = []; t_ok = a[1] + g[0][0];"),
+                ("Compound assignment", "n = 1; n += 2; n -= 1; n *= 3; n /= 2; t_ok = n;"),
+            ];
+            var refused = new List<string>();
+            string previous = PgslCommands.ProjectPath;
+            // Each construct as an Object's Create event of a project of its own, checked the way F5
+            // checks a project (strict, every script).
+            string checkRoot = Path.Combine(parent, "StudioCheck" + Guid.NewGuid().ToString("N")[..6]);
+            string objectsRoot = Path.Combine(checkRoot, "Assets", "Objects");
+            Directory.CreateDirectory(objectsRoot);
+            try
+            {
+                PgslCommands.ProjectPath = project.RootPath;
+                int index = 0;
+                foreach ((string name, string code) in constructs)
+                {
+                    string objectName = "Check" + index++;
+                    File.WriteAllText(Path.Combine(objectsRoot, objectName + ".object.json"), "{}");
+                    Directory.CreateDirectory(Path.Combine(objectsRoot, objectName));
+                    File.WriteAllText(Path.Combine(objectsRoot, objectName, "Create.pgsl"), code);
+
+                    string gameError = "";
+                    try { if (Genesis.Runtime.Scripting.VM.VMEngine.Compile(code) == null) gameError = "no result"; }
+                    catch (Exception exception) { gameError = exception.Message; }
+                    HeadlessHarness.Assert(gameError.Length == 0, $"The game's compiler refused the {name} script: {gameError}");
+
+                    try { PgslAstBuilder.Parse(code); }
+                    catch (Exception exception) { refused.Add($"{name}: the Studio parser refused it ({exception.Message})"); }
+                }
+                PgslValidationReport report = PgslScriptValidator.ValidateProject(checkRoot, strict: true);
+                refused.AddRange(report.Errors);
+                rows.Add(new Row("Studio check", $"{constructs.Length} scripts checked as F5 does",
+                    report.Errors.Count == 0 ? "PASS" : "FAIL",
+                    report.Errors.Count == 0 ? $"{report.Warnings.Count} warning(s)" : string.Join(" | ", report.Errors)));
+            }
+            finally
+            {
+                PgslCommands.ProjectPath = previous;
+                try { Directory.Delete(checkRoot, recursive: true); } catch (IOException) { }
+            }
+            HeadlessHarness.Assert(refused.Count == 0, "F5's script check refused what the game runs:\n" + string.Join("\n", refused));
+        });
 
         // How each kind of mistake is reported: the script's error, or the value it got instead.
         (string Name, string Code)[] mistakes =

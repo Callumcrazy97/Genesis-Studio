@@ -42,6 +42,11 @@ namespace Genesis.Runtime.Scripting
             // callable from its other events, as the game runs it.
             var objectFunctions = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
             var fileVariables = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+            // Names the project sets anywhere (any script's writes, and any quoted name such as
+            // VariableSet("plx", ...) or GlobalSet("score", ...)). A library sets its caller's
+            // variables and one object can read what another script set, so a read of one of these
+            // is not a typo; a name the project never sets or names at all still is.
+            var projectNames = new HashSet<string>(StringComparer.Ordinal);
             foreach (string file in files)
             {
                 bool objectEvent = PgslPlayCompiler.TryObjectEventFile(file, out _, out _);
@@ -57,8 +62,16 @@ namespace Genesis.Runtime.Scripting
 
                 var writes = new HashSet<string>(StringComparer.Ordinal);
                 var functions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                try { CollectSourceWrites(File.ReadAllText(file), writes, functions); }
+                try
+                {
+                    string text = File.ReadAllText(file);
+                    foreach (System.Text.RegularExpressions.Match quoted in QuotedName.Matches(text))
+                        projectNames.Add(quoted.Groups[1].Value);
+                    CollectSourceWrites(text, writes, functions);
+                    CollectSourceWrites(text, projectNames, new HashSet<string>(StringComparer.OrdinalIgnoreCase), includeFunctionBodies: true);
+                }
                 catch { /* the validation pass below reports the actual read/parse failure */ }
+                projectNames.UnionWith(writes);
                 // A library Script's functions are callable from any object.
                 if (!objectEvent) externalFunctions.UnionWith(functions);
 
@@ -120,11 +133,13 @@ namespace Genesis.Runtime.Scripting
                         : Array.Empty<string>();
                 }
 
+                var known = new HashSet<string>(projectNames, StringComparer.Ordinal);
+                known.UnionWith(knownVariables);
                 var options = new PgslSemanticOptions
                 {
                     Strict = strict,
                     ExternalFunctions = callable,
-                    KnownVariables = knownVariables,
+                    KnownVariables = known,
                 };
 
                 Dictionary<string, string> eventBodies = PgslPlayCompiler.SplitEventBlocks(source);
@@ -185,6 +200,22 @@ namespace Genesis.Runtime.Scripting
             };
         }
 
+        private static readonly System.Text.RegularExpressions.Regex QuotedName =
+            new("\"([A-Za-z_][A-Za-z0-9_]*)\"", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        private static bool CompilesForGame(string source)
+        {
+            try
+            {
+                // VMEngine.Compile prepares the source the way the game does before compiling it.
+                return !string.IsNullOrWhiteSpace(source) && Genesis.Runtime.Scripting.VM.VMEngine.Compile(source) != null;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
         private static List<string> EnumerateProjectScripts(string projectPath)
         {
             var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -212,11 +243,11 @@ namespace Genesis.Runtime.Scripting
             catch { return file; }
         }
 
-        private static void CollectSourceWrites(string source, ISet<string> writes, ISet<string> functions)
+        private static void CollectSourceWrites(string source, ISet<string> writes, ISet<string> functions, bool includeFunctionBodies = false)
         {
             void Collect(ScriptAst ast)
             {
-                PgslSemanticChecker.CollectWrittenVariables(ast, writes);
+                PgslSemanticChecker.CollectWrittenVariables(ast, writes, includeFunctionBodies);
                 foreach (Stmt statement in ast.Body)
                     if (statement is FunctionDeclStmt function && !string.IsNullOrWhiteSpace(function.Name))
                         functions.Add(function.Name);
@@ -248,6 +279,12 @@ namespace Genesis.Runtime.Scripting
             }
             catch (Exception exception)
             {
+                // The game's own compiler is the authority: never refuse to run what it runs.
+                if (CompilesForGame(source))
+                {
+                    warnings.Add($"{label}: not checked - the script checker could not read it ({exception.Message}), but the game compiles it.");
+                    return;
+                }
                 errors.Add($"{label}: parse error - {exception.Message}");
                 return;
             }

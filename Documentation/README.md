@@ -8509,18 +8509,21 @@ The additive namespace syntax is implemented in AST, interpreter, validator and 
 work. Current syntax:
 
 ```pgsl
-from Engine.Rendering:
+from Engine.Rendering: {
     DrawModel("Assets/Models/Oak.gmodel", x, y, z, scaleXYZ, yaw);
     SetMaterial("Assets/Materials/Bark.gmat");
+}
 
-from Engine.Terrain:
+from Engine.Terrain: {
     height = SampleHeight(x, z);
     slope  = SampleSlope(x, z);
+}
 
-from Engine.Environment:
-    SetWeather("Rain", 60);
-    wet = GroundWetness();
+from Engine.Sky: { AmbientScale = 1.2; Visibility = 600; }
 ```
+
+The block is the single statement after the colon, so several statements need braces; without them
+only the first is in the namespace. Indentation does not make a block.
 
 Every existing flat command remains available, including inside a namespace block when the namespace
 does not own that name. `Engine.Rendering.SetFrustumCulling(...)` and equivalent one-line qualified
