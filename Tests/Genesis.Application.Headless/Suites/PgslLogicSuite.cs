@@ -234,6 +234,13 @@ internal static class PgslLogicSuite
             sx = Engine.Sky.SunDirectionX; sy = Engine.Sky.SunDirectionY; sz = Engine.Sky.SunDirectionZ;
             t_sun_direction_is_unit = (Abs(Sqrt(sx * sx + sy * sy + sz * sz) - 1) < 0.001) ? 1 : 0;
             t_window_mode_named = (WindowSetMode("sideways") == 0) ? 1 : 0;
+            // How long a namespaced setting read takes against a plain command call (reported, in microseconds).
+            t0 = TimeMs(); k = 0; acc = 0;
+            while (k < 2000) { acc += Engine.Sky.SunDirectionX; k += 1; }
+            b_sky_setting_read_us = (TimeMs() - t0) * 1000 / 2000;
+            t0 = TimeMs(); k = 0;
+            while (k < 2000) { acc += GameGetSpeed(); k += 1; }
+            b_command_call_us = (TimeMs() - t0) * 1000 / 2000;
             """),
         ("Parameters", """
             x = 5;

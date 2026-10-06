@@ -125,6 +125,13 @@ internal static class PgslProjectSuite
                 HeadlessHarness.Assert(model.R > 120 && model.R > model.B + 60,
                     $"DrawModelGui did not draw the orange box into its rectangle ({model}).");
             }
+            // An engine setting read (Engine.Sky.SunDirectionX) must cost about what a command call does.
+            string skyTime = Results("skytime");
+            File.WriteAllText(Path.Combine(ctx.Logs, "pgsl-sky-setting-read.txt"), skyTime);
+            Console.WriteLine("Sky setting read in the Player: " + skyTime);
+            System.Text.RegularExpressions.Match skyRead = System.Text.RegularExpressions.Regex.Match(skyTime, @"sky=([0-9.]+)us");
+            HeadlessHarness.Assert(skyRead.Success && double.Parse(skyRead.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture) < 200,
+                $"Reading Engine.Sky.SunDirectionX in the Player is slow: '{skyTime}'.");
             string sunShown = Path.Combine(images, "pgsl-sun-shown.png"), sunHidden = Path.Combine(images, "pgsl-sun-hidden.png");
             HeadlessHarness.Assert(File.Exists(sunShown) && File.Exists(sunHidden), "Room four took no pictures of the sun.");
             File.Copy(sunShown, Path.Combine(ctx.Captures, "pgsl-sun-shown.png"), overwrite: true);
@@ -463,6 +470,13 @@ internal static class PgslProjectSuite
                 frame += 1;
                 SetCameraPosition(0, 2, 0);
                 SetCameraTarget(Engine.Sky.SunDirectionX * 10, 2 + Engine.Sky.SunDirectionY * 10, Engine.Sky.SunDirectionZ * 10);
+                if (frame == 5) {
+                    t0 = TimeMs(); k = 0; acc = 0;
+                    while (k < 200) { acc += Engine.Sky.SunDirectionX; k += 1; }
+                    t1 = TimeMs(); k = 0;
+                    while (k < 200) { acc += GameGetSpeed(); k += 1; }
+                    FileWriteText("pgsl-results/skytime.txt", "sky=" + String((t1 - t0) * 1000 / 200) + "us;call=" + String((TimeMs() - t1) * 1000 / 200) + "us;");
+                }
                 if (frame == 8) {
                     ScreenshotSave("pgsl-sun-shown");
                     FileWriteText("pgsl-results/sun.txt", "dir=" + String(Engine.Sky.SunDirectionX) + "," + String(Engine.Sky.SunDirectionY) + ","
