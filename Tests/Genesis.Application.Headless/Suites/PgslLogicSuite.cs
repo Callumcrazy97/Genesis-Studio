@@ -386,6 +386,7 @@ internal static class PgslLogicSuite
                 ("self", "self.score = 3; t_ok = (self.score + score == 6) ? 1 : 0;"),
                 ("List literals and index assignment", "var a = [1, 2, 3]; a[1] = 9; var g = [[1], [2]]; g[0][0] = 4; var e = []; t_ok = a[1] + g[0][0];"),
                 ("Compound assignment", "n = 1; n += 2; n -= 1; n *= 3; n /= 2; t_ok = n;"),
+                ("A built-in in any case", "sPeEd = 2; t_ok = (SPEED == 2) ? 1 : 0;"),
             ];
             var refused = new List<string>();
             string previous = PgslCommands.ProjectPath;

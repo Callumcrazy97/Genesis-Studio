@@ -546,7 +546,8 @@ namespace Genesis.Runtime.Scripting
 
         private static HashSet<string> BuildInstanceVariables()
         {
-            var names = new HashSet<string>(StringComparer.Ordinal)
+            // The game matches built-in names whatever their case (SPEED is speed), so the check does too.
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
                 "self", "other", "Other", "id", "instance_id", "argument_count",
                 "totaltime", "deltatime", "TotalTime", "DeltaTime",
