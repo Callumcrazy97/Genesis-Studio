@@ -1012,14 +1012,21 @@ public class PgslVm
         }
     }
 
-    // One reusable array per argument count for commands that take only numbers. A command that
-    // runs PGSL again (and so reuses it) has already read its arguments when it starts.
+    // Reusable arrays per argument count for typed command calls. A command that runs PGSL again
+    // (and so reuses them) has already read its arguments when it starts.
     private double[][] _numberArguments = new double[16][];
+    private object[][] _textArguments = new object[16][];
 
     private double[] NumberArguments(int count)
     {
         if (count >= _numberArguments.Length) Array.Resize(ref _numberArguments, count + 1);
         return _numberArguments[count] ??= new double[count];
+    }
+
+    private object[] TextArguments(int count)
+    {
+        if (count >= _textArguments.Length) Array.Resize(ref _textArguments, count + 1);
+        return _textArguments[count] ??= new object[count];
     }
 
     private void ExecuteNativeCall(int nativeId, int nativeArgCount)
@@ -1028,17 +1035,26 @@ public class PgslVm
             throw new InvalidOperationException($"Not enough arguments for native call id={nativeId}");
 
         PgslEngineBridge.NativeCall call = _typedBridge?.GetNativeCall(nativeId, nativeArgCount);
-        if (call != null && call.Numeric && _stack.TopAreNumbers(nativeArgCount))
+        if (call?.Kinds != null && _stack.TopMatches(call.Kinds))
         {
-            // Every argument is already a number: the same command, called without boxing them.
+            // Every argument is already what the command takes: the same command, called without
+            // boxing numbers or converting each argument.
             double[] numbers = NumberArguments(nativeArgCount);
-            _stack.PopNumbers(numbers, nativeArgCount);
+            object[] texts = call.HasText ? TextArguments(nativeArgCount) : null;
+            _stack.PopArguments(call.Kinds, numbers, texts);
             NoteNativeCall(nativeId);
             VmValue value;
-            if (call.NumberCall != null) value = call.NumberCall(numbers);
-            else if (call.BoolCall != null) value = call.BoolCall(numbers);
-            else if (call.VoidCall != null) { call.VoidCall(numbers); value = default; }
-            else value = VmValue.FromObject(call.ObjectCall(numbers));
+            try
+            {
+                if (call.NumberCall != null) value = call.NumberCall(numbers, texts);
+                else if (call.BoolCall != null) value = call.BoolCall(numbers, texts);
+                else if (call.VoidCall != null) { call.VoidCall(numbers, texts); value = default; }
+                else value = VmValue.FromObject(call.ObjectCall(numbers, texts));
+            }
+            finally
+            {
+                if (texts != null) Array.Clear(texts);
+            }
             _stack.Push(_bridge.IsNativeVoid(nativeId) ? default : value);
             return;
         }

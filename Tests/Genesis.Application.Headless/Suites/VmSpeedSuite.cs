@@ -147,11 +147,14 @@ internal static class VmSpeedSuite
         function PClamp(n) { var t = 0; for (var i = 0; i < n; i = i + 1) { t = Clamp(i, 0, 9); } return t; }
         function PListGet(n) { var t = 0; for (var i = 0; i < n; i = i + 1) { t = DsListGet(pl, 3); } return t; }
         function PGridGet(n) { var t = 0; for (var i = 0; i < n; i = i + 1) { t = DsGridGet(pgr, 1, 2); } return t; }
+        function PMapGet(n) { var t = 0; for (var i = 0; i < n; i = i + 1) { t = DsMapGet(pm, "key"); } return t; }
+        function PVariableSet(n) { var t = 0; for (var i = 0; i < n; i = i + 1) { t = VariableSet("pv", i); } return t; }
         function PNop() { return 1; }
         function PId3(a, b, c) { return a; }
         function PCall0(n) { var t = 0; for (var i = 0; i < n; i = i + 1) { t = PNop(); } return t; }
         function PCall3(n) { var t = 0; for (var i = 0; i < n; i = i + 1) { t = PId3(i, 1, 2); } return t; }
         pg = 5; pl = DsListCreate(); for (var i = 0; i < 8; i = i + 1) { DsListAdd(pl, i); } pgr = DsGridCreate(4, 4);
+        pm = DsMapCreate(); DsMapSet(pm, "key", 3);
         """;
 
     public static void Run(HeadlessContext ctx)
@@ -299,6 +302,8 @@ internal static class VmSpeedSuite
                     ("t = Clamp(i, 0, 9)", "PClamp"),
                     ("t = DsListGet(pl, 3)", "PListGet"),
                     ("t = DsGridGet(pgr, 1, 2)", "PGridGet"),
+                    ("t = DsMapGet(pm, \"key\") (a command taking text)", "PMapGet"),
+                    ("t = VariableSet(\"pv\", i) (text and a number, no result)", "PVariableSet"),
                     ("t = PNop() (user call, no arguments)", "PCall0"),
                     ("t = PId3(i, 1, 2) (user call, 3 arguments)", "PCall3"),
                 })

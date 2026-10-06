@@ -42,22 +42,32 @@ internal sealed class VmValueStack
         return ref _values[Count - 1];
     }
 
-    /// <summary>True when the top <paramref name="count"/> values are all unboxed numbers.</summary>
-    public bool TopAreNumbers(int count)
+    /// <summary>
+    /// True when the top values are what a typed command call takes as they are: an unboxed
+    /// number for each number or bool parameter, text or nothing for each text parameter.
+    /// </summary>
+    public bool TopMatches(PgslEngineBridge.ArgumentKind[] kinds)
     {
-        for (int i = Count - count; i < Count; i++)
-            if (!_values[i].IsUnboxedNumber) return false;
+        int start = Count - kinds.Length;
+        for (int i = 0; i < kinds.Length; i++)
+        {
+            ref VmValue value = ref _values[start + i];
+            if (kinds[i] == PgslEngineBridge.ArgumentKind.Text ? !(value.IsString || value.IsNull) : !value.IsUnboxedNumber)
+                return false;
+        }
         return true;
     }
 
-    /// <summary>Pops the top <paramref name="count"/> numbers into <paramref name="into"/>, first pushed first.</summary>
-    public void PopNumbers(double[] into, int count)
+    /// <summary>Pops the top values into a typed call's arrays (numbers and text), first pushed first.</summary>
+    public void PopArguments(PgslEngineBridge.ArgumentKind[] kinds, double[] numbers, object[] texts)
     {
-        int start = Count - count;
-        for (int i = 0; i < count; i++)
+        int start = Count - kinds.Length;
+        for (int i = 0; i < kinds.Length; i++)
         {
-            into[i] = _values[start + i].Number;
-            _values[start + i] = default;
+            ref VmValue value = ref _values[start + i];
+            if (kinds[i] == PgslEngineBridge.ArgumentKind.Text) texts[i] = value.ToObject();
+            else numbers[i] = value.Number;
+            value = default;
         }
         Count = start;
     }

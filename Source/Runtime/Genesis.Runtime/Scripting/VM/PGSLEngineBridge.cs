@@ -79,10 +79,24 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
     public object InvokeNative(int id, object[] args) => _nativeTable[id](args);
     public bool IsNativeVoid(int id) => id >= 0 && id < _nativeIsVoid?.Length && _nativeIsVoid[id];
 
+    /// <summary>What a typed call takes for one parameter, and so which values it accepts unconverted.</summary>
+    internal enum ArgumentKind : byte
+    {
+        /// <summary>A double, given an unboxed number.</summary>
+        Number,
+        /// <summary>A float, given an unboxed number.</summary>
+        Single,
+        /// <summary>A bool, given an unboxed number (true when not 0).</summary>
+        Truth,
+        /// <summary>A string, given text or nothing.</summary>
+        Text,
+    }
+
     /// <summary>
     /// How a command is called with a given number of arguments, worked out once: the overload,
-    /// its parameters, and, when every parameter is a number, a compiled call that takes the
-    /// numbers unboxed. The VM calls through this instead of resolving the command on every call.
+    /// its parameters, and, when every parameter is a number, a bool or text, a compiled call that
+    /// takes numbers unboxed and text as it is. The VM calls through this instead of resolving the
+    /// command on every call.
     /// </summary>
     internal sealed class NativeCall
     {
@@ -91,11 +105,13 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
         public Func<object[], object> Entry;
         public MethodInfo Method;
         public MethodPlan Plan;
-        public Func<double[], double> NumberCall;
-        public Func<double[], bool> BoolCall;
-        public Action<double[]> VoidCall;
-        public Func<double[], object> ObjectCall;
-        public bool Numeric => NumberCall != null || BoolCall != null || VoidCall != null || ObjectCall != null;
+        /// <summary>The typed call's parameters; null when the command has no typed call.</summary>
+        public ArgumentKind[] Kinds;
+        public bool HasText;
+        public Func<double[], object[], double> NumberCall;
+        public Func<double[], object[], bool> BoolCall;
+        public Action<double[], object[]> VoidCall;
+        public Func<double[], object[], object> ObjectCall;
     }
 
     /// <summary>A method's parameters as argument conversion needs them, read by reflection once.</summary>
@@ -132,32 +148,56 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
             if (call.Method != null)
             {
                 call.Plan = GetPlan(call.Method);
-                CompileNumericCall(call);
+                CompileTypedCall(call);
             }
         }
         if ((uint)id < (uint)_nativeCalls.Length) _nativeCalls[id] = call;
         return call;
     }
 
-    // Commands whose every parameter is a number, called with exactly that many: a compiled call
-    // over a reusable double[] (no object[] of boxed numbers, no per-argument conversion).
-    private static void CompileNumericCall(NativeCall call)
+    // Commands whose parameters are all numbers (double, float), bools or text, called with exactly
+    // that many: a compiled call over reusable arrays (no object[] of boxed numbers, no
+    // per-argument conversion). It does what ConvertArg does for those values: a number given for
+    // a float is narrowed, a number given for a bool is true when not 0, and text is passed as is.
+    // Any other value (text for a number, a number for text, a list...) takes the general path.
+    private static void CompileTypedCall(NativeCall call)
     {
         ParameterInfo[] parameters = call.Plan.Parameters;
         if (parameters.Length != call.ArgumentCount) return;
+        var kinds = new ArgumentKind[parameters.Length];
         for (int i = 0; i < parameters.Length; i++)
-            if (parameters[i].ParameterType != typeof(double) || call.Plan.IsParams[i]) return;
+        {
+            Type type = parameters[i].ParameterType;
+            if (call.Plan.IsParams[i]) return;
+            if (type == typeof(double)) kinds[i] = ArgumentKind.Number;
+            else if (type == typeof(float)) kinds[i] = ArgumentKind.Single;
+            else if (type == typeof(bool)) kinds[i] = ArgumentKind.Truth;
+            else if (type == typeof(string)) kinds[i] = ArgumentKind.Text;
+            else return;
+        }
 
-        var values = Expression.Parameter(typeof(double[]), "values");
+        var numbers = Expression.Parameter(typeof(double[]), "numbers");
+        var texts = Expression.Parameter(typeof(object[]), "texts");
         var arguments = new Expression[parameters.Length];
         for (int i = 0; i < parameters.Length; i++)
-            arguments[i] = Expression.ArrayIndex(values, Expression.Constant(i));
+        {
+            Expression index = Expression.Constant(i);
+            arguments[i] = kinds[i] switch
+            {
+                ArgumentKind.Single => Expression.Convert(Expression.ArrayIndex(numbers, index), typeof(float)),
+                ArgumentKind.Truth => Expression.NotEqual(Expression.ArrayIndex(numbers, index), Expression.Constant(0.0)),
+                ArgumentKind.Text => Expression.Convert(Expression.ArrayIndex(texts, index), typeof(string)),
+                _ => Expression.ArrayIndex(numbers, index),
+            };
+        }
         Expression body = Expression.Call(null, call.Method, arguments);
         Type returns = call.Method.ReturnType;
-        if (returns == typeof(double)) call.NumberCall = Expression.Lambda<Func<double[], double>>(body, values).Compile();
-        else if (returns == typeof(bool)) call.BoolCall = Expression.Lambda<Func<double[], bool>>(body, values).Compile();
-        else if (returns == typeof(void)) call.VoidCall = Expression.Lambda<Action<double[]>>(body, values).Compile();
-        else call.ObjectCall = Expression.Lambda<Func<double[], object>>(Expression.Convert(body, typeof(object)), values).Compile();
+        if (returns == typeof(double)) call.NumberCall = Expression.Lambda<Func<double[], object[], double>>(body, numbers, texts).Compile();
+        else if (returns == typeof(bool)) call.BoolCall = Expression.Lambda<Func<double[], object[], bool>>(body, numbers, texts).Compile();
+        else if (returns == typeof(void)) call.VoidCall = Expression.Lambda<Action<double[], object[]>>(body, numbers, texts).Compile();
+        else call.ObjectCall = Expression.Lambda<Func<double[], object[], object>>(Expression.Convert(body, typeof(object)), numbers, texts).Compile();
+        call.Kinds = kinds;
+        call.HasText = Array.IndexOf(kinds, ArgumentKind.Text) >= 0;
     }
 
     /// <summary>Calls a command through its cached plan: the same conversions and errors as <see cref="InvokeNative"/>.</summary>
