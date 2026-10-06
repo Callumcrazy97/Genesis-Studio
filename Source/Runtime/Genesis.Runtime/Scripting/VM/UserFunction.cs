@@ -9,6 +9,8 @@ public class UserFunction
     public List<string> Parameters { get; set; }
     public List<Instruction> Bytecode { get; set; }
     public List<object> Constants { get; set; }
+    /// <summary>The body decoded for the VM's fast loop, made on the first call.</summary>
+    internal PgslProgram Program;
 
     public UserFunction(string name, List<string> parameters)
     {

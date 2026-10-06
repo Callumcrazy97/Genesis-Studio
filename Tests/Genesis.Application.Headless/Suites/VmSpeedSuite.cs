@@ -22,7 +22,7 @@ namespace Genesis.Application.Headless.Suites;
 internal static class VmSpeedSuite
 {
     private sealed record Measure(string Workload, double MsPerRun, long InstructionsPerRun, double NsPerInstruction,
-        double NsPerUnit, string Unit, string Result);
+        double NsPerUnit, string Unit, string Result, double MinMs = 0);
 
     private static int Samples => int.TryParse(Environment.GetEnvironmentVariable("GENESIS_VM_SPEED_SAMPLES"), out int value) && value > 0 ? value : 9;
 
@@ -65,7 +65,7 @@ internal static class VmSpeedSuite
         public double Number(string source) => Convert.ToDouble(Run(source), CultureInfo.InvariantCulture);
 
         /// <summary>Median milliseconds of <paramref name="driver"/> (after an untimed <paramref name="before"/>).</summary>
-        public (double Ms, long Instructions, double Result) Time(string driver, string? before = null, int warmup = 2)
+        public (double Ms, long Instructions, double Result, double Min) Time(string driver, string? before = null, int warmup = 2)
         {
             // Warm up past the JIT's first tier: at least `warmup` runs and a third of a second,
             // then a pause for the background compiler to install the optimised code.
@@ -91,8 +91,11 @@ internal static class VmSpeedSuite
                 times.Add(ms);
             }
             times.Sort();
-            return (times[times.Count / 2], instructions, result);
+            // The quickest run is the code's own cost on a busy machine; the median is reported too.
+            return (UseMinimum ? times[0] : times[times.Count / 2], instructions, result, times[0]);
         }
+
+        public bool UseMinimum { get; set; }
 
         public void Dispose()
         {
@@ -161,10 +164,10 @@ internal static class VmSpeedSuite
         PgslCommands.ProjectPath = null;
         string fixtures = Path.Combine(AppContext.BaseDirectory, "Fixtures", "VmSpeed");
 
-        void Add(string workload, (double Ms, long Instructions, double Result) time, double units, string unit) =>
+        void Add(string workload, (double Ms, long Instructions, double Result, double Min) time, double units, string unit) =>
             measures.Add(new Measure(workload, time.Ms, time.Instructions,
                 time.Instructions > 0 ? time.Ms * 1e6 / time.Instructions : 0,
-                units > 0 ? time.Ms * 1e6 / units : 0, unit, time.Result.ToString(CultureInfo.InvariantCulture)));
+                units > 0 ? time.Ms * 1e6 / units : 0, unit, time.Result.ToString(CultureInfo.InvariantCulture), time.Min));
 
         try
         {
@@ -217,13 +220,42 @@ internal static class VmSpeedSuite
                 HeadlessHarness.Assert(light.Ms < 20_000 && mesh.Ms < 20_000, $"The voxel workloads took {light.Ms:F0} / {mesh.Ms:F0} ms.");
             });
 
-            HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.VmSpeed.Profile", () =>
+            // Every vertex and triangle the mesher makes, summed: the script's own MeshAddVertex and
+            // MeshAddTriangle (a script's function wins over the command of the same name) add up
+            // each value, so a VM that computed one corner's light differently would show here.
+            HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.VmSpeed.VoxelMeshGeometryUnchanged", () =>
             {
                 using Bench bench = new();
+                bench.Run(File.ReadAllText(Path.Combine(fixtures, "McLightBench.pgsl")));
+                bench.Run(File.ReadAllText(Path.Combine(fixtures, "McMeshBench.pgsl")) + """
+
+                    function MeshAddVertex(m, x, y, z, nx, ny, nz, u, v, r, g, b, a) {
+                        VariableSet("geoSum", geoSum + x * 1.5 + y * 2.5 + z * 3.5 + nx * 5 + ny * 7 + nz * 11 + u * 13 + v * 17 + r * 19 + g * 23 + b * 29 + a * 31);
+                        VariableSet("geoN", geoN + 1);
+                        return geoN - 1;
+                    }
+                    function MeshAddTriangle(m, i0, i1, i2) { VariableSet("geoSum", geoSum + (i0 % 97) * 3 + (i1 % 97) * 5 + (i2 % 97) * 7); return 1; }
+                    """);
+                bench.Run("r = BenchLightReset();");
+                bench.Run("r = BenchLightFlush();");
+                double sum = bench.Number("geoSum = 0; geoN = 0; r = BenchMeshChunk(); r = geoSum;");
+                double vertices = bench.Number("r = geoN;");
+                measures.Add(new Measure("(e) chunk mesh geometry checksum (vertices " + vertices.ToString(CultureInfo.InvariantCulture) + ")",
+                    0, 0, 0, 0, "", sum.ToString("R", CultureInfo.InvariantCulture)));
+                Check(vertices == MeshFaces * 4, $"The mesher made {vertices} vertices, not {MeshFaces * 4}.");
+                Check(MeshGeometryChecksum == 0 || sum == MeshGeometryChecksum, $"The mesh geometry checksum is {sum:R}, not {MeshGeometryChecksum:R}.");
+            });
+
+            HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.VmSpeed.Profile", () =>
+            {
+                using Bench bench = new() { UseMinimum = true };
                 bench.Run(ProfileLoops);
                 const int iterations = 3000;
-                var empty = bench.Time($"r = PEmpty({iterations});");
-                profile.Add(("empty loop (per iteration)", empty.Ms * 1e6 / iterations, empty.Ms * 1e6 / empty.Instructions));
+                // Twenty calls per timed run, so a run is long enough to time on a busy machine.
+                const int repeats = 20;
+                static string Repeat(string driver) => $"for (var k = 0; k < {repeats}; k = k + 1) {{ r = {driver}({iterations}); }}";
+                var empty = bench.Time(Repeat("PEmpty"));
+                profile.Add(("empty loop (per iteration)", empty.Ms * 1e6 / (iterations * repeats), empty.Ms * 1e6 / empty.Instructions));
                 foreach ((string body, string driver) in new[]
                 {
                     ("t = i (local read + local write)", "PLocal"),
@@ -238,9 +270,9 @@ internal static class VmSpeedSuite
                     ("t = PId3(i, 1, 2) (user call, 3 arguments)", "PCall3"),
                 })
                 {
-                    var time = bench.Time($"r = {driver}({iterations});");
+                    var time = bench.Time(Repeat(driver));
                     long bodyInstructions = Math.Max(1, time.Instructions - empty.Instructions);
-                    profile.Add((body, (time.Ms - empty.Ms) * 1e6 / iterations, (time.Ms - empty.Ms) * 1e6 / bodyInstructions));
+                    profile.Add((body, (time.Ms - empty.Ms) * 1e6 / (iterations * repeats), (time.Ms - empty.Ms) * 1e6 / bodyInstructions));
                 }
 
                 // The command bridge on its own: what a DsGridGet costs through InvokeNative, and called directly.
@@ -310,15 +342,9 @@ internal static class VmSpeedSuite
 
     // The voxel workload's own results, recorded from the VM before it was optimised: every later
     // VM must light and mesh the world exactly the same.
-    private const double LightCells = 0, LightChecksum = 0, MeshFaces = 0;
+    private const double LightCells = 10920, LightChecksum = 188552302, MeshFaces = 1740, MeshGeometryChecksum = 0;
 
-    private static void Check(bool condition, string message)
-    {
-        if (condition) return;
-        // Until the reference values are recorded, a zero constant only reports.
-        if (message.Contains(", not 0.", StringComparison.Ordinal)) { Console.WriteLine("VM speed (unchecked): " + message); return; }
-        HeadlessHarness.Assert(false, message);
-    }
+    private static void Check(bool condition, string message) => HeadlessHarness.Assert(condition, message);
 
     private static void Write(HeadlessContext ctx, List<Measure> measures,
         List<(string Body, double NsPerIteration, double NsPerInstruction)> profile, List<(string Path, double Ns)> bridge)
@@ -328,13 +354,13 @@ internal static class VmSpeedSuite
         text.AppendLine();
         text.AppendLine($"Median of {Samples} runs each, one VM as the Player runs it (no diagnostics collector).");
         text.AppendLine();
-        text.AppendLine("| Workload | ms per run | instructions | ns per instruction | ns per unit | unit | result |");
-        text.AppendLine("|---|---:|---:|---:|---:|---|---:|");
+        text.AppendLine("| Workload | ms per run (median) | fastest run | instructions | ns per instruction | ns per unit | unit | result |");
+        text.AppendLine("|---|---:|---:|---:|---:|---:|---|---:|");
         foreach (Measure m in measures)
             text.AppendLine(string.Create(CultureInfo.InvariantCulture,
-                $"| {m.Workload} | {m.MsPerRun:F3} | {m.InstructionsPerRun} | {m.NsPerInstruction:F1} | {m.NsPerUnit:F1} | {m.Unit} | {m.Result} |"));
+                $"| {m.Workload} | {m.MsPerRun:F3} | {m.MinMs:F3} | {m.InstructionsPerRun} | {m.NsPerInstruction:F1} | {m.NsPerUnit:F1} | {m.Unit} | {m.Result} |"));
         text.AppendLine();
-        text.AppendLine("## Profile: one loop body per kind of operation (empty loop subtracted)");
+        text.AppendLine("## Profile: one loop body per kind of operation (fastest of the runs, empty loop subtracted)");
         text.AppendLine();
         text.AppendLine("| Loop body | ns per iteration | ns per instruction |");
         text.AppendLine("|---|---:|---:|");

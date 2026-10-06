@@ -29,15 +29,16 @@ public class PgslVm
     // Inside a with-block, the VM of the instance the block runs as holds its variables.
     private PgslVm InstanceVm => (_bridge.GetContext()?.ActiveVm as PgslVm) ?? this;
 
-    private VmValue LoadInstanceVariable(string operand)
-    {
-        string name = InstanceVariableName(operand);
-        return InstanceVm._variables.TryGetValue(name, out VmValue value) ? value : ResolvePGSLPropertyOrZero(name);
-    }
+    private VmValue LoadInstanceVariable(string operand) => LoadInstanceVariableByName(InstanceVariableName(operand));
 
-    private void StoreInstanceVariable(string operand, VmValue value)
+    private VmValue LoadInstanceVariableByName(string name) =>
+        InstanceVm._variables.TryGetValue(name, out VmValue value) ? value : ResolvePGSLPropertyOrZero(name);
+
+    private void StoreInstanceVariable(string operand, VmValue value) =>
+        StoreInstanceVariableByName(InstanceVariableName(operand), value);
+
+    private void StoreInstanceVariableByName(string name, VmValue value)
     {
-        string name = InstanceVariableName(operand);
         bool property = _bridge is PgslEngineBridge typedBridge
             ? typedBridge.TrySetTypedProperty(name, value)
             : _bridge.TrySetProperty(name, value.ToObject());
@@ -61,8 +62,12 @@ public class PgslVm
 
     private readonly VmValueStack _stack = new();
     private readonly Dictionary<string, VmValue> _variables = new();
-    private readonly Stack<Dictionary<string, VmValue>> _variableFrames = new();
-    private readonly Stack<Dictionary<string, VmValue>> _variableFramePool = new();
+    // The frames of the user-function calls in progress, innermost last. A function's own names
+    // live in slots of its frame; a name it does not hold is looked for in its callers' frames,
+    // then the instance's variables.
+    private VariableFrame[] _frames = new VariableFrame[16];
+    private int _frameCount;
+    private readonly Stack<VariableFrame> _framePool = new();
     private readonly Dictionary<int, Stack<object[]>> _argumentPools = new();
     private IReadOnlyList<object> _constants = Array.Empty<object>();
     private readonly Dictionary<string, UserFunction> _userFunctions = new();
@@ -71,7 +76,6 @@ public class PgslVm
     private readonly IPgslEngineBridge _bridge;
     private readonly PgslEngineBridge _typedBridge;
     private bool _debugMode = false;
-    private int _instructionCounter = 0;
     private bool _returnRequested;
     private VmValue _returnValue;
     private const int MAX_INSTRUCTIONS = 100000; // Hard limit per call to prevent hangs
@@ -190,7 +194,7 @@ public class PgslVm
     {
         try
         {
-            ExecutionResult result = ExecuteCore(instructions, constants, clearVariables);
+            ExecutionResult result = ExecuteCore(PgslProgram.ForTopLevel(instructions, constants), instructions, constants, clearVariables);
             if (result.Returned)
                 throw new ReturnException(result.Value.ToObject());
         }
@@ -201,16 +205,15 @@ public class PgslVm
     }
 
     private ExecutionResult ExecuteCore(
+        PgslProgram program,
         List<Instruction> instructions,
         List<object> constants,
         bool clearVariables)
     {
-        int previousInstructionCounter = _instructionCounter;
         bool previousReturnRequested = _returnRequested;
         VmValue previousReturnValue = _returnValue;
 
         IReadOnlyList<object> previousConstants = _constants;
-        _instructionCounter = 0;
         _returnRequested = false;
         _returnValue = default;
         _constants = constants;
@@ -218,33 +221,273 @@ public class PgslVm
         {
             _variables.Clear();
             _stack.Clear();
-            while (_variableFrames.Count > 0)
-                ReleaseVariableFrame(_variableFrames.Pop());
+            while (_frameCount > 0)
+                ReleaseFrame(PopFrame());
         }
 
         int pc = 0;
         int withDepth = _withStack.Count;
+        // The budget is per event body and per function call: each call counts its own.
+        int executed = 0;
+        VmOp[] ops = program.Ops;
+        // A function's body runs in its own frame (the top one): its names are read by slot.
+        VariableFrame frame = program.Layout != null && _frameCount > 0 && _frames[_frameCount - 1].Layout == program.Layout
+            ? _frames[_frameCount - 1]
+            : null;
 
         try
         {
-            while (pc < instructions.Count)
+            while (pc < ops.Length)
             {
-                if (++_instructionCounter > MAX_INSTRUCTIONS)
+                if (++executed > MAX_INSTRUCTIONS)
                 {
                     ThrowInstructionLimit(_debugCallStack.Count > 0 ? _debugCallStack.Peek() : null);
                 }
 
-                var instr = instructions[pc];
-
                 if (Debugger is not null)
                 {
-                    Debugger.BeforeInstruction(this, CreateDebugLocation(instr, pc));
+                    Debugger.BeforeInstruction(this, CreateDebugLocation(instructions[pc], pc));
                 }
 
                 if (_debugMode)
-                    Console.WriteLine($"[PC:{pc}] {instr}");
+                    Console.WriteLine($"[PC:{pc}] {instructions[pc]}");
 
-                ExecuteInstruction(instr, ref pc);
+                ref VmOp op = ref ops[pc];
+                switch (op.Code)
+                {
+                    case Opcode.LOAD_VAR:
+                        LoadVariable((VarRef)op.Ref, frame);
+                        break;
+
+                    case Opcode.STORE_VAR:
+                        if (_stack.Count == 0)
+                            throw new InvalidOperationException("Cannot store variable");
+                        StoreVariable((VarRef)op.Ref, frame, _stack.Pop());
+                        break;
+
+                    case Opcode.LOAD_CONST:
+                    case Opcode.PUSH:
+                        _stack.Push(op.Constant);
+                        break;
+
+                    case Opcode.PUSH_NULL:
+                        _stack.Push(default);
+                        break;
+
+                    case Opcode.POP:
+                        if (_stack.Count > 0)
+                            _stack.Pop();
+                        break;
+
+                    case Opcode.JUMP:
+                        pc = op.A - 1;
+                        break;
+
+                    case Opcode.JUMP_IF_FALSE:
+                        if (_stack.Count > 0 && !_stack.Pop().Truth)
+                            pc = op.A - 1;
+                        break;
+
+                    case Opcode.JUMP_IF_TRUE:
+                        if (_stack.Count > 0 && _stack.Pop().Truth)
+                            pc = op.A - 1;
+                        break;
+
+                    case Opcode.ADD:
+                    {
+                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        if (left.IsString || right.IsString)
+                            left = left.ToString() + right.ToString();
+                        else
+                            left = left.Number + right.Number;
+                        break;
+                    }
+
+                    case Opcode.SUB:
+                    {
+                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        double b = right.Number, a = left.Number;
+                        left = a - b;
+                        break;
+                    }
+
+                    case Opcode.MUL:
+                    {
+                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        double b = right.Number, a = left.Number;
+                        left = a * b;
+                        break;
+                    }
+
+                    case Opcode.DIV:
+                    {
+                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        double b = right.Number, a = left.Number;
+                        left = a / b;
+                        break;
+                    }
+
+                    case Opcode.MOD:
+                    {
+                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        double b = right.Number, a = left.Number;
+                        left = Math.Abs(b) < 1e-12 ? (VmValue)0 : a - Math.Floor(a / b) * b;
+                        break;
+                    }
+
+                    case Opcode.LT:
+                    {
+                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        double b = right.Number, a = left.Number;
+                        left = a < b ? 1 : 0;
+                        break;
+                    }
+
+                    case Opcode.LTE:
+                    {
+                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        double b = right.Number, a = left.Number;
+                        left = a <= b ? 1 : 0;
+                        break;
+                    }
+
+                    case Opcode.GT:
+                    {
+                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        double b = right.Number, a = left.Number;
+                        left = a > b ? 1 : 0;
+                        break;
+                    }
+
+                    case Opcode.GTE:
+                    {
+                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        double b = right.Number, a = left.Number;
+                        left = a >= b ? 1 : 0;
+                        break;
+                    }
+
+                    case Opcode.EQ:
+                    {
+                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        left = VMEquals(left, right) ? 1 : 0;
+                        break;
+                    }
+
+                    case Opcode.NEQ:
+                    {
+                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        left = !VMEquals(left, right) ? 1 : 0;
+                        break;
+                    }
+
+                    case Opcode.AND:
+                    {
+                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        left = left.Truth && right.Truth ? 1 : 0;
+                        break;
+                    }
+
+                    case Opcode.OR:
+                    {
+                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        left = left.Truth || right.Truth ? 1 : 0;
+                        break;
+                    }
+
+                    case Opcode.NOT:
+                        if (_stack.Count > 0)
+                            _stack.Push(_stack.Pop().Truth ? 0 : 1);
+                        else
+                            throw new InvalidOperationException("Cannot negate empty stack");
+                        break;
+
+                    case Opcode.BIT_AND:
+                    {
+                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        int a = AsInt32(left), b = AsInt32(right);
+                        left = a & b;
+                        break;
+                    }
+
+                    case Opcode.BIT_OR:
+                    {
+                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        int a = AsInt32(left), b = AsInt32(right);
+                        left = a | b;
+                        break;
+                    }
+
+                    case Opcode.BIT_XOR:
+                    {
+                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        int a = AsInt32(left), b = AsInt32(right);
+                        left = a ^ b;
+                        break;
+                    }
+
+                    case Opcode.SHL:
+                    {
+                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        int a = AsInt32(left), b = AsInt32(right);
+                        left = a << b;
+                        break;
+                    }
+
+                    case Opcode.SHR:
+                    {
+                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        int a = AsInt32(left), b = AsInt32(right);
+                        left = a >> b;
+                        break;
+                    }
+
+                    case Opcode.CALL_NATIVE:
+                        ExecuteNativeCall(op.A, op.B);
+                        break;
+
+                    case Opcode.CALL:
+                        ExecuteCall((string)op.Ref, op.B);
+                        break;
+
+                    case Opcode.RETURN:
+                        _returnValue = _stack.Count > 0 ? _stack.Pop() : default;
+                        _returnRequested = true;
+                        break;
+
+                    case Opcode.LOAD_REG:
+                    {
+                        int slot = op.A;
+                        var ctx = _bridge.GetContext();
+                        if (ctx == null || slot < 0 || slot >= PgslRegisterFile.NumberGetters.Length) _stack.Push(0.0);
+                        else if (slot == PgslRegisterFile.SlotSpriteIndex) _stack.Push(ctx.SpriteIndex ?? "");
+                        else _stack.Push(PgslRegisterFile.NumberGetters[slot](ctx));
+                        break;
+                    }
+
+                    case Opcode.STORE_REG:
+                    {
+                        if (_stack.Count == 0)
+                            throw new InvalidOperationException("Stack underflow on STORE_REG");
+                        VmValue value = _stack.Pop();
+                        var ctx = _bridge.GetContext();
+                        if (ctx != null && op.A >= 0 && op.A < PgslRegisterFile.NumberSetters.Length)
+                            PgslRegisterFile.Write(ctx, op.A, value);
+                        break;
+                    }
+
+                    case Opcode.NEG:
+                        if (_stack.Count > 0)
+                            _stack.Push(-_stack.Pop().Number);
+                        else
+                            throw new InvalidOperationException("Cannot negate empty stack");
+                        break;
+
+                    default:
+                        // Everything else (with-blocks, indexing, printing, unusual operands) runs as written.
+                        ExecuteInstruction(instructions[pc], ref pc);
+                        break;
+                }
                 pc++;
 
                 if (_returnRequested)
@@ -291,10 +534,9 @@ public class PgslVm
         }
         finally
         {
-            InstructionsExecuted += _instructionCounter;
+            InstructionsExecuted += executed;
             UnwindWith(withDepth);
             _constants = previousConstants;
-            _instructionCounter = previousInstructionCounter;
             _returnRequested = previousReturnRequested;
             _returnValue = previousReturnValue;
         }
@@ -809,16 +1051,24 @@ public class PgslVm
     {
         if (instr.Operand is not (string funcName, int argCount))
             throw new InvalidOperationException("Invalid CALL instruction format");
+        ExecuteCall(funcName, argCount);
+    }
 
+    private void ExecuteCall(string funcName, int argCount)
+    {
         if (_stack.Count < argCount)
             throw new InvalidOperationException($"Not enough arguments for {funcName}");
 
         // A function of a project Script (a library) is callable directly, the first call loading it.
-        if (!_userFunctions.ContainsKey(funcName)
-            && Genesis.Runtime.Scripting.ScriptAssetRegistry.TryFindFunction(funcName, out UserFunction library))
+        bool isFunction = _userFunctions.TryGetValue(funcName, out UserFunction userFunc);
+        if (!isFunction && Genesis.Runtime.Scripting.ScriptAssetRegistry.TryFindFunction(funcName, out UserFunction library))
+        {
             _userFunctions[funcName] = library;
+            userFunc = library;
+            isFunction = true;
+        }
 
-        if (_userFunctions.TryGetValue(funcName, out UserFunction userFunc))
+        if (isFunction)
         {
             if (argCount != userFunc.Parameters.Count)
             {
@@ -827,21 +1077,26 @@ public class PgslVm
 
             // Deep recursion ends in an error the game can report, never in a stack overflow that
             // takes the whole process down.
-            if (_variableFrames.Count >= MaxCallDepth || !System.Runtime.CompilerServices.RuntimeHelpers.TryEnsureSufficientExecutionStack())
-                ThrowTooDeep(funcName, _variableFrames.Count);
+            if (_frameCount >= MaxCallDepth || !System.Runtime.CompilerServices.RuntimeHelpers.TryEnsureSufficientExecutionStack())
+                ThrowTooDeep(funcName, _frameCount);
 
-            Dictionary<string, VmValue> frame = AcquireVariableFrame();
+            PgslProgram program = PgslProgram.ForFunction(userFunc);
+            VariableFrame frame = AcquireFrame(program.Layout);
 
             try
             {
+                int[] parameterSlots = program.Layout.ParameterSlots;
                 for (int i = argCount - 1; i >= 0; i--)
                 {
-                    frame[userFunc.Parameters[i]] = _stack.Pop();
+                    int slot = parameterSlots[i];
+                    frame.Values[slot] = _stack.Pop();
+                    frame.Present[slot] = true;
                 }
 
-                _variableFrames.Push(frame);
+                PushFrame(frame);
                 _debugCallStack.Push(funcName);
                 ExecutionResult callResult = ExecuteCore(
+                    program,
                     userFunc.Bytecode,
                     userFunc.Constants,
                     clearVariables: false);
@@ -852,11 +1107,11 @@ public class PgslVm
             }
             finally
             {
-                if (_variableFrames.Count > 0 && ReferenceEquals(_variableFrames.Peek(), frame))
-                    _variableFrames.Pop();
+                if (_frameCount > 0 && ReferenceEquals(_frames[_frameCount - 1], frame))
+                    PopFrame();
                 if (_debugCallStack.Count > 0 && string.Equals(_debugCallStack.Peek(), funcName, StringComparison.Ordinal))
                     _debugCallStack.Pop();
-                ReleaseVariableFrame(frame);
+                ReleaseFrame(frame);
             }
             return;
         }
@@ -906,9 +1161,9 @@ public class PgslVm
         string errorMessage = "")
     {
         Dictionary<string, object> variables = _variables.ToDictionary(pair => pair.Key, pair => pair.Value.ToObject(), StringComparer.OrdinalIgnoreCase);
-        foreach (Dictionary<string, VmValue> frame in _variableFrames.Reverse())
+        for (int i = 0; i < _frameCount; i++)
         {
-            foreach ((string name, VmValue value) in frame) variables[name] = value.ToObject();
+            foreach ((string name, VmValue value) in _frames[i].Entries()) variables[name] = value.ToObject();
         }
         PgslContext context = _bridge.GetContext();
         if (context is not null)
@@ -938,11 +1193,16 @@ public class PgslVm
             errorMessage ?? string.Empty);
     }
 
-    private bool TryGetVariable(string name, out VmValue value)
+    // A name is looked for in the innermost call's frame, then each caller's, then the instance's
+    // variables. Frames compare names without case; the instance's variables with case.
+    private bool TryGetVariable(string name, out VmValue value) =>
+        TryGetVariable(_frameCount > 0 ? PgslSymbols.Find(name) : -1, name, _frameCount - 1, out value);
+
+    private bool TryGetVariable(int symbol, string name, int fromFrame, out VmValue value)
     {
-        foreach (Dictionary<string, VmValue> frame in _variableFrames)
+        for (int i = fromFrame; i >= 0; i--)
         {
-            if (frame.TryGetValue(name, out value))
+            if (_frames[i].TryGet(symbol, name, out value))
                 return true;
         }
         return _variables.TryGetValue(name, out value);
@@ -950,21 +1210,118 @@ public class PgslVm
 
     private void StoreVariable(string name, VmValue value)
     {
-        if (_variableFrames.Count > 0)
-            _variableFrames.Peek()[name] = value;
+        if (_frameCount > 0)
+            _frames[_frameCount - 1].Set(PgslSymbols.Find(name), name, value);
         else
             _variables[name] = value;
     }
 
-    private Dictionary<string, VmValue> AcquireVariableFrame() =>
-        _variableFramePool.Count > 0
-            ? _variableFramePool.Pop()
-            : new Dictionary<string, VmValue>(StringComparer.OrdinalIgnoreCase);
-
-    private void ReleaseVariableFrame(Dictionary<string, VmValue> frame)
+    /// <summary>LOAD_VAR of a decoded name; <paramref name="frame"/> is the running function's own frame, or null.</summary>
+    private void LoadVariable(VarRef variable, VariableFrame frame)
     {
-        frame.Clear();
-        _variableFramePool.Push(frame);
+        if (variable.Kind == VarKind.Instance)
+        {
+            _stack.Push(LoadInstanceVariableByName(variable.Name));
+            return;
+        }
+        bool found;
+        VmValue value;
+        if (frame != null && variable.Slot >= 0)
+        {
+            if (frame.Present[variable.Slot])
+            {
+                _stack.Push(frame.Values[variable.Slot]);
+                return;
+            }
+            // Not set in this call: the callers' frames, then the instance.
+            found = TryGetVariable(variable.Symbol, variable.Name, _frameCount - 2, out value);
+        }
+        else
+        {
+            found = TryGetVariable(variable.Symbol, variable.Name, _frameCount - 1, out value);
+        }
+        if (found)
+            _stack.Push(value);
+        else if (variable.Kind == VarKind.FunctionLocal)
+            _stack.Push(0.0);
+        else
+            // Prefer local variables first, then fall back to PGSL context properties.
+            _stack.Push(ResolvePGSLPropertyOrZero(variable.Name));
+    }
+
+    /// <summary>STORE_VAR of a decoded name.</summary>
+    private void StoreVariable(VarRef variable, VariableFrame frame, VmValue value)
+    {
+        switch (variable.Kind)
+        {
+            case VarKind.Instance:
+                StoreInstanceVariableByName(variable.Name, value);
+                return;
+            case VarKind.FunctionLocal:
+                break;
+            default:
+                // Current bytecode emits STORE_REG for built-in instance fields; a declared
+                // property is set through the bridge; anything else is a variable.
+                if (variable.RegisterSlot >= 0)
+                {
+                    var context = _bridge.GetContext();
+                    if (context != null)
+                        PgslRegisterFile.Write(context, variable.RegisterSlot, value);
+                    return;
+                }
+                if (TrySetDeclaredProperty(variable, value))
+                    return;
+                break;
+        }
+        if (frame != null && variable.Slot >= 0)
+        {
+            frame.Values[variable.Slot] = value;
+            frame.Present[variable.Slot] = true;
+        }
+        else if (_frameCount > 0)
+            _frames[_frameCount - 1].Set(variable.Symbol, variable.Name, value);
+        else
+            _variables[variable.Name] = value;
+    }
+
+    private bool TrySetDeclaredProperty(VarRef variable, VmValue value)
+    {
+        if (_typedBridge == null)
+            return _bridge.TrySetProperty(variable.Name, value.ToObject());
+        // Whether a name is a declared property only changes when the command table is rebuilt.
+        if (variable.NotPropertyIn is PropertyTable table && ReferenceEquals(table.Bridge, _typedBridge)
+            && table.Generation == _typedBridge.Generation)
+            return false;
+        if (_typedBridge.TrySetTypedProperty(variable.Name, value))
+            return true;
+        variable.NotPropertyIn = new PropertyTable(_typedBridge, _typedBridge.Generation);
+        return false;
+    }
+
+    private VariableFrame AcquireFrame(FrameLayout layout)
+    {
+        VariableFrame frame = _framePool.Count > 0 ? _framePool.Pop() : new VariableFrame();
+        frame.Bind(layout);
+        return frame;
+    }
+
+    private void ReleaseFrame(VariableFrame frame)
+    {
+        frame.Reset();
+        _framePool.Push(frame);
+    }
+
+    private void PushFrame(VariableFrame frame)
+    {
+        if (_frameCount == _frames.Length) Array.Resize(ref _frames, _frameCount * 2);
+        _frames[_frameCount++] = frame;
+    }
+
+    private VariableFrame PopFrame()
+    {
+        VariableFrame frame = _frames[--_frameCount];
+        _frames[_frameCount] = null;
+        return frame;
     }
 
     private object[] AcquireArgumentArray(int count)
