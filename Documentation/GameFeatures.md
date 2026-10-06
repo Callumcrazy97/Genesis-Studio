@@ -580,7 +580,9 @@ its own image; up to 64 are drawn.
 
 A script can build a mesh of its own (a voxel chunk, a procedural rock, a trail) and draw it as one
 draw instead of thousands of instances. A mesh is uploaded again only when drawn after it changed.
-It holds up to 65,535 vertices; a bigger world is split into chunks.
+It holds up to 65,535 vertices; a bigger world is split into chunks. A texture rectangle of all
+zeros (`0, 0, 0, 0`) means the whole texture; a single point (`u0 = u1`, `v0 = v1`) samples one
+texel, such as a distant block's colour from an atlas.
 
 | Command | What it does |
 |---|---|

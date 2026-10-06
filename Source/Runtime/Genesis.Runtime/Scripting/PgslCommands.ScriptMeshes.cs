@@ -41,9 +41,7 @@ public static partial class PgslCommands
         double r, double g, double b, double u0, double v0, double u1, double v1)
     {
         if (!Finite3(x, y, z) || !(size > 0) || !double.IsFinite(size)) return 0;
-        Vector4 uv = Finite3(u0, v0, u1) && double.IsFinite(v1) && (u1 != u0 || v1 != v0)
-            ? new Vector4((float)u0, (float)v0, (float)u1, (float)v1)
-            : new Vector4(0, 0, 1, 1);
+        Vector4 uv = Tile(u0, v0, u1, v1);
         return ScriptMeshes.AddCube((int)mesh, new Vector3((float)x, (float)y, (float)z), (float)size,
             (int)faces & ScriptMeshes.AllFaces, Colour(r, g, b, 1), uv);
     }
@@ -185,8 +183,10 @@ public static partial class PgslCommands
         return world.IsAlive(entity) && Genesis.Runtime.Rendering.ObjectDrawAssetRegistry.TryGet(entity, out var assets) ? assets : null;
     }
 
+    // All four 0 (or not numbers) means the whole texture. A single point (u0 = u1, v0 = v1) is kept:
+    // one texel of an atlas, such as a far-off block's colour.
     private static Vector4 Tile(double u0, double v0, double u1, double v1) =>
-        Finite3(u0, v0, u1) && double.IsFinite(v1) && (u1 != u0 || v1 != v0)
+        Finite3(u0, v0, u1) && double.IsFinite(v1) && (u0 != 0 || v0 != 0 || u1 != 0 || v1 != 0)
             ? new Vector4((float)u0, (float)v0, (float)u1, (float)v1)
             : new Vector4(0, 0, 1, 1);
 
