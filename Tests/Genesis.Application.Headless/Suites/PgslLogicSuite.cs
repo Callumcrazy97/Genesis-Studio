@@ -225,6 +225,16 @@ internal static class PgslLogicSuite
             t_save_slot_read = (SaveSlotExists("pgsl_logic") == 1 && SaveSlotRead("pgsl_logic") == json) ? 1 : 0;
             t_save_slot_delete = (SaveSlotDelete("pgsl_logic") == 1 && SaveSlotExists("pgsl_logic") == 0) ? 1 : 0;
             """),
+        ("Clock and sky", """
+            // 1782000000 is 21 June 2026 in every time zone's local date.
+            t_now_is_recent = (DateNow() > 1780000000) ? 1 : 0;
+            t_date_parts = (DateYear(1782000000) == 2026 && DateMonth(1782000000) == 6 && DateDay(1782000000) >= 20) ? 1 : 0;
+            t_date_text = (DateText(1782000000, "yyyy-MM") == "2026-06") ? 1 : 0;
+            t_weekday = (DateWeekday(1782000000) >= 0 && DateWeekday(1782000000) <= 6) ? 1 : 0;
+            sx = Engine.Sky.SunDirectionX; sy = Engine.Sky.SunDirectionY; sz = Engine.Sky.SunDirectionZ;
+            t_sun_direction_is_unit = (Abs(Sqrt(sx * sx + sy * sy + sz * sz) - 1) < 0.001) ? 1 : 0;
+            t_window_mode_named = (WindowSetMode("sideways") == 0) ? 1 : 0;
+            """),
         ("Parameters", """
             x = 5;
             y = 7;

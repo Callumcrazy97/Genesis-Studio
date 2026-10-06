@@ -848,8 +848,9 @@ namespace Genesis.Rendering.Core
         // Model layer images, given texture ids so GUI drawing can use them like any image.
         private readonly Dictionary<int, int> _modelLayerTextureSlots = new();
 
-        public void SetModelLayerCamera(int layer, Matrix4x4 view, Matrix4x4 projection, int width, int height, bool receiveShadows) =>
-            _fwd?.SetModelLayerCamera(layer, view, projection, width, height, receiveShadows);
+        public void SetModelLayerCamera(int layer, Matrix4x4 view, Matrix4x4 projection, int width, int height, bool receiveShadows,
+            bool studioLighting = false) =>
+            _fwd?.SetModelLayerCamera(layer, view, projection, width, height, receiveShadows, studioLighting);
 
         public bool TryGetModelLayerTexture(int layer, out TextureHandle texture)
         {

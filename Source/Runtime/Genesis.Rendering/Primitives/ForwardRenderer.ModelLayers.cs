@@ -18,6 +18,7 @@ namespace Genesis.Rendering.Primitives
             public Matrix4x4 View = Matrix4x4.Identity, Projection = Matrix4x4.Identity;
             public int Width = 1, Height = 1;
             public bool NoReceiveShadow;
+            public bool StudioLighting;
             public readonly List<WorldMesh> Meshes = new();
             public GpuRenderTargetHandle Target = GpuRenderTargetHandle.Invalid;
             public GpuTextureHandle Texture = GpuTextureHandle.Invalid;
@@ -29,7 +30,8 @@ namespace Genesis.Rendering.Primitives
         private readonly Dictionary<int, ModelLayer> _modelLayers = new();
 
         /// <summary>The camera and image size of a model layer for this frame.</summary>
-        public void SetModelLayerCamera(int layer, Matrix4x4 view, Matrix4x4 projection, int width, int height, bool receiveShadows)
+        public void SetModelLayerCamera(int layer, Matrix4x4 view, Matrix4x4 projection, int width, int height, bool receiveShadows,
+            bool studioLighting = false)
         {
             if (layer <= 0) return;
             if (!_modelLayers.TryGetValue(layer, out ModelLayer entry)) _modelLayers[layer] = entry = new ModelLayer();
@@ -38,7 +40,11 @@ namespace Genesis.Rendering.Primitives
             entry.Width = Math.Clamp(width, 1, 8192);
             entry.Height = Math.Clamp(height, 1, 8192);
             entry.NoReceiveShadow = !receiveShadows;
+            entry.StudioLighting = studioLighting;
         }
+
+        // A key light from the camera's upper left and a soft grey ambient: a GUI model's own light.
+        private static readonly Vector3 StudioLightDirection = Vector3.Normalize(new Vector3(0.35f, -0.55f, 0.76f));
 
         /// <summary>The image a model layer was drawn into by the last frame; false when it drew nothing.</summary>
         public bool TryGetModelLayerTexture(int layer, out GpuTextureHandle texture)
@@ -124,7 +130,24 @@ namespace Genesis.Rendering.Primitives
             UploadPerFrame(layer.View * projection, lightFar, lightNear, lightMid);
             // The layer's image is a GUI image: its colour is written for display.
             _encodeOutputThisPass = LinearPipeline;
+            Mesh3DState sceneState = _state;
+            int sceneLamps = _pointLightCount;
+            if (layer.StudioLighting)
+            {
+                Mesh3DState studio = _state;
+                studio.LightDirection = StudioLightDirection;
+                studio.SunColor = Vector3.One;
+                studio.SunIntensity = 1.15f;
+                studio.AmbientColor = new Vector3(0.46f, 0.47f, 0.5f);
+                studio.AmbientGroundColor = new Vector3(0.3f, 0.29f, 0.28f);
+                studio.FogEnabled = false;
+                studio.LightingEnabled = true;
+                _state = studio;
+                _pointLightCount = 0;
+            }
             UploadEngineCB();
+            _state = sceneState;
+            _pointLightCount = sceneLamps;
             _encodeOutputThisPass = false;
 
             _gpu.BeginRenderPass(new GpuRenderPassDesc

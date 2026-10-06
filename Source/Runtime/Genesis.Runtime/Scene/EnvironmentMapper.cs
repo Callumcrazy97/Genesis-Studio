@@ -136,6 +136,7 @@ namespace Genesis.Runtime.Scene
                 state.CloudDensityScale =
                     SkyAuthoringDefaults.ClampDensityScale(options.CloudDensityScale);
                 state.SunDiscScale = options.SunDiscScale > 0f ? Math.Clamp(options.SunDiscScale, 0.25f, 8f) : 1f;
+                state.HideSunDisc = options.HideSunDisc;
                 if (climate != null)
                 {
                     AtmosphereFrame frame = atmosphere.Current;

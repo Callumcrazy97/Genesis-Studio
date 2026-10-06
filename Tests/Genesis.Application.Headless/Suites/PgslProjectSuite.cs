@@ -131,6 +131,9 @@ internal static class PgslProjectSuite
             {
                 Color centre = three.GetPixel(three.Width / 2, three.Height / 2);
                 Color side = three.GetPixel(three.Width / 2 + three.Width / 5, three.Height / 2);
+                Color portrait = three.GetPixel(80, 80);
+                HeadlessHarness.Assert(portrait.R > 170 && portrait.R > portrait.B + 100,
+                    $"A GUI model in a dark room was not lit by its own light ({portrait}).");
                 HeadlessHarness.Assert(centre.R > 45 && centre.R > centre.B + 40,
                     $"The layer-2 box behind the wall was not drawn over it (or hidden layer 3 covered it) ({centre}).");
                 HeadlessHarness.Assert(side.B > side.R + 25, $"The wall beside the box is not blue ({side}).");
@@ -345,6 +348,8 @@ internal static class PgslProjectSuite
                 if (frame == 10) { ScreenshotSave("pgsl-room-three"); }
                 if (frame == 14) { Print("GENESIS_PGSL_PROJECT_DONE"); GameQuit(); }
                 """,
+            // A GUI model in this dark room is lit by its own studio light, not the room's.
+            ["DrawGui"] = "DrawModelGui(\"Box\", 20, 20, 120, 120, 35, 25, 1);",
         });
         string arms = Object("Arms", new() { ["Create"] = "ModelSetLayer(2); ModelLayerSetFov(2, 60);" }, model: "Box");
         // Layer 3 is drawn after layer 2 and would cover the box in blue, but it is hidden.

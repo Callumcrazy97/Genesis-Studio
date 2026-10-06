@@ -59,6 +59,50 @@ public static partial class PgslCommands
         }
     }
 
+    [PgslCommand("SunDiscVisible", "Engine.Sky.SunDiscVisible",
+        "Whether the sun's disc is drawn; off keeps its light (for a game drawing its own sky)", "Engine · Sky",
+        Namespace = "Engine.Sky")]
+    public static bool SkySunDiscVisible
+    {
+        get => !(ResolveAtmosphere()?.HideSunDisc ?? false);
+        set
+        {
+            AtmosphereOptions atmosphere = ResolveAtmosphere();
+            if (atmosphere != null) atmosphere.HideSunDisc = !value;
+        }
+    }
+
+    // Towards the sun and the moon from the scene, as unit vectors (y up): where to draw them in a
+    // game's own sky so they line up with the engine's light.
+    [PgslCommand("SunDirectionX", "Engine.Sky.SunDirectionX", "X of the unit direction towards the sun", "Engine · Sky", Namespace = "Engine.Sky")]
+    public static float SkySunDirectionX => TowardsSun().X;
+    [PgslCommand("SunDirectionY", "Engine.Sky.SunDirectionY", "Y of the unit direction towards the sun (below 0 when it has set)", "Engine · Sky", Namespace = "Engine.Sky")]
+    public static float SkySunDirectionY => TowardsSun().Y;
+    [PgslCommand("SunDirectionZ", "Engine.Sky.SunDirectionZ", "Z of the unit direction towards the sun", "Engine · Sky", Namespace = "Engine.Sky")]
+    public static float SkySunDirectionZ => TowardsSun().Z;
+    [PgslCommand("MoonDirectionX", "Engine.Sky.MoonDirectionX", "X of the unit direction towards the moon", "Engine · Sky", Namespace = "Engine.Sky")]
+    public static float SkyMoonDirectionX => TowardsMoon().X;
+    [PgslCommand("MoonDirectionY", "Engine.Sky.MoonDirectionY", "Y of the unit direction towards the moon", "Engine · Sky", Namespace = "Engine.Sky")]
+    public static float SkyMoonDirectionY => TowardsMoon().Y;
+    [PgslCommand("MoonDirectionZ", "Engine.Sky.MoonDirectionZ", "Z of the unit direction towards the moon", "Engine · Sky", Namespace = "Engine.Sky")]
+    public static float SkyMoonDirectionZ => TowardsMoon().Z;
+    [PgslCommand("NightFactor", "Engine.Sky.NightFactor", "0 by day to 1 at night, as the engine blends sun and moon light", "Engine · Sky", Namespace = "Engine.Sky")]
+    public static float SkyNightFactor => ActiveSkyScene?.Climate?.Current.NightFactor ?? 0f;
+
+    // The climate stores the direction light travels (sun to scene); a sky wants the other way.
+    private static System.Numerics.Vector3 TowardsSun()
+    {
+        System.Numerics.Vector3 travel = ActiveSkyScene?.Climate?.Current.SunDirection ?? default;
+        if (travel.LengthSquared() < 1e-6f) travel = Genesis.Shared.Interfaces.Mesh3DState.GetDefaultSunDirection();
+        return -System.Numerics.Vector3.Normalize(travel);
+    }
+
+    private static System.Numerics.Vector3 TowardsMoon()
+    {
+        System.Numerics.Vector3 travel = ActiveSkyScene?.Climate?.Current.MoonDirection ?? default;
+        return travel.LengthSquared() < 1e-6f ? -TowardsSun() : -System.Numerics.Vector3.Normalize(travel);
+    }
+
     [PgslCommand("Altitude", "Engine.Sky.Altitude",
         "Cloud slab base height in metres", "Engine · Sky",
         Namespace = "Engine.Sky")]

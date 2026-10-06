@@ -5924,6 +5924,7 @@ namespace Genesis.Rendering.Primitives
 
         private void DrawEnvironmentSun(GpuTextureHandle whiteTexture)
         {
+            if (_state.HideSunDisc) return;
             Vector3 lightDir = _state.AuthoredSkyEnabled ? _state.SkySunDirection : _state.LightDirection;
             if (lightDir.LengthSquared() < 1e-6f)
                 lightDir = Mesh3DState.GetDefaultSunDirection();

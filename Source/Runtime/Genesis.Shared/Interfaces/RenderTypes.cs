@@ -755,6 +755,8 @@ namespace Genesis.Shared.Interfaces
         public float   CloudCoverageScale;
         /// <summary>How large the sun's disc is drawn against its usual size. 0 (a state built without the defaults) counts as 1.</summary>
         public float   SunDiscScale;
+        /// <summary>The sun's disc is not drawn; its light is unchanged (a game drawing its own sky).</summary>
+        public bool    HideSunDisc;
         /// <summary>
         /// AF2.6 cloud density → raymarch intensity multiplier (default 1 = identity).
         /// </summary>

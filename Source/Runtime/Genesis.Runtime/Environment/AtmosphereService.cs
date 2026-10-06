@@ -30,6 +30,8 @@ public sealed class AtmosphereOptions
     public float CloudDensityScale { get; set; } = 1f;
     /// <summary>How large the sun's disc is drawn against its usual size (0.25 to 8).</summary>
     public float SunDiscScale { get; set; } = 1f;
+    /// <summary>The sun's disc is not drawn; its light is unchanged.</summary>
+    public bool HideSunDisc { get; set; }
     public float Haze { get; set; } = 0.15f;
     /// <summary>
     /// Clear-day visibility in metres: the distance at which haze has removed about 95% of the

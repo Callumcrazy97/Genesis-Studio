@@ -159,7 +159,7 @@ namespace Genesis.Runtime.Rendering
             });
             if (_buffer.Length < queue.Count) _buffer = new MeshDrawCall[queue.Count * 2];
             int count = queue.CopyTo(_buffer, 0);
-            renderer.SetModelLayerCamera(layer, view, projection, request.Width, request.Height, receiveShadows: false);
+            renderer.SetModelLayerCamera(layer, view, projection, request.Width, request.Height, receiveShadows: false, studioLighting: true);
             renderer.DrawMeshBatch(_buffer.AsSpan(0, count));
         }
     }

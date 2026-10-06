@@ -78,6 +78,22 @@ namespace Genesis.Runtime.Scripting
         };
 
         private static readonly HashSet<string> InstanceVars = BuildInstanceVariables();
+
+        /// <summary>The first part of every command namespace (Engine, from Engine.Sky).</summary>
+        private static readonly Lazy<HashSet<string>> NamespaceRoots = new(() =>
+        {
+            var roots = new HashSet<string>(StringComparer.Ordinal) { "Engine" };
+            foreach (MemberInfo member in typeof(PgslCommands).GetMembers(BindingFlags.Public | BindingFlags.Static))
+                foreach (PgslCommandAttribute command in member.GetCustomAttributes<PgslCommandAttribute>())
+                    if (!string.IsNullOrEmpty(command.Namespace)) roots.Add(command.Namespace.Split('.')[0]);
+            return roots;
+        }, isThreadSafe: true);
+
+        private static string RootName(Expr expression)
+        {
+            while (expression is MemberExpr member) expression = member.Target;
+            return (expression as IdentifierExpr)?.Name;
+        }
         private static readonly Lazy<Dictionary<string, List<Arity>>> PgslContracts =
             new(BuildPgslContracts, isThreadSafe: true);
         private static readonly Lazy<Dictionary<string, List<Arity>>> EngineContracts =
@@ -343,6 +359,8 @@ namespace Genesis.Runtime.Scripting
                     break;
 
                 case MemberExpr member:
+                    // Engine.Sky.Haze: a setting read by its full name, not a variable called Engine.
+                    if (RootName(member) is string root && NamespaceRoots.Value.Contains(root)) break;
                     CheckExpr(member.Target, declared, functions, externalFunctions, options, diagnostics);
                     break;
 

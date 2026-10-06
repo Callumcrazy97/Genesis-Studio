@@ -141,8 +141,12 @@ namespace Genesis.Shared.Interfaces
         /// The camera and image size of a model layer this frame (see MeshDrawCall.Layer): 1 is the
         /// first-person layer, more than 99 GUI models.
         /// </summary>
+        /// <param name="studioLighting">
+        /// Lit by a fixed key light and ambient instead of the scene's sun, sky and lamps (a model in a
+        /// GUI rectangle looks the same at midnight as at noon).
+        /// </param>
         void SetModelLayerCamera(int layer, System.Numerics.Matrix4x4 view, System.Numerics.Matrix4x4 projection,
-            int width, int height, bool receiveShadows) { }
+            int width, int height, bool receiveShadows, bool studioLighting = false) { }
 
         /// <summary>The image a model layer was drawn into by the last frame, as a texture GUI drawing can use.</summary>
         bool TryGetModelLayerTexture(int layer, out TextureHandle texture)

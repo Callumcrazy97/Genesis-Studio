@@ -570,8 +570,10 @@ map in the hand, a magnifying glass. What goes in each layer is up to the game.
 | `DrawModelGui(model, x, y, width, height, yaw, pitch, zoom)` | In Draw GUI: a Model drawn into a rectangle, turned by yaw and pitch and framed to fit (zoom 1), layered with the other GUI drawing in call order (an inventory portrait, a character on a menu). |
 | `DrawModelGuiPose(model, x, y, width, height, yaw, pitch, zoom, clip, time)` | The same, posed at an animation clip's time. |
 
-A GUI model is drawn while the next frame's 3D is drawn, so it appears one frame after the first
-call and follows changes a frame late. The same sequence of calls each frame keeps each model in
+A GUI model is lit by its own studio light (a key light from the upper left and a soft ambient),
+never by the room's sun, sky, lamps or shadows, so it looks the same at midnight as at noon. It is
+drawn while the next frame's 3D is drawn, so it appears one frame after the first call and follows
+changes a frame late. The same sequence of calls each frame keeps each model in
 its own image; up to 64 are drawn.
 
 ## Meshes a script builds
@@ -605,6 +607,21 @@ InstanceSetMeshCollider(id, m);
 DrawMesh3D(m, x, y, z, "Blocks");
 ```
 
+## Video options and the clock
+
+| Command | What it does |
+|---|---|
+| `WindowSetFullscreen(enabled)`, `WindowIsFullscreen()` | Fill the screen (a borderless window the size of the display) or go back to a window. |
+| `WindowSetMode(mode)`, `WindowGetMode()` | `"windowed"`, `"borderless"` or `"fullscreen"` (exclusive); false for any other name. |
+| `WindowSetSize(width, height)`, `WindowGetWidth()`, `WindowGetHeight()` | A windowed game's size in pixels. |
+| `WindowSetVSync(enabled)`, `WindowGetVSync()` | Wait for the display's refresh (no tearing). |
+| `GameSetMaxFps(fps)`, `GameGetMaxFps()` | A frame-rate cap; 0 for none. |
+| `DateNow()` | Now, as seconds since 1970 (UTC): what to store in a save for "last played". |
+| `DateYear(t)`, `DateMonth(t)`, `DateDay(t)`, `DateHour(t)`, `DateMinute(t)`, `DateSecond(t)`, `DateWeekday(t)` | The parts of a `DateNow` time in local time (weekday 0 is Sunday). |
+| `DateText(t, format)` | A `DateNow` time as text, such as `DateText(saved, "d MMM yyyy HH:mm")`. |
+
+`TimeMs()` is still the millisecond clock for timing within a run.
+
 ## The mood of a room from a script
 
 A room's atmosphere and grading can follow the hour (a hazy morning, a golden hour, dusk):
@@ -618,6 +635,9 @@ A room's atmosphere and grading can follow the hour (a hazy morning, a golden ho
 | `Engine.Sky.SetAtmospherePreset(name)`, `Engine.Sky.AtmospherePreset` | Natural, ClearDay, GoldenHour, Overcast, Storm, Night or Alien; false for an unknown name. |
 | `Engine.Rendering.Contrast`, `Engine.Rendering.Saturation`, `Engine.Rendering.Vignette` | Colour grading, beside the existing `Engine.Rendering.Exposure`. |
 | `Engine.SetShadowStrength(amount)`, `Engine.GetShadowStrength()` | How dark shadows are, 0 (none) to 1 (full): lower it for a flat look. |
+| `Engine.Sky.SunDirectionX/Y/Z`, `Engine.Sky.MoonDirectionX/Y/Z` | The unit direction towards the sun and the moon (y up; below 0 once set), for a game that draws its own sky in line with the engine's light. |
+| `Engine.Sky.NightFactor` | 0 by day to 1 at night, as the engine blends sun and moon light. |
+| `Engine.Sky.SunDiscVisible` | Whether the sun's disc is drawn; false keeps its light. |
 | `Engine.SetGlobalShadows(enabled)`, `Engine.GetGlobalShadows()` | Turn the scene's shadows off or on (sun and lamps). `Engine.Rendering.ContactShadowsEnabled` controls the small screen-space contact shadows separately. |
 
 Colour tints belong to the game's look, so they are a project post effect (see
