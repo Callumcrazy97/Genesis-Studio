@@ -86,7 +86,8 @@ internal static class PgslProjectSuite
             string pool = Results("pool");
             HeadlessHarness.Assert(pool == "self=-50;other=-60;otherZ=7;", $"Moved instances did not stay moved: '{pool}'.");
             string quad = Results("quad");
-            HeadlessHarness.Assert(quad == "quad=0;tiles=6;vertices=28;", $"MeshAddQuad / MeshAddCubeTiles: '{quad}'.");
+            HeadlessHarness.Assert(quad == "quad=0;tiles=6;shaded=28;vertices=32;triangles=16;",
+                $"MeshAddQuad / MeshAddCubeTiles / MeshAddQuadColors: '{quad}'.");
             HeadlessHarness.Assert(world == "spawned=20;tagged=20;library=5;afterDestroy=15;childSteps=1;",
                 $"Instances, with and the library Script in room one: '{world}'.");
             HeadlessHarness.Assert(second == "visits=2;children=0;",
@@ -405,8 +406,11 @@ internal static class PgslProjectSuite
                 q = MeshCreate();
                 quad = MeshAddQuad(q, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 255, 255, 255, 1);
                 tiles = MeshAddCubeTiles(q, 0, 0, 0, 1, 63, 255, 255, 255, 0, 0, 0.5, 0.5, 0.5, 0, 1, 0.5, 0, 0.5, 0.5, 1);
+                shaded = MeshAddQuadColors(q, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1,
+                    255, 0, 0, 1, 0, 255, 0, 1, 0, 0, 255, 1, 255, 255, 255, 0.5, 1);
                 FileWriteText("pgsl-results/quad.txt", "quad=" + String(quad) + ";tiles=" + String(tiles)
-                    + ";vertices=" + String(MeshVertexCount(q)) + ";");
+                    + ";shaded=" + String(shaded) + ";vertices=" + String(MeshVertexCount(q))
+                    + ";triangles=" + String(MeshTriangleCount(q)) + ";");
                 """,
             ["Draw"] = "DrawMeshSetShadows(false, true); DrawMeshSetCull(false); DrawMesh3D(m, x, y, z, \"\"); DrawMeshResetState();",
         });

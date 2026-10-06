@@ -80,6 +80,26 @@ public static partial class PgslCommands
             new Vector3((float)nx, (float)ny, (float)nz), Tile(u0, v0, u1, v1), Colour(r, g, b, a));
     }
 
+    [PgslCommand("MeshAddQuadColors", "MeshAddQuadColors(mesh, x0, y0, z0, x1, y1, z1, x2, y2, z2, x3, y3, z3, nx, ny, nz, u0, v0, u1, v1, r0, g0, b0, a0, r1, g1, b1, a1, r2, g2, b2, a2, r3, g3, b3, a3, flip) -> index",
+        "MeshAddQuad with a colour (0-255) and alpha (0-1) for each corner, for baked light, shading or gradients; flip 1 splits the quad along the other diagonal. Returns the first corner's index, -1 when the mesh is full",
+        "Meshes")]
+    public static double MeshAddQuadColors(double mesh,
+        double x0, double y0, double z0, double x1, double y1, double z1,
+        double x2, double y2, double z2, double x3, double y3, double z3,
+        double nx, double ny, double nz, double u0, double v0, double u1, double v1,
+        double r0, double g0, double b0, double a0, double r1, double g1, double b1, double a1,
+        double r2, double g2, double b2, double a2, double r3, double g3, double b3, double a3, double flip)
+    {
+        if (!Finite3(x0, y0, z0) || !Finite3(x1, y1, z1) || !Finite3(x2, y2, z2) || !Finite3(x3, y3, z3) || !Finite3(nx, ny, nz))
+            return -1;
+        return ScriptMeshes.AddQuad((int)mesh,
+            new Vector3((float)x0, (float)y0, (float)z0), new Vector3((float)x1, (float)y1, (float)z1),
+            new Vector3((float)x2, (float)y2, (float)z2), new Vector3((float)x3, (float)y3, (float)z3),
+            new Vector3((float)nx, (float)ny, (float)nz), Tile(u0, v0, u1, v1),
+            Colour(r0, g0, b0, a0), Colour(r1, g1, b1, a1), Colour(r2, g2, b2, a2), Colour(r3, g3, b3, a3),
+            flip: double.IsFinite(flip) && flip >= 0.5);
+    }
+
     [PgslCommand("MeshVertexCount", "MeshVertexCount(mesh) -> number", "Vertices in a mesh", "Meshes")]
     public static double MeshVertexCount(double mesh) => ScriptMeshes.VertexCount((int)mesh);
 

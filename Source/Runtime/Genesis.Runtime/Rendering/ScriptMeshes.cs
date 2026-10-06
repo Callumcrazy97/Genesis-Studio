@@ -149,18 +149,36 @@ namespace Genesis.Runtime.Rendering
         /// <see cref="AddTriangle"/> expects, all with one normal and colour, the texture rectangle
         /// u0, v0 (first corner) to u1, v1 (third corner). Returns the first corner's index, -1 when full.
         /// </summary>
-        public static int AddQuad(int id, Vector3 p0, Vector3 p1, Vector3 p2, Vector3 p3, Vector3 normal, Vector4 uv, Vector4 colour)
+        public static int AddQuad(int id, Vector3 p0, Vector3 p1, Vector3 p2, Vector3 p3, Vector3 normal, Vector4 uv, Vector4 colour) =>
+            AddQuad(id, p0, p1, p2, p3, normal, uv, colour, colour, colour, colour, flip: false);
+
+        /// <summary>
+        /// The same with a colour for each corner (baked light, ambient occlusion, gradients).
+        /// <paramref name="flip"/> splits the quad along the other diagonal, (1,2,3) and (1,3,0), so
+        /// corner colours blend evenly whichever way they differ.
+        /// </summary>
+        public static int AddQuad(int id, Vector3 p0, Vector3 p1, Vector3 p2, Vector3 p3, Vector3 normal, Vector4 uv,
+            Vector4 c0, Vector4 c1, Vector4 c2, Vector4 c3, bool flip)
         {
             if (!TryGet(id, out Builder mesh)) return -1;
             if (mesh.Vertices.Count + 4 > MaxVertices) { mesh.Overflowed = true; return -1; }
             Vector3 n = normal.LengthSquared() > 1e-12f ? Vector3.Normalize(normal) : Vector3.UnitY;
             int start = mesh.Vertices.Count;
-            mesh.Vertices.Add(new MeshVertex { Position = p0, Normal = n, Color = colour, UV = new Vector2(uv.X, uv.Y) });
-            mesh.Vertices.Add(new MeshVertex { Position = p1, Normal = n, Color = colour, UV = new Vector2(uv.Z, uv.Y) });
-            mesh.Vertices.Add(new MeshVertex { Position = p2, Normal = n, Color = colour, UV = new Vector2(uv.Z, uv.W) });
-            mesh.Vertices.Add(new MeshVertex { Position = p3, Normal = n, Color = colour, UV = new Vector2(uv.X, uv.W) });
-            mesh.Indices.Add((ushort)start); mesh.Indices.Add((ushort)(start + 1)); mesh.Indices.Add((ushort)(start + 2));
-            mesh.Indices.Add((ushort)start); mesh.Indices.Add((ushort)(start + 2)); mesh.Indices.Add((ushort)(start + 3));
+            mesh.Vertices.Add(new MeshVertex { Position = p0, Normal = n, Color = c0, UV = new Vector2(uv.X, uv.Y) });
+            mesh.Vertices.Add(new MeshVertex { Position = p1, Normal = n, Color = c1, UV = new Vector2(uv.Z, uv.Y) });
+            mesh.Vertices.Add(new MeshVertex { Position = p2, Normal = n, Color = c2, UV = new Vector2(uv.Z, uv.W) });
+            mesh.Vertices.Add(new MeshVertex { Position = p3, Normal = n, Color = c3, UV = new Vector2(uv.X, uv.W) });
+            ushort a = (ushort)start, b = (ushort)(start + 1), c = (ushort)(start + 2), d = (ushort)(start + 3);
+            if (flip)
+            {
+                mesh.Indices.Add(b); mesh.Indices.Add(c); mesh.Indices.Add(d);
+                mesh.Indices.Add(b); mesh.Indices.Add(d); mesh.Indices.Add(a);
+            }
+            else
+            {
+                mesh.Indices.Add(a); mesh.Indices.Add(b); mesh.Indices.Add(c);
+                mesh.Indices.Add(a); mesh.Indices.Add(c); mesh.Indices.Add(d);
+            }
             mesh.Dirty = true;
             return start;
         }
