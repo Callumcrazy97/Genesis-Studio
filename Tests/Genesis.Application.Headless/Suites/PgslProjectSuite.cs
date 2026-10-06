@@ -143,6 +143,18 @@ internal static class PgslProjectSuite
                 HeadlessHarness.Assert(glowAt.R + glowAt.G + glowAt.B <= glowWas.R + glowWas.G + glowWas.B,
                     $"The sun's glow got brighter with the disc hidden ({glowWas} then {glowAt}).");
             }
+            string moonShown = Path.Combine(images, "pgsl-moon-shown.png"), moonHidden = Path.Combine(images, "pgsl-moon-hidden.png");
+            HeadlessHarness.Assert(File.Exists(moonShown) && File.Exists(moonHidden), $"Room four took no pictures of the moon. {Results("moon")}");
+            File.Copy(moonShown, Path.Combine(ctx.Captures, "pgsl-moon-shown.png"), overwrite: true);
+            File.Copy(moonHidden, Path.Combine(ctx.Captures, "pgsl-moon-hidden.png"), overwrite: true);
+            using (Bitmap shown = new(moonShown))
+            using (Bitmap hidden = new(moonHidden))
+            {
+                Color moonAt = shown.GetPixel(shown.Width / 2, shown.Height / 2);
+                Color nightAt = hidden.GetPixel(hidden.Width / 2, hidden.Height / 2);
+                HeadlessHarness.Assert(moonAt.R + moonAt.G + moonAt.B > nightAt.R + nightAt.G + nightAt.B + 60,
+                    $"Engine.Sky.MoonDiscVisible = false did not take the moon's disc away ({moonAt} then {nightAt}).");
+            }
             string third = Path.Combine(images, "pgsl-room-three.png");
             HeadlessHarness.Assert(File.Exists(third), "Room three took no picture.");
             File.Copy(third, Path.Combine(ctx.Captures, "pgsl-room-three.png"), overwrite: true);
@@ -440,7 +452,7 @@ internal static class PgslProjectSuite
         // its disc, then with Engine.Sky.SunDiscVisible = false (no disc and no glow).
         string skyProbe = Object("Sky Probe", new()
         {
-            ["Create"] = "frame = 0; stage = 0; hiddenAt = 0;",
+            ["Create"] = "frame = 0; stage = 0; hiddenAt = 0; moonAt = 0; hour = 18; wait = 0;",
             // Each picture is taken when its frame is drawn, which can be a few Steps later: the
             // disc is hidden only once the first picture has been taken.
             ["Step"] = """
@@ -455,7 +467,23 @@ internal static class PgslProjectSuite
                 }
                 if (stage == 1 && ScreenshotPending() == 0) { Engine.Sky.SunDiscVisible = false; hiddenAt = frame; stage = 2; }
                 if (stage == 2 && frame == hiddenAt + 4) { ScreenshotSave("pgsl-sun-hidden"); stage = 3; }
-                if (stage == 3 && ScreenshotPending() == 0) { Print("GENESIS_PGSL_PROJECT_DONE"); GameQuit(); }
+                // Then the moon: the first hour from 18:00 on when it stands well above the horizon.
+                if (stage == 3 && ScreenshotPending() == 0) { Engine.Sky.SetTimeOfDay(hour); wait = frame; stage = 4; }
+                if (stage == 4 && frame >= wait + 2) {
+                    if (Engine.Sky.MoonDirectionY > 0.35) { moonAt = frame; stage = 5; }
+                    else {
+                        hour += 1;
+                        if (hour >= 42) { FileWriteText("pgsl-results/moon.txt", "no moon"); stage = 9; }
+                        else { Engine.Sky.SetTimeOfDay(hour % 24); wait = frame; }
+                    }
+                }
+                if (stage >= 5) {
+                    SetCameraTarget(Engine.Sky.MoonDirectionX * 10, 2 + Engine.Sky.MoonDirectionY * 10, Engine.Sky.MoonDirectionZ * 10);
+                }
+                if (stage == 5 && frame == moonAt + 4) { ScreenshotSave("pgsl-moon-shown"); stage = 6; }
+                if (stage == 6 && ScreenshotPending() == 0) { Engine.Sky.MoonDiscVisible = false; moonAt = frame; stage = 7; }
+                if (stage == 7 && frame == moonAt + 4) { ScreenshotSave("pgsl-moon-hidden"); stage = 8; }
+                if ((stage == 8 || stage == 9) && ScreenshotPending() == 0) { Print("GENESIS_PGSL_PROJECT_DONE"); GameQuit(); }
                 """,
         });
         string fourthFile = resources.CreateResource(Path.GetDirectoryName(roomFile)!, ResourceKind.Room, "Fourth");

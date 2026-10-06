@@ -637,7 +637,7 @@ A room's atmosphere and grading can follow the hour (a hazy morning, a golden ho
 | `Engine.SetShadowStrength(amount)`, `Engine.GetShadowStrength()` | How dark shadows are, 0 (none) to 1 (full): lower it for a flat look. |
 | `Engine.Sky.SunDirectionX/Y/Z`, `Engine.Sky.MoonDirectionX/Y/Z` | The unit direction towards the sun and the moon (y up; below 0 once set), for a game that draws its own sky in line with the engine's light. |
 | `Engine.Sky.NightFactor` | 0 by day to 1 at night, as the engine blends sun and moon light. |
-| `Engine.Sky.SunDiscVisible` | Whether the sun's disc is drawn; false keeps its light. |
+| `Engine.Sky.SunDiscVisible`, `Engine.Sky.MoonDiscVisible` | Whether the sun's or the moon's disc (and the sun's glow) is drawn; false keeps their light. |
 | `Engine.SetGlobalShadows(enabled)`, `Engine.GetGlobalShadows()` | Turn the scene's shadows off or on (sun and lamps). `Engine.Rendering.ContactShadowsEnabled` controls the small screen-space contact shadows separately. |
 
 Colour tints belong to the game's look, so they are a project post effect (see

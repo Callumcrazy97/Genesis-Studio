@@ -4893,7 +4893,8 @@ namespace Genesis.Rendering.Primitives
                     nightFactor,
                     sidereal,
                     latitudeRad),
-                MoonDirPhase            = new Vector4(towardMoon, moonPhase),
+                // w < 0: the moon's disc is hidden (its light stays).
+                MoonDirPhase            = new Vector4(towardMoon, _state.HideMoonDisc ? -1f : moonPhase),
                 // w: the sun disc's size against its usual one (the sky composite's own sun).
                 CloudLayerParams        = new Vector4(_state.CloudBaseHeight,
                     _state.CloudBaseHeight + _state.CloudThickness,

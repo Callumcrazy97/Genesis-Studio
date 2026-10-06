@@ -72,6 +72,19 @@ public static partial class PgslCommands
         }
     }
 
+    [PgslCommand("MoonDiscVisible", "Engine.Sky.MoonDiscVisible",
+        "Whether the moon's disc is drawn; off keeps the moonlight (for a game drawing its own moon)", "Engine · Sky",
+        Namespace = "Engine.Sky")]
+    public static bool SkyMoonDiscVisible
+    {
+        get => !(ResolveAtmosphere()?.HideMoonDisc ?? false);
+        set
+        {
+            AtmosphereOptions atmosphere = ResolveAtmosphere();
+            if (atmosphere != null) atmosphere.HideMoonDisc = !value;
+        }
+    }
+
     // Towards the sun and the moon from the scene, as unit vectors (y up): where to draw them in a
     // game's own sky so they line up with the engine's light.
     [PgslCommand("SunDirectionX", "Engine.Sky.SunDirectionX", "X of the unit direction towards the sun", "Engine · Sky", Namespace = "Engine.Sky")]

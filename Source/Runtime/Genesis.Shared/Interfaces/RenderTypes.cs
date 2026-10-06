@@ -757,6 +757,8 @@ namespace Genesis.Shared.Interfaces
         public float   SunDiscScale;
         /// <summary>The sun's disc is not drawn; its light is unchanged (a game drawing its own sky).</summary>
         public bool    HideSunDisc;
+        /// <summary>The moon's disc is not drawn; moonlight is unchanged.</summary>
+        public bool    HideMoonDisc;
         /// <summary>
         /// AF2.6 cloud density → raymarch intensity multiplier (default 1 = identity).
         /// </summary>

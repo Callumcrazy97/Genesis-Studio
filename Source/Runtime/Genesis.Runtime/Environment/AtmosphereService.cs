@@ -32,6 +32,8 @@ public sealed class AtmosphereOptions
     public float SunDiscScale { get; set; } = 1f;
     /// <summary>The sun's disc is not drawn; its light is unchanged.</summary>
     public bool HideSunDisc { get; set; }
+    /// <summary>The moon's disc is not drawn; moonlight is unchanged.</summary>
+    public bool HideMoonDisc { get; set; }
     public float Haze { get; set; } = 0.15f;
     /// <summary>
     /// Clear-day visibility in metres: the distance at which haze has removed about 95% of the

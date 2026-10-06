@@ -133,7 +133,7 @@ cbuffer FogPostConstants : register(b1)
     // w=latitudeRadians. Sky-only stars / Milky Way / moon; Software never runs this branch.
     float4 CelestialParams;
 
-    // AF2.5: xyz = direction toward the moon, w = lunar phase 0..1.
+    // AF2.5: xyz = direction toward the moon, w = lunar phase 0..1 (below 0: disc hidden).
     float4 MoonDirPhase;
 
     // x=cloud layer base, y=top. Full-resolution depth protects foreground silhouettes.
@@ -599,7 +599,7 @@ float4 PS(VSOut IN) : SV_Target
             float moonDot = dot(viewDir, moonDir);
             float moonVisible = smoothstep(-0.035, 0.015, moonDir.y);
             float radius = radians(0.42);
-            float mask = smoothstep(cos(radius * 1.05), cos(radius), moonDot) * moonVisible;
+            float mask = MoonDirPhase.w < 0.0 ? 0.0 : smoothstep(cos(radius * 1.05), cos(radius), moonDot) * moonVisible;
             if (mask > 0.001)
             {
                 float3 upRef = abs(moonDir.y) > 0.95 ? float3(1, 0, 0) : float3(0, 1, 0);
