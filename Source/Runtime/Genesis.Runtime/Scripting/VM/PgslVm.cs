@@ -236,6 +236,14 @@ public class PgslVm
             ? _frames[_frameCount - 1]
             : null;
 
+        // The operand stack lives in locals while the loop runs: `stack` and `sp` are the truth
+        // while `local` is set; around anything that may use the VM's stack (a call, a command, a
+        // general-path instruction, the debugger) the count is set back and read again after.
+        VmValueStack store = _stack;
+        VmValue[] stack = store.Items;
+        int sp = store.Count;
+        bool local = true;
+
         try
         {
             while (pc < ops.Length)
@@ -247,7 +255,9 @@ public class PgslVm
 
                 if (Debugger is not null)
                 {
+                    store.Count = sp; local = false;
                     Debugger.BeforeInstruction(this, CreateDebugLocation(instructions[pc], pc));
+                    stack = store.Items; sp = store.Count; local = true;
                 }
 
                 if (_debugMode)
@@ -261,39 +271,54 @@ public class PgslVm
                         VarRef variable = Unsafe.As<VarRef>(op.Ref);
                         // The common case: a name this call has set, read from its slot.
                         if (frame != null && variable.Slot >= 0 && frame.Present[variable.Slot])
-                            _stack.Push(frame.Values[variable.Slot]);
+                        {
+                            if (sp == stack.Length) { store.Count = sp; stack = store.Grow(); }
+                            stack[sp++] = frame.Values[variable.Slot];
+                        }
                         else
+                        {
+                            store.Count = sp; local = false;
                             LoadVariable(variable, frame);
+                            stack = store.Items; sp = store.Count; local = true;
+                        }
                         break;
                     }
 
                     case Opcode.STORE_VAR:
                     {
-                        if (_stack.Count == 0)
+                        if (sp == 0)
                             throw new InvalidOperationException("Cannot store variable");
                         VarRef variable = Unsafe.As<VarRef>(op.Ref);
+                        VmValue value = stack[--sp];
+                        stack[sp] = default;
                         if (frame != null && variable.Kind == VarKind.FunctionLocal)
                         {
-                            frame.Values[variable.Slot] = _stack.Pop();
+                            frame.Values[variable.Slot] = value;
                             frame.Present[variable.Slot] = true;
                         }
                         else
-                            StoreVariable(variable, frame, _stack.Pop());
+                        {
+                            store.Count = sp; local = false;
+                            StoreVariable(variable, frame, value);
+                            stack = store.Items; sp = store.Count; local = true;
+                        }
                         break;
                     }
 
                     case Opcode.LOAD_CONST:
                     case Opcode.PUSH:
-                        _stack.Push(op.Constant);
+                        if (sp == stack.Length) { store.Count = sp; stack = store.Grow(); }
+                        stack[sp++] = op.Constant;
                         break;
 
                     case Opcode.PUSH_NULL:
-                        _stack.Push(default);
+                        if (sp == stack.Length) { store.Count = sp; stack = store.Grow(); }
+                        stack[sp++] = default;
                         break;
 
                     case Opcode.POP:
-                        if (_stack.Count > 0)
-                            _stack.Pop();
+                        if (sp > 0)
+                            stack[--sp] = default;
                         break;
 
                     case Opcode.JUMP:
@@ -301,18 +326,31 @@ public class PgslVm
                         break;
 
                     case Opcode.JUMP_IF_FALSE:
-                        if (_stack.Count > 0 && !_stack.Pop().Truth)
-                            pc = op.A - 1;
+                        if (sp > 0)
+                        {
+                            bool truth = stack[--sp].Truth;
+                            stack[sp] = default;
+                            if (!truth)
+                                pc = op.A - 1;
+                        }
                         break;
 
                     case Opcode.JUMP_IF_TRUE:
-                        if (_stack.Count > 0 && _stack.Pop().Truth)
-                            pc = op.A - 1;
+                        if (sp > 0)
+                        {
+                            bool truth = stack[--sp].Truth;
+                            stack[sp] = default;
+                            if (truth)
+                                pc = op.A - 1;
+                        }
                         break;
 
                     case Opcode.ADD:
                     {
-                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        if (sp < 2) ThrowBinaryUnderflow();
+                        VmValue right = stack[--sp];
+                        stack[sp] = default;
+                        ref VmValue left = ref stack[sp - 1];
                         if (left.IsString || right.IsString)
                             left = left.ToString() + right.ToString();
                         else
@@ -322,7 +360,10 @@ public class PgslVm
 
                     case Opcode.SUB:
                     {
-                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        if (sp < 2) ThrowBinaryUnderflow();
+                        VmValue right = stack[--sp];
+                        stack[sp] = default;
+                        ref VmValue left = ref stack[sp - 1];
                         double b = right.Number, a = left.Number;
                         left = a - b;
                         break;
@@ -330,7 +371,10 @@ public class PgslVm
 
                     case Opcode.MUL:
                     {
-                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        if (sp < 2) ThrowBinaryUnderflow();
+                        VmValue right = stack[--sp];
+                        stack[sp] = default;
+                        ref VmValue left = ref stack[sp - 1];
                         double b = right.Number, a = left.Number;
                         left = a * b;
                         break;
@@ -338,7 +382,10 @@ public class PgslVm
 
                     case Opcode.DIV:
                     {
-                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        if (sp < 2) ThrowBinaryUnderflow();
+                        VmValue right = stack[--sp];
+                        stack[sp] = default;
+                        ref VmValue left = ref stack[sp - 1];
                         double b = right.Number, a = left.Number;
                         left = a / b;
                         break;
@@ -346,7 +393,10 @@ public class PgslVm
 
                     case Opcode.MOD:
                     {
-                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        if (sp < 2) ThrowBinaryUnderflow();
+                        VmValue right = stack[--sp];
+                        stack[sp] = default;
+                        ref VmValue left = ref stack[sp - 1];
                         double b = right.Number, a = left.Number;
                         left = Math.Abs(b) < 1e-12 ? (VmValue)0 : a - Math.Floor(a / b) * b;
                         break;
@@ -354,7 +404,10 @@ public class PgslVm
 
                     case Opcode.LT:
                     {
-                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        if (sp < 2) ThrowBinaryUnderflow();
+                        VmValue right = stack[--sp];
+                        stack[sp] = default;
+                        ref VmValue left = ref stack[sp - 1];
                         double b = right.Number, a = left.Number;
                         left = a < b ? 1 : 0;
                         break;
@@ -362,7 +415,10 @@ public class PgslVm
 
                     case Opcode.LTE:
                     {
-                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        if (sp < 2) ThrowBinaryUnderflow();
+                        VmValue right = stack[--sp];
+                        stack[sp] = default;
+                        ref VmValue left = ref stack[sp - 1];
                         double b = right.Number, a = left.Number;
                         left = a <= b ? 1 : 0;
                         break;
@@ -370,7 +426,10 @@ public class PgslVm
 
                     case Opcode.GT:
                     {
-                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        if (sp < 2) ThrowBinaryUnderflow();
+                        VmValue right = stack[--sp];
+                        stack[sp] = default;
+                        ref VmValue left = ref stack[sp - 1];
                         double b = right.Number, a = left.Number;
                         left = a > b ? 1 : 0;
                         break;
@@ -378,7 +437,10 @@ public class PgslVm
 
                     case Opcode.GTE:
                     {
-                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        if (sp < 2) ThrowBinaryUnderflow();
+                        VmValue right = stack[--sp];
+                        stack[sp] = default;
+                        ref VmValue left = ref stack[sp - 1];
                         double b = right.Number, a = left.Number;
                         left = a >= b ? 1 : 0;
                         break;
@@ -386,42 +448,57 @@ public class PgslVm
 
                     case Opcode.EQ:
                     {
-                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        if (sp < 2) ThrowBinaryUnderflow();
+                        VmValue right = stack[--sp];
+                        stack[sp] = default;
+                        ref VmValue left = ref stack[sp - 1];
                         left = VMEquals(left, right) ? 1 : 0;
                         break;
                     }
 
                     case Opcode.NEQ:
                     {
-                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        if (sp < 2) ThrowBinaryUnderflow();
+                        VmValue right = stack[--sp];
+                        stack[sp] = default;
+                        ref VmValue left = ref stack[sp - 1];
                         left = !VMEquals(left, right) ? 1 : 0;
                         break;
                     }
 
                     case Opcode.AND:
                     {
-                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        if (sp < 2) ThrowBinaryUnderflow();
+                        VmValue right = stack[--sp];
+                        stack[sp] = default;
+                        ref VmValue left = ref stack[sp - 1];
                         left = left.Truth && right.Truth ? 1 : 0;
                         break;
                     }
 
                     case Opcode.OR:
                     {
-                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        if (sp < 2) ThrowBinaryUnderflow();
+                        VmValue right = stack[--sp];
+                        stack[sp] = default;
+                        ref VmValue left = ref stack[sp - 1];
                         left = left.Truth || right.Truth ? 1 : 0;
                         break;
                     }
 
                     case Opcode.NOT:
-                        if (_stack.Count > 0)
-                            _stack.Push(_stack.Pop().Truth ? 0 : 1);
+                        if (sp > 0)
+                            stack[sp - 1] = stack[sp - 1].Truth ? 0 : 1;
                         else
                             throw new InvalidOperationException("Cannot negate empty stack");
                         break;
 
                     case Opcode.BIT_AND:
                     {
-                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        if (sp < 2) ThrowBinaryUnderflow();
+                        VmValue right = stack[--sp];
+                        stack[sp] = default;
+                        ref VmValue left = ref stack[sp - 1];
                         int a = AsInt32(left), b = AsInt32(right);
                         left = a & b;
                         break;
@@ -429,7 +506,10 @@ public class PgslVm
 
                     case Opcode.BIT_OR:
                     {
-                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        if (sp < 2) ThrowBinaryUnderflow();
+                        VmValue right = stack[--sp];
+                        stack[sp] = default;
+                        ref VmValue left = ref stack[sp - 1];
                         int a = AsInt32(left), b = AsInt32(right);
                         left = a | b;
                         break;
@@ -437,7 +517,10 @@ public class PgslVm
 
                     case Opcode.BIT_XOR:
                     {
-                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        if (sp < 2) ThrowBinaryUnderflow();
+                        VmValue right = stack[--sp];
+                        stack[sp] = default;
+                        ref VmValue left = ref stack[sp - 1];
                         int a = AsInt32(left), b = AsInt32(right);
                         left = a ^ b;
                         break;
@@ -445,7 +528,10 @@ public class PgslVm
 
                     case Opcode.SHL:
                     {
-                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        if (sp < 2) ThrowBinaryUnderflow();
+                        VmValue right = stack[--sp];
+                        stack[sp] = default;
+                        ref VmValue left = ref stack[sp - 1];
                         int a = AsInt32(left), b = AsInt32(right);
                         left = a << b;
                         break;
@@ -453,22 +539,35 @@ public class PgslVm
 
                     case Opcode.SHR:
                     {
-                        ref VmValue left = ref _stack.CombineTop(out VmValue right);
+                        if (sp < 2) ThrowBinaryUnderflow();
+                        VmValue right = stack[--sp];
+                        stack[sp] = default;
+                        ref VmValue left = ref stack[sp - 1];
                         int a = AsInt32(left), b = AsInt32(right);
                         left = a >> b;
                         break;
                     }
 
                     case Opcode.CALL_NATIVE:
+                        store.Count = sp; local = false;
                         ExecuteNativeCall(op.A, op.B);
+                        stack = store.Items; sp = store.Count; local = true;
                         break;
 
                     case Opcode.CALL:
+                        store.Count = sp; local = false;
                         ExecuteCall(Unsafe.As<string>(op.Ref), op.B);
+                        stack = store.Items; sp = store.Count; local = true;
                         break;
 
                     case Opcode.RETURN:
-                        _returnValue = _stack.Count > 0 ? _stack.Pop() : default;
+                        if (sp > 0)
+                        {
+                            _returnValue = stack[--sp];
+                            stack[sp] = default;
+                        }
+                        else
+                            _returnValue = default;
                         _returnRequested = true;
                         goto Finished;
 
@@ -476,17 +575,21 @@ public class PgslVm
                     {
                         int slot = op.A;
                         var ctx = _bridge.GetContext();
-                        if (ctx == null || slot < 0 || slot >= PgslRegisterFile.NumberGetters.Length) _stack.Push(0.0);
-                        else if (slot == PgslRegisterFile.SlotSpriteIndex) _stack.Push(ctx.SpriteIndex ?? "");
-                        else _stack.Push(PgslRegisterFile.NumberGetters[slot](ctx));
+                        VmValue value;
+                        if (ctx == null || slot < 0 || slot >= PgslRegisterFile.NumberGetters.Length) value = 0.0;
+                        else if (slot == PgslRegisterFile.SlotSpriteIndex) value = ctx.SpriteIndex ?? "";
+                        else value = PgslRegisterFile.NumberGetters[slot](ctx);
+                        if (sp == stack.Length) { store.Count = sp; stack = store.Grow(); }
+                        stack[sp++] = value;
                         break;
                     }
 
                     case Opcode.STORE_REG:
                     {
-                        if (_stack.Count == 0)
+                        if (sp == 0)
                             throw new InvalidOperationException("Stack underflow on STORE_REG");
-                        VmValue value = _stack.Pop();
+                        VmValue value = stack[--sp];
+                        stack[sp] = default;
                         var ctx = _bridge.GetContext();
                         if (ctx != null && op.A >= 0 && op.A < PgslRegisterFile.NumberSetters.Length)
                             PgslRegisterFile.Write(ctx, op.A, value);
@@ -494,15 +597,21 @@ public class PgslVm
                     }
 
                     case Opcode.NEG:
-                        if (_stack.Count > 0)
-                            _stack.Push(-_stack.Pop().Number);
+                        if (sp > 0)
+                        {
+                            VmValue operand = stack[--sp];
+                            stack[sp] = default;
+                            stack[sp++] = -operand.Number;
+                        }
                         else
                             throw new InvalidOperationException("Cannot negate empty stack");
                         break;
 
                     default:
                         // Everything else (with-blocks, indexing, printing, unusual operands) runs as written.
+                        store.Count = sp; local = false;
                         ExecuteInstruction(instructions[pc], ref pc);
+                        stack = store.Items; sp = store.Count; local = true;
                         if (_returnRequested)
                             goto Finished;
                         break;
@@ -551,6 +660,8 @@ public class PgslVm
         }
         finally
         {
+            if (local)
+                store.Count = sp;
             InstructionsExecuted += executed;
             UnwindWith(withDepth);
             _constants = previousConstants;
@@ -1171,6 +1282,12 @@ public class PgslVm
             $"Infinite loop detected: Maximum instruction limit ({MAX_INSTRUCTIONS}) exceeded"
             + (function != null ? $" in function '{function}'" : " in this event")
             + ". Each event and each function call may run that many instructions; split long work across frames.");
+
+    // The message VmValueStack.CombineTop gives.
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    [System.Diagnostics.CodeAnalysis.DoesNotReturn]
+    private static void ThrowBinaryUnderflow() =>
+        throw new InvalidOperationException("Stack underflow for binary operation");
 
     // Kept out of ExecuteCall so its message does not enlarge every call's stack frame.
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]

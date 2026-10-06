@@ -7,7 +7,18 @@ namespace Genesis.Runtime.Scripting.VM;
 internal sealed class VmValueStack
 {
     private VmValue[] _values = new VmValue[32];
-    public int Count { get; private set; }
+    /// <summary>Values in use. The interpreter's loop keeps its own copy while it runs and sets it back.</summary>
+    public int Count { get; internal set; }
+
+    /// <summary>The storage, for the interpreter's loop (valid until the next <see cref="Grow"/>).</summary>
+    internal VmValue[] Items => _values;
+
+    /// <summary>Doubles the storage, as <see cref="Push"/> does when full, and returns it.</summary>
+    internal VmValue[] Grow()
+    {
+        Array.Resize(ref _values, checked(_values.Length * 2));
+        return _values;
+    }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Push(VmValue value)
