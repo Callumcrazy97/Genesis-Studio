@@ -7,7 +7,18 @@ namespace Genesis.Runtime.Scripting.VM;
 internal sealed class VmValueStack
 {
     private VmValue[] _values = new VmValue[32];
-    public int Count { get; private set; }
+    /// <summary>Values in use. The interpreter's loop keeps its own copy while it runs and sets it back.</summary>
+    public int Count { get; internal set; }
+
+    /// <summary>The storage, for the interpreter's loop (valid until the next <see cref="Grow"/>).</summary>
+    internal VmValue[] Items => _values;
+
+    /// <summary>Doubles the storage, as <see cref="Push"/> does when full, and returns it.</summary>
+    internal VmValue[] Grow()
+    {
+        Array.Resize(ref _values, checked(_values.Length * 2));
+        return _values;
+    }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Push(VmValue value)
@@ -40,6 +51,36 @@ internal sealed class VmValueStack
         right = _values[--Count];
         _values[Count] = default;
         return ref _values[Count - 1];
+    }
+
+    /// <summary>
+    /// True when the top values are what a typed command call takes as they are: an unboxed
+    /// number for each number or bool parameter, text or nothing for each text parameter.
+    /// </summary>
+    public bool TopMatches(PgslEngineBridge.ArgumentKind[] kinds)
+    {
+        int start = Count - kinds.Length;
+        for (int i = 0; i < kinds.Length; i++)
+        {
+            ref VmValue value = ref _values[start + i];
+            if (kinds[i] == PgslEngineBridge.ArgumentKind.Text ? !(value.IsString || value.IsNull) : !value.IsUnboxedNumber)
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>Pops the top values into a typed call's arrays (numbers and text), first pushed first.</summary>
+    public void PopArguments(PgslEngineBridge.ArgumentKind[] kinds, double[] numbers, object[] texts)
+    {
+        int start = Count - kinds.Length;
+        for (int i = 0; i < kinds.Length; i++)
+        {
+            ref VmValue value = ref _values[start + i];
+            if (kinds[i] == PgslEngineBridge.ArgumentKind.Text) texts[i] = value.ToObject();
+            else numbers[i] = value.Number;
+            value = default;
+        }
+        Count = start;
     }
 
     public void Clear()

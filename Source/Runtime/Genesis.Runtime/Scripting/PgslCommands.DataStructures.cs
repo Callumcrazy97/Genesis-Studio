@@ -45,17 +45,32 @@ public static partial class PgslCommands
     {
         Dictionary<string, object> store = Store;
         if (store is null) return null;
-        return store.TryGetValue($"__ds_{family}_{(int)handle}", out object existing) ? existing as T : null;
+        return store.TryGetValue(DsKey(family, (int)handle), out object existing) ? existing as T : null;
     }
 
     private static void Bind(string family, int handle, object value)
     {
         Dictionary<string, object> store = Store;
-        if (store is not null) store[$"__ds_{family}_{handle}"] = value;
+        if (store is not null) store[DsKey(family, handle)] = value;
     }
 
     private static void Unbind(string family, double handle) =>
-        Store?.Remove($"__ds_{family}_{(int)handle}");
+        Store?.Remove(DsKey(family, (int)handle));
+
+    // Every list or grid read looks its structure up by key; the keys of the first handles of each
+    // family are made once instead of formatted (and allocated) on every call.
+    private static readonly string[][] DsKeys = [new string[4096], new string[4096], new string[4096], new string[4096], new string[4096]];
+
+    private static string DsKey(string family, int handle)
+    {
+        string[] keys = family switch
+        {
+            "list" => DsKeys[0], "grid" => DsKeys[1], "map" => DsKeys[2], "stack" => DsKeys[3], "queue" => DsKeys[4],
+            _ => null,
+        };
+        if (keys is null || (uint)handle >= (uint)keys.Length) return $"__ds_{family}_{handle}";
+        return keys[handle] ??= $"__ds_{family}_{handle}";
+    }
 
     private static double AsNumber(object value) => value switch
     {

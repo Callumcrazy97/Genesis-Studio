@@ -1599,6 +1599,9 @@ internal static class HeadlessTestRunner
             case "speed":
                 Suites.SpeedSuite.Run(ctx);
                 break;
+            case "vm-speed":
+                Suites.VmSpeedSuite.Run(ctx);
+                break;
             case "asset-import":
                 Suites.AssetImportSuite.Run(ctx);
                 break;

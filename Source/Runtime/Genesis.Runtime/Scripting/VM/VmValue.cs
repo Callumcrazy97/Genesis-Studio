@@ -18,6 +18,8 @@ internal readonly struct VmValue
     { _number = number; _reference = reference; }
 
     public bool IsNull => _reference == null;
+    /// <summary>An unboxed double, integer or boolean: <see cref="Number"/> is its value, no conversion.</summary>
+    public bool IsUnboxedNumber { [MethodImpl(MethodImplOptions.AggressiveInlining)] get => _reference is Marker; }
     public bool IsString => _reference is string;
     public bool IsBoolean => ReferenceEquals(_reference, BooleanMarker);
     public bool IsNumeric => (_reference is Marker marker && marker.Kind < 2)

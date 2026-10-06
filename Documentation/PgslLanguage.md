@@ -29,6 +29,9 @@ limits, and what happens on a mistake. Every statement below is checked by the h
 
 ## Variables and scope
 
+- **Names are case-sensitive**: `mbx` and `mbX` are two variables, in an event, in a function and
+  on the instance alike, so a function's `var mbx` never stands in for the instance's `mbX`. Only
+  the built-in instance variables (below) are the same whatever their case.
 - In an event, a plain assignment (`hp = 5`) sets the instance's variable, and so does `var hp`.
 - **Inside a function**, a plain assignment or `var` makes a variable of that call, gone when it
   returns. To set the instance's own variable from a function write **`self.hp = 5`** (read it with
@@ -71,6 +74,42 @@ limits, and what happens on a mistake. Every statement below is checked by the h
 | Instructions | 100 000 per event body and per function call (each call has its own count) | "Infinite loop detected: Maximum instruction limit (100000) exceeded in function 'Name'". Split long work over several frames. |
 | Recursion | 200 calls deep | "Too much recursion: 'Name' is 200 calls deep". Use a loop with a list or stack (`DsStack*`) for deep work. |
 | Script calls | 64 Script resources deep | |
+
+## Speed
+
+The VM decodes each event body and function once (operands unboxed, constants converted, every
+name resolved) and reuses that, keeping the operand stack in locals while it runs. A function's
+parameters and `var` names live in numbered slots of its frame; a name it has not set is still
+looked for in each caller's frame and then the instance, exactly as before. A command whose
+parameters are all numbers, bools or text (`DsGridGet`, `DsListGet`, `DsMapGet`, `Floor`, `Clamp`,
+`MeshAddVertex`, `VariableSet`...) is called through a compiled call that takes numbers unboxed and
+text as it is; any other value (text for a number, a list, an object, `params`) goes the general
+way with the same conversions and errors. Nothing about the language changed: scoping, `self.`,
+the instruction budget and count, and every message are the same, and `--test vm-speed` checks that
+a voxel project's light spread and chunk mesher produce the same light, faces and vertices as
+before.
+
+`--test vm-speed` times the VM as the Player runs it (one instance's VM, no diagnostics collector)
+and writes `vm-speed.md` beside its captures and `Logs\vm-speed.json`. Before and after, run in
+turn three times each on the development PC, 6 Oct 2026; fastest runs (the medians give the same
+ratios):
+
+| Workload | Before | After |
+|---|---:|---:|
+| Arithmetic loop on locals (per instruction) | 10.8 ns | 2.6 ns |
+| Small user-function call, overhead per call (median) | 100 to 180 ns | 53 ns |
+| `DsGridSet` / `DsGridGet` / `DsListGet` in a loop (per command) | 1 230 ns | 59 ns |
+| `Clamp`, `Floor`, `Max`, a 13-argument `MeshAddVertex` in a loop (per command) | 382 ns | 45 ns |
+| Voxel light spread, 10 920 cells (`McLightSpreadSome`, about 640 instructions a cell) | 189 ms | 37 ms |
+| Voxel chunk mesh, 1 740 smooth-lit faces (`McBuildColumn` / `McCubeFaces` / `McFaceLit`) | 84 ms | 17 ms |
+
+What things cost now, roughly (one loop body, the loop itself subtracted): an instruction 2 to 3 ns;
+`t = i` on locals 5 ns; reading an instance variable inside a function 14 ns, plus about 2 ns for
+each caller in between; `Floor(i)` 14 ns; `Clamp(i, 0, 9)` 25 ns; `DsListGet`, `DsGridGet`,
+`DsMapGet`, `VariableSet` 35 to 50 ns; a call of a small function 60 to 75 ns. So keep hot values in
+`var` locals (copy an instance variable into one before a long loop), write a two-line helper inline
+in a loop of thousands, and prefer one command over a loop of small ones where the engine has it
+(`DsGridSetRegion`, `MeshAddCube`).
 
 ## Mistakes
 

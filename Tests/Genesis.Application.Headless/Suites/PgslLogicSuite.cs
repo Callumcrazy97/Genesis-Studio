@@ -135,6 +135,9 @@ internal static class PgslLogicSuite
             function Twice(value) { return value * 2; }
             function SetHpSelf() { self.hp3 = 8; self.x = 12; }
             function ReadHpSelf() { var hp3 = 1; return self.hp3; }
+            function CaseCopy() { var mbx = DsListGet(mbX, 0); DsListSet(mbX, 0, mbx + 1); return mbx; }
+            function LocalCase() { var Count = 3; count = 5; return Count; }
+            function BuiltinAnyCase() { return Speed; }
             hp = 1;
             SetHp();
             b_plain_assignment_in_function_reaches_instance = (hp == 5) ? 1 : 0;
@@ -161,6 +164,12 @@ internal static class PgslLogicSuite
             t_event_var = (local == 3) ? 1 : 0;
             text = "hi";
             t_string_variable = (text == "hi") ? 1 : 0;
+            victim = DsListCreate(); DsListAdd(victim, 100);
+            mbX = DsListCreate(); DsListAdd(mbX, victim);
+            got = CaseCopy();
+            t_function_local_mbx_is_not_instance_mbX = (got == victim && DsListGet(mbX, 0) == victim + 1 && DsListGet(victim, 0) == 100) ? 1 : 0;
+            t_function_names_differ_by_case = (LocalCase() == 3) ? 1 : 0;
+            t_builtin_instance_variables_ignore_case = (BuiltinAnyCase() == 4) ? 1 : 0;
             """),
         ("Strings", """
             t_length = (StringLength("hello") == 5) ? 1 : 0;

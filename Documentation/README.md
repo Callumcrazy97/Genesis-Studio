@@ -1565,7 +1565,10 @@ are listed in `HeadlessTestRunner.Tiers`. The Full Build remains the release che
 `--test speed` times opening the 3D Nature Walk project in Studio, opening each 3D editor, F5's
 script check, and the newest built Player's start and idle allocation rate, and writes the numbers
 to `Logs\speed-timings.json`; `GENESIS_SPEED_PROJECT=<a copy of a project>` also times opening that
-project and `GENESIS_SPEED_ONLY=Terrain,Room` limits it to some editors. Run (F5) reuses
+project and `GENESIS_SPEED_ONLY=Terrain,Room` limits it to some editors. `--test vm-speed` times
+the PGSL VM on its own (locals, calls, list and grid commands, numeric commands, and a voxel
+project's light spread and chunk mesher, whose results it checks) with a per-operation profile;
+see "Speed" in `PgslLanguage.md` (`GENESIS_VM_SPEED_SAMPLES` sets the runs per workload). Run (F5) reuses
 `<project>\.genesis\Run\GameScripts.dll` when the project's C# scripts, their resource names and the
 engine libraries are what it was compiled from (a digest of them is kept beside it in
 `GameScripts.dll.inputs`); PGSL is still checked on every press. On Golden Stag (27 C# scripts) a
