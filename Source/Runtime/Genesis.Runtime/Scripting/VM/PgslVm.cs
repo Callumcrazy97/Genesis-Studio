@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using Genesis.Runtime.Scripting.PG;
 using Genesis.Shared.Scripting;
 
@@ -256,14 +257,30 @@ public class PgslVm
                 switch (op.Code)
                 {
                     case Opcode.LOAD_VAR:
-                        LoadVariable((VarRef)op.Ref, frame);
+                    {
+                        VarRef variable = Unsafe.As<VarRef>(op.Ref);
+                        // The common case: a name this call has set, read from its slot.
+                        if (frame != null && variable.Slot >= 0 && frame.Present[variable.Slot])
+                            _stack.Push(frame.Values[variable.Slot]);
+                        else
+                            LoadVariable(variable, frame);
                         break;
+                    }
 
                     case Opcode.STORE_VAR:
+                    {
                         if (_stack.Count == 0)
                             throw new InvalidOperationException("Cannot store variable");
-                        StoreVariable((VarRef)op.Ref, frame, _stack.Pop());
+                        VarRef variable = Unsafe.As<VarRef>(op.Ref);
+                        if (frame != null && variable.Kind == VarKind.FunctionLocal)
+                        {
+                            frame.Values[variable.Slot] = _stack.Pop();
+                            frame.Present[variable.Slot] = true;
+                        }
+                        else
+                            StoreVariable(variable, frame, _stack.Pop());
                         break;
+                    }
 
                     case Opcode.LOAD_CONST:
                     case Opcode.PUSH:
@@ -447,13 +464,13 @@ public class PgslVm
                         break;
 
                     case Opcode.CALL:
-                        ExecuteCall((string)op.Ref, op.B);
+                        ExecuteCall(Unsafe.As<string>(op.Ref), op.B);
                         break;
 
                     case Opcode.RETURN:
                         _returnValue = _stack.Count > 0 ? _stack.Pop() : default;
                         _returnRequested = true;
-                        break;
+                        goto Finished;
 
                     case Opcode.LOAD_REG:
                     {
@@ -486,13 +503,13 @@ public class PgslVm
                     default:
                         // Everything else (with-blocks, indexing, printing, unusual operands) runs as written.
                         ExecuteInstruction(instructions[pc], ref pc);
+                        if (_returnRequested)
+                            goto Finished;
                         break;
                 }
                 pc++;
-
-                if (_returnRequested)
-                    break;
             }
+            Finished:
 
             if (_debugMode)
             {

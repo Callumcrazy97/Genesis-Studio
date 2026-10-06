@@ -243,7 +243,7 @@ internal static class VmSpeedSuite
                 measures.Add(new Measure("(e) chunk mesh geometry checksum (vertices " + vertices.ToString(CultureInfo.InvariantCulture) + ")",
                     0, 0, 0, 0, "", sum.ToString("R", CultureInfo.InvariantCulture)));
                 Check(vertices == MeshFaces * 4, $"The mesher made {vertices} vertices, not {MeshFaces * 4}.");
-                Check(MeshGeometryChecksum == 0 || sum == MeshGeometryChecksum, $"The mesh geometry checksum is {sum:R}, not {MeshGeometryChecksum:R}.");
+                Check(sum == MeshGeometryChecksum, $"The mesh geometry checksum is {sum:R}, not {MeshGeometryChecksum:R}.");
             });
 
             HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.VmSpeed.Profile", () =>
@@ -342,7 +342,7 @@ internal static class VmSpeedSuite
 
     // The voxel workload's own results, recorded from the VM before it was optimised: every later
     // VM must light and mesh the world exactly the same.
-    private const double LightCells = 10920, LightChecksum = 188552302, MeshFaces = 1740, MeshGeometryChecksum = 0;
+    private const double LightCells = 10920, LightChecksum = 188552302, MeshFaces = 1740, MeshGeometryChecksum = 123593722.76293945;
 
     private static void Check(bool condition, string message) => HeadlessHarness.Assert(condition, message);
 
