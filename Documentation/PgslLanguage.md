@@ -29,6 +29,9 @@ limits, and what happens on a mistake. Every statement below is checked by the h
 
 ## Variables and scope
 
+- **Names are case-sensitive**: `mbx` and `mbX` are two variables, in an event, in a function and
+  on the instance alike, so a function's `var mbx` never stands in for the instance's `mbX`. Only
+  the built-in instance variables (below) are the same whatever their case.
 - In an event, a plain assignment (`hp = 5`) sets the instance's variable, and so does `var hp`.
 - **Inside a function**, a plain assignment or `var` makes a variable of that call, gone when it
   returns. To set the instance's own variable from a function write **`self.hp = 5`** (read it with

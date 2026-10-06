@@ -70,7 +70,8 @@ public sealed class ObjectSandboxLiveInstance
     public IReadOnlyDictionary<string, object> ScriptVariables => WithContext(() =>
         _vm.GetVariables()
             .Where(pair => IsInspectable(pair.Key, pair.Value))
-            .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase));
+            // Script variables are case-sensitive: `mbx` and `mbX` are two of them.
+            .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal));
 
     /// <summary>
     /// Event that first introduced each persistent variable. A variable subsequently changed by

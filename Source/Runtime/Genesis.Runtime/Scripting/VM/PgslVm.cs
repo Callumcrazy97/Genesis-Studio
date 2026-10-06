@@ -1310,7 +1310,9 @@ public class PgslVm
         int programCounter,
         string errorMessage = "")
     {
-        Dictionary<string, object> variables = _variables.ToDictionary(pair => pair.Key, pair => pair.Value.ToObject(), StringComparer.OrdinalIgnoreCase);
+        // Names differ by case (a function's `mbx` beside the instance's `mbX`), so the debugger
+        // lists them as they are.
+        Dictionary<string, object> variables = _variables.ToDictionary(pair => pair.Key, pair => pair.Value.ToObject(), StringComparer.Ordinal);
         for (int i = 0; i < _frameCount; i++)
         {
             foreach ((string name, VmValue value) in _frames[i].Entries()) variables[name] = value.ToObject();
@@ -1344,7 +1346,8 @@ public class PgslVm
     }
 
     // A name is looked for in the innermost call's frame, then each caller's, then the instance's
-    // variables. Frames compare names without case; the instance's variables with case.
+    // variables. Every one of them compares names with case: a function's `mbx` is not the
+    // instance's `mbX` (only the built-in instance variables, compiled to registers, ignore case).
     private bool TryGetVariable(string name, out VmValue value) =>
         TryGetVariable(_frameCount > 0 ? PgslSymbols.Find(name) : -1, name, _frameCount - 1, out value);
 

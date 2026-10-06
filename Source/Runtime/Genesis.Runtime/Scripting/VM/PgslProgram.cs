@@ -8,13 +8,14 @@ using System.Threading;
 namespace Genesis.Runtime.Scripting.VM;
 
 /// <summary>
-/// Case-insensitive numbers for variable names, as a function's variables are named (two
-/// spellings of one name are one variable in a function frame). Given out when bytecode is decoded,
-/// so a frame finds a name by comparing numbers rather than hashing text.
+/// Numbers for variable names, given out when bytecode is decoded, so a frame finds a name by
+/// comparing numbers rather than hashing text. Names are case-sensitive, as the instance's
+/// variables are: <c>mbx</c> and <c>mbX</c> are two variables. Only the built-in instance
+/// variables are the same whatever their case, and the compiler turns those into registers.
 /// </summary>
 internal static class PgslSymbols
 {
-    private static readonly ConcurrentDictionary<string, int> Ids = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, int> Ids = new(StringComparer.Ordinal);
     private static int _next;
 
     public static int Of(string name) => Ids.GetOrAdd(name, static _ => Interlocked.Increment(ref _next));
@@ -110,7 +111,7 @@ internal sealed class VariableFrame
             Present[slot] = true;
             return;
         }
-        (_extra ??= new Dictionary<string, VmValue>(StringComparer.OrdinalIgnoreCase))[name] = value;
+        (_extra ??= new Dictionary<string, VmValue>(StringComparer.Ordinal))[name] = value;
     }
 
     /// <summary>Every assigned variable, for the debugger.</summary>

@@ -275,7 +275,7 @@ internal static class VmSpeedSuite
                 PgslDebugLocation? inner = pauses.FirstOrDefault(p => p.FunctionName == "Inner");
                 HeadlessHarness.Assert(inner != null, $"The debugger did not stop inside Inner ({pauses.Count} pauses).");
                 double Read(string name) => inner!.Variables.TryGetValue(name, out object? value) ? Convert.ToDouble(value, CultureInfo.InvariantCulture) : double.NaN;
-                HeadlessHarness.Assert(Read("a") == 4 && Read("b") == 3 && Read("s") == 7 && Read("t") == 7 && Read("mine") == 4 && Read("top") == 7,
+                HeadlessHarness.Assert(Read("a") == 4 && Read("b") == 3 && Read("s") == 7 && Read("T") == 7 && Read("mine") == 4 && Read("top") == 7,
                     "The debugger's variables inside Inner: " + string.Join(", ", inner!.Variables.Select(pair => pair.Key + "=" + pair.Value)));
                 HeadlessHarness.Assert(inner.CallStack.SequenceEqual(new[] { "Outer", "Inner" }),
                     "The debugger's call stack inside Inner: " + string.Join(" > ", inner.CallStack));
