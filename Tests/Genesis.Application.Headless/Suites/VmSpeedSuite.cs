@@ -246,6 +246,39 @@ internal static class VmSpeedSuite
                 Check(sum == MeshGeometryChecksum, $"The mesh geometry checksum is {sum:R}, not {MeshGeometryChecksum:R}.");
             });
 
+            // Function variables live in frame slots now: the debugger must still list them (with
+            // the caller's and the instance's), name the function and keep the call stack.
+            HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.VmSpeed.DebuggerSeesFrameVariables", () =>
+            {
+                using Bench bench = new();
+                bench.Run("top = 7;");
+                CompileResult code = VMEngine.Compile("""
+                    function Inner(a, b) { var s = a + b; var T = top;
+                        return s * 2; }
+                    function Outer(n) { var mine = n; return Inner(n, 3); }
+                    r = Outer(4);
+                    """) ?? throw new InvalidOperationException("The debugger script did not compile.");
+                List<PgslDebugLocation> pauses = [];
+                using PgslDebugController debugger = new() { BreakOnStart = false };
+                debugger.SetBreakpoints([2]);
+                debugger.Paused += (_, location) => { pauses.Add(location); debugger.Continue(); };
+                bench.Vm.Debugger = debugger;
+                try
+                {
+                    bench.Vm.LoadUserFunctions(code.UserFunctions);
+                    bench.Vm.Execute(code.Instructions, code.Constants, clearVariables: false);
+                }
+                finally { bench.Vm.Debugger = null; }
+                PgslDebugLocation? inner = pauses.FirstOrDefault(p => p.FunctionName == "Inner");
+                HeadlessHarness.Assert(inner != null, $"The debugger did not stop inside Inner ({pauses.Count} pauses).");
+                double Read(string name) => inner!.Variables.TryGetValue(name, out object? value) ? Convert.ToDouble(value, CultureInfo.InvariantCulture) : double.NaN;
+                HeadlessHarness.Assert(Read("a") == 4 && Read("b") == 3 && Read("s") == 7 && Read("t") == 7 && Read("mine") == 4 && Read("top") == 7,
+                    "The debugger's variables inside Inner: " + string.Join(", ", inner!.Variables.Select(pair => pair.Key + "=" + pair.Value)));
+                HeadlessHarness.Assert(inner.CallStack.SequenceEqual(new[] { "Outer", "Inner" }),
+                    "The debugger's call stack inside Inner: " + string.Join(" > ", inner.CallStack));
+                HeadlessHarness.Assert(bench.Number("r = r;") == 14, "Outer(4) under the debugger did not return 14.");
+            });
+
             HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.VmSpeed.Profile", () =>
             {
                 using Bench bench = new() { UseMinimum = true };
