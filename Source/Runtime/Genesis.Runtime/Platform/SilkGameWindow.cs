@@ -248,6 +248,10 @@ namespace Genesis.Runtime.Platform
         public void SetCursorMode(GCursorMode mode)
         {
             if (_window == null) return;
+            // Asking again for the mode already in force changes nothing: resetting the look
+            // tracking here lost a move event every time a script repeated SetMouseCaptured(true).
+            if (mode == _desiredCursorMode && !_cursorApplyPending && _cursorModeApplied
+                && _primaryMouse?.Cursor?.CursorMode == SilkCursorMode(mode)) return;
             _desiredCursorMode = mode;
             _cursorApplyPending = true;
             ApplyCursorModeIfReady();
@@ -264,12 +268,7 @@ namespace Genesis.Runtime.Platform
                 return;
 
             var silkCursor = _primaryMouse.Cursor;
-            silkCursor.CursorMode = _desiredCursorMode switch
-            {
-                GCursorMode.Locked => Silk.NET.Input.CursorMode.Disabled,
-                GCursorMode.Hidden => Silk.NET.Input.CursorMode.Hidden,
-                _ => Silk.NET.Input.CursorMode.Normal,
-            };
+            silkCursor.CursorMode = SilkCursorMode(_desiredCursorMode);
 
             if (_desiredCursorMode == GCursorMode.Normal)
             {
@@ -279,7 +278,23 @@ namespace Genesis.Runtime.Platform
             }
 
             _cursorApplyPending = false;
+            _cursorModeApplied = true;
         }
+
+        private bool _cursorModeApplied;
+
+        private static Silk.NET.Input.CursorMode SilkCursorMode(GCursorMode mode) => mode switch
+        {
+            GCursorMode.Locked => Silk.NET.Input.CursorMode.Disabled,
+            GCursorMode.Hidden => Silk.NET.Input.CursorMode.Hidden,
+            _ => Silk.NET.Input.CursorMode.Normal,
+        };
+
+        /// <summary>
+        /// A single captured move larger than this is a jump (the cursor put back after the window
+        /// regained focus), not a turn. A fast flick at 60 fps is a few hundred pixels.
+        /// </summary>
+        private const float MaxLookStepSquared = 2000f * 2000f;
 
         /// <summary>
         /// Win32 can keep the display counter negative after GLFW cursor capture; reset so the OS
@@ -600,8 +615,10 @@ namespace Genesis.Runtime.Platform
                     _input.OnMouseMove(pos.X, pos.Y);
                     if (_haveMousePos && _mouseCaptured)
                     {
+                        // The first event after a capture change only sets the position
+                        // (_haveMousePos); after that every move is a real turn, however fast.
                         Vector2 delta = pos - _lastMousePos;
-                        if (delta.LengthSquared() <= 2500f)
+                        if (delta.LengthSquared() <= MaxLookStepSquared)
                             _lookAccum += delta;
                     }
                     _lastMousePos = pos;
