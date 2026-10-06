@@ -42,6 +42,26 @@ internal sealed class VmValueStack
         return ref _values[Count - 1];
     }
 
+    /// <summary>True when the top <paramref name="count"/> values are all unboxed numbers.</summary>
+    public bool TopAreNumbers(int count)
+    {
+        for (int i = Count - count; i < Count; i++)
+            if (!_values[i].IsUnboxedNumber) return false;
+        return true;
+    }
+
+    /// <summary>Pops the top <paramref name="count"/> numbers into <paramref name="into"/>, first pushed first.</summary>
+    public void PopNumbers(double[] into, int count)
+    {
+        int start = Count - count;
+        for (int i = 0; i < count; i++)
+        {
+            into[i] = _values[start + i].Number;
+            _values[start + i] = default;
+        }
+        Count = start;
+    }
+
     public void Clear()
     {
         Array.Clear(_values, 0, Count);

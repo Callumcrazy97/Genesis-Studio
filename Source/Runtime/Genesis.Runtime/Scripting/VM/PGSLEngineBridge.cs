@@ -19,13 +19,13 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
     private readonly Dictionary<string, PropertyInfo> _propertyCache = new();
     private static Dictionary<string, PropertyInfo> _staticContextPropCache;
     private readonly Dictionary<MethodInfo, Func<object[], object>> _delegateCache = new();
-    private readonly Dictionary<MethodInfo, ParameterInfo[]> _parameterCache = new();
     private readonly Type _hostType = typeof(PgslCommands);
     private PgslContext _context;
 
     private Func<object[], object>[] _nativeTable;
     private bool[] _nativeIsVoid;
     private string[] _nativeNames;
+    private CommandDef[] _nativeDefs = Array.Empty<CommandDef>();
     private Dictionary<string, int> _nativeIdMap;
 
     public IReadOnlyDictionary<string, int> NativeIdMap => _nativeIdMap;
@@ -79,19 +79,108 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
     public object InvokeNative(int id, object[] args) => _nativeTable[id](args);
     public bool IsNativeVoid(int id) => id >= 0 && id < _nativeIsVoid?.Length && _nativeIsVoid[id];
 
+    /// <summary>
+    /// How a command is called with a given number of arguments, worked out once: the overload,
+    /// its parameters, and, when every parameter is a number, a compiled call that takes the
+    /// numbers unboxed. The VM calls through this instead of resolving the command on every call.
+    /// </summary>
+    internal sealed class NativeCall
+    {
+        public int ArgumentCount;
+        /// <summary>The command's own entry (a property, or a method resolved by name per call).</summary>
+        public Func<object[], object> Entry;
+        public MethodInfo Method;
+        public MethodPlan Plan;
+        public Func<double[], double> NumberCall;
+        public Func<double[], bool> BoolCall;
+        public Action<double[]> VoidCall;
+        public Func<double[], object> ObjectCall;
+        public bool Numeric => NumberCall != null || BoolCall != null || VoidCall != null || ObjectCall != null;
+    }
+
+    /// <summary>A method's parameters as argument conversion needs them, read by reflection once.</summary>
+    internal sealed class MethodPlan
+    {
+        public ParameterInfo[] Parameters;
+        public bool[] IsParams;
+        public Type[] ParamsElementTypes;
+        public Func<object[], object> Invoke;
+    }
+
+    private NativeCall[] _nativeCalls = Array.Empty<NativeCall>();
+    private readonly Dictionary<MethodInfo, MethodPlan> _planCache = new();
+
+    /// <summary>Generation of the command table; bytecode caches made against an older table are not reused.</summary>
+    internal int Generation { get; private set; }
+
+    internal NativeCall GetNativeCall(int id, int argumentCount)
+    {
+        NativeCall[] calls = _nativeCalls;
+        if ((uint)id < (uint)calls.Length && calls[id] is { } cached && cached.ArgumentCount == argumentCount)
+            return cached;
+        return CreateNativeCall(id, argumentCount);
+    }
+
+    private NativeCall CreateNativeCall(int id, int argumentCount)
+    {
+        var call = new NativeCall { ArgumentCount = argumentCount, Entry = _nativeTable[id] };
+        CommandDef def = _nativeDefs[id];
+        if (!def.IsProperty)
+        {
+            // The same overload CallMethod picks for this many arguments.
+            call.Method = ResolveMethod(def.CSharpMember, argumentCount);
+            if (call.Method != null)
+            {
+                call.Plan = GetPlan(call.Method);
+                CompileNumericCall(call);
+            }
+        }
+        if ((uint)id < (uint)_nativeCalls.Length) _nativeCalls[id] = call;
+        return call;
+    }
+
+    // Commands whose every parameter is a number, called with exactly that many: a compiled call
+    // over a reusable double[] (no object[] of boxed numbers, no per-argument conversion).
+    private static void CompileNumericCall(NativeCall call)
+    {
+        ParameterInfo[] parameters = call.Plan.Parameters;
+        if (parameters.Length != call.ArgumentCount) return;
+        for (int i = 0; i < parameters.Length; i++)
+            if (parameters[i].ParameterType != typeof(double) || call.Plan.IsParams[i]) return;
+
+        var values = Expression.Parameter(typeof(double[]), "values");
+        var arguments = new Expression[parameters.Length];
+        for (int i = 0; i < parameters.Length; i++)
+            arguments[i] = Expression.ArrayIndex(values, Expression.Constant(i));
+        Expression body = Expression.Call(null, call.Method, arguments);
+        Type returns = call.Method.ReturnType;
+        if (returns == typeof(double)) call.NumberCall = Expression.Lambda<Func<double[], double>>(body, values).Compile();
+        else if (returns == typeof(bool)) call.BoolCall = Expression.Lambda<Func<double[], bool>>(body, values).Compile();
+        else if (returns == typeof(void)) call.VoidCall = Expression.Lambda<Action<double[]>>(body, values).Compile();
+        else call.ObjectCall = Expression.Lambda<Func<double[], object>>(Expression.Convert(body, typeof(object)), values).Compile();
+    }
+
+    /// <summary>Calls a command through its cached plan: the same conversions and errors as <see cref="InvokeNative"/>.</summary>
+    internal object InvokeNative(NativeCall call, object[] args) =>
+        call.Method == null ? call.Entry(args) : CallMethod(call.Method, call.Plan, args);
+
     public void BuildNativeCallTable()
     {
         var entries = new List<KeyValuePair<string, CommandDef>>(_commandDefs);
         _nativeTable = new Func<object[], object>[entries.Count];
         _nativeIsVoid = new bool[entries.Count];
         _nativeNames = new string[entries.Count];
+        _nativeDefs = new CommandDef[entries.Count];
+        _nativeCalls = new NativeCall[entries.Count];
         _nativeIdMap = new Dictionary<string, int>(entries.Count, StringComparer.OrdinalIgnoreCase);
+        Generation++;
 
         for (int i = 0; i < entries.Count; i++)
         {
             var def = entries[i].Value;
             _nativeIdMap[entries[i].Key] = i;
             _nativeNames[i] = def.Name ?? entries[i].Key;
+            _nativeDefs[i] = def;
 
             if (def.IsProperty)
             {
@@ -264,22 +353,43 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
         var method = ResolveMethod(csharpMember, args.Length);
         if (method == null)
             throw new InvalidOperationException($"Method not found: {csharpMember} with {args.Length} arguments");
+        return CallMethod(method, GetPlan(method), args);
+    }
 
-        if (!_parameterCache.TryGetValue(method, out ParameterInfo[] parameters))
+    private MethodPlan GetPlan(MethodInfo method)
+    {
+        if (_planCache.TryGetValue(method, out MethodPlan plan)) return plan;
+        ParameterInfo[] parameters = method.GetParameters();
+        plan = new MethodPlan
         {
-            parameters = method.GetParameters();
-            _parameterCache[method] = parameters;
+            Parameters = parameters,
+            IsParams = new bool[parameters.Length],
+            ParamsElementTypes = new Type[parameters.Length],
+            Invoke = GetOrCreateDelegate(method),
+        };
+        for (int i = 0; i < parameters.Length; i++)
+        {
+            plan.IsParams[i] = parameters[i].IsDefined(typeof(ParamArrayAttribute), false);
+            if (plan.IsParams[i]) plan.ParamsElementTypes[i] = parameters[i].ParameterType.GetElementType() ?? typeof(object);
         }
-        if (parameters.Length == 0) return GetOrCreateDelegate(method)(Array.Empty<object>());
+        _planCache[method] = plan;
+        return plan;
+    }
+
+    private static object CallMethod(MethodInfo method, MethodPlan plan, object[] args)
+    {
+        args ??= Array.Empty<object>();
+        ParameterInfo[] parameters = plan.Parameters;
+        if (parameters.Length == 0) return plan.Invoke(Array.Empty<object>());
 
         object[] callArgs = ArrayPool<object>.Shared.Rent(parameters.Length);
         try
         {
             for (int i = 0; i < parameters.Length; i++)
             {
-                if (parameters[i].IsDefined(typeof(ParamArrayAttribute), false))
+                if (plan.IsParams[i])
                 {
-                    Type elementType = parameters[i].ParameterType.GetElementType() ?? typeof(object);
+                    Type elementType = plan.ParamsElementTypes[i];
                     int count = Math.Max(0, args.Length - i);
                     Array tail = Array.CreateInstance(elementType, count);
                     for (int j = 0; j < count; j++) tail.SetValue(ConvertArg(args[i + j], elementType), j);
@@ -298,7 +408,7 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
                         : null;
                 }
             }
-            return GetOrCreateDelegate(method)(callArgs);
+            return plan.Invoke(callArgs);
         }
         finally
         {

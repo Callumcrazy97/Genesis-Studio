@@ -1,0 +1,178 @@
+// VM speed benchmark: the light-propagation hot loop of a voxel test project (McLight.pgsl), copied
+// unchanged, on a small standalone world: one 16 x 16 chunk, stone below y 50 with a cave (x and z 2..13,
+// y 10..35) and a sky shaft (x and z 7..8, y 36..49). Four torches light the cave and the sky pours down
+// the shaft. Only data and helpers the copied functions read are defined here; nothing is engine-specific.
+
+// ---- helpers the copied functions call (simplified stand-ins for the project's McWorld) ----
+function McNewList(n) { var l = DsListCreate(); for (var i = 0; i < n; i = i + 1) { DsListAdd(l, 0); } return l; }
+function McSlot(cx, cz) { return (cx & 15) * 16 + (cz & 15); }
+
+// ---- copied from McLight.pgsl ----
+function McColLoaded(bx, bz) {
+    var s = McSlot(bx >> 4, bz >> 4);
+    return DsListGet(chkCx, s) == (bx >> 4) && DsListGet(chkCz, s) == (bz >> 4) && DsListGet(chkState, s) >= 1;
+}
+function McLightTouch(bx, by, bz) {
+    McTouchGroup(bx, bz);
+    var lz = bz & 3; var lx = bx & 15;
+    if (lz == 0) { McTouchGroup(bx, bz - 1); } else if (lz == 3) { McTouchGroup(bx, bz + 1); }
+    if (lx == 0) { McTouchGroup(bx - 1, bz); } else if (lx == 15) { McTouchGroup(bx + 1, bz); }
+}
+function McTouchGroup(bx, bz) {
+    var s = McSlot(bx >> 4, bz >> 4);
+    if (DsListGet(chkState, s) >= 2 && DsListGet(chkCx, s) == (bx >> 4) && DsListGet(chkCz, s) == (bz >> 4)) {
+        var idx = s * 4 + ((bz & 15) >> 2);
+        if (DsListGet(grpDirty, idx) == 0) { DsListSet(grpDirty, idx, 1); DsListAdd(dirtyQ, idx); }
+    }
+}
+function McPack(bx, by, bz) { return ((bx + 1048576) * 128 + by) * 2097152 + (bz + 1048576); }
+function McQPush(q, bx, by, bz, ch) { DsListAdd(q, McPack(bx, by, bz) * 2 + ch); }
+
+function McLightSpreadSome(maxSteps) {
+    var n = 0;
+    while (n < maxSteps && ltAddHead < DsListSize(ltAdd)) {
+        var e = DsListGet(ltAdd, ltAddHead); VariableSet("ltAddHead", ltAddHead + 1); n = n + 1;
+        var ch = e % 2; var p = Floor(e / 2);
+        var bz = p % 2097152 - 1048576; var rest = Floor(p / 2097152);
+        var by = rest % 128; var bx = Floor(rest / 128) - 1048576;
+        var a0 = DsGridGet(auxBase + ((bz >> 4) & 15), (bx & 255) + ((bz & 15) << 8), by);
+        var lv = a0 % 16; if (ch == 1) { lv = Floor(a0 / 16) % 16; }
+        if (lv > 1 || (ch == 0 && lv == 15)) {
+            // +x
+            var x0 = bx + 1; var y0 = by; var z0 = bz; var ok0 = 1;
+            if (((bx + 1) >> 4) != (bx >> 4)) { ok0 = McColLoaded(x0, z0); }
+            if (true && ok0 == 1) {
+                var g0 = (z0 >> 4) & 15; var c0 = (x0 & 255) + ((z0 & 15) << 8);
+                var o0 = DsListGet(ltOp, DsGridGet(wgBase + g0, c0, y0));
+                if (o0 < 15) {
+                    var l0 = lv - Max(1, o0);
+                    var a0 = DsGridGet(auxBase + g0, c0, y0); var u0 = a0 % 16; if (ch == 1) { u0 = Floor(a0 / 16) % 16; }
+                    if (l0 > u0) {
+                        if (ch == 0) { DsGridSet(auxBase + g0, c0, y0, a0 - u0 + l0); } else { DsGridSet(auxBase + g0, c0, y0, a0 + (l0 - u0) * 16); }
+                        if (ltTouch == 1) { McLightTouch(x0, y0, z0); }
+                        DsListAdd(ltAdd, (((x0 + 1048576) * 128 + y0) * 2097152 + (z0 + 1048576)) * 2 + ch);
+                    }
+                }
+            }
+            // -x
+            var x1 = bx - 1; var y1 = by; var z1 = bz; var ok1 = 1;
+            if (((bx - 1) >> 4) != (bx >> 4)) { ok1 = McColLoaded(x1, z1); }
+            if (true && ok1 == 1) {
+                var g1 = (z1 >> 4) & 15; var c1 = (x1 & 255) + ((z1 & 15) << 8);
+                var o1 = DsListGet(ltOp, DsGridGet(wgBase + g1, c1, y1));
+                if (o1 < 15) {
+                    var l1 = lv - Max(1, o1);
+                    var a1 = DsGridGet(auxBase + g1, c1, y1); var u1 = a1 % 16; if (ch == 1) { u1 = Floor(a1 / 16) % 16; }
+                    if (l1 > u1) {
+                        if (ch == 0) { DsGridSet(auxBase + g1, c1, y1, a1 - u1 + l1); } else { DsGridSet(auxBase + g1, c1, y1, a1 + (l1 - u1) * 16); }
+                        if (ltTouch == 1) { McLightTouch(x1, y1, z1); }
+                        DsListAdd(ltAdd, (((x1 + 1048576) * 128 + y1) * 2097152 + (z1 + 1048576)) * 2 + ch);
+                    }
+                }
+            }
+            // +z
+            var x2 = bx; var y2 = by; var z2 = bz + 1; var ok2 = 1;
+            if (((bz + 1) >> 4) != (bz >> 4)) { ok2 = McColLoaded(x2, z2); }
+            if (true && ok2 == 1) {
+                var g2 = (z2 >> 4) & 15; var c2 = (x2 & 255) + ((z2 & 15) << 8);
+                var o2 = DsListGet(ltOp, DsGridGet(wgBase + g2, c2, y2));
+                if (o2 < 15) {
+                    var l2 = lv - Max(1, o2);
+                    var a2 = DsGridGet(auxBase + g2, c2, y2); var u2 = a2 % 16; if (ch == 1) { u2 = Floor(a2 / 16) % 16; }
+                    if (l2 > u2) {
+                        if (ch == 0) { DsGridSet(auxBase + g2, c2, y2, a2 - u2 + l2); } else { DsGridSet(auxBase + g2, c2, y2, a2 + (l2 - u2) * 16); }
+                        if (ltTouch == 1) { McLightTouch(x2, y2, z2); }
+                        DsListAdd(ltAdd, (((x2 + 1048576) * 128 + y2) * 2097152 + (z2 + 1048576)) * 2 + ch);
+                    }
+                }
+            }
+            // -z
+            var x3 = bx; var y3 = by; var z3 = bz - 1; var ok3 = 1;
+            if (((bz - 1) >> 4) != (bz >> 4)) { ok3 = McColLoaded(x3, z3); }
+            if (true && ok3 == 1) {
+                var g3 = (z3 >> 4) & 15; var c3 = (x3 & 255) + ((z3 & 15) << 8);
+                var o3 = DsListGet(ltOp, DsGridGet(wgBase + g3, c3, y3));
+                if (o3 < 15) {
+                    var l3 = lv - Max(1, o3);
+                    var a3 = DsGridGet(auxBase + g3, c3, y3); var u3 = a3 % 16; if (ch == 1) { u3 = Floor(a3 / 16) % 16; }
+                    if (l3 > u3) {
+                        if (ch == 0) { DsGridSet(auxBase + g3, c3, y3, a3 - u3 + l3); } else { DsGridSet(auxBase + g3, c3, y3, a3 + (l3 - u3) * 16); }
+                        if (ltTouch == 1) { McLightTouch(x3, y3, z3); }
+                        DsListAdd(ltAdd, (((x3 + 1048576) * 128 + y3) * 2097152 + (z3 + 1048576)) * 2 + ch);
+                    }
+                }
+            }
+            // up
+            var x4 = bx; var y4 = by + 1; var z4 = bz; var ok4 = 1;
+            if (by < 95 && ok4 == 1) {
+                var g4 = (z4 >> 4) & 15; var c4 = (x4 & 255) + ((z4 & 15) << 8);
+                var o4 = DsListGet(ltOp, DsGridGet(wgBase + g4, c4, y4));
+                if (o4 < 15) {
+                    var l4 = lv - Max(1, o4);
+                    var a4 = DsGridGet(auxBase + g4, c4, y4); var u4 = a4 % 16; if (ch == 1) { u4 = Floor(a4 / 16) % 16; }
+                    if (l4 > u4) {
+                        if (ch == 0) { DsGridSet(auxBase + g4, c4, y4, a4 - u4 + l4); } else { DsGridSet(auxBase + g4, c4, y4, a4 + (l4 - u4) * 16); }
+                        if (ltTouch == 1) { McLightTouch(x4, y4, z4); }
+                        DsListAdd(ltAdd, (((x4 + 1048576) * 128 + y4) * 2097152 + (z4 + 1048576)) * 2 + ch);
+                    }
+                }
+            }
+            // down
+            var x5 = bx; var y5 = by - 1; var z5 = bz; var ok5 = 1;
+            if (by > 0 && ok5 == 1) {
+                var g5 = (z5 >> 4) & 15; var c5 = (x5 & 255) + ((z5 & 15) << 8);
+                var o5 = DsListGet(ltOp, DsGridGet(wgBase + g5, c5, y5));
+                if (o5 < 15) {
+                    var l5 = lv - Max(1, o5); if (ch == 0 && lv == 15 && o5 == 0) { l5 = 15; }
+                    var a5 = DsGridGet(auxBase + g5, c5, y5); var u5 = a5 % 16; if (ch == 1) { u5 = Floor(a5 / 16) % 16; }
+                    if (l5 > u5) {
+                        if (ch == 0) { DsGridSet(auxBase + g5, c5, y5, a5 - u5 + l5); } else { DsGridSet(auxBase + g5, c5, y5, a5 + (l5 - u5) * 16); }
+                        if (ltTouch == 1) { McLightTouch(x5, y5, z5); }
+                        DsListAdd(ltAdd, (((x5 + 1048576) * 128 + y5) * 2097152 + (z5 + 1048576)) * 2 + ch);
+                    }
+                }
+            }
+        }
+    }
+    if (ltAddHead >= DsListSize(ltAdd)) { DsListClear(ltAdd); VariableSet("ltAddHead", 0); }
+    return n;
+}
+
+// ---- the benchmark's own world (script top level, so these are the instance's variables) ----
+wgBase = DsGridCreate(4096, 96);
+DsGridSetRegion(wgBase, 0, 0, 4095, 49, 1);
+for (var z = 2; z <= 13; z = z + 1) { DsGridSetRegion(wgBase, 2 + z * 256, 10, 13 + z * 256, 35, 0); }
+for (var sz = 7; sz <= 8; sz = sz + 1) { DsGridSetRegion(wgBase, 7 + sz * 256, 36, 8 + sz * 256, 49, 0); }
+auxBase = DsGridCreate(4096, 96);
+ltOp = McNewList(16); DsListSet(ltOp, 1, 15);
+ltAdd = DsListCreate(); ltAddHead = 0; ltTouch = 0;
+chkCx = McNewList(256); chkCz = McNewList(256); chkState = McNewList(256);
+for (var s = 1; s < 256; s = s + 1) { DsListSet(chkCx, s, -99999); DsListSet(chkCz, s, -99999); }
+DsListSet(chkState, 0, 2);
+grpDirty = McNewList(1024); dirtyQ = DsListCreate();
+
+// Dark cave, sky above the ground, four torches and the shaft's sky queued.
+function BenchLightReset() {
+    DsGridSetRegion(auxBase, 0, 0, 4095, 49, 0);
+    DsGridSetRegion(auxBase, 0, 50, 4095, 95, 15);
+    DsListClear(ltAdd); VariableSet("ltAddHead", 0);
+    BenchTorch(4, 20, 4); BenchTorch(11, 15, 11); BenchTorch(4, 30, 11); BenchTorch(11, 25, 4);
+    for (var sz = 7; sz <= 8; sz = sz + 1) { for (var sx = 7; sx <= 8; sx = sx + 1) { McQPush(ltAdd, sx, 50, sz, 0); } }
+    return DsListSize(ltAdd);
+}
+function BenchTorch(bx, by, bz) { DsGridSet(auxBase, bx + bz * 256, by, 14 * 16); McQPush(ltAdd, bx, by, bz, 1); }
+
+// The project's McLightFlush add pass: slices of 90 cells until the queue is empty. Returns the slices run.
+function BenchLightFlush() {
+    var guard = 0; var cells = 0;
+    while (ltAddHead < DsListSize(ltAdd) && guard < 80000) { cells = cells + McLightSpreadSome(90); guard = guard + 1; }
+    return cells;
+}
+
+// Sum of the light values of the chunk, to check every run lights the same cells the same way.
+function BenchLightColumn(c) { var s = 0; for (var y = 0; y < 96; y = y + 1) { s = s + DsGridGet(auxBase, c, y) * (y + 1); } return s; }
+function BenchLightChecksum() {
+    var s = 0;
+    for (var bz = 0; bz < 16; bz = bz + 1) { for (var bx = 0; bx < 16; bx = bx + 1) { s = s + BenchLightColumn(bx + bz * 256) * (bx + 1); } }
+    return s;
+}

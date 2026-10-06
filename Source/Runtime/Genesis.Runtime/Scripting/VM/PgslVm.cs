@@ -69,6 +69,7 @@ public class PgslVm
     private readonly Stack<WithState> _withStack = new();
     private readonly Stack<string> _debugCallStack = new();
     private readonly IPgslEngineBridge _bridge;
+    private readonly PgslEngineBridge _typedBridge;
     private bool _debugMode = false;
     private int _instructionCounter = 0;
     private bool _returnRequested;
@@ -82,6 +83,8 @@ public class PgslVm
     private readonly record struct ExecutionResult(bool Returned, VmValue Value);
 
     public IPgslEngineBridge Bridge => _bridge;
+    /// <summary>Instructions this VM has run in total (every event body and function call), for speed reports.</summary>
+    public long InstructionsExecuted { get; private set; }
     public PgslDebugController Debugger { get; set; }
     public string DebugSourceName { get; set; } = string.Empty;
     public string DebugEventName { get; set; } = string.Empty;
@@ -89,6 +92,7 @@ public class PgslVm
     public PgslVm(IPgslEngineBridge bridge, bool debugMode = false)
     {
         _bridge = bridge;
+        _typedBridge = bridge as PgslEngineBridge;
         _debugMode = debugMode;
     }
 
@@ -287,6 +291,7 @@ public class PgslVm
         }
         finally
         {
+            InstructionsExecuted += _instructionCounter;
             UnwindWith(withDepth);
             _constants = previousConstants;
             _instructionCounter = previousInstructionCounter;
@@ -734,14 +739,11 @@ public class PgslVm
     {
         if (instr.Operand is not (int nativeId, int nativeArgCount))
             throw new InvalidOperationException("Invalid CALL_NATIVE instruction format");
+        ExecuteNativeCall(nativeId, nativeArgCount);
+    }
 
-        if (_stack.Count < nativeArgCount)
-            throw new InvalidOperationException($"Not enough arguments for native call id={nativeId}");
-
-        object[] args = AcquireArgumentArray(nativeArgCount);
-        for (int i = nativeArgCount - 1; i >= 0; i--)
-            args[i] = _stack.Pop().ToObject();
-
+    private void NoteNativeCall(int nativeId)
+    {
         if (Genesis.Runtime.Scripting.PgslRuntimeDiagnostics.IsCollecting)
         {
             Genesis.Runtime.Scripting.PgslRuntimeDiagnostics.Note(
@@ -749,10 +751,48 @@ public class PgslVm
                 _bridge.NativeName(nativeId) ?? $"native#{nativeId}",
                 string.Empty);
         }
+    }
+
+    // One reusable array per argument count for commands that take only numbers. A command that
+    // runs PGSL again (and so reuses it) has already read its arguments when it starts.
+    private double[][] _numberArguments = new double[16][];
+
+    private double[] NumberArguments(int count)
+    {
+        if (count >= _numberArguments.Length) Array.Resize(ref _numberArguments, count + 1);
+        return _numberArguments[count] ??= new double[count];
+    }
+
+    private void ExecuteNativeCall(int nativeId, int nativeArgCount)
+    {
+        if (_stack.Count < nativeArgCount)
+            throw new InvalidOperationException($"Not enough arguments for native call id={nativeId}");
+
+        PgslEngineBridge.NativeCall call = _typedBridge?.GetNativeCall(nativeId, nativeArgCount);
+        if (call != null && call.Numeric && _stack.TopAreNumbers(nativeArgCount))
+        {
+            // Every argument is already a number: the same command, called without boxing them.
+            double[] numbers = NumberArguments(nativeArgCount);
+            _stack.PopNumbers(numbers, nativeArgCount);
+            NoteNativeCall(nativeId);
+            VmValue value;
+            if (call.NumberCall != null) value = call.NumberCall(numbers);
+            else if (call.BoolCall != null) value = call.BoolCall(numbers);
+            else if (call.VoidCall != null) { call.VoidCall(numbers); value = default; }
+            else value = VmValue.FromObject(call.ObjectCall(numbers));
+            _stack.Push(_bridge.IsNativeVoid(nativeId) ? default : value);
+            return;
+        }
+
+        object[] args = AcquireArgumentArray(nativeArgCount);
+        for (int i = nativeArgCount - 1; i >= 0; i--)
+            args[i] = _stack.Pop().ToObject();
+
+        NoteNativeCall(nativeId);
 
         try
         {
-            object result = _bridge.InvokeNative(nativeId, args);
+            object result = call != null ? _typedBridge.InvokeNative(call, args) : _bridge.InvokeNative(nativeId, args);
             // Every call leaves exactly one value, as a user function does: a command that returns
             // nothing leaves null. The statement that called it pops one value, and that must be its
             // own, not one its caller was still holding (a script called inside an expression runs on
