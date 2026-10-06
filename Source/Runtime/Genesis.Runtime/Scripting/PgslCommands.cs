@@ -780,10 +780,20 @@ public static partial class PgslCommands
         }
     }
 
-    [PgslCommand("SetMouseCaptured", "SetMouseCaptured(captured)", "Capture or release the mouse cursor", "Input")]
+    [PgslCommand("SetMouseCaptured", "SetMouseCaptured(captured)", "Capture the mouse for mouse look (the pointer is hidden and locked), or release it", "Input")]
     public static void SetMouseCaptured(bool captured)
     {
-        ActiveGameContext?.SetMouseCaptured(captured);
+        IGameContext game = ActiveGameContext;
+        if (game == null) return;
+        game.SetMouseCaptured(captured);
+        if (!captured && _pointerHidden) game.SetCursorMode(Genesis.Shared.Interfaces.CursorMode.Hidden);
+    }
+
+    [PgslCommand("CameraSetFreeFly", "CameraSetFreeFly(enabled)",
+        "The engine's own fly camera (WASD, Space, Ctrl and mouse look in a room with no physics player): false turns it off, true keeps it on. By default it runs until a script moves the camera", "Camera")]
+    public static void CameraSetFreeFly(bool enabled)
+    {
+        if (ActiveGameContext?.Scene is { } scene) scene.FreeFlyCamera = enabled;
     }
 
     [PgslCommand("GetCameraForwardX", "GetCameraForwardX() -> float", "Get camera forward look vector X", "Camera")]

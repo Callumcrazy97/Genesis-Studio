@@ -324,9 +324,18 @@ public static partial class PgslCommands
     #region Input for menus
 
     [PgslCommand("WindowSetCursorVisible", "WindowSetCursorVisible(visible)",
-        "Show or hide the system pointer over the game window, for a menu that draws its own", "Display")]
-    public static void WindowSetCursorVisible(bool visible) =>
-        ActiveGameContext?.SetCursorMode(visible ? CursorMode.Normal : CursorMode.Hidden);
+        "Show or hide the system pointer over the game window, for a menu that draws its own. A captured mouse (SetMouseCaptured) is already hidden and stays captured; the choice applies when it is released", "Display")]
+    public static void WindowSetCursorVisible(bool visible)
+    {
+        _pointerHidden = !visible;
+        IGameContext game = ActiveGameContext;
+        // Hiding must not release a captured mouse: mouse look needs it locked.
+        if (game == null || game.MouseCaptured) return;
+        game.SetCursorMode(visible ? CursorMode.Normal : CursorMode.Hidden);
+    }
+
+    /// <summary>The game asked for no pointer (WindowSetCursorVisible(false)), kept for when a captured mouse is released.</summary>
+    private static bool _pointerHidden;
 
     [PgslCommand("GamepadAxisRaw", "GamepadAxisRaw(axis) -> number",
         "A stick or trigger as the controller reports it, with no dead zone; the same names and directions as GamepadAxis", "Input")]

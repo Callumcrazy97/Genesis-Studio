@@ -151,6 +151,33 @@ internal static class EngineAdditionsSuite
             }
         });
 
+        HeadlessHarness.RunCase(context.Report, "Engine.Camera.FlyCameraStandsAsideForAScriptCamera", () =>
+        {
+            using var scene = new RuntimeScene("Fly") { Input = new Genesis.Runtime.Input.InputState() };
+            var fly = new Genesis.Runtime.Systems.FlyCameraSystem(scene);
+            scene.Input.OnKeyDown(Genesis.Runtime.Input.Key.W);
+            System.Numerics.Vector3 start = scene.Camera3D.Position;
+            fly.Update(scene.World, 0.1f);
+            HeadlessHarness.Assert(scene.Camera3D.Position != start,
+                "The fly camera did not move with W held in a room where nothing else drives the camera.");
+
+            // A script now places the camera every Step: the fly camera must leave it alone.
+            var placed = new System.Numerics.Vector3(5, 2, 5);
+            scene.Camera3D.Position = placed;
+            fly.Update(scene.World, 0.1f);
+            fly.Update(scene.World, 0.1f);
+            HeadlessHarness.Assert(scene.Camera3D.Position == placed, "The fly camera moved a camera a script had placed.");
+
+            scene.FreeFlyCamera = true;
+            fly.Update(scene.World, 0.1f);
+            HeadlessHarness.Assert(scene.Camera3D.Position != placed, "CameraSetFreeFly(true) did not keep the fly camera on.");
+
+            scene.FreeFlyCamera = false;
+            System.Numerics.Vector3 held = scene.Camera3D.Position;
+            fly.Update(scene.World, 0.1f);
+            HeadlessHarness.Assert(scene.Camera3D.Position == held, "CameraSetFreeFly(false) did not turn the fly camera off.");
+        });
+
         HeadlessHarness.RunCase(context.Report, "Engine.Audio.Positional.ASoundIsHeardFromWhereItIsAndCanFade", () =>
         {
             // Which ear: the nearer one is at full level, the further one falls with how far to the side the sound is.

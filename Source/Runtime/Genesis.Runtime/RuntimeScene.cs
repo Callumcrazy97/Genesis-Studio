@@ -140,6 +140,15 @@ namespace Genesis.Runtime
         /// <summary>When true, the host drives fly camera movement (sandbox WinForms shell).</summary>
         public bool HostControlsFlyCamera { get; set; }
 
+        /// <summary>
+        /// The built-in fly camera in a room with no physics player: null runs it until something
+        /// else (a script) moves the camera, false turns it off, true keeps it on. Reset with the room.
+        /// </summary>
+        public bool? FreeFlyCamera { get; set; }
+
+        /// <summary>Counts room changes, so per-room helpers (the fly camera) start afresh.</summary>
+        public int RoomGeneration { get; private set; }
+
         public IReadOnlyList<ISceneSubsystem> Subsystems => _subsystems;
 
         /// <summary>
@@ -560,6 +569,8 @@ namespace Genesis.Runtime
             World.Query<RigidBodyComponent>((Entity entity, ref RigidBodyComponent body) => body.RegistrationId = 0);
             SetWorldQuery(null);
             HostControlsFlyCamera = false;
+            FreeFlyCamera = null;
+            RoomGeneration++;
             Streaming.RequestRefresh();
         }
 

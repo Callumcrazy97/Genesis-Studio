@@ -123,7 +123,8 @@ Inside the block:
 
 | Command | Meaning |
 |---|---|
-| `WindowSetCursorVisible(visible)` | Show or hide the system pointer over the game window, for a menu that draws its own. |
+| `WindowSetCursorVisible(visible)` | Show or hide the system pointer over the game window, for a menu that draws its own. While the mouse is captured for mouse look (`SetMouseCaptured(true)`, which already hides the pointer) it stays captured; the choice applies when it is released. |
+| `CameraSetFreeFly(enabled)` | The engine's own fly camera (W/A/S/D, Space, Ctrl, Shift and mouse look) in a room with no physics player. By default it stops as soon as a script moves the camera and starts again in the next room; `false` turns it off, `true` keeps it on alongside a script. |
 | `GamepadAxisRaw(axis)` | A stick or trigger as the controller reports it, with no dead zone. Same names and directions as `GamepadAxis`. |
 | `GamepadSetDeadZone(stick, amount)` | `"Left"`, `"Right"`, `"Sticks"` (both) or `"Triggers"`, 0 to 0.95: how far it must move before `GamepadAxis` reads it. The sticks start at 0.18, as before, and the triggers at 0. |
 | `GamepadGetDeadZone(stick)` | |
