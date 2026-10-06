@@ -536,7 +536,7 @@ float4 PS(VSOut IN) : SV_Target
                 // The sun is distant radiance transmitted through the atmosphere, not a
                 // billboard self-fogged at an arbitrary mesh distance. Clouds composite later.
                 float solarDot = saturate(dot(lutViewDir, AuthoredSkySun.xyz));
-                float radius = radians(0.28);
+                float radius = radians(0.28) * (CloudLayerParams.w > 0.0 ? CloudLayerParams.w : 1.0);
                 float disc = smoothstep(cos(radius * 1.2), cos(radius * 0.8), solarDot);
                 float aureole = pow(solarDot, 1800.0) * 0.035;
                 sky += SunColorIntensity.rgb * transmittanceLut * AuthoredSkySun.w * (disc + aureole);

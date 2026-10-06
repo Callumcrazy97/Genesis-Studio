@@ -4894,13 +4894,15 @@ namespace Genesis.Rendering.Primitives
                     sidereal,
                     latitudeRad),
                 MoonDirPhase            = new Vector4(towardMoon, moonPhase),
+                // w: the sun disc's size against its usual one (the sky composite's own sun).
                 CloudLayerParams        = new Vector4(_state.CloudBaseHeight,
                     _state.CloudBaseHeight + _state.CloudThickness,
-                    _state.AuthoredSkyEnabled ? MathF.Max(.0001f, _state.FogDensity * .008f) : 0f, 0f),
+                    _state.AuthoredSkyEnabled ? MathF.Max(.0001f, _state.FogDensity * .008f) : 0f,
+                    _state.SunDiscScale > 0f ? Math.Clamp(_state.SunDiscScale, 0.25f, 8f) : 1f),
                 AuthoredSkyZenith       = new Vector4(ToLinearColor(_state.SkyZenithColor), _state.AuthoredSkyEnabled ? 1f : 0f),
                 AuthoredSkyHorizon      = new Vector4(ToLinearColor(_state.SkyHorizonColor), 0f),
                 AuthoredSkySun          = new Vector4(towardSun,
-                    _state.AuthoredSkyEnabled && _state.ShowSunVisual && sunHeight > 0f ? 8f * daylight : 0f),
+                    _state.AuthoredSkyEnabled && _state.ShowSunVisual && !_state.HideSunDisc && sunHeight > 0f ? 8f * daylight : 0f),
             };
             PackSmokeVolumes(ref fogPost);
             fogPost.ParticleLayerParams = ParticleLayerParams();

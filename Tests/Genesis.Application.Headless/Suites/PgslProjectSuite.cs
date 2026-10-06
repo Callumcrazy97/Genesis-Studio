@@ -124,6 +124,25 @@ internal static class PgslProjectSuite
                 HeadlessHarness.Assert(model.R > 120 && model.R > model.B + 60,
                     $"DrawModelGui did not draw the orange box into its rectangle ({model}).");
             }
+            string sunShown = Path.Combine(images, "pgsl-sun-shown.png"), sunHidden = Path.Combine(images, "pgsl-sun-hidden.png");
+            HeadlessHarness.Assert(File.Exists(sunShown) && File.Exists(sunHidden), "Room four took no pictures of the sun.");
+            File.Copy(sunShown, Path.Combine(ctx.Captures, "pgsl-sun-shown.png"), overwrite: true);
+            File.Copy(sunHidden, Path.Combine(ctx.Captures, "pgsl-sun-hidden.png"), overwrite: true);
+            using (Bitmap shown = new(sunShown))
+            using (Bitmap hidden = new(sunHidden))
+            {
+                Color sunAt = shown.GetPixel(shown.Width / 2, shown.Height / 2);
+                Color skyAt = hidden.GetPixel(hidden.Width / 2, hidden.Height / 2);
+                // Beside the disc, inside where its glow was.
+                Color glowAt = hidden.GetPixel(hidden.Width / 2 + 25, hidden.Height / 2);
+                Color glowWas = shown.GetPixel(shown.Width / 2 + 25, shown.Height / 2);
+                HeadlessHarness.Assert(Math.Min(sunAt.R, Math.Min(sunAt.G, sunAt.B)) > 230,
+                    $"The sun's disc was not at the centre of a view looking at it ({sunAt}; {Results("sun")}).");
+                HeadlessHarness.Assert(Math.Min(skyAt.R, Math.Min(skyAt.G, skyAt.B)) < 215,
+                    $"Engine.Sky.SunDiscVisible = false still drew the sun's disc ({skyAt}).");
+                HeadlessHarness.Assert(glowAt.R + glowAt.G + glowAt.B <= glowWas.R + glowWas.G + glowWas.B,
+                    $"The sun's glow got brighter with the disc hidden ({glowWas} then {glowAt}).");
+            }
             string third = Path.Combine(images, "pgsl-room-three.png");
             HeadlessHarness.Assert(File.Exists(third), "Room three took no picture.");
             File.Copy(third, Path.Combine(ctx.Captures, "pgsl-room-three.png"), overwrite: true);
@@ -346,7 +365,7 @@ internal static class PgslProjectSuite
                 frame += 1;
                 SetCameraPosition(0, 1, 0); SetCameraTarget(0, 1, 10);
                 if (frame == 10) { ScreenshotSave("pgsl-room-three"); }
-                if (frame == 14) { Print("GENESIS_PGSL_PROJECT_DONE"); GameQuit(); }
+                if (frame == 14) { RoomGoto("Fourth"); }
                 """,
             // A GUI model in this dark room is lit by its own studio light, not the room's.
             ["DrawGui"] = "DrawModelGui(\"Box\", 20, 20, 120, 120, 35, 25, 1);",
@@ -416,6 +435,44 @@ internal static class PgslProjectSuite
         Place("Pooled", pooled, [4f, 1f, 9f], [0.5f, 0.5f, 0.5f]);
         Place("Pooled Other", pooledOther, [-4f, 1f, 9f], [0.5f, 0.5f, 0.5f]);
         RoomAssetLoader.Save(third, thirdFile);
+
+        // Room four (3D, the engine's own sky): looking straight at the afternoon sun, first with
+        // its disc, then with Engine.Sky.SunDiscVisible = false (no disc and no glow).
+        string skyProbe = Object("Sky Probe", new()
+        {
+            ["Create"] = "frame = 0; stage = 0; hiddenAt = 0;",
+            // Each picture is taken when its frame is drawn, which can be a few Steps later: the
+            // disc is hidden only once the first picture has been taken.
+            ["Step"] = """
+                frame += 1;
+                SetCameraPosition(0, 2, 0);
+                SetCameraTarget(Engine.Sky.SunDirectionX * 10, 2 + Engine.Sky.SunDirectionY * 10, Engine.Sky.SunDirectionZ * 10);
+                if (frame == 8) {
+                    ScreenshotSave("pgsl-sun-shown");
+                    FileWriteText("pgsl-results/sun.txt", "dir=" + String(Engine.Sky.SunDirectionX) + "," + String(Engine.Sky.SunDirectionY) + ","
+                        + String(Engine.Sky.SunDirectionZ) + ";time=" + String(Engine.Sky.TimeOfDay) + ";");
+                    stage = 1;
+                }
+                if (stage == 1 && ScreenshotPending() == 0) { Engine.Sky.SunDiscVisible = false; hiddenAt = frame; stage = 2; }
+                if (stage == 2 && frame == hiddenAt + 4) { ScreenshotSave("pgsl-sun-hidden"); stage = 3; }
+                if (stage == 3 && ScreenshotPending() == 0) { Print("GENESIS_PGSL_PROJECT_DONE"); GameQuit(); }
+                """,
+        });
+        string fourthFile = resources.CreateResource(Path.GetDirectoryName(roomFile)!, ResourceKind.Room, "Fourth");
+        RoomAsset fourth = RoomAsset.Create("Fourth", RoomDimension.ThreeD);
+        fourth.Settings.CaptureMouse = false;
+        fourth.Environment.DynamicSky = true;
+        fourth.Environment.Weather = "Clear";
+        fourth.Environment.TimeOfDayHours = 15f;
+        fourth.Environment.LatitudeDegrees = 0f;
+        fourth.Environment.DayOfYear = 80;
+        fourth.Nodes.Add(new RoomNode
+        {
+            Kind = RoomNodeKind.GameObject, Name = "Sky Probe", LayerId = fourth.Layers[0].Id,
+            Transform = new RoomTransform { Position = [0f, 0f, 0f], Scale = [1f, 1f, 1f] },
+            GameObject = new RoomGameObjectData { Prefab = skyProbe },
+        });
+        RoomAssetLoader.Save(fourth, fourthFile);
         return project;
     }
 }
