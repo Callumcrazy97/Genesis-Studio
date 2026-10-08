@@ -194,11 +194,8 @@ namespace Genesis.Rendering.Primitives
                     lastShader = shaderId;
                 }
                 if (skinned) _gpu.SetStructuredBuffer(GpuShaderStage.Vertex, 12, skinPalette.Buffer);
-                if (wm.Shader.IsValid)
-                {
-                    BindShaderParameters(wm.Shader, wm.ShaderParams0, wm.ShaderParams1, wm.ShaderParams2, wm.ShaderParams3);
-                    wm.AuthoredTextures.Bind(_gpu);
-                }
+                BindShaderParameters(wm.Shader, wm.ShaderParams0, wm.ShaderParams1, wm.ShaderParams2, wm.ShaderParams3);
+                if (wm.Shader.IsValid) wm.AuthoredTextures.Bind(_gpu);
 
                 SetMeshBuffers(ref mesh);
                 _gpu.SetTexture(GpuShaderStage.Pixel, 1, wm.Texture.IsValid ? wm.Texture : whiteTexture);

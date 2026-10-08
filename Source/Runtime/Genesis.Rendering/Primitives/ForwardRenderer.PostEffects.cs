@@ -188,6 +188,7 @@ namespace Genesis.Rendering.Primitives
                 _gpu.SetRasterState(_rsCullNone);
                 _gpu.SetShaderProgram(pass.Program);
                 _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 4, _cbPostFrame);
+                _pixelB4NotOmni = true;
                 _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 5, _cbPostParams);
                 _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 6, _cbPostCamera);
                 _gpu.SetTexture(GpuShaderStage.Pixel, 0, _postEffectTextures[source]);

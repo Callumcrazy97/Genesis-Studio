@@ -607,6 +607,11 @@ namespace Genesis.Rendering.Primitives
         private GpuBufferHandle _cbRaymarchedClouds;
         private GpuBufferHandle _cbCloudTemporal;
         private GpuBufferHandle _cbShaderParameters;
+        // A mesh Shader resource's GenesisFrame (b4: Time, Frame, Resolution), which the engine's own
+        // forward pass uses for its lamp-shadow constants. Bound for custom-shader draws only.
+        private GpuBufferHandle _cbMeshShaderFrame;
+        private long _meshShaderFrameFor = -1;
+        private bool _pixelB4NotOmni;
         private GpuBufferHandle _cbOmni;
 
         // Instance buffers — main pass and shadow pass use separate buffers to avoid double upload.
@@ -1265,6 +1270,7 @@ namespace Genesis.Rendering.Primitives
             _cbDraw     = MakeCB<DrawCB>("Forward draw constants");
             _cbWater    = MakeCB<WaterCB>("Water constants");
             _cbShaderParameters = MakeCB<ShaderParametersCB>("Authored shader parameters");
+            _cbMeshShaderFrame = MakeCB<PostEffectFrameCB>("Mesh shader frame");
             _cbOmni = MakeCB<LocalShadowCB>("Local shadow constants");
         }
 
@@ -3977,13 +3983,36 @@ namespace Genesis.Rendering.Primitives
 
         private void BindShaderParameters(RuntimeShaderHandle shader, Vector4 row0, Vector4 row1, Vector4 row2, Vector4 row3)
         {
-            if (!shader.IsValid || !_runtimePrograms.ContainsKey(shader.Id)) return;
+            if (!shader.IsValid || !_runtimePrograms.ContainsKey(shader.Id))
+            {
+                // The engine's own pixel shader reads its lamp-shadow constants at b4.
+                if (_pixelB4NotOmni)
+                {
+                    _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 4, _cbOmni);
+                    _pixelB4NotOmni = false;
+                }
+                return;
+            }
             _gpu.UpdateConstantBuffer(_cbShaderParameters, new ShaderParametersCB
             {
                 Row0 = row0, Row1 = row1, Row2 = row2, Row3 = row3,
             });
             _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 5, _cbShaderParameters);
             _gpu.SetConstantBuffer(GpuShaderStage.Vertex, 5, _cbShaderParameters);
+            // A mesh Shader resource's own pixel shader replaces the engine's: b4 is its GenesisFrame.
+            if (_meshShaderFrameFor != _submitFrameId)
+            {
+                _gpu.UpdateConstantBuffer(_cbMeshShaderFrame, new PostEffectFrameCB
+                {
+                    Time = _time,
+                    Frame = _submitFrameId,
+                    ResX = _rtWidth > 0 ? _rtWidth : 1,
+                    ResY = _rtHeight > 0 ? _rtHeight : 1,
+                });
+                _meshShaderFrameFor = _submitFrameId;
+            }
+            _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 4, _cbMeshShaderFrame);
+            _pixelB4NotOmni = true;
         }
 
         private Genesis.Shared.Assets.ShaderMeshPassMode RuntimePassMode(RuntimeShaderHandle shader) =>
@@ -4286,6 +4315,7 @@ namespace Genesis.Rendering.Primitives
             // Always bind the local shadow CB (Params.x gates sampling) so inactive frames stay deterministic.
             _gpu.SetConstantBuffer(GpuShaderStage.Vertex, 4, _cbOmni);
             _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 4, _cbOmni);
+            _pixelB4NotOmni = false;
             BindFroxelApply();
 
             // Bind samplers
@@ -4622,11 +4652,9 @@ namespace Genesis.Rendering.Primitives
                     _gpu.SetShaderProgram(CurrentForwardProgram(skinned: false, wm.Shader));
                     lastShaderId = shaderId;
                 }
-                if (wm.Shader.IsValid)
-                {
-                    BindShaderParameters(wm.Shader, wm.ShaderParams0, wm.ShaderParams1, wm.ShaderParams2, wm.ShaderParams3);
-                    wm.AuthoredTextures.Bind(_gpu);
-                }
+                // Also puts the engine's b4 back after a custom-shader draw.
+                BindShaderParameters(wm.Shader, wm.ShaderParams0, wm.ShaderParams1, wm.ShaderParams2, wm.ShaderParams3);
+                if (wm.Shader.IsValid) wm.AuthoredTextures.Bind(_gpu);
 
                 boundOnce = true;
 
@@ -6246,6 +6274,7 @@ namespace Genesis.Rendering.Primitives
             _gpu.ReleaseBuffer(_cbRaymarchedClouds);
             _gpu.ReleaseBuffer(_cbCloudTemporal);
             _gpu.ReleaseBuffer(_cbShaderParameters);
+            if (_cbMeshShaderFrame.IsValid) _gpu.ReleaseBuffer(_cbMeshShaderFrame);
             _gpu.ReleaseBuffer(_cbOmni);
             _gpu.ReleaseBuffer(_instanceBuf);
             _gpu.ReleaseBuffer(_shadowInstanceBuf);

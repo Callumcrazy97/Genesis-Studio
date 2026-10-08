@@ -61,6 +61,8 @@ namespace Genesis.Runtime.Rendering
         /// <summary>Forgets every script mesh (a new game); the renderer's copies go with it.</summary>
         public static void Reset()
         {
+            UploadBudgetMilliseconds = DefaultUploadBudgetMilliseconds;
+            BeginFrame();
             List<Builder> all;
             lock (Meshes)
             {
@@ -208,19 +210,50 @@ namespace Genesis.Runtime.Rendering
             return true;
         }
 
-        /// <summary>The renderer's mesh for a script mesh, uploaded again if it changed since.</summary>
+        /// <summary>
+        /// Milliseconds a frame may spend sending new or changed script meshes to the GPU (0 = no
+        /// limit). At least one goes every frame; the rest go on later frames, a changed mesh drawing
+        /// its previous build meanwhile and a new one appearing when its turn comes, so building
+        /// many meshes at once never stalls a frame.
+        /// </summary>
+        public static double UploadBudgetMilliseconds { get; set; } = DefaultUploadBudgetMilliseconds;
+        public const double DefaultUploadBudgetMilliseconds = 4;
+
+        private static long _frameUploadTicks;
+        private static int _frameUploads;
+
+        /// <summary>Starts a frame's upload budget; the host calls it before the frame's Draw events.</summary>
+        public static void BeginFrame()
+        {
+            _frameUploadTicks = 0;
+            _frameUploads = 0;
+        }
+
+        /// <summary>Whether a mesh's current build is on the GPU (false while it waits for its turn).</summary>
+        public static bool IsUploaded(int id) =>
+            TryGet(id, out Builder mesh) && !mesh.Dirty && (mesh.Handle.IsValid || mesh.Indices.Count < 3);
+
+        /// <summary>The renderer's mesh for a script mesh, uploaded again if it changed since (within the frame's budget).</summary>
         public static MeshHandle Resolve(int id, IRenderController renderer)
         {
             if (renderer == null || !TryGet(id, out Builder mesh)) return MeshHandle.Invalid;
-            if (!mesh.Dirty && mesh.Handle.IsValid && ReferenceEquals(mesh.Owner, renderer)) return mesh.Handle;
+            bool sameOwner = ReferenceEquals(mesh.Owner, renderer);
+            if (!mesh.Dirty && mesh.Handle.IsValid && sameOwner) return mesh.Handle;
+            if (UploadBudgetMilliseconds > 0 && _frameUploads > 0
+                && _frameUploadTicks * 1000.0 / System.Diagnostics.Stopwatch.Frequency >= UploadBudgetMilliseconds)
+                return mesh.Handle.IsValid && sameOwner ? mesh.Handle : MeshHandle.Invalid;
+
+            long started = System.Diagnostics.Stopwatch.GetTimestamp();
             if (mesh.Handle.IsValid) mesh.Owner?.ReleaseMesh(mesh.Handle);
             mesh.Handle = MeshHandle.Invalid;
             mesh.Owner = renderer;
             mesh.Dirty = false;
-            if (mesh.Indices.Count < 3) return MeshHandle.Invalid;
-            mesh.Handle = renderer.RegisterMesh(
-                System.Runtime.InteropServices.CollectionsMarshal.AsSpan(mesh.Vertices),
-                System.Runtime.InteropServices.CollectionsMarshal.AsSpan(mesh.Indices));
+            if (mesh.Indices.Count >= 3)
+                mesh.Handle = renderer.RegisterMesh(
+                    System.Runtime.InteropServices.CollectionsMarshal.AsSpan(mesh.Vertices),
+                    System.Runtime.InteropServices.CollectionsMarshal.AsSpan(mesh.Indices));
+            _frameUploadTicks += System.Diagnostics.Stopwatch.GetTimestamp() - started;
+            _frameUploads++;
             return mesh.Handle;
         }
 

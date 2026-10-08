@@ -272,6 +272,7 @@ internal sealed partial class ForwardRenderer
         _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 1, _cbEngine);
         _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 2, _cbFroxel);
         _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 4, _cbOmni);
+        _pixelB4NotOmni = false;
         _gpu.SetSampler(GpuShaderStage.Pixel, 0, _linearSampler);
         _gpu.SetSampler(GpuShaderStage.Pixel, 1, _shadowSampler);
         if (inject)

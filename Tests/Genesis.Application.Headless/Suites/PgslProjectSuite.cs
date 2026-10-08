@@ -170,6 +170,10 @@ internal static class PgslProjectSuite
             {
                 Color centre = three.GetPixel(three.Width / 2, three.Height / 2);
                 Color side = three.GetPixel(three.Width / 2 + three.Width / 5, three.Height / 2);
+                // The clock panel spans about pixels 230-390 across whatever the camera's field of view.
+                Color clock = three.GetPixel(320, three.Height / 2);
+                HeadlessHarness.Assert(clock.G > clock.R + 60,
+                    $"A mesh shader did not see the frame clock (GenesisFrame at b4): {clock}.");
                 Color portrait = three.GetPixel(80, 80);
                 HeadlessHarness.Assert(portrait.R > 170 && portrait.R > portrait.B + 100,
                     $"A GUI model in a dark room was not lit by its own light ({portrait}).");
@@ -435,6 +439,31 @@ internal static class PgslProjectSuite
         Place("Arms", arms, [0f, 1f, 6f], [1.5f, 1.5f, 1.5f]);
         Place("Cover", cover, [0f, 1f, 5f], [3f, 3f, 0.3f]);
         Place("Chunk", chunk, [0f, 0.2f, 2.2f], [1f, 1f, 1f]);
+        // A mesh Shader resource reads the frame clock from GenesisFrame (b4): green once Time and
+        // Frame have moved on, red while they read 0.
+        string shaderFolder = Path.Combine(project.AssetsPath, "Shaders");
+        Directory.CreateDirectory(shaderFolder);
+        File.WriteAllText(Path.Combine(shaderFolder, "Clock.shader.json"), System.Text.Json.JsonSerializer.Serialize(
+            new Genesis.Shared.Assets.ShaderAssetDocument
+            {
+                Pipeline = Genesis.Shared.Assets.ShaderAssetPipeline.Mesh,
+                Entry = "MainPS",
+                Source = """
+                    cbuffer GenesisFrame : register(b4) { float Time; float Frame; float2 Resolution; };
+                    struct VSOut { float4 SvPos : SV_Position; float3 WorldPos : TEXCOORD1; float3 Normal : TEXCOORD2; float4 Color : TEXCOORD3; float2 UV : TEXCOORD4; };
+                    float4 MainPS(VSOut input) : SV_Target
+                    {
+                        return Time > 0.25 && Frame > 2 && Resolution.x > 0 ? float4(0, 1, 0, 1) : float4(1, 0, 0, 1);
+                    }
+                    """,
+            },
+            new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase }));
+        string clockPanel = Object("Clock Panel", new()
+        {
+            ["Create"] = "panel = MeshCreate(); MeshAddQuad(panel, -2, 0.8, 2.5, -1, 0.8, 2.5, -1, 1.4, 2.5, -2, 1.4, 2.5, 0, 0, -1, 0, 0, 1, 1, 255, 255, 255, 1);",
+            ["Draw"] = "DrawMeshSetCull(false); DrawMeshShader3D(panel, \"Clock\", 0, 0, 0, 1, 1, 1, 0, \"\"); DrawMeshResetState();",
+        });
+
         // Pooling: a rotated instance moved away by InstanceSetY must stay there (the pose is
         // copied back every frame), whether it moves itself or another instance moves it.
         string pooled = Object("Pooled", new()
@@ -456,6 +485,7 @@ internal static class PgslProjectSuite
         }, model: "Box");
         string pooledOther = Object("Pooled Other", new() { ["Create"] = "InstanceSetRotation3D(id, 0, 60, 0);" }, model: "Box");
         Place("Pooled", pooled, [4f, 1f, 9f], [0.5f, 0.5f, 0.5f]);
+        Place("Clock Panel", clockPanel, [0f, 0f, 0f], [1f, 1f, 1f]);
         Place("Pooled Other", pooledOther, [-4f, 1f, 9f], [0.5f, 0.5f, 0.5f]);
         RoomAssetLoader.Save(third, thirdFile);
 

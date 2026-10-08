@@ -54,7 +54,7 @@ These registers and fields are stable. Declare only the ones you use.
 
 | Register | Contents |
 |---|---|
-| `b4` `GenesisFrame` | `float Time; float Frame; float2 Resolution;` |
+| `b4` `GenesisFrame` | `float Time; float Frame; float2 Resolution;`: seconds since the game started, the frame number and the target size, in the game as in the Shader editor (placed Objects, model materials, `DrawModelShader3D`, `DrawMeshShader3D`). |
 | `b5` `GenesisParameters` | Your parameters, up to 16 floats (four `float4` rows). Their names are what the Object editor shows and what the commands above set. |
 | `t17`–`t20` | Free for your own textures (set in the Shader editor's Resources; an Object can override them). `t21`–`t23` are free except on terrain. They are bound the same way for a placed Object, a model material's shader and a script's `DrawModelShader3D`. |
 

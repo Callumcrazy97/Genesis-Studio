@@ -478,6 +478,7 @@ namespace Genesis.Runtime
                 Engine.SetDrawCommandSink(_frameQueue);
 
                 _frameQueue.Reset();
+                Genesis.Runtime.Rendering.ScriptMeshes.BeginFrame();
                 roomPresentation.Render2D(_scene, _renderer, _frameQueue);
                 ScriptHost?.DispatchRenderFrame(_renderer, _frameQueue);
                 ScriptHost?.DispatchPgslWorldDraw(_renderer, _frameQueue);
@@ -541,6 +542,7 @@ namespace Genesis.Runtime
                 using (Genesis.Shared.Diagnostics.LoadProfile.Begin("scripts' render-frame events and lights"))
                 {
                     BeforeRenderSubmit?.Invoke();
+                    Genesis.Runtime.Rendering.ScriptMeshes.BeginFrame();
                     ScriptHost?.DispatchRenderFrame(_renderer, _frameQueue);
                     ScriptHost?.DispatchPgslWorldDraw(_renderer, _frameQueue);
                 }

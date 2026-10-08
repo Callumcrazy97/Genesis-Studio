@@ -98,6 +98,15 @@ public static partial class PgslCommands
             flip: double.IsFinite(flip) && flip >= 0.5);
     }
 
+    [PgslCommand("MeshSetUploadBudget", "MeshSetUploadBudget(milliseconds)",
+        "How long a frame may spend sending new or changed meshes to the GPU (default 4; 0 = no limit). The rest go on later frames: a changed mesh draws its previous build meanwhile",
+        "Meshes")]
+    public static void MeshSetUploadBudget(double milliseconds) =>
+        ScriptMeshes.UploadBudgetMilliseconds = double.IsFinite(milliseconds) ? Math.Clamp(milliseconds, 0, 1000) : ScriptMeshes.DefaultUploadBudgetMilliseconds;
+
+    [PgslCommand("MeshIsUploaded", "MeshIsUploaded(mesh) -> bool", "Whether a mesh's latest build is on the GPU (false while it waits its turn)", "Meshes")]
+    public static bool MeshIsUploaded(double mesh) => ScriptMeshes.IsUploaded((int)mesh);
+
     [PgslCommand("MeshVertexCount", "MeshVertexCount(mesh) -> number", "Vertices in a mesh", "Meshes")]
     public static double MeshVertexCount(double mesh) => ScriptMeshes.VertexCount((int)mesh);
 
