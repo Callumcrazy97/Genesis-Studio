@@ -593,7 +593,7 @@ texel, such as a distant block's colour from an atlas.
 | `MeshAddCubeTiles(mesh, x, y, z, size, faces, r, g, b, top u0 v0 u1 v1, side u0 v0 u1 v1, bottom u0 v0 u1 v1)` | The same with its own atlas tile for the top, the four sides and the bottom (a grass block, a log). |
 | `MeshAddQuad(mesh, x0, y0, z0, x1, y1, z1, x2, y2, z2, x3, y3, z3, nx, ny, nz, u0, v0, u1, v1, r, g, b, a)` | Any textured four-cornered face in one call (crossed plants, decals, trails): corners in order around it, turning like `MeshAddTriangle`; returns the first corner's index. |
 | `MeshAddQuadColors(mesh, corners..., nx, ny, nz, u0, v0, u1, v1, r0, g0, b0, a0, r1, ..., a3, flip)` | `MeshAddQuad` with its own colour and alpha at each corner (baked light, ambient occlusion, gradients); `flip` 1 splits it along the other diagonal so the colours blend evenly. |
-| `MeshAddQuadsFromList(mesh, list)` | Many quads in one call from a DsList holding 36 numbers for each, in `MeshAddQuadColors`' order (four corners, normal, `u0 v0 u1 v1`, four colours with alpha, `flip`); returns the quads added. A [worker job](#script-functions-on-worker-threads) can work a chunk's faces out into a list, and the game's thread adds them all at once: about 100 ns a face, against about 360 ns for a `MeshAddQuadColors` call from a script. |
+| `MeshAddQuadsFromList(mesh, list)` | Many quads in one call from a DsList holding 36 numbers for each, in `MeshAddQuadColors`' order (four corners, normal, `u0 v0 u1 v1`, four colours with alpha, `flip`); returns the quads added. A [worker job](#script-functions-on-worker-threads) can work a chunk's faces out into a list, and the game's thread adds them all at once: 100 to 370 ns a face, against 360 to 740 ns for a `MeshAddQuadColors` call from a script (development PC, 8 Oct 2026). |
 | `MeshAddVerticesFromList(mesh, vertices, triangles)` | Many vertices (12 numbers each, `MeshAddVertex`'s order) and triangles (three indices each, counted from the first vertex this call adds) in one call; a vertex that is not a number is skipped with its triangles. Returns the vertices added. |
 | `MeshVertexCount(mesh)`, `MeshTriangleCount(mesh)` | Its size. |
 | `DrawMesh3D(mesh, x, y, z, image)`, `DrawMesh3DTransform(mesh, x, y, z, sx, sy, sz, yaw, image)` | In a Draw event of a 3D room: the mesh at a place, textured by an Image (empty for none), tinted by the instance's image blend and alpha. |
@@ -628,8 +628,9 @@ is the same world everywhere. Any number is a seed, fractions included (`0.5` an
 | `NoiseFillGrid3D(grid, x0, y0, z0, step, plane, seed, octaves, lacunarity, gain, scale, offset)` | A flat slice of `FractalNoise3D`: `plane` `"xy"`, `"xz"` or `"yz"` names the axes `i` and `j` step along from `(x0, y0, z0)`; the third stays put (one layer of a cave field). |
 
 Measured on the development PC's performance cores (8 Oct 2026, `--test pgsl-logic`, called from
-C#): `Noise2D` 13 ns, `Noise3D` 20 ns, `ValueNoise2D` 14 ns; `NoiseFillGrid` 15 ns a cell with one
-octave and 53 ns with four, `NoiseFillGrid3D` 61 ns a cell with three. From a script loop, value
+C#; the fastest of several runs, other runs up to twice as long): `Noise2D` 13 ns, `Noise3D` 20 ns,
+`ValueNoise2D` 14 ns; `NoiseFillGrid` 15 ns a cell with one octave and 53 ns with four,
+`NoiseFillGrid3D` 61 ns a cell with three. From a script loop, value
 noise written in script (four hashes with a `Sin` each) took 0.8 to 1.2 microseconds a sample,
 `FractalNoise2D` with four octaves 0.08 to 0.2. A 16 x 16 height map with four octaves is about
 14 microseconds with `NoiseFillGrid`.
