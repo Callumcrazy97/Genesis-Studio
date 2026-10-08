@@ -309,7 +309,10 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
     private bool[] _workerAllows;
     private Func<string, string, bool> _workerPredicate;
 
-    /// <summary>A copy of a built bridge's command table for worker jobs; build it on the game's thread.</summary>
+    /// <summary>
+    /// A copy of a built bridge's command table for worker jobs. It may be made on a worker thread:
+    /// it only reads the game's tables, which are not changed once built (a rebuild replaces them).
+    /// </summary>
     internal static PgslEngineBridge CreateWorker(PgslEngineBridge game, Func<string, string, bool> allows)
     {
         var worker = new PgslEngineBridge { _workerPredicate = allows };

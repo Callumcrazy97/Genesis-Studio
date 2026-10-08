@@ -593,6 +593,8 @@ texel, such as a distant block's colour from an atlas.
 | `MeshAddCubeTiles(mesh, x, y, z, size, faces, r, g, b, top u0 v0 u1 v1, side u0 v0 u1 v1, bottom u0 v0 u1 v1)` | The same with its own atlas tile for the top, the four sides and the bottom (a grass block, a log). |
 | `MeshAddQuad(mesh, x0, y0, z0, x1, y1, z1, x2, y2, z2, x3, y3, z3, nx, ny, nz, u0, v0, u1, v1, r, g, b, a)` | Any textured four-cornered face in one call (crossed plants, decals, trails): corners in order around it, turning like `MeshAddTriangle`; returns the first corner's index. |
 | `MeshAddQuadColors(mesh, corners..., nx, ny, nz, u0, v0, u1, v1, r0, g0, b0, a0, r1, ..., a3, flip)` | `MeshAddQuad` with its own colour and alpha at each corner (baked light, ambient occlusion, gradients); `flip` 1 splits it along the other diagonal so the colours blend evenly. |
+| `MeshAddQuadsFromList(mesh, list)` | Many quads in one call from a DsList holding 36 numbers for each, in `MeshAddQuadColors`' order (four corners, normal, `u0 v0 u1 v1`, four colours with alpha, `flip`); returns the quads added. A [worker job](#script-functions-on-worker-threads) can work a chunk's faces out into a list, and the game's thread adds them all at once: about 100 ns a face, against about 360 ns for a `MeshAddQuadColors` call from a script. |
+| `MeshAddVerticesFromList(mesh, vertices, triangles)` | Many vertices (12 numbers each, `MeshAddVertex`'s order) and triangles (three indices each, counted from the first vertex this call adds) in one call; a vertex that is not a number is skipped with its triangles. Returns the vertices added. |
 | `MeshVertexCount(mesh)`, `MeshTriangleCount(mesh)` | Its size. |
 | `DrawMesh3D(mesh, x, y, z, image)`, `DrawMesh3DTransform(mesh, x, y, z, sx, sy, sz, yaw, image)` | In a Draw event of a 3D room: the mesh at a place, textured by an Image (empty for none), tinted by the instance's image blend and alpha. |
 | `DrawMeshShader3D(mesh, shader, x, y, z, sx, sy, sz, yaw, image)` | Draw it through a mesh Shader resource, with the instance's `ShaderSetParameter` / `ShaderSetVector` values and the textures the shader declares. |
@@ -719,6 +721,11 @@ else if (JobStatus(job) == "succeeded") {
 }
 ```
 
+Meshes are made on the game's thread, but working out their faces need not be: a job can fill a
+list with each face's corners, normal, texture and colours (36 numbers a face), and the game's
+thread adds them with one `MeshAddQuadsFromList(mesh, faces)` (see [meshes a script
+builds](#meshes-a-script-builds)).
+
 Measured on the development PC (8 Oct 2026, `--test pgsl-logic`; an i7-14700F, 8 performance
 and 12 efficiency cores, in other use meanwhile) with a chunk of 8 x 8 columns 32 blocks high
 (4-octave noise per column, a helper call and three commands per cell, 2 048 cells): 0.46 ms on the
@@ -733,7 +740,9 @@ directly (and leaves the game's grids alone until `JobTake`), that drawing, `Ran
 never set stop a job with those messages, that twelve jobs at once each match the direct call for
 their seed, that two Objects' 32 jobs on fewer workers wait their turn (no more threads start than
 the limit) and all finish, and that a job is cancelled while running or while waiting, released,
-refused when cancelled before it starts, and stopped by its budget. It also checks noise against recorded values, its range and
+refused when cancelled before it starts, and stopped by its budget; that a mesh's faces worked out
+in a job and added with `MeshAddQuadsFromList` make the same mesh as adding them one at a time, and
+that `MeshAddVerticesFromList` skips a vertex that is not a number with its triangle. It also checks noise against recorded values, its range and
 smoothness, the grid fills against single calls, and each whole-region grid command. Not yet seen:
 a game streaming its world through jobs.
 

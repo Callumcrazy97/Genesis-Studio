@@ -47,6 +47,38 @@ internal static class PgslWorkerJobChecks
         function WjReadsUnset() { return notGivenToTheJob + 1; }
         function WjSpin(n) { var k = 0; while (k < n) { k = k + 1; } return k; }
         function WjText(a, b) { return a + "-" + b; }
+        // A top face for each column, worked out into a list (in a job) or added straight to a mesh.
+        function WjQuad(faces, qx, qy, qz, shade, flip) {
+            DsListAdd(faces, qx); DsListAdd(faces, qy + 1); DsListAdd(faces, qz);
+            DsListAdd(faces, qx + 1); DsListAdd(faces, qy + 1); DsListAdd(faces, qz);
+            DsListAdd(faces, qx + 1); DsListAdd(faces, qy + 1); DsListAdd(faces, qz + 1);
+            DsListAdd(faces, qx); DsListAdd(faces, qy + 1); DsListAdd(faces, qz + 1);
+            DsListAdd(faces, 0); DsListAdd(faces, 1); DsListAdd(faces, 0);
+            DsListAdd(faces, 0.25); DsListAdd(faces, 0); DsListAdd(faces, 0.5); DsListAdd(faces, 0.25);
+            for (var k = 0; k < 4; k = k + 1) { DsListAdd(faces, shade); DsListAdd(faces, shade - k * 10); DsListAdd(faces, 90); DsListAdd(faces, 1); }
+            DsListAdd(faces, flip);
+            return 1;
+        }
+        function WjFaceList(heights, faces) {
+            DsListClear(faces);
+            for (var cz2 = 0; cz2 < 8; cz2 = cz2 + 1) {
+                for (var cx2 = 0; cx2 < 8; cx2 = cx2 + 1) {
+                    var h = DsGridGet(heights, cx2, cz2);
+                    WjQuad(faces, cx2, h, cz2, 150 + h * 3, (cx2 + cz2) % 2);
+                }
+            }
+            return DsListSize(faces) / 36;
+        }
+        function WjFacesDirect(heights, m) {
+            for (var cz2 = 0; cz2 < 8; cz2 = cz2 + 1) {
+                for (var cx2 = 0; cx2 < 8; cx2 = cx2 + 1) {
+                    var h = DsGridGet(heights, cx2, cz2); var shade = 150 + h * 3;
+                    MeshAddQuadColors(m, cx2, h + 1, cz2, cx2 + 1, h + 1, cz2, cx2 + 1, h + 1, cz2 + 1, cx2, h + 1, cz2 + 1, 0, 1, 0, 0.25, 0, 0.5, 0.25,
+                        shade, shade, 90, 1, shade, shade - 10, 90, 1, shade, shade - 20, 90, 1, shade, shade - 30, 90, 1, (cx2 + cz2) % 2);
+                }
+            }
+            return MeshVertexCount(m);
+        }
         // Reads two instance variables, as a game's own functions do.
         function WjUsesGlobals(n) { return n * wjScale + DsGridGet(wjGrid, 1, 0) + StringLength(wjName); }
         // Value noise written in script, the way a game did it before the noise commands.
@@ -253,6 +285,72 @@ internal static class PgslWorkerJobChecks
                 HeadlessHarness.Assert(text > 0 && bench.Wait(text) == "succeeded" && PgslCommands.JobResultString(text) == "a-2",
                     $"JobRunScript with text gave '{PgslCommands.JobResultString(text)}' ({PgslCommands.JobStatus(text)}: {PgslCommands.JobError(text)}).");
                 PgslCommands.JobRelease(text);
+            });
+
+            // A job works out a mesh's faces into a list; the game's thread adds them in one call, and
+            // the mesh is the same as one built a face at a time.
+            HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.Jobs.MeshFacesFromAJob", () =>
+            {
+                using Bench bench = new();
+                double job = bench.Number("""
+                    hh = DsGridCreate(8, 8); NoiseFillGrid(hh, 0, 0, 0.3, 5, 2, 2, 0.5, 6, 10); DsGridFloorRegion(hh, 0, 0, 7, 7);
+                    fl = DsListCreate();
+                    fj = JobScriptCreate("WjFaceList"); JobScriptGrid(fj, hh, false); JobScriptList(fj, fl, true);
+                    JobScriptStart(fj, hh, fl);
+                    r = fj;
+                    """);
+                HeadlessHarness.Assert(bench.Wait(job) == "succeeded" && PgslCommands.JobTake(job),
+                    $"The faces job ended {PgslCommands.JobStatus(job)}: {PgslCommands.JobError(job)}");
+                PgslCommands.JobRelease(job);
+                double quads = bench.Number("m1 = MeshCreate(); r = MeshAddQuadsFromList(m1, fl);");
+                bench.Run("m2 = MeshCreate(); r = WjFacesDirect(hh, m2);");
+                int listed = (int)bench.Number("r = m1;"), direct = (int)bench.Number("r = m2;");
+                Genesis.Runtime.Rendering.ScriptMeshes.TryGetVertices(listed, out var listVertices, out ushort[] listIndices);
+                Genesis.Runtime.Rendering.ScriptMeshes.TryGetVertices(direct, out var directVertices, out ushort[] directIndices);
+                bool same = listVertices.Length == directVertices.Length && listIndices.SequenceEqual(directIndices)
+                    && listVertices.Zip(directVertices).All(pair => pair.First.Position == pair.Second.Position && pair.First.Normal == pair.Second.Normal
+                        && pair.First.UV == pair.Second.UV && pair.First.Color == pair.Second.Color);
+                row("Jobs", "a mesh's faces worked out in a job, added with MeshAddQuadsFromList", same && quads == 64 ? "PASS" : "FAIL",
+                    $"{quads} quads, {listVertices.Length} vertices, the same as added one at a time: {same}");
+                HeadlessHarness.Assert(quads == 64 && same, $"MeshAddQuadsFromList added {quads} quads; the same mesh as one face at a time: {same}.");
+
+                // What the game's thread spends a face: one list command against a script call each.
+                const string fromList = "MeshClear(m1); r = MeshAddQuadsFromList(m1, fl);", oneByOne = "MeshClear(m2); r = WjFacesDirect(hh, m2);";
+                bench.WarmUp(fromList, oneByOne);
+                double Fastest(string source)
+                {
+                    double best = double.MaxValue;
+                    for (int i = 0; i < 30; i++)
+                    {
+                        long start = Stopwatch.GetTimestamp();
+                        bench.Run(source);
+                        best = Math.Min(best, Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+                    }
+                    return best * 1e6 / 64;
+                }
+                double listNs = Fastest(fromList), callNs = Fastest(oneByOne);
+                row("Job speed", "game-thread time per face: MeshAddQuadsFromList / MeshAddQuadColors called from script", "behaviour",
+                    $"{listNs.ToString("F0", CultureInfo.InvariantCulture)} ns / {callNs.ToString("F0", CultureInfo.InvariantCulture)} ns");
+                Console.WriteLine($"Mesh faces: from a list {listNs:F0} ns a face, one script call each {callNs:F0} ns a face");
+
+                // Vertices and triangles from lists, a vertex that is not a number skipped with its triangle.
+                double vertices = bench.Number("""
+                    vl = DsListCreate(); tl = DsListCreate();
+                    for (k = 0; k < 4; k = k + 1) {
+                        DsListAdd(vl, k % 2); DsListAdd(vl, 0); DsListAdd(vl, Floor(k / 2)); DsListAdd(vl, 0); DsListAdd(vl, 1); DsListAdd(vl, 0);
+                        DsListAdd(vl, 0); DsListAdd(vl, 0); DsListAdd(vl, 255); DsListAdd(vl, 255); DsListAdd(vl, 255); DsListAdd(vl, 1);
+                    }
+                    DsListAdd(vl, 0 / 0); for (k = 0; k < 11; k = k + 1) { DsListAdd(vl, 0); }
+                    DsListAdd(tl, 0); DsListAdd(tl, 1); DsListAdd(tl, 3); DsListAdd(tl, 0); DsListAdd(tl, 3); DsListAdd(tl, 2); DsListAdd(tl, 0); DsListAdd(tl, 4); DsListAdd(tl, 1);
+                    m3 = MeshCreate(); MeshAddVertex(m3, 9, 9, 9, 0, 1, 0, 0, 0, 1, 1, 1, 1);
+                    r = MeshAddVerticesFromList(m3, vl, tl);
+                    """);
+                double triangles = bench.Number("r = MeshTriangleCount(m3);"), total = bench.Number("r = MeshVertexCount(m3);");
+                row("Jobs", "MeshAddVerticesFromList", vertices == 4 && triangles == 2 && total == 5 ? "PASS" : "FAIL",
+                    $"{vertices} vertices added after one already there, {triangles} triangles (the one using the bad vertex skipped)");
+                HeadlessHarness.Assert(vertices == 4 && triangles == 2 && total == 5,
+                    $"MeshAddVerticesFromList added {vertices} vertices and {triangles} triangles ({total} in the mesh).");
+                bench.Run("MeshDestroy(m1); MeshDestroy(m2); MeshDestroy(m3); r = 0;");
             });
 
             HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.Jobs.WhatAJobCannotDo", () =>
