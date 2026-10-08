@@ -657,6 +657,71 @@ grid are skipped (or read as 0); a bad handle does nothing and returns 0 (-1 for
 Already there before: `DsGridSetRegion` (fill a region with one value), `DsGridClear` (fill the
 grid), `DsGridCopy` (a whole grid), `DsGridGetSum` / `GetMax` / `GetMin` and `DsGridValueExists`.
 
+## Script functions on worker threads
+
+A function of the project's Scripts can run as a job on a worker thread, so generating a chunk, a
+map or a path does not hold up the frame. The job runs on a VM of its own with a context of its
+own, and is given **copies** of the grids and lists it needs, taken when it starts: the game may
+change its own meanwhile, and nothing the job does reaches the game until the script takes the
+result with `JobTake`. Inside the job each grid or list keeps its handle, so the same function also
+runs directly on the game's thread and gives the same result; the same arguments and data always
+give the same result.
+
+A job may use maths, text, noise, grids, lists, maps, stacks, queues, named arrays, JSON and its
+own variables (`VariableSet`). Anything that reaches the game or shared state (instances, `with`,
+drawing, meshes, sound, files, input, the clock, `Random`, `Choose`, `Print`, global variables,
+running a Script by name) stops the job with "*X* is not available in a worker job". A name the
+job never set is an error too ("'*name*' has no value in this job"), not 0 as in an event: an
+instance's variables are not there, so pass them as arguments. A grid or list that was not given
+to the job reads as one that does not exist (0, as a destroyed one does). Functions written in an
+Object's events are not available to jobs; put the function in a Script.
+
+| Command | What it does |
+|---|---|
+| `JobScriptCreate(function)` | A prepared job for a function of the project's Scripts (as they are now); 0 when there is no such function (`JobLastError` says why). |
+| `JobScriptGrid(job, grid, copyBack)`, `JobScriptList(job, list, copyBack)` | Give the job its own copy of a grid or list; with `copyBack` true, `JobTake` copies the job's version back into it (size included). |
+| `JobScriptBudget(job, instructions)` | Instructions the job may run in all, every call counted (100 000 000 unless set, 1 000 to 2 000 000 000). The per-call limit of events does not apply. |
+| `JobScriptStart(job, arguments...)` | Start it with the function's arguments (numbers, true/false or text). Jobs wait their turn for one of all but two of the processors. |
+| `JobRunScript(function, arguments...)` | Create and start in one, for a job that needs no grids or lists; its result is read with `JobResultNumber` / `JobResultString` / `JobResultBool`. |
+| `JobStatus(job)` | `prepared`, `queued`, `running`, `succeeded`, `failed` (`JobError` says why, with the line) or `cancelled`. |
+| `JobTake(job)` | Once it has succeeded: copy the grids and lists marked `copyBack` into the Object's own (once). |
+| `JobCancel(job)`, `JobRelease(job)` | Stop it (a running job stops within a fraction of a millisecond), or let go of the handle and its data. |
+
+An Object holds up to 16 jobs at a time and the game 32 (with file jobs); release each when done.
+An Object's jobs are cancelled when it is destroyed.
+
+```pgsl
+// Library Script "Terrain": works on its own data only, so it can run as a job.
+function TerrainHeights(heights, cx, cz, seed) {
+    NoiseFillGrid(heights, cx * 16 / 96, cz * 16 / 96, 1 / 96, seed, 4, 2, 0.5, 24, 64);
+    DsGridFloorRegion(heights, 0, 0, 15, 15);
+    return DsGridGetMax(heights, 0, 0, 15, 15);
+}
+
+// The world Object. Create: job = 0; heights = DsGridCreate(16, 16);
+// Step: start a chunk's heights on a worker...
+if (job == 0) {
+    job = JobScriptCreate("TerrainHeights");
+    JobScriptGrid(job, heights, true);
+    JobScriptStart(job, heights, cx, cz, worldSeed);
+}
+// ...and on a later frame, once it is done, take the heights and mesh the chunk here.
+else if (JobStatus(job) == "succeeded") {
+    JobTake(job);
+    top = JobResultNumber(job);
+    JobRelease(job);
+    job = 0;
+    BuildChunkMesh(heights, cx, cz);   // meshes are made on the game's thread
+}
+```
+
+Measured on the development PC (8 Oct 2026, an i7 with 28 threads of mixed speed, while it was in
+other use), with a chunk of 8 x 8 columns 32 blocks high (4-octave noise per column, a helper call
+and three commands per cell): about 1.3 to 2.2 ms on the game's thread; as jobs, 0.1 ms of the
+game's thread per job (making it, the copies, starting, taking, releasing), 3.3 ms on a worker when
+alone and 3 to 9 ms with 14 at once, and 670 to 3 900 chunks a second with 14 in flight. A worker's
+first job sets up its command table (the first 32 jobs took about 25 to 35 ms in all).
+
 ## Video options and the clock
 
 | Command | What it does |

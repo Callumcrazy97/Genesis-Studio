@@ -74,6 +74,7 @@ limits, and what happens on a mistake. Every statement below is checked by the h
 | Instructions | 100 000 per event body and per function call (each call has its own count) | "Infinite loop detected: Maximum instruction limit (100000) exceeded in function 'Name'". Split long work over several frames. |
 | Recursion | 200 calls deep | "Too much recursion: 'Name' is 200 calls deep". Use a loop with a list or stack (`DsStack*`) for deep work. |
 | Script calls | 64 Script resources deep | |
+| A worker job's instructions | 100 000 000 for the whole job, every call counted, unless `JobScriptBudget` sets another; no per-call limit | "The job ran more than its budget of N instructions". See [script functions on worker threads](GameFeatures.md#script-functions-on-worker-threads). |
 
 ## Speed
 

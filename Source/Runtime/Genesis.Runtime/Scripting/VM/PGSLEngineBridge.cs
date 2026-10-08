@@ -141,7 +141,8 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
     {
         var call = new NativeCall { ArgumentCount = argumentCount, Entry = _nativeTable[id] };
         CommandDef def = _nativeDefs[id];
-        if (!def.IsProperty)
+        // A command a worker job may not run keeps only its entry, which says so.
+        if (!def.IsProperty && (_workerAllows == null || _workerAllows[id]))
         {
             // The same overload CallMethod picks for this many arguments.
             call.Method = ResolveMethod(def.CSharpMember, argumentCount);
@@ -254,11 +255,92 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
 
     public PgslContext GetContext() => _context;
 
-    public IEnumerable<object> FindObjects(string objName) => Genesis.Runtime.Scripting.PgslBehavior.FindTargets(objName);
+    public IEnumerable<object> FindObjects(string objName) => _workerAllows != null
+        ? throw new PgslWorkerJobException("with is not available in a worker job: a job has no instances.")
+        : Genesis.Runtime.Scripting.PgslBehavior.FindTargets(objName);
+
+    // ── Worker jobs ─────────────────────────────────────────────────────────────
+    // A bridge of its own for a VM that runs a script function on a worker thread: the same
+    // command ids, so bytecode compiled for the game runs unchanged; caches of its own, so nothing
+    // the game's bridge holds is written from another thread; and only the commands a worker may
+    // run (worked out once per command). Any other command, property or Script raises an error.
+
+    private bool[] _workerAllows;
+    private Func<string, string, bool> _workerPredicate;
+
+    /// <summary>A copy of a built bridge's command table for worker jobs; build it on the game's thread.</summary>
+    internal static PgslEngineBridge CreateWorker(PgslEngineBridge game, Func<string, string, bool> allows)
+    {
+        var worker = new PgslEngineBridge { _workerPredicate = allows };
+        foreach (KeyValuePair<string, CommandDef> pair in game._commandDefs) worker._commandDefs[pair.Key] = pair.Value;
+        // The game's tables are replaced, never changed, when it rebuilds them: these stay as they are.
+        worker._nativeIdMap = game._nativeIdMap;
+        worker._nativeNames = game._nativeNames;
+        worker._nativeIsVoid = game._nativeIsVoid;
+        worker._nativeDefs = game._nativeDefs;
+        int count = game._nativeDefs.Length;
+        worker._nativeCalls = new NativeCall[count];
+        worker._nativeTable = new Func<object[], object>[count];
+        worker._workerAllows = new bool[count];
+        for (int i = 0; i < count; i++)
+        {
+            CommandDef def = game._nativeDefs[i];
+            bool allowed = def != null && allows(def.Name, def.Category);
+            worker._workerAllows[i] = allowed;
+            if (def == null) continue;
+            if (!allowed)
+            {
+                string name = def.Name;
+                worker._nativeTable[i] = _ => throw NotInWorker(name);
+            }
+            else if (def.IsProperty)
+            {
+                worker._nativeTable[i] = args =>
+                {
+                    var prop = worker.GetOrCacheProperty(def.Name);
+                    if (prop == null) return null;
+                    if (args.Length == 0) return prop.GetValue(null);
+                    prop.SetValue(null, ConvertArg(args[0], prop.PropertyType));
+                    return null;
+                };
+            }
+            else
+            {
+                worker._nativeTable[i] = args => worker.CallMethod(def.CSharpMember, args);
+            }
+        }
+        return worker;
+    }
+
+    private static PgslWorkerJobException NotInWorker(string name) =>
+        new($"{name} is not available in a worker job: a job runs maths, text, noise and its own grids, lists and maps only.");
+
+    private bool WorkerAllows(CommandDef def) => _workerPredicate(def.Name, def.Category);
+
+    private object InvokeInWorker(string name, object[] args)
+    {
+        args ??= Array.Empty<object>();
+        if (!_commandDefs.TryGetValue(name, out CommandDef def))
+        {
+            if (args.Length == 0)
+                throw new PgslWorkerJobException(
+                    $"'{name}' has no value in this job: a worker job sees only its arguments, the grids and lists given to it, and what it sets itself.");
+            if (name.Contains('.')) throw NotInWorker(name);
+            throw new InvalidOperationException($"Unknown command: {name}");
+        }
+        if (!WorkerAllows(def)) throw NotInWorker(def.Name);
+        if (def.IsProperty)
+        {
+            if (args.Length == 0) return GetProperty(def.Name);
+            SetProperty(def.Name, args[0]);
+            return null;
+        }
+        return CallMethod(def.CSharpMember, args);
+    }
 
     public bool IsVoid(string name, int argCount)
     {
-        if (ScriptAssetRegistry.TryGet(name?.Trim() ?? "", out _))
+        if (_workerAllows == null && ScriptAssetRegistry.TryGet(name?.Trim() ?? "", out _))
             return false;
 
         if (_commandDefs.TryGetValue(name, out var def))
@@ -277,6 +359,9 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
 
     public object Invoke(string name, object[] args)
     {
+        if (_workerAllows != null)
+            return InvokeInWorker(name, args);
+
         if (TryInvokeScriptAsset(name, args, out var scriptResult))
             return scriptResult;
 
@@ -337,6 +422,7 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
         {
             return false;
         }
+        if (_workerAllows != null && !WorkerAllows(def)) throw NotInWorker(def.Name);
         SetProperty(def.Name, value);
         return true;
     }
@@ -345,6 +431,7 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
     {
         if (string.IsNullOrWhiteSpace(name) || !_commandDefs.TryGetValue(name, out CommandDef def) || !def.IsProperty)
             return false;
+        if (_workerAllows != null && !WorkerAllows(def)) throw NotInWorker(def.Name);
         SetProperty(def.Name, value.ToObject()); return true;
     }
 

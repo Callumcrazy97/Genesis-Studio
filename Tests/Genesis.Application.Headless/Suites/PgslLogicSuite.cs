@@ -655,6 +655,8 @@ internal static class PgslLogicSuite
             HeadlessHarness.Assert(order == "CSDGSDG", $"Events ran as {order}, not Create then Step, Draw, Draw GUI each frame.");
         });
 
+        PgslWorkerJobChecks.Run(ctx, (group, name, result, detail) => rows.Add(new Row(group, name, result, detail)));
+
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EveryCommandIsCallable", () =>
         {
             PgslCommandTestReport sweep = PgslCommandAutoTester.Run(repeats: 1);

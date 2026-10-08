@@ -90,6 +90,18 @@ public class PgslVm
     public IPgslEngineBridge Bridge => _bridge;
     /// <summary>Instructions this VM has run in total (every event body and function call), for speed reports.</summary>
     public long InstructionsExecuted { get; private set; }
+
+    /// <summary>
+    /// Set for a VM running a worker job: one instruction budget for the whole job (every call
+    /// counted) instead of the per-call limit, and cancellation. Null for a game's VMs.
+    /// </summary>
+    internal PgslJobBudget JobBudget { get; set; }
+
+    /// <summary>
+    /// The library functions a worker job may call, fixed when it started; a game's VMs (null here)
+    /// look in the project's Scripts as they are now.
+    /// </summary>
+    internal IReadOnlyDictionary<string, UserFunction> LibraryFunctions { get; set; }
     public PgslDebugController Debugger { get; set; }
     public string DebugSourceName { get; set; } = string.Empty;
     public string DebugEventName { get; set; } = string.Empty;
@@ -228,8 +240,10 @@ public class PgslVm
 
         int pc = 0;
         int withDepth = _withStack.Count;
-        // The budget is per event body and per function call: each call counts its own.
+        // The budget is per event body and per function call: each call counts its own. A worker
+        // job instead checks its whole-job budget (and whether it was cancelled) at every slice.
         int executed = 0;
+        int checkpoint = JobBudget is null ? MAX_INSTRUCTIONS : PgslJobBudget.Slice;
         VmOp[] ops = program.Ops;
         // A function's body runs in its own frame (the top one): its names are read by slot.
         VariableFrame frame = program.Layout != null && _frameCount > 0 && _frames[_frameCount - 1].Layout == program.Layout
@@ -248,9 +262,12 @@ public class PgslVm
         {
             while (pc < ops.Length)
             {
-                if (++executed > MAX_INSTRUCTIONS)
+                if (++executed > checkpoint)
                 {
-                    ThrowInstructionLimit(_debugCallStack.Count > 0 ? _debugCallStack.Peek() : null);
+                    if (JobBudget is null)
+                        ThrowInstructionLimit(_debugCallStack.Count > 0 ? _debugCallStack.Peek() : null);
+                    JobBudget.Check(InstructionsExecuted + executed);
+                    checkpoint += PgslJobBudget.Slice;
                 }
 
                 if (Debugger is not null)
@@ -1205,7 +1222,9 @@ public class PgslVm
 
         // A function of a project Script (a library) is callable directly, the first call loading it.
         bool isFunction = _userFunctions.TryGetValue(funcName, out UserFunction userFunc);
-        if (!isFunction && Genesis.Runtime.Scripting.ScriptAssetRegistry.TryFindFunction(funcName, out UserFunction library))
+        if (!isFunction && (LibraryFunctions is { } fixedLibrary
+                ? fixedLibrary.TryGetValue(funcName, out UserFunction library)
+                : Genesis.Runtime.Scripting.ScriptAssetRegistry.TryFindFunction(funcName, out library)))
         {
             _userFunctions[funcName] = library;
             userFunc = library;
@@ -1518,7 +1537,8 @@ public class PgslVm
         }
 
         try { return VmValue.FromObject(_bridge.Invoke(name, Array.Empty<object>())); }
-        catch (Exception ex)
+        // In a worker job a name with no value is an error, not 0: nothing else can have set it.
+        catch (Exception ex) when (ex is not Genesis.Runtime.Scripting.PgslWorkerJobException)
         {
             bool unknown = ex.Message.Contains("Unknown command", StringComparison.OrdinalIgnoreCase);
             if (!unknown)
