@@ -156,16 +156,30 @@ namespace Genesis.Runtime.Scripting
       function = null;
       if (string.IsNullOrWhiteSpace(name)) return false;
       lock (_lock)
+        return EnsureFunctions().TryGetValue(name, out function);
+    }
+
+    /// <summary>
+    /// Every function the loaded Scripts define, as they are now. The table is replaced, never
+    /// changed, when a Script changes, so a worker job can keep the one it started with.
+    /// </summary>
+    public static IReadOnlyDictionary<string, UserFunction> Functions()
+    {
+      lock (_lock)
+        return EnsureFunctions();
+    }
+
+    private static Dictionary<string, UserFunction> EnsureFunctions()
+    {
+      if (_functions == null)
       {
-        if (_functions == null)
-        {
-          _functions = new Dictionary<string, UserFunction>(StringComparer.OrdinalIgnoreCase);
-          foreach (CompiledScriptAsset asset in _byName.Values.OrderByDescending(a => a.Name, StringComparer.OrdinalIgnoreCase))
-            if (asset.CompileResult?.UserFunctions != null)
-              foreach (var pair in asset.CompileResult.UserFunctions) _functions[pair.Key] = pair.Value;
-        }
-        return _functions.TryGetValue(name, out function);
+        var functions = new Dictionary<string, UserFunction>(StringComparer.OrdinalIgnoreCase);
+        foreach (CompiledScriptAsset asset in _byName.Values.OrderByDescending(a => a.Name, StringComparer.OrdinalIgnoreCase))
+          if (asset.CompileResult?.UserFunctions != null)
+            foreach (var pair in asset.CompileResult.UserFunctions) functions[pair.Key] = pair.Value;
+        _functions = functions;
       }
+      return _functions;
     }
 
     public static bool TryGet(string name, out CompiledScriptAsset asset)

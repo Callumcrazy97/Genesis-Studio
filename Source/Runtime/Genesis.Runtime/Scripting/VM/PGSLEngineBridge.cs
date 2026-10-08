@@ -112,6 +112,23 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
         public Func<double[], object[], bool> BoolCall;
         public Action<double[], object[]> VoidCall;
         public Func<double[], object[], object> ObjectCall;
+        /// <summary>
+        /// For a command taking up to four numbers (doubles) and returning a number or nothing
+        /// (<c>DsGridGet</c>, <c>DsListGet</c>, <c>DsGridSet</c>, <c>Floor</c>...): a delegate straight to
+        /// the method, called with the numbers off the VM's stack, no arrays in between.
+        /// </summary>
+        public Delegate Direct;
+        public DirectShape Shape;
+        /// <summary>Whether the call leaves nothing for the script (<see cref="IsNativeVoid"/>), worked out once.</summary>
+        public bool PushesNothing;
+    }
+
+    /// <summary>The form of <see cref="NativeCall.Direct"/>: how many numbers it takes and whether it returns one.</summary>
+    internal enum DirectShape : byte
+    {
+        None,
+        Number0, Number1, Number2, Number3, Number4,
+        Void1, Void2, Void3, Void4,
     }
 
     /// <summary>A method's parameters as argument conversion needs them, read by reflection once.</summary>
@@ -139,9 +156,10 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
 
     private NativeCall CreateNativeCall(int id, int argumentCount)
     {
-        var call = new NativeCall { ArgumentCount = argumentCount, Entry = _nativeTable[id] };
+        var call = new NativeCall { ArgumentCount = argumentCount, Entry = _nativeTable[id], PushesNothing = IsNativeVoid(id) };
         CommandDef def = _nativeDefs[id];
-        if (!def.IsProperty)
+        // A command a worker job may not run keeps only its entry, which says so.
+        if (!def.IsProperty && (_workerAllows == null || _workerAllows[id]))
         {
             // The same overload CallMethod picks for this many arguments.
             call.Method = ResolveMethod(def.CSharpMember, argumentCount);
@@ -198,6 +216,30 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
         else call.ObjectCall = Expression.Lambda<Func<double[], object[], object>>(Expression.Convert(body, typeof(object)), numbers, texts).Compile();
         call.Kinds = kinds;
         call.HasText = Array.IndexOf(kinds, ArgumentKind.Text) >= 0;
+        CreateDirectCall(call, kinds);
+    }
+
+    // The same method as the typed call, bound as a plain delegate when it takes only doubles.
+    private static void CreateDirectCall(NativeCall call, ArgumentKind[] kinds)
+    {
+        if (!ScriptingDebugSettings.VmFastCalls || kinds.Length > 4 || Array.Exists(kinds, kind => kind != ArgumentKind.Number)) return;
+        Type returns = call.Method.ReturnType;
+        (Type type, DirectShape shape) = (returns == typeof(double), kinds.Length) switch
+        {
+            (true, 0) => (typeof(Func<double>), DirectShape.Number0),
+            (true, 1) => (typeof(Func<double, double>), DirectShape.Number1),
+            (true, 2) => (typeof(Func<double, double, double>), DirectShape.Number2),
+            (true, 3) => (typeof(Func<double, double, double, double>), DirectShape.Number3),
+            (true, 4) => (typeof(Func<double, double, double, double, double>), DirectShape.Number4),
+            (false, 1) when returns == typeof(void) => (typeof(Action<double>), DirectShape.Void1),
+            (false, 2) when returns == typeof(void) => (typeof(Action<double, double>), DirectShape.Void2),
+            (false, 3) when returns == typeof(void) => (typeof(Action<double, double, double>), DirectShape.Void3),
+            (false, 4) when returns == typeof(void) => (typeof(Action<double, double, double, double>), DirectShape.Void4),
+            _ => (null, DirectShape.None),
+        };
+        if (type == null) return;
+        call.Direct = call.Method.CreateDelegate(type);
+        call.Shape = shape;
     }
 
     /// <summary>Calls a command through its cached plan: the same conversions and errors as <see cref="InvokeNative"/>.</summary>
@@ -254,11 +296,95 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
 
     public PgslContext GetContext() => _context;
 
-    public IEnumerable<object> FindObjects(string objName) => Genesis.Runtime.Scripting.PgslBehavior.FindTargets(objName);
+    public IEnumerable<object> FindObjects(string objName) => _workerAllows != null
+        ? throw new PgslWorkerJobException("with is not available in a worker job: a job has no instances.")
+        : Genesis.Runtime.Scripting.PgslBehavior.FindTargets(objName);
+
+    // ── Worker jobs ─────────────────────────────────────────────────────────────
+    // A bridge of its own for a VM that runs a script function on a worker thread: the same
+    // command ids, so bytecode compiled for the game runs unchanged; caches of its own, so nothing
+    // the game's bridge holds is written from another thread; and only the commands a worker may
+    // run (worked out once per command). Any other command, property or Script raises an error.
+
+    private bool[] _workerAllows;
+    private Func<string, string, bool> _workerPredicate;
+
+    /// <summary>
+    /// A copy of a built bridge's command table for worker jobs. It may be made on a worker thread:
+    /// it only reads the game's tables, which are not changed once built (a rebuild replaces them).
+    /// </summary>
+    internal static PgslEngineBridge CreateWorker(PgslEngineBridge game, Func<string, string, bool> allows)
+    {
+        var worker = new PgslEngineBridge { _workerPredicate = allows };
+        foreach (KeyValuePair<string, CommandDef> pair in game._commandDefs) worker._commandDefs[pair.Key] = pair.Value;
+        // The game's tables are replaced, never changed, when it rebuilds them: these stay as they are.
+        worker._nativeIdMap = game._nativeIdMap;
+        worker._nativeNames = game._nativeNames;
+        worker._nativeIsVoid = game._nativeIsVoid;
+        worker._nativeDefs = game._nativeDefs;
+        int count = game._nativeDefs.Length;
+        worker._nativeCalls = new NativeCall[count];
+        worker._nativeTable = new Func<object[], object>[count];
+        worker._workerAllows = new bool[count];
+        for (int i = 0; i < count; i++)
+        {
+            CommandDef def = game._nativeDefs[i];
+            bool allowed = def != null && allows(def.Name, def.Category);
+            worker._workerAllows[i] = allowed;
+            if (def == null) continue;
+            if (!allowed)
+            {
+                string name = def.Name;
+                worker._nativeTable[i] = _ => throw NotInWorker(name);
+            }
+            else if (def.IsProperty)
+            {
+                worker._nativeTable[i] = args =>
+                {
+                    var prop = worker.GetOrCacheProperty(def.Name);
+                    if (prop == null) return null;
+                    if (args.Length == 0) return prop.GetValue(null);
+                    prop.SetValue(null, ConvertArg(args[0], prop.PropertyType));
+                    return null;
+                };
+            }
+            else
+            {
+                worker._nativeTable[i] = args => worker.CallMethod(def.CSharpMember, args);
+            }
+        }
+        return worker;
+    }
+
+    private static PgslWorkerJobException NotInWorker(string name) =>
+        new($"{name} is not available in a worker job: a job runs maths, text, noise and its own grids, lists and maps only.");
+
+    private bool WorkerAllows(CommandDef def) => _workerPredicate(def.Name, def.Category);
+
+    private object InvokeInWorker(string name, object[] args)
+    {
+        args ??= Array.Empty<object>();
+        if (!_commandDefs.TryGetValue(name, out CommandDef def))
+        {
+            if (args.Length == 0)
+                throw new PgslWorkerJobException(
+                    $"'{name}' has no value in this job: a worker job sees only its arguments, the grids and lists given to it, and what it sets itself.");
+            if (name.Contains('.')) throw NotInWorker(name);
+            throw new InvalidOperationException($"Unknown command: {name}");
+        }
+        if (!WorkerAllows(def)) throw NotInWorker(def.Name);
+        if (def.IsProperty)
+        {
+            if (args.Length == 0) return GetProperty(def.Name);
+            SetProperty(def.Name, args[0]);
+            return null;
+        }
+        return CallMethod(def.CSharpMember, args);
+    }
 
     public bool IsVoid(string name, int argCount)
     {
-        if (ScriptAssetRegistry.TryGet(name?.Trim() ?? "", out _))
+        if (_workerAllows == null && ScriptAssetRegistry.TryGet(name?.Trim() ?? "", out _))
             return false;
 
         if (_commandDefs.TryGetValue(name, out var def))
@@ -277,6 +403,9 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
 
     public object Invoke(string name, object[] args)
     {
+        if (_workerAllows != null)
+            return InvokeInWorker(name, args);
+
         if (TryInvokeScriptAsset(name, args, out var scriptResult))
             return scriptResult;
 
@@ -337,6 +466,7 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
         {
             return false;
         }
+        if (_workerAllows != null && !WorkerAllows(def)) throw NotInWorker(def.Name);
         SetProperty(def.Name, value);
         return true;
     }
@@ -345,6 +475,7 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
     {
         if (string.IsNullOrWhiteSpace(name) || !_commandDefs.TryGetValue(name, out CommandDef def) || !def.IsProperty)
             return false;
+        if (_workerAllows != null && !WorkerAllows(def)) throw NotInWorker(def.Name);
         SetProperty(def.Name, value.ToObject()); return true;
     }
 

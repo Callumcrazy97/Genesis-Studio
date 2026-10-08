@@ -153,6 +153,21 @@ internal static class VmSpeedSuite
         function PId3(a, b, c) { return a; }
         function PCall0(n) { var t = 0; for (var i = 0; i < n; i = i + 1) { t = PNop(); } return t; }
         function PCall3(n) { var t = 0; for (var i = 0; i < n; i = i + 1) { t = PId3(i, 1, 2); } return t; }
+        function PSin(n) { var t = 0; for (var i = 0; i < n; i = i + 1) { t = Sin(i * 127.1 + 311.7); } return t; }
+        function PHash(ix, iz, salt) { var v = Sin(ix * 127.1 + iz * 311.7 + salt * 74.7) * 43758.5453; if (v < 0) { v = 0 - v; } return v % 1; }
+        function PCallHash(n) { var t = 0; for (var i = 0; i < n; i = i + 1) { t = PHash(i, 2, 3); } return t; }
+        function PValue(px, pz, size, salt) {
+            var fx = px / size; var fz = pz / size;
+            var ix = Floor(fx); var iz = Floor(fz);
+            var u = fx - ix; var v = fz - iz;
+            u = u * u * (3 - 2 * u); v = v * v * (3 - 2 * v);
+            var a = PHash(ix, iz, salt); var b = PHash(ix + 1, iz, salt);
+            var c = PHash(ix, iz + 1, salt); var d = PHash(ix + 1, iz + 1, salt);
+            var top = a + (b - a) * u; var bot = c + (d - c) * u;
+            return top + (bot - top) * v;
+        }
+        function PCallValue(n) { var t = 0; for (var i = 0; i < n; i = i + 1) { t = PValue(i * 0.7, i * 0.3, 16, 4); } return t; }
+        function PCallValueNative(n) { var t = 0; for (var i = 0; i < n; i = i + 1) { t = ValueNoise2D(i * 0.7 / 16, i * 0.3 / 16, 4); } return t; }
         pg = 5; pl = DsListCreate(); for (var i = 0; i < 8; i = i + 1) { DsListAdd(pl, i); } pgr = DsGridCreate(4, 4);
         pm = DsMapCreate(); DsMapSet(pm, "key", 3);
         """;
@@ -306,6 +321,10 @@ internal static class VmSpeedSuite
                     ("t = VariableSet(\"pv\", i) (text and a number, no result)", "PVariableSet"),
                     ("t = PNop() (user call, no arguments)", "PCall0"),
                     ("t = PId3(i, 1, 2) (user call, 3 arguments)", "PCall3"),
+                    ("t = Sin(i * 127.1 + 311.7)", "PSin"),
+                    ("t = PHash(i, 2, 3) (a lattice hash written in script: Sin, multiplies, a branch, %)", "PCallHash"),
+                    ("t = PValue(i * 0.7, i * 0.3, 16, 4) (value noise written in script: four PHash calls)", "PCallValue"),
+                    ("t = ValueNoise2D(i * 0.7 / 16, i * 0.3 / 16, 4) (the command)", "PCallValueNative"),
                 })
                 {
                     var time = bench.Time(Repeat(driver));

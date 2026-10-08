@@ -25,6 +25,8 @@ internal readonly struct VmValue
     public bool IsNumeric => (_reference is Marker marker && marker.Kind < 2)
         || _reference is float or long or byte or short or decimal or uint or ulong or ushort or sbyte;
     public double Number { [MethodImpl(MethodImplOptions.AggressiveInlining)] get => _reference is Marker ? _number : Convert.ToDouble(_reference); }
+    /// <summary><see cref="Number"/> of a value known to be <see cref="IsUnboxedNumber"/>.</summary>
+    public double UnboxedNumber { [MethodImpl(MethodImplOptions.AggressiveInlining)] get => _number; }
     // Preserve legacy PGSL truthiness, including object/string values and non-double boxed numerics.
     public bool Truth { [MethodImpl(MethodImplOptions.AggressiveInlining)] get => _reference is Marker ? _number != 0 : _reference != null; }
 

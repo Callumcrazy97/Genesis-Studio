@@ -48,7 +48,7 @@ public static partial class PgslCommands
         catch (Exception error) when (ProjectTextFiles.IsFileError(error)) { SetFileError(error.Message); return 0; }
     }
 
-    [PgslCommand("JobStatus", "JobStatus(job) -> string", "queued, running, succeeded, failed, cancelled or invalid; never blocks the game loop", "Native Jobs")]
+    [PgslCommand("JobStatus", "JobStatus(job) -> string", "prepared (a script job not started), queued, running, succeeded, failed, cancelled or invalid; never blocks the game loop", "Native Jobs")]
     public static string JobStatus(double id) => JobSnapshot(id).State;
     [PgslCommand("JobResultKind", "JobResultKind(job) -> string", "Declared result type; empty for an invalid handle", "Native Jobs")]
     public static string JobResultKind(double id) => JobSnapshot(id).Kind;
@@ -61,15 +61,23 @@ public static partial class PgslCommands
     {
         var snapshot = JobSnapshot(id);
         if (snapshot.State != "succeeded") { SetJobError("Job has no successful result: " + snapshot.State + ". " + snapshot.Error); return null; }
+        // A script job's function returns whatever it returns: each reader takes it as its kind.
+        if (snapshot.Value is ScriptJobOutcome outcome) { SetJobError(""); return outcome.Result; }
         if (snapshot.Kind != kind) { SetJobError("Job result is " + snapshot.Kind + ", not " + kind + "."); return null; }
         SetJobError(""); return snapshot.Value;
     }
-    [PgslCommand("JobResultString", "JobResultString(job) -> string", "Read a successful string result; check JobLastError for pending/wrong-type reads", "Native Jobs")]
-    public static string JobResultString(double id) => JobResult(id, "string") as string ?? "";
-    [PgslCommand("JobResultBool", "JobResultBool(job) -> bool", "Read a successful boolean result; false on API failure", "Native Jobs")]
-    public static bool JobResultBool(double id) => JobResult(id, "boolean") is true;
-    [PgslCommand("JobResultNumber", "JobResultNumber(job) -> number", "Read a successful numeric native result; 0 on API failure", "Native Jobs")]
-    public static double JobResultNumber(double id) => JobResult(id, "number") is double value ? value : 0;
+    [PgslCommand("JobResultString", "JobResultString(job) -> string", "Read a successful string result (a script job's return value as text); check JobLastError for pending/wrong-type reads", "Native Jobs")]
+    public static string JobResultString(double id) => JobResult(id, "string") switch
+    {
+        string text => text,
+        double number => StringOf(number),
+        bool truth => truth ? "1" : "0",
+        _ => "",
+    };
+    [PgslCommand("JobResultBool", "JobResultBool(job) -> bool", "Read a successful boolean result (a script job's return value: true when not 0); false on API failure", "Native Jobs")]
+    public static bool JobResultBool(double id) => JobResult(id, "boolean") switch { bool truth => truth, double number => number != 0, _ => false };
+    [PgslCommand("JobResultNumber", "JobResultNumber(job) -> number", "Read a successful numeric result (a script job's return value); 0 on API failure", "Native Jobs")]
+    public static double JobResultNumber(double id) => JobResult(id, "number") switch { double value => value, bool truth => truth ? 1 : 0, _ => 0 };
     [PgslCommand("JobCancel", "JobCancel(job) -> bool", "Request cancellation of queued/running work; an already committed atomic write remains successful", "Native Jobs")]
     public static bool JobCancel(double id)
     {

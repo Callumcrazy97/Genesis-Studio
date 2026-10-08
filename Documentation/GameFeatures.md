@@ -593,6 +593,8 @@ texel, such as a distant block's colour from an atlas.
 | `MeshAddCubeTiles(mesh, x, y, z, size, faces, r, g, b, top u0 v0 u1 v1, side u0 v0 u1 v1, bottom u0 v0 u1 v1)` | The same with its own atlas tile for the top, the four sides and the bottom (a grass block, a log). |
 | `MeshAddQuad(mesh, x0, y0, z0, x1, y1, z1, x2, y2, z2, x3, y3, z3, nx, ny, nz, u0, v0, u1, v1, r, g, b, a)` | Any textured four-cornered face in one call (crossed plants, decals, trails): corners in order around it, turning like `MeshAddTriangle`; returns the first corner's index. |
 | `MeshAddQuadColors(mesh, corners..., nx, ny, nz, u0, v0, u1, v1, r0, g0, b0, a0, r1, ..., a3, flip)` | `MeshAddQuad` with its own colour and alpha at each corner (baked light, ambient occlusion, gradients); `flip` 1 splits it along the other diagonal so the colours blend evenly. |
+| `MeshAddQuadsFromList(mesh, list)` | Many quads in one call from a DsList holding 36 numbers for each, in `MeshAddQuadColors`' order (four corners, normal, `u0 v0 u1 v1`, four colours with alpha, `flip`); returns the quads added. A [worker job](#script-functions-on-worker-threads) can work a chunk's faces out into a list, and the game's thread adds them all at once: 100 to 370 ns a face, against 360 to 740 ns for a `MeshAddQuadColors` call from a script (development PC, 8 Oct 2026). |
+| `MeshAddVerticesFromList(mesh, vertices, triangles)` | Many vertices (12 numbers each, `MeshAddVertex`'s order) and triangles (three indices each, counted from the first vertex this call adds) in one call; a vertex that is not a number is skipped with its triangles. Returns the vertices added. |
 | `MeshVertexCount(mesh)`, `MeshTriangleCount(mesh)` | Its size. |
 | `MeshSetUploadBudget(milliseconds)`, `MeshIsUploaded(mesh)` | How long a frame may spend sending new or changed meshes to the GPU (default 4 ms; 0 = no limit). The rest go on later frames, at least one each frame: a changed mesh draws its previous build meanwhile and a new one appears when its turn comes, so building many at once never stalls a frame. `MeshIsUploaded` says whether a mesh's latest build is drawn yet. |
 | `DrawMesh3D(mesh, x, y, z, image)`, `DrawMesh3DTransform(mesh, x, y, z, sx, sy, sz, yaw, image)` | In a Draw event of a 3D room: the mesh at a place, textured by an Image (empty for none), tinted by the instance's image blend and alpha. |
@@ -610,6 +612,141 @@ InstanceSetMeshCollider(id, m);
 // Draw:
 DrawMesh3D(m, x, y, z, "Blocks");
 ```
+
+## Noise
+
+Noise for generated terrain, caves, clouds, textures and wobble, worked out natively. The same
+arguments give the same number on every PC, graphics backend and run: only additions,
+multiplications, `Floor` and integer hashing are used (no sine), so a world generated from a seed
+is the same world everywhere. Any number is a seed, fractions included (`0.5` and `0.7` differ).
+
+| Command | What it does |
+|---|---|
+| `Noise2D(x, y, seed)`, `Noise3D(x, y, z, seed)` | Smooth gradient (Perlin) noise, -1 to 1. Hills and hollows are about one unit apart, so scale positions down (`Noise2D(x / 32, z / 32, seed)`). Each seed shifts the lattice, so whole-number positions still vary. |
+| `ValueNoise2D(x, y, seed)`, `ValueNoise3D(x, y, z, seed)` | Smooth value noise, 0 to 1. At whole-number positions it is a repeatable random number per point (where a tree goes, which ore). |
+| `FractalNoise2D(x, y, seed, octaves, lacunarity, gain)`, `FractalNoise3D(x, y, z, seed, octaves, lacunarity, gain)` | Several octaves of gradient noise summed (fBm), -1 to 1: each octave `lacunarity` times finer (2 is usual) and `gain` times weaker (0.5 is usual); 1 to 16 octaves. One octave is exactly `Noise2D` / `Noise3D`. |
+| `NoiseFillGrid(grid, x0, y0, step, seed, octaves, lacunarity, gain, scale, offset)` | A whole DsGrid in one call: cell (i, j) becomes `offset + scale * FractalNoise2D(x0 + i * step, y0 + j * step, seed, octaves, lacunarity, gain)`, exactly what that call gives. Returns the cells filled (0 for a bad grid). |
+| `NoiseFillGrid3D(grid, x0, y0, z0, step, plane, seed, octaves, lacunarity, gain, scale, offset)` | A flat slice of `FractalNoise3D`: `plane` `"xy"`, `"xz"` or `"yz"` names the axes `i` and `j` step along from `(x0, y0, z0)`; the third stays put (one layer of a cave field). |
+
+Measured on the development PC's performance cores (8 Oct 2026, `--test pgsl-logic`, called from
+C#; the fastest of several runs, other runs up to twice as long): `Noise2D` 13 ns, `Noise3D` 20 ns,
+`ValueNoise2D` 14 ns; `NoiseFillGrid` 15 ns a cell with one octave and 53 ns with four,
+`NoiseFillGrid3D` 61 ns a cell with three. From a script loop, value
+noise written in script (four hashes with a `Sin` each) took 0.8 to 1.2 microseconds a sample,
+`FractalNoise2D` with four octaves 0.08 to 0.2. A 16 x 16 height map with four octaves is about
+14 microseconds with `NoiseFillGrid`.
+
+```pgsl
+// Heights of a 16 x 16 chunk at chunk (cx, cz): rolling land 40 to 88 blocks high.
+heights = DsGridCreate(16, 16);
+NoiseFillGrid(heights, cx * 16 / 96, cz * 16 / 96, 1 / 96, worldSeed, 4, 2, 0.5, 24, 64);
+DsGridFloorRegion(heights, 0, 0, 15, 15);
+```
+
+### Whole regions of a grid or list
+
+A loop that reads or writes every cell of a grid costs about 50 ns a call in a script; these do a
+region natively. Corners are inclusive and 0-based, as in `DsGridSetRegion`; cells outside the
+grid are skipped (or read as 0); a bad handle does nothing and returns 0 (-1 for a find).
+
+| Command | What it does |
+|---|---|
+| `DsGridCopyRegion(destination, dx, dy, source, x1, y1, x2, y2)` | Copy a region into another grid (or the same one, overlapping is fine) with its top-left at `(dx, dy)`; returns the cells copied. |
+| `DsGridToList(grid, x1, y1, x2, y2, list)`, `DsGridFromList(grid, x1, y1, x2, y2, list)` | A region to a list row by row (the list's entries are replaced), or a list back into a region until the list runs out; both return the entries moved. |
+| `DsGridCount(grid, x1, y1, x2, y2, value)` | How many cells hold the value. |
+| `DsGridFind(grid, x1, y1, x2, y2, value)`, `DsGridFindOther(grid, ...)` | The first cell holding (or not holding) the value, as `x + y * width`, or -1. Rows are searched from `y1` towards `y2` and each row from `x1` towards `x2`, so `DsGridFindOther(column, 0, 127, 0, 0, AIR)` is the highest block that is not air. |
+| `DsGridAddRegion`, `DsGridMultiplyRegion(grid, x1, y1, x2, y2, value)` | Add to, or multiply, every cell of a region. |
+| `DsGridClampRegion(grid, x1, y1, x2, y2, min, max)`, `DsGridFloorRegion(grid, x1, y1, x2, y2)` | Keep every cell between two values, or round every cell down. |
+| `DsGridAddGrid(destination, source, factor)` | `destination += source * factor` cell by cell where both have the cell (layering noise fields, a mask); returns the cells changed. |
+| `DsListFill(list, count, value)`, `DsListCopy(destination, source)` | A list of `count` copies of a number, or one list's entries replaced by another's. |
+
+Already there before: `DsGridSetRegion` (fill a region with one value), `DsGridClear` (fill the
+grid), `DsGridCopy` (a whole grid), `DsGridGetSum` / `GetMax` / `GetMin` and `DsGridValueExists`.
+
+## Script functions on worker threads
+
+A function of the project's Scripts can run as a job on a worker thread, so generating a chunk, a
+map or a path does not hold up the frame. The job runs on a VM of its own with a context of its
+own, and is given **copies** of the grids and lists it needs, taken when it starts: the game may
+change its own meanwhile, and nothing the job does reaches the game until the script takes the
+result with `JobTake`. Inside the job each grid or list keeps its handle, so the same function also
+runs directly on the game's thread and gives the same result; the same arguments and data always
+give the same result.
+
+A job may use maths, text, noise, grids, lists, maps, stacks, queues, named arrays, JSON and its
+own variables (`VariableSet`). Anything that reaches the game or shared state (instances, `with`,
+drawing, meshes, sound, files, input, the clock, `Random`, `Choose`, `Print`, global variables,
+running a Script by name) stops the job with "*X* is not available in a worker job". A name the
+job never set is an error too ("'*name*' has no value in this job"), not 0 as in an event: an
+instance's variables are not there, so pass them as arguments or give them by name with
+`JobScriptVariable`. A grid or list that was not given
+to the job reads as one that does not exist (0, as a destroyed one does). Functions written in an
+Object's events are not available to jobs; put the function in a Script.
+
+| Command | What it does |
+|---|---|
+| `JobScriptCreate(function)` | A prepared job for a function of the project's Scripts (as they are now); 0 when there is no such function (`JobLastError` says why). |
+| `JobScriptGrid(job, grid, copyBack)`, `JobScriptList(job, list, copyBack)` | Give the job its own copy of a grid or list; with `copyBack` true, `JobTake` copies the job's version back into it (size included). |
+| `JobScriptVariable(job, name, value)`, `JobScriptVariableText(job, name, text)` | Give the job a variable of its own by name (a seed, a sea level, a grid's handle), so a function that reads that instance variable runs unchanged in the job. Built-in instance variables (`x`, `speed`...) cannot be given; pass those as arguments. |
+| `JobScriptBudget(job, instructions)` | Instructions the job may run in all, every call counted (100 000 000 unless set, 1 000 to 2 000 000 000). The per-call limit of events does not apply. |
+| `JobScriptStart(job, arguments...)` | Start it with the function's arguments (numbers, true/false or text). Jobs run in turn on worker threads of their own, as many as all but two of the processors, below the game's own threads in priority. |
+| `JobRunScript(function, arguments...)` | Create and start in one, for a job that needs no grids or lists; its result is read with `JobResultNumber` / `JobResultString` / `JobResultBool`. |
+| `JobStatus(job)` | `prepared`, `queued`, `running`, `succeeded`, `failed` (`JobError` says why, with the line) or `cancelled`. |
+| `JobTake(job)` | Once it has succeeded: copy the grids and lists marked `copyBack` into the Object's own (once). |
+| `JobCancel(job)`, `JobRelease(job)` | Stop it (a running job stops within a fraction of a millisecond), or let go of the handle and its data. |
+
+An Object holds up to 16 jobs at a time and the game 32 (with file jobs); release each when done.
+An Object's jobs are cancelled when it is destroyed.
+
+```pgsl
+// Library Script "Terrain": works on its own data only, so it can run as a job.
+function TerrainHeights(heights, cx, cz, seed) {
+    NoiseFillGrid(heights, cx * 16 / 96, cz * 16 / 96, 1 / 96, seed, 4, 2, 0.5, 24, 64);
+    DsGridFloorRegion(heights, 0, 0, 15, 15);
+    return DsGridGetMax(heights, 0, 0, 15, 15);
+}
+
+// The world Object. Create: job = 0; heights = DsGridCreate(16, 16);
+// Step: start a chunk's heights on a worker...
+if (job == 0) {
+    job = JobScriptCreate("TerrainHeights");
+    JobScriptGrid(job, heights, true);
+    JobScriptStart(job, heights, cx, cz, worldSeed);
+}
+// ...and on a later frame, once it is done, take the heights and mesh the chunk here.
+else if (JobStatus(job) == "succeeded") {
+    JobTake(job);
+    top = JobResultNumber(job);
+    JobRelease(job);
+    job = 0;
+    BuildChunkMesh(heights, cx, cz);   // meshes are made on the game's thread
+}
+```
+
+Meshes are made on the game's thread, but working out their faces need not be: a job can fill a
+list with each face's corners, normal, texture and colours (36 numbers a face), and the game's
+thread adds them with one `MeshAddQuadsFromList(mesh, faces)` (see [meshes a script
+builds](#meshes-a-script-builds)).
+
+Measured on the development PC (8 Oct 2026, `--test pgsl-logic`; an i7-14700F, 8 performance
+and 12 efficiency cores, in other use meanwhile) with a chunk of 8 x 8 columns 32 blocks high
+(4-octave noise per column, a helper call and three commands per cell, 2 048 cells): 0.46 ms on the
+game's thread; as a job, 0.06 to 0.13 ms of the game's thread (making it, the copies, starting,
+taking, releasing) and 0.44 ms on a worker alone. With 14 in flight, each took 0.7 to 1.5 ms and
+6 700 to 13 700 chunks were done a second on the 14 workers of the performance cores, 5 700 a
+second on all 26 (efficiency cores are about half as quick). A worker's first jobs set up its command
+table: the first 32 jobs took 13 to 22 ms in all.
+
+`Build.bat --test pgsl-logic` checks that a job fills the same grids as calling the function
+directly (and leaves the game's grids alone until `JobTake`), that drawing, `Random` and a name
+never set stop a job with those messages, that twelve jobs at once each match the direct call for
+their seed, that two Objects' 32 jobs on fewer workers wait their turn (no more threads start than
+the limit) and all finish, and that a job is cancelled while running or while waiting, released,
+refused when cancelled before it starts, and stopped by its budget; that a mesh's faces worked out
+in a job and added with `MeshAddQuadsFromList` make the same mesh as adding them one at a time, and
+that `MeshAddVerticesFromList` skips a vertex that is not a number with its triangle. It also checks noise against recorded values, its range and
+smoothness, the grid fills against single calls, and each whole-region grid command. Not yet seen:
+a game streaming its world through jobs.
 
 ## Video options and the clock
 

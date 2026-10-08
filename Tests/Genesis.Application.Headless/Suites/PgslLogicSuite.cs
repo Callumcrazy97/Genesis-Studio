@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using Genesis.Application.Core.Projects;
 using Genesis.Runtime.Scripting;
+using Genesis.Shared.Scripting;
 
 namespace Genesis.Application.Headless.Suites;
 
@@ -292,6 +293,89 @@ internal static class PgslLogicSuite
             t_is_list = (IsList(a) == 1 && IsList(3) == 0) ? 1 : 0;
             t_text = (String([1, "x", [2.5]]) == "[1, \"x\", [2.5]]") ? 1 : 0;
             """),
+        ("Noise", """
+            t_same_arguments_same_value = (Noise2D(12.3, 4.5, 7) == Noise2D(12.3, 4.5, 7) && Noise3D(1.5, 2.5, 3.5, 7) == Noise3D(1.5, 2.5, 3.5, 7)) ? 1 : 0;
+            t_seed_changes_value = (Noise2D(12.3, 4.5, 7) != Noise2D(12.3, 4.5, 8) && ValueNoise2D(3, 4, 1) != ValueNoise2D(3, 4, 2)) ? 1 : 0;
+            lo = 9; hi = -9; vlo = 9; vhi = -9; flo = 9; fhi = -9; jump = 0; whole = 0;
+            for (k = 0; k < 400; k = k + 1) {
+                px = k * 0.37 - 50; py = k * 0.61 + 3;
+                n = Noise2D(px, py, 3); m = Noise3D(px, py, k * 0.13, 3);
+                lo = Min(lo, Min(n, m)); hi = Max(hi, Max(n, m));
+                v = ValueNoise2D(px, py, 3); w = ValueNoise3D(px, py, k * 0.13, 3);
+                vlo = Min(vlo, Min(v, w)); vhi = Max(vhi, Max(v, w));
+                f = FractalNoise2D(px, py, 3, 5, 2, 0.5);
+                flo = Min(flo, f); fhi = Max(fhi, f);
+                jump = Max(jump, Abs(Noise2D(px + 0.001, py, 3) - n));
+                if (Noise2D(k, 0, 3) != 0) { whole = whole + 1; }
+            }
+            t_gradient_in_minus_one_to_one = (lo >= -1 && hi <= 1 && lo < -0.4 && hi > 0.4) ? 1 : 0;
+            t_value_in_zero_to_one = (vlo >= 0 && vhi < 1 && vlo < 0.2 && vhi > 0.8) ? 1 : 0;
+            t_fractal_in_minus_one_to_one = (flo >= -1 && fhi <= 1 && flo < -0.3 && fhi > 0.3) ? 1 : 0;
+            t_continuous = (jump < 0.01) ? 1 : 0;
+            b_largest_step_for_0_001 = jump;
+            t_whole_numbers_vary = (whole > 390) ? 1 : 0;
+            t_one_octave_is_noise2d = (FractalNoise2D(4.2, 9.1, 5, 1, 2, 0.5) == Noise2D(4.2, 9.1, 5)) ? 1 : 0;
+            g = DsGridCreate(17, 9);
+            t_fill_counts_cells = (NoiseFillGrid(g, -3.5, 11, 0.25, 42, 4, 2, 0.5, 30, 64) == 153) ? 1 : 0;
+            same = 1;
+            for (j = 0; j < 9; j = j + 1) { for (k = 0; k < 17; k = k + 1) {
+                if (DsGridGet(g, k, j) != 64 + 30 * FractalNoise2D(-3.5 + k * 0.25, 11 + j * 0.25, 42, 4, 2, 0.5)) { same = 0; }
+            } }
+            t_fill_equals_per_cell_calls = same;
+            NoiseFillGrid3D(g, 2, 7.5, -4, 0.5, "xz", 9, 3, 2, 0.5, 1, 0);
+            same = 1;
+            for (j = 0; j < 9; j = j + 1) { for (k = 0; k < 17; k = k + 1) {
+                if (DsGridGet(g, k, j) != FractalNoise3D(2 + k * 0.5, 7.5, -4 + j * 0.5, 9, 3, 2, 0.5)) { same = 0; }
+            } }
+            t_fill3d_equals_per_cell_calls = same;
+            t_fill_bad_grid_or_plane_is_zero = (NoiseFillGrid(987654, 0, 0, 1, 1, 1, 2, 0.5, 1, 0) == 0
+                && NoiseFillGrid3D(g, 0, 0, 0, 1, "up", 1, 1, 2, 0.5, 1, 0) == 0) ? 1 : 0;
+            """),
+        ("Grid batches", """
+            g = DsGridCreate(6, 4);
+            DsGridSetRegion(g, 1, 1, 2, 2, 7);
+            t_count = (DsGridCount(g, 0, 0, 5, 3, 7) == 4 && DsGridCount(g, 0, 0, 5, 3, 0) == 20 && DsGridCount(g, -9, -9, 99, 99, 7) == 4) ? 1 : 0;
+            t_find_first = (DsGridFind(g, 0, 0, 5, 3, 7) == 1 + 1 * 6) ? 1 : 0;
+            t_find_backwards = (DsGridFind(g, 5, 3, 0, 0, 7) == 2 + 2 * 6) ? 1 : 0;
+            t_find_other_top_down = (DsGridFindOther(g, 2, 3, 2, 0, 0) == 2 + 2 * 6) ? 1 : 0;
+            t_find_none = (DsGridFind(g, 0, 0, 5, 3, 99) == -1 && DsGridFind(55555, 0, 0, 1, 1, 0) == -1) ? 1 : 0;
+            l = DsListCreate();
+            t_to_list = (DsGridToList(g, 1, 1, 3, 2, l) == 6 && DsListSize(l) == 6 && DsListGet(l, 0) == 7 && DsListGet(l, 2) == 0 && DsListGet(l, 4) == 7) ? 1 : 0;
+            h = DsGridCreate(6, 4);
+            t_from_list = (DsGridFromList(h, 2, 0, 4, 1, l) == 6 && DsGridGet(h, 2, 0) == 7 && DsGridGet(h, 4, 0) == 0 && DsGridGet(h, 3, 1) == 7) ? 1 : 0;
+            t_copy_region_count = (DsGridCopyRegion(h, 0, 2, g, 1, 1, 2, 2) == 4) ? 1 : 0;
+            t_copy_region = (DsGridGet(h, 0, 2) == 7 && DsGridGet(h, 1, 3) == 7 && DsGridGet(h, 2, 2) == 0) ? 1 : 0;
+            s = DsGridCreate(5, 1);
+            for (k = 0; k < 5; k = k + 1) { DsGridSet(s, k, 0, k); }
+            DsGridCopyRegion(s, 1, 0, s, 0, 0, 3, 0);
+            t_overlapping_copy = (DsGridGet(s, 0, 0) == 0 && DsGridGet(s, 1, 0) == 0 && DsGridGet(s, 2, 0) == 1 && DsGridGet(s, 4, 0) == 3) ? 1 : 0;
+            DsGridAddRegion(g, 0, 0, 5, 3, 1.5);
+            DsGridMultiplyRegion(g, 0, 0, 5, 0, 2);
+            DsGridClampRegion(g, 0, 0, 5, 3, 0, 8);
+            DsGridFloorRegion(g, 0, 3, 5, 3);
+            t_region_maths = (DsGridGet(g, 0, 0) == 3 && DsGridGet(g, 1, 1) == 8 && DsGridGet(g, 0, 1) == 1.5 && DsGridGet(g, 4, 3) == 1) ? 1 : 0;
+            a = DsGridCreate(3, 3); b = DsGridCreate(2, 2); DsGridClear(a, 1); DsGridClear(b, 2);
+            t_add_grid = (DsGridAddGrid(a, b, 0.5) == 4 && DsGridGet(a, 1, 1) == 2 && DsGridGet(a, 2, 2) == 1) ? 1 : 0;
+            f = DsListCreate(); DsListFill(f, 5, 3);
+            t_list_fill = (DsListSize(f) == 5 && DsListSum(f) == 15) ? 1 : 0;
+            c = DsListCreate(); DsListAdd(c, 9); DsListCopy(c, l);
+            t_list_copy = (DsListSize(c) == 6 && DsListGet(c, 0) == 7) ? 1 : 0;
+            """),
+    ];
+
+    /// <summary>
+    /// Noise values recorded once: the noise commands must give exactly these numbers on every
+    /// machine and in every later build (a generated world must not change under a player's feet).
+    /// </summary>
+    internal static readonly (string Call, Func<double> Value, double Expected)[] NoiseGolden =
+    [
+        ("Noise2D(0.5, 0.5, 1)", () => PgslCommands.Noise2D(0.5, 0.5, 1), -0.09974696520159272),
+        ("Noise2D(-1234.25, 98765.5, 31337)", () => PgslCommands.Noise2D(-1234.25, 98765.5, 31337), -0.19039658728790923),
+        ("Noise3D(1.25, -2.5, 3.75, 7)", () => PgslCommands.Noise3D(1.25, -2.5, 3.75, 7), 0.4426199302369703),
+        ("ValueNoise2D(10.5, 20.25, 3)", () => PgslCommands.ValueNoise2D(10.5, 20.25, 3), 0.608684549061031),
+        ("ValueNoise3D(4, 5, 6, 0.137)", () => PgslCommands.ValueNoise3D(4, 5, 6, 0.137), 0.7653131783933516),
+        ("FractalNoise2D(100.3, -7.7, 42, 6, 2, 0.5)", () => PgslCommands.FractalNoise2D(100.3, -7.7, 42, 6, 2, 0.5), 0.35875553476842487),
+        ("FractalNoise3D(0.1, 0.2, 0.3, 5, 4, 2.1, 0.45)", () => PgslCommands.FractalNoise3D(0.1, 0.2, 0.3, 5, 4, 2.1, 0.45), 0.05016823444985461),
     ];
 
     /// <summary>
@@ -374,6 +458,63 @@ internal static class PgslLogicSuite
 
         foreach ((string name, string code) in LogicScripts) Group(name, code);
 
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.NoiseIsTheSameEverywhere", () =>
+        {
+            List<string> wrong = [];
+            foreach ((string call, Func<double> value, double expected) in NoiseGolden)
+            {
+                double actual = value();
+                bool same = BitConverter.DoubleToInt64Bits(actual) == BitConverter.DoubleToInt64Bits(expected);
+                rows.Add(new Row("Noise values", call, same ? "PASS" : "FAIL", actual.ToString("R", CultureInfo.InvariantCulture)));
+                if (!same) wrong.Add($"{call} = {actual.ToString("R", CultureInfo.InvariantCulture)}, recorded {expected.ToString("R", CultureInfo.InvariantCulture)}");
+            }
+            HeadlessHarness.Assert(wrong.Count == 0, "Noise gave other numbers than recorded: " + string.Join("; ", wrong));
+        });
+
+        // What noise costs (reported; only a generous ceiling is asserted, as the machine is shared).
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.NoiseSpeed", () =>
+        {
+            PgslContext context = new();
+            PgslContext? previous = PgslCommands.BindContext(context);
+            try
+            {
+                static double Best(Func<double> run)
+                {
+                    // Long enough for the runtime's optimised recompile, which this busy process postpones.
+                    long warm = System.Diagnostics.Stopwatch.GetTimestamp();
+                    while (System.Diagnostics.Stopwatch.GetElapsedTime(warm).TotalMilliseconds < 250) run();
+                    Thread.Sleep(150);
+                    double best = double.MaxValue;
+                    for (int round = 0; round < 7; round++)
+                    {
+                        long start = System.Diagnostics.Stopwatch.GetTimestamp();
+                        run();
+                        best = Math.Min(best, System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+                    }
+                    return best;
+                }
+                const int samples = 200_000;
+                double sink = 0;
+                double noise2 = Best(() => { for (int i = 0; i < samples; i++) sink += PgslCommands.Noise2D(i * 0.37, i * 0.11, 5); return sink; }) * 1e6 / samples;
+                double noise3 = Best(() => { for (int i = 0; i < samples; i++) sink += PgslCommands.Noise3D(i * 0.37, i * 0.11, i * 0.07, 5); return sink; }) * 1e6 / samples;
+                double value2 = Best(() => { for (int i = 0; i < samples; i++) sink += PgslCommands.ValueNoise2D(i * 0.37, i * 0.11, 5); return sink; }) * 1e6 / samples;
+                double grid = PgslCommands.DsGridCreate(64, 64);
+                double fill1 = Best(() => { for (int i = 0; i < 10; i++) sink += PgslCommands.NoiseFillGrid(grid, i, 0, 0.05, 5, 1, 2, 0.5, 1, 0); return sink; }) * 1e6 / (10 * 64 * 64);
+                double fill4 = Best(() => { for (int i = 0; i < 10; i++) sink += PgslCommands.NoiseFillGrid(grid, i, 0, 0.05, 5, 4, 2, 0.5, 1, 0); return sink; }) * 1e6 / (10 * 64 * 64);
+                double fill3d = Best(() => { for (int i = 0; i < 10; i++) sink += PgslCommands.NoiseFillGrid3D(grid, i, 0, 3, 0.05, "xz", 5, 3, 2, 0.5, 1, 0); return sink; }) * 1e6 / (10 * 64 * 64);
+                string F(double ns) => ns.ToString("F1", CultureInfo.InvariantCulture) + " ns";
+                rows.Add(new Row("Noise speed", "Noise2D per sample (called from C#)", "behaviour", F(noise2)));
+                rows.Add(new Row("Noise speed", "Noise3D per sample (called from C#)", "behaviour", F(noise3)));
+                rows.Add(new Row("Noise speed", "ValueNoise2D per sample (called from C#)", "behaviour", F(value2)));
+                rows.Add(new Row("Noise speed", "NoiseFillGrid per cell, 1 octave", "behaviour", F(fill1)));
+                rows.Add(new Row("Noise speed", "NoiseFillGrid per cell, 4 octaves", "behaviour", F(fill4)));
+                rows.Add(new Row("Noise speed", "NoiseFillGrid3D per cell, 3 octaves", "behaviour", F(fill3d)));
+                Console.WriteLine($"Noise speed: Noise2D {F(noise2)}, Noise3D {F(noise3)}, ValueNoise2D {F(value2)}, fill 1 octave {F(fill1)}/cell, 4 octaves {F(fill4)}/cell, 3D slice 3 octaves {F(fill3d)}/cell ({sink:E1})");
+                HeadlessHarness.Assert(noise2 < 2000 && fill4 < 8000, $"Noise is far slower than expected: {F(noise2)} a sample, {F(fill4)} a 4-octave cell.");
+            }
+            finally { PgslCommands.BindContext(previous); }
+        });
+
         // F5 checks scripts with the Studio checker (PgslAstBuilder + PgslSemanticChecker) before
         // the game compiles them with its own parser: both must accept everything the game runs.
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.StudioCheckAcceptsWhatTheGameRuns", () =>
@@ -387,6 +528,13 @@ internal static class PgslLogicSuite
                 ("List literals and index assignment", "var a = [1, 2, 3]; a[1] = 9; var g = [[1], [2]]; g[0][0] = 4; var e = []; t_ok = a[1] + g[0][0];"),
                 ("Compound assignment", "n = 1; n += 2; n -= 1; n *= 3; n /= 2; t_ok = n;"),
                 ("A built-in in any case", "sPeEd = 2; t_ok = (SPEED == 2) ? 1 : 0;"),
+                ("Worker jobs", """
+                    j = JobScriptCreate("NoSuchFunction"); g = DsGridCreate(2, 2); l = DsListCreate();
+                    JobScriptGrid(j, g, true); JobScriptList(j, l, false); JobScriptBudget(j, 5000);
+                    started = JobScriptStart(j, g, 1, "x");
+                    k = JobRunScript("NoSuchFunction", 1, 2);
+                    t_ok = (JobTake(j) == 0 && k == 0 && started == 0 && JobStatus(j) == "invalid") ? 1 : 0;
+                    """),
             ];
             var refused = new List<string>();
             string previous = PgslCommands.ProjectPath;
@@ -517,6 +665,8 @@ internal static class PgslLogicSuite
             rows.Add(new Row("Events", "order over two frames", order == "CSDGSDG" ? "PASS" : "FAIL", "\"" + order + "\""));
             HeadlessHarness.Assert(order == "CSDGSDG", $"Events ran as {order}, not Create then Step, Draw, Draw GUI each frame.");
         });
+
+        PgslWorkerJobChecks.Run(ctx, (group, name, result, detail) => rows.Add(new Row(group, name, result, detail)));
 
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EveryCommandIsCallable", () =>
         {

@@ -191,6 +191,17 @@ namespace Genesis.Runtime.Rendering
 
         public static bool Overflowed(int id) => TryGet(id, out Builder mesh) && mesh.Overflowed;
 
+        /// <summary>A copy of the mesh's vertices and indices, for checks.</summary>
+        internal static bool TryGetVertices(int id, out MeshVertex[] vertices, out ushort[] indices)
+        {
+            vertices = Array.Empty<MeshVertex>();
+            indices = Array.Empty<ushort>();
+            if (!TryGet(id, out Builder mesh)) return false;
+            vertices = mesh.Vertices.ToArray();
+            indices = mesh.Indices.ToArray();
+            return true;
+        }
+
         /// <summary>The mesh's triangles for a collider (positions and indices).</summary>
         public static bool TryGetGeometry(int id, out Vector3[] positions, out int[] indices)
         {
