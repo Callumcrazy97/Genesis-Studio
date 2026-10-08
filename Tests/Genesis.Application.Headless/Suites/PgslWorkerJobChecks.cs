@@ -47,6 +47,8 @@ internal static class PgslWorkerJobChecks
         function WjReadsUnset() { return notGivenToTheJob + 1; }
         function WjSpin(n) { var k = 0; while (k < n) { k = k + 1; } return k; }
         function WjText(a, b) { return a + "-" + b; }
+        // Reads two instance variables, as a game's own functions do.
+        function WjUsesGlobals(n) { return n * wjScale + DsGridGet(wjGrid, 1, 0) + StringLength(wjName); }
         // Value noise written in script, the way a game did it before the noise commands.
         function SnHash(ix, iz, salt) {
             var v = Sin(ix * 127.1 + iz * 311.7 + salt * 74.7) * 43758.5453;
@@ -230,6 +232,22 @@ internal static class PgslWorkerJobChecks
                     $"The job's chunk differs from the direct call's (result {jobTotal} against {total}).");
                 HeadlessHarness.Assert(PgslCommands.JobRelease(job), "The finished job could not be released.");
                 row("Jobs", "a chunk job fills the same grids as calling the function", "PASS", $"result {total}, {blocks.Count(cell => cell != 0)} solid cells");
+
+                // Instance variables the function reads, given to the job by name.
+                double direct = bench.Number("""wjScale = 3; wjGrid = DsGridCreate(2, 1); DsGridSet(wjGrid, 1, 0, 40); wjName = "abcd"; r = WjUsesGlobals(5);""");
+                double named = bench.Number("""
+                    vj = JobScriptCreate("WjUsesGlobals");
+                    JobScriptGrid(vj, wjGrid, false);
+                    JobScriptVariable(vj, "wjScale", wjScale); JobScriptVariable(vj, "wjGrid", wjGrid); JobScriptVariableText(vj, "wjName", wjName);
+                    refusedBuiltIn = JobScriptVariable(vj, "x", 1) == 0 && JobScriptVariable(vj, "2bad", 1) == 0;
+                    JobScriptStart(vj, 5);
+                    r = vj;
+                    """);
+                HeadlessHarness.Assert(bench.Wait(named) == "succeeded" && PgslCommands.JobResultNumber(named) == direct && direct == 59,
+                    $"A job given wjScale, wjGrid and wjName returned {PgslCommands.JobResultNumber(named)} ({PgslCommands.JobError(named)}), the direct call {direct}.");
+                HeadlessHarness.Assert(bench.Number("r = refusedBuiltIn;") == 1, "JobScriptVariable accepted a built-in or a bad name.");
+                PgslCommands.JobRelease(named);
+                row("Jobs", "instance variables given by name (JobScriptVariable)", "PASS", $"result {direct} as directly");
 
                 double text = bench.Number("""tj = JobRunScript("WjText", "a", 2); r = tj;""");
                 HeadlessHarness.Assert(text > 0 && bench.Wait(text) == "succeeded" && PgslCommands.JobResultString(text) == "a-2",

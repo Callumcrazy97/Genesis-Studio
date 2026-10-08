@@ -674,7 +674,8 @@ own variables (`VariableSet`). Anything that reaches the game or shared state (i
 drawing, meshes, sound, files, input, the clock, `Random`, `Choose`, `Print`, global variables,
 running a Script by name) stops the job with "*X* is not available in a worker job". A name the
 job never set is an error too ("'*name*' has no value in this job"), not 0 as in an event: an
-instance's variables are not there, so pass them as arguments. A grid or list that was not given
+instance's variables are not there, so pass them as arguments or give them by name with
+`JobScriptVariable`. A grid or list that was not given
 to the job reads as one that does not exist (0, as a destroyed one does). Functions written in an
 Object's events are not available to jobs; put the function in a Script.
 
@@ -682,6 +683,7 @@ Object's events are not available to jobs; put the function in a Script.
 |---|---|
 | `JobScriptCreate(function)` | A prepared job for a function of the project's Scripts (as they are now); 0 when there is no such function (`JobLastError` says why). |
 | `JobScriptGrid(job, grid, copyBack)`, `JobScriptList(job, list, copyBack)` | Give the job its own copy of a grid or list; with `copyBack` true, `JobTake` copies the job's version back into it (size included). |
+| `JobScriptVariable(job, name, value)`, `JobScriptVariableText(job, name, text)` | Give the job a variable of its own by name (a seed, a sea level, a grid's handle), so a function that reads that instance variable runs unchanged in the job. Built-in instance variables (`x`, `speed`...) cannot be given; pass those as arguments. |
 | `JobScriptBudget(job, instructions)` | Instructions the job may run in all, every call counted (100 000 000 unless set, 1 000 to 2 000 000 000). The per-call limit of events does not apply. |
 | `JobScriptStart(job, arguments...)` | Start it with the function's arguments (numbers, true/false or text). Jobs run in turn on worker threads of their own, as many as all but two of the processors, below the game's own threads in priority. |
 | `JobRunScript(function, arguments...)` | Create and start in one, for a job that needs no grids or lists; its result is read with `JobResultNumber` / `JobResultString` / `JobResultBool`. |

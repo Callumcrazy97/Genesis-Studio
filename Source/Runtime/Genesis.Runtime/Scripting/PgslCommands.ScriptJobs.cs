@@ -71,6 +71,7 @@ public static partial class PgslCommands
         public int ParameterCount;
         public IReadOnlyDictionary<string, UserFunction> Library;
         public readonly List<(string Family, int Handle, bool CopyBack)> Shared = [];
+        public readonly Dictionary<string, object> Variables = new(StringComparer.Ordinal);
         public long Budget = DefaultScriptJobBudget;
     }
 
@@ -171,6 +172,29 @@ public static partial class PgslCommands
         return true;
     }
 
+    [PgslCommand("JobScriptVariable", "JobScriptVariable(job, name, value) -> bool",
+        "Give a prepared job a variable of its own with this number (a seed, a setting, a grid's handle), so a function that reads that instance variable runs unchanged in the job", "Native Jobs")]
+    public static bool JobScriptVariable(double job, string name, double value) => SetJobVariable(job, name, value);
+
+    [PgslCommand("JobScriptVariableText", "JobScriptVariableText(job, name, text) -> bool",
+        "Give a prepared job a variable of its own holding text", "Native Jobs")]
+    public static bool JobScriptVariableText(double job, string name, string text) => SetJobVariable(job, name, text ?? string.Empty);
+
+    private static bool SetJobVariable(double job, string name, object value)
+    {
+        ScriptJobSetup setup = PreparedJob(job);
+        if (setup == null) return Refuse("Not a prepared script job (variables are given before JobScriptStart).");
+        string key = name?.Trim() ?? string.Empty;
+        bool valid = key.Length > 0 && (char.IsLetter(key[0]) || key[0] == '_') && key.All(c => char.IsLetterOrDigit(c) || c == '_')
+            && !key.StartsWith("__", StringComparison.Ordinal);
+        if (!valid) return Refuse($"'{name}' is not a variable name.");
+        if (PgslRegisterFile.Slots.ContainsKey(key))
+            return Refuse($"'{key}' is a built-in instance variable; a job's own are 0. Give the value another name or pass it as an argument.");
+        setup.Variables[key] = value;
+        SetJobError(string.Empty);
+        return true;
+    }
+
     [PgslCommand("JobScriptBudget", "JobScriptBudget(job, instructions) -> bool",
         "Instructions a prepared job may run in all (100 000 000 unless set; 1 000 to 2 000 000 000)", "Native Jobs")]
     public static bool JobScriptBudget(double job, double instructions)
@@ -232,7 +256,7 @@ public static partial class PgslCommands
         if (driver == null || game == null) return Refuse("The job's call did not compile.");
 
         PgslContext owner = GetContext();
-        var run = new ScriptJobRun(setup.Function, driver, setup.Library, copied, data,
+        var run = new ScriptJobRun(setup.Function, driver, setup.Library, copied, data, new Dictionary<string, object>(setup.Variables, StringComparer.Ordinal),
             setup.Shared.Where(entry => entry.CopyBack).Select(entry => (entry.Family, entry.Handle)).ToArray(),
             setup.Budget, game, owner.RoomWidth, owner.RoomHeight);
         if (!JobPools.TryGetValue(owner, out NativeJobPool pool) || !pool.Launch(JobId(job), token => RunScriptJob(run, token)))
@@ -288,7 +312,7 @@ public static partial class PgslCommands
         JobSnapshot(job).Value is ScriptJobOutcome outcome ? outcome.WorkerMilliseconds : 0;
 
     private sealed record ScriptJobRun(string Function, CompileResult Driver, IReadOnlyDictionary<string, UserFunction> Library,
-        object[] Arguments, Dictionary<string, object> Data, (string Family, int Handle)[] CopyBack, long Budget,
+        object[] Arguments, Dictionary<string, object> Data, Dictionary<string, object> Variables, (string Family, int Handle)[] CopyBack, long Budget,
         PgslEngineBridge Game, double RoomWidth, double RoomHeight);
 
     // On a worker thread: a VM, bridge and context of the job's own; nothing of the game's is written.
@@ -304,6 +328,7 @@ public static partial class PgslCommands
             bridge.SetContext(context);
             var vm = new PgslVm(bridge) { JobBudget = new PgslJobBudget(run.Budget, token), LibraryFunctions = run.Library };
             context.ActiveVm = vm;
+            foreach (KeyValuePair<string, object> pair in run.Variables) vm.SetVariable(pair.Key, pair.Value);
             vm.SetScriptArguments(run.Arguments);
             vm.Execute(run.Driver.Instructions, run.Driver.Constants, clearVariables: false);
             vm.TryReadVariable("__jobResult", out object value);
