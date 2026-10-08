@@ -44,6 +44,7 @@ internal static class PgslWorkerJobChecks
         }
         function WjDraws() { var m = MeshCreate(); return m; }
         function WjRandom() { return Random(5); }
+        function WjSeed() { RandomSeed(4); return 1; }
         function WjReadsUnset() { return notGivenToTheJob + 1; }
         function WjSpin(n) { var k = 0; while (k < n) { k = k + 1; } return k; }
         function WjText(a, b) { return a + "-" + b; }
@@ -360,6 +361,7 @@ internal static class PgslWorkerJobChecks
                 {
                     ("WjDraws", "MeshCreate is not available in a worker job"),
                     ("WjRandom", "Random is not available in a worker job"),
+                    ("WjSeed", "RandomSeed is not available in a worker job"),
                     ("WjReadsUnset", "'notGivenToTheJob' has no value in this job"),
                 })
                 {

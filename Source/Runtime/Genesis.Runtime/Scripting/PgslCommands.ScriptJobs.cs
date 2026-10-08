@@ -48,7 +48,9 @@ public static partial class PgslCommands
     internal const long MaximumScriptJobBudget = 2_000_000_000;
 
     // What a worker job may run, by command category; a few commands of those are refused by name
-    // because they reach shared state (the random generator, the log).
+    // because they reach shared state (the random generator, the log). A command added to one of
+    // these categories runs in jobs too: it must touch only its arguments and the context's own
+    // data (PgslContext.Variables), or be refused here.
     private static readonly HashSet<string> WorkerCategories = new(StringComparer.Ordinal)
     {
         "Math", "3D Math", "Strings", "General", "Noise", "Grids", "Lists", "Maps", "Data Structures", "Arrays", "Variables", "JSON",
@@ -58,7 +60,7 @@ public static partial class PgslCommands
 
     private static readonly HashSet<string> WorkerRefused = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Random", "RandomRange", "Choose", "DsListShuffle", "PgListShuffle", "Print",
+        "Random", "RandomRange", "Choose", "RandomSeed", "DsListShuffle", "PgListShuffle", "Print",
     };
 
     /// <summary>Whether a worker job may run a command, by its name and category.</summary>
