@@ -350,6 +350,39 @@ internal static class PgslScriptsSuite
             File.Delete(step);
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.LibraryFunctionsSharingANameAreAWarning", () =>
+        {
+            // Two Scripts with a function of the same name (any case) and different parameters: a
+            // call by name reaches only one, which the runtime only reports at that call.
+            Script("Clash One", "function Spread(cells) { return cells; }\n");
+            Script("Clash Two", "// light\n\nfunction spread(cells, level) { return cells + level; }\n");
+            ResourceNames.Invalidate(project.RootPath);
+            try
+            {
+                PgslValidationReport report = PgslScriptValidator.ValidateProject(project.RootPath, strict: true);
+                string[] spread = report.Warnings.Where(warning => warning.Contains("'Spread'", StringComparison.OrdinalIgnoreCase)).ToArray();
+                Check(spread.Length == 1, $"Expected one warning for Spread declared in two Scripts, got {spread.Length}: "
+                    + string.Join(" | ", report.Warnings));
+                Check(spread.Length == 0 || (spread[0].Contains("Clash One.pgsl line 1 (1 parameter)", StringComparison.Ordinal)
+                        && spread[0].Contains("Clash Two.pgsl line 3 (2 parameters)", StringComparison.Ordinal)),
+                    "The warning does not name both declarations with their lines and parameters: " + string.Join(" | ", spread));
+                Check(!report.Errors.Any(error => error.Contains("Clash", StringComparison.Ordinal)),
+                    "A shared function name was made an error: " + string.Join(" | ", report.Errors));
+                // HelperThree and HelperFour (above) each declare Helper for their own use.
+                Check(report.Warnings.Any(warning => warning.Contains("'Helper'", StringComparison.Ordinal)
+                        && warning.Contains("HelperThree.pgsl", StringComparison.Ordinal) && warning.Contains("HelperFour.pgsl", StringComparison.Ordinal)),
+                    "Two Scripts' functions named Helper were not reported.");
+                Check(!report.Warnings.Any(warning => warning.Contains("'Shout'", StringComparison.OrdinalIgnoreCase)),
+                    "A function an Object's event declares was reported as a library clash.");
+            }
+            finally
+            {
+                File.Delete(Path.Combine(scripts, "Clash One.pgsl"));
+                File.Delete(Path.Combine(scripts, "Clash Two.pgsl"));
+                ResourceNames.Invalidate(project.RootPath);
+            }
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Engine.Lighting.RoomEnvironmentReflectionReachesTheRenderer", () =>
         {
             var room = Genesis.Runtime.Scene.RoomAsset.Create("Reflections", Genesis.Runtime.Scene.RoomDimension.ThreeD);

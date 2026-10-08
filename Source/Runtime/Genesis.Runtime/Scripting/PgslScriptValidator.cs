@@ -47,6 +47,9 @@ namespace Genesis.Runtime.Scripting
             // variables and one object can read what another script set, so a read of one of these
             // is not a typo; a name the project never sets or names at all still is.
             var projectNames = new HashSet<string>(StringComparer.Ordinal);
+            // Every function the library Scripts declare, to warn when two share a name: a call by name
+            // reaches only one of them, so calls meant for the other quietly reach the wrong function.
+            var libraryDeclarations = new List<(string File, FunctionDeclStmt Function)>();
             foreach (string file in files)
             {
                 bool objectEvent = PgslPlayCompiler.TryObjectEventFile(file, out _, out _);
@@ -67,7 +70,8 @@ namespace Genesis.Runtime.Scripting
                     string text = File.ReadAllText(file);
                     foreach (System.Text.RegularExpressions.Match quoted in QuotedName.Matches(text))
                         projectNames.Add(quoted.Groups[1].Value);
-                    CollectSourceWrites(text, writes, functions);
+                    CollectSourceWrites(text, writes, functions,
+                        declared: objectEvent ? null : function => libraryDeclarations.Add((file, function)));
                     CollectSourceWrites(text, projectNames, new HashSet<string>(StringComparer.OrdinalIgnoreCase), includeFunctionBodies: true);
                 }
                 catch { /* the validation pass below reports the actual read/parse failure */ }
@@ -153,6 +157,8 @@ namespace Genesis.Runtime.Scripting
                     ValidateOne(label, source, options, errors, warnings);
                 }
             }
+
+            WarnDuplicateLibraryFunctions(projectPath, libraryDeclarations, warnings);
 
             bool success = errors.Count == 0;
             var summary = new StringBuilder();
@@ -243,14 +249,18 @@ namespace Genesis.Runtime.Scripting
             catch { return file; }
         }
 
-        private static void CollectSourceWrites(string source, ISet<string> writes, ISet<string> functions, bool includeFunctionBodies = false)
+        private static void CollectSourceWrites(string source, ISet<string> writes, ISet<string> functions,
+            bool includeFunctionBodies = false, Action<FunctionDeclStmt> declared = null)
         {
             void Collect(ScriptAst ast)
             {
                 PgslSemanticChecker.CollectWrittenVariables(ast, writes, includeFunctionBodies);
                 foreach (Stmt statement in ast.Body)
                     if (statement is FunctionDeclStmt function && !string.IsNullOrWhiteSpace(function.Name))
+                    {
                         functions.Add(function.Name);
+                        declared?.Invoke(function);
+                    }
             }
 
             Dictionary<string, string> eventBodies = PgslPlayCompiler.SplitEventBlocks(source);
@@ -262,6 +272,37 @@ namespace Genesis.Runtime.Scripting
             else if (!PgslPlayCompiler.HasEventBlocks(source))
             {
                 Collect(PgslAstBuilder.Parse(source ?? string.Empty));
+            }
+        }
+
+        /// <summary>
+        /// Warns once for each function name (any case) that library Scripts declare more than once,
+        /// listing every declaration with its parameters. A Script run as a whole still uses its own,
+        /// but a call by name from an Object or another Script reaches only one of them, and the
+        /// runtime only notices at that call (and only when the argument count differs).
+        /// </summary>
+        private static void WarnDuplicateLibraryFunctions(
+            string projectPath,
+            List<(string File, FunctionDeclStmt Function)> declarations,
+            List<string> warnings)
+        {
+            string Where((string File, FunctionDeclStmt Function) item) =>
+                SafeRelativePath(projectPath, item.File)
+                + (item.Function.Line > 0 ? $" line {item.Function.Line}" : string.Empty)
+                + $" ({item.Function.Parameters.Count} parameter{(item.Function.Parameters.Count == 1 ? string.Empty : "s")})";
+
+            foreach (var group in declarations
+                .GroupBy(item => item.Function.Name, StringComparer.OrdinalIgnoreCase)
+                .Where(group => group.Count() > 1)
+                .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                var first = group.First();
+                warnings.Add($"{SafeRelativePath(projectPath, first.File)}"
+                    + (first.Function.Line > 0 ? $" (line {first.Function.Line}, column {Math.Max(1, first.Function.Column)})" : string.Empty)
+                    + $": function '{group.Key}' is declared {group.Count()} times in library Scripts - "
+                    + string.Join("; ", group.Select(Where))
+                    + ". A call by name from an Object or another Script reaches only one of them, so a call meant for another"
+                    + " runs the wrong function or fails on its argument count. Rename all but one.");
             }
         }
 

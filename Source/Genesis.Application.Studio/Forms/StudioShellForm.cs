@@ -1740,6 +1740,18 @@ public sealed partial class StudioShellForm : DpiAwareForm
         base.Dispose(disposing);
     }
 
+    /// <summary>
+    /// The script check's warnings (two library Scripts declaring one function name, say) go to the
+    /// Console on every Run; they never stop the game. A long list is cut short.
+    /// </summary>
+    private void LogScriptWarnings(IReadOnlyList<string>? warnings)
+    {
+        if (warnings is null || warnings.Count == 0) return;
+        const int Shown = 25;
+        foreach (string warning in warnings.Take(Shown)) _services.Log.Warning("Scripts", warning);
+        if (warnings.Count > Shown) _services.Log.Warning("Scripts", $"…and {warnings.Count - Shown} more script warning(s).");
+    }
+
     private void ValidateProject()
     {
         IReadOnlyList<ProjectValidationIssue> issues = _services.Validator.Validate(_project);
@@ -1824,6 +1836,7 @@ public sealed partial class StudioShellForm : DpiAwareForm
             SetStatus("Run cancelled — script errors (see Console).");
             return;
         }
+        LogScriptWarnings(compile.Result?.Warnings);
 
         Dictionary<string, string> playerEnvironment = new(
             RenderingPreferencesBridge.BuildPlayerEnvironment(_services.Settings.Current.Rendering, _project.Manifest),

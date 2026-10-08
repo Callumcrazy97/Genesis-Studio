@@ -44,6 +44,9 @@ limits, and what happens on a mistake. Every statement below is checked by the h
   `var n = 0; with ("Child") { if (n < 5) { InstanceDestroy(id); n += 1; } }` the counter is the
   caller's because of `var`; without it every child would have its own and all would go.
 - A function defined in a project **Script** (a library) can be called from any object directly.
+  Give each library function its own name: a Script run as a whole still uses its own, but a call
+  by name reaches only one of two that share a name (in any case). Run (F5) warns about every such
+  name in the Console, listing each Script, line and parameter count, and still runs the game.
 - `GlobalSet` / `GlobalGet` (and `GlobalSetString`, `GlobalExists`, `GlobalDelete`) hold values
   every instance and script sees.
 - Reading a name nothing has set gives 0 (and a runtime note), not an error. Run (F5) checks every

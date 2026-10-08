@@ -206,7 +206,7 @@ namespace Genesis.Runtime.Scripting
 
         private Stmt FunctionDeclaration()
         {
-            Consume(TokenType.Function, "Expected 'function'.");
+            Token keyword = Consume(TokenType.Function, "Expected 'function'.");
             string name = Consume(TokenType.Identifier, "Expected function name.").Value;
             Consume(TokenType.LeftParen, "Expected '(' after function name.");
             var parms = new List<string>();
@@ -225,7 +225,7 @@ namespace Genesis.Runtime.Scripting
                 if (s != null) body.Body.Add(s);
             }
             Consume(TokenType.RightBrace, "Expected '}' to close function body.");
-            var decl = new FunctionDeclStmt { Line = 0, Column = 0, Name = name, Body = body };
+            var decl = new FunctionDeclStmt { Line = keyword.Line, Column = keyword.Column, Name = name, Body = body };
             decl.Parameters.AddRange(parms);
             return decl;
         }
