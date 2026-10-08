@@ -47,6 +47,26 @@ internal static class PgslWorkerJobChecks
         function WjReadsUnset() { return notGivenToTheJob + 1; }
         function WjSpin(n) { var k = 0; while (k < n) { k = k + 1; } return k; }
         function WjText(a, b) { return a + "-" + b; }
+        // Value noise written in script, the way a game did it before the noise commands.
+        function SnHash(ix, iz, salt) {
+            var v = Sin(ix * 127.1 + iz * 311.7 + salt * 74.7) * 43758.5453;
+            if (v < 0) { v = 0 - v; }
+            return v % 1;
+        }
+        function SnNoise(px, pz, size, salt) {
+            var fx = px / size; var fz = pz / size;
+            var ix = Floor(fx); var iz = Floor(fz);
+            var u = fx - ix; var v = fz - iz;
+            u = u * u * (3 - 2 * u); v = v * v * (3 - 2 * v);
+            var a = SnHash(ix, iz, salt); var b = SnHash(ix + 1, iz, salt);
+            var c = SnHash(ix, iz + 1, salt); var d = SnHash(ix + 1, iz + 1, salt);
+            var top = a + (b - a) * u; var bot = c + (d - c) * u;
+            return top + (bot - top) * v;
+        }
+        function SnLoopScript(n) { var s = 0; for (var i = 0; i < n; i = i + 1) { s = s + SnNoise(i * 0.7, i * 0.3, 16, 4); } return s; }
+        function SnLoopValue(n) { var s = 0; for (var i = 0; i < n; i = i + 1) { s = s + ValueNoise2D(i * 0.7 / 16, i * 0.3 / 16, 4); } return s; }
+        function SnLoopFractal(n) { var s = 0; for (var i = 0; i < n; i = i + 1) { s = s + FractalNoise2D(i * 0.7 / 16, i * 0.3 / 16, 4, 4, 2, 0.5); } return s; }
+        function SnLoopEmpty(n) { var s = 0; for (var i = 0; i < n; i = i + 1) { s = s + (i * 0.7 / 16 + i * 0.3 / 16 + 4); } return s; }
         """;
 
     private sealed class Bench : IDisposable
@@ -80,6 +100,19 @@ internal static class PgslWorkerJobChecks
         }
 
         public double Number(string source) => Convert.ToDouble(Run(source), CultureInfo.InvariantCulture);
+
+        /// <summary>
+        /// Runs the code for most of half a second, then waits: this process JITs new code all the
+        /// time, which postpones the runtime's optimised recompile of the VM, so a timing taken
+        /// straight away measures its first, unoptimised tier (three times slower) instead.
+        /// </summary>
+        public void WarmUp(params string[] sources)
+        {
+            long start = Stopwatch.GetTimestamp();
+            while (Stopwatch.GetElapsedTime(start).TotalMilliseconds < 400)
+                foreach (string source in sources) Run(source);
+            Thread.Sleep(200);
+        }
         public string Text(string source) => Convert.ToString(Run(source), CultureInfo.InvariantCulture) ?? "";
 
         /// <summary>Waits (without running the job's work here) until a job has finished; its final status.</summary>
@@ -152,6 +185,34 @@ internal static class PgslWorkerJobChecks
         ScriptAssetRegistry.Register("WorkerJobLibrary", Library);
         try
         {
+            // What a noise sample costs a script: written in script (four hashes with a sine each)
+            // against the commands, each called from a script loop (the loop itself subtracted).
+            HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.NoiseInScriptAgainstCommands", () =>
+            {
+                using Bench bench = new();
+                const int n = 2000;
+                double Best(string loop)
+                {
+                    double best = double.MaxValue;
+                    for (int round = 0; round < 9; round++)
+                    {
+                        long start = Stopwatch.GetTimestamp();
+                        bench.Run($"r = {loop}({n});");
+                        best = Math.Min(best, Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+                    }
+                    return best * 1e6 / n;
+                }
+                bench.WarmUp("r = SnLoopEmpty(200);", "r = SnLoopScript(200);", "r = SnLoopValue(200);", "r = SnLoopFractal(200);");
+                double empty = Best("SnLoopEmpty");
+                double script = Best("SnLoopScript") - empty, value = Best("SnLoopValue") - empty, fractal = Best("SnLoopFractal") - empty;
+                string F(double ns) => ns.ToString("F0", CultureInfo.InvariantCulture) + " ns";
+                row("Noise speed", "value noise written in script (SnNoise: 4 hashes with Sin), a call from script", "behaviour", F(script));
+                row("Noise speed", "ValueNoise2D called from script", "behaviour", F(value));
+                row("Noise speed", "FractalNoise2D with 4 octaves called from script", "behaviour", F(fractal));
+                Console.WriteLine($"Noise from script: script value noise {F(script)}, ValueNoise2D {F(value)}, FractalNoise2D x4 {F(fractal)} a sample");
+                HeadlessHarness.Assert(value < script, $"ValueNoise2D ({F(value)}) was not quicker than noise written in script ({F(script)}).");
+            });
+
             HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.Jobs.SameGridsAsCallingTheFunction", () =>
             {
                 using Bench bench = new();
@@ -279,12 +340,16 @@ internal static class PgslWorkerJobChecks
             {
                 using Bench bench = new();
                 bench.Run(Setup);
-                Direct(bench, 0, 0, 1);
-                Direct(bench, 0, 0, 1);
-                const int directRuns = 10;
-                long start = Stopwatch.GetTimestamp();
-                for (int i = 0; i < directRuns; i++) Direct(bench, i, 0, 1);
-                double directMs = Stopwatch.GetElapsedTime(start).TotalMilliseconds / directRuns;
+                bench.WarmUp("bw = DsGridCreate(64, 32); hw = DsGridCreate(8, 8); r = WjFillChunk(bw, hw, kinds, 0, 0, 1); DsGridDestroy(bw); DsGridDestroy(hw);");
+                // The function called on the game's thread into the same two grids, fastest of twenty.
+                bench.Run("bt = DsGridCreate(64, 32); ht = DsGridCreate(8, 8); r = 0;");
+                double directMs = double.MaxValue;
+                for (int i = 0; i < 20; i++)
+                {
+                    long call = Stopwatch.GetTimestamp();
+                    bench.Run("r = WjFillChunk(bt, ht, kinds, 5, 1, 3);");
+                    directMs = Math.Min(directMs, Stopwatch.GetElapsedTime(call).TotalMilliseconds);
+                }
 
                 // As many jobs in flight as an Object may hold (16), refilled as they finish.
                 const int inFlightLimit = 14;

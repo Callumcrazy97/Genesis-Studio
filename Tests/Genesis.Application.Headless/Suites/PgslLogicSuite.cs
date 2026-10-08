@@ -480,6 +480,10 @@ internal static class PgslLogicSuite
             {
                 static double Best(Func<double> run)
                 {
+                    // Long enough for the runtime's optimised recompile, which this busy process postpones.
+                    long warm = System.Diagnostics.Stopwatch.GetTimestamp();
+                    while (System.Diagnostics.Stopwatch.GetElapsedTime(warm).TotalMilliseconds < 250) run();
+                    Thread.Sleep(150);
                     double best = double.MaxValue;
                     for (int round = 0; round < 7; round++)
                     {
@@ -524,6 +528,13 @@ internal static class PgslLogicSuite
                 ("List literals and index assignment", "var a = [1, 2, 3]; a[1] = 9; var g = [[1], [2]]; g[0][0] = 4; var e = []; t_ok = a[1] + g[0][0];"),
                 ("Compound assignment", "n = 1; n += 2; n -= 1; n *= 3; n /= 2; t_ok = n;"),
                 ("A built-in in any case", "sPeEd = 2; t_ok = (SPEED == 2) ? 1 : 0;"),
+                ("Worker jobs", """
+                    j = JobScriptCreate("NoSuchFunction"); g = DsGridCreate(2, 2); l = DsListCreate();
+                    JobScriptGrid(j, g, true); JobScriptList(j, l, false); JobScriptBudget(j, 5000);
+                    started = JobScriptStart(j, g, 1, "x");
+                    k = JobRunScript("NoSuchFunction", 1, 2);
+                    t_ok = (JobTake(j) == 0 && k == 0 && started == 0 && JobStatus(j) == "invalid") ? 1 : 0;
+                    """),
             ];
             var refused = new List<string>();
             string previous = PgslCommands.ProjectPath;

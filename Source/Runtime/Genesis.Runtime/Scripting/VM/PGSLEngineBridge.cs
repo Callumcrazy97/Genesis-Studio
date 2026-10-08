@@ -112,6 +112,23 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
         public Func<double[], object[], bool> BoolCall;
         public Action<double[], object[]> VoidCall;
         public Func<double[], object[], object> ObjectCall;
+        /// <summary>
+        /// For a command taking up to four numbers (doubles) and returning a number or nothing
+        /// (<c>DsGridGet</c>, <c>DsListGet</c>, <c>DsGridSet</c>, <c>Floor</c>...): a delegate straight to
+        /// the method, called with the numbers off the VM's stack, no arrays in between.
+        /// </summary>
+        public Delegate Direct;
+        public DirectShape Shape;
+        /// <summary>Whether the call leaves nothing for the script (<see cref="IsNativeVoid"/>), worked out once.</summary>
+        public bool PushesNothing;
+    }
+
+    /// <summary>The form of <see cref="NativeCall.Direct"/>: how many numbers it takes and whether it returns one.</summary>
+    internal enum DirectShape : byte
+    {
+        None,
+        Number0, Number1, Number2, Number3, Number4,
+        Void1, Void2, Void3, Void4,
     }
 
     /// <summary>A method's parameters as argument conversion needs them, read by reflection once.</summary>
@@ -139,7 +156,7 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
 
     private NativeCall CreateNativeCall(int id, int argumentCount)
     {
-        var call = new NativeCall { ArgumentCount = argumentCount, Entry = _nativeTable[id] };
+        var call = new NativeCall { ArgumentCount = argumentCount, Entry = _nativeTable[id], PushesNothing = IsNativeVoid(id) };
         CommandDef def = _nativeDefs[id];
         // A command a worker job may not run keeps only its entry, which says so.
         if (!def.IsProperty && (_workerAllows == null || _workerAllows[id]))
@@ -199,6 +216,30 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
         else call.ObjectCall = Expression.Lambda<Func<double[], object[], object>>(Expression.Convert(body, typeof(object)), numbers, texts).Compile();
         call.Kinds = kinds;
         call.HasText = Array.IndexOf(kinds, ArgumentKind.Text) >= 0;
+        CreateDirectCall(call, kinds);
+    }
+
+    // The same method as the typed call, bound as a plain delegate when it takes only doubles.
+    private static void CreateDirectCall(NativeCall call, ArgumentKind[] kinds)
+    {
+        if (!ScriptingDebugSettings.VmFastCalls || kinds.Length > 4 || Array.Exists(kinds, kind => kind != ArgumentKind.Number)) return;
+        Type returns = call.Method.ReturnType;
+        (Type type, DirectShape shape) = (returns == typeof(double), kinds.Length) switch
+        {
+            (true, 0) => (typeof(Func<double>), DirectShape.Number0),
+            (true, 1) => (typeof(Func<double, double>), DirectShape.Number1),
+            (true, 2) => (typeof(Func<double, double, double>), DirectShape.Number2),
+            (true, 3) => (typeof(Func<double, double, double, double>), DirectShape.Number3),
+            (true, 4) => (typeof(Func<double, double, double, double, double>), DirectShape.Number4),
+            (false, 1) when returns == typeof(void) => (typeof(Action<double>), DirectShape.Void1),
+            (false, 2) when returns == typeof(void) => (typeof(Action<double, double>), DirectShape.Void2),
+            (false, 3) when returns == typeof(void) => (typeof(Action<double, double, double>), DirectShape.Void3),
+            (false, 4) when returns == typeof(void) => (typeof(Action<double, double, double, double>), DirectShape.Void4),
+            _ => (null, DirectShape.None),
+        };
+        if (type == null) return;
+        call.Direct = call.Method.CreateDelegate(type);
+        call.Shape = shape;
     }
 
     /// <summary>Calls a command through its cached plan: the same conversions and errors as <see cref="InvokeNative"/>.</summary>

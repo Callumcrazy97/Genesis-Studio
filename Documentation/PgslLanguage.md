@@ -110,7 +110,25 @@ each caller in between; `Floor(i)` 14 ns; `Clamp(i, 0, 9)` 25 ns; `DsListGet`, `
 `DsMapGet`, `VariableSet` 35 to 50 ns; a call of a small function 60 to 75 ns. So keep hot values in
 `var` locals (copy an instance variable into one before a long loop), write a two-line helper inline
 in a loop of thousands, and prefer one command over a loop of small ones where the engine has it
-(`DsGridSetRegion`, `MeshAddCube`).
+(`DsGridSetRegion`, `MeshAddCube`, the [whole-region grid commands and noise](GameFeatures.md#noise)),
+or run the work as a [job on a worker thread](GameFeatures.md#script-functions-on-worker-threads).
+
+Since 8 Oct 2026 a command taking up to four numbers and returning a number or nothing (`DsGridGet`,
+`DsGridSet`, `DsListGet`, `Floor`, `Min`...) is called straight from the VM's stack through a
+delegate bound to it, and a call finds its function by the name it carries without hashing the
+text. Measured in turn with both turned off (`GENESIS_VM_FAST_CALLS=0`), on the performance cores:
+the grid and list loop 0.48 ms against 0.57 to 0.60 ms (medians), `DsGridGet` 38 to 40 ns against
+42 to 44 ns, `Floor` 12 to 15 ns against 15 to 16, a call with three arguments 61 to 69 ns against
+70. The voxel light spread (37 ms) and mesher (17 ms) did not change: their time goes to many small
+calls and instance-variable reads. A lattice hash written in script (`Sin`, multiplies, `%`) costs
+about 160 to 180 ns a call, value noise made of four of them about 0.9 microseconds; `ValueNoise2D`
+does the same natively.
+
+Two things make timings misleading on the development PC. A process that keeps compiling new code
+(a test run of many suites) postpones the runtime's optimised recompile of the VM, which then runs
+about three times slower until it settles: `vm-speed` and the timings in `pgsl-logic` warm up
+first. And it has performance and efficiency cores: a run on an efficiency core takes about twice
+as long, so pin a timing run to the performance cores (processor affinity 0xFFFF there).
 
 ## Mistakes
 

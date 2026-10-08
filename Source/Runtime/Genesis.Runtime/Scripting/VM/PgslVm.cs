@@ -72,6 +72,18 @@ public class PgslVm
     private readonly Dictionary<int, Stack<object[]>> _argumentPools = new();
     private IReadOnlyList<object> _constants = Array.Empty<object>();
     private readonly Dictionary<string, UserFunction> _userFunctions = new();
+    // The functions calls found, by the name string each CALL carries (the same string object every
+    // time it runs), so a call finds its function without hashing the name's text. Emptied whenever
+    // _userFunctions changes, so it never answers differently from it.
+    private readonly Dictionary<string, UserFunction> _callTargets = new(NameIdentity.Instance);
+    private readonly bool _fastCalls = ScriptingDebugSettings.VmFastCalls;
+
+    private sealed class NameIdentity : IEqualityComparer<string>
+    {
+        public static readonly NameIdentity Instance = new();
+        public bool Equals(string x, string y) => ReferenceEquals(x, y);
+        public int GetHashCode(string name) => RuntimeHelpers.GetHashCode(name);
+    }
     private readonly Stack<WithState> _withStack = new();
     private readonly Stack<string> _debugCallStack = new();
     private readonly IPgslEngineBridge _bridge;
@@ -137,6 +149,7 @@ public class PgslVm
 
     public void LoadUserFunctions(Dictionary<string, UserFunction> userFunctions)
     {
+        if (userFunctions.Count > 0) _callTargets.Clear();
         foreach (var func in userFunctions)
         {
             _userFunctions[func.Key] = func.Value;
@@ -200,6 +213,7 @@ public class PgslVm
             // then its functions are called), but a name the caller already had is put back.
             foreach ((string name, UserFunction function) in _functions)
                 if (function != null) _vm._userFunctions[name] = function;
+            if (_functions.Count > 0) _vm._callTargets.Clear();
         }
     }
 
@@ -1163,6 +1177,8 @@ public class PgslVm
             throw new InvalidOperationException($"Not enough arguments for native call id={nativeId}");
 
         PgslEngineBridge.NativeCall call = _typedBridge?.GetNativeCall(nativeId, nativeArgCount);
+        if (call?.Shape > PgslEngineBridge.DirectShape.None && TryCallDirect(call, nativeId, nativeArgCount))
+            return;
         if (call?.Kinds != null && _stack.TopMatches(call.Kinds))
         {
             // Every argument is already what the command takes: the same command, called without
@@ -1183,7 +1199,7 @@ public class PgslVm
             {
                 if (texts != null) Array.Clear(texts);
             }
-            _stack.Push(_bridge.IsNativeVoid(nativeId) ? default : value);
+            _stack.Push(call.PushesNothing ? default : value);
             return;
         }
 
@@ -1208,6 +1224,39 @@ public class PgslVm
         }
     }
 
+    // A command taking only numbers, given only unboxed numbers: called straight from the stack, as
+    // the typed call would call it (same values, same note, same result left on the stack).
+    private bool TryCallDirect(PgslEngineBridge.NativeCall call, int nativeId, int count)
+    {
+        VmValue[] values = _stack.Items;
+        int start = _stack.Count - count;
+        for (int i = start; i < start + count; i++)
+            if (!values[i].IsUnboxedNumber) return false;
+        double a = count > 0 ? values[start].UnboxedNumber : 0;
+        double b = count > 1 ? values[start + 1].UnboxedNumber : 0;
+        double c = count > 2 ? values[start + 2].UnboxedNumber : 0;
+        double d = count > 3 ? values[start + 3].UnboxedNumber : 0;
+        Array.Clear(values, start, count);
+        _stack.Count = start;
+        NoteNativeCall(nativeId);
+        VmValue value = default;
+        Delegate direct = call.Direct;
+        switch (call.Shape)
+        {
+            case PgslEngineBridge.DirectShape.Number0: value = Unsafe.As<Func<double>>(direct)(); break;
+            case PgslEngineBridge.DirectShape.Number1: value = Unsafe.As<Func<double, double>>(direct)(a); break;
+            case PgslEngineBridge.DirectShape.Number2: value = Unsafe.As<Func<double, double, double>>(direct)(a, b); break;
+            case PgslEngineBridge.DirectShape.Number3: value = Unsafe.As<Func<double, double, double, double>>(direct)(a, b, c); break;
+            case PgslEngineBridge.DirectShape.Number4: value = Unsafe.As<Func<double, double, double, double, double>>(direct)(a, b, c, d); break;
+            case PgslEngineBridge.DirectShape.Void1: Unsafe.As<Action<double>>(direct)(a); break;
+            case PgslEngineBridge.DirectShape.Void2: Unsafe.As<Action<double, double>>(direct)(a, b); break;
+            case PgslEngineBridge.DirectShape.Void3: Unsafe.As<Action<double, double, double>>(direct)(a, b, c); break;
+            case PgslEngineBridge.DirectShape.Void4: Unsafe.As<Action<double, double, double, double>>(direct)(a, b, c, d); break;
+        }
+        _stack.Push(call.PushesNothing ? default : value);
+        return true;
+    }
+
     private void ExecuteCall(Instruction instr)
     {
         if (instr.Operand is not (string funcName, int argCount))
@@ -1221,14 +1270,20 @@ public class PgslVm
             throw new InvalidOperationException($"Not enough arguments for {funcName}");
 
         // A function of a project Script (a library) is callable directly, the first call loading it.
-        bool isFunction = _userFunctions.TryGetValue(funcName, out UserFunction userFunc);
-        if (!isFunction && (LibraryFunctions is { } fixedLibrary
-                ? fixedLibrary.TryGetValue(funcName, out UserFunction library)
-                : Genesis.Runtime.Scripting.ScriptAssetRegistry.TryFindFunction(funcName, out library)))
+        UserFunction userFunc = null;
+        bool isFunction = _fastCalls && _callTargets.TryGetValue(funcName, out userFunc);
+        if (!isFunction)
         {
-            _userFunctions[funcName] = library;
-            userFunc = library;
-            isFunction = true;
+            isFunction = _userFunctions.TryGetValue(funcName, out userFunc);
+            if (!isFunction && (LibraryFunctions is { } fixedLibrary
+                    ? fixedLibrary.TryGetValue(funcName, out UserFunction library)
+                    : Genesis.Runtime.Scripting.ScriptAssetRegistry.TryFindFunction(funcName, out library)))
+            {
+                _userFunctions[funcName] = library;
+                userFunc = library;
+                isFunction = true;
+            }
+            if (isFunction && _fastCalls) _callTargets[funcName] = userFunc;
         }
 
         if (isFunction)

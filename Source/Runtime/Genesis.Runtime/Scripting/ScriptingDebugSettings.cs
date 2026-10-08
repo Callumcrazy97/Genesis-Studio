@@ -16,6 +16,11 @@ namespace Genesis.Runtime.Scripting
         public static bool DebugEditor3DPipeline { get; set; } = true;
         public static bool VmBytecodeCacheSha256 { get; set; } = true;
         public static bool VmUseRegisterFile { get; set; } = true;
+        /// <summary>
+        /// Commands taking only numbers called straight from the VM's stack, and a call finding its
+        /// function by the name it carries. GENESIS_VM_FAST_CALLS=0 turns both off, for comparison.
+        /// </summary>
+        public static bool VmFastCalls { get; set; } = System.Environment.GetEnvironmentVariable("GENESIS_VM_FAST_CALLS") != "0";
         public static bool UsePgCollections { get; set; } = true;
         public static bool EnableShadowVM { get; set; } = true;
     }

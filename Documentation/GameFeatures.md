@@ -625,10 +625,12 @@ is the same world everywhere. Any number is a seed, fractions included (`0.5` an
 | `NoiseFillGrid(grid, x0, y0, step, seed, octaves, lacunarity, gain, scale, offset)` | A whole DsGrid in one call: cell (i, j) becomes `offset + scale * FractalNoise2D(x0 + i * step, y0 + j * step, seed, octaves, lacunarity, gain)`, exactly what that call gives. Returns the cells filled (0 for a bad grid). |
 | `NoiseFillGrid3D(grid, x0, y0, z0, step, plane, seed, octaves, lacunarity, gain, scale, offset)` | A flat slice of `FractalNoise3D`: `plane` `"xy"`, `"xz"` or `"yz"` names the axes `i` and `j` step along from `(x0, y0, z0)`; the third stays put (one layer of a cave field). |
 
-Measured on the development PC (8 Oct 2026, called from C#; a script's call adds about 20 to
-40 ns): `Noise2D` 25 ns, `Noise3D` 48 ns, `ValueNoise2D` 14 ns; `NoiseFillGrid` 37 ns a cell
-with one octave and 123 ns with four, `NoiseFillGrid3D` 164 ns a cell with three. A 16 x 16 height
-map with four octaves is about 30 microseconds, where the same in script noise took milliseconds.
+Measured on the development PC's performance cores (8 Oct 2026, `--test pgsl-logic`, called from
+C#): `Noise2D` 13 ns, `Noise3D` 20 ns, `ValueNoise2D` 14 ns; `NoiseFillGrid` 15 ns a cell with one
+octave and 53 ns with four, `NoiseFillGrid3D` 61 ns a cell with three. From a script loop, value
+noise written in script (four hashes with a `Sin` each) took 0.8 to 1.2 microseconds a sample,
+`FractalNoise2D` with four octaves 0.08 to 0.2. A 16 x 16 height map with four octaves is about
+14 microseconds with `NoiseFillGrid`.
 
 ```pgsl
 // Heights of a 16 x 16 chunk at chunk (cx, cz): rolling land 40 to 88 blocks high.
@@ -715,12 +717,22 @@ else if (JobStatus(job) == "succeeded") {
 }
 ```
 
-Measured on the development PC (8 Oct 2026, an i7 with 28 threads of mixed speed, while it was in
-other use), with a chunk of 8 x 8 columns 32 blocks high (4-octave noise per column, a helper call
-and three commands per cell): about 1.3 to 2.2 ms on the game's thread; as jobs, 0.1 ms of the
-game's thread per job (making it, the copies, starting, taking, releasing), 3.3 ms on a worker when
-alone and 3 to 9 ms with 14 at once, and 670 to 3 900 chunks a second with 14 in flight. A worker's
-first job sets up its command table (the first 32 jobs took about 25 to 35 ms in all).
+Measured on the development PC (8 Oct 2026, `--test pgsl-logic`; an i7-14700F, 8 performance
+and 12 efficiency cores, in other use meanwhile) with a chunk of 8 x 8 columns 32 blocks high
+(4-octave noise per column, a helper call and three commands per cell, 2 048 cells): 0.46 ms on the
+game's thread; as a job, 0.06 to 0.13 ms of the game's thread (making it, the copies, starting,
+taking, releasing) and 0.44 ms on a worker alone. With 14 in flight, each took 0.7 to 1.5 ms and
+6 700 to 9 100 chunks were done a second on the 14 workers of the performance cores, 5 700 a second
+on all 26 (efficiency cores are about half as quick). A worker's first jobs set up its command
+table: the first 32 jobs took 13 to 22 ms in all.
+
+`Build.bat --test pgsl-logic` checks that a job fills the same grids as calling the function
+directly (and leaves the game's grids alone until `JobTake`), that drawing, `Random` and a name
+never set stop a job with those messages, that twelve jobs at once each match the direct call for
+their seed, and that a job is cancelled while running, released, refused when cancelled before it
+starts, and stopped by its budget. It also checks noise against recorded values, its range and
+smoothness, the grid fills against single calls, and each whole-region grid command. Not yet seen:
+a game streaming its world through jobs.
 
 ## Video options and the clock
 
