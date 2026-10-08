@@ -291,6 +291,56 @@ internal static class PgslWorkerJobChecks
                 HeadlessHarness.Assert(matched == jobs.Count, $"Only {matched} of {jobs.Count} concurrent jobs matched the direct call for their seed.");
             });
 
+            // As many jobs as the game may hold (16 for each of two Objects), more than there are
+            // workers: the rest wait their turn, no more threads start than the limit, all finish.
+            HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.Jobs.MoreJobsThanWorkersWaitTheirTurn", () =>
+            {
+                using Bench bench = new();
+                PgslContext other = new() { InstanceId = 2 };
+                List<(PgslContext Owner, double Job)> jobs = [];
+                try
+                {
+                    foreach (PgslContext owner in new[] { bench.Context, other })
+                    {
+                        PgslCommands.BindContext(owner);
+                        for (int i = 0; i < NativeJobPool.MaximumContextJobs; i++)
+                        {
+                            double job = PgslCommands.JobRunScript("WjSpin", 3_000_000.0);
+                            HeadlessHarness.Assert(job > 0, "A job did not start: " + PgslCommands.JobLastError());
+                            jobs.Add((owner, job));
+                        }
+                    }
+                    int waiting = jobs.Count(entry => { PgslCommands.BindContext(entry.Owner); return PgslCommands.JobStatus(entry.Job) == "queued"; });
+                    // A job still waiting for a thread is cancelled at once.
+                    (PgslContext lastOwner, double last) = jobs[^1];
+                    PgslCommands.BindContext(lastOwner);
+                    bool lastWaiting = PgslCommands.JobStatus(last) == "queued";
+                    bool cancelledAtOnce = !lastWaiting || (PgslCommands.JobCancel(last) && PgslCommands.JobStatus(last) == "cancelled");
+                    int succeeded = 0;
+                    foreach ((PgslContext owner, double job) in jobs)
+                    {
+                        PgslCommands.BindContext(owner);
+                        string status = bench.Wait(job, 60);
+                        if (status == "succeeded" && PgslCommands.JobResultNumber(job) == 3_000_000) succeeded++;
+                        else if (job == last && lastWaiting && status == "cancelled") succeeded++;
+                        PgslCommands.JobRelease(job);
+                    }
+                    row("Jobs", $"{jobs.Count} jobs on {NativeJobPool.ScriptWorkerCount} workers", succeeded == jobs.Count && cancelledAtOnce ? "PASS" : "FAIL",
+                        $"{waiting} waiting just after starting, {succeeded} ended as expected, {NativeJobPool.ScriptThreads} threads started, a waiting job cancelled at once: {cancelledAtOnce && lastWaiting}");
+                    HeadlessHarness.Assert(succeeded == jobs.Count, $"Only {succeeded} of {jobs.Count} jobs ended as expected.");
+                    HeadlessHarness.Assert(cancelledAtOnce, "A job waiting for a thread was not cancelled at once.");
+                    HeadlessHarness.Assert(NativeJobPool.ScriptThreads <= NativeJobPool.ScriptWorkerCount,
+                        $"{NativeJobPool.ScriptThreads} worker threads started; the limit is {NativeJobPool.ScriptWorkerCount}.");
+                    HeadlessHarness.Assert(waiting >= jobs.Count - NativeJobPool.ScriptWorkerCount,
+                        $"Only {waiting} of {jobs.Count} jobs waited with {NativeJobPool.ScriptWorkerCount} workers.");
+                }
+                finally
+                {
+                    PgslCommands.ReleaseJobs(other);
+                    PgslCommands.BindContext(bench.Context);
+                }
+            });
+
             HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.Jobs.CancelReleaseAndBudget", () =>
             {
                 using Bench bench = new();

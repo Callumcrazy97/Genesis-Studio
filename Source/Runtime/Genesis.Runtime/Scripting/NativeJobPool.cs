@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -27,9 +28,17 @@ internal sealed class NativeJobPool
     }
 
     private static readonly SemaphoreSlim Workers = new(4, 4);
-    /// <summary>Script jobs run on all but two of the processors (at least one); the rest wait their turn.</summary>
+
+    // Script jobs run on threads of their own, not the thread pool: a job may compute for many
+    // milliseconds, and the engine's own background work (textures, collision, files) must still
+    // find pool threads. All but two of the processors (at least one), started as jobs need them,
+    // below normal priority so the game's own threads always come first; the rest wait in order.
+    /// <summary>Most script jobs that run at once.</summary>
     internal static readonly int ScriptWorkerCount = Math.Max(1, Environment.ProcessorCount - 2);
-    private static readonly SemaphoreSlim ScriptWorkers = new(ScriptWorkerCount, ScriptWorkerCount);
+    private static readonly BlockingCollection<Action> ScriptQueue = new();
+    private static int _scriptThreads, _idleScriptThreads;
+    /// <summary>Script worker threads started so far.</summary>
+    internal static int ScriptThreads => Volatile.Read(ref _scriptThreads);
     private static int _reserved;
     internal const int MaximumGlobalJobs = 32;
     internal const int MaximumContextJobs = 16;
@@ -80,8 +89,50 @@ internal sealed class NativeJobPool
                 if (job.State != "prepared") return false;
                 job.State = "queued"; job.Payload = null; job.WorkEnded = false;
             }
-            Run(job, job.Kind, operation, ScriptWorkers);
+            RunOnScriptThread(job, job.Kind, operation);
             return true;
+        }
+    }
+
+    private static void RunOnScriptThread(Job job, string kind, Func<CancellationToken, Result> operation)
+    {
+        ScriptQueue.Add(() =>
+        {
+            try
+            {
+                lock (job) { job.Cancellation.Token.ThrowIfCancellationRequested(); job.State = "running"; }
+                Result result = operation(job.Cancellation.Token);
+                if (result.Kind != kind) throw new InvalidOperationException("Native operation returned an incorrect result kind.");
+                lock (job) { job.Value = result.Value; job.State = "succeeded"; }
+            }
+            catch (OperationCanceledException) { lock (job) job.State = "cancelled"; }
+            catch (Exception error) { lock (job) { job.State = "failed"; job.Error = error.Message; } }
+            finally
+            {
+                lock (job) { job.WorkEnded = true; if (job.Released) DropLease(job); }
+            }
+        });
+        // More threads while more jobs wait than threads are free, up to the limit.
+        while (ScriptQueue.Count > Volatile.Read(ref _idleScriptThreads))
+        {
+            int started = Volatile.Read(ref _scriptThreads);
+            if (started >= ScriptWorkerCount) break;
+            if (Interlocked.CompareExchange(ref _scriptThreads, started + 1, started) != started) continue;
+            Interlocked.Increment(ref _idleScriptThreads);
+            new Thread(ScriptWorker) { IsBackground = true, Name = "PGSL job worker " + (started + 1), Priority = ThreadPriority.BelowNormal }.Start();
+        }
+    }
+
+    // A started thread counts as free until it takes its first job, so a burst of jobs starts
+    // as many threads as it needs at once.
+    private static void ScriptWorker()
+    {
+        while (true)
+        {
+            Action work = ScriptQueue.Take();
+            Interlocked.Decrement(ref _idleScriptThreads);
+            work();
+            Interlocked.Increment(ref _idleScriptThreads);
         }
     }
 
@@ -136,8 +187,10 @@ internal sealed class NativeJobPool
             lock (job)
             {
                 if (Finished(job)) return false;
-                // A prepared job has no work to stop: it is cancelled at once.
+                // A prepared job has no work to stop, and a script job still waiting for a thread
+                // will not start: both are cancelled at once.
                 if (job.State == "prepared") { job.State = "cancelled"; job.Payload = null; return true; }
+                if (job.State == "queued" && job.Kind == "script") job.State = "cancelled";
                 job.Cancellation.Cancel(); return true;
             }
         }

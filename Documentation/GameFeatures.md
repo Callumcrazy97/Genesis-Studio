@@ -683,7 +683,7 @@ Object's events are not available to jobs; put the function in a Script.
 | `JobScriptCreate(function)` | A prepared job for a function of the project's Scripts (as they are now); 0 when there is no such function (`JobLastError` says why). |
 | `JobScriptGrid(job, grid, copyBack)`, `JobScriptList(job, list, copyBack)` | Give the job its own copy of a grid or list; with `copyBack` true, `JobTake` copies the job's version back into it (size included). |
 | `JobScriptBudget(job, instructions)` | Instructions the job may run in all, every call counted (100 000 000 unless set, 1 000 to 2 000 000 000). The per-call limit of events does not apply. |
-| `JobScriptStart(job, arguments...)` | Start it with the function's arguments (numbers, true/false or text). Jobs wait their turn for one of all but two of the processors. |
+| `JobScriptStart(job, arguments...)` | Start it with the function's arguments (numbers, true/false or text). Jobs run in turn on worker threads of their own, as many as all but two of the processors, below the game's own threads in priority. |
 | `JobRunScript(function, arguments...)` | Create and start in one, for a job that needs no grids or lists; its result is read with `JobResultNumber` / `JobResultString` / `JobResultBool`. |
 | `JobStatus(job)` | `prepared`, `queued`, `running`, `succeeded`, `failed` (`JobError` says why, with the line) or `cancelled`. |
 | `JobTake(job)` | Once it has succeeded: copy the grids and lists marked `copyBack` into the Object's own (once). |
@@ -722,15 +722,16 @@ and 12 efficiency cores, in other use meanwhile) with a chunk of 8 x 8 columns 3
 (4-octave noise per column, a helper call and three commands per cell, 2 048 cells): 0.46 ms on the
 game's thread; as a job, 0.06 to 0.13 ms of the game's thread (making it, the copies, starting,
 taking, releasing) and 0.44 ms on a worker alone. With 14 in flight, each took 0.7 to 1.5 ms and
-6 700 to 9 100 chunks were done a second on the 14 workers of the performance cores, 5 700 a second
-on all 26 (efficiency cores are about half as quick). A worker's first jobs set up its command
+6 700 to 13 700 chunks were done a second on the 14 workers of the performance cores, 5 700 a
+second on all 26 (efficiency cores are about half as quick). A worker's first jobs set up its command
 table: the first 32 jobs took 13 to 22 ms in all.
 
 `Build.bat --test pgsl-logic` checks that a job fills the same grids as calling the function
 directly (and leaves the game's grids alone until `JobTake`), that drawing, `Random` and a name
 never set stop a job with those messages, that twelve jobs at once each match the direct call for
-their seed, and that a job is cancelled while running, released, refused when cancelled before it
-starts, and stopped by its budget. It also checks noise against recorded values, its range and
+their seed, that two Objects' 32 jobs on fewer workers wait their turn (no more threads start than
+the limit) and all finish, and that a job is cancelled while running or while waiting, released,
+refused when cancelled before it starts, and stopped by its budget. It also checks noise against recorded values, its range and
 smoothness, the grid fills against single calls, and each whole-region grid command. Not yet seen:
 a game streaming its world through jobs.
 
