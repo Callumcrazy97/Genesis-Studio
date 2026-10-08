@@ -610,6 +610,53 @@ InstanceSetMeshCollider(id, m);
 DrawMesh3D(m, x, y, z, "Blocks");
 ```
 
+## Noise
+
+Noise for generated terrain, caves, clouds, textures and wobble, worked out natively. The same
+arguments give the same number on every PC, graphics backend and run: only additions,
+multiplications, `Floor` and integer hashing are used (no sine), so a world generated from a seed
+is the same world everywhere. Any number is a seed, fractions included (`0.5` and `0.7` differ).
+
+| Command | What it does |
+|---|---|
+| `Noise2D(x, y, seed)`, `Noise3D(x, y, z, seed)` | Smooth gradient (Perlin) noise, -1 to 1. Hills and hollows are about one unit apart, so scale positions down (`Noise2D(x / 32, z / 32, seed)`). Each seed shifts the lattice, so whole-number positions still vary. |
+| `ValueNoise2D(x, y, seed)`, `ValueNoise3D(x, y, z, seed)` | Smooth value noise, 0 to 1. At whole-number positions it is a repeatable random number per point (where a tree goes, which ore). |
+| `FractalNoise2D(x, y, seed, octaves, lacunarity, gain)`, `FractalNoise3D(x, y, z, seed, octaves, lacunarity, gain)` | Several octaves of gradient noise summed (fBm), -1 to 1: each octave `lacunarity` times finer (2 is usual) and `gain` times weaker (0.5 is usual); 1 to 16 octaves. One octave is exactly `Noise2D` / `Noise3D`. |
+| `NoiseFillGrid(grid, x0, y0, step, seed, octaves, lacunarity, gain, scale, offset)` | A whole DsGrid in one call: cell (i, j) becomes `offset + scale * FractalNoise2D(x0 + i * step, y0 + j * step, seed, octaves, lacunarity, gain)`, exactly what that call gives. Returns the cells filled (0 for a bad grid). |
+| `NoiseFillGrid3D(grid, x0, y0, z0, step, plane, seed, octaves, lacunarity, gain, scale, offset)` | A flat slice of `FractalNoise3D`: `plane` `"xy"`, `"xz"` or `"yz"` names the axes `i` and `j` step along from `(x0, y0, z0)`; the third stays put (one layer of a cave field). |
+
+Measured on the development PC (8 Oct 2026, called from C#; a script's call adds about 20 to
+40 ns): `Noise2D` 25 ns, `Noise3D` 48 ns, `ValueNoise2D` 14 ns; `NoiseFillGrid` 37 ns a cell
+with one octave and 123 ns with four, `NoiseFillGrid3D` 164 ns a cell with three. A 16 x 16 height
+map with four octaves is about 30 microseconds, where the same in script noise took milliseconds.
+
+```pgsl
+// Heights of a 16 x 16 chunk at chunk (cx, cz): rolling land 40 to 88 blocks high.
+heights = DsGridCreate(16, 16);
+NoiseFillGrid(heights, cx * 16 / 96, cz * 16 / 96, 1 / 96, worldSeed, 4, 2, 0.5, 24, 64);
+DsGridFloorRegion(heights, 0, 0, 15, 15);
+```
+
+### Whole regions of a grid or list
+
+A loop that reads or writes every cell of a grid costs about 50 ns a call in a script; these do a
+region natively. Corners are inclusive and 0-based, as in `DsGridSetRegion`; cells outside the
+grid are skipped (or read as 0); a bad handle does nothing and returns 0 (-1 for a find).
+
+| Command | What it does |
+|---|---|
+| `DsGridCopyRegion(destination, dx, dy, source, x1, y1, x2, y2)` | Copy a region into another grid (or the same one, overlapping is fine) with its top-left at `(dx, dy)`; returns the cells copied. |
+| `DsGridToList(grid, x1, y1, x2, y2, list)`, `DsGridFromList(grid, x1, y1, x2, y2, list)` | A region to a list row by row (the list's entries are replaced), or a list back into a region until the list runs out; both return the entries moved. |
+| `DsGridCount(grid, x1, y1, x2, y2, value)` | How many cells hold the value. |
+| `DsGridFind(grid, x1, y1, x2, y2, value)`, `DsGridFindOther(grid, ...)` | The first cell holding (or not holding) the value, as `x + y * width`, or -1. Rows are searched from `y1` towards `y2` and each row from `x1` towards `x2`, so `DsGridFindOther(column, 0, 127, 0, 0, AIR)` is the highest block that is not air. |
+| `DsGridAddRegion`, `DsGridMultiplyRegion(grid, x1, y1, x2, y2, value)` | Add to, or multiply, every cell of a region. |
+| `DsGridClampRegion(grid, x1, y1, x2, y2, min, max)`, `DsGridFloorRegion(grid, x1, y1, x2, y2)` | Keep every cell between two values, or round every cell down. |
+| `DsGridAddGrid(destination, source, factor)` | `destination += source * factor` cell by cell where both have the cell (layering noise fields, a mask); returns the cells changed. |
+| `DsListFill(list, count, value)`, `DsListCopy(destination, source)` | A list of `count` copies of a number, or one list's entries replaced by another's. |
+
+Already there before: `DsGridSetRegion` (fill a region with one value), `DsGridClear` (fill the
+grid), `DsGridCopy` (a whole grid), `DsGridGetSum` / `GetMax` / `GetMin` and `DsGridValueExists`.
+
 ## Video options and the clock
 
 | Command | What it does |
