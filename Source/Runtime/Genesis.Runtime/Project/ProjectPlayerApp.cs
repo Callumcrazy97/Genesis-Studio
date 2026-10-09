@@ -273,6 +273,9 @@ namespace Genesis.Runtime.Project
                     var window = host.Window as SilkGameWindow;
                     _activeHost = host;
                     _activeWindow = window;
+                    // A post effect a script turns on is compiled on a worker; the frames meanwhile
+                    // are drawn without it, instead of one frame waiting seconds for the compiler.
+                    renderer.CompilePostEffectsInBackground = true;
                     scene.Input = window?.Input ?? scene.Input;
                     // The window is open and the graphics card ready: say so at once. Everything
                     // below (textures, sound, the first room) used to happen behind a blank window.

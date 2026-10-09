@@ -56,6 +56,17 @@ namespace Genesis.Shared.Interfaces
 
         /// <summary>Why the last post effect that could not be compiled was refused; empty when none was.</summary>
         string LastPostEffectError => string.Empty;
+
+        /// <summary>
+        /// True compiles a post effect the renderer has not seen on a worker thread: frames are
+        /// drawn without it (or with its previous version, when it changed) until it is ready,
+        /// instead of one frame waiting for the compiler. Off, the frame that first asks for an
+        /// effect compiles it, which a capture or an editor preview relies on. A game turns it on.
+        /// </summary>
+        bool CompilePostEffectsInBackground { get => false; set { } }
+
+        /// <summary>Post effects asked for and still being compiled on a worker thread.</summary>
+        int PostEffectsCompiling => 0;
         /// <summary>Configure 2D room fog. HUD/GUI overlay flushes are always rendered with fog disabled.</summary>
         void SetRoomFog(RoomFogState state);
 

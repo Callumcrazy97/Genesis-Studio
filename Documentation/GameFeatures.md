@@ -916,6 +916,25 @@ read once and kept, so it costs a walk over that list rather than over the disk 
 shader also reads those shaders' files, to see which kind each is): call it when a menu opens,
 not every frame. An exported game lists the same. Checked by `Build.bat --test runtime-resources`.
 
+### A post effect turned on while a game runs
+
+A post effect (`PostEffectAdd`, or a room's own list) whose shader the game has not compiled
+before is now compiled on a worker thread. Until it is ready the frames are drawn without it (or,
+when a running effect's shader file changed, with its previous version), and then it runs; the
+renderer's log (`%LOCALAPPDATA%\GenesisRuntime\Logs\render-<process id>.log`, beside the errors of
+effects that do not compile) says when:
+
+```
+Post effect 'Pack Ink' compiled on a worker in 1840 ms; it runs from this frame
+```
+
+Before, the frame that first asked for it waited for the shader compiler: on DX12, with the shader
+not yet in the cache, one frame took 10.7 seconds. This applies to every graphics backend in a game
+(the Player and exported games); Studio's previews and the capture tools still compile in the frame
+that asks, so the frame they read back has the effect. `Build.bat --test post-effects` runs the
+Player on DX12 with an empty shader cache, turns on an effect three seconds in, and checks that no
+frame after that took 250 ms or more and that the effect then ran.
+
 ## Smaller changes
 
 - **Bushes and saplings.** The `Shrub` and `Sapling` foliage shapes are built from rounded solid
