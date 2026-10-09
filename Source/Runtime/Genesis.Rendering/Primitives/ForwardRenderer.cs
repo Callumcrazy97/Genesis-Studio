@@ -2656,6 +2656,23 @@ namespace Genesis.Rendering.Primitives
             bool gpuSkinned  = meshEntrySource.IsSkinned && skinPalette.IsValid && TryGetSkinPalette(skinPalette.Id, out skinPaletteEntry);
             if (gpuSkinned) _submittedSkinPalettes.Add(skinPalette.Id);
 
+            // The sky layer: drawn first, around the camera, behind everything (ForwardRenderer.SkyLayer).
+            if (layer == MeshDrawCall.SkyLayer)
+            {
+                AddToSkyLayer(new WorldMesh
+                {
+                    MeshId = mesh.Id, Texture = texture, World = world, Color = color,
+                    Transparent = transparent, Additive = additive, Multiply = multiply,
+                    Emissive = (flags & MeshDrawFlags.Emissive) != 0 ? emissive : 0f,
+                    NoFog = true, NoReceiveShadow = true, RasterOverride = rasterOverride,
+                    Shader = shader, ShaderParams0 = shaderParams0, ShaderParams1 = shaderParams1,
+                    ShaderParams2 = shaderParams2, ShaderParams3 = shaderParams3, AuthoredTextures = authoredTextures,
+                    MaterialFactors = materialFactors,
+                });
+                LastInstancesDrawn++;
+                return;
+            }
+
             // A model layer's draw goes to its own image, culled by nothing the world camera sees.
             if (layer > 0)
             {
@@ -4340,6 +4357,9 @@ namespace Genesis.Rendering.Primitives
             // as SpriteBatcher or other renderers may have left their states bound.
             _gpu.SetShaderProgram(CurrentForwardProgram(skinned: false));
             _gpu.SetVertexLayout(_layout);
+
+            // A game's own sky (DrawMeshSetSky) first: everything after covers it.
+            DrawSkyLayer(whiteTexture);
 
             // Sun before floor so the infinite floor occludes the disc when looking at the ground.
             if (_state.ShowSunVisual && !_state.AuthoredSkyEnabled && SunMesh.IsValid)
@@ -6212,6 +6232,7 @@ namespace Genesis.Rendering.Primitives
             _skinnedShadowCasters.Clear();
             _worldMeshes.Clear();
             _viewModelMeshes.Clear();
+            _skyMeshes.Clear();
             _waterMeshes.Clear();
             foreach (var b in _transBatchList)
             {

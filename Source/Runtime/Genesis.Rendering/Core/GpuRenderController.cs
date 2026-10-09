@@ -487,6 +487,13 @@ namespace Genesis.Rendering.Core
                         submitted = true;
                         break;
 
+                    case OverlayCommandKind.Rectangles:
+                        // A batch (DrawRectanglesFromList): the same quads as its rectangles drawn one by one.
+                        foreach (GuiRectangle rectangle in _overlayCommands.RectanglesOf(command))
+                            SubmitOverlaySolid(rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height, ToRenderColor(rectangle.Color));
+                        submitted = true;
+                        break;
+
                     case OverlayCommandKind.Line:
                         SubmitOverlayLine(command.A, command.B, command.C, command.D,
                             ToRenderColor(command.Color), command.Stroke);
@@ -1332,6 +1339,17 @@ namespace Genesis.Rendering.Core
             GpuTextureHandle texture = ResolveGpuTexture(handle.Id);
             if (!texture.IsValid) return;
             _gpu.UpdateTexture(texture, 0, 0, w, h, rgba);
+        }
+
+        public bool TryUpdateTextureRegion(TextureHandle handle, int x, int y, int w, int h, ReadOnlySpan<byte> rgba)
+        {
+            if (!_initialized || !handle.IsValid || x < 0 || y < 0 || w <= 0 || h <= 0 ||
+                rgba.Length < checked(w * h * 4)) return false;
+            GpuTextureHandle texture = ResolveGpuTexture(handle.Id);
+            if (!texture.IsValid) return false;
+            // Every backend's device takes a region, as the glyph atlas's uploads already use.
+            _gpu.UpdateTexture(texture, x, y, w, h, rgba);
+            return true;
         }
 
         private IEnumerable<Genesis.Shared.Diagnostics.DebugResourceRow> DescribeTextureResources()

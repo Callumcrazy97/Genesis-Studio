@@ -916,6 +916,11 @@ namespace Genesis.Shared.Interfaces
         /// Default false preserves the inherited room/global sampling contract.</summary>
         public bool SmoothSampling;
         /// <summary>
+        /// Force sharp (nearest) sampling for this call whatever the room samples with: a texture a
+        /// script paints, whose pixels should stay square when scaled. Default false changes nothing.
+        /// </summary>
+        public bool PointSampling;
+        /// <summary>
         /// Blend this quad in linear light: its colour and texture are decoded from sRGB and mixed
         /// with the decoded screen (DrawSetBlendLinear). Honoured by the GUI overlay; default false
         /// blends the stored sRGB values as always.
@@ -966,8 +971,17 @@ namespace Genesis.Shared.Interfaces
         /// <summary>
         /// 0 draws in the world. 1 is the first-person layer, more than 99 a GUI model's layer: the
         /// draw goes to that layer's own image and camera (see IRenderController.SetModelLayerCamera).
+        /// <see cref="SkyLayer"/> draws it in the sky.
         /// </summary>
         public int Layer;
+
+        /// <summary>
+        /// The sky layer: drawn first in the 3D frame, right after it is cleared to the sky, centred
+        /// on the camera (the world matrix places it relative to the eye), scaled to sit inside the
+        /// far plane, unlit and writing no depth, so the world covers it and the sky's haze and clouds
+        /// go over it (a game's own sun, moon, stars or sky dome).
+        /// </summary>
+        public const int SkyLayer = -1;
         public Matrix4x4     World;
         public RenderColor   Tint;
         public MeshDrawFlags Flags;

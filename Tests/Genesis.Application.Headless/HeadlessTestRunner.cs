@@ -1587,6 +1587,21 @@ internal static class HeadlessTestRunner
                 PrepareFocusedProject(ctx, requireStudioServices: false);
                 Suites.GuiLinearBlendSuite.Run(ctx);
                 break;
+            case "gui-batch":
+                // GUI rectangles and image parts from a list in one call, on every renderer, and their cost.
+                PrepareFocusedProject(ctx, requireStudioServices: false);
+                Suites.GuiBatchSuite.Run(ctx);
+                break;
+            case "script-textures":
+                // Textures a script paints, drawn in the GUI and the 2D world on every renderer, and their cost.
+                PrepareFocusedProject(ctx, requireStudioServices: false);
+                Suites.ScriptTextureSuite.Run(ctx);
+                break;
+            case "sky-layer":
+                // Script meshes in the sky layer (DrawMeshSetSky): behind the world, around the camera, on every renderer.
+                PrepareFocusedProject(ctx, requireStudioServices: false);
+                Suites.SkyLayerSuite.Run(ctx);
+                break;
             case "model-sprites":
                 Suites.ModelSpriteConversionSuite.Run(ctx);
                 break;

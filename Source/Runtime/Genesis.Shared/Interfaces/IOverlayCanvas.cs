@@ -92,5 +92,15 @@ namespace Genesis.Shared.Interfaces
 
         /// <summary>A textured sprite in screen pixels, drawn in order with this canvas's text and shapes.</summary>
         void DrawSprite(in SpriteDrawCall call) { }
+
+        /// <summary>
+        /// Many filled rectangles in order, as one command where the canvas can (PGSL
+        /// DrawRectanglesFromList); otherwise each is drawn as a filled <see cref="DrawRect(float, float, float, float, Vector4, float, bool)"/>.
+        /// </summary>
+        void DrawFilledRects(System.ReadOnlySpan<GuiRectangle> rectangles)
+        {
+            foreach (GuiRectangle rectangle in rectangles)
+                DrawRect(rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height, rectangle.Color, filled: true);
+        }
     }
 }

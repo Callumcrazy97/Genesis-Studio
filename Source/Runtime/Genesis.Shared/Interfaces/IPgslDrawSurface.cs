@@ -23,6 +23,11 @@ namespace Genesis.Shared.Interfaces
         public System.Collections.Generic.IReadOnlyDictionary<string, float[]> ShaderParameters;
         /// <summary>The calling instance's shader texture overrides by resource name; may be null.</summary>
         public System.Collections.Generic.IReadOnlyDictionary<string, string> ShaderResources;
+        /// <summary>
+        /// Drawn in the sky layer (DrawMeshSetSky): behind everything, centred on the camera, unlit
+        /// (see <see cref="MeshDrawCall.SkyLayer"/>).
+        /// </summary>
+        public bool Sky;
     }
 
     /// <summary>2D/3D draw surface used by PGSL commands during sandbox and play mode.</summary>
@@ -73,6 +78,39 @@ namespace Genesis.Shared.Interfaces
         /// </summary>
         void DrawSpritePart(string spriteName, int frame, RectangleF source, RectangleF destination, Color blend, float alpha)
             => DrawSpriteRectangle(spriteName, destination, frame, blend, alpha);
+
+        /// <summary>
+        /// Many filled rectangles in order (PGSL DrawRectanglesFromList). Surfaces that keep batches
+        /// send them on as one; the default draws each with <see cref="FillRectangle"/>.
+        /// </summary>
+        void FillRectangles(ReadOnlySpan<GuiRectangle> rectangles)
+        {
+            foreach (GuiRectangle r in rectangles)
+            {
+                Vector4 c = Vector4.Clamp(r.Color, Vector4.Zero, Vector4.One) * 255f;
+                FillRectangle(Color.FromArgb((int)MathF.Round(c.W), (int)MathF.Round(c.X), (int)MathF.Round(c.Y), (int)MathF.Round(c.Z)),
+                    new RectangleF(r.X, r.Y, r.Width, r.Height));
+            }
+        }
+
+        /// <summary>
+        /// Many parts of one image in order (PGSL DrawSpritePartsFromList), each as
+        /// <see cref="DrawSpritePart"/> would draw it.
+        /// </summary>
+        void DrawSpriteParts(string spriteName, ReadOnlySpan<GuiSpritePart> parts, Color blend)
+        {
+            foreach (GuiSpritePart p in parts)
+                DrawSpritePart(spriteName, p.Frame, RectangleF.FromLTRB(p.U0, p.V0, p.U1, p.V1),
+                    new RectangleF(p.X, p.Y, p.Width, p.Height), blend, p.Alpha);
+        }
+
+        /// <summary>
+        /// A texture a script paints (PGSL TextureCreate) drawn like an image: <paramref name="source"/>
+        /// in fractions of the texture into <paramref name="destination"/>, turned by
+        /// <paramref name="angle"/> degrees about the destination's top-left corner. Surfaces that
+        /// cannot draw one ignore it.
+        /// </summary>
+        void DrawScriptTexture(int texture, RectangleF source, RectangleF destination, float angle, Color blend, float alpha) { }
 
         /// <summary>
         /// A Model drawn into a GUI rectangle, turned by yaw and pitch (degrees) and framed to fit

@@ -852,6 +852,100 @@ views. `ScreenshotPending()` counts pictures not yet taken and `ScreenshotLastPa
 the last one went to. A picture asked for during a room change's cover waits for the first frame
 without it.
 
+## Many GUI rectangles or image parts in one call
+
+A minimap, a world map or a tile layer laid out by script draws thousands of rectangles. One
+`DrawRectangle` call each costs the script far more than the drawing: the GUI already puts every
+rectangle of a frame into one draw call. A list drawn in one call skips that cost, and draws the very
+pixels the single calls would, in call order with the drawing around it, on every renderer.
+
+| Command | What it does |
+|---|---|
+| `DrawRectanglesFromList(list, x, y, xscale, yscale)` | Filled rectangles from a DsList holding 8 numbers for each: `x, y, width, height, red, green, blue, alpha`, the colour as `DrawSetColorRgb` (0-255) and `DrawSetAlpha` (0-1) take it. Each is placed at `x + its x * xscale`, `y + its y * yscale` and sized by the scales, so a map kept in cells is drawn anywhere at any zoom without rebuilding the list; `x, y, xscale, yscale` may be left out (0, 0, 1, 1). Entries with no width, height or alpha are skipped. Returns the rectangles drawn. |
+| `DrawSpritePartsFromList(name, list, x, y, xscale, yscale)` | Parts of one Image from a list holding 10 numbers for each, in `DrawSpritePart`'s order: `frame, u0, v0, u1, v1, x, y, width, height, alpha`, placed and sized the same way and tinted by the image blend. Returns the parts drawn. |
+
+Both work in Draw GUI and in a 2D Draw event, and read the list straight into a reused buffer: a
+frame's batch allocates nothing. Measured with a Draw GUI event drawing a list one `DrawSetColorRgb`,
+`DrawSetAlpha` and `DrawRectangle` at a time (as a map is drawn from its runs) against one
+`DrawRectanglesFromList` of the same list (development PC, Direct3D 11, 9 Oct 2026, mean of 25
+frames; `gui-batch-cost.txt` from `Build.bat --test gui-batch`). Both are one GUI draw call:
+
+| Rectangles | One call each: script + GUI = a frame | One batch: script + GUI = a frame |
+|---|---|---|
+| 1,200 | 2.2 + 0.9 = 3.1 ms | 0.3 + 0.3 = 0.6 ms |
+| 5,000 | 8.6 + 2.0 = 10.6 ms | 0.4 + 0.5 = 0.9 ms |
+
+A map that changes rarely costs less still painted once into a [texture](#pictures-a-script-paints)
+and drawn with one `DrawTexture` a frame.
+
+## Pictures a script paints
+
+A texture a script paints at run time (a map, a chart, a sign, a pattern) is drawn like an image.
+A pixel is **red, green and blue from 0 to 255 and alpha from 0 to 1**, as `DrawSetColorRgb`,
+`DrawSetAlpha` and `MeshAddQuadColors` take a colour; lists hold 4 numbers a pixel, row by row from
+the top-left corner. The pixels are kept by the engine; when the texture is drawn after a change,
+only the rectangle that changed goes to the graphics card, once, however many times it is drawn
+that frame, on every renderer.
+
+| Command | What it does |
+|---|---|
+| `TextureCreate(width, height)` | A new texture, 1 to 4096 pixels each way, transparent; 0 when the size is not allowed. A game's textures may hold 64 million pixels together (256 MB); past that `TextureCreate` gives 0. |
+| `TextureSetPixels(texture, list)` | Its pixels from a list of 4 numbers a pixel; a shorter list sets the pixels it holds. Returns the pixels set. |
+| `TextureSetRegion(texture, x, y, width, height, list)` | The pixels of a rectangle, row by row; pixels falling outside the texture are left out. The cheap way to change part of a map. |
+| `TextureFillRectanglesFromList(texture, list)` | Rectangles painted into it from a list laid out as `DrawRectanglesFromList`'s (`x, y, width, height, red, green, blue, alpha`, in the texture's pixels); each replaces what it covers, alpha included. |
+| `TextureSetSmooth(texture, smooth)` | Smoothed when drawn bigger or smaller than its pixels; off at first, so its pixels stay square, as a map's should, whatever the room samples with. |
+| `TextureWidth(texture)`, `TextureHeight(texture)`, `TextureExists(texture)` | Its size, 0 when there is no such texture. |
+| `TextureDestroy(texture)` | Frees it and its copy on the graphics card. Every texture is freed when the game ends. |
+| `DrawTexture(texture, x, y, xscale, yscale, angle, alpha)` | In Draw GUI (in order with the GUI's other drawing) or a 2D Draw event: drawn with its top-left corner at `x, y`, scaled and turned (degrees) about that corner, tinted by the image blend. |
+| `DrawTexturePart(texture, u0, v0, u1, v1, x, y, width, height, alpha)` | Part of it into a rectangle, as `DrawSpritePart`: `u0, v0` to `u1, v1` are fractions of the texture, a window onto a big map or a zoom. |
+
+```pgsl
+// Create: the map's texture. When the map changes, paint its runs (8 numbers each) in one call.
+mapTexture = TextureCreate(256, 256);
+TextureFillRectanglesFromList(mapTexture, mapRuns);
+// Draw GUI, every frame: one sprite.
+DrawTexture(mapTexture, 16, 16, 2, 2, 0, 1);
+```
+
+Measured on the development PC (Direct3D 11, 9 Oct 2026; `script-textures-cost.txt` from
+`Build.bat --test script-textures`): painting 5,000 rectangles into a 600 x 300 texture with
+`TextureFillRectanglesFromList` took 4.0 ms, once; drawing it every frame with one `DrawTexture`
+from a Draw GUI event then cost 0.02 ms a frame and one draw call, against 10.6 ms for the same
+5,000 rectangles drawn one `DrawRectangle` at a time.
+
+## A sky layer behind the world
+
+A game can draw its own sun, moon, stars or sky dome behind its terrain. `DrawMeshSetSky(true)`
+puts this instance's later script-mesh draws (`DrawMesh3D`, `DrawMesh3DTransform`,
+`DrawMeshShader3D`, with a mesh Shader resource or without) in the sky layer until it is set off
+or `DrawMeshResetState` runs. A mesh there:
+
+- is drawn first, right after the frame is cleared to the sky's colour, and writes no depth, so
+  everything the world draws covers it: terrain, water, models, the floor;
+- is centred on the camera: the draw's `x, y, z` are an offset from the eye (`0, 0, 0` puts the
+  mesh's origin at the eye), so it never comes nearer as the player walks;
+- may be any size at any distance: it is scaled about the eye to sit inside the camera's far plane,
+  which does not change how it looks, so there is no need to push the far plane out for it;
+- is unlit, in its own colours (texture, vertex colour, image blend, alpha), brighter with
+  `DrawMeshSetGlow`, blended when see-through (`DrawMeshSetTransparent` or alpha below 1), in call
+  order; it casts and receives no shadow;
+- is part of the sky for the rest of the frame: the room's haze, clouds and stars go over it as
+  over the sky. Under an atmosphere preset the sky's colours are worked out again there, and what
+  the layer drew adds where it is brighter than the horizon, as the engine's own sun disc does.
+
+Hide the engine's own discs with `Engine.Sky.SunDiscVisible = false` and
+`Engine.Sky.MoonDiscVisible = false`; `Engine.Sky.SunDirectionX/Y/Z` and `MoonDirectionX/Y/Z` say
+where to put yours so they match the light. Nothing changes for a game that does not use the layer.
+
+```pgsl
+// Draw: a square sun (a quad built round its own centre, facing the eye) 100 out towards the
+// engine's sun, behind the land whatever the far plane.
+DrawMeshSetSky(true); DrawMeshSetTransparent(true);
+DrawMeshShader3D(sunQuad, "SkyShader", Engine.Sky.SunDirectionX * 100, Engine.Sky.SunDirectionY * 100,
+    Engine.Sky.SunDirectionZ * 100, 1, 1, 1, 0, "Sun");
+DrawMeshResetState();
+```
+
 ## Recording and replaying input
 
 A run can be recorded once with the real keyboard, mouse and controller and then played back in

@@ -190,6 +190,12 @@ namespace Genesis.Shared.Interfaces
         TextureHandle CreateTexture(int width, int height, ReadOnlySpan<byte> rgba, TextureColorSpace colorSpace)
             => CreateTexture(width, height, rgba);
         void UpdateTexture(TextureHandle handle, int width, int height, ReadOnlySpan<byte> rgba);
+        /// <summary>
+        /// Replaces the rectangle at <paramref name="x"/>, <paramref name="y"/> of a texture made by
+        /// <see cref="CreateTexture(int, int, ReadOnlySpan{byte})"/> with tightly packed RGBA rows.
+        /// False when the renderer cannot; the caller then sends the whole picture with <see cref="UpdateTexture"/>.
+        /// </summary>
+        bool TryUpdateTextureRegion(TextureHandle handle, int x, int y, int width, int height, ReadOnlySpan<byte> rgba) => false;
         void ReleaseTexture(TextureHandle handle);
         /// <summary>
         /// True while <paramref name="handle"/> still names a live texture. Handles are never reused,

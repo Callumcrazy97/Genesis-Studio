@@ -326,6 +326,126 @@ namespace Genesis.Runtime.Scripting
                 ToRender(blend), destination, source, SpriteClip));
         }
 
+        public void FillRectangles(ReadOnlySpan<GuiRectangle> rectangles)
+        {
+            if (rectangles.IsEmpty) return;
+            // In a GUI the batch reaches the overlay as one command, in order with the shapes,
+            // text and images around it.
+            if (ShapesWithText)
+            {
+                _hud.Rects(rectangles);
+                return;
+            }
+            if (_renderer is null) return;
+            foreach (GuiRectangle r in rectangles)
+                _renderer.DrawRect(r.X, r.Y, r.Width, r.Height, new RenderColor(r.Color.X, r.Color.Y, r.Color.Z, r.Color.W), filled: true);
+        }
+
+        private sealed class CaptureSink : IRenderCommandSink
+        {
+            public SpriteDrawCall Call;
+            public int Count;
+            public void DrawSprite(in SpriteDrawCall call) { if (Count++ == 0) Call = call; }
+            public void DrawSpriteBatch(ReadOnlySpan<SpriteDrawCall> calls) { foreach (SpriteDrawCall call in calls) DrawSprite(call); }
+            public void DrawMesh(in MeshDrawCall call) { }
+            public void DrawMeshBatch(ReadOnlySpan<MeshDrawCall> calls) { }
+        }
+
+        [ThreadStatic] private static System.Collections.Generic.Dictionary<int, (int Calls, SpriteDrawCall Call)> _partFrames;
+
+        public void DrawSpriteParts(string spriteName, ReadOnlySpan<GuiSpritePart> parts, Color blend)
+        {
+            if (_renderer == null || parts.IsEmpty || string.IsNullOrWhiteSpace(spriteName)) return;
+            string project = _projectPath ?? PgslCommands.ProjectPath;
+            // Each frame's texture and rectangle (atlas placement included) is worked out once, by
+            // the same path DrawSpritePart takes, and every part is cut from it.
+            var frames = _partFrames ??= new();
+            frames.Clear();
+            CaptureSink capture = new();
+            ObjectDrawAssetEntry assets = new();
+            RenderColor tint = ToRender(blend);
+            Vector4 clip = SpriteClip;
+            FrameRenderQueue own = SpritesWithText || _commands != null ? null : new FrameRenderQueue();
+            IRenderCommandSink sink = SpritesWithText ? (_hudSprites ??= new HudSpriteSink(_hud)) : (_commands ?? own);
+            foreach (GuiSpritePart part in parts)
+            {
+                if (!(part.Width > 0f) || !(part.Height > 0f) || !(part.Alpha > 0f)) continue;
+                float u0 = Math.Clamp(part.U0, 0f, 1f), u1 = Math.Clamp(part.U1, 0f, 1f);
+                float v0 = Math.Clamp(part.V0, 0f, 1f), v1 = Math.Clamp(part.V1, 0f, 1f);
+                if (u1 <= u0 || v1 <= v0) continue;
+                int frame = Math.Max(0, part.Frame);
+                if (!frames.TryGetValue(frame, out (int Calls, SpriteDrawCall Call) template))
+                {
+                    capture.Count = 0;
+                    ObjectDrawPass.QueueSprite2D(project, capture, _renderer, assets,
+                        new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 },
+                        new Draw2DComponent { Visible = true, Depth = SpriteDepth }, spriteName, frame, 1f, 0, 0, 1,
+                        RenderColor.White, new RectangleF(0, 0, 1, 1), null, default);
+                    template = (capture.Count, capture.Call);
+                    frames[frame] = template;
+                }
+                // No such image or frame: nothing, as DrawSpritePart draws nothing.
+                if (template.Calls == 0) continue;
+                // A frame drawn in several shader passes goes the single-part way, pass by pass.
+                if (template.Calls > 1)
+                {
+                    DrawSpritePart(spriteName, frame, RectangleF.FromLTRB(u0, v0, u1, v1),
+                        new RectangleF(part.X, part.Y, part.Width, part.Height), blend, part.Alpha);
+                    continue;
+                }
+                SpriteDrawCall call = template.Call;
+                Vector4 uv = call.UvRect.Z <= call.UvRect.X || call.UvRect.W <= call.UvRect.Y ? new Vector4(0f, 0f, 1f, 1f) : call.UvRect;
+                call.UvRect = new Vector4(
+                    uv.X + ((uv.Z - uv.X) * u0), uv.Y + ((uv.W - uv.Y) * v0),
+                    uv.X + ((uv.Z - uv.X) * u1), uv.Y + ((uv.W - uv.Y) * v1));
+                call.X = part.X; call.Y = part.Y;
+                call.Width = part.Width; call.Height = part.Height;
+                call.OriginX = 0f; call.OriginY = 0f; call.Rotation = 0f;
+                call.Alpha = Math.Clamp(part.Alpha, 0f, 1f);
+                call.Tint = tint;
+                call.ClipRect = clip;
+                sink.DrawSprite(call);
+            }
+            own?.Flush(_renderer, includeMeshes: false);
+        }
+
+        public void DrawScriptTexture(int texture, RectangleF source, RectangleF destination, float angle, Color blend, float alpha)
+        {
+            if (_renderer == null || !(alpha > 0f)) return;
+            // Changed pixels go to the GPU here, once, however often it is drawn this frame.
+            TextureHandle handle = Genesis.Runtime.Rendering.ScriptTextures.Resolve(texture, _renderer, out bool smooth);
+            if (!handle.IsValid) return;
+            SpriteDrawCall call = new()
+            {
+                Texture = handle,
+                X = destination.X, Y = destination.Y,
+                Width = destination.Width, Height = destination.Height,
+                ScaleX = 1f, ScaleY = 1f,
+                Rotation = angle,
+                Alpha = Math.Clamp(alpha, 0f, 1f),
+                Tint = ToRender(blend),
+                Depth = SpriteDepth,
+                UvRect = new Vector4(source.Left, source.Top, source.Right, source.Bottom),
+                ClipRect = SpriteClip,
+                // Sharp pixels unless the texture asks to be smoothed, whatever the room samples with.
+                SmoothSampling = smooth,
+                PointSampling = !smooth,
+            };
+            if (SpritesWithText)
+            {
+                (_hudSprites ??= new HudSpriteSink(_hud)).DrawSprite(call);
+                return;
+            }
+            if (_commands != null)
+            {
+                _commands.DrawSprite(call);
+                return;
+            }
+            FrameRenderQueue queue = new();
+            queue.DrawSprite(call);
+            queue.Flush(_renderer, includeMeshes: false);
+        }
+
         public void DrawModelGui(string modelName, RectangleF destination, float yaw, float pitch, float zoom, string clip, float time, float alpha)
         {
             if (_renderer == null || !(destination.Width >= 1f) || !(destination.Height >= 1f)) return;
@@ -376,6 +496,8 @@ namespace Genesis.Runtime.Scripting
                 Alpha = a,
                 Emissive = glow,
                 Flags = flags,
+                // DrawMeshSetSky: behind everything, around the camera (the world matrix is an offset from the eye).
+                Layer = options.Sky ? MeshDrawCall.SkyLayer : 0,
             };
             if (!string.IsNullOrWhiteSpace(shader))
                 ObjectDrawPass.TryApplyMeshShader(_renderer, projectPath, shader, options.ShaderParameters, options.ShaderResources, ref call);
