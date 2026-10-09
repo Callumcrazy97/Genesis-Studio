@@ -129,6 +129,8 @@ public static class PgslCommandAutoTester
         // InputRecordStart, InputReplayStart and RandomSeed change process-wide state; a sweep
         // started with none of it running leaves none of it running, and no recording behind.
         bool inputReplayIdle = !Genesis.Runtime.Input.InputReplay.IsActive;
+        // Flashes the sweep lights would otherwise be drawn by the next game frame in this process.
+        bool flashesIdle = Genesis.Runtime.Rendering.FlashLights.Count == 0;
 
         try
         {
@@ -160,6 +162,7 @@ public static class PgslCommandAutoTester
                     try { File.Delete(recorded); } catch (IOException) { } catch (UnauthorizedAccessException) { }
                 }
             }
+            if (flashesIdle) Genesis.Runtime.Rendering.FlashLights.Clear();
             PgslCommands.ReleaseJobs(scratch);
             PgslCommands.BindPersistenceProject(previousPersistence);
             PgslCommands.BindContext(previous);

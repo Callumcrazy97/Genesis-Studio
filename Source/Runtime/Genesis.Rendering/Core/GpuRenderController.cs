@@ -1252,6 +1252,9 @@ namespace Genesis.Rendering.Core
             float intensity = 1f, float innerAngleDegrees = 20f, float outerAngleDegrees = 30f, float falloff = 2f)
             => _fwd?.AddSpotLight(position, direction, color, radius, intensity, innerAngleDegrees, outerAngleDegrees, falloff);
 
+        public void AddFlashLight(Vector3 position, Vector3 color, float radius, float intensity = 1f, float falloff = 2f)
+            => _fwd?.AddFlashLight(position, color, radius, intensity, falloff);
+
         public void ClearPointLights()
             => _fwd?.ClearPointLights();
 

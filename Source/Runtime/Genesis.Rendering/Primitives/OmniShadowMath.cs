@@ -34,6 +34,16 @@ public static class OmniShadowMath
     public static int ClampBudget(int budget) => Math.Clamp(budget, MinBudget, MaxBudget);
 
     /// <summary>
+    /// Stored in <see cref="ClusterPointLightGpu.SpotDirCos"/>.W of a flash light (a point light,
+    /// whose cone fields the shaders ignore): no cosine is 2, so it cannot be a real spot cone.
+    /// </summary>
+    public const float FlashLightMarker = 2f;
+
+    /// <summary>A short-lived flash (IRenderController.AddFlashLight): lit and fogged, never shadowed.</summary>
+    public static bool IsFlashLight(in ClusterPointLightGpu light) =>
+        light.SpotDirCos.W > 1.5f && light.SpotDirCos.X == 0f && light.SpotDirCos.Y == 0f && light.SpotDirCos.Z == 0f;
+
+    /// <summary>
     /// Same camera weight as <see cref="TiledLightGrid.SelectStrongest"/>:
     /// intensity × radius² / (1 + dist²).
     /// </summary>
@@ -126,7 +136,9 @@ public static class OmniShadowMath
         for (int i = 0; i < lights.Length; i++)
         {
             heldSlot[i] = -1;
-            weight[i] = CameraWeight(lights[i], cameraPos);
+            // A flash never wins a slot (a weight of nothing is never chosen below): a shot must not
+            // take a lamp's shadow away, nor have a cube of shadow maps drawn for a 50 ms light.
+            weight[i] = IsFlashLight(lights[i]) ? 0f : CameraWeight(lights[i], cameraPos);
         }
 
         for (int s = 0; s < cap && s < previous.Length; s++)
@@ -138,7 +150,7 @@ public static class OmniShadowMath
             float bestDistSq = float.MaxValue;
             for (int i = 0; i < lights.Length; i++)
             {
-                if (heldSlot[i] >= 0) continue;
+                if (heldSlot[i] >= 0 || IsFlashLight(lights[i])) continue;
                 float radius = lights[i].PosRadius.W;
                 float larger = MathF.Max(radius, held.W);
                 if (MathF.Abs(radius - held.W) > 0.25f * larger) continue;

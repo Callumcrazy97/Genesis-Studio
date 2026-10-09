@@ -244,6 +244,51 @@ Vulkan device still allocates about half a kilobyte for each emitter's dispatche
 bursts still cost each emitter's GPU commands every frame (about 17 µs each on Direct3D 12): for
 hundreds, batch them.
 
+## Flash lights: muzzle flashes and explosions
+
+A game fires a short light from any event (the Step that fires a gun, an explosion's Create) and
+forgets it: the engine draws it at full brightness in the frame it was fired, however short its
+life, fades it to nothing over its life (brightness × (1 − age / life)²) and removes it.
+
+| Command | What it does |
+|---|---|
+| `LightFlash(x, y, z, r, g, b, intensity, radius, life) -> flash` | A point light at `x, y, z`, colour 0-255, `intensity` and `radius` as `DrawPointLight3D` takes them, lasting `life` seconds (at most 60). 0 when nothing would be lit (no life, radius or intensity). |
+| `LightFlashMove(flash, x, y, z)` | Moves a flash (one that follows a moving muzzle or a rolling fireball); false once it has burnt out. |
+| `LightFlashRemove(flash)`, `LightFlashExists(flash)` | Puts a flash out at once; whether it is still lit. |
+| `LightFlashClear()`, `LightFlashCount()` | Puts every flash out; how many are lit. |
+
+C#: `FlashLights.Add(position, colour, intensity, radius, life)` (namespace
+`Genesis.Runtime.Rendering`, colour 0-1), and for one frame `IRenderController.AddFlashLight`.
+
+A flash is a point light like any other: it lights surfaces with the same response, the
+first-person and other model layers, and the volumetric fog. The forward renderer has no four-light
+limit: every point light goes into one clustered list (16 × 16 screen tiles × 24 depth slices, up
+to 64 lights a cluster, the strongest 256 by distance and brightness when there are more), and a
+pixel shades only the lights whose reach covers its cluster, so small flashes cost little however
+many there are. What a flash never does is take a local shadow slot (one by default, at most four):
+an ordinary light as bright as a muzzle flash next to the camera wins the slot from the lamp that
+held it, so firing made the lamp's shadow blink off and had six shadow faces drawn for a light that
+lasts 50 ms. Flashes are unshadowed.
+
+Up to 256 flashes are lit at once; one more replaces the one nearest its end. Their ages follow
+game time: they hold still while the game is paused and slow down with `GameSpeed`. A room change
+and a new game put them all out. On the Software renderer the frame's eight strongest lights are
+lit at the corners of triangles, flashes included.
+
+Measured on the development PC (GeForce RTX 5060 Ti, Direct3D 11, 1920 x 1080, 9 Oct 2026;
+`flash-light-cost.txt` from `Build.bat --test flash-lights`): a sunlit, shadowed yard with 24
+crates, 48 flashes of radius 6 re-fired every 9 frames (0.15 s life), against none and against the
+same 48 as ordinary point lights, 120 frames after 45, the range over three rounds:
+
+| | GPU a frame | Whole frame (submit, draw, present) | Local shadow lights |
+|---|---|---|---|
+| No lights | 0.20-0.21 ms | 0.39-0.43 ms | 0 |
+| 48 flashes | 0.29-0.34 ms | 0.51-0.69 ms | 0 |
+| 48 ordinary point lights | 0.32-0.35 ms | 0.58-0.69 ms | 1 |
+
+Dozens of flashes cost about a tenth of a millisecond of GPU time at 1080p; the ordinary lights
+cost a little more because one of them takes the shadow slot and has its shadow faces drawn.
+
 ## Save slots
 
 A game can keep named saves of any text (JSON, usually) under the player's profile, beside the
