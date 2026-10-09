@@ -175,6 +175,65 @@ namespace Genesis.Runtime.Modeling
             }
         }
 
+        /// <summary>
+        /// Reads a model into this registry on the calling (worker) thread, so the game's first
+        /// <see cref="Load"/> of it finds it held instead of parsing it in a frame. The registry is
+        /// not held while the file is parsed: the game thread asking for other models meanwhile is
+        /// not kept waiting. Never imports (a model that needs importing is left to the game's own
+        /// load). True when a model was read; false when it was held already, could not be read, or
+        /// its saved geometry is larger than <paramref name="maximumBytes"/> (0: any size).
+        /// </summary>
+        public bool Warm(string projectPath, string modelName, long maximumBytes = 0) =>
+            Warm(projectPath, modelName, maximumBytes, out _);
+
+        /// <summary>The same, also giving the size of the saved geometry read (0 when nothing was read).</summary>
+        public bool Warm(string projectPath, string modelName, long maximumBytes, out long bytes)
+        {
+            bytes = 0;
+            if (string.IsNullOrWhiteSpace(modelName)) return false;
+            string path, key;
+            bool isStudioResource;
+            lock (_gate)
+            {
+                string studioPath = StudioModelResourceLoader.Resolve(projectPath, modelName);
+                isStudioResource = !string.IsNullOrWhiteSpace(studioPath);
+                path = isStudioResource ? studioPath : RuntimeModelStore.AssetPath(projectPath, modelName);
+                if (string.IsNullOrWhiteSpace(path)) return false;
+                key = Path.GetFullPath(path);
+                if (_cache.ContainsKey(key)) return false;
+            }
+
+            if (!File.Exists(path)) return false;
+            var geometry = new FileInfo(isStudioResource ? StudioModelResourceLoader.CanonicalPath(path) : path);
+            if (!geometry.Exists || (maximumBytes > 0 && geometry.Length > maximumBytes)) return false;
+            if (isStudioResource)
+            {
+                // A model with its import source beside it may need importing again, which only
+                // the game's own load may do: leave it to that load.
+                string source = StudioModelResourceLoader.ResolveSource(path);
+                if (!string.IsNullOrWhiteSpace(source) && File.Exists(source)) return false;
+            }
+            long stamp = isStudioResource ? StudioModelResourceLoader.Stamp(path) : File.GetLastWriteTimeUtc(path).Ticks;
+            GModelAsset asset = isStudioResource ? StudioModelResourceLoader.LoadReadOnly(path) : RuntimeModelStore.Load(path);
+            if (asset == null || asset.ImportRequired) return false;
+            long now = Environment.TickCount64;
+            lock (_gate)
+            {
+                // The game may have loaded it while this thread was reading.
+                if (_cache.ContainsKey(key)) return false;
+                _cache[key] = new Entry
+                {
+                    Asset = asset,
+                    StampTicks = stamp,
+                    NextFreshnessCheckMilliseconds = NextCheck(now, key),
+                    Generation = RuntimeAssetPolicy.Generation,
+                };
+            }
+
+            bytes = geometry.Length;
+            return true;
+        }
+
         // Staggered so models loaded together do not all re-stamp in the same frame.
         private long NextCheck(long now, string key) =>
             RuntimeAssetPolicy.NextCheck(now, _freshnessCheckIntervalMilliseconds,

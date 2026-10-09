@@ -423,6 +423,21 @@ start-up screen then takes over. Its built-in DX11 shaders compile on worker thr
 moment it starts (`GENESIS_SHADER_WARMUP=0` turns that off), which matters after an engine update,
 when nothing is in the shader cache yet.
 
+The game's own Shader resources are made the same way: compiled (or, in an exported game, read)
+on one or two workers while the room loads, and the room's cover stays up until they are (until
+then their draws use the engine's own shading; `GENESIS_SHADER_WARMUP=0` turns this off too). An
+exported game carries them compiled for every backend. The models of the project's Objects are read
+on a low-priority thread once the first room is on screen (each up to 1 MB, 48 MB in all, smallest
+first), so the first creature of a kind a script creates does not read and parse its model in that
+frame: creating ten new kinds of creature in GenesisCraft took 13-178 ms of one frame (the model
+reads), and takes 2 ms with them read ahead. `GENESIS_MODEL_WARMUP=0` turns that off. The log says
+what each did:
+
+```
+project shaders: 10 programs for Dxil made on workers in 684 ms (0 read from the shader cache, 10 compiled)
+object models: 309 of the 309 the project's Objects use read ahead on a worker in 1947 ms (13.1 MB; 0 already held or left to the game, 0 over the size limits)
+```
+
 ### Finding where loading time goes
 
 With `GENESIS_LOAD_PROFILE=1` the Player writes a timing tree to `Debug/Logs/project_player.log`

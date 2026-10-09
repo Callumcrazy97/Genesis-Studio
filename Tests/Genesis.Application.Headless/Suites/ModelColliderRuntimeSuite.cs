@@ -23,6 +23,47 @@ internal static class ModelColliderRuntimeSuite
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Model.Colliders.SavedHullAndMeshUseRealMirroredRampGeometry", () => Geometry(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Model.Transform.SavedYawMatchesPhysicsWithoutRoll", () => Orientation(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Object.Rendering.SavedControllersStayInvisibleAndProceduralDrawsRemain", () => Controllers(ctx));
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Model.WarmUp.ObjectModelsReadBeforeTheFirstInstance", () => WarmUp(ctx));
+    }
+
+    /// <summary>
+    /// The Player reads the models of the project's Objects on a worker while the game starts, so
+    /// the first instance a script creates (which fits its collider from the model) reads nothing.
+    /// </summary>
+    private static void WarmUp(HeadlessContext ctx)
+    {
+        using Fixture fixture = new(ctx, "WarmUp");
+        GModelAsset asset = GModelPrimitiveFactory.CreateCube("Warmed object", 2);
+        asset.Colliders.Add(GModelProductionTools.FitCollider(asset, GModelColliderShape.Box));
+        fixture.Save(asset);
+        ResourceCatalog.Invalidate(fixture.Root);
+        RuntimeModelAssetRegistry.Shared.Invalidate(fixture.Root, "Collider model");
+        Assert(ProjectModelWarmup.ObjectModels(fixture.Root).Contains("Collider model"),
+            "The Object's model is not among the models the warm-up reads.");
+
+        Assert(ProjectModelWarmup.WaitUntilDone(TimeSpan.FromSeconds(60)), "An earlier model warm-up is still running.");
+        ProjectModelWarmup.ResetForTests();
+        var lines = new List<string>();
+        ProjectModelWarmup.ReportTo(line => { lock (lines) lines.Add(line); });
+        // The Player says so once its first room is on screen; the warm-up waits for it.
+        ProjectModelWarmup.FirstRoomShown();
+        ProjectModelWarmup.Start(fixture.Root);
+        Assert(ProjectModelWarmup.WaitUntilDone(TimeSpan.FromSeconds(60)), "The model warm-up did not finish within a minute.");
+        lock (lines)
+        {
+            File.WriteAllLines(Path.Combine(ctx.Logs, "model-warmup.txt"), lines);
+            Assert(ProjectModelWarmup.Read >= 1 && lines.Count == 1 && lines[0].StartsWith("object models: ", StringComparison.Ordinal),
+                $"The warm-up read {ProjectModelWarmup.Read} models: " + string.Join(" | ", lines));
+        }
+
+        // Building the room (which fits the Object's collider from its model) reads no model file.
+        LoadClock.UseEveryThread();
+        int reads = LoadClock.Count(LoadWork.ModelRead);
+        using RuntimeScene scene = new();
+        var entity = new RoomSceneBuilder(fixture.Root).Build(scene, fixture.Room).SpawnedEntities.Single();
+        Assert(LoadClock.Count(LoadWork.ModelRead) == reads, "Placing the Object read its model although the warm-up had read it.");
+        Assert(scene.World.Has<RigidBodyComponent>(entity), "The warmed model's collider was not fitted to the Object.");
+        ProjectModelWarmup.ResetForTests();
     }
 
     private static void Controllers(HeadlessContext ctx)

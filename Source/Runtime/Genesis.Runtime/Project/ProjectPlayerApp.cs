@@ -185,6 +185,12 @@ namespace Genesis.Runtime.Project
                         Genesis.Runtime.Rendering.ProjectShaderWarmup.Start(projectPath, projectFormat);
                 }
 
+                // And the models of the project's Objects, on a low-priority thread once the first
+                // room is on screen, so a script creating a creature it has not created before does
+                // not read its model in that frame.
+                using (Genesis.Shared.Diagnostics.LoadProfile.Begin("start reading the Objects' models on a worker"))
+                    Genesis.Runtime.Modeling.ProjectModelWarmup.Start(projectPath);
+
                 // Rooms and scripts name resources without their kind: say which resources clash
                 // before anything trips over the name.
                 System.Collections.Generic.IReadOnlyList<Genesis.Shared.Assets.NamedResource[]> duplicateNames =
@@ -245,6 +251,7 @@ namespace Genesis.Runtime.Project
                 logger.Line($"room={roomName} file={roomFile}");
                 logger.Line($"autoshot={autoshotSeconds} label={perfLabel ?? "(none)"}");
                 Genesis.Runtime.Rendering.ProjectShaderWarmup.ReportTo(logger.Line);
+                Genesis.Runtime.Modeling.ProjectModelWarmup.ReportTo(logger.Line);
 
                 // Start reading the first room's models now. Workers read them while the window is
                 // made and the loading screen prepares everything else, so the room does not read
@@ -630,6 +637,9 @@ namespace Genesis.Runtime.Project
                             host.LastDrawMilliseconds, host.LastPresentMilliseconds,
                             parts?.Describe() ?? string.Empty, host.LastOverlayMilliseconds);
                         parts?.Clear();
+                        // The Objects' models are read once the game is on screen, not while it loads.
+                        if ((host.BootSplash == null || host.BootSplash.IsComplete) && host.Scene != null && host.Scene.RoomChange == null)
+                            Genesis.Runtime.Modeling.ProjectModelWarmup.FirstRoomShown();
                     };
                     host.FixedStepStarting += () => gameContext?.BeginFixedStep();
                     host.VariableUpdateStarting += () => gameContext?.BeginVariableUpdate();
