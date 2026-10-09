@@ -435,9 +435,25 @@ namespace Genesis.Runtime.Platform
             _window.Size = new Vector2D<int>(width, height);
         }
 
-        /// <summary>F11 toggles between windowed and borderless-fullscreen.</summary>
-        public void ToggleFullscreen() =>
-            Mode = _mode == WindowMode.Fullscreen ? WindowMode.Windowed : WindowMode.Fullscreen;
+        /// <summary>
+        /// F11: from either full-screen mode back to a window, and from a window back to the
+        /// full-screen mode last used (a game that set Borderless returns to Borderless). Toggling
+        /// only out of exclusive Fullscreen meant a Borderless game's first press did nothing visible.
+        /// </summary>
+        public void ToggleFullscreen()
+        {
+            if (_mode != WindowMode.Windowed)
+            {
+                _lastFullScreenMode = _mode;
+                Mode = WindowMode.Windowed;
+            }
+            else
+            {
+                Mode = _lastFullScreenMode;
+            }
+        }
+
+        private WindowMode _lastFullScreenMode = WindowMode.Fullscreen;
 
         /// <summary>
         /// Applies a deferred window-mode change on the render tick, after the previous Present.

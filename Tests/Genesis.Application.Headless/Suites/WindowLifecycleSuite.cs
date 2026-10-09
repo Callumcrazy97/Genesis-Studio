@@ -206,6 +206,22 @@ internal static class WindowLifecycleSuite
                     (int backWidth, int backHeight) = ClientSize();
                     Check($"windowed again (client {backWidth}x{backHeight})", picture: true);
                     HeadlessHarness.Assert(backWidth < fullWidth, $"{backend.ShortName}: a second F11 did not leave fullscreen.");
+
+                    // A game that goes full screen itself (WindowSetFullscreen picks borderless) leaves
+                    // it with one F11: the toggle used to know only exclusive fullscreen, so a game
+                    // started full screen from its options needed two presses.
+                    string mode = Path.Combine(Control, "mode.txt");
+                    File.WriteAllText(mode + ".tmp", "fullscreen");
+                    File.Move(mode + ".tmp", mode, overwrite: true);
+                    Thread.Sleep(1500);
+                    (int gameFullWidth, _) = ClientSize();
+                    Check($"fullscreen chosen by the game (client width {gameFullWidth})", picture: true);
+                    HeadlessHarness.Assert(gameFullWidth > backWidth, $"{backend.ShortName}: WindowSetFullscreen(true) did not fill the screen ({backWidth} -> {gameFullWidth} wide).");
+                    PressF11();
+                    Thread.Sleep(1500);
+                    (int leftWidth, _) = ClientSize();
+                    Check($"windowed after one F11 (client width {leftWidth})", picture: true);
+                    HeadlessHarness.Assert(leftWidth < gameFullWidth, $"{backend.ShortName}: one F11 did not leave the fullscreen the game chose itself.");
                     if (attended) Cloak(true);
                 }
                 else
@@ -581,7 +597,7 @@ internal static class WindowLifecycleSuite
         string scripts = Path.Combine(objects, "Burster");
         Directory.CreateDirectory(scripts);
         File.WriteAllText(Path.Combine(scripts, "Create.pgsl"),
-            $"drawn = 0; steps = 0; nextPoll = 0; nextBeat = 0; focused = 0; minimized = 0; state = \"\"; lastState = \"\"; lastShot = \"\"; want = \"\"; ctl = \"{control}\"; ParticleSetBurstLimit(64);");
+            $"drawn = 0; steps = 0; nextPoll = 0; nextBeat = 0; focused = 0; minimized = 0; state = \"\"; lastState = \"\"; lastShot = \"\"; want = \"\"; asked = \"\"; lastMode = \"\"; ctl = \"{control}\"; ParticleSetBurstLimit(64);");
         File.WriteAllText(Path.Combine(scripts, "Step.pgsl"), $$"""
             SetCameraPosition(0, 4, -14); SetCameraTarget(0, 2, 4);
             for (var i = 0; i < 20; i = i + 1) { ParticleBurstBatched("{{Spark}}", RandomRange(-8, 8), RandomRange(1, 6), RandomRange(0, 10), 1); }
@@ -593,6 +609,10 @@ internal static class WindowLifecycleSuite
                 if (FileExists(ctl + "shot.txt")) {
                     want = FileReadText(ctl + "shot.txt");
                     if (want != "" && want != lastShot) { ScreenshotSave(want); lastShot = want; }
+                }
+                if (FileExists(ctl + "mode.txt")) {
+                    asked = FileReadText(ctl + "mode.txt");
+                    if (asked != lastMode) { lastMode = asked; if (asked == "fullscreen") { WindowSetFullscreen(true); } }
                 }
             }
             """);
