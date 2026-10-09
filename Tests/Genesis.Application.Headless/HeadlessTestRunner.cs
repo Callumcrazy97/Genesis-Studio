@@ -1111,6 +1111,7 @@ internal static class HeadlessTestRunner
         Suites.ReleaseSuite.Run(ctx);
         Suites.RoomOrderSuite.Run(ctx);
         Suites.LiveReloadSuite.Run(ctx);
+        Suites.RuntimeResourcesSuite.Run(ctx);
         Suites.PgslScriptsSuite.Run(ctx);
         Suites.PgslLogicSuite.Run(ctx);
         Suites.InputReplaySuite.Run(ctx);
@@ -1131,7 +1132,7 @@ internal static class HeadlessTestRunner
     {
         ["tier-editor"] = ["studio-foundation", "shell-layout", "resource-names", "code-assistance", "editor-suite", "room-workspace", "model-intake", "model-sprites", "pixel-model", "menu-clips"],
         ["tier-engine"] = ["engine-systems", "asset-import", "readback-alpha", "post-effects", "large-world", "runtime", "model-system", "debug-screen", "terrain-layers-grass", "shader-precompiled", "gui-linear"],
-        ["tier-pgsl"] = ["pgsl-values", "pgsl-cache", "pgsl-scripts", "pgsl-logic", "input-replay", "pgsl-project", "export-pgsl", "live-reload"],
+        ["tier-pgsl"] = ["pgsl-values", "pgsl-cache", "pgsl-scripts", "pgsl-logic", "input-replay", "pgsl-project", "export-pgsl", "live-reload", "runtime-resources"],
     };
 
     private static void RunFocusedTarget(HeadlessContext ctx, string target)
@@ -1554,6 +1555,10 @@ internal static class HeadlessTestRunner
             case "live-reload":
                 // A running game whose Scripts, Objects and room change on disk.
                 Suites.LiveReloadSuite.Run(ctx);
+                break;
+            case "runtime-resources":
+                // How a running game finds a project's resources (sound sources, folder listings).
+                Suites.RuntimeResourcesSuite.Run(ctx);
                 break;
             case "pgsl-scripts":
                 Suites.PgslScriptsSuite.Run(ctx);

@@ -134,6 +134,33 @@ namespace Genesis.Shared.Audio
             }
         }
 
+        /// <summary>
+        /// The sound file a resource document's <see cref="Source"/> names when it is written
+        /// beside the document ("Jump.ogg", "../Music/Theme.ogg"): its full path when that file
+        /// exists and lies inside the project (what an export copies), otherwise null. Callers then
+        /// look the source up from the project, which is how Studio's Audio editor writes it
+        /// ("Assets/Audio/Jump.wav"), so existing projects resolve as they always did.
+        /// </summary>
+        public static string? ResolveSourceBeside(string? projectPath, string? documentPath, string? source)
+        {
+            if (string.IsNullOrWhiteSpace(source) || string.IsNullOrWhiteSpace(documentPath) || Path.IsPathRooted(source)) return null;
+            try
+            {
+                string? folder = Path.GetDirectoryName(Path.GetFullPath(documentPath));
+                if (string.IsNullOrEmpty(folder)) return null;
+                string beside = Path.GetFullPath(Path.Combine(folder,
+                    source.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar)));
+                if (!File.Exists(beside)) return null;
+                if (string.IsNullOrWhiteSpace(projectPath)) return beside;
+                string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(projectPath)) + Path.DirectorySeparatorChar;
+                return beside.StartsWith(root, StringComparison.OrdinalIgnoreCase) ? beside : null;
+            }
+            catch (Exception exception) when (exception is ArgumentException or NotSupportedException or IOException or UnauthorizedAccessException)
+            {
+                return null;
+            }
+        }
+
         private static string? ReadString(JsonElement root, string name) =>
             root.TryGetProperty(name, out JsonElement value) && value.ValueKind == JsonValueKind.String
                 ? value.GetString()

@@ -149,7 +149,7 @@ namespace Genesis.Audio
             {
                 authored = AudioAssetSettings.Load(abs);
                 if (authored?.Source is not { Length: > 0 } source) return cached;
-                abs = ResolvePath(source);
+                abs = ResolveSource(abs, source);
             }
 
             authored = auditionSettings ?? authored;
@@ -492,5 +492,13 @@ namespace Genesis.Audio
             if (string.IsNullOrWhiteSpace(_projectPath)) return projectRelativePath;
             return ResourceNames.ResolveFile(_projectPath, projectRelativePath, ResourceType.Audio);
         }
+
+        /// <summary>
+        /// The sound file an <c>.audio.json</c> names. A source written beside the document
+        /// ("Jump.ogg", or "../Music/Theme.ogg") is found from the document's own folder first; then,
+        /// as Studio's Audio editor writes it ("Assets/Audio/Jump.wav"), from the project.
+        /// </summary>
+        internal string ResolveSource(string documentPath, string source) =>
+            AudioAssetSettings.ResolveSourceBeside(_projectPath, documentPath, source) ?? ResolvePath(source);
     }
 }

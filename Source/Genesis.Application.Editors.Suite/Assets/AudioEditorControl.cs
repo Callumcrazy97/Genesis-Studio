@@ -103,6 +103,7 @@ public sealed partial class AudioEditorControl : EditorSurfaceControl, IResource
             LoadWarning = "Audio values must be finite and within the playback controls' supported ranges.";
             _document = new AudioDocument();
         }
+        _document.Source = ProjectRelativeSource(resourcePath, _document.Source);
 
         ToolStrip toolbar = BuildAudioWorkflowToolbar();
         _sourceCombo = new ThemedComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 240 };
@@ -663,8 +664,11 @@ public sealed partial class AudioEditorControl : EditorSurfaceControl, IResource
         {
             AudioAssetSettings? settings = AudioAssetSettings.Load(selected.FullPath);
             if (string.IsNullOrWhiteSpace(settings?.Source)) return;
-            string relative = Path.GetRelativePath(ProjectRoot,
-                ResourceNames.ResolveFile(ProjectRoot, settings.Source, ResourceType.Audio)).Replace('\\', '/');
+            string resolved = ResourceNames.ResolveFile(ProjectRoot, settings.Source, ResourceType.Audio);
+            if (string.IsNullOrEmpty(resolved))
+                resolved = AudioAssetSettings.ResolveSourceBeside(ProjectRoot, selected.FullPath, settings.Source) ?? string.Empty;
+            if (string.IsNullOrEmpty(resolved)) return;
+            string relative = Path.GetRelativePath(ProjectRoot, resolved).Replace('\\', '/');
             PopulateSources();
             SelectSource(relative);
         }
@@ -674,6 +678,19 @@ public sealed partial class AudioEditorControl : EditorSurfaceControl, IResource
             MessageBox.Show(FindForm(), exception.Message, "Choose Audio Clip", MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
         }
+    }
+
+    /// <summary>
+    /// A source written beside its document ("Jump.ogg", which the game finds there) as this
+    /// editor lists sources, from the project ("Assets/Audio/Jump.ogg"). Any other source is
+    /// returned as it is.
+    /// </summary>
+    private string? ProjectRelativeSource(string documentPath, string? source)
+    {
+        if (string.IsNullOrWhiteSpace(source)
+            || !string.IsNullOrEmpty(ResourceNames.ResolveFile(ProjectRoot, source, ResourceType.Audio))) return source;
+        string? beside = AudioAssetSettings.ResolveSourceBeside(ProjectRoot, documentPath, source);
+        return beside == null ? source : Path.GetRelativePath(ProjectRoot, beside).Replace('\\', '/');
     }
 
     private void PopulateSources()

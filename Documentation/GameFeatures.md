@@ -886,6 +886,17 @@ is no longer dropped. `Build.bat --test live-reload` runs a game in the harness 
 library Script and an Object's event while it runs, writes them cut off part way, and writes the
 room as JSON that is not yet a room while a library changes; Scripts must resolve on every frame.
 
+### A sound's file named beside its Audio resource
+
+An Audio resource's `source` is looked for beside the resource first, then in the project. So
+`Assets/Audio/mus_calm1.audio.json` may say `"source": "mus_calm1.ogg"` (or `"../Music/x.ogg"`),
+and `PlaySound("mus_calm1")` plays it; before, only a path from the project
+(`"Assets/Audio/mus_calm1.ogg"`, what Studio's Audio editor writes) was found, and the sound was
+silently missing. Studio's paths still work. A file outside the project is not played, since an
+export would not carry it; an export copies the project as it is, so what plays in Studio plays in
+the exported game. The Audio editor shows such a source as the file it is. Checked by
+`Build.bat --test runtime-resources`, in the project and in a copy laid out as an export.
+
 ## Smaller changes
 
 - **Bushes and saplings.** The `Shrub` and `Sapling` foliage shapes are built from rounded solid
