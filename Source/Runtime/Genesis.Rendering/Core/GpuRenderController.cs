@@ -787,6 +787,8 @@ namespace Genesis.Rendering.Core
         public bool TryReadSubmittedFramePixels(out int width, out int height, out byte[] bgra)
             => TryReadFramePixelsInternal(submitFrame: false, out width, out height, out bgra);
 
+        private static readonly TimeSpan CaptureWaitLimit = TimeSpan.FromSeconds(4);
+
         private bool TryReadFramePixelsInternal(bool submitFrame, out int width, out int height, out byte[] bgra)
         {
             width = 0; height = 0; bgra = null;
@@ -798,12 +800,29 @@ namespace Genesis.Rendering.Core
                 _gpu.EndFrame();
             }
 
-            _gpu.WaitIdle();
+            // A picture is not worth freezing the game for: where the device can wait with a limit,
+            // a frame the GPU has not finished in a few seconds is not captured.
+            if (_gpu is IGpuBoundedWait bounded)
+            {
+                if (!bounded.TryWaitIdle(CaptureWaitLimit, "a frame capture"))
+                {
+                    RenderLog.Line($"Frame capture skipped: the GPU had not finished the frame after {CaptureWaitLimit.TotalSeconds:F0} s.");
+                    return false;
+                }
+            }
+            else
+            {
+                _gpu.WaitIdle();
+            }
 
             GpuTextureHandle backBuffer = _gpuSwapChain.AcquireBackBuffer();
             if (!backBuffer.IsValid) return false;
 
-            if (!_gpu.TryReadTexture(backBuffer, out width, out height, out bgra)) return false;
+            if (!_gpu.TryReadTexture(backBuffer, out width, out height, out bgra))
+            {
+                RenderLog.Line("Frame capture skipped: the frame could not be read back.");
+                return false;
+            }
 
             MakeFrameOpaque(bgra);
             return true;

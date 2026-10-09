@@ -25,7 +25,7 @@ namespace Genesis.Rendering.SilkNet.DX12
     /// destroyed the moment its handle is released, because a command list may still reference it —
     /// see <c>Defer</c> in the Internals partial.</para>
     /// </remarks>
-    internal sealed unsafe partial class Dx12GpuDevice : IGpuComputeDevice
+    internal sealed unsafe partial class Dx12GpuDevice : IGpuComputeDevice, IGpuBoundedWait
     {
         private const int UploadRingBytes = 32 * 1024 * 1024;
         private const int ConstantAlignment = 256;          // D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT
@@ -312,6 +312,19 @@ namespace Genesis.Rendering.SilkNet.DX12
             ThrowIfDisposed();
             _frames.WaitIdle();
         }
+
+        /// <inheritdoc />
+        public bool TryWaitIdle(TimeSpan timeout, string purpose)
+        {
+            ThrowIfDisposed();
+            // EndFrame, not the ring's: it puts the back buffer in its present state before the
+            // list closes, so a frame whose capture is given up can still be presented as it is.
+            EndFrame();
+            return _frames.TryWaitIdle(timeout, purpose);
+        }
+
+        /// <summary>How long a texture read-back waits for its copy before it is given up.</summary>
+        private static readonly TimeSpan ReadbackWaitLimit = TimeSpan.FromSeconds(5);
 
         // ── Buffers ─────────────────────────────────────────────────────────────
 
@@ -1185,8 +1198,17 @@ namespace Genesis.Rendering.SilkNet.DX12
             _frames.List->CopyTextureRegion(&destination, 0u, 0u, 0u, &source, (Box*)null);
             TransitionResource(texture.Resource, ref texture.State, previous);
 
-            // The copy has to have executed before the CPU can read it.
-            _frames.FlushAndReopen();
+            // The copy has to have executed before the CPU can read it. A copy the GPU has not
+            // finished in seconds is given up (the frame ends there, see TryFlushAndReopen); its
+            // buffer is released once the GPU is done with it, never before.
+            if (!_frames.TryFlushAndReopen(ReadbackWaitLimit, "a texture read-back"))
+            {
+                DeferResource(ref readback);
+                width = 0;
+                height = 0;
+                return false;
+            }
+
             RebindListState();
 
             void* mapped = null;
