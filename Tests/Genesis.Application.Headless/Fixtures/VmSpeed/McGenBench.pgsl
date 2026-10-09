@@ -1,0 +1,206 @@
+// VM speed benchmark: the terrain generator of a voxel game (GenesisCraft, 9 Oct 2026: McNoise.pgsl and
+// McWorld.pgsl's McColumn, McColumnCalc, McClimateAt, McLatMix, McGenColumnsRow, McMesaBands, McVein,
+// McGenOres, McGet, McSetRaw), copied unchanged, generating one 16 x 16 chunk 96 high: the height and
+// biome of each column from value noise written in script (a cached 4-block climate lattice blended
+// with McLatMix), the column's blocks with DsGridSetRegion, then about fifty ore veins walked with
+// McHash3. The game's other dimensions and mods are stand-ins that are never reached here.
+
+// ---- stand-ins for functions of the game's other Scripts (not reached at these coordinates) ----
+function McTwColumn(bx, bz) { return 40; }
+function McSkColumn(bx, bz) { return 40; }
+function McSkPalette(bx, bz, b, h) { return 1 + 1024 * 3 + 1048576; }
+function McQuarkOres(cx, cz, g) { return 0; }
+function McSkOres(cx, cz, g) { return 0; }
+
+// ---- copied from McNoise.pgsl ----
+function McHash(ix, iz, salt) {
+    var v = Sin(ix * 127.1 + iz * 311.7 + salt * 74.7 + mcSeed * 0.137) * 43758.5453;
+    if (v < 0) { v = 0 - v; }
+    return v % 1;
+}
+function McNoise2(x, z, size, salt) {
+    var fx = x / size; var fz = z / size;
+    var ix = Floor(fx); var iz = Floor(fz);
+    var u = fx - ix; var v = fz - iz;
+    u = u * u * (3 - 2 * u); v = v * v * (3 - 2 * v);
+    var a = McHash(ix, iz, salt); var b = McHash(ix + 1, iz, salt);
+    var c = McHash(ix, iz + 1, salt); var d = McHash(ix + 1, iz + 1, salt);
+    var top = a + (b - a) * u; var bot = c + (d - c) * u;
+    return top + (bot - top) * v;
+}
+function McHash3(x, y, z, salt) {
+    var v = Sin(x * 12.9898 + y * 78.233 + z * 37.719 + salt * 4.581 + mcSeed * 0.311) * 43758.5453;
+    if (v < 0) { v = 0 - v; }
+    return v % 1;
+}
+
+// ---- copied from McWorld.pgsl ----
+function McGet(bx, by, bz) {
+    if (by < 0) { return 8; }
+    if (by >= 96) { return 0; }
+    return DsGridGet(wgBase + ((bz >> 4) & 15), (bx & 255) + ((bz & 15) << 8), by);
+}
+function McSetRaw(bx, by, bz, kind) {
+    if (by < 0 || by >= 96) { return; }
+    DsGridSet(wgBase + ((bz >> 4) & 15), (bx & 255) + ((bz & 15) << 8), by, kind);
+}
+function McColumn(bx, bz) {
+    var ci = bx & 255; var cj = bz & 255;
+    if (DsGridGet(colCacheX, ci, cj) == bx && DsGridGet(colCacheZ, ci, cj) == bz && colCacheSeed == mcSeed) { return DsGridGet(colCacheV, ci, cj); }
+    if (colCacheSeed != mcSeed) { VariableSet("colCacheSeed", mcSeed); DsGridClear(colCacheX, -999999); }
+    var v = McColumnCalc(bx, bz);
+    DsGridSet(colCacheX, ci, cj, bx); DsGridSet(colCacheZ, ci, cj, bz); DsGridSet(colCacheV, ci, cj, v);
+    return v;
+}
+function McColumnCalc(bx, bz) {
+    if (bz >= 516096) { return McTwColumn(bx, bz); }
+    if (bz <= -516096) { return McSkColumn(bx, bz); }
+    var det = McNoise2(bx, bz, 16, 4);
+    var lx = Floor(bx / 4); var lz = Floor(bz / 4); var fx = (bx - lx * 4) / 4; var fz = (bz - lz * 4) / 4;
+    var w00 = (1 - fx) * (1 - fz); var w10 = fx * (1 - fz); var w01 = (1 - fx) * fz; var w11 = fx * fz;
+    var gi0 = McClimateAt(lx, lz); var gi1 = McClimateAt(lx + 1, lz); var gi2 = McClimateAt(lx, lz + 1); var gi3 = McClimateAt(lx + 1, lz + 1);
+    var temp = McLatMix(ltT, gi0, gi1, gi2, gi3, w00, w10, w01, w11);
+    var humid = McLatMix(ltH, gi0, gi1, gi2, gi3, w00, w10, w01, w11);
+    var cont = McLatMix(ltC, gi0, gi1, gi2, gi3, w00, w10, w01, w11);
+    var mask = McLatMix(ltM, gi0, gi1, gi2, gi3, w00, w10, w01, w11);
+    var hill = McLatMix(ltK, gi0, gi1, gi2, gi3, w00, w10, w01, w11);
+    var base = 30 + cont * 30;
+    var land = 0.35 + cont * 0.9;
+    var h = base + ((hill - 0.5) * 16 + (det - 0.5) * 6) * land;
+    if (mask > 0.55 && cont > 0.45) {
+        var k = (cont - 0.45) * 3.3; if (k > 1) { k = 1; }
+        h = h + (mask - 0.55) * 100 * k;
+    }
+    var mesa = Clamp((temp - 0.74) * 12, 0, 1) * Clamp((0.36 - humid) * 12, 0, 1);
+    h = h + mesa * 12;
+    var swampy = 0; if (humid > 0.66 && temp >= 0.4 && temp <= 0.64 && h > SEA - 4 && h < SEA + 9) { swampy = 1; h = SEA + (h - SEA) * 0.3; }
+    h = Floor(h + 0.5);
+    if (h < 3) { h = 3; }
+    if (h > 90) { h = 90; }
+    var b = 0;
+    if (swampy == 1) { b = 8; }
+    else if (h <= SEA + 1) { b = 5; }
+    else if (h > 68 && mesa < 0.5) { b = 4; }
+    else if (temp < 0.27) { b = 3; }
+    else if (temp > 0.64) {
+        if (humid > 0.57) { b = 7; } else if (humid > 0.46) { b = 9; } else if (mesa > 0.1) { b = 12; } else { b = 2; }
+    }
+    else if (humid > 0.5) {
+        if (temp < 0.4) { b = 6; } else if (humid > 0.63) { b = 11; } else if (temp > 0.55) { b = 10; } else { b = 1; }
+    }
+    return h + 256 * b;
+}
+function McClimateAt(lx, lz) {
+    var gi = lx & 63; var gj = lz & 63;
+    if (DsGridGet(ltX, gi, gj) == lx && DsGridGet(ltZ, gi, gj) == lz && ltSeed == mcSeed) { return gi + 64 * gj; }
+    if (ltSeed != mcSeed) { VariableSet("ltSeed", mcSeed); DsGridClear(ltX, -999999); }
+    var bx = lx * 4; var bz = lz * 4;
+    var t = 0.5 + (McNoise2(bx, bz, 640, 5) * 0.8 + McNoise2(bx, bz, 150, 15) * 0.2 - 0.5) * 1.22;
+    var hu = 0.5 + (McNoise2(bx, bz, 512, 6) * 0.8 + McNoise2(bx, bz, 120, 16) * 0.2 - 0.5) * 1.22;
+    DsGridSet(ltX, gi, gj, lx); DsGridSet(ltZ, gi, gj, lz); DsGridSet(ltT, gi, gj, t); DsGridSet(ltH, gi, gj, hu);
+    DsGridSet(ltC, gi, gj, McNoise2(bx, bz, 128, 1)); DsGridSet(ltM, gi, gj, McNoise2(bx, bz, 64, 2)); DsGridSet(ltK, gi, gj, McNoise2(bx, bz, 32, 3));
+    return gi + 64 * gj;
+}
+function McLatMix(grid, c0, c1, c2, c3, w0, w1, w2, w3) {
+    return DsGridGet(grid, c0 % 64, Floor(c0 / 64)) * w0 + DsGridGet(grid, c1 % 64, Floor(c1 / 64)) * w1 + DsGridGet(grid, c2 % 64, Floor(c2 / 64)) * w2 + DsGridGet(grid, c3 % 64, Floor(c3 / 64)) * w3;
+}
+function McGenColumnsRow(cx, cz, g, lz) {
+    var x0 = cx * 16; var z0 = cz * 16;
+    for (var once = 0; once < 1; once = once + 1) {
+        for (var lx = 0; lx < 16; lx = lx + 1) {
+            var bx = x0 + lx; var bz = z0 + lz;
+            var packed = McColumn(bx, bz);
+            var h = packed & 255; var b = packed >> 8;
+            DsGridSet(hgt, bx & 255, bz & 255, h); DsGridSet(bio, bx & 255, bz & 255, b);
+            var c = (bx & 255) + (lz << 8);
+            var top = 2; var fill = 3;
+            if (b == 2) { top = 11; fill = 25; }
+            if (b == 5) { top = 11; fill = 11; if (h < SEA - 3) { top = 12; fill = 12; } if (h < SEA - 9) { top = 38; fill = 12; } }
+            if (b == 3) { top = 66; }
+            if (b == 4) { top = 1; fill = 1; if (h < 62) { top = 2; fill = 3; } if (h > 84) { top = 36; fill = 1; } }
+            if (b == 12) { top = 63; fill = 63; }
+            var stone = 1;
+            if (bz <= -516096) { var skp = McSkPalette(bx, bz, b, h); top = skp % 1024; fill = Floor(skp / 1024) % 1024; stone = Floor(skp / 1048576); }
+            DsGridSetRegion(g, c, 1, c, h - 4, stone);
+            DsGridSetRegion(g, c, h - 3, c, h - 1, fill);
+            DsGridSet(g, c, h, top);
+            if (b == 12) { McMesaBands(g, c, bx, bz, h); }
+            DsGridSet(g, c, 0, 8);
+            if (McHash3(bx, 1, bz, 11) < 0.55) { DsGridSet(g, c, 1, 8); }
+            if (McHash3(bx, 2, bz, 12) < 0.25) { DsGridSet(g, c, 2, 8); }
+            if (h < SEA) { DsGridSetRegion(g, c, h + 1, c, SEA, 9); }
+        }
+    }
+}
+function McMesaBands(g, c, bx, bz, h) {
+    var shift = Floor(McNoise2(bx, bz, 48, 9) * 6);
+    for (var my = h - 16; my < h; my = my + 1) {
+        if (my > 2) {
+            var band = (my + shift) % 12; var k = 64;
+            if (band == 1 || band == 7) { k = 115; } else if (band == 3) { k = 118; } else if (band == 4 || band == 11) { k = 128; }
+            else if (band == 6) { k = 126; } else if (band == 8) { k = 114; } else if (band == 10) { k = 122; }
+            DsGridSet(g, c, my, k);
+        }
+    }
+}
+function McVein(g, x0, z0, ore, size, y0, y1, salt) {
+    var attempts = salt;
+    var px = x0 + Floor(McHash3(x0, ore, z0, attempts) * 16);
+    var pz = z0 + Floor(McHash3(x0, ore + 1, z0, attempts) * 16);
+    var py = y0 + Floor(McHash3(x0, ore + 2, z0, attempts) * (y1 - y0));
+    for (var n = 0; n < size; n = n + 1) {
+        if (px >= x0 && px < x0 + 16 && pz >= z0 && pz < z0 + 16 && py > 2) {
+            if (McGet(px, py, pz) == 1) { McSetRaw(px, py, pz, ore); }
+        }
+        var r = McHash3(px, py + n, pz, attempts + 7);
+        if (r < 0.17) { px = px + 1; } else if (r < 0.34) { px = px - 1; }
+        else if (r < 0.5) { pz = pz + 1; } else if (r < 0.67) { pz = pz - 1; }
+        else if (r < 0.84) { py = py + 1; } else { py = py - 1; }
+    }
+}
+function McGenOres(cx, cz, g) {
+    var x0 = cx * 16; var z0 = cz * 16;
+    for (var a = 0; a < 14; a = a + 1) { McVein(g, x0, z0, 15, 7, 5, 62, a); }
+    for (var a = 0; a < 9; a = a + 1) { McVein(g, x0, z0, 14, 5, 5, 48, 100 + a); }
+    for (var a = 0; a < 3; a = a + 1) { McVein(g, x0, z0, 13, 5, 4, 26, 200 + a); }
+    for (var a = 0; a < 5; a = a + 1) { McVein(g, x0, z0, 31, 5, 3, 16, 300 + a); }
+    for (var a = 0; a < 2; a = a + 1) { McVein(g, x0, z0, 23, 4, 3, 24, 400 + a); }
+    for (var a = 0; a < 2; a = a + 1) { McVein(g, x0, z0, 30, 4, 3, 15, 500 + a); }
+    for (var a = 0; a < 4; a = a + 1) { McVein(g, x0, z0, 59, 22, 8, 62, 600 + a); }
+    for (var a = 0; a < 4; a = a + 1) { McVein(g, x0, z0, 60, 22, 8, 62, 700 + a); }
+    for (var a = 0; a < 4; a = a + 1) { McVein(g, x0, z0, 61, 22, 8, 62, 800 + a); }
+    for (var a = 0; a < 6; a = a + 1) { McVein(g, x0, z0, 3, 26, 20, 70, 900 + a); }
+    for (var a = 0; a < 4; a = a + 1) { McVein(g, x0, z0, 12, 26, 14, 50, 1000 + a); }
+    McQuarkOres(cx, cz, g);
+    McSkOres(cx, cz, g);
+}
+
+// ---- the benchmark's own driver ----
+// Forget every cached column and climate cell and empty the chunk, so each run generates it afresh.
+function BenchGenReset(cx, cz) {
+    DsGridClear(colCacheX, -999999); DsGridClear(ltX, -999999);
+    var g = wgBase + (cz & 15);
+    for (var lz = 0; lz < 16; lz = lz + 1) { var c0 = ((cx * 16) & 255) + (lz << 8); DsGridSetRegion(g, c0, 0, c0 + 15, 95, 0); }
+    return 1;
+}
+// One chunk generated as the game's job does it (stages 1 and 2: terrain rows, then ores); returns a
+// checksum of its blocks, heights and biomes.
+function BenchGenChunk(cx, cz) {
+    var g = wgBase + (cz & 15);
+    for (var lz = 0; lz < 16; lz = lz + 1) { McGenColumnsRow(cx, cz, g, lz); }
+    McGenOres(cx, cz, g);
+    var s = 0;
+    for (var lz2 = 0; lz2 < 16; lz2 = lz2 + 1) {
+        var c0 = ((cx * 16) & 255) + (lz2 << 8);
+        s = s + DsGridGetSum(g, c0, 0, c0 + 15, 95) * (lz2 + 1);
+    }
+    return s + DsGridGetSum(hgt, (cx * 16) & 255, (cz * 16) & 255, ((cx * 16) & 255) + 15, ((cz * 16) & 255) + 15) * 1000
+        + DsGridGetSum(bio, (cx * 16) & 255, (cz * 16) & 255, ((cx * 16) & 255) + 15, ((cz * 16) & 255) + 15) * 100000;
+}
+
+// ---- the game's containers (McWorld's top level), for a world of seed 12345 ----
+SEA = 40; mcSeed = 12345;
+ltX = DsGridCreate(64, 64); ltZ = DsGridCreate(64, 64); ltT = DsGridCreate(64, 64); ltH = DsGridCreate(64, 64); ltC = DsGridCreate(64, 64); ltM = DsGridCreate(64, 64); ltK = DsGridCreate(64, 64); DsGridClear(ltX, -999999); ltSeed = -1;
+colCacheX = DsGridCreate(256, 256); colCacheZ = DsGridCreate(256, 256); colCacheV = DsGridCreate(256, 256); DsGridClear(colCacheX, -999999); colCacheSeed = -1;
+wgBase = DsGridCreate(4096, 96); for (var i = 1; i < 16; i = i + 1) { DsGridCreate(4096, 96); }
+hgt = DsGridCreate(256, 256); bio = DsGridCreate(256, 256);

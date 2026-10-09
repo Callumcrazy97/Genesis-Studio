@@ -85,13 +85,28 @@ public class PgslVm
         public int GetHashCode(string name) => RuntimeHelpers.GetHashCode(name);
     }
     private readonly Stack<WithState> _withStack = new();
-    private readonly Stack<string> _debugCallStack = new();
+    /// <summary>The user function running now (its frame carries its name), or null in an event body or a script's top level.</summary>
+    private string CurrentFunction() => _frameCount > 0 ? _frames[_frameCount - 1].Function : null;
     private readonly IPgslEngineBridge _bridge;
     private readonly PgslEngineBridge _typedBridge;
     private bool _debugMode = false;
     private bool _returnRequested;
     private VmValue _returnValue;
-    private const int MAX_INSTRUCTIONS = 100000; // Hard limit per call to prevent hangs
+    /// <summary>Instructions an event body or a function call may run (each call its own count) unless a game raises it.</summary>
+    public const int DefaultCallInstructionLimit = 100000;
+    /// <summary>Most a game may raise the per-call limit to (ScriptInstructionLimit).</summary>
+    public const int MaximumCallInstructionLimit = 1_000_000_000;
+    private static int _callInstructionLimit = DefaultCallInstructionLimit;
+    /// <summary>
+    /// The per-call limit in force for every game VM (a worker job counts its whole budget instead):
+    /// a loop that runs past it is stopped as a hang. ScriptInstructionLimit raises it for a game;
+    /// a new play session starts at the default.
+    /// </summary>
+    public static int CallInstructionLimit
+    {
+        get => System.Threading.Volatile.Read(ref _callInstructionLimit);
+        set => System.Threading.Volatile.Write(ref _callInstructionLimit, Math.Clamp(value, DefaultCallInstructionLimit, MaximumCallInstructionLimit));
+    }
     /// <summary>Most user-function calls in progress at once (recursion depth).</summary>
     public const int MaxCallDepth = 200;
     private static readonly string[] LocalSlotNames = CreateSlotNames("@local", 256);
@@ -138,6 +153,36 @@ public class PgslVm
     {
         if (string.IsNullOrWhiteSpace(name)) return;
         _variables[name.Trim()] = VmValue.FromObject(value);
+    }
+
+    /// <summary><see cref="SetVariable"/> of a number, with the name already trimmed: nothing boxed.</summary>
+    internal void SetNumberVariable(string name, double value) => _variables[name] = value;
+
+    /// <summary>
+    /// The instance's variables a worker job may be given (JobScriptShareAll): numbers, true/false
+    /// and text, not a script's arguments. A copy: the job's VM loads it with <see cref="LoadVariables"/>.
+    /// </summary>
+    internal KeyValuePair<string, VmValue>[] ShareableVariables()
+    {
+        var shared = new List<KeyValuePair<string, VmValue>>(_variables.Count);
+        foreach (KeyValuePair<string, VmValue> pair in _variables)
+            if ((pair.Value.IsUnboxedNumber || pair.Value.IsString) && !IsArgumentName(pair.Key))
+                shared.Add(pair);
+        return shared.ToArray();
+    }
+
+    internal void LoadVariables(KeyValuePair<string, VmValue>[] variables)
+    {
+        foreach (KeyValuePair<string, VmValue> pair in variables) _variables[pair.Key] = pair.Value;
+    }
+
+    private static bool IsArgumentName(string name)
+    {
+        if (name == "argument_count") return true;
+        if (!name.StartsWith("argument", StringComparison.Ordinal) || name.Length == "argument".Length) return false;
+        for (int i = "argument".Length; i < name.Length; i++)
+            if (!char.IsAsciiDigit(name[i])) return false;
+        return true;
     }
 
     /// <summary>Reads a persistent script variable without exposing the VM's mutable dictionary.</summary>
@@ -257,7 +302,7 @@ public class PgslVm
         // The budget is per event body and per function call: each call counts its own. A worker
         // job instead checks its whole-job budget (and whether it was cancelled) at every slice.
         int executed = 0;
-        int checkpoint = JobBudget is null ? MAX_INSTRUCTIONS : PgslJobBudget.Slice;
+        int checkpoint = JobBudget is null ? CallInstructionLimit : PgslJobBudget.Slice;
         VmOp[] ops = program.Ops;
         // A function's body runs in its own frame (the top one): its names are read by slot.
         VariableFrame frame = program.Layout != null && _frameCount > 0 && _frames[_frameCount - 1].Layout == program.Layout
@@ -279,7 +324,7 @@ public class PgslVm
                 if (++executed > checkpoint)
                 {
                     if (JobBudget is null)
-                        ThrowInstructionLimit(_debugCallStack.Count > 0 ? _debugCallStack.Peek() : null);
+                        ThrowInstructionLimit(CurrentFunction());
                     JobBudget.Check(InstructionsExecuted + executed);
                     checkpoint += PgslJobBudget.Slice;
                 }
@@ -1236,7 +1281,7 @@ public class PgslVm
         double b = count > 1 ? values[start + 1].UnboxedNumber : 0;
         double c = count > 2 ? values[start + 2].UnboxedNumber : 0;
         double d = count > 3 ? values[start + 3].UnboxedNumber : 0;
-        Array.Clear(values, start, count);
+        for (int i = start; i < start + count; i++) values[i] = default;
         _stack.Count = start;
         NoteNativeCall(nativeId);
         VmValue value = default;
@@ -1311,8 +1356,8 @@ public class PgslVm
                     frame.Present[slot] = true;
                 }
 
+                frame.Function = funcName;
                 PushFrame(frame);
-                _debugCallStack.Push(funcName);
                 ExecutionResult callResult = ExecuteCore(
                     program,
                     userFunc.Bytecode,
@@ -1327,8 +1372,6 @@ public class PgslVm
             {
                 if (_frameCount > 0 && ReferenceEquals(_frames[_frameCount - 1], frame))
                     PopFrame();
-                if (_debugCallStack.Count > 0 && string.Equals(_debugCallStack.Peek(), funcName, StringComparison.Ordinal))
-                    _debugCallStack.Pop();
                 ReleaseFrame(frame);
             }
             return;
@@ -1353,9 +1396,9 @@ public class PgslVm
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
     private static void ThrowInstructionLimit(string function) =>
         throw new InvalidOperationException(
-            $"Infinite loop detected: Maximum instruction limit ({MAX_INSTRUCTIONS}) exceeded"
+            $"Infinite loop detected: Maximum instruction limit ({CallInstructionLimit}) exceeded"
             + (function != null ? $" in function '{function}'" : " in this event")
-            + ". Each event and each function call may run that many instructions; split long work across frames.");
+            + ". Each event and each function call may run that many instructions; split long work across frames, or raise the limit with ScriptInstructionLimit.");
 
     // The message VmValueStack.CombineTop gives.
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
@@ -1404,10 +1447,9 @@ public class PgslVm
 
         List<string> callStack = [];
         if (!string.IsNullOrWhiteSpace(DebugEventName)) callStack.Add(DebugEventName);
-        callStack.AddRange(_debugCallStack.Reverse());
-        string function = _debugCallStack.Count > 0
-            ? _debugCallStack.Peek()
-            : DebugEventName;
+        for (int i = 0; i < _frameCount; i++)
+            if (_frames[i].Function != null) callStack.Add(_frames[i].Function);
+        string function = CurrentFunction() ?? DebugEventName;
         return new PgslDebugLocation(
             DebugSourceName,
             DebugEventName,

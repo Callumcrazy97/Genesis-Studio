@@ -41,11 +41,15 @@ public static partial class PgslCommands
         return next;
     }
 
+    // A structure to change (or one whose command may change it). One shared with a worker job is
+    // made this side's own first (PgslCommands.SharedData.cs); commands that only read use ResolveRead.
     private static T Resolve<T>(string family, double handle) where T : class
     {
         Dictionary<string, object> store = Store;
         if (store is null) return null;
-        return store.TryGetValue(DsKey(family, (int)handle), out object existing) ? existing as T : null;
+        string key = DsKey(family, (int)handle);
+        if (!store.TryGetValue(key, out object existing)) return null;
+        return existing is SharedData shared ? Unshare<T>(store, key, shared) : existing as T;
     }
 
     private static void Bind(string family, int handle, object value)
@@ -110,13 +114,13 @@ public static partial class PgslCommands
     public static void DsListClear(double id) => Resolve<List<object>>("list", id)?.Clear();
 
     [PgslCommand("DsListSize", "DsListSize(id) -> number", "Entry count", "Lists")]
-    public static double DsListSize(double id) => Resolve<List<object>>("list", id)?.Count ?? 0;
+    public static double DsListSize(double id) => ResolveRead<List<object>>("list", id)?.Count ?? 0;
 
     [PgslCommand("DsListEmpty", "DsListEmpty(id) -> bool", "True when the list has no entries", "Lists")]
-    public static bool DsListEmpty(double id) => (Resolve<List<object>>("list", id)?.Count ?? 0) == 0;
+    public static bool DsListEmpty(double id) => (ResolveRead<List<object>>("list", id)?.Count ?? 0) == 0;
 
     [PgslCommand("DsListAdd", "DsListAdd(id, value)", "Append a number", "Lists")]
-    public static void DsListAdd(double id, double value) => ListAppend(id, value);
+    public static void DsListAdd(double id, double value) => ListAppend(id, BoxNumber(value));
 
     [PgslCommand("DsListAddString", "DsListAddString(id, value)", "Append a string", "Lists")]
     public static void DsListAddString(double id, string value) => ListAppend(id, value ?? string.Empty);
@@ -133,7 +137,7 @@ public static partial class PgslCommands
     {
         List<object> list = Resolve<List<object>>("list", id);
         if (list is null || list.Count >= MaxCollectionElements) return;
-        list.Insert((int)Math.Clamp(position, 0, list.Count), value);
+        list.Insert((int)Math.Clamp(position, 0, list.Count), BoxNumber(value));
     }
 
     [PgslCommand("DsListDelete", "DsListDelete(id, position)", "Remove the entry at a 0-based position", "Lists")]
@@ -151,7 +155,7 @@ public static partial class PgslCommands
         List<object> list = Resolve<List<object>>("list", id);
         int at = (int)position;
         if (list is null || at < 0 || at >= list.Count) return;
-        list[at] = value;
+        list[at] = BoxNumber(value);
     }
 
     [PgslCommand("DsListSetString", "DsListSetString(id, position, value)", "Overwrite a string at a 0-based position", "Lists")]
@@ -166,7 +170,7 @@ public static partial class PgslCommands
     [PgslCommand("DsListGet", "DsListGet(id, position) -> number", "Read as a number; 0 when out of range", "Lists")]
     public static double DsListGet(double id, double position)
     {
-        List<object> list = Resolve<List<object>>("list", id);
+        List<object> list = ResolveRead<List<object>>("list", id);
         int at = (int)position;
         return list is not null && at >= 0 && at < list.Count ? AsNumber(list[at]) : 0;
     }
@@ -174,7 +178,7 @@ public static partial class PgslCommands
     [PgslCommand("DsListGetString", "DsListGetString(id, position) -> string", "Read as text; empty when out of range", "Lists")]
     public static string DsListGetString(double id, double position)
     {
-        List<object> list = Resolve<List<object>>("list", id);
+        List<object> list = ResolveRead<List<object>>("list", id);
         int at = (int)position;
         return list is not null && at >= 0 && at < list.Count ? AsText(list[at]) : string.Empty;
     }
@@ -182,7 +186,7 @@ public static partial class PgslCommands
     [PgslCommand("DsListFind", "DsListFind(id, value) -> number", "0-based position of a number, -1 when absent", "Lists")]
     public static double DsListFind(double id, double value)
     {
-        List<object> list = Resolve<List<object>>("list", id);
+        List<object> list = ResolveRead<List<object>>("list", id);
         if (list is null) return -1;
         for (int index = 0; index < list.Count; index++)
         {
@@ -216,7 +220,7 @@ public static partial class PgslCommands
 
     [PgslCommand("DsListSum", "DsListSum(id) -> number", "Sum of the numeric entries", "Lists")]
     public static double DsListSum(double id) =>
-        Resolve<List<object>>("list", id)?.Sum(AsNumber) ?? 0;
+        ResolveRead<List<object>>("list", id)?.Sum(AsNumber) ?? 0;
 
     // ── Maps ────────────────────────────────────────────────────────────────────
     // A parallel key list preserves insertion order, so DsMapKeyAt is deterministic. Relying on
@@ -226,6 +230,14 @@ public static partial class PgslCommands
     {
         public Dictionary<string, object> Values { get; } = new(StringComparer.Ordinal);
         public List<string> Order { get; } = [];
+
+        public PgslMap Copy()
+        {
+            var copy = new PgslMap();
+            foreach (KeyValuePair<string, object> pair in Values) copy.Values.Add(pair.Key, pair.Value);
+            copy.Order.AddRange(Order);
+            return copy;
+        }
     }
 
     [PgslCommand("DsMapCreate", "DsMapCreate() -> id", "Create a key/value map", "Maps")]
@@ -250,17 +262,17 @@ public static partial class PgslCommands
     }
 
     [PgslCommand("DsMapSize", "DsMapSize(id) -> number", "Entry count", "Maps")]
-    public static double DsMapSize(double id) => Resolve<PgslMap>("map", id)?.Values.Count ?? 0;
+    public static double DsMapSize(double id) => ResolveRead<PgslMap>("map", id)?.Values.Count ?? 0;
 
     [PgslCommand("DsMapEmpty", "DsMapEmpty(id) -> bool", "True when the map has no entries", "Maps")]
-    public static bool DsMapEmpty(double id) => (Resolve<PgslMap>("map", id)?.Values.Count ?? 0) == 0;
+    public static bool DsMapEmpty(double id) => (ResolveRead<PgslMap>("map", id)?.Values.Count ?? 0) == 0;
 
     [PgslCommand("DsMapExists", "DsMapExists(id, key) -> bool", "True when the key is present", "Maps")]
     public static bool DsMapExists(double id, string key) =>
-        key is not null && (Resolve<PgslMap>("map", id)?.Values.ContainsKey(key) ?? false);
+        key is not null && (ResolveRead<PgslMap>("map", id)?.Values.ContainsKey(key) ?? false);
 
     [PgslCommand("DsMapSet", "DsMapSet(id, key, value)", "Store a number under a key", "Maps")]
-    public static void DsMapSet(double id, string key, double value) => MapStore(id, key, value);
+    public static void DsMapSet(double id, string key, double value) => MapStore(id, key, BoxNumber(value));
 
     [PgslCommand("DsMapSetString", "DsMapSetString(id, key, value)", "Store a string under a key", "Maps")]
     public static void DsMapSetString(double id, string key, string value) => MapStore(id, key, value ?? string.Empty);
@@ -281,14 +293,14 @@ public static partial class PgslCommands
     [PgslCommand("DsMapGet", "DsMapGet(id, key) -> number", "Read as a number; 0 when absent", "Maps")]
     public static double DsMapGet(double id, string key)
     {
-        PgslMap map = Resolve<PgslMap>("map", id);
+        PgslMap map = ResolveRead<PgslMap>("map", id);
         return map is not null && key is not null && map.Values.TryGetValue(key, out object value) ? AsNumber(value) : 0;
     }
 
     [PgslCommand("DsMapGetString", "DsMapGetString(id, key) -> string", "Read as text; empty when absent", "Maps")]
     public static string DsMapGetString(double id, string key)
     {
-        PgslMap map = Resolve<PgslMap>("map", id);
+        PgslMap map = ResolveRead<PgslMap>("map", id);
         return map is not null && key is not null && map.Values.TryGetValue(key, out object value)
             ? AsText(value)
             : string.Empty;
@@ -305,7 +317,7 @@ public static partial class PgslCommands
     [PgslCommand("DsMapKeyAt", "DsMapKeyAt(id, index) -> string", "Key at a 0-based insertion-order index", "Maps")]
     public static string DsMapKeyAt(double id, double index)
     {
-        PgslMap map = Resolve<PgslMap>("map", id);
+        PgslMap map = ResolveRead<PgslMap>("map", id);
         int at = (int)index;
         return map is not null && at >= 0 && at < map.Order.Count ? map.Order[at] : string.Empty;
     }
@@ -329,7 +341,7 @@ public static partial class PgslCommands
     {
         List<object> stack = Resolve<List<object>>("stack", id);
         if (stack is null || stack.Count >= MaxCollectionElements) return;
-        stack.Add(value);
+        stack.Add(BoxNumber(value));
     }
 
     [PgslCommand("DsStackPop", "DsStackPop(id) -> number", "Pop the top value; 0 when empty", "Data Structures")]
@@ -345,12 +357,12 @@ public static partial class PgslCommands
     [PgslCommand("DsStackTop", "DsStackTop(id) -> number", "Peek the top value; 0 when empty", "Data Structures")]
     public static double DsStackTop(double id)
     {
-        List<object> stack = Resolve<List<object>>("stack", id);
+        List<object> stack = ResolveRead<List<object>>("stack", id);
         return stack is null || stack.Count == 0 ? 0 : AsNumber(stack[^1]);
     }
 
     [PgslCommand("DsStackSize", "DsStackSize(id) -> number", "Entry count", "Data Structures")]
-    public static double DsStackSize(double id) => Resolve<List<object>>("stack", id)?.Count ?? 0;
+    public static double DsStackSize(double id) => ResolveRead<List<object>>("stack", id)?.Count ?? 0;
 
     // ── Queues ──────────────────────────────────────────────────────────────────
 
@@ -371,7 +383,7 @@ public static partial class PgslCommands
     {
         List<object> queue = Resolve<List<object>>("queue", id);
         if (queue is null || queue.Count >= MaxCollectionElements) return;
-        queue.Add(value);
+        queue.Add(BoxNumber(value));
     }
 
     [PgslCommand("DsQueueDequeue", "DsQueueDequeue(id) -> number", "Take from the head; 0 when empty", "Data Structures")]
@@ -387,12 +399,12 @@ public static partial class PgslCommands
     [PgslCommand("DsQueueHead", "DsQueueHead(id) -> number", "Peek the head; 0 when empty", "Data Structures")]
     public static double DsQueueHead(double id)
     {
-        List<object> queue = Resolve<List<object>>("queue", id);
+        List<object> queue = ResolveRead<List<object>>("queue", id);
         return queue is null || queue.Count == 0 ? 0 : AsNumber(queue[0]);
     }
 
     [PgslCommand("DsQueueSize", "DsQueueSize(id) -> number", "Entry count", "Data Structures")]
-    public static double DsQueueSize(double id) => Resolve<List<object>>("queue", id)?.Count ?? 0;
+    public static double DsQueueSize(double id) => ResolveRead<List<object>>("queue", id)?.Count ?? 0;
 
     // ── Grids ───────────────────────────────────────────────────────────────────
 
@@ -427,10 +439,10 @@ public static partial class PgslCommands
     public static void DsGridDestroy(double id) => Unbind("grid", id);
 
     [PgslCommand("DsGridWidth", "DsGridWidth(id) -> number", "Columns", "Grids")]
-    public static double DsGridWidth(double id) => Resolve<PgslGrid>("grid", id)?.Width ?? 0;
+    public static double DsGridWidth(double id) => ResolveRead<PgslGrid>("grid", id)?.Width ?? 0;
 
     [PgslCommand("DsGridHeight", "DsGridHeight(id) -> number", "Rows", "Grids")]
-    public static double DsGridHeight(double id) => Resolve<PgslGrid>("grid", id)?.Height ?? 0;
+    public static double DsGridHeight(double id) => ResolveRead<PgslGrid>("grid", id)?.Height ?? 0;
 
     [PgslCommand("DsGridClear", "DsGridClear(id, value)", "Fill every cell", "Grids")]
     public static void DsGridClear(double id, double value)
@@ -446,7 +458,7 @@ public static partial class PgslCommands
 
     [PgslCommand("DsGridGet", "DsGridGet(id, x, y) -> number", "Read one cell; 0 when out of range", "Grids")]
     public static double DsGridGet(double id, double x, double y) =>
-        Resolve<PgslGrid>("grid", id)?.Get((int)x, (int)y) ?? 0;
+        ResolveRead<PgslGrid>("grid", id)?.Get((int)x, (int)y) ?? 0;
 
     [PgslCommand("DsGridAdd", "DsGridAdd(id, x, y, value)", "Add to one cell", "Grids")]
     public static void DsGridAdd(double id, double x, double y, double value)
@@ -491,7 +503,7 @@ public static partial class PgslCommands
     [PgslCommand("DsGridValueExists", "DsGridValueExists(id, x1, y1, x2, y2, value) -> bool", "True when a region holds the value", "Grids")]
     public static bool DsGridValueExists(double id, double x1, double y1, double x2, double y2, double value)
     {
-        PgslGrid grid = Resolve<PgslGrid>("grid", id);
+        PgslGrid grid = ResolveRead<PgslGrid>("grid", id);
         if (grid is null) return false;
         (int left, int top, int right, int bottom) = NormaliseRegion(x1, y1, x2, y2);
         for (int y = top; y <= bottom; y++)
@@ -532,7 +544,7 @@ public static partial class PgslCommands
     public static void DsGridCopy(double destinationId, double sourceId)
     {
         PgslGrid destination = Resolve<PgslGrid>("grid", destinationId);
-        PgslGrid source = Resolve<PgslGrid>("grid", sourceId);
+        PgslGrid source = ResolveRead<PgslGrid>("grid", sourceId);
         if (destination is null || source is null) return;
 
         destination.Cells = [.. source.Cells];
@@ -546,7 +558,7 @@ public static partial class PgslCommands
     private static double RegionAggregate(
         double id, double x1, double y1, double x2, double y2, Func<double, double, double> combine, double seed)
     {
-        PgslGrid grid = Resolve<PgslGrid>("grid", id);
+        PgslGrid grid = ResolveRead<PgslGrid>("grid", id);
         if (grid is null) return 0;
 
         (int left, int top, int right, int bottom) = NormaliseRegion(x1, y1, x2, y2);
@@ -585,7 +597,7 @@ public static partial class PgslCommands
     }
 
     [PgslCommand("ArraySet", "ArraySet(name, index, value)", "Write a number, growing the array as needed", "Arrays")]
-    public static void ArraySet(string name, double index, double value) => ArrayWrite(name, index, value);
+    public static void ArraySet(string name, double index, double value) => ArrayWrite(name, index, BoxNumber(value));
 
     [PgslCommand("ArraySetString", "ArraySetString(name, index, value)", "Write a string, growing the array as needed", "Arrays")]
     public static void ArraySetString(string name, double index, string value) => ArrayWrite(name, index, value ?? string.Empty);
@@ -627,7 +639,7 @@ public static partial class PgslCommands
     {
         List<object> array = ArrayFor(name, create: true);
         if (array is null || array.Count >= MaxCollectionElements) return;
-        array.Add(value);
+        array.Add(BoxNumber(value));
     }
 
     [PgslCommand("ArrayPop", "ArrayPop(name) -> number", "Remove and return the last entry; 0 when empty", "Arrays")]

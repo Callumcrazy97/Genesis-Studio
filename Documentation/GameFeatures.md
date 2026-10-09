@@ -727,32 +727,34 @@ grid), `DsGridCopy` (a whole grid), `DsGridGetSum` / `GetMax` / `GetMin` and `Ds
 
 A function of the project's Scripts can run as a job on a worker thread, so generating a chunk, a
 map or a path does not hold up the frame. The job runs on a VM of its own with a context of its
-own, and is given **copies** of the grids and lists it needs, taken when it starts: the game may
-change its own meanwhile, and nothing the job does reaches the game until the script takes the
-result with `JobTake`. Inside the job each grid or list keeps its handle, so the same function also
-runs directly on the game's thread and gives the same result; the same arguments and data always
-give the same result.
+own, and sees the grids, lists and maps it is given **as they were when it started** (shared with
+it, not copied: see [a job that reads the game's own data](#a-job-that-reads-the-games-own-data)):
+the game may change its own meanwhile, and nothing the job does reaches the game until the script
+takes the result with `JobTake`. Inside the job each grid or list keeps its handle, so the same
+function also runs directly on the game's thread and gives the same result; the same arguments and
+data always give the same result.
 
 A job may use maths, text, noise, grids, lists, maps, stacks, queues, named arrays, JSON and its
 own variables (`VariableSet`). Anything that reaches the game or shared state (instances, `with`,
 drawing, meshes, sound, files, input, the clock, `Random`, `Choose`, `Print`, global variables,
 running a Script by name) stops the job with "*X* is not available in a worker job". A name the
 job never set is an error too ("'*name*' has no value in this job"), not 0 as in an event: an
-instance's variables are not there, so pass them as arguments or give them by name with
-`JobScriptVariable`. A grid or list that was not given
-to the job reads as one that does not exist (0, as a destroyed one does). Functions written in an
-Object's events are not available to jobs; put the function in a Script.
+instance's variables are not there unless the job is given them (`JobScriptShareAll` gives them
+all; `JobScriptVariable` one by name), or pass them as arguments. A grid, list or map that was not
+given to the job reads as one that does not exist (0, as a destroyed one does). Functions written
+in an Object's events are not available to jobs; put the function in a Script.
 
 | Command | What it does |
 |---|---|
 | `JobScriptCreate(function)` | A prepared job for a function of the project's Scripts (as they are now); 0 when there is no such function (`JobLastError` says why). |
-| `JobScriptGrid(job, grid, copyBack)`, `JobScriptList(job, list, copyBack)` | Give the job its own copy of a grid or list; with `copyBack` true, `JobTake` copies the job's version back into it (size included). |
+| `JobScriptGrid(job, grid, copyBack)`, `JobScriptList(job, list, copyBack)`, `JobScriptMap(job, map, copyBack)` | Give the job a grid, list or map as it is when the job starts (shared, not copied); with `copyBack` true, `JobTake` puts the job's version in its place (size included) if the job changed it. |
+| `JobScriptShareAll(job)` | Give the job every grid, list, map, stack and queue of this Object and its instance variables (numbers, text, true/false), as they are when it starts. See [a job that reads the game's own data](#a-job-that-reads-the-games-own-data). |
 | `JobScriptVariable(job, name, value)`, `JobScriptVariableText(job, name, text)` | Give the job a variable of its own by name (a seed, a sea level, a grid's handle), so a function that reads that instance variable runs unchanged in the job. Built-in instance variables (`x`, `speed`...) cannot be given; pass those as arguments. |
 | `JobScriptBudget(job, instructions)` | Instructions the job may run in all, every call counted (100 000 000 unless set, 1 000 to 2 000 000 000). The per-call limit of events does not apply. |
 | `JobScriptStart(job, arguments...)` | Start it with the function's arguments (numbers, true/false or text). Jobs run in turn on worker threads of their own, as many as all but two of the processors, below the game's own threads in priority. |
 | `JobRunScript(function, arguments...)` | Create and start in one, for a job that needs no grids or lists; its result is read with `JobResultNumber` / `JobResultString` / `JobResultBool`. |
 | `JobStatus(job)` | `prepared`, `queued`, `running`, `succeeded`, `failed` (`JobError` says why, with the line) or `cancelled`. |
-| `JobTake(job)` | Once it has succeeded: copy the grids and lists marked `copyBack` into the Object's own (once). |
+| `JobTake(job)` | Once it has succeeded: the grids, lists and maps marked `copyBack` that the job changed replace the Object's own (once). One the job left alone stays as the game has it. |
 | `JobCancel(job)`, `JobRelease(job)` | Stop it (a running job stops within a fraction of a millisecond), or let go of the handle and its data. |
 
 An Object holds up to 16 jobs at a time and the game 32 (with file jobs); release each when done.
@@ -807,6 +809,163 @@ in a job and added with `MeshAddQuadsFromList` make the same mesh as adding them
 that `MeshAddVerticesFromList` skips a vertex that is not a number with its triangle. It also checks noise against recorded values, its range and
 smoothness, the grid fills against single calls, and each whole-region grid command. Not yet seen:
 a game streaming its world through jobs.
+
+### A job that reads the game's own data
+
+A game's world is rarely a few grids passed as arguments: it is blocks in many grids found by
+arithmetic on a handle (`wgBase + strip`), tables in lists, lists of grid handles, maps keyed by
+position, and hundreds of instance variables. `JobScriptShareAll(job)` gives a job all of it: every
+grid, list, map, stack and queue of the Object, and every instance variable holding a number, text
+or true/false, exactly as they are at `JobScriptStart`. Nothing is copied when the job starts, so it
+costs the same whatever the size of the world (measured below).
+
+The rules a script can rely on:
+
+- **A job sees a snapshot.** Each structure reads, for the whole job, as it was at `JobScriptStart`.
+  The game may go on reading and changing its own while the job runs; none of the game's changes
+  reach the job, and neither side ever waits for the other.
+- **Reading is free; the first change copies.** The game and the job read the same structure, so
+  reading costs nothing extra. Whichever side changes a structure first while a job holds it (the
+  game or the job) gets a private copy of that one structure at that moment and keeps it; the other
+  side goes on reading the original. Once no job holds a structure any more, the game changes it in
+  place again without a copy. A 4 096 x 96 grid (3 MB) takes 0.8 to 1 ms to copy, so a game that writes
+  the very grid a job is reading pays that once for that job, and nothing at all for a grid it only
+  reads.
+- **A job's changes stay its own** unless the structure was given with `copyBack` true (with
+  `JobScriptGrid`, `JobScriptList` or `JobScriptMap`, which may be combined with
+  `JobScriptShareAll`): `JobTake` then puts the job's version in place of the game's, and the game's
+  own changes to that structure during the job are replaced. A `copyBack` structure the job did not
+  change is left as the game has it.
+- **Instance variables are a copy.** The job starts with the Object's numbers, text and true/false
+  as they were; `VariableSet` or an assignment in the job changes only the job's. Lists, maps and
+  grids held in variables are handles (numbers), so they reach the shared structures. Variables of
+  the game's calling functions (`var`s of a caller) are not there: the job's function is called on
+  its own.
+- **A job still runs only pure commands** (maths, text, noise, data structures): it works out data,
+  and the game's thread turns that into meshes, instances or sound. For a mesh, the job fills a list
+  with 36 numbers a face and the game adds them with `MeshAddQuadsFromList`.
+- **Edits made during a job are not in its result.** A chunk the player changes while its mesh job
+  runs is meshed as it was; mark it to be meshed again and start another job.
+
+Several jobs may share the same structures at once (each holds them until it has finished, or ended
+without running). With `JobScriptShareAll` at the size of a voxel game (44 grids including 32 of
+4 096 x 96, 2 500 lists, 65 maps, 2 500 instance variables) starting a job took 0.16 to 0.34 ms of the
+game's thread and 0.14 to 0.27 ms on the worker to set up its own VM (two runs, medians); six 4 096 x 96 grids given with
+`JobScriptGrid` took 0.01 to 0.02 ms (before 9 Oct 2026 each was copied as the job started, 0.8 to 1 ms a grid).
+
+#### Worked example: meshing a chunk on a worker
+
+The world keeps its blocks as a voxel game does: block `(x, y, z)` in grid `wBase + ((z >> 4) & 3)`
+at column `(x & 63) + ((z & 15) << 6)` and row `y`, light in four more grids, a flags and a tint
+table, each kind's six tiles in a list of lists, and the facing of some blocks in a map keyed
+`"x,y,z"`. `Engine.Pgsl.Logic.Jobs.ShareAllMeshesAChunkAsCallingTheFunction` runs this same mesher
+directly and as a job and checks that the faces are identical.
+
+```pgsl
+// Library Script "ChunkMesher". It reads only the world, so it runs the same directly or as a job.
+function BlockAt(bx, by, bz) {
+    if (by < 0) { return 1; }
+    if (by >= worldHeight || bx < 0 || bx >= 64 || bz < 0 || bz >= 64) { return 0; }
+    return DsGridGet(wBase + ((bz >> 4) & 3), (bx & 63) + ((bz & 15) << 6), by);
+}
+function LightAt(bx, by, bz) {
+    if (by < 0 || by >= worldHeight || bx < 0 || bx >= 64 || bz < 0 || bz >= 64) { return 15; }
+    return DsGridGet(wLight + ((bz >> 4) & 3), (bx & 63) + ((bz & 15) << 6), by);
+}
+// One face for MeshAddQuadsFromList: four corners, the normal, the tile's uv rectangle, four colours, flip.
+function AddFace(faces, bx, by, bz, dir, tile, tint, light) {
+    var nx = 0; var ny = 0; var nz = 0;
+    if (dir == 0) { nx = 1; } else if (dir == 1) { nx = -1; } else if (dir == 2) { ny = 1; } else if (dir == 3) { ny = -1; } else if (dir == 4) { nz = 1; } else { nz = -1; }
+    var cx = bx + 0.5 + nx * 0.5; var cy = by + 0.5 + ny * 0.5; var cz = bz + 0.5 + nz * 0.5;
+    var ax = 0; var az = 0; var uy = 0; var uz = 0;
+    if (nx != 0) { az = 0.5; uy = 0.5; } else if (ny != 0) { ax = 0.5; uz = 0.5; } else { ax = 0.5; uy = 0.5; }
+    DsListAdd(faces, cx - ax); DsListAdd(faces, cy - uy); DsListAdd(faces, cz - az - uz);
+    DsListAdd(faces, cx + ax); DsListAdd(faces, cy - uy); DsListAdd(faces, cz + az - uz);
+    DsListAdd(faces, cx + ax); DsListAdd(faces, cy + uy); DsListAdd(faces, cz + az + uz);
+    DsListAdd(faces, cx - ax); DsListAdd(faces, cy + uy); DsListAdd(faces, cz - az + uz);
+    DsListAdd(faces, nx); DsListAdd(faces, ny); DsListAdd(faces, nz);
+    var u0 = (tile % 16) / 16; var v0 = Floor(tile / 16) / atlasRows;
+    DsListAdd(faces, u0); DsListAdd(faces, v0); DsListAdd(faces, u0 + 1 / 16); DsListAdd(faces, v0 + 1 / atlasRows);
+    for (var k = 0; k < 4; k = k + 1) { DsListAdd(faces, tint * 16); DsListAdd(faces, 255 - k * 8); DsListAdd(faces, light * 17); DsListAdd(faces, 1); }
+    DsListAdd(faces, (bx + bz) % 2);
+    return 1;
+}
+// Every visible face of chunk (cx, cz) into the list; returns how many.
+function MeshChunkFaces(cx, cz, faces) {
+    DsListClear(faces);
+    var n = 0;
+    for (var lz = 0; lz < 16; lz = lz + 1) {
+        for (var lx = 0; lx < 16; lx = lx + 1) {
+            var bx = cx * 16 + lx; var bz = cz * 16 + lz;
+            for (var y = 0; y < worldHeight; y = y + 1) {
+                var k = BlockAt(bx, y, bz);
+                if (k > 0) {
+                    var tiles = DsListGet(kindTiles, k);          // a list's handle found in another list
+                    var turn = 0;
+                    if ((DsListGet(kindFlags, k) & 16) != 0) {
+                        var key = StringOf(bx) + "," + StringOf(y) + "," + StringOf(bz);
+                        if (DsMapExists(facing, key)) { turn = DsMapGet(facing, key); }
+                    }
+                    for (var dir = 0; dir < 6; dir = dir + 1) {
+                        var ox = bx; var oy = y; var oz = bz;
+                        if (dir == 0) { ox = bx + 1; } else if (dir == 1) { ox = bx - 1; } else if (dir == 2) { oy = y + 1; } else if (dir == 3) { oy = y - 1; } else if (dir == 4) { oz = bz + 1; } else { oz = bz - 1; }
+                        var o = BlockAt(ox, oy, oz);
+                        if (o != k && (DsListGet(kindFlags, o) & 2) == 0) {
+                            n = n + AddFace(faces, bx, y, bz, dir, DsListGet(tiles, (dir + turn) % 6), DsListGet(kindTint, k), LightAt(ox, oy, oz));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return n;
+}
+```
+
+```pgsl
+// The world Object. Create: meshJob = 0; ... (the world's grids, tables and globals made here)
+// Step: start the next chunk's faces on a worker...
+if (meshJob == 0 && DsListSize(chunksToMesh) > 0) {
+    meshCx = DsListGet(chunksToMesh, 0); meshCz = DsListGet(chunksToMesh, 1);
+    DsListDelete(chunksToMesh, 0); DsListDelete(chunksToMesh, 0);
+    meshFaces = DsListCreate();
+    meshJob = JobScriptCreate("MeshChunkFaces");
+    JobScriptShareAll(meshJob);                 // the world as it is now: grids, tables, map, globals
+    JobScriptList(meshJob, meshFaces, true);    // the faces come back at JobTake
+    JobScriptStart(meshJob, meshCx, meshCz, meshFaces);
+}
+// ...and on a later frame make the mesh on the game's thread, in one call.
+else if (meshJob != 0) {
+    var status = JobStatus(meshJob);
+    if (status == "succeeded") {
+        JobTake(meshJob);
+        var m = MeshCreate();
+        MeshAddQuadsFromList(m, meshFaces);
+        DsListSet(chunkMeshes, meshCx + meshCz * 4, m);
+        DsListDestroy(meshFaces);
+        JobRelease(meshJob); meshJob = 0;
+    } else if (status == "failed" || status == "cancelled") {
+        Print("Meshing failed: " + JobError(meshJob));
+        JobRelease(meshJob); meshJob = 0;
+    }
+}
+```
+
+The Object may keep several such jobs in flight (up to 16), each with its own face list. Generation
+works the same way: a job given the world with `JobScriptShareAll` fills a chunk into a grid of its
+own given with `copyBack` (or into a list), and `JobTake` puts it in place on the game's thread.
+A function that runs longer than one call's 100 000 instructions on the game's thread (to compare
+it with the job, or before it moves to one) needs `ScriptInstructionLimit` raised there; in a job
+only the job's budget counts.
+
+`--test pgsl-logic` checks the rules above: the mesher above gives the same faces as a job as
+called directly (and fails with "has no value in this job" when the job is not given the
+globals); four jobs reading grids, lists, a map and globals see exactly the data of their own start
+while the game writes those structures over a hundred thousand times; a job's changes without
+`copyBack` never reach the game, and `copyBack` brings back a map the job changed but not a list
+it left alone; a structure is copied once when the game changes it while a job holds it, never when
+it only reads it or changes it after the job, and a job cancelled before it ran lets go of its
+data. It also times sharing at a voxel game's size.
 
 ## Video options and the clock
 

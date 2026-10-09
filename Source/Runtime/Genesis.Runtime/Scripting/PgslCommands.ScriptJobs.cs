@@ -33,12 +33,13 @@ internal sealed class PgslJobBudget(long limit, CancellationToken cancellation)
 
 // Script jobs: a function of the project's Scripts run on a worker thread, so generating a chunk,
 // a path or a map does not hold up the frame. The job runs on a VM of its own with a context of its
-// own: private copies of the grids and lists given to it (taken when it starts, so the game may
-// change its own meanwhile), the library functions as they were when it was created, and only the
-// pure commands (maths, text, noise, grids, lists, maps, its own variables). Anything that reaches
-// the game (instances, drawing, sound, files, random numbers, the clock, other Objects' data)
-// raises "X is not available in a worker job". The same arguments and data always give the same
-// result. JobTake copies the grids and lists marked to come back into the game's own.
+// own: the grids, lists and maps given to it as they were when it started (shared, not copied: see
+// PgslCommands.SharedData.cs, so the game may change its own meanwhile and the job never sees it),
+// the library functions as they were when it was created, and only the pure commands (maths, text,
+// noise, grids, lists, maps, its own variables). Anything that reaches the game (instances, drawing,
+// sound, files, random numbers, the clock, other Objects' data) raises "X is not available in a
+// worker job". The same arguments and data always give the same result. JobTake puts the structures
+// marked to come back, and changed by the job, into the game's own.
 public static partial class PgslCommands
 {
     #region Script jobs
@@ -75,6 +76,8 @@ public static partial class PgslCommands
         public readonly List<(string Family, int Handle, bool CopyBack)> Shared = [];
         public readonly Dictionary<string, object> Variables = new(StringComparer.Ordinal);
         public long Budget = DefaultScriptJobBudget;
+        /// <summary>JobScriptShareAll: every structure and instance variable of the Object, as at the start.</summary>
+        public bool ShareAll;
     }
 
     /// <summary>What a finished script job hands back: the function's result and the data to copy out.</summary>
@@ -154,18 +157,38 @@ public static partial class PgslCommands
     }
 
     [PgslCommand("JobScriptGrid", "JobScriptGrid(job, grid, copyBack) -> bool",
-        "Give a prepared job its own copy of a grid (same handle inside the job); copyBack true copies the job's grid into this one at JobTake", "Native Jobs")]
+        "Give a prepared job a grid as it is when the job starts (same handle inside the job; shared, not copied); copyBack true puts the job's grid into this one at JobTake if the job changed it", "Native Jobs")]
     public static bool JobScriptGrid(double job, double grid, bool copyBack) => ShareWithJob(job, "grid", grid, copyBack);
 
     [PgslCommand("JobScriptList", "JobScriptList(job, list, copyBack) -> bool",
-        "Give a prepared job its own copy of a list (same handle inside the job); copyBack true copies the job's list into this one at JobTake", "Native Jobs")]
+        "Give a prepared job a list as it is when the job starts (same handle inside the job; shared, not copied); copyBack true puts the job's list into this one at JobTake if the job changed it", "Native Jobs")]
     public static bool JobScriptList(double job, double list, bool copyBack) => ShareWithJob(job, "list", list, copyBack);
+
+    [PgslCommand("JobScriptMap", "JobScriptMap(job, map, copyBack) -> bool",
+        "Give a prepared job a map as it is when the job starts (same handle inside the job; shared, not copied); copyBack true puts the job's map into this one at JobTake if the job changed it", "Native Jobs")]
+    public static bool JobScriptMap(double job, double map, bool copyBack) => ShareWithJob(job, "map", map, copyBack);
+
+    [PgslCommand("JobScriptShareAll", "JobScriptShareAll(job) -> bool",
+        "Let a prepared job read every grid, list, map, stack and queue of this Object and its instance variables (numbers, text, true/false), as they are when it starts; shared, not copied, so the cost does not grow with their size", "Native Jobs")]
+    public static bool JobScriptShareAll(double job)
+    {
+        ScriptJobSetup setup = PreparedJob(job);
+        if (setup == null) return Refuse("Not a prepared script job (JobScriptCreate makes one; data is given before JobScriptStart).");
+        setup.ShareAll = true;
+        SetJobError(string.Empty);
+        return true;
+    }
 
     private static bool ShareWithJob(double job, string family, double handle, bool copyBack)
     {
         ScriptJobSetup setup = PreparedJob(job);
         if (setup == null) return Refuse("Not a prepared script job (JobScriptCreate makes one; data is given before JobScriptStart).");
-        bool exists = family == "grid" ? Resolve<PgslGrid>("grid", handle) != null : Resolve<List<object>>("list", handle) != null;
+        bool exists = family switch
+        {
+            "grid" => ResolveRead<PgslGrid>("grid", handle) != null,
+            "map" => ResolveRead<PgslMap>("map", handle) != null,
+            _ => ResolveRead<List<object>>("list", handle) != null,
+        };
         if (!exists) return Refuse($"No {family} with handle {StringOf(handle)} in this Object.");
         int at = setup.Shared.FindIndex(entry => entry.Family == family && entry.Handle == (int)handle);
         if (at >= 0) setup.Shared[at] = (family, (int)handle, copyBack);
@@ -231,23 +254,9 @@ public static partial class PgslCommands
                 return Refuse($"Argument {i + 1} of a job must be a number, true or false, or text; give grids and lists with JobScriptGrid / JobScriptList.");
         }
 
-        // The job's own copies, taken now: the game may change its grids while the job runs.
         Dictionary<string, object> store = Store;
-        Dictionary<string, object> data = new(StringComparer.Ordinal);
-        // Structures the job makes get the handles they would get here, after the game's own.
-        foreach (string family in DsFamilies)
-            if (store.TryGetValue("__ds_next_" + family, out object next)) data["__ds_next_" + family] = next;
         foreach ((string family, int handle, _) in setup.Shared)
-        {
-            string key = DsKey(family, handle);
-            if (!store.TryGetValue(key, out object live)) return Refuse($"The {family} {handle} given to the job no longer exists.");
-            data[key] = live switch
-            {
-                PgslGrid grid => new PgslGrid { Cells = (double[])grid.Cells.Clone(), Width = grid.Width, Height = grid.Height },
-                List<object> list => new List<object>(list),
-                _ => null,
-            };
-        }
+            if (!store.TryGetValue(DsKey(family, handle), out _)) return Refuse($"The {family} {handle} given to the job no longer exists.");
 
         var call = new StringBuilder("__jobResult = ").Append(setup.Function).Append('(');
         for (int i = 0; i < arguments.Length; i++) call.Append(i == 0 ? "argument0" : ", argument" + i.ToString(CultureInfo.InvariantCulture));
@@ -256,13 +265,48 @@ public static partial class PgslCommands
         catch (Exception error) { return Refuse("The job's call did not compile: " + error.Message); }
         PgslEngineBridge game = VMEngine.Bridge;
         if (driver == null || game == null) return Refuse("The job's call did not compile.");
-
         PgslContext owner = GetContext();
-        var run = new ScriptJobRun(setup.Function, driver, setup.Library, copied, data, new Dictionary<string, object>(setup.Variables, StringComparer.Ordinal),
+        if (!JobPools.TryGetValue(owner, out NativeJobPool pool)) return Refuse("Not a prepared script job (it may have started already).");
+
+        // The job's data, as it is now: shared with the job, not copied (PgslCommands.SharedData.cs),
+        // so the game may go on changing its own while the job runs and the job never sees it.
+        Dictionary<string, object> data = new(StringComparer.Ordinal);
+        // Structures the job makes get the handles they would get here, after the game's own.
+        foreach (string family in DsFamilies)
+            if (store.TryGetValue("__ds_next_" + family, out object next)) data["__ds_next_" + family] = next;
+        List<SharedData> held = [];
+        void Give(string key, object value)
+        {
+            if (data.ContainsKey(key)) return;
+            SharedData shared = ShareEntry(store, key, value);
+            if (shared == null) return;
+            data[key] = shared;
+            held.Add(shared);
+        }
+        if (setup.ShareAll)
+        {
+            List<KeyValuePair<string, object>> structures = new(store.Count);
+            foreach (KeyValuePair<string, object> pair in store)
+                if (IsStructureKey(pair.Key)) structures.Add(pair);
+            foreach (KeyValuePair<string, object> pair in structures) Give(pair.Key, pair.Value);
+        }
+        foreach ((string family, int handle, _) in setup.Shared)
+        {
+            string key = DsKey(family, handle);
+            Give(key, store[key]);
+        }
+        KeyValuePair<string, VmValue>[] variables = setup.ShareAll && owner.ActiveVm is PgslVm ownerVm ? ownerVm.ShareableVariables() : null;
+        SharedData[] holds = [.. held];
+
+        var run = new ScriptJobRun(setup.Function, driver, setup.Library, copied, data, variables, new Dictionary<string, object>(setup.Variables, StringComparer.Ordinal),
             setup.Shared.Where(entry => entry.CopyBack).Select(entry => (entry.Family, entry.Handle)).ToArray(),
             setup.Budget, game, owner.RoomWidth, owner.RoomHeight);
-        if (!JobPools.TryGetValue(owner, out NativeJobPool pool) || !pool.Launch(JobId(job), token => RunScriptJob(run, token)))
+        // The job lets go of its data once its work has ended (or it ended without running).
+        if (!pool.Launch(JobId(job), token => RunScriptJob(run, token), () => ReleaseShared(holds)))
+        {
+            ReleaseShared(holds);
             return Refuse("Not a prepared script job (it may have started already).");
+        }
         SetJobError(string.Empty);
         return true;
     }
@@ -281,7 +325,7 @@ public static partial class PgslCommands
     }
 
     [PgslCommand("JobTake", "JobTake(job) -> bool",
-        "When a script job has succeeded, copy the grids and lists it was given with copyBack into this Object's own (once); its result stays readable until JobRelease", "Native Jobs")]
+        "When a script job has succeeded, put the grids, lists and maps it was given with copyBack, and changed, into this Object's own (once); its result stays readable until JobRelease", "Native Jobs")]
     public static bool JobTake(double job)
     {
         NativeJobPool.Snapshot snapshot = JobSnapshot(job);
@@ -289,19 +333,15 @@ public static partial class PgslCommands
             return Refuse("Job has not succeeded: " + snapshot.State + (snapshot.Error.Length > 0 ? ". " + snapshot.Error : "."));
         if (snapshot.Value is not ScriptJobOutcome outcome) return Refuse("Not a script job: it has no data to take.");
         if (outcome.Taken) return Refuse("This job's data was taken already.");
+        // Each is the job's own (it changed it, so it made its own copy) and the job has ended: it
+        // becomes the Object's structure under the same handle, in place of whatever it holds now.
+        Dictionary<string, object> store = Store;
         foreach ((string family, int handle, object data) in outcome.Outputs)
         {
-            if (family == "grid" && data is PgslGrid result && Resolve<PgslGrid>("grid", handle) is { } grid)
-            {
-                grid.Cells = result.Cells;
-                grid.Width = result.Width;
-                grid.Height = result.Height;
-            }
-            else if (family == "list" && data is List<object> entries && Resolve<List<object>>("list", handle) is { } list)
-            {
-                list.Clear();
-                list.AddRange(entries);
-            }
+            string key = DsKey(family, handle);
+            if (store == null || !store.TryGetValue(key, out object current)) continue;
+            object live = current is SharedData shared ? shared.Value : current;
+            if (live?.GetType() == data?.GetType()) store[key] = data;
         }
         outcome.Taken = true;
         outcome.Outputs = [];
@@ -314,8 +354,8 @@ public static partial class PgslCommands
         JobSnapshot(job).Value is ScriptJobOutcome outcome ? outcome.WorkerMilliseconds : 0;
 
     private sealed record ScriptJobRun(string Function, CompileResult Driver, IReadOnlyDictionary<string, UserFunction> Library,
-        object[] Arguments, Dictionary<string, object> Data, Dictionary<string, object> Variables, (string Family, int Handle)[] CopyBack, long Budget,
-        PgslEngineBridge Game, double RoomWidth, double RoomHeight);
+        object[] Arguments, Dictionary<string, object> Data, KeyValuePair<string, VmValue>[] SharedVariables, Dictionary<string, object> Variables,
+        (string Family, int Handle)[] CopyBack, long Budget, PgslEngineBridge Game, double RoomWidth, double RoomHeight);
 
     // On a worker thread: a VM, bridge and context of the job's own; nothing of the game's is written.
     private static NativeJobPool.Result RunScriptJob(ScriptJobRun run, CancellationToken token)
@@ -330,6 +370,7 @@ public static partial class PgslCommands
             bridge.SetContext(context);
             var vm = new PgslVm(bridge) { JobBudget = new PgslJobBudget(run.Budget, token), LibraryFunctions = run.Library };
             context.ActiveVm = vm;
+            if (run.SharedVariables != null) vm.LoadVariables(run.SharedVariables);
             foreach (KeyValuePair<string, object> pair in run.Variables) vm.SetVariable(pair.Key, pair.Value);
             vm.SetScriptArguments(run.Arguments);
             vm.Execute(run.Driver.Instructions, run.Driver.Constants, clearVariables: false);
@@ -338,8 +379,10 @@ public static partial class PgslCommands
             {
                 Result = value switch { double or bool or string => value, null => 0.0, _ => Convert.ToString(value, CultureInfo.InvariantCulture) },
             };
+            // Only what the job changed comes back: one it left alone is still the shared original
+            // (and the game's own may have moved on since).
             foreach ((string family, int handle) in run.CopyBack)
-                if (context.Variables.TryGetValue(DsKey(family, handle), out object data))
+                if (context.Variables.TryGetValue(DsKey(family, handle), out object data) && data is not SharedData)
                     outcome.Outputs.Add((family, handle, data));
             outcome.WorkerMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
             return new NativeJobPool.Result("script", outcome);

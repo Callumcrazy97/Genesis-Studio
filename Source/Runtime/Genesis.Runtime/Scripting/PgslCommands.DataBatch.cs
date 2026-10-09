@@ -26,7 +26,7 @@ public static partial class PgslCommands
     public static double DsGridCopyRegion(double destination, double dx, double dy, double source, double x1, double y1, double x2, double y2)
     {
         PgslGrid to = Resolve<PgslGrid>("grid", destination);
-        PgslGrid from = Resolve<PgslGrid>("grid", source);
+        PgslGrid from = ResolveRead<PgslGrid>("grid", source);
         if (to is null || from is null || !(Math.Abs(dx) < 1e9) || !(Math.Abs(dy) < 1e9)) return 0;
         (int left, int top, int right, int bottom) = ClipRegion(from, x1, y1, x2, y2);
         // Where the clipped region lands: the requested corner keeps its place relative to it.
@@ -57,7 +57,7 @@ public static partial class PgslCommands
         "Replace a list's entries with a region's cells, row by row (cells outside the grid read 0); returns the entries written", "Grids")]
     public static double DsGridToList(double grid, double x1, double y1, double x2, double y2, double list)
     {
-        PgslGrid from = Resolve<PgslGrid>("grid", grid);
+        PgslGrid from = ResolveRead<PgslGrid>("grid", grid);
         List<object> to = Resolve<List<object>>("list", list);
         if (from is null || to is null) return 0;
         (int left, int top, int right, int bottom) = NormaliseRegion(x1, y1, x2, y2);
@@ -67,7 +67,7 @@ public static partial class PgslCommands
         if (to.Capacity < count) to.Capacity = (int)count;
         for (int y = top; y <= bottom; y++)
         {
-            for (int x = left; x <= right; x++) to.Add(from.Get(x, y));
+            for (int x = left; x <= right; x++) to.Add(BoxNumber(from.Get(x, y)));
         }
         return count;
     }
@@ -77,7 +77,7 @@ public static partial class PgslCommands
     public static double DsGridFromList(double grid, double x1, double y1, double x2, double y2, double list)
     {
         PgslGrid to = Resolve<PgslGrid>("grid", grid);
-        List<object> from = Resolve<List<object>>("list", list);
+        List<object> from = ResolveRead<List<object>>("list", list);
         if (to is null || from is null) return 0;
         (int left, int top, int right, int bottom) = NormaliseRegion(x1, y1, x2, y2);
         long width = (long)right - left + 1;
@@ -102,7 +102,7 @@ public static partial class PgslCommands
         "How many cells of a region hold the value", "Grids")]
     public static double DsGridCount(double grid, double x1, double y1, double x2, double y2, double value)
     {
-        PgslGrid target = Resolve<PgslGrid>("grid", grid);
+        PgslGrid target = ResolveRead<PgslGrid>("grid", grid);
         if (target is null) return 0;
         (int left, int top, int right, int bottom) = ClipRegion(target, x1, y1, x2, y2);
         int count = 0;
@@ -127,7 +127,7 @@ public static partial class PgslCommands
 
     private static double GridSearch(double grid, double x1, double y1, double x2, double y2, double value, bool wantEqual)
     {
-        PgslGrid target = Resolve<PgslGrid>("grid", grid);
+        PgslGrid target = ResolveRead<PgslGrid>("grid", grid);
         if (target is null || !double.IsFinite(x1) || !double.IsFinite(y1) || !double.IsFinite(x2) || !double.IsFinite(y2)) return -1;
         (int left, int top, int right, int bottom) = ClipRegion(target, x1, y1, x2, y2);
         if (left > right || top > bottom) return -1;
@@ -182,7 +182,7 @@ public static partial class PgslCommands
     public static double DsGridAddGrid(double destination, double source, double factor)
     {
         PgslGrid to = Resolve<PgslGrid>("grid", destination);
-        PgslGrid from = Resolve<PgslGrid>("grid", source);
+        PgslGrid from = ResolveRead<PgslGrid>("grid", source);
         if (to is null || from is null) return 0;
         int width = Math.Min(to.Width, from.Width), height = Math.Min(to.Height, from.Height);
         for (int y = 0; y < height; y++)
@@ -209,7 +209,7 @@ public static partial class PgslCommands
     public static void DsListCopy(double destination, double source)
     {
         List<object> to = Resolve<List<object>>("list", destination);
-        List<object> from = Resolve<List<object>>("list", source);
+        List<object> from = ResolveRead<List<object>>("list", source);
         if (to is null || from is null || ReferenceEquals(to, from)) return;
         to.Clear();
         to.AddRange(from);

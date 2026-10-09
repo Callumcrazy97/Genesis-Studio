@@ -78,8 +78,11 @@ internal sealed class NativeJobPool
         }
     }
 
-    /// <summary>Starts a prepared job on a script worker; false when it is not prepared.</summary>
-    public bool Launch(int id, Func<CancellationToken, Result> operation)
+    /// <summary>
+    /// Starts a prepared job on a script worker; false when it is not prepared. <paramref name="ended"/>
+    /// runs once on the worker when the job's work has ended, whether it ran, failed or was cancelled first.
+    /// </summary>
+    public bool Launch(int id, Func<CancellationToken, Result> operation, Action? ended = null)
     {
         lock (_gate)
         {
@@ -89,19 +92,29 @@ internal sealed class NativeJobPool
                 if (job.State != "prepared") return false;
                 job.State = "queued"; job.Payload = null; job.WorkEnded = false;
             }
-            RunOnScriptThread(job, job.Kind, operation);
+            RunOnScriptThread(job, job.Kind, operation, ended);
             return true;
         }
     }
 
-    private static void RunOnScriptThread(Job job, string kind, Func<CancellationToken, Result> operation)
+    private static void RunOnScriptThread(Job job, string kind, Func<CancellationToken, Result> operation, Action? ended)
     {
         ScriptQueue.Add(() =>
         {
+            bool endedCalled = false;
+            void End()
+            {
+                if (endedCalled) return;
+                endedCalled = true;
+                try { ended?.Invoke(); }
+                catch (Exception) { }
+            }
             try
             {
                 lock (job) { job.Cancellation.Token.ThrowIfCancellationRequested(); job.State = "running"; }
                 Result result = operation(job.Cancellation.Token);
+                // A job that reads as succeeded has let go of what it held.
+                End();
                 if (result.Kind != kind) throw new InvalidOperationException("Native operation returned an incorrect result kind.");
                 lock (job) { job.Value = result.Value; job.State = "succeeded"; }
             }
@@ -109,6 +122,7 @@ internal sealed class NativeJobPool
             catch (Exception error) { lock (job) { job.State = "failed"; job.Error = error.Message; } }
             finally
             {
+                End();
                 lock (job) { job.WorkEnded = true; if (job.Released) DropLease(job); }
             }
         });

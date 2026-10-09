@@ -172,6 +172,9 @@ namespace Genesis.Runtime.Debugger
                 {
                     foreach (var (k, v) in pgsl.Context.Variables)
                     {
+                        // "__" keys are the engine's own storage (every list, grid and map of the
+                        // Object, job state): thousands in a big game, copied every frame for nothing.
+                        if (k.StartsWith("__", StringComparison.Ordinal)) continue;
                         info.CustomVars[k] = v;
                     }
                     if (pgsl.Context.Speed != 0) info.BuiltInVars["speed"] = pgsl.Context.Speed;

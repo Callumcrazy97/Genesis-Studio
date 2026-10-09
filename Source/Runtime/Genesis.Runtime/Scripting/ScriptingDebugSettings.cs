@@ -21,6 +21,11 @@ namespace Genesis.Runtime.Scripting
         /// function by the name it carries. GENESIS_VM_FAST_CALLS=0 turns both off, for comparison.
         /// </summary>
         public static bool VmFastCalls { get; set; } = System.Environment.GetEnvironmentVariable("GENESIS_VM_FAST_CALLS") != "0";
+        /// <summary>
+        /// Small whole numbers stored in lists, maps and variables share one box each instead of a new
+        /// one every time. GENESIS_VM_SHARED_BOXES=0 turns it off, for comparison.
+        /// </summary>
+        public static readonly bool VmSharedNumberBoxes = System.Environment.GetEnvironmentVariable("GENESIS_VM_SHARED_BOXES") != "0";
         public static bool UsePgCollections { get; set; } = true;
         public static bool EnableShadowVM { get; set; } = true;
     }
