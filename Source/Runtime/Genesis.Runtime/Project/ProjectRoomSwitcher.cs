@@ -181,6 +181,8 @@ namespace Genesis.Runtime.Project
             _spread = Budget > 0 && !liveReload;
             // The load profile of a room change covers the change alone, not the play before it.
             Genesis.Shared.Diagnostics.LoadProfile.Reset();
+            // Flashes belong to the room being left (a live reload keeps the room, and them).
+            if (!liveReload) Genesis.Runtime.Rendering.FlashLights.Clear();
             _framesSpread = 0;
             _longestPieceMilliseconds = 0;
             _progress = new RoomChangeProgress { RoomName = roomName, Advance = Advance };

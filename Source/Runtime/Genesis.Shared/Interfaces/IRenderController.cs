@@ -255,6 +255,21 @@ namespace Genesis.Shared.Interfaces
             float falloff = 2f)
             => AddPointLight(position, color, radius, intensity, falloff);
 
+        /// <summary>
+        /// Add a short-lived point light for this frame: a muzzle flash, an explosion, a spark. It
+        /// lights surfaces and fog like any point light and shares the clustered light list (over the
+        /// scene light cap the strongest lights by distance and brightness are kept, flashes or not),
+        /// but it never takes a local shadow slot, so firing does not take a lamp's shadow away or
+        /// redraw a shadow cube every shot. Renderers without the distinction add a point light.
+        /// </summary>
+        void AddFlashLight(
+            Vector3 position,
+            Vector3 color,
+            float radius,
+            float intensity = 1f,
+            float falloff = 2f)
+            => AddPointLight(position, color, radius, intensity, falloff);
+
         /// <summary>Remove all point lights added since the last BeginFrame.</summary>
         void ClearPointLights();
 

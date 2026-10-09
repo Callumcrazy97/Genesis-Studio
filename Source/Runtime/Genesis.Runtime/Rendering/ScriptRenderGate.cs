@@ -131,6 +131,8 @@ namespace Genesis.Runtime.Rendering
         public void AddSpotLight(Vector3 position, Vector3 direction, Vector3 color, float radius,
             float intensity = 1f, float innerAngleDegrees = 20f, float outerAngleDegrees = 30f, float falloff = 2f)
             => _inner.AddSpotLight(position, direction, color, radius, intensity, innerAngleDegrees, outerAngleDegrees, falloff);
+        public void AddFlashLight(Vector3 position, Vector3 color, float radius, float intensity = 1f, float falloff = 2f)
+            => _inner.AddFlashLight(position, color, radius, intensity, falloff);
         public void ClearPointLights() => _inner.ClearPointLights();
         public void AddFogVolume(FogVolume volume) => _inner.AddFogVolume(volume);
         public void ClearFogVolumes() => _inner.ClearFogVolumes();

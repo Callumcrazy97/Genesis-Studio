@@ -82,6 +82,7 @@ namespace Genesis.Runtime.Project
             Genesis.Runtime.Particles.ParticleBursts.ResetLimit();
             Genesis.Runtime.Rendering.ScriptTextures.Reset();
             Genesis.Runtime.Rendering.ModelLayers.Reset();
+            Genesis.Runtime.Rendering.FlashLights.Reset();
             Genesis.Runtime.Input.InputReplay.Reset();
             Genesis.Runtime.Input.InputReplay.ReplayEnded -= OnInputReplayEnded;
             Genesis.Runtime.Input.InputReplay.ReplayEnded += OnInputReplayEnded;
