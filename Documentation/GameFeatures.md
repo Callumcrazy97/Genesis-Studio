@@ -1316,6 +1316,43 @@ the scripts' Draw events in "gathering what to draw" and names them among the lo
 for the graphics card to give its buffers back) and `project post effects`. All three used to be
 part of the time "outside the frame's own work", which was most of a game's long first frames.
 
+## Surface shaders, a shader per material and each instance's own camo
+
+Added 9 October 2026 (request 33 of the Aetherium port). [Mesh shaders](MeshShaders.md) has the
+whole contract.
+
+- **Surface shaders.** A mesh Shader resource that starts with `#include "GenesisSurface.hlsl"`
+  writes one function, `void Surface(GenesisSurfaceInput i, inout GenesisSurface s)`, which is
+  handed the material's own albedo, alpha, normal, roughness, metalness, occlusion and emission and
+  may change any of them; the engine then lights the result exactly as it lights its own materials
+  (sun and shadows, ambient, point and spot lights and their shadows, environment reflection, wet
+  weather, fog, glow). The inputs are documented and versioned: world position, normals, view
+  direction, camera, UVs, the draw's colour, the material's base texture, screen position, time,
+  frame, resolution, the sun and the ambient light. `GenesisColor`, `GenesisFresnel`,
+  `GenesisPerturbNormal`, `GenesisLuminance` and the sampler `GenesisLinearWrap` help. A camo
+  pattern, lit windows at dusk and glass with a Fresnel edge no longer copy the engine's lighting or
+  its constant buffers. Shaders without the include are full pixel shaders, as before.
+- **A shader per material.** A model's material can have a mesh shader of its own, chosen in the
+  Model editor (**Texture** page, **Material & PBR**, **Shader**) and kept in the `.model.json`'s
+  `materialShaders`. It now wins over the Object's shader in a room too, as it already did in the
+  Object editor's preview: a building's glass keeps its glass shader while the Object's shader
+  covers the walls.
+- **Each instance's values and images.** `ShaderSetParameter`, `ShaderSetVector` and their
+  `Instance…` forms now reach the shaders of an instance's model materials as well as its Object
+  shader. New: `ShaderSetTexture(name, image)` / `InstanceSetShaderTexture(id, name, image)` swap one
+  of the instance's shader textures, and `ModelSetMaterialTexture(material, slot, image)` /
+  `InstanceSetMaterialTexture(id, material, slot, image)` swap one material's image on one instance:
+  `albedo`, `normal`, `orm`, `emission`, or a texture that material's shader declares. Draws with
+  the same shader, values and images still share one instanced batch; an instance with values of
+  its own takes a batch of its own and nothing else changes.
+
+`Build.bat --test mesh-surface` checks all of it on DX11, DX12, Vulkan and OpenGL: an empty surface
+and a surface painting its parameters' colour match the engine's material pixel for pixel at tile
+resolution (difference 0.00 on all four), including sun shadows and a lamp; emission, see-through
+glass, three guns each wearing its own camo through one material shader, an Object shader on the
+rest of the model, a swapped pattern and a swapped albedo; and twelve boxes sharing values in one
+batch, one more for an instance with values of its own. Not yet seen in a running game.
+
 ## Smaller changes
 
 - **Bushes and saplings.** The `Shrub` and `Sapling` foliage shapes are built from rounded solid

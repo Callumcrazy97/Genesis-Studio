@@ -145,6 +145,11 @@ namespace Genesis.Runtime.Modeling
             return true;
         }
 
+        /// <param name="shaderParameters">
+        /// The instance's own values for its shaders (ShaderSetParameter), applied to its materials'
+        /// own shaders as well; null for none.
+        /// </param>
+        /// <param name="shaderResources">The instance's own images for its shaders' textures (ShaderSetTexture); null for none.</param>
         public bool Enqueue(
             IMeshDrawList queue,
             string projectPath,
@@ -154,14 +159,17 @@ namespace Genesis.Runtime.Modeling
             Draw3DComponent draw3d,
             ModelRendererComponent rendererComponent,
             RuntimeModelAnimationState animation,
-            IRenderController renderer)
+            IRenderController renderer,
+            IReadOnlyDictionary<string, float[]> shaderParameters = null,
+            IReadOnlyDictionary<string, string> shaderResources = null)
         {
             if (queue == null || renderer == null || string.IsNullOrWhiteSpace(modelName))
                 return false;
 
             GModelAsset asset = LoadModel(projectPath, modelName);
             return EnqueueAsset(queue, asset, projectPath, materialOverride, world, draw3d,
-                rendererComponent, animation, renderer);
+                rendererComponent, animation, renderer,
+                shaderParameters: shaderParameters, shaderResources: shaderResources);
         }
 
         /// <summary>The asset a Model resource name resolves to, from the shared cache.</summary>
@@ -262,7 +270,9 @@ namespace Genesis.Runtime.Modeling
             RenderColor? tintOverride = null,
             float alphaMultiplier = 1f,
             int forcedLevel = -1,
-            List<ModelGpuCache.CachedMesh> drawn = null)
+            List<ModelGpuCache.CachedMesh> drawn = null,
+            IReadOnlyDictionary<string, float[]> shaderParameters = null,
+            IReadOnlyDictionary<string, string> shaderResources = null)
         {
             if (queue == null || renderer == null || asset == null) return false;
             ModelGpuCache.CachedAsset gpuAsset;
@@ -345,17 +355,22 @@ namespace Genesis.Runtime.Modeling
                     if (material?.AlphaMode == GModelAlphaMode.Blend)
                         flags |= MeshDrawFlags.Transparent | MeshDrawFlags.NoDepthWrite | MeshDrawFlags.NoShadow;
                     bool hasOverride = !string.IsNullOrWhiteSpace(materialOverride);
+                    // This instance's own images for the material (ModelSetMaterialTexture).
+                    Dictionary<string, string> ownTextures = material != null
+                        && rendererComponent.MaterialTextures != null
+                        && rendererComponent.MaterialTextures.TryGetValue(material.Name ?? string.Empty, out Dictionary<string, string> own)
+                        ? own : null;
                     Genesis.Shared.Diagnostics.LoadProfile.Span texturesProfile = Genesis.Shared.Diagnostics.LoadProfile.Begin("model: material textures");
                     texture = animation.IgnoreTextures ? TextureHandle.Invalid : LoadMaterialTexture(
                         renderer,
                         projectPath,
-                        hasOverride ? materialOverride : material?.AlbedoTexture,
+                        hasOverride ? materialOverride : OwnTexture(ownTextures, MaterialTextureSlots.Albedo, material?.AlbedoTexture),
                         TextureColorSpace.Srgb, background, ref texturesPending);
                     if (!animation.IgnoreTextures && !hasOverride && material is not null)
                     {
-                        normalMap = LoadMaterialTexture(renderer, projectPath, material.NormalTexture, TextureColorSpace.Linear, background, ref texturesPending);
-                        ormMap = LoadMaterialTexture(renderer, projectPath, material.MetallicRoughnessTexture, TextureColorSpace.Linear, background, ref texturesPending);
-                        emissionMap = LoadMaterialTexture(renderer, projectPath, material.EmissiveTexture, TextureColorSpace.Srgb, background, ref texturesPending);
+                        normalMap = LoadMaterialTexture(renderer, projectPath, OwnTexture(ownTextures, MaterialTextureSlots.Normal, material.NormalTexture), TextureColorSpace.Linear, background, ref texturesPending);
+                        ormMap = LoadMaterialTexture(renderer, projectPath, OwnTexture(ownTextures, MaterialTextureSlots.Orm, material.MetallicRoughnessTexture), TextureColorSpace.Linear, background, ref texturesPending);
+                        emissionMap = LoadMaterialTexture(renderer, projectPath, OwnTexture(ownTextures, MaterialTextureSlots.Emission, material.EmissiveTexture), TextureColorSpace.Srgb, background, ref texturesPending);
                     }
                     texturesProfile.Dispose();
 
@@ -429,16 +444,26 @@ namespace Genesis.Runtime.Modeling
                     Layer = Genesis.Runtime.Rendering.ModelLayers.IsOverlay(rendererComponent.ModelLayer) ? rendererComponent.ModelLayer : 0,
                 };
                 // A material may name a mesh Shader resource of its own: a building's glass and walls
-                // are one model.
+                // are one model. The instance's own shader values and images reach it as well, so
+                // every weapon on a map can wear its own camo.
                 if (!string.IsNullOrWhiteSpace(material?.Shader) && !animation.FlatUntextured)
                 {
+                    Dictionary<string, string> ownShaderTextures = material != null
+                        && rendererComponent.MaterialTextures != null
+                        && rendererComponent.MaterialTextures.TryGetValue(material.Name ?? string.Empty, out Dictionary<string, string> forShader)
+                        ? forShader : null;
                     using (Genesis.Shared.Diagnostics.LoadProfile.Begin("model: material's own shader"))
-                        Genesis.Runtime.Rendering.ObjectDrawPass.TryApplyMaterialShader(renderer, projectPath, material.Shader, ref draw);
+                        Genesis.Runtime.Rendering.ObjectDrawPass.TryApplyMaterialShader(renderer, projectPath, material.Shader,
+                            shaderParameters, shaderResources, ownShaderTextures, ref draw);
                 }
                 queue.Add(draw);
             }
             return true;
         }
+
+        /// <summary>The instance's own image for a material slot, or the material's.</summary>
+        private static string OwnTexture(Dictionary<string, string> own, string slot, string authored) =>
+            own != null && own.TryGetValue(slot, out string image) && !string.IsNullOrWhiteSpace(image) ? image : authored;
 
         /// <summary>Resolves a fixed authored LOD policy to an available level.</summary>
         public static int ResolveLodLevel(GModelAsset asset, int requested)

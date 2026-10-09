@@ -38,6 +38,12 @@ namespace Genesis.Runtime.ECS.Components
         public float? EmissionScale;
         /// <summary>Light given off by named materials on this instance, replacing what each was authored with.</summary>
         public System.Collections.Generic.Dictionary<string, float> MaterialEmission;
+        /// <summary>
+        /// Images named materials use on this instance in place of their own, by material name and
+        /// then slot: <c>albedo</c>, <c>normal</c>, <c>orm</c>, <c>emission</c>, or the name of a
+        /// texture the material's Shader declares (ModelSetMaterialTexture). Null is as authored.
+        /// </summary>
+        public System.Collections.Generic.Dictionary<string, System.Collections.Generic.Dictionary<string, string>> MaterialTextures;
     }
 
     /// <summary>Deterministic clip playback state for GPU-skinned .gmodel assets.</summary>

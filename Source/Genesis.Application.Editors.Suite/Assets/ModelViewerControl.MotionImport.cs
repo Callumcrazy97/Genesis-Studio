@@ -95,6 +95,7 @@ public partial class ModelViewerControl
         document["schemaVersion"] = 5; document["parts"] = new JsonArray(); document.Remove("primitive");
         document["rig"] = asset.Rig.IsValid ? "Canonical" : null;
         document["animations"] = new JsonArray(asset.Animations.Select(c => (JsonNode?)JsonValue.Create(c.Name)).ToArray());
+        WriteMaterialShaders(document, asset);
         string canonical = StudioModelResourceLoader.CanonicalPath(ResourcePath);
         string staged = Path.Combine(ResourceAssociates.GetModelDataDirectory(ResourcePath), ".motion-import-" + Guid.NewGuid().ToString("N") + ".gmodel");
         string backup = staged + ".previous"; bool replaced = false, rollbackSucceeded = true;
@@ -122,6 +123,37 @@ public partial class ModelViewerControl
         {
             if (File.Exists(staged)) File.Delete(staged);
             if (rollbackSucceeded && File.Exists(backup)) File.Delete(backup);
+        }
+    }
+
+    /// <summary>
+    /// Keeps each material's own mesh shader in the descriptor's <c>materialShaders</c>, where a
+    /// re-import of the model's source cannot lose it. Entries for materials the model does not
+    /// have (any more) are left as they are.
+    /// </summary>
+    public static void WriteMaterialShaders(JsonObject document, GModelAsset asset)
+    {
+        // The descriptor is read without regard to case, so an existing "MaterialShaders" is the same entry.
+        string property = document.Select(entry => entry.Key)
+            .FirstOrDefault(key => string.Equals(key, "materialShaders", StringComparison.OrdinalIgnoreCase)) ?? "materialShaders";
+        JsonObject? existing = document[property] as JsonObject;
+        JsonObject map = existing ?? new JsonObject();
+        foreach (GModelMaterial material in asset.Materials)
+        {
+            if (string.IsNullOrWhiteSpace(material?.Name)) continue;
+            foreach (string key in map.Select(entry => entry.Key)
+                         .Where(key => string.Equals(key, material.Name, StringComparison.OrdinalIgnoreCase)).ToArray())
+                map.Remove(key);
+            if (!string.IsNullOrWhiteSpace(material.Shader)) map[material.Name] = material.Shader.Trim();
+        }
+        if (existing is not null)
+        {
+            if (map.Count == 0) document.Remove(property);
+        }
+        else if (map.Count > 0)
+        {
+            document.Remove(property);
+            document[property] = map;
         }
     }
 }

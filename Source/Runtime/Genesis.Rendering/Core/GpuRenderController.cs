@@ -1736,6 +1736,17 @@ namespace Genesis.Rendering.Core
                 _gpu.ShaderBinaryFormat,
                 sourcePath,
                 includeRoots).Blob;
+            if (profile == ShaderPreviewProfile.MeshPipeline && MeshSurfaceShaders.IsSurfaceSource(hlslSourceCode))
+            {
+                // A surface shader reads the engine's own constants: say so, so they stay bound.
+                if (!_initialized || psBlob.Length == 0) return;
+                _fwd?.SetShaderProgramOverride(null, psBlob, engineLit: true);
+                _spr?.ClearPixelShaderOverride();
+                _shaderPreview?.SetPixelShader(null);
+                _previewProfile = profile;
+                EnsureShaderFrameBuffer();
+                return;
+            }
             ApplyPreviewShaderBytecode(psBlob, profile);
         }
 
@@ -1783,7 +1794,7 @@ namespace Genesis.Rendering.Core
             }
             else if (profile == ShaderPreviewProfile.MeshPipeline)
             {
-                _fwd?.SetShaderProgramOverride(vertex, pixel);
+                _fwd?.SetShaderProgramOverride(vertex, pixel, MeshSurfaceShaders.IsSurfaceSource(hlslSourceCode));
                 _spr?.ClearPixelShaderOverride();
                 _shaderPreview?.SetPixelShader(null);
             }
@@ -1855,7 +1866,7 @@ namespace Genesis.Rendering.Core
                 includeRoots).Blob;
             EnsureShaderFrameBuffer();
             return profile == ShaderPreviewProfile.MeshPipeline
-                ? _fwd.RegisterRuntimeShader(blob)
+                ? _fwd.RegisterRuntimeShader(blob, MeshSurfaceShaders.IsSurfaceSource(hlslSourceCode))
                 : _spr.RegisterRuntimeShader(blob);
         }
 
@@ -1890,7 +1901,8 @@ namespace Genesis.Rendering.Core
                 includeRoots).Blob;
             EnsureShaderFrameBuffer();
             return profile == ShaderPreviewProfile.MeshPipeline
-                ? _fwd.RegisterRuntimeShaderProgram(vertex, pixel)
+                ? _fwd.RegisterRuntimeShaderProgram(vertex, pixel,
+                    engineLit: MeshSurfaceShaders.IsSurfaceSource(hlslSourceCode))
                 : _spr.RegisterRuntimeShaderProgram(vertex, pixel);
         }
 
@@ -1905,7 +1917,8 @@ namespace Genesis.Rendering.Core
             byte[] skinned = Compile(pass.SkinnedVertexEntry, GpuShaderStage.Vertex);
             byte[] pixel = Compile(string.IsNullOrWhiteSpace(pass.Entry) ? "MainPS" : pass.Entry, GpuShaderStage.Pixel);
             EnsureShaderFrameBuffer();
-            return _fwd.RegisterRuntimeShaderProgram(vertex, pixel, skinned, pass.MeshPassMode);
+            return _fwd.RegisterRuntimeShaderProgram(vertex, pixel, skinned, pass.MeshPassMode,
+                engineLit: MeshSurfaceShaders.IsSurfaceSource(source));
         }
 
         public void ReleaseRuntimeShader(RuntimeShaderHandle handle, ShaderPreviewProfile profile)
