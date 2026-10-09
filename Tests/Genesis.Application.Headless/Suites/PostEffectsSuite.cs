@@ -174,14 +174,19 @@ internal static class PostEffectsSuite
             string objectFile = resources.CreateResource(objects, ResourceKind.GameObject, "Asker");
             File.WriteAllText(objectFile, "{\"schemaVersion\":2,\"dimension\":\"ThreeD\",\"components\":[{\"type\":\"ScriptComponent\",\"props\":{\"ScriptClass\":\"Asker\"}}],\"events\":[\"Create\",\"Step\"]}");
             Directory.CreateDirectory(Path.Combine(objects, "Asker"));
-            File.WriteAllText(Path.Combine(objects, "Asker", "Create.pgsl"), "stage = 0; asked = 0; t0 = TimeMs();");
-            // A picture half a second in, the effect asked for three seconds in, a picture six seconds after that.
+            // The test says when the effect is compiled (it reads the game's log) by writing this file.
+            string ready = Path.Combine(parent, "effect-compiled.txt");
+            File.WriteAllText(Path.Combine(objects, "Asker", "Create.pgsl"),
+                $"stage = 0; asked = 0; readyAt = 0; t0 = TimeMs(); ready = \"{ready.Replace('\\', '/')}\";");
+            // A picture half a second in, the effect asked for three seconds in, and a picture half a
+            // second after it is compiled: a first compile under load has taken from 5 to over 10 s.
             File.WriteAllText(Path.Combine(objects, "Asker", "Step.pgsl"), """
                 SetCameraPosition(0, 2, 0); SetCameraTarget(0, 2, 10);
                 if (stage == 0 && TimeMs() > t0 + 500) { ScreenshotSave("post-player-before"); stage = 1; }
                 if (stage == 1 && ScreenshotPending() == 0 && TimeMs() > t0 + 3000) { PostEffectAdd("Fresh Invert"); asked = TimeMs(); stage = 2; }
-                if (stage == 2 && TimeMs() > asked + 6000) { ScreenshotSave("post-player-after"); stage = 3; }
-                if (stage == 3 && ScreenshotPending() == 0) { GameQuit(); stage = 4; }
+                if (stage == 2 && FileExists(ready)) { readyAt = TimeMs(); stage = 3; }
+                if (stage == 3 && TimeMs() > readyAt + 500) { ScreenshotSave("post-player-after"); stage = 4; }
+                if (stage == 4 && ScreenshotPending() == 0) { GameQuit(); stage = 5; }
                 """);
             string roomFile = ProjectRoomResolver.ResolveRoomFile(project.RootPath, project.Manifest.StartRoom);
             RoomAsset start = RoomAsset.Create("Start", RoomDimension.ThreeD);
@@ -205,18 +210,22 @@ internal static class PostEffectsSuite
             {
                 string cache = Path.Combine(parent, "ShaderCache-" + label);
                 if (Directory.Exists(images)) Directory.Delete(images, recursive: true);
-                string log = RunPlayer(runtime, project.RootPath, cache);
+                if (File.Exists(ready)) File.Delete(ready);
+                string log = RunPlayer(runtime, project.RootPath, cache, ready, out TimeSpan? readyWritten);
                 File.WriteAllText(Path.Combine(ctx.Logs, $"post-effects-player-{label}.log"), log);
                 string compiled = System.Text.RegularExpressions.Regex.Match(log, @"Post effect 'Fresh Invert' compiled on a worker in \d+ ms").Value;
-                HeadlessHarness.Assert(compiled.Length > 0, $"[{label}] The effect was not compiled on a worker. Log:\r\n{Tail(log)}");
+                HeadlessHarness.Assert(compiled.Length > 0 && readyWritten != null, $"[{label}] The effect was not compiled on a worker. Log:\r\n{Tail(log)}");
                 Console.WriteLine($"[PostEffects] {label}: {compiled}");
-                // No frame after the effect was asked for (and before the second picture) may wait for it.
+                // No frame after the effect was asked for, until it was compiled and made into a
+                // program (the line just after the compile is logged), may wait for it.
                 foreach (System.Text.RegularExpressions.Match slow in System.Text.RegularExpressions.Regex.Matches(log,
-                    @"Slow frame: (\d+) ms in Start \(frame \d+, ([0-9.]+) s after the room began\)"))
+                    @"(?m)^(\d\d:\d\d:\d\d\.\d\d\d) +Slow frame: (\d+) ms in Start \(frame \d+, ([0-9.]+) s after the room began\)"))
                 {
-                    double milliseconds = double.Parse(slow.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
-                    double into = double.Parse(slow.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture);
-                    HeadlessHarness.Assert(into < 2.0 || into > 8.0 || milliseconds < 250,
+                    TimeSpan at = TimeSpan.ParseExact(slow.Groups[1].Value, @"hh\:mm\:ss\.fff", System.Globalization.CultureInfo.InvariantCulture);
+                    double milliseconds = double.Parse(slow.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture);
+                    double into = double.Parse(slow.Groups[3].Value, System.Globalization.CultureInfo.InvariantCulture);
+                    bool whileCompiling = into >= 2.0 && at <= readyWritten!.Value + TimeSpan.FromMilliseconds(400);
+                    HeadlessHarness.Assert(!whileCompiling || milliseconds < 250,
                         $"[{label}] A frame of {milliseconds} ms came {into} s into the room, after the effect was asked for: {slow.Value}");
                 }
 
@@ -239,8 +248,14 @@ internal static class PostEffectsSuite
         });
     }
 
-    private static string RunPlayer(string runtime, string projectPath, string shaderCache)
+    /// <summary>
+    /// Runs the game until it quits, writing <paramref name="readyFile"/> once its log says the
+    /// effect was compiled (at most 90 s after it starts). <paramref name="readyWritten"/> is when,
+    /// as a time of day; null if it never was.
+    /// </summary>
+    private static string RunPlayer(string runtime, string projectPath, string shaderCache, string readyFile, out TimeSpan? readyWritten)
     {
+        readyWritten = null;
         System.Diagnostics.ProcessStartInfo start = new(Path.Combine(runtime, RuntimePaths.RuntimeExeName))
         {
             WorkingDirectory = runtime, UseShellExecute = false, CreateNoWindow = true,
@@ -254,16 +269,49 @@ internal static class PostEffectsSuite
         start.Environment["GENESIS_SHADER_WARMUP"] = "0";
         foreach (string name in new[] { "GENESIS_START_ROOM", "GENESIS_AUTOSHOT", "GENESIS_BOOT_COORDINATED" }) start.Environment.Remove(name);
         using System.Diagnostics.Process process = System.Diagnostics.Process.Start(start) ?? throw new InvalidOperationException("The Player did not start.");
-        var output = process.StandardOutput.ReadToEndAsync();
-        var errors = process.StandardError.ReadToEndAsync();
-        if (!process.WaitForExit(120_000)) { process.Kill(entireProcessTree: true); process.WaitForExit(); }
+        // Read as it comes: waiting for the end of the output would also wait for a shader
+        // compiler the game started, which inherits its pipes.
+        var output = new System.Text.StringBuilder();
+        process.OutputDataReceived += (_, e) => { if (e.Data != null) lock (output) output.AppendLine(e.Data); };
+        process.ErrorDataReceived += (_, e) => { if (e.Data != null) lock (output) output.AppendLine(e.Data); };
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
         string playerLog = Path.Combine(ProjectPaths.LogsDir(projectPath), "project_player.log");
         // The renderer's own log (Genesis.Rendering.Diagnostics.RenderLog), one per process.
         string renderLog = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "GenesisRuntime", "Logs", "render-" + process.Id + ".log");
-        return (File.Exists(playerLog) ? File.ReadAllText(playerLog) : string.Empty)
-            + Environment.NewLine + (File.Exists(renderLog) ? File.ReadAllText(renderLog) : "(no render log at " + renderLog + ")")
-            + Environment.NewLine + output.GetAwaiter().GetResult() + errors.GetAwaiter().GetResult();
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        while (!process.HasExited && clock.Elapsed < TimeSpan.FromSeconds(120))
+        {
+            if (readyWritten == null && clock.Elapsed < TimeSpan.FromSeconds(90)
+                && ReadShared(renderLog).Contains("Post effect 'Fresh Invert' compiled on a worker", StringComparison.Ordinal))
+            {
+                File.WriteAllText(readyFile, "compiled");
+                readyWritten = DateTime.Now.TimeOfDay;
+            }
+            Thread.Sleep(100);
+        }
+        if (!process.WaitForExit(30_000)) { process.Kill(entireProcessTree: true); process.WaitForExit(10_000); }
+        Thread.Sleep(200);
+        string text;
+        lock (output) text = output.ToString();
+        return ReadShared(playerLog)
+            + Environment.NewLine + (File.Exists(renderLog) ? ReadShared(renderLog) : "(no render log at " + renderLog + ")")
+            + Environment.NewLine + text;
+    }
+
+    private static string ReadShared(string path)
+    {
+        try
+        {
+            using FileStream stream = new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using StreamReader reader = new(stream, System.Text.Encoding.UTF8);
+            return reader.ReadToEnd();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return "";
+        }
     }
 
     // The newest Player within reach (as PgslProjectSuite finds it).
