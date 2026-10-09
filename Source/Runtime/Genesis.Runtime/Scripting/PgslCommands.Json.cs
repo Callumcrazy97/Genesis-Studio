@@ -36,7 +36,7 @@ public static partial class PgslCommands
         kind = CollectionKind(kind);
         if (!double.IsFinite(handle) || handle < 1 || handle > int.MaxValue || Math.Truncate(handle) != handle)
             throw new ArgumentException("Invalid collection handle.");
-        bool present = kind == "map" ? Resolve<PgslMap>(kind, handle) != null : Resolve<List<object>>(kind, handle) != null;
+        bool present = kind == "map" ? ResolveRead<PgslMap>(kind, handle) != null : ResolveRead<List<object>>(kind, handle) != null;
         if (!present) throw new InvalidOperationException("Unknown or released " + kind + " handle: " + handle);
         return new(kind, (int)handle);
     }
@@ -103,11 +103,11 @@ public static partial class PgslCommands
 
     [PgslCommand("DsMapValueKind", "DsMapValueKind(id, key) -> string", "Entry type: map, list, number, string, boolean, null or missing", "Maps")]
     public static string DsMapValueKind(double id, string key) => key != null
-        && Resolve<PgslMap>("map", id)?.Values.TryGetValue(key, out object value) == true ? ValueKind(value) : "missing";
+        && ResolveRead<PgslMap>("map", id)?.Values.TryGetValue(key, out object value) == true ? ValueKind(value) : "missing";
     [PgslCommand("DsListValueKind", "DsListValueKind(id, position) -> string", "Entry type; missing for invalid positions", "Lists")]
     public static string DsListValueKind(double id, double position)
     {
-        List<object> list = Resolve<List<object>>("list", id);
+        List<object> list = ResolveRead<List<object>>("list", id);
         return list != null && double.IsFinite(position) && position >= 0 && position < list.Count && Math.Truncate(position) == position
             ? ValueKind(list[(int)position]) : "missing";
     }
@@ -146,14 +146,14 @@ public static partial class PgslCommands
                         if (reference.Kind == "map")
                         {
                             writer.WriteStartObject();
-                            PgslMap map = Resolve<PgslMap>("map", reference.Handle);
+                            PgslMap map = ResolveRead<PgslMap>("map", reference.Handle);
                             foreach (string key in map.Order) { writer.WritePropertyName(key); Write(map.Values[key], depth + 1, active); }
                             writer.WriteEndObject();
                         }
                         else
                         {
                             writer.WriteStartArray();
-                            foreach (object entry in Resolve<List<object>>("list", reference.Handle)) Write(entry, depth + 1, active);
+                            foreach (object entry in ResolveRead<List<object>>("list", reference.Handle)) Write(entry, depth + 1, active);
                             writer.WriteEndArray();
                         }
                         active.Remove(reference); break;

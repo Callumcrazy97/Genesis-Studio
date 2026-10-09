@@ -10,7 +10,17 @@ public static partial class PgslCommands
 {
     [PgslCommand("VariableSet", "VariableSet(name, value)",
         "Set a numeric script variable by name", "Variables")]
-    public static void VariableSet(string name, double value) => SetVariableValue(name, value);
+    public static void VariableSet(string name, double value)
+    {
+        // As SetVariableValue, without boxing the number for the VM (a game calls this thousands of
+        // times a frame); the Object's own copy takes a shared box when the number is a small whole one.
+        if (!ScriptingDebugSettings.VmSharedNumberBoxes) { SetVariableValue(name, value); return; }
+        PgslContext context = GetContext();
+        string key = name?.Trim() ?? string.Empty;
+        if (context is null || key.Length == 0) return;
+        if (context.ActiveVm is PgslVm vm) vm.SetNumberVariable(key, value);
+        context.Variables[key] = BoxNumber(value);
+    }
 
     [PgslCommand("VariableGet", "VariableGet(name) -> number",
         "Get a numeric script variable by name", "Variables")]

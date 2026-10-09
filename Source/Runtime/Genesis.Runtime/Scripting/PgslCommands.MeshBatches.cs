@@ -19,7 +19,7 @@ public static partial class PgslCommands
         "Meshes")]
     public static double MeshAddQuadsFromList(double mesh, double list)
     {
-        List<object> entries = Resolve<List<object>>("list", list);
+        List<object> entries = ResolveRead<List<object>>("list", list);
         if (entries is null || !ScriptMeshes.Exists((int)mesh)) return 0;
         Span<double> q = stackalloc double[QuadNumbers];
         int added = 0;
@@ -40,8 +40,8 @@ public static partial class PgslCommands
         "Meshes")]
     public static double MeshAddVerticesFromList(double mesh, double vertices, double triangles)
     {
-        List<object> points = Resolve<List<object>>("list", vertices);
-        List<object> corners = Resolve<List<object>>("list", triangles);
+        List<object> points = ResolveRead<List<object>>("list", vertices);
+        List<object> corners = ResolveRead<List<object>>("list", triangles);
         if (points is null || !ScriptMeshes.Exists((int)mesh)) return 0;
         Span<double> v = stackalloc double[VertexNumbers];
         // Where each listed vertex went in the mesh (-1 when it could not be added: not a number,

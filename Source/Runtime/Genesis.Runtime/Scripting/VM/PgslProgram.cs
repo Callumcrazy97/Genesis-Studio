@@ -32,6 +32,8 @@ internal sealed class FrameLayout
 {
     private readonly Dictionary<int, int> _slotBySymbol = new();
     private readonly List<string> _names = new();
+    // A 256-bit filter of the symbols the layout holds: a clear bit means "not here" for certain.
+    private ulong _filter0, _filter1, _filter2, _filter3;
 
     public int Count => _names.Count;
     public int[] ParameterSlots { get; private set; } = Array.Empty<int>();
@@ -41,6 +43,15 @@ internal sealed class FrameLayout
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool TryGetSlot(int symbol, out int slot) => _slotBySymbol.TryGetValue(symbol, out slot);
 
+    /// <summary>False when the layout certainly has no slot for the symbol; true when it may (then <see cref="TryGetSlot"/> says).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool MightHold(int symbol)
+    {
+        ulong bit = 1UL << (symbol & 63);
+        ulong word = ((symbol >> 6) & 3) switch { 0 => _filter0, 1 => _filter1, 2 => _filter2, _ => _filter3 };
+        return (word & bit) != 0;
+    }
+
     internal int Add(string name)
     {
         int symbol = PgslSymbols.Of(name);
@@ -48,6 +59,14 @@ internal sealed class FrameLayout
         slot = _names.Count;
         _slotBySymbol[symbol] = slot;
         _names.Add(name);
+        ulong bit = 1UL << (symbol & 63);
+        switch ((symbol >> 6) & 3)
+        {
+            case 0: _filter0 |= bit; break;
+            case 1: _filter1 |= bit; break;
+            case 2: _filter2 |= bit; break;
+            default: _filter3 |= bit; break;
+        }
         return slot;
     }
 
@@ -69,6 +88,8 @@ internal sealed class VariableFrame
     public FrameLayout Layout;
     public VmValue[] Values = Array.Empty<VmValue>();
     public bool[] Present = Array.Empty<bool>();
+    /// <summary>The function this frame is a call of (errors and the debugger name it).</summary>
+    public string Function;
     private Dictionary<string, VmValue> _extra;
 
     public void Bind(FrameLayout layout)
@@ -89,11 +110,14 @@ internal sealed class VariableFrame
         Array.Clear(Present, 0, count);
         _extra?.Clear();
         Layout = null;
+        Function = null;
     }
 
     public bool TryGet(int symbol, string name, out VmValue value)
     {
-        if (Layout != null && symbol >= 0 && Layout.TryGetSlot(symbol, out int slot))
+        // Most names looked for in a caller's frame (an instance variable read deep in a call) are
+        // not that function's: the layout's filter says so without a lookup.
+        if (Layout != null && symbol >= 0 && Layout.MightHold(symbol) && Layout.TryGetSlot(symbol, out int slot))
         {
             value = Values[slot];
             return Present[slot];

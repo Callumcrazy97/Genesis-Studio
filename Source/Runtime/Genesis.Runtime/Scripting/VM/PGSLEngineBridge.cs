@@ -368,7 +368,7 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
         {
             if (args.Length == 0)
                 throw new PgslWorkerJobException(
-                    $"'{name}' has no value in this job: a worker job sees only its arguments, the grids and lists given to it, and what it sets itself.");
+                    $"'{name}' has no value in this job: a worker job sees only its arguments, what it was given (JobScriptVariable, JobScriptShareAll) and what it sets itself.");
             if (name.Contains('.')) throw NotInWorker(name);
             throw new InvalidOperationException($"Unknown command: {name}");
         }

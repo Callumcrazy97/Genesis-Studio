@@ -12,7 +12,7 @@ namespace Genesis.Application.Headless.Suites;
 /// touching each other, can be cancelled and released, and keeps to its instruction budget. Part of
 /// pgsl-logic; timings are reported in its page, not asserted beyond a generous ceiling.
 /// </summary>
-internal static class PgslWorkerJobChecks
+internal static partial class PgslWorkerJobChecks
 {
     // A small chunk of a block world, as a game's generator would fill it: a height per column from
     // noise and a helper call, then a block kind per cell. 8 x 8 columns, 32 high (2 048 cells).
@@ -380,6 +380,8 @@ internal static class PgslWorkerJobChecks
                     && PgslCommands.JobLastError().Contains("takes 1 arguments", StringComparison.Ordinal),
                     "A job given too few arguments was not refused: " + PgslCommands.JobLastError());
             });
+
+            RunSharedData(ctx, row);
 
             HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.Jobs.ManyAtOnceStayApart", () =>
             {
