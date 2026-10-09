@@ -824,10 +824,11 @@ namespace Genesis.Rendering.SilkNet.DX12
         public void UnbindRenderTargets()
         {
             // D3D12 holds no persistent binding to drop, but the swap chain cannot resize while a
-            // queued list still references a back buffer.
+            // queued list still references a back buffer. Compute pipelines, signatures and
+            // particle read-backs are not tied to the swap chain and stay (see
+            // DisposeComputeResources: destroying them here crashed the next particle dispatch).
             _frames.WaitIdle();
             DrainDeferred(force: true);
-            DisposeComputeResources();
             _activeTarget = GpuRenderTargetHandle.Invalid;
             _linearBackBuffer = false;
             if (_backBufferTexture.IsValid)
@@ -1243,6 +1244,7 @@ namespace Genesis.Rendering.SilkNet.DX12
 
             // Everything queued for deletion is now safe: the GPU has finished every submission.
             DrainDeferred(force: true);
+            DisposeComputeResources();
 
             foreach (nint pso in _pipelines.Values)
             {

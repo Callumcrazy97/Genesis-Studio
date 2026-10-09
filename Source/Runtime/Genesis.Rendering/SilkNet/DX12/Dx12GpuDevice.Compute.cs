@@ -216,14 +216,35 @@ namespace Genesis.Rendering.SilkNet.DX12
             DeferResource(ref readback.Resource);
         }
 
+        /// <summary>Destroys the compute objects. Teardown only, after the GPU has gone idle.</summary>
+        /// <remarks>
+        /// Every holder is cleared as well as released: Silk.NET's <c>ComPtr.Dispose</c> releases
+        /// the object but leaves <c>Handle</c> pointing at it, and each of these is created lazily
+        /// on "Handle == null". This used to run on every swap-chain resize too (restoring a
+        /// minimised window is one), after which the next particle dispatch skipped re-creation
+        /// and bound the freed root signature and pipeline: an access violation in
+        /// <see cref="BindForCompute"/> and the game gone to the desktop. Nothing here refers to
+        /// the swap chain, so a resize has no reason to touch it.
+        /// </remarks>
         private void DisposeComputeResources()
         {
-            foreach (BufferReadback request in _bufferReadbacks.Values) request.Resource.Dispose();
+            foreach (BufferReadback request in _bufferReadbacks.Values)
+            {
+                request.Resource.Dispose();
+                request.Resource = default;
+            }
             _bufferReadbacks.Clear();
-            foreach (ShaderProgramResource program in _shaderPrograms.Values) program.ComputePipeline.Dispose();
+            foreach (ShaderProgramResource program in _shaderPrograms.Values)
+            {
+                program.ComputePipeline.Dispose();
+                program.ComputePipeline = default;
+            }
             _dispatchSignature.Dispose();
+            _dispatchSignature = default;
             _drawIndexedSignature.Dispose();
+            _drawIndexedSignature = default;
             _computeRootSignature.Dispose();
+            _computeRootSignature = default;
         }
     }
 }
