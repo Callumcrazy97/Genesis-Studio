@@ -148,13 +148,16 @@ namespace Genesis.Runtime.Project
                 // (nothing cached yet) compiling them one by one used to hold a blank window for
                 // seconds. Every GPU backend: DXC compiles in its own processes, side by side.
                 Genesis.Shared.Diagnostics.LoadProfile.Span shaderStartProfile = Genesis.Shared.Diagnostics.LoadProfile.Begin("start compiling the built-in shaders on workers");
+                Genesis.Rendering.Abstractions.GpuShaderBinaryFormat? warmFormat = null;
                 try
                 {
                     Genesis.Rendering.Core.RenderBackendOption backend = Genesis.Rendering.Core.RenderControllerFactory.ResolveBackend();
                     if (Environment.GetEnvironmentVariable("GENESIS_SHADER_WARMUP") != "0"
                         && backend != Genesis.Rendering.Core.RenderBackendOption.Software)
-                        Genesis.Rendering.Primitives.ShaderCompiler.WarmBuiltInInBackground(
-                            Genesis.Rendering.Core.RenderBackendCatalog.Describe(backend).ShaderBinaryFormat);
+                    {
+                        warmFormat = Genesis.Rendering.Core.RenderBackendCatalog.Describe(backend).ShaderBinaryFormat;
+                        Genesis.Rendering.Primitives.ShaderCompiler.WarmBuiltInInBackground(warmFormat.Value);
+                    }
                 }
                 catch (Exception warmError) when (warmError is ArgumentException or InvalidOperationException)
                 {
@@ -172,6 +175,14 @@ namespace Genesis.Runtime.Project
                     Console.Error.WriteLine(
                         "GENESIS_PROJECT_PATH is not set and no Rooms/ folder was found next to the player.");
                     return 2;
+                }
+
+                // The project's own shaders, the same way: made (or, in an exported game, read) on
+                // workers while the room loads, instead of by the first frame that draws with each.
+                if (warmFormat is Genesis.Rendering.Abstractions.GpuShaderBinaryFormat projectFormat)
+                {
+                    using (Genesis.Shared.Diagnostics.LoadProfile.Begin("start making the project's shaders on workers"))
+                        Genesis.Runtime.Rendering.ProjectShaderWarmup.Start(projectPath, projectFormat);
                 }
 
                 // Rooms and scripts name resources without their kind: say which resources clash
@@ -233,6 +244,7 @@ namespace Genesis.Runtime.Project
                 logger.Line($"project={projectPath}");
                 logger.Line($"room={roomName} file={roomFile}");
                 logger.Line($"autoshot={autoshotSeconds} label={perfLabel ?? "(none)"}");
+                Genesis.Runtime.Rendering.ProjectShaderWarmup.ReportTo(logger.Line);
 
                 // Start reading the first room's models now. Workers read them while the window is
                 // made and the loading screen prepares everything else, so the room does not read

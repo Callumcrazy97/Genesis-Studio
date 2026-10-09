@@ -160,6 +160,41 @@ internal static class PgslExportSuite
             HeadlessHarness.Assert(missing.Count == 0, $"{missing.Count} project shader programs are not in the exported game's cache: "
                 + string.Join("; ", missing.Take(6)));
         });
+
+        HeadlessHarness.RunCase(ctx.Report, "Export.Shaders.FirstStartCompilesNoProjectShader", () =>
+        {
+            HeadlessHarness.Assert(shaded is { Success: true }, "The export with project shaders did not succeed.");
+            string executable = Path.Combine(shaded!.OutputPath, shaded.ExecutableName);
+            if (!File.Exists(executable)) throw new CheckNotRunException("The export has no Player executable to start.");
+            string log = Path.Combine(shaded.OutputPath, "Debug", "Logs", "project_player.log");
+            if (File.Exists(log)) File.Delete(log);
+            ProcessStartInfo start = new(executable)
+            {
+                WorkingDirectory = shaded.OutputPath, UseShellExecute = false, CreateNoWindow = true,
+                RedirectStandardOutput = true, RedirectStandardError = true,
+            };
+            start.ArgumentList.Add("--autoshot");
+            start.ArgumentList.Add("3");
+            start.Environment["GENESIS_RENDER_BACKEND"] = "DX11";
+            start.Environment["GENESIS_UNATTENDED_WINDOW"] = "1";
+            foreach (string name in new[] { "GENESIS_PROJECT_PATH", "GENESIS_START_ROOM", "GENESIS_AUTOSHOT", "GENESIS_BOOT_COORDINATED",
+                         "GENESIS_SHADER_CACHE", "GENESIS_SHADER_WARMUP", RuntimePaths.GameScriptsEnvironmentVariable })
+                start.Environment.Remove(name);
+            using Process process = Process.Start(start) ?? throw new InvalidOperationException("The exported Player did not start.");
+            var output = process.StandardOutput.ReadToEndAsync();
+            var errors = process.StandardError.ReadToEndAsync();
+            if (!process.WaitForExit(90_000)) { process.Kill(entireProcessTree: true); process.WaitForExit(); }
+            string console = output.GetAwaiter().GetResult() + errors.GetAwaiter().GetResult();
+            string playerLog = File.Exists(log) ? File.ReadAllText(log) : string.Empty;
+            File.WriteAllText(Path.Combine(ctx.Logs, "export-shaders-player.log"), playerLog + Environment.NewLine + console);
+            HeadlessHarness.Assert(process.ExitCode == 0, "The exported game with project shaders did not run: " + Tail(console));
+            System.Text.RegularExpressions.Match made = System.Text.RegularExpressions.Regex.Match(playerLog,
+                @"project shaders: (\d+) programs for Dxbc made on workers in \d+ ms \((\d+) read from the shader cache, (\d+) compiled");
+            HeadlessHarness.Assert(made.Success, "The exported game did not report its project shaders: " + Tail(playerLog));
+            HeadlessHarness.Assert(made.Groups[1].Value == ProjectShaderFixtures.ActivePrograms.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    && made.Groups[3].Value == "0",
+                "The exported game compiled project shaders at its first start: " + made.Value);
+        });
     }
 
     /// <summary>A Blank project whose start room holds one Object with a PGSL Create event.</summary>

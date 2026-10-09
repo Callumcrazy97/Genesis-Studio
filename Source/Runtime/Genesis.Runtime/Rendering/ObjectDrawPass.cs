@@ -946,6 +946,10 @@ namespace Genesis.Runtime.Rendering
                 return cached.Handle.IsValid;
             }
 
+            // The start-up warm-up is still making this shader on a worker: draw with the engine's
+            // own shading for these frames rather than hold the frame up until it is made.
+            if (cached is null && ProjectShaderWarmup.IsPending(assets.Shader)) return false;
+
             string path = ResourceNames.Resolve(projectPath, assets.Shader, ResourceType.Shader);
             AssetIoCounters.Check(2);
             if (!File.Exists(path)) return false;

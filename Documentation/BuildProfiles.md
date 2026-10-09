@@ -43,10 +43,21 @@ and `--test shader-precompiled` (`Render.Shaders.Project.*`).
 the game runs) is compiled by the draw that needs it. The slow-frame report names it
 ("loading in that frame: 1 shader compiled 412 ms").
 
+**Start-up.** The Player makes the list (the variant each resource has active) on one or two
+worker threads while the room loads (`ProjectShaderWarmup`), reading what is already in the cache.
+Until a resource's programs are made its draws use the engine's own shading instead of waiting,
+and the room's loading cover stays up until all are (within its 12 s limit). The log says what it
+did: `project shaders: N programs for Dxbc made on workers in T ms (R read from the shader cache, C compiled)`.
+`GENESIS_SHADER_WARMUP=0` turns it off with the engine's warm-up. With an empty shader cache, a
+copy of GenesisCraft that draws its four mesh shaders from its first frame spent about 0.73 s
+(DX12) and 1.28 s (DX11) of that frame compiling them; with the warm-up they were made on workers
+in 0.68 s and 1.68 s during its 9.5 s of Create events, and no frame compiled (one run each,
+9 Oct 2026).
+
 Measured on 9 Oct 2026 (i7-14700F, P-cores, idle PC, GenesisCraft's ten shaders: four mesh, six
 Fullscreen; three cold runs each): one compile costs 27-50 ms in DXC (a process per compile) and
 10-85 ms in fxc, except the block shader's 2048-entry `static const` table, which takes fxc
-1.14-1.17 s (DXC 72-79 ms). All ten, one after another: DX11 1.36-1.40 s, DX12 0.40-0.54 s,
+1.14-1.17 s (DXC 72-79 ms; the same shader with the table in a constant buffer takes fxc 0.22 s). All ten, one after another: DX11 1.36-1.40 s, DX12 0.40-0.54 s,
 Vulkan 0.55-0.61 s, OpenGL 0.56-0.59 s; on four workers 1.09-1.33 s, 0.14-0.16 s, 0.18-0.19 s and
 0.19-0.21 s. The 45 s first-run frame GenesisCraft reported was one 13 KB DX12 compile (50 ms when
 idle) made inside the frame while the PC was saturated (that run's Player took 63 s to write its

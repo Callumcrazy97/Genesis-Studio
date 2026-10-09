@@ -161,8 +161,9 @@ internal static class ShaderPrecompiledSuite
     }
 
     /// <summary>
-    /// A project's own shaders: listed exactly as the draws and post effects compile them, and
-    /// keyed the same wherever the project (or the exported game) is.
+    /// A project's own shaders: listed exactly as the draws and post effects compile them, keyed
+    /// the same wherever the project (or the exported game) is, and made on workers at start-up so
+    /// no draw compiles one.
     /// </summary>
     private static void RunProjectShaderCases(HeadlessContext ctx)
     {
@@ -236,6 +237,54 @@ internal static class ShaderPrecompiledSuite
                 ProjectShaderFixtures.Include.Replace("0.9", "0.5", StringComparison.Ordinal));
             Check(Key(again, second, GpuShaderBinaryFormat.Dxbc) != Key(pixel, first, GpuShaderBinaryFormat.Dxbc),
                 "Editing an include did not change the program's key.");
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Render.Shaders.Project.WarmUpMakesThemBeforeAnyDraw", () =>
+        {
+            string root = FixtureProject(ctx, "warm");
+            string cache = FreshFolder(ctx, "warm-cache");
+            string? previous = Environment.GetEnvironmentVariable("GENESIS_SHADER_CACHE");
+            Environment.SetEnvironmentVariable("GENESIS_SHADER_CACHE", cache);
+            try
+            {
+                Check(ProjectShaderWarmup.WaitUntilDone(TimeSpan.FromSeconds(60)), "An earlier shader warm-up is still running.");
+                ProjectShaderWarmup.ResetForTests();
+                var lines = new List<string>();
+                ProjectShaderWarmup.ReportTo(line => { lock (lines) lines.Add(line); });
+                ProjectShaderWarmup.Start(root, GpuShaderBinaryFormat.Dxbc);
+                Check(ProjectShaderWarmup.WaitUntilDone(TimeSpan.FromSeconds(120)), "The project's shaders were not made within two minutes.");
+                Check(ProjectShaderWarmup.Compiled == ProjectShaderFixtures.ActivePrograms && ProjectShaderWarmup.Failed == 0,
+                    $"The warm-up compiled {ProjectShaderWarmup.Compiled} and failed {ProjectShaderWarmup.Failed}; expected {ProjectShaderFixtures.ActivePrograms} compiled.");
+                Check(!ProjectShaderWarmup.IsPending(ProjectShaderFixtures.MeshName), "A shader is still pending after the warm-up finished.");
+                lock (lines)
+                {
+                    File.WriteAllLines(Path.Combine(ctx.Logs, "project-shader-warmup.txt"), lines);
+                    Check(lines.Count == 1 && lines[0].Contains($"{ProjectShaderFixtures.ActivePrograms} programs", StringComparison.Ordinal),
+                        "The warm-up did not report what it made: " + string.Join(" | ", lines));
+                }
+
+                // What a draw asks for afterwards is found made: nothing compiles on this thread.
+                int compiles = ShaderCompiler.CompilesOnThisThread;
+                foreach (ProjectShaderProgram program in ProjectShaderPrograms.Enumerate(root, everyVariant: false))
+                {
+                    ShaderCompileResult result = ShaderCompiler.CompileForBackend(program.Source, program.Entry, program.Stage,
+                        GpuShaderBinaryFormat.Dxbc, program.ShaderPath, ShaderCompiler.BuildDefaultIncludeSearchPaths(program.ShaderPath, root));
+                    Check(result.CacheHit, $"{program.Name} {program.Entry} was not made by the warm-up.");
+                }
+                Check(ShaderCompiler.CompilesOnThisThread == compiles, "A draw compiled a shader the warm-up had made.");
+
+                // The same project's next start reads every program instead of compiling it.
+                ProjectShaderWarmup.ResetForTests();
+                ProjectShaderWarmup.Start(root, GpuShaderBinaryFormat.Dxbc);
+                Check(ProjectShaderWarmup.WaitUntilDone(TimeSpan.FromSeconds(60)), "The second warm-up did not finish.");
+                Check(ProjectShaderWarmup.Read == ProjectShaderFixtures.ActivePrograms && ProjectShaderWarmup.Compiled == 0,
+                    $"The second start read {ProjectShaderWarmup.Read} and compiled {ProjectShaderWarmup.Compiled}.");
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("GENESIS_SHADER_CACHE", previous);
+                if (ProjectShaderWarmup.WaitUntilDone(TimeSpan.FromSeconds(60))) ProjectShaderWarmup.ResetForTests();
+            }
         });
     }
 
