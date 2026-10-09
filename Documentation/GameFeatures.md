@@ -1163,6 +1163,143 @@ same input, time steps, window size and random numbers on every frame and ends i
 then that Escape stops a replay and lets go of what it held, and that other files are refused.
 Not yet checked: a recording made with a physical controller and played back in the real Player.
 
+## Files that change while a game runs, and files a game looks for
+
+### Live reload keeps a running game's Scripts
+
+A game run from Studio (the Player with `--live-reload`) watches the project's Assets and, when a
+file changes, empties its caches and rebuilds the room. Its Scripts used to be dropped with the
+caches and read again only when an Object was next created, so:
+
+- in the frame between the change and the rebuild every call to a Script or to a library
+  function failed (`Unknown command: McScreenDraw`), and
+- when the rebuild did not happen, because the room file was itself still being written or only a
+  terrain's surfaces had changed, they failed for the rest of the run.
+
+Now the Scripts are read again at once, when the change is seen. Only those whose text changed are
+compiled again: compiling all 250 Scripts of a large game took 7.4 seconds, a frozen game for each
+saved file. When a Script is added, removed or renamed, all are compiled again. A Script that does not compile keeps its earlier version, and if the Scripts cannot be listed
+at all (two briefly sharing a name during a rename) the game keeps the ones it has.
+
+A change is turned down, and the game goes on exactly as it was, while any file in it is half
+written: JSON (including a resource's `.meta`) that does not parse, or PGSL (a library Script or an
+Object's event) that cannot be read or does not compile. The log says which file and why:
+
+```
+AssetLiveReload rejected generation=4: 'Step.pgsl' does not compile (line 3: ...); the game keeps the code it is running
+```
+
+The save that completes the file is a change of its own and applies. A genuine mistake in a script
+is reported the same way, and the game keeps running the code it had until the script compiles.
+
+The watcher no longer reads which resource refers to which before the game starts: it rebuilds
+everything on any change, and reading the references took nine seconds before the first frame in a
+project of 11,000 resources. A change it cannot follow completely (a `.meta` still being written)
+is no longer dropped. `Build.bat --test live-reload` runs a game in the harness and rewrites a
+library Script and an Object's event while it runs, writes them cut off part way, and writes the
+room as JSON that is not yet a room while a library changes; Scripts must resolve on every frame.
+
+### A sound's file named beside its Audio resource
+
+An Audio resource's `source` is looked for beside the resource first, then in the project. So
+`Assets/Audio/mus_calm1.audio.json` may say `"source": "mus_calm1.ogg"` (or `"../Music/x.ogg"`),
+and `PlaySound("mus_calm1")` plays it; before, only a path from the project
+(`"Assets/Audio/mus_calm1.ogg"`, what Studio's Audio editor writes) was found, and the sound was
+silently missing. Studio's paths still work. A file outside the project is not played, since an
+export would not carry it; an export copies the project as it is, so what plays in Studio plays in
+the exported game. The Audio editor shows such a source as the file it is. Checked by
+`Build.bat --test runtime-resources`, in the project and in a copy laid out as an export.
+
+### Listing a folder's resources
+
+| Command | Meaning |
+|---|---|
+| `ResourceList(folder, type, subfolders?)` | A new list (a DsList: read it with `DsListSize` and `DsListGetString`, free it with `DsListDestroy`) of the names of the resources of one kind in a folder, sorted by name. `folder` is named from Assets (`"Shaders/Packs"`) or from the project (`"Assets/Shaders/Packs"`); `""` is Assets. `type` is a kind as `ResourceTypeOf` names it (`"Shader"`, `"Image"`, `"Audio"`, `"Object"`, `"Room"`, `"Model"`, `"Particle"`, `"Script"`...), `"Fullscreen shader"`, `"Mesh shader"` or `"Sprite shader"` for one kind of shader, or `""` for every kind. With `subfolders` true, the folders inside count too. A folder outside the project, or one that does not exist, gives an empty list. |
+
+A shader-pack menu can offer every full screen shader the folder holds, without a list kept by hand:
+
+```
+packs = ResourceList("Shaders/Packs", "Fullscreen shader");
+for (var i = 0; i < DsListSize(packs); i = i + 1) { AddPackButton(DsListGetString(packs, i)); }
+```
+
+The names are the resources' own (a resource renamed in Studio is listed by its new name), the
+ones `PostEffectAdd` and the other commands take. It reads the project's resource list, which is
+read once and kept, so it costs a walk over that list rather than over the disk (one kind of
+shader also reads those shaders' files, to see which kind each is): call it when a menu opens,
+not every frame. An exported game lists the same. Checked by `Build.bat --test runtime-resources`.
+
+### A post effect turned on while a game runs
+
+A post effect (`PostEffectAdd`, or a room's own list) whose shader the game has not compiled
+before is now compiled on a worker thread. Until it is ready the frames are drawn without it (or,
+when a running effect's shader file changed, with its previous version), and then it runs; the
+renderer's log (`%LOCALAPPDATA%\GenesisRuntime\Logs\render-<process id>.log`, beside the errors of
+effects that do not compile) says when:
+
+```
+Post effect 'Pack Ink' compiled on a worker in 1840 ms; it runs from this frame
+```
+
+Before, the frame that first asked for it waited for the shader compiler: on DX12, with the shader
+not yet in the cache, one frame took 10.7 seconds. This applies to every graphics backend in a game
+(the Player and exported games); Studio's previews and the capture tools still compile in the frame
+that asks, so the frame they read back has the effect. `Build.bat --test post-effects` runs the
+Player on DX12 with an empty shader cache, turns on an effect three seconds in, and checks that no
+frame after that took 250 ms or more and that the effect then ran.
+
+### Recording a profile without debug mode
+
+`GENESIS_PROFILE=1` (or the Player's `--profile` argument) records the same profile as the debug
+screen's Record button, for the whole run, without debug mode: no debug screen is drawn, nothing is
+inspected and no live telemetry is written. The recording starts with the first frame of play and
+is saved when the game closes, in `Debug/Profiles/<date-time>/` (`frames.csv`, `summary.json`,
+`report.md`), and the log names the folder (`profile recording: ...`, `profile saved: ...`; the
+Player also prints `GENESIS_PROFILE_RECORDING` and `GENESIS_PROFILE_SAVED`). It has the Engine
+columns (update, gathering, drawing, presenting, HUD and the longest parts of each frame), PGSL time
+per Object and event, the allocation and collections of every frame and the types allocated most.
+What it costs is the recording itself: PGSL events are timed, a row is written per frame and
+allocations are sampled. For a headless measurement:
+
+```
+set GENESIS_UNATTENDED_WINDOW=1
+set GENESIS_PROFILE=1
+GenesisEngine.exe
+```
+
+Checked by `Build.bat --test debug-screen`, which runs a game for three seconds this way and reads
+the folder it leaves.
+
+### Counting frames per second
+
+| Command | Meaning |
+|---|---|
+| `GameGetFps()` | Frames shown per second, counted over the last half second: what an FPS counter should show. `Fps` is 1 divided by this frame's own time, which moves a little from frame to frame. |
+
+A counter that shows `Floor` of `Fps` (or of an average of it) shows 59 in a game held at exactly 60:
+frame times alternate between 16.6 and 16.7 ms, and a value that sits a hair under 60 is floored to
+59. Measured on 9 October 2026 in unattended runs of the Player (DX12, six seconds each), the cap
+holds its rate: a cap of 60 ran at 60.00 frames a second with VSync on or off (every frame 16.6 to
+16.7 ms apart), 120 at 119.99, 144 at 143.98, Unlimited at about 9,000 in an empty room, and VSync
+with no cap at 60.00. Show `Round(GameGetFps())`.
+
+### Music decoded off the frame
+
+A game's sound files of 1 MB or more (music, long ambience) are decoded on a worker thread. A play
+of one counts as playing at once (`IsSoundPlaying` is true) and is heard as soon as the samples are
+ready, a moment later; the frame that asked goes on. Each piece of music used to be decoded whole
+in the frame that first played it: a game's log showed such frames of 143 to 733 ms
+(`loading in that frame: 1 sound 495 ms`). A sound that cannot be decoded stops counting as
+playing. Shorter sounds are decoded when they are loaded, as before, so an effect is never late.
+Studio's Audio editor decodes everything at once. `GENESIS_AUDIO_BACKGROUND_DECODE=0` turns it off
+in a game. Checked by `Build.bat --test runtime-resources`.
+
+A slow-frame line (see [Finding what made a frame long](#finding-what-made-a-frame-long)) now counts
+the scripts' Draw events in "gathering what to draw" and names them among the longest parts
+(`scripts' Draw events`), with `waiting for the graphics card to begin` (beginning a frame waits
+for the graphics card to give its buffers back) and `project post effects`. All three used to be
+part of the time "outside the frame's own work", which was most of a game's long first frames.
+
 ## Smaller changes
 
 - **Bushes and saplings.** The `Shrub` and `Sapling` foliage shapes are built from rounded solid

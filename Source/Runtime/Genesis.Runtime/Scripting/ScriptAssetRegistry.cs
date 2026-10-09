@@ -75,10 +75,12 @@ namespace Genesis.Runtime.Scripting
 
         // Index public Script resources only. Object event programs are private implementation,
         // not globally visible modules that can shadow a named Script.
+        _libraryNames.Clear();
         foreach (string file in EnumerateScriptFiles(projectPath))
         {
           string name = ResourceNames.Name(projectPath, file, ResourceType.Script);
           if (_byName.ContainsKey(name)) throw new InvalidDataException("Duplicate script resource name: " + name);
+          _libraryNames.Add(name);
           try
           {
             Register(name, File.ReadAllText(file));
@@ -89,6 +91,125 @@ namespace Genesis.Runtime.Scripting
           }
         }
       }
+    }
+
+    /// <summary>
+    /// Reads the project's Scripts again for a game that is running (live reload), without the
+    /// gap <see cref="ClearCache"/> leaves: the Scripts are callable before and after, never
+    /// unknown in between. A Script that cannot be read or compiled now, as when a tool is still
+    /// writing it, keeps the version that was loaded, so its functions go on resolving; the next
+    /// change to it tries again. When the Scripts cannot be listed at all (two with one name while
+    /// files are being renamed) everything stays as it was and <paramref name="failure"/> says
+    /// why. Returns the names of the Scripts that kept their earlier version.
+    /// </summary>
+    public static IReadOnlyList<string> Refresh(string projectPath, out string failure)
+    {
+      failure = null;
+      if (string.IsNullOrEmpty(projectPath)) return Array.Empty<string>();
+      lock (_lock)
+      {
+        // The same Scripts by name as before: only those whose text changed are compiled again.
+        // Compiling every Script of a large game (two hundred and fifty) took seven seconds, a
+        // frozen game for each saved file. With a Script added, removed or renamed, every one
+        // is compiled again, since a call written without brackets depends on the names.
+        if (TryRefreshChanged(projectPath, out IReadOnlyList<string> keptUnchanged))
+          return keptUnchanged;
+
+        var previous = new Dictionary<string, CompiledScriptAsset>(_byName, StringComparer.OrdinalIgnoreCase);
+        var previousSources = new Dictionary<string, string>(_sourceByName, StringComparer.OrdinalIgnoreCase);
+        var previousErrors = new Dictionary<string, string>(_loadErrors, StringComparer.OrdinalIgnoreCase);
+        string previousProject = _projectPath;
+        try
+        {
+          LoadFromProject(projectPath);
+        }
+        catch (Exception ex)
+        {
+          // Put the tables back as they were: a running game keeps the Scripts it had.
+          _projectPath = previousProject ?? projectPath;
+          _byName.Clear();
+          _byHash.Clear();
+          _sourceByName.Clear();
+          _loadErrors.Clear();
+          foreach (var pair in previous) { _byName[pair.Key] = pair.Value; _byHash[pair.Value.SourceHash] = pair.Value; }
+          foreach (var pair in previousSources) _sourceByName[pair.Key] = pair.Value;
+          foreach (var pair in previousErrors) _loadErrors[pair.Key] = pair.Value;
+          _functions = null;
+          VMEngine.ClearCompileCache();
+          failure = ex.Message;
+          Genesis.Rendering.Diagnostics.RenderLog.Line("PGSL Scripts were not read again (" + ex.Message + "); the game keeps the Scripts it had.");
+          return Array.Empty<string>();
+        }
+
+        var kept = new List<string>();
+        foreach (string name in _loadErrors.Keys)
+        {
+          if (_byName.ContainsKey(name) || !previous.TryGetValue(name, out CompiledScriptAsset earlier)) continue;
+          _byName[name] = earlier;
+          _byHash[earlier.SourceHash] = earlier;
+          if (previousSources.TryGetValue(name, out string source)) _sourceByName[name] = source;
+          kept.Add(name);
+          Genesis.Rendering.Diagnostics.RenderLog.Line($"PGSL script '{name}' keeps the version loaded before until it compiles.");
+        }
+        _functions = null;
+        return kept;
+      }
+    }
+
+    /// <summary>The Scripts the last <see cref="LoadFromProject"/> found, by name.</summary>
+    private static readonly HashSet<string> _libraryNames = new(StringComparer.OrdinalIgnoreCase);
+
+    // Called under _lock. False when the Scripts are not the ones loaded (another project, or one
+    // added, removed or renamed): the caller then reads them all again.
+    private static bool TryRefreshChanged(string projectPath, out IReadOnlyList<string> kept)
+    {
+      kept = Array.Empty<string>();
+      if (!string.Equals(_projectPath, projectPath, StringComparison.OrdinalIgnoreCase) || _libraryNames.Count == 0) return false;
+      var files = new List<(string Name, string File)>();
+      try
+      {
+        ResourceNames.Invalidate(projectPath);
+        foreach (string file in EnumerateScriptFiles(projectPath))
+          files.Add((ResourceNames.Name(projectPath, file, ResourceType.Script), file));
+      }
+      catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException)
+      {
+        return false;
+      }
+      if (files.Count != _libraryNames.Count || !files.All(entry => _libraryNames.Contains(entry.Name))) return false;
+
+      var keptNames = new List<string>();
+      foreach ((string name, string file) in files)
+      {
+        string source;
+        try { source = File.ReadAllText(file); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+          RecordLoadError(name, file, ex);
+          if (_byName.ContainsKey(name)) keptNames.Add(name);
+          continue;
+        }
+        if (_byName.ContainsKey(name) && _sourceByName.TryGetValue(name, out string known) && string.Equals(known, source, StringComparison.Ordinal))
+          continue;
+        try
+        {
+          // Replaces the Script only once it has compiled.
+          Register(name, source);
+          _loadErrors.Remove(name);
+        }
+        catch (Exception ex)
+        {
+          RecordLoadError(name, file, ex);
+          if (_byName.ContainsKey(name))
+          {
+            keptNames.Add(name);
+            Genesis.Rendering.Diagnostics.RenderLog.Line($"PGSL script '{name}' keeps the version loaded before until it compiles.");
+          }
+        }
+      }
+      _functions = null;
+      kept = keptNames;
+      return true;
     }
 
     /// <summary>
@@ -273,6 +394,7 @@ namespace Genesis.Runtime.Scripting
         _functions = null;
         _byHash.Clear();
         _sourceByName.Clear();
+        _libraryNames.Clear();
         _projectPath = null;
       }
     }

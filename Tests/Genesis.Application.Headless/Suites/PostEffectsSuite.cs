@@ -7,7 +7,10 @@ using System.Windows.Forms;
 using Genesis.Application.Core.Projects;
 using Genesis.Application.Core.Resources;
 using Genesis.Application.Editors.Suite.Terrain;
+using Genesis.Runtime;
+using Genesis.Runtime.Project;
 using Genesis.Runtime.Rendering;
+using Genesis.Runtime.Scene;
 using Genesis.Shared.Assets;
 using Genesis.Shared.Interfaces;
 using Genesis.World.Foliage;
@@ -145,7 +148,141 @@ internal static class PostEffectsSuite
             ProjectPostEffects.Clear();
             editor.Dispose();
         }
+
+        RunInPlayer(ctx);
     }
+
+    /// <summary>
+    /// The first post effect a game turns on, in the real Player on DX12 with a shader no cache has
+    /// seen: it is compiled on a worker while frames go on being drawn, then runs. It once held one
+    /// frame for 10.7 seconds.
+    /// </summary>
+    private static void RunInPlayer(HeadlessContext ctx)
+    {
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Rendering.PostEffects.TheFirstEffectIsCompiledOffTheFrameInTheGame", () =>
+        {
+            string runtime = NewestPlayer() ?? throw new InvalidOperationException("No Player found.");
+            string parent = Path.Combine(ctx.Workspace, "PostEffectsPlayer");
+            if (Directory.Exists(parent)) Directory.Delete(parent, recursive: true);
+            Directory.CreateDirectory(parent);
+            ProjectSession project = new ProjectService().CreateProject(parent, "Post Effects Game", "Blank");
+            ResourceService resources = new(project);
+            // A source no shader cache holds: the first ask compiles it.
+            WriteShader(resources, "Fresh Invert", InvertSource + "\n// " + Guid.NewGuid().ToString("N") + "\n", ("Amount", 1f));
+            string objects = Path.Combine(project.AssetsPath, "Objects");
+            Directory.CreateDirectory(objects);
+            string objectFile = resources.CreateResource(objects, ResourceKind.GameObject, "Asker");
+            File.WriteAllText(objectFile, "{\"schemaVersion\":2,\"dimension\":\"ThreeD\",\"components\":[{\"type\":\"ScriptComponent\",\"props\":{\"ScriptClass\":\"Asker\"}}],\"events\":[\"Create\",\"Step\"]}");
+            Directory.CreateDirectory(Path.Combine(objects, "Asker"));
+            File.WriteAllText(Path.Combine(objects, "Asker", "Create.pgsl"), "stage = 0; asked = 0; t0 = TimeMs();");
+            // A picture half a second in, the effect asked for three seconds in, a picture six seconds after that.
+            File.WriteAllText(Path.Combine(objects, "Asker", "Step.pgsl"), """
+                SetCameraPosition(0, 2, 0); SetCameraTarget(0, 2, 10);
+                if (stage == 0 && TimeMs() > t0 + 500) { ScreenshotSave("post-player-before"); stage = 1; }
+                if (stage == 1 && ScreenshotPending() == 0 && TimeMs() > t0 + 3000) { PostEffectAdd("Fresh Invert"); asked = TimeMs(); stage = 2; }
+                if (stage == 2 && TimeMs() > asked + 6000) { ScreenshotSave("post-player-after"); stage = 3; }
+                if (stage == 3 && ScreenshotPending() == 0) { GameQuit(); stage = 4; }
+                """);
+            string roomFile = ProjectRoomResolver.ResolveRoomFile(project.RootPath, project.Manifest.StartRoom);
+            RoomAsset start = RoomAsset.Create("Start", RoomDimension.ThreeD);
+            start.Settings.CaptureMouse = false;
+            // The engine's sky at a standing noon (a 3D frame for the effect to run over): the
+            // pictures before and after differ only by the effect.
+            start.Environment.DynamicSky = true;
+            start.Environment.Weather = "Clear";
+            start.Environment.TimeOfDayHours = 12f;
+            start.Environment.TimeScale = 0f;
+            start.Nodes.Add(new RoomNode
+            {
+                Kind = RoomNodeKind.GameObject, Name = "Asker", LayerId = start.Layers[0].Id,
+                GameObject = new RoomGameObjectData { Prefab = Path.GetRelativePath(project.RootPath, objectFile).Replace('\\', '/') },
+            });
+            RoomAssetLoader.Save(start, roomFile);
+            ResourceCatalog.Invalidate(project.RootPath);
+
+            string images = ProjectPaths.ImagesDir(project.RootPath);
+            foreach (string label in new[] { "worker" })
+            {
+                string cache = Path.Combine(parent, "ShaderCache-" + label);
+                if (Directory.Exists(images)) Directory.Delete(images, recursive: true);
+                string log = RunPlayer(runtime, project.RootPath, cache);
+                File.WriteAllText(Path.Combine(ctx.Logs, $"post-effects-player-{label}.log"), log);
+                string compiled = System.Text.RegularExpressions.Regex.Match(log, @"Post effect 'Fresh Invert' compiled on a worker in \d+ ms").Value;
+                HeadlessHarness.Assert(compiled.Length > 0, $"[{label}] The effect was not compiled on a worker. Log:\r\n{Tail(log)}");
+                Console.WriteLine($"[PostEffects] {label}: {compiled}");
+                // No frame after the effect was asked for (and before the second picture) may wait for it.
+                foreach (System.Text.RegularExpressions.Match slow in System.Text.RegularExpressions.Regex.Matches(log,
+                    @"Slow frame: (\d+) ms in Start \(frame \d+, ([0-9.]+) s after the room began\)"))
+                {
+                    double milliseconds = double.Parse(slow.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+                    double into = double.Parse(slow.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture);
+                    HeadlessHarness.Assert(into < 2.0 || into > 8.0 || milliseconds < 250,
+                        $"[{label}] A frame of {milliseconds} ms came {into} s into the room, after the effect was asked for: {slow.Value}");
+                }
+
+                string before = Path.Combine(images, "post-player-before.png"), after = Path.Combine(images, "post-player-after.png");
+                HeadlessHarness.Assert(File.Exists(before) && File.Exists(after), $"[{label}] The game took no pictures. Log:\r\n{Tail(log)}");
+                File.Copy(after, Path.Combine(ctx.Captures, $"post-player-{label}.png"), overwrite: true);
+                using Bitmap plain = new(before), inverted = new(after);
+                int matching = 0, total = 0;
+                for (int y = 20; y < plain.Height - 20; y += 29)
+                {
+                    for (int x = 20; x < plain.Width - 20; x += 29)
+                    {
+                        Color a = plain.GetPixel(x, y), b = inverted.GetPixel(x, y);
+                        if (Math.Abs(a.R + b.R - 255) < 40 && Math.Abs(a.G + b.G - 255) < 40 && Math.Abs(a.B + b.B - 255) < 40) matching++;
+                        total++;
+                    }
+                }
+                HeadlessHarness.Assert(matching > total * 0.7, $"[{label}] The effect never ran: {matching} of {total} samples are inverted.");
+            }
+        });
+    }
+
+    private static string RunPlayer(string runtime, string projectPath, string shaderCache)
+    {
+        System.Diagnostics.ProcessStartInfo start = new(Path.Combine(runtime, RuntimePaths.RuntimeExeName))
+        {
+            WorkingDirectory = runtime, UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardOutput = true, RedirectStandardError = true,
+        };
+        start.Environment["GENESIS_PROJECT_PATH"] = projectPath;
+        start.Environment["GENESIS_UNATTENDED_WINDOW"] = "1";
+        start.Environment["GENESIS_RENDER_BACKEND"] = "Direct3D12";
+        start.Environment["GENESIS_SHADER_CACHE"] = shaderCache;
+        // No start-up warm-up: the first ask must find the shader uncompiled.
+        start.Environment["GENESIS_SHADER_WARMUP"] = "0";
+        foreach (string name in new[] { "GENESIS_START_ROOM", "GENESIS_AUTOSHOT", "GENESIS_BOOT_COORDINATED" }) start.Environment.Remove(name);
+        using System.Diagnostics.Process process = System.Diagnostics.Process.Start(start) ?? throw new InvalidOperationException("The Player did not start.");
+        var output = process.StandardOutput.ReadToEndAsync();
+        var errors = process.StandardError.ReadToEndAsync();
+        if (!process.WaitForExit(120_000)) { process.Kill(entireProcessTree: true); process.WaitForExit(); }
+        string playerLog = Path.Combine(ProjectPaths.LogsDir(projectPath), "project_player.log");
+        // The renderer's own log (Genesis.Rendering.Diagnostics.RenderLog), one per process.
+        string renderLog = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "GenesisRuntime", "Logs", "render-" + process.Id + ".log");
+        return (File.Exists(playerLog) ? File.ReadAllText(playerLog) : string.Empty)
+            + Environment.NewLine + (File.Exists(renderLog) ? File.ReadAllText(renderLog) : "(no render log at " + renderLog + ")")
+            + Environment.NewLine + output.GetAwaiter().GetResult() + errors.GetAwaiter().GetResult();
+    }
+
+    // The newest Player within reach (as PgslProjectSuite finds it).
+    private static string? NewestPlayer()
+    {
+        List<string> candidates = [];
+        if (RuntimePaths.ResolveRuntimeDir() is { } resolved) candidates.Add(resolved);
+        for (DirectoryInfo? directory = new(AppContext.BaseDirectory); directory != null; directory = directory.Parent)
+        {
+            string published = Path.Combine(directory.FullName, "Genesis Application", "Player");
+            if (File.Exists(Path.Combine(published, RuntimePaths.RuntimeExeName))) { candidates.Add(published); break; }
+        }
+        return candidates
+            .Where(path => File.Exists(Path.Combine(path, "Genesis.Runtime.dll")))
+            .OrderByDescending(path => File.GetLastWriteTimeUtc(Path.Combine(path, "Genesis.Runtime.dll")))
+            .FirstOrDefault();
+    }
+
+    private static string Tail(string log) => log.Length > 2500 ? log[^2500..] : log;
 
     private static string WriteShader(ResourceService resources, string name, string source, params (string Name, object Value)[] parameters)
     {

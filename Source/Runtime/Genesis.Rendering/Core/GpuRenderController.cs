@@ -884,6 +884,32 @@ namespace Genesis.Rendering.Core
 
         public string LastPostEffectError { get; private set; } = string.Empty;
 
+        /// <inheritdoc />
+        public bool CompilePostEffectsInBackground { get; set; }
+
+        /// <inheritdoc />
+        public int PostEffectsCompiling
+        {
+            get
+            {
+                int count = 0;
+                foreach (PostEffectCompile pending in _postEffectCompiles.Values)
+                    if (!pending.Pixel.IsCompleted) count++;
+                return count;
+            }
+        }
+
+        // A post effect being compiled on a worker thread, by name: the source it is compiling.
+        private sealed class PostEffectCompile
+        {
+            public string Entry;
+            public string Source;
+            public long Started;
+            public System.Threading.Tasks.Task<byte[]> Pixel;
+        }
+
+        private readonly Dictionary<string, PostEffectCompile> _postEffectCompiles = new(StringComparer.OrdinalIgnoreCase);
+
         public void SetPostEffects(IReadOnlyList<PostEffectRequest> effects)
         {
             if (!_initialized || _fwd == null) return;
@@ -897,28 +923,93 @@ namespace Genesis.Rendering.Core
                     || !string.Equals(compiled.Entry, entry, StringComparison.Ordinal)
                     || !string.Equals(compiled.Source, effect.Source, StringComparison.Ordinal))
                 {
-                    if (compiled.Program.IsValid) _fwd.ReleasePostEffectProgram(compiled.Program);
-                    GpuShaderProgramHandle program = GpuShaderProgramHandle.Invalid;
-                    try
+                    if (CompilePostEffectsInBackground)
                     {
-                        var roots = ShaderCompiler.BuildDefaultIncludeSearchPaths(effect.SourcePath, effect.ProjectPath);
-                        byte[] pixel = ShaderCompiler.CompileForBackend(effect.Source, entry, GpuShaderStage.Pixel,
-                            _gpu.ShaderBinaryFormat, effect.SourcePath, roots).Blob;
-                        program = _fwd.CreatePostEffectProgram(pixel, key);
+                        // Until the worker is done the frame goes on without the effect, or with
+                        // the version it had before it was changed. A first compile on DX12 held
+                        // one frame for 10.7 seconds.
+                        if (!TryTakeBackgroundPostEffect(key, entry, effect, ref compiled))
+                        {
+                            if (compiled.Program.IsValid)
+                                _postEffectPasses.Add(new ForwardRenderer.PostEffectPass(compiled.Program, effect.Row0, effect.Row1, effect.Row2, effect.Row3));
+                            continue;
+                        }
                     }
-                    catch (Exception exception)
+                    else
                     {
-                        // A post effect that does not compile is left out; the game keeps running.
-                        LastPostEffectError = $"{key}: {exception.Message}";
-                        RenderLog.Line("Post effect not compiled: " + LastPostEffectError);
+                        if (compiled.Program.IsValid) _fwd.ReleasePostEffectProgram(compiled.Program);
+                        GpuShaderProgramHandle program = GpuShaderProgramHandle.Invalid;
+                        try
+                        {
+                            var roots = ShaderCompiler.BuildDefaultIncludeSearchPaths(effect.SourcePath, effect.ProjectPath);
+                            byte[] pixel = ShaderCompiler.CompileForBackend(effect.Source, entry, GpuShaderStage.Pixel,
+                                _gpu.ShaderBinaryFormat, effect.SourcePath, roots).Blob;
+                            program = _fwd.CreatePostEffectProgram(pixel, key);
+                        }
+                        catch (Exception exception)
+                        {
+                            // A post effect that does not compile is left out; the game keeps running.
+                            LastPostEffectError = $"{key}: {exception.Message}";
+                            RenderLog.Line("Post effect not compiled: " + LastPostEffectError);
+                        }
+                        compiled = (entry, effect.Source, program);
+                        _postEffectPrograms[key] = compiled;
                     }
-                    compiled = (entry, effect.Source, program);
-                    _postEffectPrograms[key] = compiled;
                 }
                 if (compiled.Program.IsValid)
                     _postEffectPasses.Add(new ForwardRenderer.PostEffectPass(compiled.Program, effect.Row0, effect.Row1, effect.Row2, effect.Row3));
             }
             _fwd.SetPostEffects(_postEffectPasses);
+        }
+
+        /// <summary>
+        /// The program for a post effect compiled on a worker thread, once the worker is done. The
+        /// first call starts the compile (a changed source starts another); later calls return
+        /// false until it has finished. The program itself is made here, on the render thread.
+        /// </summary>
+        private bool TryTakeBackgroundPostEffect(string key, string entry, PostEffectRequest effect,
+            ref (string Entry, string Source, GpuShaderProgramHandle Program) compiled)
+        {
+            if (!_postEffectCompiles.TryGetValue(key, out PostEffectCompile pending)
+                || !string.Equals(pending.Entry, entry, StringComparison.Ordinal)
+                || !string.Equals(pending.Source, effect.Source, StringComparison.Ordinal))
+            {
+                GpuShaderBinaryFormat format = _gpu.ShaderBinaryFormat;
+                string source = effect.Source, sourcePath = effect.SourcePath;
+                IReadOnlyList<string> roots = ShaderCompiler.BuildDefaultIncludeSearchPaths(effect.SourcePath, effect.ProjectPath);
+                _postEffectCompiles[key] = new PostEffectCompile
+                {
+                    Entry = entry,
+                    Source = source,
+                    Started = System.Diagnostics.Stopwatch.GetTimestamp(),
+                    Pixel = System.Threading.Tasks.Task.Run(() =>
+                    {
+                        ForwardRenderer.CompilePostEffectVertexShader(format);
+                        return ShaderCompiler.CompileForBackend(source, entry, GpuShaderStage.Pixel, format, sourcePath, roots).Blob;
+                    }),
+                };
+                return false;
+            }
+
+            if (!pending.Pixel.IsCompleted) return false;
+            _postEffectCompiles.Remove(key);
+            GpuShaderProgramHandle program = GpuShaderProgramHandle.Invalid;
+            try
+            {
+                program = _fwd.CreatePostEffectProgram(pending.Pixel.GetAwaiter().GetResult(), key);
+                RenderLog.Line($"Post effect '{key}' compiled on a worker in "
+                    + $"{System.Diagnostics.Stopwatch.GetElapsedTime(pending.Started).TotalMilliseconds:F0} ms; it runs from this frame");
+            }
+            catch (Exception exception)
+            {
+                // A post effect that does not compile is left out; the game keeps running.
+                LastPostEffectError = $"{key}: {exception.GetBaseException().Message}";
+                RenderLog.Line("Post effect not compiled: " + LastPostEffectError);
+            }
+            if (compiled.Program.IsValid) _fwd.ReleasePostEffectProgram(compiled.Program);
+            compiled = (entry, pending.Source, program);
+            _postEffectPrograms[key] = compiled;
+            return true;
         }
         public void SetRoomFog(RoomFogState state)
         {

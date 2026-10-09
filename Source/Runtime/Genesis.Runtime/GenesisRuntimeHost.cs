@@ -391,8 +391,12 @@ namespace Genesis.Runtime
             if ((_frame++ % 120) == 0)
                 RenderLog.Line($"render frame={_frame} buffer={_renderer.PixelWidth}x{_renderer.PixelHeight} window={_windowW}x{_windowH} fps={_window.CurrentFps:F0}");
 
+            long beginStarted = System.Diagnostics.Stopwatch.GetTimestamp();
             using (Genesis.Shared.Diagnostics.LoadProfile.Begin("beginning the frame"))
                 _renderer.BeginFrame();
+            // Beginning a frame waits for the graphics card to give back the frame's buffers;
+            // named, so a slow-frame line can say so instead of calling it time outside the frame.
+            _scene?.WorkTimes.Add("waiting for the graphics card to begin", beginStarted);
 
             bool booting = BootSplash != null && !BootSplash.IsComplete;
             _startupFrameWasSplash = booting;
@@ -410,9 +414,11 @@ namespace Genesis.Runtime
             // The project's post effects (Fullscreen Shader resources) the room and its scripts ask for.
             if (!booting)
             {
+                long effectsStarted = System.Diagnostics.Stopwatch.GetTimestamp();
                 using (Genesis.Shared.Diagnostics.LoadProfile.Begin("project post effects"))
                     _renderer.SetPostEffects(Genesis.Runtime.Rendering.ProjectPostEffects.RequestsFor(
                         Genesis.Runtime.Scripting.PgslCommands.ProjectPath));
+                _scene.WorkTimes.Add("project post effects", effectsStarted);
             }
             RoomFogState spriteFog = twoDRoom
                 ? RoomFogState.Create(
@@ -539,6 +545,9 @@ namespace Genesis.Runtime
                 Engine.SetDrawCommandSink(_frameQueue);
                 _frameQueue.Reset();
                 _commandBinding?.ApplyFrameRenderState();
+                // The scripts' Draw events are part of gathering what to draw. Left out of it, a
+                // slow-frame line put their time "outside the frame's own work".
+                long collectStarted = System.Diagnostics.Stopwatch.GetTimestamp();
                 using (Genesis.Shared.Diagnostics.LoadProfile.Begin("scripts' render-frame events and lights"))
                 {
                     BeforeRenderSubmit?.Invoke();
@@ -546,8 +555,8 @@ namespace Genesis.Runtime
                     ScriptHost?.DispatchRenderFrame(_renderer, _frameQueue);
                     ScriptHost?.DispatchPgslWorldDraw(_renderer, _frameQueue);
                 }
+                _scene.WorkTimes.Add("scripts' Draw events", collectStarted);
                 int drawCount = 0;
-                long collectStarted = System.Diagnostics.Stopwatch.GetTimestamp();
                 using (Genesis.Shared.Diagnostics.LoadProfile.Begin("gathering what to draw"))
                     _scene.CollectMeshes(_meshBuffer, ref drawCount, _renderer);
                 LastCollectMilliseconds += System.Diagnostics.Stopwatch.GetElapsedTime(collectStarted).TotalMilliseconds;

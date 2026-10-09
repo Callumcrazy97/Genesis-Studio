@@ -62,12 +62,19 @@ namespace Genesis.Rendering.Primitives
 
         internal bool HasPostEffects => _postEffects.Count > 0;
 
+        /// <summary>
+        /// The vertex shader every post effect shares, for one format. Safe on any thread: a
+        /// worker compiling a post effect makes it ready too, so the frame that builds the
+        /// program finds it made.
+        /// </summary>
+        internal static byte[] CompilePostEffectVertexShader(GpuShaderBinaryFormat format) =>
+            ShaderCompiler.CompileForBackend(ShaderPreviewFullscreenShaders.Source, "PreviewVS", GpuShaderStage.Vertex, format).Blob;
+
         /// <summary>Builds the program for one Fullscreen Shader resource's compiled pixel shader.</summary>
         internal GpuShaderProgramHandle CreatePostEffectProgram(byte[] pixelShader, string debugName)
         {
             if (pixelShader is not { Length: > 0 }) return GpuShaderProgramHandle.Invalid;
-            _postEffectVertexShader ??= ShaderCompiler.CompileForBackend(
-                ShaderPreviewFullscreenShaders.Source, "PreviewVS", GpuShaderStage.Vertex, _gpu.ShaderBinaryFormat).Blob;
+            _postEffectVertexShader ??= CompilePostEffectVertexShader(_gpu.ShaderBinaryFormat);
             return _gpu.CreateShaderProgram(new GpuShaderProgramDesc
             {
                 BinaryFormat = _gpu.ShaderBinaryFormat,

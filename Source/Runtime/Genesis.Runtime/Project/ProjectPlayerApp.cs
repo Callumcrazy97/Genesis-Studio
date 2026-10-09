@@ -275,6 +275,9 @@ namespace Genesis.Runtime.Project
                     var window = host.Window as SilkGameWindow;
                     _activeHost = host;
                     _activeWindow = window;
+                    // A post effect a script turns on is compiled on a worker; the frames meanwhile
+                    // are drawn without it, instead of one frame waiting seconds for the compiler.
+                    renderer.CompilePostEffectsInBackground = true;
                     scene.Input = window?.Input ?? scene.Input;
                     // The window is open and the graphics card ready: say so at once. Everything
                     // below (textures, sound, the first room) used to happen behind a blank window.
@@ -349,6 +352,10 @@ namespace Genesis.Runtime.Project
                     try
                     {
                         audioSystem = new XAudioSystem(projectPath);
+                        // Music and other long sounds are decoded on a worker and start a moment
+                        // later, instead of holding the frame that plays them for up to 0.7 s.
+                        audioSystem.DecodeLargeSoundsInBackground =
+                            Environment.GetEnvironmentVariable("GENESIS_AUDIO_BACKGROUND_DECODE") != "0";
                         // A window opened by a test or a tool makes no noise unless asked to.
                         if (Environment.GetEnvironmentVariable("GENESIS_UNATTENDED_WINDOW") == "1"
                             && Environment.GetEnvironmentVariable("GENESIS_UNATTENDED_AUDIO") != "1")
@@ -544,12 +551,18 @@ namespace Genesis.Runtime.Project
                     host.DebugProfilesDirectory = Path.Combine(ProjectPaths.DebugRoot(projectPath), "Profiles");
                     host.DebugProjectName = Path.GetFileName(Path.TrimEndingDirectorySeparator(projectPath));
                     host.DebugRecordOnStart = debugMode && DebugCategories.RecordOnStartRequested;
-                    host.DebugEngineCategory = DebugCategories.EngineRequested;
+                    // --profile (or GENESIS_PROFILE=1) records the debug screen's profile from the
+                    // start to the end of the run, frame phases included, without debug mode: no
+                    // debug screen drawn, no inspector, no live telemetry.
+                    bool profile = ProfileRequested(args) && !debugMode;
+                    host.DebugEngineCategory = DebugCategories.EngineRequested || profile;
                     host.SceneBuilt += built =>
                     {
                         if (built.Debugger == null) return;
                         built.Debugger.RecordingStarted += folder => logger.Line("profile recording: " + folder);
                         built.Debugger.RecordingSaved += folder => logger.Line("profile saved: " + folder);
+                        if (profile && !built.Debugger.StartRecording())
+                            logger.Line("profile recording could not start (no debug folder to write to)");
                     };
                     if (debugMode && host.Debugger != null)
                     {
@@ -686,6 +699,20 @@ namespace Genesis.Runtime.Project
                 _stopRequested = false; _pauseRequested = false;
                 PgslProfiler.Enabled = false;
             }
+        }
+
+        /// <summary>Records a profile for the whole run without debug mode (see <see cref="ProfileEnvironmentVariable"/>).</summary>
+        public const string ProfileArgument = "--profile";
+
+        /// <summary>Set to 1 for the same as <see cref="ProfileArgument"/>.</summary>
+        public const string ProfileEnvironmentVariable = "GENESIS_PROFILE";
+
+        private static bool ProfileRequested(string[] args)
+        {
+            if (Array.Exists(args, value => string.Equals(value, ProfileArgument, StringComparison.OrdinalIgnoreCase))) return true;
+            string setting = Environment.GetEnvironmentVariable(ProfileEnvironmentVariable);
+            return !string.IsNullOrWhiteSpace(setting) && setting.Trim() != "0"
+                && !string.Equals(setting.Trim(), "false", StringComparison.OrdinalIgnoreCase);
         }
 
         private static double BenchmarkNumber(string[] args, string option, double fallback)
