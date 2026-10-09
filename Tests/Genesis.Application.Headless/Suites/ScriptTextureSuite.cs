@@ -68,8 +68,11 @@ internal static class ScriptTextureSuite
                 HeadlessHarness.Assert(PgslCommands.TextureFillRectanglesFromList(texture, rects) == 2
                     && Pixel(texture, 0, 1) == (10, 20, 30, 255) && Pixel(texture, 1, 2) == (10, 20, 30, 255),
                     "TextureFillRectanglesFromList did not paint and then clear as listed.");
-                HeadlessHarness.Assert(Pixel(texture, 0, 0) == (0, 0, 0, 0) && Pixel(texture, 3, 2) == (0, 0, 0, 0),
-                    "A rectangle reaching past the texture did not replace every pixel inside it, alpha included.");
+                // The second reaches in from -5, -5 to 1, 1: just the corner pixel, made transparent.
+                HeadlessHarness.Assert(Pixel(texture, 0, 0) == (0, 0, 0, 0) && Pixel(texture, 1, 0) == (0, 255, 0, 127)
+                    && Pixel(texture, 0, 1) == (10, 20, 30, 255),
+                    "A rectangle reaching past the texture did not replace just the pixels inside it, alpha included: "
+                    + Pixel(texture, 0, 0) + Pixel(texture, 1, 0) + Pixel(texture, 0, 1));
 
                 // Garbage: no list, no texture, a destroyed texture, numbers that are not numbers.
                 HeadlessHarness.Assert(PgslCommands.TextureSetPixels(9999, list) == 0 && PgslCommands.TextureSetPixels(texture, 9999) == 0
