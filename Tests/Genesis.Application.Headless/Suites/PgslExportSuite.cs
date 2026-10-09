@@ -114,6 +114,25 @@ internal static class PgslExportSuite
                 "The export shipped C# source.");
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Export.LeavesOutDebugOutputAndTheProjectsExclusions", () =>
+        {
+            // GenesisCraft's export was 3.7 GB, 3.1 GB of it the project's Debug folder (test runs,
+            // pictures, shader caches), with its build scripts and notes beside.
+            ProjectSession project = BuildProject(ctx, "Excluded", out _);
+            void Put(string relative) { string path = Path.Combine(project.RootPath, relative); Directory.CreateDirectory(Path.GetDirectoryName(path)!); File.WriteAllText(path, "x"); }
+            string[] left = ["Debug/Runs/run1/stdout.log", "Debug/Images/shot.png", "Ember/Debug/Logs/a.log", "Tools/Build.ps1", "Notes/plan.txt"];
+            string[] kept = ["Assets/Sprites/Debug/keep.txt", "Assets/Notes/story.txt", "readme.txt"];
+            foreach (string relative in left.Concat(kept)) Put(relative);
+            project.Manifest.ExportExclude = ["Tools", "Notes/*.txt"];
+            GameExportResult result = GameExportService.Export(
+                new(project, Path.Combine(ctx.OutputRoot, "ExcludedGame"), GameExportFormat.Folder, PrecompileShaders: false));
+            HeadlessHarness.Assert(result.Success, "The export failed: " + result.ErrorMessage);
+            string[] shipped = left.Where(relative => File.Exists(Path.Combine(result.OutputPath, relative))).ToArray();
+            string[] missing = kept.Where(relative => !File.Exists(Path.Combine(result.OutputPath, relative))).ToArray();
+            HeadlessHarness.Assert(shipped.Length == 0, "The export shipped what it should leave out: " + string.Join(", ", shipped));
+            HeadlessHarness.Assert(missing.Length == 0, "The export left out what it should ship: " + string.Join(", ", missing));
+        });
+
         RunShaderCases(ctx);
     }
 

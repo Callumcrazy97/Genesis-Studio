@@ -55,6 +55,14 @@ public sealed class ProjectManifest
     /// </summary>
     public List<string> AudioBuses { get; set; } = [];
 
+    /// <summary>
+    /// What an exported game leaves out besides the engine's own folders (the project's Debug and
+    /// Logs, .genesis, Temp...): the project's build scripts, notes or test data. Each entry is a
+    /// name (<c>Tools</c>, <c>*.txt</c>), left out wherever it is in the project, or a path from the
+    /// project folder (<c>Notes/*.txt</c>, <c>Assets/Work</c>); <c>*</c> and <c>?</c> are allowed.
+    /// </summary>
+    public List<string> ExportExclude { get; set; } = [];
+
     /// <summary>How the built game behaves. Travels with the project, not the machine.</summary>
     public ProjectRuntimeSettings Runtime { get; set; } = new();
 

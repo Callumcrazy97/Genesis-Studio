@@ -35,6 +35,11 @@ Player renamed to your game's title, and a `Licenses` folder.
   12, Vulkan and OpenGL, so a player's first start does not stop to compile them. Leave
   *Precompile built-in and project shaders* ticked; if one of them does not compile for a
   backend, the dialog names it and the game compiles it when it first draws with it.
+- The export copies the project folder except what only you need: the project's `Debug` folder
+  (test runs, pictures, profiles, shader caches), logs, `.genesis`, `Temp`, C# source and
+  Markdown notes. To leave out more, such as build scripts or notes, list them under
+  `"ExportExclude"` in the project's `.genesisproj` file: a name (`"Tools"`, `"*.psd"`) is left out
+  wherever it is in the project, a path from the project folder (`"Notes/*.txt"`) only there.
 - Windows x64 is the only platform.
 
 ## Where Genesis keeps things

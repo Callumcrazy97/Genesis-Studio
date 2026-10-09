@@ -117,7 +117,7 @@ public static partial class GameExportService
 
             cancellationToken.ThrowIfCancellationRequested();
             progress?.Report("Copying game content…");
-            CopyProject(projectRoot, staging, cancellationToken);
+            CopyProject(projectRoot, staging, request.Project.Manifest.ExportExclude, cancellationToken);
 
             // The exported models are final now. Giving each large one its fast-loading copy here
             // means the player's first launch reads those instead of parsing every model.
@@ -197,8 +197,18 @@ public static partial class GameExportService
         }
     }
 
-    private static void CopyProject(string sourceRoot, string destinationRoot, CancellationToken cancellationToken)
+    // The engine's own per-project debug output (test runs, pictures, logs, profiles, shader caches),
+    // by path from the project folder: an asset folder that happens to be called Debug still ships.
+    private static readonly string[] EngineDebugFolders = ["Debug", "Ember/Debug"];
+
+    private static void CopyProject(string sourceRoot, string destinationRoot, IReadOnlyList<string>? projectExclusions,
+        CancellationToken cancellationToken)
     {
+        string[] exclusions = (projectExclusions ?? [])
+            .Where(entry => !string.IsNullOrWhiteSpace(entry))
+            .Select(entry => entry.Trim().Replace('\\', '/').Trim('/'))
+            .Where(entry => entry.Length > 0)
+            .ToArray();
         CopyDirectory(sourceRoot, destinationRoot);
 
         void CopyDirectory(string source, string destination)
@@ -207,7 +217,7 @@ public static partial class GameExportService
             Directory.CreateDirectory(destination);
             foreach (string file in Directory.EnumerateFiles(source))
             {
-                if (ShouldExcludeFile(file)) continue;
+                if (ShouldExcludeFile(file) || IsProjectExcluded(file)) continue;
                 File.Copy(file, Path.Combine(destination, Path.GetFileName(file)), true);
             }
 
@@ -215,8 +225,25 @@ public static partial class GameExportService
             {
                 string name = Path.GetFileName(directory);
                 if (ExcludedDirectories.Contains(name)) continue;
+                string relative = Path.GetRelativePath(sourceRoot, directory).Replace('\\', '/');
+                if (EngineDebugFolders.Contains(relative, StringComparer.OrdinalIgnoreCase) || IsProjectExcluded(directory)) continue;
                 CopyDirectory(directory, Path.Combine(destination, name));
             }
+        }
+
+        // The project's own ExportExclude entries: a name matches at any depth, a path from the
+        // project folder only there.
+        bool IsProjectExcluded(string path)
+        {
+            if (exclusions.Length == 0) return false;
+            string relative = Path.GetRelativePath(sourceRoot, path).Replace('\\', '/');
+            string name = Path.GetFileName(path);
+            foreach (string pattern in exclusions)
+            {
+                string input = pattern.Contains('/') ? relative : name;
+                if (System.IO.Enumeration.FileSystemName.MatchesSimpleExpression(pattern, input, ignoreCase: true)) return true;
+            }
+            return false;
         }
     }
 
