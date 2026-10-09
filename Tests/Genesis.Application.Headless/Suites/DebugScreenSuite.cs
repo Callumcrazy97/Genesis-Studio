@@ -31,6 +31,7 @@ internal static class DebugScreenSuite
         try
         {
             RunCases(ctx);
+            ProfileRecordingSuite.Run(ctx);
         }
         finally
         {

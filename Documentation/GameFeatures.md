@@ -935,6 +935,28 @@ that asks, so the frame they read back has the effect. `Build.bat --test post-ef
 Player on DX12 with an empty shader cache, turns on an effect three seconds in, and checks that no
 frame after that took 250 ms or more and that the effect then ran.
 
+### Recording a profile without debug mode
+
+`GENESIS_PROFILE=1` (or the Player's `--profile` argument) records the same profile as the debug
+screen's Record button, for the whole run, without debug mode: no debug screen is drawn, nothing is
+inspected and no live telemetry is written. The recording starts with the first frame of play and
+is saved when the game closes, in `Debug/Profiles/<date-time>/` (`frames.csv`, `summary.json`,
+`report.md`), and the log names the folder (`profile recording: ...`, `profile saved: ...`; the
+Player also prints `GENESIS_PROFILE_RECORDING` and `GENESIS_PROFILE_SAVED`). It has the Engine
+columns (update, gathering, drawing, presenting, HUD and the longest parts of each frame), PGSL time
+per Object and event, the allocation and collections of every frame and the types allocated most.
+What it costs is the recording itself: PGSL events are timed, a row is written per frame and
+allocations are sampled. For a headless measurement:
+
+```
+set GENESIS_UNATTENDED_WINDOW=1
+set GENESIS_PROFILE=1
+GenesisEngine.exe
+```
+
+Checked by `Build.bat --test debug-screen`, which runs a game for three seconds this way and reads
+the folder it leaves.
+
 ## Smaller changes
 
 - **Bushes and saplings.** The `Shrub` and `Sapling` foliage shapes are built from rounded solid

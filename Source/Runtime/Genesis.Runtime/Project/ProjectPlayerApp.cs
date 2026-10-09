@@ -545,12 +545,18 @@ namespace Genesis.Runtime.Project
                     host.DebugProfilesDirectory = Path.Combine(ProjectPaths.DebugRoot(projectPath), "Profiles");
                     host.DebugProjectName = Path.GetFileName(Path.TrimEndingDirectorySeparator(projectPath));
                     host.DebugRecordOnStart = debugMode && DebugCategories.RecordOnStartRequested;
-                    host.DebugEngineCategory = DebugCategories.EngineRequested;
+                    // --profile (or GENESIS_PROFILE=1) records the debug screen's profile from the
+                    // start to the end of the run, frame phases included, without debug mode: no
+                    // debug screen drawn, no inspector, no live telemetry.
+                    bool profile = ProfileRequested(args) && !debugMode;
+                    host.DebugEngineCategory = DebugCategories.EngineRequested || profile;
                     host.SceneBuilt += built =>
                     {
                         if (built.Debugger == null) return;
                         built.Debugger.RecordingStarted += folder => logger.Line("profile recording: " + folder);
                         built.Debugger.RecordingSaved += folder => logger.Line("profile saved: " + folder);
+                        if (profile && !built.Debugger.StartRecording())
+                            logger.Line("profile recording could not start (no debug folder to write to)");
                     };
                     if (debugMode && host.Debugger != null)
                     {
@@ -685,6 +691,20 @@ namespace Genesis.Runtime.Project
                 _stopRequested = false; _pauseRequested = false;
                 PgslProfiler.Enabled = false;
             }
+        }
+
+        /// <summary>Records a profile for the whole run without debug mode (see <see cref="ProfileEnvironmentVariable"/>).</summary>
+        public const string ProfileArgument = "--profile";
+
+        /// <summary>Set to 1 for the same as <see cref="ProfileArgument"/>.</summary>
+        public const string ProfileEnvironmentVariable = "GENESIS_PROFILE";
+
+        private static bool ProfileRequested(string[] args)
+        {
+            if (Array.Exists(args, value => string.Equals(value, ProfileArgument, StringComparison.OrdinalIgnoreCase))) return true;
+            string setting = Environment.GetEnvironmentVariable(ProfileEnvironmentVariable);
+            return !string.IsNullOrWhiteSpace(setting) && setting.Trim() != "0"
+                && !string.Equals(setting.Trim(), "false", StringComparison.OrdinalIgnoreCase);
         }
 
         private static double BenchmarkNumber(string[] args, string option, double fallback)
