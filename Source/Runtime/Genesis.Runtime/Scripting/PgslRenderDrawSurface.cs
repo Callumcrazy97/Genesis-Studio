@@ -496,6 +496,8 @@ namespace Genesis.Runtime.Scripting
                 Alpha = a,
                 Emissive = glow,
                 Flags = flags,
+                // DrawMeshSetSky: behind everything, around the camera (the world matrix is an offset from the eye).
+                Layer = options.Sky ? MeshDrawCall.SkyLayer : 0,
             };
             if (!string.IsNullOrWhiteSpace(shader))
                 ObjectDrawPass.TryApplyMeshShader(_renderer, projectPath, shader, options.ShaderParameters, options.ShaderResources, ref call);

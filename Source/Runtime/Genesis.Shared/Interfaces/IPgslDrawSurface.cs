@@ -23,6 +23,11 @@ namespace Genesis.Shared.Interfaces
         public System.Collections.Generic.IReadOnlyDictionary<string, float[]> ShaderParameters;
         /// <summary>The calling instance's shader texture overrides by resource name; may be null.</summary>
         public System.Collections.Generic.IReadOnlyDictionary<string, string> ShaderResources;
+        /// <summary>
+        /// Drawn in the sky layer (DrawMeshSetSky): behind everything, centred on the camera, unlit
+        /// (see <see cref="MeshDrawCall.SkyLayer"/>).
+        /// </summary>
+        public bool Sky;
     }
 
     /// <summary>2D/3D draw surface used by PGSL commands during sandbox and play mode.</summary>

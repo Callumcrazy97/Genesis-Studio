@@ -971,8 +971,17 @@ namespace Genesis.Shared.Interfaces
         /// <summary>
         /// 0 draws in the world. 1 is the first-person layer, more than 99 a GUI model's layer: the
         /// draw goes to that layer's own image and camera (see IRenderController.SetModelLayerCamera).
+        /// <see cref="SkyLayer"/> draws it in the sky.
         /// </summary>
         public int Layer;
+
+        /// <summary>
+        /// The sky layer: drawn first in the 3D frame, right after it is cleared to the sky, centred
+        /// on the camera (the world matrix places it relative to the eye), scaled to sit inside the
+        /// far plane, unlit and writing no depth, so the world covers it and the sky's haze and clouds
+        /// go over it (a game's own sun, moon, stars or sky dome).
+        /// </summary>
+        public const int SkyLayer = -1;
         public Matrix4x4     World;
         public RenderColor   Tint;
         public MeshDrawFlags Flags;

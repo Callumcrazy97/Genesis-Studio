@@ -853,6 +853,39 @@ Measured on the development PC (Direct3D 11, 9 Oct 2026; `script-textures-cost.t
 from a Draw GUI event then cost 0.02 ms a frame and one draw call, against 10.6 ms for the same
 5,000 rectangles drawn one `DrawRectangle` at a time.
 
+## A sky layer behind the world
+
+A game can draw its own sun, moon, stars or sky dome behind its terrain. `DrawMeshSetSky(true)`
+puts this instance's later script-mesh draws (`DrawMesh3D`, `DrawMesh3DTransform`,
+`DrawMeshShader3D`, with a mesh Shader resource or without) in the sky layer until it is set off
+or `DrawMeshResetState` runs. A mesh there:
+
+- is drawn first, right after the frame is cleared to the sky's colour, and writes no depth, so
+  everything the world draws covers it: terrain, water, models, the floor;
+- is centred on the camera: the draw's `x, y, z` are an offset from the eye (`0, 0, 0` puts the
+  mesh's origin at the eye), so it never comes nearer as the player walks;
+- may be any size at any distance: it is scaled about the eye to sit inside the camera's far plane,
+  which does not change how it looks, so there is no need to push the far plane out for it;
+- is unlit, in its own colours (texture, vertex colour, image blend, alpha), brighter with
+  `DrawMeshSetGlow`, blended when see-through (`DrawMeshSetTransparent` or alpha below 1), in call
+  order; it casts and receives no shadow;
+- is part of the sky for the rest of the frame: the room's haze, clouds and stars go over it as
+  over the sky. Under an atmosphere preset the sky's colours are worked out again there, and what
+  the layer drew adds where it is brighter than the horizon, as the engine's own sun disc does.
+
+Hide the engine's own discs with `Engine.Sky.SunDiscVisible = false` and
+`Engine.Sky.MoonDiscVisible = false`; `Engine.Sky.SunDirectionX/Y/Z` and `MoonDirectionX/Y/Z` say
+where to put yours so they match the light. Nothing changes for a game that does not use the layer.
+
+```pgsl
+// Draw: a square sun (a quad built round its own centre, facing the eye) 100 out towards the
+// engine's sun, behind the land whatever the far plane.
+DrawMeshSetSky(true); DrawMeshSetTransparent(true);
+DrawMeshShader3D(sunQuad, "SkyShader", Engine.Sky.SunDirectionX * 100, Engine.Sky.SunDirectionY * 100,
+    Engine.Sky.SunDirectionZ * 100, 1, 1, 1, 0, "Sun");
+DrawMeshResetState();
+```
+
 ## Recording and replaying input
 
 A run can be recorded once with the real keyboard, mouse and controller and then played back in
