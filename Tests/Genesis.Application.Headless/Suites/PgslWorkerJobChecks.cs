@@ -416,8 +416,41 @@ internal static class PgslWorkerJobChecks
                 using Bench bench = new();
                 PgslContext other = new() { InstanceId = 2 };
                 List<(PgslContext Owner, double Job)> jobs = [];
+                int total = 2 * NativeJobPool.MaximumContextJobs;
                 try
                 {
+                    // First jobs that cannot end by themselves (a long budgeted spin, cancelled below), so
+                    // with every worker busy the rest must still be waiting, however loaded the machine
+                    // is. (Short jobs made this count a race: in a warm process early ones had finished.)
+                    foreach (PgslContext owner in new[] { bench.Context, other })
+                    {
+                        PgslCommands.BindContext(owner);
+                        for (int i = 0; i < NativeJobPool.MaximumContextJobs; i++)
+                        {
+                            double job = PgslCommands.JobScriptCreate("WjSpin");
+                            HeadlessHarness.Assert(job > 0 && PgslCommands.JobScriptBudget(job, 2_000_000_000.0)
+                                && PgslCommands.JobScriptStart(job, 1_000_000_000.0), "A job did not start: " + PgslCommands.JobLastError());
+                            jobs.Add((owner, job));
+                        }
+                    }
+                    int waiting = jobs.Count(entry => { PgslCommands.BindContext(entry.Owner); return PgslCommands.JobStatus(entry.Job) == "queued"; });
+                    // A job still waiting for a thread is cancelled at once.
+                    (PgslContext lastOwner, double last) = jobs[^1];
+                    PgslCommands.BindContext(lastOwner);
+                    bool lastWaiting = PgslCommands.JobStatus(last) == "queued";
+                    bool cancelledAtOnce = !lastWaiting || (PgslCommands.JobCancel(last) && PgslCommands.JobStatus(last) == "cancelled");
+                    int threads = NativeJobPool.ScriptThreads;
+                    int stopped = 0;
+                    foreach ((PgslContext owner, double job) in jobs)
+                    {
+                        PgslCommands.BindContext(owner);
+                        PgslCommands.JobCancel(job);
+                        if (bench.Wait(job, 10) == "cancelled") stopped++;
+                        PgslCommands.JobRelease(job);
+                    }
+                    jobs.Clear();
+
+                    // Then as many short jobs, which take the workers in turn and all run to the end.
                     foreach (PgslContext owner in new[] { bench.Context, other })
                     {
                         PgslCommands.BindContext(owner);
@@ -428,29 +461,28 @@ internal static class PgslWorkerJobChecks
                             jobs.Add((owner, job));
                         }
                     }
-                    int waiting = jobs.Count(entry => { PgslCommands.BindContext(entry.Owner); return PgslCommands.JobStatus(entry.Job) == "queued"; });
-                    // A job still waiting for a thread is cancelled at once.
-                    (PgslContext lastOwner, double last) = jobs[^1];
-                    PgslCommands.BindContext(lastOwner);
-                    bool lastWaiting = PgslCommands.JobStatus(last) == "queued";
-                    bool cancelledAtOnce = !lastWaiting || (PgslCommands.JobCancel(last) && PgslCommands.JobStatus(last) == "cancelled");
                     int succeeded = 0;
                     foreach ((PgslContext owner, double job) in jobs)
                     {
                         PgslCommands.BindContext(owner);
                         string status = bench.Wait(job, 60);
                         if (status == "succeeded" && PgslCommands.JobResultNumber(job) == 3_000_000) succeeded++;
-                        else if (job == last && lastWaiting && status == "cancelled") succeeded++;
                         PgslCommands.JobRelease(job);
                     }
-                    row("Jobs", $"{jobs.Count} jobs on {NativeJobPool.ScriptWorkerCount} workers", succeeded == jobs.Count && cancelledAtOnce ? "PASS" : "FAIL",
-                        $"{waiting} waiting just after starting, {succeeded} ended as expected, {NativeJobPool.ScriptThreads} threads started, a waiting job cancelled at once: {cancelledAtOnce && lastWaiting}");
-                    HeadlessHarness.Assert(succeeded == jobs.Count, $"Only {succeeded} of {jobs.Count} jobs ended as expected.");
+                    threads = Math.Max(threads, NativeJobPool.ScriptThreads);
+                    bool passed = succeeded == total && stopped == total && cancelledAtOnce
+                        && threads <= NativeJobPool.ScriptWorkerCount && waiting >= total - NativeJobPool.ScriptWorkerCount;
+                    row("Jobs", $"{total} jobs on {NativeJobPool.ScriptWorkerCount} workers", passed ? "PASS" : "FAIL",
+                        $"{waiting} of {total} endless jobs waiting, {stopped} stopped when cancelled, {succeeded} short jobs ended, {threads} threads started, a waiting job cancelled at once: {cancelledAtOnce && lastWaiting}");
+                    HeadlessHarness.Assert(succeeded == total, $"Only {succeeded} of {total} jobs ended as expected.");
+                    HeadlessHarness.Assert(stopped == total, $"Only {stopped} of {total} cancelled jobs stopped.");
                     HeadlessHarness.Assert(cancelledAtOnce, "A job waiting for a thread was not cancelled at once.");
-                    HeadlessHarness.Assert(NativeJobPool.ScriptThreads <= NativeJobPool.ScriptWorkerCount,
-                        $"{NativeJobPool.ScriptThreads} worker threads started; the limit is {NativeJobPool.ScriptWorkerCount}.");
-                    HeadlessHarness.Assert(waiting >= jobs.Count - NativeJobPool.ScriptWorkerCount,
-                        $"Only {waiting} of {jobs.Count} jobs waited with {NativeJobPool.ScriptWorkerCount} workers.");
+                    HeadlessHarness.Assert(total <= NativeJobPool.ScriptWorkerCount || lastWaiting,
+                        "The last job did not wait although every worker was busy.");
+                    HeadlessHarness.Assert(threads <= NativeJobPool.ScriptWorkerCount,
+                        $"{threads} worker threads started; the limit is {NativeJobPool.ScriptWorkerCount}.");
+                    HeadlessHarness.Assert(waiting >= total - NativeJobPool.ScriptWorkerCount,
+                        $"Only {waiting} of {total} jobs waited with {NativeJobPool.ScriptWorkerCount} workers.");
                 }
                 finally
                 {
