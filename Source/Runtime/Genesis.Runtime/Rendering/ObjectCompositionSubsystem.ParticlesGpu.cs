@@ -127,6 +127,7 @@ public sealed partial class ObjectCompositionSubsystem
                 layer.GpuEmitter.UpdateDefinition(definition);
             }
 
+            layer.GpuEmitter.DiagnosticsIntervalSeconds = DiagnosticsInterval;
             layer.LastDiagnostics = layer.GpuEmitter.Diagnostics;
         }
     }
