@@ -11,9 +11,10 @@ namespace Genesis.Application.Headless.Suites;
 /// <summary>
 /// How fast the PGSL bytecode VM runs ordinary script work, as the Player runs it (one instance's VM,
 /// no diagnostics collector): a tight arithmetic loop on locals, many small function calls, list and
-/// grid reads and writes, numeric commands with several arguments, and the light-spreading and chunk
-/// meshing functions of a voxel test project, copied with a small world of their own
-/// (<c>Fixtures\VmSpeed</c>). Each workload's result is checked against the same sums worked out in
+/// grid reads and writes, numeric commands with several arguments, the light-spreading and chunk
+/// meshing functions of a voxel test project, copied with a small world of their own, and a voxel
+/// game's chunk generator (<c>Fixtures\VmSpeed</c>), with the bytes each run allocates.
+/// GENESIS_TIMING_AFFINITY (a processor mask) pins the run. Each workload's result is checked against the same sums worked out in
 /// C#; times are medians of repeated runs, written to <c>Logs\vm-speed.json</c> and
 /// <c>vm-speed.md</c> beside the captures. Only a generous ceiling is asserted, as the machine is shared.
 /// A profile follows: the cost of one loop body per kind of operation (a local, a global read four

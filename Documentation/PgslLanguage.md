@@ -127,6 +127,28 @@ calls and instance-variable reads. A lattice hash written in script (`Sin`, mult
 about 160 to 180 ns a call, value noise made of four of them about 0.9 microseconds; `ValueNoise2D`
 does the same natively.
 
+On 9 Oct 2026 `vm-speed` also generates a chunk with a voxel game's own terrain generator, copied
+unchanged (GenesisCraft's `McNoise2`, `McColumnCalc`, `McClimateAt`, `McLatMix`, `McGenColumnsRow`,
+`McVein`...: 469 000 instructions for one 16 x 16 chunk's columns and ores). It takes 2.6 to 2.9 ms,
+about 6 ns an instruction, so the VM runs some 170 million of that game's instructions a second
+(the light spread and mesher above run at about 5 ns). Debug mode does not slow the VM: the
+Player's VMs run without a debugger in either mode, and profiling times whole events. What a debug
+recording showed as `Dictionary<String,Object>`, `Entry[String,Object][]` and most of `Int32[]` was
+the debug inspector copying every Object's storage (each list, grid and map) every frame; it now
+skips the engine's own `__` entries. The VM's own allocations, measured per run by `vm-speed`
+(bytes this thread allocated): none per instruction or call. Storing a number in a list, stack,
+queue, map or named array, or with `VariableSet`, used to allocate a box (24 bytes) each time;
+whole numbers from -1 024 to 65 535 now share one box each, so `DsListSet`, `DsListAdd`,
+`DsMapSet` and `VariableSet` of such numbers allocate nothing (`GENESIS_VM_SHARED_BOXES=0` turns
+it off, for comparison: then each `DsListSet`, `DsMapSet` and `VariableSet` allocates 24 bytes and
+takes 14 to 15 ns longer, and the light spread allocates 524 KB a run instead of 262 KB). Other
+numbers still take a box: the light spread's queue of
+packed cells allocates 262 KB for its 10 920 cells. Reading an instance variable from inside a
+function skips callers that cannot hold it (11 to 16 ns where it was 14 to 21), and a call no
+longer keeps a second stack of names. Measured on the performance cores (`GENESIS_TIMING_AFFINITY=0xFFFF`
+pins `vm-speed`): the mesher 16.5 to 16.8 ms (was 17.2 to 17.8), the light spread unchanged at
+37 to 38 ms, `DsListSet` 36 ns, `VariableSet` 39 ns (was 44 to 53).
+
 Two things make timings misleading on the development PC. A process that keeps compiling new code
 (a test run of many suites) postpones the runtime's optimised recompile of the VM, which then runs
 about three times slower until it settles: `vm-speed` and the timings in `pgsl-logic` warm up
