@@ -69,7 +69,8 @@ public sealed partial class ParticleEditorControl
 
     private void StepPreviewExecution(float step)
     {
-        ParticleExecutionDecision execution = ParticleExecutionPolicy.Resolve(_particlePreviewRenderer);
+        // A seek or a single step can come between a renderer switch and the next frame.
+        ParticleExecutionDecision execution = ParticleExecutionPolicy.Resolve(LivePreviewRenderer);
         if (execution.Target == ParticleExecutionTarget.Pending)
             return;
 
@@ -115,7 +116,7 @@ public sealed partial class ParticleEditorControl
 
     private void ResetPreviewExecution()
     {
-        ParticleExecutionDecision execution = ParticleExecutionPolicy.Resolve(_particlePreviewRenderer);
+        ParticleExecutionDecision execution = ParticleExecutionPolicy.Resolve(LivePreviewRenderer);
         EnsureGpuPreviewStateLists();
 
         for (int i = 0; i < _gpuPreviewEmitAccumulators.Count; i++)

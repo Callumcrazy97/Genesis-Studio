@@ -34,6 +34,34 @@ internal static partial class ParticleWorkbenchSuite
         HeadlessHarness.BeginMajor(context.Report, "Particle Editor H21 Workbench");
         void Check(string name, Action test) => HeadlessHarness.RunCase(context.Report, "Editor.ParticleWorkbench." + name, test);
         ParticleClockCoreCases.Run(Check);
+        // An open editor stepped its GPU preview on the renderer of the previous frame. A renderer
+        // switch disposes that one, so every frame threw "The selected renderer must be initialized
+        // before creating GPU particles" before the new renderer was taken, and the preview (and the
+        // render log) never recovered.
+        Check("Preview.KeepsRunningAcrossRendererSwitches", () => WithPreview(RenderBackendOption.SilkNetDx11, editor =>
+        {
+            if (!editor.TimelinePlaying) editor.ToggleTimelinePlayback();
+            GateSuite.Pump(10, 20);
+            using (editor.Viewport.CaptureFrame(2)) { }
+            List<string> failures = [];
+            foreach ((RenderBackendOption backend, string expected) in new[]
+            {
+                (RenderBackendOption.Direct3D12, "Direct3D 12"), (RenderBackendOption.Vulkan, "Vulkan"),
+                (RenderBackendOption.OpenGL, "OpenGL"), (RenderBackendOption.SilkNetDx11, "Direct3D 11"),
+            })
+            {
+                if (!RenderBackendSelection.IsAvailable(backend)) continue;
+                editor.Viewport.Host.ClearRenderFault();
+                RenderBackendSelection.Configure(backend);
+                GateSuite.Pump(10, 20);
+                using (editor.Viewport.CaptureFrame(3)) { }
+                string active = editor.Viewport.Host.Renderer?.BackendName ?? "none";
+                if (active != expected) failures.Add($"{expected}: the preview drew with '{active}'.");
+                if (editor.Viewport.Host.RenderFaultCount != 0)
+                    failures.Add($"{expected}: {editor.Viewport.Host.RenderFaultCount} render faults, last: {editor.Viewport.Host.LastRenderException?.Message}");
+            }
+            Assert(failures.Count == 0, "The particle preview did not survive a renderer switch: " + string.Join(" | ", failures));
+        }));
         RunQuickSetupCases(context, Check);
         RunPlanarCases(context, Check);
         Check("Stack.AddClonesWithoutChangingOriginal", () =>

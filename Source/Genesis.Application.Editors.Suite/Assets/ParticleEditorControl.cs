@@ -1053,12 +1053,14 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
 
     private void DrawParticles2D(IRenderController renderer)
     {
+        AdoptPreviewRenderer(renderer);
         StepClock();
         DrawEmitterStack2D(renderer);
     }
 
     private void DrawParticles3D(IRenderController renderer)
     {
+        AdoptPreviewRenderer(renderer);
         StepClock();
         DrawPreviewTarget(renderer);
         DrawEmitterStack3D(renderer);

@@ -572,13 +572,30 @@ public sealed partial class ParticleEditorControl
         DrawPreviewParticles3D(renderer);
     }
 
+    /// <summary>
+    /// Takes the renderer drawing this frame as the one the preview simulates on. Called before the
+    /// clock steps the emitters: a renderer switch (Preferences, or a viewport given another
+    /// backend) disposes the previous controller, and stepping on it threw "must be initialized
+    /// before creating GPU particles" before the new one was ever taken, so every later frame threw
+    /// the same and the preview never recovered.
+    /// </summary>
+    private void AdoptPreviewRenderer(IRenderController renderer)
+    {
+        if (ReferenceEquals(_particlePreviewRenderer, renderer)) return;
+        ReleaseEmitterPreviewResources();
+        _particlePreviewRenderer = renderer;
+    }
+
+    /// <summary>
+    /// The preview's renderer while it can still make GPU work, else null (the preview waits for
+    /// the next frame to bring the new one).
+    /// </summary>
+    private IRenderController? LivePreviewRenderer =>
+        _particlePreviewRenderer is { IsInitialized: true } renderer ? renderer : null;
+
     private void EnsureEmitterPreviewResources(IRenderController renderer)
     {
-        if (!ReferenceEquals(_particlePreviewRenderer, renderer))
-        {
-            ReleaseEmitterPreviewResources();
-            _particlePreviewRenderer = renderer;
-        }
+        AdoptPreviewRenderer(renderer);
         while (_previewFrames.Count < _previewEmitterConfigs.Count)
         {
             ParticleConfig config = _previewEmitterConfigs[_previewFrames.Count];
