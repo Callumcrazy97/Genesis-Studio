@@ -1575,6 +1575,11 @@ internal static class HeadlessTestRunner
                 PrepareFocusedProject(ctx, requireStudioServices: false);
                 Suites.GuiLinearBlendSuite.Run(ctx);
                 break;
+            case "gui-batch":
+                // GUI rectangles and image parts from a list in one call, on every renderer, and their cost.
+                PrepareFocusedProject(ctx, requireStudioServices: false);
+                Suites.GuiBatchSuite.Run(ctx);
+                break;
             case "model-sprites":
                 Suites.ModelSpriteConversionSuite.Run(ctx);
                 break;

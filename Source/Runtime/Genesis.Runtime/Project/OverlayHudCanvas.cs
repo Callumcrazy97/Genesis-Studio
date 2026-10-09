@@ -55,5 +55,7 @@ namespace Genesis.Runtime.Project
         public bool SupportsSprites => _overlay.SupportsSprites;
 
         public void Sprite(in SpriteDrawCall call) => _overlay.DrawSprite(call);
+
+        public void Rects(System.ReadOnlySpan<GuiRectangle> rectangles) => _overlay.DrawFilledRects(rectangles);
     }
 }

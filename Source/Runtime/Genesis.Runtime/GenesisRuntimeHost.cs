@@ -774,10 +774,19 @@ namespace Genesis.Runtime
         /// </summary>
         private sealed class BufferedHudCanvas : IHudCanvas
         {
-            private enum Kind { Text, TextCentered, Rect, Line, Clip, Sprite, BlendLinear }
+            private enum Kind { Text, TextCentered, Rect, Line, Clip, Sprite, BlendLinear, Rects }
 
             private readonly List<Command> _commands = new();
             private readonly List<SpriteDrawCall> _sprites = new();
+            // Rectangle batches (DrawRectanglesFromList): one command each, replayed as one.
+            private readonly List<GuiRectangle> _rects = new();
+
+            public void Rects(ReadOnlySpan<GuiRectangle> rectangles)
+            {
+                if (rectangles.IsEmpty) return;
+                _commands.Add(new Command(Kind.Rects, null, _rects.Count, rectangles.Length, 0f, 0f, 0f, default));
+                _rects.AddRange(rectangles);
+            }
 
             // Replayed onto the overlay, which draws sprites in order with text and shapes.
             public bool SupportsSprites => true;
@@ -818,6 +827,7 @@ namespace Genesis.Runtime
                 Height = height;
                 _commands.Clear();
                 _sprites.Clear();
+                _rects.Clear();
             }
 
             public void Text(string text, float x, float y, float size, Vector4 color) =>
@@ -878,6 +888,10 @@ namespace Genesis.Runtime
                             break;
                         case Kind.Line:
                             destination.Line(command.A, command.B, command.C, command.D, command.Color, command.E);
+                            break;
+                        case Kind.Rects:
+                            destination.Rects(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_rects)
+                                .Slice((int)command.A, (int)command.B));
                             break;
                     }
                 }

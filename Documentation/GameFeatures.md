@@ -792,6 +792,29 @@ views. `ScreenshotPending()` counts pictures not yet taken and `ScreenshotLastPa
 the last one went to. A picture asked for during a room change's cover waits for the first frame
 without it.
 
+## Many GUI rectangles or image parts in one call
+
+A minimap, a world map or a tile layer laid out by script draws thousands of rectangles. One
+`DrawRectangle` call each costs the script far more than the drawing: the GUI already puts every
+rectangle of a frame into one draw call. A list drawn in one call skips that cost, and draws the very
+pixels the single calls would, in call order with the drawing around it, on every renderer.
+
+| Command | What it does |
+|---|---|
+| `DrawRectanglesFromList(list, x, y, xscale, yscale)` | Filled rectangles from a DsList holding 8 numbers for each: `x, y, width, height, red, green, blue, alpha`, the colour as `DrawSetColorRgb` (0-255) and `DrawSetAlpha` (0-1) take it. Each is placed at `x + its x * xscale`, `y + its y * yscale` and sized by the scales, so a map kept in cells is drawn anywhere at any zoom without rebuilding the list; `x, y, xscale, yscale` may be left out (0, 0, 1, 1). Entries with no width, height or alpha are skipped. Returns the rectangles drawn. |
+| `DrawSpritePartsFromList(name, list, x, y, xscale, yscale)` | Parts of one Image from a list holding 10 numbers for each, in `DrawSpritePart`'s order: `frame, u0, v0, u1, v1, x, y, width, height, alpha`, placed and sized the same way and tinted by the image blend. Returns the parts drawn. |
+
+Both work in Draw GUI and in a 2D Draw event, and read the list straight into a reused buffer: a
+frame's batch allocates nothing. Measured with a Draw GUI event drawing a list one `DrawSetColorRgb`,
+`DrawSetAlpha` and `DrawRectangle` at a time (as a map is drawn from its runs) against one
+`DrawRectanglesFromList` of the same list (development PC, Direct3D 11, 9 Oct 2026, mean of 25
+frames; `gui-batch-cost.txt` from `Build.bat --test gui-batch`). Both are one GUI draw call:
+
+| Rectangles | One call each: script + GUI = a frame | One batch: script + GUI = a frame |
+|---|---|---|
+| 1,200 | 2.2 + 0.9 = 3.1 ms | 0.3 + 0.3 = 0.6 ms |
+| 5,000 | 8.6 + 2.0 = 10.6 ms | 0.4 + 0.5 = 0.9 ms |
+
 ## Recording and replaying input
 
 A run can be recorded once with the real keyboard, mouse and controller and then played back in

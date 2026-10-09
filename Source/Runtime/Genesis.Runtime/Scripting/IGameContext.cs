@@ -179,6 +179,16 @@ namespace Genesis.Runtime.Scripting
         /// <summary>A textured sprite in screen pixels, in order with this canvas's shapes and text.</summary>
         void Sprite(in SpriteDrawCall call) { }
 
+        /// <summary>
+        /// Many filled rectangles in order (PGSL DrawRectanglesFromList): one command on canvases
+        /// that keep batches, otherwise a filled <see cref="Rect"/> for each.
+        /// </summary>
+        void Rects(ReadOnlySpan<GuiRectangle> rectangles)
+        {
+            foreach (GuiRectangle rectangle in rectangles)
+                Rect(rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height, rectangle.Color, filled: true);
+        }
+
         /// <summary>A filled disc, or a ring of the given thickness.</summary>
         void Circle(float centerX, float centerY, float radius, Vector4 color, bool filled = true, float thickness = 1.5f)
             => HudShapes.Circle(this, centerX, centerY, radius, color, filled, thickness);

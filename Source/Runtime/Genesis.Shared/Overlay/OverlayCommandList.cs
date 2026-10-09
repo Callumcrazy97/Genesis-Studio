@@ -13,6 +13,8 @@ namespace Genesis.Shared.Overlay
         Line,
         Rect,
         Sprite,
+        /// <summary>A run of filled rectangles kept beside the list: A is the first, B how many.</summary>
+        Rectangles,
     }
 
     /// <summary>
@@ -88,6 +90,8 @@ namespace Genesis.Shared.Overlay
     public sealed class OverlayCommandList : IOverlayCanvas
     {
         private readonly List<OverlayCommand> _commands = new();
+        // Rectangle batches (DrawFilledRects): one command each, the rectangles themselves here.
+        private readonly List<GuiRectangle> _rectangles = new();
         private ulong _hash = Fnv1aOffset;
         private Vector4 _clip;
         private bool _linear;
@@ -113,6 +117,7 @@ namespace Genesis.Shared.Overlay
         public void Reset(int width, int height)
         {
             _commands.Clear();
+            _rectangles.Clear();
             _clip = default;
             _linear = false;
             HasLinearCommands = false;
@@ -219,6 +224,34 @@ namespace Genesis.Shared.Overlay
             bool filled = false)
             => DrawRect(position.X, position.Y, size.X, size.Y, color, strokeWidth, filled);
 
+        /// <summary>
+        /// A run of filled rectangles as one command (PGSL DrawRectanglesFromList): the rectangles
+        /// are copied beside the list, so thousands cost one command rather than thousands.
+        /// </summary>
+        public void DrawFilledRects(ReadOnlySpan<GuiRectangle> rectangles)
+        {
+            if (rectangles.IsEmpty) return;
+            int first = _rectangles.Count;
+            _rectangles.AddRange(rectangles);
+            Add(new OverlayCommand(
+                OverlayCommandKind.Rectangles, null, null, bold: false, filled: true,
+                first, rectangles.Length, 0f, 0f, 0f, 0f, Vector4.One));
+            // Two values a step rather than one byte: thousands of rectangles keep the digest cheap.
+            foreach (GuiRectangle rectangle in rectangles)
+            {
+                HashPair(rectangle.X, rectangle.Y);
+                HashPair(rectangle.Width, rectangle.Height);
+                HashPair(rectangle.Color.X, rectangle.Color.Y);
+                HashPair(rectangle.Color.Z, rectangle.Color.W);
+            }
+        }
+
+        /// <summary>The rectangles of a <see cref="OverlayCommandKind.Rectangles"/> command; empty for any other.</summary>
+        public ReadOnlySpan<GuiRectangle> RectanglesOf(in OverlayCommand command) =>
+            command.Kind == OverlayCommandKind.Rectangles
+                ? System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_rectangles).Slice((int)command.A, (int)command.B)
+                : ReadOnlySpan<GuiRectangle>.Empty;
+
         private void Add(OverlayCommand command)
         {
             if (_clip != default || command.Tracking != 0f || _linear)
@@ -269,6 +302,15 @@ namespace Genesis.Shared.Overlay
         }
 
         private void Hash(float value) => Hash(BitConverter.SingleToInt32Bits(value));
+
+        private void HashPair(float first, float second)
+        {
+            unchecked
+            {
+                _hash ^= ((ulong)(uint)BitConverter.SingleToInt32Bits(first) << 32) | (uint)BitConverter.SingleToInt32Bits(second);
+                _hash *= Fnv1aPrime;
+            }
+        }
 
         private void Hash(int value)
         {

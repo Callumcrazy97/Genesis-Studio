@@ -487,6 +487,13 @@ namespace Genesis.Rendering.Core
                         submitted = true;
                         break;
 
+                    case OverlayCommandKind.Rectangles:
+                        // A batch (DrawRectanglesFromList): the same quads as its rectangles drawn one by one.
+                        foreach (GuiRectangle rectangle in _overlayCommands.RectanglesOf(command))
+                            SubmitOverlaySolid(rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height, ToRenderColor(rectangle.Color));
+                        submitted = true;
+                        break;
+
                     case OverlayCommandKind.Line:
                         SubmitOverlayLine(command.A, command.B, command.C, command.D,
                             ToRenderColor(command.Color), command.Stroke);

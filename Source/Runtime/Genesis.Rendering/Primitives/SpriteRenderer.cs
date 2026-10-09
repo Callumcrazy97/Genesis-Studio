@@ -462,7 +462,10 @@ namespace Genesis.Rendering.Primitives
             // at equal depth, so alpha blending is deterministic without a depth test.
             _sorted.Clear();
             _sorted.AddRange(_pending);
-            _sorted.Sort();
+            // Sort keys are unique (the sequence breaks ties), so input already in key order is the
+            // sorted order: a GUI overlay (one depth, submission order) skips the sort's copying of
+            // thousands of large entries.
+            if (!InKeyOrder(_sorted)) _sorted.Sort();
 
             int count = Math.Min(_sorted.Count, Math.Min(MaxSprites, RenderCapacityDefaults.SpriteInstanceCap));
             Span<DrawEntry> sorted = CollectionsMarshal.AsSpan(_sorted);
@@ -484,6 +487,14 @@ namespace Genesis.Rendering.Primitives
             }
 
             _gpuInstancesReady = true;
+        }
+
+        private static bool InKeyOrder(List<DrawEntry> entries)
+        {
+            Span<DrawEntry> span = CollectionsMarshal.AsSpan(entries);
+            for (int i = 1; i < span.Length; i++)
+                if (span[i - 1].SortKey > span[i].SortKey) return false;
+            return true;
         }
 
         public void Flush(

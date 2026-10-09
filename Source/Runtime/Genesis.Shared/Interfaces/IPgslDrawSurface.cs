@@ -75,6 +75,31 @@ namespace Genesis.Shared.Interfaces
             => DrawSpriteRectangle(spriteName, destination, frame, blend, alpha);
 
         /// <summary>
+        /// Many filled rectangles in order (PGSL DrawRectanglesFromList). Surfaces that keep batches
+        /// send them on as one; the default draws each with <see cref="FillRectangle"/>.
+        /// </summary>
+        void FillRectangles(ReadOnlySpan<GuiRectangle> rectangles)
+        {
+            foreach (GuiRectangle r in rectangles)
+            {
+                Vector4 c = Vector4.Clamp(r.Color, Vector4.Zero, Vector4.One) * 255f;
+                FillRectangle(Color.FromArgb((int)MathF.Round(c.W), (int)MathF.Round(c.X), (int)MathF.Round(c.Y), (int)MathF.Round(c.Z)),
+                    new RectangleF(r.X, r.Y, r.Width, r.Height));
+            }
+        }
+
+        /// <summary>
+        /// Many parts of one image in order (PGSL DrawSpritePartsFromList), each as
+        /// <see cref="DrawSpritePart"/> would draw it.
+        /// </summary>
+        void DrawSpriteParts(string spriteName, ReadOnlySpan<GuiSpritePart> parts, Color blend)
+        {
+            foreach (GuiSpritePart p in parts)
+                DrawSpritePart(spriteName, p.Frame, RectangleF.FromLTRB(p.U0, p.V0, p.U1, p.V1),
+                    new RectangleF(p.X, p.Y, p.Width, p.Height), blend, p.Alpha);
+        }
+
+        /// <summary>
         /// A Model drawn into a GUI rectangle, turned by yaw and pitch (degrees) and framed to fit
         /// (zoom 1), optionally posed at a clip's time. Drawn in GUI order like an image.
         /// </summary>
