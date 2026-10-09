@@ -167,6 +167,7 @@ namespace Genesis.Shared.Overlay
             Hash(call.UvRect.X); Hash(call.UvRect.Y); Hash(call.UvRect.Z); Hash(call.UvRect.W);
             Hash(call.ClipRect.X); Hash(call.ClipRect.Y); Hash(call.ClipRect.Z); Hash(call.ClipRect.W);
             Hash(call.Shader.Id); Hash((int)call.Blend); Hash(call.SmoothSampling ? 1 : 0);
+            if (call.PointSampling) Hash(0x504F494E); // Only hashed when set, so other frames hash as before.
         }
 
         /// <summary>Every command added after this is limited to <paramref name="clip"/> until the next call or frame.</summary>

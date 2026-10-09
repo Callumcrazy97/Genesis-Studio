@@ -79,6 +79,7 @@ namespace Genesis.Runtime.Project
             Genesis.Runtime.Modeling.StudioModelResourceLoader.WriteReimportsToProject = false;
             ScriptScreenshots.Reset();
             Genesis.Runtime.Rendering.ScriptMeshes.Reset();
+            Genesis.Runtime.Rendering.ScriptTextures.Reset();
             Genesis.Runtime.Rendering.ModelLayers.Reset();
             Genesis.Runtime.Input.InputReplay.Reset();
             Genesis.Runtime.Input.InputReplay.ReplayEnded -= OnInputReplayEnded;
@@ -678,6 +679,8 @@ namespace Genesis.Runtime.Project
                 Genesis.Runtime.Scripting.PgslCommands.ActiveGameContext = null;
                 Genesis.Runtime.Scripting.PgslCommands.GameQuitHandler = null;
                 Genesis.Runtime.Modeling.RuntimeModelRenderSystem.BackgroundTextures = false;
+                // The game's painted textures end with it (their GPU copies went with the renderer).
+                Genesis.Runtime.Rendering.ScriptTextures.Reset();
                 _activeAudio = null; _activeNet = null; _activeHost = null; _activeWindow = null;
                 _stopRequested = false; _pauseRequested = false;
                 PgslProfiler.Enabled = false;

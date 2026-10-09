@@ -815,6 +815,42 @@ frames; `gui-batch-cost.txt` from `Build.bat --test gui-batch`). Both are one GU
 | 1,200 | 2.2 + 0.9 = 3.1 ms | 0.3 + 0.3 = 0.6 ms |
 | 5,000 | 8.6 + 2.0 = 10.6 ms | 0.4 + 0.5 = 0.9 ms |
 
+A map that changes rarely costs less still painted once into a [texture](#pictures-a-script-paints)
+and drawn with one `DrawTexture` a frame.
+
+## Pictures a script paints
+
+A texture a script paints at run time (a map, a chart, a sign, a pattern) is drawn like an image.
+A pixel is **red, green and blue from 0 to 255 and alpha from 0 to 1**, as `DrawSetColorRgb`,
+`DrawSetAlpha` and `MeshAddQuadColors` take a colour; lists hold 4 numbers a pixel, row by row from
+the top-left corner. The pixels are kept by the engine; when the texture is drawn after a change,
+only the rectangle that changed goes to the graphics card, once, however many times it is drawn
+that frame, on every renderer.
+
+| Command | What it does |
+|---|---|
+| `TextureCreate(width, height)` | A new texture, 1 to 4096 pixels each way, transparent; 0 when the size is not allowed. A game's textures may hold 64 million pixels together (256 MB); past that `TextureCreate` gives 0. |
+| `TextureSetPixels(texture, list)` | Its pixels from a list of 4 numbers a pixel; a shorter list sets the pixels it holds. Returns the pixels set. |
+| `TextureSetRegion(texture, x, y, width, height, list)` | The pixels of a rectangle, row by row; pixels falling outside the texture are left out. The cheap way to change part of a map. |
+| `TextureFillRectanglesFromList(texture, list)` | Rectangles painted into it from a list laid out as `DrawRectanglesFromList`'s (`x, y, width, height, red, green, blue, alpha`, in the texture's pixels); each replaces what it covers, alpha included. |
+| `TextureSetSmooth(texture, smooth)` | Smoothed when drawn bigger or smaller than its pixels; off at first, so its pixels stay square, as a map's should, whatever the room samples with. |
+| `TextureWidth(texture)`, `TextureHeight(texture)`, `TextureExists(texture)` | Its size, 0 when there is no such texture. |
+| `TextureDestroy(texture)` | Frees it and its copy on the graphics card. Every texture is freed when the game ends. |
+| `DrawTexture(texture, x, y, xscale, yscale, angle, alpha)` | In Draw GUI (in order with the GUI's other drawing) or a 2D Draw event: drawn with its top-left corner at `x, y`, scaled and turned (degrees) about that corner, tinted by the image blend. |
+| `DrawTexturePart(texture, u0, v0, u1, v1, x, y, width, height, alpha)` | Part of it into a rectangle, as `DrawSpritePart`: `u0, v0` to `u1, v1` are fractions of the texture, a window onto a big map or a zoom. |
+
+```pgsl
+// Create: the map's texture. When the map changes, paint its runs (8 numbers each) in one call.
+mapTexture = TextureCreate(256, 256);
+TextureFillRectanglesFromList(mapTexture, mapRuns);
+// Draw GUI, every frame: one sprite.
+DrawTexture(mapTexture, 16, 16, 2, 2, 0, 1);
+```
+
+Measured with 5,000 rectangles painted into a 600 x 300 texture and drawn by a Draw GUI event
+(development PC, Direct3D 11, 9 Oct 2026; `script-textures-cost.txt` from
+`Build.bat --test script-textures`): see that file for the paint time and the frame time.
+
 ## Recording and replaying input
 
 A run can be recorded once with the real keyboard, mouse and controller and then played back in

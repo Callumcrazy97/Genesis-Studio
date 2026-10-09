@@ -599,7 +599,8 @@ namespace Genesis.Rendering.Primitives
                 }
                 _gpu.SetTexture(GpuShaderStage.Pixel, 0, texture);
                 _gpu.SetSampler(GpuShaderStage.Pixel, 0,
-                    current.SmoothSampling || _samplerFilter != SamplerFilter.Point ? _samplerLinear : _samplerPoint);
+                    current.PointSampling ? _samplerPoint
+                    : current.SmoothSampling || _samplerFilter != SamplerFilter.Point ? _samplerLinear : _samplerPoint);
                 BindAuthoredTextures(current, resolveTexture);
 
                 int runCount = runEnd - runStart;
@@ -665,6 +666,7 @@ namespace Genesis.Rendering.Primitives
         private static bool SameMaterial(in SpriteDrawCall a, in SpriteDrawCall b) =>
             a.Texture.Id == b.Texture.Id && a.Shader.Id == b.Shader.Id && a.ClipRect == b.ClipRect
             && a.SmoothSampling == b.SmoothSampling
+            && a.PointSampling == b.PointSampling
             && a.Blend == b.Blend
             && a.ShaderParams0 == b.ShaderParams0 && a.ShaderParams1 == b.ShaderParams1
             && a.ShaderParams2 == b.ShaderParams2 && a.ShaderParams3 == b.ShaderParams3

@@ -115,6 +115,8 @@ namespace Genesis.Runtime.Rendering
         public TextureHandle CreateTexture(int width, int height, ReadOnlySpan<byte> rgba, Genesis.Shared.Materials.TextureColorSpace colorSpace) => _inner.CreateTexture(width, height, rgba, colorSpace);
         public void UpdateTexture(TextureHandle handle, int width, int height, ReadOnlySpan<byte> rgba)
             => _inner.UpdateTexture(handle, width, height, rgba);
+        public bool TryUpdateTextureRegion(TextureHandle handle, int x, int y, int width, int height, ReadOnlySpan<byte> rgba)
+            => _inner.TryUpdateTextureRegion(handle, x, y, width, height, rgba);
         public void ReleaseTexture(TextureHandle handle) => _inner.ReleaseTexture(handle);
         public bool IsTextureLive(TextureHandle handle) => _inner.IsTextureLive(handle);
 

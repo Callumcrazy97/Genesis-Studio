@@ -1580,6 +1580,11 @@ internal static class HeadlessTestRunner
                 PrepareFocusedProject(ctx, requireStudioServices: false);
                 Suites.GuiBatchSuite.Run(ctx);
                 break;
+            case "script-textures":
+                // Textures a script paints, drawn in the GUI and the 2D world on every renderer, and their cost.
+                PrepareFocusedProject(ctx, requireStudioServices: false);
+                Suites.ScriptTextureSuite.Run(ctx);
+                break;
             case "model-sprites":
                 Suites.ModelSpriteConversionSuite.Run(ctx);
                 break;

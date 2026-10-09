@@ -916,6 +916,11 @@ namespace Genesis.Shared.Interfaces
         /// Default false preserves the inherited room/global sampling contract.</summary>
         public bool SmoothSampling;
         /// <summary>
+        /// Force sharp (nearest) sampling for this call whatever the room samples with: a texture a
+        /// script paints, whose pixels should stay square when scaled. Default false changes nothing.
+        /// </summary>
+        public bool PointSampling;
+        /// <summary>
         /// Blend this quad in linear light: its colour and texture are decoded from sRGB and mixed
         /// with the decoded screen (DrawSetBlendLinear). Honoured by the GUI overlay; default false
         /// blends the stored sRGB values as always.

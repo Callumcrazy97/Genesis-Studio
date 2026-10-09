@@ -100,6 +100,14 @@ namespace Genesis.Shared.Interfaces
         }
 
         /// <summary>
+        /// A texture a script paints (PGSL TextureCreate) drawn like an image: <paramref name="source"/>
+        /// in fractions of the texture into <paramref name="destination"/>, turned by
+        /// <paramref name="angle"/> degrees about the destination's top-left corner. Surfaces that
+        /// cannot draw one ignore it.
+        /// </summary>
+        void DrawScriptTexture(int texture, RectangleF source, RectangleF destination, float angle, Color blend, float alpha) { }
+
+        /// <summary>
         /// A Model drawn into a GUI rectangle, turned by yaw and pitch (degrees) and framed to fit
         /// (zoom 1), optionally posed at a clip's time. Drawn in GUI order like an image.
         /// </summary>

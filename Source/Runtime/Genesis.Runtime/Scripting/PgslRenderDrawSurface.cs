@@ -409,6 +409,43 @@ namespace Genesis.Runtime.Scripting
             own?.Flush(_renderer, includeMeshes: false);
         }
 
+        public void DrawScriptTexture(int texture, RectangleF source, RectangleF destination, float angle, Color blend, float alpha)
+        {
+            if (_renderer == null || !(alpha > 0f)) return;
+            // Changed pixels go to the GPU here, once, however often it is drawn this frame.
+            TextureHandle handle = Genesis.Runtime.Rendering.ScriptTextures.Resolve(texture, _renderer, out bool smooth);
+            if (!handle.IsValid) return;
+            SpriteDrawCall call = new()
+            {
+                Texture = handle,
+                X = destination.X, Y = destination.Y,
+                Width = destination.Width, Height = destination.Height,
+                ScaleX = 1f, ScaleY = 1f,
+                Rotation = angle,
+                Alpha = Math.Clamp(alpha, 0f, 1f),
+                Tint = ToRender(blend),
+                Depth = SpriteDepth,
+                UvRect = new Vector4(source.Left, source.Top, source.Right, source.Bottom),
+                ClipRect = SpriteClip,
+                // Sharp pixels unless the texture asks to be smoothed, whatever the room samples with.
+                SmoothSampling = smooth,
+                PointSampling = !smooth,
+            };
+            if (SpritesWithText)
+            {
+                (_hudSprites ??= new HudSpriteSink(_hud)).DrawSprite(call);
+                return;
+            }
+            if (_commands != null)
+            {
+                _commands.DrawSprite(call);
+                return;
+            }
+            FrameRenderQueue queue = new();
+            queue.DrawSprite(call);
+            queue.Flush(_renderer, includeMeshes: false);
+        }
+
         public void DrawModelGui(string modelName, RectangleF destination, float yaw, float pitch, float zoom, string clip, float time, float alpha)
         {
             if (_renderer == null || !(destination.Width >= 1f) || !(destination.Height >= 1f)) return;
