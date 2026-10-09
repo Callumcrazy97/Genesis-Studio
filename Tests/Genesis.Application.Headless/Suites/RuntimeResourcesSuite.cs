@@ -57,6 +57,67 @@ internal static class RuntimeResourcesSuite
                     $"A source outside the project was played ({root}).");
             }
         });
+
+        HeadlessHarness.RunCase(ctx.Report, "Pgsl.Resources.ResourceListNamesAFoldersResourcesOfOneKind", () =>
+        {
+            string project = Path.Combine(ctx.Workspace, "ResourceList" + Guid.NewGuid().ToString("N")[..6]);
+            string packs = Path.Combine(project, "Assets", "Shaders", "Packs");
+            Directory.CreateDirectory(Path.Combine(packs, "More"));
+            File.WriteAllText(Path.Combine(project, "Listing.genesisproj"), "{}");
+            void Shader(string folder, string name, string pipeline) => File.WriteAllText(Path.Combine(folder, name + ".shader.json"),
+                "{ \"pipeline\": \"" + pipeline + "\", \"entry\": \"MainPS\", \"source\": \"float4 MainPS() : SV_Target { return 1; }\" }");
+            Shader(packs, "Pack Noir", "Fullscreen");
+            Shader(packs, "Pack Ink", "Fullscreen");
+            Shader(packs, "Chunk Surface", "Mesh");
+            Shader(Path.Combine(packs, "More"), "Pack Deep", "Fullscreen");
+            Shader(Path.Combine(project, "Assets", "Shaders"), "Elsewhere", "Fullscreen");
+            File.WriteAllText(Path.Combine(packs, "Pack Preview.image.json"), "{}");
+            // A resource's own name, from its identity file, is the name listed.
+            File.WriteAllText(Path.Combine(packs, "Pack Ink.shader.json.meta"), "{ \"resourceName\": \"Ink Pack\" }");
+            Genesis.Shared.Assets.ResourceCatalog.Invalidate(project);
+
+            string exported = Path.Combine(ctx.Workspace, "ResourceListExport" + Guid.NewGuid().ToString("N")[..6]);
+            CopyDirectory(project, exported);
+            string previousProject = Genesis.Runtime.Scripting.PgslCommands.ProjectPath;
+            var previousContext = Genesis.Runtime.Scripting.PgslCommands.BindContext(new Genesis.Shared.Scripting.PgslContext());
+            try
+            {
+                foreach (string root in new[] { project, exported })
+                {
+                    Genesis.Runtime.Scripting.PgslCommands.ProjectPath = root;
+                    string Names(double list)
+                    {
+                        var names = new List<string>();
+                        for (int i = 0; i < Genesis.Runtime.Scripting.PgslCommands.DsListSize(list); i++)
+                            names.Add(Genesis.Runtime.Scripting.PgslCommands.DsListGetString(list, i));
+                        Genesis.Runtime.Scripting.PgslCommands.DsListDestroy(list);
+                        return string.Join("|", names);
+                    }
+
+                    string fullscreen = Names(Genesis.Runtime.Scripting.PgslCommands.ResourceList("Shaders/Packs", "Fullscreen shader"));
+                    HeadlessHarness.Assert(fullscreen == "Ink Pack|Pack Noir",
+                        $"The full screen shaders of Shaders/Packs were listed as '{fullscreen}' ({root}).");
+                    string fromProject = Names(Genesis.Runtime.Scripting.PgslCommands.ResourceList("Assets/Shaders/Packs", "shader"));
+                    HeadlessHarness.Assert(fromProject == "Chunk Surface|Ink Pack|Pack Noir",
+                        $"Every Shader of Assets/Shaders/Packs was listed as '{fromProject}' ({root}).");
+                    string deep = Names(Genesis.Runtime.Scripting.PgslCommands.ResourceList("Shaders/Packs", "Fullscreen shader", true));
+                    HeadlessHarness.Assert(deep == "Ink Pack|Pack Deep|Pack Noir",
+                        $"With subfolders the full screen shaders were listed as '{deep}' ({root}).");
+                    string every = Names(Genesis.Runtime.Scripting.PgslCommands.ResourceList("Shaders/Packs", ""));
+                    HeadlessHarness.Assert(every == "Chunk Surface|Ink Pack|Pack Noir|Pack Preview",
+                        $"Every resource of the folder was listed as '{every}' ({root}).");
+                    foreach ((string folder, string type) in new[] { ("../..", "Shader"), ("Missing", "Shader"), ("Shaders/Packs", "Spaceship"), ("C:/", "") })
+                        HeadlessHarness.Assert(Names(Genesis.Runtime.Scripting.PgslCommands.ResourceList(folder, type)) == "",
+                            $"ResourceList(\"{folder}\", \"{type}\") listed something ({root}).");
+                }
+            }
+            finally
+            {
+                Genesis.Runtime.Scripting.PgslCommands.ProjectPath = previousProject;
+                Genesis.Runtime.Scripting.PgslCommands.BindContext(previousContext);
+            }
+        });
+
     }
 
     private static void CopyDirectory(string source, string destination)

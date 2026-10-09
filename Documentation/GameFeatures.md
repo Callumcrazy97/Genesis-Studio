@@ -897,6 +897,25 @@ export would not carry it; an export copies the project as it is, so what plays 
 the exported game. The Audio editor shows such a source as the file it is. Checked by
 `Build.bat --test runtime-resources`, in the project and in a copy laid out as an export.
 
+### Listing a folder's resources
+
+| Command | Meaning |
+|---|---|
+| `ResourceList(folder, type, subfolders?)` | A new list (a DsList: read it with `DsListSize` and `DsListGetString`, free it with `DsListDestroy`) of the names of the resources of one kind in a folder, sorted by name. `folder` is named from Assets (`"Shaders/Packs"`) or from the project (`"Assets/Shaders/Packs"`); `""` is Assets. `type` is a kind as `ResourceTypeOf` names it (`"Shader"`, `"Image"`, `"Audio"`, `"Object"`, `"Room"`, `"Model"`, `"Particle"`, `"Script"`...), `"Fullscreen shader"`, `"Mesh shader"` or `"Sprite shader"` for one kind of shader, or `""` for every kind. With `subfolders` true, the folders inside count too. A folder outside the project, or one that does not exist, gives an empty list. |
+
+A shader-pack menu can offer every full screen shader the folder holds, without a list kept by hand:
+
+```
+packs = ResourceList("Shaders/Packs", "Fullscreen shader");
+for (var i = 0; i < DsListSize(packs); i = i + 1) { AddPackButton(DsListGetString(packs, i)); }
+```
+
+The names are the resources' own (a resource renamed in Studio is listed by its new name), the
+ones `PostEffectAdd` and the other commands take. It reads the project's resource list, which is
+read once and kept, so it costs a walk over that list rather than over the disk (one kind of
+shader also reads those shaders' files, to see which kind each is): call it when a menu opens,
+not every frame. An exported game lists the same. Checked by `Build.bat --test runtime-resources`.
+
 ## Smaller changes
 
 - **Bushes and saplings.** The `Shrub` and `Sapling` foliage shapes are built from rounded solid
