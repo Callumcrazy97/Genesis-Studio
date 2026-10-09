@@ -176,7 +176,30 @@ internal static class WindowLifecycleSuite
                     Alive("fullscreen, minimised");
                     Restore();
                     Check("fullscreen, restored", picture: true);
-                    if (attended) { TakeForeground(); Thread.Sleep(500); Check("fullscreen, foreground", picture: true); }
+                    if (attended)
+                    {
+                        // The real thing: the game made the foreground window, another window
+                        // brought in front of it (alt-tab), then the game brought back.
+                        HeadlessHarness.Assert(ForceForeground(_window), $"{backend.ShortName}: the game could not be made the foreground window.");
+                        ExpectWindowState("focus=1", "WindowHasFocus() is not true with the game in front");
+                        Check("fullscreen, in front", picture: true);
+                        using (System.Windows.Forms.Form other = new()
+                        {
+                            Text = "Window lifecycle: another window", ShowInTaskbar = false,
+                            StartPosition = System.Windows.Forms.FormStartPosition.Manual,
+                            Location = new Point(120, 120), Size = new Size(360, 200),
+                        })
+                        {
+                            other.Show();
+                            System.Windows.Forms.Application.DoEvents();
+                            HeadlessHarness.Assert(ForceForeground(other.Handle), $"{backend.ShortName}: another window could not be brought in front of the game.");
+                            ExpectWindowState("focus=0", "WindowHasFocus() is still true with another window in front");
+                            Check("fullscreen, another window in front", picture: true);
+                        }
+                        HeadlessHarness.Assert(ForceForeground(_window), $"{backend.ShortName}: the game could not be brought back in front.");
+                        ExpectWindowState("focus=1", "WindowHasFocus() is not true with the game back in front");
+                        Check("fullscreen, back in front", picture: true);
+                    }
 
                     PressF11();
                     Thread.Sleep(1500);
@@ -450,13 +473,33 @@ internal static class WindowLifecycleSuite
             DwmSetWindowAttribute(_window, DwmwaCloak, ref value, sizeof(int));
         }
 
-        private void TakeForeground()
+        /// <summary>
+        /// Makes <paramref name="hwnd"/> the foreground window (attended runs only), attaching to
+        /// the input of whichever window is in front now, which Windows requires of a background
+        /// process. True when it is in front afterwards.
+        /// </summary>
+        private bool ForceForeground(IntPtr hwnd)
         {
-            uint target = GetWindowThreadProcessId(_window, out _);
-            uint self = GetCurrentThreadId();
-            AttachThreadInput(self, target, true);
-            try { SetForegroundWindow(_window); }
-            finally { AttachThreadInput(self, target, false); }
+            Stopwatch clock = Stopwatch.StartNew();
+            while (clock.Elapsed < TimeSpan.FromSeconds(3))
+            {
+                uint front = GetWindowThreadProcessId(GetForegroundWindow(), out _);
+                uint self = GetCurrentThreadId();
+                bool attached = front != 0 && front != self && AttachThreadInput(self, front, true);
+                try
+                {
+                    BringWindowToTop(hwnd);
+                    SetForegroundWindow(hwnd);
+                }
+                finally
+                {
+                    if (attached) AttachThreadInput(self, front, false);
+                }
+                System.Windows.Forms.Application.DoEvents();
+                if (GetForegroundWindow() == hwnd) return true;
+                Thread.Sleep(100);
+            }
+            return false;
         }
 
         // ── Logs ────────────────────────────────────────────────────────────────
@@ -651,6 +694,8 @@ internal static class WindowLifecycleSuite
     [DllImport("user32.dll")] private static extern bool PostMessage(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] private static extern uint MapVirtualKey(uint code, uint mapType);
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] private static extern bool BringWindowToTop(IntPtr hwnd);
     [DllImport("user32.dll")] private static extern bool AttachThreadInput(uint attach, uint attachTo, bool fAttach);
     [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
     [DllImport("dwmapi.dll")] private static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out int value, int size);
