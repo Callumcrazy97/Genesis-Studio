@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Helper for BuildTools\GameBuildTest.ps1. It references no Genesis project: "export" loads the
+    PUBLISHED Studio's assemblies at run time and calls the same GameExportService that Studio's
+    Export dialog uses, so a build test exports exactly what a person would ship.
+    GameBuildTest.ps1 copies this folder outside the repository and builds it there.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <PlatformTarget>x64</PlatformTarget>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <AssemblyName>GameBuildTestTool</AssemblyName>
+    <RootNamespace>Genesis.BuildTools.GameBuildTest</RootNamespace>
+  </PropertyGroup>
+
+</Project>

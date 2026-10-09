@@ -62,3 +62,16 @@ Vulkan 0.55-0.61 s, OpenGL 0.56-0.59 s; on four workers 1.09-1.33 s, 0.14-0.16 s
 0.19-0.21 s. The 45 s first-run frame GenesisCraft reported was one 13 KB DX12 compile (50 ms when
 idle) made inside the frame while the PC was saturated (that run's Player took 63 s to write its
 first log line, normally 1-2 s).
+
+## Exported game build test
+
+`BuildTools\GameBuildTest.ps1 -Project <game> -OutputRoot <folder> -ConfigFile <game config> [-IncludeF11]`
+exports the game with the published Studio (its own `GameExportService`, through
+`BuildTools\GameBuildTest\`, built outside the repository) into a dated folder, then runs the exported
+game on DX11, DX12, Vulkan and OpenGL with an unattended window: the game's own scenarios (a test plan
+where the game reads one), minimise/restore, a simulated alt-tab, resizes and, with `-IncludeF11`, F11.
+It writes `RESULTS.md` and `results.json` (`-CompareTo` puts an earlier test beside it) and keeps the
+last three tests. It holds `Global\GenesisAgentTestRun` while a game runs, waits while someone is playing,
+and backs up and hash-restores the save files its configuration names. GenesisCraft's configuration and
+results live in `C:\Users\Cal\Desktop\Genesis Build Tests` (9 Oct 2026: the old build failed on DX12
+restore and OpenGL start; 95276cb passes every check on all four renderers).
