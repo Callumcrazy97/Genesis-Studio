@@ -70,6 +70,8 @@ namespace Genesis.Runtime.Scripting
         bool       VSyncEnabled { get; }
         /// <summary>Current frame-rate cap (0 = uncapped).</summary>
         int        TargetFps    { get; }
+        /// <summary>Frames shown per second, counted over the last half second; 0 where there is no window.</summary>
+        double     MeasuredFps  => 0;
         /// <summary>Current window presentation mode.</summary>
         WindowMode WindowMode   { get; }
         /// <summary>Enable/disable vertical sync at runtime (the host owns the swap chain).</summary>

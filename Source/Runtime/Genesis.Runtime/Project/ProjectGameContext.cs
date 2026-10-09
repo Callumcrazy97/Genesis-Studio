@@ -160,6 +160,7 @@ namespace Genesis.Runtime.Project
 
         public bool VSyncEnabled => _window?.VSync ?? true;
         public int TargetFps => _window?.TargetFps ?? 0;
+        public double MeasuredFps => _window?.CurrentFps ?? 0;
         public WindowMode WindowMode => _window?.Mode ?? WindowMode.Windowed;
 
         public void SetVSync(bool enabled)

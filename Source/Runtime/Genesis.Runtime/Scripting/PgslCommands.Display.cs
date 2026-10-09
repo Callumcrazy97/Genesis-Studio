@@ -57,6 +57,10 @@ public static partial class PgslCommands
     [PgslCommand("GameGetMaxFps", "GameGetMaxFps() -> number", "The frame-rate cap (0 = none)", "Display")]
     public static double GameGetMaxFps() => ActiveGameContext?.TargetFps ?? 0;
 
+    [PgslCommand("GameGetFps", "GameGetFps() -> number",
+        "Frames shown per second, counted over the last half second (what an FPS counter shows; Fps is 1 / this frame's time, which jitters); 0 before the first count", "Display")]
+    public static double GameGetFps() => ActiveGameContext?.MeasuredFps ?? 0;
+
     private static bool TryWindowMode(string mode, out WindowMode parsed)
     {
         switch (mode?.Trim().ToLowerInvariant())

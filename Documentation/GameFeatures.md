@@ -957,6 +957,19 @@ GenesisEngine.exe
 Checked by `Build.bat --test debug-screen`, which runs a game for three seconds this way and reads
 the folder it leaves.
 
+### Counting frames per second
+
+| Command | Meaning |
+|---|---|
+| `GameGetFps()` | Frames shown per second, counted over the last half second: what an FPS counter should show. `Fps` is 1 divided by this frame's own time, which moves a little from frame to frame. |
+
+A counter that shows `Floor` of `Fps` (or of an average of it) shows 59 in a game held at exactly 60:
+frame times alternate between 16.6 and 16.7 ms, and a value that sits a hair under 60 is floored to
+59. Measured on 9 October 2026 in unattended runs of the Player (DX12, six seconds each), the cap
+holds its rate: a cap of 60 ran at 60.00 frames a second with VSync on or off (every frame 16.6 to
+16.7 ms apart), 120 at 119.99, 144 at 143.98, Unlimited at about 9,000 in an empty room, and VSync
+with no cap at 60.00. Show `Round(GameGetFps())`.
+
 ## Smaller changes
 
 - **Bushes and saplings.** The `Shrub` and `Sapling` foliage shapes are built from rounded solid
