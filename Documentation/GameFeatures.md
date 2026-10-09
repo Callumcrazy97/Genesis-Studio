@@ -768,7 +768,7 @@ The rules a script can rely on:
   reading costs nothing extra. Whichever side changes a structure first while a job holds it (the
   game or the job) gets a private copy of that one structure at that moment and keeps it; the other
   side goes on reading the original. Once no job holds a structure any more, the game changes it in
-  place again without a copy. A 4 096 x 96 grid (3 MB) takes about 0.8 ms to copy, so a game that writes
+  place again without a copy. A 4 096 x 96 grid (3 MB) takes 0.8 to 1 ms to copy, so a game that writes
   the very grid a job is reading pays that once for that job, and nothing at all for a grid it only
   reads.
 - **A job's changes stay its own** unless the structure was given with `copyBack` true (with
@@ -789,9 +789,9 @@ The rules a script can rely on:
 
 Several jobs may share the same structures at once (each holds them until it has finished, or ended
 without running). With `JobScriptShareAll` at the size of a voxel game (44 grids including 32 of
-4 096 x 96, 2 500 lists, 65 maps, 2 500 instance variables) starting a job took about 0.16 ms of the
-game's thread and 0.14 ms on the worker to set up its own VM; six 4 096 x 96 grids given with
-`JobScriptGrid` took 0.01 ms (before 9 Oct 2026 each was copied as the job started, about 0.8 ms a grid).
+4 096 x 96, 2 500 lists, 65 maps, 2 500 instance variables) starting a job took 0.16 to 0.34 ms of the
+game's thread and 0.14 to 0.27 ms on the worker to set up its own VM (two runs, medians); six 4 096 x 96 grids given with
+`JobScriptGrid` took 0.01 to 0.02 ms (before 9 Oct 2026 each was copied as the job started, 0.8 to 1 ms a grid).
 
 #### Worked example: meshing a chunk on a worker
 
