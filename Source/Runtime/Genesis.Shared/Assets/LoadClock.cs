@@ -24,6 +24,8 @@ namespace Genesis.Shared.Assets
         TerrainCollider,
         /// <summary>The trees and rocks of one terrain cell worked out so those nearby can be made solid.</summary>
         ScatterCell,
+        /// <summary>A shader compiled from its HLSL (not read from a cache).</summary>
+        ShaderCompile,
     }
 
     /// <summary>
@@ -154,6 +156,7 @@ namespace Genesis.Shared.Assets
             LoadWork.Sound => count == 1 ? "sound" : "sounds",
             LoadWork.TerrainCollider => count == 1 ? "piece of terrain made solid" : "pieces of terrain made solid",
             LoadWork.ScatterCell => count == 1 ? "cell of scattered objects placed" : "cells of scattered objects placed",
+            LoadWork.ShaderCompile => count == 1 ? "shader compiled" : "shaders compiled",
             _ => work.ToString(),
         };
     }

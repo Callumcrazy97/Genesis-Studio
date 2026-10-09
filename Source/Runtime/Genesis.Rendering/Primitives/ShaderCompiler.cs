@@ -243,7 +243,11 @@ namespace Genesis.Rendering.Primitives
             if (ShaderBinaryCache.TryRead(root, key, binaryFormat, out byte[] cached))
                 return (cached, true);
 
-            byte[] blob = CompileExpanded(expanded, entry, profile, binaryFormat, sourcePath);
+            // Timed for the slow-frame report: a compile on the game's thread holds its frame up,
+            // and without this the report could only call the time "outside the frame's own work".
+            byte[] blob;
+            using (Genesis.Shared.Assets.LoadClock.Measure(Genesis.Shared.Assets.LoadWork.ShaderCompile))
+                blob = CompileExpanded(expanded, entry, profile, binaryFormat, sourcePath);
             ShaderBinaryCache.TryWrite(root, key, binaryFormat, blob);
             return (blob, false);
         }
