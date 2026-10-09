@@ -74,6 +74,10 @@ namespace Genesis.Runtime.Scripting
         double     MeasuredFps  => 0;
         /// <summary>Current window presentation mode.</summary>
         WindowMode WindowMode   { get; }
+        /// <summary>Whether the game's window has the keyboard focus; true where there is no window.</summary>
+        bool       WindowHasFocus => true;
+        /// <summary>Whether the game's window is minimised (no frame is drawn); false where there is no window.</summary>
+        bool       WindowIsMinimized => false;
         /// <summary>Enable/disable vertical sync at runtime (the host owns the swap chain).</summary>
         void SetVSync(bool enabled);
         /// <summary>Set the frame-rate cap at runtime (0 = uncapped).</summary>

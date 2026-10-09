@@ -162,6 +162,8 @@ namespace Genesis.Runtime.Project
         public int TargetFps => _window?.TargetFps ?? 0;
         public double MeasuredFps => _window?.CurrentFps ?? 0;
         public WindowMode WindowMode => _window?.Mode ?? WindowMode.Windowed;
+        public bool WindowHasFocus => _window?.HasFocus ?? true;
+        public bool WindowIsMinimized => _window?.IsMinimized ?? false;
 
         public void SetVSync(bool enabled)
         {

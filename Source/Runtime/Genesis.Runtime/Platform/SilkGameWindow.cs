@@ -109,6 +109,8 @@ namespace Genesis.Runtime.Platform
             _window.Load += () =>
             {
                 _running   = true;
+                _minimized = _window.WindowState == WindowState.Minimized;
+                _hasFocus  = !OperatingSystem.IsWindows() || GetForegroundWindow() == NativeHandle;
                 ApplyWindowIcon();
                 _silkInput = _window.CreateInput();
                 HookInput(_silkInput);
@@ -179,6 +181,11 @@ namespace Genesis.Runtime.Platform
                 catch (Exception ex) { Debug.WriteLine($"[Window] Resize error: {ex}"); }
             };
 
+            // Scripts ask these (WindowHasFocus, WindowIsMinimized), to pause what they do while
+            // nobody is looking. GLFW reports both from the window's own messages.
+            _window.FocusChanged += focused => _hasFocus = focused;
+            _window.StateChanged += state => _minimized = state == WindowState.Minimized;
+
             _window.Closing += () =>
             {
                 _running = false;
@@ -239,6 +246,18 @@ namespace Genesis.Runtime.Platform
         }
 
         public bool IsRunning => _running;
+
+        private bool _hasFocus = true;
+        private bool _minimized;
+
+        /// <summary>Whether the window has the keyboard focus (follows the window's focus messages).</summary>
+        public bool HasFocus => _hasFocus;
+
+        /// <summary>Whether the window is minimised (follows the window's iconify messages).</summary>
+        public bool IsMinimized => _minimized;
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
 
         public bool MouseCaptured => _mouseCaptured;
 

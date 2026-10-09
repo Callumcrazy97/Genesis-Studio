@@ -210,6 +210,30 @@ namespace Genesis.Runtime
             }
         }
 
+        private long _nextSurfaceRetry;
+
+        /// <summary>
+        /// Rebuilds a swap chain that could not be rebuilt when the window last changed size, twice
+        /// a second while the window has a size. Vulkan reports no surface for a moment around a
+        /// minimise and restore, and a failed DXGI resize keeps the old buffers "to retry": with
+        /// no further resize event the game would otherwise stay undrawn for good.
+        /// </summary>
+        private void RetrySurface()
+        {
+            long now = System.Diagnostics.Stopwatch.GetTimestamp();
+            if (now < _nextSurfaceRetry || _window.Width <= 0 || _window.Height <= 0) return;
+            _nextSurfaceRetry = now + System.Diagnostics.Stopwatch.Frequency / 2;
+            try
+            {
+                if (_renderer.TryResize(_window.Width, _window.Height))
+                    RenderLog.Line($"Surface rebuilt at {_window.Width}x{_window.Height} after it was not ready");
+            }
+            catch (Exception ex)
+            {
+                RenderLog.Line("Surface rebuild error: " + ex.Message);
+            }
+        }
+
         private void SyncLiveWindowSize()
         {
             int w = _window.Width;
@@ -386,7 +410,10 @@ namespace Genesis.Runtime
                 return;
 
             if (!_renderer.IsFramebufferReady)
+            {
+                RetrySurface();
                 return;
+            }
 
             if ((_frame++ % 120) == 0)
                 RenderLog.Line($"render frame={_frame} buffer={_renderer.PixelWidth}x{_renderer.PixelHeight} window={_windowW}x{_windowH} fps={_window.CurrentFps:F0}");

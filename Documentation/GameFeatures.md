@@ -987,6 +987,7 @@ data. It also times sharing at a voxel game's size.
 | Command | What it does |
 |---|---|
 | `WindowSetFullscreen(enabled)`, `WindowIsFullscreen()` | Fill the screen (a borderless window the size of the display) or go back to a window. |
+| `WindowHasFocus()`, `WindowIsMinimized()` | Whether the player is in the game's window (false after switching to another window), and whether it is minimised. A minimised game draws no frames and runs no Draw events, but Step events go on: a game that should rest while nobody is looking (pause, stop starting particle bursts) asks these. Outside a game window they are true and false. |
 | `WindowSetMode(mode)`, `WindowGetMode()` | `"windowed"`, `"borderless"` or `"fullscreen"` (exclusive); false for any other name. |
 | `WindowSetSize(width, height)`, `WindowGetWidth()`, `WindowGetHeight()` | A windowed game's size in pixels. |
 | `WindowSetVSync(enabled)`, `WindowGetVSync()` | Wait for the display's refresh (no tearing). |

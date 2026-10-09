@@ -18,6 +18,14 @@ public static partial class PgslCommands
     public static bool WindowIsFullscreen() =>
         ActiveGameContext is { } game && game.WindowMode != WindowMode.Windowed;
 
+    [PgslCommand("WindowHasFocus", "WindowHasFocus() -> bool",
+        "Whether the game's window has the keyboard focus: false once the player has switched to another window; true where there is no window", "Display")]
+    public static bool WindowHasFocus() => ActiveGameContext?.WindowHasFocus ?? true;
+
+    [PgslCommand("WindowIsMinimized", "WindowIsMinimized() -> bool",
+        "Whether the game's window is minimised: no frame is drawn and Draw events do not run until it is restored, though Step events do; false where there is no window", "Display")]
+    public static bool WindowIsMinimized() => ActiveGameContext?.WindowIsMinimized ?? false;
+
     [PgslCommand("WindowSetMode", "WindowSetMode(mode)",
         "\"windowed\", \"borderless\" (fills the screen) or \"fullscreen\" (exclusive); false for any other name", "Display")]
     public static bool WindowSetMode(string mode)

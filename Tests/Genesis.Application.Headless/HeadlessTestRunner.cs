@@ -1587,6 +1587,11 @@ internal static class HeadlessTestRunner
                 // What 300 live one-shot particle bursts cost a frame, on each GPU renderer.
                 Suites.ParticleBurstLoadSuite.Run(ctx);
                 break;
+            case "window-lifecycle":
+                // The real Player on every renderer, bursting GPU particles, while its window is
+                // minimised, restored, unfocused, resized and made fullscreen (unattended).
+                Suites.WindowLifecycleSuite.Run(ctx);
+                break;
             case "validate-project":
                 // F5's script check over GENESIS_VALIDATE_PROJECT (any project folder).
                 Suites.PgslLogicSuite.ValidateProjectFromEnvironment(ctx);
