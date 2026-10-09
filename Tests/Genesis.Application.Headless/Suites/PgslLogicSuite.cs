@@ -361,6 +361,78 @@ internal static class PgslLogicSuite
             c = DsListCreate(); DsListAdd(c, 9); DsListCopy(c, l);
             t_list_copy = (DsListSize(c) == 6 && DsListGet(c, 0) == 7) ? 1 : 0;
             """),
+        ("Compact grids", """
+            b8 = DsGridCreate(4, 3, "u8"); b16 = DsGridCreate(4, 3, "u16"); b32 = DsGridCreate(4, 3, "i32"); bf = DsGridCreate(4, 3, "f32"); bd = DsGridCreate(4, 3);
+            t_kinds = (DsGridKind(b8) == "u8" && DsGridKind(b16) == "u16" && DsGridKind(b32) == "i32" && DsGridKind(bf) == "f32" && DsGridKind(bd) == "f64" && DsGridKind(424242) == "") ? 1 : 0;
+            t_kind_names_in_any_case = (DsGridKind(DsGridCreate(2, 2, "U16")) == "u16" && DsGridKind(DsGridCreate(2, 2, "f64")) == "f64" && DsGridKind(DsGridCreate(2, 2, "")) == "f64") ? 1 : 0;
+            t_unknown_kind_makes_no_grid = (DsGridCreate(2, 2, "u12") == 0 && DsGridCreate(2, 2, "int") == 0) ? 1 : 0;
+            t_bytes = (DsGridBytes(b8) == 12 && DsGridBytes(b16) == 24 && DsGridBytes(b32) == 48 && DsGridBytes(bf) == 48 && DsGridBytes(bd) == 96 && DsGridBytes(424242) == 0) ? 1 : 0;
+            DsGridSet(b8, 0, 0, 300); DsGridSet(b8, 1, 0, -5); DsGridSet(b8, 2, 0, 7.9); DsGridSet(b8, 3, 0, 255);
+            t_u8_clamps_and_drops_fractions = (DsGridGet(b8, 0, 0) == 255 && DsGridGet(b8, 1, 0) == 0 && DsGridGet(b8, 2, 0) == 7 && DsGridGet(b8, 3, 0) == 255) ? 1 : 0;
+            DsGridSet(b16, 0, 0, 3071 + 4096); DsGridSet(b16, 1, 0, 70000); DsGridSet(b16, 2, 0, -1); DsGridSet(b16, 3, 0, Sqrt(-1));
+            t_u16 = (DsGridGet(b16, 0, 0) == 7167 && DsGridGet(b16, 1, 0) == 65535 && DsGridGet(b16, 2, 0) == 0 && DsGridGet(b16, 3, 0) == 0) ? 1 : 0;
+            DsGridSet(b32, 0, 0, -123456789); DsGridSet(b32, 1, 0, 5000000000000); DsGridSet(b32, 2, 0, -2.7); DsGridSet(b32, 3, 0, -5000000000000);
+            t_i32 = (DsGridGet(b32, 0, 0) == -123456789 && DsGridGet(b32, 1, 0) == 2147483647 && DsGridGet(b32, 2, 0) == -2 && DsGridGet(b32, 3, 0) == -2147483648) ? 1 : 0;
+            DsGridSet(bf, 0, 0, 0.5); DsGridSet(bf, 1, 0, 16777216); DsGridSet(bf, 2, 0, 0.1);
+            t_f32_single_precision = (DsGridGet(bf, 0, 0) == 0.5 && DsGridGet(bf, 1, 0) == 16777216 && Abs(DsGridGet(bf, 2, 0) - 0.1) < 0.0000001 && DsGridGet(bf, 2, 0) != 0.1) ? 1 : 0;
+            t_outside_reads_zero = (DsGridGet(b8, 9, 9) == 0 && DsGridGet(b16, -1, 0) == 0 && DsGridGet(b32, 0, 3) == 0) ? 1 : 0;
+            DsGridAdd(b8, 3, 0, 10); DsGridAdd(b8, 1, 0, -3); DsGridMultiply(b8, 2, 0, 0.5);
+            t_add_and_multiply_clamp = (DsGridGet(b8, 3, 0) == 255 && DsGridGet(b8, 1, 0) == 0 && DsGridGet(b8, 2, 0) == 3) ? 1 : 0;
+            DsGridClear(b16, 9.5);
+            t_clear = (DsGridGetSum(b16, 0, 0, 3, 2) == 108 && DsGridCount(b16, 0, 0, 3, 2, 9) == 12) ? 1 : 0;
+            DsGridSetRegion(b16, 1, 1, 2, 2, 40000);
+            t_region_reads = (DsGridGetMax(b16, 0, 0, 3, 2) == 40000 && DsGridGetMin(b16, 0, 0, 3, 2) == 9 && DsGridValueExists(b16, 0, 0, 3, 2, 40000) == 1) ? 1 : 0;
+            t_find = (DsGridFind(b16, 0, 0, 3, 2, 40000) == 1 + 1 * 4 && DsGridFindOther(b16, 0, 2, 0, 0, 0) == 0 + 2 * 4) ? 1 : 0;
+            DsGridAddRegion(b16, 0, 0, 3, 0, -20); DsGridMultiplyRegion(b16, 1, 1, 1, 1, 2); DsGridClampRegion(b16, 2, 2, 2, 2, 0, 100); DsGridFloorRegion(b16, 0, 0, 3, 2);
+            t_region_maths_clamp = (DsGridGet(b16, 0, 0) == 0 && DsGridGet(b16, 1, 1) == 65535 && DsGridGet(b16, 2, 2) == 100 && DsGridGet(b16, 3, 2) == 9) ? 1 : 0;
+            tl = DsListCreate();
+            t_to_list_reads_numbers = (DsGridToList(b32, 0, 0, 3, 0, tl) == 4 && DsListGet(tl, 0) == -123456789 && DsListGet(tl, 2) == -2 && DsListGet(tl, 3) == -2147483648) ? 1 : 0;
+            l = DsListCreate();
+            for (k = 0; k < 6; k = k + 1) { DsListAdd(l, k * 100); }
+            col = DsGridCreate(3, 8, "u8");
+            t_column_from_list = (DsGridSetColumnFromList(col, 1, 2, l) == 6 && DsGridGet(col, 1, 2) == 0 && DsGridGet(col, 1, 4) == 200 && DsGridGet(col, 1, 5) == 255 && DsGridGet(col, 1, 1) == 0) ? 1 : 0;
+            back = DsListCreate();
+            t_column_to_list = (DsGridGetColumnToList(col, 1, 3, 5, back) == 3 && DsListSize(back) == 3 && DsListGet(back, 0) == 100 && DsListGet(back, 2) == 255) ? 1 : 0;
+            t_column_past_the_bottom = (DsGridSetColumnFromList(col, 0, 6, l) == 6 && DsGridGet(col, 0, 6) == 0 && DsGridGet(col, 0, 7) == 100) ? 1 : 0;
+            t_column_on_a_number_grid = (DsGridSetColumnFromList(bd, 2, 0, l) == 6 && DsGridGet(bd, 2, 2) == 200 && DsGridGetColumnToList(bd, 2, 0, 2, back) == 3 && DsListGet(back, 1) == 100) ? 1 : 0;
+            src = DsGridCreate(4, 2); DsGridSet(src, 0, 0, 1.5); DsGridSet(src, 1, 0, 70000); DsGridSet(src, 2, 1, -4);
+            dst = DsGridCreate(4, 2, "u16");
+            t_copy_region_converts = (DsGridCopyRegion(dst, 0, 0, src, 0, 0, 3, 1) == 8 && DsGridGet(dst, 0, 0) == 1 && DsGridGet(dst, 1, 0) == 65535 && DsGridGet(dst, 2, 1) == 0) ? 1 : 0;
+            t_copy_region_back_to_numbers = (DsGridCopyRegion(src, 1, 1, dst, 0, 0, 1, 0) == 2 && DsGridGet(src, 1, 1) == 1 && DsGridGet(src, 2, 1) == 65535) ? 1 : 0;
+            s = DsGridCreate(5, 1, "u8");
+            for (k = 0; k < 5; k = k + 1) { DsGridSet(s, k, 0, k + 1); }
+            DsGridCopyRegion(s, 1, 0, s, 0, 0, 3, 0);
+            t_overlapping_copy_in_a_row = (DsGridGet(s, 0, 0) == 1 && DsGridGet(s, 1, 0) == 1 && DsGridGet(s, 2, 0) == 2 && DsGridGet(s, 4, 0) == 4) ? 1 : 0;
+            v = DsGridCreate(1, 4, "u16");
+            for (k = 0; k < 4; k = k + 1) { DsGridSet(v, 0, k, k + 10); }
+            DsGridCopyRegion(v, 0, 1, v, 0, 0, 0, 2);
+            t_overlapping_copy_down_rows = (DsGridGet(v, 0, 0) == 10 && DsGridGet(v, 0, 1) == 10 && DsGridGet(v, 0, 2) == 11 && DsGridGet(v, 0, 3) == 12) ? 1 : 0;
+            c = DsGridCreate(1, 1);
+            DsGridCopy(c, b8);
+            t_copy_takes_kind_and_size = (DsGridKind(c) == "u8" && DsGridWidth(c) == 4 && DsGridHeight(c) == 3 && DsGridGet(c, 3, 0) == 255) ? 1 : 0;
+            DsGridSet(c, 3, 0, 1);
+            t_copy_is_separate = (DsGridGet(b8, 3, 0) == 255) ? 1 : 0;
+            DsGridResize(c, 6, 5);
+            t_resize_keeps_kind_and_cells = (DsGridKind(c) == "u8" && DsGridWidth(c) == 6 && DsGridHeight(c) == 5 && DsGridGet(c, 3, 0) == 1 && DsGridGet(c, 0, 0) == 255 && DsGridGet(c, 5, 4) == 0) ? 1 : 0;
+            a = DsGridCreate(2, 2, "u8"); DsGridClear(a, 200); f = DsGridCreate(2, 2); DsGridClear(f, 100);
+            t_add_grid_clamps = (DsGridAddGrid(a, f, 1) == 4 && DsGridGet(a, 1, 1) == 255 && DsGridAddGrid(f, a, -1) == 4 && DsGridGet(f, 0, 0) == -155) ? 1 : 0;
+            nf = DsGridCreate(16, 8, "u8");
+            t_noise_fill_counts = (NoiseFillGrid(nf, 0, 0, 0.1, 5, 3, 2, 0.5, 127.5, 127.5) == 128) ? 1 : 0;
+            same = 1;
+            for (j = 0; j < 8; j = j + 1) { for (k = 0; k < 16; k = k + 1) {
+                if (DsGridGet(nf, k, j) != Floor(127.5 + 127.5 * FractalNoise2D(k * 0.1, j * 0.1, 5, 3, 2, 0.5))) { same = 0; }
+            } }
+            t_noise_fill_keeps_whole_numbers = same;
+            nf3 = DsGridCreate(8, 8, "f32");
+            NoiseFillGrid3D(nf3, 2, 7.5, -4, 0.5, "xz", 9, 3, 2, 0.5, 1, 0);
+            t_noise_fill_3d_single_precision = (Abs(DsGridGet(nf3, 3, 5) - FractalNoise3D(2 + 3 * 0.5, 7.5, -4 + 5 * 0.5, 9, 3, 2, 0.5)) < 0.000001) ? 1 : 0;
+            big = DsGridCreate(4096, 256, "u16");
+            t_a_256_high_strip_fits_in_u16 = (big != 0 && DsGridBytes(big) == 2097152 && DsGridCreate(4096, 256) == 0) ? 1 : 0;
+            DsGridDestroy(big);
+            huge = DsGridCreate(4096, 1900, "u8"); most = DsGridCreate(1000, 1000);
+            t_limit_is_8_mb_of_cells = (huge != 0 && most != 0 && DsGridCreate(4096, 1000, "u16") == 0 && DsGridCreate(1000, 1001) == 0) ? 1 : 0;
+            DsGridDestroy(huge); DsGridDestroy(most);
+            """),
     ];
 
     /// <summary>

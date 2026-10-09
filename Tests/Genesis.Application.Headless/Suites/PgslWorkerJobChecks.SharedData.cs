@@ -113,6 +113,13 @@ internal static partial class PgslWorkerJobChecks
             DsGridSet(sjBase, 5, 5, 99); DsListAdd(sjLog, 12345); DsMapSet(sjFacing, "scribble", 1); DsGridClear(sjLight, 7);
             return DsGridGet(sjBase, 5, 5) + DsListGet(sjLog, DsListSize(sjLog) - 1) + DsMapGet(sjFacing, "scribble") + DsGridGet(sjLight, 0, 0);
         }
+        // Compact grids (DsGridCreate's kind) in a job: read as given, changed as the job's own.
+        function SjCompactWork(blocks, light) {
+            var s = DsGridGetSum(blocks, 0, 0, DsGridWidth(blocks) - 1, DsGridHeight(blocks) - 1) + DsGridGetSum(light, 0, 0, DsGridWidth(light) - 1, DsGridHeight(light) - 1);
+            DsGridSet(blocks, 0, 0, 70000); DsGridSet(light, 0, 0, 3);
+            var kinds = 0; if (DsGridKind(blocks) == "u16") { kinds = kinds + 1; } if (DsGridKind(light) == "u8") { kinds = kinds + 2; }
+            return s * 10 + kinds;
+        }
         function SjMapEdit(m) { DsMapSet(m, "a", 5); DsMapDelete(m, "b"); return DsMapSize(m); }
         function SjLeaveAlone(l) { return DsListSize(l); }
         function SjNothing() { return 1; }
@@ -310,6 +317,38 @@ internal static partial class PgslWorkerJobChecks
                 mapBefore == 12 && mapAfter == 502 && listAfter == 22 ? "PASS" : "FAIL", $"map before JobTake {mapBefore}, after {mapAfter}; list {listAfter}");
             HeadlessHarness.Assert(mapBefore == 12 && mapAfter == 502, $"The map read {mapBefore} before JobTake and {mapAfter} after (expected 12 and 502).");
             HeadlessHarness.Assert(listAfter == 22, $"A copyBack list the job left alone lost the game's change: {listAfter} (expected 22).");
+        });
+
+        // Compact grids are shared with a job as number grids are: the job reads them as they were
+        // at its start, the game's change while it runs makes the game's own copy (of the same kind),
+        // and copyBack brings the job's changed grid back, still compact.
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.Jobs.CompactGridsAreSharedAndComeBack", () =>
+        {
+            using Bench bench = new();
+            double job = bench.Number("""
+                cb = DsGridCreate(64, 256, "u16"); cl = DsGridCreate(64, 256, "u8");
+                DsGridSetRegion(cb, 0, 0, 63, 9, 3071); DsGridClear(cl, 15);
+                cj = JobScriptCreate("SjCompactWork"); JobScriptGrid(cj, cb, true); JobScriptGrid(cj, cl, false); JobScriptBudget(cj, 50000000);
+                r = JobScriptStart(cj, cb, cl) ? cj : -1;
+                """);
+            HeadlessHarness.Assert(job > 0, "The compact grid job did not start: " + PgslCommands.JobLastError());
+            bool heldWhenChanged = PgslCommands.SharedHolders("grid", bench.Number("r = cl;")) > 0;
+            bench.Run("DsGridSet(cl, 1, 1, 300); r = 0;");
+            string status = bench.Wait(job);
+            double result = PgslCommands.JobResultNumber(job);
+            HeadlessHarness.Assert(status == "succeeded", $"The compact grid job ended {status}: {PgslCommands.JobError(job)}");
+            HeadlessHarness.Assert(PgslCommands.JobTake(job), "JobTake refused the compact grid job: " + PgslCommands.JobLastError());
+            PgslCommands.JobRelease(job);
+            const double Expected = ((64 * 10 * 3071.0) + (64 * 256 * 15.0)) * 10 + 3;
+            double blocks = bench.Number("r = DsGridGet(cb, 0, 0) * 10 + ((DsGridKind(cb) == \"u16\") ? 1 : 0);");
+            double light = bench.Number("r = DsGridGet(cl, 0, 0) * 1000 + DsGridGet(cl, 1, 1) * 10 + ((DsGridKind(cl) == \"u8\") ? 1 : 0);");
+            bool pass = result == Expected && blocks == 655351 && light == 17551;
+            row("Jobs: shared data", "u16 and u8 grids given to a job: read as at its start, the game's change to one stays the game's, copyBack brings the job's u16 grid back",
+                pass ? "PASS" : "FAIL", $"job result {result} (expected {Expected}); blocks after JobTake {blocks}, light {light}"
+                + (heldWhenChanged ? "; the game changed the light grid while the job held it" : "; the job had let go of the light grid before the game changed it"));
+            HeadlessHarness.Assert(result == Expected, $"The job read {result} from the compact grids, not {Expected}.");
+            HeadlessHarness.Assert(blocks == 655351, $"After JobTake the u16 grid reads {blocks} (cell * 10 + is u16), not 655351.");
+            HeadlessHarness.Assert(light == 17551, $"The u8 grid (no copyBack) reads {light} (cell(0,0) * 1000 + cell(1,1) * 10 + is u8), not 17551.");
         });
 
         // Copies only when one side changes a structure a job holds: the game's first change of a held

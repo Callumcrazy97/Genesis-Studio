@@ -251,14 +251,13 @@ public static partial class PgslCommands
         if (target is null) return 0;
         Span<ulong> seeds = stackalloc ulong[PgslNoise.OctaveCount(octaves)];
         PgslNoise.OctaveSeeds(seed, seeds);
-        double[] cells = target.Cells;
         int width = target.Width, height = target.Height;
         for (int j = 0; j < height; j++)
         {
             double y = y0 + j * step;
             int row = j * width;
             for (int i = 0; i < width; i++)
-                cells[row + i] = offset + scale * PgslNoise.Fractal2(x0 + i * step, y, seeds, lacunarity, gain);
+                target.Put(row + i, offset + scale * PgslNoise.Fractal2(x0 + i * step, y, seeds, lacunarity, gain));
         }
         return (double)width * height;
     }
@@ -273,7 +272,6 @@ public static partial class PgslCommands
         if (target is null || axes < 0) return 0;
         Span<ulong> seeds = stackalloc ulong[PgslNoise.OctaveCount(octaves)];
         PgslNoise.OctaveSeeds(seed, seeds);
-        double[] cells = target.Cells;
         int width = target.Width, height = target.Height;
         for (int j = 0; j < height; j++)
         {
@@ -284,7 +282,7 @@ public static partial class PgslCommands
                 double x = axes == 2 ? x0 : x0 + i * step;
                 double y = axes switch { 0 => y0 + j * step, 1 => y0, _ => y0 + i * step };
                 double z = axes == 0 ? z0 : z0 + j * step;
-                cells[row + i] = offset + scale * PgslNoise.Fractal3(x, y, z, seeds, lacunarity, gain);
+                target.Put(row + i, offset + scale * PgslNoise.Fractal3(x, y, z, seeds, lacunarity, gain));
             }
         }
         return (double)width * height;

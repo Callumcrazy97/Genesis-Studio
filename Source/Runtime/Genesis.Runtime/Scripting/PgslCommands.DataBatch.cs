@@ -32,23 +32,21 @@ public static partial class PgslCommands
         // Where the clipped region lands: the requested corner keeps its place relative to it.
         (int requestLeft, int requestTop, _, _) = NormaliseRegion(x1, y1, x2, y2);
         long shiftX = (long)Math.Floor(dx) - requestLeft, shiftY = (long)Math.Floor(dy) - requestTop;
+        // The columns of each row that land inside the destination.
+        long first = Math.Max(left, -shiftX), last = Math.Min(right, to.Width - 1 - shiftX);
+        if (first > last) return 0;
+        int run = (int)(last - first + 1);
         int copied = 0;
-        // Rows and cells run in the order that never reads a cell this copy has already written.
+        // Rows run in the order that never reads a row this copy has already written; within a row
+        // the copy is made as if from a copy of the row (one grid onto itself, overlapping).
         bool backwardY = ReferenceEquals(to, from) && shiftY > 0;
-        bool backwardX = ReferenceEquals(to, from) && shiftY == 0 && shiftX > 0;
         for (int row = 0; row <= bottom - top; row++)
         {
             int y = backwardY ? bottom - row : top + row;
             long ty = y + shiftY;
             if (ty < 0 || ty >= to.Height) continue;
-            for (int column = 0; column <= right - left; column++)
-            {
-                int x = backwardX ? right - column : left + column;
-                long tx = x + shiftX;
-                if (tx < 0 || tx >= to.Width) continue;
-                to.Cells[(ty * to.Width) + tx] = from.Cells[(y * from.Width) + x];
-                copied++;
-            }
+            PgslGrid.CopyRun(from, (y * from.Width) + (int)first, to, (int)((ty * to.Width) + first + shiftX), run);
+            copied += run;
         }
         return copied;
     }
@@ -92,10 +90,25 @@ public static partial class PgslCommands
             for (long x = left; x <= right && read < from.Count; x++)
             {
                 double value = AsNumber(from[read++]);
-                if (x >= 0 && x < to.Width) to.Cells[(y * to.Width) + x] = value;
+                if (x >= 0 && x < to.Width) to.Put((int)((y * to.Width) + x), value);
             }
         }
         return read;
+    }
+
+    // A block world's column (one x, the rows y0 up) in one call: DsGridToList / DsGridFromList with
+    // x1 == x2, named for what they do.
+    [PgslCommand("DsGridGetColumnToList", "DsGridGetColumnToList(grid, x, y0, y1, list) -> number",
+        "Replace a list's entries with column x's cells from row y0 to row y1, in rising row order (rows outside the grid read 0); DsGridToList(grid, x, y0, x, y1, list); returns the entries written", "Grids")]
+    public static double DsGridGetColumnToList(double grid, double x, double y0, double y1, double list) =>
+        DsGridToList(grid, x, y0, x, y1, list);
+
+    [PgslCommand("DsGridSetColumnFromList", "DsGridSetColumnFromList(grid, x, y0, list) -> number",
+        "Write a list's entries into column x from row y0 down the rows (y0, y0 + 1, ...), one row each, until the list runs out (rows outside the grid are skipped); returns the entries read", "Grids")]
+    public static double DsGridSetColumnFromList(double grid, double x, double y0, double list)
+    {
+        int count = ResolveRead<List<object>>("list", list)?.Count ?? 0;
+        return count == 0 || !double.IsFinite(y0) ? 0 : DsGridFromList(grid, x, y0, x, y0 + count - 1, list);
     }
 
     [PgslCommand("DsGridCount", "DsGridCount(grid, x1, y1, x2, y2, value) -> number",
@@ -110,7 +123,7 @@ public static partial class PgslCommands
         {
             int row = y * target.Width;
             for (int x = left; x <= right; x++)
-                if (SameValue(target.Cells[row + x], value)) count++;
+                if (SameValue(target.At(row + x), value)) count++;
         }
         return count;
     }
@@ -139,7 +152,7 @@ public static partial class PgslCommands
             for (int column = 0; column <= right - left; column++)
             {
                 int x = upX ? left + column : right - column;
-                if (SameValue(target.Cells[start + x], value) == wantEqual) return start + x;
+                if (SameValue(target.At(start + x), value) == wantEqual) return start + x;
             }
         }
         return -1;
@@ -173,7 +186,7 @@ public static partial class PgslCommands
         for (int y = top; y <= bottom; y++)
         {
             int row = y * target.Width;
-            for (int x = left; x <= right; x++) target.Cells[row + x] = change(target.Cells[row + x]);
+            for (int x = left; x <= right; x++) target.Put(row + x, change(target.At(row + x)));
         }
     }
 
@@ -185,10 +198,14 @@ public static partial class PgslCommands
         PgslGrid from = ResolveRead<PgslGrid>("grid", source);
         if (to is null || from is null) return 0;
         int width = Math.Min(to.Width, from.Width), height = Math.Min(to.Height, from.Height);
+        bool numbers = to.Kind == GridKind.Number && from.Kind == GridKind.Number;
         for (int y = 0; y < height; y++)
         {
             int toRow = y * to.Width, fromRow = y * from.Width;
-            for (int x = 0; x < width; x++) to.Cells[toRow + x] += from.Cells[fromRow + x] * factor;
+            if (numbers)
+                for (int x = 0; x < width; x++) to.Cells[toRow + x] += from.Cells[fromRow + x] * factor;
+            else
+                for (int x = 0; x < width; x++) to.Put(toRow + x, to.At(toRow + x) + from.At(fromRow + x) * factor);
         }
         return (double)width * height;
     }

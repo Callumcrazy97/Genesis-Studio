@@ -71,7 +71,7 @@ public static partial class PgslCommands
     /// <summary>A copy of a grid, list (stack, queue) or map that shares nothing it can change with the original.</summary>
     private static object CopyStructure(object value) => value switch
     {
-        PgslGrid grid => new PgslGrid { Cells = (double[])grid.Cells.Clone(), Width = grid.Width, Height = grid.Height },
+        PgslGrid grid => grid.Clone(),
         // Entries are numbers, text, true/false or collection references, none of which change.
         List<object> list => new List<object>(list),
         PgslMap map => map.Copy(),

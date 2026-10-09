@@ -407,31 +407,19 @@ public static partial class PgslCommands
     public static double DsQueueSize(double id) => ResolveRead<List<object>>("queue", id)?.Count ?? 0;
 
     // ── Grids ───────────────────────────────────────────────────────────────────
+    // The grid itself, and the compact kinds, are in PgslCommands.GridCells.cs.
 
-    private sealed class PgslGrid
-    {
-        public double[] Cells = [];
-        public int Width;
-        public int Height;
-
-        public bool Inside(int x, int y) => x >= 0 && y >= 0 && x < Width && y < Height;
-        public double Get(int x, int y) => Inside(x, y) ? Cells[(y * Width) + x] : 0;
-        public void Set(int x, int y, double value)
-        {
-            if (Inside(x, y)) Cells[(y * Width) + x] = value;
-        }
-    }
-
-    [PgslCommand("DsGridCreate", "DsGridCreate(width, height) -> id", "Create a 2D numeric grid", "Grids")]
-    public static double DsGridCreate(double width, double height)
+    [PgslCommand("DsGridCreate", "DsGridCreate(width, height, kind?) -> id",
+        "Create a 2D grid of numbers; kind \"u8\", \"u16\", \"i32\" or \"f32\" makes a compact grid of small whole numbers (1, 2 or 4 bytes a cell, values clamped to the kind) or single-precision numbers. Up to 4096 a side and 8 MB of cells; 0 when too big or the kind is unknown", "Grids")]
+    public static double DsGridCreate(double width, double height, string kind = null)
     {
         int w = (int)Math.Clamp(width, 0, MaxGridDimension);
         int h = (int)Math.Clamp(height, 0, MaxGridDimension);
-        if ((long)w * h > MaxCollectionElements) return 0;
+        if (!TryGridKind(kind, out GridKind cells) || !GridFits(cells, w, h)) return 0;
 
         int handle = NextHandle("grid");
         if (handle == 0) return 0;
-        Bind("grid", handle, new PgslGrid { Cells = new double[w * h], Width = w, Height = h });
+        Bind("grid", handle, PgslGrid.Create(cells, w, h));
         return handle;
     }
 
@@ -447,9 +435,7 @@ public static partial class PgslCommands
     [PgslCommand("DsGridClear", "DsGridClear(id, value)", "Fill every cell", "Grids")]
     public static void DsGridClear(double id, double value)
     {
-        PgslGrid grid = Resolve<PgslGrid>("grid", id);
-        if (grid is null) return;
-        Array.Fill(grid.Cells, value);
+        Resolve<PgslGrid>("grid", id)?.Fill(value);
     }
 
     [PgslCommand("DsGridSet", "DsGridSet(id, x, y, value)", "Write one cell", "Grids")]
@@ -525,31 +511,18 @@ public static partial class PgslCommands
 
         int w = (int)Math.Clamp(width, 0, MaxGridDimension);
         int h = (int)Math.Clamp(height, 0, MaxGridDimension);
-        if ((long)w * h > MaxCollectionElements) return;
-
-        double[] resized = new double[w * h];
-        int copyWidth = Math.Min(w, grid.Width);
-        int copyHeight = Math.Min(h, grid.Height);
-        for (int y = 0; y < copyHeight; y++)
-        {
-            for (int x = 0; x < copyWidth; x++) resized[(y * w) + x] = grid.Get(x, y);
-        }
-
-        grid.Cells = resized;
-        grid.Width = w;
-        grid.Height = h;
+        if (!GridFits(grid.Kind, w, h)) return;
+        grid.Resize(w, h);
     }
 
-    [PgslCommand("DsGridCopy", "DsGridCopy(destinationId, sourceId)", "Replace one grid's contents with another's", "Grids")]
+    [PgslCommand("DsGridCopy", "DsGridCopy(destinationId, sourceId)",
+        "Make one grid an exact copy of another: its size, its kind (DsGridCreate) and its cells", "Grids")]
     public static void DsGridCopy(double destinationId, double sourceId)
     {
         PgslGrid destination = Resolve<PgslGrid>("grid", destinationId);
         PgslGrid source = ResolveRead<PgslGrid>("grid", sourceId);
         if (destination is null || source is null) return;
-
-        destination.Cells = [.. source.Cells];
-        destination.Width = source.Width;
-        destination.Height = source.Height;
+        destination.CopyFrom(source);
     }
 
     private static (int Left, int Top, int Right, int Bottom) NormaliseRegion(double x1, double y1, double x2, double y2) =>

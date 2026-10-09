@@ -158,6 +158,10 @@ internal static class VmSpeedSuite
         function PVariableSet(n) { var t = 0; for (var i = 0; i < n; i = i + 1) { t = VariableSet("pv", i); } return t; }
         function PListSet(n) { for (var i = 0; i < n; i = i + 1) { DsListSet(pl, 3, i); } return n; }
         function PGridSet(n) { for (var i = 0; i < n; i = i + 1) { DsGridSet(pgr, 1, 2, i); } return n; }
+        function PGridGetU16(n) { var t = 0; for (var i = 0; i < n; i = i + 1) { t = DsGridGet(pgr16, 1, 2); } return t; }
+        function PGridSetU16(n) { for (var i = 0; i < n; i = i + 1) { DsGridSet(pgr16, 1, 2, i); } return n; }
+        function PGridGetU8(n) { var t = 0; for (var i = 0; i < n; i = i + 1) { t = DsGridGet(pgr8, 1, 2); } return t; }
+        function PGridSetU8(n) { for (var i = 0; i < n; i = i + 1) { DsGridSet(pgr8, 1, 2, i); } return n; }
         function PMapSet(n) { for (var i = 0; i < n; i = i + 1) { DsMapSet(pm, "key", i); } return n; }
         function PStringOf(n) { var t = 0; for (var i = 0; i < n; i = i + 1) { t = StringOf(i % 100); } return n; }
         function PNop() { return 1; }
@@ -180,6 +184,7 @@ internal static class VmSpeedSuite
         function PCallValue(n) { var t = 0; for (var i = 0; i < n; i = i + 1) { t = PValue(i * 0.7, i * 0.3, 16, 4); } return t; }
         function PCallValueNative(n) { var t = 0; for (var i = 0; i < n; i = i + 1) { t = ValueNoise2D(i * 0.7 / 16, i * 0.3 / 16, 4); } return t; }
         pg = 5; pl = DsListCreate(); for (var i = 0; i < 8; i = i + 1) { DsListAdd(pl, i); } pgr = DsGridCreate(4, 4);
+        pgr16 = DsGridCreate(4, 4, "u16"); pgr8 = DsGridCreate(4, 4, "u8");
         pm = DsMapCreate(); DsMapSet(pm, "key", 3);
         """;
 
@@ -189,6 +194,7 @@ internal static class VmSpeedSuite
         List<Measure> measures = [];
         List<(string Body, double NsPerIteration, double NsPerInstruction, double BytesPerIteration)> profile = [];
         List<(string Path, double Ns)> bridge = [];
+        List<(string Kind, double BytesPerCell, long Allocated, double GetNs, double SetNs, double ColumnToListNs, double ColumnFromListNs)> gridKinds = [];
         string? previousProject = PgslCommands.ProjectPath;
         PgslCommands.ProjectPath = null;
         string fixtures = Path.Combine(AppContext.BaseDirectory, "Fixtures", "VmSpeed");
@@ -357,6 +363,10 @@ internal static class VmSpeedSuite
                     ("t = VariableSet(\"pv\", i) (text and a number, no result)", "PVariableSet"),
                     ("DsListSet(pl, 3, i)", "PListSet"),
                     ("DsGridSet(pgr, 1, 2, i)", "PGridSet"),
+                    ("t = DsGridGet(pgr16, 1, 2) (a u16 grid)", "PGridGetU16"),
+                    ("DsGridSet(pgr16, 1, 2, i) (a u16 grid)", "PGridSetU16"),
+                    ("t = DsGridGet(pgr8, 1, 2) (a u8 grid)", "PGridGetU8"),
+                    ("DsGridSet(pgr8, 1, 2, i) (a u8 grid)", "PGridSetU8"),
                     ("DsMapSet(pm, \"key\", i)", "PMapSet"),
                     ("t = StringOf(i % 100)", "PStringOf"),
                     ("t = PNop() (user call, no arguments)", "PCall0"),
@@ -395,13 +405,60 @@ internal static class VmSpeedSuite
                     Check(sum == 0, "An empty grid cell was not 0.");
                 }
             });
+
+            // Each grid kind (DsGridCreate's third argument) from C#: what its cells take, and what a
+            // cell read, a cell write and a 256-high column through a list cost, swept over a strip
+            // of a block world as a chunk mesher reads it.
+            HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.VmSpeed.GridKinds", () =>
+            {
+                using Bench bench = new();
+                const int width = 64, height = 256;
+                foreach (string kind in new[] { "f64", "u16", "u8", "i32", "f32" })
+                {
+                    long before = GC.GetAllocatedBytesForCurrentThread();
+                    double big = PgslCommands.DsGridCreate(1024, 256, kind);
+                    long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+                    double bytes = PgslCommands.DsGridBytes(big);
+                    PgslCommands.DsGridDestroy(big);
+                    double grid = PgslCommands.DsGridCreate(width, height, kind);
+                    double list = PgslCommands.DsListCreate();
+                    for (int y = 0; y < height; y++)
+                        for (int x = 0; x < width; x++) PgslCommands.DsGridSet(grid, x, y, (x * 7 + y) % 200);
+                    double sink = 0;
+                    double get = BestNs(() => { for (int y = 0; y < height; y++) for (int x = 0; x < width; x++) sink += PgslCommands.DsGridGet(grid, x, y); }, width * height);
+                    double set = BestNs(() => { for (int y = 0; y < height; y++) for (int x = 0; x < width; x++) PgslCommands.DsGridSet(grid, x, y, (x + y) & 127); }, width * height);
+                    Check(PgslCommands.DsGridGet(grid, 3, 5) == 8, $"A {kind} grid's cell (3, 5) reads {PgslCommands.DsGridGet(grid, 3, 5)} after the write sweep, not 8.");
+                    double toList = BestNs(() => { for (int x = 0; x < width; x++) sink += PgslCommands.DsGridGetColumnToList(grid, x, 0, height - 1, list); }, width);
+                    double fromList = BestNs(() => { for (int x = 0; x < width; x++) sink += PgslCommands.DsGridSetColumnFromList(grid, x, 0, list); }, width);
+                    Check(PgslCommands.DsGridGet(grid, 3, 5) == 68, $"A {kind} grid's cell (3, 5) reads {PgslCommands.DsGridGet(grid, 3, 5)} after the column sweep, not 68 (column 63's).");
+                    gridKinds.Add((kind, bytes / (1024 * 256), allocated, get, set, toList, fromList));
+                    PgslCommands.DsGridDestroy(grid);
+                    PgslCommands.DsListDestroy(list);
+                    Check(sink != 0, "The grid sweeps read nothing.");
+                }
+            });
         }
         finally
         {
             PgslCommands.ProjectPath = previousProject;
             try { process.ProcessorAffinity = previousAffinity; } catch (Exception) { }
-            Write(ctx, measures, profile, bridge);
+            Write(ctx, measures, profile, bridge, gridKinds);
         }
+    }
+
+    /// <summary>Nanoseconds per unit of the fastest of seven runs, after a quarter of a second of warming up.</summary>
+    private static double BestNs(Action run, int units)
+    {
+        long warm = Stopwatch.GetTimestamp();
+        while (Stopwatch.GetElapsedTime(warm).TotalMilliseconds < 250) run();
+        double best = double.MaxValue;
+        for (int round = 0; round < 7; round++)
+        {
+            long start = Stopwatch.GetTimestamp();
+            run();
+            best = Math.Min(best, Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+        }
+        return best * 1e6 / units;
     }
 
     // What the workloads must return, worked out the same way in C#.
@@ -448,7 +505,8 @@ internal static class VmSpeedSuite
     private static void Check(bool condition, string message) => HeadlessHarness.Assert(condition, message);
 
     private static void Write(HeadlessContext ctx, List<Measure> measures,
-        List<(string Body, double NsPerIteration, double NsPerInstruction, double BytesPerIteration)> profile, List<(string Path, double Ns)> bridge)
+        List<(string Body, double NsPerIteration, double NsPerInstruction, double BytesPerIteration)> profile, List<(string Path, double Ns)> bridge,
+        List<(string Kind, double BytesPerCell, long Allocated, double GetNs, double SetNs, double ColumnToListNs, double ColumnFromListNs)> gridKinds)
     {
         var text = new StringBuilder();
         text.AppendLine("# PGSL VM speed");
@@ -470,6 +528,17 @@ internal static class VmSpeedSuite
         text.AppendLine();
         foreach ((string path, double ns) in bridge)
             text.AppendLine(string.Create(CultureInfo.InvariantCulture, $"- {path}: {ns:F1} ns"));
+        if (gridKinds.Count > 0)
+        {
+            text.AppendLine();
+            text.AppendLine("## Grid kinds (DsGridCreate's kind), called from C#: a 64 x 256 strip swept cell by cell, and its 64 columns through a list");
+            text.AppendLine();
+            text.AppendLine("| Kind | bytes per cell | allocated for a 1024 x 256 grid | DsGridGet ns | DsGridSet ns | DsGridGetColumnToList (256 rows) ns | DsGridSetColumnFromList (256 rows) ns |");
+            text.AppendLine("|---|---:|---:|---:|---:|---:|---:|");
+            foreach (var kind in gridKinds)
+                text.AppendLine(string.Create(CultureInfo.InvariantCulture,
+                    $"| {kind.Kind} | {kind.BytesPerCell:F0} | {kind.Allocated} | {kind.GetNs:F1} | {kind.SetNs:F1} | {kind.ColumnToListNs:F0} | {kind.ColumnFromListNs:F0} |"));
+        }
         string report = text.ToString();
         Console.WriteLine(report);
         Directory.CreateDirectory(ctx.Captures);
@@ -481,6 +550,7 @@ internal static class VmSpeedSuite
             workloads = measures,
             profile = profile.Select(p => new { body = p.Body, nsPerIteration = p.NsPerIteration, nsPerInstruction = p.NsPerInstruction, bytesPerIteration = p.BytesPerIteration }),
             bridge = bridge.Select(b => new { path = b.Path, ns = b.Ns }),
+            gridKinds = gridKinds.Select(k => new { kind = k.Kind, bytesPerCell = k.BytesPerCell, allocated = k.Allocated, getNs = k.GetNs, setNs = k.SetNs, columnToListNs = k.ColumnToListNs, columnFromListNs = k.ColumnFromListNs }),
         }, new JsonSerializerOptions { WriteIndented = true }));
     }
 }

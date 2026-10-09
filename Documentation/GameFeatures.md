@@ -738,6 +738,60 @@ grid are skipped (or read as 0); a bad handle does nothing and returns 0 (-1 for
 Already there before: `DsGridSetRegion` (fill a region with one value), `DsGridClear` (fill the
 grid), `DsGridCopy` (a whole grid), `DsGridGetSum` / `GetMax` / `GetMin` and `DsGridValueExists`.
 
+### Compact grids: small whole numbers in 1, 2 or 4 bytes a cell
+
+A grid's cells are numbers of 8 bytes each. A block world's ids and light levels are small whole
+numbers, so `DsGridCreate(width, height, kind)` makes a grid that stores them compactly; without a
+kind (or with `"f64"`) a grid holds numbers as it always has.
+
+| Kind | Holds | Bytes a cell |
+|---|---|---:|
+| (none), `"f64"` | numbers, as before | 8 |
+| `"u8"` | whole numbers 0 to 255 (light levels, small flags) | 1 |
+| `"u16"` | whole numbers 0 to 65 535 (block ids with flag bits) | 2 |
+| `"i32"` | whole numbers -2 147 483 648 to 2 147 483 647 | 4 |
+| `"f32"` | single-precision numbers: about 7 significant digits, whole numbers exact to 16 777 216 | 4 |
+
+Every grid command works on every kind, unchanged: `DsGridGet` / `DsGridSet` / `DsGridAdd` /
+`DsGridMultiply`, the region commands above, `DsGridToList` / `DsGridFromList`, `DsGridCopyRegion`
+(between kinds too: each cell is converted to the destination's kind), `DsGridAddGrid`,
+`NoiseFillGrid` / `NoiseFillGrid3D`, `DsGridResize` (keeps the kind), sums and finds, and giving a grid
+to a worker job (`JobScriptGrid`, `JobScriptShareAll`, copyBack). Reading a cell gives a number.
+**Writing** a number to a whole-number kind drops its fraction (towards zero: 7.9 is 7, -2.7 is -2)
+and clamps it to the kind's range: 300 in a `u8` grid is 255, -1 is 0, and NaN is 0. So a light level
+taken below 0 stays 0 rather than wrapping round to 255, and `DsGridAdd(light, x, y, -1)` is safe.
+`DsGridCopy(destination, source)` makes the destination an exact copy, its kind included.
+
+A grid may take up to 8 MB of cells (and 4096 a side): a number grid up to 1 000 000 cells, as
+before, a `u16` grid 4 000 000 and a `u8` grid 8 000 000. A 4096 x 256 strip of a 256-high world
+is 2 MB as `u16` (8 MB as numbers, over the limit); a world of 16 such strips of blocks (`u16`) and
+16 of light (`u8`) is 48 MB instead of 256 MB. `DsGridCreate` returns 0 for a grid over the limit
+or a kind it does not know.
+
+| Command | What it does |
+|---|---|
+| `DsGridCreate(width, height, kind)` | A grid of that kind: `"u8"`, `"u16"`, `"i32"`, `"f32"` or `"f64"` (any case); 0 when the kind is unknown or the grid too big. |
+| `DsGridKind(grid)` | `"f64"`, `"u8"`, `"u16"`, `"i32"` or `"f32"`; empty when there is no such grid. |
+| `DsGridBytes(grid)` | The bytes its cells take (width x height x the kind's size). |
+| `DsGridGetColumnToList(grid, x, y0, y1, list)` | Column `x`'s cells from row `y0` to `y1`, in rising row order, into a list (its entries replaced): `DsGridToList(grid, x, y0, x, y1, list)`. Returns the entries written. |
+| `DsGridSetColumnFromList(grid, x, y0, list)` | The list's entries into column `x`, one row each from `y0` down (y0, y0 + 1, ...), until the list runs out; rows outside the grid are skipped. Returns the entries read. |
+
+`DsGridGet` and `DsGridSet` stay on the VM's direct call path for every kind (a command taking up to
+four numbers is called through a delegate, with no arrays in between). `Build.bat --test vm-speed`
+reports, for each kind, the bytes a cell takes and what a cell read, a cell write and a 256-high
+column through a list cost.
+
+```pgsl
+// A 256-high world in strips: block ids in u16 grids, light in u8 grids.
+var blocks = []; var light = [];
+for (var s = 0; s < 16; s = s + 1) {
+    blocks[s] = DsGridCreate(4096, 256, "u16");
+    light[s] = DsGridCreate(4096, 256, "u8");
+}
+DsGridSet(blocks[s], column, y, STONE | FLAG_NATURAL);   // 3071 plus flag bits fits in 16 bits
+DsGridAdd(light[s], column, y, -1);                       // never below 0
+```
+
 ## Script functions on worker threads
 
 A function of the project's Scripts can run as a job on a worker thread, so generating a chunk, a
