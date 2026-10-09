@@ -227,18 +227,19 @@ a few emitters, as in the Particle Editor, ten a second each as before).
 
 Measured with 300 live one-particle leaf bursts (GenesisCraft's falling leaves), the game thread's
 time for a frame (composition update, particle submission, frame) and the managed bytes it
-allocated, median of 180 frames after 60 to warm up, one run each on the development PC, 9 Oct
-2026 (`Build.bat --test particle-bursts`):
+allocated: the median of 180 frames after 60 to warm up (in brackets, the frame one in ten is
+slower than), on the development PC's performance cores, 9 Oct 2026 (`Build.bat --test
+particle-bursts`). Before is one run; now and batched are the range over three runs.
 
 | Renderer | 300 bursts before | 300 bursts now | 300 batched bursts | Allocated a frame (before / now / batched) |
 |---|---|---|---|---|
-| Direct3D 12 | 10.2 ms (one frame in ten 42 ms) | 5.3 ms (6.1) | 0.17 ms | 360 KB / 6.6 KB / 0.5 KB |
-| Direct3D 11 | 4.3 ms (6.8) | 3.4 ms (4.2) | 0.11 ms | 337 KB / 14 KB / 0.5 KB |
-| Vulkan | 6.0 ms (25) | 6.9 ms (7.8) | 0.08 ms | 517 KB / 151 KB / 1.0 KB |
-| OpenGL | 5.5 ms (9.3) | 5.4 ms (6.8) | 0.17 ms | 332 KB / 10 KB / 0.5 KB |
+| Direct3D 12 | 10.2 ms (42) | 5.2-5.9 ms (6.1-6.4) | 0.14-0.17 ms | 360 KB / 6.6 KB / 0.5 KB |
+| Direct3D 11 | 4.3 ms (6.8) | 2.9-3.4 ms (3.5-4.2) | 0.08-0.11 ms | 337 KB / 13-14 KB / 0.5 KB |
+| Vulkan | 6.0 ms (25) | 6.7-6.9 ms (7.2-7.8) | 0.08-0.10 ms | 517 KB / 151 KB / 1.0 KB |
+| OpenGL | 5.5 ms (9.3) | 4.7-5.4 ms (5.2-6.8) | 0.15-0.17 ms | 332 KB / 10 KB / 0.5 KB |
 
 The slow frames before were the frames in which every emitter read its counts back from the
-graphics card at once. Making the 300 bursts took 721 ms on Direct3D 12 before and 317 ms now. The
+graphics card at once. Making the 300 bursts took 721 ms on Direct3D 12 before and 277-334 ms now. The
 Vulkan device still allocates about half a kilobyte for each emitter's dispatches itself. Separate
 bursts still cost each emitter's GPU commands every frame (about 17 µs each on Direct3D 12): for
 hundreds, batch them.
