@@ -205,6 +205,18 @@ public sealed partial class ObjectCompositionSubsystem
     private const int MaxBatchedCapacity = 65_536;
     private const float BatchedDiagnosticsSeconds = .5f;
 
+    /// <summary>
+    /// Bursts of one effect waiting to be born, at most. Scripts ask for bursts in every update,
+    /// but they are born only in a frame that is drawn, and a minimised window draws none: a game
+    /// playing leaves every frame queued thousands in a minute, and the frame after it was
+    /// restored gave the renderer one step for each, more than it accepts, which closed the game.
+    /// The newest are kept.
+    /// </summary>
+    private const int MaxPendingBatchedBursts = 1024;
+
+    /// <summary>Bursts of one effect born in one frame, at most; the rest wait for the next frames.</summary>
+    private const int MaxBatchedBirthsPerFrame = 128;
+
     private sealed class BatchedEffect
     {
         public required string Asset;
@@ -274,6 +286,8 @@ public sealed partial class ObjectCompositionSubsystem
                 ParticleBursts.Play(scene.World, request.Asset, request.Position, request.Scale);
                 continue;
             }
+            // Dropping half at once keeps this cheap however long the game is not drawn.
+            if (effect.Pending.Count >= MaxPendingBatchedBursts) effect.Pending.RemoveRange(0, MaxPendingBatchedBursts / 2);
             effect.Pending.Add(Matrix4x4.CreateScale(request.Scale) * Matrix4x4.CreateTranslation(request.Position));
         }
         _batchedRequests.Clear();
@@ -342,7 +356,8 @@ public sealed partial class ObjectCompositionSubsystem
         foreach (BatchedEffect effect in _batched.Values)
         {
             if (!effect.CanBatch) continue;
-            bool births = effect.Pending.Count > 0;
+            int born = Math.Min(effect.Pending.Count, MaxBatchedBirthsPerFrame);
+            bool births = born > 0;
             if (!births && _totalTime >= effect.AliveUntil)
             {
                 // Every particle has died: nothing to simulate or draw until the next burst.
@@ -370,9 +385,9 @@ public sealed partial class ObjectCompositionSubsystem
 
                 // Particles are born where their burst was asked for; once born they move in the
                 // world, so the emitter's transform matters only for the step that births them.
-                foreach (Matrix4x4 world in effect.Pending)
+                for (int i = 0; i < born; i++)
                 {
-                    emitter.UpdateDefinition(GpuParticleDefinitionBuilder.Move(layer.GpuDefinition!, layer.Config, world));
+                    emitter.UpdateDefinition(GpuParticleDefinitionBuilder.Move(layer.GpuDefinition!, layer.Config, effect.Pending[i]));
                     gpu.EnqueueParticleStep(emitter, 0f, layer.BurstBirths, ++layer.Sequence, []);
                 }
 
@@ -384,7 +399,7 @@ public sealed partial class ObjectCompositionSubsystem
             if (births)
             {
                 effect.AliveUntil = MathF.Max(effect.AliveUntil, _totalTime + effect.LongestLife + .25f);
-                effect.Pending.Clear();
+                effect.Pending.RemoveRange(0, born);
             }
         }
     }

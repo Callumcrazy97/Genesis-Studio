@@ -1,6 +1,9 @@
 using System;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Threading;
 using Genesis.Rendering.Core;
+using Genesis.Rendering.Diagnostics;
 using Silk.NET.Core.Native;
 using Silk.NET.Direct3D12;
 
@@ -103,7 +106,7 @@ namespace Genesis.Rendering.SilkNet.DX12
                 return;
             }
 
-            WaitForFenceValue(_frameFenceValues[_frameIndex]);
+            WaitForFenceValue(_frameFenceValues[_frameIndex], "the frame that last used this command allocator");
 
             SilkMarshal.ThrowHResult(_allocators[_frameIndex].Handle->Reset());
             SilkMarshal.ThrowHResult(_list.Handle->Reset(_allocators[_frameIndex], (ID3D12PipelineState*)null));
@@ -146,12 +149,42 @@ namespace Genesis.Rendering.SilkNet.DX12
 
             ulong signalled = _nextFenceValue++;
             SilkMarshal.ThrowHResult(_runtime.Queue.Handle->Signal(_fence, signalled));
-            WaitForFenceValue(signalled);
+            WaitForFenceValue(signalled, "every submitted frame (waiting for the GPU to go idle)");
 
             for (int i = 0; i < FramesInFlight; i++)
             {
                 _frameFenceValues[i] = 0ul;
             }
+        }
+
+        /// <summary>
+        /// <see cref="WaitIdle"/> that gives up after <paramref name="timeout"/>, for work that can
+        /// be skipped (a screenshot) rather than worth freezing the game for. False when the GPU
+        /// had not finished; the ring stays consistent either way, because every slot keeps the
+        /// fence value its allocator must wait for.
+        /// </summary>
+        /// <remarks>The caller ends the frame first (the device has to put the back buffer in its
+        /// present state before the list is closed).</remarks>
+        public bool TryWaitIdle(TimeSpan timeout, string purpose)
+        {
+            if (_recording)
+            {
+                EndFrame();
+            }
+
+            ulong signalled = _nextFenceValue++;
+            SilkMarshal.ThrowHResult(_runtime.Queue.Handle->Signal(_fence, signalled));
+            if (!WaitForFenceValue(signalled, purpose, timeout))
+            {
+                return false;
+            }
+
+            for (int i = 0; i < FramesInFlight; i++)
+            {
+                _frameFenceValues[i] = 0ul;
+            }
+
+            return true;
         }
 
         /// <summary>Submits what has been recorded so far and immediately reopens the list.</summary>
@@ -165,12 +198,28 @@ namespace Genesis.Rendering.SilkNet.DX12
         /// the next slot, so the slot could be recycled while the GPU still read them — a
         /// timing-dependent corruption of whatever the frame drew after a readback.</para>
         /// </remarks>
-        public void FlushAndReopen()
+        public void FlushAndReopen() => TryFlushAndReopen(Timeout.InfiniteTimeSpan, "a mid-frame read-back");
+
+        /// <summary>
+        /// <see cref="FlushAndReopen"/> that gives up waiting after <paramref name="timeout"/>.
+        /// </summary>
+        /// <returns>
+        /// True with the list reopened in the same slot. False when the GPU had not finished: the
+        /// submission then stands as the end of this frame — the slot keeps its fence value and the
+        /// ring moves on, exactly as <see cref="EndFrame"/> leaves it — because resetting an
+        /// allocator the GPU may still be reading is never safe. Nothing is recording afterwards.
+        /// </returns>
+        public bool TryFlushAndReopen(TimeSpan timeout, string purpose)
         {
             if (!_recording)
             {
-                WaitIdle();
-                return;
+                if (timeout == Timeout.InfiniteTimeSpan)
+                {
+                    WaitIdle();
+                    return true;
+                }
+
+                return TryWaitIdle(timeout, purpose);
             }
 
             SilkMarshal.ThrowHResult(_list.Handle->Close());
@@ -178,22 +227,84 @@ namespace Genesis.Rendering.SilkNet.DX12
             _runtime.Queue.Handle->ExecuteCommandLists(1u, &raw);
             ulong signalled = _nextFenceValue++;
             SilkMarshal.ThrowHResult(_runtime.Queue.Handle->Signal(_fence, signalled));
-            WaitForFenceValue(signalled);
+            if (!WaitForFenceValue(signalled, purpose, timeout))
+            {
+                _recording = false;
+                _frameFenceValues[_frameIndex] = signalled;
+                _frameIndex = (_frameIndex + 1) % FramesInFlight;
+                return false;
+            }
 
             // Every submission has now completed, so this slot's allocator can be reset in place.
             SilkMarshal.ThrowHResult(_allocators[_frameIndex].Handle->Reset());
             SilkMarshal.ThrowHResult(_list.Handle->Reset(_allocators[_frameIndex], (ID3D12PipelineState*)null));
+            return true;
         }
 
-        private void WaitForFenceValue(ulong value)
+        /// <summary>A wait longer than this is written to the render log, with what it waits for.</summary>
+        private static readonly TimeSpan SlowWait = TimeSpan.FromSeconds(2);
+
+        private void WaitForFenceValue(ulong value, string purpose) =>
+            WaitForFenceValue(value, purpose, Timeout.InfiniteTimeSpan);
+
+        /// <summary>
+        /// Waits for the GPU to pass <paramref name="value"/>, in slices: between them it checks
+        /// whether the device has been removed (a hung GPU the driver reset, for instance) and
+        /// throws with the reason rather than waiting for ever, and a wait that has gone on for
+        /// seconds is logged with what it is waiting for. Infinite timeouts still wait as long as
+        /// the GPU takes: what follows them reuses memory the GPU may be reading.
+        /// </summary>
+        /// <returns>False when <paramref name="timeout"/> passed first.</returns>
+        private bool WaitForFenceValue(ulong value, string purpose, TimeSpan timeout)
         {
             if (value == 0ul || _fence.Handle->GetCompletedValue() >= value)
             {
-                return;
+                return true;
             }
 
             SilkMarshal.ThrowHResult(_fence.Handle->SetEventOnCompletion(value, (void*)_fenceEvent));
-            WaitForSingleObject(_fenceEvent, 0xFFFFFFFFu);
+            long started = Stopwatch.GetTimestamp();
+            TimeSpan nextReport = SlowWait;
+            while (true)
+            {
+                // The event is shared by every wait, so it can also be set by an earlier one that
+                // gave up: the fence itself is the answer.
+                WaitForSingleObject(_fenceEvent, 250u);
+                if (_fence.Handle->GetCompletedValue() >= value)
+                {
+                    break;
+                }
+
+                TimeSpan waited = Stopwatch.GetElapsedTime(started);
+                string removal = _runtime.DescribeRemoval();
+                if (removal is not null)
+                {
+                    RenderLog.Line($"[D3D12] device removed while waiting {waited.TotalSeconds:F1} s for {purpose}: {removal}");
+                    throw new InvalidOperationException($"Direct3D 12 device removed while waiting for {purpose}: {removal}");
+                }
+
+                if (timeout != Timeout.InfiniteTimeSpan && waited >= timeout)
+                {
+                    RenderLog.Line($"[D3D12] gave up after {waited.TotalSeconds:F1} s waiting for {purpose} "
+                        + $"(fence {value}, GPU at {_fence.Handle->GetCompletedValue()})");
+                    return false;
+                }
+
+                if (waited >= nextReport)
+                {
+                    RenderLog.Line($"[D3D12] still waiting after {waited.TotalSeconds:F1} s for {purpose} "
+                        + $"(fence {value}, GPU at {_fence.Handle->GetCompletedValue()})");
+                    nextReport += TimeSpan.FromSeconds(10);
+                }
+            }
+
+            TimeSpan total = Stopwatch.GetElapsedTime(started);
+            if (total >= SlowWait)
+            {
+                RenderLog.Line($"[D3D12] waited {total.TotalSeconds:F1} s for {purpose}");
+            }
+
+            return true;
         }
 
         public void Dispose()

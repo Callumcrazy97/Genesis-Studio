@@ -169,6 +169,8 @@ namespace Genesis.Rendering.Primitives
 
                 using Process process = Process.Start(start)
                     ?? throw new InvalidOperationException($"Failed to start DXC at '{dxcPath}'.");
+                // A compile still running when the game or Studio ends is ended with it.
+                ChildProcessJob.Adopt(process);
 
                 var stdoutTask = process.StandardOutput.ReadToEndAsync();
                 var stderrTask = process.StandardError.ReadToEndAsync();
