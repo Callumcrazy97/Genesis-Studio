@@ -79,6 +79,79 @@ public static class GpuParticleDefinitionBuilder
                 lookup.Add(new Vector4(collisionTriangleVertices[i], 0f));
         }
 
+        GpuParticleParameters parameters = BuildParameters(config, world, inverse, meshCount,
+            new Vector4(meshOffset, collisionRoot, collisionNodeCount, collisionTrianglesOffset));
+
+        ComputeBounds(config, world, out Vector3 boundsCenter, out float boundsRadius);
+        ReadOnlySpan<Vector4> built = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(lookup);
+        Vector4[] table = previousLookup != null && built.SequenceEqual(previousLookup) ? previousLookup : built.ToArray();
+        if (lookup.Capacity > 65_536) { lookup.Clear(); lookup.Capacity = GpuParticleProtocol.CurveSamples * 2 + 3; }
+        return new GpuParticleDefinition
+        {
+            Capacity = Math.Clamp(config.MaxParticles, 1, GpuParticleProtocol.MaximumCapacity),
+            Parameters = parameters,
+            Lookup = table,
+            DebugName = string.IsNullOrWhiteSpace(config.EmitterName) ? "Particles" : config.EmitterName,
+            BoundsCenter = boundsCenter,
+            BoundsRadius = boundsRadius,
+            BlendMode = (int)config.BlendMode,
+            PointSampling = config.PixelSampling,
+        };
+    }
+
+    /// <summary>
+    /// The same emitter somewhere else, or with its wind changed: what depends on the transform
+    /// and the emitter's own values is worked out again, while the curve and colour table, the
+    /// capacity and the culling of <paramref name="previous"/> are kept (no table is built or
+    /// allocated). Only for a definition built from this same <paramref name="config"/>, whose
+    /// curves, colours and samples have not changed since.
+    /// </summary>
+    public static GpuParticleDefinition Move(GpuParticleDefinition previous, ParticleConfig config, Matrix4x4 world)
+    {
+        ArgumentNullException.ThrowIfNull(previous);
+        ArgumentNullException.ThrowIfNull(config);
+        if (!Matrix4x4.Invert(world, out Matrix4x4 inverse))
+            throw new ArgumentException("Particle emitter transform must be invertible.", nameof(world));
+        GpuParticleParameters kept = previous.Parameters;
+        Vector3 boundsCenter = world.Translation;
+        float boundsRadius = 0f;
+        if (previous.BoundsRadius > 0f) ComputeBounds(config, world, out boundsCenter, out boundsRadius);
+        return new GpuParticleDefinition
+        {
+            Capacity = previous.Capacity,
+            Parameters = BuildParameters(config, world, inverse, kept.Box.W, kept.Geometry),
+            Lookup = previous.Lookup,
+            DebugName = previous.DebugName,
+            BoundsCenter = boundsCenter,
+            BoundsRadius = boundsRadius,
+            BlendMode = (int)config.BlendMode,
+            PointSampling = config.PixelSampling,
+        };
+    }
+
+    /// <summary>
+    /// A copy with another capacity that is never culled by its bounds: one emitter shared by
+    /// bursts all over the world has no single place to be seen from.
+    /// </summary>
+    public static GpuParticleDefinition Unbounded(GpuParticleDefinition definition, int capacity)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        return new GpuParticleDefinition
+        {
+            Capacity = Math.Clamp(capacity, 1, GpuParticleProtocol.MaximumCapacity),
+            Parameters = definition.Parameters,
+            Lookup = definition.Lookup,
+            DebugName = definition.DebugName,
+            BoundsCenter = definition.BoundsCenter,
+            BoundsRadius = 0f,
+            BlendMode = definition.BlendMode,
+            PointSampling = definition.PointSampling,
+        };
+    }
+
+    private static GpuParticleParameters BuildParameters(ParticleConfig config, Matrix4x4 world, Matrix4x4 inverse,
+        float meshCount, Vector4 geometry)
+    {
         float collisionMode = config.CollisionMode switch
         {
             ParticleCollisionMode.Bounce => 1f,
@@ -87,7 +160,7 @@ public static class GpuParticleDefinitionBuilder
             _ => 0f,
         };
 
-        var parameters = new GpuParticleParameters
+        return new GpuParticleParameters
         {
             World = world,
             InverseWorld = inverse,
@@ -154,27 +227,7 @@ public static class GpuParticleDefinitionBuilder
                 (float)config.BeamEndY,
                 (float)config.BeamEndZ,
                 (float)Math.Max(0d, config.BeamNoise)),
-            Geometry = new Vector4(
-                meshOffset,
-                collisionRoot,
-                collisionNodeCount,
-                collisionTrianglesOffset),
-        };
-
-        ComputeBounds(config, world, out Vector3 boundsCenter, out float boundsRadius);
-        ReadOnlySpan<Vector4> built = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(lookup);
-        Vector4[] table = previousLookup != null && built.SequenceEqual(previousLookup) ? previousLookup : built.ToArray();
-        if (lookup.Capacity > 65_536) { lookup.Clear(); lookup.Capacity = GpuParticleProtocol.CurveSamples * 2 + 3; }
-        return new GpuParticleDefinition
-        {
-            Capacity = Math.Clamp(config.MaxParticles, 1, GpuParticleProtocol.MaximumCapacity),
-            Parameters = parameters,
-            Lookup = table,
-            DebugName = string.IsNullOrWhiteSpace(config.EmitterName) ? "Particles" : config.EmitterName,
-            BoundsCenter = boundsCenter,
-            BoundsRadius = boundsRadius,
-            BlendMode = (int)config.BlendMode,
-            PointSampling = config.PixelSampling,
+            Geometry = geometry,
         };
     }
 

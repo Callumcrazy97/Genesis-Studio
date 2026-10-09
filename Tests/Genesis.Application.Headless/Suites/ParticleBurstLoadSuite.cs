@@ -29,6 +29,45 @@ internal static class ParticleBurstLoadSuite
     {
         string root = Path.Combine(ctx.Workspace, "ParticleBurstLoad");
         WriteProject(root);
+
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Particles.Bursts.LimitRemovesTheOldest", () =>
+        {
+            using var scene = new RuntimeScene("Burst limit");
+            try
+            {
+                ParticleBursts.ResetLimit();
+                HeadlessHarness.Assert(ParticleBursts.Limit == 256, $"The burst limit should be 256 unless a game sets it ({ParticleBursts.Limit}).");
+                ParticleBursts.Limit = 50;
+                var made = new List<Entity>();
+                for (int i = 0; i < 80; i++) made.Add(ParticleBursts.Play(scene.World, Leaf, new Vector3(i, 0, 0)));
+                scene.World.FlushDeferred();
+                HeadlessHarness.Assert(made.Take(30).All(entity => !scene.World.IsAlive(entity)) && made.Skip(30).All(scene.World.IsAlive),
+                    "Past the limit, the oldest bursts (and only they) should have been removed.");
+                HeadlessHarness.Assert(ParticleBursts.LiveCount(scene.World) == 50, $"50 bursts should be alive ({ParticleBursts.LiveCount(scene.World)}).");
+                ParticleBursts.Limit = 0;
+                for (int i = 0; i < 20; i++) ParticleBursts.Play(scene.World, Leaf, Vector3.Zero);
+                scene.World.FlushDeferred();
+                HeadlessHarness.Assert(ParticleBursts.LiveCount(scene.World) == 70, $"With no limit nothing should be removed ({ParticleBursts.LiveCount(scene.World)}).");
+            }
+            finally
+            {
+                ParticleBursts.ResetLimit();
+            }
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Particles.Bursts.BatchedPlayAsBurstsWithoutGpuParticles", () =>
+        {
+            using var scene = new RuntimeScene("Batched fallback");
+            using var composition = new ObjectCompositionSubsystem(root);
+            for (int i = 0; i < 3; i++)
+                HeadlessHarness.Assert(ParticleBursts.PlayBatched(scene.World, Leaf, new Vector3(i, 2, 0)), "A batched burst was refused.");
+            HeadlessHarness.Assert(!ParticleBursts.PlayBatched(scene.World, "", Vector3.Zero), "A batched burst with no effect was accepted.");
+            scene.GameTime.Advance(1f / 60f);
+            composition.Update(scene, scene.GameTime);
+            HeadlessHarness.Assert(composition.ParticleEmitterCount == 3 && ParticleBursts.LiveCount(scene.World) == 3 && composition.BatchedBurstEmitterCount == 0,
+                $"With no GPU renderer drawing yet, batched bursts should play as ordinary bursts ({composition.ParticleEmitterCount} emitters, {ParticleBursts.LiveCount(scene.World)} bursts).");
+        });
+
         var lines = new List<string>();
         foreach (RenderBackendDescriptor backend in RenderBackendCatalog.All.Where(item => item.Backend != RenderBackendOption.Software))
             HeadlessHarness.RunCase(ctx.Report, "Runtime.Particles.BurstLoad." + backend.ShortName, () => lines.Add(Measure(root, backend)));
@@ -104,6 +143,8 @@ internal static class ParticleBurstLoadSuite
             // The frame with nothing in it, for comparison.
             Sample empty = Run(null);
 
+            // The engine's burst limit (default 256) would remove the oldest of 300: lift it here.
+            ParticleBursts.Limit = 0;
             var spawnClock = Stopwatch.StartNew();
             long spawnBytes = GC.GetAllocatedBytesForCurrentThread();
             for (int i = 0; i < Emitters; i++) Spawn();
@@ -120,20 +161,55 @@ internal static class ParticleBurstLoadSuite
             Sample churn = Run(() =>
             {
                 scene.World.DestroyEntity(live.Dequeue());
+                scene.World.FlushDeferred();
                 Spawn();
             });
-            HeadlessHarness.Assert(composition.ParticleEmitterCount == Emitters,
-                $"{backend.ShortName}: the churn should keep {Emitters} emitters ({composition.ParticleEmitterCount}).");
+
+            int emittersAfterChurn = composition.ParticleEmitterCount;
+
+            // The same leaves as batched bursts: every one shares the effect's one emitter.
+            while (live.Count > 0) scene.World.DestroyEntity(live.Dequeue());
+            scene.World.FlushDeferred();
+            Frame();
+            for (int i = 0; i < Emitters; i++)
+                HeadlessHarness.Assert(ParticleBursts.PlayBatched(scene.World, Leaf, Somewhere()), "A batched leaf burst was refused.");
+            // Three quarters of a second on (the live count is read back twice a second); a leaf
+            // lives from almost nothing to 12 s, so a few have already gone.
+            for (int i = 0; i < 45; i++) Frame();
+            int batchedAlive = composition.ActiveParticleCount;
+            Sample batched = Run(null);
+            int batchedEmitters = composition.BatchedBurstEmitterCount, batchedEntities = composition.ParticleEmitterCount;
+            Sample batchedChurn = Run(() => ParticleBursts.PlayBatched(scene.World, Leaf, Somewhere()));
 
             string line = $"{backend.ShortName}: empty frame {empty.MedianMs:F2} ms (p90 {empty.P90Ms:F2}, {empty.BytesPerFrame / 1024:F1} KB/frame); "
                 + $"{Emitters} bursts made in {spawnMs:F0} ms ({spawnBytes / 1024.0 / 1024.0:F1} MB); "
                 + $"{Emitters} standing {standing.MedianMs:F2} ms (p90 {standing.P90Ms:F2}, {standing.BytesPerFrame / 1024:F1} KB/frame); "
-                + $"one in, one out each frame {churn.MedianMs:F2} ms (p90 {churn.P90Ms:F2}, {churn.BytesPerFrame / 1024:F1} KB/frame)";
+                + $"one in, one out each frame {churn.MedianMs:F2} ms (p90 {churn.P90Ms:F2}, {churn.BytesPerFrame / 1024:F1} KB/frame); "
+                + $"{Emitters} batched {batched.MedianMs:F2} ms (p90 {batched.P90Ms:F2}, {batched.BytesPerFrame / 1024:F1} KB/frame, {batchedEmitters} emitter, {batchedAlive} alive); "
+                + $"one more batched each frame {batchedChurn.MedianMs:F2} ms (p90 {batchedChurn.P90Ms:F2}, {batchedChurn.BytesPerFrame / 1024:F1} KB/frame)";
             Console.WriteLine(line);
+            HeadlessHarness.Assert(emittersAfterChurn == Emitters,
+                $"{backend.ShortName}: the churn should keep {Emitters} emitters ({emittersAfterChurn}). " + line);
+            HeadlessHarness.Assert(batchedEmitters == 1 && batchedEntities == 0,
+                $"{backend.ShortName}: batched bursts of one effect should share one emitter and make no entities ({batchedEmitters} emitters, {batchedEntities} entities). " + line);
+            HeadlessHarness.Assert(batchedAlive >= Emitters * 8 / 10 && batchedAlive <= Emitters,
+                $"{backend.ShortName}: the shared emitter should hold every batched leaf ({batchedAlive} of {Emitters} alive). " + line);
+            // A frame of 300 standing emitters allocated about 340 KB before (two definitions, a
+            // draw and a diagnostics string for each emitter, every frame). The Vulkan device
+            // itself allocates about half a kilobyte for each emitter's dispatches (its descriptor
+            // writes, 9 Oct 2026), so it is held only to what it did before.
+            double standingBudget = backend.Backend == RenderBackendOption.Vulkan ? 256 * 1024 : 24 * 1024;
+            HeadlessHarness.Assert(standing.BytesPerFrame < standingBudget,
+                $"{backend.ShortName}: {Emitters} standing bursts allocate too much a frame. " + line);
+            HeadlessHarness.Assert(batched.BytesPerFrame < 8 * 1024,
+                $"{backend.ShortName}: {Emitters} batched bursts allocate too much a frame. " + line);
+            HeadlessHarness.Assert(batched.MedianMs < standing.MedianMs,
+                $"{backend.ShortName}: batched bursts should cost less than separate emitters. " + line);
             return line;
         }
         finally
         {
+            ParticleBursts.ResetLimit();
             try { process.ProcessorAffinity = affinity; } catch (Exception) { }
             composition.Dispose();
         }

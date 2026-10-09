@@ -79,6 +79,7 @@ namespace Genesis.Runtime.Project
             Genesis.Runtime.Modeling.StudioModelResourceLoader.WriteReimportsToProject = false;
             ScriptScreenshots.Reset();
             Genesis.Runtime.Rendering.ScriptMeshes.Reset();
+            Genesis.Runtime.Particles.ParticleBursts.ResetLimit();
             Genesis.Runtime.Rendering.ModelLayers.Reset();
             Genesis.Runtime.Input.InputReplay.Reset();
             Genesis.Runtime.Input.InputReplay.ReplayEnded -= OnInputReplayEnded;

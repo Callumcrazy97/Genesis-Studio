@@ -30,6 +30,11 @@ public sealed class GpuParticleEmitter : IDisposable
     private float _sinceReadback;
     private long _completedSteps;
     private readonly long _allocation;
+    private readonly string _execution;
+    // The index count the indirect draw arguments were last written with (by a step or by
+    // PrepareDraw); -1 when unknown, as after a reset, which clears them.
+    private int _argumentsIndexCount = -1;
+    private float _diagnosticsInterval = .1f;
 
     public bool IsDisposed { get; private set; }
     public int Capacity => _definition.Capacity;
@@ -37,8 +42,20 @@ public sealed class GpuParticleEmitter : IDisposable
     public long AllocatedBytes => _allocation + _lookupBytes;
     public string Backend => _gpu.BackendName;
     public double SimulationTime => _time;
+
+    /// <summary>
+    /// Seconds of simulation between reads of the live counts back from the GPU (0.1 by default,
+    /// for the Particle Editor's figures). Each read is a copy the CPU waits a frame or two for,
+    /// so a game with hundreds of emitters reads them less often.
+    /// </summary>
+    public float DiagnosticsIntervalSeconds
+    {
+        get => _diagnosticsInterval;
+        set => _diagnosticsInterval = float.IsFinite(value) ? Math.Clamp(value, 0f, 60f) : .1f;
+    }
+
     public ParticleDiagnostics Diagnostics => new(
-        Backend + " compute", Capacity, (int)Math.Min(_counters[0], (uint)Capacity),
+        _execution, Capacity, (int)Math.Min(_counters[0], (uint)Capacity),
         _counters[4], _counters[5], _counters[6], (long)_counters[7] + _counters[16],
         AllocatedBytes, _lastGpuMilliseconds, !_hasCounts || _readback.IsValid,
         _completedSteps, _counters[16] > 0 ? "Particle event budget exceeded; excess events were dropped." : string.Empty);
@@ -46,6 +63,7 @@ public sealed class GpuParticleEmitter : IDisposable
     internal GpuParticleEmitter(GpuParticleLibrary library, GpuParticleDefinition definition, int seed)
     {
         _library = library; _gpu = library.Device;
+        _execution = _gpu.BackendName + " compute";
         ValidateDefinition(definition);
         _definition = definition; _seed = unchecked((uint)seed);
         _allocation = GpuParticleProtocol.AllocationBytes(definition.Capacity);
@@ -67,6 +85,9 @@ public sealed class GpuParticleEmitter : IDisposable
     public void UpdateDefinition(GpuParticleDefinition definition)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
+        // The same definition again (a game's emitter whose definition is kept between frames):
+        // it was checked when it was first given.
+        if (ReferenceEquals(definition, _definition)) return;
         ValidateDefinition(definition);
         if (definition.Capacity != Capacity)
             throw new InvalidOperationException("Changing GPU particle capacity requires an explicit emitter restart.");
@@ -77,6 +98,7 @@ public sealed class GpuParticleEmitter : IDisposable
     {
         if (IsDisposed) return;
         _seed = unchecked((uint)seed); _time = 0; _resetPending = true; _hasCounts = false;
+        _argumentsIndexCount = -1;
         Array.Clear(_counters);
         if (_readback.IsValid) { _gpu.ReleaseBufferReadback(_readback); _readback = default; }
     }
@@ -123,10 +145,12 @@ public sealed class GpuParticleEmitter : IDisposable
         Dispatch("SpawnCompact", GpuParticleProtocol.Groups(Capacity));
         Dispatch("FinishStep", GpuParticleProtocol.Groups(Capacity));
         UnbindCompute();
+        // FinishStep wrote the draw arguments with this index count and the step's live count.
+        _argumentsIndexCount = (int)step.Limits.Y;
         if (query.IsValid) { _gpu.EndTimestampScope(query); _timestamps.Enqueue(query); }
         _time += delta; _completedSteps++;
         _sinceReadback += delta;
-        if (!_readback.IsValid && (!_hasCounts || _sinceReadback >= .1f))
+        if (!_readback.IsValid && (!_hasCounts || _sinceReadback >= _diagnosticsInterval))
         {
             _readback = _gpu.BeginBufferReadback(_pool, 0, GpuParticleProtocol.CounterBytes);
             _sinceReadback = 0;
@@ -136,6 +160,13 @@ public sealed class GpuParticleEmitter : IDisposable
     internal void PrepareDraw(GpuParticleMesh mesh)
     {
         if (IsDisposed) return;
+        // The last step (this frame's, or an earlier one's when the effect is paused) already
+        // wrote the arguments for this mesh: the live count only changes in a step.
+        if (!_resetPending && _argumentsIndexCount == mesh.IndexCount)
+        {
+            PollDiagnostics();
+            return;
+        }
         // A paused effect must still display renderer/mesh changes without a simulation step.
         // Only the index-count word is updated; the instance count remains GPU-owned.
         var step = new GpuParticleStep
@@ -148,6 +179,7 @@ public sealed class GpuParticleEmitter : IDisposable
         if (_resetPending) { Dispatch("Reset", GpuParticleProtocol.Groups(Capacity)); _resetPending = false; }
         Dispatch("DrawArguments", 1);
         UnbindCompute();
+        _argumentsIndexCount = mesh.IndexCount;
         PollDiagnostics();
     }
 

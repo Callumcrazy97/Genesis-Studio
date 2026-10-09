@@ -54,14 +54,28 @@ public sealed unsafe partial class GpuRenderController
         _particleOperations.Add(new ParticleOperation(emitter, emitter.Definition, 0, 0, 0, [], seed));
     }
 
+    // 3D draws are kept and filled again each frame (a game submits every live emitter every
+    // frame). 2D draws stay one-off: the sprite pass holds them until it flushes.
+    private readonly List<ParticleDraw> _particleDrawPool = new(32);
+    private int _particleDrawPoolUsed;
+
     public void SubmitParticles3D(GpuParticleEmitter emitter, MeshHandle mesh, TextureHandle texture)
     {
         if (emitter == null || emitter.IsDisposed) return;
         _fwd.TryGetParticleMesh(mesh, out GpuParticleMesh authored);
-        _particleDraws.Add(new ParticleDraw
-        {
-            Emitter = emitter, Mesh = emitter.Geometry(authored), Texture = ResolveParticleTexture(texture),
-        });
+        if (_particleDrawPoolUsed == _particleDrawPool.Count) _particleDrawPool.Add(new ParticleDraw());
+        ParticleDraw draw = _particleDrawPool[_particleDrawPoolUsed++];
+        draw.Emitter = emitter; draw.Mesh = emitter.Geometry(authored); draw.Texture = ResolveParticleTexture(texture);
+        draw.Is2D = false; draw.Screen = default; draw.Clip = default;
+        _particleDraws.Add(draw);
+    }
+
+    /// <summary>Forgets the frame's particle draws (the pooled 3D ones are filled again next frame).</summary>
+    private void ClearParticleDraws()
+    {
+        _particleDraws.Clear();
+        for (int i = 0; i < _particleDrawPoolUsed; i++) _particleDrawPool[i].Emitter = null;
+        _particleDrawPoolUsed = 0;
     }
 
     public void SubmitParticles2D(GpuParticleEmitter emitter, MeshHandle mesh, TextureHandle texture,
@@ -192,7 +206,7 @@ public sealed unsafe partial class GpuRenderController
 
     private void DisposeParticles()
     {
-        _particleOperations.Clear();_particleDraws.Clear();
+        _particleOperations.Clear();ClearParticleDraws();
         _particleLibrary?.Dispose();_particleLibrary=null;
     }
 }

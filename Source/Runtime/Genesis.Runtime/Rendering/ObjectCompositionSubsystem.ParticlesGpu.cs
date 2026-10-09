@@ -106,9 +106,7 @@ public sealed partial class ObjectCompositionSubsystem
     {
         foreach (ParticleLayerState layer in state.Layers)
         {
-            GpuParticleDefinition definition = GpuParticleDefinitionBuilder.Build(
-                layer.Config, layer.World, layer.MeshSurfaceSamples, previousLookup: layer.GpuLookup);
-            layer.GpuLookup = definition.Lookup;
+            GpuParticleDefinition definition = CurrentGpuDefinition(layer);
 
             bool replace = layer.GpuEmitter is null
                 || layer.GpuEmitter.IsDisposed
@@ -117,8 +115,8 @@ public sealed partial class ObjectCompositionSubsystem
 
             if (replace)
             {
-                layer.GpuEmitter?.Dispose();
-                layer.GpuEmitter = renderer.CreateParticleEmitter(definition, StableEmitterSeed(state.Entity.Id, layer.EmitterId));
+                ReturnEmitter(layer);
+                layer.GpuEmitter = RentEmitter(renderer, definition, StableEmitterSeed(state.Entity.Id, layer.EmitterId));
                 layer.GpuOwner = renderer;
                 layer.Sequence = 0;
                 layer.EmitAccumulator = 0f;
@@ -133,7 +131,8 @@ public sealed partial class ObjectCompositionSubsystem
         }
     }
 
-    private IEnumerable<ParticleLayerState> EventOrderedLayers(ParticleState state)
+    // A list rather than IEnumerable: a foreach over it allocates nothing.
+    private List<ParticleLayerState> EventOrderedLayers(ParticleState state)
     {
         if (state.Effect.EventLinks is not { Count: > 0 })
             return state.Layers;
@@ -171,10 +170,7 @@ public sealed partial class ObjectCompositionSubsystem
         GpuParticleEmitter? emitter = layer.GpuEmitter;
         if (emitter is null || emitter.IsDisposed) return;
 
-        GpuParticleDefinition definition = GpuParticleDefinitionBuilder.Build(
-            layer.Config, layer.World, layer.MeshSurfaceSamples, previousLookup: layer.GpuLookup);
-        layer.GpuLookup = definition.Lookup;
-        emitter.UpdateDefinition(definition);
+        emitter.UpdateDefinition(CurrentGpuDefinition(layer));
 
         ParticleEventConnection[] links = BuildEventConnections(state, layer);
         int safety = 0;

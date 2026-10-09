@@ -50,6 +50,12 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomW
         public IGpuParticleRenderer? GpuOwner;
         /// <summary>The lookup table of the last GPU definition, reused while its values stay the same.</summary>
         public Vector4[]? GpuLookup;
+        /// <summary>The last GPU definition and what it was made for: made again only when these change.</summary>
+        public GpuParticleDefinition? GpuDefinition;
+        public Matrix4x4 GpuDefinitionWorld;
+        public double GpuDefinitionWindX, GpuDefinitionWindZ;
+        /// <summary>Particles each burst of a batched (shared) emitter is born with.</summary>
+        public int BurstBirths;
         public Vector3[] MeshSurfaceSamples = [];
         public SpriteDrawCall[] SpriteCalls = [];
         public MeshHandle Quad;
@@ -99,7 +105,8 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomW
 
     public int ParticleEmitterCount => _particles.Count;
     public int ActiveParticleCount => _particles.Values.Sum(state => state.Layers.Sum(layer =>
-        layer.GpuEmitter is { IsDisposed: false } ? layer.GpuEmitter.Diagnostics.Alive : layer.Simulation?.ActiveCount ?? 0));
+        layer.GpuEmitter is { IsDisposed: false } ? layer.GpuEmitter.Diagnostics.Alive : layer.Simulation?.ActiveCount ?? 0))
+        + BatchedParticleCount;
     public ParticleExecutionDecision ParticleExecution => ParticleExecutionPolicy.Resolve(_lastRenderer);
     public int ActiveAudioCount => _audioStates.Values.Count(state => state.Channel.IsValid);
     public int PointLightCount { get; private set; }
@@ -115,6 +122,7 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomW
         _seenParticles.Clear();
         _seenAudio.Clear();
         PointLightCount = 0;
+        ConsumeBatchedBursts(scene, dt);
 
         // Advance component-owned playback exactly once per live entity. Before this subsystem
         // existed, ModelAnimatorLifecycle and SpriteLifecycle were attachable but never ticked by
@@ -295,6 +303,7 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomW
     {
         if (scene?.World == null || buffer == null || renderer == null) return;
         _lastRenderer = renderer;
+        _meshesSubmitted = true;
         SubmitPointLights(scene, renderer);
 
         // AF1.6: derived from the same live sims that are about to be drawn, so the smoke that
@@ -345,6 +354,9 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomW
                 ParticleExecutionPolicy.ThrowIfHardwareWouldFallbackToCpu(renderer);
             }
         }
+
+        if (execution.Target == ParticleExecutionTarget.Gpu && renderer is IGpuParticleRenderer batchedRenderer)
+            SubmitBatchedBursts(renderer, batchedRenderer);
 
         if (smokeExtinction)
         {
@@ -479,9 +491,8 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomW
             ApplyParticleRate(existing, component);
             return existing;
         }
-        string resolved = ParticleAssetLoader.Resolve(_projectPath, component.Asset);
-        AssetIoCounters.Check(2);
-        long writeTicks = File.Exists(resolved) ? File.GetLastWriteTimeUtc(resolved).Ticks : 0;
+        // One look at the file serves every emitter of the effect (hundreds of bursts of one leaf).
+        long writeTicks = AssetWriteTicks(component.Asset, now, generation);
         if (sameAsset && existing!.WriteTicks == writeTicks)
         {
             existing.NextFreshnessCheckMilliseconds = RuntimeAssetPolicy.NextCheck(now, 250, entity.Id);
@@ -589,8 +600,9 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomW
             }
             if (state.Frames.Length == 0)
             {
-                state.Frames = ParticleRenderGeometry.RegisterFrames(renderer, state.Config);
-                state.OwnsFrames = true;
+                // The quads are the same for every emitter with the same flipbook: made once.
+                state.Frames = SharedFrames(renderer, state.Config);
+                state.OwnsFrames = false;
             }
             state.Quad = state.Frames.Length > 0 ? state.Frames[0] : MeshHandle.Invalid;
         }
@@ -602,8 +614,8 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomW
         }
         if (!state.Texture.IsValid)
         {
-            state.Texture = ParticleRenderGeometry.CreateDefaultTexture(renderer, state.Config);
-            state.OwnsTexture = state.Texture.IsValid;
+            state.Texture = SharedDefaultTexture(renderer, state.Config);
+            state.OwnsTexture = false;
         }
     }
 
@@ -637,14 +649,22 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomW
         return SpriteAssetLoader.ResolveFrameTexturePath(resolved, sprite, 0);
     }
 
+    private readonly List<int> _missing = [];
+
     private void RemoveMissingStates()
     {
-        foreach (int id in _particles.Keys.Where(id => !_seenParticles.Contains(id)).ToArray())
+        _missing.Clear();
+        foreach (int id in _particles.Keys)
+            if (!_seenParticles.Contains(id)) _missing.Add(id);
+        foreach (int id in _missing)
         {
             ReleaseParticleState(_particles[id]);
             _particles.Remove(id);
         }
-        foreach (int id in _audioStates.Keys.Where(id => !_seenAudio.Contains(id)).ToArray())
+        _missing.Clear();
+        foreach (int id in _audioStates.Keys)
+            if (!_seenAudio.Contains(id)) _missing.Add(id);
+        foreach (int id in _missing)
         {
             AudioState state = _audioStates[id];
             if (state.Channel.IsValid) _audio.Stop(state.Channel);
@@ -659,19 +679,25 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomW
         if (_lastRenderer != null)
         {
             foreach (ParticleState state in _particles.Values)
-                ReleaseParticleState(state);
+                ReleaseParticleState(state, keepEmitters: false);
             _particleModelGpu.Clear(_lastRenderer);
         }
+        ReleaseParticlePools();
         _particles.Clear();
         _audioStates.Clear();
     }
 
-    private void ReleaseParticleState(ParticleState state)
+    /// <param name="keepEmitters">
+    /// Keep the state's GPU emitters for the next emitters of the same size (a burst that has
+    /// played out makes room for the next one) rather than freeing them.
+    /// </param>
+    private void ReleaseParticleState(ParticleState state, bool keepEmitters = true)
     {
         if (_lastRenderer is null) return;
         foreach (ParticleLayerState layer in state.Layers)
         {
-            layer.GpuEmitter?.Dispose();
+            if (keepEmitters) ReturnEmitter(layer);
+            else layer.GpuEmitter?.Dispose();
             layer.GpuEmitter = null;
             layer.GpuOwner = null;
             if (layer.OwnsFrames) ParticleRenderGeometry.ReleaseFrames(_lastRenderer, layer.Frames);

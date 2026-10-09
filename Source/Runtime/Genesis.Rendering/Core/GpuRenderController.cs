@@ -374,7 +374,7 @@ namespace Genesis.Rendering.Core
             // copy while a pass is open; leaving this bound forced HUD instance uploads onto a
             // dedicated command buffer that waited for the previous 3D frame (~15 FPS).
             _gpu.EndRenderPass();
-            _particleDraws.Clear();
+            ClearParticleDraws();
         }
 
         public void FlushOverlaySprites()
