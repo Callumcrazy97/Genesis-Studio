@@ -970,6 +970,23 @@ holds its rate: a cap of 60 ran at 60.00 frames a second with VSync on or off (e
 16.7 ms apart), 120 at 119.99, 144 at 143.98, Unlimited at about 9,000 in an empty room, and VSync
 with no cap at 60.00. Show `Round(GameGetFps())`.
 
+### Music decoded off the frame
+
+A game's sound files of 1 MB or more (music, long ambience) are decoded on a worker thread. A play
+of one counts as playing at once (`IsSoundPlaying` is true) and is heard as soon as the samples are
+ready, a moment later; the frame that asked goes on. Each piece of music used to be decoded whole
+in the frame that first played it: a game's log showed such frames of 143 to 733 ms
+(`loading in that frame: 1 sound 495 ms`). A sound that cannot be decoded stops counting as
+playing. Shorter sounds are decoded when they are loaded, as before, so an effect is never late.
+Studio's Audio editor decodes everything at once. `GENESIS_AUDIO_BACKGROUND_DECODE=0` turns it off
+in a game. Checked by `Build.bat --test runtime-resources`.
+
+A slow-frame line (see [Finding what made a frame long](#finding-what-made-a-frame-long)) now counts
+the scripts' Draw events in "gathering what to draw" and names them among the longest parts
+(`scripts' Draw events`), with `waiting for the graphics card to begin` (beginning a frame waits
+for the graphics card to give its buffers back) and `project post effects`. All three used to be
+part of the time "outside the frame's own work", which was most of a game's long first frames.
+
 ## Smaller changes
 
 - **Bushes and saplings.** The `Shrub` and `Sapling` foliage shapes are built from rounded solid

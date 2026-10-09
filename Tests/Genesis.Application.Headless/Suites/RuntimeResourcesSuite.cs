@@ -118,6 +118,73 @@ internal static class RuntimeResourcesSuite
             }
         });
 
+        RunBackgroundDecode(ctx);
+    }
+
+    /// <summary>
+    /// A long sound (music) a game plays is decoded on a worker: the frame that asks for it goes on,
+    /// the play counts as playing at once and sounds when the samples are ready. A file that cannot
+    /// be decoded stops counting as playing. An editor (the setting off) still decodes when it loads.
+    /// </summary>
+    internal static void RunBackgroundDecode(HeadlessContext ctx)
+    {
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Audio.MusicIsDecodedOffTheFrame", () =>
+        {
+            string project = Path.Combine(ctx.Workspace, "AudioDecode" + Guid.NewGuid().ToString("N")[..6]);
+            string audio = Path.Combine(project, "Assets", "Audio");
+            Directory.CreateDirectory(audio);
+            string music = Path.Combine(audio, "Long Theme.wav");
+            WriteSilentWave(music, 40.0);   // 1.7 MB: over the size decoded on a worker
+            string broken = Path.Combine(audio, "Broken.wav");
+            File.WriteAllBytes(broken, new byte[Genesis.Audio.XAudioSystem.BackgroundDecodeBytes + 4096]);
+            string blip = Path.Combine(audio, "Blip.wav");
+            WriteSilentWave(blip, 0.2);
+            HeadlessHarness.Assert(new FileInfo(music).Length >= Genesis.Audio.XAudioSystem.BackgroundDecodeBytes, "The test's music is too short.");
+
+            using var mixer = new Genesis.Audio.XAudioSystem(project) { Muted = true, DecodeLargeSoundsInBackground = true };
+            var channels = (System.Collections.IDictionary)typeof(Genesis.Audio.XAudioSystem)
+                .GetField("_channels", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(mixer)!;
+            bool Waiting(AudioChannel channel) => channels[channel.Id] is { } state
+                && (bool)state.GetType().GetField("Pending")!.GetValue(state)!;
+            bool Sounding(AudioChannel channel) => channels[channel.Id] is { } state
+                && state.GetType().GetField("Voice")!.GetValue(state) != null;
+
+            int theme = mixer.LoadSound(music);
+            AudioChannel playing = mixer.Play(theme, 0.8f, 1f, loop: false);
+            HeadlessHarness.Assert(theme != 0 && playing.IsValid && mixer.IsPlaying(playing),
+                "A long sound asked to play while it was being decoded did not count as playing.");
+            int small = mixer.LoadSound(blip);
+            AudioChannel blipped = mixer.Play(small);
+            HeadlessHarness.Assert(small != 0 && Sounding(blipped), "A short sound did not play at once.");
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            while (!Sounding(playing) && watch.Elapsed.TotalSeconds < 20)
+            {
+                mixer.Update();
+                Thread.Sleep(5);
+            }
+            HeadlessHarness.Assert(Sounding(playing) && !Waiting(playing) && mixer.IsPlaying(playing) && mixer.SoundsDecoding == 0,
+                "The long sound never started once it was decoded.");
+            HeadlessHarness.Assert(mixer.LoadSound(music) == theme && Sounding(mixer.Play(theme)),
+                "The decoded sound was not kept: playing it again should start at once.");
+            Console.WriteLine($"[Audio] a 40 s sound was decoded on a worker and started {watch.ElapsedMilliseconds} ms after it was asked for.");
+
+            int bad = mixer.LoadSound(broken);
+            AudioChannel badPlay = mixer.Play(bad);
+            watch.Restart();
+            while (mixer.IsPlaying(badPlay) && watch.Elapsed.TotalSeconds < 20)
+            {
+                mixer.Update();
+                Thread.Sleep(5);
+            }
+            HeadlessHarness.Assert(!mixer.IsPlaying(badPlay) && !mixer.Play(bad).IsValid,
+                "A file that could not be decoded went on counting as playing, or could be played.");
+
+            // The setting off (an editor): decoded where it is asked for, as before.
+            using var editor = new Genesis.Audio.XAudioSystem(project) { Muted = true };
+            int direct = editor.LoadSound(music);
+            HeadlessHarness.Assert(direct != 0 && editor.SoundsDecoding == 0 && editor.Play(direct).IsValid,
+                "With the setting off, a long sound should be decoded when it is loaded.");
+        });
     }
 
     private static void CopyDirectory(string source, string destination)

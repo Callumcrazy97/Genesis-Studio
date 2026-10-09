@@ -52,6 +52,11 @@ namespace Genesis.Audio
             public string Bus = "sfx";
             /// <summary>Authored falloff shape; also the source of Gain/Loop/Spatial/Bus above.</summary>
             public AudioAssetSettings Settings = new();
+            /// <summary>The samples being decoded on a worker; null once <see cref="Effect"/> is set (or failed).</summary>
+            public System.Threading.Tasks.Task<SoundEffect?>? Decoding;
+            /// <summary>The group follows the length (music over ten seconds), known once decoded.</summary>
+            public bool BusFromLength;
+            public bool Failed;
         }
 
         private sealed class ChannelState
@@ -76,6 +81,34 @@ namespace Genesis.Audio
             public long FadeStarted;
             /// <summary>The levels last given to the left and right outputs; 1 and 1 until it is panned.</summary>
             public float PanLeft = 1f, PanRight = 1f;
+            /// <summary>Asked to play while its sound was still being decoded: it starts when the sound is ready.</summary>
+            public bool Pending;
+            public float PendingPitch = 1f;
+            public bool BusChosen;
+        }
+
+        /// <summary>
+        /// True decodes a sound file of <see cref="BackgroundDecodeBytes"/> or more (music, long
+        /// ambience) on a worker thread: <see cref="LoadSound(string)"/> returns at once, and a
+        /// play of it starts as soon as it is decoded, a moment later, while the game goes on.
+        /// Decoded in the frame that asked for it, a piece of music held that frame for 150 to
+        /// 730 ms. Off, every sound is decoded when it is loaded, which an editor auditioning a
+        /// sound relies on. A game turns it on.
+        /// </summary>
+        public bool DecodeLargeSoundsInBackground { get; set; }
+
+        /// <summary>The file size from which <see cref="DecodeLargeSoundsInBackground"/> decodes on a worker.</summary>
+        public const long BackgroundDecodeBytes = 1L << 20;
+
+        /// <summary>Sounds still being decoded on a worker thread.</summary>
+        public int SoundsDecoding
+        {
+            get
+            {
+                int count = 0;
+                foreach (SoundEntry entry in _sounds.Values) if (entry.Decoding != null) count++;
+                return count;
+            }
         }
 
         public XAudioSystem(string projectPath)
@@ -115,6 +148,7 @@ namespace Genesis.Audio
         {
             if (!channel.IsValid || !_channels.TryGetValue(channel.Id, out ChannelState? state) || state == null) return;
             state.Bus = BusName(bus);
+            state.BusChosen = true;
             ApplySpatial(channel.Id);
         }
 
@@ -157,6 +191,22 @@ namespace Genesis.Audio
                 authored = AudioAssetSettings.Load(Path.ChangeExtension(abs, ".audio.json"))
                     ?? AudioAssetSettings.Load(abs + ".audio.json");
             if (authored is not null && !ValidPlaybackSettings(authored)) return cached;
+            if (DecodeLargeSoundsInBackground && auditionSettings is null && FileLength(abs) >= BackgroundDecodeBytes)
+            {
+                // A sound this long is music unless its resource says otherwise; without one, its
+                // group follows its length once that is known.
+                var decoding = new SoundEntry { Bus = "music", BusFromLength = authored is null };
+                ApplyAudioMeta(abs, decoding, authored);
+                string file = abs;
+                AudioAssetSettings? region = authored;
+                decoding.Decoding = System.Threading.Tasks.Task.Run(() => SoundEffect.FromWavFile(file, region));
+                int decodingId = cached != 0 ? cached : _nextSoundId++;
+                _sounds[decodingId] = decoding;
+                _pathToId[projectRelativePath] = decodingId;
+                _soundVersions[decodingId] = Array.ConvertAll(new[] { resourcePath, abs, Path.ChangeExtension(abs, ".audio.json"), abs + ".audio.json" }, CaptureVersion);
+                return decodingId;
+            }
+
             var effect = SoundEffect.FromWavFile(abs, authored);
             if (effect == null) return cached;
 
@@ -172,6 +222,66 @@ namespace Genesis.Audio
                 _soundVersions[id] = Array.ConvertAll(new[] { resourcePath, abs, Path.ChangeExtension(abs, ".audio.json"), abs + ".audio.json" }, CaptureVersion);
             }
             return id;
+        }
+
+        private static long FileLength(string path)
+        {
+            try { return string.IsNullOrEmpty(path) ? 0 : new FileInfo(path).Length; }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { return 0; }
+        }
+
+        /// <summary>
+        /// Takes a sound decoded on a worker once it is done. True when the sound can be played
+        /// now; false while it is still being decoded, or when it could not be (see <see cref="SoundEntry.Failed"/>).
+        /// </summary>
+        private static bool TryFinishDecoding(SoundEntry entry)
+        {
+            if (entry.Effect != null) return true;
+            if (entry.Decoding == null || !entry.Decoding.IsCompleted) return false;
+            SoundEffect? effect = entry.Decoding.IsCompletedSuccessfully ? entry.Decoding.Result : null;
+            entry.Decoding = null;
+            if (effect == null)
+            {
+                entry.Failed = true;
+                return false;
+            }
+
+            entry.Effect = effect;
+            if (entry.BusFromLength) entry.Bus = effect.DurationInSeconds > 10f ? "music" : "sfx";
+            return true;
+        }
+
+        /// <summary>Starts the channels that were asked to play a sound while it was being decoded.</summary>
+        private void StartPendingChannels()
+        {
+            List<int>? failed = null;
+            foreach (KeyValuePair<int, ChannelState> pair in _channels)
+            {
+                ChannelState state = pair.Value;
+                if (!state.Pending || !_sounds.TryGetValue(state.SoundId, out SoundEntry? entry)) continue;
+                if (!TryFinishDecoding(entry))
+                {
+                    if (entry.Failed || entry.Decoding == null) (failed ??= new List<int>()).Add(pair.Key);
+                    continue;
+                }
+
+                if (!state.BusChosen) state.Bus = entry.Bus;
+                IXAudio2SourceVoice? voice = entry.Effect.PlayVoice(_engine, state.BaseVolume * BusGain(state.Bus),
+                    state.PendingPitch * state.AssetPitch, state.Loop);
+                state.Pending = false;
+                if (voice == null)
+                {
+                    (failed ??= new List<int>()).Add(pair.Key);
+                    continue;
+                }
+
+                state.Voice = voice;
+                state.Effect = entry.Effect;
+                ApplySpatial(pair.Key);
+            }
+
+            if (failed != null)
+                foreach (int id in failed) _channels.Remove(id);
         }
 
         private static (string Path, long Stamp, long Length) CaptureVersion(string path)
@@ -194,6 +304,29 @@ namespace Genesis.Audio
         public AudioChannel Play(int soundId, float volume = 1f, float pitch = 1f, bool loop = false)
         {
             if (!_sounds.TryGetValue(soundId, out var entry)) return AudioChannel.Invalid;
+            if (!TryFinishDecoding(entry))
+            {
+                if (entry.Failed) return AudioChannel.Invalid;
+                // Still being decoded: a channel that plays (and counts as playing) from now, and
+                // starts to sound as soon as the samples are ready (see Update).
+                int waiting = _nextChannelId++;
+                _channels[waiting] = new ChannelState
+                {
+                    Id = waiting,
+                    SoundId = soundId,
+                    Loop = loop || entry.Loop,
+                    Spatial = entry.Spatial,
+                    BaseVolume = volume * entry.Gain,
+                    UserVolume = volume,
+                    AssetPitch = entry.Pitch,
+                    Bus = entry.Bus,
+                    Settings = entry.Settings,
+                    Position = _listenerPos,
+                    Pending = true,
+                    PendingPitch = pitch,
+                };
+                return new AudioChannel(waiting);
+            }
 
             bool wantLoop = loop || entry.Loop;
             float gain = volume * entry.Gain * BusGain(entry.Bus);
@@ -259,6 +392,7 @@ namespace Genesis.Audio
                 return false;
             try
             {
+                if (state.Pending) return true;
                 if (state.Voice == null) return false;
                 return state.Voice.State.BuffersQueued > 0 || state.Loop;
             }
@@ -279,8 +413,10 @@ namespace Genesis.Audio
 
         public void SetChannelPitch(AudioChannel channel, float pitch)
         {
-            if (!channel.IsValid || !_channels.TryGetValue(channel.Id, out ChannelState? state) || state?.Voice == null) return;
+            if (!channel.IsValid || !_channels.TryGetValue(channel.Id, out ChannelState? state) || state == null) return;
             if (!float.IsFinite(pitch)) return;
+            if (state.Pending) { state.PendingPitch = pitch; return; }
+            if (state.Voice == null) return;
             try { state.Voice.SetFrequencyRatio(Math.Clamp(pitch * state.AssetPitch, 0.01f, 4f), 0); }
             catch (SharpGen.Runtime.SharpGenException) { }
         }
@@ -347,6 +483,7 @@ namespace Genesis.Audio
         {
             _engine?.Update();
             if (_channels.Count == 0) return;
+            StartPendingChannels();
 
             List<int>? faded = null;
             foreach (var kv in _channels)
@@ -375,6 +512,7 @@ namespace Genesis.Audio
             {
                 try
                 {
+                    if (kv.Value.Pending) continue;
                     if (kv.Value.Voice == null) { dead.Add(kv.Key); continue; }
                     if (!kv.Value.Loop && kv.Value.Voice.State.BuffersQueued == 0)
                         dead.Add(kv.Key);

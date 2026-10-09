@@ -350,6 +350,10 @@ namespace Genesis.Runtime.Project
                     try
                     {
                         audioSystem = new XAudioSystem(projectPath);
+                        // Music and other long sounds are decoded on a worker and start a moment
+                        // later, instead of holding the frame that plays them for up to 0.7 s.
+                        audioSystem.DecodeLargeSoundsInBackground =
+                            Environment.GetEnvironmentVariable("GENESIS_AUDIO_BACKGROUND_DECODE") != "0";
                         // A window opened by a test or a tool makes no noise unless asked to.
                         if (Environment.GetEnvironmentVariable("GENESIS_UNATTENDED_WINDOW") == "1"
                             && Environment.GetEnvironmentVariable("GENESIS_UNATTENDED_AUDIO") != "1")

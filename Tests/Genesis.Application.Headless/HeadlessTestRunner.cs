@@ -1133,6 +1133,8 @@ internal static class HeadlessTestRunner
         ["tier-editor"] = ["studio-foundation", "shell-layout", "resource-names", "code-assistance", "editor-suite", "room-workspace", "model-intake", "model-sprites", "pixel-model", "menu-clips"],
         ["tier-engine"] = ["engine-systems", "asset-import", "readback-alpha", "post-effects", "large-world", "runtime", "model-system", "debug-screen", "terrain-layers-grass", "shader-precompiled", "gui-linear"],
         ["tier-pgsl"] = ["pgsl-values", "pgsl-cache", "pgsl-scripts", "pgsl-logic", "input-replay", "pgsl-project", "export-pgsl", "live-reload", "runtime-resources"],
+        // A running game's files, sounds, post effects and profile (the 2026-10-09 game requests).
+        ["game-runtime"] = ["live-reload", "runtime-resources", "post-effects", "debug-screen"],
     };
 
     private static void RunFocusedTarget(HeadlessContext ctx, string target)
