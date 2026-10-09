@@ -33,7 +33,7 @@ namespace Genesis.Rendering.Primitives
         /// translation below changes, or stale GLSL is served for unchanged HLSL.
         /// </summary>
         public static string CompilerIdentity(uint glslVersion) =>
-            $"spirv-cross|glsl={glslVersion}|core|combined-samplers|unshifted-bindings|compute-uav4|sampler-map|v3";
+            $"spirv-cross|glsl={glslVersion}|core|combined-samplers|unshifted-bindings|compute-uav4|sampler-map|stage-block-names|split-const-arrays-128-384|v4";
 
         /// <summary>Transpiles a SPIR-V module to core-profile GLSL, returned as UTF-8.</summary>
         public static byte[] TranspileToGlsl(byte[] spirv, uint glslVersion)
@@ -68,6 +68,7 @@ namespace Genesis.Rendering.Primitives
 
                 ApplyOptions(context, compiler, glslVersion);
                 UnshiftBufferBindings(compiler);
+                NameBlocksForTheirStage(compiler);
                 string samplerMap = CombineImageSamplers(context, compiler);
 
                 byte* source = null;
@@ -81,7 +82,7 @@ namespace Genesis.Rendering.Primitives
                 while (source[length] != 0) length++;
 
                 // Copied out before ContextDestroy: the string is owned by the context.
-                string glsl = Encoding.UTF8.GetString(source, length);
+                string glsl = GlslConstantArrays.Split(Encoding.UTF8.GetString(source, length));
                 return Encoding.UTF8.GetBytes(samplerMap + glsl);
             }
             finally
@@ -172,6 +173,81 @@ namespace Genesis.Rendering.Primitives
                 }
 
                 Api.CompilerUnsetDecoration(compiler, id, Decoration.DescriptorSet);
+            }
+        }
+
+        /// <summary>
+        /// Gives every uniform and storage block a name of its own stage
+        /// (<c>type_PerFrameConstants_vs</c>, <c>type_PerFrameConstants_ps</c>).
+        /// </summary>
+        /// <remarks>
+        /// <para>GLSL links blocks by name: a block declared in both stages of a program must be
+        /// declared identically in each, or the program fails to link with "struct type mismatch".
+        /// HLSL has no such rule. A project's mesh shader pairs its own pixel stage with the engine's
+        /// vertex shader, and declares only the part of <c>PerFrameConstants</c> or
+        /// <c>EngineConstants</c> it reads, under member names of its own; Direct3D and Vulkan read
+        /// each stage's declaration against the bound buffer by offset, so that is legal there.</para>
+        ///
+        /// <para>With a name per stage the two declarations are separate blocks that never have to
+        /// agree, and both still read the same buffer: the binding is the HLSL register (see
+        /// <see cref="UnshiftBufferBindings"/>), and OpenGL allows any number of blocks to share a
+        /// binding point. Each stage then reads the bytes its own declaration names, as Direct3D does.
+        /// Nothing looks a block up by name — every binding is explicit in the source. A use in two
+        /// stages counts against the combined block limit twice either way, so the limits are
+        /// unchanged. A compute shader is a program of one stage and keeps its names.</para>
+        /// </remarks>
+        private static void NameBlocksForTheirStage(Compiler* compiler)
+        {
+            string suffix = Api.CompilerGetExecutionModel(compiler) switch
+            {
+                ExecutionModel.Vertex => "_vs",
+                ExecutionModel.Fragment => "_ps",
+                _ => null,
+            };
+            if (suffix == null)
+            {
+                return;
+            }
+
+            Resources* resources = null;
+            if (Api.CompilerCreateShaderResources(compiler, &resources) != Result.Success)
+            {
+                return;
+            }
+
+            // DXC reuses one block type for every StructuredBuffer of the same element type, so a
+            // type is renamed once however many variables share it.
+            var renamed = new System.Collections.Generic.HashSet<uint>();
+            NameBlocks(compiler, resources, ResourceType.UniformBuffer, suffix, renamed);
+            NameBlocks(compiler, resources, ResourceType.StorageBuffer, suffix, renamed);
+        }
+
+        private static void NameBlocks(
+            Compiler* compiler, Resources* resources, ResourceType type, string suffix,
+            System.Collections.Generic.HashSet<uint> renamed)
+        {
+            ReflectedResource* list = null;
+            nuint count = 0;
+            if (Api.ResourcesGetResourceListForType(resources, type, &list, &count) != Result.Success)
+            {
+                return;
+            }
+
+            for (nuint i = 0; i < count; i++)
+            {
+                uint blockType = list[i].BaseTypeId;
+                if (!renamed.Add(blockType))
+                {
+                    continue;
+                }
+
+                string name = Api.CompilerGetNameS(compiler, blockType);
+                if (string.IsNullOrEmpty(name))
+                {
+                    name = "block" + blockType.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                }
+
+                Api.CompilerSetName(compiler, blockType, name + suffix);
             }
         }
 
