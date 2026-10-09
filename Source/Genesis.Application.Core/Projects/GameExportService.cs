@@ -44,7 +44,8 @@ public sealed record GameExportResult(
     int ModelsCooked,
     int ShadersCooked,
     string ErrorMessage = "",
-    bool CompiledCSharpScripts = false);
+    bool CompiledCSharpScripts = false,
+    IReadOnlyList<string>? ShaderFailures = null);
 
 /// <summary>Creates a Player-only, self-contained Windows release from a Studio project.</summary>
 public static partial class GameExportService
@@ -155,11 +156,12 @@ public static partial class GameExportService
                 if (File.Exists(strayScripts)) File.Delete(strayScripts);
             }
 
+            var shaderFailures = new List<string>();
             if (request.PrecompileShaders)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 progress?.Report("Precompiling renderer and project shaders…");
-                shaderCount = CookShaders(projectRoot, Path.Combine(staging, ".genesis-shaders"));
+                shaderCount = CookShaders(projectRoot, Path.Combine(staging, ".genesis-shaders"), shaderFailures, cancellationToken);
             }
 
             WriteGameSettings(staging, gameTitle, request.WindowMode, packagedIcon, request.Project.Manifest.Runtime.AllowEscapeToClose);
@@ -174,7 +176,8 @@ public static partial class GameExportService
             return new GameExportResult(
                 true, outputPath, executableName,
                 models.CookedCount, shaderCount,
-                CompiledCSharpScripts: compiledCSharpScripts);
+                CompiledCSharpScripts: compiledCSharpScripts,
+                ShaderFailures: shaderFailures);
         }
         catch (OperationCanceledException)
         {
@@ -260,7 +263,16 @@ public static partial class GameExportService
         }
     }
 
-    private static int CookShaders(string projectRoot, string cacheRoot)
+    /// <summary>
+    /// Fills the game's shader cache (<c>.genesis-shaders</c>, which the exported Player reads) so
+    /// its first start compiles nothing: the engine's programs (found in the precompiled folder and
+    /// so not copied, unless the Player has none) and every program of the project's Shader
+    /// resources for DX11, DX12, Vulkan and OpenGL, listed by <see cref="Genesis.Runtime.Rendering.ProjectShaderPrograms"/>
+    /// as the draws and post effects ask for them, every variant included. A program one compiler
+    /// rejects is left out and named in <paramref name="failures"/>; the game compiles it when it
+    /// first draws with it and reports the compiler's message there, as a Run does.
+    /// </summary>
+    private static int CookShaders(string projectRoot, string cacheRoot, List<string> failures, CancellationToken cancellationToken)
     {
         int count = 0;
         GpuShaderBinaryFormat[] formats =
@@ -273,57 +285,50 @@ public static partial class GameExportService
         foreach (GpuShaderBinaryFormat format in formats)
             count += EngineShaderCatalog.CompileAll(format, cacheRoot).Count;
 
-        string assets = Path.Combine(projectRoot, "Assets");
-        if (!Directory.Exists(assets)) return count;
-        foreach (string path in Directory.EnumerateFiles(assets, "*.shader.json", SearchOption.AllDirectories))
-        {
-            ShaderAssetDocument document = ShaderAssetDocument.Load(path);
-            if (string.IsNullOrWhiteSpace(document.Source)) continue;
-            IReadOnlyList<ShaderPassDefinition> passes = document.Passes?.Where(pass => pass.Enabled).ToArray()
-                ?? [];
-            if (passes.Count == 0)
-                passes = [new ShaderPassDefinition { Name = "Surface", Source = document.Source, Entry = document.Entry }];
-            IReadOnlyList<string> variants = document.Variants.Count == 0
-                ? [string.Empty]
-                : document.Variants.Select(variant => variant.Name).Prepend(string.Empty).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-            foreach (ShaderPassDefinition pass in passes)
+        // The longest sources first, so the slowest compile (DX11's, for a large table) starts at once.
+        var work = new List<(Genesis.Runtime.Rendering.ProjectShaderProgram Program, GpuShaderBinaryFormat Format)>();
+        foreach (Genesis.Runtime.Rendering.ProjectShaderProgram program in Genesis.Runtime.Rendering.ProjectShaderPrograms.Enumerate(projectRoot, everyVariant: true)
+                     .OrderByDescending(program => program.Source.Length))
+            foreach (GpuShaderBinaryFormat format in formats)
+                work.Add((program, format));
+
+        var gate = new object();
+        Parallel.ForEach(
+            work,
+            new ParallelOptions { MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount / 2, 1, 8), CancellationToken = cancellationToken },
+            item =>
             {
-                document.Source = pass.Source;
-                document.Entry = string.IsNullOrWhiteSpace(pass.Entry) ? "MainPS" : pass.Entry;
-                document.VertexEntry = pass.VertexEntry?.Trim() ?? string.Empty;
-                foreach (string variant in variants)
+                try
                 {
-                    document.ActiveVariant = variant;
-                    string source = document.ResolveCompiledSource();
-                    foreach (GpuShaderBinaryFormat format in formats)
-                    {
-                        ShaderCompiler.CompileForBackend(
-                            source,
-                            document.Entry,
-                            GpuShaderStage.Pixel,
-                            format,
-                            path,
-                            ShaderCompiler.BuildDefaultIncludeSearchPaths(path, projectRoot),
-                            cacheRoot);
-                        count++;
-                        if (!string.IsNullOrWhiteSpace(document.VertexEntry))
-                        {
-                            ShaderCompiler.CompileForBackend(
-                                source,
-                                document.VertexEntry,
-                                GpuShaderStage.Vertex,
-                                format,
-                                path,
-                                ShaderCompiler.BuildDefaultIncludeSearchPaths(path, projectRoot),
-                                cacheRoot);
-                            count++;
-                        }
-                    }
+                    ShaderCompiler.CompileForBackend(
+                        item.Program.Source,
+                        item.Program.Entry,
+                        item.Program.Stage,
+                        item.Format,
+                        item.Program.ShaderPath,
+                        ShaderCompiler.BuildDefaultIncludeSearchPaths(item.Program.ShaderPath, projectRoot),
+                        cacheRoot);
+                    Interlocked.Increment(ref count);
                 }
-            }
-        }
+                catch (Exception error) when (error is not OperationCanceledException)
+                {
+                    string message = error.GetBaseException().Message.Split('\n')[0].Trim();
+                    lock (gate)
+                        failures.Add($"{item.Program.Name} {item.Program.Entry} ({FormatName(item.Format)}): {message}");
+                }
+            });
+        failures.Sort(StringComparer.OrdinalIgnoreCase);
         return count;
     }
+
+    private static string FormatName(GpuShaderBinaryFormat format) => format switch
+    {
+        GpuShaderBinaryFormat.Dxbc => "DirectX 11",
+        GpuShaderBinaryFormat.Dxil => "DirectX 12",
+        GpuShaderBinaryFormat.SpirV => "Vulkan",
+        GpuShaderBinaryFormat.GlslUtf8 => "OpenGL",
+        _ => format.ToString(),
+    };
 
     private static void WriteLaunchFile(string output, string productName, string executableName)
     {

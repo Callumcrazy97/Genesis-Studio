@@ -31,6 +31,10 @@ Player renamed to your game's title, and a `Licenses` folder.
   strictly as Run checks it and shipped as it is, the project file keeps its chosen backend,
   and there is no `GameScripts.dll`. Only a game with C# scripts (`Assets\Scripts\*.cs`) has
   them compiled into `GameScripts.dll` beside its executable.
+- Your Shader resources (mesh, sprite and Fullscreen effects) ship compiled for DirectX 11 and
+  12, Vulkan and OpenGL, so a player's first start does not stop to compile them. Leave
+  *Precompile built-in and project shaders* ticked; if one of them does not compile for a
+  backend, the dialog names it and the game compiles it when it first draws with it.
 - Windows x64 is the only platform.
 
 ## Where Genesis keeps things

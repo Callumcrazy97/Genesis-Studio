@@ -1,5 +1,7 @@
 using Genesis.Rendering.Abstractions;
 using Genesis.Rendering.Primitives;
+using Genesis.Runtime.Rendering;
+using Genesis.Shared.Assets;
 
 namespace Genesis.Application.Headless.Suites;
 
@@ -154,6 +156,98 @@ internal static class ShaderPrecompiledSuite
                     || Environment.GetEnvironmentVariable("GENESIS_PRECOMPILED_SHADERS") != null,
                 "The precompiled folder is not looked for beside the running program.");
         });
+
+        RunProjectShaderCases(ctx);
+    }
+
+    /// <summary>
+    /// A project's own shaders: listed exactly as the draws and post effects compile them, and
+    /// keyed the same wherever the project (or the exported game) is.
+    /// </summary>
+    private static void RunProjectShaderCases(HeadlessContext ctx)
+    {
+        HeadlessHarness.RunCase(ctx.Report, "Render.Shaders.Project.ProgramsAreWhatTheDrawsCompile", () =>
+        {
+            string root = FixtureProject(ctx, "listed");
+            IReadOnlyList<ProjectShaderProgram> active = ProjectShaderPrograms.Enumerate(root, everyVariant: false);
+            IReadOnlyList<ProjectShaderProgram> every = ProjectShaderPrograms.Enumerate(root, everyVariant: true);
+            File.WriteAllLines(Path.Combine(ctx.Logs, "project-shader-programs.txt"),
+                every.Select(p => $"{p.Name} {p.Pipeline} variant='{p.Variant}' {p.Stage} {p.Entry} ({p.Source.Length} chars)"));
+            Check(active.Count == ProjectShaderFixtures.ActivePrograms,
+                $"The active variants list {active.Count} programs, expected {ProjectShaderFixtures.ActivePrograms}.");
+            Check(every.Count == ProjectShaderFixtures.EveryVariantPrograms,
+                $"Every variant lists {every.Count} programs, expected {ProjectShaderFixtures.EveryVariantPrograms}.");
+
+            ProjectShaderProgram[] mesh = active.Where(p => p.Name == ProjectShaderFixtures.MeshName).ToArray();
+            foreach ((string entry, GpuShaderStage stage) in new[]
+                     {
+                         ("MainVS", GpuShaderStage.Vertex), ("SkinnedVS", GpuShaderStage.Vertex),
+                         ("MainPS", GpuShaderStage.Pixel), ("OutlinePS", GpuShaderStage.Pixel),
+                     })
+                Check(mesh.Any(p => p.Entry == entry && p.Stage == stage), $"The mesh shader's {entry} ({stage}) is not listed.");
+            Check(active.All(p => p.Entry != "NoSuchEntry"), "A disabled pass was listed.");
+            Check(every.Any(p => p.Variant == "Fancy" && p.Source.Contains("FANCY", StringComparison.Ordinal)),
+                "The mesh shader's Fancy variant is not listed with its keyword.");
+
+            // The post effect's program is the very source and entry the post-effect path compiles.
+            ProjectShaderProgram effect = active.Single(p => p.Pipeline == ShaderAssetPipeline.Fullscreen);
+            ProjectPostEffects.SetRoomEffects([ProjectShaderFixtures.EffectName]);
+            try
+            {
+                Genesis.Shared.Interfaces.PostEffectRequest request = ProjectPostEffects.RequestsFor(root).Single();
+                Check(request.Source == effect.Source && request.Entry == effect.Entry,
+                    "The listed post-effect program differs from what the post-effect path compiles.");
+            }
+            finally
+            {
+                ProjectPostEffects.Clear();
+            }
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Render.Shaders.Project.CacheKeyIsTheSameInAnyFolder", () =>
+        {
+            // The same project in two folders (a project and the game exported from it): every
+            // program has one key, so what the export compiled is found where the game is.
+            string first = FixtureProject(ctx, "keyed-a");
+            string second = FixtureProject(ctx, "keyed-b");
+            IReadOnlyList<ProjectShaderProgram> a = ProjectShaderPrograms.Enumerate(first, everyVariant: true);
+            IReadOnlyList<ProjectShaderProgram> b = ProjectShaderPrograms.Enumerate(second, everyVariant: true);
+            Check(a.Count == b.Count, "The two copies list different programs.");
+            foreach (GpuShaderBinaryFormat format in new[] { GpuShaderBinaryFormat.Dxbc, GpuShaderBinaryFormat.SpirV })
+                for (int i = 0; i < a.Count; i++)
+                    Check(Key(a[i], first, format) == Key(b[i], second, format),
+                        $"{a[i].Name} {a[i].Entry} ({format}) has a different key in another folder.");
+
+            // Compiled in one folder, read in the other.
+            string cache = FreshFolder(ctx, "keyed-cache");
+            ProjectShaderProgram pixel = a.First(p => p.Name == ProjectShaderFixtures.MeshName && p.Entry == "MainPS" && p.Variant.Length == 0);
+            ProjectShaderProgram again = b.First(p => p.Name == ProjectShaderFixtures.MeshName && p.Entry == "MainPS" && p.Variant.Length == 0);
+            Check(pixel.Source.Contains("#include", StringComparison.Ordinal), "The mesh program has no include to test with.");
+            ShaderCompiler.CompileForBackend(pixel.Source, pixel.Entry, pixel.Stage, GpuShaderBinaryFormat.Dxbc, pixel.ShaderPath,
+                ShaderCompiler.BuildDefaultIncludeSearchPaths(pixel.ShaderPath, first), cache);
+            int compiles = ShaderCompiler.CompilesOnThisThread;
+            ShaderCompileResult read = ShaderCompiler.CompileForBackend(again.Source, again.Entry, again.Stage, GpuShaderBinaryFormat.Dxbc,
+                again.ShaderPath, ShaderCompiler.BuildDefaultIncludeSearchPaths(again.ShaderPath, second), cache);
+            Check(read.CacheHit && ShaderCompiler.CompilesOnThisThread == compiles,
+                "A shader with an include compiled again from another folder instead of being read from the cache.");
+
+            // A changed include is a different program.
+            File.WriteAllText(Path.Combine(second, "Assets", "Shaders", ProjectShaderFixtures.IncludeName),
+                ProjectShaderFixtures.Include.Replace("0.9", "0.5", StringComparison.Ordinal));
+            Check(Key(again, second, GpuShaderBinaryFormat.Dxbc) != Key(pixel, first, GpuShaderBinaryFormat.Dxbc),
+                "Editing an include did not change the program's key.");
+        });
+    }
+
+    private static string Key(ProjectShaderProgram program, string root, GpuShaderBinaryFormat format) =>
+        ShaderCompiler.CacheKey(program.Source, program.Entry, program.Stage, format, program.ShaderPath,
+            ShaderCompiler.BuildDefaultIncludeSearchPaths(program.ShaderPath, root));
+
+    private static string FixtureProject(HeadlessContext ctx, string name)
+    {
+        string root = FreshFolder(ctx, name);
+        ProjectShaderFixtures.Write(root);
+        return root;
     }
 
     private static string Build(HeadlessContext ctx, string name)

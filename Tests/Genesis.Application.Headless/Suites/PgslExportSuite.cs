@@ -113,6 +113,53 @@ internal static class PgslExportSuite
             HeadlessHarness.Assert(!File.Exists(Path.Combine(compiled.OutputPath, "Assets", "Scripts", "ExportProbe.cs")),
                 "The export shipped C# source.");
         });
+
+        RunShaderCases(ctx);
+    }
+
+    /// <summary>
+    /// An exported game carries its own shaders compiled for every backend, under the keys the
+    /// game computes where it is installed, so its first start compiles none of them.
+    /// </summary>
+    private static void RunShaderCases(HeadlessContext ctx)
+    {
+        GameExportResult? shaded = null;
+        HeadlessHarness.RunCase(ctx.Report, "Export.Shaders.ProjectShadersCookedForEveryBackend", () =>
+        {
+            ProjectSession project = BuildProject(ctx, "Shaded", out _);
+            ProjectShaderFixtures.Write(project.RootPath);
+            Stopwatch timer = Stopwatch.StartNew();
+            shaded = GameExportService.Export(new(project, Path.Combine(ctx.OutputRoot, "ShadedGame"), GameExportFormat.Folder));
+            timer.Stop();
+            HeadlessHarness.Assert(shaded.Success, "The export with project shaders failed: " + shaded.ErrorMessage);
+            HeadlessHarness.Assert(shaded.ShaderFailures is { Count: 0 },
+                "Project shader programs did not compile at export: " + string.Join(" | ", shaded.ShaderFailures ?? []));
+
+            // Listed and keyed as the exported game itself lists and keys them, from where it is.
+            string game = shaded.OutputPath;
+            string cache = Path.Combine(game, ".genesis-shaders");
+            IReadOnlyList<Genesis.Runtime.Rendering.ProjectShaderProgram> programs =
+                Genesis.Runtime.Rendering.ProjectShaderPrograms.Enumerate(game, everyVariant: true);
+            HeadlessHarness.Assert(programs.Count == ProjectShaderFixtures.EveryVariantPrograms,
+                $"The exported game lists {programs.Count} shader programs, expected {ProjectShaderFixtures.EveryVariantPrograms}.");
+            var missing = new List<string>();
+            foreach (Genesis.Runtime.Rendering.ProjectShaderProgram program in programs)
+            {
+                foreach (Genesis.Rendering.Abstractions.GpuShaderBinaryFormat format in Genesis.Rendering.Primitives.PrecompiledShaders.AllFormats)
+                {
+                    string key = Genesis.Rendering.Primitives.ShaderCompiler.CacheKey(program.Source, program.Entry, program.Stage, format,
+                        program.ShaderPath, Genesis.Rendering.Primitives.ShaderCompiler.BuildDefaultIncludeSearchPaths(program.ShaderPath, game));
+                    string file = Path.Combine(cache, Genesis.Rendering.Primitives.ShaderBinaryCache.RelativePath(key, format)
+                        .Replace('/', Path.DirectorySeparatorChar));
+                    if (!File.Exists(file) || new FileInfo(file).Length == 0)
+                        missing.Add($"{program.Name} {program.Entry} variant '{program.Variant}' ({format})");
+                }
+            }
+            File.WriteAllLines(Path.Combine(ctx.Logs, "export-shader-cook.txt"),
+                new[] { $"export took {timer.Elapsed.TotalSeconds:F1} s; {shaded.ShadersCooked} shader entries; missing {missing.Count}" }.Concat(missing));
+            HeadlessHarness.Assert(missing.Count == 0, $"{missing.Count} project shader programs are not in the exported game's cache: "
+                + string.Join("; ", missing.Take(6)));
+        });
     }
 
     /// <summary>A Blank project whose start room holds one Object with a PGSL Create event.</summary>

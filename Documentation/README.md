@@ -1515,7 +1515,9 @@ folder before its own cache, with the same keys (expanded source, entry, profile
 compiler identity): a changed shader or another compiler misses it and compiles as before, and a
 file whose length or hash differs from `manifest.txt` is compiled instead of used. Project
 shaders are never in it. `GENESIS_PRECOMPILED_SHADERS=<folder>` points the runtime at another
-folder and `=0` turns it off; `--test shader-precompiled` covers it.
+folder and `=0` turns it off; `--test shader-precompiled` covers it. How a project's own
+shaders are compiled ahead (into an exported game, for every backend) is in
+[Build profiles](BuildProfiles.md#project-shaders).
 
 No GPU test is silently counted as passed through fallback. A requested renderer failure fails the
 build. Software smoke coverage does not imply hardware-feature parity. `BuildSummary.json` separates

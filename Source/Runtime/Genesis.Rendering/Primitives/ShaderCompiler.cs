@@ -193,7 +193,7 @@ namespace Genesis.Rendering.Primitives
             string compilerIdentity = CompilerIdentity(binaryFormat);
             string root = ShaderBinaryCache.ResolveRoot(cacheRoot);
             string key = ShaderBinaryCache.BuildKey(
-                expanded, entry, profile, binaryFormat, compilerIdentity);
+                KeySource(source, expanded), entry, profile, binaryFormat, compilerIdentity);
 
             // Every 3D viewport (each editor, each game window) asks for the same few dozen
             // built-in programs. They are kept in memory once made, and a program another thread
@@ -298,16 +298,41 @@ namespace Genesis.Rendering.Primitives
         {
             string profile = GetProfile(stage, binaryFormat);
             string expanded = ExpandIncludes(source, sourcePath, null);
-            string key = ShaderBinaryCache.BuildKey(expanded, entry, profile, binaryFormat, CompilerIdentity(binaryFormat));
+            string key = ShaderBinaryCache.BuildKey(KeySource(source, expanded), entry, profile, binaryFormat, CompilerIdentity(binaryFormat));
             return (key, CompileExpanded(expanded, entry, profile, binaryFormat, sourcePath));
         }
 
         /// <summary>The cache key of one stage, exactly as <see cref="CompileForBackend"/> files it.</summary>
-        internal static string CacheKey(string source, string entry, GpuShaderStage stage, GpuShaderBinaryFormat binaryFormat, string sourcePath = null)
+        internal static string CacheKey(
+            string source, string entry, GpuShaderStage stage, GpuShaderBinaryFormat binaryFormat, string sourcePath = null,
+            IEnumerable<string> includeSearchPaths = null)
         {
             string profile = GetProfile(stage, binaryFormat);
             return ShaderBinaryCache.BuildKey(
-                ExpandIncludes(source, sourcePath, null), entry, profile, binaryFormat, CompilerIdentity(binaryFormat));
+                KeySource(source, ExpandIncludes(source, sourcePath, includeSearchPaths)), entry, profile, binaryFormat, CompilerIdentity(binaryFormat));
+        }
+
+        private static readonly Regex LineDirectiveRegex = new(
+            @"^#line (\d+) ""([^""]*)""",
+            RegexOptions.Compiled | RegexOptions.Multiline);
+
+        /// <summary>
+        /// The text a program's cache key is made from. Expanding an include writes <c>#line</c>
+        /// directives naming the files' full paths, which only steer the compiler's messages; with
+        /// the folders in the key, a game's shaders cooked when it was exported (in the project's
+        /// folder) were never found again where the game was installed. The key names each file
+        /// without its folder; the contents of every include are still in it. A source without
+        /// includes is keyed exactly as before, so no built-in program's key changes.
+        /// </summary>
+        private static string KeySource(string source, string expanded)
+        {
+            if (ReferenceEquals(source, expanded)) return expanded;
+            return LineDirectiveRegex.Replace(expanded, match =>
+            {
+                string path = match.Groups[2].Value;
+                int slash = Math.Max(path.LastIndexOf('/'), path.LastIndexOf('\\'));
+                return $"#line {match.Groups[1].Value} \"{(slash >= 0 ? path.Substring(slash + 1) : path)}\"";
+            });
         }
 
         /// <summary>

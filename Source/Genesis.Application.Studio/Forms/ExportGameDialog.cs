@@ -283,7 +283,10 @@ public sealed class ExportGameDialog : DpiAwareForm
 
         if (Result.Success)
         {
-            _status.Text = $"Exported {Result.ExecutableName}, {Result.ModelsCooked} model cook(s) and {Result.ShadersCooked} shader binary entries.";
+            _status.Text = $"Exported {Result.ExecutableName}, {Result.ModelsCooked} model cook(s) and {Result.ShadersCooked} shader binary entries."
+                + (Result.ShaderFailures is { Count: > 0 } failures
+                    ? $" {failures.Count} shader program(s) did not compile and will compile when the game draws with them: {failures[0]}"
+                    : string.Empty);
             _export.Text = "Open Location";
             _export.Enabled = true;
             _cancel.Text = "Close";
