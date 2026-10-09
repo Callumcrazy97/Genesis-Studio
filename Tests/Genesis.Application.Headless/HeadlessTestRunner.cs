@@ -1131,8 +1131,10 @@ internal static class HeadlessTestRunner
         ["tier-editor"] = ["studio-foundation", "shell-layout", "resource-names", "code-assistance", "editor-suite", "room-workspace", "model-intake", "model-sprites", "pixel-model", "menu-clips"],
         ["tier-engine"] = ["engine-systems", "asset-import", "readback-alpha", "post-effects", "large-world", "runtime", "model-system", "debug-screen", "terrain-layers-grass", "shader-precompiled", "gui-linear"],
         ["tier-pgsl"] = ["pgsl-values", "pgsl-cache", "pgsl-scripts", "pgsl-logic", "input-replay", "pgsl-project", "export-pgsl"],
-        // Particle burst cost and mesh streaming memory together (not part of the tiers).
+        // Particle burst cost and mesh streaming memory together (not part of the tiers), and with
+        // the suites that use runtime particles and script meshes.
         ["streaming-load"] = ["particle-bursts", "mesh-soak"],
+        ["particles-meshes"] = ["particle-bursts", "mesh-soak", "mesh-upload", "engine-systems", "terrain-parts-runtime", "particle-workbench", "pgsl-logic"],
     };
 
     private static void RunFocusedTarget(HeadlessContext ctx, string target)

@@ -203,6 +203,46 @@ An effect that follows the camera (`FollowCameraXZ`, as the built-in rain and sn
 entity's position; that is what makes it weather. Any other effect is drawn where its entity's
 `TransformComponent` is, read every update.
 
+### Hundreds of bursts: batching and a limit
+
+| Command | What it does |
+|---|---|
+| `ParticleBurstBatched(particle, x, y, z, scale)` | Plays a burst like `ParticleBurstAt`, but every batched burst of one Particle resource shares one emitter: its particles are born where each burst was asked for and then move in the world on their own, so hundreds of them (falling leaves, sparks, chips) cost one simulation and one draw a frame. Returns true when asked for; no id, as there is nothing to keep. C#: `ParticleBursts.PlayBatched(world, asset, position, scale)`. |
+| `ParticleSetBurstLimit(count)`, `ParticleBurstLimit()`, `ParticleBurstCount()` | The most `ParticleBurstAt` bursts alive at once in a room (256 unless a game sets it; 0 = no limit): one more removes the oldest. Emitters placed on Objects and batched bursts are never counted or removed. `ParticleBurstCount` says how many are alive. C#: `ParticleBursts.Limit`, `ParticleBursts.LiveCount(world)`. |
+
+A batched effect has to be a single burst (`loop` off) that simulates in the world, drawn as quads
+or trails, without linked emitters or a light, and not following the camera. Any other effect, and
+every effect on the Software renderer or in a 2D room, plays as `ParticleBurstAt` instead, so the
+command is always safe to use. One shared emitter holds the particles of 1,024 bursts (up to
+65,536 particles); past that, new ones are not born until some die. An effect that has no live
+particles costs nothing.
+
+Every burst also costs less than it did, batched or not: an emitter's GPU definition is made once
+rather than twice a frame (`GpuParticleDefinitionBuilder.Move` moves it), the GPU emitter of a burst
+that has played out is kept for the next burst of its size, the flipbook quads and the soft default
+sprite are made once rather than for every burst, one look at an effect's file serves all its
+emitters, the draw arguments a step has written are not written again, and with many emitters the
+live counts are read back from the graphics card less often (about 160 reads a second in all; with
+a few emitters, as in the Particle Editor, ten a second each as before).
+
+Measured with 300 live one-particle leaf bursts (GenesisCraft's falling leaves), the game thread's
+time for a frame (composition update, particle submission, frame) and the managed bytes it
+allocated, median of 180 frames after 60 to warm up, one run each on the development PC, 9 Oct
+2026 (`Build.bat --test particle-bursts`):
+
+| Renderer | 300 bursts before | 300 bursts now | 300 batched bursts | Allocated a frame (before / now / batched) |
+|---|---|---|---|---|
+| Direct3D 12 | 10.2 ms (one frame in ten 42 ms) | 5.3 ms (6.1) | 0.17 ms | 360 KB / 6.6 KB / 0.5 KB |
+| Direct3D 11 | 4.3 ms (6.8) | 3.4 ms (4.2) | 0.11 ms | 337 KB / 14 KB / 0.5 KB |
+| Vulkan | 6.0 ms (25) | 6.9 ms (7.8) | 0.08 ms | 517 KB / 151 KB / 1.0 KB |
+| OpenGL | 5.5 ms (9.3) | 5.4 ms (6.8) | 0.17 ms | 332 KB / 10 KB / 0.5 KB |
+
+The slow frames before were the frames in which every emitter read its counts back from the
+graphics card at once. Making the 300 bursts took 721 ms on Direct3D 12 before and 317 ms now. The
+Vulkan device still allocates about half a kilobyte for each emitter's dispatches itself. Separate
+bursts still cost each emitter's GPU commands every frame (about 17 µs each on Direct3D 12): for
+hundreds, batch them.
+
 ## Save slots
 
 A game can keep named saves of any text (JSON, usually) under the player's profile, beside the
@@ -612,6 +652,25 @@ InstanceSetMeshCollider(id, m);
 // Draw:
 DrawMesh3D(m, x, y, z, "Blocks");
 ```
+
+### Streaming meshes and memory
+
+`MeshDestroy` gives the renderer's copy back at once: its GPU buffers, and the previous build's
+while a rebuild still waits for its upload turn. The mesh's own vertex and index storage is kept
+(up to 48 MB in all) and handed to the next `MeshCreate`, so a game that streams chunks by
+destroying and creating meshes no longer grows a new list for every chunk, and `MeshDestroy` with
+`MeshCreate` is now as cheap as keeping a pool of cleared meshes. A mesh that is only cleared
+(`MeshClear`) keeps its last GPU copy until it is built and drawn again, because a mesh being
+rebuilt is drawn as it was until its new build is uploaded: a game's pool of cleared meshes holds
+the GPU memory of everything in it, and destroying meshes that are no longer needed frees it.
+`MeshAddQuadsFromList` and `MeshAddVerticesFromList` make room for all they add at once.
+
+Checked by `Build.bat --test mesh-soak` (9 Oct 2026): 2,304 chunk-sized meshes (12,000 vertices)
+made, drawn and destroyed over 72 frames on Direct3D 11 and 12, Vulkan and OpenGL, and 576 smaller
+ones on Software. On every renderer the live GPU buffers went back to where they started once the
+meshes were destroyed (also for meshes destroyed while a rebuild waited for its upload turn), and
+the managed heap and private memory stayed level. Building a round of 32 chunks allocated 52 MB
+before and nothing now.
 
 ## Noise
 

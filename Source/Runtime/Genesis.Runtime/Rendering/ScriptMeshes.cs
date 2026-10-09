@@ -27,12 +27,29 @@ namespace Genesis.Runtime.Rendering
         private static readonly Dictionary<int, Builder> Meshes = new();
         private static int _next;
 
+        // Builders of destroyed meshes, kept with their storage for the next MeshCreate: a game that
+        // streams chunks makes and frees meshes of much the same size all the time, and growing a
+        // new 12,000-vertex list from nothing allocated about 1.6 MB (most of it on the large
+        // object heap) for every chunk.
+        private static readonly Stack<Builder> Spare = new();
+        private static long _spareBytes;
+
+        /// <summary>The most vertex and index storage kept for reuse by meshes made later.</summary>
+        public const long MaxSpareBytes = 48L * 1024 * 1024;
+
         public static int Create()
         {
             lock (Meshes)
             {
                 int id = ++_next;
-                Meshes[id] = new Builder();
+                Builder mesh;
+                if (Spare.Count > 0)
+                {
+                    mesh = Spare.Pop();
+                    _spareBytes -= StorageBytes(mesh);
+                }
+                else mesh = new Builder();
+                Meshes[id] = mesh;
                 return id;
             }
         }
@@ -48,6 +65,11 @@ namespace Genesis.Runtime.Rendering
             mesh.Dirty = true;
         }
 
+        /// <summary>
+        /// Frees a mesh: the renderer's copy (its GPU buffers, or the previous build's while a
+        /// rebuild waits for its upload turn) is released now and its own storage is kept for a
+        /// mesh made later.
+        /// </summary>
         public static void Destroy(int id)
         {
             Builder mesh;
@@ -56,7 +78,40 @@ namespace Genesis.Runtime.Rendering
                 if (!Meshes.Remove(id, out mesh)) return;
             }
             if (mesh.Handle.IsValid) mesh.Owner?.ReleaseMesh(mesh.Handle);
+            Recycle(mesh);
         }
+
+        private static void Recycle(Builder mesh)
+        {
+            mesh.Vertices.Clear();
+            mesh.Indices.Clear();
+            mesh.Handle = MeshHandle.Invalid;
+            mesh.Owner = null;
+            mesh.Dirty = true;
+            mesh.Overflowed = false;
+            long bytes = StorageBytes(mesh);
+            lock (Meshes)
+            {
+                if (_spareBytes + bytes > MaxSpareBytes) return;
+                Spare.Push(mesh);
+                _spareBytes += bytes;
+            }
+        }
+
+        private static long StorageBytes(Builder mesh) =>
+            (long)mesh.Vertices.Capacity * System.Runtime.CompilerServices.Unsafe.SizeOf<MeshVertex>()
+            + (long)mesh.Indices.Capacity * sizeof(ushort);
+
+        /// <summary>Makes room in a mesh for this many more vertices and indices (at most a full mesh).</summary>
+        internal static void Reserve(int id, int vertices, int indices)
+        {
+            if (!TryGet(id, out Builder mesh)) return;
+            if (vertices > 0) mesh.Vertices.EnsureCapacity(Math.Min(MaxVertices, mesh.Vertices.Count + vertices));
+            if (indices > 0) mesh.Indices.EnsureCapacity(Math.Min(MaxVertices * 6, mesh.Indices.Count + indices));
+        }
+
+        /// <summary>Storage kept for reuse, in bytes (for checks).</summary>
+        internal static long SpareBytes { get { lock (Meshes) return _spareBytes; } }
 
         /// <summary>Forgets every script mesh (a new game); the renderer's copies go with it.</summary>
         public static void Reset()
@@ -68,6 +123,8 @@ namespace Genesis.Runtime.Rendering
             {
                 all = new List<Builder>(Meshes.Values);
                 Meshes.Clear();
+                Spare.Clear();
+                _spareBytes = 0;
             }
             foreach (Builder mesh in all)
                 if (mesh.Handle.IsValid) mesh.Owner?.ReleaseMesh(mesh.Handle);

@@ -21,6 +21,9 @@ public static partial class PgslCommands
     {
         List<object> entries = Resolve<List<object>>("list", list);
         if (entries is null || !ScriptMeshes.Exists((int)mesh)) return 0;
+        // Room for every quad at once, rather than the mesh's storage growing step by step.
+        int quads = entries.Count / QuadNumbers;
+        ScriptMeshes.Reserve((int)mesh, quads * 4, quads * 6);
         Span<double> q = stackalloc double[QuadNumbers];
         int added = 0;
         for (int at = 0; at + QuadNumbers <= entries.Count; at += QuadNumbers)
@@ -45,30 +48,40 @@ public static partial class PgslCommands
         if (points is null || !ScriptMeshes.Exists((int)mesh)) return 0;
         Span<double> v = stackalloc double[VertexNumbers];
         // Where each listed vertex went in the mesh (-1 when it could not be added: not a number,
-        // or the mesh was full); a triangle using one that was not added is skipped.
-        int[] placed = new int[points.Count / VertexNumbers];
-        int added = 0;
-        for (int i = 0; i < placed.Length; i++)
+        // or the mesh was full); a triangle using one that was not added is skipped. Rented, not
+        // allocated: a game calls this for every chunk it builds.
+        int count = points.Count / VertexNumbers;
+        int[] placed = System.Buffers.ArrayPool<int>.Shared.Rent(Math.Max(1, count));
+        try
         {
-            for (int k = 0; k < VertexNumbers; k++) v[k] = AsNumber(points[(i * VertexNumbers) + k]);
-            double index = MeshAddVertex(mesh, v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10], v[11]);
-            placed[i] = (int)index;
-            if (index >= 0) added++;
-        }
-        if (corners is not null)
-        {
-            for (int at = 0; at + 3 <= corners.Count; at += 3)
+            ScriptMeshes.Reserve((int)mesh, count, corners?.Count ?? 0);
+            int added = 0;
+            for (int i = 0; i < count; i++)
             {
-                int a = Placed(corners[at]), b = Placed(corners[at + 1]), c = Placed(corners[at + 2]);
-                if (a >= 0 && b >= 0 && c >= 0) MeshAddTriangle(mesh, a, b, c);
+                for (int k = 0; k < VertexNumbers; k++) v[k] = AsNumber(points[(i * VertexNumbers) + k]);
+                double index = MeshAddVertex(mesh, v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10], v[11]);
+                placed[i] = (int)index;
+                if (index >= 0) added++;
             }
+            if (corners is not null)
+            {
+                for (int at = 0; at + 3 <= corners.Count; at += 3)
+                {
+                    int a = Placed(placed, count, corners[at]), b = Placed(placed, count, corners[at + 1]), c = Placed(placed, count, corners[at + 2]);
+                    if (a >= 0 && b >= 0 && c >= 0) MeshAddTriangle(mesh, a, b, c);
+                }
+            }
+            return added;
         }
-        return added;
+        finally
+        {
+            System.Buffers.ArrayPool<int>.Shared.Return(placed);
+        }
 
-        int Placed(object corner)
+        static int Placed(int[] placed, int count, object corner)
         {
             double at = AsNumber(corner);
-            return at >= 0 && at < placed.Length ? placed[(int)at] : -1;
+            return at >= 0 && at < count ? placed[(int)at] : -1;
         }
     }
 }

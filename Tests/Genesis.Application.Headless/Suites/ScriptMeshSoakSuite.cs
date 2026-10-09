@@ -142,6 +142,14 @@ internal static class ScriptMeshSoakSuite
                 $"{backend.ShortName}: the managed heap kept growing while meshes streamed. " + summary);
             HeadlessHarness.Assert(endPrivate - warmPrivate < 256L * 1048576,
                 $"{backend.ShortName}: private memory kept growing while meshes streamed. " + summary);
+            // Destroyed meshes' storage is reused by the next ones: building a round of chunks
+            // allocated 52 MB before (each 12,000-vertex list grown from nothing). The software
+            // renderer keeps its own copy of every mesh, so it is not held to this.
+            if (!software)
+                HeadlessHarness.Assert(allocatedPerRound < 4L * 1048576,
+                    $"{backend.ShortName}: streaming chunk meshes allocates too much. " + summary);
+            HeadlessHarness.Assert(ScriptMeshes.SpareBytes <= ScriptMeshes.MaxSpareBytes,
+                $"{backend.ShortName}: more mesh storage was kept for reuse than allowed ({ScriptMeshes.SpareBytes / 1048576.0:F0} MB).");
             return string.Join(Environment.NewLine, lines);
         }
         finally
