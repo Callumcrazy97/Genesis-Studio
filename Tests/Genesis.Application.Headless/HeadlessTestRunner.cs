@@ -1135,6 +1135,9 @@ internal static class HeadlessTestRunner
         // the suites that use runtime particles and script meshes.
         ["streaming-load"] = ["particle-bursts", "mesh-soak"],
         ["particles-meshes"] = ["particle-bursts", "mesh-soak", "mesh-upload", "engine-systems", "terrain-parts-runtime", "particle-workbench", "pgsl-logic"],
+        // Bulk GUI drawing, script textures and the sky layer with the particle and mesh streaming
+        // checks, on every renderer (not part of the tiers).
+        ["draw-and-stream"] = ["gui-batch", "script-textures", "sky-layer", "particle-bursts", "mesh-soak", "mesh-upload", "particle-workbench"],
     };
 
     private static void RunFocusedTarget(HeadlessContext ctx, string target)
