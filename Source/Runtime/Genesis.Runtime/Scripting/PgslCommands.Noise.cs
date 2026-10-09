@@ -152,6 +152,23 @@ internal static class PgslNoise
         return y0 + w * (y1 - y0);
     }
 
+    /// <summary>
+    /// The repeatable random number of a whole-number point, 0 (included) to 1 (not included): the
+    /// lattice value of <see cref="Value2"/>, so it equals ValueNoise2D(Floor(x), Floor(y), salt).
+    /// </summary>
+    public static double Lattice2(double x, double y, ulong seed)
+    {
+        if (!double.IsFinite(x) || !double.IsFinite(y)) return 0;
+        return Unit(Hash(seed, (long)Math.Floor(x), (long)Math.Floor(y)));
+    }
+
+    /// <summary>The same for a 3D point: ValueNoise3D(Floor(x), Floor(y), Floor(z), salt).</summary>
+    public static double Lattice3(double x, double y, double z, ulong seed)
+    {
+        if (!double.IsFinite(x) || !double.IsFinite(y) || !double.IsFinite(z)) return 0;
+        return Unit(Hash(seed, (long)Math.Floor(x), (long)Math.Floor(y), (long)Math.Floor(z)));
+    }
+
     /// <summary>Octaves to sum: 1 to <see cref="MaxOctaves"/>; anything else is the nearest of those.</summary>
     public static int OctaveCount(double octaves) =>
         double.IsNaN(octaves) ? 1 : (int)Math.Clamp(Math.Floor(octaves), 1, MaxOctaves);
@@ -223,6 +240,14 @@ public static partial class PgslCommands
     [PgslCommand("ValueNoise3D", "ValueNoise3D(x, y, z, seed) -> number",
         "Smooth 3D value noise, 0 to 1; at whole-number points a repeatable random value per point", "Noise")]
     public static double ValueNoise3D(double x, double y, double z, double seed) => PgslNoise.Value3(x, y, z, PgslNoise.SeedHash(seed));
+
+    [PgslCommand("Hash2", "Hash2(x, y, salt) -> number",
+        "A repeatable random number 0 to 1 (1 never) for a whole-number point (fractions are dropped down): the same on every machine; equals ValueNoise2D(Floor(x), Floor(y), salt)", "Noise")]
+    public static double Hash2(double x, double y, double salt) => PgslNoise.Lattice2(x, y, PgslNoise.SeedHash(salt));
+
+    [PgslCommand("Hash3", "Hash3(x, y, z, salt) -> number",
+        "A repeatable random number 0 to 1 (1 never) for a whole-number 3D point: the same on every machine; equals ValueNoise3D(Floor(x), Floor(y), Floor(z), salt)", "Noise")]
+    public static double Hash3(double x, double y, double z, double salt) => PgslNoise.Lattice3(x, y, z, PgslNoise.SeedHash(salt));
 
     [PgslCommand("FractalNoise2D", "FractalNoise2D(x, y, seed, octaves, lacunarity, gain) -> number",
         "Octaves of Noise2D summed (fBm), -1 to 1: each octave lacunarity times finer (2) and gain times weaker (0.5); 1 to 16 octaves", "Noise")]

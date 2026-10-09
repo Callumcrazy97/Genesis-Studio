@@ -330,6 +330,25 @@ internal static class PgslLogicSuite
             t_fill3d_equals_per_cell_calls = same;
             t_fill_bad_grid_or_plane_is_zero = (NoiseFillGrid(987654, 0, 0, 1, 1, 1, 2, 0.5, 1, 0) == 0
                 && NoiseFillGrid3D(g, 0, 0, 0, 1, "up", 1, 1, 2, 0.5, 1, 0) == 0) ? 1 : 0;
+            t_hash_is_value_noise_at_whole_points = (Hash2(3, -7, 11) == ValueNoise2D(3, -7, 11) && Hash3(1, 2, -3, 0.5) == ValueNoise3D(1, 2, -3, 0.5)) ? 1 : 0;
+            t_hash_drops_fractions_down = (Hash2(3.9, -6.5, 11) == Hash2(3, -7, 11) && Hash3(1.2, 2.99, -2.5, 0.5) == Hash3(1, 2, -3, 0.5)) ? 1 : 0;
+            t_hash_salt_and_point_matter = (Hash2(3, 4, 1) != Hash2(3, 4, 2) && Hash2(3, 4, 1) != Hash2(4, 3, 1) && Hash3(3, 4, 5, 1) != Hash3(3, 4, 6, 1)) ? 1 : 0;
+            t_hash_not_a_number_is_zero = (Hash2(Sqrt(-1), 1, 1) == 0 || Sqrt(-1) == 0) ? 1 : 0;
+            // 1 when every value is in 0..1 and both ends are reached, plus 2 when the means are near 0.5.
+            function HashSpread(n) {
+                var lo = 9; var hi = -9; var s2 = 0; var s3 = 0;
+                for (var k = 0; k < n; k = k + 1) {
+                    var hv = Hash2(k % 50 - 25, Floor(k / 50), 77); var hw = Hash3(k, k * 3, -k, 77);
+                    lo = Min(lo, Min(hv, hw)); hi = Max(hi, Max(hv, hw)); s2 = s2 + hv; s3 = s3 + hw;
+                }
+                var ok = 0;
+                if (lo >= 0 && hi < 1 && lo < 0.01 && hi > 0.99) { ok = ok + 1; }
+                if (Abs(s2 / n - 0.5) < 0.04 && Abs(s3 / n - 0.5) < 0.04) { ok = ok + 2; }
+                return ok;
+            }
+            spread = HashSpread(1000);
+            t_hash_in_zero_to_one = (spread % 2 == 1) ? 1 : 0;
+            t_hash_even_spread = (spread >= 2) ? 1 : 0;
             """),
         ("Grid batches", """
             g = DsGridCreate(6, 4);
@@ -448,6 +467,10 @@ internal static class PgslLogicSuite
         ("ValueNoise3D(4, 5, 6, 0.137)", () => PgslCommands.ValueNoise3D(4, 5, 6, 0.137), 0.7653131783933516),
         ("FractalNoise2D(100.3, -7.7, 42, 6, 2, 0.5)", () => PgslCommands.FractalNoise2D(100.3, -7.7, 42, 6, 2, 0.5), 0.35875553476842487),
         ("FractalNoise3D(0.1, 0.2, 0.3, 5, 4, 2.1, 0.45)", () => PgslCommands.FractalNoise3D(0.1, 0.2, 0.3, 5, 4, 2.1, 0.45), 0.05016823444985461),
+        // Worked out from the documented hash (GameFeatures.md, Noise) outside the engine.
+        ("Hash2(12, -34, 5)", () => PgslCommands.Hash2(12, -34, 5), 0.8856642354882706),
+        ("Hash3(7, -2, 1000, 0.25)", () => PgslCommands.Hash3(7, -2, 1000, 0.25), 0.708995648141272),
+        ("Hash2(0, 0, 0)", () => PgslCommands.Hash2(0, 0, 0), 0.07850153939724036),
     ];
 
     /// <summary>
@@ -594,6 +617,8 @@ internal static class PgslLogicSuite
                 double noise2 = Best(() => { for (int i = 0; i < samples; i++) sink += PgslCommands.Noise2D(i * 0.37, i * 0.11, 5); return sink; }) * 1e6 / samples;
                 double noise3 = Best(() => { for (int i = 0; i < samples; i++) sink += PgslCommands.Noise3D(i * 0.37, i * 0.11, i * 0.07, 5); return sink; }) * 1e6 / samples;
                 double value2 = Best(() => { for (int i = 0; i < samples; i++) sink += PgslCommands.ValueNoise2D(i * 0.37, i * 0.11, 5); return sink; }) * 1e6 / samples;
+                double hash2 = Best(() => { for (int i = 0; i < samples; i++) sink += PgslCommands.Hash2(i, i >> 3, 5); return sink; }) * 1e6 / samples;
+                double hash3 = Best(() => { for (int i = 0; i < samples; i++) sink += PgslCommands.Hash3(i, i >> 3, i >> 5, 5); return sink; }) * 1e6 / samples;
                 double grid = PgslCommands.DsGridCreate(64, 64);
                 double fill1 = Best(() => { for (int i = 0; i < 10; i++) sink += PgslCommands.NoiseFillGrid(grid, i, 0, 0.05, 5, 1, 2, 0.5, 1, 0); return sink; }) * 1e6 / (10 * 64 * 64);
                 double fill4 = Best(() => { for (int i = 0; i < 10; i++) sink += PgslCommands.NoiseFillGrid(grid, i, 0, 0.05, 5, 4, 2, 0.5, 1, 0); return sink; }) * 1e6 / (10 * 64 * 64);
@@ -602,10 +627,12 @@ internal static class PgslLogicSuite
                 rows.Add(new Row("Noise speed", "Noise2D per sample (called from C#)", "behaviour", F(noise2)));
                 rows.Add(new Row("Noise speed", "Noise3D per sample (called from C#)", "behaviour", F(noise3)));
                 rows.Add(new Row("Noise speed", "ValueNoise2D per sample (called from C#)", "behaviour", F(value2)));
+                rows.Add(new Row("Noise speed", "Hash2 per point (called from C#)", "behaviour", F(hash2)));
+                rows.Add(new Row("Noise speed", "Hash3 per point (called from C#)", "behaviour", F(hash3)));
                 rows.Add(new Row("Noise speed", "NoiseFillGrid per cell, 1 octave", "behaviour", F(fill1)));
                 rows.Add(new Row("Noise speed", "NoiseFillGrid per cell, 4 octaves", "behaviour", F(fill4)));
                 rows.Add(new Row("Noise speed", "NoiseFillGrid3D per cell, 3 octaves", "behaviour", F(fill3d)));
-                Console.WriteLine($"Noise speed: Noise2D {F(noise2)}, Noise3D {F(noise3)}, ValueNoise2D {F(value2)}, fill 1 octave {F(fill1)}/cell, 4 octaves {F(fill4)}/cell, 3D slice 3 octaves {F(fill3d)}/cell ({sink:E1})");
+                Console.WriteLine($"Noise speed: Noise2D {F(noise2)}, Noise3D {F(noise3)}, ValueNoise2D {F(value2)}, Hash2 {F(hash2)}, Hash3 {F(hash3)}, fill 1 octave {F(fill1)}/cell, 4 octaves {F(fill4)}/cell, 3D slice 3 octaves {F(fill3d)}/cell ({sink:E1})");
                 HeadlessHarness.Assert(noise2 < 2000 && fill4 < 8000, $"Noise is far slower than expected: {F(noise2)} a sample, {F(fill4)} a 4-octave cell.");
             }
             finally { PgslCommands.BindContext(previous); }

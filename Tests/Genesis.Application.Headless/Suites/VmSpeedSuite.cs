@@ -171,6 +171,8 @@ internal static class VmSpeedSuite
         function PSin(n) { var t = 0; for (var i = 0; i < n; i = i + 1) { t = Sin(i * 127.1 + 311.7); } return t; }
         function PHash(ix, iz, salt) { var v = Sin(ix * 127.1 + iz * 311.7 + salt * 74.7) * 43758.5453; if (v < 0) { v = 0 - v; } return v % 1; }
         function PCallHash(n) { var t = 0; for (var i = 0; i < n; i = i + 1) { t = PHash(i, 2, 3); } return t; }
+        function PCallHashNative(n) { var t = 0; for (var i = 0; i < n; i = i + 1) { t = Hash2(i, 2, 3); } return t; }
+        function PCallHash3Native(n) { var t = 0; for (var i = 0; i < n; i = i + 1) { t = Hash3(i, 2, 3, 4); } return t; }
         function PValue(px, pz, size, salt) {
             var fx = px / size; var fz = pz / size;
             var ix = Floor(fx); var iz = Floor(fz);
@@ -373,6 +375,8 @@ internal static class VmSpeedSuite
                     ("t = PId3(i, 1, 2) (user call, 3 arguments)", "PCall3"),
                     ("t = Sin(i * 127.1 + 311.7)", "PSin"),
                     ("t = PHash(i, 2, 3) (a lattice hash written in script: Sin, multiplies, a branch, %)", "PCallHash"),
+                    ("t = Hash2(i, 2, 3) (the command)", "PCallHashNative"),
+                    ("t = Hash3(i, 2, 3, 4) (the command)", "PCallHash3Native"),
                     ("t = PValue(i * 0.7, i * 0.3, 16, 4) (value noise written in script: four PHash calls)", "PCallValue"),
                     ("t = ValueNoise2D(i * 0.7 / 16, i * 0.3 / 16, 4) (the command)", "PCallValueNative"),
                 })

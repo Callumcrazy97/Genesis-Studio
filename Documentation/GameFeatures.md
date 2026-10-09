@@ -699,9 +699,19 @@ is the same world everywhere. Any number is a seed, fractions included (`0.5` an
 |---|---|
 | `Noise2D(x, y, seed)`, `Noise3D(x, y, z, seed)` | Smooth gradient (Perlin) noise, -1 to 1. Hills and hollows are about one unit apart, so scale positions down (`Noise2D(x / 32, z / 32, seed)`). Each seed shifts the lattice, so whole-number positions still vary. |
 | `ValueNoise2D(x, y, seed)`, `ValueNoise3D(x, y, z, seed)` | Smooth value noise, 0 to 1. At whole-number positions it is a repeatable random number per point (where a tree goes, which ore). |
+| `Hash2(x, y, salt)`, `Hash3(x, y, z, salt)` | A repeatable random number from 0 up to (never reaching) 1 for a whole-number point, the one-call form of the above: fractions are dropped down (`Floor`), so `Hash2(x, y, salt)` is exactly `ValueNoise2D(Floor(x), Floor(y), salt)` and `Hash3` is `ValueNoise3D` at `Floor` of each. For ore veins, scattered trees, a block's random variant. Not a number gives 0. |
 | `FractalNoise2D(x, y, seed, octaves, lacunarity, gain)`, `FractalNoise3D(x, y, z, seed, octaves, lacunarity, gain)` | Several octaves of gradient noise summed (fBm), -1 to 1: each octave `lacunarity` times finer (2 is usual) and `gain` times weaker (0.5 is usual); 1 to 16 octaves. One octave is exactly `Noise2D` / `Noise3D`. |
 | `NoiseFillGrid(grid, x0, y0, step, seed, octaves, lacunarity, gain, scale, offset)` | A whole DsGrid in one call: cell (i, j) becomes `offset + scale * FractalNoise2D(x0 + i * step, y0 + j * step, seed, octaves, lacunarity, gain)`, exactly what that call gives. Returns the cells filled (0 for a bad grid). |
 | `NoiseFillGrid3D(grid, x0, y0, z0, step, plane, seed, octaves, lacunarity, gain, scale, offset)` | A flat slice of `FractalNoise3D`: `plane` `"xy"`, `"xz"` or `"yz"` names the axes `i` and `j` step along from `(x0, y0, z0)`; the third stays put (one layer of a cave field). |
+
+The hash behind `Hash2` / `Hash3` (and the value noise), all in wrapping unsigned 64-bit
+arithmetic, so another program can reproduce it bit for bit: `Mix(h)` is the SplitMix64 finisher
+(`h ^= h >> 30; h *= 0xBF58476D1CE4E5B9; h ^= h >> 27; h *= 0x94D049BB133111EB; h ^= h >> 31`); the salt
+becomes `s = Mix(bits ^ 0xD6E8FEB86659FD93)`, where `bits` are the salt's 64 IEEE-754 bits (with -0
+taken as 0); a point's hash is `Mix(s + x * 0x9E3779B97F4A7C15 + y * 0xC2B2AE3D27D4EB4F)`, plus
+`z * 0x165667B19E3779F9` in 3D, with `x`, `y`, `z` the floored coordinates as 64-bit two's-complement
+integers; the number is the top 53 bits divided by 2^53. `Hash2(12, -34, 5)` is 0.8856642354882706
+on every machine (the `pgsl-logic` test checks it).
 
 Measured on the development PC's performance cores (8 Oct 2026, `--test pgsl-logic`, called from
 C#; the fastest of several runs, other runs up to twice as long): `Noise2D` 13 ns, `Noise3D` 20 ns,
