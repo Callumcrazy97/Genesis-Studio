@@ -57,19 +57,30 @@ public static partial class PgslCommands
             pgsl = ScriptAssetRegistry.ApplyScriptCallSyntax(pgsl);
         }
 
-        pgsl = Regex.Replace(pgsl, @"^(\s*)if\s+(.+?):\s*$", "$1if ($2)", RegexOptions.Multiline);
-        pgsl = Regex.Replace(pgsl, @"^(\s*)else\s+if\s+(.+?):\s*$", "$1else if ($2)", RegexOptions.Multiline);
-        pgsl = Regex.Replace(pgsl, @"^(\s*)else:\s*$", "$1else", RegexOptions.Multiline);
-        pgsl = Regex.Replace(pgsl, @"^(\s*)while\s+(.+?):\s*$", "$1while ($2)", RegexOptions.Multiline);
-        pgsl = Regex.Replace(pgsl, @"^(\s*)if\s+([^(\s][^{]*?)\s*({|$)", "$1if ($2) $3", RegexOptions.Multiline);
-        pgsl = Regex.Replace(pgsl, @"^(\s*)while\s+([^(\s][^{]*?)\s*({|$)", "$1while ($2) $3", RegexOptions.Multiline);
-        pgsl = Regex.Replace(pgsl, @"\b(if|while)\s*\(([^)]+)\)", m =>
+        pgsl = ColonIf.Replace(pgsl, "$1if ($2)");
+        pgsl = ColonElseIf.Replace(pgsl, "$1else if ($2)");
+        pgsl = ColonElse.Replace(pgsl, "$1else");
+        pgsl = ColonWhile.Replace(pgsl, "$1while ($2)");
+        pgsl = BareIf.Replace(pgsl, "$1if ($2) $3");
+        pgsl = BareWhile.Replace(pgsl, "$1while ($2) $3");
+        pgsl = ConditionHead.Replace(pgsl, m =>
         {
-            string cond = Regex.Replace(m.Groups[2].Value, @"(?<![!<>=])=(?![=])", " == ");
+            string cond = SingleEquals.Replace(m.Groups[2].Value, " == ");
             return $"{m.Groups[1].Value} ({cond})";
         });
         return protectedSource.RestoreLiterals(pgsl);
     }
+
+    // Built once: these ran through Regex's shared cache, which a project's own patterns could push
+    // them out of, so they were parsed again for every script.
+    private static readonly Regex ColonIf = new(@"^(\s*)if\s+(.+?):\s*$", RegexOptions.Multiline | RegexOptions.Compiled);
+    private static readonly Regex ColonElseIf = new(@"^(\s*)else\s+if\s+(.+?):\s*$", RegexOptions.Multiline | RegexOptions.Compiled);
+    private static readonly Regex ColonElse = new(@"^(\s*)else:\s*$", RegexOptions.Multiline | RegexOptions.Compiled);
+    private static readonly Regex ColonWhile = new(@"^(\s*)while\s+(.+?):\s*$", RegexOptions.Multiline | RegexOptions.Compiled);
+    private static readonly Regex BareIf = new(@"^(\s*)if\s+([^(\s][^{]*?)\s*({|$)", RegexOptions.Multiline | RegexOptions.Compiled);
+    private static readonly Regex BareWhile = new(@"^(\s*)while\s+([^(\s][^{]*?)\s*({|$)", RegexOptions.Multiline | RegexOptions.Compiled);
+    private static readonly Regex ConditionHead = new(@"\b(if|while)\s*\(([^)]+)\)", RegexOptions.Compiled);
+    private static readonly Regex SingleEquals = new(@"(?<![!<>=])=(?![=])", RegexOptions.Compiled);
 
     #region Engine variables
 

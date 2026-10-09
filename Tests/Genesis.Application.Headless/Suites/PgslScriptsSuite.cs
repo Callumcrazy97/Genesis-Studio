@@ -350,6 +350,8 @@ internal static class PgslScriptsSuite
             File.Delete(step);
         });
 
+        ScriptCallSyntaxChecks.Run(ctx);
+
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.LibraryFunctionsSharingANameAreAWarning", () =>
         {
             // Two Scripts with a function of the same name (any case) and different parameters: a

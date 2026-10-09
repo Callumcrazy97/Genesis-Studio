@@ -393,8 +393,32 @@ internal static class PgslLogicSuite
             {
                 PgslCommands.ProjectPath = path;
                 ScriptAssetRegistry.ClearCache();
+                // What loading the project's Scripts costs a game's start, and the Script call
+                // rewrite over every .pgsl in the project matching the per-name rewrite it replaced.
+                var load = System.Diagnostics.Stopwatch.StartNew();
+                ScriptAssetRegistry.LoadFromProject(path);
+                load.Stop();
+                IReadOnlyList<string> scriptNames = ScriptAssetRegistry.GetScriptNames();
+                int rewritten = 0;
+                double rewriteMs = 0, referenceMs = 0;
+                foreach (string file in Directory.EnumerateFiles(path, "*.pgsl", SearchOption.AllDirectories))
+                {
+                    string source = File.ReadAllText(file);
+                    var clock = System.Diagnostics.Stopwatch.StartNew();
+                    string now = ScriptCallSyntax.Apply(source, scriptNames);
+                    rewriteMs += clock.Elapsed.TotalMilliseconds;
+                    clock.Restart();
+                    string before = ScriptCallSyntaxChecks.Reference(source, scriptNames);
+                    referenceMs += clock.Elapsed.TotalMilliseconds;
+                    HeadlessHarness.Assert(now == before, $"The Script call rewrite changed {Path.GetRelativePath(path, file)}.");
+                    rewritten++;
+                }
+                string loadLine = $"Loading {scriptNames.Count} Scripts: {load.Elapsed.TotalMilliseconds:F0} ms. "
+                    + $"Script call rewrite of {rewritten} files: {rewriteMs:F0} ms (the per-name rewrite: {referenceMs:F0} ms), same text.";
+                Console.WriteLine(loadLine);
+                ScriptAssetRegistry.ClearCache();
                 PgslValidationReport report = PgslScriptValidator.ValidateProject(path, strict: true);
-                var text = new StringBuilder().AppendLine(report.Summary);
+                var text = new StringBuilder().AppendLine(loadLine).AppendLine(report.Summary);
                 foreach (string error in report.Errors) text.AppendLine("ERROR   " + error);
                 foreach (string warning in report.Warnings) text.AppendLine("WARNING " + warning);
                 Directory.CreateDirectory(ctx.Captures);

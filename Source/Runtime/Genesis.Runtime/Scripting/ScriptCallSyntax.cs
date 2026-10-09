@@ -17,19 +17,36 @@ public static class ScriptCallSyntax
         "ScrExecute", "Print", "ShowMessage", "and", "or", "not"
     };
 
+    private static readonly Regex ScrCallWithoutArguments = new(@"\bscr_([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*\)", RegexOptions.Compiled);
+    private static readonly Regex ScrCall = new(@"\bscr_([a-zA-Z_][a-zA-Z0-9_]*)\s*\(", RegexOptions.Compiled);
+    // `if condition: Name` alone on a line, and `Name;`, for any identifier: one pass each over the
+    // code, the identifier then looked up among the Script names. (A pattern per Script name meant
+    // two regexes per name for every stretch of code between strings and comments, and with a few
+    // hundred Scripts it overflowed the regex cache, so each was parsed again every time: about
+    // ten seconds of a 253-Script game's start.)
+    private static readonly Regex IfColonCall = new(@"^(\s*)if\s+(.+?):\s*([A-Za-z_][A-Za-z0-9_]*)\s*$", RegexOptions.Multiline | RegexOptions.Compiled);
+    private static readonly Regex BareCall = new(@"\b([A-Za-z_][A-Za-z0-9_]*)\s*;", RegexOptions.Compiled);
+
     public static string Apply(string source, IEnumerable<string> scriptNames)
     {
         if (string.IsNullOrEmpty(source) || scriptNames == null)
             return source;
 
-        var names = scriptNames
-            .Where(n => !string.IsNullOrWhiteSpace(n) && !Reserved.Contains(n))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderByDescending(n => n.Length)
-            .ToList();
+        // Names that are plain identifiers (every name code can call) go through the two shared
+        // patterns; any other name keeps a pattern of its own, longest first, as before.
+        var callable = new HashSet<string>(StringComparer.Ordinal);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        List<string> otherNames = null;
+        foreach (string name in scriptNames)
+        {
+            if (string.IsNullOrWhiteSpace(name) || Reserved.Contains(name) || !seen.Add(name)) continue;
+            if (IsIdentifier(name)) callable.Add(name);
+            else (otherNames ??= new List<string>()).Add(name);
+        }
 
-        if (names.Count == 0)
+        if (callable.Count == 0 && otherNames == null)
             return source;
+        otherNames = otherNames?.OrderByDescending(n => n.Length).ToList();
 
         var segments = SplitPreservingLiterals(source);
         var sb = new StringBuilder(source.Length + 64);
@@ -43,23 +60,42 @@ public static class ScriptCallSyntax
             }
 
             string code = seg.Text;
-            code = Regex.Replace(code, @"\bscr_([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*\)", "$1()");
-            code = Regex.Replace(code, @"\bscr_([a-zA-Z_][a-zA-Z0-9_]*)\s*\(", "$1(");
+            code = ScrCallWithoutArguments.Replace(code, "$1()");
+            code = ScrCall.Replace(code, "$1(");
 
-            foreach (string name in names)
+            if (callable.Count > 0)
             {
-                string esc = Regex.Escape(name);
-                code = Regex.Replace(code,
-                    $@"^(\s*)if\s+(.+?):\s*{esc}\s*$",
-                    m => $"{m.Groups[1].Value}if ({m.Groups[2].Value}) {{ {name}(); }}",
-                    RegexOptions.Multiline);
-                code = Regex.Replace(code, $@"\b{esc}\s*;", $"{name}();");
+                code = IfColonCall.Replace(code, m => callable.Contains(m.Groups[3].Value)
+                    ? $"{m.Groups[1].Value}if ({m.Groups[2].Value}) {{ {m.Groups[3].Value}(); }}"
+                    : m.Value);
+                code = BareCall.Replace(code, m => callable.Contains(m.Groups[1].Value) ? m.Groups[1].Value + "();" : m.Value);
+            }
+
+            if (otherNames != null)
+            {
+                foreach (string name in otherNames)
+                {
+                    string esc = Regex.Escape(name);
+                    code = Regex.Replace(code,
+                        $@"^(\s*)if\s+(.+?):\s*{esc}\s*$",
+                        m => $"{m.Groups[1].Value}if ({m.Groups[2].Value}) {{ {name}(); }}",
+                        RegexOptions.Multiline);
+                    code = Regex.Replace(code, $@"\b{esc}\s*;", $"{name}();");
+                }
             }
 
             sb.Append(code);
         }
 
         return sb.ToString();
+    }
+
+    private static bool IsIdentifier(string name)
+    {
+        if (!(char.IsAsciiLetter(name[0]) || name[0] == '_')) return false;
+        for (int i = 1; i < name.Length; i++)
+            if (!(char.IsAsciiLetterOrDigit(name[i]) || name[i] == '_')) return false;
+        return true;
     }
 
     private readonly struct Segment
