@@ -1131,6 +1131,8 @@ internal static class HeadlessTestRunner
         ["tier-editor"] = ["studio-foundation", "shell-layout", "resource-names", "code-assistance", "editor-suite", "room-workspace", "model-intake", "model-sprites", "pixel-model", "menu-clips"],
         ["tier-engine"] = ["engine-systems", "asset-import", "readback-alpha", "post-effects", "large-world", "runtime", "model-system", "debug-screen", "terrain-layers-grass", "shader-precompiled", "gui-linear"],
         ["tier-pgsl"] = ["pgsl-values", "pgsl-cache", "pgsl-scripts", "pgsl-logic", "input-replay", "pgsl-project", "export-pgsl"],
+        // Particle burst cost and mesh streaming memory together (not part of the tiers).
+        ["streaming-load"] = ["particle-bursts", "mesh-soak"],
     };
 
     private static void RunFocusedTarget(HeadlessContext ctx, string target)
@@ -1559,6 +1561,14 @@ internal static class HeadlessTestRunner
             case "mesh-upload":
                 // What it costs to bring many new script meshes to the GPU, on each GPU renderer.
                 Suites.ScriptMeshUploadSuite.Run(ctx);
+                break;
+            case "mesh-soak":
+                // Thousands of chunk meshes streamed through every renderer: memory must level off.
+                Suites.ScriptMeshSoakSuite.Run(ctx);
+                break;
+            case "particle-bursts":
+                // What 300 live one-shot particle bursts cost a frame, on each GPU renderer.
+                Suites.ParticleBurstLoadSuite.Run(ctx);
                 break;
             case "validate-project":
                 // F5's script check over GENESIS_VALIDATE_PROJECT (any project folder).
