@@ -850,6 +850,42 @@ same input, time steps, window size and random numbers on every frame and ends i
 then that Escape stops a replay and lets go of what it held, and that other files are refused.
 Not yet checked: a recording made with a physical controller and played back in the real Player.
 
+## Files that change while a game runs, and files a game looks for
+
+### Live reload keeps a running game's Scripts
+
+A game run from Studio (the Player with `--live-reload`) watches the project's Assets and, when a
+file changes, empties its caches and rebuilds the room. Its Scripts used to be dropped with the
+caches and read again only when an Object was next created, so:
+
+- in the frame between the change and the rebuild every call to a Script or to a library
+  function failed (`Unknown command: McScreenDraw`), and
+- when the rebuild did not happen, because the room file was itself still being written or only a
+  terrain's surfaces had changed, they failed for the rest of the run.
+
+Now the Scripts are read again at once, when the change is seen. Only those whose text changed are
+compiled again: compiling all 250 Scripts of a large game took 7.4 seconds, a frozen game for each
+saved file. When a Script is added, removed or renamed, all are compiled again. A Script that does not compile keeps its earlier version, and if the Scripts cannot be listed
+at all (two briefly sharing a name during a rename) the game keeps the ones it has.
+
+A change is turned down, and the game goes on exactly as it was, while any file in it is half
+written: JSON (including a resource's `.meta`) that does not parse, or PGSL (a library Script or an
+Object's event) that cannot be read or does not compile. The log says which file and why:
+
+```
+AssetLiveReload rejected generation=4: 'Step.pgsl' does not compile (line 3: ...); the game keeps the code it is running
+```
+
+The save that completes the file is a change of its own and applies. A genuine mistake in a script
+is reported the same way, and the game keeps running the code it had until the script compiles.
+
+The watcher no longer reads which resource refers to which before the game starts: it rebuilds
+everything on any change, and reading the references took nine seconds before the first frame in a
+project of 11,000 resources. A change it cannot follow completely (a `.meta` still being written)
+is no longer dropped. `Build.bat --test live-reload` runs a game in the harness and rewrites a
+library Script and an Object's event while it runs, writes them cut off part way, and writes the
+room as JSON that is not yet a room while a library changes; Scripts must resolve on every frame.
+
 ## Smaller changes
 
 - **Bushes and saplings.** The `Shrub` and `Sapling` foliage shapes are built from rounded solid

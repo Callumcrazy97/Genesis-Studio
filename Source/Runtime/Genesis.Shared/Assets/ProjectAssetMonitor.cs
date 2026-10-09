@@ -24,16 +24,39 @@ namespace Genesis.Shared.Assets
             string projectRoot,
             int debounceMilliseconds = 180,
             SynchronizationContext context = null)
+            : this(projectRoot, debounceMilliseconds, context, readReferences: true)
         {
-            Graph = new AssetDependencyGraph(projectRoot);
+        }
+
+        /// <param name="readReferences">
+        /// False watches the files without reading what refers to what: each change then lists
+        /// only the files that changed as affected, and <see cref="Graph"/> is read the first time
+        /// it is asked for. For a watcher that reloads everything on any change (a game run from
+        /// Studio), to which the graph was only a cost: nine seconds before the first frame in a
+        /// project of ten thousand resources.
+        /// </param>
+        public ProjectAssetMonitor(
+            string projectRoot,
+            int debounceMilliseconds,
+            SynchronizationContext context,
+            bool readReferences)
+        {
+            if (string.IsNullOrWhiteSpace(projectRoot))
+                throw new ArgumentException("A project root is required.", nameof(projectRoot));
+            ProjectRoot = Path.GetFullPath(projectRoot);
+            AssetsRoot = Path.Combine(ProjectRoot, "Assets");
+            string root = ProjectRoot;
+            _readsReferences = readReferences;
+            _graph = new Lazy<AssetDependencyGraph>(() => new AssetDependencyGraph(root), LazyThreadSafetyMode.ExecutionAndPublication);
+            if (readReferences) _ = _graph.Value;
             _context = context;
             _debounce = new Timer(_ => PublishPending(), null, Timeout.Infinite, Timeout.Infinite);
-            _watcher = new FileSystemWatcher(Graph.AssetsRoot)
+            _watcher = new FileSystemWatcher(AssetsRoot)
             {
                 IncludeSubdirectories = true,
                 NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName |
                                NotifyFilters.LastWrite | NotifyFilters.Size,
-                EnableRaisingEvents = Directory.Exists(Graph.AssetsRoot),
+                EnableRaisingEvents = Directory.Exists(AssetsRoot),
             };
             DebounceMilliseconds = Math.Clamp(debounceMilliseconds, 30, 5000);
             _watcher.Changed += OnChanged;
@@ -43,7 +66,17 @@ namespace Genesis.Shared.Assets
             _watcher.Error += OnWatcherError;
         }
 
-        public AssetDependencyGraph Graph { get; }
+        private readonly Lazy<AssetDependencyGraph> _graph;
+        private readonly bool _readsReferences;
+
+        /// <summary>The project's reference graph (read now if this monitor was made without it).</summary>
+        public AssetDependencyGraph Graph => _graph.Value;
+
+        /// <summary>Whether changes are followed through the reference graph to what uses them.</summary>
+        public bool ReadsReferences => _readsReferences;
+
+        public string ProjectRoot { get; }
+        public string AssetsRoot { get; }
         public int DebounceMilliseconds { get; }
         public long Generation => Interlocked.Read(ref _generation);
         public event EventHandler<ProjectAssetChangeSet> Changed;
@@ -123,9 +156,25 @@ namespace Genesis.Shared.Assets
                 _debounce.Change(Timeout.Infinite, Timeout.Infinite);
             }
 
-            HashSet<string> affected = new(Graph.GetAffectedPaths(changed), StringComparer.OrdinalIgnoreCase);
-            Graph.RefreshChanged(changed);
-            affected.UnionWith(Graph.GetAffectedPaths(changed));
+            HashSet<string> affected = new(changed, StringComparer.OrdinalIgnoreCase);
+            if (_readsReferences || _graph.IsValueCreated)
+            {
+                try
+                {
+                    AssetDependencyGraph graph = Graph;
+                    affected.UnionWith(graph.GetAffectedPaths(changed));
+                    graph.RefreshChanged(changed);
+                    affected.UnionWith(graph.GetAffectedPaths(changed));
+                }
+                catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException
+                    or Newtonsoft.Json.JsonException or ArgumentException)
+                {
+                    // A resource whose identity cannot be read yet (a .meta still being written, two
+                    // resources briefly sharing a name in a rename): the change is still a change. It
+                    // used to be dropped here, so the files saved with it were never reloaded.
+                    ReportError(error);
+                }
+            }
             long generation = Interlocked.Increment(ref _generation);
             // Any observed change makes frame-path caches re-validate on next use, so external edits
             // appear immediately rather than after their bounded fallback poll.
