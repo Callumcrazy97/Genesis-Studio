@@ -340,6 +340,88 @@ namespace Genesis.Runtime.Scripting
       }
     }
 
+    /// <summary>Whether a Script of this name is loaded now (nothing is loaded by asking).</summary>
+    public static bool IsLoaded(string name)
+    {
+      if (string.IsNullOrWhiteSpace(name)) return false;
+      lock (_lock) return _byName.ContainsKey(name.Trim());
+    }
+
+    /// <summary>
+    /// The error for a call to a name that is neither a command nor a loaded Script, with the reason
+    /// when there is one: the Script of that name did not compile (its file, line and message), it
+    /// is in the project but not loaded, or some other Script that did not compile may define it.
+    /// Always starts "Unknown command: name", which the VM matches on.
+    /// </summary>
+    public static string DescribeUnknown(string name)
+    {
+      string key = name?.Trim() ?? string.Empty;
+      string unknown = "Unknown command: " + key;
+      Dictionary<string, string> failed;
+      string projectPath;
+      lock (_lock)
+      {
+        if (key.Length > 0 && _loadErrors.TryGetValue(key, out string own))
+          return $"{unknown}. The Script '{key}' did not compile: {own}";
+        failed = _loadErrors.Count == 0 ? null : new Dictionary<string, string>(_loadErrors, StringComparer.OrdinalIgnoreCase);
+        projectPath = _projectPath;
+      }
+      string file = ScriptFileFor(key, projectPath ?? PgslCommands.ProjectPath, out string lookupError);
+      if (lookupError != null)
+        return $"{unknown}. The Script '{key}' cannot be found by name: {lookupError}";
+      if (file != null)
+        return string.IsNullOrEmpty(projectPath)
+          ? $"{unknown}. The Script '{key}' ({file}) is in the project, but the project's Scripts were not loaded when it was called."
+          : $"{unknown}. The Script '{key}' ({file}) is in the project but could not be loaded.";
+      return failed is null
+        ? unknown
+        : $"{unknown}. A Script that did not compile may define it: {string.Join("; ", failed.Values)}";
+    }
+
+    /// <summary>
+    /// When a Script has the same name as a function the loaded Scripts define (a call by that name
+    /// runs the function, never the Script), a sentence saying so; empty otherwise.
+    /// </summary>
+    public static string DescribeFunctionScriptClash(string name)
+    {
+      if (string.IsNullOrWhiteSpace(name)) return string.Empty;
+      string key = name.Trim();
+      string projectPath;
+      lock (_lock)
+      {
+        if (!_byName.ContainsKey(key)) return string.Empty;
+        projectPath = _projectPath;
+      }
+      string file = ScriptFileFor(key, projectPath, out _);
+      return $" '{key}' is both a Script{(file != null ? " (" + file + ")" : string.Empty)} and a function of the project's Scripts:"
+        + $" a call {key}(...) runs the function, never the Script's own code. Rename the function or the Script.";
+    }
+
+    // The project-relative file of a Script resource, or null when the project has none of that name.
+    private static string ScriptFileFor(string name, string projectPath, out string error)
+    {
+      error = null;
+      if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(projectPath)) return null;
+      try
+      {
+        string path = ResourceNames.Resolve(projectPath, name, ResourceType.Script);
+        if (string.IsNullOrEmpty(path) || !File.Exists(path)) return null;
+        return path.StartsWith(projectPath, StringComparison.OrdinalIgnoreCase) ? Path.GetRelativePath(projectPath, path) : path;
+      }
+      catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException or ArgumentException)
+      {
+        // Two resources share the name (a Script and a Model, say): say so when one is a Script.
+        try
+        {
+          if (ResourceNames.For(projectPath).Entries.Any(entry => entry.Type == ResourceType.Script
+              && string.Equals(entry.Name, name, StringComparison.OrdinalIgnoreCase)))
+            error = ex.Message;
+        }
+        catch (Exception) { }
+        return null;
+      }
+    }
+
     public static IReadOnlyList<string> GetScriptNames()
     {
       lock (_lock)

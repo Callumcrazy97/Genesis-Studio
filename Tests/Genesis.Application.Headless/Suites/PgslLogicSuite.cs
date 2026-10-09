@@ -508,7 +508,10 @@ internal static class PgslLogicSuite
                     HeadlessHarness.Assert(now == before, $"The Script call rewrite changed {Path.GetRelativePath(path, file)}.");
                     rewritten++;
                 }
-                string loadLine = $"Loading {scriptNames.Count} Scripts: {load.Elapsed.TotalMilliseconds:F0} ms. "
+                // Scripts the game's own compiler refused when loading them: a call to one is "Unknown command".
+                IReadOnlyDictionary<string, string> loadErrors = ScriptAssetRegistry.LoadErrors;
+                string loadLine = $"Loading {scriptNames.Count} Scripts: {load.Elapsed.TotalMilliseconds:F0} ms, {loadErrors.Count} did not compile"
+                    + string.Concat(loadErrors.Select(pair => $"{Environment.NewLine}LOAD ERROR {pair.Key}: {pair.Value}")) + ". "
                     + $"Script call rewrite of {rewritten} files: {rewriteMs:F0} ms (the per-name rewrite: {referenceMs:F0} ms), same text.";
                 Console.WriteLine(loadLine);
                 ScriptAssetRegistry.ClearCache();

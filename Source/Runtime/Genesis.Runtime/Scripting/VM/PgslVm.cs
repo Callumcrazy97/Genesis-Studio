@@ -1335,7 +1335,9 @@ public class PgslVm
         {
             if (argCount != userFunc.Parameters.Count)
             {
-                throw new InvalidOperationException($"Function '{funcName}' expects {userFunc.Parameters.Count} arguments, got {argCount}");
+                // A Script named like the function is the usual cause: the call meant the Script.
+                throw new InvalidOperationException($"Function '{funcName}' expects {userFunc.Parameters.Count} arguments, got {argCount}."
+                    + Genesis.Runtime.Scripting.ScriptAssetRegistry.DescribeFunctionScriptClash(funcName));
             }
 
             // Deep recursion ends in an error the game can report, never in a stack overflow that

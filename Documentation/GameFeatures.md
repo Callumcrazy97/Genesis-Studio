@@ -1279,6 +1279,39 @@ is no longer dropped. `Build.bat --test live-reload` runs a game in the harness 
 library Script and an Object's event while it runs, writes them cut off part way, and writes the
 room as JSON that is not yet a room while a library changes; Scripts must resolve on every frame.
 
+### Why a call to a Script fails
+
+A call to a name that is neither a command nor a loaded Script is `Unknown command: Name`. When the
+engine knows more, the error now says it, so a missing Script is not a mystery:
+
+- **The Script did not compile** (the game's own compiler refused it when loading the project's
+  Scripts, even if Studio's checker passed it):
+  `Unknown command: McTest. The Script 'McTest' did not compile: Assets\Scripts\McTest.pgsl, line 812: ...`
+- **The Script is in the project but the Scripts were not loaded** when it was called (a tool or
+  editor dropped them): `... The Script 'McTest' (Assets\Scripts\McTest.pgsl) is in the project, but the
+  project's Scripts were not loaded when it was called.`
+- **Two resources share the Script's name** (a Script and a Model called the same): the error gives
+  the resource-name clash and how to put it right.
+- **A Script that did not compile may define it**, for a function of a library that failed (as
+  before), with each failed Script's file, line and message.
+- **In a worker job**, a call to a Script says that a job runs functions of the Scripts, not a Script's
+  own code.
+
+`Build.bat --test validate-project` with `GENESIS_VALIDATE_PROJECT` naming a project folder also
+lists every Script the game's compiler refused (`LOAD ERROR Name: file, line: message`).
+
+**A function named like a Script.** A call by name runs a function of that name before it looks for a
+Script, so when `McAutoTool.pgsl` declares `function McAutoTool(...)`, the call `McAutoTool();` meant
+to run the Script's own code runs the function instead: without arguments the Script's code silently
+never runs, and with arguments that do not fit the function the call is an error. The project check
+(F5, and `PgslScriptValidator.ValidateProject`) warns about every function (in a library Script or an
+Object's event) that has the name of a Script with code of its own; a Script of functions only runs
+nothing when called, so it is not reported. The error of a call that does not fit says it too:
+
+```
+Function 'McAutoTool' expects 2 arguments, got 0. 'McAutoTool' is both a Script (Assets\Scripts\McAutoTool.pgsl) and a function of the project's Scripts: a call McAutoTool(...) runs the function, never the Script's own code. Rename the function or the Script.
+```
+
 ### A sound's file named beside its Audio resource
 
 An Audio resource's `source` is looked for beside the resource first, then in the project. So

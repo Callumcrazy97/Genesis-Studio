@@ -385,6 +385,80 @@ internal static class PgslScriptsSuite
             }
         });
 
+        // A Script that did not compile is "unknown" when called: the error names the Script, its file
+        // and line, not only the name (a game saw a bare "Unknown command: McTest").
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.CallingAScriptThatDidNotCompileSaysWhy", () =>
+        {
+            Script("Unbuilt", "x = 1;\nfrom = 2;\n");
+            Script("Unloaded", "GlobalSet(\"unloadedRan\", 1);\n");
+            ResourceNames.Invalidate(project.RootPath);
+            try
+            {
+                ObjectSandboxResult result = RunCreate("Unbuilt();\nafter = 1;\n");
+                string errors = Errors(result);
+                Check(errors.Contains("Unknown command: Unbuilt", StringComparison.Ordinal)
+                        && errors.Contains("The Script 'Unbuilt' did not compile", StringComparison.Ordinal)
+                        && errors.Contains("Unbuilt.pgsl, line 2", StringComparison.Ordinal),
+                    "Calling a Script that did not compile does not say so with its file and line: " + errors);
+
+                // The project's Scripts not loaded at all (an editor dropped them): the error says the
+                // Script is there and why it was not found.
+                string previous = PgslCommands.ProjectPath;
+                ObjectSandboxResult unloaded;
+                try
+                {
+                    PgslCommands.ProjectPath = project.RootPath;
+                    ScriptAssetRegistry.ClearCache();
+                    unloaded = ObjectSandbox.Run(new Dictionary<string, string> { ["Create"] = "Unloaded();\n" }, frames: 1);
+                }
+                finally { PgslCommands.ProjectPath = previous; ScriptAssetRegistry.ClearCache(); }
+                string notLoaded = Errors(unloaded);
+                Check(notLoaded.Contains("The Script 'Unloaded'", StringComparison.Ordinal) && notLoaded.Contains("Unloaded.pgsl", StringComparison.Ordinal)
+                        && notLoaded.Contains("were not loaded", StringComparison.Ordinal),
+                    "Calling a Script while the project's Scripts are not loaded does not say so: " + notLoaded);
+            }
+            finally
+            {
+                File.Delete(Path.Combine(scripts, "Unbuilt.pgsl"));
+                File.Delete(Path.Combine(scripts, "Unloaded.pgsl"));
+                ResourceNames.Invalidate(project.RootPath);
+            }
+        });
+
+        // A function named like a Script with code of its own takes every call by that name: the
+        // project check warns, and a call that does not fit the function says the names clash.
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.AFunctionNamedLikeAScriptIsReported", () =>
+        {
+            Script("Gadget", "function Gadget(level) { return level * 2; }\nGlobalSet(\"gadgetRan\", 1);\n");
+            Script("Widget", "function Widget(level) { return level; }\n");
+            ResourceNames.Invalidate(project.RootPath);
+            try
+            {
+                PgslValidationReport report = PgslScriptValidator.ValidateProject(project.RootPath, strict: true);
+                string[] gadget = report.Warnings.Where(warning => warning.Contains("function 'Gadget' has the name of the Script 'Gadget'", StringComparison.Ordinal)).ToArray();
+                Check(gadget.Length == 1 && gadget[0].Contains("Gadget.pgsl (line 1", StringComparison.Ordinal),
+                    $"Expected one warning for the function Gadget in the Script Gadget, got {gadget.Length}: " + string.Join(" | ", report.Warnings));
+                Check(!report.Warnings.Any(warning => warning.Contains("'Widget' has the name", StringComparison.Ordinal)),
+                    "A Script of functions only (calling it runs nothing) was reported for a function of its name.");
+                Check(!report.Errors.Any(error => error.Contains("Gadget", StringComparison.Ordinal)),
+                    "A function named like a Script was made an error: " + string.Join(" | ", report.Errors));
+
+                ObjectSandboxResult result = RunCreate("v = Gadget();\nafter = 1;\n");
+                string errors = Errors(result);
+                Check(errors.Contains("expects 1 arguments, got 0", StringComparison.Ordinal)
+                        && errors.Contains("'Gadget' is both a Script", StringComparison.Ordinal) && errors.Contains("Gadget.pgsl", StringComparison.Ordinal),
+                    "A call meant for a Script that reached a function of its name does not say the names clash: " + errors);
+                ObjectSandboxResult fits = RunCreate("v = Gadget(4);\n");
+                Check(fits.Ok && Near(fits, "v", 8), "A call that fits the function no longer runs it: " + Errors(fits));
+            }
+            finally
+            {
+                File.Delete(Path.Combine(scripts, "Gadget.pgsl"));
+                File.Delete(Path.Combine(scripts, "Widget.pgsl"));
+                ResourceNames.Invalidate(project.RootPath);
+            }
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Engine.Lighting.RoomEnvironmentReflectionReachesTheRenderer", () =>
         {
             var room = Genesis.Runtime.Scene.RoomAsset.Create("Reflections", Genesis.Runtime.Scene.RoomDimension.ThreeD);

@@ -370,6 +370,9 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
                 throw new PgslWorkerJobException(
                     $"'{name}' has no value in this job: a worker job sees only its arguments, what it was given (JobScriptVariable, JobScriptShareAll) and what it sets itself.");
             if (name.Contains('.')) throw NotInWorker(name);
+            if (Genesis.Runtime.Scripting.ScriptAssetRegistry.IsLoaded(name))
+                throw new PgslWorkerJobException(
+                    $"'{name}' is a Script: a worker job runs functions of the project's Scripts, not a Script's own code. Put the work in a function and call that.");
             throw new InvalidOperationException($"Unknown command: {name}");
         }
         if (!WorkerAllows(def)) throw NotInWorker(def.Name);
@@ -441,11 +444,9 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
             }
 
             VMLogger.LogWarn1D($"Unknown PGSL command: {name}");
-            // A function of a library Script that did not compile is unknown for that reason.
-            IReadOnlyDictionary<string, string> failed = Genesis.Runtime.Scripting.ScriptAssetRegistry.LoadErrors;
-            throw new InvalidOperationException(failed.Count == 0
-                ? $"Unknown command: {name}"
-                : $"Unknown command: {name}. A Script that did not compile may define it: {string.Join("; ", failed.Values)}");
+            // A Script that did not compile (or a library whose function this is) is unknown for
+            // that reason, and the error says which and where.
+            throw new InvalidOperationException(Genesis.Runtime.Scripting.ScriptAssetRegistry.DescribeUnknown(name));
         }
 
         if (def.IsProperty)

@@ -50,12 +50,18 @@ namespace Genesis.Runtime.Scripting
             // Every function the library Scripts declare, to warn when two share a name: a call by name
             // reaches only one of them, so calls meant for the other quietly reach the wrong function.
             var libraryDeclarations = new List<(string File, FunctionDeclStmt Function)>();
+            // Every function any script declares, and each Script resource with code of its own
+            // (not only functions), to warn when a function takes a Script's name: a call by that
+            // name runs the function, so the Script's own code never runs from it.
+            var allDeclarations = new List<(string File, FunctionDeclStmt Function)>();
+            var scriptsWithCode = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (string file in files)
             {
                 bool objectEvent = PgslPlayCompiler.TryObjectEventFile(file, out _, out _);
+                string stem = null;
                 if (!objectEvent)
                 {
-                    string stem = ResourceNames.Name(projectPath, file, ResourceType.Script);
+                    stem = ResourceNames.Name(projectPath, file, ResourceType.Script);
                     if (!string.IsNullOrWhiteSpace(stem))
                     {
                         externalFunctions.Add(stem);
@@ -71,7 +77,12 @@ namespace Genesis.Runtime.Scripting
                     foreach (System.Text.RegularExpressions.Match quoted in QuotedName.Matches(text))
                         projectNames.Add(quoted.Groups[1].Value);
                     CollectSourceWrites(text, writes, functions,
-                        declared: objectEvent ? null : function => libraryDeclarations.Add((file, function)));
+                        declared: function =>
+                        {
+                            allDeclarations.Add((file, function));
+                            if (!objectEvent) libraryDeclarations.Add((file, function));
+                        },
+                        hasCode: () => { if (!string.IsNullOrWhiteSpace(stem)) scriptsWithCode[stem] = file; });
                     CollectSourceWrites(text, projectNames, new HashSet<string>(StringComparer.OrdinalIgnoreCase), includeFunctionBodies: true);
                 }
                 catch { /* the validation pass below reports the actual read/parse failure */ }
@@ -159,6 +170,7 @@ namespace Genesis.Runtime.Scripting
             }
 
             WarnDuplicateLibraryFunctions(projectPath, libraryDeclarations, warnings);
+            WarnFunctionsNamedLikeScripts(projectPath, allDeclarations, scriptsWithCode, warnings);
 
             bool success = errors.Count == 0;
             var summary = new StringBuilder();
@@ -250,17 +262,22 @@ namespace Genesis.Runtime.Scripting
         }
 
         private static void CollectSourceWrites(string source, ISet<string> writes, ISet<string> functions,
-            bool includeFunctionBodies = false, Action<FunctionDeclStmt> declared = null)
+            bool includeFunctionBodies = false, Action<FunctionDeclStmt> declared = null, Action hasCode = null)
         {
             void Collect(ScriptAst ast)
             {
                 PgslSemanticChecker.CollectWrittenVariables(ast, writes, includeFunctionBodies);
+                bool code = false;
                 foreach (Stmt statement in ast.Body)
+                {
                     if (statement is FunctionDeclStmt function && !string.IsNullOrWhiteSpace(function.Name))
                     {
                         functions.Add(function.Name);
                         declared?.Invoke(function);
                     }
+                    else if (statement is not FunctionDeclStmt) code = true;
+                }
+                if (code) hasCode?.Invoke();
             }
 
             Dictionary<string, string> eventBodies = PgslPlayCompiler.SplitEventBlocks(source);
@@ -303,6 +320,33 @@ namespace Genesis.Runtime.Scripting
                     + string.Join("; ", group.Select(Where))
                     + ". A call by name from an Object or another Script reaches only one of them, so a call meant for another"
                     + " runs the wrong function or fails on its argument count. Rename all but one.");
+            }
+        }
+
+        /// <summary>
+        /// Warns once for each function (in a library Script or an Object's event) named like a Script
+        /// resource that has code of its own: a call by that name runs the function and never the
+        /// Script, so without arguments the Script's code silently does not run, and with arguments
+        /// that do not fit the function the call is an error.
+        /// </summary>
+        private static void WarnFunctionsNamedLikeScripts(
+            string projectPath,
+            List<(string File, FunctionDeclStmt Function)> declarations,
+            Dictionary<string, string> scriptsWithCode,
+            List<string> warnings)
+        {
+            foreach (var group in declarations
+                .Where(item => scriptsWithCode.ContainsKey(item.Function.Name))
+                .GroupBy(item => item.Function.Name, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                var first = group.First();
+                string script = scriptsWithCode[group.Key];
+                warnings.Add($"{SafeRelativePath(projectPath, first.File)}"
+                    + (first.Function.Line > 0 ? $" (line {first.Function.Line}, column {Math.Max(1, first.Function.Column)})" : string.Empty)
+                    + $": function '{first.Function.Name}' has the name of the Script '{group.Key}' ({SafeRelativePath(projectPath, script)})."
+                    + $" A call {group.Key}(...) runs the function, never the Script: without arguments the Script's own code silently does not run,"
+                    + " and with arguments that do not fit the function the call is an error. Rename the function or the Script.");
             }
         }
 
