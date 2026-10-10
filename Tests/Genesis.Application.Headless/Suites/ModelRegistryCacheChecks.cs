@@ -47,7 +47,9 @@ internal static class ModelRegistryCacheChecks
         var bounded = new RuntimeModelAssetRegistry(20);
         old = bounded.Load(firstProject, reference);
         Save(firstProject, 5);
-        Thread.Sleep(25);
+        // Well past the 20 ms freshness: the registry's clock (Environment.TickCount64) moves in
+        // steps of about 15.6 ms, so 25 ms could read as a single step and not yet be expired.
+        Thread.Sleep(80);
         check(!ReferenceEquals(old, bounded.Load(firstProject, reference)), "Expired request did not reload a changed resource.");
     }
 }
