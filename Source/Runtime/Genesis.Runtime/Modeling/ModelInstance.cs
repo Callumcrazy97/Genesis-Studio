@@ -331,4 +331,65 @@ public static class ModelInstance
         model.MaterialTints[name] = new Vector4(Vector3.Clamp(colour, Vector3.Zero, new Vector3(16f)), 1f);
         return true;
     }
+
+    /// <summary>
+    /// Gives one of the model's materials another image on this instance only: every weapon on a
+    /// map its own camo from one model. <paramref name="slot"/> is <c>albedo</c>, <c>normal</c>,
+    /// <c>orm</c> or <c>emission</c> for the material's own maps, or the name of a texture the
+    /// material's Shader declares (its <c>Texture2D</c> at t17-t23). An empty image gives the slot
+    /// back its authored image.
+    /// </summary>
+    /// <returns>False when the model has no material of that name or the slot is empty.</returns>
+    public static bool SetMaterialTexture(EcsWorld? world, Entity entity, string material, string slot, string? image)
+    {
+        if (string.IsNullOrWhiteSpace(material) || string.IsNullOrWhiteSpace(slot)
+            || !TryModel(world, entity, out GModelAsset asset)) return false;
+        string name = material.Trim();
+        if (asset.Materials?.Exists(candidate => string.Equals(candidate.Name, name, StringComparison.OrdinalIgnoreCase)) != true) return false;
+        string key = MaterialTextureSlots.Normalize(slot);
+        ref ModelRendererComponent model = ref world!.GetRef<ModelRendererComponent>(entity);
+        if (string.IsNullOrWhiteSpace(image))
+        {
+            if (model.MaterialTextures?.TryGetValue(name, out Dictionary<string, string>? slots) == true)
+            {
+                slots.Remove(key);
+                if (slots.Count == 0) model.MaterialTextures.Remove(name);
+            }
+            return true;
+        }
+
+        model.MaterialTextures ??= new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
+        if (!model.MaterialTextures.TryGetValue(name, out Dictionary<string, string>? textures))
+            model.MaterialTextures[name] = textures = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        textures[key] = image.Trim();
+        return true;
+    }
+}
+
+/// <summary>The engine's own material map slots, as <see cref="ModelInstance.SetMaterialTexture"/> names them.</summary>
+public static class MaterialTextureSlots
+{
+    public const string Albedo = "albedo";
+    public const string Normal = "normal";
+    public const string Orm = "orm";
+    public const string Emission = "emission";
+
+    /// <summary>The engine slot a name means (any case, a few spellings), or the name itself for a shader's texture.</summary>
+    public static string Normalize(string slot)
+    {
+        string trimmed = slot?.Trim() ?? string.Empty;
+        return trimmed.ToLowerInvariant() switch
+        {
+            "albedo" or "base" or "basecolor" or "base colour" or "base color" or "color" or "colour" => Albedo,
+            "normal" or "normalmap" => Normal,
+            "orm" or "metallicroughness" or "metallic-roughness" => Orm,
+            "emission" or "emissive" => Emission,
+            _ => trimmed,
+        };
+    }
+
+    /// <summary>True for the four slots the engine's own materials read.</summary>
+    public static bool IsEngineSlot(string slot) =>
+        string.Equals(slot, Albedo, StringComparison.Ordinal) || string.Equals(slot, Normal, StringComparison.Ordinal)
+        || string.Equals(slot, Orm, StringComparison.Ordinal) || string.Equals(slot, Emission, StringComparison.Ordinal);
 }

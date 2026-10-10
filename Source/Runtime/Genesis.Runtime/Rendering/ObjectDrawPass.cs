@@ -235,6 +235,7 @@ namespace Genesis.Runtime.Rendering
                 if (draw3d.Procedural && ProceduralMeshDrawRegistry.TryGet(entity, out MeshDrawCall[] procedural))
                 {
                     int added = 0;
+                    int first = drawCount;
                     for (int i = 0; i < procedural.Length && drawCount < buffer.Length; i++)
                     {
                         MeshDrawCall call = procedural[i];
@@ -246,6 +247,7 @@ namespace Genesis.Runtime.Rendering
                             added++;
                         }
                     }
+                    if (hasAssets) MarkOutline(assets, entity, buffer, first, drawCount);
                     RenderAutoState.SubmittedMeshes += added;
                     return;
                 }
@@ -260,7 +262,8 @@ namespace Genesis.Runtime.Rendering
                         bool enqueued;
                         using (Genesis.Shared.Diagnostics.LoadProfile.Begin("models enqueued"))
                             enqueued = ModelRenderer.Enqueue(queue, projectPath, model.ModelAsset, model.MaterialOverride,
-                                RuntimeModelRenderSystem.TransformMatrix(transform, model), draw3d, model, anim, renderer);
+                                RuntimeModelRenderSystem.TransformMatrix(transform, model), draw3d, model, anim, renderer,
+                                InstanceShaderParameters(hasAssets ? assets : null), InstanceShaderResources(hasAssets ? assets : null));
                         if (enqueued)
                         {
                             int before = drawCount;
@@ -274,25 +277,8 @@ namespace Genesis.Runtime.Rendering
                                 shaded = hasAssets && drawCount > before
                                     && TryResolveShader(renderer, projectPath, assets, ShaderAssetPipeline.Mesh, out shader);
                             if (shaded)
-                            {
-                                int originalCount = drawCount - before;
-                                int passCount = Math.Max(1, shader.PassHandles.Length);
-                                int retainedOriginals = Math.Min(originalCount, (buffer.Length - before) / passCount);
-                                BindAuthoredTextures(renderer, projectPath, assets, shader, ShaderAssetPipeline.Mesh, ref buffer[before].AuthoredTextures);
-                                AuthoredShaderTextures textures = buffer[before].AuthoredTextures;
-                                for (int original = retainedOriginals - 1; original >= 0; original--)
-                                {
-                                    MeshDrawCall source = buffer[before + original];
-                                    source.AuthoredTextures = textures;
-                                    for (int pass = passCount - 1; pass >= 0; pass--)
-                                    {
-                                        MeshDrawCall expanded = source;
-                                        ApplyResolvedShader(shader, shader.PassHandles[pass], ref expanded);
-                                        buffer[before + original * passCount + pass] = expanded;
-                                    }
-                                }
-                                drawCount = before + retainedOriginals * passCount;
-                            }
+                                drawCount = ExpandObjectShaderPasses(renderer, projectPath, assets, shader, buffer, before, drawCount);
+                            if (hasAssets) MarkOutline(assets, entity, buffer, before, drawCount);
                             RenderAutoState.SubmittedMeshes += drawCount - before;
                             return;
                         }
@@ -311,12 +297,66 @@ namespace Genesis.Runtime.Rendering
                 MeshDrawCall cube = assets.TerrainTextureMode == null
                     ? ImageCube(renderer, assets, transform, draw3d, tex)
                     : TerrainTexture(renderer, projectPath, assets, transform, draw3d, cameraEye, frameIndex);
+                int cubeStart = drawCount;
                 int cubePasses = AppendMeshShaderPasses(renderer, projectPath, assets, cube, buffer, ref drawCount);
+                MarkOutline(assets, entity, buffer, cubeStart, drawCount);
                 RenderAutoState.SubmittedMeshes += cubePasses;
                 if ((cube.Flags & MeshDrawFlags.NoShadow) == 0) RenderAutoState.ShadowCastersSubmitted++;
             });
             count = drawCount;
         }
+
+        /// <summary>
+        /// Gives an Object's model draws in <paramref name="buffer"/>[<paramref name="start"/>,
+        /// <paramref name="end"/>) the Object's shader, one draw per pass. A material with a shader
+        /// of its own keeps it (a building's glass); the Object's shader covers the rest.
+        /// </summary>
+        /// <returns>The end of the draws after expansion.</returns>
+        private static int ExpandObjectShaderPasses(IRenderController renderer, string projectPath,
+            ObjectDrawAssetEntry assets, ShaderCacheEntry shader, MeshDrawCall[] buffer, int start, int end)
+        {
+            int originalCount = end - start;
+            int passCount = Math.Max(1, shader.PassHandles.Length);
+            AuthoredShaderTextures textures = default;
+            BindAuthoredTextures(renderer, projectPath, assets, shader, ShaderAssetPipeline.Mesh, ref textures);
+            MeshDrawCall[] originals = System.Buffers.ArrayPool<MeshDrawCall>.Shared.Rent(Math.Max(1, originalCount));
+            try
+            {
+                Array.Copy(buffer, start, originals, 0, originalCount);
+                int write = start;
+                for (int original = 0; original < originalCount; original++)
+                {
+                    MeshDrawCall source = originals[original];
+                    if (source.Shader.IsValid)
+                    {
+                        if (write >= buffer.Length) break;
+                        buffer[write++] = source;
+                        continue;
+                    }
+                    if (write + passCount > buffer.Length) break;
+                    source.AuthoredTextures = textures;
+                    for (int pass = 0; pass < passCount; pass++)
+                    {
+                        MeshDrawCall expanded = source;
+                        ApplyResolvedShader(shader, shader.PassHandles[pass], ref expanded);
+                        buffer[write++] = expanded;
+                    }
+                }
+                return write;
+            }
+            finally
+            {
+                System.Buffers.ArrayPool<MeshDrawCall>.Shared.Return(originals);
+            }
+        }
+
+        /// <summary>The instance's own shader values, or null when it has none (the usual case).</summary>
+        private static IReadOnlyDictionary<string, float[]> InstanceShaderParameters(ObjectDrawAssetEntry assets) =>
+            assets?.ShaderParameters is { Count: > 0 } values ? values : null;
+
+        /// <summary>The instance's own shader images, or null when it has none.</summary>
+        private static IReadOnlyDictionary<string, string> InstanceShaderResources(ObjectDrawAssetEntry assets) =>
+            assets?.ShaderResources is { Count: > 0 } images ? images : null;
 
         /// <summary>
         /// World position of the first live instance of <paramref name="objectName"/>, for a
@@ -425,12 +465,13 @@ namespace Genesis.Runtime.Rendering
 
             if (draw3d.Procedural && ProceduralMeshDrawRegistry.TryGet(entity, out MeshDrawCall[] procedural))
             {
+                IMeshDrawList target = hasVisualAssets ? Outlined(queue, visualAssets, entity) : queue;
                 for (int i = 0; i < procedural.Length; i++)
                 {
                     if (hasVisualAssets)
-                        AppendMeshShaderPasses(renderer, projectPath, visualAssets, procedural[i], queue);
+                        AppendMeshShaderPasses(renderer, projectPath, visualAssets, procedural[i], target);
                     else
-                        queue.Add(procedural[i]);
+                        target.Add(procedural[i]);
                 }
                 return;
             }
@@ -438,20 +479,22 @@ namespace Genesis.Runtime.Rendering
             if (world.Has<ModelRendererComponent>(entity))
             {
                 ref ModelRendererComponent model = ref world.GetRef<ModelRendererComponent>(entity);
-                IMeshDrawList destination = queue;
+                IMeshDrawList destination = hasVisualAssets ? Outlined(queue, visualAssets, entity) : queue;
                 if (hasVisualAssets
                     && TryResolveShader(renderer, projectPath, visualAssets, ShaderAssetPipeline.Mesh, out ShaderCacheEntry modelShader))
                 {
                     AuthoredShaderTextures textures = default;
                     BindAuthoredTextures(renderer, projectPath, visualAssets, modelShader, ShaderAssetPipeline.Mesh, ref textures);
-                    destination = new ShaderPassDrawList(queue, modelShader, textures);
+                    destination = new ShaderPassDrawList(destination, modelShader, textures);
                 }
                 if (!string.IsNullOrWhiteSpace(model.ModelAsset)
                     && ModelRenderer.Enqueue(hasVisualAssets && visualAssets.TerrainTextureMode != null
                         ? new ImageMaterialDrawList(destination, renderer, projectPath, visualAssets, ReadSpriteFrameIndex(world, entity)) : destination,
                         projectPath, model.ModelAsset, model.MaterialOverride,
                         RuntimeModelRenderSystem.TransformMatrix(transform, model), draw3d, model,
-                        ReadAnimation(world, entity, model.KeepPreviousTransform), renderer))
+                        ReadAnimation(world, entity, model.KeepPreviousTransform), renderer,
+                        InstanceShaderParameters(hasVisualAssets ? visualAssets : null),
+                        InstanceShaderResources(hasVisualAssets ? visualAssets : null)))
                 {
                     return;
                 }
@@ -470,7 +513,7 @@ namespace Genesis.Runtime.Rendering
             MeshDrawCall cube = assets.TerrainTextureMode == null
                 ? ImageCube(renderer, assets, transform, draw3d, tex)
                 : TerrainTexture(renderer, projectPath, assets, transform, draw3d, cameraEye, frameIndex);
-            AppendMeshShaderPasses(renderer, projectPath, assets, cube, queue);
+            AppendMeshShaderPasses(renderer, projectPath, assets, cube, Outlined(queue, assets, entity));
         }
 
         private static bool HasAuthoredGeometry(ObjectDrawAssetEntry assets, string image)
@@ -906,13 +949,36 @@ namespace Genesis.Runtime.Rendering
         /// shader's own parameter values). False leaves the draw as it was.
         /// </summary>
         internal static bool TryApplyMaterialShader(
-            IRenderController renderer, string projectPath, string shaderName, ref MeshDrawCall call)
+            IRenderController renderer, string projectPath, string shaderName, ref MeshDrawCall call) =>
+            TryApplyMaterialShader(renderer, projectPath, shaderName, null, null, null, ref call);
+
+        /// <summary>
+        /// As <see cref="TryApplyMaterialShader(IRenderController, string, string, ref MeshDrawCall)"/>,
+        /// with the instance's own shader values and images (ShaderSetParameter, ShaderSetTexture) and
+        /// this material's own images on the instance (ModelSetMaterialTexture), which win.
+        /// </summary>
+        internal static bool TryApplyMaterialShader(
+            IRenderController renderer, string projectPath, string shaderName,
+            IReadOnlyDictionary<string, float[]> parameters,
+            IReadOnlyDictionary<string, string> resources,
+            IReadOnlyDictionary<string, string> materialResources,
+            ref MeshDrawCall call)
         {
             if (string.IsNullOrWhiteSpace(shaderName)) return false;
             _materialShaderLookup ??= new ObjectDrawAssetEntry();
             _materialShaderLookup.Shader = shaderName.Trim();
             _materialShaderLookup.ShaderParameters.Clear();
             _materialShaderLookup.ShaderResources.Clear();
+            if (parameters != null)
+                foreach (KeyValuePair<string, float[]> parameter in parameters)
+                    _materialShaderLookup.ShaderParameters[parameter.Key] = parameter.Value;
+            if (resources != null)
+                foreach (KeyValuePair<string, string> resource in resources)
+                    _materialShaderLookup.ShaderResources[resource.Key] = resource.Value;
+            if (materialResources != null)
+                foreach (KeyValuePair<string, string> resource in materialResources)
+                    if (!Genesis.Runtime.Modeling.MaterialTextureSlots.IsEngineSlot(resource.Key))
+                        _materialShaderLookup.ShaderResources[resource.Key] = resource.Value;
             if (!TryResolveShader(renderer, projectPath, _materialShaderLookup, ShaderAssetPipeline.Mesh, out ShaderCacheEntry shader))
                 return false;
             RuntimeShaderHandle handle = shader.PassHandles.Length > 0 ? shader.PassHandles[0] : shader.Handle;

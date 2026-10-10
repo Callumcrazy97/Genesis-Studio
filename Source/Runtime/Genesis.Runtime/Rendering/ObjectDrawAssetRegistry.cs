@@ -42,6 +42,10 @@ namespace Genesis.Runtime.Rendering
         public float ModelScaleZ = 1f;
         public FaceCullingOverride Culling = FaceCullingOverride.Default;
         public FrontFaceWindingOverride WindingOrder = FrontFaceWindingOverride.Default;
+        /// <summary>The instance's outline (InstanceSetOutline): rgb colour, w width in pixels; null for none.</summary>
+        public Vector4? Outline;
+        /// <summary>The outline shows where the instance is behind something as well.</summary>
+        public bool OutlineThroughWalls;
 
         public bool HasSpriteTransition => !string.IsNullOrWhiteSpace(SpriteTransitionPreviousImage)
             && SpriteTransitionDuration > 0f

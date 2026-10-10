@@ -591,6 +591,10 @@ namespace Genesis.Rendering.Primitives
         private GpuShaderProgramHandle _overrideSkinnedProgram;
         private readonly Dictionary<int, (GpuShaderProgramHandle Static, GpuShaderProgramHandle Skinned)> _runtimePrograms = new();
         private readonly Dictionary<int, Genesis.Shared.Assets.ShaderMeshPassMode> _runtimePassModes = new();
+        // Surface shaders (MeshSurfaceShaders): programs built on the engine's own pixel shader,
+        // which reads its lamp-shadow constants at b4, so their GenesisFrame is at b3.
+        private readonly HashSet<int> _runtimeEngineLit = new();
+        private bool _overrideEngineLit;
         private int _nextRuntimeProgramId = 1;
         private GpuVertexLayoutHandle _layout;
         private GpuVertexLayoutHandle _layoutSkinned;
@@ -922,7 +926,8 @@ namespace Genesis.Rendering.Primitives
         public void SetPixelShaderOverride(byte[] pixelShader)
             => SetShaderProgramOverride(null, pixelShader);
 
-        public void SetShaderProgramOverride(byte[] vertexShader, byte[] pixelShader)
+        /// <param name="engineLit">The pixel shader is a surface shader (<see cref="MeshSurfaceShaders"/>).</param>
+        public void SetShaderProgramOverride(byte[] vertexShader, byte[] pixelShader, bool engineLit = false)
         {
             if (pixelShader == null || pixelShader.Length == 0)
             {
@@ -930,6 +935,7 @@ namespace Genesis.Rendering.Primitives
                 _gpu.ReleaseShaderProgram(_overrideSkinnedProgram);
                 _overrideProgram = GpuShaderProgramHandle.Invalid;
                 _overrideSkinnedProgram = GpuShaderProgramHandle.Invalid;
+                _overrideEngineLit = false;
                 return;
             }
 
@@ -962,14 +968,21 @@ namespace Genesis.Rendering.Primitives
             _gpu.ReleaseShaderProgram(_overrideSkinnedProgram);
             _overrideProgram = replacement;
             _overrideSkinnedProgram = skinnedReplacement;
+            _overrideEngineLit = engineLit;
         }
 
-        public RuntimeShaderHandle RegisterRuntimeShader(byte[] pixelShader)
-            => RegisterRuntimeShaderProgram(null, pixelShader);
+        public RuntimeShaderHandle RegisterRuntimeShader(byte[] pixelShader, bool engineLit = false)
+            => RegisterRuntimeShaderProgram(null, pixelShader, engineLit: engineLit);
 
+        /// <param name="engineLit">
+        /// The pixel shader is a surface shader (<see cref="MeshSurfaceShaders"/>): the engine's own
+        /// pixel shader around a project's Surface function, reading the engine's constants as they
+        /// are bound for the engine's draws, with its GenesisFrame at b3.
+        /// </param>
         public RuntimeShaderHandle RegisterRuntimeShaderProgram(byte[] vertexShader, byte[] pixelShader,
             byte[] skinnedVertexShader = null,
-            Genesis.Shared.Assets.ShaderMeshPassMode mode = Genesis.Shared.Assets.ShaderMeshPassMode.Surface)
+            Genesis.Shared.Assets.ShaderMeshPassMode mode = Genesis.Shared.Assets.ShaderMeshPassMode.Surface,
+            bool engineLit = false)
         {
             if (pixelShader == null || pixelShader.Length == 0) throw new ArgumentException("Runtime shader bytecode is empty.", nameof(pixelShader));
             GpuShaderProgramHandle staticProgram = GpuShaderProgramHandle.Invalid;
@@ -981,6 +994,7 @@ namespace Genesis.Rendering.Primitives
                 int id = _nextRuntimeProgramId++;
                 _runtimePrograms.Add(id, (staticProgram, skinnedProgram));
                 _runtimePassModes.Add(id, mode);
+                if (engineLit) _runtimeEngineLit.Add(id);
                 return new RuntimeShaderHandle(id);
             }
             catch
@@ -995,6 +1009,7 @@ namespace Genesis.Rendering.Primitives
         {
             if (!handle.IsValid || !_runtimePrograms.Remove(handle.Id, out var programs)) return;
             _runtimePassModes.Remove(handle.Id);
+            _runtimeEngineLit.Remove(handle.Id);
             _gpu.ReleaseShaderProgram(programs.Static);
             _gpu.ReleaseShaderProgram(programs.Skinned);
         }
@@ -2628,7 +2643,8 @@ namespace Genesis.Rendering.Primitives
             SkinPaletteHandle skinPalette = default, RuntimeShaderHandle shader = default,
             Vector4 shaderParams0 = default, Vector4 shaderParams1 = default,
             Vector4 shaderParams2 = default, Vector4 shaderParams3 = default,
-            AuthoredGpuTextures authoredTextures = default, Vector4 materialFactors = default, int layer = 0)
+            AuthoredGpuTextures authoredTextures = default, Vector4 materialFactors = default, int layer = 0,
+            Vector4 outline = default, int outlineId = 0, bool outlineThroughWalls = false)
         {
             if (!mesh.IsValid) return;
             if (!TryGetMesh(mesh.Id, out MeshEntry meshEntrySource))
@@ -2744,6 +2760,10 @@ namespace Genesis.Rendering.Primitives
                     visible = false;
                 }
             }
+
+            // A marked draw is drawn again into the object images (ForwardRenderer.Outlines).
+            if (outlineId > 0 && visible)
+                AddOutline(mesh.Id, gpuSkinned ? skinPalette.Id : 0, world, outline, outlineId, outlineThroughWalls, rasterOverride);
 
             if (!visible && noShadow)
                 return;
@@ -3507,6 +3527,8 @@ namespace Genesis.Rendering.Primitives
                         : GpuTextureHandle.Invalid,
                     runRaymarchedClouds,
                     runCelestialExtras);
+                // Outlines over the composited frame, under held items and post effects.
+                OutlinePass(composed, postDepth, viewW, viewH);
                 DrawViewModelPass(composed, whiteTexture);
                 if (HasPostEffects) RunPostEffects(target, postDepth, viewW, viewH);
             }
@@ -4000,7 +4022,11 @@ namespace Genesis.Rendering.Primitives
 
         private void BindShaderParameters(RuntimeShaderHandle shader, Vector4 row0, Vector4 row1, Vector4 row2, Vector4 row3)
         {
-            if (!shader.IsValid || !_runtimePrograms.ContainsKey(shader.Id))
+            bool custom = shader.IsValid && _runtimePrograms.ContainsKey(shader.Id);
+            // A surface shader is the engine's pixel shader around a project's Surface function.
+            bool engineLit = custom ? _runtimeEngineLit.Contains(shader.Id)
+                : _overrideEngineLit && _overrideProgram.IsValid && _state.DebugView == RenderDebugView.Shaded;
+            if (!custom || engineLit)
             {
                 // The engine's own pixel shader reads its lamp-shadow constants at b4.
                 if (_pixelB4NotOmni)
@@ -4008,7 +4034,8 @@ namespace Genesis.Rendering.Primitives
                     _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 4, _cbOmni);
                     _pixelB4NotOmni = false;
                 }
-                return;
+                if (engineLit) _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 3, MeshShaderFrame());
+                if (!custom) return;
             }
             _gpu.UpdateConstantBuffer(_cbShaderParameters, new ShaderParametersCB
             {
@@ -4016,7 +4043,15 @@ namespace Genesis.Rendering.Primitives
             });
             _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 5, _cbShaderParameters);
             _gpu.SetConstantBuffer(GpuShaderStage.Vertex, 5, _cbShaderParameters);
+            if (engineLit) return;
             // A mesh Shader resource's own pixel shader replaces the engine's: b4 is its GenesisFrame.
+            _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 4, MeshShaderFrame());
+            _pixelB4NotOmni = true;
+        }
+
+        /// <summary>A mesh Shader resource's GenesisFrame (Time, Frame, Resolution), filled once a frame.</summary>
+        private GpuBufferHandle MeshShaderFrame()
+        {
             if (_meshShaderFrameFor != _submitFrameId)
             {
                 _gpu.UpdateConstantBuffer(_cbMeshShaderFrame, new PostEffectFrameCB
@@ -4028,8 +4063,7 @@ namespace Genesis.Rendering.Primitives
                 });
                 _meshShaderFrameFor = _submitFrameId;
             }
-            _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 4, _cbMeshShaderFrame);
-            _pixelB4NotOmni = true;
+            return _cbMeshShaderFrame;
         }
 
         private Genesis.Shared.Assets.ShaderMeshPassMode RuntimePassMode(RuntimeShaderHandle shader) =>
@@ -4333,12 +4367,17 @@ namespace Genesis.Rendering.Primitives
             _gpu.SetConstantBuffer(GpuShaderStage.Vertex, 4, _cbOmni);
             _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 4, _cbOmni);
             _pixelB4NotOmni = false;
+            // The Shader editor's preview of a surface shader draws everything, sky and floor too.
+            if (_overrideEngineLit && _overrideProgram.IsValid)
+                _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 3, MeshShaderFrame());
             BindFroxelApply();
 
             // Bind samplers
             _gpu.SetSampler(GpuShaderStage.Pixel, 0, _albedoSampler);
             _gpu.SetSampler(GpuShaderStage.Pixel, 1, _shadowSampler);
             _gpu.SetSampler(GpuShaderStage.Vertex, 0, _albedoSampler);
+            // s3: a surface shader's GenesisLinearWrap (MeshSurfaceShaders); the engine's own reads none.
+            _gpu.SetSampler(GpuShaderStage.Pixel, 3, _materialSampler);
 
             // Upload per-frame + engine CBs
             Matrix4x4 lightVPFar  = ComputeLightViewProj(ShadowCascadeKind.Far);
@@ -6241,6 +6280,7 @@ namespace Genesis.Rendering.Primitives
             }
             _transBatches.Clear();
             _transBatchList.Clear();
+            _outlineDraws.Clear();
             _skinnedInstOffset = 0;
             _transInstOffset = 0;
             LastItemsSubmitted = 0;
@@ -6257,6 +6297,7 @@ namespace Genesis.Rendering.Primitives
         {
             ReleasePostEffectTargets();
             ReleaseModelLayers();
+            ReleaseOutlineResources();
             if (_reflectionTarget.IsValid) _gpu.ReleaseRenderTarget(_reflectionTarget);
             _gpu.ReleaseVertexLayout(_layout);
             _gpu.ReleaseVertexLayout(_layoutSkinned);

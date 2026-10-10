@@ -48,6 +48,8 @@ struct PreviewVSOut { float4 SvPos : SV_Position; float2 UV : TEXCOORD0; };
 | `SceneColor` | `t0` | The frame so far, in display space (after tonemapping). |
 | `SceneDepth` | `t1` | Scene depth, `Texture2D<float>`. |
 | `SceneFlags` | `t2` | Per pixel, `r`: 1 or 0.875 fogged in the forward pass, 0.5 or 0.375 engine-lit, 0 for authored shaders and the sky. **0.875 and 0.375 mark foliage** (grass, flowers, anything drawn as foliage). `gba`: the pixel's ambient light before fog. |
+| `ObjectMarks` | `t3` | `Texture2D<float4>`. Where an instance marked with `InstanceSetOutline` covers the pixel (the nearest, where several do): `rgb` its outline colour, `a` = (width + 1) / 63, so any mark has `a` above 0. 0 elsewhere, and everywhere in a frame without marks. |
+| `ObjectIds` | `t4` | `Texture2D<float>`. The marked instance's id there (its instance id); **negative where that instance is hidden behind something** (marks shown through walls only), 0 where nothing is marked. |
 | sampler | `s0` | Linear, clamped. |
 | `GenesisFrame` | `b4` | `float Time; float Frame; float2 Resolution;` as in the Shader editor. |
 | `GenesisParameters` | `b5` | Your parameters (up to 16 floats), set in the Shader editor and by scripts. |
@@ -60,6 +62,33 @@ float viewZ = Clip.z > 0.5
     ? near * far / (near + d * (far - near))   // reversed depth
     : near * far / (far - d * (far - near));   // standard depth
 ```
+
+## Example: teammates through walls
+
+The engine draws an outline itself (`InstanceSetOutline(id, r, g, b, width, throughWalls)`, see
+[Game features](GameFeatures.md#outlines-and-the-object-images)). A post effect can add to it from
+the same marks, for example a faint fill over the parts of marked instances that are hidden:
+
+```hlsl
+Texture2D SceneColor : register(t0);
+Texture2D<float4> ObjectMarks : register(t3);
+Texture2D<float> ObjectIds : register(t4);
+cbuffer GenesisParameters : register(b5) { float FillOpacity; };
+struct PreviewVSOut { float4 SvPos : SV_Position; float2 UV : TEXCOORD0; };
+
+float4 MainPS(PreviewVSOut IN) : SV_Target
+{
+    int3 p = int3(int2(IN.SvPos.xy), 0);
+    float4 colour = SceneColor.Load(p);
+    float4 mark = ObjectMarks.Load(p);
+    if (ObjectIds.Load(p) < 0.0)                     // a marked instance, behind something
+        colour.rgb = lerp(colour.rgb, mark.rgb, FillOpacity);
+    return colour;
+}
+```
+
+Use width 0 in `InstanceSetOutline` to mark instances for an effect like this without the engine's
+line.
 
 ## Example: the ink outline
 

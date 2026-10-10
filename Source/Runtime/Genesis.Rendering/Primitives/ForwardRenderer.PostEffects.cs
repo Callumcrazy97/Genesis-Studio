@@ -8,8 +8,9 @@ using Genesis.Shared.Interfaces;
 namespace Genesis.Rendering.Primitives
 {
     // Project post effects: a project's Fullscreen Shader resources, run in order after the final
-    // composite. Each reads the image so far (t0), scene depth (t1) and the forward pass's flag
-    // target (t2), with the same GenesisFrame (b4) and GenesisParameters (b5) the Shader editor's
+    // composite. Each reads the image so far (t0), scene depth (t1), the forward pass's flag
+    // target (t2) and the object images (t3 marks, t4 ids; ForwardRenderer.Outlines), with the
+    // same GenesisFrame (b4) and GenesisParameters (b5) the Shader editor's
     // preview gives a Fullscreen shader, plus GenesisCamera (b6). The look belongs to the project;
     // the engine only provides the inputs and runs the passes.
     internal sealed partial class ForwardRenderer
@@ -201,6 +202,7 @@ namespace Genesis.Rendering.Primitives
                 _gpu.SetTexture(GpuShaderStage.Pixel, 0, _postEffectTextures[source]);
                 _gpu.SetTexture(GpuShaderStage.Pixel, 1, depthTexture);
                 _gpu.SetTexture(GpuShaderStage.Pixel, 2, _fogSkipTexture);
+                BindObjectImages();
                 _gpu.SetSampler(GpuShaderStage.Pixel, 0, _linearSampler);
                 _gpu.SetVertexLayout(GpuVertexLayoutHandle.Invalid);
                 _gpu.SetPrimitiveTopology(GpuPrimitiveTopology.TriangleList);
@@ -208,6 +210,8 @@ namespace Genesis.Rendering.Primitives
                 _gpu.ClearTexture(GpuShaderStage.Pixel, 0);
                 _gpu.ClearTexture(GpuShaderStage.Pixel, 1);
                 _gpu.ClearTexture(GpuShaderStage.Pixel, 2);
+                _gpu.ClearTexture(GpuShaderStage.Pixel, 3);
+                _gpu.ClearTexture(GpuShaderStage.Pixel, 4);
                 _gpu.EndRenderPass();
                 source = 1 - source;
             }

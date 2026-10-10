@@ -45,6 +45,20 @@ public static partial class PgslCommands
         assets.ShaderParameters[name.Trim()] = new[] { (float)x, (float)y, (float)z, (float)w };
     }
 
+    [PgslCommand("ShaderSetTexture", "ShaderSetTexture(name, image)",
+        "Give one of this instance's shader textures (a Texture2D the shader declares) another Image; empty gives it back its own", "Shaders")]
+    public static void ShaderSetTexture(string name, string image) =>
+        InstanceSetShaderTexture(GetContext()?.InstanceId ?? 0, name, image);
+
+    [PgslCommand("InstanceSetShaderTexture", "InstanceSetShaderTexture(id, name, image)",
+        "Give one of another instance's shader textures another Image; empty gives it back its own", "Shaders")]
+    public static void InstanceSetShaderTexture(double id, string name, string image)
+    {
+        if (string.IsNullOrWhiteSpace(name) || !TryDrawAssets(id, out ObjectDrawAssetEntry assets)) return;
+        if (string.IsNullOrWhiteSpace(image)) assets.ShaderResources.Remove(name.Trim());
+        else assets.ShaderResources[name.Trim()] = image.Trim();
+    }
+
     [PgslCommand("InstanceGetShaderParameter", "InstanceGetShaderParameter(id, name) -> number",
         "A shader parameter set on an instance (its first component); 0 when it has none of that name", "Shaders")]
     public static double InstanceGetShaderParameter(double id, string name) =>

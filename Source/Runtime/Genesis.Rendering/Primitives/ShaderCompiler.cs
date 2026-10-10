@@ -189,6 +189,7 @@ namespace Genesis.Rendering.Primitives
             if (string.IsNullOrWhiteSpace(entry)) throw new ArgumentException("Shader entry point is required.", nameof(entry));
             if (string.IsNullOrWhiteSpace(profile)) throw new ArgumentException("Shader profile is required.", nameof(profile));
 
+            PrepareSurfaceShader(ref source, ref entry, profile, sourcePath);
             string expanded = ExpandIncludes(source, sourcePath, includeSearchPaths);
             string compilerIdentity = CompilerIdentity(binaryFormat);
             string root = ShaderBinaryCache.ResolveRoot(cacheRoot);
@@ -308,8 +309,24 @@ namespace Genesis.Rendering.Primitives
             IEnumerable<string> includeSearchPaths = null)
         {
             string profile = GetProfile(stage, binaryFormat);
+            PrepareSurfaceShader(ref source, ref entry, profile, sourcePath);
             return ShaderBinaryCache.BuildKey(
                 KeySource(source, ExpandIncludes(source, sourcePath, includeSearchPaths)), entry, profile, binaryFormat, CompilerIdentity(binaryFormat));
+        }
+
+        /// <summary>
+        /// A project surface shader (<see cref="MeshSurfaceShaders"/>) is compiled as the engine's
+        /// forward pixel shader around the project's code; its pixel entry is the engine's. Every
+        /// caller (draws, the loading screen's warm-up, the export's cooking, the Shader editor)
+        /// compiles through here, so all of them make, and look up, the same program.
+        /// </summary>
+        private static void PrepareSurfaceShader(ref string source, ref string entry, string profile, string sourcePath)
+        {
+            if (!MeshSurfaceShaders.IsSurfaceSource(source)) return;
+            bool pixel = profile.StartsWith("ps_", StringComparison.OrdinalIgnoreCase);
+            if (!pixel && !profile.StartsWith("vs_", StringComparison.OrdinalIgnoreCase)) return;
+            source = MeshSurfaceShaders.Compose(source, sourcePath);
+            if (pixel) entry = MeshSurfaceShaders.PixelEntry;
         }
 
         private static readonly Regex LineDirectiveRegex = new(

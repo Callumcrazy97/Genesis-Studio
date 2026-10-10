@@ -170,6 +170,23 @@ public static partial class PgslCommands
         && Genesis.Runtime.Modeling.ModelInstance.SetMaterialEmission(world, entity, material, (float)strength,
             new Vector3((float)r, (float)g, (float)b));
 
+    [PgslCommand("ModelSetMaterialTexture", "ModelSetMaterialTexture(material, slot, image) -> bool",
+        "Give one of this model's materials another Image on this instance only (each weapon its own camo). Slot: albedo, normal, orm, emission, or a texture the material's Shader declares. An empty image gives the slot back its own",
+        "Models")]
+    public static bool ModelSetMaterialTexture(string material, string slot, string image) =>
+        ThisModel(out var world, out var entity)
+        && Genesis.Runtime.Modeling.ModelInstance.SetMaterialTexture(world, entity, material, slot, image);
+
+    [PgslCommand("InstanceSetMaterialTexture", "InstanceSetMaterialTexture(id, material, slot, image) -> bool",
+        "Give one of another instance's model materials another Image on that instance only", "Models")]
+    public static bool InstanceSetMaterialTexture(double id, string material, string slot, string image)
+    {
+        var world = ActiveGameContext?.World;
+        if (world == null || !double.IsFinite(id) || id < 1 || id > int.MaxValue) return false;
+        var entity = world.GetEntity((int)id);
+        return Genesis.Runtime.Modeling.ModelInstance.SetMaterialTexture(world, entity, material, slot, image);
+    }
+
     [PgslCommand("ModelSetMeshVisible", "ModelSetMeshVisible(mesh, visible) -> bool",
         "Show or hide a named mesh on this instance without changing the shared model", "Models")]
     public static bool ModelSetMeshVisible(string mesh, bool visible)

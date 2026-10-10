@@ -1126,7 +1126,9 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
     // Alpha-blended model surfaces are submitted with NoDepthWrite, so keep soft texture edges
     // by discarding only genuinely empty texels.
     float alphaCutoff = NoDepthWrite > 0.5 ? 0.01 : (MaterialCutoff > 0.0 ? MaterialCutoff : 0.35);
+#ifndef GENESIS_SURFACE
     clip(tex.a - alphaCutoff);
+#endif
 
     float3 base = MaterialColor.rgb * (voxelTiled ? tex.rgb : IN.Color.rgb * tex.rgb);
     // Tints (material colour, instance/vertex colour) are picked in sRGB. Terrain vertex colours
@@ -1155,6 +1157,14 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
         float shade = AlbedoTex.Sample(AlbedoSamp, IN.UV).r;
         base *= lerp(0.55, 0.75, shade);
     }
+
+#ifdef GENESIS_SURFACE
+    // A project's surface shader (MeshSurfaceShaders): the material's own values go in, the
+    // shader's come out, and everything below lights them as it lights the engine's materials.
+    float3 gsOrm;
+    float3 gsEmission;
+    GenesisApplySurface(IN, isFront, materialUv, alphaCutoff, tex, base, n, gsOrm, gsEmission);
+#endif
 
     // Foliage cards: sideways/card normals must not black out grass and trees, so the sun term
     // uses a wrapped response around a normal bent toward up. Foliage used to be fully unlit, so it
@@ -1225,6 +1235,9 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
     // touches (the far side of the mountain, undersides) dim rather than pure black.
     float hemiBlend  = n.y * 0.5 + 0.5;
     float3 hemiAmbient = lerp(AmbientGroundColor.rgb, AmbientColor.rgb, hemiBlend);
+#ifdef GENESIS_SURFACE
+    float3 orm = gsOrm;
+#else
     float3 orm = MaterialFeatures.x > 0.5 ? OrmMap.Sample(AlbedoSamp, materialUv).rgb : float3(1.0, 0.72, 0.0);
     if (MaterialRoughness > 0.0)
     {
@@ -1232,6 +1245,7 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
         float2 factors = float2(MaterialRoughness - 1.0, MaterialMetallic);
         orm.gb = MaterialFeatures.x > 0.5 ? orm.gb * factors : factors;
     }
+#endif
     float ao = orm.r;
     float wetness = WeatherWindRain.w > 0.5 ? saturate(WeatherSurface.x) * saturate(n.y) : 0;
     base *= lerp(1.0, 0.72, wetness);
@@ -1294,9 +1308,13 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
     // does not flatten the sphere/pyramid light falloff or their contact shadows.
     if (MaterialParams.z > 0.5)
         lit += base * 0.20;
+#ifdef GENESIS_SURFACE
+    float3 mappedEmission = gsEmission;
+#else
     float3 mappedEmission = MaterialFeatures.z > 0.5 ? EmissionMap.Sample(AlbedoSamp, materialUv).rgb * MaterialSurface.z : 0.0;
     if (LinearColorPipeline())
         mappedEmission = SrgbToLinear3(mappedEmission / max(MaterialSurface.z, 1e-4)) * MaterialSurface.z;
+#endif
     float3 color = lit + emissive * base + mappedEmission;
     if (StylizedParams.x > 0.5 && StylizedParams.w > 1.0)
     {

@@ -1006,6 +1006,16 @@ namespace Genesis.Shared.Interfaces
         public RuntimeShaderHandle Shader;
         public Vector4 ShaderParams0, ShaderParams1, ShaderParams2, ShaderParams3;
         public AuthoredShaderTextures AuthoredTextures;
+        /// <summary>
+        /// The draw's outline and mark in the object images (ObjectMarks, ObjectIds) that project
+        /// post effects read: rgb the colour (0 to 1, as picked), w the width in pixels, 0 to 16
+        /// (0 marks the draw without a line). Read only when <see cref="OutlineId"/> is above 0.
+        /// </summary>
+        public Vector4 Outline;
+        /// <summary>The draw's id in the object-id image (an instance id); 0 marks nothing.</summary>
+        public int OutlineId;
+        /// <summary>The mark and outline show where the draw is behind something as well.</summary>
+        public bool OutlineThroughWalls;
     }
 
     /// <summary>

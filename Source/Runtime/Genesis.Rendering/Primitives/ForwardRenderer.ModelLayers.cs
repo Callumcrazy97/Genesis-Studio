@@ -171,6 +171,7 @@ namespace Genesis.Rendering.Primitives
             _gpu.SetTexture(GpuShaderStage.Pixel, 14, shadows && _cascade.CascadeCount >= 3 ? _shadowMidTexture : GpuTextureHandle.Invalid);
             _gpu.ClearTexture(GpuShaderStage.Pixel, 15);
             _gpu.SetConstantBuffer(GpuShaderStage.Vertex, 4, _cbOmni);
+            _gpu.SetSampler(GpuShaderStage.Pixel, 3, _materialSampler);
 
             int lastShader = -1;
             bool lastSkinned = false;

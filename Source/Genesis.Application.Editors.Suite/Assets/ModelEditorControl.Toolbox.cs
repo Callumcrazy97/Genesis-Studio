@@ -37,6 +37,7 @@ public sealed partial class ModelEditorControl
     private NumericUpDown? _uvScaleValue;
     private NumericUpDown? _uvOffsetUValue;
     private NumericUpDown? _uvOffsetVValue;
+    private Label? _materialShaderValue;
     private CollapsibleSection? _morphSection;
     private readonly Dictionary<string, NumericUpDown> _morphInputs = new(StringComparer.OrdinalIgnoreCase);
     private CollapsibleSection? _socketSection;
@@ -235,7 +236,7 @@ public sealed partial class ModelEditorControl
         imagePaint.Content.Controls.Add(paintImage);
         imagePaint.Content.Controls.Add(new Label { Text = "Assign an Albedo Image below. Paint on its 2D canvas or on the Model, then Save Image to update gameplay.",
             Location = new Point(8, 44), Size = new Size(250, 58), ForeColor = EditorChrome.Muted });
-        CollapsibleSection material = Section(page, "MATERIAL & PBR", 390);
+        CollapsibleSection material = Section(page, "MATERIAL & PBR", 430);
         _material.SetBounds(8, 7, 166, 28);
         material.Content.Controls.Add(_material);
         _material.SelectedIndexChanged += (_, _) => { if (!_syncingGroups) AssignMaterial(_material.SelectedIndex); };
@@ -256,6 +257,23 @@ public sealed partial class ModelEditorControl
         Button baseColour = Tool("Base Colour…", ChooseMaterialBaseColour);
         baseColour.SetBounds(136, 358, 122, 28);
         material.Content.Controls.Add(baseColour);
+        // A mesh Shader resource for this material alone (a building's glass), kept in the model's
+        // descriptor (materialShaders) so it survives a re-import.
+        material.Content.Controls.Add(new Label { Text = "Shader", Location = new Point(8, 398), Size = new Size(52, 22), ForeColor = EditorChrome.Muted });
+        _materialShaderValue = new Label
+        {
+            Name = "ModelMaterialShader", Text = "(the Object's)", AutoEllipsis = true,
+            Location = new Point(62, 398), Size = new Size(124, 22), ForeColor = EditorChrome.Text,
+        };
+        material.Content.Controls.Add(_materialShaderValue);
+        Button chooseShader = Tool("…", ChooseMaterialShader);
+        chooseShader.Name = "ModelMaterialShaderChoose";
+        chooseShader.SetBounds(190, 394, 32, 28);
+        material.Content.Controls.Add(chooseShader);
+        Button clearShader = Tool("×", () => SetMaterialShader(string.Empty));
+        clearShader.Name = "ModelMaterialShaderClear";
+        clearShader.SetBounds(226, 394, 32, 28);
+        material.Content.Controls.Add(clearShader);
 
         CollapsibleSection paint = Section(page, "VERTEX COLOUR", 100);
         _colour.SetBounds(8, 8, 250, 31);
@@ -812,6 +830,30 @@ public sealed partial class ModelEditorControl
         });
     }
 
+    private void ChooseMaterialShader()
+    {
+        if (SelectedMaterial() is null)
+        {
+            Status.Text = "Select a mesh with a material before giving the material a shader.";
+            return;
+        }
+        ProjectAssetEntry? picked = AssetPickerService.PickAsset(
+            new AssetPickerRequest(ProjectRoot, ResourceKind.Shader, string.Empty, "Choose a mesh shader for this material"), FindForm());
+        if (picked is null) return;
+        SetMaterialShader(picked.Reference);
+    }
+
+    /// <summary>Gives the selected material a mesh Shader resource of its own; empty uses the Object's.</summary>
+    internal void SetMaterialShader(string shader)
+    {
+        GModelMaterial? material = SelectedMaterial();
+        if (material is null) return;
+        string value = shader?.Trim() ?? string.Empty;
+        if (string.Equals(material.Shader ?? string.Empty, value, StringComparison.Ordinal)) return;
+        ChangeAsset(value.Length == 0 ? "Clear material shader" : "Assign material shader", () => material.Shader = value);
+        RefreshMaterialInspector();
+    }
+
     private void ChooseMaterialBaseColour()
     {
         GModelMaterial? material=SelectedMaterial();if(material is null)return;
@@ -828,6 +870,7 @@ public sealed partial class ModelEditorControl
             if(_albedoValue is not null)_albedoValue.Text="(none)";
             if(_normalValue is not null)_normalValue.Text="(none)";
             if(_ormValue is not null)_ormValue.Text="(none)";
+            if(_materialShaderValue is not null)_materialShaderValue.Text="(the Object's)";
             SetMaterialPreview(_albedoPreview,string.Empty);SetMaterialPreview(_normalPreview,string.Empty);SetMaterialPreview(_ormPreview,string.Empty);
             return;
         }
@@ -837,6 +880,7 @@ public sealed partial class ModelEditorControl
             if(_albedoValue is not null)_albedoValue.Text=ShortAsset(material.AlbedoTexture);
             if(_normalValue is not null)_normalValue.Text=ShortAsset(material.NormalTexture);
             if(_ormValue is not null)_ormValue.Text=ShortAsset(material.MetallicRoughnessTexture);
+            if(_materialShaderValue is not null)_materialShaderValue.Text=string.IsNullOrWhiteSpace(material.Shader)?"(the Object's)":material.Shader;
             if(_roughnessValue is not null)_roughnessValue.Value=(decimal)Math.Clamp(material.RoughnessFactor,0,1);
             if(_metallicValue is not null)_metallicValue.Value=(decimal)Math.Clamp(material.MetallicFactor,0,1);
             if(_uvScaleValue is not null)_uvScaleValue.Value=(decimal)(material.Metadata.TryGetValue("UvScale",out string? text)&&float.TryParse(text,System.Globalization.NumberStyles.Float,System.Globalization.CultureInfo.InvariantCulture,out float scale)?Math.Clamp(scale,.01f,256f):1f);

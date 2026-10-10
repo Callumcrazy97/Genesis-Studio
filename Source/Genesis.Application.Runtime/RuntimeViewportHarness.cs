@@ -55,6 +55,7 @@ public sealed partial class RuntimeViewportHarness : IDisposable
         LargeTerrain,
         DepthPrecision,
         RoomChangeScreen,
+        LitScene,
     }
 
     public RuntimeViewportHarness(int width = 640, int height = 360)
@@ -534,6 +535,7 @@ public sealed partial class RuntimeViewportHarness : IDisposable
         if (_mode == CaptureMode.LargeTerrain) { RenderLargeTerrain(renderer); return; }
         if (_mode == CaptureMode.DepthPrecision) { RenderDepthPrecision(renderer); return; }
         if (_mode == CaptureMode.RoomChangeScreen) { RenderRoomChangeScene(renderer); return; }
+        if (_mode == CaptureMode.LitScene) { RenderLitScene(renderer); return; }
         if (_mode == CaptureMode.TwoD)
         {
             RenderTwoD(renderer);
