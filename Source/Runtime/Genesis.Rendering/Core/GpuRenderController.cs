@@ -903,6 +903,31 @@ namespace Genesis.Rendering.Core
 
         public string LastPostEffectError { get; private set; } = string.Empty;
 
+        // Why each post effect that did not compile was refused, and the effects drawn last frame.
+        private readonly Dictionary<string, string> _postEffectErrors = new(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _postEffectsRunning = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <inheritdoc />
+        public string PostEffectErrorFor(string name) =>
+            name != null && _postEffectErrors.TryGetValue(name, out string error) ? error : string.Empty;
+
+        /// <inheritdoc />
+        public bool IsPostEffectRunning(string name) => name != null && _postEffectsRunning.Contains(name);
+
+        private void PostEffectFailed(string key, string message)
+        {
+            LastPostEffectError = $"{key}: {message}";
+            _postEffectErrors[key] = message;
+            RenderLog.Line("Post effect not compiled: " + LastPostEffectError);
+        }
+
+        private void AddPostEffectPass(string key, GpuShaderProgramHandle program, in PostEffectRequest effect)
+        {
+            _postEffectPasses.Add(new ForwardRenderer.PostEffectPass(program, effect.Row0, effect.Row1, effect.Row2, effect.Row3,
+                ResolveAuthoredTextures(effect.Textures), effect.TextureSlots, effect.SamplerSlots));
+            _postEffectsRunning.Add(key);
+        }
+
         /// <inheritdoc />
         public bool CompilePostEffectsInBackground { get; set; }
 
@@ -933,6 +958,7 @@ namespace Genesis.Rendering.Core
         {
             if (!_initialized || _fwd == null) return;
             _postEffectPasses.Clear();
+            _postEffectsRunning.Clear();
             foreach (PostEffectRequest effect in effects ?? Array.Empty<PostEffectRequest>())
             {
                 if (string.IsNullOrWhiteSpace(effect.Source)) continue;
@@ -949,8 +975,7 @@ namespace Genesis.Rendering.Core
                         // one frame for 10.7 seconds.
                         if (!TryTakeBackgroundPostEffect(key, entry, effect, ref compiled))
                         {
-                            if (compiled.Program.IsValid)
-                                _postEffectPasses.Add(new ForwardRenderer.PostEffectPass(compiled.Program, effect.Row0, effect.Row1, effect.Row2, effect.Row3));
+                            if (compiled.Program.IsValid) AddPostEffectPass(key, compiled.Program, effect);
                             continue;
                         }
                     }
@@ -964,19 +989,18 @@ namespace Genesis.Rendering.Core
                             byte[] pixel = ShaderCompiler.CompileForBackend(effect.Source, entry, GpuShaderStage.Pixel,
                                 _gpu.ShaderBinaryFormat, effect.SourcePath, roots).Blob;
                             program = _fwd.CreatePostEffectProgram(pixel, key);
+                            _postEffectErrors.Remove(key);
                         }
                         catch (Exception exception)
                         {
                             // A post effect that does not compile is left out; the game keeps running.
-                            LastPostEffectError = $"{key}: {exception.Message}";
-                            RenderLog.Line("Post effect not compiled: " + LastPostEffectError);
+                            PostEffectFailed(key, exception.Message);
                         }
                         compiled = (entry, effect.Source, program);
                         _postEffectPrograms[key] = compiled;
                     }
                 }
-                if (compiled.Program.IsValid)
-                    _postEffectPasses.Add(new ForwardRenderer.PostEffectPass(compiled.Program, effect.Row0, effect.Row1, effect.Row2, effect.Row3));
+                if (compiled.Program.IsValid) AddPostEffectPass(key, compiled.Program, effect);
             }
             _fwd.SetPostEffects(_postEffectPasses);
         }
@@ -1016,14 +1040,14 @@ namespace Genesis.Rendering.Core
             try
             {
                 program = _fwd.CreatePostEffectProgram(pending.Pixel.GetAwaiter().GetResult(), key);
+                _postEffectErrors.Remove(key);
                 RenderLog.Line($"Post effect '{key}' compiled on a worker in "
                     + $"{System.Diagnostics.Stopwatch.GetElapsedTime(pending.Started).TotalMilliseconds:F0} ms; it runs from this frame");
             }
             catch (Exception exception)
             {
                 // A post effect that does not compile is left out; the game keeps running.
-                LastPostEffectError = $"{key}: {exception.GetBaseException().Message}";
-                RenderLog.Line("Post effect not compiled: " + LastPostEffectError);
+                PostEffectFailed(key, exception.GetBaseException().Message);
             }
             if (compiled.Program.IsValid) _fwd.ReleasePostEffectProgram(compiled.Program);
             compiled = (entry, pending.Source, program);

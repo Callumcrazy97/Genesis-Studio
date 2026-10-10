@@ -124,6 +124,14 @@ public static partial class GameExportService
             progress?.Report("Preparing models to load quickly…");
             Genesis.Runtime.Modeling.RuntimeModelStore.WriteSealedCaches(staging, cancellationToken);
 
+            // And one file naming every resource, so the first launch of a fresh install does not
+            // open each resource's .meta (an antivirus scans each new file on its first open).
+            try { Genesis.Shared.Assets.ResourceCatalog.WriteIndex(staging); }
+            catch (Exception exception) when (exception is InvalidDataException or ArgumentException or IOException or UnauthorizedAccessException)
+            {
+                // A .meta the catalog cannot read is reported by the game as before; it starts without the index.
+            }
+
             // Only a game with C# scripts is compiled. A game written only in PGSL runs the PGSL
             // copied above on the Player's VM, so it gets the same strict check as Run but no C#
             // compiler and no GameScripts.dll.

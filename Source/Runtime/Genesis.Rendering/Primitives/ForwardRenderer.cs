@@ -3586,7 +3586,7 @@ namespace Genesis.Rendering.Primitives
                 DrawViewModelPass(composed, whiteTexture);
                 if (antiAliasing != AntiAliasingMode.Off)
                     RunAntiAliasing(antiAliasing, afterAntiAliasing, viewW, viewH);
-                if (HasPostEffects) RunPostEffects(target, postDepth, viewW, viewH);
+                if (HasPostEffects) RunPostEffects(target, postDepth, viewW, viewH, whiteTexture);
             }
             else
             {

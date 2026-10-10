@@ -182,6 +182,31 @@ namespace Genesis.Runtime.Project
                 Genesis.Shared.Interfaces.MeshLightingDefaults.AntiAliasing = mode;
         }
 
+        /// The project's <c>runtime.preloadAudioMegabytes</c> setting: how many megabytes of sound
+        /// samples a game decodes ahead of time while it loads. 0 (off) unless the project says so.
+        /// </summary>
+        public static int ReadPreloadAudioMegabytes(string projectPath)
+        {
+            if (string.IsNullOrEmpty(projectPath) || !Directory.Exists(projectPath)) return 0;
+            try
+            {
+                string[] projects = Directory.EnumerateFiles(projectPath, "*.genesisproj", SearchOption.TopDirectoryOnly).ToArray();
+                if (projects.Length != 1) return 0;
+                using JsonDocument manifest = JsonDocument.Parse(File.ReadAllText(projects[0]));
+                return manifest.RootElement.TryGetProperty("runtime", out JsonElement runtime)
+                    && runtime.ValueKind == JsonValueKind.Object
+                    && runtime.TryGetProperty("preloadAudioMegabytes", out JsonElement value)
+                    && value.ValueKind == JsonValueKind.Number
+                    && value.TryGetInt32(out int megabytes)
+                    ? Math.Clamp(megabytes, 0, 16384)
+                    : 0;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+            {
+                return 0;
+            }
+        }
+
         public static string ReadStartRoom(string projectPath)
         {
             if (string.IsNullOrEmpty(projectPath)) return null;

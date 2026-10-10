@@ -1850,9 +1850,118 @@ of one counts as playing at once (`IsSoundPlaying` is true) and is heard as soon
 ready, a moment later; the frame that asked goes on. Each piece of music used to be decoded whole
 in the frame that first played it: a game's log showed such frames of 143 to 733 ms
 (`loading in that frame: 1 sound 495 ms`). A sound that cannot be decoded stops counting as
-playing. Shorter sounds are decoded when they are loaded, as before, so an effect is never late.
+playing. Every Ogg Vorbis sound is decoded on a worker too, whatever its size (see the next
+section); a short WAV is only copied, and is still ready in the frame that plays it.
 Studio's Audio editor decodes everything at once. `GENESIS_AUDIO_BACKGROUND_DECODE=0` turns it off
 in a game. Checked by `Build.bat --test runtime-resources`.
+
+### Sounds ready before they play (10 October 2026)
+
+**Why a first sound held a frame.** GenesisCraft's exported game had frames of 105 to 434 ms a few
+seconds into a world, each `loading in that frame: 1 sound 420 ms`. Sounds under 1 MB were decoded
+whole in the frame that first played them, and an Ogg file's size says little about its length: its
+650 KB underwater loop is 27 s of stereo sound. Measured on this PC (i7-14700F) in a new process,
+decoding it took 242 to 262 ms the first time and 50 to 110 ms once the decoder's code was
+optimised; a 0.6 s creature sound took 30 to 95 ms the first time. Each sample was also added to a
+list and copied out: 5 ms of a 7 ms decode in a game's first seconds. Now:
+
+- A game decodes every Ogg sound on worker threads of the sound system's own (two to four), and
+  any other sound file of 1 MB or more. The first play counts as playing at once and is heard when
+  the samples are ready, normally the next frame. A play goes ahead of sounds only preloaded.
+- The decoder writes the samples straight into the array the sound keeps.
+- Every way a script names a sound is one sound, decoded once: the Audio resource's name
+  (`"snd_hurt_1"`), its document from the project or from Assets (`"Assets/Audio/snd_hurt_1.audio.json"`,
+  `"Audio/snd_hurt_1.audio.json"`, `"snd_hurt_1.audio.json"`), its sound file from the project or
+  from Assets (`"Assets/Audio/snd_hurt_1.ogg"`, `"Audio/snd_hurt_1.ogg"`), or the sound file's own
+  name when the resource of that name plays it (`"snd_hurt_1.ogg"`). `"Audio/..."` and the bare file
+  name used to find nothing.
+- An exported game no longer reads four files' times on every `PlaySound` to see whether the sound
+  changed; Studio's play (with live reload) still does.
+
+| Command | Meaning |
+|---|---|
+| `SoundPreload(sound)` | Start decoding a sound on a worker now, so its first `PlaySound` or `PlaySoundAt` starts at once. Never waits. `sound` as `PlaySound` takes it. False when there is no such sound. |
+| `SoundsLoading()` | How many preloaded sounds are still being decoded; 0 once all are ready. |
+
+A room's loading cover waits for the sounds preloaded while it is up, so preloading a world's
+sounds in a Create event (`SoundPreload("snd_cow_say_1")`, or a loop over
+`ResourceList("Audio", "Audio")`) has them ready when the room is shown. Sounds an Object plays on
+arrival are preloaded behind the cover the same way. Only preloads are waited for, never a sound
+that is only played, and the cover's time limit (12 s) still holds.
+
+A project can have its sounds decoded while it loads without naming them, in its `.genesisproj`:
+
+```json
+"runtime": { "preloadAudioMegabytes": 200 }
+```
+
+Its Audio resources are decoded on the workers, smallest file first, until that many megabytes of
+samples are held (decoded, an Ogg file takes 7 to 20 times its size: GenesisCraft's 2,212 sounds
+under 1 MB, 88 MB of Ogg files, would take several hundred MB). The first room's cover waits for them, up to its
+time limit; the rest go on decoding during play. The log says what was done, as
+`sounds decoded ahead of time: <decoded> of the project's <sounds> (<MB> MB of samples, budget <N> MB) in <ms> ms`.
+
+0, the default, preloads nothing. Checked by `Build.bat --test runtime-resources` (every name of a
+sound, an Ogg decoded off the frame and a short WAV at once, a preloaded sound starting at once in a
+game's and an editor's mixer and through the script commands, the budget smallest first and
+stopping at its size) and `Build.bat --test room-change` (the cover waits for preloaded sounds).
+
+The Audio editor's source field is labelled **Source** (it lists WAV and Ogg files), and its import
+button **Import sound…**.
+
+### The first launch of a fresh install (10 October 2026)
+
+A freshly exported GenesisCraft took 29 to 34 s to reach its world on its first launch and 9 to 11 s
+afterwards, with 15 s passing before its log opened. The cause is the antivirus: Windows Defender
+scans each newly written file the first time it is opened, and the game thread opened thousands of
+them one at a time. Measured on this PC (i7-14700F, NVMe drive, Defender's real-time protection on)
+by reading a fresh copy of that export once and then again:
+
+| Files | First read, one at a time | Again | First read on 8 threads |
+|---|---|---|---|
+| 4,145 `.meta` files (1.4 MB) | 16.1 s (3.9 ms each) | 0.18 s | 2.8 s |
+| 1,691 `.png` files | 9.5 s | 0.07 s | 1.0 s |
+| 269 engine DLLs (175 MB) | 2.8 s | 0.13 s | 0.9 s |
+| all 13,543 files | 60 s | 0.9 s | 10.6 s |
+
+Asking a file's size and time does not open it and costs nothing extra (8,450 files: 0.48 s, fresh
+or not). So the engine now opens fewer files on the game's thread, and the rest on several threads:
+
+- **The resource catalog** read every resource's `.meta` before the window opened. An export now
+  writes one file naming every resource (`.genesis/resource-catalog.txt`: each `.meta`'s guid,
+  `resourceName` and size), and the game reads that instead. A `.meta` of another size, or written
+  after the index (a mod), is read as before, and a game without the index (Studio's play, an older
+  export) reads the `.meta` files on several threads. The log says which, as
+  `resource catalog: <n> resources in <ms> ms (<n> identities from .genesis/resource-catalog.txt, 0 .meta files read)`.
+- **Texture groups** read and decode their pictures on several threads; they are packed as before.
+- **Scripts and documents** (`.pgsl`, `.object.json`, `.audio.json`, `.particle.json`,
+  `.model.json` and the other small resource documents, up to 256 KB each) are read through on two
+  low-priority threads from the start, scripts first, so the first room's Create events and each
+  sound's first play find them scanned (`game files read ahead: ...` in the log).
+  `GENESIS_READ_AHEAD=0` turns this off; a game run from Studio does not use it.
+
+What remains on a first launch is the scan of the engine's own DLLs as .NET loads them, and of each
+file the game reads later for the first time, which no game can avoid; later launches are as before.
+
+### Post effects for shader packs (10 October 2026)
+
+Shader packs kept as Fullscreen Shader resources need nothing new: `ResourceList("Shaders/Packs",
+"Fullscreen shader")` lists them and `PostEffectAdd` runs one. What was missing is now there (details
+and an example in [Post effects](PostEffects.md#shader-packs)):
+
+| Command | Meaning |
+|---|---|
+| `PostEffectAddFile(path)` | Run a plain `.hlsl` file of the game's folder (from the project folder or Assets) as a post effect, compiled on a worker and again when the file changes. Its name is the path given. False when there is no such file. |
+| `PostEffectSetTexture(shader, slot, image)` | Give a running effect an Image resource (or a `TextureCreate` texture) at register 3 to 15, or by its name in the shader. |
+| `PostEffectIsRunning(shader)` | True once the effect is compiled and drawn. |
+| `PostEffectError(shader)` | Why it does not run, in one line (`Broken.hlsl:1:38: error: use of undeclared identifier 'x'`), or empty. |
+| `PostEffectLastError()` | The newest such reason of any effect still asked for, as `effect: reason`. |
+
+The textures a Fullscreen Shader resource binds at `t3` and above in the Shader editor now reach it as
+a post effect too; a declared texture nothing binds reads white. Checked by
+`Build.bat --test post-effects` on DX11, DX12, Vulkan and OpenGL: a pack file given a red Image reads
+it through a repeating sampler (with an unbound texture reading white), turns green when its file is
+rewritten, and a file that does not compile and one that is missing say why.
 
 A slow-frame line (see [Finding what made a frame long](#finding-what-made-a-frame-long)) now counts
 the scripts' Draw events in "gathering what to draw" and names them among the longest parts

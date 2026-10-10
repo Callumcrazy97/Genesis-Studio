@@ -190,6 +190,15 @@ namespace Genesis.Runtime.Project
                         Genesis.Runtime.Rendering.ProjectShaderWarmup.Start(projectPath, projectFormat);
                 }
 
+                // A game's scripts and small documents, read through on background threads, so the
+                // first launch of a fresh install does not wait on the antivirus for each of them
+                // in its Create events and first sounds (see ProjectFileReadAhead).
+                if (!liveReload)
+                {
+                    using (Genesis.Shared.Diagnostics.LoadProfile.Begin("start reading the game's scripts and documents ahead"))
+                        ProjectFileReadAhead.Start(projectPath);
+                }
+
                 // And the models of the project's Objects, on a low-priority thread once the first
                 // room is on screen, so a script creating a creature it has not created before does
                 // not read its model in that frame.
@@ -255,8 +264,11 @@ namespace Genesis.Runtime.Project
                 logger.Line($"project={projectPath}");
                 logger.Line($"room={roomName} file={roomFile}");
                 logger.Line($"autoshot={autoshotSeconds} label={perfLabel ?? "(none)"}");
+                if (Genesis.Shared.Assets.ResourceCatalog.LastBuildReport.Length > 0)
+                    logger.Line(Genesis.Shared.Assets.ResourceCatalog.LastBuildReport);
                 Genesis.Runtime.Rendering.ProjectShaderWarmup.ReportTo(logger.Line);
                 Genesis.Runtime.Modeling.ProjectModelWarmup.ReportTo(logger.Line);
+                ProjectFileReadAhead.ReportTo(logger.Line);
 
                 // Start reading the first room's models now. Workers read them while the window is
                 // made and the loading screen prepares everything else, so the room does not read
@@ -399,6 +411,14 @@ namespace Genesis.Runtime.Project
                         Engine.SetAudioStop(ch => audioSystem.Stop(new AudioChannel(ch)));
                         Engine.SetAudioMasterVolume(v => audioSystem.MasterVolume = v);
                         logger.Line("audio system initialised (XAudio2)");
+                        // The project may ask for its sounds to be decoded while it loads, so that
+                        // no first play of one waits (runtime.preloadAudioMegabytes).
+                        int preloadMegabytes = ProjectPaths.ReadPreloadAudioMegabytes(projectPath);
+                        if (preloadMegabytes > 0)
+                        {
+                            audioSystem.PreloadProjectSounds(preloadMegabytes * 1024L * 1024L, logger.Line);
+                            logger.Line($"decoding the project's sounds on workers, smallest first, up to {preloadMegabytes} MB of samples");
+                        }
                     }
                     catch (Exception ex)
                     {

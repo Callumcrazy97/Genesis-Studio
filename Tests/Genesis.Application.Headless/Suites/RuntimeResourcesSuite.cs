@@ -119,6 +119,244 @@ internal static class RuntimeResourcesSuite
         });
 
         RunBackgroundDecode(ctx);
+        RunCompressedAndPreloaded(ctx);
+        RunCatalogIndex(ctx);
+    }
+
+    /// <summary>
+    /// An export's index of its resources names them as reading every .meta would, without opening
+    /// them; a .meta changed after the index (a mod) is read again, and a bad index is ignored.
+    /// </summary>
+    internal static void RunCatalogIndex(HeadlessContext ctx)
+    {
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Resources.AnIndexNamesResourcesWithoutOpeningTheirMetaFiles", () =>
+        {
+            string project = Path.Combine(ctx.Workspace, "CatalogIndex" + Guid.NewGuid().ToString("N")[..6]);
+            string audio = Path.Combine(project, "Assets", "Audio");
+            Directory.CreateDirectory(audio);
+            File.WriteAllText(Path.Combine(project, "Index.genesisproj"), "{}");
+            var guids = new Dictionary<string, Guid>();
+            // Enough .meta files to be read on several threads when there is no index.
+            for (int i = 0; i < 90; i++)
+            {
+                string stem = "Sound" + i.ToString("00", System.Globalization.CultureInfo.InvariantCulture);
+                string document = Path.Combine(audio, stem + ".audio.json");
+                File.WriteAllText(document, "{ \"source\": \"" + stem + ".wav\" }");
+                Guid guid = Guid.NewGuid();
+                guids[stem] = guid;
+                // Every third one is named by its .meta, not its file.
+                string named = i % 3 == 0 ? ", \"resourceName\": \"Named " + stem + "\"" : string.Empty;
+                File.WriteAllText(document + ".meta", "{ \"guid\": \"" + guid.ToString("N") + "\"" + named + " }");
+            }
+            File.WriteAllText(Path.Combine(audio, "Plain.audio.json"), "{ \"source\": \"Plain.wav\" }");
+
+            string Describe(Genesis.Shared.Assets.ResourceCatalog catalog) => string.Join("|",
+                catalog.Entries.Select(entry => entry.Name + "=" + entry.AssetId.ToString("N") + "@" + Path.GetFileName(entry.FullPath)));
+            Genesis.Shared.Assets.ResourceCatalog.Invalidate(project);
+            string read = Describe(Genesis.Shared.Assets.ResourceCatalog.For(project));
+            string readReport = Genesis.Shared.Assets.ResourceCatalog.LastBuildReport;
+            HeadlessHarness.Assert(readReport.Contains("90 .meta files read", StringComparison.Ordinal) && read.Contains("Named Sound03=", StringComparison.Ordinal)
+                && read.Contains("Sound01=" + guids["Sound01"].ToString("N"), StringComparison.Ordinal),
+                "Without an index the catalog did not read every .meta: " + readReport);
+
+            HeadlessHarness.Assert(Genesis.Shared.Assets.ResourceCatalog.WriteIndex(project) == 90, "The index did not hold every resource with a .meta.");
+            string indexed = Describe(Genesis.Shared.Assets.ResourceCatalog.For(project));
+            string report = Genesis.Shared.Assets.ResourceCatalog.LastBuildReport;
+            HeadlessHarness.Assert(indexed == read, "The index named the resources differently from their .meta files.");
+            HeadlessHarness.Assert(report.Contains("90 identities from", StringComparison.Ordinal) && report.Contains(" 0 .meta files read", StringComparison.Ordinal),
+                "With the index the catalog still opened .meta files: " + report);
+
+            // A mod renames one resource after the export: its .meta is newer than the index, and read.
+            string changed = Path.Combine(audio, "Sound04.audio.json.meta");
+            File.WriteAllText(changed, "{ \"guid\": \"" + guids["Sound04"].ToString("N") + "\", \"resourceName\": \"Modded Sound\" }");
+            File.SetLastWriteTimeUtc(changed, DateTime.UtcNow.AddMinutes(5));
+            Genesis.Shared.Assets.ResourceCatalog.Invalidate(project);
+            string modded = Describe(Genesis.Shared.Assets.ResourceCatalog.For(project));
+            report = Genesis.Shared.Assets.ResourceCatalog.LastBuildReport;
+            HeadlessHarness.Assert(modded.Contains("Modded Sound=", StringComparison.Ordinal) && report.Contains(" 1 .meta files read", StringComparison.Ordinal),
+                "A .meta changed after the index was not read again: " + report);
+
+            // An index that is not one is ignored.
+            File.WriteAllText(Path.Combine(project, ".genesis", "resource-catalog.txt"), "not an index\nAssets/Audio/Sound00.audio.json\t1\tx\ty\n");
+            Genesis.Shared.Assets.ResourceCatalog.Invalidate(project);
+            string ignored = Describe(Genesis.Shared.Assets.ResourceCatalog.For(project));
+            HeadlessHarness.Assert(ignored == modded && Genesis.Shared.Assets.ResourceCatalog.LastBuildReport.Contains("90 .meta files read", StringComparison.Ordinal),
+                "A broken index was used: " + Genesis.Shared.Assets.ResourceCatalog.LastBuildReport);
+
+            // A .meta that does not parse is still reported as before.
+            File.WriteAllText(Path.Combine(audio, "Sound07.audio.json.meta"), "{ broken");
+            Genesis.Shared.Assets.ResourceCatalog.Invalidate(project);
+            string error = string.Empty;
+            try { Genesis.Shared.Assets.ResourceCatalog.For(project); }
+            catch (InvalidDataException exception) { error = exception.Message; }
+            HeadlessHarness.Assert(error.Contains("Invalid resource identity metadata for 'Sound07'", StringComparison.Ordinal),
+                "A broken .meta was not reported: " + error);
+            Genesis.Shared.Assets.ResourceCatalog.Invalidate(project);
+        });
+    }
+
+    /// <summary>
+    /// A game's Ogg sounds, short or long, are decoded on a worker; every way a script names a sound
+    /// finds the same one, decoded once; a sound preloaded (SoundPreload, or the project's preload
+    /// budget) starts at once when it is played.
+    /// </summary>
+    internal static void RunCompressedAndPreloaded(HeadlessContext ctx)
+    {
+        string tone = Path.Combine(AppContext.BaseDirectory, "Fixtures", "tone-440-660.ogg");
+        string NewProject(string name)
+        {
+            string project = Path.Combine(ctx.Workspace, name + Guid.NewGuid().ToString("N")[..6]);
+            string audio = Path.Combine(project, "Assets", "Audio");
+            Directory.CreateDirectory(audio);
+            File.WriteAllText(Path.Combine(project, name + ".genesisproj"), "{}");
+            File.Copy(tone, Path.Combine(audio, "Tone.ogg"));
+            File.WriteAllText(Path.Combine(audio, "Tone.audio.json"), "{ \"source\": \"Tone.ogg\", \"volume\": 0.5 }");
+            WriteSilentWave(Path.Combine(audio, "Blip.wav"), 0.2);
+            File.WriteAllText(Path.Combine(audio, "Blip.audio.json"), "{ \"source\": \"Blip.wav\" }");
+            // A longer sound, which a small budget never reaches.
+            File.WriteAllText(Path.Combine(audio, "Long Blip.audio.json"), "{ \"source\": \"Long Blip.wav\" }");
+            WriteSilentWave(Path.Combine(audio, "Long Blip.wav"), 3.0);
+            Genesis.Shared.Assets.ResourceCatalog.Invalidate(project);
+            return project;
+        }
+
+        object Entry(Genesis.Audio.XAudioSystem mixer, int sound) =>
+            ((System.Collections.IDictionary)typeof(Genesis.Audio.XAudioSystem)
+                .GetField("_sounds", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(mixer)!)[sound]!;
+        bool Decoded(Genesis.Audio.XAudioSystem mixer, int sound) =>
+            Entry(mixer, sound) is { } entry && entry.GetType().GetField("Effect")!.GetValue(entry) != null;
+        string DecodeKey(Genesis.Audio.XAudioSystem mixer, int sound) =>
+            Entry(mixer, sound) is { } entry ? (string)entry.GetType().GetField("DecodeKey")!.GetValue(entry)! : string.Empty;
+        bool Sounding(Genesis.Audio.XAudioSystem mixer, AudioChannel channel)
+        {
+            var channels = (System.Collections.IDictionary)typeof(Genesis.Audio.XAudioSystem)
+                .GetField("_channels", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(mixer)!;
+            return channels[channel.Id] is { } state && state.GetType().GetField("Voice")!.GetValue(state) != null;
+        }
+        void WaitForPreloads(Genesis.Audio.XAudioSystem mixer)
+        {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            while (mixer.SoundsLoading > 0 && watch.Elapsed.TotalSeconds < 20) Thread.Sleep(5);
+            HeadlessHarness.Assert(mixer.SoundsLoading == 0, "Preloaded sounds were still loading after 20 seconds.");
+        }
+
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Audio.EveryNameOfASoundIsOneSoundAndOggIsDecodedOffTheFrame", () =>
+        {
+            HeadlessHarness.Assert(File.Exists(tone), "The Ogg Vorbis test tone is missing from the test output: " + tone);
+            string project = NewProject("SoundNames");
+            using var mixer = new Genesis.Audio.XAudioSystem(project) { Muted = true, DecodeLargeSoundsInBackground = true };
+            // As GenesisCraft's scripts write them: the resource's name, its document from the
+            // project or from Assets, its sound file from the project or from Assets, and the sound
+            // file's own name.
+            string[] names = { "Tone", "Assets/Audio/Tone.audio.json", "Audio/Tone.audio.json", "Tone.audio.json",
+                "Assets/Audio/Tone.ogg", "Audio/Tone.ogg", "Tone.ogg", "Assets\\Audio\\Tone.ogg" };
+            int sound = mixer.LoadSound(names[0]);
+            HeadlessHarness.Assert(sound != 0, "PlaySound(\"Tone\") found no sound.");
+            foreach (string name in names)
+                HeadlessHarness.Assert(mixer.LoadSound(name) == sound, $"PlaySound(\"{name}\") was not the same sound as PlaySound(\"Tone\").");
+            foreach (string name in new[] { "Nope.ogg", "Tone.wav", "Audio/Nope.audio.json", "../Tone.ogg" })
+                HeadlessHarness.Assert(mixer.LoadSound(name) == 0, $"PlaySound(\"{name}\") found a sound where there is none.");
+
+            // An Ogg file, however short, is decoded on a worker in a game: its first play counts
+            // as playing at once and is heard when the samples are ready.
+            HeadlessHarness.Assert(DecodeKey(mixer, sound).Length > 0, "A game decoded a short Ogg sound in the frame that played it.");
+            AudioChannel channel = mixer.Play(sound);
+            HeadlessHarness.Assert(channel.IsValid && mixer.IsPlaying(channel), "The Ogg sound's first play did not count as playing.");
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            while (!Sounding(mixer, channel) && watch.Elapsed.TotalSeconds < 20) { mixer.Update(); Thread.Sleep(2); }
+            HeadlessHarness.Assert(Sounding(mixer, channel), "The Ogg sound was never heard.");
+            Console.WriteLine($"[Audio] a 0.5 s Ogg sound was decoded on a worker and heard {watch.Elapsed.TotalMilliseconds:F0} ms after it was asked for.");
+
+            // A short WAV is only copied: it still plays in the frame that asks.
+            int blip = mixer.LoadSound("Blip");
+            HeadlessHarness.Assert(blip != 0 && DecodeKey(mixer, blip).Length == 0 && Sounding(mixer, mixer.Play(blip)),
+                "A short WAV did not play at once.");
+
+            // An editor (the setting off) still decodes an Ogg when it is loaded.
+            using var editor = new Genesis.Audio.XAudioSystem(project) { Muted = true };
+            int direct = editor.LoadSound("Tone.ogg");
+            HeadlessHarness.Assert(direct != 0 && Decoded(editor, direct) && Sounding(editor, editor.Play(direct)),
+                "With the setting off, an Ogg sound should be decoded when it is loaded.");
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Audio.APreloadedSoundStartsAtOnce", () =>
+        {
+            string project = NewProject("SoundPreload");
+            using var mixer = new Genesis.Audio.XAudioSystem(project) { Muted = true, DecodeLargeSoundsInBackground = true };
+            int preloaded = mixer.PreloadSound("Assets/Audio/Tone.ogg");
+            HeadlessHarness.Assert(preloaded != 0 && mixer.PreloadSound("Nope") == 0, "SoundPreload did not answer for a sound and for no sound.");
+            WaitForPreloads(mixer);
+            int played = mixer.LoadSound("Tone");
+            AudioChannel channel = mixer.Play(played);
+            HeadlessHarness.Assert(played == preloaded && Decoded(mixer, played) && Sounding(mixer, channel),
+                "A preloaded sound, played under another of its names, did not start at once.");
+
+            // The same through the script commands, and in an editor's mixer too: preloading is asked for.
+            using var editor = new Genesis.Audio.XAudioSystem(project) { Muted = true };
+            using var scene = new Genesis.Runtime.RuntimeScene("Sound preload");
+            var game = new Genesis.Runtime.Project.ProjectGameContext(project, scene, null, null,
+                Genesis.Runtime.Scene.RoomAsset.Create("Room", Genesis.Runtime.Scene.RoomDimension.TwoD), null, editor);
+            var previous = Genesis.Runtime.Scripting.PgslCommands.ActiveGameContext;
+            Genesis.Runtime.Scripting.PgslCommands.ActiveGameContext = game;
+            try
+            {
+                HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.SoundPreload("Long Blip")
+                    && !Genesis.Runtime.Scripting.PgslCommands.SoundPreload("No such sound")
+                    && !Genesis.Runtime.Scripting.PgslCommands.SoundPreload(""),
+                    "SoundPreload's answers were wrong.");
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                while (Genesis.Runtime.Scripting.PgslCommands.SoundsLoading() > 0 && watch.Elapsed.TotalSeconds < 20) Thread.Sleep(5);
+                int sound = editor.LoadSound("Long Blip");
+                HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.SoundsLoading() == 0 && Decoded(editor, sound)
+                    && DecodeKey(editor, sound).Length > 0, "SoundPreload did not decode the sound on a worker.");
+            }
+            finally
+            {
+                Genesis.Runtime.Scripting.PgslCommands.ActiveGameContext = previous;
+            }
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Audio.TheProjectsPreloadBudgetDecodesSmallestFirst", () =>
+        {
+            string project = NewProject("SoundBudget");
+            var reports = new System.Collections.Concurrent.ConcurrentQueue<string>();
+            using (var mixer = new Genesis.Audio.XAudioSystem(project) { Muted = true, DecodeLargeSoundsInBackground = true })
+            {
+                mixer.PreloadProjectSounds(64L * 1024 * 1024, reports.Enqueue);
+                WaitForPreloads(mixer);
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                while (reports.IsEmpty && watch.Elapsed.TotalSeconds < 5) Thread.Sleep(5);
+                HeadlessHarness.Assert(reports.TryPeek(out string? report) && report.Contains("3 of the project's 3", StringComparison.Ordinal),
+                    "The preload budget did not report all three sounds decoded: " + string.Join(" | ", reports));
+                foreach (string name in new[] { "Tone", "Blip", "Long Blip" })
+                {
+                    int sound = mixer.LoadSound(name);
+                    HeadlessHarness.Assert(Decoded(mixer, sound) && Sounding(mixer, mixer.Play(sound)), $"'{name}' was preloaded but did not start at once.");
+                }
+            }
+
+            // A budget smaller than one sound stops after the smallest file (the Ogg tone).
+            reports.Clear();
+            using (var mixer = new Genesis.Audio.XAudioSystem(project) { Muted = true, DecodeLargeSoundsInBackground = true })
+            {
+                mixer.PreloadProjectSounds(1, reports.Enqueue);
+                WaitForPreloads(mixer);
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                while (reports.IsEmpty && watch.Elapsed.TotalSeconds < 5) Thread.Sleep(5);
+                HeadlessHarness.Assert(reports.TryPeek(out string? report) && report.Contains("of the project's 3", StringComparison.Ordinal)
+                    && !report.Contains("3 of the project's 3", StringComparison.Ordinal),
+                    "A one-byte budget should stop before decoding every sound: " + string.Join(" | ", reports));
+                // Preloaded: ready the moment it is loaded. Not preloaded: a short WAV, decoded here.
+                HeadlessHarness.Assert(Decoded(mixer, mixer.LoadSound("Tone")) && DecodeKey(mixer, mixer.LoadSound("Long Blip")).Length == 0,
+                    "The budget did not start with the smallest file, or went on past it.");
+            }
+
+            HeadlessHarness.Assert(Genesis.Runtime.Project.ProjectPaths.ReadPreloadAudioMegabytes(project) == 0,
+                "A project that does not ask for a preload budget has one.");
+            File.WriteAllText(Directory.GetFiles(project, "*.genesisproj")[0], "{ \"runtime\": { \"preloadAudioMegabytes\": 48 } }");
+            HeadlessHarness.Assert(Genesis.Runtime.Project.ProjectPaths.ReadPreloadAudioMegabytes(project) == 48,
+                "runtime.preloadAudioMegabytes was not read from the project.");
+        });
     }
 
     /// <summary>

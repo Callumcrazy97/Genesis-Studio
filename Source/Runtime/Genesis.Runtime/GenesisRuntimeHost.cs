@@ -448,7 +448,7 @@ namespace Genesis.Runtime
                 long effectsStarted = System.Diagnostics.Stopwatch.GetTimestamp();
                 using (Genesis.Shared.Diagnostics.LoadProfile.Begin("project post effects"))
                     _renderer.SetPostEffects(Genesis.Runtime.Rendering.ProjectPostEffects.RequestsFor(
-                        Genesis.Runtime.Scripting.PgslCommands.ProjectPath));
+                        Genesis.Runtime.Scripting.PgslCommands.ProjectPath, _renderer));
                 _scene.WorkTimes.Add("project post effects", effectsStarted);
             }
             RoomFogState spriteFog = twoDRoom

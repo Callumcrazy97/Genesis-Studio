@@ -84,6 +84,14 @@ public sealed class ProjectRuntimeSettings
     /// <summary>Whether pressing Escape closes the running game.</summary>
     public bool AllowEscapeToClose { get; set; } = true;
 
+    /// <summary>
+    /// Decode the project's Audio resources on worker threads while the game loads, smallest file
+    /// first, until this many megabytes of samples are held (an Ogg file takes about ten times its
+    /// size). The first room's loading cover waits for them, so the first play of each starts at
+    /// once. 0, the default, decodes each sound when it is first played or preloaded.
+    /// </summary>
+    public int PreloadAudioMegabytes { get; set; }
+
     /// <summary>Display name of the Default Texture Group (always <see cref="TextureGroupCatalog.DefaultName"/>).</summary>
     public string DefaultTextureGroupName { get; set; } = TextureGroupCatalog.DefaultName;
 

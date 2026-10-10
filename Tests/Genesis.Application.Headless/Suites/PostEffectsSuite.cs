@@ -150,6 +150,201 @@ internal static class PostEffectsSuite
         }
 
         RunInPlayer(ctx);
+        RunShaderPackInPlayer(ctx);
+    }
+
+    // A shader pack as a plain file of the game's folder: the frame (t0) mixed with a picture of the
+    // project's (t3, by its name in the shader) through a repeating sampler (s3), and multiplied by
+    // a texture nothing binds (t4), which must read white.
+    private const string PackSource = """
+        Texture2D SceneColor : register(t0);
+        Texture2D Tint : register(t3);
+        Texture2D Unbound : register(t4);
+        SamplerState Linear : register(s0);
+        SamplerState Repeat : register(s3);
+        struct PreviewVSOut { float4 SvPos : SV_Position; float2 UV : TEXCOORD0; };
+        float4 MainPS(PreviewVSOut IN) : SV_Target
+        {
+            float4 scene = SceneColor.Load(int3(int2(IN.SvPos.xy), 0));
+            float3 tint = Tint.Sample(Repeat, IN.UV * 3.0).rgb * Unbound.Sample(Linear, IN.UV).rgb;
+            return float4(lerp(scene.rgb, tint, 0.9), 1.0);
+        }
+        """;
+
+    /// <summary>
+    /// A shader pack on every graphics backend in the real Player: a .hlsl file run with
+    /// PostEffectAddFile and given a project Image with PostEffectSetTexture, compiled again when
+    /// the file changes; a file that does not compile and one that is not there say why.
+    /// </summary>
+    private static void RunShaderPackInPlayer(HeadlessContext ctx)
+    {
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Rendering.PostEffects.AShaderFileWithAPictureRunsOnEveryBackend", () =>
+        {
+            string runtime = NewestPlayer() ?? throw new InvalidOperationException("No Player found.");
+            string parent = Path.Combine(ctx.Workspace, "ShaderPack");
+            if (Directory.Exists(parent)) Directory.Delete(parent, recursive: true);
+            Directory.CreateDirectory(parent);
+            ProjectSession project = new ProjectService().CreateProject(parent, "Shader Pack Game", "Blank");
+            ResourceService resources = new(project);
+            string image = resources.CreateResource(ResourceFolderPolicy.RootFor(project, ResourceKind.Image), ResourceKind.Image, "Red Square");
+            string stem = Path.GetFileName(image)[..^".image.json".Length];
+            using (Bitmap red = new(16, 16))
+            {
+                using (Graphics graphics = Graphics.FromImage(red)) graphics.Clear(Color.FromArgb(230, 40, 30));
+                red.Save(Path.Combine(Path.GetDirectoryName(image)!, stem + ".png"), ImageFormat.Png);
+            }
+            string packs = Path.Combine(project.RootPath, "ShaderPacks");
+            Directory.CreateDirectory(packs);
+            string pack = Path.Combine(packs, "Tint.hlsl");
+            File.WriteAllText(Path.Combine(packs, "Broken.hlsl"), "float4 MainPS() : SV_Target { return undefinedColour; }");
+
+            string objects = Path.Combine(project.AssetsPath, "Objects");
+            Directory.CreateDirectory(objects);
+            string objectFile = resources.CreateResource(objects, ResourceKind.GameObject, "Packer");
+            File.WriteAllText(objectFile, "{\"schemaVersion\":2,\"dimension\":\"ThreeD\",\"components\":[{\"type\":\"ScriptComponent\",\"props\":{\"ScriptClass\":\"Packer\"}}],\"events\":[\"Create\",\"Step\"]}");
+            Directory.CreateDirectory(Path.Combine(objects, "Packer"));
+            string changed = Path.Combine(parent, "pack-changed.txt");
+            File.WriteAllText(Path.Combine(objects, "Packer", "Create.pgsl"),
+                $"stage = 0; t0 = TimeMs(); t = 0; changed = \"{changed.Replace('\\', '/')}\"; tint = \"ShaderPacks/Tint.hlsl\";");
+            File.WriteAllText(Path.Combine(objects, "Packer", "Step.pgsl"), """
+                SetCameraPosition(0, 2, 0); SetCameraTarget(0, 2, 10);
+                if (stage == 0 && TimeMs() > t0 + 500)
+                {
+                    ok = PostEffectAddFile(tint);
+                    named = PostEffectSetTexture(tint, "Tint", "Red Square");
+                    wrong = PostEffectSetTexture(tint, 1, "Red Square");
+                    PostEffectAddFile("ShaderPacks/Broken.hlsl");
+                    missing = PostEffectAddFile("ShaderPacks/Nope.hlsl");
+                    Print("PACK added ok=" + StringOf(ok) + " named=" + StringOf(named) + " wrong=" + StringOf(wrong) + " missing=" + StringOf(missing) + " last=[" + PostEffectLastError() + "]");
+                    stage = 1;
+                }
+                if (stage == 1 && PostEffectIsRunning(tint) && PostEffectError("ShaderPacks/Broken.hlsl") != "")
+                {
+                    Print("PACK broken=[" + PostEffectError("ShaderPacks/Broken.hlsl") + "]");
+                    PostEffectRemove("ShaderPacks/Broken.hlsl"); PostEffectRemove("ShaderPacks/Nope.hlsl");
+                    Print("PACK running tint=[" + PostEffectError(tint) + "] last=[" + PostEffectLastError() + "]");
+                    t = TimeMs(); stage = 2;
+                }
+                if (stage == 2 && TimeMs() > t + 300) { ScreenshotSave("pack-red"); stage = 3; }
+                if (stage == 3 && ScreenshotPending() == 0 && FileExists(changed)) { t = TimeMs(); stage = 4; }
+                if (stage == 4 && TimeMs() > t + 500) { ScreenshotSave("pack-green"); stage = 5; }
+                if (stage == 5 && ScreenshotPending() == 0) { GameQuit(); stage = 6; }
+                if (stage < 6 && TimeMs() > t0 + 90000)
+                {
+                    Print("PACK timeout stage=" + StringOf(stage) + " running=" + StringOf(PostEffectIsRunning(tint)) + " last=[" + PostEffectLastError() + "]");
+                    GameQuit(); stage = 7;
+                }
+                """);
+            string roomFile = ProjectRoomResolver.ResolveRoomFile(project.RootPath, project.Manifest.StartRoom);
+            RoomAsset start = RoomAsset.Create("Start", RoomDimension.ThreeD);
+            start.Settings.CaptureMouse = false;
+            start.Environment.DynamicSky = true;
+            start.Environment.Weather = "Clear";
+            start.Environment.TimeOfDayHours = 12f;
+            start.Environment.TimeScale = 0f;
+            start.Nodes.Add(new RoomNode
+            {
+                Kind = RoomNodeKind.GameObject, Name = "Packer", LayerId = start.Layers[0].Id,
+                GameObject = new RoomGameObjectData { Prefab = Path.GetRelativePath(project.RootPath, objectFile).Replace('\\', '/') },
+            });
+            RoomAssetLoader.Save(start, roomFile);
+            ResourceCatalog.Invalidate(project.RootPath);
+
+            string images = ProjectPaths.ImagesDir(project.RootPath);
+            var failures = new List<string>();
+            foreach (string backend in new[] { "dx11", "dx12", "vulkan", "opengl" })
+            {
+                File.WriteAllText(pack, PackSource);
+                if (File.Exists(changed)) File.Delete(changed);
+                if (Directory.Exists(images)) Directory.Delete(images, recursive: true);
+                string red = Path.Combine(images, "pack-red.png"), green = Path.Combine(images, "pack-green.png");
+                string log = RunPackPlayer(runtime, project.RootPath, Path.Combine(parent, "ShaderCache-" + backend), backend, () =>
+                {
+                    // Once the red picture is taken the pack is rewritten to a green one; the game
+                    // takes its second picture once the renderer has compiled it again.
+                    if (File.Exists(red) && !File.ReadAllText(pack).Contains("0.85", StringComparison.Ordinal))
+                        File.WriteAllText(pack, PackSource.Replace("float3 tint = ", "float3 tint = float3(0.1, 0.85, 0.15) + 0.0 * ", StringComparison.Ordinal));
+                }, changed);
+                File.WriteAllText(Path.Combine(ctx.Logs, $"shader-pack-{backend}.log"), log);
+                string added = System.Text.RegularExpressions.Regex.Match(log, "PACK added[^\r\n]*").Value;
+                string broken = System.Text.RegularExpressions.Regex.Match(log, "PACK broken=[^\r\n]*").Value;
+                string running = System.Text.RegularExpressions.Regex.Match(log, "PACK running[^\r\n]*").Value;
+                Console.WriteLine($"[PostEffects] {backend}: {added} | {broken} | {running}");
+                if (!System.Text.RegularExpressions.Regex.IsMatch(added, "ok=(True|1) named=(True|1) wrong=(False|0) missing=(False|0) ", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+                    || !added.Contains("Nope.hlsl", StringComparison.Ordinal))
+                    failures.Add($"{backend}: adding the pack said '{added}'");
+                // One line: the compiler's error at its line in the file, without the folder it compiled a copy in.
+                if (!System.Text.RegularExpressions.Regex.IsMatch(broken, @"PACK broken=\[Broken\.hlsl(?:\(1[,\d-]*\)|:1:\d+): error[^\]]*undefinedColour[^\]]*\]")
+                    || broken.Contains('\\'))
+                    failures.Add($"{backend}: the file that does not compile did not say why in one line: '{broken}'. Log:\r\n{Tail(log)}");
+                if (!running.Contains("tint=[] last=[]", StringComparison.Ordinal))
+                    failures.Add($"{backend}: with the bad packs removed there should be no error: '{running}'");
+                if (!File.Exists(red) || !File.Exists(green))
+                {
+                    failures.Add($"{backend}: the game took no pictures. Log:\r\n{Tail(log)}");
+                    continue;
+                }
+
+                File.Copy(red, Path.Combine(ctx.Captures, $"shader-pack-{backend}-red.png"), overwrite: true);
+                File.Copy(green, Path.Combine(ctx.Captures, $"shader-pack-{backend}-green.png"), overwrite: true);
+                double Share(string file, Func<Color, bool> test)
+                {
+                    using Bitmap frame = new(file);
+                    int hit = 0, total = 0;
+                    for (int y = 10; y < frame.Height - 10; y += 23)
+                        for (int x = 10; x < frame.Width - 10; x += 23, total++)
+                            if (test(frame.GetPixel(x, y))) hit++;
+                    return total == 0 ? 0 : hit / (double)total;
+                }
+                double reds = Share(red, c => c.R > 150 && c.G < 110 && c.B < 110);
+                double greens = Share(green, c => c.G > 150 && c.R < 110 && c.B < 110);
+                if (reds < 0.9) failures.Add($"{backend}: only {reds:P0} of the first picture shows the pack's red picture");
+                if (greens < 0.9) failures.Add($"{backend}: only {greens:P0} of the second picture is green after the pack's file changed");
+            }
+
+            HeadlessHarness.Assert(failures.Count == 0, string.Join(Environment.NewLine, failures));
+        });
+    }
+
+    /// <summary>
+    /// Runs the shader-pack game on one backend until it quits; <paramref name="watch"/> is called
+    /// as it runs, and <paramref name="changedFile"/> is written once the render log shows the pack
+    /// compiled a second time.
+    /// </summary>
+    private static string RunPackPlayer(string runtime, string projectPath, string shaderCache, string backend, Action watch, string changedFile)
+    {
+        System.Diagnostics.ProcessStartInfo start = new(Path.Combine(runtime, RuntimePaths.RuntimeExeName))
+        {
+            WorkingDirectory = runtime, UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardOutput = true, RedirectStandardError = true,
+        };
+        start.Environment["GENESIS_PROJECT_PATH"] = projectPath;
+        start.Environment["GENESIS_UNATTENDED_WINDOW"] = "1";
+        start.Environment["GENESIS_RENDER_BACKEND"] = backend;
+        start.Environment["GENESIS_SHADER_CACHE"] = shaderCache;
+        foreach (string name in new[] { "GENESIS_START_ROOM", "GENESIS_AUTOSHOT", "GENESIS_BOOT_COORDINATED" }) start.Environment.Remove(name);
+        using System.Diagnostics.Process process = System.Diagnostics.Process.Start(start) ?? throw new InvalidOperationException("The Player did not start.");
+        var output = new System.Text.StringBuilder();
+        process.OutputDataReceived += (_, e) => { if (e.Data != null) lock (output) output.AppendLine(e.Data); };
+        process.ErrorDataReceived += (_, e) => { if (e.Data != null) lock (output) output.AppendLine(e.Data); };
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+        string renderLog = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "GenesisRuntime", "Logs", "render-" + process.Id + ".log");
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        while (!process.HasExited && clock.Elapsed < TimeSpan.FromSeconds(120))
+        {
+            watch();
+            if (!File.Exists(changedFile)
+                && System.Text.RegularExpressions.Regex.Matches(ReadShared(renderLog), "Post effect 'ShaderPacks/Tint.hlsl' compiled on a worker").Count >= 2)
+                File.WriteAllText(changedFile, "compiled again");
+            Thread.Sleep(100);
+        }
+        if (!process.WaitForExit(30_000)) { process.Kill(entireProcessTree: true); process.WaitForExit(10_000); }
+        Thread.Sleep(200);
+        string text;
+        lock (output) text = output.ToString();
+        return text + Environment.NewLine + (File.Exists(renderLog) ? ReadShared(renderLog) : "(no render log at " + renderLog + ")");
     }
 
     /// <summary>

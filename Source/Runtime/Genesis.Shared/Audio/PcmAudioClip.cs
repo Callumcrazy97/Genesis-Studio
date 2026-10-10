@@ -55,15 +55,23 @@ public sealed record PcmAudioClip(short[] Samples, int SampleRate, int Channels)
         int rate = vorbis.SampleRate;
         if (channels < 1 || channels > 8 || rate < 1000 || rate > 384000)
             throw new InvalidDataException($"Unsupported Ogg Vorbis audio: {channels} channels at {rate} Hz.");
-        var samples = new System.Collections.Generic.List<short>(
-            (int)Math.Min(int.MaxValue / 2, Math.Max(0, vorbis.TotalSamples * channels)));
+        // Straight into the array the clip keeps: adding each sample to a list and copying it out
+        // cost as much again as the decode in a game's first seconds, when that code is not yet
+        // optimised (a 0.7 s sound took 7 ms where the decode alone took 2).
+        short[] samples = new short[(int)Math.Min(int.MaxValue / 2, Math.Max(0, vorbis.TotalSamples * channels))];
         float[] buffer = new float[4096 * channels];
-        int read;
+        int used = 0, read;
         while ((read = vorbis.ReadSamples(buffer, 0, buffer.Length)) > 0)
+        {
+            if (used + read > samples.Length)
+                Array.Resize(ref samples, (int)Math.Min(int.MaxValue / 2, Math.Max((long)samples.Length * 2, used + read)));
             for (int i = 0; i < read; i++)
-                samples.Add((short)Math.Round(Math.Clamp(buffer[i], -1f, 1f) * short.MaxValue));
-        if (samples.Count == 0) throw new InvalidDataException("The Ogg Vorbis file contains no audio.");
-        return new PcmAudioClip(samples.ToArray(), rate, channels);
+                samples[used + i] = (short)Math.Round(Math.Clamp(buffer[i], -1f, 1f) * short.MaxValue);
+            used += read;
+        }
+        if (used == 0) throw new InvalidDataException("The Ogg Vorbis file contains no audio.");
+        if (used != samples.Length) Array.Resize(ref samples, used);
+        return new PcmAudioClip(samples, rate, channels);
     }
 
     public static PcmAudioClip LoadWave(string path)

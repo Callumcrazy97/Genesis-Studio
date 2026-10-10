@@ -143,6 +143,23 @@ internal static class RoomChangeSuite
         public void Update() { }
     }
 
+    /// <summary>Sounds that say they are still being decoded ahead of time until told otherwise.</summary>
+    private sealed class PreloadingSounds : Genesis.Shared.Audio.IAudioSystem
+    {
+        public int Pending;
+        public int SoundsLoading => Pending;
+        public float MasterVolume { get; set; } = 1f;
+        public int LoadSound(string path) => 1;
+        public Genesis.Shared.Audio.AudioChannel Play(int soundId, float volume = 1f, float pitch = 1f, bool loop = false) => new(1);
+        public void Stop(Genesis.Shared.Audio.AudioChannel channel) { }
+        public void StopAll() { }
+        public bool IsPlaying(Genesis.Shared.Audio.AudioChannel channel) => false;
+        public void SetChannelVolume(Genesis.Shared.Audio.AudioChannel channel, float volume) { }
+        public void SetChannelPosition(Genesis.Shared.Audio.AudioChannel channel, Vector3 position) { }
+        public void SetListener(Vector3 position, Vector3 forward) { }
+        public void Update() { }
+    }
+
     private sealed class DrawList : IMeshDrawList
     {
         public readonly List<MeshDrawCall> Calls = new();
@@ -444,6 +461,29 @@ internal static class RoomChangeSuite
             using (var game = new Game(flat, "Hall", frameBudgetMilliseconds: 8))
                 HeadlessHarness.Assert(!game.Switcher.PrepareFirstRoom(game.Scene, game.Context.Room!) && game.Scene.RoomChange == null,
                     "A 2D game was put behind a cover at its start.");
+        });
+
+        HeadlessHarness.RunCase(context.Report, "Engine.Rooms.Change.TheCoverWaitsForPreloadedSounds", () =>
+        {
+            // Sounds a Create event preloads (SoundPreload) are decoded on workers; the room is
+            // shown once they are ready, so their first plays start at once.
+            ProjectSession project = Project(context, RoomDimension.ThreeD, hallObjects: 2, cellarObjects: 1);
+            using var game = new Game(project, "Hall", frameBudgetMilliseconds: 8);
+            var sounds = new PreloadingSounds { Pending = 2 };
+            game.Context.SetAudio(sounds);
+            HeadlessHarness.Assert(game.Switcher.PrepareFirstRoom(game.Scene, game.Context.Room!), "A 3D game with a frame budget did not prepare its first room.");
+            int frames = 0, enough = game.Switcher.WarmUpFrames * 4 + 20;
+            while (game.Scene.RoomChange != null && frames < enough)
+            {
+                game.Frame();
+                frames++;
+            }
+
+            HeadlessHarness.Assert(game.Scene.RoomChange != null,
+                $"The cover lifted after {frames} frames while two preloaded sounds were still being decoded.");
+            sounds.Pending = 0;
+            for (int i = 0; i < 2000 && game.Scene.RoomChange != null; i++) game.Frame();
+            HeadlessHarness.Assert(game.Scene.RoomChange == null, "The cover did not lift once the preloaded sounds were ready.");
         });
 
         HeadlessHarness.RunCase(context.Report, "Engine.Rooms.Change.LoadingScreenIsTheGamesOwnOrTheEngines", () =>

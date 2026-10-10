@@ -50,24 +50,58 @@ public sealed class ResourceCatalog
     public IReadOnlyList<NamedResource> Entries { get; }
     public IEnumerable<IGrouping<string, NamedResource>> Conflicts => Entries.GroupBy(e => e.Name, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1);
 
-    private ResourceCatalog(string projectRoot)
+    /// <summary>
+    /// Where an exported game keeps the identity of its resources (each .meta's guid and
+    /// resourceName, with the .meta's size): the first launch of a fresh install reads this one
+    /// file instead of opening every .meta. An antivirus scans each newly written file on its first
+    /// open, about 4 ms a file on the PC this was measured on: a game with 4,145 resources spent 16 s
+    /// on them before its window opened. A .meta of another size, or written after the index (a
+    /// mod), is read as before.
+    /// </summary>
+    public const string IndexFile = ".genesis/resource-catalog.txt";
+    private const string IndexHeader = "genesis-resource-catalog 1";
+
+    private sealed record MetaRecord(long Length, Guid AssetId, string ResourceName);
+
+    private sealed class ScanState
+    {
+        public string Root;
+        public Dictionary<string, MetaRecord> Index;
+        public DateTime IndexWritten;
+        // The files the catalog lists, in the order it finds them, each with its .meta when it has one.
+        public readonly List<(string File, ResourceType Type, string MetaPath, FileInfo Meta)> Files = new();
+        public int IndexHits, MetaReads;
+    }
+
+    /// <summary>How the most recent catalog was built, for a log: how many identities came from the index, how many .meta files were read.</summary>
+    public static string LastBuildReport { get; private set; } = string.Empty;
+
+    private ResourceCatalog(string projectRoot) : this(projectRoot, useIndex: true, records: null) { }
+
+    private ResourceCatalog(string projectRoot, bool useIndex, List<(string Relative, MetaRecord Record)> records)
     {
         ProjectRoot = projectRoot;
-        var entries = new List<NamedResource>();
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var state = new ScanState { Root = projectRoot };
+        if (useIndex) ReadIndex(state);
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         string assets = Path.Combine(projectRoot, "Assets");
-        if (Directory.Exists(assets)) Scan(assets, entries, seen);
+        if (Directory.Exists(assets)) Scan(assets, state, seen);
         foreach (string folder in LegacyRoots)
         {
             string path = Path.Combine(projectRoot, folder);
-            if (Directory.Exists(path)) Scan(path, entries, seen);
+            if (Directory.Exists(path)) Scan(path, state, seen);
         }
         // Small standalone/editor preview projects can place their descriptors at the root.
         if (Directory.Exists(projectRoot))
-            foreach (string file in Directory.EnumerateFiles(projectRoot)) AddFile(file, entries, seen, allowText: false);
+            foreach (string file in Directory.EnumerateFiles(projectRoot)) AddFile(file, state, seen, allowText: false);
+        List<NamedResource> entries = Identify(state, records);
         Entries = entries.OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase).ThenBy(e => e.FullPath, StringComparer.OrdinalIgnoreCase).ToArray();
         _names = Entries.GroupBy(e => e.Name, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.ToArray(), StringComparer.OrdinalIgnoreCase);
         _paths = Entries.ToDictionary(e => Path.GetFullPath(e.FullPath), e => e, StringComparer.OrdinalIgnoreCase);
+        LastBuildReport = $"resource catalog: {Entries.Count} resources in {clock.ElapsedMilliseconds} ms ("
+            + (state.Index != null ? $"{state.IndexHits} identities from {IndexFile}, " : string.Empty)
+            + $"{state.MetaReads} .meta files read)";
     }
 
     public static ResourceCatalog For(string projectRoot)
@@ -222,41 +256,151 @@ public sealed class ResourceCatalog
         return Path.GetDirectoryName(Path.GetFullPath(file)) ?? string.Empty;
     }
 
-    private static void Scan(string directory, List<NamedResource> entries, HashSet<string> seen)
+    private static void Scan(string directory, ScanState state, HashSet<string> seen)
     {
         if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0) return;
-        foreach (string file in Directory.EnumerateFiles(directory)) AddFile(file, entries, seen, allowText: true);
+        foreach (string file in Directory.EnumerateFiles(directory)) AddFile(file, state, seen, allowText: true);
         foreach (string child in Directory.EnumerateDirectories(directory))
         {
             string name = Path.GetFileName(child);
             if (name.StartsWith(".", StringComparison.Ordinal) || name.EndsWith(".spritedata", StringComparison.OrdinalIgnoreCase)
                 || name.EndsWith(".modeldata", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".parts", StringComparison.OrdinalIgnoreCase)
                 || File.Exists(child + ".object.json")) continue; // Private event programs belong to their Object.
-            Scan(child, entries, seen);
+            Scan(child, state, seen);
         }
     }
 
-    private static void AddFile(string file, List<NamedResource> entries, HashSet<string> seen, bool allowText)
+    // Lists a resource file. Its name and guid are found afterwards (Identify), from its .meta.
+    private static void AddFile(string file, ScanState state, HashSet<string> seen, bool allowText)
     {
         if ((File.GetAttributes(file) & FileAttributes.ReparsePoint) != 0) return;
         ResourceType type = TypeOf(file);
         if (type == ResourceType.Unknown || (!allowText && (type is ResourceType.Script or ResourceType.Note))) return;
         string full = Path.GetFullPath(file);
         if (!seen.Add(full)) return;
-        string name = FormatName(file);
-        Guid assetId = Guid.Empty;
-        if (File.Exists(file + ".meta"))
+        string metaPath = file + ".meta";
+        var meta = new FileInfo(metaPath);
+        state.Files.Add((file, type, metaPath, meta.Exists ? meta : null));
+    }
+
+    /// <summary>
+    /// Each listed file's name and guid, from its .meta: through the index when the .meta is the one
+    /// the index describes. The .meta files still to be read are read on several threads (an
+    /// antivirus scanning a newly written file holds its first open, and scans run side by side); a
+    /// bad one is reported as it always was, the first in the listing's order.
+    /// </summary>
+    private static List<NamedResource> Identify(ScanState state, List<(string Relative, MetaRecord Record)> records)
+    {
+        int count = state.Files.Count;
+        var identities = new (Guid AssetId, string ResourceName)[count];
+        var failures = new Exception[count];
+        var toRead = new List<int>();
+        for (int i = 0; i < count; i++)
+        {
+            FileInfo meta = state.Files[i].Meta;
+            if (meta == null) continue;
+            if (state.Index != null
+                && state.Index.TryGetValue(Path.GetRelativePath(state.Root, state.Files[i].File).Replace('\\', '/'), out MetaRecord known)
+                && known.Length == meta.Length
+                && meta.LastWriteTimeUtc <= state.IndexWritten.AddSeconds(2))
+            {
+                identities[i] = (known.AssetId, known.ResourceName);
+                state.IndexHits++;
+                continue;
+            }
+            toRead.Add(i);
+        }
+
+        state.MetaReads = toRead.Count;
+        void Read(int i)
         {
             try
             {
-                JObject metadata = JObject.Parse(File.ReadAllText(file + ".meta"));
-                Guid.TryParse((string)metadata["guid"], out assetId);
-                string authored = (string)metadata["resourceName"];
-                if (!string.IsNullOrWhiteSpace(authored)) name = ValidateName(authored);
+                JObject metadata = JObject.Parse(File.ReadAllText(state.Files[i].MetaPath));
+                Guid.TryParse((string)metadata["guid"], out Guid assetId);
+                identities[i] = (assetId, (string)metadata["resourceName"]);
             }
-            catch (Newtonsoft.Json.JsonException error) { throw new InvalidDataException("Invalid resource identity metadata for '" + name + "'.", error); }
+            catch (Exception exception)
+            {
+                failures[i] = exception;
+            }
         }
-        entries.Add(new NamedResource(name, full, type, Definitions.First(d => file.EndsWith(d.Extension, StringComparison.OrdinalIgnoreCase)).Extension) { AssetId = assetId });
+        if (toRead.Count < 64) foreach (int i in toRead) Read(i);
+        else System.Threading.Tasks.Parallel.ForEach(toRead,
+            new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount / 2, 2, 8) }, Read);
+
+        var entries = new List<NamedResource>(count);
+        for (int i = 0; i < count; i++)
+        {
+            (string file, ResourceType type, _, FileInfo meta) = state.Files[i];
+            string name = FormatName(file);
+            Guid assetId = Guid.Empty;
+            if (meta != null)
+            {
+                if (failures[i] is Newtonsoft.Json.JsonException error) throw new InvalidDataException("Invalid resource identity metadata for '" + name + "'.", error);
+                if (failures[i] != null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failures[i]).Throw();
+                assetId = identities[i].AssetId;
+                string authored = identities[i].ResourceName;
+                if (!string.IsNullOrWhiteSpace(authored)) name = ValidateName(authored);
+                records?.Add((Path.GetRelativePath(state.Root, file).Replace('\\', '/'), new MetaRecord(meta.Length, assetId, authored ?? string.Empty)));
+            }
+            entries.Add(new NamedResource(name, Path.GetFullPath(file), type, Definitions.First(d => file.EndsWith(d.Extension, StringComparison.OrdinalIgnoreCase)).Extension) { AssetId = assetId });
+        }
+        return entries;
+    }
+
+    private static void ReadIndex(ScanState state)
+    {
+        string path = Path.Combine(state.Root, IndexFile.Replace('/', Path.DirectorySeparatorChar));
+        try
+        {
+            var file = new FileInfo(path);
+            if (!file.Exists) return;
+            string[] lines = File.ReadAllLines(path);
+            if (lines.Length == 0 || lines[0] != IndexHeader) return;
+            var index = new Dictionary<string, MetaRecord>(lines.Length, StringComparer.OrdinalIgnoreCase);
+            for (int i = 1; i < lines.Length; i++)
+            {
+                string[] parts = lines[i].Split('\t');
+                if (parts.Length != 4 || !Guid.TryParse(parts[2], out Guid assetId)
+                    || !long.TryParse(parts[1], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out long length)) continue;
+                index[parts[0]] = new MetaRecord(length, assetId, parts[3]);
+            }
+            state.Index = index;
+            state.IndexWritten = file.LastWriteTimeUtc;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // Without the index every .meta is read, as for a project in Studio.
+        }
+    }
+
+    /// <summary>
+    /// Writes <see cref="IndexFile"/> for a project as it is now: an export does, once its files are
+    /// final. Returns how many resources' identities it holds.
+    /// </summary>
+    public static int WriteIndex(string projectRoot)
+    {
+        string root = Path.GetFullPath(projectRoot);
+        var records = new List<(string Relative, MetaRecord Record)>();
+        _ = new ResourceCatalog(root, useIndex: false, records);
+        string path = Path.Combine(root, IndexFile.Replace('/', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(path));
+        var text = new System.Text.StringBuilder(IndexHeader).Append('\n');
+        int written = 0;
+        foreach ((string relative, MetaRecord record) in records)
+        {
+            // A path or name holding a tab or a line break cannot be written; that .meta is read instead.
+            if (relative.IndexOfAny(new[] { '\t', '\r', '\n' }) >= 0 || record.ResourceName.IndexOfAny(new[] { '\t', '\r', '\n' }) >= 0) continue;
+            text.Append(relative).Append('\t')
+                .Append(record.Length.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append('\t')
+                .Append(record.AssetId.ToString("N")).Append('\t')
+                .Append(record.ResourceName).Append('\n');
+            written++;
+        }
+        File.WriteAllText(path, text.ToString(), new System.Text.UTF8Encoding(false));
+        Invalidate(root);
+        return written;
     }
 
     public static bool IsInside(string path, string root)

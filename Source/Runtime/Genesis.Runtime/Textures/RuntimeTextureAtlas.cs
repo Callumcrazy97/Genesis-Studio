@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Numerics;
 using System.Text.Json;
 using System.Threading;
@@ -88,8 +89,23 @@ public static class RuntimeTextureAtlas
             // group -> list of (spriteKey, sourcePath, pixels)
             var pending = new Dictionary<string, List<PendingSprite>>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (string descriptor in Directory.EnumerateFiles(
-                         assets, "*.image.json", SearchOption.AllDirectories))
+            // The descriptors are read, and their pictures read and decoded, on several threads. The
+            // first open of a newly installed file waits while the antivirus scans it (about 4 ms a
+            // file, and scans run side by side): one at a time, a game's 380 sprites held its first
+            // launch for 7 s. They are packed below in the order they always were.
+            string[] descriptors = Directory.EnumerateFiles(assets, "*.image.json", SearchOption.AllDirectories).ToArray();
+            ReadAhead(descriptors);
+            var queued = new List<(string Group, string Key, string SourcePath)>();
+            var sources = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // One mapping per source file: frames that share pixels share the atlas slot.
+            void Queue(string group, string key, string sourcePath)
+            {
+                if (string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath)) return;
+                string full = Path.GetFullPath(sourcePath);
+                if (sources.Add(full)) queued.Add((group, string.IsNullOrWhiteSpace(key) ? full : key, full));
+            }
+
+            foreach (string descriptor in descriptors)
             {
                 try
                 {
@@ -103,7 +119,7 @@ public static class RuntimeTextureAtlas
                     if (asset.Frames.Count == 0)
                     {
                         string fallback = SpriteAssetLoader.ResolveFrameTexturePath(descriptor, asset, 0);
-                        TryQueue(pending, group, fallback, fallback);
+                        Queue(group, fallback, fallback);
                         continue;
                     }
 
@@ -111,13 +127,27 @@ public static class RuntimeTextureAtlas
                     {
                         string framePath = SpriteAssetLoader.ResolveFrameTexturePath(descriptor, asset, i);
                         string key = $"{descriptor}|{i}|{framePath}";
-                        TryQueue(pending, group, key, framePath);
+                        Queue(group, key, framePath);
                     }
                 }
                 catch
                 {
                     // Skip corrupt descriptors; gameplay still loads them individually.
                 }
+            }
+
+            var decoded = new PendingSprite[queued.Count];
+            System.Threading.Tasks.Parallel.For(0, queued.Count, Workers,
+                index => decoded[index] = Decode(queued[index].Key, queued[index].SourcePath));
+            for (int index = 0; index < queued.Count; index++)
+            {
+                if (decoded[index] == null) continue;
+                if (!pending.TryGetValue(queued[index].Group, out List<PendingSprite> bucket))
+                {
+                    bucket = [];
+                    pending[queued[index].Group] = bucket;
+                }
+                bucket.Add(decoded[index]);
             }
 
             float occupancySum = 0f;
@@ -325,54 +355,42 @@ public static class RuntimeTextureAtlas
         return map;
     }
 
-    private static void TryQueue(
-        Dictionary<string, List<PendingSprite>> pending,
-        string group,
-        string key,
-        string sourcePath)
+    private static readonly System.Threading.Tasks.ParallelOptions Workers =
+        new() { MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount / 2, 2, 8) };
+
+    /// <summary>Reads small files through on several threads, so the reads after it find them scanned and cached.</summary>
+    private static void ReadAhead(string[] files)
     {
-        if (string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath))
-            return;
-
-        string full = Path.GetFullPath(sourcePath);
-        // One mapping per source file — frames that share pixels share the atlas slot.
-        foreach (List<PendingSprite> list in pending.Values)
+        if (files.Length < 16) return;
+        System.Threading.Tasks.Parallel.ForEach(files, Workers, file =>
         {
-            foreach (PendingSprite existing in list)
-            {
-                if (string.Equals(existing.SourcePath, full, StringComparison.OrdinalIgnoreCase))
-                {
-                    // Alias this key onto the same source; Build remaps by source path.
-                    return;
-                }
-            }
-        }
+            try { File.ReadAllBytes(file); }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
+        });
+    }
 
+    /// <summary>A picture decoded for packing; null when it cannot be read or decoded.</summary>
+    private static PendingSprite Decode(string key, string full)
+    {
         try
         {
             using FileStream stream = File.OpenRead(full);
             ImageResult image = ImageResult.FromStream(stream, ColorComponents.RedGreenBlueAlpha);
             if (image is null || image.Width <= 0 || image.Height <= 0 || image.Data is null)
-                return;
-
-            if (!pending.TryGetValue(group, out List<PendingSprite> bucket))
+                return null;
+            return new PendingSprite
             {
-                bucket = [];
-                pending[group] = bucket;
-            }
-
-            bucket.Add(new PendingSprite
-            {
-                Key = string.IsNullOrWhiteSpace(key) ? full : key,
+                Key = key,
                 SourcePath = full,
                 Width = image.Width,
                 Height = image.Height,
                 Rgba = image.Data,
-            });
+            };
         }
         catch
         {
             // Skip undecodable sources.
+            return null;
         }
     }
 

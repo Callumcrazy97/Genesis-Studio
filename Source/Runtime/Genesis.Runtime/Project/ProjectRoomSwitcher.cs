@@ -369,7 +369,7 @@ namespace Genesis.Runtime.Project
             double quickest = double.MaxValue, slowest1 = 0;
             int frames = 0, settled = 0;
             // With GENESIS_LOAD_PROFILE=1: how many frames the cover stayed up waiting for what.
-            int waitedModels = 0, waitedTextures = 0, waitedShaders = 0, waitedSubsystems = 0, waitedSettling = 0;
+            int waitedModels = 0, waitedTextures = 0, waitedShaders = 0, waitedSounds = 0, waitedSubsystems = 0, waitedSettling = 0;
             // Nothing behind the cover moves, so its frames may send the room's textures to the
             // graphics card several times faster than a frame of play would. At four milliseconds
             // a frame a room of eighty pictures kept its cover up for twenty frames for them alone.
@@ -386,7 +386,10 @@ namespace Genesis.Runtime.Project
                 // The project's shaders being made on workers since start-up: until they are, their
                 // draws use the engine's shading, which must not be the room's first look.
                 bool shadersReady = Genesis.Runtime.Rendering.ProjectShaderWarmup.Pending == 0;
-                bool ready = modelsReady && texturesReady && shadersReady;
+                // Sounds the game asked to have ready (SoundPreload in a Create event, the project's
+                // preload budget), decoded on workers. A sound only played is not waited for.
+                bool soundsReady = (_context?.Audio?.SoundsLoading ?? 0) == 0;
+                bool ready = modelsReady && texturesReady && shadersReady && soundsReady;
                 bool subsystemsReady = true;
                 long mark = Stopwatch.GetTimestamp();
                 for (int i = 0; i < scene.Subsystems.Count; i++)
@@ -401,6 +404,7 @@ namespace Genesis.Runtime.Project
                 if (!modelsReady) waitedModels++;
                 if (!texturesReady) waitedTextures++;
                 if (!shadersReady) waitedShaders++;
+                if (!soundsReady) waitedSounds++;
                 if (!subsystemsReady) waitedSubsystems++;
                 if (ready) waitedSettling++;
 
@@ -439,7 +443,7 @@ namespace Genesis.Runtime.Project
             {
                 Genesis.Shared.Diagnostics.LoadProfile.Mark(firstRoom ? "first room ready" : "room ready");
                 _logger?.Line($"Load profile: the cover waited {waitedModels} frames for model files read ahead, {waitedTextures} for textures, "
-                    + $"{waitedShaders} for the project's shaders, "
+                    + $"{waitedShaders} for the project's shaders, {waitedSounds} for preloaded sounds, "
                     + $"{waitedSubsystems} for a subsystem's warm-up and {waitedSettling} with everything loaded, for frames to settle");
                 foreach (string line in Genesis.Shared.Diagnostics.LoadProfile.TakeReport((firstRoom ? "start-up and first room " : "room change to ") + roomName))
                     _logger?.Line(line);

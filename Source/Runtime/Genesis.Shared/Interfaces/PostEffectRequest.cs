@@ -16,5 +16,15 @@ namespace Genesis.Shared.Interfaces
         Vector4 Row0,
         Vector4 Row1,
         Vector4 Row2,
-        Vector4 Row3);
+        Vector4 Row3)
+    {
+        /// <summary>The pictures the effect reads beyond the frame, its depth and its flags (t3 and up).</summary>
+        public AuthoredShaderTextures Textures { get; init; }
+
+        /// <summary>Bit n: the shader declares a texture at register tn (n from 3). One given no picture reads white.</summary>
+        public int TextureSlots { get; init; }
+
+        /// <summary>Bit n: the shader declares a sampler at register sn (n from 1).</summary>
+        public int SamplerSlots { get; init; }
+    }
 }
