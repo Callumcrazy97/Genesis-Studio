@@ -228,16 +228,24 @@ public static partial class PgslCommands
 
     private sealed class PgslMap
     {
-        public Dictionary<string, object> Values { get; } = new(StringComparer.Ordinal);
-        public List<string> Order { get; } = [];
+        public Dictionary<string, object> Values { get; }
+        public List<string> Order { get; }
 
-        public PgslMap Copy()
+        public PgslMap()
         {
-            var copy = new PgslMap();
-            foreach (KeyValuePair<string, object> pair in Values) copy.Values.Add(pair.Key, pair.Value);
-            copy.Order.AddRange(Order);
-            return copy;
+            Values = new(StringComparer.Ordinal);
+            Order = [];
         }
+
+        // A copy in one allocation each (the copy a job's shared map costs when one side changes it),
+        // rather than the entries added one by one and the table regrown as it filled.
+        private PgslMap(PgslMap source)
+        {
+            Values = new Dictionary<string, object>(source.Values, StringComparer.Ordinal);
+            Order = new List<string>(source.Order);
+        }
+
+        public PgslMap Copy() => new(this);
     }
 
     [PgslCommand("DsMapCreate", "DsMapCreate() -> id", "Create a key/value map", "Maps")]

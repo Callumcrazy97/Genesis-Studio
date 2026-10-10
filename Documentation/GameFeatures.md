@@ -415,6 +415,19 @@ Hollow allocated 3.9 MB a frame (a simulated lake rebuilt its whole surface, the
 regrew its lists and every particle layer rebuilt its colour table, each frame); it now allocates
 about 50 KB. The `speed` headless target fails when an idle game allocates 1 MB a frame or more.
 
+A script mesh drawn through a mesh Shader resource (`DrawMeshShader3D`) after setting its
+instance's values (`ShaderSetVector`, `ShaderSetParameter`) allocated 128 bytes a draw: a new array
+for each value set, and two dictionary enumerators boxed when the draw copied the instance's values
+and textures. A game drawing a few hundred chunks and creatures that way made 50 KB of garbage a
+frame (`System.Single[]` and `Enumerator[System.String,System.Single[]]` in the type list above).
+The values now go into the instance's own arrays and are copied without boxing: nothing is
+allocated a draw, and 0.3 KB a frame in all (`--test mesh-upload`, case
+`ShaderMeshDrawsAllocateNothing`: 400 such draws a frame on DX11, 10 Oct 2026). Starting a worker
+job with `JobScriptShareAll` also grew its table of the game's structures one entry at a time; it is
+sized once now, so a start at a voxel game's size (44 grids, 2 500 lists, 65 maps, 2 500 globals)
+allocates 322 KB on the game's thread instead of 455 KB, and the copy of a shared map that one side
+changes is made in one allocation.
+
 ### What a game shows while it starts
 
 The Player draws a loading screen (the engine's name, a bar and what it is doing) as soon as its

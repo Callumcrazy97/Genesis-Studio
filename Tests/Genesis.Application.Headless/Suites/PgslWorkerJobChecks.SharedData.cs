@@ -417,13 +417,17 @@ internal static partial class PgslWorkerJobChecks
                 JobScriptGrid(sg, 17, false); JobScriptGrid(sg, 18, false); JobScriptGrid(sg, 19, false);
                 JobScriptStart(sg); r = sg;
                 """;
+            long startBytes = long.MaxValue;
             (double GameMs, double WorkerMs) Measure(string start)
             {
                 List<double> game = [], worker = [];
+                startBytes = long.MaxValue;
                 for (int i = 0; i < 15; i++)
                 {
                     long t = Stopwatch.GetTimestamp();
+                    long bytes = GC.GetAllocatedBytesForCurrentThread();
                     double job = bench.Number(start);
+                    startBytes = Math.Min(startBytes, GC.GetAllocatedBytesForCurrentThread() - bytes);
                     game.Add(Stopwatch.GetElapsedTime(t).TotalMilliseconds);
                     HeadlessHarness.Assert(bench.Wait(job) == "succeeded", "A sharing job failed: " + PgslCommands.JobError(job));
                     worker.Add(PgslCommands.ScriptJobWorkerMilliseconds(job));
@@ -434,6 +438,7 @@ internal static partial class PgslWorkerJobChecks
             }
             Measure(StartShared);
             (double sharedGame, double sharedWorker) = Measure(StartShared);
+            long sharedBytes = startBytes;
             (double gridsGame, double gridsWorker) = Measure(StartSixGrids);
 
             // What the game's first change of a big grid a running job holds costs: the copy.
@@ -459,7 +464,7 @@ internal static partial class PgslWorkerJobChecks
 
             string F(double ms) => ms.ToString("F3", CultureInfo.InvariantCulture) + " ms";
             row("Job speed", "JobScriptShareAll at a voxel game's size (44 grids, 2 500 lists, 65 maps, 2 500 globals): game thread / worker set-up (medians)", "behaviour",
-                $"{F(sharedGame)} / {F(sharedWorker)}");
+                $"{F(sharedGame)} / {F(sharedWorker)}; the game thread allocates {sharedBytes / 1024.0:F0} KB a start (fewest)");
             row("Job speed", "six 4096 x 96 grids given with JobScriptGrid: game thread / worker set-up (medians)", "behaviour", $"{F(gridsGame)} / {F(gridsWorker)}");
             row("Job speed", "the game's first DsGridSet of a 4096 x 96 grid a running job holds (the copy) / its next one (medians)", "behaviour",
                 $"{F(copyMs)} / {F(laterMs)}; {copiesMade} copies for 9 grids" + (heldThroughout ? "" : " (the job ended part-way)"));

@@ -270,7 +270,8 @@ public static partial class PgslCommands
 
         // The job's data, as it is now: shared with the job, not copied (PgslCommands.SharedData.cs),
         // so the game may go on changing its own while the job runs and the job never sees it.
-        Dictionary<string, object> data = new(StringComparer.Ordinal);
+        // Sized once: grown entry by entry, a voxel game's 2 500 structures reallocated it a dozen times a job.
+        Dictionary<string, object> data = new(setup.ShareAll ? store.Count : setup.Shared.Count + DsFamilies.Length, StringComparer.Ordinal);
         // Structures the job makes get the handles they would get here, after the game's own.
         foreach (string family in DsFamilies)
             if (store.TryGetValue("__ds_next_" + family, out object next)) data["__ds_next_" + family] = next;
@@ -363,6 +364,7 @@ public static partial class PgslCommands
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
         PgslEngineBridge bridge = RentWorkerBridge(run.Game);
         PgslContext context = new() { RoomWidth = run.RoomWidth, RoomHeight = run.RoomHeight };
+        context.Variables.EnsureCapacity(run.Data.Count);
         foreach (KeyValuePair<string, object> pair in run.Data) context.Variables[pair.Key] = pair.Value;
         PgslContext previous = BindContext(context);
         try

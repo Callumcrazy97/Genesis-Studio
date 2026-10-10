@@ -852,12 +852,8 @@ namespace Genesis.Runtime.Rendering
                 _materialShaderLookup.Shader = shaderAsset;
                 _materialShaderLookup.ShaderParameters.Clear();
                 _materialShaderLookup.ShaderResources.Clear();
-                if (parameters != null)
-                    foreach (KeyValuePair<string, float[]> parameter in parameters)
-                        _materialShaderLookup.ShaderParameters[parameter.Key] = parameter.Value;
-                if (resources != null)
-                    foreach (KeyValuePair<string, string> resource in resources)
-                        _materialShaderLookup.ShaderResources[resource.Key] = resource.Value;
+                CopyValues(parameters, _materialShaderLookup.ShaderParameters);
+                CopyValues(resources, _materialShaderLookup.ShaderResources);
                 if (!TryResolveShader(renderer, projectPath, _materialShaderLookup, ShaderAssetPipeline.Mesh, out ShaderCacheEntry shader)
                     || shader == null
                     || !shader.Handle.IsValid)
@@ -879,6 +875,20 @@ namespace Genesis.Runtime.Rendering
             {
                 return false;
             }
+        }
+
+        // An instance's values copied for one draw. Its own dictionary is walked with its struct
+        // enumerator: through the read-only interface every draw boxed an enumerator for the values
+        // and another for the textures, garbage on every script-mesh draw through a shader.
+        private static void CopyValues<TValue>(IReadOnlyDictionary<string, TValue> from, Dictionary<string, TValue> into)
+        {
+            if (from is null || from.Count == 0) return;
+            if (from is Dictionary<string, TValue> own)
+            {
+                foreach (KeyValuePair<string, TValue> pair in own) into[pair.Key] = pair.Value;
+                return;
+            }
+            foreach (KeyValuePair<string, TValue> pair in from) into[pair.Key] = pair.Value;
         }
 
         /// <summary>
