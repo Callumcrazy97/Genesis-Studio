@@ -223,6 +223,8 @@ internal static class LargeWorldContentSuite
                 $"Walking to the far hut should leave only its collider ({Registered()} colliding).");
         });
 
+        RunFarSceneryColliders(context);
+
         HeadlessHarness.RunCase(context.Report, "Engine.World.Scenery.AnObjectComesAndGoesAtItsOwnDistance", () =>
         {
             const string model = """{"type":"ModelRendererComponent","props":{"ModelAsset":"House Model"}}""";
@@ -406,6 +408,240 @@ internal static class LargeWorldContentSuite
 
         RunStreaming(context);
         RunReadAheadAndLights(context);
+    }
+
+    /// <summary>
+    /// Scenery beyond the scenery distance is never drawn, but stays solid around what moves there:
+    /// a script character, a moving body, an instance a script names (request 65).
+    /// </summary>
+    private static void RunFarSceneryColliders(HeadlessContext context)
+    {
+        HeadlessHarness.RunCase(context.Report, "Engine.World.Scenery.FarSceneryIsSolidAroundWhatMoves", () =>
+        {
+            RoomEnvironment unset = JObject.Parse("""{"sceneryDistance":1200}""").ToObject<RoomEnvironment>()!;
+            RoomEnvironment off = JObject.Parse("""{"sceneryDistance":1200,"sceneryCollisionDistance":0}""").ToObject<RoomEnvironment>()!;
+            HeadlessHarness.Assert(unset.SceneryCollisionDistance == 64f && off.SceneryCollisionDistance == 0f,
+                $"A room without sceneryCollisionDistance should read 64 m and one that sets 0 should keep it ({unset.SceneryCollisionDistance}, {off.SceneryCollisionDistance}).");
+
+            string parent = Path.Combine(context.Workspace, "FarScenery");
+            Directory.CreateDirectory(parent);
+            ProjectSession project = new ProjectService().CreateProject(parent, "Far" + Guid.NewGuid().ToString("N")[..6], "Blank");
+            var resources = new ResourceService(project);
+            string modelFile = Path.Combine(project.RootPath, "Assets", "Models", "Hut.model.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(modelFile)!);
+            File.WriteAllText(modelFile, "{}");
+            var hutModel = GModelPrimitiveFactory.CreateCube("Hut", 4f);
+            hutModel.Colliders.Add(new GModelCollider { Shape = GModelColliderShape.Mesh });
+            StudioModelResourceLoader.SaveCanonical(modelFile, hutModel);
+            string objects = ResourceFolderPolicy.RootFor(project, ResourceKind.GameObject);
+            File.WriteAllText(resources.CreateResource(objects, ResourceKind.GameObject, "Test Hut"),
+                """{"schemaVersion":2,"dimension":"ThreeD","model":"","components":[{"type":"ModelRendererComponent","props":{"ModelAsset":"Hut"}}],"events":[]}""");
+            ResourceNames.Invalidate(project.RootPath);
+            ResourceCatalog.Invalidate(project.RootPath);
+
+            // Every hut is at least 1.5 km from the camera, which loads scenery within 350 m.
+            RoomAsset room = RoomAsset.Create("Island", RoomDimension.ThreeD);
+            var village = new List<Vector3>();
+            void Place(float x, float z) => room.Nodes.Add(new RoomNode
+            {
+                Name = $"Hut {x} {z}", Kind = RoomNodeKind.GameObject, LayerId = room.Layers[0].Id, EnabledIn2D = false,
+                Transform = new RoomTransform { X = x, Z = z, ScaleX = 1, ScaleY = 1, ScaleZ = 1 },
+                GameObject = new RoomGameObjectData { Prefab = "Test Hut" },
+            });
+            Vector3 wallHut = new(1500f, 0f, 0f), bodyHut = new(1500f, 0f, -1000f), focusHut = new(1500f, 0f, 1000f);
+            foreach (Vector3 hut in new[] { wallHut, bodyHut, focusHut }) Place(hut.X, hut.Z);
+            for (int i = 0; i < 7; i++)
+            for (int j = 0; j < 7; j++)
+            {
+                village.Add(new Vector3(3000f + i * 20f, 0f, j * 20f));
+                Place(3000f + i * 20f, j * 20f);
+            }
+
+            Genesis.Runtime.Scripting.VM.VMEngine.Initialize();
+            using var scene = new RuntimeScene("Far scenery");
+            scene.Physics = PhysicsWorld.Create(new PhysicsWorldAsset());
+            var registration = new Genesis.Physics.Systems.PhysicsRegistrationSystem(scene.Physics);
+            var streamer = new RoomSceneryStreamer(350f);
+            var builder = new RoomSceneBuilder(project.RootPath, new ScriptHostSystem()) { Scenery = streamer };
+            builder.Build(scene, room);
+            streamer.Attach(builder, room);
+            Genesis.Runtime.ECS.World world = scene.World;
+            var time = new GameTime();
+            time.Advance(1f / 60f);
+            scene.Camera3D.Position = new Vector3(0f, 2f, 0f);
+
+            var game = new Genesis.Runtime.Project.ProjectGameContext(project.RootPath, scene, null, null, room, null);
+            var pgsl = new Genesis.Shared.Scripting.PgslContext();
+            var oldContext = PgslCommands.BindContext(pgsl);
+            var oldGame = PgslCommands.ActiveGameContext;
+            string oldPath = PgslCommands.ProjectPath;
+            PgslCommands.ActiveGameContext = game;
+            PgslCommands.ProjectPath = project.RootPath;
+            try
+            {
+                void Frames(int count)
+                {
+                    for (int frame = 0; frame < count; frame++)
+                    {
+                        registration.FixedUpdate(world, 1f / 60f);
+                        streamer.Update(scene, time);
+                        world.FlushDeferred();
+                    }
+                }
+                int Drawn()
+                {
+                    int count = 0;
+                    world.Query<Genesis.Runtime.ECS.Components.ModelRendererComponent>(
+                        (Genesis.Shared.ECS.Entity _, ref Genesis.Runtime.ECS.Components.ModelRendererComponent _) => count++);
+                    return count;
+                }
+                // Static colliders registered where a hut stands: never two for one hut.
+                int SolidAt(Vector3 at)
+                {
+                    int count = 0;
+                    world.Query<Genesis.Shared.ECS.Components.RigidBodyComponent, Genesis.Shared.ECS.Components.Transform3DComponent>(
+                        (Genesis.Shared.ECS.Entity _, ref Genesis.Shared.ECS.Components.RigidBodyComponent body, ref Genesis.Shared.ECS.Components.Transform3DComponent transform) =>
+                        {
+                            if (body.RegistrationId != 0 && body.Motion == Genesis.Shared.ECS.Components.PhysicsMotionType.Static
+                                && Vector3.Distance(transform.Position, at) < 0.1f) count++;
+                        });
+                    return count;
+                }
+                // A ray along +x at mid height, 10 m short of a hut's centre: its west wall is 8 m away.
+                double RayAt(Vector3 hut) => PgslCommands.PhysicsRaycast(hut.X - 10f, 0.5, hut.Z + 0.5, 1, 0, 0, 20);
+
+                Frames(10);
+                HeadlessHarness.Assert(streamer.Total == 52 && streamer.Loaded == 0 && Drawn() == 0 && streamer.FarColliders == 0 && RayAt(wallHut) < 0,
+                    $"With nothing moving, no hut should exist in any form ({streamer.Loaded} loaded, {Drawn()} drawn, {streamer.FarColliders} far colliders).");
+
+                // A bot: an instance with a script character, its feet 6 m short of the hut's west wall.
+                world.CreateEntity();
+                Genesis.Shared.ECS.Entity bot = world.CreateEntity();
+                world.Set(bot, new Genesis.Shared.ECS.Components.EntityLifecycleComponent { Enabled = true });
+                world.Set(bot, new Genesis.Runtime.ECS.Components.TransformComponent { X = 1494f, Y = -1f, ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+                pgsl.InstanceId = bot.Id;
+                pgsl.X = 1494; pgsl.Y = -1; pgsl.Z = 0;
+                PgslCommands.CharacterCreate(0.4, 1.8, 0.3, 45);
+                double Walk()
+                {
+                    double flags = 0;
+                    for (int step = 0; step < 40; step++) flags = PgslCommands.CharacterMove(0.25, 0, 0);
+                    return flags;
+                }
+
+                // The request's example, as it was: with no collision distance the bot walks through the hut.
+                streamer.ColliderRadiusAroundBodies = 0f;
+                Frames(10);
+                Walk();
+                HeadlessHarness.Assert(streamer.FarColliders == 0 && PgslCommands.CharacterX() > 1503.5,
+                    $"With sceneryCollisionDistance 0 the far hut should stay hollow, as before (bot at x = {PgslCommands.CharacterX():F2}, {streamer.FarColliders} far colliders).");
+
+                // As it is now: the hut's collider alone is made around the bot, and stops it at the wall.
+                PgslCommands.CharacterSetPosition(1494, -1, 0);
+                streamer.ColliderRadiusAroundBodies = 64f;
+                Frames(10);
+                HeadlessHarness.Assert(streamer.FarColliders == 1 && streamer.Loaded == 0 && Drawn() == 0 && SolidAt(wallHut) == 1,
+                    $"Only the hut beside the bot should be solid, and still not drawn ({streamer.FarColliders} far colliders, {streamer.Loaded} loaded, {Drawn()} drawn, {SolidAt(wallHut)} at the hut).");
+                double hit = RayAt(wallHut);
+                HeadlessHarness.Assert(Math.Abs(hit - 8) < 0.05, $"A ray at the hut 1.5 km from the camera should meet its wall 8 m away, not {hit:F3}.");
+                double flags = Walk();
+                double stopped = PgslCommands.CharacterX();
+                HeadlessHarness.Assert(stopped > 1497.4 && stopped < 1497.65 && ((int)flags & 4) != 0,
+                    $"The bot should stop against the wall at x = 1497.6 (its radius short of 1498); it is at {stopped:F3} (flags {flags}).");
+                HeadlessHarness.Assert(scene.Physics.SharedMeshCounts() == (1, 1), $"The stand-in should use the model's shared mesh: {scene.Physics.SharedMeshCounts()}.");
+
+                // Into a village of 49 huts 20 m apart: only those within 64 m are solid, and the hut left behind is let go.
+                // With no time to spare each frame makes one stand-in: the work is spread over frames, never dropped.
+                Vector3 square = new(3060f, -1f, 60f);
+                streamer.FarColliderMillisecondsPerFrame = 0;
+                PgslCommands.CharacterSetPosition(square.X, square.Y, square.Z);
+                Frames(10);
+                int early = streamer.FarColliders;
+                var clock = Stopwatch.StartNew();
+                Frames(40);
+                double makingMs = clock.Elapsed.TotalMilliseconds;
+                int madeThere = streamer.FarColliders - early;
+                streamer.FarColliderMillisecondsPerFrame = 1.0;
+                clock.Restart();
+                Frames(80);
+                Console.WriteLine($"Far scenery colliders: {madeThere} first stand-ins in {makingMs:F1} ms over 40 frames "
+                    + $"({makingMs / Math.Max(1, madeThere):F3} ms each with the frame's other work); "
+                    + $"steady frame with {streamer.FarColliders} stand-ins and {streamer.FocusCount} foci {clock.Elapsed.TotalMilliseconds / 80:F3} ms");
+                int within = village.Count(hut => (hut.X - square.X) * (hut.X - square.X) + (hut.Z - square.Z) * (hut.Z - square.Z) <= 64f * 64f);
+                HeadlessHarness.Assert(early is >= 1 and <= 10, $"With no time to spare, {early} stand-ins were made in 10 frames; expected one a frame.");
+                HeadlessHarness.Assert(within == 37 && streamer.FarColliders == within && RayAt(wallHut) < 0 && SolidAt(wallHut) == 0,
+                    $"In the village {within} of 49 huts are within 64 m; {streamer.FarColliders} are solid (the first hut {SolidAt(wallHut)}).");
+                HeadlessHarness.Assert(scene.Physics.SharedMeshCounts() == (1, within) && streamer.Loaded == 0 && Drawn() == 0,
+                    $"The village's colliders should share one mesh and draw nothing: {scene.Physics.SharedMeshCounts()}, {Drawn()} drawn.");
+
+                // The count is bounded.
+                PgslCommands.CharacterSetPosition(6000, -1, 6000);
+                Frames(10);
+                HeadlessHarness.Assert(streamer.FarColliders == 0 && scene.Physics.SharedMeshCounts() == (0, 0),
+                    $"Walking into open country should let every stand-in go ({streamer.FarColliders} left, {scene.Physics.SharedMeshCounts()}).");
+                streamer.MaxFarColliders = 10;
+                PgslCommands.CharacterSetPosition(square.X, square.Y, square.Z);
+                Frames(30);
+                HeadlessHarness.Assert(streamer.FarColliders == 10, $"At most 10 stand-ins were allowed; {streamer.FarColliders} exist.");
+                streamer.MaxFarColliders = 2048;
+
+                // A moving body is followed by default.
+                Genesis.Shared.ECS.Entity crate = world.CreateEntity();
+                world.Set(crate, new Genesis.Shared.ECS.Components.EntityLifecycleComponent { Enabled = true });
+                Genesis.Shared.ECS.Components.Transform3DComponent placed = Genesis.Shared.ECS.Components.Transform3DComponent.Default;
+                placed.Position = bodyHut + new Vector3(0f, 0f, 12f);
+                world.Set(crate, placed);
+                world.Set(crate, Genesis.Shared.ECS.Components.RigidBodyComponent.DynamicBox(new Vector3(0.5f)));
+                HeadlessHarness.Assert(RayAt(bodyHut) < 0, "The hut beside the crate was solid before the crate was registered.");
+                Frames(20);
+                hit = RayAt(bodyHut);
+                HeadlessHarness.Assert(Math.Abs(hit - 8) < 0.05 && SolidAt(bodyHut) == 1, $"A moving body 12 m from a far hut should make it solid (ray {hit:F3}).");
+
+                // An instance a script names, with no body or character.
+                Genesis.Shared.ECS.Entity marker = world.CreateEntity();
+                world.Set(marker, new Genesis.Runtime.ECS.Components.TransformComponent { X = focusHut.X - 20f, Y = 0f, Z = focusHut.Z, ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+                HeadlessHarness.Assert(!PgslCommands.PhysicsAddCollisionFocus(marker.Id, 0) && !PgslCommands.PhysicsAddCollisionFocus(-1, 30)
+                    && !PgslCommands.PhysicsAddCollisionFocus(double.NaN, 30) && !PgslCommands.PhysicsRemoveCollisionFocus(marker.Id),
+                    "A collision focus with no radius, no instance or never added should be refused.");
+                HeadlessHarness.Assert(PgslCommands.PhysicsAddCollisionFocus(marker.Id, 30), "The marker could not be made a collision focus.");
+                Frames(10);
+                hit = RayAt(focusHut);
+                HeadlessHarness.Assert(Math.Abs(hit - 8) < 0.05 && CollisionFoci.Count(world) == 1, $"A hut 20 m from a collision focus of 30 m should be solid (ray {hit:F3}).");
+                HeadlessHarness.Assert(PgslCommands.PhysicsRemoveCollisionFocus(marker.Id), "Removing the collision focus failed.");
+                Frames(10);
+                HeadlessHarness.Assert(RayAt(focusHut) < 0 && SolidAt(focusHut) == 0, "The hut stayed solid after its collision focus was removed.");
+
+                // The camera comes to the bot's hut: the drawn hut's own collider takes over, never two at once.
+                PgslCommands.CharacterSetPosition(1494, -1, 0);
+                Frames(10);
+                int farBeside = streamer.FarColliders;
+                scene.Camera3D.Position = new Vector3(1400f, 2f, 0f);
+                Frames(10);
+                hit = RayAt(wallHut);
+                HeadlessHarness.Assert(streamer.Loaded == 1 && Drawn() == 1 && streamer.FarColliders == farBeside - 1 && SolidAt(wallHut) == 1 && Math.Abs(hit - 8) < 0.05,
+                    $"With the camera 100 m away the hut should be drawn and solid once ({streamer.Loaded} loaded, {streamer.FarColliders} far of {farBeside}, {SolidAt(wallHut)} solid, ray {hit:F3}).");
+                scene.Camera3D.Position = new Vector3(0f, 2f, 0f);
+                Frames(10);
+                hit = RayAt(wallHut);
+                HeadlessHarness.Assert(streamer.Loaded == 0 && Drawn() == 0 && streamer.FarColliders == farBeside && SolidAt(wallHut) == 1 && Math.Abs(hit - 8) < 0.05,
+                    $"With the camera gone the hut should be solid again without being drawn ({streamer.Loaded} loaded, {streamer.FarColliders} far, {SolidAt(wallHut)} solid, ray {hit:F3}).");
+
+                // Everything that moved goes: so do the colliders, and the physics memory they shared.
+                PgslCommands.CharacterDestroy();
+                scene.Physics.UnregisterEntity(world, crate, ref world.GetRef<Genesis.Shared.ECS.Components.RigidBodyComponent>(crate));
+                world.DestroyEntity(crate);
+                Frames(10);
+                HeadlessHarness.Assert(streamer.FarColliders == 0 && streamer.FocusCount == 0 && scene.Physics.SharedMeshCounts() == (0, 0)
+                    && SolidAt(wallHut) + SolidAt(bodyHut) + SolidAt(focusHut) == 0,
+                    $"With nothing moving every stand-in should be gone ({streamer.FarColliders} left, {streamer.FocusCount} foci, {scene.Physics.SharedMeshCounts()}).");
+            }
+            finally
+            {
+                PgslCommands.BindContext(oldContext);
+                PgslCommands.ActiveGameContext = oldGame;
+                PgslCommands.ProjectPath = oldPath;
+            }
+        });
     }
 
     private static void RunReadAheadAndLights(HeadlessContext context)

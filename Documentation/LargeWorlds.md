@@ -13,14 +13,14 @@ at small scale, or an opt-in setting whose default is the old behaviour.
 | Part | Behaviour |
 |---|---|
 | Terrain drawing | A terrain of 1024 cells or more per side is drawn as a quadtree. Detail follows distance, so an 8 km terrain costs about 0.8 million triangles from any viewpoint. Tiles are built on worker threads and uploaded a few per frame. |
-| Terrain collision | Large terrains keep collision only near the camera and near moving physics bodies, in 64-cell tiles. |
+| Terrain collision | Large terrains keep collision only near the camera, near moving physics bodies and near instances a script names with `PhysicsAddCollisionFocus`, in 64-cell tiles. |
 | Terrain files | `.gterrain` loads and saves in one block instead of a sample at a time. The test room below, with a 100 MB terrain, is running under four seconds after the Player starts. |
 | Terrain shading | On terrains 1000 m or wider, painted layers blend to a broader repeat with distance and carry a slow variation in tone, so distant ground shows neither tiles nor one flat colour. |
 | Models | A static model with no authored levels of detail gets up to three simplified versions, made in the background the first time it is seen small. The version drawn follows the model's size on screen. A model smaller than about 0.25% of the screen's height is not drawn. Animated (skinned) meshes are simplified too, one step later than static ones, and every vertex kept is an original vertex with its own bone weights. |
 | Model loading | A model of 256 KB or more is kept a second time in the project's `.genesis/Cache/Models` folder with its vertices, indices and animation frames as raw bytes, which reads back many times faster than the model's text. A room's models are read on worker threads while the room's terrain loads and its objects are created. See [Loading](#loading). |
 | Scatter | A terrain's scatter layers place copies of a Model by rule: density, height range, slope, painted layer, clumping. Nothing is stored; each 256 m cell is worked out when it comes into range. Near cells draw every copy as an instance with shadows; further cells draw as one merged mesh each. |
 | Scatter collision | A scatter layer with a collision size is solid: copies within 14 m of the camera or of a moving physics body get an upright box collider, and lose it when everything has moved away. A forest of 200,000 trees costs the few dozen colliders around what can touch them. |
-| Scenery | With a scenery distance set, placed Objects that only show a model exist only while the camera is within that distance. Anything scripted, moving or remembered loads with the room as before, unless the Object says it may be streamed. |
+| Scenery | With a scenery distance set, placed Objects that only show a model exist only while the camera is within that distance. Anything scripted, moving or remembered loads with the room as before, unless the Object says it may be streamed. Beyond the distance, scenery stays solid around anything that moves: its collider alone is made there, never its model. |
 | Several terrains | With a terrain distance set, each Terrain in a room is read when the camera comes within that distance of its edge and released when the camera has left it behind. Later terrains are read on a worker thread. |
 | Shared worlds | A host shares Objects with the players joined to it, each player is sent only what is near it, and each player's own character is shown to the others. See [Multiplayer](#multiplayer). |
 | Sea | An ocean water body follows the camera to the horizon and has a dark floor under open water. |
@@ -44,6 +44,7 @@ These are in the Room editor under **Lighting & atmosphere**, and in the room fi
 | Sky light | `skyLight` | `"zenith"` | `"hemisphere"` lights shade with the whole drawn sky dome and the sunlit ground: brighter, and pale blue-grey rather than deep blue. Under **Sky light & exposure**; see [Sky light and eye adaptation](GameFeatures.md#sky-light-and-eye-adaptation). |
 | Auto exposure | `autoExposure` | off | The exposure follows the scene's brightness (eye adaptation). Same section. |
 | Scenery loading distance (m) | `sceneryDistance` | 0 | Objects that only show a model are created within this distance of the camera and destroyed beyond 1.2 times it. 0 creates everything with the room. |
+| Scenery solid around moving things (m) | `sceneryCollisionDistance` | 64 | With a scenery distance set: scenery within this distance of a moving physics body or a script character (`CharacterCreate`) is solid, however far from the camera. Beyond the scenery distance only the collider is made. 0 keeps scenery solid only near the camera and near instances named with `PhysicsAddCollisionFocus`. |
 | Terrain loading distance (m) | `terrainDistance` | 0 | A Terrain is loaded when the camera is within this distance of its edge. 0 loads every terrain with the room. |
 
 Set the camera's far plane to cover the view you want (`Engine.SetCameraFarPlane(16000)`). The
@@ -77,9 +78,14 @@ within 3 pixels of where it belongs on each; the usual way, it is at least 12 pi
 
 An Object is scenery when its components are only a transform, a model and its material or shader:
 no script, no events, no physics preset, not persistent. While it is loaded a streamed Object is
-as solid as any placed model (it gets the same collider fitted to its model), and the collider goes
-when the Object does. Something that moves on its own far from the camera can therefore pass
-through a building that is not loaded; give the building a physics preset to load it with the room.
+as solid as any placed model (it gets the same collider fitted to its model). Where something
+moves beyond the scenery distance (a bot under `CharacterMove`, a vehicle, a dynamic body), the
+scenery around it within the room's `sceneryCollisionDistance` (64 m unless set) gets that
+collider alone: nothing is drawn and no model instance is made, the collider shares its model's
+collision mesh with every other copy, and it is removed once everything has moved away. A ray
+from a distant bot therefore meets the building, and the bot cannot walk through it. An instance
+moved by a script without a body or a character can ask for the same with
+`PhysicsAddCollisionFocus(id, radius)` (see [GameFeatures.md](GameFeatures.md)).
 
 An Object with a script, events or a physics preset can ask to be streamed as well: add
 `"streamable": true` at the top level of its definition (the Object's `.json` file; there is no
@@ -525,11 +531,15 @@ Four other full runs during this work each failed one or two checks that pass al
   one collision mesh (its triangles and their tree), each with its own scale. Before, each instance
   built its own copy: 241 buildings ran the physics memory out. A mirrored instance (a negative
   scale) still makes its own.
-- **Scenery colliders only near the camera and moving bodies.** A streamed scenery Object with a
+- **Scenery colliders only near the camera and what moves.** A streamed scenery Object with a
   fixed collider is drawn out to the scenery distance, but its collider exists only within 200 m of
-  the camera or 64 m of a moving body (`RoomSceneryStreamer.ColliderRadiusAroundCamera` /
-  `ColliderRadiusAroundBodies`), as the terrain's tiles and scatter already were. A ray or shape
-  cast far from both finds no scenery.
+  the camera or the room's `sceneryCollisionDistance` (64 m) of a moving body or script character
+  (`RoomSceneryStreamer.ColliderRadiusAroundCamera` / `ColliderRadiusAroundBodies`), and within
+  the radius of each collision focus a script names, as the terrain's tiles and scatter already
+  were. Beyond the scenery distance the collider stands alone, without the Object; at most 2048
+  such colliders exist at once (`MaxFarColliders`), made within 1 ms a frame (the rest on the
+  following frames) and looked at every 8 frames, so a character teleported beside a building
+  meets it a few frames later. A ray or shape cast far from all of these finds no scenery.
 - **Textures are cooked in Studio.** When a model is imported, and when an Image used as a model
   texture is saved, Studio makes compressed copies beside the pictures in the background (BC7, and
   BC5 for normal maps). A game then uploads a quarter of the memory or less. A copy older than its

@@ -78,6 +78,34 @@ public static partial class PgslCommands
         if (ctx != null && world != null && Characters.TryGetValue(world, out var characters)) characters.Remove(ctx.InstanceId);
     }
 
+    /// <summary>
+    /// Adds the feet of each character whose instance still exists, up to <paramref name="limit"/>
+    /// entries: colliders made only near moving things (streamed scenery) are kept around them.
+    /// </summary>
+    internal static void CollectCharacterFeet(Genesis.Runtime.ECS.World world, List<Genesis.Runtime.Scene.CollisionFocus> into, float radius, int limit)
+    {
+        if (world == null || into == null || !Characters.TryGetValue(world, out var characters)) return;
+        foreach (KeyValuePair<int, KinematicCharacter> pair in characters)
+        {
+            if (into.Count >= limit) return;
+            if (world.GetEntity(pair.Key).IsNull) continue;
+            Vector3 feet = pair.Value.Position;
+            if (float.IsFinite(feet.X) && float.IsFinite(feet.Y) && float.IsFinite(feet.Z))
+                into.Add(new Genesis.Runtime.Scene.CollisionFocus(feet, radius));
+        }
+    }
+
+    /// <summary>The feet of an instance's character, when it has one.</summary>
+    internal static bool TryCharacterFeet(Genesis.Runtime.ECS.World world, Genesis.Shared.ECS.Entity entity, out Vector3 feet)
+    {
+        feet = default;
+        if (world == null || !world.IsAlive(entity) || !Characters.TryGetValue(world, out var characters)
+            || !characters.TryGetValue(entity.Id, out KinematicCharacter character))
+            return false;
+        feet = character.Position;
+        return true;
+    }
+
     private static bool TryCharacter(out KinematicCharacter character, out Genesis.Runtime.ECS.World world, out Genesis.Shared.ECS.Entity self)
     {
         character = null;

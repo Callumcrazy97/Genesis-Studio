@@ -855,6 +855,7 @@ public sealed partial class RoomEditorControl
             ShadowDistance = source.ShadowDistance,
             SimulationDistance = source.SimulationDistance,
             SceneryDistance = source.SceneryDistance,
+            SceneryCollisionDistance = source.SceneryCollisionDistance,
             TerrainDistance = source.TerrainDistance,
             WindAudio = source.WindAudio,
             RainAudio = source.RainAudio,

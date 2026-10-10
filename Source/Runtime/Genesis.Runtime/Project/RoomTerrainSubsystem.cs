@@ -565,6 +565,7 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
 
     private readonly List<TerrainColliderFocus> _colliderFocus = new();
     private readonly List<TerrainColliderFocus> _scatterFocus = new();
+    private readonly List<Genesis.Runtime.Scene.CollisionFocus> _namedFoci = new();
 
     /// <summary>Metres around the camera and each moving body in which scattered copies are solid.</summary>
     public float ScatterColliderRadius { get; set; } = 14f;
@@ -588,6 +589,11 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
         _scatterFocus.Clear();
         float radius = ScatterColliderRadius;
         _scatterFocus.Add(new TerrainColliderFocus(scene.Camera3D.Position, radius));
+        // Instances a script asked colliders to follow (PhysicsAddCollisionFocus) count as moving bodies.
+        _namedFoci.Clear();
+        Genesis.Runtime.Scene.CollisionFoci.Collect(scene.World, _namedFoci, 127);
+        foreach (Genesis.Runtime.Scene.CollisionFocus focus in _namedFoci)
+            _scatterFocus.Add(new TerrainColliderFocus(focus.Position, radius));
         scene.World.Query<Genesis.Shared.ECS.Components.Transform3DComponent, Genesis.Shared.ECS.Components.RigidBodyComponent>(
             (Entity _, ref Genesis.Shared.ECS.Components.Transform3DComponent transform,
                 ref Genesis.Shared.ECS.Components.RigidBodyComponent body) =>
@@ -621,6 +627,11 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
 
         _colliderFocus.Clear();
         _colliderFocus.Add(new TerrainColliderFocus(scene.Camera3D.Position, ColliderRadiusAroundCamera));
+        // Instances a script asked colliders to follow, each with its own radius.
+        _namedFoci.Clear();
+        Genesis.Runtime.Scene.CollisionFoci.Collect(scene.World, _namedFoci, 511);
+        foreach (Genesis.Runtime.Scene.CollisionFocus focus in _namedFoci)
+            _colliderFocus.Add(new TerrainColliderFocus(focus.Position, focus.Radius));
         float bodyRadius = ColliderRadiusAroundBodies;
         scene.World.Query<Genesis.Shared.ECS.Components.Transform3DComponent, Genesis.Shared.ECS.Components.RigidBodyComponent>(
             (Entity _, ref Genesis.Shared.ECS.Components.Transform3DComponent transform,

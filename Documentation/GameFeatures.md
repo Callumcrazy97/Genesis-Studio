@@ -853,6 +853,43 @@ if (CharacterGrounded()) { fallSpeed = 0; } else { fallSpeed = fallSpeed - 9.8 *
 x = CharacterX(); y = CharacterY(); z = CharacterZ();
 ```
 
+**Shape casts against Mesh colliders (fixed 10 October 2026).** `PhysicsSphereCast`,
+`PhysicsCapsuleCast`, `PhysicsOverlapCapsule` and the character commands missed a Mesh collider's
+face (a building fitted to its model, a large terrain's tiles) near the end of any cast shorter
+than about a metre: a sphere 0.1 m from a wall was not found by a cast shorter than 0.32 m. A
+character moving a few centimetres a frame therefore met mesh walls and ground only once inside
+them, and was then held there. Casts now find them; casts against boxes, spheres and capsules
+return what they did.
+
+## Colliders where things move, far from the camera
+
+In a large world some colliders exist only near what can touch them: streamed scenery, a large
+terrain's tiles and solid scatter (see [LargeWorlds.md](LargeWorlds.md)). In a room with a scenery
+distance, scenery is solid within the room's `sceneryCollisionDistance` (64 m unless set) of
+every moving physics body and every script character made with `CharacterCreate`, however far
+they are from the camera. Beyond the scenery distance only the building's collider is made there:
+nothing is drawn, no model instance or script is created, and every copy of a model shares one
+collision mesh. So a bot 1.5 km from the camera that `CharacterMove`s into a wall stops at it, and
+its rays meet the wall. Rooms without a scenery distance are unchanged.
+
+| Command | What it does |
+|---|---|
+| `PhysicsAddCollisionFocus(id, radius)` | Keep these colliders within `radius` metres (up to 1000) of instance `id` as well, however far from the camera: streamed scenery, terrain tiles (at that radius) and solid scatter (at its usual 14 m). For something moved without a body: a far bot's terrain under `CharacterMove`, a vehicle steered by rays. False when there is no such instance or the radius is not positive. |
+| `PhysicsRemoveCollisionFocus(id)` | Stop keeping colliders around it; false when it was not a collision focus. A destroyed instance stops on its own. |
+
+```pgsl
+// Create event of a bot: a capsule, solid ground and buildings wherever it goes.
+CharacterCreate(0.4, 1.8, 0.35, 45);
+PhysicsAddCollisionFocus(id, 32);
+```
+
+A character counts for scenery without a focus; for a large terrain's ground far from the camera
+it needs one (or a body). Scenery colliders are looked at every eighth frame, so one teleported
+beside a building meets it up to eight frames later. At most 512 places are followed
+at once (foci first, then characters, then bodies) and at most 2048 stand-in colliders exist; the
+debug screen's `sceneryColliders=` line counts the scenery colliders near the camera, the far
+ones and the places followed.
+
 ## Model layers and models in the GUI
 
 A model layer is a model drawn over the world instead of in it. Layers 1 to 8 follow the game
