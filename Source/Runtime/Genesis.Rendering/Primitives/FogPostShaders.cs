@@ -145,6 +145,10 @@ cbuffer FogPostConstants : register(b1)
     // Append-only — x=1 when ParticleLayer (t12) holds premultiplied, self-fogged GPU particles.
     float4 ParticleLayerParams;
 
+    // Append-only — eye adaptation: x=1 when AutoExposureState (t13) holds the adapted log2
+    // luminance, y=key. The exposure is then multiplied by key / exp2(adapted); at 0 it is not touched.
+    float4 AutoExposureParams;
+
 };
 
 
@@ -188,6 +192,9 @@ Texture2D CloudMap : register(t11);
 
 // GPU particles, already fogged at their own depth: premultiplied rgb, a = coverage.
 Texture2D ParticleLayer : register(t12);
+
+// Eye adaptation: one texel, the adapted log2 luminance of the scene (AutoExposureShaders).
+Texture2D<float> AutoExposureState : register(t13);
 
 SamplerState LinearClamp : register(s0);
 
@@ -673,7 +680,10 @@ float4 PS(VSOut IN) : SV_Target
     if (BloomParams.x > 0.5)
         color.rgb += BloomMap.Sample(LinearClamp, IN.uv).rgb * BloomParams.y * fogTransmittance;
 
-    color.rgb *= ExposureParams.x;
+    float exposure = ExposureParams.x;
+    if (AutoExposureParams.x > 0.5)
+        exposure *= AutoExposureParams.y / exp2(AutoExposureState.Load(int3(0, 0, 0)));
+    color.rgb *= exposure;
 
     float mid = 0.18;
     float3 graded = (color.rgb - mid) * ExposureParams.y + mid;

@@ -41,6 +41,8 @@ These are in the Room editor under **Lighting & atmosphere**, and in the room fi
 | Sun shadow distance (m) | `shadowDistance` | 0 | How far from the camera the sun casts shadows. 0 keeps close-range shadows only. 2000 to 4000 shades mountainsides. |
 | Object activity distance (m) | `simulationDistance` | 0 | Scripted objects with a 3D model further than this skip Step events. 0 runs everything. |
 | Ambient intensity | `ambientIntensity` | 1 | Now also scales the dynamic sky's ambient light. Raise it when shaded slopes are too dark. |
+| Sky light | `skyLight` | `"zenith"` | `"hemisphere"` lights shade with the whole drawn sky dome and the sunlit ground: brighter, and pale blue-grey rather than deep blue. Under **Sky light & exposure**; see [Sky light and eye adaptation](GameFeatures.md#sky-light-and-eye-adaptation). |
+| Auto exposure | `autoExposure` | off | The exposure follows the scene's brightness (eye adaptation). Same section. |
 | Scenery loading distance (m) | `sceneryDistance` | 0 | Objects that only show a model are created within this distance of the camera and destroyed beyond 1.2 times it. 0 creates everything with the room. |
 | Terrain loading distance (m) | `terrainDistance` | 0 | A Terrain is loaded when the camera is within this distance of its edge. 0 loads every terrain with the room. |
 

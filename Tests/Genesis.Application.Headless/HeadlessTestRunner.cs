@@ -1119,6 +1119,7 @@ internal static class HeadlessTestRunner
         Suites.TextRenderingSuite.Run(ctx);
         Suites.Effects2DSuite.Run(ctx);
         Suites.PostEffectsSuite.Run(ctx);
+        Suites.SkyLightExposureSuite.Run(ctx);
         Suites.ShaderPrecompiledSuite.Run(ctx);
 
         return Finish(report, outputRoot, fastBuildGate: false);
@@ -1134,7 +1135,7 @@ internal static class HeadlessTestRunner
         ["tier-engine"] = ["engine-systems", "asset-import", "readback-alpha", "post-effects", "large-world", "runtime", "model-system", "debug-screen", "terrain-layers-grass", "shader-precompiled", "gui-linear", "opengl-compat", "window-lifecycle"],
         ["tier-pgsl"] = ["pgsl-values", "pgsl-cache", "pgsl-scripts", "pgsl-logic", "input-replay", "pgsl-project", "export-pgsl", "live-reload", "runtime-resources"],
         // A running game's files, sounds, post effects and profile (the 2026-10-09 game requests).
-        ["game-runtime"] = ["live-reload", "runtime-resources", "post-effects", "debug-screen"],
+        ["game-runtime"] = ["live-reload", "runtime-resources", "post-effects", "debug-screen", "sky-light-exposure"],
         // Particle burst cost and mesh streaming memory together (not part of the tiers), and with
         // the suites that use runtime particles and script meshes.
         ["streaming-load"] = ["particle-bursts", "mesh-soak"],
@@ -1621,6 +1622,13 @@ internal static class HeadlessTestRunner
                 // Script meshes in the sky layer (DrawMeshSetSky): behind the world, around the camera, on every renderer.
                 PrepareFocusedProject(ctx, requireStudioServices: false);
                 Suites.SkyLayerSuite.Run(ctx);
+                break;
+            case "sky-light-exposure":
+            case "sky-light":
+            case "auto-exposure":
+                // Request 64: the hemisphere sky light and eye adaptation on every renderer, and their cost at 1080p.
+                PrepareFocusedProject(ctx, requireStudioServices: false);
+                Suites.SkyLightExposureSuite.Run(ctx);
                 break;
             case "model-sprites":
                 Suites.ModelSpriteConversionSuite.Run(ctx);

@@ -137,6 +137,9 @@ namespace Genesis.Rendering.Primitives
             public Vector4   AuthoredSkySun;     // xyz=toward sun, w=solar disc radiance
             // Append-only — x=1 when the GPU particle layer (t12) is composited over the fogged scene.
             public Vector4   ParticleLayerParams;
+            // Append-only — eye adaptation (ForwardRenderer.AutoExposure.cs): x=1 when t13 holds the
+            // adapted log2 luminance, y=key. Zero leaves the exposure exactly as set.
+            public Vector4   AutoExposureParams;
         }
 
         // Matches BloomShaders.cbuffer BloomConstants (b0).
@@ -3500,6 +3503,9 @@ namespace Genesis.Rendering.Primitives
                         _cloudHistoryValid = false;
                 }
 
+                // Eye adaptation meters the HDR scene (the GUI and view models come later).
+                RunAutoExposure(canPost, _sceneTexture, postDepth, viewW, viewH);
+
                 // With project post effects the composite and the held items draw into an image of
                 // their own, which the effects then read; the last effect draws the real target.
                 GpuRenderTargetHandle composed = HasPostEffects ? PostEffectInput(viewW, viewH) : target;
@@ -3528,6 +3534,7 @@ namespace Genesis.Rendering.Primitives
                 LastRaymarchedCloudsMs = 0;
                 LastCelestialExtrasMs = 0;
                 _smokeExtinctionActiveThisFrame = false;
+                RunAutoExposure(false, default, default, 0, 0);
                 // No valid viewport/depth to reconstruct from — fall back to a direct draw.
                 MainPass(target, depthTexture, whiteTexture, postProcessTarget: false);
                 DrawViewModelPass(target, whiteTexture);
@@ -4962,6 +4969,7 @@ namespace Genesis.Rendering.Primitives
             };
             PackSmokeVolumes(ref fogPost);
             fogPost.ParticleLayerParams = ParticleLayerParams();
+            fogPost.AutoExposureParams = AutoExposureCompositeParams();
             if (atmosphereLutEnabled)
             {
                 // Upload is once at create; sampling is free in the composite. Report a tiny
@@ -5032,6 +5040,7 @@ namespace Genesis.Rendering.Primitives
                 cloudsEnabled && cloudTexture.IsValid ? cloudTexture : GpuTextureHandle.Invalid);
             _gpu.SetTexture(GpuShaderStage.Pixel, 12,
                 _particleLayerThisFrame && _particleLayerTexture.IsValid ? _particleLayerTexture : GpuTextureHandle.Invalid);
+            _gpu.SetTexture(GpuShaderStage.Pixel, 13, AutoExposureCompositeTexture());
             _gpu.SetSampler(GpuShaderStage.Pixel, 0, _linearSampler);
             _gpu.SetSampler(GpuShaderStage.Pixel, 1, _shadowSampler);
 
@@ -5039,7 +5048,7 @@ namespace Genesis.Rendering.Primitives
             _gpu.SetPrimitiveTopology(GpuPrimitiveTopology.TriangleList);
             _gpu.Draw(3);
 
-            for (int slot = 0; slot <= 12; slot++)
+            for (int slot = 0; slot <= 13; slot++)
                 _gpu.ClearTexture(GpuShaderStage.Pixel, slot);
             _gpu.EndRenderPass();
         }
@@ -6270,6 +6279,7 @@ namespace Genesis.Rendering.Primitives
         {
             ReleasePostEffectTargets();
             ReleaseModelLayers();
+            ReleaseAutoExposure();
             if (_reflectionTarget.IsValid) _gpu.ReleaseRenderTarget(_reflectionTarget);
             _gpu.ReleaseVertexLayout(_layout);
             _gpu.ReleaseVertexLayout(_layoutSkinned);

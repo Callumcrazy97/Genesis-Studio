@@ -50,6 +50,10 @@ namespace Genesis.Rendering.Primitives
             new("CloudTemporalShaders.hlsl", CloudTemporalShaders.Source, "PS_TemporalResolve", GpuShaderStage.Pixel),
             new("CloudTemporalShaders.hlsl", CloudTemporalShaders.Source, "PS_BilateralUpsample", GpuShaderStage.Pixel),
             new("ShaderPreviewFullscreenShaders.hlsl", ShaderPreviewFullscreenShaders.Source, "PreviewVS", GpuShaderStage.Vertex),
+            new("AutoExposureShaders.hlsl", AutoExposureShaders.Source, "VS", GpuShaderStage.Vertex),
+            new("AutoExposureShaders.hlsl", AutoExposureShaders.Source, "PS_Meter", GpuShaderStage.Pixel),
+            new("AutoExposureShaders.hlsl", AutoExposureShaders.Source, "PS_Reduce", GpuShaderStage.Pixel),
+            new("AutoExposureShaders.hlsl", AutoExposureShaders.Source, "PS_Adapt", GpuShaderStage.Pixel),
         };
 
         /// <summary>
