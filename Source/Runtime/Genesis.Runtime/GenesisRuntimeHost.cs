@@ -323,9 +323,10 @@ namespace Genesis.Runtime
                 // need it can call RuntimeScene.RebuildSpatialGrid on demand.
                 // Game time may run slower or faster than real time (slow motion, a hit-stop).
                 float gameDelta = fdt * Genesis.Runtime.Core.GameSpeed.Scale;
-                // Flashes age before the game updates: one fired in this frame's Step is drawn at
-                // full brightness in this frame, however short its life.
+                // Flashes and decals age before the game updates: one made in this frame's Step is
+                // drawn as new in this frame, however short its life.
                 Genesis.Runtime.Rendering.FlashLights.Advance(gameDelta);
+                Genesis.Runtime.Rendering.WorldDecals.Advance(gameDelta);
                 int steps = _scene.FixedTimestep.Advance(gameDelta);
                 for (int i = 0; i < steps; i++)
                 {
@@ -582,6 +583,7 @@ namespace Genesis.Runtime
                 {
                     BeforeRenderSubmit?.Invoke();
                     Genesis.Runtime.Rendering.FlashLights.Submit(_renderer);
+                    Genesis.Runtime.Rendering.WorldDecals.Submit(_renderer, Genesis.Runtime.Scripting.PgslCommands.ProjectPath);
                     Genesis.Runtime.Rendering.ScriptMeshes.BeginFrame();
                     ScriptHost?.DispatchRenderFrame(_renderer, _frameQueue);
                     ScriptHost?.DispatchPgslWorldDraw(_renderer, _frameQueue);

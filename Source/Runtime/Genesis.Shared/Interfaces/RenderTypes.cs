@@ -1126,6 +1126,10 @@ namespace Genesis.Shared.Interfaces
         public int LocalShadowLights;
         /// <summary>Local shadow atlas tiles re-rendered in the last frame (0 when every tile was cached).</summary>
         public int LocalShadowTilesRendered;
+        /// <summary>Projected decals drawn in the last frame (IRenderController.DrawDecals).</summary>
+        public int DecalsDrawn;
+        /// <summary>Draw calls those decals took: one per run sharing a picture and a blend.</summary>
+        public int DecalDrawCalls;
     }
 
     public enum BlendMode   { Alpha, Additive, Multiply, None }

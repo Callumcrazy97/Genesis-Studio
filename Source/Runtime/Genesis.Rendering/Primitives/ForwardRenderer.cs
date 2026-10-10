@@ -4595,6 +4595,8 @@ namespace Genesis.Rendering.Primitives
                 }
             }
 
+            // Decals land on the opaque world drawn so far, before water and see-through draws.
+            DrawDecalPass();
             DrawWaterPass(whiteTexture, depthTexture);
 
             // Transparent + additive world meshes (particles, voxel liquids, etc.)
@@ -6233,6 +6235,7 @@ namespace Genesis.Rendering.Primitives
             _worldMeshes.Clear();
             _viewModelMeshes.Clear();
             _skyMeshes.Clear();
+            ClearDecals();
             _waterMeshes.Clear();
             foreach (var b in _transBatchList)
             {
@@ -6315,6 +6318,7 @@ namespace Genesis.Rendering.Primitives
             ReleaseLocalShadowAtlas();
             ReleaseFroxelResources();
             ReleaseParticleLayerTarget();
+            ReleaseDecalResources();
             _gpu.ReleaseTexture(_flatNormalTexture);
             _gpu.ReleaseTexture(_checkerTexture);
             _gpu.ReleaseTexture(_waterNormalA);

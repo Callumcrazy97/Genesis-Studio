@@ -1255,6 +1255,13 @@ namespace Genesis.Rendering.Core
         public void AddFlashLight(Vector3 position, Vector3 color, float radius, float intensity = 1f, float falloff = 2f)
             => _fwd?.AddFlashLight(position, color, radius, intensity, falloff);
 
+        public void DrawDecals(ReadOnlySpan<DecalDrawCall> decals)
+        {
+            if (_fwd == null) return;
+            foreach (ref readonly DecalDrawCall decal in decals)
+                _fwd.AddDecal(GetGpuTexture(decal.Texture), decal.Texture.Id, decal);
+        }
+
         public void ClearPointLights()
             => _fwd?.ClearPointLights();
 
@@ -1692,6 +1699,8 @@ namespace Genesis.Rendering.Core
                 ShadowCascadesRendered   = _fwd?.LastShadowCascadesRendered ?? 0,
                 LocalShadowLights        = _fwd?.LastLocalShadowLights ?? 0,
                 LocalShadowTilesRendered = _fwd?.LastLocalShadowTilesRendered ?? 0,
+                DecalsDrawn              = _fwd?.LastDecalsDrawn ?? 0,
+                DecalDrawCalls           = _fwd?.LastDecalDrawCalls ?? 0,
             };
         }
 

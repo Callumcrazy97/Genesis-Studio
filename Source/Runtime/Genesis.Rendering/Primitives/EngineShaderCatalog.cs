@@ -69,6 +69,9 @@ namespace Genesis.Rendering.Primitives
             jobs.Add(new("GpuParticleShaders.Draw.hlsl", Genesis.Rendering.Particles.GpuParticleShaders.Draw, "PS", GpuShaderStage.Pixel));
             jobs.Add(new("TerrainSurfaceShaders.hlsl", TerrainSurfaceShaders.Source, "PS", GpuShaderStage.Pixel));
             jobs.Add(new("TerrainSurfaceShaders.LayerAtlas.hlsl", TerrainSurfaceShaders.LayerAtlasSource, "PS", GpuShaderStage.Pixel));
+            // Made the first frame a game draws a decal.
+            jobs.Add(new("DecalShaders.hlsl", DecalShaders.Source, "VS_Decal", GpuShaderStage.Vertex));
+            jobs.Add(new("DecalShaders.hlsl", DecalShaders.Source, "PS_Decal", GpuShaderStage.Pixel));
             return jobs.ToArray();
         }
 
