@@ -57,7 +57,7 @@ public static partial class PgslCommands
         "Math", "3D Math", "Strings", "General", "Noise", "Grids", "Lists", "Maps", "Data Structures", "Arrays", "Variables", "JSON",
     };
 
-    private static readonly string[] DsFamilies = ["list", "grid", "map", "stack", "queue"];
+    private static readonly string[] DsFamilies = ["list", "grid", "map", "stack", "queue", "priority"];
 
     private static readonly HashSet<string> WorkerRefused = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -168,8 +168,12 @@ public static partial class PgslCommands
         "Give a prepared job a map as it is when the job starts (same handle inside the job; shared, not copied); copyBack true puts the job's map into this one at JobTake if the job changed it", "Native Jobs")]
     public static bool JobScriptMap(double job, double map, bool copyBack) => ShareWithJob(job, "map", map, copyBack);
 
+    [PgslCommand("JobScriptPriority", "JobScriptPriority(job, queue, copyBack) -> bool",
+        "Give a prepared job a priority queue (DsPriorityCreate) as it is when the job starts (same handle inside the job; shared, not copied); copyBack true puts the job's queue into this one at JobTake if the job changed it", "Native Jobs")]
+    public static bool JobScriptPriority(double job, double queue, bool copyBack) => ShareWithJob(job, "priority", queue, copyBack);
+
     [PgslCommand("JobScriptShareAll", "JobScriptShareAll(job) -> bool",
-        "Let a prepared job read every grid, list, map, stack and queue of this Object and its instance variables (numbers, text, true/false), as they are when it starts; shared, not copied, so the cost does not grow with their size", "Native Jobs")]
+        "Let a prepared job read every grid, list, map, stack, queue and priority queue of this Object and its instance variables (numbers, text, true/false), as they are when it starts; shared, not copied, so the cost does not grow with their size", "Native Jobs")]
     public static bool JobScriptShareAll(double job)
     {
         ScriptJobSetup setup = PreparedJob(job);
@@ -187,6 +191,7 @@ public static partial class PgslCommands
         {
             "grid" => ResolveRead<PgslGrid>("grid", handle) != null,
             "map" => ResolveRead<PgslMap>("map", handle) != null,
+            "priority" => ResolveRead<PgslPriority>("priority", handle) != null,
             _ => ResolveRead<List<object>>("list", handle) != null,
         };
         if (!exists) return Refuse($"No {family} with handle {StringOf(handle)} in this Object.");
@@ -270,7 +275,8 @@ public static partial class PgslCommands
 
         // The job's data, as it is now: shared with the job, not copied (PgslCommands.SharedData.cs),
         // so the game may go on changing its own while the job runs and the job never sees it.
-        Dictionary<string, object> data = new(StringComparer.Ordinal);
+        // Sized once: grown entry by entry, a voxel game's 2 500 structures reallocated it a dozen times a job.
+        Dictionary<string, object> data = new(setup.ShareAll ? store.Count : setup.Shared.Count + DsFamilies.Length, StringComparer.Ordinal);
         // Structures the job makes get the handles they would get here, after the game's own.
         foreach (string family in DsFamilies)
             if (store.TryGetValue("__ds_next_" + family, out object next)) data["__ds_next_" + family] = next;
@@ -363,6 +369,7 @@ public static partial class PgslCommands
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
         PgslEngineBridge bridge = RentWorkerBridge(run.Game);
         PgslContext context = new() { RoomWidth = run.RoomWidth, RoomHeight = run.RoomHeight };
+        context.Variables.EnsureCapacity(run.Data.Count);
         foreach (KeyValuePair<string, object> pair in run.Data) context.Variables[pair.Key] = pair.Value;
         PgslContext previous = BindContext(context);
         try

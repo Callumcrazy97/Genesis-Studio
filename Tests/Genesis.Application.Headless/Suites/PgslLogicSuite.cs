@@ -452,6 +452,46 @@ internal static class PgslLogicSuite
             t_limit_is_8_mb_of_cells = (huge != 0 && most != 0 && DsGridCreate(4096, 1000, "u16") == 0 && DsGridCreate(1000, 1001) == 0) ? 1 : 0;
             DsGridDestroy(huge); DsGridDestroy(most);
             """),
+        ("Priority queues", """
+            q = DsPriorityCreate();
+            t_empty = (q != 0 && DsPrioritySize(q) == 0 && DsPriorityEmpty(q) == 1 && DsPriorityDeleteMin(q) == 0 && DsPriorityFindMin(q) == 0
+                && DsPriorityDeleteMinString(q) == "" && DsPriorityMinPriority(q) == 0) ? 1 : 0;
+            DsPriorityAdd(q, 30, 3); DsPriorityAdd(q, 10, 1); DsPriorityAdd(q, 50, 5); DsPriorityAdd(q, 20, 2); DsPriorityAdd(q, 40, 4);
+            t_size = (DsPrioritySize(q) == 5 && DsPriorityEmpty(q) == 0) ? 1 : 0;
+            t_find_min_leaves_it = (DsPriorityFindMin(q) == 10 && DsPriorityMinPriority(q) == 1 && DsPrioritySize(q) == 5) ? 1 : 0;
+            order = "";
+            while (DsPrioritySize(q) > 0) { order = order + StringOf(DsPriorityDeleteMin(q)) + " "; }
+            t_smallest_priority_first = (order == "10 20 30 40 50 ") ? 1 : 0;
+            DsPriorityAdd(q, 1, 7); DsPriorityAdd(q, 2, 7); DsPriorityAdd(q, 3, 2); DsPriorityAdd(q, 4, 7); DsPriorityAdd(q, 5, 2);
+            ties = "";
+            while (DsPrioritySize(q) > 0) { ties = ties + StringOf(DsPriorityDeleteMin(q)); }
+            t_equal_priorities_in_the_order_added = (ties == "35124") ? 1 : 0;
+            // Not a number (Sqrt(-1) is 0 in PGSL; infinity minus infinity is not a number).
+            nan = (1 / 0) - (1 / 0);
+            DsPriorityAddString(q, "far", 9.5); DsPriorityAddString(q, "near", -2); DsPriorityAdd(q, 7, 0.25); DsPriorityAdd(q, 8, nan);
+            t_text_and_fractions = (DsPriorityFindMinString(q) == "near" && DsPriorityMinPriority(q) == -2 && DsPriorityDeleteMinString(q) == "near"
+                && DsPriorityDeleteMinString(q) == "7" && DsPriorityDeleteMinString(q) == "far") ? 1 : 0;
+            t_not_a_number_comes_last = (nan != nan && DsPrioritySize(q) == 1 && DsPriorityDeleteMin(q) == 8) ? 1 : 0;
+            DsPriorityAdd(q, 1, 1); DsPriorityAdd(q, 2, 2); DsPriorityClear(q);
+            t_clear = (DsPrioritySize(q) == 0 && DsPriorityDeleteMin(q) == 0) ? 1 : 0;
+            // A heap against a sort: 1 000 entries with repeating priorities come out sorted, ties in order.
+            function PqCheck(n) {
+                var pq = DsPriorityCreate();
+                for (var i = 0; i < n; i = i + 1) { DsPriorityAdd(pq, i, (i * 7919) % 97); }
+                var lastP = -1; var lastV = -1; var ok = 1; var count = 0;
+                while (DsPriorityEmpty(pq) == 0) {
+                    var p = DsPriorityMinPriority(pq); var v = DsPriorityDeleteMin(pq);
+                    if (p < lastP || (p == lastP && v < lastV) || (v * 7919) % 97 != p) { ok = 0; }
+                    lastP = p; lastV = v; count = count + 1;
+                }
+                DsPriorityDestroy(pq);
+                if (count != n) { ok = 0; }
+                return ok;
+            }
+            t_many_entries_sorted_ties_in_order = PqCheck(1000);
+            DsPriorityDestroy(q);
+            t_destroyed = (DsPrioritySize(q) == 0 && DsPriorityDeleteMin(q) == 0) ? 1 : 0;
+            """),
     ];
 
     /// <summary>

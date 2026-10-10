@@ -34,7 +34,17 @@ public static partial class PgslCommands
     public static void InstanceSetShaderParameter(double id, string name, double value)
     {
         if (!string.IsNullOrWhiteSpace(name) && double.IsFinite(value) && TryDrawAssets(id, out ObjectDrawAssetEntry assets))
-            assets.ShaderParameters[name.Trim()] = new[] { (float)value };
+            ShaderValues(assets, name, 1)[0] = (float)value;
+    }
+
+    // An instance's values for one parameter, of this many components: the array it has (a game sets
+    // them before every draw, and a new array each time was garbage on every draw), or a new one.
+    private static float[] ShaderValues(ObjectDrawAssetEntry assets, string name, int count)
+    {
+        string key = name.Trim();
+        if (!assets.ShaderParameters.TryGetValue(key, out float[] values) || values is null || values.Length != count)
+            assets.ShaderParameters[key] = values = new float[count];
+        return values;
     }
 
     [PgslCommand("InstanceSetShaderVector", "InstanceSetShaderVector(id, name, x, y, z, w)",
@@ -42,7 +52,8 @@ public static partial class PgslCommands
     public static void InstanceSetShaderVector(double id, string name, double x, double y, double z, double w)
     {
         if (string.IsNullOrWhiteSpace(name) || !TryDrawAssets(id, out ObjectDrawAssetEntry assets)) return;
-        assets.ShaderParameters[name.Trim()] = new[] { (float)x, (float)y, (float)z, (float)w };
+        float[] values = ShaderValues(assets, name, 4);
+        values[0] = (float)x; values[1] = (float)y; values[2] = (float)z; values[3] = (float)w;
     }
 
     [PgslCommand("ShaderSetTexture", "ShaderSetTexture(name, image)",

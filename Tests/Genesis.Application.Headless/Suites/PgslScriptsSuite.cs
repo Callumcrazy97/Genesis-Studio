@@ -416,6 +416,21 @@ internal static class PgslScriptsSuite
                 Check(notLoaded.Contains("The Script 'Unloaded'", StringComparison.Ordinal) && notLoaded.Contains("Unloaded.pgsl", StringComparison.Ordinal)
                         && notLoaded.Contains("were not loaded", StringComparison.Ordinal),
                     "Calling a Script while the project's Scripts are not loaded does not say so: " + notLoaded);
+
+                // Another folder's Scripts loaded than the game's own project.
+                string other = Path.Combine(parent, "Other Scripts");
+                Directory.CreateDirectory(other);
+                ObjectSandboxResult elsewhere;
+                try
+                {
+                    PgslCommands.ProjectPath = project.RootPath;
+                    ScriptAssetRegistry.LoadFromProject(other);
+                    elsewhere = ObjectSandbox.Run(new Dictionary<string, string> { ["Create"] = "Unloaded();\n" }, frames: 1);
+                }
+                finally { PgslCommands.ProjectPath = previous; ScriptAssetRegistry.ClearCache(); }
+                string otherFolder = Errors(elsewhere);
+                Check(otherFolder.Contains("is in the game's project", StringComparison.Ordinal) && otherFolder.Contains("Other Scripts", StringComparison.Ordinal),
+                    "Calling a Script while another folder's Scripts are loaded does not say so: " + otherFolder);
             }
             finally
             {

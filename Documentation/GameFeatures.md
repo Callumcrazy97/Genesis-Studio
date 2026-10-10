@@ -543,6 +543,19 @@ Hollow allocated 3.9 MB a frame (a simulated lake rebuilt its whole surface, the
 regrew its lists and every particle layer rebuilt its colour table, each frame); it now allocates
 about 50 KB. The `speed` headless target fails when an idle game allocates 1 MB a frame or more.
 
+A script mesh drawn through a mesh Shader resource (`DrawMeshShader3D`) after setting its
+instance's values (`ShaderSetVector`, `ShaderSetParameter`) allocated 128 bytes a draw: a new array
+for each value set, and two dictionary enumerators boxed when the draw copied the instance's values
+and textures. A game drawing a few hundred chunks and creatures that way made 50 KB of garbage a
+frame (`System.Single[]` and `Enumerator[System.String,System.Single[]]` in the type list above).
+The values now go into the instance's own arrays and are copied without boxing: nothing is
+allocated a draw, and 0.3 KB a frame in all (`--test mesh-upload`, case
+`ShaderMeshDrawsAllocateNothing`: 400 such draws a frame on DX11, 10 Oct 2026). Starting a worker
+job with `JobScriptShareAll` also grew its table of the game's structures one entry at a time; it is
+sized once now, so a start at a voxel game's size (44 grids, 2 500 lists, 65 maps, 2 500 globals)
+allocates 322 KB on the game's thread instead of 455 KB, and the copy of a shared map that one side
+changes is made in one allocation.
+
 ### What a game shows while it starts
 
 The Player draws a loading screen (the engine's name, a bar and what it is doing) as soon as its
@@ -839,7 +852,8 @@ becomes `s = Mix(bits ^ 0xD6E8FEB86659FD93)`, where `bits` are the salt's 64 IEE
 taken as 0); a point's hash is `Mix(s + x * 0x9E3779B97F4A7C15 + y * 0xC2B2AE3D27D4EB4F)`, plus
 `z * 0x165667B19E3779F9` in 3D, with `x`, `y`, `z` the floored coordinates as 64-bit two's-complement
 integers; the number is the top 53 bits divided by 2^53. `Hash2(12, -34, 5)` is 0.8856642354882706
-on every machine (the `pgsl-logic` test checks it).
+on every machine (the `pgsl-logic` test checks it). `Hash2` costs 3.3 ns and `Hash3` 4 ns called from
+C#, 22 and 27 ns in a script loop, against about 150 ns for a lattice hash written in script.
 
 Measured on the development PC's performance cores (8 Oct 2026, `--test pgsl-logic`, called from
 C#; the fastest of several runs, other runs up to twice as long): `Noise2D` 13 ns, `Noise3D` 20 ns,
@@ -917,7 +931,11 @@ or a kind it does not know.
 `DsGridGet` and `DsGridSet` stay on the VM's direct call path for every kind (a command taking up to
 four numbers is called through a delegate, with no arrays in between). `Build.bat --test vm-speed`
 reports, for each kind, the bytes a cell takes and what a cell read, a cell write and a 256-high
-column through a list cost.
+column through a list cost. Measured on 10 Oct 2026 on the performance cores: from a script loop,
+`DsGridGet` and `DsGridSet` cost 42 to 48 ns on every kind, as on a number grid (42 and 43 ns), and
+the grid-and-list workload took 0.477 ms (0.48 ms on 8 Oct, before compact grids). Called from C#, a
+cell read is 10 ns on a number grid and 11.5 to 12 ns on a compact one; a 256-high column into a list
+1.1 microseconds (numbers) to 1.5 (compact), and from a list 0.7 to 1.3 microseconds.
 
 ```pgsl
 // A 256-high world in strips: block ids in u16 grids, light in u8 grids.
@@ -928,6 +946,48 @@ for (var s = 0; s < 16; s = s + 1) {
 }
 DsGridSet(blocks[s], column, y, STONE | FLAG_NATURAL);   // 3071 plus flag bits fits in 16 bits
 DsGridAdd(light[s], column, y, -1);                       // never below 0
+```
+
+### Priority queues
+
+A priority queue (`ds_priority` in GameMaker) hands back its entries smallest priority first: the
+open set of an A* search, events by time, jobs by urgency. It is a binary heap kept in one array, so
+adding and taking out cost a few comparisons for each doubling of its size and allocate nothing once
+the queue has grown to its largest size. Values are numbers or text, as in a list.
+
+| Command | What it does |
+|---|---|
+| `DsPriorityCreate()` | A new empty queue; returns its handle. |
+| `DsPriorityAdd(queue, value, priority)`, `DsPriorityAddString(queue, text, priority)` | Add a number or text with a priority (any number; smaller comes out first). Up to 1 000 000 entries. |
+| `DsPriorityDeleteMin(queue)`, `DsPriorityDeleteMinString(queue)` | Take out the entry of smallest priority and return it as a number (0 when empty) or as text (empty). |
+| `DsPriorityFindMin(queue)`, `DsPriorityFindMinString(queue)` | The entry `DsPriorityDeleteMin` would take out, left in the queue. |
+| `DsPriorityMinPriority(queue)` | That entry's priority (0 when empty). |
+| `DsPrioritySize(queue)`, `DsPriorityEmpty(queue)` | How many entries; whether there are none. |
+| `DsPriorityClear(queue)`, `DsPriorityDestroy(queue)` | Remove every entry; release the queue. |
+
+**Ties:** among equal priorities, the entry added first comes out first (first in, first out), on
+every machine, so an A* search whose nodes share an f cost explores them in the order it found them
+and gives the same path every time. A priority that is not a number counts as the largest of all
+and comes out last. A text entry read as a number is read as `Real` reads text; a number read as
+text is `StringOf` of it.
+
+A worker job can be given a queue like a list: `JobScriptPriority(job, queue, copyBack)` (or
+`JobScriptShareAll`, which shares queues too). The job sees the queue as it was when it started, a
+change by either side makes that side's own copy, and copyBack brings the job's queue back at
+`JobTake` if the job changed it.
+
+Measured on 10 Oct 2026 (`--test vm-speed`, performance cores): from C#, 100 000 entries are added
+in 2.4 ms (24 ns each) and taken out again in 16 ms (164 ns each), with nothing allocated once the
+queue has grown; from a script, an add and a delete-min on a queue of 1 000 cost 176 ns together.
+
+```pgsl
+// A* on a grid: the open set by f = g + h, node ids x + y * width.
+open = DsPriorityCreate();
+DsPriorityAdd(open, startX + startY * w, Abs(goalX - startX) + Abs(goalY - startY));
+while (!DsPriorityEmpty(open)) {
+    node = DsPriorityDeleteMin(open);
+    // ... for each neighbour that improves its g: DsPriorityAdd(open, neighbour, g + 1 + h);
+}
 ```
 
 ## Script functions on worker threads

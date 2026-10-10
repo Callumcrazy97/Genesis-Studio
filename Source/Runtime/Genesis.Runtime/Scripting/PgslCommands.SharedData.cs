@@ -75,6 +75,7 @@ public static partial class PgslCommands
         // Entries are numbers, text, true/false or collection references, none of which change.
         List<object> list => new List<object>(list),
         PgslMap map => map.Copy(),
+        PgslPriority priority => priority.Clone(),
         _ => value,
     };
 
@@ -86,7 +87,7 @@ public static partial class PgslCommands
     {
         if (value is not SharedData shared)
         {
-            if (value is not (PgslGrid or List<object> or PgslMap)) return null;
+            if (value is not (PgslGrid or List<object> or PgslMap or PgslPriority)) return null;
             shared = new SharedData(value);
             store[key] = shared;
         }

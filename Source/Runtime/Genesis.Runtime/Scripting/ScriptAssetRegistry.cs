@@ -369,6 +369,11 @@ namespace Genesis.Runtime.Scripting
       string file = ScriptFileFor(key, projectPath ?? PgslCommands.ProjectPath, out string lookupError);
       if (lookupError != null)
         return $"{unknown}. The Script '{key}' cannot be found by name: {lookupError}";
+      // The Scripts loaded are another folder's than the game's own project.
+      string game = PgslCommands.ProjectPath;
+      if (file == null && !string.IsNullOrEmpty(projectPath) && !string.IsNullOrEmpty(game) && !SameFolder(projectPath, game)
+          && ScriptFileFor(key, game, out _) is { } elsewhere)
+        return $"{unknown}. The Script '{key}' ({elsewhere}) is in the game's project ({game}), but the Scripts loaded are those of {projectPath}.";
       if (file != null)
         return string.IsNullOrEmpty(projectPath)
           ? $"{unknown}. The Script '{key}' ({file}) is in the project, but the project's Scripts were not loaded when it was called."
@@ -395,6 +400,18 @@ namespace Genesis.Runtime.Scripting
       string file = ScriptFileFor(key, projectPath, out _);
       return $" '{key}' is both a Script{(file != null ? " (" + file + ")" : string.Empty)} and a function of the project's Scripts:"
         + $" a call {key}(...) runs the function, never the Script's own code. Rename the function or the Script.";
+    }
+
+    private static bool SameFolder(string a, string b)
+    {
+      try
+      {
+        return string.Equals(Path.GetFullPath(a).TrimEnd('\\', '/'), Path.GetFullPath(b).TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase);
+      }
+      catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+      {
+        return string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+      }
     }
 
     // The project-relative file of a Script resource, or null when the project has none of that name.
