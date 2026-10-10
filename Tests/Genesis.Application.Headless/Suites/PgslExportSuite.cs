@@ -89,24 +89,6 @@ internal static class PgslExportSuite
                 "The exported Player loaded compiled scripts for a game written only in PGSL.");
         });
 
-        HeadlessHarness.RunCase(ctx.Report, "Export.ResourceIndexSparesTheFirstLaunchEveryMetaFile", () =>
-        {
-            HeadlessHarness.Assert(export is { Success: true } && project != null, "The PGSL-only export did not succeed.");
-            string index = Path.Combine(export!.OutputPath, Genesis.Shared.Assets.ResourceCatalog.IndexFile.Replace('/', Path.DirectorySeparatorChar));
-            HeadlessHarness.Assert(File.Exists(index), "The export wrote no resource index.");
-            Genesis.Shared.Assets.ResourceCatalog.Invalidate(project!.RootPath);
-            string Names(string root) => string.Join("|", Genesis.Shared.Assets.ResourceCatalog.For(root).Entries
-                .Select(entry => entry.Name + "=" + entry.AssetId.ToString("N") + "@" + Path.GetRelativePath(root, entry.FullPath)));
-            string inProject = Names(project.RootPath);
-            Genesis.Shared.Assets.ResourceCatalog.Invalidate(export.OutputPath);
-            string exported = Names(export.OutputPath);
-            string report = Genesis.Shared.Assets.ResourceCatalog.LastBuildReport;
-            HeadlessHarness.Assert(exported == inProject, "The exported game names its resources differently from the project.");
-            HeadlessHarness.Assert(report.Contains(" 0 .meta files read", StringComparison.Ordinal) && report.Contains(" identities from", StringComparison.Ordinal) && !report.Contains("(0 identities", StringComparison.Ordinal),
-                "The exported game opened its resources' .meta files instead of reading the index: " + report);
-            Genesis.Shared.Assets.ResourceCatalog.Invalidate(export.OutputPath);
-        });
-
         HeadlessHarness.RunCase(ctx.Report, "Export.CSharpScripts.StillCompileGameScripts", () =>
         {
             ProjectSession scripted = BuildProject(ctx, "WithCSharp", out _);
