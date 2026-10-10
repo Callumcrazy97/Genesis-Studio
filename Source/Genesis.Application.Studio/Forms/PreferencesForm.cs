@@ -1426,9 +1426,11 @@ public sealed class PreferencesForm : DpiAwareForm
         _allowEscapeToClose.Checked = _project?.Manifest.Runtime?.AllowEscapeToClose ?? true;
         _fogEnabled.Checked = fog.FogEnabled;
         _blendGuiInLinearLight.Checked = fog.BlendGuiInLinearLight;
-        _antiAliasing.SelectedIndex = AntiAliasingModes.TryParse(fog.AntiAliasing, out AntiAliasingMode antiAliasing)
-            ? (int)antiAliasing
-            : 0;
+        // The Project page (and its choices) exists only while a project is open.
+        if (_antiAliasing.Items.Count > 0)
+            _antiAliasing.SelectedIndex = AntiAliasingModes.TryParse(fog.AntiAliasing, out AntiAliasingMode antiAliasing)
+                ? (int)antiAliasing
+                : 0;
         _fogColor.Text = NormalizeFogHex(fog.FogColorHex);
 
         if (_project != null && _project.Manifest != null)

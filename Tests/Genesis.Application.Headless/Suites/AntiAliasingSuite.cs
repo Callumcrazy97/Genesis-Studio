@@ -147,6 +147,9 @@ internal static class AntiAliasingSuite
         HeadlessHarness.RunCase(ctx.Report, "Studio.Preferences.Project.AntiAliasingIsSavedWithTheProject", () =>
         {
             Genesis.Application.Core.Settings.SettingsService settings = new(Path.Combine(ctx.OutputRoot, "UserData", "anti-aliasing-preferences.json"));
+            // With no project open there is no Project page; Preferences must still open.
+            using (Genesis.Application.Studio.Forms.PreferencesForm withoutProject = new(settings, null))
+                Check(!withoutProject.SelectCategory("Project"), "Preferences shows a Project page with no project open.");
             using Genesis.Application.Studio.Forms.PreferencesForm preferences = new(settings, project);
             GateSuite.ShowHost(preferences);
             GateSuite.Pump(3, 15);
