@@ -235,6 +235,7 @@ namespace Genesis.Runtime.Rendering
                 if (draw3d.Procedural && ProceduralMeshDrawRegistry.TryGet(entity, out MeshDrawCall[] procedural))
                 {
                     int added = 0;
+                    int first = drawCount;
                     for (int i = 0; i < procedural.Length && drawCount < buffer.Length; i++)
                     {
                         MeshDrawCall call = procedural[i];
@@ -246,6 +247,7 @@ namespace Genesis.Runtime.Rendering
                             added++;
                         }
                     }
+                    if (hasAssets) MarkOutline(assets, entity, buffer, first, drawCount);
                     RenderAutoState.SubmittedMeshes += added;
                     return;
                 }
@@ -276,6 +278,7 @@ namespace Genesis.Runtime.Rendering
                                     && TryResolveShader(renderer, projectPath, assets, ShaderAssetPipeline.Mesh, out shader);
                             if (shaded)
                                 drawCount = ExpandObjectShaderPasses(renderer, projectPath, assets, shader, buffer, before, drawCount);
+                            if (hasAssets) MarkOutline(assets, entity, buffer, before, drawCount);
                             RenderAutoState.SubmittedMeshes += drawCount - before;
                             return;
                         }
@@ -294,7 +297,9 @@ namespace Genesis.Runtime.Rendering
                 MeshDrawCall cube = assets.TerrainTextureMode == null
                     ? ImageCube(renderer, assets, transform, draw3d, tex)
                     : TerrainTexture(renderer, projectPath, assets, transform, draw3d, cameraEye, frameIndex);
+                int cubeStart = drawCount;
                 int cubePasses = AppendMeshShaderPasses(renderer, projectPath, assets, cube, buffer, ref drawCount);
+                MarkOutline(assets, entity, buffer, cubeStart, drawCount);
                 RenderAutoState.SubmittedMeshes += cubePasses;
                 if ((cube.Flags & MeshDrawFlags.NoShadow) == 0) RenderAutoState.ShadowCastersSubmitted++;
             });
@@ -460,12 +465,13 @@ namespace Genesis.Runtime.Rendering
 
             if (draw3d.Procedural && ProceduralMeshDrawRegistry.TryGet(entity, out MeshDrawCall[] procedural))
             {
+                IMeshDrawList target = hasVisualAssets ? Outlined(queue, visualAssets, entity) : queue;
                 for (int i = 0; i < procedural.Length; i++)
                 {
                     if (hasVisualAssets)
-                        AppendMeshShaderPasses(renderer, projectPath, visualAssets, procedural[i], queue);
+                        AppendMeshShaderPasses(renderer, projectPath, visualAssets, procedural[i], target);
                     else
-                        queue.Add(procedural[i]);
+                        target.Add(procedural[i]);
                 }
                 return;
             }
@@ -473,13 +479,13 @@ namespace Genesis.Runtime.Rendering
             if (world.Has<ModelRendererComponent>(entity))
             {
                 ref ModelRendererComponent model = ref world.GetRef<ModelRendererComponent>(entity);
-                IMeshDrawList destination = queue;
+                IMeshDrawList destination = hasVisualAssets ? Outlined(queue, visualAssets, entity) : queue;
                 if (hasVisualAssets
                     && TryResolveShader(renderer, projectPath, visualAssets, ShaderAssetPipeline.Mesh, out ShaderCacheEntry modelShader))
                 {
                     AuthoredShaderTextures textures = default;
                     BindAuthoredTextures(renderer, projectPath, visualAssets, modelShader, ShaderAssetPipeline.Mesh, ref textures);
-                    destination = new ShaderPassDrawList(queue, modelShader, textures);
+                    destination = new ShaderPassDrawList(destination, modelShader, textures);
                 }
                 if (!string.IsNullOrWhiteSpace(model.ModelAsset)
                     && ModelRenderer.Enqueue(hasVisualAssets && visualAssets.TerrainTextureMode != null
@@ -507,7 +513,7 @@ namespace Genesis.Runtime.Rendering
             MeshDrawCall cube = assets.TerrainTextureMode == null
                 ? ImageCube(renderer, assets, transform, draw3d, tex)
                 : TerrainTexture(renderer, projectPath, assets, transform, draw3d, cameraEye, frameIndex);
-            AppendMeshShaderPasses(renderer, projectPath, assets, cube, queue);
+            AppendMeshShaderPasses(renderer, projectPath, assets, cube, Outlined(queue, assets, entity));
         }
 
         private static bool HasAuthoredGeometry(ObjectDrawAssetEntry assets, string image)

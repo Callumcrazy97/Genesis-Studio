@@ -69,6 +69,9 @@ namespace Genesis.Rendering.Primitives
             jobs.Add(new("GpuParticleShaders.Draw.hlsl", Genesis.Rendering.Particles.GpuParticleShaders.Draw, "PS", GpuShaderStage.Pixel));
             jobs.Add(new("TerrainSurfaceShaders.hlsl", TerrainSurfaceShaders.Source, "PS", GpuShaderStage.Pixel));
             jobs.Add(new("TerrainSurfaceShaders.LayerAtlas.hlsl", TerrainSurfaceShaders.LayerAtlasSource, "PS", GpuShaderStage.Pixel));
+            // Outlines and the object images: made the first frame an instance is outlined.
+            jobs.Add(new("OutlineShaders.Mark.hlsl", OutlineShaders.MarkSource, "PS_OutlineMark", GpuShaderStage.Pixel));
+            jobs.Add(new("OutlineShaders.Composite.hlsl", OutlineShaders.CompositeSource, "PS_OutlineComposite", GpuShaderStage.Pixel));
             return jobs.ToArray();
         }
 

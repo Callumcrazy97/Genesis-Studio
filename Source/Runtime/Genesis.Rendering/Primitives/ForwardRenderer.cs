@@ -2643,7 +2643,8 @@ namespace Genesis.Rendering.Primitives
             SkinPaletteHandle skinPalette = default, RuntimeShaderHandle shader = default,
             Vector4 shaderParams0 = default, Vector4 shaderParams1 = default,
             Vector4 shaderParams2 = default, Vector4 shaderParams3 = default,
-            AuthoredGpuTextures authoredTextures = default, Vector4 materialFactors = default, int layer = 0)
+            AuthoredGpuTextures authoredTextures = default, Vector4 materialFactors = default, int layer = 0,
+            Vector4 outline = default, int outlineId = 0, bool outlineThroughWalls = false)
         {
             if (!mesh.IsValid) return;
             if (!TryGetMesh(mesh.Id, out MeshEntry meshEntrySource))
@@ -2759,6 +2760,10 @@ namespace Genesis.Rendering.Primitives
                     visible = false;
                 }
             }
+
+            // A marked draw is drawn again into the object images (ForwardRenderer.Outlines).
+            if (outlineId > 0 && visible)
+                AddOutline(mesh.Id, gpuSkinned ? skinPalette.Id : 0, world, outline, outlineId, outlineThroughWalls, rasterOverride);
 
             if (!visible && noShadow)
                 return;
@@ -3522,6 +3527,8 @@ namespace Genesis.Rendering.Primitives
                         : GpuTextureHandle.Invalid,
                     runRaymarchedClouds,
                     runCelestialExtras);
+                // Outlines over the composited frame, under held items and post effects.
+                OutlinePass(composed, postDepth, viewW, viewH);
                 DrawViewModelPass(composed, whiteTexture);
                 if (HasPostEffects) RunPostEffects(target, postDepth, viewW, viewH);
             }
@@ -6273,6 +6280,7 @@ namespace Genesis.Rendering.Primitives
             }
             _transBatches.Clear();
             _transBatchList.Clear();
+            _outlineDraws.Clear();
             _skinnedInstOffset = 0;
             _transInstOffset = 0;
             LastItemsSubmitted = 0;
@@ -6289,6 +6297,7 @@ namespace Genesis.Rendering.Primitives
         {
             ReleasePostEffectTargets();
             ReleaseModelLayers();
+            ReleaseOutlineResources();
             if (_reflectionTarget.IsValid) _gpu.ReleaseRenderTarget(_reflectionTarget);
             _gpu.ReleaseVertexLayout(_layout);
             _gpu.ReleaseVertexLayout(_layoutSkinned);

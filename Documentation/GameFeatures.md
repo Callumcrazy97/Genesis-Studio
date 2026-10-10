@@ -1353,6 +1353,38 @@ glass, three guns each wearing its own camo through one material shader, an Obje
 rest of the model, a swapped pattern and a swapped albedo; and twelve boxes sharing values in one
 batch, one more for an instance with values of its own. Not yet seen in a running game.
 
+## Outlines and the object images
+
+Added 9 October 2026 for readability in fast games: teammates in blue and enemies in red, seen
+through walls or not, a pickup lit at its edge.
+
+| Command | What it does |
+|---|---|
+| `OutlineSet(r, g, b, width, throughWalls)` | Outlines this instance's 3D draws (its model's meshes, a script's meshes, its image cube) in a colour (0 to 1 each), `width` pixels wide (up to 16). With `throughWalls` the outline shows where the instance is behind something; without, only around what the camera sees of it. Width 0 marks the instance for post effects without a line. |
+| `OutlineClear()` | Takes it away. |
+| `InstanceSetOutline(id, r, g, b, width, throughWalls)`, `InstanceClearOutline(id)` | The same for another instance. |
+| `InstanceHasOutline(id) -> bool` | Whether an instance is outlined or marked. |
+
+How it works: each marked draw is drawn a second time into two images the size of the screen,
+**ObjectMarks** (its outline colour and width) and **ObjectIds** (its instance id, negative where
+it is hidden behind something), keeping the nearest marked surface at each pixel. A full-screen
+pass then draws each outline around its marks over the finished frame, before held items and the
+project's post effects; a line runs between two marked instances that touch, never inside one.
+Post effects read both images (`t3`, `t4`; see [Post effects](PostEffects.md)), so a project can
+add a fill behind walls, a pulse or a highlight of its own on the same marks. Nothing of this
+runs in a frame without marks. Outlines need the frame's post-processing (the normal case for a
+game window); the Software renderer draws none. Model layers (a first-person weapon) and the sky
+layer are not outlined.
+
+C#: `MeshDrawCall.Outline` (colour and width), `OutlineId` and `OutlineThroughWalls` on any draw;
+the commands above are static methods on `PgslCommands`.
+
+`Build.bat --test outlines` checks on DX11, DX12, Vulkan and OpenGL that a box's outline is drawn
+around it and not over it, that a box behind a wall is outlined through it only when asked, that a
+post effect finds a box's id (and the hidden box's negative id), and that an outline set from a
+script reaches its model's draws (and only its own) through the draw pass a game uses. It also
+measures the cost at 1920 x 1080 on DX11.
+
 ## Smaller changes
 
 - **Bushes and saplings.** The `Shrub` and `Sapling` foliage shapes are built from rounded solid

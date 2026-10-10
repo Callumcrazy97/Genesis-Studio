@@ -54,6 +54,40 @@ public sealed partial class RuntimeViewportHarness
         }
     }
 
+    /// <summary>
+    /// Renders the lit stage for <paramref name="frames"/> frames without reading them back and
+    /// returns the GPU time of each frame the renderer resolved (a few frames late, never 0).
+    /// </summary>
+    public List<double> MeasureLitScene(int frames, Vector3 sunDirection, bool shadows, Action<IRenderController> draw)
+    {
+        EnsureReady();
+        EnsureCube();
+        _litSceneSun = sunDirection.LengthSquared() > 1e-8f ? Vector3.Normalize(sunDirection) : -Vector3.UnitY;
+        _litSceneShadows = shadows;
+        _litSceneLamp = null;
+        _litSceneDraw = draw;
+        _mode = CaptureMode.LitScene;
+        var samples = new List<double>(frames);
+        try
+        {
+            for (int frame = 0; frame < frames; frame++)
+            {
+                _lastRenderError = null;
+                _viewport.RenderFrame();
+                if (!string.IsNullOrEmpty(_lastRenderError))
+                    throw new InvalidOperationException("The lit stage failed to render: " + _lastRenderError);
+                double milliseconds = _viewport.Renderer?.LastGpuMilliseconds ?? 0;
+                if (milliseconds > 0) samples.Add(milliseconds);
+            }
+            _lastStats = _viewport.Renderer?.GetStats() ?? default;
+        }
+        finally
+        {
+            _litSceneDraw = null;
+        }
+        return samples;
+    }
+
     public Point ProjectLitScenePoint(Vector3 world)
     {
         (Matrix4x4 view, Matrix4x4 projection) = LitSceneCamera();

@@ -1144,7 +1144,7 @@ internal static class HeadlessTestRunner
         ["draw-and-stream"] = ["gui-batch", "script-textures", "sky-layer", "particle-bursts", "mesh-soak", "mesh-upload", "particle-workbench"],
         // Surface and material shaders with the suites that compile, cache and draw mesh shaders
         // (not part of the tiers).
-        ["mesh-shaders"] = ["mesh-surface", "engine-systems", "shader-precompiled", "opengl-compat", "asset-import", "pgsl-scripts", "pgsl-logic"],
+        ["mesh-shaders"] = ["mesh-surface", "outlines", "engine-systems", "shader-precompiled", "opengl-compat", "asset-import", "pgsl-scripts", "pgsl-logic"],
     };
 
     private static void RunFocusedTarget(HeadlessContext ctx, string target)
@@ -1227,6 +1227,9 @@ internal static class HeadlessTestRunner
             case "mesh-surface":
             case "surface-shaders":
                 Suites.MeshSurfaceSuite.Run(ctx);
+                break;
+            case "outlines":
+                Suites.OutlineSuite.Run(ctx);
                 break;
             case "tavern-benchmark-cpu":
                 Suites.TavernBenchmarkSuite.Run(ctx, native: false);
