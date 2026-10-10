@@ -146,7 +146,10 @@ internal static class ShaderPrecompiledSuite
                 new("AntiAliasing", AntiAliasingShaders.Source, "PS_Fxaa", GpuShaderStage.Pixel),
                 new("AntiAliasing", AntiAliasingShaders.Source, "PS_SmaaEdges", GpuShaderStage.Pixel),
                 new("AntiAliasing", AntiAliasingShaders.Source, "PS_SmaaWeights", GpuShaderStage.Pixel),
-                new("AntiAliasing", AntiAliasingShaders.Source, "PS_SmaaBlend", GpuShaderStage.Pixel),            }.Concat(Genesis.Rendering.Particles.GpuParticleShaders.ComputeEntries.Select(entry =>
+                new("AntiAliasing", AntiAliasingShaders.Source, "PS_SmaaBlend", GpuShaderStage.Pixel),
+                new("MotionBlur", MotionBlurShaders.Source, "VS", GpuShaderStage.Vertex),
+                new("MotionBlur", MotionBlurShaders.Source, "PS_MotionBlur", GpuShaderStage.Pixel),
+            }.Concat(Genesis.Rendering.Particles.GpuParticleShaders.ComputeEntries.Select(entry =>
                 new EngineShaderJob("ParticleCompute", Genesis.Rendering.Particles.GpuParticleShaders.Compute, entry, GpuShaderStage.Compute))))
             {
                 Check(EngineShaderCatalog.PrecompiledJobs.Any(shipped => string.Equals(shipped.Source, job.Source, StringComparison.Ordinal)

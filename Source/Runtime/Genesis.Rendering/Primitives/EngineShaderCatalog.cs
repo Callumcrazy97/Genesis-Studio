@@ -53,7 +53,10 @@ namespace Genesis.Rendering.Primitives
             new("AntiAliasingShaders.hlsl", AntiAliasingShaders.Source, "PS_Fxaa", GpuShaderStage.Pixel),
             new("AntiAliasingShaders.hlsl", AntiAliasingShaders.Source, "PS_SmaaEdges", GpuShaderStage.Pixel),
             new("AntiAliasingShaders.hlsl", AntiAliasingShaders.Source, "PS_SmaaWeights", GpuShaderStage.Pixel),
-            new("AntiAliasingShaders.hlsl", AntiAliasingShaders.Source, "PS_SmaaBlend", GpuShaderStage.Pixel),            new("ShaderPreviewFullscreenShaders.hlsl", ShaderPreviewFullscreenShaders.Source, "PreviewVS", GpuShaderStage.Vertex),
+            new("AntiAliasingShaders.hlsl", AntiAliasingShaders.Source, "PS_SmaaBlend", GpuShaderStage.Pixel),
+            new("MotionBlurShaders.hlsl", MotionBlurShaders.Source, "VS", GpuShaderStage.Vertex),
+            new("MotionBlurShaders.hlsl", MotionBlurShaders.Source, "PS_MotionBlur", GpuShaderStage.Pixel),
+            new("ShaderPreviewFullscreenShaders.hlsl", ShaderPreviewFullscreenShaders.Source, "PreviewVS", GpuShaderStage.Vertex),
         };
 
         /// <summary>

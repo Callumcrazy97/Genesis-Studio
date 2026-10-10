@@ -129,6 +129,8 @@ public static class PgslCommandAutoTester
         // InputRecordStart, InputReplayStart and RandomSeed change process-wide state; a sweep
         // started with none of it running leaves none of it running, and no recording behind.
         bool inputReplayIdle = !Genesis.Runtime.Input.InputReplay.IsActive;
+        // RenderSetMotionBlur(1) would leave every later frame of the process blurred.
+        float motionBlur = Genesis.Shared.Interfaces.MeshLightingDefaults.MotionBlur;
 
         try
         {
@@ -160,6 +162,7 @@ public static class PgslCommandAutoTester
                     try { File.Delete(recorded); } catch (IOException) { } catch (UnauthorizedAccessException) { }
                 }
             }
+            Genesis.Shared.Interfaces.MeshLightingDefaults.MotionBlur = motionBlur;
             PgslCommands.ReleaseJobs(scratch);
             PgslCommands.BindPersistenceProject(previousPersistence);
             PgslCommands.BindContext(previous);

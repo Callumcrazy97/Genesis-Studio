@@ -4833,9 +4833,9 @@ The same values are applied to editor previews and passed to an F5 Player proces
 
 Preferences → Project → **Anti-aliasing (3D)** (`rendering.antiAliasing`: Off, FXAA or SMAA; Off by
 default) is saved in the project file, read by the Player and by exported games when they start,
-and shown in Studio's 3D viewports. Scripts change it with `RenderSetAntiAliasing` and set a
-Graphics quality tier with `RenderSetQuality`; see
-[Game features](GameFeatures.md#anti-aliasing-and-quality-tiers).
+and shown in Studio's 3D viewports. Scripts change it with `RenderSetAntiAliasing`, set a Graphics
+quality tier with `RenderSetQuality` and camera motion blur with `RenderSetMotionBlur`; see
+[Game features](GameFeatures.md#anti-aliasing-quality-tiers-and-motion-blur).
 
 An Object creates a persistent local light by adding the designer-facing **Light Emitter** component
 (the serialized name remains `PointLightComponent` so existing projects keep loading). The component

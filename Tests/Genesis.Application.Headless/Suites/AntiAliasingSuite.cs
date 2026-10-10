@@ -51,6 +51,7 @@ internal static class AntiAliasingSuite
         ResourceService resources = ctx.Resources ?? throw new InvalidOperationException("No resource service.");
         try
         {
+            PgslCommands.RenderSetMotionBlur(0);
             RunSettingCases(ctx, project);
             RunQualityTierCases(ctx);
             RunEdgeCase(ctx, project, resources);
@@ -59,6 +60,7 @@ internal static class AntiAliasingSuite
         finally
         {
             RenderQuality.Reset();
+            PgslCommands.RenderSetMotionBlur(0);
             ProjectPostEffects.Clear();
         }
     }
@@ -80,6 +82,7 @@ internal static class AntiAliasingSuite
                          "RenderSetAntiAliasing", "RenderGetAntiAliasing", "RenderSetQuality", "RenderGetQuality",
                          "Engine.Rendering.AntiAliasing", "Engine.Rendering.QualityTier", "Engine.Rendering.SetQuality",
                          "Engine.Rendering.ShadowResolution", "Engine.Rendering.VolumetricFogQuality",
+                         "RenderSetMotionBlur", "RenderGetMotionBlur", "Engine.Rendering.MotionBlur",
                      })
             {
                 Check(PgslCommandRegistry.TryGet(qualified) is { IsImplemented: true }, $"'{qualified}' is not a registered PGSL command.");
@@ -101,6 +104,19 @@ internal static class AntiAliasingSuite
             Check(own.AntiAliasing == AntiAliasingMode.Smaa, "A viewport that asks for its own anti-aliasing must keep it.");
             Check(PgslCommands.RenderSetAntiAliasing("off") && MeshLightingDefaults.AntiAliasing == AntiAliasingMode.Off,
                 "RenderSetAntiAliasing(\"off\") did not turn it off.");
+
+            // Camera motion blur: off by default, 0 to 1, reaching the frame's state.
+            Check(Mesh3DState.Default.MotionBlur == 0f && PgslCommands.RenderGetMotionBlur() == 0, "Motion blur must be off by default.");
+            PgslCommands.RenderSetMotionBlur(0.5);
+            Mesh3DState blurred = Mesh3DState.Default;
+            MeshLightingDefaults.Apply(ref blurred);
+            Check(Math.Abs(blurred.MotionBlur - 0.5f) < 1e-6f, "RenderSetMotionBlur(0.5) did not reach the frame's state.");
+            PgslCommands.MotionBlur = 7f;
+            Check(PgslCommands.RenderGetMotionBlur() == 1, "Motion blur above 1 must clamp to 1.");
+            PgslCommands.RenderSetMotionBlur(double.NaN);
+            Check(PgslCommands.RenderGetMotionBlur() == 1, "A NaN amount must be ignored.");
+            PgslCommands.RenderSetMotionBlur(0);
+            Check(PgslCommands.RenderGetMotionBlur() == 0, "RenderSetMotionBlur(0) did not turn it off.");
 
             // The project's own setting, saved and read back the way the Player reads it.
             string previous = project.Manifest.Rendering.AntiAliasing;
@@ -253,6 +269,8 @@ internal static class AntiAliasingSuite
     {
         public int Shape;
         public IReadOnlyList<PostEffectRequest> PostEffects = Array.Empty<PostEffectRequest>();
+        // The camera turns by this much each frame (radians), for the motion blur check.
+        public float Yaw, TurnPerFrame;
     }
 
     private static void RunEdgeCase(HeadlessContext ctx, ProjectSession project, ResourceService resources)
@@ -278,8 +296,9 @@ internal static class AntiAliasingSuite
                 renderer.SetMesh3DState(state);
                 renderer.Clear(0f, 0f, 0f);
                 renderer.Set3DFrameActive(true);
+                scene.Yaw += scene.TurnPerFrame;
                 renderer.SetCamera3D(
-                    Matrix4x4.CreateLookAt(Vector3.Zero, new Vector3(0, 0, 10), Vector3.UnitY),
+                    Matrix4x4.CreateLookAt(Vector3.Zero, new Vector3(MathF.Sin(scene.Yaw) * 10, 0, MathF.Cos(scene.Yaw) * 10), Vector3.UnitY),
                     Matrix4x4.CreatePerspectiveFieldOfView(MathF.PI / 3, Width / (float)Height, 0.1f, 100f));
                 renderer.SetPostEffects(scene.PostEffects);
                 if (!string.IsNullOrEmpty(renderer.LastPostEffectError)) postError = renderer.LastPostEffectError;
@@ -418,10 +437,18 @@ internal static class AntiAliasingSuite
                                 failures.Add($"{backend.ShortName}: the post effect did not run over the anti-aliased picture ({matching} of {total} edge pixels are its inverse)");
                         }
                     }
+
+                    CheckMotionBlur(ctx, viewport, scene, backend, failures, readings);
                 }
+
+                // The CPU rasterizer was skipped above; its motion blur check runs here.
+                viewport.BackendOverride = RenderBackendOption.Software;
+                GateSuite.Pump(3, 15);
+                CheckMotionBlur(ctx, viewport, scene, RenderBackendCatalog.Describe(RenderBackendOption.Software), failures, readings);
             }
             finally
             {
+                PgslCommands.RenderSetMotionBlur(0);
                 PgslCommands.RenderSetAntiAliasing("off");
                 ProjectPostEffects.Clear();
                 ScriptMeshes.Reset();
@@ -430,6 +457,76 @@ internal static class AntiAliasingSuite
             Console.WriteLine("AntiAliasing readings: " + string.Join(" | ", readings));
             Check(failures.Count == 0, string.Join(" | ", failures));
         });
+    }
+
+    /// <summary>
+    /// Camera motion blur with the camera turning 0.6 degrees a frame (about 4 pixels): off, the
+    /// steep side stays one hard step; on, it smears sideways over several pixels; with the camera
+    /// still, blur on changes nothing; the GUI is untouched. The CPU rasterizer never blurs.
+    /// </summary>
+    private static void CheckMotionBlur(HeadlessContext ctx, D3DViewportControl viewport, EdgeScene scene,
+        RenderBackendDescriptor backend, List<string> failures, List<string> readings)
+    {
+        string name = backend.ShortName.ToLowerInvariant();
+        bool software = backend.Backend == RenderBackendOption.Software;
+        PgslCommands.RenderSetAntiAliasing("off");
+        try
+        {
+            scene.Yaw = 0;
+            scene.TurnPerFrame = 0.6f * MathF.PI / 180f;
+            PgslCommands.RenderSetMotionBlur(0);
+            using Bitmap? turning = viewport.ReadbackFrameToBitmap(3);
+            PgslCommands.RenderSetMotionBlur(1);
+            using Bitmap? blurred = viewport.ReadbackFrameToBitmap(3);
+            scene.TurnPerFrame = 0;
+            using Bitmap? still = viewport.ReadbackFrameToBitmap(3);
+            PgslCommands.RenderSetMotionBlur(0);
+            using Bitmap? stillOff = viewport.ReadbackFrameToBitmap(3);
+            if (turning is null || blurred is null || still is null || stillOff is null || viewport.RenderFaultCount != 0)
+            {
+                failures.Add($"{backend.ShortName}: no frame for motion blur {viewport.LastRenderException}");
+                return;
+            }
+            blurred.Save(Path.Combine(ctx.Captures, $"motion-blur-{name}.png"), ImageFormat.Png);
+            int bright = still.GetPixel(100, 320).R;
+            int hardRows = SideBlurRows(turning, bright, 1), softRows = SideBlurRows(blurred, bright, 2);
+            readings.Add($"{backend.ShortName} motion blur: rows with a soft side off={hardRows} on={softRows} of 111");
+            if (!SameRegion(turning, blurred, GuiBox)) failures.Add($"{backend.ShortName}: motion blur changed the GUI");
+            if (!SameRegion(still, stillOff, new Rectangle(0, 0, Width, Height)))
+                failures.Add($"{backend.ShortName}: motion blur changed the picture of a camera that is not moving");
+            if (hardRows != 0) failures.Add($"{backend.ShortName}: without motion blur the turning view's side is already soft ({hardRows} rows)");
+            if (software)
+            {
+                if (softRows != 0) failures.Add($"Software: motion blur ran ({softRows} rows)");
+            }
+            else if (softRows < 111 * 0.8)
+            {
+                failures.Add($"{backend.ShortName}: motion blur left the side of a turning view hard ({softRows} of 111 rows soft)");
+            }
+        }
+        finally
+        {
+            PgslCommands.RenderSetMotionBlur(0);
+            scene.TurnPerFrame = 0;
+            scene.Yaw = 0;
+        }
+    }
+
+    /// <summary>Rows 230 to 340 holding at least <paramref name="least"/> values between black and white right of x = 300 (the steep side only).</summary>
+    private static int SideBlurRows(Bitmap image, int bright, int least)
+    {
+        int low = Math.Max(8, (int)(bright * 0.1)), high = (int)(bright * 0.9), rows = 0;
+        for (int y = 230; y <= 340; y++)
+        {
+            int between = 0;
+            for (int x = 300; x < Width; x++)
+            {
+                int r = image.GetPixel(x, y).R;
+                if (r > low && r < high) between++;
+            }
+            if (between >= least) rows++;
+        }
+        return rows;
     }
 
     /// <summary>
@@ -553,7 +650,8 @@ internal static class AntiAliasingSuite
             using D3DViewportControl viewport = new() { Dock = DockStyle.Fill, DriveMode = ViewportDriveMode.External, VSync = false };
             PgslContext scriptContext = new() { RoomWidth = 1920, RoomHeight = 1080 };
             int shapes = 0, cube = 0;
-            bool lit = false;
+            bool lit = false, turning = false;
+            float yaw = 0f, turnStep = 0.01f;
             viewport.OnRender += renderer =>
             {
                 Mesh3DState state = Mesh3DState.Default;
@@ -566,9 +664,16 @@ internal static class AntiAliasingSuite
                 renderer.Clear(0.05f, 0.06f, 0.08f);
                 renderer.Set3DFrameActive(true);
                 float aspect = renderer.PixelWidth / (float)Math.Max(1, renderer.PixelHeight);
+                // Turning back and forth about half a degree a frame (some 12 pixels), for the motion blur's cost.
+                if (turning)
+                {
+                    yaw += turnStep;
+                    if (MathF.Abs(yaw) > 0.15f) turnStep = -turnStep;
+                }
+                else yaw = 0f;
                 renderer.SetCamera3D(
                     lit ? Matrix4x4.CreateLookAt(new Vector3(0, 3f, -2), new Vector3(0, 0.5f, 10), Vector3.UnitY)
-                        : Matrix4x4.CreateLookAt(Vector3.Zero, new Vector3(0, 0, 10), Vector3.UnitY),
+                        : Matrix4x4.CreateLookAt(Vector3.Zero, new Vector3(MathF.Sin(yaw) * 10, 0, MathF.Cos(yaw) * 10), Vector3.UnitY),
                     Matrix4x4.CreatePerspectiveFieldOfView(MathF.PI / 3, aspect, 0.1f, 200f));
                 ScriptMeshes.BeginFrame();
                 scriptContext.DrawSurface = new PgslRenderDrawSurface(renderer, null, renderer.PixelWidth, renderer.PixelHeight,
@@ -635,6 +740,22 @@ internal static class AntiAliasingSuite
                     foreach ((string mode, double[] medians) in modes)
                         lines.Add($"{backend.ShortName} {mode}: frame {Range(medians)} ms; pass {(mode == "off" ? "-" : Range(medians.Select(m => m - off).ToArray()) + " ms")}");
 
+                    // Camera motion blur while the camera turns, against the same turning view without it.
+                    turning = true;
+                    Dictionary<string, double[]> blur = [];
+                    foreach (double amount in new[] { 0.0, 0.5, 0.0, 0.5, 0.0, 0.5 })
+                    {
+                        PgslCommands.RenderSetMotionBlur(amount);
+                        double median = MedianGpuMs(viewport, warmup: 30, frames: 90);
+                        string key = amount > 0 ? "blur" : "none";
+                        blur[key] = blur.TryGetValue(key, out double[]? earlier) ? [.. earlier, median] : [median];
+                    }
+                    PgslCommands.RenderSetMotionBlur(0);
+                    turning = false;
+                    double still = blur["none"].Min();
+                    lines.Add($"{backend.ShortName} turning, no motion blur: frame {Range(blur["none"])} ms");
+                    lines.Add($"{backend.ShortName} turning, motion blur 0.5: frame {Range(blur["blur"])} ms; pass {Range(blur["blur"].Select(m => m - still).ToArray())} ms");
+
                     lit = true;
                     foreach (string tier in new[] { "low", "medium", "high", "ultra" })
                     {
@@ -649,6 +770,7 @@ internal static class AntiAliasingSuite
             finally
             {
                 RenderQuality.Reset();
+                PgslCommands.RenderSetMotionBlur(0);
                 ScriptMeshes.Reset();
                 try { self.ProcessorAffinity = affinity; } catch (System.ComponentModel.Win32Exception) { }
             }

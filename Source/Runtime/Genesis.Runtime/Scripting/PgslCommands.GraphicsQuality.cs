@@ -62,6 +62,25 @@ public static partial class PgslCommands
         set => RenderSetAntiAliasing(value);
     }
 
+    [PgslCommand("RenderSetMotionBlur", "RenderSetMotionBlur(amount)",
+        "Camera motion blur: 0 off (the default) to 1, the share of a frame the virtual shutter is open (0.5 is a film camera's). Only the camera's own movement and turning blur; held items and the GUI stay sharp", "Display")]
+    public static void RenderSetMotionBlur(double amount)
+    {
+        if (double.IsFinite(amount)) MeshLightingDefaults.MotionBlur = (float)amount;
+    }
+
+    [PgslCommand("RenderGetMotionBlur", "RenderGetMotionBlur() -> number", "The camera motion blur amount, 0 (off) to 1", "Display")]
+    public static double RenderGetMotionBlur() => MeshLightingDefaults.MotionBlur;
+
+    [PgslCommand("MotionBlur", "Engine.Rendering.MotionBlur",
+        "Camera motion blur, 0 (off, the default) to 1 (as RenderSetMotionBlur)", "Engine · Rendering",
+        Namespace = "Engine.Rendering")]
+    public static float MotionBlur
+    {
+        get => MeshLightingDefaults.MotionBlur;
+        set => MeshLightingDefaults.MotionBlur = value;
+    }
+
     [PgslCommand("ShadowResolution", "Engine.Rendering.ShadowResolution",
         "Sun shadow map size in texels per side, for every cascade: 512, 1024 (the default), 2048 or 4096; 0 goes back to the default", "Engine · Rendering",
         Namespace = "Engine.Rendering")]

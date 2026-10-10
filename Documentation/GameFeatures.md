@@ -1019,7 +1019,7 @@ A room's atmosphere and grading can follow the hour (a hazy morning, a golden ho
 Colour tints belong to the game's look, so they are a project post effect (see
 [Post effects](PostEffects.md)) with its parameters set by `PostEffectSetParameter`.
 
-## Anti-aliasing and quality tiers
+## Anti-aliasing, quality tiers and motion blur
 
 ### Anti-aliasing
 
@@ -1114,17 +1114,48 @@ New on their own:
 The same test measures each tier's frame time on a lit scene (64 boxes on the floor, sun shadows,
 fog).
 
+### Camera motion blur
+
+| Command | Meaning |
+|---|---|
+| `RenderSetMotionBlur(amount)`, `RenderGetMotionBlur()`, `Engine.Rendering.MotionBlur` | 0 (off, the default) to 1: the share of a frame the virtual shutter is open; 0.5 is a film camera's. |
+| `GENESIS_MOTION_BLUR` | Environment override for one run (0 to 1). |
+
+Each pixel is smeared along the path its point took across the screen since the last frame, as
+the camera moved and turned (twelve samples, in linear light, at most 4% of the picture's width
+long). It runs after the composite and before the held items, anti-aliasing, post effects and the
+GUI, so a held weapon and the HUD stay sharp. The sky blurs when the camera turns, not when it
+walks. A camera that jumps more than 4 m or turns more than about 45 degrees in one frame (a cut,
+a respawn) is not blurred that frame. Only the camera's own motion blurs: the renderer keeps no
+motion for moving objects (see TAA above), so a running character is as sharp as the wall behind
+it would be. Direct3D 11 and 12, Vulkan and OpenGL; the software renderer ignores it.
+
+Its cost at 1920x1080 is measured by `Build.bat --test anti-aliasing-cost` with the camera turning.
+
+**Not done: screen-space reflections.** They need each pixel's normal and roughness (and how
+reflective it is); the forward pass writes only colour and its fog and ambient target, so a
+reflection pass cannot tell a wet road from a brick wall. The plan: a third forward target
+(octahedral normal, roughness, reflectance) written by the forward, terrain and water shaders
+(project mesh shaders would count as not reflective), a half-resolution ray march against a depth
+pyramid, a roughness-aware blur, fades at the screen's edges and where a ray finds nothing, and the
+result added before tonemapping with Fresnel. About three to four days across the backends; without
+TAA rough reflections shimmer. A cheaper "wet ground only" variant (upward-facing surfaces, normals
+from depth, mirror reflections scaled by the weather's wetness) is about a day but looks wrong on
+textured or uneven ground, so it was not added.
+
 ### Verification
 
 `Build.bat --test anti-aliasing` draws a white shape with a shallow and a steep edge on black,
 with GUI text above it, on every renderer: without anti-aliasing no edge pixel holds a value
 between black and white; with FXAA and with SMAA most edge columns and rows do; the GUI text and
 flat areas are identical to the last pixel; an inverting post effect returns the inverse of the
-anti-aliased picture (so it ran after); the software renderer's picture does not change. It also
-checks the commands, the project setting through the Preferences page, save and the Player's read,
-every tier's table reaching a room's frame state, overrides after a tier, and tiers switched while
-drawing on every renderer (sun shadow maps remade at 512, 2048 and 1024, and still shadowing on
-the GPU backends). `Build.bat --test anti-aliasing-cost` measures the costs above.
+anti-aliased picture (so it ran after); a camera turning half a degree a frame gets a soft side
+with motion blur and a hard one without, and a still camera is unchanged by it; the software
+renderer's picture does not change. It also checks the commands, the project setting through the
+Preferences page, save and the Player's read, every tier's table reaching a room's frame state,
+overrides after a tier, and tiers switched while drawing on every renderer (sun shadow maps remade
+at 512, 2048 and 1024, and still shadowing on the GPU backends). `Build.bat --test
+anti-aliasing-cost` measures the costs above.
 
 ## Pictures from a script
 

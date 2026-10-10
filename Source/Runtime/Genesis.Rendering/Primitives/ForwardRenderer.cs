@@ -3531,7 +3531,9 @@ namespace Genesis.Rendering.Primitives
                 GpuRenderTargetHandle composed = antiAliasing != AntiAliasingMode.Off
                     ? AntiAliasInput(antiAliasing, viewW, viewH)
                     : afterAntiAliasing;
-                CompositePost(composed, _sceneTexture, postDepth, viewW, viewH,
+                // Camera motion blur goes before the held items: they move with the camera.
+                bool runMotionBlur = MotionBlurThisFrame(canPost);
+                CompositePost(runMotionBlur ? MotionBlurInput(viewW, viewH) : composed, _sceneTexture, postDepth, viewW, viewH,
                     runGtao ? _aoTexture : GpuTextureHandle.Invalid, runGtao,
                     runContact ? _contactTexture : GpuTextureHandle.Invalid, runContact,
                     runLocalVol ? _localVolTexture : GpuTextureHandle.Invalid, runLocalVol,
@@ -3542,6 +3544,9 @@ namespace Genesis.Rendering.Primitives
                         : GpuTextureHandle.Invalid,
                     runRaymarchedClouds,
                     runCelestialExtras);
+                if (runMotionBlur)
+                    RunMotionBlur(composed, postDepth, viewW, viewH);
+                RememberMotionBlurView();
                 DrawViewModelPass(composed, whiteTexture);
                 if (antiAliasing != AntiAliasingMode.Off)
                     RunAntiAliasing(antiAliasing, afterAntiAliasing, viewW, viewH);
@@ -3550,6 +3555,8 @@ namespace Genesis.Rendering.Primitives
             else
             {
                 AntiAliasingThisFrame(canPost: false);
+                MotionBlurThisFrame(canPost: false);
+                _motionHistory = false;
                 LastAoMs = 0;
                 LastContactShadowMs = 0;
                 LastLocalVolumetricMs = 0;
@@ -6295,6 +6302,7 @@ namespace Genesis.Rendering.Primitives
         {
             ReleasePostEffectTargets();
             ReleaseAntiAliasResources();
+            ReleaseMotionBlurResources();
             ReleaseModelLayers();
             if (_reflectionTarget.IsValid) _gpu.ReleaseRenderTarget(_reflectionTarget);
             _gpu.ReleaseVertexLayout(_layout);

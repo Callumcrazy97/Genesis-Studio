@@ -798,6 +798,8 @@ namespace Genesis.Shared.Interfaces
         public int     ShadowMapResolution;
         /// <summary>Post-process anti-aliasing of this frame's 3D image (Off by default).</summary>
         public AntiAliasingMode AntiAliasing;
+        /// <summary>Camera motion blur, the share of a frame the shutter is open (0 = off, the default; up to 1).</summary>
+        public float   MotionBlur;
         public bool    Wireframe;
         public float   CameraFarPlane;
         public RenderDebugView DebugView;

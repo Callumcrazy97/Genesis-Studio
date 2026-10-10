@@ -296,6 +296,21 @@ namespace Genesis.Shared.Interfaces
             set => _volumetricFogQuality = Math.Clamp(value, -1, 2);
         }
 
+        public const string MotionBlurEnvironmentVariable = "GENESIS_MOTION_BLUR";
+
+        private static float _motionBlur = float.TryParse(Environment.GetEnvironmentVariable(MotionBlurEnvironmentVariable),
+            NumberStyles.Float, CultureInfo.InvariantCulture, out float blur) && float.IsFinite(blur) ? Math.Clamp(blur, 0f, 1f) : 0f;
+
+        /// <summary>
+        /// Camera motion blur: the share of a frame the virtual shutter is open, 0 (off, the default)
+        /// to 1. Only the camera's own movement and turning blur; held items and the GUI stay sharp.
+        /// </summary>
+        public static float MotionBlur
+        {
+            get => _motionBlur;
+            set => _motionBlur = float.IsFinite(value) ? Math.Clamp(value, 0f, 1f) : 0f;
+        }
+
         /// <summary>
         /// True once a quality tier has been applied: from then on the engine-wide ambient
         /// occlusion, contact shadow, local volumetric, bloom, cascade and cloud quality settings
@@ -332,6 +347,8 @@ namespace Genesis.Shared.Interfaces
                 state.ShadowMapResolution = _shadowResolution;
             if (state.AntiAliasing == AntiAliasingMode.Off)
                 state.AntiAliasing = _antiAliasing;
+            if (!(state.MotionBlur > 0f))
+                state.MotionBlur = _motionBlur;
         }
     }
 }
