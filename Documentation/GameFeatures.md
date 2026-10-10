@@ -1306,15 +1306,64 @@ of one counts as playing at once (`IsSoundPlaying` is true) and is heard as soon
 ready, a moment later; the frame that asked goes on. Each piece of music used to be decoded whole
 in the frame that first played it: a game's log showed such frames of 143 to 733 ms
 (`loading in that frame: 1 sound 495 ms`). A sound that cannot be decoded stops counting as
-playing. Shorter sounds are decoded when they are loaded, as before, so an effect is never late.
+playing. Every Ogg Vorbis sound is decoded on a worker too, whatever its size (see the next
+section); a short WAV is only copied, and is still ready in the frame that plays it.
 Studio's Audio editor decodes everything at once. `GENESIS_AUDIO_BACKGROUND_DECODE=0` turns it off
 in a game. Checked by `Build.bat --test runtime-resources`.
 
-A slow-frame line (see [Finding what made a frame long](#finding-what-made-a-frame-long)) now counts
-the scripts' Draw events in "gathering what to draw" and names them among the longest parts
-(`scripts' Draw events`), with `waiting for the graphics card to begin` (beginning a frame waits
-for the graphics card to give its buffers back) and `project post effects`. All three used to be
-part of the time "outside the frame's own work", which was most of a game's long first frames.
+### Sounds ready before they play (10 October 2026)
+
+**Why a first sound held a frame.** GenesisCraft's exported game had frames of 105 to 434 ms a few
+seconds into a world, each `loading in that frame: 1 sound 420 ms`. Sounds under 1 MB were decoded
+whole in the frame that first played them, and an Ogg file's size says little about its length: its
+650 KB underwater loop is 27 s of stereo sound. Measured on this PC (i7-14700F) in a new process,
+decoding it took 242 to 262 ms the first time and 50 to 110 ms once the decoder's code was
+optimised; a 0.6 s creature sound took 30 to 95 ms the first time. Each sample was also added to a
+list and copied out: 5 ms of a 7 ms decode in a game's first seconds. Now:
+
+- A game decodes every Ogg sound on worker threads of the sound system's own (two to four), and
+  any other sound file of 1 MB or more. The first play counts as playing at once and is heard when
+  the samples are ready, normally the next frame. A play goes ahead of sounds only preloaded.
+- The decoder writes the samples straight into the array the sound keeps.
+- Every way a script names a sound is one sound, decoded once: the Audio resource's name
+  (`"snd_hurt_1"`), its document from the project or from Assets (`"Assets/Audio/snd_hurt_1.audio.json"`,
+  `"Audio/snd_hurt_1.audio.json"`, `"snd_hurt_1.audio.json"`), its sound file from the project or
+  from Assets (`"Assets/Audio/snd_hurt_1.ogg"`, `"Audio/snd_hurt_1.ogg"`), or the sound file's own
+  name when the resource of that name plays it (`"snd_hurt_1.ogg"`). `"Audio/..."` and the bare file
+  name used to find nothing.
+- An exported game no longer reads four files' times on every `PlaySound` to see whether the sound
+  changed; Studio's play (with live reload) still does.
+
+| Command | Meaning |
+|---|---|
+| `SoundPreload(sound)` | Start decoding a sound on a worker now, so its first `PlaySound` or `PlaySoundAt` starts at once. Never waits. `sound` as `PlaySound` takes it. False when there is no such sound. |
+| `SoundsLoading()` | How many preloaded sounds are still being decoded; 0 once all are ready. |
+
+A room's loading cover waits for the sounds preloaded while it is up, so preloading a world's
+sounds in a Create event (`SoundPreload("snd_cow_say_1")`, or a loop over
+`ResourceList("Audio", "Audio")`) has them ready when the room is shown. Sounds an Object plays on
+arrival are preloaded behind the cover the same way. Only preloads are waited for, never a sound
+that is only played, and the cover's time limit (12 s) still holds.
+
+A project can have its sounds decoded while it loads without naming them, in its `.genesisproj`:
+
+```json
+"runtime": { "preloadAudioMegabytes": 200 }
+```
+
+Its Audio resources are decoded on the workers, smallest file first, until that many megabytes of
+samples are held (decoded, an Ogg file takes 7 to 20 times its size: GenesisCraft's 2,212 sounds
+under 1 MB, 88 MB of Ogg files, would take several hundred MB). The first room's cover waits for them, up to its
+time limit; the rest go on decoding during play. The log says what was done, as
+`sounds decoded ahead of time: <decoded> of the project's <sounds> (<MB> MB of samples, budget <N> MB) in <ms> ms`.
+
+0, the default, preloads nothing. Checked by `Build.bat --test runtime-resources` (every name of a
+sound, an Ogg decoded off the frame and a short WAV at once, a preloaded sound starting at once in a
+game's and an editor's mixer and through the script commands, the budget smallest first and
+stopping at its size) and `Build.bat --test room-change` (the cover waits for preloaded sounds).
+
+The Audio editor's source field is labelled **Source** (it lists WAV and Ogg files), and its import
+button **Import sound…**.
 
 ## Smaller changes
 

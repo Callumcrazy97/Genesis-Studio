@@ -284,7 +284,8 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomW
             if (!component.AutoPlay || string.IsNullOrWhiteSpace(component.Asset) || !_soundsReadAhead.Add(component.Asset)) return;
             try
             {
-                _audio.LoadSound(component.Asset);
+                // Decoded on a worker; the cover waits for it (see IAudioSystem.SoundsLoading).
+                _audio.PreloadSound(component.Asset);
             }
             catch (Exception exception) when (
                 exception is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)

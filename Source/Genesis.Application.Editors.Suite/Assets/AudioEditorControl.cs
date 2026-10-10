@@ -164,10 +164,10 @@ public sealed partial class AudioEditorControl : EditorSurfaceControl, IResource
             WrapContents = false,
         };
         rows.Controls.Add(AudioWorkflowText("Choose a clip, then Play", true));
-        rows.Controls.Add(AudioWorkflowText("1. Select or import a WAV. 2. Set volume and repeat; trim/fades use seconds. 3. Save and use this sound in a game."));
-        rows.Controls.Add(EditorChrome.DividerLabel("WAV source"));
+        rows.Controls.Add(AudioWorkflowText("1. Select or import a WAV or Ogg file. 2. Set volume and repeat; trim/fades use seconds. 3. Save and use this sound in a game."));
+        rows.Controls.Add(EditorChrome.DividerLabel("Source"));
         rows.Controls.Add(_sourceCombo);
-        Button import = new() { Text = "Import WAV…", Width = 244, Height = 31, BackColor = EditorChrome.Raised, ForeColor = EditorChrome.Text, FlatStyle = FlatStyle.Flat };
+        Button import = new() { Text = "Import sound…", Width = 244, Height = 31, BackColor = EditorChrome.Raised, ForeColor = EditorChrome.Text, FlatStyle = FlatStyle.Flat };
         import.Click += (_, _) => ImportAudio(); rows.Controls.Add(import);
         _quickPreset = new ThemedComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Name = "AudioStartingPreset" };
         _quickPreset.Items.AddRange(["Sound effect", "Music", "Custom / ambience"]); EditorChrome.StyleField(_quickPreset);
@@ -877,7 +877,7 @@ public sealed partial class AudioEditorControl : EditorSurfaceControl, IResource
         string? path = ResolveSourcePath();
         if (path is null || !File.Exists(path))
         {
-            _statusLabel.Text = "Choose a WAV source to preview and audition.";
+            _statusLabel.Text = "Choose a source to preview and audition.";
             _waveformPanel.Invalidate(); return;
         }
         try

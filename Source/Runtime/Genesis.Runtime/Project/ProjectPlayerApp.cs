@@ -394,6 +394,14 @@ namespace Genesis.Runtime.Project
                         Engine.SetAudioStop(ch => audioSystem.Stop(new AudioChannel(ch)));
                         Engine.SetAudioMasterVolume(v => audioSystem.MasterVolume = v);
                         logger.Line("audio system initialised (XAudio2)");
+                        // The project may ask for its sounds to be decoded while it loads, so that
+                        // no first play of one waits (runtime.preloadAudioMegabytes).
+                        int preloadMegabytes = ProjectPaths.ReadPreloadAudioMegabytes(projectPath);
+                        if (preloadMegabytes > 0)
+                        {
+                            audioSystem.PreloadProjectSounds(preloadMegabytes * 1024L * 1024L, logger.Line);
+                            logger.Line($"decoding the project's sounds on workers, smallest first, up to {preloadMegabytes} MB of samples");
+                        }
                     }
                     catch (Exception ex)
                     {

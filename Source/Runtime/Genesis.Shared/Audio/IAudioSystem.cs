@@ -114,6 +114,16 @@ namespace Genesis.Shared.Audio
         /// <summary>The volume a group of sounds was last set to; 1 when it never was.</summary>
         float GetBusVolume(string bus) => 1f;
 
+        /// <summary>
+        /// Starts decoding a sound off the game's thread so that a later play of it starts at once.
+        /// Returns the sound's id (as <see cref="LoadSound"/> does), or 0 when there is no such
+        /// sound. A system that cannot decode ahead loads it now.
+        /// </summary>
+        int PreloadSound(string projectRelativePath) => LoadSound(projectRelativePath);
+
+        /// <summary>Sounds asked for ahead of time that are not decoded yet; a loading cover waits for them.</summary>
+        int SoundsLoading => 0;
+
         /// <summary>Advance voice recycling / 3D panning. Called once per frame by the host.</summary>
         void Update();
     }
