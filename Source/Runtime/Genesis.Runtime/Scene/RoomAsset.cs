@@ -256,6 +256,32 @@ public sealed class RoomEnvironment
     /// </summary>
     [JsonProperty("environmentReflection")] public float EnvironmentReflection { get; set; }
     /// <summary>
+    /// How the sky lights what the sun does not reach: "zenith" (the default, the sky's zenith
+    /// colour as before) or "hemisphere" (the light of the whole sky dome as drawn and of the sunlit
+    /// ground, so shade is brighter and less blue).
+    /// </summary>
+    [JsonProperty("skyLight")] public string SkyLight { get; set; } = "zenith";
+    /// <summary>Hemisphere sky light brightness, 0 to 16 (1 = the sky as drawn). The ambient intensity does not apply to it.</summary>
+    [JsonProperty("skyLightStrength")] public float SkyLightStrength { get; set; } = 1f;
+    /// <summary>Hemisphere sky light colour multiplier, red, green, blue (white = none).</summary>
+    [JsonProperty("skyLightTint")] public float[] SkyLightTint { get; set; } = { 1f, 1f, 1f };
+    /// <summary>Hemisphere sky light colourfulness, 0 to 2: 1 the sky's own colour, 0 grey, 0.4 by default.</summary>
+    [JsonProperty("skyLightSaturation")] public float SkyLightSaturation { get; set; } = 0.4f;
+    /// <summary>Eye adaptation: the exposure follows the brightness of the scene. Off by default.</summary>
+    [JsonProperty("autoExposure")] public bool AutoExposure { get; set; }
+    /// <summary>The brightness an average scene is shown at (0.18 = mid grey); higher is brighter.</summary>
+    [JsonProperty("autoExposureKey")] public float AutoExposureKey { get; set; } = 0.18f;
+    /// <summary>Seconds the picture takes to darken (about 95% of the way) when the scene gets brighter.</summary>
+    [JsonProperty("autoExposureDarkenSeconds")] public float AutoExposureDarkenSeconds { get; set; } = 0.8f;
+    /// <summary>Seconds the picture takes to brighten (about 95% of the way) when the scene gets darker.</summary>
+    [JsonProperty("autoExposureBrightenSeconds")] public float AutoExposureBrightenSeconds { get; set; } = 2.5f;
+    /// <summary>The most auto exposure darkens, in stops (-4 = a sixteenth).</summary>
+    [JsonProperty("autoExposureMinEv")] public float AutoExposureMinEv { get; set; } = -4f;
+    /// <summary>The most auto exposure brightens, in stops (4 = sixteen times).</summary>
+    [JsonProperty("autoExposureMaxEv")] public float AutoExposureMaxEv { get; set; } = 4f;
+    /// <summary>0 meters the whole picture evenly, 1 counts its centre most.</summary>
+    [JsonProperty("autoExposureCenterWeight")] public float AutoExposureCenterWeight { get; set; } = 0.5f;
+    /// <summary>
     /// The project's Fullscreen Shader resources to run over the finished frame, in order, while
     /// this room is shown (an outline, a colour grade, a vignette). Empty runs none.
     /// </summary>

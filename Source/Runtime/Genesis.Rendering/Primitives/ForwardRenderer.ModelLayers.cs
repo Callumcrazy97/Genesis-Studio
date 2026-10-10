@@ -140,6 +140,7 @@ namespace Genesis.Rendering.Primitives
                 studio.SunIntensity = 1.15f;
                 studio.AmbientColor = new Vector3(0.46f, 0.47f, 0.5f);
                 studio.AmbientGroundColor = new Vector3(0.3f, 0.29f, 0.28f);
+                studio.SkyLightMode = SkyLightModes.Zenith; // the studio's own light, not the scene's sky
                 studio.FogEnabled = false;
                 studio.LightingEnabled = true;
                 _state = studio;

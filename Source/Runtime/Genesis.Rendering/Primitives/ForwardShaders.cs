@@ -65,6 +65,13 @@ cbuffer EngineConstants : register(b1)
     float4       StylizedParams2;    // x=specularStrength, y=rimStrength, z=scene depth is reversed, w=environment reflection (0 = off)
     float4       WeatherWindRain;    // world wind XZ, rain, enabled
     float4       WeatherSurface;     // wetness, temperature C, snow, reserved
+    // Hemisphere sky light (ForwardRenderer.SkyLight.cs): x = on. The ambient terms above then
+    // already hold the sky dome's and the ground's light; these are the drawn sky's radiance
+    // straight up and at the horizon and the ground's, which the environment reflection mirrors.
+    float4       SkyLightParams;
+    float4       SkyLightZenith;
+    float4       SkyLightHorizon;
+    float4       SkyLightGround;
 };
 
 cbuffer DrawConstants : register(b2)
@@ -1266,6 +1273,13 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
     {
         float3 reflected = reflect(viewDir, n);
         float3 envMirror = lerp(AmbientGroundColor.rgb, AmbientColor.rgb, saturate(reflected.y * 0.5 + 0.5));
+        // Hemisphere sky light: a smooth surface mirrors the sky as it is drawn (horizon to
+        // zenith) and the lit ground below the horizon; rough ones still blur to the sky light.
+        if (SkyLightParams.x > 0.5)
+        {
+            float3 mirrorSky = lerp(SkyLightHorizon.rgb, SkyLightZenith.rgb, pow(max(reflected.y, 1e-4), 0.45));
+            envMirror = lerp(SkyLightGround.rgb, mirrorSky, saturate(reflected.y * 8.0 + 0.5));
+        }
         float3 envLight = lerp(envMirror, hemiAmbient, roughness);
         float4 envC0 = float4(-1.0, -0.0275, -0.572, 0.022);
         float4 envC1 = float4(1.0, 0.0425, 1.04, -0.04);

@@ -137,6 +137,7 @@ public sealed partial class RoomEditorControl
     {
         UpdateRoomEnvironmentPreview();
         EnvironmentMapper.StampClimateAtmosphere(ref state, _environmentPreviewClimate!, _environmentPreviewAtmosphere!);
+        ApplyRoomSkyLightPreview(ref state);
     }
 
     private void SubmitRoomEnvironment(IRenderController renderer)

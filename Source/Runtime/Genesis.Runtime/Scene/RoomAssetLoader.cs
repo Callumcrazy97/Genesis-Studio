@@ -412,6 +412,7 @@ public sealed class RoomSceneBuilder
         scene.Environment.EnvironmentReflection = float.IsFinite(environment.EnvironmentReflection)
             ? Math.Clamp(environment.EnvironmentReflection, 0f, 4f)
             : 0f;
+        ApplySkyLightAndExposure(scene.Environment, environment);
         Genesis.Runtime.Rendering.ProjectPostEffects.SetRoomEffects(environment.PostEffects);
         float[] bg = environment.BackgroundColor;
         if (bg is { Length: >= 3 }) scene.Environment.BackgroundColor = new Vector4(bg[0], bg[1], bg[2], bg.Length > 3 ? bg[3] : 1f);
@@ -463,6 +464,34 @@ public sealed class RoomSceneBuilder
             scene.DisableAtmosphere();
         }
         scene.FixedTimestep.FixedDelta = 1f / Math.Max(1, room.Settings.FixedFps);
+    }
+
+    /// <summary>
+    /// Request 64: a room's sky light and auto exposure onto its scene. A room that loads makes the
+    /// exposure start from its own scene rather than adapting from the last room's.
+    /// </summary>
+    public static void ApplySkyLightAndExposure(SceneEnvironment target, RoomEnvironment environment)
+    {
+        target.SkyLightMode = Genesis.Shared.Interfaces.SkyLightModes.TryParse(environment.SkyLight, out int mode)
+            ? mode
+            : Genesis.Shared.Interfaces.SkyLightModes.Zenith;
+        target.SkyLightStrength = Genesis.Shared.Interfaces.SkyLightDefaults.ClampStrength(environment.SkyLightStrength);
+        float[] tint = environment.SkyLightTint;
+        target.SkyLightTint = tint is { Length: >= 3 }
+            ? new Vector3(
+                Genesis.Shared.Interfaces.SkyLightDefaults.ClampTint(tint[0]),
+                Genesis.Shared.Interfaces.SkyLightDefaults.ClampTint(tint[1]),
+                Genesis.Shared.Interfaces.SkyLightDefaults.ClampTint(tint[2]))
+            : Vector3.One;
+        target.SkyLightSaturation = Genesis.Shared.Interfaces.SkyLightDefaults.ClampSaturation(environment.SkyLightSaturation);
+        target.AutoExposureEnabled = environment.AutoExposure;
+        target.AutoExposureKey = Genesis.Shared.Interfaces.AutoExposureDefaults.ClampKey(environment.AutoExposureKey);
+        target.AutoExposureDarkenSeconds = Genesis.Shared.Interfaces.AutoExposureDefaults.ClampSeconds(environment.AutoExposureDarkenSeconds);
+        target.AutoExposureBrightenSeconds = Genesis.Shared.Interfaces.AutoExposureDefaults.ClampSeconds(environment.AutoExposureBrightenSeconds);
+        target.AutoExposureMinEv = Genesis.Shared.Interfaces.AutoExposureDefaults.ClampEv(environment.AutoExposureMinEv);
+        target.AutoExposureMaxEv = Genesis.Shared.Interfaces.AutoExposureDefaults.ClampEv(environment.AutoExposureMaxEv);
+        target.AutoExposureCenterWeight = Genesis.Shared.Interfaces.AutoExposureDefaults.ClampCenterWeight(environment.AutoExposureCenterWeight);
+        target.ResetAutoExposure();
     }
 
     /// <summary>

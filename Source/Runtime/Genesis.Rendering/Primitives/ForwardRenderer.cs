@@ -80,6 +80,13 @@ namespace Genesis.Rendering.Primitives
             public Vector4 StylizedParams2;
             public Vector4 WeatherWindRain;
             public Vector4 WeatherSurface;
+            // Hemisphere sky light (ForwardRenderer.SkyLight.cs), appended: x = 1 when on. The
+            // other three are the drawn sky's radiance up and at the horizon and the ground's, for
+            // the environment reflection. Only ForwardShaders declares them.
+            public Vector4 SkyLightParams;
+            public Vector4 SkyLightZenith;
+            public Vector4 SkyLightHorizon;
+            public Vector4 SkyLightGround;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -5746,13 +5753,15 @@ namespace Genesis.Rendering.Primitives
             }
 
             var volumes = _fogVolumes;
+            ResolveSkyLight(s, out Vector3 ambientSky, out Vector3 ambientGround,
+                out Vector4 skyLightParams, out Vector4 skyLightZenith, out Vector4 skyLightHorizon, out Vector4 skyLightGround);
             var data = new EngineCB
             {
                 LightDirEnabled   = new Vector4(s.LightDirection, lightingW),
                 FogParams         = new Vector4(s.FogEnabled ? 1 : 0, s.FogStart, s.FogEnd, s.FogDensity),
                 FogColor          = ToLinearColor(s.FogColor),
-                AmbientColor      = new Vector4(ToLinearColor(s.AmbientColor), 1),
-                AmbientGroundColor = new Vector4(ToLinearColor(s.AmbientGroundColor), 1),
+                AmbientColor      = new Vector4(ambientSky, 1),
+                AmbientGroundColor = new Vector4(ambientGround, 1),
                 SunColorIntensity = new Vector4(ToLinearColor(s.SunColor), s.SunIntensity),
                 FogParams2        = new Vector4(s.FogHeightBase, s.FogHeightFalloff, s.FogAerialBlend, s.FogSunPreserve),
                 ShadowParams      = new Vector4(
@@ -5817,6 +5826,10 @@ namespace Genesis.Rendering.Primitives
                     float.IsFinite(s.EnvironmentReflection) ? Math.Clamp(s.EnvironmentReflection, 0f, 4f) : 0f),
                 WeatherWindRain = s.WeatherWindRain,
                 WeatherSurface = s.WeatherSurface,
+                SkyLightParams = skyLightParams,
+                SkyLightZenith = skyLightZenith,
+                SkyLightHorizon = skyLightHorizon,
+                SkyLightGround = skyLightGround,
             };
             _gpu.UpdateConstantBuffer(_cbEngine, data);
         }

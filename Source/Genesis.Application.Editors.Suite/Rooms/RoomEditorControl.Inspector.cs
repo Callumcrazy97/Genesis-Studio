@@ -125,6 +125,7 @@ public sealed partial class RoomEditorControl
             environment.SceneryDistance, 0, 100000, 50m, 0));
         values.Add(Number("Lighting & atmosphere", "environment.terrainDistance", "Terrain loading distance (m, 0 = load all)",
             environment.TerrainDistance, 0, 1000000, 100m, 0));
+        AddSkyLightAndExposureValues(values, environment);
         AddAudio(values, "Wind", "environment.windAudio", environment.WindAudio);
         AddAudio(values, "Rain", "environment.rainAudio", environment.RainAudio);
         AddAudio(values, "Water", "environment.waterAudio", environment.WaterAudio);
@@ -359,7 +360,9 @@ public sealed partial class RoomEditorControl
             case "soundscapelevels.fire": next.SoundscapeLevels.Fire = RoomSoundscapeLevels.Sanitize(Convert.ToSingle(value, CultureInfo.InvariantCulture)); break;
             case "soundscapelevels.wildlife": next.SoundscapeLevels.Wildlife = RoomSoundscapeLevels.Sanitize(Convert.ToSingle(value, CultureInfo.InvariantCulture)); break;
             case "soundscapelevels.night": next.SoundscapeLevels.Night = RoomSoundscapeLevels.Sanitize(Convert.ToSingle(value, CultureInfo.InvariantCulture)); break;
-            default: return false;
+            default:
+                if (!TryApplySkyLightAndExposureValue(next, name, value)) return false;
+                break;
         }
         ApplyEnvironment(next);
         PushEdit("Room environment", () => ApplyEnvironment(next), () => ApplyEnvironment(previous));

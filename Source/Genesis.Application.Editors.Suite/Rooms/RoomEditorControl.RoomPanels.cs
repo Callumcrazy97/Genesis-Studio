@@ -865,6 +865,20 @@ public sealed partial class RoomEditorControl
             WeatherEffects = source.WeatherEffects,
             ThunderAudio = source.ThunderAudio,
             SoundscapeLevels = (source.SoundscapeLevels ?? new()).Clone(),
+            // Editing any environment value used to drop these, as they were not copied.
+            EnvironmentReflection = source.EnvironmentReflection,
+            PostEffects = source.PostEffects is null ? new() : new List<string>(source.PostEffects),
+            SkyLight = source.SkyLight,
+            SkyLightStrength = source.SkyLightStrength,
+            SkyLightTint = source.SkyLightTint is null ? [1f, 1f, 1f] : (float[])source.SkyLightTint.Clone(),
+            SkyLightSaturation = source.SkyLightSaturation,
+            AutoExposure = source.AutoExposure,
+            AutoExposureKey = source.AutoExposureKey,
+            AutoExposureDarkenSeconds = source.AutoExposureDarkenSeconds,
+            AutoExposureBrightenSeconds = source.AutoExposureBrightenSeconds,
+            AutoExposureMinEv = source.AutoExposureMinEv,
+            AutoExposureMaxEv = source.AutoExposureMaxEv,
+            AutoExposureCenterWeight = source.AutoExposureCenterWeight,
         };
     }
 
