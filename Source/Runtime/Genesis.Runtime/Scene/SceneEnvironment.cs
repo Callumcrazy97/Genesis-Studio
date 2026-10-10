@@ -87,6 +87,34 @@ namespace Genesis.Runtime.Scene
         /// <summary>Sky and ground reflection on models: 0 off (default), 1 physically balanced, up to 4.</summary>
         public float EnvironmentReflection { get; set; }
 
+        // ── Sky light and auto exposure (request 64; both off by default) ─────────
+        /// <summary>
+        /// <see cref="SkyLightModes.Zenith"/> (the ambient colour as before) or
+        /// <see cref="SkyLightModes.Hemisphere"/> (the light of the whole drawn sky dome and the ground).
+        /// </summary>
+        public int SkyLightMode { get; set; } = SkyLightModes.Zenith;
+        /// <summary>Hemisphere sky light brightness (1 = the sky as drawn).</summary>
+        public float SkyLightStrength { get; set; } = SkyLightDefaults.Strength;
+        /// <summary>Hemisphere sky light colour multiplier (white = none).</summary>
+        public Vector3 SkyLightTint { get; set; } = Vector3.One;
+        /// <summary>Hemisphere sky light colourfulness: 1 the sky's own, 0 grey.</summary>
+        public float SkyLightSaturation { get; set; } = SkyLightDefaults.Saturation;
+
+        public bool AutoExposureEnabled { get; set; }
+        public float AutoExposureKey { get; set; } = AutoExposureDefaults.Key;
+        public float AutoExposureDarkenSeconds { get; set; } = AutoExposureDefaults.DarkenSeconds;
+        public float AutoExposureBrightenSeconds { get; set; } = AutoExposureDefaults.BrightenSeconds;
+        public float AutoExposureMinEv { get; set; } = AutoExposureDefaults.MinEv;
+        public float AutoExposureMaxEv { get; set; } = AutoExposureDefaults.MaxEv;
+        public float AutoExposureCenterWeight { get; set; } = AutoExposureDefaults.CenterWeight;
+        /// <summary>Changed to make the exposure jump to the scene at once (a room load, a script's cut).</summary>
+        public int AutoExposureResetId { get; set; }
+
+        private static int _autoExposureResets;
+
+        /// <summary>Asks for the exposure to jump to the scene at once. Numbers are unique across scenes, so a new room's always differs from the last.</summary>
+        public void ResetAutoExposure() => AutoExposureResetId = System.Threading.Interlocked.Increment(ref _autoExposureResets);
+
         public Vector3 GetSunLightDirection()
         {
             float yaw   = SunYawDegrees * MathUtil.DegToRad;

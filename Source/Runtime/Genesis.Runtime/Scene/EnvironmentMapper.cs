@@ -71,9 +71,34 @@ namespace Genesis.Runtime.Scene
                 StylizedSaturation      = env.StylizedSaturation,
                 EnvironmentReflection   = env.EnvironmentReflection,
             };
+            ApplySkyLightAndExposure(ref state, env);
             // AF2.6: PGSL / headless authoring bridge (room Climate/Atmosphere overwrite after).
             SkyAuthoringDefaults.Apply(ref state);
             return state;
+        }
+
+        /// <summary>
+        /// Request 64: the room's sky light mode and auto exposure onto the frame state. A script's own
+        /// ambient colour (<see cref="SceneEnvironment.AmbientOverrideColor"/>) outranks the sky's, so
+        /// it turns the hemisphere sky light off.
+        /// </summary>
+        public static void ApplySkyLightAndExposure(ref Mesh3DState state, SceneEnvironment env)
+        {
+            state.SkyLightMode = env.AmbientOverrideColor.HasValue ? SkyLightModes.Zenith : env.SkyLightMode;
+            state.SkyLightStrength = SkyLightDefaults.ClampStrength(env.SkyLightStrength);
+            Vector3 tint = env.SkyLightTint;
+            state.SkyLightTint = new Vector3(SkyLightDefaults.ClampTint(tint.X), SkyLightDefaults.ClampTint(tint.Y), SkyLightDefaults.ClampTint(tint.Z));
+            state.SkyLightSaturation = SkyLightDefaults.ClampSaturation(env.SkyLightSaturation);
+            state.AutoExposureEnabled = env.AutoExposureEnabled;
+            state.AutoExposureKey = AutoExposureDefaults.ClampKey(env.AutoExposureKey);
+            state.AutoExposureDarkenSeconds = AutoExposureDefaults.ClampSeconds(env.AutoExposureDarkenSeconds);
+            state.AutoExposureBrightenSeconds = AutoExposureDefaults.ClampSeconds(env.AutoExposureBrightenSeconds);
+            float minEv = AutoExposureDefaults.ClampEv(env.AutoExposureMinEv);
+            float maxEv = AutoExposureDefaults.ClampEv(env.AutoExposureMaxEv);
+            state.AutoExposureMinEv = MathF.Min(minEv, maxEv);
+            state.AutoExposureMaxEv = MathF.Max(minEv, maxEv);
+            state.AutoExposureCenterWeight = AutoExposureDefaults.ClampCenterWeight(env.AutoExposureCenterWeight);
+            state.AutoExposureResetId = env.AutoExposureResetId;
         }
 
         /// <summary>

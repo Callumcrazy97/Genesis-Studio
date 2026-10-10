@@ -109,6 +109,7 @@ namespace Genesis.Rendering.Diagnostics
             ("BloomShaders", BloomShaders.Source),
             ("RaymarchedCloudsShaders", RaymarchedCloudsShaders.Source),
             ("CloudTemporalShaders", CloudTemporalShaders.Source),
+            ("AutoExposureShaders", AutoExposureShaders.Source),
         };
 
         // Managed struct  ↔  HLSL cbuffer name.  Every declaration of that name, in any shader
@@ -125,6 +126,7 @@ namespace Genesis.Rendering.Diagnostics
             (typeof(ForwardRenderer), "BloomCB", "BloomConstants"),
             (typeof(ForwardRenderer), "RaymarchedCloudsCB", "RaymarchedCloudsConstants"),
             (typeof(ForwardRenderer), "CloudTemporalCB", "CloudTemporalConstants"),
+            (typeof(ForwardRenderer), "AutoExposureCB", "AutoExposureConstants"),
             (typeof(SpriteRenderer),  "SpriteCB",   "SpriteConstants"),
         };
 

@@ -209,7 +209,10 @@ and their diffuse ambient gives way to it. 1 is physically balanced. Scripts can
 room runs: `EnvironmentSetReflection(strength)`, `EnvironmentGetReflection()`.
 
 It is not a captured sky or a reflection probe: a metal mirrors the room's ambient colours, not the
-actual scene around it. Terrain and water keep their own shading.
+actual scene around it. Terrain and water keep their own shading. With the room's hemisphere sky
+light (`"skyLight": "hemisphere"`, see [Sky light and eye adaptation](GameFeatures.md#sky-light-and-eye-adaptation))
+a smooth surface mirrors the sky as the engine draws it, horizon to zenith, and the lit ground
+below the horizon.
 
 ## User Interface resources that are game menus
 

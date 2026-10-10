@@ -691,6 +691,110 @@ What the existing settings do, since the numbers are not obvious:
 | Cloud base height, thickness | The cloud layer is real fog, centred on the base height and as deep as the thickness: from about 140 to 220 m with the defaults of 180 and 85. **Ground that reaches it is inside that fog**, so hilltops and the trees on them can turn pale while the slopes below do not. Raise the base well above the highest ground for a world with hills. |
 | Atmospheric haze | Adds fog of density 0.012 per unit, with a floor of 0.002. The Clear Day preset halves the haze first. So nothing changes below about 0.17, or below about 0.33 on a clear day; 0.6 to 0.8 gives two to five times the floor. For a long view, set **Visibility (km)** instead, which states the distance directly. |
 
+## Sky light and eye adaptation
+
+Two room settings for the outdoor light of a modern shooter, added on 10 October 2026. Both are
+**off by default**: a room that does not turn them on is drawn exactly as before, pixel for pixel.
+They are in the Room editor under **Sky light & exposure**, in the room file's `environment`, and
+scripts can change them for the room being played (a new room starts from its own settings).
+
+### Hemisphere sky light
+
+Under a dynamic sky, the light that reaches shade was the sky's zenith colour: deep blue, and dark.
+On a clear afternoon (Clear Day at 15:00 with ambient intensity 2.2), lit in linear light, shade got
+11% of the light on sunlit ground, and that light was more than twenty times bluer than red.
+
+With **Sky light** set to **Hemisphere**, the engine works out the light of the whole sky dome as it
+draws it (the pale horizon as well as the blue zenith, with the atmosphere's own terms) and of the
+sunlit ground below it, whenever the time of day, the weather, the preset or the settings change.
+A surface facing up takes the sky, one facing down the ground, and one in between a blend, as
+before; models, terrain, foliage, water and the CPU renderer all take it. The environment
+reflection (`environmentReflection`) then mirrors the sky as drawn, horizon to zenith with the
+ground below, instead of the two ambient colours, and still blurs to the sky light as a surface
+roughens.
+
+On the same afternoon shade gets 28% of the light on sunlit ground (strength 1.5 gives about 36%,
+for a brighter, game-like shade), its light is about twice as blue as red rather than twenty-four times, and
+sunlit ground comes out within 5% of neutral instead of blue. With the default colour pipeline,
+which lights with the authored colours as they are, the zenith light was less dark (29%) and the
+sky light gives 39%, its light half again as blue as red. Working the light out takes about 7
+microseconds of CPU, and the hemisphere light costs nothing measurable on the graphics card.
+Without a dynamic sky, the room's background colour is the sky; at night the sky light follows the
+glow the night sky is drawn with.
+
+| Setting | Key | Default | Use |
+|---|---|---|---|
+| Sky light | `skyLight` | `"zenith"` | `"hemisphere"` for the sky dome's light. `"zenith"` is the light as before. |
+| Sky light strength | `skyLightStrength` | 1 | 0 to 16. 1 is the sky as drawn. The room's ambient intensity, which made up for the dim zenith light, does not apply in hemisphere mode. |
+| Sky light colour | `skyLightSaturation` | 0.4 | 0 to 2. 1 is the sky's own colour, 0 grey light of the same brightness. A real clear sky's light is much paler than its blue, since much of it comes from the bright haze near the horizon; at 0.4 sunlit ground under the engine's clear sky is within a few percent of neutral in either colour pipeline. |
+| (file and scripts only) | `skyLightTint` | `[1, 1, 1]` | Red, green and blue multipliers, 0 to 4. |
+
+| Command | What it does |
+|---|---|
+| `SkySetAmbientMode(mode) -> bool` | `"hemisphere"` or `"zenith"`; false for another name. Also `Engine.Sky.AmbientMode`. |
+| `SkyGetAmbientMode() -> string` | The room's mode. |
+| `SkySetAmbientStrength(strength)`, `SkyGetAmbientStrength()` | Brightness, 0 to 16. Also `Engine.Sky.AmbientStrength`. |
+| `SkySetAmbientSaturation(saturation)`, `SkyGetAmbientSaturation()` | Colourfulness, 0 to 2. Also `Engine.Sky.AmbientSaturation`. |
+| `SkySetAmbientTint(r, g, b)` | Colour multipliers, 0 to 4 each. Also `Engine.Sky.SetAmbientTint(r, g, b)`. |
+
+A script's own ambient colour still wins over the sky's: while one is set, the hemisphere sky light
+is off. Models in a model layer with studio lighting keep the studio's light.
+
+### Eye adaptation (auto exposure)
+
+With **Auto exposure** on (`autoExposure`), the exposure follows the brightness of the scene: walk
+from sunlight into a dark hall and the picture brightens over a couple of seconds; walk out again
+and it darkens, faster, as eyes do. Each frame the engine measures the HDR scene before the sky,
+fog and grade are put on it (the log-average brightness over a 64 by 32 grid, the centre counting
+more, and sky pixels measured as the sky is drawn) and moves the exposure towards showing that
+average at the key. The GUI and held view models are drawn after the measurement, so a bright HUD
+never darkens the world. The exposure set by `Engine.Rendering.Exposure` still multiplies on top,
+as a compensation. When a room loads, or a script calls `RenderResetAutoExposure()` after a cut,
+the exposure starts from the scene as it is instead of adjusting.
+
+| Setting | Key | Default | Use |
+|---|---|---|---|
+| Auto exposure | `autoExposure` | off | Turns eye adaptation on. |
+| Exposure key | `autoExposureKey` | 0.18 | The brightness an average scene is shown at; 0.18 is mid grey. Higher is brighter. |
+| Darken over (s) | `autoExposureDarkenSeconds` | 0.8 | How long the picture takes to darken (about 95% of the way) when the scene gets brighter. 0 is at once. |
+| Brighten over (s) | `autoExposureBrightenSeconds` | 2.5 | How long it takes to brighten when the scene gets darker. |
+| Darkest (stops) | `autoExposureMinEv` | -4 | The most it darkens the picture: -4 is a sixteenth. |
+| Brightest (stops) | `autoExposureMaxEv` | 4 | The most it brightens the picture: 4 is sixteen times. A night stays dark below its limit. |
+| (file and scripts only) | `autoExposureCenterWeight` | 0.5 | 0 measures the whole picture evenly, 1 counts its centre most. |
+
+| Command | What it does |
+|---|---|
+| `RenderSetAutoExposure(on, key, adaptSeconds, minEv, maxEv)` | Turns it on or off with a key, one adaptation time for both directions, and the limits in stops. |
+| `RenderSetAutoExposureSpeed(darkenSeconds, brightenSeconds)` | The two adaptation times. |
+| `RenderSetAutoExposureMetering(centerWeight)` | 0 even, 1 centre weighted. |
+| `RenderResetAutoExposure()` | Jump to the scene at once (a camera cut, a teleport). |
+| `RenderGetAutoExposure() -> bool` | Whether it is on. |
+| `Engine.Rendering.AutoExposure(key, adaptSeconds)` | Turns it on with a key and one adaptation time. |
+| `Engine.Rendering.AutoExposureEnabled` | On or off. |
+
+The adapted value stays on the graphics card: three small passes (a 64 by 32 grid, an 8 by 4 grid
+and one texel) and one multiply in the final composite. Measured on Direct3D 11 at 1920 by 1061
+(a GeForce RTX 5060 Ti), the frame took 0.009 ms longer with it on (medians of 240 frames each
+way). Direct3D 11 and 12, Vulkan and OpenGL run it; the CPU renderer has no eye adaptation and
+draws the room as if it were off. Model layers (the
+first-person layer, models in the GUI) are drawn for display without the composite, so neither
+exposure applies to them, as before. Fog's own light is not measured, so a dense fog is exposed a
+little brighter than it would be.
+
+### For a game working round the dark blue shade
+
+A game that lifted its shade by hand (a higher exposure, a raised ambient scale, a weaker shadow, a
+white balance in a post effect) can take those out and set, in the room:
+`"skyLight": "hemisphere"`, `"skyLightStrength": 1.5`, `"autoExposure": true`, with the exposure
+back at 1, the shadow strength at 1 and no white balance.
+
+`Build.bat --test sky-light-exposure` checks the settings from room file to frame, the commands,
+the sky light's numbers in both colour pipelines, and pixels on Direct3D 11 and 12, Vulkan and
+OpenGL: shade brighter and less blue with sunlit ground neutral, the exposure moving towards the
+key over time in both directions, its limits, and frames unchanged with both off. On the CPU
+renderer it checks that frames are drawn and that eye adaptation leaves them unchanged. It also
+measures the cost at 1080p on Direct3D 11.
+
 ## Foliage
 
 - **Grass.** Meadow grass, tall grass and reeds were flat-coloured straight spikes. Near the camera

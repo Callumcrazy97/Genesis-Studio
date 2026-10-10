@@ -829,6 +829,36 @@ namespace Genesis.Shared.Interfaces
         /// <summary>Sky and ground reflection on models (0 = off).</summary>
         public float EnvironmentReflection;
 
+        // ── Sky light and auto exposure (opt-in; zero values keep the frame as before) ──
+        /// <summary>
+        /// How the sky lights what the sun does not reach: <see cref="SkyLightModes.Zenith"/> (0, the
+        /// ambient colour as given) or <see cref="SkyLightModes.Hemisphere"/> (the renderer works out
+        /// the light of the whole sky dome and the ground from the sky it draws).
+        /// </summary>
+        public int     SkyLightMode;
+        /// <summary>Hemisphere sky light: multiplies its brightness (1 = the sky as drawn).</summary>
+        public float   SkyLightStrength;
+        /// <summary>Hemisphere sky light: multiplies its colour. Black counts as white.</summary>
+        public Vector3 SkyLightTint;
+        /// <summary>Hemisphere sky light: 1 keeps the sky's own colour, 0 is grey light of the same brightness.</summary>
+        public float   SkyLightSaturation;
+        /// <summary>Eye adaptation: the exposure follows the scene's brightness (off by default).</summary>
+        public bool    AutoExposureEnabled;
+        /// <summary>The brightness an average scene is exposed to (0.18 = mid grey; 0 counts as 0.18).</summary>
+        public float   AutoExposureKey;
+        /// <summary>Seconds the picture takes to darken (most of the way) when the scene gets brighter; 0 = at once.</summary>
+        public float   AutoExposureDarkenSeconds;
+        /// <summary>Seconds the picture takes to brighten (most of the way) when the scene gets darker; 0 = at once.</summary>
+        public float   AutoExposureBrightenSeconds;
+        /// <summary>The most auto exposure may darken the picture, in stops (negative, e.g. -4).</summary>
+        public float   AutoExposureMinEv;
+        /// <summary>The most auto exposure may brighten the picture, in stops (e.g. 4).</summary>
+        public float   AutoExposureMaxEv;
+        /// <summary>0 meters the whole picture evenly; 1 counts its centre most.</summary>
+        public float   AutoExposureCenterWeight;
+        /// <summary>A change of this number makes the exposure jump to the scene at once (a room change, a cut).</summary>
+        public int     AutoExposureResetId;
+
         public static Mesh3DState Default
         {
             get
