@@ -724,7 +724,8 @@ becomes `s = Mix(bits ^ 0xD6E8FEB86659FD93)`, where `bits` are the salt's 64 IEE
 taken as 0); a point's hash is `Mix(s + x * 0x9E3779B97F4A7C15 + y * 0xC2B2AE3D27D4EB4F)`, plus
 `z * 0x165667B19E3779F9` in 3D, with `x`, `y`, `z` the floored coordinates as 64-bit two's-complement
 integers; the number is the top 53 bits divided by 2^53. `Hash2(12, -34, 5)` is 0.8856642354882706
-on every machine (the `pgsl-logic` test checks it).
+on every machine (the `pgsl-logic` test checks it). `Hash2` costs 3.3 ns and `Hash3` 4 ns called from
+C#, 22 and 27 ns in a script loop, against about 150 ns for a lattice hash written in script.
 
 Measured on the development PC's performance cores (8 Oct 2026, `--test pgsl-logic`, called from
 C#; the fastest of several runs, other runs up to twice as long): `Noise2D` 13 ns, `Noise3D` 20 ns,
@@ -802,7 +803,11 @@ or a kind it does not know.
 `DsGridGet` and `DsGridSet` stay on the VM's direct call path for every kind (a command taking up to
 four numbers is called through a delegate, with no arrays in between). `Build.bat --test vm-speed`
 reports, for each kind, the bytes a cell takes and what a cell read, a cell write and a 256-high
-column through a list cost.
+column through a list cost. Measured on 10 Oct 2026 on the performance cores: from a script loop,
+`DsGridGet` and `DsGridSet` cost 42 to 48 ns on every kind, as on a number grid (42 and 43 ns), and
+the grid-and-list workload took 0.477 ms (0.48 ms on 8 Oct, before compact grids). Called from C#, a
+cell read is 10 ns on a number grid and 11.5 to 12 ns on a compact one; a 256-high column into a list
+1.1 microseconds (numbers) to 1.5 (compact), and from a list 0.7 to 1.3 microseconds.
 
 ```pgsl
 // A 256-high world in strips: block ids in u16 grids, light in u8 grids.
