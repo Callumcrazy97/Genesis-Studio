@@ -79,6 +79,9 @@ namespace Genesis.Rendering.Primitives
             // Outlines and the object images: made the first frame an instance is outlined.
             jobs.Add(new("OutlineShaders.Mark.hlsl", OutlineShaders.MarkSource, "PS_OutlineMark", GpuShaderStage.Pixel));
             jobs.Add(new("OutlineShaders.Composite.hlsl", OutlineShaders.CompositeSource, "PS_OutlineComposite", GpuShaderStage.Pixel));
+            // Made the first frame a game draws a decal.
+            jobs.Add(new("DecalShaders.hlsl", DecalShaders.Source, "VS_Decal", GpuShaderStage.Vertex));
+            jobs.Add(new("DecalShaders.hlsl", DecalShaders.Source, "PS_Decal", GpuShaderStage.Pixel));
             return jobs.ToArray();
         }
 

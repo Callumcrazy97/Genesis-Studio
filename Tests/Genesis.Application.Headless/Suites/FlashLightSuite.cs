@@ -194,6 +194,7 @@ internal static class FlashLightSuite
                     long started = Stopwatch.GetTimestamp();
                     Mesh3DState state = Mesh3DState.Default;
                     state.ShowFloor = false; state.ShowSunVisual = false; state.CameraFarPlane = 200f;
+                    ModernLook(ref state);
                     renderer.SetMesh3DState(state); renderer.Set3DFrameActive(true);
                     renderer.SetCamera3D(Matrix4x4.CreateLookAt(new Vector3(0, 1.7f, -4), new Vector3(0, 1.2f, 10), Vector3.UnitY),
                         Matrix4x4.CreatePerspectiveFieldOfView(MathF.PI / 3, W / (float)H, 0.1f, 200f));
@@ -241,7 +242,7 @@ internal static class FlashLightSuite
             }
             string Range(List<double> values) => $"{values.Min():F2}-{values.Max():F2} ms";
             string report = string.Join(Environment.NewLine,
-                $"Flash lights at {W} x {H} on DX11 ({renderer.AdapterName}): a sunlit, shadowed yard with 24 crates; {Count} lights radius 6 re-fired every 9 frames (0.15 s life); {Measured} frames measured after {WarmUp}, 3 rounds; P-cores.",
+                $"Flash lights at {W} x {H} on DX11 ({renderer.AdapterName}): a sunlit, shadowed yard with 24 crates, GTAO, contact shadows, bloom and volumetric fog on; {Count} lights radius 6 re-fired every 9 frames (0.15 s life); {Measured} frames measured after {WarmUp}, 3 rounds; P-cores.",
                 $"GPU per frame: none {Range(none)}, {Count} flashes {Range(flashes)}, the same {Count} as ordinary point lights {Range(ordinary)}.",
                 $"Whole frame (submit, draw, present): none {Range(noneFrame)}, flashes {Range(flashFrame)}, ordinary lights {Range(ordinaryFrame)}.",
                 $"Lights in the frame with flashes: {flashLights}; local shadow lights with flashes {flashShadows}, with ordinary lights {ordinaryShadows}.");
@@ -258,6 +259,19 @@ internal static class FlashLightSuite
             renderer.ReleaseMesh(floor);
             FlashLights.Reset();
         }
+    }
+
+    /// <summary>What a modern first-person game turns on: GTAO, contact shadows, bloom and volumetric fog.</summary>
+    internal static void ModernLook(ref Mesh3DState state)
+    {
+        state.GtaoEnabled = true;
+        state.ContactShadowsEnabled = true;
+        state.BloomEnabled = true;
+        state.FogEnabled = true;
+        state.FogScreenSpace = true;
+        state.VolumetricFogEnabled = true;
+        state.VolumetricFogQuality = 1;
+        state.FogDensity = 0.004f;
     }
 
     internal static MeshVertex[] GridVertices(float size, int cells, Vector4 color)

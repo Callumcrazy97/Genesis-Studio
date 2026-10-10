@@ -133,6 +133,7 @@ namespace Genesis.Runtime.Rendering
             => _inner.AddSpotLight(position, direction, color, radius, intensity, innerAngleDegrees, outerAngleDegrees, falloff);
         public void AddFlashLight(Vector3 position, Vector3 color, float radius, float intensity = 1f, float falloff = 2f)
             => _inner.AddFlashLight(position, color, radius, intensity, falloff);
+        public void DrawDecals(ReadOnlySpan<DecalDrawCall> decals) => _inner.DrawDecals(decals);
         public void ClearPointLights() => _inner.ClearPointLights();
         public void AddFogVolume(FogVolume volume) => _inner.AddFogVolume(volume);
         public void ClearFogVolumes() => _inner.ClearFogVolumes();

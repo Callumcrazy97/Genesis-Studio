@@ -1144,13 +1144,13 @@ internal static class HeadlessTestRunner
         // checks, on every renderer (not part of the tiers).
         ["draw-and-stream"] = ["gui-batch", "script-textures", "sky-layer", "particle-bursts", "mesh-soak", "mesh-upload", "particle-workbench"],
         // Combat effects a first-person game asks for: flash lights and decals, on every renderer.
-        ["combat-effects"] = ["flash-lights"],
         // Surface and material shaders with the suites that compile, cache and draw mesh shaders
         // (not part of the tiers).
         ["mesh-shaders"] = ["mesh-surface", "outlines", "engine-systems", "shader-precompiled", "opengl-compat", "asset-import", "pgsl-scripts", "pgsl-logic"],
         // Anti-aliasing, motion blur and quality tiers with the suites their change touches: the
         // shipped shader catalogue, the every-command sweep and the debug screen (not part of the tiers).
         ["render-quality"] = ["anti-aliasing", "shader-precompiled", "pgsl-logic", "debug-screen", "post-effects"],
+        ["combat-effects"] = ["flash-lights", "decals"],
     };
 
     private static void RunFocusedTarget(HeadlessContext ctx, string target)
@@ -1652,6 +1652,11 @@ internal static class HeadlessTestRunner
             case "flash-lights":
                 // LightFlash: bright at once, fading over its life, lit on every renderer, never shadowed, and its cost at 1080p on DX11.
                 Suites.FlashLightSuite.Run(ctx);
+                break;
+            case "decals":
+                // DecalAdd: on a wall and on terrain, fading, the limit, surfaces facing away and order, on every renderer; their cost on DX11.
+                PrepareFocusedProject(ctx, requireStudioServices: true);
+                Suites.DecalSuite.Run(ctx);
                 break;
             case "model-sprites":
                 Suites.ModelSpriteConversionSuite.Run(ctx);

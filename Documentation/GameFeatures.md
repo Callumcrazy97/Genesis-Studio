@@ -276,18 +276,101 @@ and a new game put them all out. On the Software renderer the frame's eight stro
 lit at the corners of triangles, flashes included.
 
 Measured on the development PC (GeForce RTX 5060 Ti, Direct3D 11, 1920 x 1080, 9 Oct 2026;
-`flash-light-cost.txt` from `Build.bat --test flash-lights`): a sunlit, shadowed yard with 24
-crates, 48 flashes of radius 6 re-fired every 9 frames (0.15 s life), against none and against the
-same 48 as ordinary point lights, 120 frames after 45, the range over three rounds:
+`flash-light-cost.txt` from `Build.bat --test flash-lights`; 10 Oct with GTAO, contact shadows,
+bloom and volumetric fog on): a sunlit, shadowed yard with 24 crates, 48 flashes of radius 6
+re-fired every 9 frames (0.15 s life), against none and against the same 48 as ordinary point
+lights, 120 frames after 45, the range over three rounds:
 
 | | GPU a frame | Whole frame (submit, draw, present) | Local shadow lights |
 |---|---|---|---|
-| No lights | 0.20-0.21 ms | 0.39-0.43 ms | 0 |
-| 48 flashes | 0.29-0.34 ms | 0.51-0.69 ms | 0 |
-| 48 ordinary point lights | 0.32-0.35 ms | 0.58-0.69 ms | 1 |
+| No lights | 0.58-0.61 ms | 0.62-0.66 ms | 0 |
+| 48 flashes | 0.71 ms | 0.76-0.77 ms | 0 |
+| 48 ordinary point lights | 0.72-0.73 ms | 0.77-0.80 ms | 1 |
 
-Dozens of flashes cost about a tenth of a millisecond of GPU time at 1080p; the ordinary lights
-cost a little more because one of them takes the shadow slot and has its shadow faces drawn.
+With those effects off (9 Oct) the same frames took 0.20-0.21, 0.29-0.34 and 0.32-0.35 ms of GPU
+time. Dozens of flashes cost about a tenth of a millisecond at 1080p, the fog's share included; the
+ordinary lights cost a little more because one of them takes the shadow slot and has its shadow
+faces drawn.
+
+## Decals: bullet holes, scorch marks, blood
+
+A game puts a picture on the world from any event (where a shot's ray hit, under a blast, where a
+wounded enemy stood) and the engine keeps it, draws it every frame and takes it away at the end of
+its life. A decal is a box around a point on a surface, facing along the surface's normal; whatever
+opaque surface lies inside the box takes the picture: walls, models, script meshes and terrain
+alike, bumps and all, so the same command marks a wall and the ground.
+
+| Command | What it does |
+|---|---|
+| `DecalAdd(image, x, y, z, nx, ny, nz, size, life) -> decal` | A decal `size` across at `x, y, z`, facing along `nx, ny, nz` (the hit's normal, out of the surface), lasting `life` seconds and fading out over the end of it (0: until removed). `image` is an Image resource, or the number of a texture a script painted (`TextureCreate`). 0 when it could not be placed. |
+| `DecalSetColor(decal, r, g, b, alpha)` | Tint (0-255; white leaves the picture as it is) and opacity (0-1). |
+| `DecalSetRotation(decal, degrees)` | Turns the picture about its normal, anticlockwise as seen from the front: a random turn makes bullet holes look less alike. |
+| `DecalSetSize(decal, width, height, depth)` | The picture's width and height, and how far through the surface the box reaches (half the size at first). |
+| `DecalSetBlend(decal, blend)` | `"multiply"` (the default), `"alpha"` or `"add"`: see below. |
+| `DecalSetFade(decal, seconds)`, `DecalSetLife(decal, seconds)` | How long the fade at the end of its life takes (by default the last quarter of the life, at most 2 s); a new life from now. |
+| `DecalMove(decal, x, y, z, nx, ny, nz)` | Moves a decal and turns it to a new normal. |
+| `DecalRemove(decal)`, `DecalExists(decal)`, `DecalClear()`, `DecalCount()` | Removes one; whether it is still there; removes them all; how many there are. |
+| `DecalSetLimit(count)` | How many decals may be in the world at once (256 at first, at most 4,096). One more removes the oldest, and lowering the limit removes the oldest at once. |
+
+C#: `WorldDecals` (namespace `Genesis.Runtime.Rendering`) has the same operations, and
+`IRenderController.DrawDecals` draws a frame's decals directly.
+
+```pgsl
+// Step, when a shot hits: a bullet hole turned at random, gone after 30 seconds.
+var hole = DecalAdd("BulletHole", hitX, hitY, hitZ, hitNx, hitNy, hitNz, 0.12, 30);
+DecalSetRotation(hole, Random(360));
+// An explosion: a scorch mark on whatever is under it.
+DecalAdd("Scorch", x, groundY, z, 0, 1, 0, 3, 60);
+```
+
+How a decal goes over the surface:
+
+- **Multiply** (the default) multiplies the lit surface by the picture: it darkens and tints and
+  keeps the surface's own light and shade, so the same bullet hole is right in sunlight and in a
+  dark corridor. White leaves the surface as it was; the picture's alpha fades it in. Bullet holes,
+  scorch marks, blood, dirt and footprints are multiply decals. The ambient occlusion of the
+  composite still darkens only what is left of the indirect light.
+- **Alpha** paints the picture's own colours over the surface, unlit: signs and paint that should
+  read in any light. In the dark it glows; use multiply for marks that should take the scene's light.
+- **Add** adds the picture's colours as light: embers, hot metal, glowing energy marks.
+
+What it looks like, and what it does not do:
+
+- A surface turned away from the decal takes none of it (the back of a wall, the far side of a
+  thin plank), and one at a steep angle to it fades out (full strength within 60 degrees of the
+  decal's facing, gone at 80), so a decal near a corner does not smear along the other wall. The
+  ends of the box fade softly, so bumpy ground is not cut by a hard edge.
+- Decals are drawn after the opaque world and before water, glass, particles and the first-person
+  layers: they never land on water, see-through draws or a held weapon. They go under the fog like
+  the surface they are on.
+- Decals stay where they were put in the world. On a moving object (a door, a vehicle) a decal stays
+  behind unless the game moves it with `DecalMove` every frame, which is cheap. Anything opaque that
+  passes through a decal's box takes the picture while it is inside it, which is why the box is
+  only half as deep as the decal is wide; a character walking over a blood pool on the floor shows
+  it on its feet for that moment.
+- Multiply and add decals with the same picture are one draw call however many there are; alpha
+  decals keep the order they were added in (a newer one over an older one), one draw call for each
+  run of the same picture.
+- Ages follow game time: decals hold still while the game is paused. A room change and a new game
+  remove them all.
+- They are drawn on every renderer: Direct3D 11 and 12, Vulkan and OpenGL in a pass that reads the
+  scene's depth, the Software renderer on the CPU the same way. A frame drawn without the post
+  composite (an editor preview without a depth buffer) and a water reflection draw no decals.
+
+Measured on the development PC (GeForce RTX 5060 Ti, Direct3D 11, 1920 x 1080, 10 Oct 2026;
+`decal-cost.txt` from `Build.bat --test decals`): a 16 m wall over rolling terrain with GTAO,
+contact shadows, bloom and volumetric fog on, bullet holes 12-22 cm across at random turns, two
+thirds on the wall and a third on the ground, 120 frames after 45, the range over three rounds:
+
+| Decals | GPU a frame | Whole frame (submit, draw, present) | `WorldDecals.Submit` | Draw calls |
+|---|---|---|---|---|
+| None | 0.73-0.78 ms | 0.78-0.83 ms | - | 0 |
+| 500 | 0.73-0.76 ms | 0.79-0.80 ms | 0.02-0.13 ms | 1 |
+| 2,000 | 0.75-0.77 ms | 0.80-0.87 ms | 0.07-0.35 ms | 1 |
+
+Small decals cost little more than the screen rectangles they cover: hundreds of bullet holes are
+within the frame-to-frame noise on this card. A decal close to the camera costs what its rectangle
+covers, a full-screen one about a full-screen pass.
 
 ## Save slots
 

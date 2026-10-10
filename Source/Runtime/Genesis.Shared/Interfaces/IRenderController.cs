@@ -270,6 +270,15 @@ namespace Genesis.Shared.Interfaces
             float falloff = 2f)
             => AddPointLight(position, color, radius, intensity, falloff);
 
+        /// <summary>
+        /// Projected decals for this frame (bullet holes, scorch marks, blood): each is a box around
+        /// a point on a surface, and whatever opaque surface lies inside it (walls, models, terrain)
+        /// takes the picture, faded out on surfaces turned away from the decal. Drawn over the opaque
+        /// world after it is lit and before water and see-through draws. Cleared at
+        /// <see cref="BeginFrame"/> like lights. Renderers without decals ignore them.
+        /// </summary>
+        void DrawDecals(ReadOnlySpan<DecalDrawCall> decals) { }
+
         /// <summary>Remove all point lights added since the last BeginFrame.</summary>
         void ClearPointLights();
 

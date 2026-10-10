@@ -129,10 +129,13 @@ public static class PgslCommandAutoTester
         // InputRecordStart, InputReplayStart and RandomSeed change process-wide state; a sweep
         // started with none of it running leaves none of it running, and no recording behind.
         bool inputReplayIdle = !Genesis.Runtime.Input.InputReplay.IsActive;
-        // Flashes the sweep lights would otherwise be drawn by the next game frame in this process.
+        // Flashes and decals the sweep makes would otherwise be drawn by the next game frame in
+        // this process; DecalSetLimit would stay changed.
         bool flashesIdle = Genesis.Runtime.Rendering.FlashLights.Count == 0;
         // RenderSetMotionBlur(1) would leave every later frame of the process blurred.
         float motionBlur = Genesis.Shared.Interfaces.MeshLightingDefaults.MotionBlur;
+        bool decalsIdle = Genesis.Runtime.Rendering.WorldDecals.Count == 0
+            && Genesis.Runtime.Rendering.WorldDecals.Limit == Genesis.Runtime.Rendering.WorldDecals.DefaultLimit;
 
         try
         {
@@ -166,6 +169,11 @@ public static class PgslCommandAutoTester
             }
             if (flashesIdle) Genesis.Runtime.Rendering.FlashLights.Clear();
             Genesis.Shared.Interfaces.MeshLightingDefaults.MotionBlur = motionBlur;
+            if (decalsIdle)
+            {
+                Genesis.Runtime.Rendering.WorldDecals.Clear();
+                Genesis.Runtime.Rendering.WorldDecals.SetLimit(Genesis.Runtime.Rendering.WorldDecals.DefaultLimit);
+            }
             PgslCommands.ReleaseJobs(scratch);
             PgslCommands.BindPersistenceProject(previousPersistence);
             PgslCommands.BindContext(previous);

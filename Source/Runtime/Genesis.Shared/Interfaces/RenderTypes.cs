@@ -1149,6 +1149,10 @@ namespace Genesis.Shared.Interfaces
         public double AntiAliasMs;
         /// <summary>Sun shadow map size in texels per side, every cascade.</summary>
         public int ShadowMapResolution;
+        /// <summary>Projected decals drawn in the last frame (IRenderController.DrawDecals).</summary>
+        public int DecalsDrawn;
+        /// <summary>Draw calls those decals took: one per run sharing a picture and a blend.</summary>
+        public int DecalDrawCalls;
     }
 
     public enum BlendMode   { Alpha, Additive, Multiply, None }

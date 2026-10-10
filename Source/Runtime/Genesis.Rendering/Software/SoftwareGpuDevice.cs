@@ -71,6 +71,7 @@ namespace Genesis.Rendering.Software
         private GpuDepthState _boundDepthState = GpuDepthState.Default;
         private SoftwareRuntimeShade _runtimeShade = SoftwareRuntimeShade.None;
         private bool _boundWaterProgram;
+        private bool _boundDecalProgram;
 
         public string BackendName => "Software";
         public string AdapterName => "CPU Software Rasterizer";
@@ -465,6 +466,9 @@ namespace Genesis.Rendering.Software
             _boundWaterProgram = handle.IsValid
                 && _programs.TryGetValue(handle.Id, out GpuShaderProgramDesc desc)
                 && string.Equals(desc.DebugName, "Water", StringComparison.Ordinal);
+            _boundDecalProgram = handle.IsValid
+                && _programs.TryGetValue(handle.Id, out GpuShaderProgramDesc decal)
+                && string.Equals(decal.DebugName, Genesis.Rendering.Primitives.ForwardRenderer.DecalProgramName, StringComparison.Ordinal);
         }
 
         public void SetVertexLayout(GpuVertexLayoutHandle handle)
@@ -575,6 +579,13 @@ namespace Genesis.Rendering.Software
         {
             if (instanceCount <= 0) return;
 
+            // The decal pass runs no geometry here: its records are projected on the CPU.
+            if (_boundDecalProgram)
+            {
+                DrawDecals(instanceCount);
+                return;
+            }
+
             // SpriteRenderer's unit quad is 16 bytes (xy + uv). MeshVertex is 48. A leftover
             // sprite instance buffer at VS t1 must not steal grass/particle 6-index 3D draws.
             if (indexCountPerInstance == 6
@@ -612,6 +623,22 @@ namespace Genesis.Rendering.Software
 
             RasterizeBoundMesh3D(indexCountPerInstance, vertexCount: 0, instanceCount,
                 startIndex, baseVertex, startInstance);
+        }
+
+        /// <summary>
+        /// The decal pass (ForwardRenderer.DrawDecalPass): constants at b0, decal records at t0, the
+        /// scene depth at t1 and the picture at t2, into the bound target's colour.
+        /// </summary>
+        private void DrawDecals(int instanceCount)
+        {
+            byte[] colour = GetActiveColorBuffer(out int width, out int height);
+            TextureData depth = TryGetTexture(_psTextures[1]);
+            TextureData picture = TryGetTexture(_psTextures[2]);
+            byte[] constants = TryGetBufferBytes(_vsConstantBuffers[0].IsValid ? _vsConstantBuffers[0] : _psConstantBuffers[0]);
+            byte[] decals = TryGetBufferBytes(_vsStructuredBuffers[0]);
+            if (depth?.Depth == null || depth.Width != width || depth.Height != height) return;
+            SoftwareDecals.Draw(colour, width, height, depth.Depth, constants, decals, instanceCount,
+                picture?.Pixels, picture?.Width ?? 0, picture?.Height ?? 0, picture?.Format ?? GpuFormat.R8G8B8A8UNorm);
         }
 
         private void RasterizeBoundMesh3D(
