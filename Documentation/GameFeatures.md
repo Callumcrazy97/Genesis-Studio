@@ -1399,6 +1399,32 @@ or not). So the engine now opens fewer files on the game's thread, and the rest 
 What remains on a first launch is the scan of the engine's own DLLs as .NET loads them, and of each
 file the game reads later for the first time, which no game can avoid; later launches are as before.
 
+### Post effects for shader packs (10 October 2026)
+
+Shader packs kept as Fullscreen Shader resources need nothing new: `ResourceList("Shaders/Packs",
+"Fullscreen shader")` lists them and `PostEffectAdd` runs one. What was missing is now there (details
+and an example in [Post effects](PostEffects.md#shader-packs)):
+
+| Command | Meaning |
+|---|---|
+| `PostEffectAddFile(path)` | Run a plain `.hlsl` file of the game's folder (from the project folder or Assets) as a post effect, compiled on a worker and again when the file changes. Its name is the path given. False when there is no such file. |
+| `PostEffectSetTexture(shader, slot, image)` | Give a running effect an Image resource (or a `TextureCreate` texture) at register 3 to 15, or by its name in the shader. |
+| `PostEffectIsRunning(shader)` | True once the effect is compiled and drawn. |
+| `PostEffectError(shader)` | Why it does not run, in one line (`Broken.hlsl:1:38: error: use of undeclared identifier 'x'`), or empty. |
+| `PostEffectLastError()` | The newest such reason of any effect still asked for, as `effect: reason`. |
+
+The textures a Fullscreen Shader resource binds at `t3` and above in the Shader editor now reach it as
+a post effect too; a declared texture nothing binds reads white. Checked by
+`Build.bat --test post-effects` on DX11, DX12, Vulkan and OpenGL: a pack file given a red Image reads
+it through a repeating sampler (with an unbound texture reading white), turns green when its file is
+rewritten, and a file that does not compile and one that is missing say why.
+
+A slow-frame line (see [Finding what made a frame long](#finding-what-made-a-frame-long)) now counts
+the scripts' Draw events in "gathering what to draw" and names them among the longest parts
+(`scripts' Draw events`), with `waiting for the graphics card to begin` (beginning a frame waits
+for the graphics card to give its buffers back) and `project post effects`. All three used to be
+part of the time "outside the frame's own work", which was most of a game's long first frames.
+
 ## Smaller changes
 
 - **Bushes and saplings.** The `Shrub` and `Sapling` foliage shapes are built from rounded solid

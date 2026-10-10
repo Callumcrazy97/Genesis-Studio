@@ -39,10 +39,14 @@ namespace Genesis.Rendering.Primitives
 
         internal readonly struct PostEffectPass
         {
-            public PostEffectPass(GpuShaderProgramHandle program, Vector4 row0, Vector4 row1, Vector4 row2, Vector4 row3)
+            public PostEffectPass(GpuShaderProgramHandle program, Vector4 row0, Vector4 row1, Vector4 row2, Vector4 row3,
+                AuthoredGpuTextures textures = default, int textureSlots = 0, int samplerSlots = 0)
             {
                 Program = program;
                 Row0 = row0; Row1 = row1; Row2 = row2; Row3 = row3;
+                Textures = textures;
+                TextureSlots = textureSlots;
+                SamplerSlots = samplerSlots;
             }
 
             public GpuShaderProgramHandle Program { get; }
@@ -50,6 +54,12 @@ namespace Genesis.Rendering.Primitives
             public Vector4 Row1 { get; }
             public Vector4 Row2 { get; }
             public Vector4 Row3 { get; }
+            /// <summary>The project's pictures the effect reads, at t3 and up.</summary>
+            public AuthoredGpuTextures Textures { get; }
+            /// <summary>Bit n: the shader declares a texture at tn (n from 3); one given nothing reads white.</summary>
+            public int TextureSlots { get; }
+            /// <summary>Bit n: the shader declares a sampler at sn (n from 1).</summary>
+            public int SamplerSlots { get; }
         }
 
         private readonly List<PostEffectPass> _postEffects = new();
@@ -139,8 +149,20 @@ namespace Genesis.Rendering.Primitives
             _postEffectWidth = _postEffectHeight = 0;
         }
 
+        /// <summary>The texture registers an effect reads beyond the engine's three: those it declares and those it is given.</summary>
+        private static int ExtraTextureSlots(in PostEffectPass pass)
+        {
+            int slots = pass.TextureSlots;
+            AuthoredGpuTextures textures = pass.Textures;
+            if (textures.Count > 0) slots |= 1 << textures.Slot0;
+            if (textures.Count > 1) slots |= 1 << textures.Slot1;
+            if (textures.Count > 2) slots |= 1 << textures.Slot2;
+            if (textures.Count > 3) slots |= 1 << textures.Slot3;
+            return slots & ~0b111 & 0xFFFF;
+        }
+
         /// <summary>Runs every post effect over the composited image, the last one into <paramref name="target"/>.</summary>
-        private void RunPostEffects(GpuRenderTargetHandle target, GpuTextureHandle depthTexture, int width, int height)
+        private void RunPostEffects(GpuRenderTargetHandle target, GpuTextureHandle depthTexture, int width, int height, GpuTextureHandle whiteTexture)
         {
             if (_postEffects.Count == 0 || !_postEffectTargets[0].IsValid) return;
             if (!_cbPostFrame.IsValid)
@@ -202,12 +224,24 @@ namespace Genesis.Rendering.Primitives
                 _gpu.SetTexture(GpuShaderStage.Pixel, 1, depthTexture);
                 _gpu.SetTexture(GpuShaderStage.Pixel, 2, _fogSkipTexture);
                 _gpu.SetSampler(GpuShaderStage.Pixel, 0, _linearSampler);
+                // The project's own pictures (t3 and up): white where the shader declares one it
+                // was not given, so it never reads what an earlier pass left bound there.
+                int extra = ExtraTextureSlots(pass);
+                for (int slot = 3; extra != 0 && slot < 16; slot++)
+                    if ((extra & (1 << slot)) != 0) _gpu.SetTexture(GpuShaderStage.Pixel, slot, whiteTexture);
+                pass.Textures.Bind(_gpu);
+                // s1 point and clamped, s2 point and repeating, s3 smooth and repeating, for an effect that declares them.
+                if ((pass.SamplerSlots & (1 << 1)) != 0) _gpu.SetSampler(GpuShaderStage.Pixel, 1, _pointClampSampler);
+                if ((pass.SamplerSlots & (1 << 2)) != 0) _gpu.SetSampler(GpuShaderStage.Pixel, 2, _albedoSampler);
+                if ((pass.SamplerSlots & (1 << 3)) != 0) _gpu.SetSampler(GpuShaderStage.Pixel, 3, _materialSampler);
                 _gpu.SetVertexLayout(GpuVertexLayoutHandle.Invalid);
                 _gpu.SetPrimitiveTopology(GpuPrimitiveTopology.TriangleList);
                 _gpu.Draw(3);
                 _gpu.ClearTexture(GpuShaderStage.Pixel, 0);
                 _gpu.ClearTexture(GpuShaderStage.Pixel, 1);
                 _gpu.ClearTexture(GpuShaderStage.Pixel, 2);
+                for (int slot = 3; extra != 0 && slot < 16; slot++)
+                    if ((extra & (1 << slot)) != 0) _gpu.ClearTexture(GpuShaderStage.Pixel, slot);
                 _gpu.EndRenderPass();
                 source = 1 - source;
             }

@@ -3508,7 +3508,7 @@ namespace Genesis.Rendering.Primitives
                     runRaymarchedClouds,
                     runCelestialExtras);
                 DrawViewModelPass(composed, whiteTexture);
-                if (HasPostEffects) RunPostEffects(target, postDepth, viewW, viewH);
+                if (HasPostEffects) RunPostEffects(target, postDepth, viewW, viewH, whiteTexture);
             }
             else
             {

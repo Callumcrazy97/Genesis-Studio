@@ -57,6 +57,12 @@ namespace Genesis.Shared.Interfaces
         /// <summary>Why the last post effect that could not be compiled was refused; empty when none was.</summary>
         string LastPostEffectError => string.Empty;
 
+        /// <summary>Why the post effect of this name could not be compiled; empty when it was (or is being).</summary>
+        string PostEffectErrorFor(string name) => string.Empty;
+
+        /// <summary>Whether the post effect of this name was compiled and run over the last frame.</summary>
+        bool IsPostEffectRunning(string name) => false;
+
         /// <summary>
         /// True compiles a post effect the renderer has not seen on a worker thread: frames are
         /// drawn without it (or with its previous version, when it changed) until it is ready,
