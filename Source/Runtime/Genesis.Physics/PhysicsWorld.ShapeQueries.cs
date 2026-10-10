@@ -39,6 +39,16 @@ public sealed partial class PhysicsWorld
         Entity? ignore = null) =>
         CapsuleCast(world, centre, radius, height, Vector3.UnitY, 1e-4f, out hit, ignore);
 
+    /// <summary>
+    /// How much further than asked a shape is swept. Bepu misses a mesh's triangle near the end of
+    /// a short sweep: a sphere 0.1 m from a Mesh collider's face was not found by any sweep shorter
+    /// than 0.32 m, whatever the triangle's size, the instance's scale or the sphere's radius (boxes
+    /// were always found). A character moving a few centimetres a frame met a building or terrain
+    /// only once inside it, and was then held there by the overlap. Sweeping 0.5 m further and
+    /// keeping only hits within the distance asked found every face (measured margin needed: 0.25 m).
+    /// </summary>
+    private const float SweepReach = 0.5f;
+
     private bool Sweep<TShape>(IEcsWorld world, TShape shape, Vector3 origin, Vector3 direction, float maxDistance,
         out PhysicsRaycastHit hit, Entity ignore) where TShape : unmanaged, IConvexShape
     {
@@ -50,8 +60,9 @@ public sealed partial class PhysicsWorld
         var handler = new SweepHitHandler(this, world, ignore, origin, direction);
         var pose = new RigidPose(origin);
         var velocity = new BodyVelocity(direction);
-        _simulation.Sweep(shape, pose, velocity, maxDistance, _pool, ref handler);
-        if (!handler.Found) return false;
+        _simulation.Sweep(shape, pose, velocity, maxDistance + SweepReach, _pool, ref handler);
+        // The handler keeps the nearest hit; one only in the extra reach is no hit at all.
+        if (!handler.Found || handler.Hit.Distance > maxDistance) return false;
         hit = handler.Hit;
         return true;
     }

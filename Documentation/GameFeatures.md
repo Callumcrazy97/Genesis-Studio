@@ -653,6 +653,14 @@ if (CharacterGrounded()) { fallSpeed = 0; } else { fallSpeed = fallSpeed - 9.8 *
 x = CharacterX(); y = CharacterY(); z = CharacterZ();
 ```
 
+**Shape casts against Mesh colliders (fixed 10 October 2026).** `PhysicsSphereCast`,
+`PhysicsCapsuleCast`, `PhysicsOverlapCapsule` and the character commands missed a Mesh collider's
+face (a building fitted to its model, a large terrain's tiles) near the end of any cast shorter
+than about a metre: a sphere 0.1 m from a wall was not found by a cast shorter than 0.32 m. A
+character moving a few centimetres a frame therefore met mesh walls and ground only once inside
+them, and was then held there. Casts now find them; casts against boxes, spheres and capsules
+return what they did.
+
 ## Model layers and models in the GUI
 
 A model layer is a model drawn over the world instead of in it. Layers 1 to 8 follow the game

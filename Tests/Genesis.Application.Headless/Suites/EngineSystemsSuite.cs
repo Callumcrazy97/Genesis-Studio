@@ -376,6 +376,7 @@ internal static class EngineSystemsSuite
                 && !character.SetHeight(scene.Physics, world, 1.8f) && character.Height == 1.0f,
                 $"A crouched character should pass under the ceiling and not stand up there (z = {character.Position.Z:F2}).");
         }));
+        RunMeshSweeps(ctx);
         HeadlessHarness.RunCase(ctx.Report, "Runtime.PGSL.SphereAndCapsuleQueries", () => WithScene(ctx, (scene, context, game) =>
         {
             // A two-metre box centred on the origin: its top is at y = 1 and its sides at x = +-1.
@@ -510,6 +511,62 @@ internal static class EngineSystemsSuite
         }
         return count;
     }
+    private static void RunMeshSweeps(HeadlessContext ctx)
+    {
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Physics.ShortSweepsMeetMeshCollidersAndCharactersStopAtThem", () => WithScene(ctx, (scene, context, game) =>
+        {
+            // A building's Mesh collider (a four-metre cube on a Mesh floor), far from the origin as
+            // on an island. Bepu missed a mesh face near the end of a sweep shorter than about a metre,
+            // so a character met mesh walls and ground only once inside them, and stuck there.
+            var world = scene.World;
+            scene.Physics = Genesis.Physics.PhysicsWorld.Create(new Genesis.Shared.Assets.PhysicsWorldAsset());
+            Vector3 hut = new(1500f, 2f, 0f);
+            void Mesh(GModelAsset model, Vector3 position, Vector3 scale)
+            {
+                Entity entity = world.CreateEntity();
+                world.Set(entity, new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+                Transform3DComponent transform = Transform3DComponent.Default;
+                transform.Position = position;
+                world.Set(entity, transform);
+                RigidBodyComponent body = RigidBodyComponent.StaticBox(Vector3.One);
+                body.Shape = CollisionShape.Mesh;
+                world.Set(entity, body);
+                ModelColliderBinding.AttachGeometry(world, entity, model, scale);
+                scene.Physics.RegisterEntity(world, entity, ref world.GetRef<RigidBodyComponent>(entity), ref world.GetRef<Transform3DComponent>(entity));
+            }
+            Mesh(GModelPrimitiveFactory.CreateCube("Hut", 4f), hut, Vector3.One);
+            Mesh(GModelPrimitiveFactory.CreateCube("Ground", 1f), new Vector3(1500f, -0.5f, 0f), new Vector3(60f, 1f, 60f));
+
+            var misses = new List<string>();
+            foreach (float gap in new[] { 0.005f, 0.05f, 0.1f, 0.3f, 0.6f, 0.95f })
+            foreach (float extra in new[] { 0.002f, 0.05f, 0.26f })
+            {
+                Vector3 centre = new(hut.X - 2f - 0.4f - gap, 1f, 0.3f);
+                bool sphere = scene.Physics.SphereCast(world, centre, 0.4f, Vector3.UnitX, gap + extra, out Genesis.Physics.PhysicsRaycastHit s);
+                bool capsule = scene.Physics.CapsuleCast(world, centre, 0.4f, 1.8f, Vector3.UnitX, gap + extra, out Genesis.Physics.PhysicsRaycastHit c);
+                if (!sphere || !capsule || Math.Abs(s.Distance - gap) > 0.003f || Math.Abs(c.Distance - gap) > 0.003f)
+                    misses.Add($"gap {gap} length {gap + extra}: sphere {(sphere ? s.Distance.ToString("F4") : "miss")}, capsule {(capsule ? c.Distance.ToString("F4") : "miss")}");
+                if (scene.Physics.SphereCast(world, centre, 0.4f, Vector3.UnitX, gap * 0.9f, out _))
+                    misses.Add($"gap {gap}: a sweep of {gap * 0.9f:F4} m claimed the face");
+            }
+            Check(misses.Count == 0, "Short sweeps against a Mesh face: " + string.Join("; ", misses));
+
+            // A character lands on the mesh floor, walks into the mesh wall and stops at it, then walks away.
+            var character = new Genesis.Physics.KinematicCharacter(0.4f, 1.8f, 0.3f, 45f) { Position = new Vector3(hut.X - 6f, 0.2f, 0f) };
+            var flags = Genesis.Physics.CharacterMoveFlags.None;
+            for (int i = 0; i < 10; i++) flags = character.Move(scene.Physics, world, new Vector3(0f, -0.05f, 0f));
+            Check(flags.HasFlag(Genesis.Physics.CharacterMoveFlags.Grounded) && Math.Abs(character.Position.Y) < 0.03f,
+                $"The character did not land on the mesh floor ({character.Position.Y:F3}, {flags}).");
+            for (int i = 0; i < 40; i++) flags = character.Move(scene.Physics, world, new Vector3(0.25f, -0.02f, 0f));
+            Check(Math.Abs(character.Position.X - (hut.X - 2f - 0.4f)) < 0.03f && flags.HasFlag(Genesis.Physics.CharacterMoveFlags.Wall)
+                && Math.Abs(character.Position.Y) < 0.03f,
+                $"The character should stop 0.4 m short of the mesh wall at x = {hut.X - 2f:F1}, not at {character.Position.X:F3} (y {character.Position.Y:F3}, {flags}).");
+            for (int i = 0; i < 4; i++) character.Move(scene.Physics, world, new Vector3(-0.25f, -0.02f, 0.1f));
+            Check(character.Position.X < hut.X - 3.2f && character.Position.Z > 0.35f,
+                $"The character could not walk away from the mesh wall ({character.Position}).");
+        }));
+    }
+
     private static void WithScene(HeadlessContext ctx, Action<RuntimeScene, PgslContext, ProjectGameContext> test)
     {
         using var scene = new RuntimeScene("Engine system test");
