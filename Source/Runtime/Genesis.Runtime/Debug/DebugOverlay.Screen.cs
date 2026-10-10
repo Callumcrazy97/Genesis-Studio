@@ -780,13 +780,15 @@ namespace Genesis.Runtime.Debugger
             y += 16f;
             string Pass(string name, double ms) => ms > 0.001 ? $"{name} {ms:0.00} ms" : $"{name} off";
             hud.Text(string.Join("   ", Pass("Frame", stats.GpuMs), Pass("AO", stats.AoMs), Pass("Contact shadows", stats.ContactShadowMs),
-                Pass("Local volumetrics", stats.LocalVolumetricMs)), x, y, 9.5f, DebugOverlayPalette.Text);
+                Pass("Local volumetrics", stats.LocalVolumetricMs),
+                stats.AntiAliasing == AntiAliasingMode.Off ? "Anti-aliasing off" : "Anti-aliasing " + AntiAliasingModes.Name(stats.AntiAliasing).ToUpperInvariant()),
+                x, y, 9.5f, DebugOverlayPalette.Text);
             y += 15f;
             hud.Text(string.Join("   ", Pass("Smoke", stats.SmokeExtinctionMs), Pass("Bloom", stats.BloomMs), Pass("Atmosphere LUT", stats.AtmosphereLutMs),
                 Pass("Celestial", stats.CelestialExtrasMs), CloudsStatusLabel(stats, _renderer?.BackendName ?? string.Empty, MeshLightingDefaults.RaymarchedCloudsEnabled)),
                 x, y, 9.5f, DebugOverlayPalette.Text);
             y += 15f;
-            hud.Text($"Shadow casters {stats.ShadowCasterDraws}   cascades {stats.ShadowCascadesRendered}   local shadow lights {stats.LocalShadowLights}   "
+            hud.Text($"Shadow casters {stats.ShadowCasterDraws}   cascades {stats.ShadowCascadesRendered} ({stats.ShadowMapResolution} px)   local shadow lights {stats.LocalShadowLights}   "
                 + $"instances drawn {stats.InstancesDrawn} (culled {stats.InstancesCulled}, dropped {stats.InstancesDropped})",
                 x, y, 9.5f, DebugOverlayPalette.Muted);
             y += 22f;

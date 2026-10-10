@@ -1693,6 +1693,9 @@ namespace Genesis.Rendering.Core
                 ShadowCascadesRendered   = _fwd?.LastShadowCascadesRendered ?? 0,
                 LocalShadowLights        = _fwd?.LastLocalShadowLights ?? 0,
                 LocalShadowTilesRendered = _fwd?.LastLocalShadowTilesRendered ?? 0,
+                AntiAliasing             = _fwd?.LastAntiAliasing ?? AntiAliasingMode.Off,
+                AntiAliasMs              = _fwd?.LastAntiAliasMs ?? 0.0,
+                ShadowMapResolution      = _fwd?.ShadowMapResolutionInUse ?? 0,
             };
         }
 

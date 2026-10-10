@@ -49,6 +49,13 @@ namespace Genesis.Rendering.Primitives
             new("CloudTemporalShaders.hlsl", CloudTemporalShaders.Source, "VS", GpuShaderStage.Vertex),
             new("CloudTemporalShaders.hlsl", CloudTemporalShaders.Source, "PS_TemporalResolve", GpuShaderStage.Pixel),
             new("CloudTemporalShaders.hlsl", CloudTemporalShaders.Source, "PS_BilateralUpsample", GpuShaderStage.Pixel),
+            new("AntiAliasingShaders.hlsl", AntiAliasingShaders.Source, "VS", GpuShaderStage.Vertex),
+            new("AntiAliasingShaders.hlsl", AntiAliasingShaders.Source, "PS_Fxaa", GpuShaderStage.Pixel),
+            new("AntiAliasingShaders.hlsl", AntiAliasingShaders.Source, "PS_SmaaEdges", GpuShaderStage.Pixel),
+            new("AntiAliasingShaders.hlsl", AntiAliasingShaders.Source, "PS_SmaaWeights", GpuShaderStage.Pixel),
+            new("AntiAliasingShaders.hlsl", AntiAliasingShaders.Source, "PS_SmaaBlend", GpuShaderStage.Pixel),
+            new("MotionBlurShaders.hlsl", MotionBlurShaders.Source, "VS", GpuShaderStage.Vertex),
+            new("MotionBlurShaders.hlsl", MotionBlurShaders.Source, "PS_MotionBlur", GpuShaderStage.Pixel),
             new("ShaderPreviewFullscreenShaders.hlsl", ShaderPreviewFullscreenShaders.Source, "PreviewVS", GpuShaderStage.Vertex),
         };
 

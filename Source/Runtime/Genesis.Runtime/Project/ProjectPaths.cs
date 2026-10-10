@@ -143,6 +143,45 @@ namespace Genesis.Runtime.Project
             }
         }
 
+        /// <summary>
+        /// The project's <c>rendering.antiAliasing</c> setting ("Off", "FXAA" or "SMAA"); null when the
+        /// project names none or names one this engine does not know.
+        /// </summary>
+        public static Genesis.Shared.Interfaces.AntiAliasingMode? ReadAntiAliasing(string projectPath)
+        {
+            if (string.IsNullOrEmpty(projectPath) || !Directory.Exists(projectPath)) return null;
+            try
+            {
+                string[] projects = Directory.EnumerateFiles(projectPath, "*.genesisproj", SearchOption.TopDirectoryOnly).ToArray();
+                if (projects.Length != 1) return null;
+                using JsonDocument manifest = JsonDocument.Parse(File.ReadAllText(projects[0]));
+                if (manifest.RootElement.TryGetProperty("rendering", out JsonElement rendering)
+                    && rendering.ValueKind == JsonValueKind.Object
+                    && rendering.TryGetProperty("antiAliasing", out JsonElement value)
+                    && value.ValueKind == JsonValueKind.String
+                    && Genesis.Shared.Interfaces.AntiAliasingModes.TryParse(value.GetString(), out Genesis.Shared.Interfaces.AntiAliasingMode mode))
+                    return mode;
+                return null;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Applies the project's own anti-aliasing (<see cref="ReadAntiAliasing"/>) when the game
+        /// starts, unless <c>GENESIS_ANTI_ALIASING</c> already chose one for this run.
+        /// </summary>
+        public static void ApplyProjectAntiAliasing(string projectPath)
+        {
+            if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(
+                    Genesis.Shared.Interfaces.MeshLightingDefaults.AntiAliasingEnvironmentVariable)))
+                return;
+            if (ReadAntiAliasing(projectPath) is Genesis.Shared.Interfaces.AntiAliasingMode mode)
+                Genesis.Shared.Interfaces.MeshLightingDefaults.AntiAliasing = mode;
+        }
+
         public static string ReadStartRoom(string projectPath)
         {
             if (string.IsNullOrEmpty(projectPath)) return null;

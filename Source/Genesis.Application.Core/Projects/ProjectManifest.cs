@@ -176,6 +176,13 @@ public sealed class ProjectRenderingSettings
     /// games render exactly as before.
     /// </summary>
     public bool BlendGuiInLinearLight { get; set; }
+
+    /// <summary>
+    /// Post-process anti-aliasing of the 3D picture: "Off" (the default, rendering exactly as
+    /// before), "FXAA" or "SMAA". Applied when the game starts (and in Studio's viewports); a
+    /// script changes it with RenderSetAntiAliasing. The GUI is never softened.
+    /// </summary>
+    public string AntiAliasing { get; set; } = "Off";
 }
 
 public sealed record ProjectSession(

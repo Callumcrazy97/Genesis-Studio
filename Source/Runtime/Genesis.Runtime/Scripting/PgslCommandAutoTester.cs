@@ -131,6 +131,8 @@ public static class PgslCommandAutoTester
         bool inputReplayIdle = !Genesis.Runtime.Input.InputReplay.IsActive;
         // Flashes the sweep lights would otherwise be drawn by the next game frame in this process.
         bool flashesIdle = Genesis.Runtime.Rendering.FlashLights.Count == 0;
+        // RenderSetMotionBlur(1) would leave every later frame of the process blurred.
+        float motionBlur = Genesis.Shared.Interfaces.MeshLightingDefaults.MotionBlur;
 
         try
         {
@@ -163,6 +165,7 @@ public static class PgslCommandAutoTester
                 }
             }
             if (flashesIdle) Genesis.Runtime.Rendering.FlashLights.Clear();
+            Genesis.Shared.Interfaces.MeshLightingDefaults.MotionBlur = motionBlur;
             PgslCommands.ReleaseJobs(scratch);
             PgslCommands.BindPersistenceProject(previousPersistence);
             PgslCommands.BindContext(previous);

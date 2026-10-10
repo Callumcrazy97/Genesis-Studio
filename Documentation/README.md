@@ -4831,6 +4831,12 @@ ambient, object Light Emitters and shadows instead of leaving local lights activ
 path. Shadows can be disabled independently, and strength scales their visible darkness from 0 to 1.
 The same values are applied to editor previews and passed to an F5 Player process.
 
+Preferences → Project → **Anti-aliasing (3D)** (`rendering.antiAliasing`: Off, FXAA or SMAA; Off by
+default) is saved in the project file, read by the Player and by exported games when they start,
+and shown in Studio's 3D viewports. Scripts change it with `RenderSetAntiAliasing`, set a Graphics
+quality tier with `RenderSetQuality` and camera motion blur with `RenderSetMotionBlur`; see
+[Game features](GameFeatures.md#anti-aliasing-quality-tiers-and-motion-blur).
+
 An Object creates a persistent local light by adding the designer-facing **Light Emitter** component
 (the serialized name remains `PointLightComponent` so existing projects keep loading). The component
 stores enabled state, local XYZ offset, up to three colours, radius, intensity, falloff, phase and a

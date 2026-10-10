@@ -34,6 +34,11 @@ sets vector parameters (`SetParameter("Ink Outline", "InkColor", 0.11f, 0.065f, 
 A room's list replaces the running effects when the room starts. A shader that does not compile is
 left out (`IRenderController.LastPostEffectError` says why) and the game keeps running.
 
+Effects run after the engine's own anti-aliasing and camera motion blur (`RenderSetAntiAliasing`,
+`RenderSetMotionBlur`; see [Game features](GameFeatures.md#anti-aliasing-quality-tiers-and-motion-blur))
+and before the GUI: `SceneColor` is the smoothed picture, and an effect's own lines, grain or
+sharpening are left as it draws them.
+
 ## Writing one
 
 Make a Shader resource, choose the **Full screen** target and write code. The entry point is

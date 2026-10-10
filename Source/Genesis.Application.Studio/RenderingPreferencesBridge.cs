@@ -102,6 +102,13 @@ internal static class RenderingPreferencesBridge
             manifest.Rendering.FogEnd,
             manifest.Rendering.FogAlpha);
 
+        // The project's anti-aliasing shows in Studio's viewports as in the game (the Player reads
+        // it from the project file itself). A project that names none has none.
+        MeshLightingDefaults.AntiAliasing =
+            AntiAliasingModes.TryParse(manifest.Rendering.AntiAliasing, out AntiAliasingMode antiAliasing)
+                ? antiAliasing
+                : AntiAliasingMode.Off;
+
         if (manifest.Rendering.GtaoEnabled
             || manifest.Rendering.ContactShadowsEnabled
             || manifest.Rendering.LocalVolumetricsEnabled

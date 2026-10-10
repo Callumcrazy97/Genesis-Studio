@@ -1119,6 +1119,7 @@ internal static class HeadlessTestRunner
         Suites.TextRenderingSuite.Run(ctx);
         Suites.Effects2DSuite.Run(ctx);
         Suites.PostEffectsSuite.Run(ctx);
+        Suites.AntiAliasingSuite.Run(ctx);
         Suites.ShaderPrecompiledSuite.Run(ctx);
 
         return Finish(report, outputRoot, fastBuildGate: false);
@@ -1147,6 +1148,9 @@ internal static class HeadlessTestRunner
         // Surface and material shaders with the suites that compile, cache and draw mesh shaders
         // (not part of the tiers).
         ["mesh-shaders"] = ["mesh-surface", "outlines", "engine-systems", "shader-precompiled", "opengl-compat", "asset-import", "pgsl-scripts", "pgsl-logic"],
+        // Anti-aliasing, motion blur and quality tiers with the suites their change touches: the
+        // shipped shader catalogue, the every-command sweep and the debug screen (not part of the tiers).
+        ["render-quality"] = ["anti-aliasing", "shader-precompiled", "pgsl-logic", "debug-screen", "post-effects"],
     };
 
     private static void RunFocusedTarget(HeadlessContext ctx, string target)
@@ -1628,6 +1632,17 @@ internal static class HeadlessTestRunner
                 // Textures a script paints, drawn in the GUI and the 2D world on every renderer, and their cost.
                 PrepareFocusedProject(ctx, requireStudioServices: false);
                 Suites.ScriptTextureSuite.Run(ctx);
+                break;
+            case "anti-aliasing":
+                // FXAA and SMAA on every renderer (edges softened, GUI untouched, post effects after),
+                // and the quality tiers.
+                PrepareFocusedProject(ctx, requireStudioServices: false);
+                Suites.AntiAliasingSuite.Run(ctx);
+                break;
+            case "anti-aliasing-cost":
+                // GPU time of FXAA, SMAA and the quality tiers at 1920x1080 on each GPU backend.
+                PrepareFocusedProject(ctx, requireStudioServices: false);
+                Suites.AntiAliasingSuite.RunCost(ctx);
                 break;
             case "sky-layer":
                 // Script meshes in the sky layer (DrawMeshSetSky): behind the world, around the camera, on every renderer.
