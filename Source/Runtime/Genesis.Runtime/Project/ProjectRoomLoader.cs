@@ -90,8 +90,12 @@ public static class ProjectRoomLoader
                 scene.AddSubsystem(new RoomWeatherEffectsSubsystem(room.Environment, context.Audio));
         }
         float sceneryDistance = room.Environment?.SceneryDistance ?? 0f;
+        float sceneryCollision = room.Environment?.SceneryCollisionDistance ?? 64f;
         RoomSceneryStreamer scenery = room.Dimension == RoomDimension.ThreeD && float.IsFinite(sceneryDistance) && sceneryDistance > 0f
             ? new RoomSceneryStreamer(sceneryDistance)
+            {
+                ColliderRadiusAroundBodies = float.IsFinite(sceneryCollision) ? System.Math.Clamp(sceneryCollision, 0f, CollisionFoci.MaximumRadius) : 64f,
+            }
             : null;
         builder.Scenery = scenery;
         foreach (float placed in builder.BuildSteps(scene, room, result))

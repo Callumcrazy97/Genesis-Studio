@@ -924,7 +924,10 @@ namespace Genesis.Runtime.Project
                 foreach (ISceneSubsystem subsystem in scene.Subsystems)
                 {
                     if (subsystem is Genesis.Runtime.Scene.RoomSceneryStreamer scenery)
+                    {
                         sb.AppendLine($"scenery=loaded {scenery.Loaded} of {scenery.Total}");
+                        sb.AppendLine($"sceneryColliders=near {scenery.CollidersAwake} far {scenery.FarColliders} focus {scenery.FocusCount}");
+                    }
                     if (subsystem is not RoomTerrainSubsystem terrain) continue;
                     (int streamedTerrains, int loadedTerrains) = terrain.StreamedTerrainCounts;
                     if (streamedTerrains > 0) sb.AppendLine($"terrainStreaming=loaded {loadedTerrains} of {streamedTerrains}");

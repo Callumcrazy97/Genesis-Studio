@@ -23,10 +23,24 @@ namespace Genesis.Runtime.Scene;
 /// Everything else in the room (anything scripted, anything that moves or is remembered) loads
 /// with the room as it always did.
 /// </para>
+/// <para>
+/// Plain scenery stays solid where things move, however far from the camera: near a moving body,
+/// a script character or a collision focus, scenery that is not loaded gets a stand-in made of
+/// its collider alone (no model, nothing drawn), sharing its model's collision mesh.
+/// </para>
 /// </remarks>
 public sealed class RoomSceneryStreamer : ISceneSubsystem, IRoomWarmUpSubsystem
 {
     private const float CellSize = 128f;
+
+    /// <summary>Most places colliders are kept around at once: collision foci, then characters, then bodies.</summary>
+    private const int MaxFocus = 512;
+
+    /// <summary>A stand-in is let go only beyond this many times its focus's radius, so an edge is not crossed back and forth.</summary>
+    private const float KeepFactor = 1.3f;
+
+    /// <summary>A focus further than this from the origin (metres) is ignored: its cells would not fit an int.</summary>
+    private const float FarthestFocus = 1e8f;
 
     private sealed class Item
     {
@@ -42,19 +56,58 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem, IRoomWarmUpSubsystem
         public float Distance;
         /// <summary>A plain scenery object with a fixed collider, made only when something comes near.</summary>
         public bool NearCollider;
+        /// <summary>
+        /// The object's collider alone, standing in for it while it is not loaded and something
+        /// moving is near: no model and no scripts.
+        /// </summary>
+        public Entity Stand = Entity.Null;
+        /// <summary>The fixed collider the object has, read the first time a stand-in is needed.</summary>
+        public ColliderRecipe Recipe;
+        /// <summary>The object has no fixed collider, so it never needs a stand-in.</summary>
+        public bool NoCollider;
+        /// <summary>The last pass that found something moving near the object.</summary>
+        public int Wanted;
+    }
+
+    /// <summary>What a stand-in is made from: the collider exactly as the loaded object has it.</summary>
+    private sealed class ColliderRecipe
+    {
+        public RigidBodyComponent Body;
+        public Transform3DComponent Transform;
+        public MeshColliderComponent Geometry;
+        public bool HasGeometry;
     }
 
     /// <summary>A scenery collider is made when the camera comes this near (metres, flat).</summary>
     public float ColliderRadiusAroundCamera { get; set; } = 200f;
 
-    /// <summary>... or when a moving body comes this near.</summary>
+    /// <summary>
+    /// ... or when a moving body or a script character comes this near (metres, flat). Beyond the
+    /// scenery distance the collider is a stand-in. 0 keeps scenery solid only near the camera and
+    /// near collision foci. The room's <c>sceneryCollisionDistance</c> sets it.
+    /// </summary>
     public float ColliderRadiusAroundBodies { get; set; } = 64f;
+
+    /// <summary>Most stand-in colliders kept at once for scenery that is not loaded.</summary>
+    public int MaxFarColliders { get; set; } = 2048;
+
+    /// <summary>Time one frame may spend making stand-in colliders once the room is running; the rest wait for the next frame.</summary>
+    public double FarColliderMillisecondsPerFrame { get; set; } = 1.0;
 
     /// <summary>Scenery colliders that exist now (for diagnostics and tests).</summary>
     public int CollidersAwake { get; private set; }
 
-    private readonly List<Vector3> _bodyFocus = new();
+    /// <summary>Stand-in colliders that exist now for scenery that is not loaded.</summary>
+    public int FarColliders => _far.Count;
+
+    /// <summary>Places colliders were kept around at the last look: collision foci, characters and moving bodies.</summary>
+    public int FocusCount => _focus.Count;
+
+    private readonly List<CollisionFocus> _focus = new();
+    private readonly List<Item> _far = new();
     private int _colliderFrame;
+    private int _pass;
+    private bool _farBacklog;
 
     // The largest distance any item asks for: how far around the camera to look.
     private float _farthestItem;
@@ -161,7 +214,7 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem, IRoomWarmUpSubsystem
                 if (item.Loaded) continue;
                 float own = DistanceOf(item);
                 if (FlatDistanceSquared(item.Position, camera) > own * own) continue;
-                Load(scene.World, item);
+                Load(scene, item);
                 if (--budget <= 0) return false;
                 if (System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds >= milliseconds) return false;
             }
@@ -225,7 +278,7 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem, IRoomWarmUpSubsystem
             Item item = _items[_kindCursor];
             // Not for an Object with scripts: its Create and Destroy events would run for nothing.
             if (item.Loaded || item.Streamable || !_warmedKinds.Add(item.Node.GameObject?.Prefab ?? "")) continue;
-            Load(scene.World, item);
+            Load(scene, item);
             if (Unload(scene, item)) _loaded.Remove(item);
             if (System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds >= milliseconds)
             {
@@ -246,8 +299,17 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem, IRoomWarmUpSubsystem
         return dx * dx + dz * dz;
     }
 
-    private void Load(EcsWorld world, Item item)
+    private void Load(RuntimeScene scene, Item item)
     {
+        EcsWorld world = scene.World;
+        // Something moving was near enough for a stand-in: the object's own collider takes over.
+        bool stood = !item.Stand.IsNull;
+        if (stood)
+        {
+            DropStand(scene, item);
+            _far.Remove(item);
+        }
+
         item.Entity = _builder.SpawnScenery(world, _room, item.Node);
         item.Loaded = true;
         item.NearCollider = false;
@@ -258,26 +320,57 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem, IRoomWarmUpSubsystem
             ref RigidBodyComponent body = ref world.GetRef<RigidBodyComponent>(item.Entity);
             if (body.Motion == PhysicsMotionType.Static && body.RegistrationId == 0)
             {
-                body.Dormant = true;
                 item.NearCollider = true;
+                // At once, not at the next physics step: a frame without one would leave a gap.
+                if (stood && scene.Physics != null && world.Has<Transform3DComponent>(item.Entity))
+                {
+                    body.Dormant = false;
+                    scene.Physics.RegisterEntity(world, item.Entity, ref body, ref world.GetRef<Transform3DComponent>(item.Entity));
+                }
+                else body.Dormant = true;
             }
         }
         _loaded.Add(item);
     }
 
-    /// <summary>Wakes the colliders of scenery near the camera or a moving body, and lets far ones sleep.</summary>
+    /// <summary>
+    /// Wakes the colliders of scenery near the camera or something moving and lets far ones sleep,
+    /// and keeps stand-ins for scenery that is not loaded near what moves.
+    /// </summary>
     private void UpdateColliders(RuntimeScene scene, bool now)
     {
-        if (!now && ++_colliderFrame % 8 != 0) return;
+        bool due = now || ++_colliderFrame % 8 == 0;
+        if (!due && !_farBacklog) return;
+        CollectFocus(scene);
+        if (due) WakeLoadedColliders(scene);
+        UpdateFarColliders(scene, now ? WarmUpMillisecondsPerFrame : FarColliderMillisecondsPerFrame);
+    }
+
+    /// <summary>
+    /// Where colliders are kept: around what a script named, then around its characters, then
+    /// around moving bodies, so a world full of loose crates does not crowd out the bots.
+    /// </summary>
+    private void CollectFocus(RuntimeScene scene)
+    {
         EcsWorld world = scene.World;
-        Vector3 camera = scene.Camera3D.Position;
-        _bodyFocus.Clear();
+        _focus.Clear();
+        CollisionFoci.Collect(world, _focus, MaxFocus);
+        float bodyNear = ColliderRadiusAroundBodies;
+        if (!float.IsFinite(bodyNear) || bodyNear <= 0f) return;
+        CollisionFoci.CollectCharacters(world, _focus, bodyNear, MaxFocus);
+        if (_focus.Count >= MaxFocus) return;
         world.Query<RigidBodyComponent, Transform3DComponent>((Entity _, ref RigidBodyComponent body, ref Transform3DComponent transform) =>
         {
-            if (body.Motion != PhysicsMotionType.Static && body.RegistrationId != 0 && _bodyFocus.Count < 512)
-                _bodyFocus.Add(transform.Position);
+            if (body.Motion != PhysicsMotionType.Static && body.RegistrationId != 0 && _focus.Count < MaxFocus)
+                _focus.Add(new CollisionFocus(transform.Position, bodyNear));
         });
-        float cameraNear = ColliderRadiusAroundCamera, bodyNear = ColliderRadiusAroundBodies;
+    }
+
+    private void WakeLoadedColliders(RuntimeScene scene)
+    {
+        EcsWorld world = scene.World;
+        Vector3 camera = scene.Camera3D.Position;
+        float cameraNear = ColliderRadiusAroundCamera;
         int awake = 0;
         foreach (Item item in _loaded)
         {
@@ -285,10 +378,13 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem, IRoomWarmUpSubsystem
                 continue;
             ref RigidBodyComponent body = ref world.GetRef<RigidBodyComponent>(item.Entity);
             // Wake inside the radius; sleep only beyond it with a margin, so an edge is not crossed back and forth.
-            float margin = body.Dormant ? 1f : 1.3f;
+            float margin = body.Dormant ? 1f : KeepFactor;
             bool near = FlatDistanceSquared(item.Position, camera) <= cameraNear * cameraNear * margin * margin;
-            for (int i = 0; !near && i < _bodyFocus.Count; i++)
-                near = FlatDistanceSquared(item.Position, _bodyFocus[i]) <= bodyNear * bodyNear * margin * margin;
+            for (int i = 0; !near && i < _focus.Count; i++)
+            {
+                float reach = _focus[i].Radius * margin;
+                near = FlatDistanceSquared(item.Position, _focus[i].Position) <= reach * reach;
+            }
             if (near)
             {
                 body.Dormant = false;
@@ -303,10 +399,189 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem, IRoomWarmUpSubsystem
         CollidersAwake = awake;
     }
 
+    /// <summary>
+    /// Makes a stand-in collider for each plain scenery object that is not loaded and has
+    /// something moving within its focus's radius, and lets go of those nothing is near any more.
+    /// </summary>
+    private void UpdateFarColliders(RuntimeScene scene, double milliseconds)
+    {
+        _farBacklog = false;
+        _pass++;
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
+        int made = 0;
+        foreach (CollisionFocus focus in _focus)
+        {
+            float keep = focus.Radius * KeepFactor;
+            if (!float.IsFinite(keep) || keep <= 0f) continue;
+            // A body flung into the void (or one whose simulation failed) is near no scenery.
+            if (!(MathF.Abs(focus.Position.X) < FarthestFocus) || !(MathF.Abs(focus.Position.Z) < FarthestFocus)) continue;
+            int x0 = (int)MathF.Floor((focus.Position.X - keep) / CellSize), x1 = (int)MathF.Floor((focus.Position.X + keep) / CellSize);
+            int z0 = (int)MathF.Floor((focus.Position.Z - keep) / CellSize), z1 = (int)MathF.Floor((focus.Position.Z + keep) / CellSize);
+            for (int cz = z0; cz <= z1; cz++)
+            for (int cx = x0; cx <= x1; cx++)
+            {
+                if (!_cells.TryGetValue((cx, cz), out List<Item> cell)) continue;
+                foreach (Item item in cell)
+                {
+                    if (item.Loaded || item.Streamable || item.NoCollider || item.Wanted == _pass) continue;
+                    bool standing = !item.Stand.IsNull;
+                    float reach = standing ? keep : focus.Radius;
+                    if (FlatDistanceSquared(item.Position, focus.Position) > reach * reach) continue;
+                    if (standing)
+                    {
+                        item.Wanted = _pass;
+                        continue;
+                    }
+
+                    if (_far.Count >= MaxFarColliders) continue;
+                    // Within the frame's time; whatever is left is made on the next frame.
+                    if (made > 0 && System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds >= milliseconds)
+                    {
+                        _farBacklog = true;
+                        continue;
+                    }
+
+                    if (!MakeStand(scene, item)) continue;
+                    item.Wanted = _pass;
+                    made++;
+                }
+            }
+        }
+
+        for (int i = _far.Count - 1; i >= 0; i--)
+        {
+            Item item = _far[i];
+            if (item.Wanted == _pass && !item.Loaded) continue;
+            DropStand(scene, item);
+            _far[i] = _far[^1];
+            _far.RemoveAt(_far.Count - 1);
+        }
+    }
+
+    /// <summary>Makes an object's collider alone where it stands. False when it has no fixed collider.</summary>
+    private bool MakeStand(RuntimeScene scene, Item item)
+    {
+        if (_builder == null) return false;
+        ColliderRecipe recipe = item.Recipe ??= Describe(scene, item);
+        if (recipe == null)
+        {
+            item.NoCollider = true;
+            return false;
+        }
+
+        EcsWorld world = scene.World;
+        Entity stand = world.CreateEntity();
+        world.Set(stand, new EntityLifecycleComponent { Enabled = true });
+        world.Set(stand, recipe.Transform);
+        world.Set(stand, recipe.Body);
+        if (recipe.HasGeometry) world.Set(stand, recipe.Geometry);
+        if (scene.Physics != null)
+        {
+            try
+            {
+                scene.Physics.RegisterEntity(world, stand, ref world.GetRef<RigidBodyComponent>(stand), ref world.GetRef<Transform3DComponent>(stand));
+            }
+            catch (System.IO.InvalidDataException)
+            {
+                // A model whose collider cannot be built: leave it to fail where it is loaded, as before.
+                world.GetRef<RigidBodyComponent>(stand).Dormant = true;
+                world.DestroyEntity(stand);
+                item.NoCollider = true;
+                return false;
+            }
+        }
+
+        item.Stand = stand;
+        _far.Add(item);
+        return true;
+    }
+
+    /// <summary>
+    /// The collider an object has, read by creating it as loading does and removing it again, so
+    /// a stand-in is exactly what the loaded object would be. Null when it has no fixed collider.
+    /// </summary>
+    private ColliderRecipe Describe(RuntimeScene scene, Item item)
+    {
+        EcsWorld world = scene.World;
+        Entity entity;
+        try
+        {
+            entity = _builder.SpawnScenery(world, _room, item.Node);
+        }
+        catch (Exception error) when (error is System.IO.InvalidDataException or System.IO.IOException)
+        {
+            // Its model cannot be read or fitted: it fails where it is loaded, as before, not here.
+            System.Diagnostics.Trace.WriteLine($"Scenery '{item.Node.Name}' has no collider away from the camera: {error.Message}");
+            return null;
+        }
+
+        if (entity.IsNull || !world.IsAlive(entity)) return null;
+        try
+        {
+            return ReadRecipe(world, entity);
+        }
+        finally
+        {
+            // Destroying waits for the next flush, after this frame is drawn: until then it is
+            // neither drawn nor registered.
+            if (world.Has<Genesis.Runtime.ECS.Components.Draw3DComponent>(entity))
+                world.GetRef<Genesis.Runtime.ECS.Components.Draw3DComponent>(entity).Visible = false;
+            if (world.Has<RigidBodyComponent>(entity))
+            {
+                ref RigidBodyComponent body = ref world.GetRef<RigidBodyComponent>(entity);
+                if (body.RegistrationId != 0) scene.Physics?.UnregisterEntity(world, entity, ref body);
+                body.Dormant = true;
+            }
+
+            Genesis.Runtime.Rendering.ObjectDrawAssetRegistry.Remove(entity);
+            world.DestroyEntity(entity);
+        }
+    }
+
+    private static ColliderRecipe ReadRecipe(EcsWorld world, Entity entity)
+    {
+        if (entity.IsNull || !world.IsAlive(entity) || !world.Has<RigidBodyComponent>(entity) || !world.Has<Transform3DComponent>(entity))
+            return null;
+        RigidBodyComponent body = world.GetRef<RigidBodyComponent>(entity);
+        if (body.Motion != PhysicsMotionType.Static || !body.Collision) return null;
+        body.RegistrationId = 0;
+        body.Dormant = false;
+        Transform3DComponent placed = world.GetRef<Transform3DComponent>(entity);
+        Transform3DComponent transform = Transform3DComponent.Default;
+        transform.Position = placed.Position;
+        transform.Rotation = placed.Rotation;
+        transform.Scale = placed.Scale;
+        var recipe = new ColliderRecipe { Body = body, Transform = transform };
+        if (world.Has<MeshColliderComponent>(entity))
+        {
+            recipe.Geometry = world.GetRef<MeshColliderComponent>(entity);
+            recipe.HasGeometry = true;
+        }
+
+        return recipe;
+    }
+
+    private static void DropStand(RuntimeScene scene, Item item)
+    {
+        EcsWorld world = scene.World;
+        Entity stand = item.Stand;
+        item.Stand = Entity.Null;
+        if (stand.IsNull || !world.IsAlive(stand)) return;
+        if (world.Has<RigidBodyComponent>(stand))
+        {
+            ref RigidBodyComponent body = ref world.GetRef<RigidBodyComponent>(stand);
+            if (body.RegistrationId != 0) scene.Physics?.UnregisterEntity(world, stand, ref body);
+            body.Dormant = true;
+        }
+
+        world.DestroyEntity(stand);
+    }
+
     /// <returns>False when the object must stay: it has gained a body that moves.</returns>
     private bool Unload(RuntimeScene scene, Item item)
     {
         EcsWorld world = scene.World;
+        bool solid = false;
         if (!item.Entity.IsNull && world.IsAlive(item.Entity))
         {
             if (world.Has<RigidBodyComponent>(item.Entity))
@@ -320,6 +595,9 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem, IRoomWarmUpSubsystem
                     return false;
                 }
 
+                // Something is near enough for its collider to be awake: a stand-in replaces it at once.
+                solid = item.NearCollider && body.RegistrationId != 0;
+                if (solid) item.Recipe ??= ReadRecipe(world, item.Entity);
                 if (body.RegistrationId != 0) scene.Physics?.UnregisterEntity(world, item.Entity, ref body);
             }
 
@@ -332,6 +610,7 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem, IRoomWarmUpSubsystem
 
         item.Entity = Entity.Null;
         item.Loaded = false;
+        if (solid && item.Recipe != null && item.Stand.IsNull && _far.Count < MaxFarColliders) MakeStand(scene, item);
         return true;
     }
 
@@ -341,8 +620,11 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem, IRoomWarmUpSubsystem
 
     public void Dispose()
     {
-        // The room that owns these objects is being unloaded and destroys them itself.
+        // The room that owns these objects is being unloaded and destroys them itself, the
+        // stand-in colliders with them.
         _loaded.Clear();
+        _far.Clear();
+        _focus.Clear();
         _items.Clear();
         _cells.Clear();
         _warmedKinds.Clear();

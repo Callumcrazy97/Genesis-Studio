@@ -306,6 +306,13 @@ public sealed class RoomEnvironment
     /// </summary>
     [JsonProperty("sceneryDistance")] public float SceneryDistance { get; set; }
     /// <summary>
+    /// With a scenery distance set: scenery is solid within this many metres of each moving body
+    /// and script character, however far from the camera; beyond the scenery distance only its
+    /// collider is made, never its model. Zero keeps scenery solid only near the camera and near
+    /// instances a script names with <c>PhysicsAddCollisionFocus</c>.
+    /// </summary>
+    [JsonProperty("sceneryCollisionDistance")] public float SceneryCollisionDistance { get; set; } = 64f;
+    /// <summary>
     /// A room made of several terrains loads only those within this distance of the camera, and
     /// unloads them again once it is well past. Zero loads every terrain with the room.
     /// </summary>
