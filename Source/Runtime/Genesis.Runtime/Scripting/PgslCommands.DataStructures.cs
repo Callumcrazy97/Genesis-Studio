@@ -63,13 +63,13 @@ public static partial class PgslCommands
 
     // Every list or grid read looks its structure up by key; the keys of the first handles of each
     // family are made once instead of formatted (and allocated) on every call.
-    private static readonly string[][] DsKeys = [new string[4096], new string[4096], new string[4096], new string[4096], new string[4096]];
+    private static readonly string[][] DsKeys = [new string[4096], new string[4096], new string[4096], new string[4096], new string[4096], new string[4096]];
 
     private static string DsKey(string family, int handle)
     {
         string[] keys = family switch
         {
-            "list" => DsKeys[0], "grid" => DsKeys[1], "map" => DsKeys[2], "stack" => DsKeys[3], "queue" => DsKeys[4],
+            "list" => DsKeys[0], "grid" => DsKeys[1], "map" => DsKeys[2], "stack" => DsKeys[3], "queue" => DsKeys[4], "priority" => DsKeys[5],
             _ => null,
         };
         if (keys is null || (uint)handle >= (uint)keys.Length) return $"__ds_{family}_{handle}";

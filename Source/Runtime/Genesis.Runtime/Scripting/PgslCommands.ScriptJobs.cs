@@ -57,7 +57,7 @@ public static partial class PgslCommands
         "Math", "3D Math", "Strings", "General", "Noise", "Grids", "Lists", "Maps", "Data Structures", "Arrays", "Variables", "JSON",
     };
 
-    private static readonly string[] DsFamilies = ["list", "grid", "map", "stack", "queue"];
+    private static readonly string[] DsFamilies = ["list", "grid", "map", "stack", "queue", "priority"];
 
     private static readonly HashSet<string> WorkerRefused = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -168,8 +168,12 @@ public static partial class PgslCommands
         "Give a prepared job a map as it is when the job starts (same handle inside the job; shared, not copied); copyBack true puts the job's map into this one at JobTake if the job changed it", "Native Jobs")]
     public static bool JobScriptMap(double job, double map, bool copyBack) => ShareWithJob(job, "map", map, copyBack);
 
+    [PgslCommand("JobScriptPriority", "JobScriptPriority(job, queue, copyBack) -> bool",
+        "Give a prepared job a priority queue (DsPriorityCreate) as it is when the job starts (same handle inside the job; shared, not copied); copyBack true puts the job's queue into this one at JobTake if the job changed it", "Native Jobs")]
+    public static bool JobScriptPriority(double job, double queue, bool copyBack) => ShareWithJob(job, "priority", queue, copyBack);
+
     [PgslCommand("JobScriptShareAll", "JobScriptShareAll(job) -> bool",
-        "Let a prepared job read every grid, list, map, stack and queue of this Object and its instance variables (numbers, text, true/false), as they are when it starts; shared, not copied, so the cost does not grow with their size", "Native Jobs")]
+        "Let a prepared job read every grid, list, map, stack, queue and priority queue of this Object and its instance variables (numbers, text, true/false), as they are when it starts; shared, not copied, so the cost does not grow with their size", "Native Jobs")]
     public static bool JobScriptShareAll(double job)
     {
         ScriptJobSetup setup = PreparedJob(job);
@@ -187,6 +191,7 @@ public static partial class PgslCommands
         {
             "grid" => ResolveRead<PgslGrid>("grid", handle) != null,
             "map" => ResolveRead<PgslMap>("map", handle) != null,
+            "priority" => ResolveRead<PgslPriority>("priority", handle) != null,
             _ => ResolveRead<List<object>>("list", handle) != null,
         };
         if (!exists) return Refuse($"No {family} with handle {StringOf(handle)} in this Object.");

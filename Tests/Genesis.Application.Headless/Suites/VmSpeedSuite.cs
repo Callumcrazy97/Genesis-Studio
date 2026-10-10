@@ -158,6 +158,7 @@ internal static class VmSpeedSuite
         function PVariableSet(n) { var t = 0; for (var i = 0; i < n; i = i + 1) { t = VariableSet("pv", i); } return t; }
         function PListSet(n) { for (var i = 0; i < n; i = i + 1) { DsListSet(pl, 3, i); } return n; }
         function PGridSet(n) { for (var i = 0; i < n; i = i + 1) { DsGridSet(pgr, 1, 2, i); } return n; }
+        function PPriority(n) { var t = 0; for (var i = 0; i < n; i = i + 1) { DsPriorityAdd(ppq, i, (i * 7919) % 1000); t = DsPriorityDeleteMin(ppq); } return t; }
         function PGridGetU16(n) { var t = 0; for (var i = 0; i < n; i = i + 1) { t = DsGridGet(pgr16, 1, 2); } return t; }
         function PGridSetU16(n) { for (var i = 0; i < n; i = i + 1) { DsGridSet(pgr16, 1, 2, i); } return n; }
         function PGridGetU8(n) { var t = 0; for (var i = 0; i < n; i = i + 1) { t = DsGridGet(pgr8, 1, 2); } return t; }
@@ -187,6 +188,7 @@ internal static class VmSpeedSuite
         function PCallValueNative(n) { var t = 0; for (var i = 0; i < n; i = i + 1) { t = ValueNoise2D(i * 0.7 / 16, i * 0.3 / 16, 4); } return t; }
         pg = 5; pl = DsListCreate(); for (var i = 0; i < 8; i = i + 1) { DsListAdd(pl, i); } pgr = DsGridCreate(4, 4);
         pgr16 = DsGridCreate(4, 4, "u16"); pgr8 = DsGridCreate(4, 4, "u8");
+        ppq = DsPriorityCreate(); for (var i = 0; i < 1000; i = i + 1) { DsPriorityAdd(ppq, i, (i * 31) % 1000); }
         pm = DsMapCreate(); DsMapSet(pm, "key", 3);
         """;
 
@@ -365,6 +367,7 @@ internal static class VmSpeedSuite
                     ("t = VariableSet(\"pv\", i) (text and a number, no result)", "PVariableSet"),
                     ("DsListSet(pl, 3, i)", "PListSet"),
                     ("DsGridSet(pgr, 1, 2, i)", "PGridSet"),
+                    ("DsPriorityAdd(ppq, i, p) + t = DsPriorityDeleteMin(ppq) (a queue of 1 000)", "PPriority"),
                     ("t = DsGridGet(pgr16, 1, 2) (a u16 grid)", "PGridGetU16"),
                     ("DsGridSet(pgr16, 1, 2, i) (a u16 grid)", "PGridSetU16"),
                     ("t = DsGridGet(pgr8, 1, 2) (a u8 grid)", "PGridGetU8"),
@@ -440,6 +443,38 @@ internal static class VmSpeedSuite
                     PgslCommands.DsListDestroy(list);
                     Check(sink != 0, "The grid sweeps read nothing.");
                 }
+            });
+
+            // A priority queue from C#: 100 000 entries added (priorities repeating, as an A* open set's
+            // f costs do), then all taken out smallest first; nothing may be allocated once the queue
+            // has grown.
+            HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.VmSpeed.PriorityQueue100k", () =>
+            {
+                using Bench bench = new();
+                const int entries = 100_000;
+                double queue = PgslCommands.DsPriorityCreate();
+                double sink = 0;
+                void Fill() { for (int i = 0; i < entries; i++) PgslCommands.DsPriorityAdd(queue, i, (i * 7919) % 5003); }
+                void Drain() { for (int i = 0; i < entries; i++) sink += PgslCommands.DsPriorityDeleteMin(queue); }
+                Fill(); Drain();
+                double add = double.MaxValue, take = double.MaxValue;
+                long bytes = long.MaxValue;
+                for (int round = 0; round < 7; round++)
+                {
+                    long allocated = GC.GetAllocatedBytesForCurrentThread();
+                    long start = Stopwatch.GetTimestamp();
+                    Fill();
+                    add = Math.Min(add, Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+                    start = Stopwatch.GetTimestamp();
+                    Drain();
+                    take = Math.Min(take, Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+                    bytes = Math.Min(bytes, GC.GetAllocatedBytesForCurrentThread() - allocated);
+                }
+                Check(PgslCommands.DsPrioritySize(queue) == 0 && sink > 0, "The priority queue did not drain.");
+                bridge.Add(($"DsPriorityAdd, 100 000 entries into one queue (fastest of 7 rounds; {bytes} bytes allocated a round)", add * 1e6 / entries));
+                bridge.Add(("DsPriorityDeleteMin, the same 100 000 out again", take * 1e6 / entries));
+                Console.WriteLine($"Priority queue: 100 000 adds {add:F2} ms, 100 000 delete-mins {take:F2} ms, {bytes} bytes a round");
+                Check(bytes < 1024, $"A grown priority queue allocated {bytes} bytes for 100 000 adds and delete-mins.");
             });
         }
         finally

@@ -815,6 +815,48 @@ DsGridSet(blocks[s], column, y, STONE | FLAG_NATURAL);   // 3071 plus flag bits 
 DsGridAdd(light[s], column, y, -1);                       // never below 0
 ```
 
+### Priority queues
+
+A priority queue (`ds_priority` in GameMaker) hands back its entries smallest priority first: the
+open set of an A* search, events by time, jobs by urgency. It is a binary heap kept in one array, so
+adding and taking out cost a few comparisons for each doubling of its size and allocate nothing once
+the queue has grown to its largest size. Values are numbers or text, as in a list.
+
+| Command | What it does |
+|---|---|
+| `DsPriorityCreate()` | A new empty queue; returns its handle. |
+| `DsPriorityAdd(queue, value, priority)`, `DsPriorityAddString(queue, text, priority)` | Add a number or text with a priority (any number; smaller comes out first). Up to 1 000 000 entries. |
+| `DsPriorityDeleteMin(queue)`, `DsPriorityDeleteMinString(queue)` | Take out the entry of smallest priority and return it as a number (0 when empty) or as text (empty). |
+| `DsPriorityFindMin(queue)`, `DsPriorityFindMinString(queue)` | The entry `DsPriorityDeleteMin` would take out, left in the queue. |
+| `DsPriorityMinPriority(queue)` | That entry's priority (0 when empty). |
+| `DsPrioritySize(queue)`, `DsPriorityEmpty(queue)` | How many entries; whether there are none. |
+| `DsPriorityClear(queue)`, `DsPriorityDestroy(queue)` | Remove every entry; release the queue. |
+
+**Ties:** among equal priorities, the entry added first comes out first (first in, first out), on
+every machine, so an A* search whose nodes share an f cost explores them in the order it found them
+and gives the same path every time. A priority that is not a number counts as the largest of all
+and comes out last. A text entry read as a number is read as `Real` reads text; a number read as
+text is `StringOf` of it.
+
+A worker job can be given a queue like a list: `JobScriptPriority(job, queue, copyBack)` (or
+`JobScriptShareAll`, which shares queues too). The job sees the queue as it was when it started, a
+change by either side makes that side's own copy, and copyBack brings the job's queue back at
+`JobTake` if the job changed it.
+
+Measured on 10 Oct 2026 (`--test vm-speed`, performance cores): from C#, 100 000 entries are added
+in 2.4 ms (24 ns each) and taken out again in 16 ms (164 ns each), with nothing allocated once the
+queue has grown; from a script, an add and a delete-min on a queue of 1 000 cost 176 ns together.
+
+```pgsl
+// A* on a grid: the open set by f = g + h, node ids x + y * width.
+open = DsPriorityCreate();
+DsPriorityAdd(open, startX + startY * w, Abs(goalX - startX) + Abs(goalY - startY));
+while (!DsPriorityEmpty(open)) {
+    node = DsPriorityDeleteMin(open);
+    // ... for each neighbour that improves its g: DsPriorityAdd(open, neighbour, g + 1 + h);
+}
+```
+
 ## Script functions on worker threads
 
 A function of the project's Scripts can run as a job on a worker thread, so generating a chunk, a

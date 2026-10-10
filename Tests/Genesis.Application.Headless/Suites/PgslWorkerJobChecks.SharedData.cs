@@ -120,6 +120,30 @@ internal static partial class PgslWorkerJobChecks
             var kinds = 0; if (DsGridKind(blocks) == "u16") { kinds = kinds + 1; } if (DsGridKind(light) == "u8") { kinds = kinds + 2; }
             return s * 10 + kinds;
         }
+        // A* over a 32 x 32 grid of walls (sjWalls, 1 = wall) with the open set in a priority queue
+        // the job was given (pq, emptied first): the length of the shortest path from (0, 0) to
+        // (31, 31), -1 when there is none. Leaves a marker entry in the queue for copyBack.
+        function SjAStar(pq) {
+            DsPriorityClear(pq);
+            var best = DsGridCreate(32, 32); DsGridClear(best, 999999);
+            DsGridSet(best, 0, 0, 0); DsPriorityAdd(pq, 0, 62);
+            var found = -1;
+            while (DsPriorityEmpty(pq) == 0 && found < 0) {
+                var node = DsPriorityDeleteMin(pq);
+                var nx = node % 32; var ny = Floor(node / 32); var g = DsGridGet(best, nx, ny);
+                if (nx == 31 && ny == 31) { found = g; }
+                for (var d = 0; d < 4; d = d + 1) {
+                    var mx = nx; var my = ny;
+                    if (d == 0) { mx = nx + 1; } else if (d == 1) { mx = nx - 1; } else if (d == 2) { my = ny + 1; } else { my = ny - 1; }
+                    if (mx >= 0 && my >= 0 && mx < 32 && my < 32 && DsGridGet(sjWalls, mx, my) == 0 && g + 1 < DsGridGet(best, mx, my)) {
+                        DsGridSet(best, mx, my, g + 1);
+                        DsPriorityAdd(pq, mx + my * 32, g + 1 + (31 - mx) + (31 - my));
+                    }
+                }
+            }
+            DsPriorityClear(pq); DsPriorityAddString(pq, "done", -1);
+            return found;
+        }
         function SjMapEdit(m) { DsMapSet(m, "a", 5); DsMapDelete(m, "b"); return DsMapSize(m); }
         function SjLeaveAlone(l) { return DsListSize(l); }
         function SjNothing() { return 1; }
@@ -349,6 +373,37 @@ internal static partial class PgslWorkerJobChecks
             HeadlessHarness.Assert(result == Expected, $"The job read {result} from the compact grids, not {Expected}.");
             HeadlessHarness.Assert(blocks == 655351, $"After JobTake the u16 grid reads {blocks} (cell * 10 + is u16), not 655351.");
             HeadlessHarness.Assert(light == 17551, $"The u8 grid (no copyBack) reads {light} (cell(0,0) * 1000 + cell(1,1) * 10 + is u8), not 17551.");
+        });
+
+        // A* with its open set in a priority queue, run in a job: the queue is shared like a list
+        // (the game's own entries and its change meanwhile stay the game's), and copyBack brings the
+        // job's queue back.
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.Jobs.APriorityQueueSearchRunsInAJob", () =>
+        {
+            using Bench bench = new();
+            double job = bench.Number("""
+                walls = DsGridCreate(32, 32, "u8");
+                DsGridSetRegion(walls, 10, 0, 10, 30, 1); DsGridSetRegion(walls, 20, 1, 20, 31, 1);
+                open = DsPriorityCreate(); DsPriorityAdd(open, 5, 5); DsPriorityAdd(open, 6, 1);
+                aj = JobScriptCreate("SjAStar"); JobScriptGrid(aj, walls, false); JobScriptPriority(aj, open, true);
+                JobScriptVariable(aj, "sjWalls", walls);
+                r = JobScriptStart(aj, open) ? aj : -1;
+                """);
+            HeadlessHarness.Assert(job > 0, "The A* job did not start: " + PgslCommands.JobLastError());
+            double held = bench.Number("r = DsPrioritySize(open) * 100 + DsPriorityFindMin(open); DsPriorityAdd(open, 7, 0);");
+            double afterChange = bench.Number("r = DsPriorityFindMin(open) * 100 + DsPrioritySize(open);");
+            string status = bench.Wait(job);
+            double length = PgslCommands.JobResultNumber(job);
+            HeadlessHarness.Assert(status == "succeeded", $"The A* job ended {status}: {PgslCommands.JobError(job)}");
+            HeadlessHarness.Assert(PgslCommands.JobTake(job), "JobTake refused the A* job: " + PgslCommands.JobLastError());
+            PgslCommands.JobRelease(job);
+            string back = bench.Text("r = DsPriorityFindMinString(open) + \",\" + StringOf(DsPrioritySize(open));");
+            bool pass = length == 124 && held == 206 && afterChange == 703 && back == "done,1";
+            row("Jobs: shared data", "A* in a job with its open set in a priority queue (JobScriptPriority, copyBack)", pass ? "PASS" : "FAIL",
+                $"path length {length} (expected 124); the game's queue while held {held} (206), after its own change {afterChange} (703); after JobTake \"{back}\" (\"done,1\")");
+            HeadlessHarness.Assert(length == 124, $"A* in the job found a path of {length}, not 124.");
+            HeadlessHarness.Assert(held == 206 && afterChange == 703, $"The game's own queue changed under a job: {held} (206) / {afterChange} (703).");
+            HeadlessHarness.Assert(back == "done,1", $"copyBack did not bring the job's queue back: \"{back}\".");
         });
 
         // Copies only when one side changes a structure a job holds: the game's first change of a held
