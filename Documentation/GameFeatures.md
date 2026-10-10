@@ -1161,8 +1161,17 @@ runs on Direct3D 11, Direct3D 12, Vulkan and OpenGL; the software renderer ignor
 before. Its shaders ship precompiled with the engine's own. The renderer's log says which mode is
 in effect (`Anti-aliasing: smaa`), and so does the debug screen's render passes line.
 
-What each pass costs at 1920x1080 is measured by `Build.bat --test anti-aliasing-cost` (GPU time
-of the frame with the pass minus without it, on each GPU backend).
+What each pass costs at 1920x1080, measured on 10 October 2026 on this machine's GeForce RTX 5060
+Ti (GPU time of the 3D frame with the pass minus without it; three rounds of 90 frames after a
+warm-up, the range of the rounds' medians; a field of 576 small tilted squares, edges everywhere,
+which costs 0.15 to 0.19 ms a frame without anti-aliasing):
+
+| Backend | FXAA | SMAA |
+|---|---|---|
+| Direct3D 11 | 0.05 ms | 0.11 ms |
+| Direct3D 12 | 0.04 ms | 0.12 to 0.13 ms |
+| OpenGL | 0.05 ms | 0.16 ms |
+| Vulkan | not measured: its GPU timestamps read 0 in the test harness | |
 
 **Not done: temporal anti-aliasing (TAA).** It needs, for every pixel, where that point was on
 screen last frame. The renderer can work that out for the camera's own motion (from depth), but
@@ -1220,8 +1229,15 @@ New on their own:
 | `Engine.Rendering.ShadowResolution` | Sun shadow map size in texels per side, for every cascade: 512, 1024 (the default), 2048 or 4096; other values are rounded to one of those, and 0 goes back to the default. The maps are remade at the next frame. The software renderer stays at 1024 at most. `GENESIS_SHADOW_RESOLUTION` sets it for one run. |
 | `Engine.Rendering.VolumetricFogQuality` | Volumetric fog grid quality 0 to 2 for every room; -1 (the default) leaves each room's own. |
 
-The same test measures each tier's frame time on a lit scene (64 boxes on the floor, sun shadows,
-fog).
+GPU time of the 3D frame per tier at 1920x1080 on the same machine, on a small lit scene (64 boxes
+on the floor, sun shadows, fog; no clouds, so cloud quality costs nothing here). A game's frame
+costs more; the steps between tiers are what to read:
+
+| Backend | Low | Medium | High | Ultra |
+|---|---|---|---|---|
+| Direct3D 11 | 0.58 ms | 0.71 to 0.78 ms | 0.90 ms | 1.26 ms |
+| Direct3D 12 | 0.54 to 0.56 ms | 0.76 to 0.91 ms | 0.96 ms | 1.26 ms |
+| OpenGL | 0.79 ms | 1.18 ms | 1.52 ms | 1.92 ms |
 
 ### Camera motion blur
 
@@ -1239,7 +1255,8 @@ a respawn) is not blurred that frame. Only the camera's own motion blurs: the re
 motion for moving objects (see TAA above), so a running character is as sharp as the wall behind
 it would be. Direct3D 11 and 12, Vulkan and OpenGL; the software renderer ignores it.
 
-Its cost at 1920x1080 is measured by `Build.bat --test anti-aliasing-cost` with the camera turning.
+Its cost at 1920x1080 with the camera turning (amount 0.5, same machine and method as the
+anti-aliasing figures): 0.12 to 0.13 ms on Direct3D 11, 0.15 ms on Direct3D 12, 0.16 ms on OpenGL.
 
 **Not done: screen-space reflections.** They need each pixel's normal and roughness (and how
 reflective it is); the forward pass writes only colour and its fog and ambient target, so a
