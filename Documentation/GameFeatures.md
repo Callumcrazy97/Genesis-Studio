@@ -1365,6 +1365,40 @@ stopping at its size) and `Build.bat --test room-change` (the cover waits for pr
 The Audio editor's source field is labelled **Source** (it lists WAV and Ogg files), and its import
 button **Import sound…**.
 
+### The first launch of a fresh install (10 October 2026)
+
+A freshly exported GenesisCraft took 29 to 34 s to reach its world on its first launch and 9 to 11 s
+afterwards, with 15 s passing before its log opened. The cause is the antivirus: Windows Defender
+scans each newly written file the first time it is opened, and the game thread opened thousands of
+them one at a time. Measured on this PC (i7-14700F, NVMe drive, Defender's real-time protection on)
+by reading a fresh copy of that export once and then again:
+
+| Files | First read, one at a time | Again | First read on 8 threads |
+|---|---|---|---|
+| 4,145 `.meta` files (1.4 MB) | 16.1 s (3.9 ms each) | 0.18 s | 2.8 s |
+| 1,691 `.png` files | 9.5 s | 0.07 s | 1.0 s |
+| 269 engine DLLs (175 MB) | 2.8 s | 0.13 s | 0.9 s |
+| all 13,543 files | 60 s | 0.9 s | 10.6 s |
+
+Asking a file's size and time does not open it and costs nothing extra (8,450 files: 0.48 s, fresh
+or not). So the engine now opens fewer files on the game's thread, and the rest on several threads:
+
+- **The resource catalog** read every resource's `.meta` before the window opened. An export now
+  writes one file naming every resource (`.genesis/resource-catalog.txt`: each `.meta`'s guid,
+  `resourceName` and size), and the game reads that instead. A `.meta` of another size, or written
+  after the index (a mod), is read as before, and a game without the index (Studio's play, an older
+  export) reads the `.meta` files on several threads. The log says which, as
+  `resource catalog: <n> resources in <ms> ms (<n> identities from .genesis/resource-catalog.txt, 0 .meta files read)`.
+- **Texture groups** read and decode their pictures on several threads; they are packed as before.
+- **Scripts and documents** (`.pgsl`, `.object.json`, `.audio.json`, `.particle.json`,
+  `.model.json` and the other small resource documents, up to 256 KB each) are read through on two
+  low-priority threads from the start, scripts first, so the first room's Create events and each
+  sound's first play find them scanned (`game files read ahead: ...` in the log).
+  `GENESIS_READ_AHEAD=0` turns this off; a game run from Studio does not use it.
+
+What remains on a first launch is the scan of the engine's own DLLs as .NET loads them, and of each
+file the game reads later for the first time, which no game can avoid; later launches are as before.
+
 ## Smaller changes
 
 - **Bushes and saplings.** The `Shrub` and `Sapling` foliage shapes are built from rounded solid
