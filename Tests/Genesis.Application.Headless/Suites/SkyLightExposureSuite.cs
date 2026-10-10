@@ -424,7 +424,9 @@ internal static class SkyLightExposureSuite
                     darkening.Add(Capture(Exposed(bright, reset: 1), null, 1));
                 }
                 double brighterKey = Capture(Exposed(bright, key: 0.36f, reset: 2), null, 3);
-                double limited = Capture(Exposed(veryDark, maxEv: 2f, reset: 3), $"exposure-on-limited-{name}.png", 3);
+                // 64 times darker (6 stops) needs more brightening than a +3 stop limit allows for any
+                // scene up to eight times brighter than the key, so the exposure must stop at 8.
+                double limited = Capture(Exposed(veryDark, maxEv: 3f, reset: 3), $"exposure-on-limited-{name}.png", 3);
                 double plainVeryDark = Capture(veryDark, null, 3);
                 double offAgain = Capture(bright, $"exposure-off-again-{name}.png", 3);
 
@@ -433,7 +435,7 @@ internal static class SkyLightExposureSuite
                     + $"on bright {adaptedBright:F3} (key 0.18); dark at once {darkAtOnce:F3}; brightening "
                     + string.Join(",", brightening.Select(v => v.ToString("F3"))) + $"; bright at once {brightAtOnce:F3}; darkening "
                     + string.Join(",", darkening.Select(v => v.ToString("F3"))) + $"; key 0.36 {brighterKey:F3}; "
-                    + $"64x darker limited to +2 {limited:F3} (off {plainVeryDark:F3}); off again {offAgain:F3}");
+                    + $"64x darker limited to +3 {limited:F3} ({Stops(limited, plainBright):F2} stops from off bright; off {plainVeryDark:F3}); off again {offAgain:F3}");
 
                 if (Math.Abs(Stops(adaptedBright, AutoExposureDefaults.Key)) > 0.45)
                     failures.Add($"{backend.ShortName}: the adapted scene's average is {adaptedBright:F3}, not near the key 0.18");
@@ -453,8 +455,16 @@ internal static class SkyLightExposureSuite
                     if (darkening[i] > darkening[i - 1] * 1.005) failures.Add($"{backend.ShortName}: the bright scene got brighter while adapting (step {i})");
                 if (Math.Abs(Stops(darkening[^1], adaptedBright)) > 0.25)
                     failures.Add($"{backend.ShortName}: two seconds on, the bright scene ({darkening[^1]:F3}) is not back to {adaptedBright:F3}");
-                if (!(Stops(limited, plainVeryDark) > 1.5 && Stops(limited, adaptedBright) < -2.5))
-                    failures.Add($"{backend.ShortName}: the +2 stop limit did not hold ({plainVeryDark:F3} -> {limited:F3}, adapted {adaptedBright:F3})");
+                // The limit is on the exposure itself (8 times at +3), not relative to the bright
+                // scene's adapted exposure, so it is measured against the bright scene unexposed: 64
+                // times darker, exposed 8 times, is 3 stops below it whatever the scene's brightness.
+                // (The unexposed very dark frame is too near black to measure to a fraction of a stop.)
+                if (!(Stops(limited, adaptedBright) < -0.5))
+                    failures.Add($"{backend.ShortName}: the very dark scene reached the key ({limited:F3}), so the limit was not tested");
+                if (Math.Abs(Stops(limited, plainBright) + 3.0) > 0.35)
+                    failures.Add($"{backend.ShortName}: the +3 stop limit did not hold: 64x darker and exposed is {Stops(limited, plainBright):F2} stops from the unexposed bright scene, not -3 ({plainBright:F3} -> {limited:F3})");
+                if (!(Stops(limited, plainVeryDark) > 1.5))
+                    failures.Add($"{backend.ShortName}: the very dark scene was not brightened up to the limit ({plainVeryDark:F3} -> {limited:F3})");
                 if (Math.Abs(offAgain - plainBright) > 1e-6)
                     failures.Add($"{backend.ShortName}: with auto exposure off again the frame is not as it was ({plainBright:F4} -> {offAgain:F4})");
             }
