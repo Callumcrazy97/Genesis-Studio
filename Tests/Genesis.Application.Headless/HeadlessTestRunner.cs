@@ -1151,6 +1151,9 @@ internal static class HeadlessTestRunner
         // Anti-aliasing, motion blur and quality tiers with the suites their change touches: the
         // shipped shader catalogue, the every-command sweep and the debug screen (not part of the tiers).
         ["render-quality"] = ["anti-aliasing", "shader-precompiled", "pgsl-logic", "debug-screen", "post-effects"],
+        // The 9-10 Oct 2026 engine requests the tiers do not cover: sky light and exposure, decals and
+        // flash lights, surface shaders and outlines, room changes with preloaded sounds (not part of the tiers).
+        ["requests-1010"] = ["sky-light-exposure", "decals", "flash-lights", "mesh-surface", "outlines", "room-change"],
         ["combat-effects"] = ["flash-lights", "decals"],
     };
 
