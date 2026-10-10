@@ -49,6 +49,32 @@ internal static class OutlineSuite
         }
         """;
 
+    // A shader pack run after the id effect: it multiplies the frame by a texture it declares at t3
+    // under another name (not ObjectMarks) and by one at t5 that nothing binds. Both must read
+    // white, so the frame, outlines and id colours included, comes through unchanged.
+    private const string PackEffect = """
+        Texture2D SceneColor : register(t0);
+        Texture2D Grain : register(t3);
+        Texture2D Paper : register(t5);
+        SamplerState Linear : register(s0);
+        struct PreviewVSOut { float4 SvPos : SV_Position; float2 UV : TEXCOORD0; };
+        float4 MainPS(PreviewVSOut IN) : SV_Target
+        {
+            float4 c = SceneColor.Load(int3(int2(IN.SvPos.xy), 0));
+            return float4(c.rgb * Grain.Sample(Linear, IN.UV).rgb * Paper.Sample(Linear, IN.UV).rgb, c.a);
+        }
+        """;
+
+    /// <summary>An effect as a game's would reach the renderer: with what its code declares (ProjectPostEffects).</summary>
+    private static PostEffectRequest Effect(string name, string source)
+    {
+        (int textures, int samplers, int objectImages) = ProjectPostEffects.DeclaredSlots(source);
+        return new PostEffectRequest(name, source, "MainPS", null!, null!, default, default, default, default)
+        {
+            TextureSlots = textures, SamplerSlots = samplers, ObjectImageSlots = objectImages,
+        };
+    }
+
     public static void Run(HeadlessContext ctx)
     {
         HeadlessHarness.RunCase(ctx.Report, "Engine.Render.Outline.ThroughWallsAndObjectIdsOnAllBackends", () => Outlines(ctx));
@@ -59,9 +85,11 @@ internal static class OutlineSuite
 
     private static void Check(bool condition, string message) => HeadlessHarness.Assert(condition, message);
 
-    private static Action<IRenderController> Scene(MeshHandle cube, bool outlines, bool hiddenThroughWalls, bool idEffect = false) => r =>
+    private static Action<IRenderController> Scene(MeshHandle cube, bool outlines, bool hiddenThroughWalls, bool idEffect = false, bool packEffect = false) => r =>
     {
-        r.SetPostEffects(idEffect
+        r.SetPostEffects(packEffect
+            ? [Effect("Ids", IdEffect), Effect("Pack", PackEffect)]
+            : idEffect
             ? [new PostEffectRequest("Ids", IdEffect, "MainPS", null!, null!, default, default, default, default)]
             : Array.Empty<PostEffectRequest>());
         void Box(Vector3 centre, Vector3 size, RenderColor tint, Vector4 outline = default, int id = 0, bool through = false) =>
@@ -95,9 +123,11 @@ internal static class OutlineSuite
                 harness.CaptureLitScene(File("not-through"), SunFront, shadows: true, Scene(cube, outlines: true, false));
                 harness.CaptureLitScene(File("ids"), SunFront, shadows: true, Scene(cube, outlines: true, true, idEffect: true));
                 RenderStats stats = harness.LastStats;
+                harness.CaptureLitScene(File("ids-pack"), SunFront, shadows: true, Scene(cube, outlines: true, true, packEffect: true));
 
                 Rectangle seenBox = Bounds(harness, Seen, 0.6f), hiddenBox = Bounds(harness, Hidden, 0.5f);
                 using Bitmap none = new(File("none")), through = new(File("through-walls")), notThrough = new(File("not-through")), ids = new(File("ids"));
+                using Bitmap idsPack = new(File("ids-pack"));
                 int noneRed = Count(none, IsRed, Rectangle.Empty), noneGreen = Count(none, IsGreen, Rectangle.Empty);
                 int red = Count(through, IsRed, Rectangle.Empty), redNear = Count(through, IsRed, Grow(seenBox, 5));
                 int green = Count(through, IsGreen, Rectangle.Empty), greenNear = Count(through, IsGreen, Grow(hiddenBox, 5));
@@ -123,6 +153,21 @@ internal static class OutlineSuite
                     $"{backend}: a post effect could not find the box's id in ObjectIds ({marked}).");
                 Check(behind.R < 20 && behind.G > 240 && behind.B > 240,
                     $"{backend}: the box behind the wall is not marked hidden (a negative id) in ObjectIds ({behind}).");
+
+                // The id effect declaring ObjectMarks and ObjectIds by name, as a game's reaches the
+                // renderer, still reads them; the pack after it reads white at t3 (another name) and
+                // at t5 (unbound), so the whole frame is as the id effect left it.
+                Color packMarked = idsPack.GetPixel(centre.X, centre.Y), packBehind = idsPack.GetPixel(hiddenCentre.X, hiddenCentre.Y);
+                Point wall = harness.ProjectLitScenePoint(WallCentre + new Vector3(-0.9f, 0.9f, 0.11f));
+                double changed = 0;
+                foreach (Point at in new[] { wall, new Point(12, 12), new Point(ids.Width - 12, ids.Height - 12), new Point(ids.Width / 2, 12) })
+                    changed = Math.Max(changed, Math.Abs(Luma(idsPack.GetPixel(at.X, at.Y)) - Luma(ids.GetPixel(at.X, at.Y))));
+                int packRed = Count(idsPack, IsRed, Grow(seenBox, 5));
+                report.Add($"{backend}: with a pack after it: id {packMarked}, hidden {packBehind}, largest change elsewhere {changed:F1}, red outline {packRed}");
+                Check(packMarked.R > 240 && packMarked.G < 20 && packMarked.B > 240 && packBehind.R < 20 && packBehind.G > 240 && packBehind.B > 240,
+                    $"{backend}: an effect declaring ObjectMarks/ObjectIds by name lost the object images ({packMarked}, {packBehind}).");
+                Check(changed < 6 && packRed > 200,
+                    $"{backend}: a pack's textures at t3 (not named ObjectMarks) and t5 (unbound) did not read white: the frame changed by {changed:F1}, red outline {packRed}.");
             }
         }
         finally { RenderBackendSelection.Configure(previous); }

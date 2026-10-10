@@ -47,6 +47,8 @@ namespace Genesis.Runtime.Rendering
             public IReadOnlyList<ShaderResourceBinding> Resources = Array.Empty<ShaderResourceBinding>();
             /// <summary>Bit n: the code declares a texture at tn (n from 3); bit n of the other, a sampler at sn (n from 1).</summary>
             public int TextureSlots, SamplerSlots;
+            /// <summary>Bit 3: it declares ObjectMarks at t3; bit 4: ObjectIds at t4 (the engine's object images).</summary>
+            public int ObjectImageSlots;
             /// <summary>Why it cannot run (no such file, not a Full screen shader); empty when it can.</summary>
             public string Error = string.Empty;
         }
@@ -250,6 +252,7 @@ namespace Genesis.Runtime.Rendering
                         Textures = renderer == null ? default : ResolveTextures(renderer, projectPath, shader, effect),
                         TextureSlots = shader.TextureSlots,
                         SamplerSlots = shader.SamplerSlots,
+                        ObjectImageSlots = shader.ObjectImageSlots,
                     });
                 }
                 return Requests;
@@ -349,6 +352,41 @@ namespace Genesis.Runtime.Rendering
             return null;
         }
 
+        /// <summary>
+        /// Whether a texture an effect declares is one of the engine's object images: <c>ObjectMarks</c>
+        /// at t3 or <c>ObjectIds</c> at t4, in any case. Any other texture there reads white when the
+        /// effect is given no picture for it.
+        /// </summary>
+        public static bool IsObjectImage(string name, int slot) =>
+            (slot == 3 && string.Equals(name, "ObjectMarks", StringComparison.OrdinalIgnoreCase))
+            || (slot == 4 && string.Equals(name, "ObjectIds", StringComparison.OrdinalIgnoreCase));
+
+        /// <summary>
+        /// What a post effect's code declares, as the renderer binds it: the texture registers from t3
+        /// (a declared texture given no picture reads white), the sampler registers from s1, and which
+        /// of t3 and t4 are the engine's object images (ObjectMarks, ObjectIds by name).
+        /// </summary>
+        public static (int TextureSlots, int SamplerSlots, int ObjectImageSlots) DeclaredSlots(string source)
+        {
+            int textures = 0, samplers = 0, objectImages = 0;
+            foreach (ReflectedShaderResource resource in ShaderResourceReflection.Reflect(source ?? string.Empty))
+                Classify(resource.Name, resource.Kind, resource.Slot, ref textures, ref samplers, ref objectImages);
+            return (textures, samplers, objectImages);
+        }
+
+        private static void Classify(string name, ShaderResourceKind kind, int slot, ref int textures, ref int samplers, ref int objectImages)
+        {
+            if (kind == ShaderResourceKind.SamplerState && slot is >= 1 and <= 15)
+            {
+                samplers |= 1 << slot;
+            }
+            else if (kind == ShaderResourceKind.Texture2D && slot is >= FirstTextureSlot and <= LastTextureSlot)
+            {
+                textures |= 1 << slot;
+                if (IsObjectImage(name, slot)) objectImages |= 1 << slot;
+            }
+        }
+
         /// <summary>Whether an effect's name is a shader file rather than a Shader resource.</summary>
         private static bool IsShaderFile(string name) =>
             name.EndsWith(".hlsl", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".fx", StringComparison.OrdinalIgnoreCase);
@@ -444,12 +482,7 @@ namespace Genesis.Runtime.Rendering
                     resolved.Source = document.ResolveCompiledSource();
                     resolved.Resources = document.ResolveResources();
                     foreach (ShaderResourceBinding resource in resolved.Resources)
-                    {
-                        if (resource.Kind == ShaderResourceKind.SamplerState && resource.Slot is >= 1 and <= 15)
-                            resolved.SamplerSlots |= 1 << resource.Slot;
-                        else if (resource.Kind is ShaderResourceKind.Texture2D && resource.Slot is >= FirstTextureSlot and <= LastTextureSlot)
-                            resolved.TextureSlots |= 1 << resource.Slot;
-                    }
+                        Classify(resource.Name, resource.Kind, resource.Slot, ref resolved.TextureSlots, ref resolved.SamplerSlots, ref resolved.ObjectImageSlots);
                     if (string.IsNullOrWhiteSpace(resolved.Source)) resolved.Error = "the shader has no code";
                 }
                 else

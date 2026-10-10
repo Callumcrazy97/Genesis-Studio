@@ -924,7 +924,7 @@ namespace Genesis.Rendering.Core
         private void AddPostEffectPass(string key, GpuShaderProgramHandle program, in PostEffectRequest effect)
         {
             _postEffectPasses.Add(new ForwardRenderer.PostEffectPass(program, effect.Row0, effect.Row1, effect.Row2, effect.Row3,
-                ResolveAuthoredTextures(effect.Textures), effect.TextureSlots, effect.SamplerSlots));
+                ResolveAuthoredTextures(effect.Textures), effect.TextureSlots, effect.SamplerSlots, effect.ObjectImageSlots));
             _postEffectsRunning.Add(key);
         }
 

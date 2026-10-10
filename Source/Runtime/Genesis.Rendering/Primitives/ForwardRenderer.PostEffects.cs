@@ -41,13 +41,14 @@ namespace Genesis.Rendering.Primitives
         internal readonly struct PostEffectPass
         {
             public PostEffectPass(GpuShaderProgramHandle program, Vector4 row0, Vector4 row1, Vector4 row2, Vector4 row3,
-                AuthoredGpuTextures textures = default, int textureSlots = 0, int samplerSlots = 0)
+                AuthoredGpuTextures textures = default, int textureSlots = 0, int samplerSlots = 0, int objectImageSlots = 0)
             {
                 Program = program;
                 Row0 = row0; Row1 = row1; Row2 = row2; Row3 = row3;
                 Textures = textures;
                 TextureSlots = textureSlots;
                 SamplerSlots = samplerSlots;
+                ObjectImageSlots = objectImageSlots & ObjectImageRegisters;
             }
 
             public GpuShaderProgramHandle Program { get; }
@@ -61,6 +62,8 @@ namespace Genesis.Rendering.Primitives
             public int TextureSlots { get; }
             /// <summary>Bit n: the shader declares a sampler at sn (n from 1).</summary>
             public int SamplerSlots { get; }
+            /// <summary>Bit 3: it declares ObjectMarks at t3; bit 4: ObjectIds at t4. Those read the object images when given no picture.</summary>
+            public int ObjectImageSlots { get; }
         }
 
         private readonly List<PostEffectPass> _postEffects = new();
@@ -150,20 +153,16 @@ namespace Genesis.Rendering.Primitives
             _postEffectWidth = _postEffectHeight = 0;
         }
 
-        /// <summary>t3 (ObjectMarks) and t4 (ObjectIds), which every post effect is given (BindObjectImages).</summary>
-        private const int ObjectImageSlots = (1 << 3) | (1 << 4);
+        /// <summary>t3 (ObjectMarks) and t4 (ObjectIds), which BindObjectImages fills for every post effect.</summary>
+        private const int ObjectImageRegisters = (1 << 3) | (1 << 4);
 
-        /// <summary>The texture registers an effect has a picture of its own for (PostEffectSetTexture, Shader editor).</summary>
-        private static int GivenTextureSlots(in PostEffectPass pass)
-        {
-            int slots = 0;
-            AuthoredGpuTextures textures = pass.Textures;
-            if (textures.Count > 0) slots |= 1 << textures.Slot0;
-            if (textures.Count > 1) slots |= 1 << textures.Slot1;
-            if (textures.Count > 2) slots |= 1 << textures.Slot2;
-            if (textures.Count > 3) slots |= 1 << textures.Slot3;
-            return slots;
-        }
+        /// <summary>
+        /// The registers that read white: each texture the effect declares beyond the engine's three,
+        /// except ObjectMarks at t3 and ObjectIds at t4 declared by those names, which keep the object
+        /// images. A picture given to the effect is bound over either afterwards, so it always wins.
+        /// </summary>
+        internal static int WhiteTextureSlots(int declared, int objectImages) =>
+            declared & ~(objectImages & ObjectImageRegisters) & ~0b111 & 0xFFFF;
 
         /// <summary>The texture registers an effect reads beyond the engine's three: those it declares and those it is given.</summary>
         private static int ExtraTextureSlots(in PostEffectPass pass)
@@ -243,10 +242,11 @@ namespace Genesis.Rendering.Primitives
                 _gpu.SetSampler(GpuShaderStage.Pixel, 0, _linearSampler);
                 // The project's own pictures (t3 and up): white where the shader declares one it
                 // was not given, so it never reads what an earlier pass left bound there. t3 and t4
-                // already hold ObjectMarks and ObjectIds (BindObjectImages): an effect declaring those
-                // to read outlines keeps them, unless it is given a picture of its own in that slot.
+                // hold ObjectMarks and ObjectIds (BindObjectImages): an effect that declares them by
+                // those names reads them, and any other texture it declares there reads white. A
+                // picture given to the effect (Bind below) replaces either.
                 int extra = ExtraTextureSlots(pass);
-                int whiteSlots = extra & ~(ObjectImageSlots & ~GivenTextureSlots(pass));
+                int whiteSlots = WhiteTextureSlots(pass.TextureSlots, pass.ObjectImageSlots);
                 for (int slot = 3; whiteSlots != 0 && slot < 16; slot++)
                     if ((whiteSlots & (1 << slot)) != 0) _gpu.SetTexture(GpuShaderStage.Pixel, slot, whiteTexture);
                 pass.Textures.Bind(_gpu);
@@ -260,7 +260,7 @@ namespace Genesis.Rendering.Primitives
                 _gpu.ClearTexture(GpuShaderStage.Pixel, 0);
                 _gpu.ClearTexture(GpuShaderStage.Pixel, 1);
                 _gpu.ClearTexture(GpuShaderStage.Pixel, 2);
-                int cleared = extra | ObjectImageSlots;
+                int cleared = extra | ObjectImageRegisters;
                 for (int slot = 3; slot < 16; slot++)
                     if ((cleared & (1 << slot)) != 0) _gpu.ClearTexture(GpuShaderStage.Pixel, slot);
                 _gpu.EndRenderPass();

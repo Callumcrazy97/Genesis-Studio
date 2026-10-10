@@ -58,9 +58,11 @@ Shader editor are given to it when it runs as a post effect, as they are to Mesh
 (before, a post effect only had `t0` to `t2`). A texture register the shader declares and nothing
 binds reads white. Samplers beyond `s0`, for an effect that declares them: `s1` point and clamped,
 `s2` point and repeating, `s3` smooth and repeating. An effect has up to four pictures of its own.
-`t3` and `t4` otherwise hold ObjectMarks and ObjectIds (outlines and object ids, below): a picture
-given to the effect in one of those registers replaces that image for it, so an effect that also
-reads outlines keeps its own pictures at `t5` and above.
+`t3` and `t4` are where ObjectMarks and ObjectIds (outlines and object ids, below) are read: a
+texture declared there by those names (`Texture2D<float4> ObjectMarks : register(t3)`,
+`Texture2D<float> ObjectIds : register(t4)`, in any case) reads them; any other texture declared
+there reads white, like every other declared texture given no picture; and a picture given to the
+effect always wins. An effect that reads outlines keeps its own pictures at `t5` and above.
 
 ```hlsl
 Texture2D SceneColor : register(t0);
