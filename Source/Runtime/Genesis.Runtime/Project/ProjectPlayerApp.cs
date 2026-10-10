@@ -177,6 +177,9 @@ namespace Genesis.Runtime.Project
                     return 2;
                 }
 
+                // The project's anti-aliasing, from its file: an exported game has no Studio to say.
+                ProjectPaths.ApplyProjectAntiAliasing(projectPath);
+
                 // The project's own shaders, the same way: made (or, in an exported game, read) on
                 // workers while the room loads, instead of by the first frame that draws with each.
                 if (warmFormat is Genesis.Rendering.Abstractions.GpuShaderBinaryFormat projectFormat)

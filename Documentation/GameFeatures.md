@@ -1019,6 +1019,113 @@ A room's atmosphere and grading can follow the hour (a hazy morning, a golden ho
 Colour tints belong to the game's look, so they are a project post effect (see
 [Post effects](PostEffects.md)) with its parameters set by `PostEffectSetParameter`.
 
+## Anti-aliasing and quality tiers
+
+### Anti-aliasing
+
+The 3D picture's jagged edges can be smoothed after it is tonemapped. Off by default: a game that
+does not ask draws exactly as before.
+
+| Setting or command | Meaning |
+|---|---|
+| Preferences › Project › **Anti-aliasing (3D)** (`rendering.antiAliasing` in the project file: `"Off"`, `"FXAA"` or `"SMAA"`) | What the game starts with, in the Player and in an exported game, and what Studio's 3D viewports show. Off by default. |
+| `RenderSetAntiAliasing(mode)` | `"off"`, `"fxaa"` or `"smaa"`, from the next frame; false for any other name. |
+| `RenderGetAntiAliasing()` | The mode asked for. |
+| `Engine.Rendering.AntiAliasing` | The same as a property. |
+| `GENESIS_ANTI_ALIASING` | Environment override for one run (`off`, `fxaa`, `smaa`); it wins over the project file. |
+
+**FXAA** is one full-screen pass: it finds each step whose change in brightness is large enough to
+see, walks along the edge to both ends and blends the pixel with its neighbour across the edge by
+how far along the step it sits; a single-pixel speck is softened too. Cheapest; it softens fine
+texture detail a little. **SMAA** (1x) is three passes: edges by brightness with local contrast
+adaptation; then for every edge pixel the staircase is measured (the edge is walked up to 32 pixels
+each way and its ends read as an L, U or Z) and the area the true edge would cover is worked out;
+then each pixel is blended with its neighbours by those areas. Texture detail stays sharper. It
+finds horizontal and vertical edge patterns; the reference's diagonal and corner passes are not
+done, and no lookup textures ship. Both blend in linear light, as a multisampled resolve does.
+
+Where it runs in a frame: the composite (fog, bloom, exposure, grading, tonemap) → the held items
+(view models) → **anti-aliasing** → the project's post effects → the GUI. The GUI is drawn after
+the 3D renderer has finished, so text and HUD are never softened, and a post effect (an outline,
+grain, sharpening) reads the anti-aliased picture while its own lines stay as it draws them. It
+runs on Direct3D 11, Direct3D 12, Vulkan and OpenGL; the software renderer ignores it and draws as
+before. Its shaders ship precompiled with the engine's own. The renderer's log says which mode is
+in effect (`Anti-aliasing: smaa`), and so does the debug screen's render passes line.
+
+What each pass costs at 1920x1080 is measured by `Build.bat --test anti-aliasing-cost` (GPU time
+of the frame with the pass minus without it, on each GPU backend).
+
+**Not done: temporal anti-aliasing (TAA).** It needs, for every pixel, where that point was on
+screen last frame. The renderer can work that out for the camera's own motion (from depth), but
+not for moving or animated meshes: draws are submitted afresh each frame (`MeshDrawCall` carries
+no identity or previous transform) and a skinned mesh keeps only this frame's bones. A TAA without
+that ghosts behind running characters and vehicles. The plan: (1) jitter the main projection by a
+Halton sequence (the held items too); (2) a velocity target written by the forward, terrain and
+water shaders, fed with each draw's previous world matrix (the runtime's object draw pass knows
+which entity a draw is) and the previous skin palette (kept per palette), camera-only motion
+elsewhere, and a "no history" mask for particles, transparent draws and project mesh shaders;
+(3) a resolve with closest-depth velocity, colour clipping in YCoCg against the 3x3 neighbourhood,
+history rejection on disocclusion, and a light sharpen; (4) the cloud and fog temporal passes kept
+on the unjittered matrices. About a week across the shaders and the four backends, with tests.
+The camera-only half is about two days but is not robust enough for a shooter.
+
+### Quality tiers
+
+One call sets the costly rendering features together, for a Graphics menu:
+
+| Command | Meaning |
+|---|---|
+| `RenderSetQuality(tier)`, `Engine.Rendering.SetQuality(tier)` | `"low"`, `"medium"`, `"high"` or `"ultra"`, from the next frame; false for any other name. |
+| `RenderGetQuality()`, `Engine.Rendering.QualityTier` | The tier last set; `"custom"` once one of the settings it covers has been changed since; `""` before any tier. Setting the property applies a tier. |
+
+| Setting | Low | Medium | High | Ultra | Set alone by |
+|---|---|---|---|---|---|
+| Ambient occlusion (GTAO) | off | on | on | on | `Engine.Rendering.GtaoEnabled` |
+| Contact shadows | off | off | on | on | `Engine.Rendering.ContactShadowsEnabled` |
+| Sun shadow cascades | 2 | 2 | 3 | 3 | `Engine.Rendering.CascadeCount` |
+| Sun shadow map size (each cascade) | 512 | 1024 | 1024 | 2048 | `Engine.Rendering.ShadowResolution` |
+| Point lights given a shadow map | 0 | 1 | 2 | 4 | `Engine.Rendering.OmniShadowBudget` |
+| Local lights in the volumetric fog | off | off | on | on | `Engine.Rendering.LocalVolumetricsEnabled` |
+| Bloom | off | on | on | on | `Engine.Rendering.BloomEnabled` |
+| Volumetric fog grid quality | 0 | 1 | 1 | 2 | `Engine.Rendering.VolumetricFogQuality` |
+| Cloud quality | Performance | Balanced | High | Cinematic | `Engine.Rendering.CloudQuality` |
+| Anti-aliasing | FXAA | FXAA | SMAA | SMAA | `RenderSetAntiAliasing` |
+
+The engine's defaults without a tier are two 1024 cascades, one point-light shadow, the room's own
+fog quality, High clouds and everything else off. Nothing changes until a game sets a tier. Once it
+has, these settings decide for every room: a room's own ambient occlusion or third cascade is
+turned off on Low, as a player's choice should. Rooms still decide whether they have fog, clouds,
+bloom strength, exposure and the rest of their look; a tier only decides how much of the costly
+work is done. Change any one setting after the tier to override it (the tier then reads
+`"custom"`):
+
+```
+RenderSetQuality("high");
+Engine.Rendering.BloomEnabled = false;   // this game never blooms
+```
+
+New on their own:
+
+| Property | Meaning |
+|---|---|
+| `Engine.Rendering.ShadowResolution` | Sun shadow map size in texels per side, for every cascade: 512, 1024 (the default), 2048 or 4096; other values are rounded to one of those, and 0 goes back to the default. The maps are remade at the next frame. The software renderer stays at 1024 at most. `GENESIS_SHADOW_RESOLUTION` sets it for one run. |
+| `Engine.Rendering.VolumetricFogQuality` | Volumetric fog grid quality 0 to 2 for every room; -1 (the default) leaves each room's own. |
+
+The same test measures each tier's frame time on a lit scene (64 boxes on the floor, sun shadows,
+fog).
+
+### Verification
+
+`Build.bat --test anti-aliasing` draws a white shape with a shallow and a steep edge on black,
+with GUI text above it, on every renderer: without anti-aliasing no edge pixel holds a value
+between black and white; with FXAA and with SMAA most edge columns and rows do; the GUI text and
+flat areas are identical to the last pixel; an inverting post effect returns the inverse of the
+anti-aliased picture (so it ran after); the software renderer's picture does not change. It also
+checks the commands, the project setting through the Preferences page, save and the Player's read,
+every tier's table reaching a room's frame state, overrides after a tier, and tiers switched while
+drawing on every renderer (sun shadow maps remade at 512, 2048 and 1024, and still shadowing on
+the GPU backends). `Build.bat --test anti-aliasing-cost` measures the costs above.
+
 ## Pictures from a script
 
 `ScreenshotSave(name)` saves a picture of the frame once it is drawn, as `name.png` in the

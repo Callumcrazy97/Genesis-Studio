@@ -317,7 +317,7 @@ namespace Genesis.Shared.Interfaces
     /// Installation-wide lighting defaults shared by Studio previews and the Player process.
     /// A scene may further disable lighting or shadows, but cannot bypass these master switches.
     /// </summary>
-    public static class MeshLightingDefaults
+    public static partial class MeshLightingDefaults
     {
         public const string LightingEnvironmentVariable = "GENESIS_LIGHTING_ENABLED";
         public const string ShadowsEnvironmentVariable = "GENESIS_SHADOWS_ENABLED";
@@ -499,6 +499,7 @@ namespace Genesis.Shared.Interfaces
             state.VignetteStrength = _vignetteStrength;
             state.BloomThreshold = _bloomThreshold;
             state.BloomIntensity = _bloomIntensity;
+            ApplyQuality(ref state);
         }
 
         private static bool ParseBoolean(string value, bool fallback)
@@ -793,6 +794,10 @@ namespace Genesis.Shared.Interfaces
         /// Higher values bias toward stable analytic fog (less temporal shimmer).
         public float   VolumetricTemporalBlend;
         public bool    ShadowHighQuality;
+        /// <summary>Sun shadow map size in texels per side for every cascade; 0 keeps the engine's 1024.</summary>
+        public int     ShadowMapResolution;
+        /// <summary>Post-process anti-aliasing of this frame's 3D image (Off by default).</summary>
+        public AntiAliasingMode AntiAliasing;
         public bool    Wireframe;
         public float   CameraFarPlane;
         public RenderDebugView DebugView;
@@ -1126,6 +1131,12 @@ namespace Genesis.Shared.Interfaces
         public int LocalShadowLights;
         /// <summary>Local shadow atlas tiles re-rendered in the last frame (0 when every tile was cached).</summary>
         public int LocalShadowTilesRendered;
+        /// <summary>The anti-aliasing the last 3D frame ran (Off when none).</summary>
+        public AntiAliasingMode AntiAliasing;
+        /// <summary>CPU milliseconds recording the anti-aliasing passes (0 when none ran).</summary>
+        public double AntiAliasMs;
+        /// <summary>Sun shadow map size in texels per side, every cascade.</summary>
+        public int ShadowMapResolution;
     }
 
     public enum BlendMode   { Alpha, Additive, Multiply, None }

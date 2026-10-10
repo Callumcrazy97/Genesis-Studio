@@ -621,10 +621,16 @@ namespace Genesis.Rendering.Primitives
         private GpuBufferHandle _tileLightIndexBuf;
         private const int MaxInstances = 32768;
 
-        // Shadow maps: far + near (R7.11) + optional mid (AF1.1 when cascade count is 3)
-        private const int ShadowMapSize     = 1024; // far cascade size (trimmed 2048→1536→1024: each step halves fill-rate; distant shadows soften slightly but are invisible at play distance)
-        private const int ShadowMapSizeNear = 1024; // near cascade size (unchanged — keeps crisp close-range shadows)
-        private const int ShadowMapSizeMid  = 1024;
+        // Shadow maps: far + near (R7.11) + optional mid (AF1.1 when cascade count is 3). Every
+        // cascade is 1024² (the far one trimmed 2048→1536→1024: each step halves fill-rate; distant
+        // shadows soften slightly but are invisible at play distance) unless the state asks for
+        // another size (Mesh3DState.ShadowMapResolution, a quality tier); see EnsureShadowMapSize.
+        private int _shadowMapSize = MeshLightingDefaults.DefaultShadowResolution;
+        /// <summary>The sun's shadow map size in texels per side (every cascade).</summary>
+        public int ShadowMapResolutionInUse => _shadowMapSize;
+        private int ShadowMapSize     => _shadowMapSize;
+        private int ShadowMapSizeNear => _shadowMapSize;
+        private int ShadowMapSizeMid  => _shadowMapSize;
         private GpuRenderTargetHandle _shadowTarget;
         private GpuRenderTargetHandle _shadowMidTarget;
         private GpuRenderTargetHandle _shadowNearTarget;
@@ -1329,6 +1335,28 @@ namespace Genesis.Rendering.Primitives
             _shadowTexture = _gpu.GetRenderTargetDepthTexture(_shadowTarget);
             _shadowMidTexture = _gpu.GetRenderTargetDepthTexture(_shadowMidTarget);
             _shadowNearTexture = _gpu.GetRenderTargetDepthTexture(_shadowNearTarget);
+        }
+
+        /// <summary>
+        /// Remakes the sun's shadow maps when the state asks for another size (0 keeps 1024). The
+        /// CPU rasterizer stays at 1024 at most: it draws shadow maps on the processor.
+        /// </summary>
+        private void EnsureShadowMapSize(int requested)
+        {
+            int size = MeshLightingDefaults.NormalizeShadowResolution(requested);
+            if (size <= 0) size = MeshLightingDefaults.DefaultShadowResolution;
+            if (string.Equals(_gpu.BackendName, "Software", StringComparison.OrdinalIgnoreCase))
+                size = Math.Min(size, MeshLightingDefaults.DefaultShadowResolution);
+            if (size == _shadowMapSize) return;
+
+            _gpu.ReleaseRenderTarget(_shadowTarget);
+            _gpu.ReleaseRenderTarget(_shadowMidTarget);
+            _gpu.ReleaseRenderTarget(_shadowNearTarget);
+            _shadowMapSize = size;
+            CreateShadowMap();
+            // Nothing drawn into the old maps carries over.
+            Array.Clear(_cascadeValid);
+            RenderLog.Line($"Sun shadow maps: {size}x{size}");
         }
 
         private void CreateFlatNormalMap()
@@ -2378,6 +2406,7 @@ namespace Genesis.Rendering.Primitives
                 || MathF.Abs(_state.SkyTimeOfDayHours - state.SkyTimeOfDayHours) > .1f)
                 _cloudHistoryValid = false;
             _state = state;
+            EnsureShadowMapSize(state.ShadowMapResolution);
             RefreshCascadeCache();
         }
         public void AddDeltaTime(float dt)       => _time += dt;
@@ -3495,7 +3524,13 @@ namespace Genesis.Rendering.Primitives
 
                 // With project post effects the composite and the held items draw into an image of
                 // their own, which the effects then read; the last effect draws the real target.
-                GpuRenderTargetHandle composed = HasPostEffects ? PostEffectInput(viewW, viewH) : target;
+                // Anti-aliasing goes between: it reads the composed image and writes what the post
+                // effects (or, without them, the real target) take.
+                AntiAliasingMode antiAliasing = AntiAliasingThisFrame(canPost);
+                GpuRenderTargetHandle afterAntiAliasing = HasPostEffects ? PostEffectInput(viewW, viewH) : target;
+                GpuRenderTargetHandle composed = antiAliasing != AntiAliasingMode.Off
+                    ? AntiAliasInput(antiAliasing, viewW, viewH)
+                    : afterAntiAliasing;
                 CompositePost(composed, _sceneTexture, postDepth, viewW, viewH,
                     runGtao ? _aoTexture : GpuTextureHandle.Invalid, runGtao,
                     runContact ? _contactTexture : GpuTextureHandle.Invalid, runContact,
@@ -3508,10 +3543,13 @@ namespace Genesis.Rendering.Primitives
                     runRaymarchedClouds,
                     runCelestialExtras);
                 DrawViewModelPass(composed, whiteTexture);
+                if (antiAliasing != AntiAliasingMode.Off)
+                    RunAntiAliasing(antiAliasing, afterAntiAliasing, viewW, viewH);
                 if (HasPostEffects) RunPostEffects(target, postDepth, viewW, viewH);
             }
             else
             {
+                AntiAliasingThisFrame(canPost: false);
                 LastAoMs = 0;
                 LastContactShadowMs = 0;
                 LastLocalVolumetricMs = 0;
@@ -6256,6 +6294,7 @@ namespace Genesis.Rendering.Primitives
         public void Dispose()
         {
             ReleasePostEffectTargets();
+            ReleaseAntiAliasResources();
             ReleaseModelLayers();
             if (_reflectionTarget.IsValid) _gpu.ReleaseRenderTarget(_reflectionTarget);
             _gpu.ReleaseVertexLayout(_layout);
