@@ -91,6 +91,7 @@ internal static class Effects2DSuite
             }
 
             effects.Emit(project, sparks, 100, 100, 20, 90);
+            effects.Advance(0.05f); // a particle fades in from nothing over its first moments
             RecordingSink frame = Draw();
             Assert(effects.Enabled && !effects.LightingEnabled && !effects.Darkened, "A particle burst turned on 2D lighting.");
             Assert(frame.Calls.Any(call => call.Depth == ParticleDepth), "The burst's particles were not drawn.");
