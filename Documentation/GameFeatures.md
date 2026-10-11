@@ -1891,9 +1891,11 @@ pool, so it never waits for a pool thread while the game's thread holds a lock.
 
 A freshly exported test game once wrote nothing for 90 s and was stopped (10 Oct 2026), and the
 change then blamed (an earlier version of the above) was taken back. It was not that change: 25
-launches with it never stopped, and on 11 Oct the same symptom hit builds without it while about
-900 MB of new files were copied beside the game (one start had not reached the Player's `Main` after
-60 s; a GenesisCraft export took 145 s to its first room, 30 s before the Player's own code ran).
+launches with it never stopped, and on 11 Oct the same symptom hit a build without it, and one of 30
+launches of this code before any engine code had run (no `Main` after 60 s), each while about 900 MB
+of new files were copied beside the game; a GenesisCraft export started during such a copy took
+145 s to its first room, 30 s of it before the Player's own code ran. 30 more fresh launches on a
+quiet PC all started, in 7.4 to 8.1 s.
 A start competing with a big copy, build or export for the antivirus can look stuck.
 `GENESIS_STARTUP_TRACE=<file>` writes each start-up step to that file as it happens (its first line
 before any engine assembly loads; the thread pool's state every two seconds), and
