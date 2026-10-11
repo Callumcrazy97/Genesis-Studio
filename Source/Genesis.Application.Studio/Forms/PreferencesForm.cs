@@ -93,7 +93,8 @@ public sealed class PreferencesForm : DpiAwareForm
     private readonly NumericUpDown _fogAlpha = new();
     private readonly CheckBox _allowEscapeToClose = new();
     private readonly CheckBox _blendGuiInLinearLight = new() { Name = "BlendGuiInLinearLightPicker" };
-    private readonly ComboBox _antiAliasing = new() { Name = "AntiAliasingPicker" };
+    // Owner-drawn like the theme and density pickers: a plain list combo drew system white here.
+    private readonly ThemedComboBox _antiAliasing = new() { Name = "AntiAliasingPicker" };
 
     private readonly Genesis.Application.Studio.Controls.AnimatedIconPlayer _projectIconPreview = new() { Size = new Size(128, 128), SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.FromArgb(40, 44, 52), Cursor = Cursors.Hand };
     private readonly NumericUpDown _projectIconFps = new();
