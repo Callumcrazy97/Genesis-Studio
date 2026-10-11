@@ -244,6 +244,26 @@ Vulkan device still allocates about half a kilobyte for each emitter's dispatche
 bursts still cost each emitter's GPU commands every frame (about 17 µs each on Direct3D 12): for
 hundreds, batch them.
 
+## 2D lights and darkness in a room (11 October 2026)
+
+A 2D room is never darkened unless its game asks: `Light2DAmbient(amount, r, g, b)` darkens the
+current room, `amount` (0.05 to 1) being the light left where no light reaches and `r, g, b` (0 to 1)
+the colour of the shade. `Light2DPoint` and `Light2DCone` lights glow in any room, and light up the
+darkness once `Light2DAmbient` has set an amount below 1. `Particle2DBurst` and `Particle2DFlow`
+never touch lighting.
+
+| Command | What it does |
+|---|---|
+| `Light2DAmbient(amount, r, g, b)` | Darkens the room to `amount` and tints the shade. 1 turns darkness off again. Other rooms are unaffected. |
+| `Light2DPoint(id, x, y, radius, intensity, r, g, b)`, `Light2DCone(...)` | A light, kept until removed (zero radius or `Light2DRemove`). Without `Light2DAmbient` it only glows. |
+| `Light2DBlocker(id, x, y, width, height)` | A rectangle that casts shadows from the lights. |
+
+Until 11 October 2026 the first light or particle burst in a room turned darkness on at an amount
+of 0.32, so a sunlit room went dark unless the game also called `Light2DAmbient(1, ...)`. Every
+project then using 2D lights (one, a dark mansion game) sets the amount itself in each lit room, so
+none looked different; that call is now unnecessary. A dark game calls `Light2DAmbient` in the
+room's first Create, for example `Light2DAmbient(0.32, 0.012, 0.024, 0.06)` for the old default.
+
 ## Flash lights: muzzle flashes and explosions
 
 A game fires a short light from any event (the Step that fires a gun, an explosion's Create) and

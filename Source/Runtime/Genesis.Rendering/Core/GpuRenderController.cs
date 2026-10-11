@@ -1906,7 +1906,7 @@ namespace Genesis.Rendering.Core
                 includeRoots).Blob;
             EnsureShaderFrameBuffer();
             return profile == ShaderPreviewProfile.MeshPipeline
-                ? _fwd.RegisterRuntimeShader(blob, MeshSurfaceShaders.IsSurfaceSource(hlslSourceCode))
+                ? _fwd.RegisterRuntimeShader(blob, ReadsEngineConstants(hlslSourceCode))
                 : _spr.RegisterRuntimeShader(blob);
         }
 
@@ -1942,9 +1942,16 @@ namespace Genesis.Rendering.Core
             EnsureShaderFrameBuffer();
             return profile == ShaderPreviewProfile.MeshPipeline
                 ? _fwd.RegisterRuntimeShaderProgram(vertex, pixel,
-                    engineLit: MeshSurfaceShaders.IsSurfaceSource(hlslSourceCode))
+                    engineLit: ReadsEngineConstants(hlslSourceCode))
                 : _spr.RegisterRuntimeShaderProgram(vertex, pixel);
         }
+
+        /// <summary>
+        /// A surface shader, or a mesh shader built on the engine's forward shader (the terrain layer
+        /// shaders): both read the engine's constants as bound for its own draws, lamp shadows at b4.
+        /// </summary>
+        private static bool ReadsEngineConstants(string source) =>
+            MeshSurfaceShaders.IsSurfaceSource(source) || ForwardShaders.ReadsEngineConstants(source);
 
         public RuntimeShaderHandle RegisterRuntimeMeshPass(string source, Genesis.Shared.Assets.ShaderPassDefinition pass,
             string sourcePath = null, string projectPath = null)
@@ -1958,7 +1965,7 @@ namespace Genesis.Rendering.Core
             byte[] pixel = Compile(string.IsNullOrWhiteSpace(pass.Entry) ? "MainPS" : pass.Entry, GpuShaderStage.Pixel);
             EnsureShaderFrameBuffer();
             return _fwd.RegisterRuntimeShaderProgram(vertex, pixel, skinned, pass.MeshPassMode,
-                engineLit: MeshSurfaceShaders.IsSurfaceSource(source));
+                engineLit: ReadsEngineConstants(source));
         }
 
         public void ReleaseRuntimeShader(RuntimeShaderHandle handle, ShaderPreviewProfile profile)

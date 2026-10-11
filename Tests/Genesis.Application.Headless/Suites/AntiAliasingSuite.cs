@@ -170,6 +170,29 @@ internal static class AntiAliasingSuite
                 string capture = "anti-aliasing-preferences.png";
                 ctx.Report.Images.Add(ImageResult.From("Studio.Preferences.Project.AntiAliasing", capture,
                     VisualCapture.CaptureOpenForm(preferences, Path.Combine(ctx.Captures, capture))));
+                // The picker was a plain list combo that drew system white on the dark theme.
+                Check(picker is Genesis.Application.Editors.Suite.UiKit.ThemedComboBox && picker.DrawMode == DrawMode.OwnerDrawFixed,
+                    $"The anti-aliasing picker is a {picker.GetType().Name}, not the themed combo the other Preferences pickers use.");
+                Color field = Genesis.Application.Studio.Theme.ThemeService.Palette.SurfaceRaised;
+                Color drawn = MeanColour(Path.Combine(ctx.Captures, capture), preferences, picker);
+                if (field.GetBrightness() < 0.5f)
+                    Check(drawn.GetBrightness() < 0.45f,
+                        $"The anti-aliasing picker is drawn {drawn} (light) on a dark theme whose fields are {field}.");
+                // The Rendering page's pickers were plain list combos too.
+                string[] plain = Descendants(preferences).OfType<ComboBox>()
+                    .Where(combo => combo is not Genesis.Application.Editors.Suite.UiKit.ThemedComboBox)
+                    .Select(combo => string.IsNullOrEmpty(combo.Name) ? combo.Text : combo.Name).ToArray();
+                Check(plain.Length == 0, "Preferences pickers that draw system white: " + string.Join(", ", plain));
+                Check(preferences.SelectCategory("Rendering"), "Preferences has no Rendering page.");
+                GateSuite.Pump(2, 15);
+                string rendering = "preferences-rendering-pickers.png";
+                ctx.Report.Images.Add(ImageResult.From("Studio.Preferences.Rendering.Pickers", rendering,
+                    VisualCapture.CaptureOpenForm(preferences, Path.Combine(ctx.Captures, rendering))));
+                ComboBox culling = Descendants(preferences).OfType<ComboBox>().Single(combo => combo.Name == "FaceCullingPicker");
+                Color cullingDrawn = MeanColour(Path.Combine(ctx.Captures, rendering), preferences, culling);
+                if (field.GetBrightness() < 0.5f)
+                    Check(cullingDrawn.GetBrightness() < 0.45f,
+                        $"The cull-faces picker is drawn {cullingDrawn} (light) on a dark theme whose fields are {field}.");
                 Check(new ProjectService().OpenProject(project.RootPath).Manifest.Rendering.AntiAliasing == "SMAA"
                         && ProjectPaths.ReadAntiAliasing(project.RootPath) == AntiAliasingMode.Smaa,
                     "Applying the Project page did not save SMAA to the project file.");
@@ -185,6 +208,27 @@ internal static class AntiAliasingSuite
             }
             Check(ProjectPaths.ReadAntiAliasing(project.RootPath) == AntiAliasingMode.Off, "Choosing Off again was not saved.");
         });
+    }
+
+    /// <summary>
+    /// The mean colour of a strip of a control's box, between its text and its drop arrow, in a
+    /// capture of its form (DrawToBitmap draws the window from its frame's top-left corner).
+    /// </summary>
+    private static Color MeanColour(string capturePath, Form form, Control control)
+    {
+        using Bitmap shot = new(capturePath);
+        Rectangle box = control.RectangleToScreen(control.ClientRectangle);
+        int left = box.X - form.Bounds.X, top = box.Y - form.Bounds.Y;
+        int x0 = Math.Clamp(left + (box.Width * 45 / 100), 0, shot.Width - 1), x1 = Math.Clamp(left + (box.Width * 75 / 100), x0 + 1, shot.Width);
+        int y0 = Math.Clamp(top + (box.Height / 2) - 3, 0, shot.Height - 1), y1 = Math.Clamp(y0 + 6, y0 + 1, shot.Height);
+        long r = 0, g = 0, b = 0, count = 0;
+        for (int y = y0; y < y1; y++)
+            for (int x = x0; x < x1; x++)
+            {
+                Color pixel = shot.GetPixel(x, y);
+                r += pixel.R; g += pixel.G; b += pixel.B; count++;
+            }
+        return count == 0 ? Color.Empty : Color.FromArgb((int)(r / count), (int)(g / count), (int)(b / count));
     }
 
     private static IEnumerable<Control> Descendants(Control root)
