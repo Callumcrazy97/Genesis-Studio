@@ -90,6 +90,9 @@ public static class ResourceLibraryTags
         {
             if (!metadata.Exists || metadata.Length > MaximumMetadataBytes || bytes.Length != metadata.Length
                 || (metadata.Attributes & FileAttributes.ReparsePoint) != 0) return;
+            // A file written in the last few seconds could be written again within the same tick
+            // of the file system's clock, keeping its time: ReadOrEmpty reads it itself.
+            if (DateTime.UtcNow.Ticks - metadata.LastWriteTimeUtc.Ticks <= TimeSpan.TicksPerSecond * 3) return;
             string path = Path.GetFullPath(resourcePath) + ".meta";
             IReadOnlyList<string> tags = ReadTags(ReadObject(bytes));
             lock (CacheGate)

@@ -954,7 +954,10 @@ public sealed class ResourceService
                     && guid.ValueKind == JsonValueKind.String
                     && Guid.TryParseExact(guid.GetString(), "N", out Guid existing))
                 {
-                    IdentityCache[metadataPath] = new CachedIdentity(ticks, length, existing);
+                    // A file written in the last few seconds could be written again within the
+                    // same tick of the file system's clock, keeping its time: read it again then.
+                    if (DateTime.UtcNow.Ticks - ticks > TimeSpan.TicksPerSecond * 3)
+                        IdentityCache[metadataPath] = new CachedIdentity(ticks, length, existing);
                     return existing;
                 }
             }

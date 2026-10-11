@@ -264,7 +264,9 @@ public sealed class ResourceCatalog
                     identity = new MetaIdentity(ticks, length, parsed, (string)metadata["resourceName"]);
                 }
                 catch (Newtonsoft.Json.JsonException error) { throw new InvalidDataException("Invalid resource identity metadata for '" + name + "'.", error); }
-                MetaIdentities[metaPath] = identity;
+                // A file written in the last few seconds could be written again within the same
+                // tick of the file system's clock, keeping its time; it is read again next time.
+                if (DateTime.UtcNow.Ticks - ticks > TimeSpan.TicksPerSecond * 3) MetaIdentities[metaPath] = identity;
             }
             assetId = identity.Guid;
             if (!string.IsNullOrWhiteSpace(identity.Authored)) name = ValidateName(identity.Authored);
