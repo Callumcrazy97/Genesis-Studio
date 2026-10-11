@@ -173,7 +173,9 @@ namespace Genesis.Runtime.Rendering
                             // The draw that uses it compiles it again and reports it too, but a post
                             // effect that is never turned on never draws: name it and say why here.
                             Interlocked.Increment(ref failed);
-                            string failure = DescribeFailure(program, error, projectPath);
+                            string failure;
+                            try { failure = DescribeFailure(program, error, projectPath); }
+                            catch (Exception) { failure = $"project shader '{program.Name}' did not compile: {error.Message}"; } // never stop a worker
                             lock (failures) failures.Add(failure);
                         }
                         finally
