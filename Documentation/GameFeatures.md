@@ -1268,7 +1268,10 @@ The rules a script can rely on:
   as they were; `VariableSet` or an assignment in the job changes only the job's. Lists, maps and
   grids held in variables are handles (numbers), so they reach the shared structures. Variables of
   the game's calling functions (`var`s of a caller) are not there: the job's function is called on
-  its own.
+  its own. Only the variables the job's code reads are copied: the names its function, and every
+  library function it calls, read (worked out once per function). A game with thousands of
+  variables pays for the handful a mesher reads. Code that reads a variable by a name worked out as
+  it runs (`VariableGet`, `VariableGetText`...) is given every variable, as before 11 Oct 2026.
 - **A job still runs only pure commands** (maths, text, noise, data structures): it works out data,
   and the game's thread turns that into meshes, instances or sound. For a mesh, the job fills a list
   with 36 numbers a face and the game adds them with `MeshAddQuadsFromList`.
@@ -1280,6 +1283,8 @@ without running). With `JobScriptShareAll` at the size of a voxel game (44 grids
 4 096 x 96, 2 500 lists, 65 maps, 2 500 instance variables) starting a job took 0.16 to 0.34 ms of the
 game's thread and 0.14 to 0.27 ms on the worker to set up its own VM (two runs, medians); six 4 096 x 96 grids given with
 `JobScriptGrid` took 0.01 to 0.02 ms (before 9 Oct 2026 each was copied as the job started, 0.8 to 1 ms a grid).
+Since 11 Oct 2026 the job's table of structures becomes its worker's store as it is (it was copied
+again on the worker), and 3 000 instance variables a job never reads add nothing to starting it.
 
 #### Worked example: meshing a chunk on a worker
 
