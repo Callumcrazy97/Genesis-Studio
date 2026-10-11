@@ -42,6 +42,9 @@ internal static class OpenTimingRunner
             if (args[i] == "--repeat") repeat = int.Parse(args[i + 1], CultureInfo.InvariantCulture);
             if (args[i] == "--dump") dump = Path.GetFullPath(args[i + 1]);
         }
+        // --stress: while the background work runs, the UI thread keeps asking for (and dropping)
+        // the resource catalog and reports a save, as a user clicking about would.
+        bool stress = args.Contains("--stress");
 
         string settingsFolder = Path.Combine(Path.GetTempPath(), "genesis-open-timing");
         Directory.CreateDirectory(settingsFolder);
@@ -64,7 +67,17 @@ internal static class OpenTimingRunner
             double usable = total.Elapsed.TotalMilliseconds;
 
             Stopwatch background = Stopwatch.StartNew();
-            for (int i = 0; i < 20_000 && (shell.AssetBrowser.PreviewBusy || shell.IsProjectStillLoading); i++) GateSuite.Pump(1, 5);
+            string? anyResource = stress ? ResourceNames.For(root).Entries.FirstOrDefault()?.FullPath : null;
+            for (int i = 0; i < 20_000 && (shell.AssetBrowser.PreviewBusy || shell.IsProjectStillLoading); i++)
+            {
+                if (stress)
+                {
+                    if (i % 7 == 0) ResourceNames.Invalidate(root);
+                    _ = ResourceNames.For(root).Entries.Count;
+                    if (i % 11 == 0 && anyResource != null) shell.AssetMonitor.Notify(anyResource);
+                }
+                GateSuite.Pump(1, 5);
+            }
             double after = background.Elapsed.TotalMilliseconds;
 
             Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"OPEN {run}: usable after {usable:F0} ms, background work {after:F0} ms after that"));

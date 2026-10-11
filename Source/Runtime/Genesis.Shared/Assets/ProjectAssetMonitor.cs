@@ -63,10 +63,8 @@ namespace Genesis.Shared.Assets
                 throw new ArgumentException("A project root is required.", nameof(projectRoot));
             ProjectRoot = Path.GetFullPath(projectRoot);
             AssetsRoot = Path.Combine(ProjectRoot, "Assets");
-            string root = ProjectRoot;
             _readsReferences = readReferences;
-            _graph = new Lazy<AssetDependencyGraph>(() => new AssetDependencyGraph(root), LazyThreadSafetyMode.ExecutionAndPublication);
-            if (readReferences && readReferencesNow) _ = _graph.Value;
+            if (readReferences && readReferencesNow) _ = Graph;
             _context = context;
             _debounce = new Timer(_ => PublishPending(), null, Timeout.Infinite, Timeout.Infinite);
             _watcher = new FileSystemWatcher(AssetsRoot)
@@ -84,30 +82,49 @@ namespace Genesis.Shared.Assets
             _watcher.Error += OnWatcherError;
         }
 
-        private readonly Lazy<AssetDependencyGraph> _graph;
+        private readonly object _graphGate = new();
+        private AssetDependencyGraph _graph;
         private readonly bool _readsReferences;
 
-        /// <summary>The project's reference graph (read now if this monitor was made without it).</summary>
-        public AssetDependencyGraph Graph => _graph.Value;
+        /// <summary>
+        /// The project's reference graph (read now if it has not been). One thread reads it while
+        /// any other waits; a read that fails is not kept, so the next use reads it again (a file
+        /// moved during the read, a duplicate name since put right) instead of failing for good.
+        /// </summary>
+        public AssetDependencyGraph Graph
+        {
+            get
+            {
+                AssetDependencyGraph graph = Volatile.Read(ref _graph);
+                if (graph != null) return graph;
+                lock (_graphGate)
+                {
+                    if (_graph == null) Volatile.Write(ref _graph, new AssetDependencyGraph(ProjectRoot));
+                    return _graph;
+                }
+            }
+        }
+
+        private bool GraphRead => Volatile.Read(ref _graph) != null;
 
         /// <summary>Whether changes are followed through the reference graph to what uses them.</summary>
         public bool ReadsReferences => _readsReferences;
 
         /// <summary>
         /// Reads the reference graph on a worker thread, if this monitor follows references and has
-        /// not read it yet. Nothing waits for the returned task; a failure is reported through
-        /// <see cref="Error"/> (and again by the first change, which needs the graph).
+        /// not read it yet. Nothing waits for the returned task. A read that fails (files changing
+        /// under it) is left to the first change, which reads the graph again and reports a failure.
         /// </summary>
         public Task ReadReferencesInBackground()
         {
-            if (!_readsReferences || _graph.IsValueCreated) return Task.CompletedTask;
+            if (!_readsReferences || GraphRead) return Task.CompletedTask;
             return Task.Run(() =>
             {
-                try { _ = _graph.Value; }
+                try { _ = Graph; }
                 catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException
                     or Newtonsoft.Json.JsonException or ArgumentException)
                 {
-                    ReportError(error);
+                    System.Diagnostics.Trace.WriteLine("Reading the project's references in the background failed; the first change reads them again: " + error.Message);
                 }
             });
         }
@@ -194,7 +211,7 @@ namespace Genesis.Shared.Assets
             }
 
             HashSet<string> affected = new(changed, StringComparer.OrdinalIgnoreCase);
-            if (_readsReferences || _graph.IsValueCreated)
+            if (_readsReferences || GraphRead)
             {
                 try
                 {
