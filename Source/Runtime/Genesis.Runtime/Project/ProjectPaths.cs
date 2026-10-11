@@ -182,6 +182,60 @@ namespace Genesis.Runtime.Project
                 Genesis.Shared.Interfaces.MeshLightingDefaults.AntiAliasing = mode;
         }
 
+        /// <summary>
+        /// The project's <c>rendering.backend</c> setting as written ("Vulkan", "Direct3D12"...); null
+        /// when the project names none.
+        /// </summary>
+        public static string ReadRenderBackend(string projectPath)
+        {
+            if (string.IsNullOrEmpty(projectPath) || !Directory.Exists(projectPath)) return null;
+            try
+            {
+                string[] projects = Directory.EnumerateFiles(projectPath, "*.genesisproj", SearchOption.TopDirectoryOnly).ToArray();
+                if (projects.Length != 1) return null;
+                using JsonDocument manifest = JsonDocument.Parse(File.ReadAllText(projects[0]));
+                if (manifest.RootElement.TryGetProperty("rendering", out JsonElement rendering)
+                    && rendering.ValueKind == JsonValueKind.Object
+                    && rendering.TryGetProperty("backend", out JsonElement value)
+                    && value.ValueKind == JsonValueKind.String
+                    && !string.IsNullOrWhiteSpace(value.GetString()))
+                    return value.GetString().Trim();
+                return null;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Starts the game on the renderer its project names (<see cref="ReadRenderBackend"/>), unless
+        /// <c>GENESIS_RENDER_BACKEND</c> already chose one for this run, as Studio's Run does. An exported
+        /// game has no Studio to say, so this is how it gets the renderer its export or its project named.
+        /// </summary>
+        /// <remarks>
+        /// The name is a request, not an explicit run choice: a renderer this machine cannot use falls
+        /// back to Direct3D 11 (<see cref="Genesis.Rendering.Core.RenderBackendSelection.EffectiveBackend"/>),
+        /// and a name this engine does not know leaves the Player's own default, Direct3D 11.
+        /// </remarks>
+        public static void ApplyProjectRenderBackend(string projectPath)
+        {
+            if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(
+                    Genesis.Rendering.Core.RenderBackendSelection.EnvironmentVariable)))
+                return;
+            string named = ReadRenderBackend(projectPath);
+            if (named == null) return;
+            try
+            {
+                Genesis.Rendering.Core.RenderBackendSelection.Configure(
+                    Genesis.Rendering.Core.RenderBackendCatalog.ParseExplicitValue(named));
+            }
+            catch (ArgumentException)
+            {
+                // A removed or misspelt renderer: the default stands.
+            }
+        }
+
         /// The project's <c>runtime.preloadAudioMegabytes</c> setting: how many megabytes of sound
         /// samples a game decodes ahead of time while it loads. 0 (off) unless the project says so.
         /// </summary>

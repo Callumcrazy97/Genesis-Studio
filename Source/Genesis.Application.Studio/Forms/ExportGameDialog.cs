@@ -1,6 +1,7 @@
 using Genesis.Application.Core.Projects;
 using Genesis.Application.Studio.Controls;
 using Genesis.Application.Studio.Theme;
+using Genesis.Rendering.Core;
 
 namespace Genesis.Application.Studio.Forms;
 
@@ -11,6 +12,7 @@ public sealed class ExportGameDialog : DpiAwareForm
     private readonly TextBox _gameTitle;
     private readonly ComboBox _platform;
     private readonly ComboBox _windowMode;
+    private readonly ComboBox _renderer;
     private readonly TextBox _icon;
     private readonly TextBox _destination;
     private readonly RadioButton _folder;
@@ -31,10 +33,10 @@ public sealed class ExportGameDialog : DpiAwareForm
         FormBorderStyle = FormBorderStyle.Sizable;
         MaximizeBox = true;
         MinimizeBox = false;
-        ClientSize = new Size(680, 570);
+        ClientSize = new Size(680, 624);
         BackColor = ThemeService.Palette.Canvas;
         ForeColor = ThemeService.Palette.Text;
-        MinimumSize = new Size(660, 570);
+        MinimumSize = new Size(660, 624);
         Tag = ThemeService.MeasuredLayoutTag;
 
         TableLayoutPanel layout = new()
@@ -42,10 +44,11 @@ public sealed class ExportGameDialog : DpiAwareForm
             Dock = DockStyle.Fill,
             Padding = new Padding(24),
             ColumnCount = 1,
-            RowCount = 12,
+            RowCount = 13,
             BackColor = ThemeService.Palette.Canvas,
         };
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
@@ -92,6 +95,23 @@ public sealed class ExportGameDialog : DpiAwareForm
         StyleField(_windowMode);
         layout.Controls.Add(LabeledRow("Default display", _windowMode), 0, 3);
 
+        // The renderer the game starts on. The first choice keeps the project's own setting and says
+        // what that comes to in an exported game; a renderer the player's PC cannot use falls back to
+        // Direct3D 11 when the game starts.
+        _renderer = new ComboBox
+        {
+            Name = "RendererPicker",
+            AccessibleName = "Renderer",
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            Dock = DockStyle.Fill,
+        };
+        _renderer.Items.Add("Project setting (" + RenderBackendCatalog.Describe(GameExportService.ProjectRenderer(project.Manifest)).DisplayName + ")");
+        foreach (RenderBackendOption backend in GameExportService.RendererChoices)
+            _renderer.Items.Add(RenderBackendCatalog.Describe(backend).DisplayName);
+        _renderer.SelectedIndex = 0;
+        StyleField(_renderer);
+        layout.Controls.Add(LabeledRow("Renderer", _renderer), 0, 4);
+
         TableLayoutPanel iconRow = new() { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1 };
         iconRow.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         iconRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 112));
@@ -104,7 +124,7 @@ public sealed class ExportGameDialog : DpiAwareForm
         browseIcon.Click += (_, _) => BrowseIcon();
         iconRow.Controls.Add(_icon, 1, 0);
         iconRow.Controls.Add(browseIcon, 2, 0);
-        layout.Controls.Add(iconRow, 0, 4);
+        layout.Controls.Add(iconRow, 0, 5);
 
         TableLayoutPanel pathRow = new() { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
         pathRow.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -123,7 +143,7 @@ public sealed class ExportGameDialog : DpiAwareForm
         browse.Click += (_, _) => Browse();
         pathRow.Controls.Add(_destination, 0, 0);
         pathRow.Controls.Add(browse, 1, 0);
-        layout.Controls.Add(LabeledRow("Output folder", pathRow), 0, 5);
+        layout.Controls.Add(LabeledRow("Output folder", pathRow), 0, 6);
 
         GroupBox package = new()
         {
@@ -138,7 +158,7 @@ public sealed class ExportGameDialog : DpiAwareForm
         _zip.CheckedChanged += (_, _) => UpdateDestinationExtension();
         package.Controls.Add(_folder);
         package.Controls.Add(_zip);
-        layout.Controls.Add(package, 0, 6);
+        layout.Controls.Add(package, 0, 7);
 
         _shaders = new CheckBox
         {
@@ -148,7 +168,7 @@ public sealed class ExportGameDialog : DpiAwareForm
             ForeColor = ThemeService.Palette.Text,
             Margin = new Padding(4, 10, 0, 0),
         };
-        layout.Controls.Add(_shaders, 0, 7);
+        layout.Controls.Add(_shaders, 0, 8);
 
         _status = new Label
         {
@@ -157,7 +177,7 @@ public sealed class ExportGameDialog : DpiAwareForm
             ForeColor = ThemeService.Palette.TextMuted,
             TextAlign = ContentAlignment.MiddleLeft,
         };
-        layout.Controls.Add(_status, 0, 8);
+        layout.Controls.Add(_status, 0, 9);
 
         _progress = new ProgressBar
         {
@@ -167,7 +187,7 @@ public sealed class ExportGameDialog : DpiAwareForm
             MarqueeAnimationSpeed = 0,
             Visible = false,
         };
-        layout.Controls.Add(_progress, 0, 10);
+        layout.Controls.Add(_progress, 0, 11);
 
         FlowLayoutPanel buttons = new()
         {
@@ -189,7 +209,7 @@ public sealed class ExportGameDialog : DpiAwareForm
         };
         buttons.Controls.Add(_export);
         buttons.Controls.Add(_cancel);
-        layout.Controls.Add(buttons, 0, 11);
+        layout.Controls.Add(buttons, 0, 12);
 
         Panel scroll = new() { Dock = DockStyle.Fill, AutoScroll = true };
         layout.Dock = DockStyle.Top;
@@ -215,7 +235,7 @@ public sealed class ExportGameDialog : DpiAwareForm
                 layout.RowStyles[0].Height = heading.Controls.Cast<Control>().Max(control => control.Bottom) + 12;
                 int labelWidth = Math.Max(112, TextRenderer.MeasureText("Target platform", Font).Width + 16);
                 int fieldHeight = Math.Max(54, Font.Height + 32);
-                for (int rowIndex = 1; rowIndex <= 5; rowIndex++)
+                for (int rowIndex = 1; rowIndex <= 6; rowIndex++)
                 {
                     layout.RowStyles[rowIndex].Height = fieldHeight;
                     if (layout.GetControlFromPosition(0, rowIndex) is TableLayoutPanel row) row.ColumnStyles[0].Width = labelWidth;
@@ -227,16 +247,16 @@ public sealed class ExportGameDialog : DpiAwareForm
                 _folder.Location = new Point(12, optionY);
                 _zip.Location = new Point(_folder.Right + 20, optionY);
                 if (_zip.Right > width - 12) _zip.Location = new Point(12, _folder.Bottom + 8);
-                layout.RowStyles[6].Height = Math.Max(_folder.Bottom, _zip.Bottom) + 12;
+                layout.RowStyles[7].Height = Math.Max(_folder.Bottom, _zip.Bottom) + 12;
                 _shaders.MaximumSize = new Size(width, 0);
                 _shaders.AutoSize = false;
                 _shaders.Size = new Size(width, ShellDialogLayout.TextHeight(_shaders, width - 24) + 12);
-                layout.RowStyles[7].Height = _shaders.Height + 12;
-                layout.RowStyles[8].Height = ShellDialogLayout.TextHeight(_status, width) + 16;
-                layout.RowStyles[9].SizeType = SizeType.Absolute;
-                layout.RowStyles[9].Height = 12;
-                layout.RowStyles[10].Height = 18;
-                layout.RowStyles[11].Height = 0;
+                layout.RowStyles[8].Height = _shaders.Height + 12;
+                layout.RowStyles[9].Height = ShellDialogLayout.TextHeight(_status, width) + 16;
+                layout.RowStyles[10].SizeType = SizeType.Absolute;
+                layout.RowStyles[10].Height = 12;
+                layout.RowStyles[11].Height = 18;
+                layout.RowStyles[12].Height = 0;
                 ShellDialogLayout.FitButton(_export); ShellDialogLayout.FitButton(_cancel);
                 buttons.Height = _export.Height + buttons.Padding.Vertical + 8;
                 layout.Height = (int)Math.Ceiling(layout.RowStyles.Cast<RowStyle>().Sum(row => row.Height)) + layout.Padding.Vertical;
@@ -253,6 +273,10 @@ public sealed class ExportGameDialog : DpiAwareForm
     public override void ApplyInterfaceLayout() => _layoutMeasured?.Invoke();
 
     public GameExportResult? Result { get; private set; }
+
+    /// <summary>The renderer the export names, or null to keep the project's own setting.</summary>
+    public RenderBackendOption? SelectedRenderer =>
+        _renderer.SelectedIndex <= 0 ? null : GameExportService.RendererChoices[_renderer.SelectedIndex - 1];
 
     private async Task ExportAsync()
     {
@@ -275,7 +299,8 @@ public sealed class ExportGameDialog : DpiAwareForm
             Platform: GameExportPlatform.WindowsX64,
             GameTitle: _gameTitle.Text.Trim(),
             IconPath: _icon.Text.Trim(),
-            WindowMode: _windowMode.SelectedIndex == 1 ? GameExportWindowMode.Fullscreen : GameExportWindowMode.Windowed);
+            WindowMode: _windowMode.SelectedIndex == 1 ? GameExportWindowMode.Fullscreen : GameExportWindowMode.Windowed,
+            Renderer: SelectedRenderer);
         Result = await Task.Run(() => GameExportService.Export(request, progress, _cancellation.Token));
         _cancellation.Dispose();
         _cancellation = null;
@@ -312,6 +337,7 @@ public sealed class ExportGameDialog : DpiAwareForm
         _gameTitle.Enabled = !busy;
         _platform.Enabled = !busy;
         _windowMode.Enabled = !busy;
+        _renderer.Enabled = !busy;
         _icon.Enabled = !busy;
         _folder.Enabled = !busy;
         _zip.Enabled = !busy;

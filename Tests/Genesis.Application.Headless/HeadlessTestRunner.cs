@@ -1155,6 +1155,9 @@ internal static class HeadlessTestRunner
         // flash lights, surface shaders and outlines, room changes with preloaded sounds (not part of the tiers).
         ["requests-1010"] = ["sky-light-exposure", "decals", "flash-lights", "mesh-surface", "outlines", "room-change"],
         ["combat-effects"] = ["flash-lights", "decals"],
+        // Export Game's renderer choice: the dialog's list and layout, the exported project file and
+        // the exported game starting on the chosen renderer (both suites are in the tiers too).
+        ["export-renderer"] = ["studio-foundation", "export-pgsl"],
     };
 
     private static void RunFocusedTarget(HeadlessContext ctx, string target)

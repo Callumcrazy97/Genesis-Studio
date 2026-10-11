@@ -368,6 +368,85 @@ internal static class StudioFoundationSuite
             }
             finally { Genesis.Application.Studio.Theme.ThemeService.ApplySettings(new GenesisSettings()); }
         });
+        Check("Export.RendererChoiceOffersTheProjectSettingThenEachGpuRenderer", () =>
+        {
+            using StudioFixture fixture = new();
+            string previous = fixture.Project.Manifest.Rendering.Backend;
+            static ComboBox RendererPicker(Form dialog) =>
+                Descendants(dialog).OfType<ComboBox>().Single(combo => combo.Name == "RendererPicker");
+            try
+            {
+                // No renderer named: an exported game has no installation setting to follow, so the
+                // Player's own default is what "Project setting" comes to.
+                fixture.Project.Manifest.Rendering.Backend = string.Empty;
+                using (ExportGameDialog export = new(fixture.Project))
+                {
+                    ComboBox renderer = RendererPicker(export);
+                    string[] expected =
+                    [
+                        "Project setting (Direct3D 11)",
+                        .. new[] { RenderBackendOption.SilkNetDx11, RenderBackendOption.Direct3D12, RenderBackendOption.Vulkan, RenderBackendOption.OpenGL }
+                            .Select(backend => RenderBackendCatalog.Describe(backend).DisplayName),
+                    ];
+                    string[] offered = renderer.Items.Cast<object>().Select(item => item.ToString() ?? string.Empty).ToArray();
+                    Assert(offered.SequenceEqual(expected), "The export dialog offers these renderers: " + string.Join(" | ", offered));
+                    Assert(renderer.SelectedIndex == 0 && export.SelectedRenderer is null,
+                        "The export dialog does not start on the project's own renderer setting.");
+                    renderer.SelectedIndex = 3;
+                    Assert(export.SelectedRenderer == RenderBackendOption.Vulkan, "Choosing Vulkan does not ask the export for Vulkan.");
+                    renderer.SelectedIndex = 1;
+                    Assert(export.SelectedRenderer == RenderBackendOption.SilkNetDx11,
+                        "Choosing Direct3D 11 does not name it, so a project set to another renderer would keep that one.");
+                }
+
+                fixture.Project.Manifest.Rendering.Backend = "Vulkan";
+                using (ExportGameDialog export = new(fixture.Project))
+                {
+                    string first = RendererPicker(export).Items[0]?.ToString() ?? string.Empty;
+                    Assert(first == "Project setting (Vulkan)", "A project set to Vulkan shows its setting as: " + first);
+                }
+            }
+            finally { fixture.Project.Manifest.Rendering.Backend = previous; }
+        });
+        Check("Export.DialogRowsStayClearAndReadableAt100And150PercentScale", () =>
+        {
+            try
+            {
+                using StudioFixture fixture = new();
+                foreach (float scale in new[] { 1f, 1.5f })
+                {
+                    GenesisSettings scaled = new(); scaled.Appearance.InterfaceScale = scale;
+                    Genesis.Application.Studio.Theme.ThemeService.ApplySettings(scaled);
+                    string at = $"At {scale * 100:0}%: ";
+                    using ExportGameDialog export = new(fixture.Project);
+                    GateSuite.ShowHost(export);
+                    GateSuite.Pump(3, 15);
+                    ComboBox renderer = Descendants(export).OfType<ComboBox>().Single(combo => combo.Name == "RendererPicker");
+                    TableLayoutPanel layout = (TableLayoutPanel)renderer.Parent!.Parent!;
+                    Control[] rows = layout.Controls.Cast<Control>().Where(row => row.Visible).OrderBy(layout.GetRow).ToArray();
+                    for (int index = 1; index < rows.Length; index++)
+                        Assert(rows[index - 1].Bottom <= rows[index].Top,
+                            at + "row " + layout.GetRow(rows[index - 1]) + " " + rows[index - 1].Bounds + " overlaps row "
+                            + layout.GetRow(rows[index]) + " " + rows[index].Bounds + ".");
+                    foreach (Label label in Descendants(layout).OfType<Label>().Where(label => label.Visible && label.Parent is TableLayoutPanel))
+                    {
+                        Size needed = TextRenderer.MeasureText(label.Text, label.Font);
+                        Assert(needed.Width <= label.Width && needed.Height <= label.Height,
+                            at + "\"" + label.Text + "\" needs " + needed + " but has " + label.Size + ".");
+                    }
+                    foreach (Control field in Descendants(layout).Where(control => control.Visible && control is ComboBox or TextBox))
+                        Assert(field.Height >= field.Font.Height && field.Top >= 0 && field.Bottom <= field.Parent!.ClientSize.Height
+                                && field.Right <= field.Parent.ClientSize.Width,
+                            at + (field.AccessibleName ?? field.Text) + " " + field.Bounds + " does not fit its row " + field.Parent!.ClientSize + ".");
+                    Label rendererLabel = renderer.Parent!.Controls.OfType<Label>().Single();
+                    Assert(rendererLabel.Text == "Renderer" && rendererLabel.Right <= renderer.Left,
+                        at + "the Renderer label and its list overlap.");
+                    VisualCapture.CaptureOpenForm(export, Path.Combine(context.Captures, $"export-dialog-{scale * 100:0}.png"));
+                    export.Close();
+                }
+            }
+            finally { Genesis.Application.Studio.Theme.ThemeService.ApplySettings(new GenesisSettings()); }
+        });
         Check("Shell.EditorCommandHelpIncludesNativeActionsAndAvailability", () =>
         {
             using StudioFixture fixture = new();
