@@ -90,16 +90,42 @@ namespace Genesis.Runtime.Scripting
 
         private HudSpriteSink _hudSprites;
 
-        private void QueueGuiSprite(Action<IRenderCommandSink> queue)
+        // A sprite drawn with neither a HUD canvas that carries sprites nor a frame queue goes
+        // through a queue of its own that is drawn at once. One per thread is kept and emptied
+        // after use: a new queue for every such sprite made three lists, two of 256 draw calls.
+        [ThreadStatic] private static FrameRenderQueue _ownSprites;
+        // DrawSpriteParts keeps its parts in a second one: a part drawn in several shader passes
+        // goes the single-sprite way, through the first, while the batch's queue still holds parts.
+        [ThreadStatic] private static FrameRenderQueue _ownParts;
+
+        // A script's sprite belongs to no instance, so it has no draw entry of its own: one blank
+        // entry per thread stands in. QueueSprite2D writes the frame size and pivot it resolved onto
+        // it (nothing reads them back for a script's sprite) and reads its shader, which stays empty.
+        // A new entry for every sprite, with its two dictionaries, was most of a HUD's garbage.
+        [ThreadStatic] private static ObjectDrawAssetEntry _scriptSpriteAssets;
+        private static ObjectDrawAssetEntry ScriptSpriteAssets => _scriptSpriteAssets ??= new ObjectDrawAssetEntry();
+
+        /// <summary>
+        /// Where a sprite goes: the HUD canvas when it carries sprites (in order with the GUI's
+        /// shapes and text), else the frame's queue, else <paramref name="own"/>, emptied, which the
+        /// caller draws with <see cref="FlushOwn"/>. (A lambda per sprite chose before, and left a
+        /// closure and a delegate behind for every sprite.)
+        /// </summary>
+        private IRenderCommandSink SpriteSink(bool parts, out FrameRenderQueue own)
         {
-            if (SpritesWithText)
-            {
-                queue(_hudSprites ??= new HudSpriteSink(_hud));
-                return;
-            }
-            var frame = _commands ?? new FrameRenderQueue();
-            queue(frame);
-            if (_commands == null) ((FrameRenderQueue)frame).Flush(_renderer, includeMeshes: false);
+            own = null;
+            if (SpritesWithText) return _hudSprites ??= new HudSpriteSink(_hud);
+            if (_commands != null) return _commands;
+            own = parts ? (_ownParts ??= new FrameRenderQueue()) : (_ownSprites ??= new FrameRenderQueue());
+            own.Reset();
+            return own;
+        }
+
+        private void FlushOwn(FrameRenderQueue own)
+        {
+            if (own == null) return;
+            own.Flush(_renderer, includeMeshes: false);
+            own.Reset();
         }
 
         // DrawSetClip's rectangle; empty draws everywhere.
@@ -302,28 +328,34 @@ namespace Genesis.Runtime.Scripting
             float xscale, float yscale, float angle, Color blend, float alpha)
         {
             if (_renderer == null) return;
-            QueueGuiSprite(queue => ObjectDrawPass.QueueSprite2D(_projectPath ?? PgslCommands.ProjectPath, queue, _renderer,
-                new ObjectDrawAssetEntry(), new TransformComponent { X = x, Y = y, ScaleX = xscale, ScaleY = yscale, ScaleZ = 1, Rotation = angle },
+            IRenderCommandSink sink = SpriteSink(parts: false, out FrameRenderQueue own);
+            ObjectDrawPass.QueueSprite2D(_projectPath ?? PgslCommands.ProjectPath, sink, _renderer,
+                ScriptSpriteAssets, new TransformComponent { X = x, Y = y, ScaleX = xscale, ScaleY = yscale, ScaleZ = 1, Rotation = angle },
                 new Draw2DComponent { Visible = true, Depth = SpriteDepth }, spriteName, frame, alpha, 0, 0, 1, ToRender(blend),
-                clip: SpriteClip));
+                clip: SpriteClip);
+            FlushOwn(own);
         }
 
         public void DrawSpriteRectangle(string spriteName, RectangleF destination, int frame, Color blend, float alpha)
         {
             if (_renderer == null) return;
-            QueueGuiSprite(queue => ObjectDrawPass.QueueSprite2D(_projectPath ?? PgslCommands.ProjectPath, queue, _renderer,
-                new ObjectDrawAssetEntry(), new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 },
+            IRenderCommandSink sink = SpriteSink(parts: false, out FrameRenderQueue own);
+            ObjectDrawPass.QueueSprite2D(_projectPath ?? PgslCommands.ProjectPath, sink, _renderer,
+                ScriptSpriteAssets, new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 },
                 new Draw2DComponent { Visible = true, Depth = SpriteDepth }, spriteName, frame, alpha, 0, 0, 1,
-                ToRender(blend), destination, clip: SpriteClip));
+                ToRender(blend), destination, clip: SpriteClip);
+            FlushOwn(own);
         }
 
         public void DrawSpritePart(string spriteName, int frame, RectangleF source, RectangleF destination, Color blend, float alpha)
         {
             if (_renderer == null) return;
-            QueueGuiSprite(queue => ObjectDrawPass.QueueSprite2D(_projectPath ?? PgslCommands.ProjectPath, queue, _renderer,
-                new ObjectDrawAssetEntry(), new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 },
+            IRenderCommandSink sink = SpriteSink(parts: false, out FrameRenderQueue own);
+            ObjectDrawPass.QueueSprite2D(_projectPath ?? PgslCommands.ProjectPath, sink, _renderer,
+                ScriptSpriteAssets, new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 },
                 new Draw2DComponent { Visible = true, Depth = SpriteDepth }, spriteName, frame, alpha, 0, 0, 1,
-                ToRender(blend), destination, source, SpriteClip));
+                ToRender(blend), destination, source, SpriteClip);
+            FlushOwn(own);
         }
 
         public void FillRectangles(ReadOnlySpan<GuiRectangle> rectangles)
@@ -352,6 +384,7 @@ namespace Genesis.Runtime.Scripting
         }
 
         [ThreadStatic] private static System.Collections.Generic.Dictionary<int, (int Calls, SpriteDrawCall Call)> _partFrames;
+        [ThreadStatic] private static CaptureSink _partCapture;
 
         public void DrawSpriteParts(string spriteName, ReadOnlySpan<GuiSpritePart> parts, Color blend)
         {
@@ -361,12 +394,11 @@ namespace Genesis.Runtime.Scripting
             // the same path DrawSpritePart takes, and every part is cut from it.
             var frames = _partFrames ??= new();
             frames.Clear();
-            CaptureSink capture = new();
-            ObjectDrawAssetEntry assets = new();
+            CaptureSink capture = _partCapture ??= new CaptureSink();
+            ObjectDrawAssetEntry assets = ScriptSpriteAssets;
             RenderColor tint = ToRender(blend);
             Vector4 clip = SpriteClip;
-            FrameRenderQueue own = SpritesWithText || _commands != null ? null : new FrameRenderQueue();
-            IRenderCommandSink sink = SpritesWithText ? (_hudSprites ??= new HudSpriteSink(_hud)) : (_commands ?? own);
+            IRenderCommandSink sink = SpriteSink(parts: true, out FrameRenderQueue own);
             foreach (GuiSpritePart part in parts)
             {
                 if (!(part.Width > 0f) || !(part.Height > 0f) || !(part.Alpha > 0f)) continue;
@@ -406,7 +438,7 @@ namespace Genesis.Runtime.Scripting
                 call.ClipRect = clip;
                 sink.DrawSprite(call);
             }
-            own?.Flush(_renderer, includeMeshes: false);
+            FlushOwn(own);
         }
 
         public void DrawScriptTexture(int texture, RectangleF source, RectangleF destination, float angle, Color blend, float alpha)
@@ -431,19 +463,8 @@ namespace Genesis.Runtime.Scripting
                 SmoothSampling = smooth,
                 PointSampling = !smooth,
             };
-            if (SpritesWithText)
-            {
-                (_hudSprites ??= new HudSpriteSink(_hud)).DrawSprite(call);
-                return;
-            }
-            if (_commands != null)
-            {
-                _commands.DrawSprite(call);
-                return;
-            }
-            FrameRenderQueue queue = new();
-            queue.DrawSprite(call);
-            queue.Flush(_renderer, includeMeshes: false);
+            SpriteSink(parts: false, out FrameRenderQueue own).DrawSprite(call);
+            FlushOwn(own);
         }
 
         public void DrawModelGui(string modelName, RectangleF destination, float yaw, float pitch, float zoom, string clip, float time, float alpha)
@@ -465,7 +486,8 @@ namespace Genesis.Runtime.Scripting
                 SmoothSampling = true,
                 ClipRect = SpriteClip,
             };
-            QueueGuiSprite(queue => queue.DrawSprite(call));
+            SpriteSink(parts: false, out FrameRenderQueue own).DrawSprite(call);
+            FlushOwn(own);
         }
 
         public void QueueScriptMesh3D(int meshId, Matrix4x4 world, string image, string shader, Color tint, float alpha,

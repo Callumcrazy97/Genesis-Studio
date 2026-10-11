@@ -1133,7 +1133,7 @@ internal static class HeadlessTestRunner
     internal static readonly IReadOnlyDictionary<string, string[]> Tiers = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
     {
         ["tier-editor"] = ["studio-foundation", "shell-layout", "resource-names", "code-assistance", "editor-suite", "room-workspace", "model-intake", "model-sprites", "pixel-model", "menu-clips"],
-        ["tier-engine"] = ["engine-systems", "asset-import", "readback-alpha", "post-effects", "large-world", "runtime", "model-system", "debug-screen", "terrain-layers-grass", "shader-precompiled", "gui-linear", "opengl-compat", "window-lifecycle", "anti-aliasing", "frame-rate-choice"],
+        ["tier-engine"] = ["engine-systems", "asset-import", "readback-alpha", "post-effects", "large-world", "runtime", "model-system", "debug-screen", "terrain-layers-grass", "shader-precompiled", "gui-linear", "sprite-draw-alloc", "opengl-compat", "window-lifecycle", "anti-aliasing", "frame-rate-choice"],
         ["tier-pgsl"] = ["pgsl-values", "pgsl-cache", "pgsl-scripts", "pgsl-logic", "input-replay", "pgsl-project", "export-pgsl", "live-reload", "runtime-resources"],
         // A running game's files, sounds, post effects and profile (the 2026-10-09 game requests).
         ["game-runtime"] = ["live-reload", "runtime-resources", "post-effects", "debug-screen", "sky-light-exposure"],
@@ -1141,9 +1141,12 @@ internal static class HeadlessTestRunner
         // the suites that use runtime particles and script meshes.
         ["streaming-load"] = ["particle-bursts", "mesh-soak"],
         ["particles-meshes"] = ["particle-bursts", "mesh-soak", "mesh-upload", "engine-systems", "terrain-parts-runtime", "particle-workbench", "pgsl-logic"],
-        // Bulk GUI drawing, script textures and the sky layer with the particle and mesh streaming
-        // checks, on every renderer (not part of the tiers).
-        ["draw-and-stream"] = ["gui-batch", "script-textures", "sky-layer", "particle-bursts", "mesh-soak", "mesh-upload", "particle-workbench"],
+        // Bulk GUI drawing, what script sprite draws allocate, script textures and the sky layer with
+        // the particle and mesh streaming checks, on every renderer (not part of the tiers).
+        ["draw-and-stream"] = ["gui-batch", "sprite-draw-alloc", "script-textures", "sky-layer", "particle-bursts", "mesh-soak", "mesh-upload", "particle-workbench"],
+        // Script sprite draws: what a frame of them allocates, with the suites that pixel-check them
+        // (batches, script textures, linear GUI blending, 2D effects, menu images) (not part of the tiers).
+        ["sprite-draws"] = ["sprite-draw-alloc", "gui-batch", "script-textures", "gui-linear", "effects-2d", "menu-clips"],
         // Combat effects a first-person game asks for: flash lights and decals, on every renderer.
         // Surface and material shaders with the suites that compile, cache and draw mesh shaders
         // (not part of the tiers).
@@ -1648,6 +1651,11 @@ internal static class HeadlessTestRunner
                 // GUI rectangles and image parts from a list in one call, on every renderer, and their cost.
                 PrepareFocusedProject(ctx, requireStudioServices: false);
                 Suites.GuiBatchSuite.Run(ctx);
+                break;
+            case "sprite-draw-alloc":
+                // What a steady frame of 2,000 script sprite draws allocates (GUI canvas, 2D Draw queue, renderer).
+                PrepareFocusedProject(ctx, requireStudioServices: false);
+                Suites.SpriteDrawAllocationSuite.Run(ctx);
                 break;
             case "script-textures":
                 // Textures a script paints, drawn in the GUI and the 2D world on every renderer, and their cost.
