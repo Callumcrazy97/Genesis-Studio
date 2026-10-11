@@ -256,20 +256,24 @@ public sealed partial class ResourceCatalog
         if (!seen.Add(full)) return;
         string name = FormatName(file);
         Guid assetId = Guid.Empty;
-        // An exported game's index answers without opening the .meta; otherwise what a .meta says
-        // is kept while its time and size are unchanged.
         string metaPath = file + ".meta";
+        FileInfo meta;
+        // An exported game's index wins; otherwise what this process last read from the .meta,
+        // while its time and size are unchanged; otherwise the .meta itself.
         if (TryIndexedIdentity(full, out Guid indexedId, out string indexedName))
         {
             assetId = indexedId;
             if (!string.IsNullOrWhiteSpace(indexedName)) name = ValidateName(indexedName);
         }
-        else if (new FileInfo(metaPath) is { Exists: true } meta)
+        else if ((meta = new FileInfo(metaPath)).Exists)
         {
             long ticks = meta.LastWriteTimeUtc.Ticks, length = meta.Length;
+            // Counted as a .meta read whether it is read now or remembered from an earlier read of
+            // the same unchanged file: the build report says where identities came from (the index
+            // or the .meta files), and a fresh process (a game) remembers nothing.
+            CountMetaRead();
             if (!MetaIdentities.TryGetValue(metaPath, out MetaIdentity identity) || identity.Ticks != ticks || identity.Length != length)
             {
-                CountMetaRead();
                 try
                 {
                     JObject metadata = JObject.Parse(File.ReadAllText(metaPath));

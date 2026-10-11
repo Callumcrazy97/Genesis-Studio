@@ -1162,8 +1162,9 @@ internal static class HeadlessTestRunner
         // the exported game starting on the chosen renderer (both suites are in the tiers too).
         ["export-renderer"] = ["studio-foundation", "export-pgsl"],
         // Opening a project in Studio: resource names and the Assets tree, library tags and
-        // favourites, the shell, and live reload's asset monitor (not part of the tiers).
-        ["project-open"] = ["resource-names", "resource-library", "resource-tags", "studio-foundation", "studio-polish", "live-reload"],
+        // favourites, the shell, live reload's asset monitor, and the resource catalog's index
+        // (not part of the tiers).
+        ["project-open"] = ["resource-names", "resource-library", "resource-tags", "studio-foundation", "studio-polish", "live-reload", "runtime-resources"],
         // Everything from 11 Oct 2026 that the tiers do not run: the small requests, opening a
         // project and exporting (the frame-rate choice and the export renderer are in the tiers).
         ["checks-1011"] = ["requests-1011", "project-open", "export-publishing"],
