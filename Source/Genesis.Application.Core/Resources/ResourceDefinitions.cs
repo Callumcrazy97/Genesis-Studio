@@ -166,11 +166,16 @@ public static class ResourceDefinitions
         Definitions.FirstOrDefault(definition => definition.Kind == kind)
         ?? throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown resource kind.");
 
-    public static ResourceDefinition? FromPath(string path) =>
-        Definitions
-            .OrderByDescending(definition => definition.Extension.Length)
-            .FirstOrDefault(
-                definition => path.EndsWith(
-                    definition.Extension,
-                    StringComparison.OrdinalIgnoreCase));
+    // Longest extension first (a stable sort, so equal lengths keep their order), sorted once: the
+    // Assets tree asks this several times for every file in the project.
+    private static readonly ResourceDefinition[] LongestExtensionFirst =
+        Definitions.OrderByDescending(definition => definition.Extension.Length).ToArray();
+
+    public static ResourceDefinition? FromPath(string path)
+    {
+        foreach (ResourceDefinition definition in LongestExtensionFirst)
+            if (path.EndsWith(definition.Extension, StringComparison.OrdinalIgnoreCase))
+                return definition;
+        return null;
+    }
 }

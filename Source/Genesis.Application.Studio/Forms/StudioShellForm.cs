@@ -67,8 +67,12 @@ public sealed partial class StudioShellForm : DpiAwareForm
         RenderingPreferencesBridge.ApplyProject(project.Manifest);
         _persistLayout = persistLayout;
         _resources = new ResourceService(project);
-        ProjectOpeningNotice.Step("Reading how the project's resources refer to each other…");
-        _assetMonitor = new ProjectAssetMonitor(project.RootPath);
+        ProjectOpeningNotice.Step("Building the window…");
+        // What refers to what is read on a worker thread once the window is shown (see Shown below):
+        // reading it first kept a large project's window from opening for a second or more, and
+        // for minutes when its files were new to the disk cache. A change saved before then waits
+        // for it off the UI thread, so live reload still follows every reference.
+        _assetMonitor = new ProjectAssetMonitor(project.RootPath, 180, null, readReferences: true, readReferencesNow: false);
         _assetMonitor.Changed += OnProjectAssetsChanged;
         _assetMonitor.Error += OnAssetMonitorError;
         _finderDebounce = new System.Windows.Forms.Timer { Interval = 220 };
@@ -184,6 +188,7 @@ public sealed partial class StudioShellForm : DpiAwareForm
             _services.Log.Information(
                 "Studio",
                 $"Workspace opened for '{_project.Manifest.Name}'.");
+            _referenceRead = _assetMonitor.ReadReferencesInBackground();
             // A project with C# scripts compiles them on F5. What the compiler references is
             // worked out now, on a worker thread, instead of on the first F5.
             try
@@ -216,7 +221,9 @@ public sealed partial class StudioShellForm : DpiAwareForm
     internal ProjectAssetMonitor AssetMonitor => _assetMonitor;
 
     /// <summary>True while work started by opening the project is still running in the background.</summary>
-    internal bool IsProjectStillLoading => false;
+    internal bool IsProjectStillLoading => _referenceRead is { IsCompleted: false };
+
+    private Task? _referenceRead;
 
     public ResourceDocument OpenResourceDocument(ResourceItem resource)
     {

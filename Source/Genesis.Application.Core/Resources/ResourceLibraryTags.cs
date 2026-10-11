@@ -18,7 +18,9 @@ public static class ResourceLibraryTags
     public const int MaximumTags = 32;
     public const int MaximumTagLength = 48;
     public const int MaximumMetadataBytes = 256 * 1024;
-    private const int MaximumCachedResources = 4096;
+    // Enough for every resource of a large project: at 4,096 a project of 5,000 resources emptied
+    // the cache part way through each listing of the Assets tree and re-read every .meta file.
+    private const int MaximumCachedResources = 65536;
     private sealed record CachedTags(long Ticks, long Length, IReadOnlyList<string> Tags);
     private static readonly object CacheGate = new();
     private static readonly Dictionary<string, CachedTags> Cache = new(StringComparer.OrdinalIgnoreCase);

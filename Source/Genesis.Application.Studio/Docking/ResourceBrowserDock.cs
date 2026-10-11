@@ -240,10 +240,14 @@ public sealed partial class ResourceBrowserDock : GenesisDockContent
     public void RefreshTree()
     {
         if (_browserDisposed || IsDisposed) return;
+        // Timed as part of a project's open (ignored at other times).
+        ProjectOpenTimings.Mark("List the Assets folders");
         _treeSnapshot = _resources.BuildTree();
         _snapshotGeneration++;
+        ProjectOpenTimings.Mark("Fill the Assets tree");
         ResetVisiblePreviews();
         RenderTree();
+        ProjectOpenTimings.Mark("Finish the Assets panel");
     }
 
     /// <summary>

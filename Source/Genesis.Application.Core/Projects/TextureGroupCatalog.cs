@@ -213,6 +213,8 @@ public static class TextureGroupCatalog
         bool hasProperty =
             raw.Contains("\"TextureGroup\"", StringComparison.OrdinalIgnoreCase)
             || raw.Contains("\"textureGroup\"", StringComparison.OrdinalIgnoreCase);
+        if (hasProperty && NamesAssignedGroup(raw, manifest))
+            return false;
 
         try
         {
@@ -237,6 +239,51 @@ public static class TextureGroupCatalog
             // Player and Studio agree; inject without re-validating the whole document.
             InjectTextureGroupProperty(path, assigned);
             return true;
+        }
+    }
+
+    /// <summary>
+    /// True when a current-schema image document already names, at its top level, the group it
+    /// would be assigned, so the full load below would change nothing: whether it then loaded or
+    /// failed, a document with the property is left alone. Opening a project checks every image,
+    /// and fully loading and validating each one was most of that time. Anything unusual (another
+    /// schema, a repeated property, a value that is not text) takes the full path.
+    /// </summary>
+    private static bool NamesAssignedGroup(string raw, ProjectManifest manifest)
+    {
+        try
+        {
+            using JsonDocument source = JsonDocument.Parse(raw);
+            if (source.RootElement.ValueKind != JsonValueKind.Object)
+                return false;
+            int schemaProperties = 0, groupProperties = 0, schemaVersion = 0;
+            JsonElement group = default;
+            foreach (JsonProperty property in source.RootElement.EnumerateObject())
+            {
+                if (string.Equals(property.Name, "schemaVersion", StringComparison.OrdinalIgnoreCase))
+                {
+                    schemaProperties++;
+                    if (!property.Value.TryGetInt32(out schemaVersion)) return false;
+                }
+                else if (string.Equals(property.Name, "textureGroup", StringComparison.OrdinalIgnoreCase))
+                {
+                    groupProperties++;
+                    group = property.Value;
+                }
+            }
+
+            if (schemaProperties != 1 || groupProperties != 1 || schemaVersion != ImageDocument.CurrentSchemaVersion)
+                return false;
+            if (group.ValueKind is not (JsonValueKind.String or JsonValueKind.Null))
+                return false;
+            // The name a full load would hold: blank becomes the default, anything else is trimmed.
+            string? value = group.ValueKind == JsonValueKind.String ? group.GetString() : null;
+            string loaded = string.IsNullOrWhiteSpace(value) ? TextureGroupDefaults.DefaultName : value.Trim();
+            return string.Equals(loaded, ResolveAssignedGroup(manifest, loaded), StringComparison.Ordinal);
+        }
+        catch (JsonException)
+        {
+            return false;
         }
     }
 

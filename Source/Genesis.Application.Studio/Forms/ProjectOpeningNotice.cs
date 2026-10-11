@@ -80,6 +80,9 @@ internal sealed class ProjectOpeningNotice : Form
     /// <summary>Says what opening the project is doing now. Does nothing when no notice is showing.</summary>
     public static void Step(string status)
     {
+        // Timed whether or not a notice shows (an unattended open shows none), for the log line
+        // Studio writes once the window is up.
+        Genesis.Application.Core.Diagnostics.ProjectOpenTimings.Mark(status);
         ProjectOpeningNotice? notice = _current;
         if (notice is null || notice.IsDisposed) return;
         notice._steps++;
