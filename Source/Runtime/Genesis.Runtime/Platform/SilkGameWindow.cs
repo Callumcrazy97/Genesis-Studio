@@ -190,7 +190,18 @@ namespace Genesis.Runtime.Platform
             {
                 _running = false;
                 Closing?.Invoke();
+                // Input lets go of the window's callbacks now, while the window still exists: Run
+                // destroys it as it returns, and disposing input afterwards (in Dispose) called into
+                // GLFW with the freed window, an access violation on some exits.
+                DisposeInput();
             };
+        }
+
+        private void DisposeInput()
+        {
+            IInputContext input = _silkInput;
+            _silkInput = null;
+            input?.Dispose();
         }
 
         // ── IGameWindow properties ────────────────────────────────────────────────
@@ -468,7 +479,9 @@ namespace Genesis.Runtime.Platform
 
         public void Dispose()
         {
-            _silkInput?.Dispose();
+            // Normally gone already (Closing); still here only for a window that never ran or closed.
+            if (_window == null || _window.IsInitialized) DisposeInput();
+            else _silkInput = null;
             _window?.Dispose();
         }
 
