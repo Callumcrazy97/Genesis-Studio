@@ -58,6 +58,41 @@ internal static class RuntimeResourcesSuite
             }
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Studio.Audio.EditorListsEverySoundFileAGamePlays", () =>
+        {
+            // The Audio editor's source list once offered only .wav files, so an Ogg resource showed
+            // "WAV source: (none)" (a GenesisCraft request). It lists what a game plays: WAV, .ogg, .oga.
+            string tone = Path.Combine(AppContext.BaseDirectory, "Fixtures", "tone-440-660.ogg");
+            string project = Path.Combine(ctx.Workspace, "AudioEditorSources" + Guid.NewGuid().ToString("N")[..6]);
+            string audio = Path.Combine(project, "Assets", "Audio");
+            Directory.CreateDirectory(audio);
+            File.WriteAllText(Path.Combine(project, "Audio Editor Sources.genesisproj"), "{}");
+            File.Copy(tone, Path.Combine(audio, "Tone.ogg"));
+            File.Copy(tone, Path.Combine(audio, "Chime.oga"));
+            WriteSilentWave(Path.Combine(audio, "Blip.wav"), 0.2);
+            string resource = Path.Combine(audio, "Tone.audio.json");
+            File.WriteAllText(resource, "{ \"source\": \"Tone.ogg\" }");
+            Genesis.Shared.Assets.ResourceCatalog.Invalidate(project);
+
+            using System.Windows.Forms.Form host = UnattendedWindowing.NewHost(900, 640);
+            using var editor = new Genesis.Application.Editors.Suite.Assets.AudioEditorControl(resource, project)
+            { Dock = System.Windows.Forms.DockStyle.Fill };
+            host.Controls.Add(editor);
+            UnattendedWindowing.ShowWithoutFocus(host);
+            GateSuite.Pump(4, 20);
+            var combo = (System.Windows.Forms.ComboBox)typeof(Genesis.Application.Editors.Suite.Assets.AudioEditorControl)
+                .GetField("_sourceCombo", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(editor)!;
+            HeadlessHarness.Assert(combo.SelectedIndex > 0 && editor.HasWaveform,
+                $"The Ogg resource opened with its source shown as '{combo.Text}' and {(editor.HasWaveform ? "a" : "no")} waveform.");
+            foreach (string file in new[] { "Assets/Audio/Tone.ogg", "Assets/Audio/Chime.oga", "Assets/Audio/Blip.wav" })
+            {
+                HeadlessHarness.Assert(editor.SelectSource(file), $"The Audio editor does not offer {file} as a source.");
+                GateSuite.Pump(2, 20);
+                HeadlessHarness.Assert(editor.HasWaveform, $"The Audio editor decoded no waveform from {file}.");
+            }
+            host.Close();
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Pgsl.Resources.ResourceListNamesAFoldersResourcesOfOneKind", () =>
         {
             string project = Path.Combine(ctx.Workspace, "ResourceList" + Guid.NewGuid().ToString("N")[..6]);

@@ -1155,6 +1155,9 @@ internal static class HeadlessTestRunner
         // flash lights, surface shaders and outlines, room changes with preloaded sounds (not part of the tiers).
         ["requests-1010"] = ["sky-light-exposure", "decals", "flash-lights", "mesh-surface", "outlines", "room-change"],
         ["combat-effects"] = ["flash-lights", "decals"],
+        // The 11 Oct 2026 small requests: 2D darkness, failing shaders named, the anti-aliasing
+        // picker, lamp shadows on painted terrain, Ogg sources in the Audio editor (not part of the tiers).
+        ["requests-1011"] = ["effects-2d", "shader-precompiled", "anti-aliasing", "shadows", "runtime-resources"],
     };
 
     private static void RunFocusedTarget(HeadlessContext ctx, string target)
