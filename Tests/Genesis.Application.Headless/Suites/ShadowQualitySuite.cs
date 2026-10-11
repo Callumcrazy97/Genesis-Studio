@@ -33,6 +33,7 @@ internal static class ShadowQualitySuite
         HeadlessHarness.RunCase(ctx.Report, "Engine.Render.Shadows.SunCastsShadowOnAllBackends", () => SunShadow(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Render.Shadows.FourLocalLightsShareAtlas", () => FourLocalLights(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Render.Shadows.SpotLightConeAndShadow", () => SpotLight(ctx));
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Render.Shadows.LampShadowFallsOnPaintedTerrain", () => TerrainLampShadow(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Render.Lighting.TwoSidedSurfacesLitUnderEitherCamera", () => TwoSided(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Render.Depth.ReversedDepthKeepsDistantSurfacesApartOnAllBackends", () => DepthPrecision(ctx));
     }
@@ -370,6 +371,34 @@ internal static class ShadowQualitySuite
             Check(lit > 90, $"{backend}: the sunlit two-sided slab was dark under the left-handed camera ({lit:F1}).");
             Check(Math.Abs(mirrored - lit) < 6,
                 $"{backend}: the two-sided slab lit differently under a right-handed camera ({mirrored:F1} vs {lit:F1}).");
+        });
+    }
+
+    // Painted terrain is drawn by a layer shader built on the engine's forward shader, which reads
+    // the lamp-shadow constants at b4. Its draws were treated as a project shader's and bound that
+    // shader's GenesisFrame at b4 instead, so a lamp lit the terrain but never shadowed it.
+    private static void TerrainLampShadow(HeadlessContext ctx)
+    {
+        WithBackends((backend, name) =>
+        {
+            using RuntimeViewportHarness harness = new();
+            string openFile = Path.Combine(ctx.Captures, $"terrain-spot-{name}-open.png");
+            string occludedFile = Path.Combine(ctx.Captures, $"terrain-spot-{name}-occluded.png");
+            harness.CaptureLocalLights(openFile, pointLights: 0, spotLight: true, casters: false, terrainFloor: true);
+            (_, RenderStats occluded) = harness.CaptureLocalLights(occludedFile, pointLights: 0, spotLight: true, casters: true, terrainFloor: true);
+            Check(occluded.LocalShadowLights == 1,
+                $"{backend}: the occluded spot light over the terrain did not take a shadow slot ({occluded.LocalShadowLights}).");
+
+            using Bitmap open = new(openFile);
+            using Bitmap blocked = new(occludedFile);
+            Point insideCone = harness.ProjectLocalLightsPoint(new Vector3(-1.2f, 0f, 0f));
+            Point shadow = harness.ProjectLocalLightsPoint(RuntimeViewportHarness.SpotShadowPoint);
+            double lit = Luminance(open, insideCone);
+            Check(lit > 25, $"{backend}: the spot light did not light the painted terrain ({lit:F1}).");
+            double openShadowPoint = Luminance(open, shadow);
+            double blockedShadowPoint = Luminance(blocked, shadow);
+            Check(openShadowPoint > 15 && blockedShadowPoint < openShadowPoint * 0.6,
+                $"{backend}: the cube under the spot light cast no shadow on the painted terrain at {shadow} ({blockedShadowPoint:F1} vs {openShadowPoint:F1}).");
         });
     }
 

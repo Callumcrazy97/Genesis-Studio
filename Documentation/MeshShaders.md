@@ -163,6 +163,12 @@ replaces the engine's pixel shader and its output is the pixel's colour. The eng
 | `b5` `GenesisParameters` | Your parameters, up to 16 floats (four `float4` rows). Their names are what the Object editor shows and what the commands below set. |
 | `t17`–`t20` | Free for your own textures (set in the Shader editor's Resources; an Object can override them). `t21`–`t23` are free except on terrain. They are bound the same way for a placed Object, a model material's shader and a script's `DrawModelShader3D`. |
 
+A full pixel shader built on the engine's own forward shader, one that declares its
+`cbuffer LocalShadowConstants : register(b4)` (as painted terrain's layer shaders do), is given the
+engine's constants as its own draws have them instead: point and spot lamp shadows at b4, and
+`GenesisFrame` at b3 as for a surface shader. Until 11 October 2026 painted terrain got `GenesisFrame`
+at b4, so lamps lit it but never cast shadows on it.
+
 ### What the engine passes in
 
 The pixel shader receives the engine's vertex output. Declare it with these semantics (later
