@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Numerics;
 using System.Text.Json;
 using System.Threading;
@@ -88,8 +89,23 @@ public static class RuntimeTextureAtlas
             // group -> list of (spriteKey, sourcePath, pixels)
             var pending = new Dictionary<string, List<PendingSprite>>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (string descriptor in Directory.EnumerateFiles(
-                         assets, "*.image.json", SearchOption.AllDirectories))
+            // The descriptors are read, and their pictures read and decoded, on several threads. The
+            // first open of a newly installed file waits while the antivirus scans it (about 4 ms a
+            // file, and scans run side by side): one at a time, a game's 380 sprites held its first
+            // launch for 7 s. They are packed below in the order they always were.
+            string[] descriptors = Directory.EnumerateFiles(assets, "*.image.json", SearchOption.AllDirectories).ToArray();
+            ReadAhead(descriptors);
+            var queued = new List<(string Group, string Key, string SourcePath)>();
+            var sources = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // One mapping per source file: frames that share pixels share the atlas slot.
+            void Queue(string group, string key, string sourcePath)
+            {
+                if (string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath)) return;
+                string full = Path.GetFullPath(sourcePath);
+                if (sources.Add(full)) queued.Add((group, string.IsNullOrWhiteSpace(key) ? full : key, full));
+            }
+
+            foreach (string descriptor in descriptors)
             {
                 try
                 {
@@ -103,7 +119,7 @@ public static class RuntimeTextureAtlas
                     if (asset.Frames.Count == 0)
                     {
                         string fallback = SpriteAssetLoader.ResolveFrameTexturePath(descriptor, asset, 0);
-                        TryQueue(pending, group, fallback, fallback);
+                        Queue(group, fallback, fallback);
                         continue;
                     }
 
@@ -111,13 +127,28 @@ public static class RuntimeTextureAtlas
                     {
                         string framePath = SpriteAssetLoader.ResolveFrameTexturePath(descriptor, asset, i);
                         string key = $"{descriptor}|{i}|{framePath}";
-                        TryQueue(pending, group, key, framePath);
+                        Queue(group, key, framePath);
                     }
                 }
                 catch
                 {
                     // Skip corrupt descriptors; gameplay still loads them individually.
                 }
+            }
+
+            ThrowWhenOneCannotFit(queued, groups);
+            var decoded = new PendingSprite[queued.Count];
+            Genesis.Shared.Diagnostics.StartupWorkers.For(queued.Count,
+                index => decoded[index] = Decode(queued[index].Key, queued[index].SourcePath), name: "Genesis texture group decode");
+            for (int index = 0; index < queued.Count; index++)
+            {
+                if (decoded[index] == null) continue;
+                if (!pending.TryGetValue(queued[index].Group, out List<PendingSprite> bucket))
+                {
+                    bucket = [];
+                    pending[queued[index].Group] = bucket;
+                }
+                bucket.Add(decoded[index]);
             }
 
             float occupancySum = 0f;
@@ -325,54 +356,84 @@ public static class RuntimeTextureAtlas
         return map;
     }
 
-    private static void TryQueue(
-        Dictionary<string, List<PendingSprite>> pending,
-        string group,
-        string key,
-        string sourcePath)
+    /// <summary>
+    /// A picture larger than its group's sheet makes packing fail, and the whole stitch with it (the
+    /// game then draws every sprite from its own texture). Packing used to find that out after every
+    /// picture of the project was decoded: GenesisCraft spent 5 s of each start decoding 380 sprites
+    /// to throw them away. The sizes are read from the PNG headers first, and the same failure is
+    /// reported before anything is decoded.
+    /// </summary>
+    private static void ThrowWhenOneCannotFit(List<(string Group, string Key, string SourcePath)> queued, Dictionary<string, GroupDef> groups)
     {
-        if (string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath))
-            return;
-
-        string full = Path.GetFullPath(sourcePath);
-        // One mapping per source file — frames that share pixels share the atlas slot.
-        foreach (List<PendingSprite> list in pending.Values)
+        var sizes = new (int Width, int Height)[queued.Count];
+        Genesis.Shared.Diagnostics.StartupWorkers.For(queued.Count,
+            index => sizes[index] = PngSize(queued[index].SourcePath), name: "Genesis texture group sizes");
+        for (int index = 0; index < queued.Count; index++)
         {
-            foreach (PendingSprite existing in list)
-            {
-                if (string.Equals(existing.SourcePath, full, StringComparison.OrdinalIgnoreCase))
-                {
-                    // Alias this key onto the same source; Build remaps by source path.
-                    return;
-                }
-            }
+            (int width, int height) = sizes[index];
+            if (width <= 0 || height <= 0) continue; // Not a PNG, or unreadable: decoding decides.
+            if (!groups.TryGetValue(queued[index].Group, out GroupDef def)) def = groups[TextureGroupDefaults.DefaultName];
+            if (new TextureGroupAtlas(queued[index].Group, def.AtlasSize).TryAllocate(queued[index].Key, width, height, out _)) continue;
+            // The packer's own words (TextureAtlasPacker.Allocate).
+            throw new InvalidOperationException(
+                $"Sprite '{queued[index].Key}' ({width}x{height}) does not fit a {def.AtlasSize} atlas sheet.");
         }
+    }
 
+    /// <summary>A PNG's width and height from its header; zero when the file is not a PNG or cannot be read.</summary>
+    private static (int Width, int Height) PngSize(string path)
+    {
+        try
+        {
+            Span<byte> header = stackalloc byte[24];
+            using FileStream stream = new(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1, FileOptions.None);
+            if (stream.ReadAtLeast(header, header.Length, throwOnEndOfStream: false) < header.Length) return (0, 0);
+            ReadOnlySpan<byte> signature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+            if (!header[..8].SequenceEqual(signature) || header[12] != (byte)'I' || header[13] != (byte)'H'
+                || header[14] != (byte)'D' || header[15] != (byte)'R') return (0, 0);
+            int width = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(header[16..]);
+            int height = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(header[20..]);
+            return width > 0 && height > 0 ? (width, height) : (0, 0);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            return (0, 0);
+        }
+    }
+
+    /// <summary>Reads small files through on several threads, so the reads after it find them scanned and cached.</summary>
+    private static void ReadAhead(string[] files)
+    {
+        if (files.Length < 16) return;
+        Genesis.Shared.Diagnostics.StartupWorkers.For(files.Length, index =>
+        {
+            try { File.ReadAllBytes(files[index]); }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
+        }, name: "Genesis texture group read-ahead");
+    }
+
+    /// <summary>A picture decoded for packing; null when it cannot be read or decoded.</summary>
+    private static PendingSprite Decode(string key, string full)
+    {
         try
         {
             using FileStream stream = File.OpenRead(full);
             ImageResult image = ImageResult.FromStream(stream, ColorComponents.RedGreenBlueAlpha);
             if (image is null || image.Width <= 0 || image.Height <= 0 || image.Data is null)
-                return;
-
-            if (!pending.TryGetValue(group, out List<PendingSprite> bucket))
+                return null;
+            return new PendingSprite
             {
-                bucket = [];
-                pending[group] = bucket;
-            }
-
-            bucket.Add(new PendingSprite
-            {
-                Key = string.IsNullOrWhiteSpace(key) ? full : key,
+                Key = key,
                 SourcePath = full,
                 Width = image.Width,
                 Height = image.Height,
                 Rgba = image.Data,
-            });
+            };
         }
         catch
         {
             // Skip undecodable sources.
+            return null;
         }
     }
 

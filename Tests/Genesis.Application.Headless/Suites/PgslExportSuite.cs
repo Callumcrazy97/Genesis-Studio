@@ -62,31 +62,60 @@ internal static class PgslExportSuite
         HeadlessHarness.RunCase(ctx.Report, "Export.PgslOnly.PlayerRunsWithoutGameScripts", () =>
         {
             HeadlessHarness.Assert(export is { Success: true }, "The PGSL-only export did not succeed.");
-            string executable = Path.Combine(export!.OutputPath, export.ExecutableName);
-            if (!File.Exists(executable)) throw new CheckNotRunException("The export has no Player executable to start.");
-            ProcessStartInfo start = new(executable)
-            {
-                WorkingDirectory = export.OutputPath, UseShellExecute = false, CreateNoWindow = true,
-                RedirectStandardOutput = true, RedirectStandardError = true,
-            };
-            start.ArgumentList.Add("--autoshot");
-            start.ArgumentList.Add("3");
-            start.Environment["GENESIS_RENDER_BACKEND"] = "DX11";
-            start.Environment["GENESIS_UNATTENDED_WINDOW"] = "1";
-            foreach (string name in new[] { "GENESIS_PROJECT_PATH", "GENESIS_START_ROOM", "GENESIS_AUTOSHOT", "GENESIS_BOOT_COORDINATED", RuntimePaths.GameScriptsEnvironmentVariable })
-                start.Environment.Remove(name);
-            using Process process = Process.Start(start) ?? throw new InvalidOperationException("The exported Player did not start.");
-            var output = process.StandardOutput.ReadToEndAsync();
-            var errors = process.StandardError.ReadToEndAsync();
-            if (!process.WaitForExit(90_000)) { process.Kill(entireProcessTree: true); process.WaitForExit(); }
-            string log = output.GetAwaiter().GetResult() + errors.GetAwaiter().GetResult();
+            if (!File.Exists(Path.Combine(export!.OutputPath, export.ExecutableName))) throw new CheckNotRunException("The export has no Player executable to start.");
+            string trace = Path.Combine(ctx.Logs, "pgsl-export-player-trace.txt");
+            bool exited = StartExportedGame(export.OutputPath, export.ExecutableName, trace, 90_000, out int exitCode, out string log);
             File.WriteAllText(Path.Combine(ctx.Logs, "pgsl-export-player.log"), log);
-            HeadlessHarness.Assert(process.ExitCode == 0 && log.Contains(Marker, StringComparison.Ordinal),
-                "The exported PGSL-only game did not run its Create event: " + Tail(log));
+            HeadlessHarness.Assert(exited && exitCode == 0 && log.Contains(Marker, StringComparison.Ordinal),
+                "The exported PGSL-only game did not run its Create event: " + Tail(log) + StartupTraceTail(trace));
             HeadlessHarness.Assert(!log.Contains("SCRIPT ERROR", StringComparison.OrdinalIgnoreCase),
                 "A script reported an error: " + Tail(log));
             HeadlessHarness.Assert(!log.Contains("loaded GameScripts.dll", StringComparison.Ordinal),
                 "The exported Player loaded compiled scripts for a game written only in PGSL.");
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Export.ResourceIndexSparesTheFirstLaunchEveryMetaFile", () =>
+        {
+            HeadlessHarness.Assert(export is { Success: true } && project != null, "The PGSL-only export did not succeed.");
+            string index = Path.Combine(export!.OutputPath, Genesis.Shared.Assets.ResourceCatalog.IndexFile.Replace('/', Path.DirectorySeparatorChar));
+            HeadlessHarness.Assert(File.Exists(index), "The export wrote no resource index.");
+            Genesis.Shared.Assets.ResourceCatalog.Invalidate(project!.RootPath);
+            string Names(string root) => string.Join("|", Genesis.Shared.Assets.ResourceCatalog.For(root).Entries
+                .Select(entry => entry.Name + "=" + entry.AssetId.ToString("N") + "@" + Path.GetRelativePath(root, entry.FullPath)));
+            string inProject = Names(project.RootPath);
+            Genesis.Shared.Assets.ResourceCatalog.Invalidate(export.OutputPath);
+            string exported = Names(export.OutputPath);
+            string report = Genesis.Shared.Assets.ResourceCatalog.LastBuildReport;
+            HeadlessHarness.Assert(exported == inProject, "The exported game names its resources differently from the project.");
+            HeadlessHarness.Assert(report.Contains(" 0 .meta files read", StringComparison.Ordinal) && report.Contains(" identities from", StringComparison.Ordinal) && !report.Contains("(0 identities", StringComparison.Ordinal),
+                "The exported game opened its resources' .meta files instead of reading the index: " + report);
+            Genesis.Shared.Assets.ResourceCatalog.Invalidate(export.OutputPath);
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Export.PgslOnly.FreshCopiesStartEveryTime", () =>
+        {
+            // A start that stopped part of the way once in a while (a 0-byte log, 10 Oct 2026):
+            // several fresh copies, each the first launch of a newly installed game, must all run.
+            HeadlessHarness.Assert(export is { Success: true }, "The PGSL-only export did not succeed.");
+            if (!File.Exists(Path.Combine(export!.OutputPath, export.ExecutableName))) throw new CheckNotRunException("The export has no Player executable to start.");
+            var failures = new List<string>();
+            for (int run = 1; run <= 3; run++)
+            {
+                string copy = Path.Combine(ctx.OutputRoot, "PgslOnlyFresh" + run.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                if (Directory.Exists(copy)) Directory.Delete(copy, recursive: true);
+                CopyFolder(export.OutputPath, copy);
+                string debug = Path.Combine(copy, "Debug");
+                if (Directory.Exists(debug)) Directory.Delete(debug, recursive: true);
+                string trace = Path.Combine(ctx.Logs, $"pgsl-export-fresh{run}-trace.txt");
+                Stopwatch clock = Stopwatch.StartNew();
+                bool exited = StartExportedGame(copy, export.ExecutableName, trace, 90_000, out int exitCode, out string log);
+                if (!exited || exitCode != 0 || !log.Contains(Marker, StringComparison.Ordinal))
+                    failures.Add($"start {run} ({(exited ? "exit " + exitCode : "stopped after 90 s")}, {clock.Elapsed.TotalSeconds:F1} s): {Tail(log)}{StartupTraceTail(trace)}");
+                else
+                    Directory.Delete(copy, recursive: true);
+            }
+
+            HeadlessHarness.Assert(failures.Count == 0, "A fresh copy of the exported game did not start: " + string.Join(" || ", failures));
         });
 
         HeadlessHarness.RunCase(ctx.Report, "Export.CSharpScripts.StillCompileGameScripts", () =>
@@ -196,6 +225,9 @@ internal static class PgslExportSuite
             start.ArgumentList.Add("3");
             start.Environment["GENESIS_RENDER_BACKEND"] = "DX11";
             start.Environment["GENESIS_UNATTENDED_WINDOW"] = "1";
+            string trace = Path.Combine(ctx.Logs, "export-shaders-player-trace.txt");
+            if (File.Exists(trace)) File.Delete(trace);
+            start.Environment[Genesis.Shared.Diagnostics.LoadProfile.TraceEnvironmentVariable] = trace;
             foreach (string name in new[] { "GENESIS_PROJECT_PATH", "GENESIS_START_ROOM", "GENESIS_AUTOSHOT", "GENESIS_BOOT_COORDINATED",
                          "GENESIS_SHADER_CACHE", "GENESIS_SHADER_WARMUP", RuntimePaths.GameScriptsEnvironmentVariable })
                 start.Environment.Remove(name);
@@ -206,7 +238,7 @@ internal static class PgslExportSuite
             string console = output.GetAwaiter().GetResult() + errors.GetAwaiter().GetResult();
             string playerLog = File.Exists(log) ? File.ReadAllText(log) : string.Empty;
             File.WriteAllText(Path.Combine(ctx.Logs, "export-shaders-player.log"), playerLog + Environment.NewLine + console);
-            HeadlessHarness.Assert(process.ExitCode == 0, "The exported game with project shaders did not run: " + Tail(console));
+            HeadlessHarness.Assert(process.ExitCode == 0, "The exported game with project shaders did not run: " + Tail(console) + StartupTraceTail(trace));
             System.Text.RegularExpressions.Match made = System.Text.RegularExpressions.Regex.Match(playerLog,
                 @"project shaders: (\d+) programs for Dxbc made on workers in \d+ ms \((\d+) read from the shader cache, (\d+) compiled");
             HeadlessHarness.Assert(made.Success, "The exported game did not report its project shaders: " + Tail(playerLog));
@@ -214,6 +246,53 @@ internal static class PgslExportSuite
                     && made.Groups[3].Value == "0",
                 "The exported game compiled project shaders at its first start: " + made.Value);
         });
+    }
+
+    /// <summary>
+    /// Starts an exported game as a player would (no Studio, no project path), unattended on DX11,
+    /// for a three-second autoshot, writing its start-up trace (GENESIS_STARTUP_TRACE) to
+    /// <paramref name="trace"/>. False when it had not finished within the time and was stopped.
+    /// </summary>
+    private static bool StartExportedGame(string folder, string executableName, string trace, int timeoutMilliseconds, out int exitCode, out string console)
+    {
+        if (File.Exists(trace)) File.Delete(trace);
+        ProcessStartInfo start = new(Path.Combine(folder, executableName))
+        {
+            WorkingDirectory = folder, UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardOutput = true, RedirectStandardError = true,
+        };
+        start.ArgumentList.Add("--autoshot");
+        start.ArgumentList.Add("3");
+        start.Environment["GENESIS_RENDER_BACKEND"] = "DX11";
+        start.Environment["GENESIS_UNATTENDED_WINDOW"] = "1";
+        start.Environment[Genesis.Shared.Diagnostics.LoadProfile.TraceEnvironmentVariable] = trace;
+        foreach (string name in new[] { "GENESIS_PROJECT_PATH", "GENESIS_START_ROOM", "GENESIS_AUTOSHOT", "GENESIS_BOOT_COORDINATED", RuntimePaths.GameScriptsEnvironmentVariable })
+            start.Environment.Remove(name);
+        using Process process = Process.Start(start) ?? throw new InvalidOperationException("The exported Player did not start.");
+        var output = process.StandardOutput.ReadToEndAsync();
+        var errors = process.StandardError.ReadToEndAsync();
+        bool exited = process.WaitForExit(timeoutMilliseconds);
+        if (!exited) { process.Kill(entireProcessTree: true); process.WaitForExit(); }
+        exitCode = process.ExitCode;
+        console = output.GetAwaiter().GetResult() + errors.GetAwaiter().GetResult();
+        return exited;
+    }
+
+    private static void CopyFolder(string from, string to)
+    {
+        Directory.CreateDirectory(to);
+        foreach (string directory in Directory.EnumerateDirectories(from, "*", SearchOption.AllDirectories))
+            Directory.CreateDirectory(Path.Combine(to, Path.GetRelativePath(from, directory)));
+        foreach (string file in Directory.EnumerateFiles(from, "*", SearchOption.AllDirectories))
+            File.Copy(file, Path.Combine(to, Path.GetRelativePath(from, file)), overwrite: true);
+    }
+
+    /// <summary>The last steps a start-up trace recorded, for a failure's message.</summary>
+    private static string StartupTraceTail(string trace)
+    {
+        if (!File.Exists(trace)) return " (no start-up trace: the Player did not reach its Main)";
+        string[] lines = File.ReadAllLines(trace).Where(line => !line.Contains("thread pool:", StringComparison.Ordinal)).ToArray();
+        return " | start-up trace ends: " + string.Join(" / ", lines.Skip(Math.Max(0, lines.Length - 6)));
     }
 
     /// <summary>A Blank project whose start room holds one Object with a PGSL Create event.</summary>

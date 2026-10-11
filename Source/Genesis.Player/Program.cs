@@ -12,6 +12,7 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        Genesis.Shared.Diagnostics.LoadProfile.Trace("Main entered");
         // Packaging step: compile the engine's built-in shaders into the folder shipped beside
         // Studio and the Player. Opens no window and plays nothing.
         if (args.Length > 0 && string.Equals(args[0], Genesis.Rendering.Primitives.PrecompiledShaders.CommandLineSwitch, StringComparison.OrdinalIgnoreCase))
