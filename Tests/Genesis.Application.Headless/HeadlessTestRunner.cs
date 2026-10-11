@@ -1133,7 +1133,7 @@ internal static class HeadlessTestRunner
     internal static readonly IReadOnlyDictionary<string, string[]> Tiers = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
     {
         ["tier-editor"] = ["studio-foundation", "shell-layout", "resource-names", "code-assistance", "editor-suite", "room-workspace", "model-intake", "model-sprites", "pixel-model", "menu-clips"],
-        ["tier-engine"] = ["engine-systems", "asset-import", "readback-alpha", "post-effects", "large-world", "runtime", "model-system", "debug-screen", "terrain-layers-grass", "shader-precompiled", "gui-linear", "opengl-compat", "window-lifecycle", "anti-aliasing"],
+        ["tier-engine"] = ["engine-systems", "asset-import", "readback-alpha", "post-effects", "large-world", "runtime", "model-system", "debug-screen", "terrain-layers-grass", "shader-precompiled", "gui-linear", "opengl-compat", "window-lifecycle", "anti-aliasing", "frame-rate-choice"],
         ["tier-pgsl"] = ["pgsl-values", "pgsl-cache", "pgsl-scripts", "pgsl-logic", "input-replay", "pgsl-project", "export-pgsl", "live-reload", "runtime-resources"],
         // A running game's files, sounds, post effects and profile (the 2026-10-09 game requests).
         ["game-runtime"] = ["live-reload", "runtime-resources", "post-effects", "debug-screen", "sky-light-exposure"],
@@ -1611,6 +1611,10 @@ internal static class HeadlessTestRunner
                 // The real Player on every renderer, bursting GPU particles, while its window is
                 // minimised, restored, unfocused, resized and made fullscreen (unattended).
                 Suites.WindowLifecycleSuite.Run(ctx);
+                break;
+            case "frame-rate-choice":
+                // A room's Frame rate and VSync are defaults the game's own choice outranks.
+                Suites.FrameRateChoiceChecks.Run(ctx);
                 break;
             case "validate-project":
                 // F5's script check over GENESIS_VALIDATE_PROJECT (any project folder).

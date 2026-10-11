@@ -341,6 +341,8 @@ namespace Genesis.Runtime.Project
                     _scriptsPath = null;
                     scriptsProfile.Dispose();
 
+                    // The rooms' frame rate and vsync are defaults until the game chooses its own.
+                    ProjectRoomPresentation.ResetAppliedFrameRate();
                     gameContext = new ProjectGameContext(projectPath, scene, renderer, window, room, logger);
                     scriptHost.SetContext(gameContext);
                     // The static commands (save slots, ModelInstance, the Net and Room commands)

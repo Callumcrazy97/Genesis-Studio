@@ -50,17 +50,23 @@ public static partial class PgslCommands
         ActiveGameContext?.SetResolution((int)Math.Min(width, 16384), (int)Math.Min(height, 16384));
     }
 
-    [PgslCommand("WindowSetVSync", "WindowSetVSync(enabled)", "Wait for the display's refresh before each frame (no tearing)", "Display")]
+    [PgslCommand("WindowSetVSync", "WindowSetVSync(enabled)",
+        "Wait for the display's refresh before each frame (no tearing). The game's choice outranks the rooms' VSync settings for the rest of the run", "Display")]
     public static void WindowSetVSync(bool enabled) => ActiveGameContext?.SetVSync(enabled);
 
     [PgslCommand("WindowGetVSync", "WindowGetVSync() -> bool", "Whether vsync is on", "Display")]
     public static bool WindowGetVSync() => ActiveGameContext?.VSyncEnabled ?? true;
 
-    [PgslCommand("GameSetMaxFps", "GameSetMaxFps(fps)", "Cap the frame rate (0 = no cap; vsync still applies)", "Display")]
+    [PgslCommand("GameSetMaxFps", "GameSetMaxFps(fps)",
+        "Cap the frame rate (0 = no cap; vsync still applies). The game's choice outranks the rooms' Frame rate settings for the rest of the run", "Display")]
     public static void GameSetMaxFps(double fps)
     {
         if (double.IsFinite(fps)) ActiveGameContext?.SetTargetFps((int)Math.Clamp(Math.Round(fps), 0, 1000));
     }
+
+    [PgslCommand("GameUseRoomFps", "GameUseRoomFps()",
+        "Follow the rooms' Frame rate and VSync settings again, after GameSetMaxFps or WindowSetVSync chose them: the current room's apply at once", "Display")]
+    public static void GameUseRoomFps() => Genesis.Runtime.Project.ProjectRoomPresentation.UseRoomSettings();
 
     [PgslCommand("GameGetMaxFps", "GameGetMaxFps() -> number", "The frame-rate cap (0 = none)", "Display")]
     public static double GameGetMaxFps() => ActiveGameContext?.TargetFps ?? 0;
@@ -80,7 +86,7 @@ public static partial class PgslCommands
         }
     }
 
-    // ── The wall clock ───────────────────────────────────────────────────────
+    // â”€â”€ The wall clock â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     [PgslCommand("DateNow", "DateNow() -> number",
         "Now, as seconds since 1 January 1970 (UTC): store it in a save, then read its parts with the Date commands", "Time")]

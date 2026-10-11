@@ -1385,11 +1385,19 @@ data. It also times sharing at a voxel game's size.
 | `WindowSetSize(width, height)`, `WindowGetWidth()`, `WindowGetHeight()` | A windowed game's size in pixels. |
 | `WindowSetVSync(enabled)`, `WindowGetVSync()` | Wait for the display's refresh (no tearing). |
 | `GameSetMaxFps(fps)`, `GameGetMaxFps()` | A frame-rate cap; 0 for none. |
+| `GameUseRoomFps()` | Follow the rooms' Frame rate and VSync settings again: the current room's apply at once. |
 | `DateNow()` | Now, as seconds since 1970 (UTC): what to store in a save for "last played". |
 | `DateYear(t)`, `DateMonth(t)`, `DateDay(t)`, `DateHour(t)`, `DateMinute(t)`, `DateSecond(t)`, `DateWeekday(t)` | The parts of a `DateNow` time in local time (weekday 0 is Sunday). |
 | `DateText(t, format)` | A `DateNow` time as text, such as `DateText(saved, "d MMM yyyy HH:mm")`. |
 
 `TimeMs()` is still the millisecond clock for timing within a run.
+
+A room's Frame rate and VSync settings are the game's defaults. Once the game chooses its own,
+with `GameSetMaxFps`, `RoomSpeed = n`, `WindowSetVSync`, `Engine.FpsTarget` or `Engine.SetVsync`,
+its choice wins for the rest of the run and no room change resets it. That holds even when the
+choice is made in a Create event of the first room, which runs before the room's settings are
+applied. So a settings menu, and options read from a save at start, simply work. `GameUseRoomFps()`
+hands both back to the rooms.
 
 ## The mood of a room from a script
 

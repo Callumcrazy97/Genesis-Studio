@@ -517,40 +517,83 @@ namespace Genesis.Runtime.Project
         private static int _appliedAuthoredFps = -1;
         private static bool? _appliedAuthoredVsync;
 
-        /// <summary>Forgets authored display defaults, so a new play session starts clean.</summary>
+        // The current room's authored values and where they go, for GameUseRoomFps.
+        private static int _roomFps = -1;
+        private static bool _roomVsync = true;
+        private static IGameWindow _window;
+        private static IRenderController _renderer;
+
+        /// <summary>
+        /// Whether the game has chosen its own frame-rate cap this session (GameSetMaxFps, RoomSpeed,
+        /// Engine.FpsTarget, ApplyDisplaySettings): from then on the rooms' Frame rate settings are
+        /// defaults it has overridden, and a room change no longer resets the cap.
+        /// </summary>
+        public static bool GameChoseFrameRate { get; private set; }
+
+        /// <summary>Whether the game has chosen vsync on or off this session (WindowSetVSync, Engine.SetVsync...).</summary>
+        public static bool GameChoseVSync { get; private set; }
+
+        /// <summary>Forgets authored display defaults and the game's own choices, so a new play session starts clean.</summary>
         public static void ResetAppliedFrameRate()
         {
             _appliedAuthoredFps = -1;
             _appliedAuthoredVsync = null;
+            _roomFps = -1;
+            _roomVsync = true;
+            _window = null;
+            _renderer = null;
+            GameChoseFrameRate = false;
+            GameChoseVSync = false;
         }
 
-        public static void Apply(SilkGameWindow window, IRenderController renderer, RoomAsset room)
+        /// <summary>Records that the game set its own frame-rate cap, which then outranks every room's.</summary>
+        public static void NoteGameFrameRate() => GameChoseFrameRate = true;
+
+        /// <summary>Records that the game turned vsync on or off itself, which then outranks every room's setting.</summary>
+        public static void NoteGameVSync() => GameChoseVSync = true;
+
+        /// <summary>
+        /// Hands the frame rate and vsync back to the rooms: the current room's settings apply at
+        /// once, and each room change applies its own again.
+        /// </summary>
+        public static void UseRoomSettings()
+        {
+            GameChoseFrameRate = false;
+            GameChoseVSync = false;
+            if (_window == null || _roomFps < 0) return;
+            _appliedAuthoredFps = _roomFps;
+            _window.TargetFps = _roomFps;
+            _appliedAuthoredVsync = _roomVsync;
+            _window.VSync = _roomVsync;
+            _renderer?.SetVSync(_roomVsync);
+        }
+
+        public static void Apply(IGameWindow window, IRenderController renderer, RoomAsset room)
         {
             if (window == null || room == null) return;
 
-            // A room's frame rate is part of how it plays — a menu at 30 and gameplay at 60 is an
-            // ordinary thing to author — so it has to reach the window, or the setting is a lie.
-            //
-            // It is applied only when the *authored* value changes, which is what preserves the
-            // original reason this was disconnected: scripts own VSync/TargetFps at run time
-            // (GameSession.Settings via IGameContext), and re-pushing the same room value on every
-            // ChangeRoom used to stamp on a player's own choice. Tracking the authored value means a
-            // script override survives inside a room and between rooms that agree, while a room
-            // that genuinely asks for a different speed still gets it.
+            // A room's frame rate and vsync are the game's defaults, as authored in the editor: a
+            // menu at 30 and gameplay at 60 is an ordinary thing to author, so they have to reach
+            // the window. But once the game itself has chosen (a settings menu, a saved option
+            // read in a Create event, which runs before this), its choice wins for the rest of the
+            // session and no room change stamps on it. Until then, a value is pushed only when the
+            // authored value changes, so rooms that agree leave the window alone.
             int authored = room.Settings?.TargetFps ?? 0;
-            if (authored != _appliedAuthoredFps)
+            bool authoredVsync = room.Settings?.VSync ?? true;
+            _roomFps = authored;
+            _roomVsync = authoredVsync;
+            _window = window;
+            _renderer = renderer;
+
+            if (!GameChoseFrameRate && authored != _appliedAuthoredFps)
             {
                 _appliedAuthoredFps = authored;
                 window.TargetFps = authored;
             }
 
-            // VSync is also authored room presentation. Previously the JSON value was displayed by
-            // the debugger but never reached DXGI: SilkGameWindow starts false and the renderer was
-            // initialised from that default before the room loaded. Track the authored value just
-            // like FPS so a script's live override survives room changes that request the same
-            // setting, while a genuinely different room setting is applied to both owners.
-            bool authoredVsync = room.Settings?.VSync ?? true;
-            if (_appliedAuthoredVsync != authoredVsync)
+            // VSync must reach both the window and the renderer: SilkGameWindow starts false and
+            // the renderer was initialised from that default before the room loaded.
+            if (!GameChoseVSync && _appliedAuthoredVsync != authoredVsync)
             {
                 _appliedAuthoredVsync = authoredVsync;
                 window.VSync = authoredVsync;
