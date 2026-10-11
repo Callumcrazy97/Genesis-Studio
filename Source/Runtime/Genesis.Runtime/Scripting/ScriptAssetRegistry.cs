@@ -59,8 +59,57 @@ namespace Genesis.Runtime.Scripting
       LoadFromProject(projectPath);
     }
 
+    /// <summary>Set to 0 to have a game read and compile its Scripts when its first PGSL event needs them, not while it starts.</summary>
+    public const string BackgroundLoadEnvironmentVariable = "GENESIS_SCRIPT_WARMUP";
+
+    /// <summary>
+    /// Starts reading and compiling the project's Scripts on a thread of its own, so the game's
+    /// first PGSL event finds them compiled instead of compiling them all itself. That event waits
+    /// for this load (it takes the same lock) when it is not done yet. A load that fails is
+    /// forgotten, and the game's own first load meets the failure and reports it as before.
+    /// </summary>
+    /// <remarks>
+    /// The caller sets <see cref="PgslCommands.ProjectPath"/> to the same path first: Scripts are
+    /// compiled against it (calls written without brackets) exactly as the game would compile them.
+    /// </remarks>
+    public static void LoadInBackground(string projectPath)
+    {
+      if (string.IsNullOrEmpty(projectPath) || Environment.GetEnvironmentVariable(BackgroundLoadEnvironmentVariable) == "0") return;
+      lock (_lock)
+      {
+        if (string.Equals(_projectPath, projectPath, StringComparison.OrdinalIgnoreCase)) return;
+      }
+
+      var thread = new System.Threading.Thread(() =>
+      {
+        try
+        {
+          VMEngine.Initialize();
+          // Checked and loaded under one hold of the lock, so the game never loads them a second time.
+          lock (_lock)
+          {
+            if (!string.Equals(_projectPath, projectPath, StringComparison.OrdinalIgnoreCase)) LoadFromProject(projectPath);
+          }
+        }
+        catch (Exception)
+        {
+          // Met again, and reported, by the game's own load.
+          lock (_lock)
+          {
+            if (string.Equals(_projectPath, projectPath, StringComparison.OrdinalIgnoreCase)) _projectPath = null;
+          }
+        }
+      })
+      {
+        IsBackground = true,
+        Name = "Genesis script compile",
+      };
+      thread.Start();
+    }
+
     public static void LoadFromProject(string projectPath)
     {
+      using Genesis.Shared.Diagnostics.LoadProfile.Span profile = Genesis.Shared.Diagnostics.LoadProfile.Begin("read and compile the project's Scripts");
       lock (_lock)
       {
         _projectPath = projectPath;

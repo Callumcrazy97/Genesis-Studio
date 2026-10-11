@@ -235,7 +235,7 @@ internal static partial class ReadinessJudgeRunner
             if (surface.Kind == ResourceKind.UserInterface)
             {
                 ResourceItem sprite = Flatten(resources.BuildTree()).First(item => item.Kind == ResourceKind.Image
-                    && Path.GetFileName(item.FullPath) == "Sun Coin.image.json");
+                    && Path.GetFileName(item.FullPath) == "Sun Coin Sprite.image.json");
                 UiAssetDocument.Save(resource!.FullPath, new UiAssetDocument
                 {
                     Elements =
@@ -527,7 +527,7 @@ internal static partial class ReadinessJudgeRunner
                     ResourceItem image = variant.Contains("dialog", StringComparison.Ordinal) || variant.StartsWith("use-in-game", StringComparison.Ordinal)
                         || variant.StartsWith("playback-", StringComparison.Ordinal) || variant == "game-steps-scale200"
                         ? Flatten(resources.BuildTree()).First(item => item.Kind == ResourceKind.Image
-                            && Path.GetFileName(item.FullPath) == "Checkpoint.image.json") : resource!;
+                            && Path.GetFileName(item.FullPath) == "Checkpoint Sprite.image.json") : resource!;
                     ImageDocumentSession session = new(ImageDocumentSerializer.LoadAtomic(image.FullPath).Document,
                         image.FullPath, ImageDocumentAccess.Editor);
                     ImageEditorControl editor = new(session, ImageWorkspaceStorage.Load(session));
@@ -555,7 +555,7 @@ internal static partial class ReadinessJudgeRunner
                         if (variant.StartsWith("texture-paint", StringComparison.Ordinal))
                         {
                             ResourceItem image = Flatten(resources.BuildTree()).First(item => item.Kind == ResourceKind.Image
-                                && Path.GetFileName(item.FullPath) == "Checkpoint.image.json");
+                                && Path.GetFileName(item.FullPath) == "Checkpoint Sprite.image.json");
                             using ModelImageDialog creation = modelEditor.CreateImageDialog(image.FullPath);
                             modelEditor.AddImageGeometry(creation.Result!);
                             host = modelEditor.CreateTexturePaintDialog();
@@ -563,7 +563,7 @@ internal static partial class ReadinessJudgeRunner
                         else if (variant.StartsWith("from-image", StringComparison.Ordinal))
                         {
                             ResourceItem image = Flatten(resources.BuildTree()).First(item => item.Kind == ResourceKind.Image
-                                && Path.GetFileName(item.FullPath) == "Checkpoint.image.json");
+                                && Path.GetFileName(item.FullPath) == "Checkpoint Sprite.image.json");
                             host = modelEditor.CreateImageDialog(image.FullPath);
                             if (variant.Contains("lower", StringComparison.Ordinal))
                                 host.Shown += (_, _) => ((ModelImageDialog)host).ShowGameSteps();

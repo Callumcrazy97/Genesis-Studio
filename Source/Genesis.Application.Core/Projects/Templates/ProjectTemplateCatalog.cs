@@ -55,12 +55,12 @@ public static class ProjectTemplateCatalog
     private static readonly ProjectTemplate[] Templates =
     [
         new(
-            "2DShowcase", "Mushroom Meadow", "SNES-style 2D authoring showcase", "▦",
+            "2DShowcase", "Mushroom Meadow", "A complete SNES-style 2D adventure", "▦",
             ProjectTemplateDimension.TwoD, ProjectTemplateArtwork.Platformer,
-            ["Editable pixel sprites, tiles, masks and PGSL objects",
-             "Swept tile collision, coins, enemies and question blocks",
-             "Checkpoint, lives, pause, restart and level completion",
-             "Original audio, responsive HUD and an authoring guide"],
+            ["Five levels, two bosses, a village hub and an overworld map",
+             "Intro cinematic, main menu, three save slots, options and credits",
+             "Hearts, power-ups, swimming, wind, dark caves and gamepad play in PGSL",
+             "Original pixel art, music and sound, and an authoring guide"],
             Available: true),
 
         new(

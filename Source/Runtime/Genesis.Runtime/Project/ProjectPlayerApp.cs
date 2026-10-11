@@ -144,6 +144,26 @@ namespace Genesis.Runtime.Project
                 Genesis.Runtime.Scripting.PgslCommands.GameQuitHandler = RequestStop;
                 PgslProfiler.Enabled = debugMode || benchmarkOutput != null;
 
+                // The project first: its file names the renderer the game starts on (an exported
+                // game has no Studio to say; Run says through GENESIS_RENDER_BACKEND, which wins),
+                // and the built-in shaders below are made for that renderer.
+                string projectPath;
+                using (Genesis.Shared.Diagnostics.LoadProfile.Begin("find the project and the renderer it names"))
+                {
+                    projectPath = Environment.GetEnvironmentVariable("GENESIS_PROJECT_PATH");
+                    if (string.IsNullOrWhiteSpace(projectPath))
+                        projectPath = ProjectRoomResolver.ResolveStandaloneProjectRoot(AppContext.BaseDirectory);
+                    projectPath = ProjectRoomResolver.ResolveProjectRoot(projectPath);
+                    if (!string.IsNullOrEmpty(projectPath))
+                        ProjectPaths.ApplyProjectRenderBackend(projectPath);
+                }
+                if (string.IsNullOrEmpty(projectPath))
+                {
+                    Console.Error.WriteLine(
+                        "GENESIS_PROJECT_PATH is not set and no Rooms/ folder was found next to the player.");
+                    return 2;
+                }
+
                 // The built-in shaders are read (from the precompiled folder shipped with the
                 // engine) or compiled on worker threads while the project and room are read and
                 // the window is made; the renderer then finds them ready. After an engine update
@@ -167,17 +187,7 @@ namespace Genesis.Runtime.Project
                 }
                 shaderStartProfile.Dispose();
 
-                Genesis.Shared.Diagnostics.LoadProfile.Span findProfile = Genesis.Shared.Diagnostics.LoadProfile.Begin("find the project and its start room");
-                string projectPath = Environment.GetEnvironmentVariable("GENESIS_PROJECT_PATH");
-                if (string.IsNullOrWhiteSpace(projectPath))
-                    projectPath = ProjectRoomResolver.ResolveStandaloneProjectRoot(AppContext.BaseDirectory);
-                projectPath = ProjectRoomResolver.ResolveProjectRoot(projectPath);
-                if (string.IsNullOrEmpty(projectPath))
-                {
-                    Console.Error.WriteLine(
-                        "GENESIS_PROJECT_PATH is not set and no Rooms/ folder was found next to the player.");
-                    return 2;
-                }
+                Genesis.Shared.Diagnostics.LoadProfile.Span findProfile = Genesis.Shared.Diagnostics.LoadProfile.Begin("find the project's start room");
 
                 // The project's anti-aliasing, from its file: an exported game has no Studio to say.
                 ProjectPaths.ApplyProjectAntiAliasing(projectPath);
@@ -198,8 +208,9 @@ namespace Genesis.Runtime.Project
 
                 // Rooms and scripts name resources without their kind: say which resources clash
                 // before anything trips over the name.
-                System.Collections.Generic.IReadOnlyList<Genesis.Shared.Assets.NamedResource[]> duplicateNames =
-                    Genesis.Shared.Assets.ResourceCatalog.For(projectPath).DuplicateNames;
+                System.Collections.Generic.IReadOnlyList<Genesis.Shared.Assets.NamedResource[]> duplicateNames;
+                using (Genesis.Shared.Diagnostics.LoadProfile.Begin("list the project's resources"))
+                    duplicateNames = Genesis.Shared.Assets.ResourceCatalog.For(projectPath).DuplicateNames;
                 if (duplicateNames.Count > 0)
                 {
                     LastError = string.Join(Environment.NewLine + Environment.NewLine, duplicateNames
@@ -255,6 +266,8 @@ namespace Genesis.Runtime.Project
                 logger.Line($"project={projectPath}");
                 logger.Line($"room={roomName} file={roomFile}");
                 logger.Line($"autoshot={autoshotSeconds} label={perfLabel ?? "(none)"}");
+                if (Genesis.Shared.Assets.ResourceCatalog.LastBuildReport.Length > 0)
+                    logger.Line(Genesis.Shared.Assets.ResourceCatalog.LastBuildReport);
                 Genesis.Runtime.Rendering.ProjectShaderWarmup.ReportTo(logger.Line);
                 Genesis.Runtime.Modeling.ProjectModelWarmup.ReportTo(logger.Line);
 
@@ -279,6 +292,17 @@ namespace Genesis.Runtime.Project
                     ProjectPaths.EnsureDebugDirs(projectPath);
                     RenderLog.Init();
                     StartInputReplayFromLaunch(args, projectPath, logger);
+                }
+
+                // The project's Scripts, read and compiled on a thread of their own while the window
+                // opens and the textures, sounds and room are prepared: the first PGSL event used to
+                // compile them all itself (GenesisCraft's 190 Scripts, 42 MB, in its Create events).
+                // That event waits for this load if it is not done. After the render log opens, so
+                // a Script that does not compile is logged as before. GENESIS_SCRIPT_WARMUP=0 turns it off.
+                using (Genesis.Shared.Diagnostics.LoadProfile.Begin("start compiling the game's Scripts on a worker"))
+                {
+                    Genesis.Runtime.Scripting.PgslCommands.ProjectPath = projectPath;
+                    Genesis.Runtime.Scripting.ScriptAssetRegistry.LoadInBackground(projectPath);
                 }
 
                 System.Drawing.Size display = RoomDisplayLayout.WindowSize(room);
@@ -313,6 +337,7 @@ namespace Genesis.Runtime.Project
                     Genesis.Shared.Diagnostics.LoadProfile.Mark("loading screen shown");
                     logger.Line($"engine shaders so far: {Genesis.Rendering.Primitives.ShaderCompiler.PrecompiledReads} precompiled, "
                         + $"{Genesis.Rendering.Primitives.ShaderCompiler.CompilesPerformed} compiled here");
+                    logger.Line(DescribeRenderer(renderer.BackendName));
 
                     if (room.Dimension == RoomDimension.ThreeD && room.Settings.VoxelWorld)
                         SceneDefaults.ApplyVoxelWorld(scene);
@@ -341,6 +366,8 @@ namespace Genesis.Runtime.Project
                     _scriptsPath = null;
                     scriptsProfile.Dispose();
 
+                    // The rooms' frame rate and vsync are defaults until the game chooses its own.
+                    ProjectRoomPresentation.ResetAppliedFrameRate();
                     gameContext = new ProjectGameContext(projectPath, scene, renderer, window, room, logger);
                     scriptHost.SetContext(gameContext);
                     // The static commands (save slots, ModelInstance, the Net and Room commands)
@@ -758,6 +785,19 @@ namespace Genesis.Runtime.Project
                 System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double value)
                 || !double.IsFinite(value)) throw new ArgumentException(option + " requires a finite number.");
             return value;
+        }
+
+        /// <summary>The renderer the game got, and the one it asked for when this machine cannot use that.</summary>
+        private static string DescribeRenderer(string backendName)
+        {
+            // A renderer GENESIS_RENDER_BACKEND names is used as named, so there is nothing to compare
+            // (and asking whether it is available would probe its device a second time).
+            if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(Genesis.Rendering.Core.RenderBackendSelection.EnvironmentVariable)))
+                return $"renderer={backendName}";
+            Genesis.Rendering.Core.RenderBackendOption requested = Genesis.Rendering.Core.RenderBackendSelection.RequestedBackend;
+            return Genesis.Rendering.Core.RenderBackendSelection.EffectiveBackend == requested
+                ? $"renderer={backendName}"
+                : $"renderer={backendName} ({Genesis.Rendering.Core.RenderBackendCatalog.Describe(requested).DisplayName} was asked for and cannot be used on this machine)";
         }
 
         private sealed class GameLaunchSettings

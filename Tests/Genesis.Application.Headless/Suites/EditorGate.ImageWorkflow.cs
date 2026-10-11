@@ -32,7 +32,7 @@ internal static partial class EditorGate
     private static void ImageNoviceWorkflow(HeadlessContext ctx, GateSuite.GateFixture fixture)
     {
         ProjectSession project = new ProjectService().CreateProject(fixture.Root, "Image Meadow", TwoDShowcaseTemplate.TemplateId);
-        ResourceItem image = GateSuite.Flatten(new ResourceService(project).BuildTree()).First(item => item.Kind == ResourceKind.Image && Path.GetFileName(item.FullPath) == "Checkpoint.image.json");
+        ResourceItem image = GateSuite.Flatten(new ResourceService(project).BuildTree()).First(item => item.Kind == ResourceKind.Image && Path.GetFileName(item.FullPath) == "Checkpoint Sprite.image.json");
         ImageDocumentSession session = new(ImageDocumentSerializer.LoadAtomic(image.FullPath).Document, image.FullPath, ImageDocumentAccess.Editor);
         using ImageEditorControl editor = new(session, ImageWorkspaceStorage.Load(session));
         using Form host = GateSuite.NewHost(1280, 780); host.Controls.Add(editor); GateSuite.ShowHost(host);

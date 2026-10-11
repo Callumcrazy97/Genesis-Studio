@@ -31,10 +31,10 @@ internal static class RoomSpritePlacementSuite
     private static void Placement(HeadlessContext ctx)
     {
         ProjectSession project = new ProjectService().CreateProject(ctx.Workspace, "Sprite placement", TwoDShowcaseTemplate.TemplateId);
-        string path = Path.Combine(project.RootPath, TwoDShowcaseTemplate.StartRoom);
+        string path = Path.Combine(project.RootPath, TwoDShowcaseTemplate.LevelOneRoom);
         string authored = File.ReadAllText(path);
         using var editor = new RoomEditorControl(path, project.RootPath);
-        RoomNode[] targets = editor.Room.Nodes.Where(node => node.Name is "Midpoint flag" or "Summit flag" or "Acorn 1").ToArray();
+        RoomNode[] targets = editor.Room.Nodes.Where(node => node.Name is "Midpoint flag" or "Summit shrine" or "Acorn 1").ToArray();
         Assert(targets.Length == 3, "The production Meadow placement examples are missing.");
         RoomNode[] scene = editor.Room.Nodes.ToArray();
         EcsWorld world = new();

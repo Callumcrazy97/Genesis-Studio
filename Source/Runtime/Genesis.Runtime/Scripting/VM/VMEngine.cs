@@ -57,10 +57,13 @@ public static class VMEngine
         if (string.IsNullOrEmpty(source)) return null;
         if (!_initialized) Initialize();
 
-        string processed = PgslCommands.PreProcessScript(source, true, PgslCommands.ProjectPath);
+        string processed;
+        using (Genesis.Shared.Diagnostics.LoadProfile.Begin("VM: prepare the text"))
+            processed = PgslCommands.PreProcessScript(source, true, PgslCommands.ProjectPath);
         string cacheKey = ScriptingDebugSettings.VmBytecodeCacheSha256
             ? ComputeSha256Hex(processed)
             : processed;
+        using Genesis.Shared.Diagnostics.LoadProfile.Span compileProfile = Genesis.Shared.Diagnostics.LoadProfile.Begin("VM: look up and compile");
 
         // Preprocessing may load modules; keep that outside the cache/compiler lock to avoid
         // reversing the registry's lock order. Native jobs never compile or execute PGSL.

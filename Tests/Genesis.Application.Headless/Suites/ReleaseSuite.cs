@@ -142,6 +142,8 @@ internal static class ReleaseSuite
                 WorkingDirectory = directory, UseShellExecute = false, CreateNoWindow = true,
                 RedirectStandardOutput = true, RedirectStandardError = true,
             };
+            // The template starts at its Intro; the gameplay acceptance plays level 1-1 directly.
+            start.ArgumentList.Add("--room"); start.ArgumentList.Add(TwoDShowcaseTemplate.LevelOneRoomName);
             start.ArgumentList.Add("--acceptance-meadow"); start.ArgumentList.Add(output);
             start.Environment[RenderBackendSelection.EnvironmentVariable] =
                 RenderBackendCatalog.All.First(backend => backend.ShortName == "DX11").SettingsValue;

@@ -68,9 +68,20 @@ public sealed class EngineRuntimeCommandBinding : IDisposable
         Engine.TextDrawSubmitted += OnTextDrawSubmitted;
     }
 
-    private void OnVsyncChanged(bool enabled) => _window.VSync = enabled;
+    // A game's own choice outranks the rooms' authored defaults (see ProjectRoomPresentation), and
+    // vsync has to reach the renderer as well as the window, or the next Present ignores it.
+    private void OnVsyncChanged(bool enabled)
+    {
+        Genesis.Runtime.Project.ProjectRoomPresentation.NoteGameVSync();
+        _window.VSync = enabled;
+        _renderer?.SetVSync(enabled);
+    }
 
-    private void OnFpsTargetChanged(int target) => _window.TargetFps = Math.Max(0, target);
+    private void OnFpsTargetChanged(int target)
+    {
+        Genesis.Runtime.Project.ProjectRoomPresentation.NoteGameFrameRate();
+        _window.TargetFps = Math.Max(0, target);
+    }
 
     private void OnWindowModeChanged(string mode)
     {

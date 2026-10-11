@@ -14,7 +14,7 @@ using Newtonsoft.Json;
 namespace Genesis.Application.Editors.Suite.Assets;
 
 /// <summary>
-/// Audio Editor: pick a project WAV, see its decoded waveform, audition playback through the
+/// Audio Editor: pick a project sound file (WAV or Ogg Vorbis), see its decoded waveform, audition playback through the
 /// real runtime mixer, and edit the playback fields the game will honour (volume, pitch, bus,
 /// loop, and the spatial falloff curve). Saves <c>.audio.json</c>.
 /// </summary>
@@ -548,7 +548,7 @@ public sealed partial class AudioEditorControl : EditorSurfaceControl, IResource
         if (LoadWarning is not null) throw new InvalidDataException("The unreadable audio document was preserved: " + LoadWarning);
         if (!ValidDocument(_document)) throw new InvalidDataException("Audio settings must be finite and within the supported ranges.");
         if (_document.Spatial && _document.MaxDistance <= _document.MinDistance) throw new InvalidDataException("Maximum distance must be greater than minimum distance for spatial sound.");
-        if (!string.IsNullOrWhiteSpace(_document.Source) && _sourceClip is null) throw new InvalidDataException("Choose a readable WAV before saving; the existing audio resource was retained.");
+        if (!string.IsNullOrWhiteSpace(_document.Source) && _sourceClip is null) throw new InvalidDataException("Choose a readable WAV or Ogg sound before saving; the existing audio resource was retained.");
         if (_sourceClip is not null) _sourceClip.ApplyRegion(Settings);
         _document.SchemaVersion = 4;
         ProjectAssetWriteRegistry.MarkLocalWrite(ResourcePath);
@@ -729,7 +729,7 @@ public sealed partial class AudioEditorControl : EditorSurfaceControl, IResource
         using OpenFileDialog dialog = new()
         {
             Title = "Import Audio",
-            Filter = "Audio (*.wav;*.ogg)|*.wav;*.ogg|WAV audio (*.wav)|*.wav|Ogg Vorbis audio (*.ogg)|*.ogg",
+            Filter = "Audio (*.wav;*.ogg;*.oga)|*.wav;*.ogg;*.oga|WAV audio (*.wav)|*.wav|Ogg Vorbis audio (*.ogg;*.oga)|*.ogg;*.oga",
             CheckFileExists = true,
             Multiselect = false,
         };
@@ -762,8 +762,10 @@ public sealed partial class AudioEditorControl : EditorSurfaceControl, IResource
         return relative;
     }
 
+    // The sound files a game plays (XAudioSystem.IsSoundFileName): WAV, and Ogg Vorbis as .ogg or .oga.
     private static bool IsSupportedAudioExtension(string extension) =>
-        extension.Equals(".wav", StringComparison.OrdinalIgnoreCase) || extension.Equals(".ogg", StringComparison.OrdinalIgnoreCase);
+        extension.Equals(".wav", StringComparison.OrdinalIgnoreCase) || extension.Equals(".ogg", StringComparison.OrdinalIgnoreCase)
+        || extension.Equals(".oga", StringComparison.OrdinalIgnoreCase);
 
     private static string UniqueImportPath(string requested)
     {
@@ -798,7 +800,7 @@ public sealed partial class AudioEditorControl : EditorSurfaceControl, IResource
         string? path = ResolveSourcePath();
         if (path is null || !File.Exists(path))
         {
-            _statusLabel.Text = "No source WAV selected.";
+            _statusLabel.Text = "No source sound selected.";
             return;
         }
 

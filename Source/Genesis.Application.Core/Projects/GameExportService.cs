@@ -26,6 +26,10 @@ public enum GameExportWindowMode
     Fullscreen,
 }
 
+/// <param name="Renderer">
+/// The renderer the exported game starts with, written into the exported copy of the project file.
+/// Null keeps the project's own setting (<see cref="GameExportService.ProjectRenderer"/>).
+/// </param>
 public sealed record GameExportRequest(
     ProjectSession Project,
     string OutputPath,
@@ -35,7 +39,8 @@ public sealed record GameExportRequest(
     GameExportPlatform Platform = GameExportPlatform.WindowsX64,
     string GameTitle = "",
     string IconPath = "",
-    GameExportWindowMode WindowMode = GameExportWindowMode.Windowed);
+    GameExportWindowMode WindowMode = GameExportWindowMode.Windowed,
+    Genesis.Rendering.Core.RenderBackendOption? Renderer = null);
 
 public sealed record GameExportResult(
     bool Success,
@@ -118,11 +123,21 @@ public static partial class GameExportService
             cancellationToken.ThrowIfCancellationRequested();
             progress?.Report("Copying game content…");
             CopyProject(projectRoot, staging, request.Project.Manifest.ExportExclude, cancellationToken);
+            if (request.Renderer is Genesis.Rendering.Core.RenderBackendOption renderer)
+                WriteExportedRenderer(projectRoot, request.Project.ProjectFile, staging, renderer);
 
             // The exported models are final now. Giving each large one its fast-loading copy here
             // means the player's first launch reads those instead of parsing every model.
             progress?.Report("Preparing models to load quickly…");
             Genesis.Runtime.Modeling.RuntimeModelStore.WriteSealedCaches(staging, cancellationToken);
+
+            // And one file naming every resource, so the first launch of a fresh install does not
+            // open each resource's .meta (an antivirus scans each new file on its first open).
+            try { Genesis.Shared.Assets.ResourceCatalog.WriteIndex(staging); }
+            catch (Exception exception) when (exception is InvalidDataException or ArgumentException or IOException or UnauthorizedAccessException)
+            {
+                // A .meta the catalog cannot read is reported by the game as before; it starts without the index.
+            }
 
             // Only a game with C# scripts is compiled. A game written only in PGSL runs the PGSL
             // copied above on the Player's VM, so it gets the same strict check as Run but no C#

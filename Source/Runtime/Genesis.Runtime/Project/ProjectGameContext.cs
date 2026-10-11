@@ -165,14 +165,17 @@ namespace Genesis.Runtime.Project
         public bool WindowHasFocus => _window?.HasFocus ?? true;
         public bool WindowIsMinimized => _window?.IsMinimized ?? false;
 
+        // The game's own choice (its settings menu) outranks the rooms' authored defaults from here on.
         public void SetVSync(bool enabled)
         {
+            ProjectRoomPresentation.NoteGameVSync();
             if (_window != null) _window.VSync = enabled;
             _renderer?.SetVSync(enabled);
         }
 
         public void SetTargetFps(int fps)
         {
+            ProjectRoomPresentation.NoteGameFrameRate();
             if (_window != null) _window.TargetFps = fps;
         }
 

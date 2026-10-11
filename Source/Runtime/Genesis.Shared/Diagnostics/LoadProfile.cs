@@ -22,7 +22,52 @@ public static class LoadProfile
 {
     public const string EnvironmentVariable = "GENESIS_LOAD_PROFILE";
 
-    private static bool _enabled = Environment.GetEnvironmentVariable(EnvironmentVariable) == "1";
+    /// <summary>
+    /// Set to a file path to have every span's start and end and every moment written to that file
+    /// at once, with the time and thread, so a start that stops part of the way shows where.
+    /// </summary>
+    public const string TraceEnvironmentVariable = "GENESIS_STARTUP_TRACE";
+
+    private static readonly string TracePath = Environment.GetEnvironmentVariable(TraceEnvironmentVariable) is { Length: > 0 } trace ? trace : null;
+    private static readonly object TraceGate = new();
+    private static bool _enabled = Environment.GetEnvironmentVariable(EnvironmentVariable) == "1" || TracePath != null;
+
+    private static int _traceWatchStarted;
+    private static int _traceLines;
+    private const int MaximumTraceLines = 5000;
+
+    /// <summary>Writes one line to the start-up trace file (GENESIS_STARTUP_TRACE) at once; nothing when it is not set.</summary>
+    public static void Trace(string text)
+    {
+        if (TracePath == null || text == null) return;
+        if (Interlocked.Exchange(ref _traceWatchStarted, 1) == 0)
+        {
+            // Every two seconds, the thread pool's state: a start held up by work queued to a pool with
+            // no thread free shows here. A thread of its own, so a busy pool cannot stop it.
+            var watch = new Thread(() =>
+            {
+                for (int i = 0; i < 60; i++)
+                {
+                    Thread.Sleep(2000);
+                    Trace($"thread pool: {ThreadPool.ThreadCount} threads, {ThreadPool.PendingWorkItemCount} work items queued, {ThreadPool.CompletedWorkItemCount} done");
+                }
+            }) { IsBackground = true, Name = "Genesis start-up trace" };
+            watch.Start();
+        }
+        // The start is what it is for: a game's frames would fill it without end.
+        int written = Interlocked.Increment(ref _traceLines);
+        if (written > MaximumTraceLines) return;
+        if (written == MaximumTraceLines) text = $"(trace stops here: {MaximumTraceLines} lines)";
+        string line = $"{Stopwatch.GetElapsedTime(ProcessStartTicks).TotalSeconds:F3} [{Environment.CurrentManagedThreadId}] {text}{Environment.NewLine}";
+        try
+        {
+            lock (TraceGate) System.IO.File.AppendAllText(TracePath, line);
+        }
+        catch (Exception exception) when (exception is System.IO.IOException or UnauthorizedAccessException)
+        {
+            // A trace that cannot be written must not change the start it describes.
+        }
+    }
 
     /// <summary>True when spans are recorded. Set from <c>GENESIS_LOAD_PROFILE=1</c>; tests may set it.</summary>
     public static bool Enabled
@@ -114,6 +159,7 @@ public static class LoadProfile
         {
             if (_node == null) return;
             _node.Add(Stopwatch.GetTimestamp() - _started);
+            if (TracePath != null) Trace("end " + _node.Name);
             // A span closed out of order (an exception unwinding several) still leaves its parent current.
             _current = _parent;
         }
@@ -123,6 +169,7 @@ public static class LoadProfile
     public static Span Begin(string name)
     {
         if (!_enabled || name == null) return default;
+        if (TracePath != null) Trace("begin " + name);
         Node parent = CurrentFor();
         Node node = parent.Child(name);
         _current = node;
@@ -140,6 +187,7 @@ public static class LoadProfile
     public static void Mark(string name)
     {
         if (!_enabled || name == null) return;
+        if (TracePath != null) Trace("moment " + name);
         double seconds = Stopwatch.GetElapsedTime(ProcessStartTicks).TotalSeconds;
         lock (Marks) Marks.Add((name, seconds));
     }

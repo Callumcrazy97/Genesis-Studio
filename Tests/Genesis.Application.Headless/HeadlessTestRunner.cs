@@ -1133,7 +1133,7 @@ internal static class HeadlessTestRunner
     internal static readonly IReadOnlyDictionary<string, string[]> Tiers = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
     {
         ["tier-editor"] = ["studio-foundation", "shell-layout", "resource-names", "code-assistance", "editor-suite", "room-workspace", "model-intake", "model-sprites", "pixel-model", "menu-clips"],
-        ["tier-engine"] = ["engine-systems", "asset-import", "readback-alpha", "post-effects", "large-world", "runtime", "model-system", "debug-screen", "terrain-layers-grass", "shader-precompiled", "gui-linear", "opengl-compat", "window-lifecycle", "anti-aliasing"],
+        ["tier-engine"] = ["engine-systems", "asset-import", "readback-alpha", "post-effects", "large-world", "runtime", "model-system", "debug-screen", "terrain-layers-grass", "shader-precompiled", "gui-linear", "opengl-compat", "window-lifecycle", "anti-aliasing", "frame-rate-choice"],
         ["tier-pgsl"] = ["pgsl-values", "pgsl-cache", "pgsl-scripts", "pgsl-logic", "input-replay", "pgsl-project", "export-pgsl", "live-reload", "runtime-resources"],
         // A running game's files, sounds, post effects and profile (the 2026-10-09 game requests).
         ["game-runtime"] = ["live-reload", "runtime-resources", "post-effects", "debug-screen", "sky-light-exposure"],
@@ -1155,9 +1155,16 @@ internal static class HeadlessTestRunner
         // flash lights, surface shaders and outlines, room changes with preloaded sounds (not part of the tiers).
         ["requests-1010"] = ["sky-light-exposure", "decals", "flash-lights", "mesh-surface", "outlines", "room-change"],
         ["combat-effects"] = ["flash-lights", "decals"],
+        // The 11 Oct 2026 small requests: 2D darkness, failing shaders named, the anti-aliasing
+        // picker, lamp shadows on painted terrain, Ogg sources in the Audio editor (not part of the tiers).
+        ["requests-1011"] = ["effects-2d", "shader-precompiled", "anti-aliasing", "shadows", "runtime-resources"],
+        // Export Game's renderer choice: the dialog's list and layout, the exported project file and
+        // the exported game starting on the chosen renderer (both suites are in the tiers too).
+        ["export-renderer"] = ["studio-foundation", "export-pgsl"],
         // Opening a project in Studio: resource names and the Assets tree, library tags and
-        // favourites, the shell, and live reload's asset monitor (not part of the tiers).
-        ["project-open"] = ["resource-names", "resource-library", "resource-tags", "studio-foundation", "studio-polish", "live-reload"],
+        // favourites, the shell, live reload's asset monitor, and the resource catalog's index
+        // (not part of the tiers).
+        ["project-open"] = ["resource-names", "resource-library", "resource-tags", "studio-foundation", "studio-polish", "live-reload", "runtime-resources"],
     };
 
     private static void RunFocusedTarget(HeadlessContext ctx, string target)
@@ -1614,6 +1621,10 @@ internal static class HeadlessTestRunner
                 // The real Player on every renderer, bursting GPU particles, while its window is
                 // minimised, restored, unfocused, resized and made fullscreen (unattended).
                 Suites.WindowLifecycleSuite.Run(ctx);
+                break;
+            case "frame-rate-choice":
+                // A room's Frame rate and VSync are defaults the game's own choice outranks.
+                Suites.FrameRateChoiceChecks.Run(ctx);
                 break;
             case "validate-project":
                 // F5's script check over GENESIS_VALIDATE_PROJECT (any project folder).

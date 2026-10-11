@@ -58,6 +58,41 @@ internal static class RuntimeResourcesSuite
             }
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Studio.Audio.EditorListsEverySoundFileAGamePlays", () =>
+        {
+            // The Audio editor's source list once offered only .wav files, so an Ogg resource showed
+            // "WAV source: (none)" (a GenesisCraft request). It lists what a game plays: WAV, .ogg, .oga.
+            string tone = Path.Combine(AppContext.BaseDirectory, "Fixtures", "tone-440-660.ogg");
+            string project = Path.Combine(ctx.Workspace, "AudioEditorSources" + Guid.NewGuid().ToString("N")[..6]);
+            string audio = Path.Combine(project, "Assets", "Audio");
+            Directory.CreateDirectory(audio);
+            File.WriteAllText(Path.Combine(project, "Audio Editor Sources.genesisproj"), "{}");
+            File.Copy(tone, Path.Combine(audio, "Tone.ogg"));
+            File.Copy(tone, Path.Combine(audio, "Chime.oga"));
+            WriteSilentWave(Path.Combine(audio, "Blip.wav"), 0.2);
+            string resource = Path.Combine(audio, "Tone.audio.json");
+            File.WriteAllText(resource, "{ \"source\": \"Tone.ogg\" }");
+            Genesis.Shared.Assets.ResourceCatalog.Invalidate(project);
+
+            using System.Windows.Forms.Form host = UnattendedWindowing.NewHost(900, 640);
+            using var editor = new Genesis.Application.Editors.Suite.Assets.AudioEditorControl(resource, project)
+            { Dock = System.Windows.Forms.DockStyle.Fill };
+            host.Controls.Add(editor);
+            UnattendedWindowing.ShowWithoutFocus(host);
+            GateSuite.Pump(4, 20);
+            var combo = (System.Windows.Forms.ComboBox)typeof(Genesis.Application.Editors.Suite.Assets.AudioEditorControl)
+                .GetField("_sourceCombo", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(editor)!;
+            HeadlessHarness.Assert(combo.SelectedIndex > 0 && editor.HasWaveform,
+                $"The Ogg resource opened with its source shown as '{combo.Text}' and {(editor.HasWaveform ? "a" : "no")} waveform.");
+            foreach (string file in new[] { "Assets/Audio/Tone.ogg", "Assets/Audio/Chime.oga", "Assets/Audio/Blip.wav" })
+            {
+                HeadlessHarness.Assert(editor.SelectSource(file), $"The Audio editor does not offer {file} as a source.");
+                GateSuite.Pump(2, 20);
+                HeadlessHarness.Assert(editor.HasWaveform, $"The Audio editor decoded no waveform from {file}.");
+            }
+            host.Close();
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Pgsl.Resources.ResourceListNamesAFoldersResourcesOfOneKind", () =>
         {
             string project = Path.Combine(ctx.Workspace, "ResourceList" + Guid.NewGuid().ToString("N")[..6]);
@@ -120,6 +155,79 @@ internal static class RuntimeResourcesSuite
 
         RunBackgroundDecode(ctx);
         RunCompressedAndPreloaded(ctx);
+        RunCatalogIndex(ctx);
+    }
+
+    /// <summary>
+    /// An export's index of its resources names them as reading every .meta would, without opening
+    /// them; a .meta changed after the index (a mod) is read again, and a bad index is ignored.
+    /// </summary>
+    internal static void RunCatalogIndex(HeadlessContext ctx)
+    {
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Resources.AnIndexNamesResourcesWithoutOpeningTheirMetaFiles", () =>
+        {
+            string project = Path.Combine(ctx.Workspace, "CatalogIndex" + Guid.NewGuid().ToString("N")[..6]);
+            string audio = Path.Combine(project, "Assets", "Audio");
+            Directory.CreateDirectory(audio);
+            File.WriteAllText(Path.Combine(project, "Index.genesisproj"), "{}");
+            var guids = new Dictionary<string, Guid>();
+            // Enough .meta files to be read on several threads when there is no index.
+            for (int i = 0; i < 90; i++)
+            {
+                string stem = "Sound" + i.ToString("00", System.Globalization.CultureInfo.InvariantCulture);
+                string document = Path.Combine(audio, stem + ".audio.json");
+                File.WriteAllText(document, "{ \"source\": \"" + stem + ".wav\" }");
+                Guid guid = Guid.NewGuid();
+                guids[stem] = guid;
+                // Every third one is named by its .meta, not its file.
+                string named = i % 3 == 0 ? ", \"resourceName\": \"Named " + stem + "\"" : string.Empty;
+                File.WriteAllText(document + ".meta", "{ \"guid\": \"" + guid.ToString("N") + "\"" + named + " }");
+            }
+            File.WriteAllText(Path.Combine(audio, "Plain.audio.json"), "{ \"source\": \"Plain.wav\" }");
+
+            string Describe(Genesis.Shared.Assets.ResourceCatalog catalog) => string.Join("|",
+                catalog.Entries.Select(entry => entry.Name + "=" + entry.AssetId.ToString("N") + "@" + Path.GetFileName(entry.FullPath)));
+            Genesis.Shared.Assets.ResourceCatalog.Invalidate(project);
+            string read = Describe(Genesis.Shared.Assets.ResourceCatalog.For(project));
+            string readReport = Genesis.Shared.Assets.ResourceCatalog.LastBuildReport;
+            HeadlessHarness.Assert(readReport.Contains("90 .meta files read", StringComparison.Ordinal) && read.Contains("Named Sound03=", StringComparison.Ordinal)
+                && read.Contains("Sound01=" + guids["Sound01"].ToString("N"), StringComparison.Ordinal),
+                "Without an index the catalog did not read every .meta: " + readReport);
+
+            HeadlessHarness.Assert(Genesis.Shared.Assets.ResourceCatalog.WriteIndex(project) == 90, "The index did not hold every resource with a .meta.");
+            string indexed = Describe(Genesis.Shared.Assets.ResourceCatalog.For(project));
+            string report = Genesis.Shared.Assets.ResourceCatalog.LastBuildReport;
+            HeadlessHarness.Assert(indexed == read, "The index named the resources differently from their .meta files.");
+            HeadlessHarness.Assert(report.Contains("90 identities from", StringComparison.Ordinal) && report.Contains(" 0 .meta files read", StringComparison.Ordinal),
+                "With the index the catalog still opened .meta files: " + report);
+
+            // A mod renames one resource after the export: its .meta is newer than the index, and read.
+            string changed = Path.Combine(audio, "Sound04.audio.json.meta");
+            File.WriteAllText(changed, "{ \"guid\": \"" + guids["Sound04"].ToString("N") + "\", \"resourceName\": \"Modded Sound\" }");
+            File.SetLastWriteTimeUtc(changed, DateTime.UtcNow.AddMinutes(5));
+            Genesis.Shared.Assets.ResourceCatalog.Invalidate(project);
+            string modded = Describe(Genesis.Shared.Assets.ResourceCatalog.For(project));
+            report = Genesis.Shared.Assets.ResourceCatalog.LastBuildReport;
+            HeadlessHarness.Assert(modded.Contains("Modded Sound=", StringComparison.Ordinal) && report.Contains(" 1 .meta files read", StringComparison.Ordinal),
+                "A .meta changed after the index was not read again: " + report);
+
+            // An index that is not one is ignored.
+            File.WriteAllText(Path.Combine(project, ".genesis", "resource-catalog.txt"), "not an index\nAssets/Audio/Sound00.audio.json\t1\tx\ty\n");
+            Genesis.Shared.Assets.ResourceCatalog.Invalidate(project);
+            string ignored = Describe(Genesis.Shared.Assets.ResourceCatalog.For(project));
+            HeadlessHarness.Assert(ignored == modded && Genesis.Shared.Assets.ResourceCatalog.LastBuildReport.Contains("90 .meta files read", StringComparison.Ordinal),
+                "A broken index was used: " + Genesis.Shared.Assets.ResourceCatalog.LastBuildReport);
+
+            // A .meta that does not parse is still reported as before.
+            File.WriteAllText(Path.Combine(audio, "Sound07.audio.json.meta"), "{ broken");
+            Genesis.Shared.Assets.ResourceCatalog.Invalidate(project);
+            string error = string.Empty;
+            try { Genesis.Shared.Assets.ResourceCatalog.For(project); }
+            catch (InvalidDataException exception) { error = exception.Message; }
+            HeadlessHarness.Assert(error.Contains("Invalid resource identity metadata for 'Sound07'", StringComparison.Ordinal),
+                "A broken .meta was not reported: " + error);
+            Genesis.Shared.Assets.ResourceCatalog.Invalidate(project);
+        });
     }
 
     /// <summary>

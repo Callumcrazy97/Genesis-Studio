@@ -14,6 +14,9 @@ public sealed partial class RuntimeViewportHarness
     private int _localPointLights;
     private bool _localSpot;
     private bool _localCasters;
+    private bool _localTerrainFloor;
+    private MeshDrawCall _localTerrainMaterial;
+    private IRenderController? _localTerrainRenderer;
 
     /// <summary>Ring positions of the scene's point lights; the matching occluder sits one unit inward.</summary>
     public static Vector3 LocalLightPosition(int index) => index switch
@@ -39,16 +42,18 @@ public sealed partial class RuntimeViewportHarness
     /// Renders the local-light scene. <paramref name="pointLights"/> ring lights (0–4) each get an
     /// occluder pillar between the light and the room centre; <paramref name="spotLight"/> adds a
     /// downward 25° spot with a small cube under it. <paramref name="casters"/> false removes every
-    /// occluder, so the same floor points can be measured lit.
+    /// occluder, so the same floor points can be measured lit. <paramref name="terrainFloor"/> draws
+    /// the floor with the painted-terrain layer shader terrains use instead of the engine's material.
     /// </summary>
     public (ImageMetrics Metrics, RenderStats Stats) CaptureLocalLights(
-        string outputFile, int pointLights, bool spotLight, bool casters)
+        string outputFile, int pointLights, bool spotLight, bool casters, bool terrainFloor = false)
     {
         EnsureReady();
         EnsureCube();
         _localPointLights = Math.Clamp(pointLights, 0, 4);
         _localSpot = spotLight;
         _localCasters = casters;
+        _localTerrainFloor = terrainFloor;
         _mode = CaptureMode.LocalLights;
         ImageMetrics metrics = Capture(outputFile, minimumUniqueColors: 2);
         return (metrics, _lastStats);
@@ -102,14 +107,14 @@ public sealed partial class RuntimeViewportHarness
         renderer.ClearPointLights();
 
         // Receiver only: a light grey slab under the whole room.
-        renderer.DrawMesh(new MeshDrawCall
-        {
-            Mesh = _cube,
-            World = Matrix4x4.CreateScale(16f, 0.2f, 16f) * Matrix4x4.CreateTranslation(0f, -0.1f, 0f),
-            Tint = new RenderColor(0.8f, 0.8f, 0.8f),
-            Alpha = 1f,
-            Flags = MeshDrawFlags.NoShadow | MeshDrawFlags.NoCull,
-        });
+        MeshDrawCall floor = _localTerrainFloor
+            ? TerrainFloorMaterial(renderer)
+            : new MeshDrawCall { Tint = new RenderColor(0.8f, 0.8f, 0.8f) };
+        floor.Mesh = _cube;
+        floor.World = Matrix4x4.CreateScale(16f, 0.2f, 16f) * Matrix4x4.CreateTranslation(0f, -0.1f, 0f);
+        floor.Alpha = 1f;
+        floor.Flags = MeshDrawFlags.NoShadow | MeshDrawFlags.NoCull;
+        renderer.DrawMesh(floor);
 
         for (int i = 0; i < _localPointLights; i++)
         {
@@ -147,6 +152,23 @@ public sealed partial class RuntimeViewportHarness
 
         SetCaptureBadge(
             "ENGINE LOCAL LIGHT SHADOWS",
-            "Point and spot lights share the local shadow atlas.");
+            _localTerrainFloor
+                ? "Point and spot lights shadow painted terrain."
+                : "Point and spot lights share the local shadow atlas.");
+    }
+
+    /// <summary>One light grey painted-terrain layer, as a terrain resource's material binds it.</summary>
+    private MeshDrawCall TerrainFloorMaterial(IRenderController renderer)
+    {
+        if (!ReferenceEquals(_localTerrainRenderer, renderer))
+        {
+            Genesis.Runtime.Assets.TerrainSurfaceMaterialPixels pixels = new(
+                1, [204, 204, 204, 255], [128, 128, 255, 255], [255, 184, 0, 255],
+                [new Genesis.Runtime.Assets.TerrainMaterialLayer { Color = [0.8f, 0.8f, 0.8f], Addressing = "Stretch" }],
+                [], 16f, 16f);
+            _localTerrainMaterial = Genesis.Runtime.Assets.TerrainSurfaceMaterialBinding.Create(renderer, pixels, [255, 0, 0, 0], 1, 1);
+            _localTerrainRenderer = renderer;
+        }
+        return _localTerrainMaterial;
     }
 }

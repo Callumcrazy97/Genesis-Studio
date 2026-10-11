@@ -84,7 +84,50 @@ public sealed class ProjectValidator
             }
         }
 
+        issues.AddRange(ValidateShaderNames(resourceFiles.Where(
+            path => path.EndsWith(".shader.json", StringComparison.OrdinalIgnoreCase))));
         return issues;
+    }
+
+    /// <summary>
+    /// Warns about code Shader resources that declare an HLSL reserved word (line, point, sample...)
+    /// as a name. The compiler only says "unexpected token", and a post effect that fails is never
+    /// drawn, so a game would otherwise just lose the effect.
+    /// </summary>
+    public static IEnumerable<ProjectValidationIssue> ValidateShaderNames(IEnumerable<string> shaderFiles)
+    {
+        foreach (string shaderFile in shaderFiles)
+        {
+            Genesis.Shared.Assets.ShaderAssetDocument document;
+            try
+            {
+                document = Genesis.Shared.Assets.ShaderAssetDocument.Load(shaderFile);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+                                                  or JsonException or InvalidDataException or ArgumentException or NotSupportedException)
+            {
+                continue; // an unreadable resource is reported by its editor and by the draw that uses it
+            }
+
+            if (document.AuthoringMode != Genesis.Shared.Assets.ShaderAuthoringMode.Code) continue;
+            HashSet<string> sources = new(StringComparer.Ordinal);
+            if (!string.IsNullOrWhiteSpace(document.Source)) sources.Add(document.Source);
+            foreach (Genesis.Shared.Assets.ShaderPassDefinition pass in document.Passes ?? [])
+            {
+                if (pass.Enabled && !string.IsNullOrWhiteSpace(pass.Source)) sources.Add(pass.Source);
+            }
+
+            foreach (string source in sources)
+            {
+                var uses = Genesis.Shared.Assets.HlslReservedNames.Find(source);
+                if (uses.Count == 0) continue;
+                yield return new ProjectValidationIssue(
+                    ProjectValidationSeverity.Warning,
+                    "SHADER_RESERVED_NAME",
+                    "The shader will not compile: " + Genesis.Shared.Assets.HlslReservedNames.Describe(uses),
+                    shaderFile);
+            }
+        }
     }
 
     private void ValidateMetadata(

@@ -2,6 +2,17 @@ namespace Genesis.Rendering.Primitives
 {
     internal static class ForwardShaders
     {
+        /// <summary>The engine's lamp-shadow constants, which its forward pixel shader reads at b4.</summary>
+        internal const string LampShadowConstants = "cbuffer LocalShadowConstants : register(b4)";
+
+        /// <summary>
+        /// True when a mesh pixel shader is the engine's forward shader with changes, as the terrain
+        /// layer shaders are: it reads the engine's lamp-shadow constants at b4, so its draws must keep
+        /// them bound there, not a project shader's GenesisFrame (which left terrain unshadowed by lamps).
+        /// </summary>
+        public static bool ReadsEngineConstants(string source) =>
+            !string.IsNullOrEmpty(source) && source.Contains(LampShadowConstants, System.StringComparison.Ordinal);
+
         public const string Source = @"
 // ── Constant buffers ─────────────────────────────────────────────────────────
 

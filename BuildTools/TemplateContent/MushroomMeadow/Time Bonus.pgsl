@@ -1,0 +1,2 @@
+// A reusable Script resource: seconds remaining -> score awarded at the finish.
+return Floor(Max(0, argument0)) * 10;

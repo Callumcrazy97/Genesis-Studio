@@ -265,9 +265,20 @@ public sealed partial class RoomRenderSubsystem : ISceneSubsystem
                 baseX = cameraX - w * .5f;
                 baseY = cameraY - h * .5f;
             }
+            (float X, float Y) parallax = bg.Layout is RoomBackgroundLayout.Single or RoomBackgroundLayout.Tile ? BackgroundParallax(bg.Asset) : (1f, 1f);
+            if (parallax != (1f, 1f))
+            {
+                float viewWidth = _drawAreaWidth / Math.Max(.0001f, zoom), viewHeight = _drawAreaHeight / Math.Max(.0001f, zoom);
+                baseX += (cameraX - viewWidth * .5f) * (1f - parallax.X);
+                baseY += (cameraY - viewHeight * .5f) * (1f - parallax.Y);
+            }
             int rx = bg.Layout == RoomBackgroundLayout.Tile || bg.RepeatX ? Math.Max(1, (int)Math.Ceiling(_room.Settings.Width / Math.Max(1, w))) : 1;
             int ry = bg.Layout == RoomBackgroundLayout.Tile || bg.RepeatY ? Math.Max(1, (int)Math.Ceiling(_room.Settings.Height / Math.Max(1, h))) : 1;
-            for (int y = 0; y < ry; y++) for (int x = 0; x < rx; x++)
+            // A shifted repeating layer gets one spare copy on each side so the view never sees its edge.
+            int x0 = parallax.X != 1f && rx > 1 ? -1 : 0, y0 = parallax.Y != 1f && ry > 1 ? -1 : 0;
+            if (x0 < 0) rx++;
+            if (y0 < 0) ry++;
+            for (int y = y0; y < ry; y++) for (int x = x0; x < rx; x++)
             {
                 SpriteDrawCall call = new()
                 {

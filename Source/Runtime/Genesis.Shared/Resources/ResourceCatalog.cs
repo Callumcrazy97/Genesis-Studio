@@ -28,7 +28,7 @@ public sealed record NamedResource(string Name, string FullPath, ResourceType Ty
 /// A resource's optional metadata resourceName is authoritative; the filename is only storage.
 /// Rebuilds are explicit, not recursive directory scans in per-frame resource lookups.
 /// </summary>
-public sealed class ResourceCatalog
+public sealed partial class ResourceCatalog
 {
     public static readonly (string Extension, ResourceType Type)[] Definitions =
     {
@@ -58,6 +58,7 @@ public sealed class ResourceCatalog
     private ResourceCatalog(string projectRoot)
     {
         ProjectRoot = projectRoot;
+        BeginIndexedBuild(projectRoot);
         var entries = new List<NamedResource>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         string assets = Path.Combine(projectRoot, "Assets");
@@ -73,17 +74,22 @@ public sealed class ResourceCatalog
         Entries = entries.OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase).ThenBy(e => e.FullPath, StringComparer.OrdinalIgnoreCase).ToArray();
         _names = Entries.GroupBy(e => e.Name, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.ToArray(), StringComparer.OrdinalIgnoreCase);
         _paths = Entries.ToDictionary(e => Path.GetFullPath(e.FullPath), e => e, StringComparer.OrdinalIgnoreCase);
+        EndIndexedBuild(Entries.Count);
     }
 
     public static ResourceCatalog For(string projectRoot)
     {
-        string root = Path.GetFullPath(string.IsNullOrWhiteSpace(projectRoot) ? "." : projectRoot);
+        string root = CatalogKey(string.IsNullOrWhiteSpace(projectRoot) ? "." : projectRoot);
         return Catalogs.GetOrAdd(root, r => new Lazy<ResourceCatalog>(() => new ResourceCatalog(r))).Value;
     }
 
+    // One catalog per folder however it is written: "Game\" and "Game" used to build two (a game
+    // started from its own folder listed every resource twice before its window opened).
+    private static string CatalogKey(string projectRoot) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(projectRoot));
+
     public static void Invalidate(string projectRoot)
     {
-        if (!string.IsNullOrWhiteSpace(projectRoot)) Catalogs.TryRemove(Path.GetFullPath(projectRoot), out _);
+        if (!string.IsNullOrWhiteSpace(projectRoot)) Catalogs.TryRemove(CatalogKey(projectRoot), out _);
     }
 
     /// <summary>
@@ -94,7 +100,7 @@ public sealed class ResourceCatalog
     public static bool IsCatalogued(string projectRoot, string path)
     {
         if (string.IsNullOrWhiteSpace(projectRoot) || string.IsNullOrWhiteSpace(path)) return false;
-        if (!Catalogs.TryGetValue(Path.GetFullPath(projectRoot), out Lazy<ResourceCatalog> lazy) || !lazy.IsValueCreated)
+        if (!Catalogs.TryGetValue(CatalogKey(projectRoot), out Lazy<ResourceCatalog> lazy) || !lazy.IsValueCreated)
             return false;
         return lazy.Value._paths.ContainsKey(Path.GetFullPath(path));
     }
@@ -251,10 +257,21 @@ public sealed class ResourceCatalog
         string name = FormatName(file);
         Guid assetId = Guid.Empty;
         string metaPath = file + ".meta";
-        FileInfo meta = new(metaPath);
-        if (meta.Exists)
+        FileInfo meta;
+        // An exported game's index wins; otherwise what this process last read from the .meta,
+        // while its time and size are unchanged; otherwise the .meta itself.
+        if (TryIndexedIdentity(full, out Guid indexedId, out string indexedName))
+        {
+            assetId = indexedId;
+            if (!string.IsNullOrWhiteSpace(indexedName)) name = ValidateName(indexedName);
+        }
+        else if ((meta = new FileInfo(metaPath)).Exists)
         {
             long ticks = meta.LastWriteTimeUtc.Ticks, length = meta.Length;
+            // Counted as a .meta read whether it is read now or remembered from an earlier read of
+            // the same unchanged file: the build report says where identities came from (the index
+            // or the .meta files), and a fresh process (a game) remembers nothing.
+            CountMetaRead();
             if (!MetaIdentities.TryGetValue(metaPath, out MetaIdentity identity) || identity.Ticks != ticks || identity.Length != length)
             {
                 try

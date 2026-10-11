@@ -244,6 +244,26 @@ Vulkan device still allocates about half a kilobyte for each emitter's dispatche
 bursts still cost each emitter's GPU commands every frame (about 17 µs each on Direct3D 12): for
 hundreds, batch them.
 
+## 2D lights and darkness in a room (11 October 2026)
+
+A 2D room is never darkened unless its game asks: `Light2DAmbient(amount, r, g, b)` darkens the
+current room, `amount` (0.05 to 1) being the light left where no light reaches and `r, g, b` (0 to 1)
+the colour of the shade. `Light2DPoint` and `Light2DCone` lights glow in any room, and light up the
+darkness once `Light2DAmbient` has set an amount below 1. `Particle2DBurst` and `Particle2DFlow`
+never touch lighting.
+
+| Command | What it does |
+|---|---|
+| `Light2DAmbient(amount, r, g, b)` | Darkens the room to `amount` and tints the shade. 1 turns darkness off again. Other rooms are unaffected. |
+| `Light2DPoint(id, x, y, radius, intensity, r, g, b)`, `Light2DCone(...)` | A light, kept until removed (zero radius or `Light2DRemove`). Without `Light2DAmbient` it only glows. |
+| `Light2DBlocker(id, x, y, width, height)` | A rectangle that casts shadows from the lights. |
+
+Until 11 October 2026 the first light or particle burst in a room turned darkness on at an amount
+of 0.32, so a sunlit room went dark unless the game also called `Light2DAmbient(1, ...)`. Every
+project then using 2D lights (one, a dark mansion game) sets the amount itself in each lit room, so
+none looked different; that call is now unnecessary. A dark game calls `Light2DAmbient` in the
+room's first Create, for example `Light2DAmbient(0.32, 0.012, 0.024, 0.06)` for the old default.
+
 ## Flash lights: muzzle flashes and explosions
 
 A game fires a short light from any event (the Step that fires a gun, an explosion's Create) and
@@ -1385,11 +1405,19 @@ data. It also times sharing at a voxel game's size.
 | `WindowSetSize(width, height)`, `WindowGetWidth()`, `WindowGetHeight()` | A windowed game's size in pixels. |
 | `WindowSetVSync(enabled)`, `WindowGetVSync()` | Wait for the display's refresh (no tearing). |
 | `GameSetMaxFps(fps)`, `GameGetMaxFps()` | A frame-rate cap; 0 for none. |
+| `GameUseRoomFps()` | Follow the rooms' Frame rate and VSync settings again: the current room's apply at once. |
 | `DateNow()` | Now, as seconds since 1970 (UTC): what to store in a save for "last played". |
 | `DateYear(t)`, `DateMonth(t)`, `DateDay(t)`, `DateHour(t)`, `DateMinute(t)`, `DateSecond(t)`, `DateWeekday(t)` | The parts of a `DateNow` time in local time (weekday 0 is Sunday). |
 | `DateText(t, format)` | A `DateNow` time as text, such as `DateText(saved, "d MMM yyyy HH:mm")`. |
 
 `TimeMs()` is still the millisecond clock for timing within a run.
+
+A room's Frame rate and VSync settings are the game's defaults. Once the game chooses its own,
+with `GameSetMaxFps`, `RoomSpeed = n`, `WindowSetVSync`, `Engine.FpsTarget` or `Engine.SetVsync`,
+its choice wins for the rest of the run and no room change resets it. That holds even when the
+choice is made in a Create event of the first room, which runs before the room's settings are
+applied. So a settings menu, and options read from a save at start, simply work. `GameUseRoomFps()`
+hands both back to the rooms.
 
 ## The mood of a room from a script
 
@@ -1866,6 +1894,61 @@ GenesisEngine.exe
 
 Checked by `Build.bat --test debug-screen`, which runs a game for three seconds this way and reads
 the folder it leaves.
+
+### Starting a game quickly (11 October 2026)
+
+A fresh install's first launch waits on the antivirus: Windows Defender scans each newly written
+file the first time it is opened (about 4 ms a file on this PC), so every file the game opens one
+at a time on its own thread adds up. What the Player does about it:
+
+- **Resource index.** An export writes `.genesis/resource-catalog.txt` (each `.meta`'s guid,
+  `resourceName` and size) and the game names its resources from it instead of opening every
+  `.meta`. A `.meta` of another size, or written after the index (a mod), is read as before; a game
+  without the index (Studio's Run) reads them all. The log says which:
+  `resource catalog: <n> resources in <ms> ms (<n> identities from .genesis/resource-catalog.txt, 0 .meta files read)`.
+- **Texture groups** read their descriptors and decode their pictures on a few threads of their
+  own. A picture larger than its group's sheet still makes the stitch fail (the game then draws
+  each sprite from its own texture, as before), but that is now found from the PNG headers before
+  anything is decoded, instead of after decoding every sprite of the project.
+- **Scripts** are read and compiled on a thread of their own from just before the window opens
+  (`GENESIS_SCRIPT_WARMUP=0` turns it off). The first PGSL event waits for that load when it is not
+  done; it used to do the whole load itself.
+
+Start-up work that runs side by side uses threads of its own (`StartupWorkers`), never the thread
+pool, so it never waits for a pool thread while the game's thread holds a lock.
+
+A freshly exported test game once wrote nothing for 90 s and was stopped (10 Oct 2026), and the
+change then blamed (an earlier version of the above) was taken back. It was not that change: 25
+launches with it never stopped, and on 11 Oct the same symptom hit a build without it, and one of 30
+launches of this code before any engine code had run (no `Main` after 60 s), each while about 900 MB
+of new files were copied beside the game; a GenesisCraft export started during such a copy took
+145 s to its first room, 30 s of it before the Player's own code ran. 30 more fresh launches on a
+quiet PC all started, in 7.4 to 8.1 s.
+A start competing with a big copy, build or export for the antivirus can look stuck.
+`GENESIS_STARTUP_TRACE=<file>` writes each start-up step to that file as it happens (its first line
+before any engine assembly loads; the thread pool's state every two seconds), and
+`Export.PgslOnly.FreshCopiesStartEveryTime` (`--test export-pgsl`) starts three fresh copies of an
+exported game and quotes that trace when one does not finish.
+
+Measured on a copy of GenesisCraft (5,232 resources, 190 Scripts holding 42 MB of PGSL, a Texture
+Group whose 1024x2784 picture never fits; i7-14700F, Defender on, other sessions building), with
+`GENESIS_LOAD_PROFILE=1`. A fresh copy of its export, first launch, the old code and the new one
+started the same way one after the other:
+
+| First launch of a fresh export | Before | After |
+|---|---|---|
+| Listing the resources | 6.0 s | 4.5 s (index; the rest is listing 17,000 new files) |
+| Texture groups | 7.2 s | 3.0 s |
+| The first room's Create events | 13.5 s | 3.2 s (Scripts compiled beside, 21 s of reading and compiling) |
+| Process start to the first room | 46.3 s | 47.1 s (its graphics device took 11.8 s instead of 2.7 s) |
+
+A first launch is still 25 to 50 s on a busy PC: 3 to 13 s before the Player's own code runs (the
+runtime's files scanned), 4.5 s listing the resources, 3.5 s reading the first room (assemblies
+loaded and scanned) and a graphics device of 2 to 12 s. Later launches took 6.0 to 6.7 s (7.0 to
+8.1 s before). The Player's part of Studio's Run took 6.8 s either way: its Scripts take 4.3 s on
+one thread (the 17 MB one 1.8 s; each text is prepared twice, in `ScriptAssetCompiler` and again in
+`VMEngine.Compile`, 0.5 s) and the Create events' own work 1.2 s. Next: compile Scripts side by
+side or keep their compiled form between launches, and list an exported game's files from its index.
 
 ### Counting frames per second
 

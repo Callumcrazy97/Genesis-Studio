@@ -32,7 +32,9 @@ From C# (namespace `Genesis.Runtime.Rendering`): `ProjectPostEffects.Add`, `Remo
 sets vector parameters (`SetParameter("Ink Outline", "InkColor", 0.11f, 0.065f, 0.04f)`).
 
 A room's list replaces the running effects when the room starts. A shader that does not compile is
-left out (`IRenderController.LastPostEffectError` says why) and the game keeps running.
+left out (`IRenderController.LastPostEffectError` says why) and the game keeps running. The Player's
+log also names every Shader resource that did not compile while the game started, with the first
+lines of the compiler's error (`ProjectShaderWarmup.Failures`), whether or not anything draws it.
 
 Effects run after the engine's own anti-aliasing and camera motion blur (`RenderSetAntiAliasing`,
 `RenderSetMotionBlur`; see [Game features](GameFeatures.md#anti-aliasing-quality-tiers-and-motion-blur))
@@ -110,6 +112,12 @@ struct PreviewVSOut { float4 SvPos : SV_Position; float2 UV : TEXCOORD0; };
 | `GenesisFrame` | `b4` | `float Time; float Frame; float2 Resolution;` as in the Shader editor. |
 | `GenesisParameters` | `b5` | Your parameters (up to 16 floats), set in the Shader editor and by scripts. |
 | `GenesisCamera` | `b6` | `float4 Clip` (near, far, 1 when depth is reversed, tan of half the vertical field of view); `float4 View` (aspect, 1 for a perspective view, radians per pixel, unused); `float4x4 InvViewProjection`; `float4 CameraPosition`. |
+
+HLSL reserves some ordinary-looking words, and a shader that names a variable, parameter or field
+with one does not compile: `line`, `point`, `triangle`, `linear`, `sample`, `centroid`, `precise`,
+`shared`, `in`, `out`, `vector`, `matrix`, `texture`, `sampler`, `string`, `half`, `pass`, `compile`
+and C++'s reserved words (`new`, `this`, `long`, `char`...). Case matters, so `Linear` is fine.
+Studio's project check warns about them (`SHADER_RESERVED_NAME`), with the line.
 
 Return the new colour of the pixel. View depth from `SceneDepth` (`d`):
 
