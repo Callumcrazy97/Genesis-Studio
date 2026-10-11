@@ -343,8 +343,10 @@ internal static class ShaderPrecompiledSuite
                     Check(lines.Count == 2 && lines[0].Contains("1 did not compile", StringComparison.Ordinal),
                         "The warm-up's summary does not count the failure, or the failure has no line of its own: " + all);
                     string failure = lines[1];
-                    Check(failure.Contains("'Broken Look'", StringComparison.Ordinal) && failure.Contains("Broken Look.shader.json", StringComparison.Ordinal),
-                        "The failing shader is not named with its file: " + failure);
+                    Check(failure.Contains("'Broken Look'", StringComparison.Ordinal) && failure.Contains("Assets/Shaders/Broken Look.shader.json", StringComparison.Ordinal),
+                        "The failing shader is not named with its file in the project: " + failure);
+                    Check(!failure.Contains(Path.GetFullPath(root), StringComparison.OrdinalIgnoreCase),
+                        "The failure line repeats the project's full path instead of naming the file: " + failure);
                     Check(failure.Contains("compile failed", StringComparison.OrdinalIgnoreCase) && failure.Contains("error", StringComparison.OrdinalIgnoreCase),
                         "The compiler's error is not in the log: " + failure);
                     Check(failure.Contains("HLSL reserves 'line'", StringComparison.Ordinal), "The log does not point at the reserved word: " + failure);

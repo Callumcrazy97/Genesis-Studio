@@ -173,7 +173,7 @@ namespace Genesis.Runtime.Rendering
                             // The draw that uses it compiles it again and reports it too, but a post
                             // effect that is never turned on never draws: name it and say why here.
                             Interlocked.Increment(ref failed);
-                            string failure = DescribeFailure(program, error);
+                            string failure = DescribeFailure(program, error, projectPath);
                             lock (failures) failures.Add(failure);
                         }
                         finally
@@ -246,9 +246,23 @@ namespace Genesis.Runtime.Rendering
         /// compile: [first lines of the compiler's error]", with a hint when the code declares an
         /// HLSL reserved word (line, point, sample...) as a name.
         /// </summary>
-        internal static string DescribeFailure(ProjectShaderProgram program, Exception error)
+        internal static string DescribeFailure(ProjectShaderProgram program, Exception error, string projectPath = null)
         {
-            string[] errorLines = (error?.Message ?? "unknown error")
+            string text = error?.Message ?? "unknown error";
+            string file = string.Empty;
+            if (!string.IsNullOrWhiteSpace(program.ShaderPath))
+            {
+                // The compiler names the file by its full path on every error line: its name is enough.
+                text = text.Replace(program.ShaderPath, System.IO.Path.GetFileName(program.ShaderPath), StringComparison.OrdinalIgnoreCase);
+                string relative = string.IsNullOrWhiteSpace(projectPath)
+                    ? program.ShaderPath
+                    : System.IO.Path.GetRelativePath(projectPath, program.ShaderPath);
+                file = ", " + (relative.StartsWith("..", StringComparison.Ordinal) || System.IO.Path.IsPathRooted(relative)
+                    ? program.ShaderPath
+                    : relative.Replace('\\', '/'));
+            }
+
+            string[] errorLines = text
                 .Split('\n')
                 .Select(line => line.Trim())
                 .Where(line => line.Length > 0)
@@ -257,7 +271,6 @@ namespace Genesis.Runtime.Rendering
             string message = string.Join(" | ", errorLines);
             if (message.Length > 600) message = message[..600] + "...";
             string variant = string.IsNullOrEmpty(program.Variant) ? string.Empty : $", variant {program.Variant}";
-            string file = string.IsNullOrWhiteSpace(program.ShaderPath) ? string.Empty : ", " + program.ShaderPath;
             string hint = HlslReservedNames.Describe(HlslReservedNames.Find(program.Source), withLines: false);
             return $"project shader '{program.Name}' ({program.Pipeline} {program.Stage.ToString().ToLowerInvariant()} {program.Entry}{variant}{file}) did not compile: {message}"
                 + (hint.Length > 0 ? " Hint: " + hint : string.Empty);
