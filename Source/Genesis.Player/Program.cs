@@ -12,6 +12,15 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        // The start-up trace's first line comes before any engine assembly is loaded, so a start that
+        // stops before it never reached this program's code at all (the runtime's own start).
+        string? trace = Environment.GetEnvironmentVariable("GENESIS_STARTUP_TRACE");
+        if (!string.IsNullOrEmpty(trace))
+        {
+            try { File.AppendAllText(trace, "Main entered" + Environment.NewLine); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+        }
+        Genesis.Shared.Diagnostics.LoadProfile.Trace("engine diagnostics loaded");
         // Packaging step: compile the engine's built-in shaders into the folder shipped beside
         // Studio and the Player. Opens no window and plays nothing.
         if (args.Length > 0 && string.Equals(args[0], Genesis.Rendering.Primitives.PrecompiledShaders.CommandLineSwitch, StringComparison.OrdinalIgnoreCase))

@@ -208,8 +208,9 @@ namespace Genesis.Runtime.Project
 
                 // Rooms and scripts name resources without their kind: say which resources clash
                 // before anything trips over the name.
-                System.Collections.Generic.IReadOnlyList<Genesis.Shared.Assets.NamedResource[]> duplicateNames =
-                    Genesis.Shared.Assets.ResourceCatalog.For(projectPath).DuplicateNames;
+                System.Collections.Generic.IReadOnlyList<Genesis.Shared.Assets.NamedResource[]> duplicateNames;
+                using (Genesis.Shared.Diagnostics.LoadProfile.Begin("list the project's resources"))
+                    duplicateNames = Genesis.Shared.Assets.ResourceCatalog.For(projectPath).DuplicateNames;
                 if (duplicateNames.Count > 0)
                 {
                     LastError = string.Join(Environment.NewLine + Environment.NewLine, duplicateNames
@@ -265,6 +266,8 @@ namespace Genesis.Runtime.Project
                 logger.Line($"project={projectPath}");
                 logger.Line($"room={roomName} file={roomFile}");
                 logger.Line($"autoshot={autoshotSeconds} label={perfLabel ?? "(none)"}");
+                if (Genesis.Shared.Assets.ResourceCatalog.LastBuildReport.Length > 0)
+                    logger.Line(Genesis.Shared.Assets.ResourceCatalog.LastBuildReport);
                 Genesis.Runtime.Rendering.ProjectShaderWarmup.ReportTo(logger.Line);
                 Genesis.Runtime.Modeling.ProjectModelWarmup.ReportTo(logger.Line);
 
@@ -289,6 +292,17 @@ namespace Genesis.Runtime.Project
                     ProjectPaths.EnsureDebugDirs(projectPath);
                     RenderLog.Init();
                     StartInputReplayFromLaunch(args, projectPath, logger);
+                }
+
+                // The project's Scripts, read and compiled on a thread of their own while the window
+                // opens and the textures, sounds and room are prepared: the first PGSL event used to
+                // compile them all itself (GenesisCraft's 190 Scripts, 42 MB, in its Create events).
+                // That event waits for this load if it is not done. After the render log opens, so
+                // a Script that does not compile is logged as before. GENESIS_SCRIPT_WARMUP=0 turns it off.
+                using (Genesis.Shared.Diagnostics.LoadProfile.Begin("start compiling the game's Scripts on a worker"))
+                {
+                    Genesis.Runtime.Scripting.PgslCommands.ProjectPath = projectPath;
+                    Genesis.Runtime.Scripting.ScriptAssetRegistry.LoadInBackground(projectPath);
                 }
 
                 System.Drawing.Size display = RoomDisplayLayout.WindowSize(room);

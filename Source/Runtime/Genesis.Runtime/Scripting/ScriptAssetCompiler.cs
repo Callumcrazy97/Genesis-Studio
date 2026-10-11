@@ -22,9 +22,15 @@ public static class ScriptAssetCompiler
         if (string.IsNullOrWhiteSpace(source))
             throw new ArgumentException("Script source is empty.", nameof(source));
 
-        string processed = PgslCommands.PreProcessScript(source, isForVm: true, PgslCommands.ProjectPath);
-        string hash = ComputeSha256(processed);
-        var result = VMEngine.Compile(processed);
+        string processed;
+        using (Genesis.Shared.Diagnostics.LoadProfile.Begin("prepare a Script's text"))
+            processed = PgslCommands.PreProcessScript(source, isForVm: true, PgslCommands.ProjectPath);
+        string hash;
+        using (Genesis.Shared.Diagnostics.LoadProfile.Begin("hash a Script"))
+            hash = ComputeSha256(processed);
+        CompileResult result;
+        using (Genesis.Shared.Diagnostics.LoadProfile.Begin("compile a Script"))
+            result = VMEngine.Compile(processed);
         if (result == null)
         {
             try
