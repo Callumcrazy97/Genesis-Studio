@@ -3,6 +3,8 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using Genesis.Application.Core.Projects;
 using Genesis.Application.Core.Projects.Templates;
+using Genesis.Application.Core.Resources;
+using Genesis.Shared.Assets;
 using Genesis.Rendering.Core;
 using Genesis.Runtime;
 
@@ -43,6 +45,13 @@ internal static class MushroomMeadowExportSuite
             }
             Check(File.Exists(Path.Combine(directory, "Assets", "Scripts", "Time Bonus.pgsl")),
                 "The public Script resource used by the finish event was excluded from the release.");
+            // The manifest may hold the start room as a path or as its resource name.
+            Check(ResourceNames.Name(project.RootPath, project.Manifest.StartRoom,
+                    ResourceType.Room) == "Intro",
+                "The shipped game does not start at the Intro cinematic (start room '" + project.Manifest.StartRoom + "').");
+            foreach (string room in new[] { "Intro", "Main Menu", "Overworld", "Hearthollow", TwoDShowcaseTemplate.LevelOneRoomName, "Credits" })
+                Check(File.Exists(Path.Combine(directory, "Assets", "Rooms", room + ".room.json")),
+                    "The exported game is missing its " + room + " room.");
         });
 
         foreach (RenderBackendDescriptor backend in RenderBackendCatalog.All)
@@ -58,6 +67,9 @@ internal static class MushroomMeadowExportSuite
                     WorkingDirectory = directory, UseShellExecute = false, CreateNoWindow = true,
                     RedirectStandardOutput = true, RedirectStandardError = true,
                 };
+                // The shipped game starts at the Intro; the gameplay acceptance drives level 1-1 directly
+                // (a standalone run of the room, as F5 on it would be).
+                start.ArgumentList.Add("--room"); start.ArgumentList.Add(TwoDShowcaseTemplate.LevelOneRoomName);
                 start.ArgumentList.Add("--acceptance-meadow"); start.ArgumentList.Add(output);
                 start.Environment[RenderBackendSelection.EnvironmentVariable] = backend.SettingsValue;
                 start.Environment["GENESIS_UNATTENDED_WINDOW"] = "1";

@@ -65,31 +65,39 @@ internal static class MushroomMeadowAcceptanceSuite
                 game.Place(x, y); game.Set("vy", -220); game.Frame();
                 Check(game.Value("coins") == 2, "A used question block paid twice.");
             });
-            HeadlessHarness.Step("damage, checkpoint respawn, timeout and game over are complete", () =>
+            HeadlessHarness.Step("hearts, damage, checkpoint respawn, timeout and game over are complete", () =>
             {
+                Check(game.Value("hearts") == 3 && game.Value("maxHearts") == 3 && game.Value("lives") == 5 && game.Value("campaign") == 0,
+                    "A standalone run did not start with 3 of 3 hearts and 5 lives.");
                 Entity acorn = game.Actor("Acorn Walker");
                 var enemy = game.Scene.World.GetRef<TransformComponent>(acorn);
                 game.Place(enemy.X, enemy.Y); game.Set("invulnerable", 0); game.Frame();
-                Check(game.Value("lives") == 2 && Math.Abs(game.Position.X - 112) < .01f, "Side contact did not cost one life and respawn.");
+                Check(game.Value("hearts") == 2 && game.Value("lives") == 5 && game.Value("invulnerable") > 1,
+                    "Side contact did not cost exactly one heart.");
                 game.Frames(4);
-                Check(game.Value("lives") == 2, "Invulnerability did not prevent repeated loss.");
+                Check(game.Value("hearts") == 2, "Invulnerability did not prevent repeated loss.");
+                enemy = game.Scene.World.GetRef<TransformComponent>(acorn);
+                game.Place(enemy.X, enemy.Y); game.Set("hearts", 1); game.Set("invulnerable", 0); game.Frame();
+                Check(game.Value("lives") == 4 && game.Value("hearts") == 3 && Math.Abs(game.Position.X - 112) < .01f,
+                    "Losing the last heart did not cost one life and respawn with full hearts.");
+                Check(PgslCommands.GlobalGet("lives") == 4, "Lives were not mirrored into the lives global.");
                 Entity flag = game.Actor("Checkpoint");
                 var checkpoint = game.Scene.World.GetRef<TransformComponent>(flag);
                 game.Place(checkpoint.X, checkpoint.Y); game.Frame();
                 Check(game.Value("checkpoint") == 1 && PgslCommands.RoomValueGet("checkpoint") == 1, "Checkpoint did not activate.");
                 game.Place(checkpoint.X + 100, game.Game.Room.Settings.Height + 100); game.Frame();
-                Check(game.Value("lives") == 1 && Math.Abs(game.Position.X - (checkpoint.X + 24)) < .01f,
-                    "Falling did not respawn at the saved flag.");
-                game.Set("timeLeft", .001); game.Frame();
+                Check(game.Value("lives") == 3 && game.Value("hearts") == 3 && Math.Abs(game.Position.X - (checkpoint.X + 24)) < .01f,
+                    "Falling did not cost a life at once and respawn at the saved flag.");
+                game.Set("lives", 1); game.Set("timeLeft", .001); game.Frame();
                 Check(game.Value("state") == 4 && game.Value("lives") == 0 && PgslCommands.RoomValueGet("frozen") == 1,
                     "Timeout did not complete the game-over transition.");
             });
             HeadlessHarness.Step("restart clears instances, rewards and mutated tiles through the production switcher", () =>
             {
                 game.Tap(Key.Enter);
-                Check(game.Value("state") == 0 && game.Value("lives") == 3 && game.Value("coins") == 0,
+                Check(game.Value("state") == 0 && game.Value("lives") == 5 && game.Value("hearts") == 3 && game.Value("coins") == 0,
                     "Restart retained game-over state or collected rewards.");
-                Check(game.Scene.World.LivingEntityCount == 47 && game.Host.Instances.Count == 47, "Restart duplicated or lost actors.");
+                Check(game.CleanRun, $"Restart duplicated or lost actors: living {game.Scene.World.LivingEntityCount}, scripted {game.Host.Instances.Count}, authored {game.Authored}.");
                 Check(game.Game.Room.Nodes.Single(node => node.Name == "Blocks").TileLayer.Cells.Any(cell => cell.TileX == 3),
                     "Restart did not restore the authored question blocks.");
                 game.Tap(Key.Enter);
@@ -104,7 +112,7 @@ internal static class MushroomMeadowAcceptanceSuite
                     Check(hud.Texts.Any(text => text.Text.StartsWith(label, StringComparison.Ordinal)),
                         "Win HUD omitted " + label + "; actual: " + string.Join(" | ", hud.Texts.Select(text => text.Text)));
                 game.Tap(Key.R);
-                Check(game.Value("state") == 0 && game.Scene.World.LivingEntityCount == 47, "Win-screen restart did not create a clean run.");
+                Check(game.Value("state") == 0 && game.CleanRun, "Win-screen restart did not create a clean run.");
             });
             HeadlessHarness.Step("the full level can be completed using only movement and jump input", () =>
             {
@@ -141,15 +149,132 @@ internal static class MushroomMeadowAcceptanceSuite
                     Check(game.Diagnostics.Count == 0, "Traversal script fault: " + game.Host.LastError);
                     Check(game.Scene.World.IsAlive(game.Hero), $"The player entity died without a game-over transition at frame {frames}.");
                 }
-                Check(game.Value("state") == 3, $"Input-only traversal failed after {frames} frames at {game.Position}; lives={game.Value("lives")}, state={game.Value("state")}, timer={game.Value("timeLeft")}, vx={game.Value("vx")}, right={game.Scene.Input.IsDown(Key.D)}.");
+                Check(game.Value("state") == 3, $"Input-only traversal failed after {frames} frames at {game.Position}; lives={game.Value("lives")}, hearts={game.Value("hearts")}, state={game.Value("state")}, timer={game.Value("timeLeft")}, vx={game.Value("vx")}, right={game.Scene.Input.IsDown(Key.D)}.");
                 Check(game.Value("checkpoint") == 1 && game.Value("coins") > 0, "Traversal omitted checkpoint or collectibles.");
             });
             Check(game.Diagnostics.Count == 0, "Game script diagnostics: " + string.Join("; ", game.Diagnostics));
             Check(File.ReadAllBytes(game.RoomFile).SequenceEqual(authoredRoom), "Gameplay or restart modified the saved room.");
         });
+        HeadlessHarness.RunCase(context.Report, "Acceptance.MushroomMeadow.PowerUpsHeartsAndRoomRules", () =>
+        {
+            using MeadowGame game = new(project);
+            Check(PgslCommands.RoomValueGet("levelRules") == 1 && PgslCommands.RoomValueGet("levelId") == 1
+                && PgslCommands.RoomValueGet("timeLimit") == 300 && PgslCommands.RoomValueGet("hub") == 0,
+                "Level Rules did not publish the 1-1 room rules.");
+            game.Tap(Key.Enter); game.Frames(2);
+            HeadlessHarness.Step("a ? block over a Prize marker sprouts its power-up instead of a coin", () =>
+            {
+                float x = 37 * 32 + 16, y = 7 * 32 + 35;
+                double coins = game.Value("coins");
+                Check(game.Count("Prize Shield") == 1 && game.Count("Bark Shield") == 0, "The 1-1 room lost its Prize Shield marker.");
+                game.Place(x, y); game.Set("vy", -220); game.Frame();
+                Check(PgslCommands.TileIndexAt(x, 6 * 32 + 16, "Blocks") == 4 && game.Value("coins") == coins,
+                    "The prize block paid a coin or did not become used.");
+                Check(game.Count("Bark Shield") == 1 && game.Count("Prize Shield") == 0, "The Bark Shield did not sprout from its block.");
+                game.Place(200, 288); game.Frames(40);
+                var item = game.Scene.World.GetRef<TransformComponent>(game.Actor("Bark Shield"));
+                Check(item.Y < 6 * 32 - 8, "The sprouted power-up did not rise out of its block.");
+                game.Place(item.X, item.Y + 10); game.Frame(); game.Frame();
+                Check(game.Value("powerUp") == 3 && PgslCommands.GlobalGet("power") == 3 && game.Count("Bark Shield") == 0
+                    && game.Count("Shield Ring") == 1, "Touching the Bark Shield did not give power 3 and its ring.");
+            });
+            HeadlessHarness.Step("the Bark Shield absorbs one hit, then hits cost hearts and the power-up", () =>
+            {
+                var enemy = game.Scene.World.GetRef<TransformComponent>(game.Actor("Acorn Walker"));
+                game.Place(enemy.X, enemy.Y); game.Set("invulnerable", 0); game.Frame(); game.Frame();
+                Check(game.Value("powerUp") == 0 && game.Value("hearts") == 3 && game.Count("Shield Ring") == 0,
+                    "The shield did not break instead of a heart.");
+                game.Set("powerUp", 2); game.Set("invulnerable", 0);
+                enemy = game.Scene.World.GetRef<TransformComponent>(game.Actor("Acorn Walker"));
+                game.Place(enemy.X, enemy.Y); game.Frame();
+                Check(game.Value("powerUp") == 0 && game.Value("hearts") == 2, "A hit did not cost one heart and the power-up.");
+            });
+            HeadlessHarness.Step("Spore Puff throws a spore that defeats an enemy by the enemy convention", () =>
+            {
+                game.Place(60, 288); game.Frames(100);
+                Entity acorn = game.Actor("Acorn Walker");
+                var enemy = game.Scene.World.GetRef<TransformComponent>(acorn);
+                game.Set("powerUp", 2); game.Set("facing", 1); game.Set("invulnerable", 0);
+                game.Place(enemy.X - 120, enemy.Y);
+                double score = game.Value("score");
+                game.Tap(Key.J);
+                Check(game.Count("Spore Shot") == 1, "J did not throw exactly one Spore Shot.");
+                for (int frame = 0; frame < 60 && game.Scene.World.IsAlive(acorn); frame++) game.Frame();
+                Check(!game.Scene.World.IsAlive(acorn) && game.Value("score") >= score + 200 && game.Value("hearts") == 2,
+                    "The spore did not knock out the acorn through `hurt` and award its points.");
+            });
+            HeadlessHarness.Step("a Heart Berry restores one heart up to the maximum", () =>
+            {
+                var berry = game.Scene.World.GetRef<TransformComponent>(game.Actor("Heart Berry"));
+                game.Set("hearts", 1); game.Place(berry.X, berry.Y + 10); game.Frame();
+                Check(game.Value("hearts") == 2 && game.Count("Heart Berry") == 0, "The Heart Berry did not restore one heart.");
+            });
+            HeadlessHarness.Step("Starlit Firefly: invincible, enemies fall on contact, the music swaps", () =>
+            {
+                float x = 38 * 32 + 16, y = 4 * 32 + 35;
+                game.Place(x, y); game.Set("vy", -220); game.Frame();
+                Check(game.Count("Starlit Firefly") == 1, "The Prize Star block did not sprout a Starlit Firefly.");
+                game.Place(200, 288); game.Frames(40);
+                for (int frame = 0; frame < 3 && game.Value("starTimer") <= 0; frame++)
+                {
+                    var firefly = game.Scene.World.GetRef<TransformComponent>(game.Actor("Starlit Firefly"));
+                    game.Place(firefly.X, firefly.Y + 10); game.Frame();
+                }
+                Check(game.Value("starTimer") > 9 && PgslCommands.RoomValueGet("starlit") == 1, "The firefly did not start Starlit.");
+                game.Frame();
+                Check(PgslCommands.RoomValueGet("musicChannel") >= 0, "Level Rules published no music channel.");
+                Entity foe = game.Actor("Acorn Walker");
+                var enemy = game.Scene.World.GetRef<TransformComponent>(foe);
+                double hearts = game.Value("hearts");
+                game.Place(enemy.X, enemy.Y); game.Set("invulnerable", 0); game.Frames(3);
+                Check(game.Value("hearts") == hearts
+                    && (!game.Scene.World.IsAlive(foe) || Convert.ToDouble(PgslCommands.InstanceVariableGet(foe.Id, "dead"), CultureInfo.InvariantCulture) == 1),
+                    "A Starlit touch did not knock the enemy out harmlessly.");
+                game.Set("starTimer", .01); game.Frames(2);
+                Check(PgslCommands.RoomValueGet("starlit") == 0, "Starlit did not end.");
+            });
+            HeadlessHarness.Step("Glide Seed: holding jump while falling glides", () =>
+            {
+                game.Set("powerUp", 1); game.Place(1500, 60);
+                game.Hold(Key.Space, true); game.Frames(30);
+                Check(game.Value("gliding") == 1 && game.Value("vy") <= 75, "Holding jump in the air did not glide.");
+                game.Hold(Key.Space, false); game.Frames(3);
+                Check(game.Value("gliding") == 0, "Releasing jump did not stop gliding.");
+            });
+            HeadlessHarness.Step("the pause menu restarts the level", () =>
+            {
+                game.Tap(Key.Escape);
+                Check(game.Value("state") == 2 && game.Value("menuIndex") == 0, "Escape did not open the pause menu.");
+                game.Tap(Key.S); game.Tap(Key.Enter);
+                Check(game.Value("state") == 0 && game.Value("hearts") == 3 && game.Value("powerUp") == 0 && game.CleanRun,
+                    "Pause menu Restart level did not restart the standalone level.");
+            });
+            Check(game.Diagnostics.Count == 0, "Game script diagnostics: " + string.Join("; ", game.Diagnostics));
+        });
+        HeadlessHarness.RunCase(context.Report, "Acceptance.MushroomMeadow.CampaignGlowsporeReturnsToMap", () =>
+        {
+            using MeadowGame game = new(project, campaign: true);
+            game.Frames(40); // the Glowspore grows in over half a second before it can be taken
+            Check(game.Value("campaign") == 1 && game.Value("state") == 1 && game.Value("lives") == 4 && game.Value("maxHearts") == 4
+                && game.Value("hearts") == 4 && game.Value("coins") == 12 && PgslCommands.RoomValueGet("frozen") == 0,
+                "A campaign level did not skip the title and carry the campaign globals.");
+            var orb = game.Scene.World.GetRef<TransformComponent>(game.Actor("Glowspore"));
+            game.Place(orb.X, orb.Y + 17); game.Frame();
+            Check(game.Value("state") == 3 && game.Value("clearKind") == 2 && game.Count("Glowspore") == 0,
+                "Touching the Glowspore did not clear the level.");
+            Check(game.Diagnostics.Count == 0, "Game script diagnostics: " + string.Join("; ", game.Diagnostics));
+            game.Frames(100);
+            game.Hold(Key.Enter, true); game.Frame(); game.Hold(Key.Enter, false);
+            // The Overworld's Map Marker consumes returnFromLevel and places itself (mapNode) once it loads.
+            Check(PgslCommands.GlobalGet("clear1") == 1 && PgslCommands.GlobalGet("glowspores") == 1
+                && PgslCommands.GlobalGet("lives") == 4 && PgslCommands.GlobalGet("coins") == 12 && PgslCommands.GlobalGet("maxHearts") == 4,
+                $"Leaving a cleared level did not record the Glowspore: clear1={PgslCommands.GlobalGet("clear1")}, glowspores={PgslCommands.GlobalGet("glowspores")}, lives={PgslCommands.GlobalGet("lives")}, coins={PgslCommands.GlobalGet("coins")}.");
+            for (int frame = 0; frame < 120 && PgslCommands.RoomGetName() != "Overworld"; frame++) game.Frame();
+            Check(PgslCommands.RoomGetName() == "Overworld", "A campaign clear did not return to the Overworld; room is " + PgslCommands.RoomGetName() + ".");
+        });
         HeadlessHarness.RunCase(context.Report, "Acceptance.MushroomMeadow.ImageRigLiveAuthoring", () =>
         {
-            string file = Path.Combine(project.AssetsPath, "Sprites", "Checkpoint.image.json");
+            string file = Path.Combine(project.AssetsPath, "Sprites", "Checkpoint Sprite.image.json");
             byte[] original = File.ReadAllBytes(file);
             using MeadowGame game = new(project);
             Entity checkpoint = game.Actor("Checkpoint");
@@ -214,9 +339,18 @@ internal static class MushroomMeadowAcceptanceSuite
         private PgslBehavior Player => (PgslBehavior)Host.FindBehaviorForEntity(Hero);
         public PointF Position { get { var transform = Scene.World.GetRef<TransformComponent>(Hero); return new(transform.X, transform.Y); } }
 
-        public MeadowGame(ProjectSession project)
+        /// <summary>Plays level 1-1 directly. campaign: as if entered from the Overworld with a saved
+        /// adventurer (4 of 4 hearts, 4 lives, 12 coins); otherwise standalone (F5) rules.</summary>
+        public MeadowGame(ProjectSession project, bool campaign = false)
         {
-            RoomFile = Path.Combine(project.RootPath, TwoDShowcaseTemplate.StartRoom.Replace('/', Path.DirectorySeparatorChar));
+            // A fresh play session: no globals left over from another game.
+            PgslCommands.ResetSession();
+            if (campaign)
+            {
+                PgslCommands.GlobalSet("campaign", 1); PgslCommands.GlobalSet("lives", 4); PgslCommands.GlobalSet("coins", 12);
+                PgslCommands.GlobalSet("maxHearts", 4); PgslCommands.GlobalSet("hearts", 4); PgslCommands.GlobalSet("power", 0);
+            }
+            RoomFile = Path.Combine(project.RootPath, TwoDShowcaseTemplate.LevelOneRoom.Replace('/', Path.DirectorySeparatorChar));
             RoomAsset room = RoomAssetLoader.Parse(RoomFile);
             Game = new(project.RootPath, Scene, null, null, room, null);
             Host.SetContext(Game); Host.DiagnosticReported += diagnostic => Diagnostics.Add(diagnostic.Message);
@@ -239,11 +373,17 @@ internal static class MushroomMeadowAcceptanceSuite
             foreach (var behavior in Host.Instances) Genesis.Runtime.ECS.ComponentLifecycle.OnUpdate(Scene.World, behavior.Entity, 1f / 60f);
             _switcher.Update(Scene, Scene.GameTime); Scene.Input.NextFrame();
         }
+        /// <summary>Authored room objects; the Explorer's Create may add one ambient particle emitter entity.</summary>
+        public int Authored => Game.Room.Nodes.Count(node => node.Kind == RoomNodeKind.GameObject);
+        public bool CleanRun => Host.Instances.Count == Authored
+            && Scene.World.LivingEntityCount >= Authored && Scene.World.LivingEntityCount <= Authored + 1;
+        public double Count(string objectName) => PgslCommands.InstanceNumber(objectName);
         public Entity Actor(string name) => Host.Instances.First(behavior => ObjectDrawAssetRegistry.TryGet(behavior.Entity, out ObjectDrawAssetEntry asset)
             && asset.Prefab.Contains(name, StringComparison.OrdinalIgnoreCase)).Entity;
         public void Dispose()
         {
             Host.EndRoom(endGame: true); Host.Clear(); _switcher.Dispose(); Scene.Dispose();
+            PgslCommands.ResetSession();
             PgslCommands.ActiveGameContext = _previousGame; PgslCommands.ProjectPath = _previousProject;
             ObjectDrawAssetRegistry.Clear(); ScriptAssetRegistry.ClearCache();
         }

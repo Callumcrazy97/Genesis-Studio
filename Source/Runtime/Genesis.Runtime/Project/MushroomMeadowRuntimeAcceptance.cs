@@ -53,7 +53,7 @@ internal sealed class MushroomMeadowRuntimeAcceptance : ISceneSubsystem
     private string _backend = string.Empty;
     private string? _pendingCapture;
     private PointF _previousPosition;
-    private double _previousLives = 3;
+    private double _previousLives = 5;
     private float _maxDelta;
 
     public MushroomMeadowRuntimeAcceptance(string output, string project, ProjectGameContext game,
@@ -151,9 +151,12 @@ internal sealed class MushroomMeadowRuntimeAcceptance : ISceneSubsystem
                 case 6:
                     if (_stageFrames >= 3)
                     {
-                        Require(Value("state") == 0 && Value("lives") == 3 && Value("coins") == 0
-                            && scene.World.LivingEntityCount == 47 && _scripts.Instances.Count == 47,
-                            "Production restart did not restore the title, counters and all 47 actors.");
+                        // Every authored object comes back once; the petal emitter Level Rules starts may add one entity.
+                        int authored = _game.Room.Nodes.Count(node => node.Kind == RoomNodeKind.GameObject);
+                        Require(Value("state") == 0 && Value("lives") == 5 && Value("hearts") == 3 && Value("coins") == 0
+                            && _scripts.Instances.Count == authored
+                            && scene.World.LivingEntityCount >= authored && scene.World.LivingEntityCount <= authored + 1,
+                            $"Production restart did not restore the title, counters and all {authored} actors (living {scene.World.LivingEntityCount}, scripted {_scripts.Instances.Count}).");
                         _pendingCapture = "restarted";
                     }
                     break;
