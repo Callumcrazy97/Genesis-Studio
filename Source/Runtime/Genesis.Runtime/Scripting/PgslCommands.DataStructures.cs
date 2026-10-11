@@ -111,7 +111,13 @@ public static partial class PgslCommands
     public static void DsListDestroy(double id) => Unbind("list", id);
 
     [PgslCommand("DsListClear", "DsListClear(id)", "Remove every entry", "Lists")]
-    public static void DsListClear(double id) => Resolve<List<object>>("list", id)?.Clear();
+    public static void DsListClear(double id)
+    {
+        // Held by a running job: this side's own is a new empty list (as roomy as the old one, since
+        // it is usually filled again), not a copy of entries that are about to go.
+        if (ReplaceHeld("list", id, held => held is List<object> list ? new List<object>(list.Capacity) : null)) return;
+        Resolve<List<object>>("list", id)?.Clear();
+    }
 
     [PgslCommand("DsListSize", "DsListSize(id) -> number", "Entry count", "Lists")]
     public static double DsListSize(double id) => ResolveRead<List<object>>("list", id)?.Count ?? 0;
@@ -263,6 +269,7 @@ public static partial class PgslCommands
     [PgslCommand("DsMapClear", "DsMapClear(id)", "Remove every entry", "Maps")]
     public static void DsMapClear(double id)
     {
+        if (ReplaceHeld("map", id, held => held is PgslMap ? new PgslMap() : null)) return;
         PgslMap map = Resolve<PgslMap>("map", id);
         if (map is null) return;
         map.Values.Clear();

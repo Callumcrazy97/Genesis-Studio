@@ -542,6 +542,17 @@ public sealed class DebugProfileRecording : IDisposable
             foreach (PgslAllocationLedger.ScopeAllocation scope in PgslAllocationLedger.Scopes(20))
                 Line($"| {Escape(scope.Name)} | {F(scope.Outside / (1024.0 * 1024.0), "0.0")} | {F(scope.InCommands / (1024.0 * 1024.0), "0.0")} | {scope.Runs} |");
             Line();
+            var copies = PgslAllocationLedger.Copies();
+            if (copies.Count > 0)
+            {
+                Line("Structures copied because a running worker job held them (each side's first write while a job holds a structure copies it; counted in the commands above):");
+                Line();
+                Line("| Family | Written by | Copies | About MB |");
+                Line("|---|---|---|---|");
+                foreach (var copy in copies)
+                    Line($"| {copy.Family} | {(copy.ByJob ? "a job" : "the game")} | {copy.Copies} | {F(copy.Bytes / (1024.0 * 1024.0), "0.0")} |");
+                Line();
+            }
         }
 
         if (s.Gc.Reasons.Count > 0)

@@ -572,6 +572,39 @@ internal static partial class PgslWorkerJobChecks
             HeadlessHarness.Assert(extra < 24 * 1024, $"3 000 variables the job never reads added {extra / 1024.0:F1} KB to starting it.");
         });
 
+        // Emptying a list or map a running job holds gives this side a new empty one, not a copy of
+        // entries about to go; the job still reads the original. The ledger counts real copies.
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.Jobs.EmptyingAHeldListCopiesNothing", () =>
+        {
+            using Bench bench = new();
+            bool was = PgslAllocationLedger.Enabled;
+            PgslAllocationLedger.Enabled = true;
+            PgslAllocationLedger.Reset();
+            try
+            {
+                bench.Run("cl = DsListCreate(); DsListFill(cl, 5000, 4); cm = DsMapCreate(); DsMapSet(cm, \"a\", 1); cg = DsGridCreate(512, 64); r = 0;");
+                double holder = bench.Number("""ch = JobScriptCreate("SjSpinLong"); JobScriptShareAll(ch); JobScriptBudget(ch, 2000000000); JobScriptStart(ch, 200000000); r = ch;""");
+                long copiesBefore = PgslCommands.SharedCopies;
+                bench.Run("DsListClear(cl); DsListAdd(cl, 9); DsMapClear(cm); DsGridSet(cg, 1, 1, 5); r = 0;");
+                long copies = PgslCommands.SharedCopies - copiesBefore;
+                bool held = PgslCommands.JobStatus(holder) is "queued" or "running";
+                double size = bench.Number("r = DsListSize(cl) * 100 + DsMapSize(cm);");
+                var grids = PgslAllocationLedger.Copies().FirstOrDefault(copy => copy.Family == "grids" && !copy.ByJob);
+                PgslCommands.JobCancel(holder);
+                bench.Wait(holder);
+                PgslCommands.JobRelease(holder);
+                bool pass = !held || (copies == 1 && size == 100 && grids.Copies == 1 && grids.Bytes == 512L * 64 * 8);
+                row("Jobs: shared data", "emptying a list or map a job holds copies nothing; the ledger counts the grid copy", pass ? "PASS" : "FAIL",
+                    $"{copies} copies (expected 1, the grid), list and map now {size} (expected 100), ledger: {grids.Copies} grid copies of {grids.Bytes} bytes" + (held ? "" : " (the job ended early; not judged)"));
+                HeadlessHarness.Assert(pass, $"{copies} copies, sizes {size}, ledger {grids.Copies} grid copies of {grids.Bytes} bytes.");
+            }
+            finally
+            {
+                PgslAllocationLedger.Enabled = was;
+                PgslAllocationLedger.Reset();
+            }
+        });
+
         // GENESIS_ALLOCATION_LOG=commands: the ledger names the command that allocated, with its
         // calls, and a worker job's own allocation outside its commands.
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.AllocationLedgerNamesTheCommands", () =>

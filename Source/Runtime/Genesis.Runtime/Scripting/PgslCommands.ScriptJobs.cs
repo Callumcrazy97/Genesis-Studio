@@ -263,10 +263,8 @@ public static partial class PgslCommands
         foreach ((string family, int handle, _) in setup.Shared)
             if (!store.TryGetValue(DsKey(family, handle), out _)) return Refuse($"The {family} {handle} given to the job no longer exists.");
 
-        var call = new StringBuilder("__jobResult = ").Append(setup.Function).Append('(');
-        for (int i = 0; i < arguments.Length; i++) call.Append(i == 0 ? "argument0" : ", argument" + i.ToString(CultureInfo.InvariantCulture));
         CompileResult driver;
-        try { driver = VMEngine.Compile(call.Append(");").ToString()); }
+        try { driver = JobDriver(setup.Library, setup.Function, arguments.Length); }
         catch (Exception error) { return Refuse("The job's call did not compile: " + error.Message); }
         PgslEngineBridge game = VMEngine.Bridge;
         if (driver == null || game == null) return Refuse("The job's call did not compile.");
@@ -361,6 +359,28 @@ public static partial class PgslCommands
         outcome.Outputs = [];
         SetJobError(string.Empty);
         return true;
+    }
+
+    // The call each job runs ("__jobResult = F(argument0, ...);"), compiled once per function, number
+    // of arguments and set of Scripts rather than for every job: the compiler's work was a large part
+    // of what starting a job allocated. It calls a library function only, so no command ids are in it.
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IReadOnlyDictionary<string, UserFunction>, ConcurrentDictionary<(string, int), CompileResult>> JobDrivers = new();
+
+    private static CompileResult JobDriver(IReadOnlyDictionary<string, UserFunction> library, string function, int arguments)
+    {
+        CompileResult Compile()
+        {
+            var call = new StringBuilder("__jobResult = ").Append(function).Append('(');
+            for (int i = 0; i < arguments; i++) call.Append(i == 0 ? "argument0" : ", argument" + i.ToString(CultureInfo.InvariantCulture));
+            return VMEngine.Compile(call.Append(");").ToString());
+        }
+        if (library == null) return Compile();
+        ConcurrentDictionary<(string, int), CompileResult> drivers = JobDrivers.GetOrCreateValue(library);
+        if (drivers.TryGetValue((function, arguments), out CompileResult cached)) return cached;
+        CompileResult driver = Compile();
+        // A call that did not compile is never kept: the next job tries again.
+        if (driver != null) drivers[(function, arguments)] = driver;
+        return driver;
     }
 
     // The instance variables a job's function can read, worked out once per function and set of

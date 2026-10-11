@@ -53,9 +53,29 @@ public static partial class PgslCommands
         {
             own = CopyStructure(shared.Value);
             Interlocked.Increment(ref _sharedCopies);
+            if (PgslAllocationLedger.Enabled)
+                PgslAllocationLedger.AddCopy(StructureFamily(own), StructureBytes(own), byJob: GetContext()?.ActiveVm is VM.PgslVm { JobBudget: not null });
         }
         store[key] = own;
         return (T)own;
+    }
+
+    /// <summary>
+    /// For a command that empties a structure: while a job holds it, this side's own becomes
+    /// <paramref name="fresh"/>'s new structure instead of a copy of the old (whose entries the command
+    /// would throw away). False when no job holds it, or it is not of that kind: the command goes on as usual.
+    /// </summary>
+    private static bool ReplaceHeld(string family, double handle, System.Func<object, object> fresh)
+    {
+        Dictionary<string, object> store = Store;
+        if (store is null) return false;
+        string key = DsKey(family, (int)handle);
+        if (!store.TryGetValue(key, out object existing) || existing is not SharedData shared || Volatile.Read(ref shared.Holders) == 0)
+            return false;
+        object replacement = fresh(shared.Value);
+        if (replacement is null) return false;
+        store[key] = replacement;
+        return true;
     }
 
     private static long _sharedCopies;
@@ -67,6 +87,24 @@ public static partial class PgslCommands
     internal static int SharedHolders(string family, double handle) =>
         Store is { } store && store.TryGetValue(DsKey(family, (int)handle), out object value) && value is SharedData shared
             ? Volatile.Read(ref shared.Holders) : 0;
+
+    private static string StructureFamily(object value) => value switch
+    {
+        PgslGrid => "grids",
+        List<object> => "lists",
+        PgslMap => "maps",
+        PgslPriority => "priority queues",
+        _ => "other",
+    };
+
+    // About what a copy takes: the cells, the list's slots, a map's entries.
+    private static long StructureBytes(object value) => value switch
+    {
+        PgslGrid grid => (long)grid.Width * grid.Height * CellBytes(grid.Kind),
+        List<object> list => (long)list.Capacity * 8,
+        PgslMap map => (long)map.Values.Count * 48,
+        _ => 0,
+    };
 
     /// <summary>A copy of a grid, list (stack, queue) or map that shares nothing it can change with the original.</summary>
     private static object CopyStructure(object value) => value switch

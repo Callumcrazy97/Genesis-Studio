@@ -107,11 +107,37 @@ public static class PgslAllocationLedger
         }
     }
 
+    // Copies made because one side wrote a structure a worker job still held (PgslCommands.SharedData):
+    // by family, and by who wrote it, the game or the job.
+    private static readonly Dictionary<(string Family, bool ByJob), (long Copies, long Bytes)> CopiesMade = new();
+
+    /// <summary>A copy of a held structure: its family ("grids"), about how many bytes, and whether a job (not the game) wrote it.</summary>
+    internal static void AddCopy(string family, long bytes, bool byJob)
+    {
+        lock (CopiesMade)
+        {
+            CopiesMade.TryGetValue((family, byJob), out var sum);
+            CopiesMade[(family, byJob)] = (sum.Copies + 1, sum.Bytes + Math.Max(0, bytes));
+        }
+    }
+
+    /// <summary>The copies of held structures since the last reset: family, who wrote it, how many, about how many bytes.</summary>
+    public static IReadOnlyList<(string Family, bool ByJob, long Copies, long Bytes)> Copies()
+    {
+        lock (CopiesMade)
+            return CopiesMade.Select(pair => (pair.Key.Family, pair.Key.ByJob, pair.Value.Copies, pair.Value.Bytes))
+                .OrderByDescending(copy => copy.Bytes).ToList();
+    }
+
+    private static Dictionary<(string Family, bool ByJob), (long Copies, long Bytes)> _reportedCopies = new();
+
     /// <summary>Forgets everything measured so far (a recording starting).</summary>
     public static void Reset()
     {
+        lock (CopiesMade) CopiesMade.Clear();
         lock (Sheets)
         {
+            _reportedCopies = new Dictionary<(string, bool), (long, long)>();
             foreach (Sheet sheet in Sheets)
             {
                 Array.Clear(sheet.Bytes);
@@ -174,6 +200,23 @@ public static class PgslAllocationLedger
                 text.Append("Allocated by scripts outside commands (joining text, new values): ")
                     .Append(string.Join(", ", outside.Select(scope => string.Create(CultureInfo.InvariantCulture,
                         $"{scope.Name} {Megabytes(scope.Outside)} in {scope.Runs} runs (its commands {Megabytes(scope.InCommands)})"))));
+            }
+            Dictionary<(string Family, bool ByJob), (long Copies, long Bytes)> copies;
+            lock (CopiesMade) copies = new Dictionary<(string, bool), (long, long)>(CopiesMade);
+            var newCopies = new List<string>();
+            foreach (KeyValuePair<(string Family, bool ByJob), (long Copies, long Bytes)> pair in copies.OrderByDescending(pair => pair.Value.Bytes))
+            {
+                _reportedCopies.TryGetValue(pair.Key, out var before);
+                long made = pair.Value.Copies - before.Copies, bytesCopied = pair.Value.Bytes - before.Bytes;
+                if (made > 0)
+                    newCopies.Add(string.Create(CultureInfo.InvariantCulture,
+                        $"{pair.Key.Family} written by {(pair.Key.ByJob ? "jobs" : "the game")} {made} copies, {Megabytes(bytesCopied)}"));
+            }
+            _reportedCopies = copies;
+            if (newCopies.Count > 0)
+            {
+                if (text.Length > 0) text.Append(". ");
+                text.Append("Copied because a running job held them (counted in the commands that wrote them): ").Append(string.Join(", ", newCopies));
             }
             return text.ToString();
         }
