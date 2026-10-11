@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace Genesis.Shared.Assets
 {
@@ -40,15 +41,30 @@ namespace Genesis.Shared.Assets
             int debounceMilliseconds,
             SynchronizationContext context,
             bool readReferences)
+            : this(projectRoot, debounceMilliseconds, context, readReferences, readReferencesNow: readReferences)
+        {
+        }
+
+        /// <param name="readReferencesNow">
+        /// False (with <paramref name="readReferences"/>) returns without reading what refers to
+        /// what: <see cref="ReadReferencesInBackground"/> reads it on a worker thread, and a change
+        /// published before then waits for it, so every change is still followed through the graph.
+        /// For Studio, which opens a project without waiting a second or more (minutes when the
+        /// files are new to the disk cache) for the graph of a large project.
+        /// </param>
+        public ProjectAssetMonitor(
+            string projectRoot,
+            int debounceMilliseconds,
+            SynchronizationContext context,
+            bool readReferences,
+            bool readReferencesNow)
         {
             if (string.IsNullOrWhiteSpace(projectRoot))
                 throw new ArgumentException("A project root is required.", nameof(projectRoot));
             ProjectRoot = Path.GetFullPath(projectRoot);
             AssetsRoot = Path.Combine(ProjectRoot, "Assets");
-            string root = ProjectRoot;
             _readsReferences = readReferences;
-            _graph = new Lazy<AssetDependencyGraph>(() => new AssetDependencyGraph(root), LazyThreadSafetyMode.ExecutionAndPublication);
-            if (readReferences) _ = _graph.Value;
+            if (readReferences && readReferencesNow) _ = Graph;
             _context = context;
             _debounce = new Timer(_ => PublishPending(), null, Timeout.Infinite, Timeout.Infinite);
             _watcher = new FileSystemWatcher(AssetsRoot)
@@ -66,14 +82,52 @@ namespace Genesis.Shared.Assets
             _watcher.Error += OnWatcherError;
         }
 
-        private readonly Lazy<AssetDependencyGraph> _graph;
+        private readonly object _graphGate = new();
+        private AssetDependencyGraph _graph;
         private readonly bool _readsReferences;
 
-        /// <summary>The project's reference graph (read now if this monitor was made without it).</summary>
-        public AssetDependencyGraph Graph => _graph.Value;
+        /// <summary>
+        /// The project's reference graph (read now if it has not been). One thread reads it while
+        /// any other waits; a read that fails is not kept, so the next use reads it again (a file
+        /// moved during the read, a duplicate name since put right) instead of failing for good.
+        /// </summary>
+        public AssetDependencyGraph Graph
+        {
+            get
+            {
+                AssetDependencyGraph graph = Volatile.Read(ref _graph);
+                if (graph != null) return graph;
+                lock (_graphGate)
+                {
+                    if (_graph == null) Volatile.Write(ref _graph, new AssetDependencyGraph(ProjectRoot));
+                    return _graph;
+                }
+            }
+        }
+
+        private bool GraphRead => Volatile.Read(ref _graph) != null;
 
         /// <summary>Whether changes are followed through the reference graph to what uses them.</summary>
         public bool ReadsReferences => _readsReferences;
+
+        /// <summary>
+        /// Reads the reference graph on a worker thread, if this monitor follows references and has
+        /// not read it yet. Nothing waits for the returned task. A read that fails (files changing
+        /// under it) is left to the first change, which reads the graph again and reports a failure.
+        /// </summary>
+        public Task ReadReferencesInBackground()
+        {
+            if (!_readsReferences || GraphRead) return Task.CompletedTask;
+            return Task.Run(() =>
+            {
+                try { _ = Graph; }
+                catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException
+                    or Newtonsoft.Json.JsonException or ArgumentException)
+                {
+                    System.Diagnostics.Trace.WriteLine("Reading the project's references in the background failed; the first change reads them again: " + error.Message);
+                }
+            });
+        }
 
         public string ProjectRoot { get; }
         public string AssetsRoot { get; }
@@ -157,7 +211,7 @@ namespace Genesis.Shared.Assets
             }
 
             HashSet<string> affected = new(changed, StringComparer.OrdinalIgnoreCase);
-            if (_readsReferences || _graph.IsValueCreated)
+            if (_readsReferences || GraphRead)
             {
                 try
                 {
@@ -198,7 +252,9 @@ namespace Genesis.Shared.Assets
 
         private bool IsUnderAssets(string path)
         {
-            string root = Graph.AssetsRoot.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            // The monitor's own AssetsRoot (the graph's is the same path): asking the graph made a
+            // save wait for the whole project's references to be read.
+            string root = AssetsRoot.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
             return path.StartsWith(root, StringComparison.OrdinalIgnoreCase);
         }
 

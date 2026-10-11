@@ -44,6 +44,11 @@ public sealed partial class ResourceCatalog
     private static readonly string[] LegacyRoots =
     { "Sprites", "Images", "Audio", "Objects", "Particles", "Shaders", "Scripts", "Physics", "Terrain", "Rooms", "Notes", "Models", "Paths", "User Interfaces", "UI" };
     private static readonly ConcurrentDictionary<string, Lazy<ResourceCatalog>> Catalogs = new(StringComparer.OrdinalIgnoreCase);
+    // What each .meta said (guid and authored name) as last read, kept while its time and size are
+    // unchanged. A catalog is rebuilt several times while Studio opens a project (and on every
+    // refresh); reading thousands of .meta files each time cost a quarter of a second or more.
+    private sealed record MetaIdentity(long Ticks, long Length, Guid Guid, string Authored);
+    private static readonly ConcurrentDictionary<string, MetaIdentity> MetaIdentities = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, NamedResource[]> _names;
     private readonly Dictionary<string, NamedResource> _paths;
     public string ProjectRoot { get; }
@@ -251,22 +256,33 @@ public sealed partial class ResourceCatalog
         if (!seen.Add(full)) return;
         string name = FormatName(file);
         Guid assetId = Guid.Empty;
+        // An exported game's index answers without opening the .meta; otherwise what a .meta says
+        // is kept while its time and size are unchanged.
+        string metaPath = file + ".meta";
         if (TryIndexedIdentity(full, out Guid indexedId, out string indexedName))
         {
             assetId = indexedId;
             if (!string.IsNullOrWhiteSpace(indexedName)) name = ValidateName(indexedName);
         }
-        else if (File.Exists(file + ".meta"))
+        else if (new FileInfo(metaPath) is { Exists: true } meta)
         {
-            CountMetaRead();
-            try
+            long ticks = meta.LastWriteTimeUtc.Ticks, length = meta.Length;
+            if (!MetaIdentities.TryGetValue(metaPath, out MetaIdentity identity) || identity.Ticks != ticks || identity.Length != length)
             {
-                JObject metadata = JObject.Parse(File.ReadAllText(file + ".meta"));
-                Guid.TryParse((string)metadata["guid"], out assetId);
-                string authored = (string)metadata["resourceName"];
-                if (!string.IsNullOrWhiteSpace(authored)) name = ValidateName(authored);
+                CountMetaRead();
+                try
+                {
+                    JObject metadata = JObject.Parse(File.ReadAllText(metaPath));
+                    Guid.TryParse((string)metadata["guid"], out Guid parsed);
+                    identity = new MetaIdentity(ticks, length, parsed, (string)metadata["resourceName"]);
+                }
+                catch (Newtonsoft.Json.JsonException error) { throw new InvalidDataException("Invalid resource identity metadata for '" + name + "'.", error); }
+                // A file written in the last few seconds could be written again within the same
+                // tick of the file system's clock, keeping its time; it is read again next time.
+                if (DateTime.UtcNow.Ticks - ticks > TimeSpan.TicksPerSecond * 3) MetaIdentities[metaPath] = identity;
             }
-            catch (Newtonsoft.Json.JsonException error) { throw new InvalidDataException("Invalid resource identity metadata for '" + name + "'.", error); }
+            assetId = identity.Guid;
+            if (!string.IsNullOrWhiteSpace(identity.Authored)) name = ValidateName(identity.Authored);
         }
         entries.Add(new NamedResource(name, full, type, Definitions.First(d => file.EndsWith(d.Extension, StringComparison.OrdinalIgnoreCase)).Extension) { AssetId = assetId });
     }

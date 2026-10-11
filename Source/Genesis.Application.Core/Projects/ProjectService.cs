@@ -35,6 +35,7 @@ public sealed partial class ProjectService
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(parentDirectory);
         ArgumentException.ThrowIfNullOrWhiteSpace(projectName);
+        Diagnostics.ProjectOpenTimings.Begin("Create the project");
 
         string safeName = SanitizeProjectName(projectName);
         string projectRoot = Path.Combine(Path.GetFullPath(parentDirectory), safeName);
@@ -111,12 +112,14 @@ public sealed partial class ProjectService
         ProjectRoomOrder.Normalize(session);
         WriteManifest(projectFile, manifest);
 
+        Diagnostics.ProjectOpenTimings.Mark("Prepare Studio");
         return session;
     }
 
     public ProjectSession OpenProject(string projectPath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectPath);
+        Diagnostics.ProjectOpenTimings.Begin("Read the project file");
         string fullPath = Path.GetFullPath(projectPath);
         string projectFile;
 
@@ -154,10 +157,15 @@ public sealed partial class ProjectService
 
         ProjectSession session = new(root, projectFile, manifest);
         // Add missing roots without moving existing resources or breaking legacy references.
+        Diagnostics.ProjectOpenTimings.Mark("Add missing resource folders");
         ResourceFolderPolicy.EnsureRoots(session);
+        Diagnostics.ProjectOpenTimings.Mark("Read resource names");
         ResourceNameMigration.Upgrade(session);
+        Diagnostics.ProjectOpenTimings.Mark("Order the rooms");
         ProjectRoomOrder.Normalize(session);
+        Diagnostics.ProjectOpenTimings.Mark("Check texture groups");
         TextureGroupCatalog.EnsureAndBackfill(session, this);
+        Diagnostics.ProjectOpenTimings.Mark("Prepare Studio");
         return session;
     }
 

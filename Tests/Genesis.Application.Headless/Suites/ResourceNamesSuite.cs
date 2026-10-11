@@ -301,6 +301,127 @@ internal static class ResourceNamesSuite
             Assert((string?)result["prefab"]?["name"] == "Actor" && (string?)result["tileset"] == "Hero", "Room resource fields retain paths.");
             RoomAssetLoader.Save(data, room); Assert(data.Name == "Courtyard", "Room identity was replaced by the document's default label.");
         });
+
+        // Opening a project reads each .meta once per process and reuses what it said while the
+        // file's time and size are unchanged. An edited .meta must still be read again.
+        Check("CatalogRereadsAnEditedMeta", p =>
+        {
+            string file = p.Add("Sprites/Hero.image.json"); p.Identity(file, "Heroa");
+            NamedResource first = ResourceNames.For(p.Root).Find("Heroa")!;
+            // The same length, so only the file's time tells the edit apart.
+            p.Identity(file, "Herob"); File.SetLastWriteTimeUtc(file + ".meta", DateTime.UtcNow.AddSeconds(5));
+            NamedResource second = ResourceNames.For(p.Root).Find("Herob")
+                ?? throw new InvalidOperationException("An edited .meta's new name was not read.");
+            Assert(ResourceNames.For(p.Root).Find("Heroa") is null, "An edited .meta's old name was still listed.");
+            Assert(second.AssetId != first.AssetId, "An edited .meta's new identity was not read.");
+            ResourceService service = new(p.Session);
+            Assert(Flatten(service.BuildTree()).Contains($"Herob|Sprites/Hero.image.json|Image|{second.AssetId:N}"),
+                "The Assets tree did not show the edited .meta's name and identity.");
+            p.Identity(file, "Champion");
+            Assert(Flatten(service.BuildTree()).Any(row => row.StartsWith("Champion|", StringComparison.Ordinal)),
+                "The Assets tree kept a .meta's old name after it changed.");
+        });
+        // Only Assets (and the legacy resource roots) hold resources: a large Debug or Tools folder,
+        // or Studio's own .genesis folder, must not change, or be read for, the resource list.
+        Check("DebugAndToolFoldersDoNotChangeTheResourceList", p =>
+        {
+            string sprite = p.Add("Sprites/Hero.image.json"); p.Identity(sprite, "Hero");
+            p.Add("Sprites/Hero.png", "pixels"); p.Add("Sprites/Hero_2.png", "pixels"); p.Add("Sprites/Hero.spritedata/frames/0.png", "pixels");
+            p.Add("Objects/Actor.object.json", "{\"sprite\":\"Hero\"}"); p.Add("Objects/Actor/Create.pgsl", "return;");
+            p.Add("Rooms/Courtyard.room.json", ResourceDefinitions.Get(ResourceKind.Room).DefaultContent);
+            ResourceService service = new(p.Session);
+            service.BuildTree(); // Gives the resources without a .meta theirs.
+            string[] tree = Flatten(service.BuildTree());
+            string[] names = ResourceNames.For(p.Root).Entries.Select(entry => $"{entry.Name}|{entry.FullPath}|{entry.Type}|{entry.AssetId}").ToArray();
+            foreach (string folder in new[] { "Debug", "Tools", ".genesis" })
+            {
+                string root = Path.Combine(p.Root, folder);
+                for (int i = 0; i < 400; i++)
+                {
+                    string sub = Path.Combine(root, "Batch" + (i % 20));
+                    Directory.CreateDirectory(sub);
+                    File.WriteAllText(Path.Combine(sub, $"Saved{i}.room.json"), "{}");
+                    File.WriteAllText(Path.Combine(sub, $"Generated{i}.image.json"), "{}");
+                    File.WriteAllText(Path.Combine(sub, $"Log{i}.txt"), "log");
+                }
+            }
+            ResourceNames.Invalidate(p.Root);
+            Assert(Flatten(service.BuildTree()).SequenceEqual(tree), "A Debug, Tools or .genesis folder changed the Assets tree.");
+            Assert(ResourceNames.For(p.Root).Entries.Select(entry => $"{entry.Name}|{entry.FullPath}|{entry.Type}|{entry.AssetId}").SequenceEqual(names),
+                "A Debug, Tools or .genesis folder changed the resource list.");
+        });
+        // The Assets tree lists each folder once and answers every resource's associates from that
+        // listing; it must find exactly what asking the disk for each resource finds.
+        Check("FolderListingFindsTheSameAssociates", p =>
+        {
+            string[] resources =
+            [
+                p.Add("Sprites/Tree.image.json"), p.Add("Sprites/Tree_2.image.json"), p.Add("Sprites/TreeHouse.image.json"),
+                p.Add("Models/Oak.model.json"), p.Add("Objects/Actor.object.json"), p.Add("Terrain/Land.terrain.json"),
+                p.Add("Sprites/tree.audio.json"),
+            ];
+            foreach (string resource in resources) File.WriteAllText(resource + ".meta", "{}");
+            foreach (string extra in new[] { "Sprites/Tree.png", "Sprites/Tree_2.png", "Sprites/tree__layer_1.png", "Sprites/Tree_old.wav",
+                         "Sprites/TreeHouse.png", "Sprites/Tree.txt", "Sprites/Tree.terrain", "Models/Oak.gmodel", "Models/Oak_skin.png",
+                         "Terrain/Land.terrain.json.gterrain", "Terrain/Land.terrain.json.nature.json", "Terrain/Land.terrain.json.nature" })
+                p.Add(extra, "x");
+            foreach (string folder in new[] { "Sprites/Tree.spritedata", "Sprites/TreeHouse.spritedata", "Models/Oak.modeldata", "Objects/Actor", "Terrain/Land.terrain.json.parts" })
+                Directory.CreateDirectory(p.PathOf(folder));
+            foreach (string resource in resources)
+            {
+                var listing = ResourceAssociates.FolderListing.Read(Path.GetDirectoryName(resource)!);
+                string[] expected = ResourceAssociates.Find(resource).Order(StringComparer.OrdinalIgnoreCase).ToArray();
+                string[] actual = ResourceAssociates.Find(resource, listing).Order(StringComparer.OrdinalIgnoreCase).ToArray();
+                Assert(expected.Length > 0 && expected.SequenceEqual(actual, StringComparer.OrdinalIgnoreCase),
+                    $"{Path.GetFileName(resource)}: the listing found [{string.Join(", ", actual.Select(Path.GetFileName))}], the disk [{string.Join(", ", expected.Select(Path.GetFileName))}].");
+            }
+        });
+        // Studio reads what refers to what after its window is shown. A change saved before then
+        // must still reach every resource that uses the changed one.
+        Check("ChangesFollowReferencesReadLater", p =>
+        {
+            string sprite = p.Add("Sprites/Hero.image.json"); p.Identity(sprite, "Hero");
+            string actor = p.Add("Objects/Actor.object.json", "{\"sprite\":\"Hero\"}");
+            foreach (bool readFirst in new[] { false, true })
+            {
+                // The longest debounce, so only FlushPending publishes the change.
+                using ProjectAssetMonitor monitor = new(p.Root, 5000, null, readReferences: true, readReferencesNow: false);
+                if (readFirst) Assert(monitor.ReadReferencesInBackground().Wait(TimeSpan.FromSeconds(30)), "The references were not read in the background.");
+                monitor.Notify(sprite);
+                ProjectAssetChangeSet changes = monitor.FlushPending() ?? throw new InvalidOperationException("No change was published.");
+                Assert(changes.Affects(actor), $"A change made {(readFirst ? "after" : "before")} the references were read did not reach the Object that uses the image.");
+            }
+        });
+        // Opening a project checks every image's texture group. An image that already names a group
+        // of the project is left as it is; one naming a group the project lacks is still moved to
+        // the default group.
+        Check("TextureGroupCheckLeavesAssignedImagesAlone", p =>
+        {
+            ImageDocument assigned = ImageDocument.CreateDefault(); assigned.TextureGroup = TextureGroupCatalog.DefaultName;
+            ImageDocument missing = ImageDocument.CreateDefault(); missing.TextureGroup = "No Such Group";
+            string kept = p.Add("Sprites/Kept.image.json", ImageDocumentSerializer.Serialize(assigned));
+            string moved = p.Add("Sprites/Moved.image.json", ImageDocumentSerializer.Serialize(missing));
+            DateTime keptTime = DateTime.UtcNow.AddMinutes(-10);
+            File.SetLastWriteTimeUtc(kept, keptTime);
+            TextureGroupBackfillResult result = TextureGroupCatalog.EnsureAndBackfill(p.Session, new ProjectService());
+            Assert(result.Scanned == 2 && result.Updated == 1, $"Expected 2 images checked and 1 updated, got {result.Scanned} and {result.Updated}.");
+            Assert(File.GetLastWriteTimeUtc(kept) == keptTime, "An image already in a project group was rewritten.");
+            Assert(ImageDocumentSerializer.LoadAtomic(moved).Document.TextureGroup == TextureGroupCatalog.DefaultName,
+                "An image naming a group the project lacks was not moved to the default group.");
+        });
+    }
+
+    /// <summary>The Assets tree as one line per item, in order.</summary>
+    private static string[] Flatten(ResourceItem root)
+    {
+        List<string> rows = [];
+        void Walk(ResourceItem item)
+        {
+            rows.Add($"{item.Name}|{item.RelativePath}|{item.Kind}|{item.AssetId:N}");
+            foreach (ResourceItem child in item.Children) Walk(child);
+        }
+        Walk(root);
+        return rows.ToArray();
     }
 
     private static void Assert(bool value, string message) { if (!value) throw new InvalidOperationException(message); }

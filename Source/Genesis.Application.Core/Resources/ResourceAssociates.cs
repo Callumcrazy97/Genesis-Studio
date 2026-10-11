@@ -224,6 +224,95 @@ public static class ResourceAssociates
         return results;
     }
 
+    /// <summary>
+    /// The files and folders directly inside one folder, listed once. <see cref="Find(string, FolderListing)"/>
+    /// uses it so that finding the associates of every resource in a folder does not list the
+    /// folder again for each resource: that made the Assets tree of a folder holding thousands of
+    /// resources take seconds.
+    /// </summary>
+    public sealed class FolderListing
+    {
+        public FolderListing(string directory, IEnumerable<string> files, IEnumerable<string> directories)
+        {
+            Directory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory));
+            Files = new HashSet<string>(files.Select(Path.GetFullPath), StringComparer.OrdinalIgnoreCase);
+            Directories = new HashSet<string>(directories.Select(Path.GetFullPath), StringComparer.OrdinalIgnoreCase);
+            ByBaseName = Files
+                .Select(file => (BaseName: Path.GetFileNameWithoutExtension(file), Path: file))
+                .OrderBy(entry => entry.BaseName, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+
+        /// <summary>Lists <paramref name="directory"/> now.</summary>
+        public static FolderListing Read(string directory) =>
+            new(directory, System.IO.Directory.EnumerateFiles(directory), System.IO.Directory.EnumerateDirectories(directory));
+
+        public string Directory { get; }
+        internal HashSet<string> Files { get; }
+        internal HashSet<string> Directories { get; }
+        internal (string BaseName, string Path)[] ByBaseName { get; }
+    }
+
+    /// <summary>
+    /// The same associates as <see cref="Find(string)"/> (possibly in another order) for a resource
+    /// directly inside the listed folder, answered from the listing instead of the disk.
+    /// </summary>
+    public static IReadOnlyList<string> Find(string resourcePath, FolderListing listing)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(resourcePath);
+        ArgumentNullException.ThrowIfNull(listing);
+        string fullPath = Path.GetFullPath(resourcePath);
+        string? directory = Path.GetDirectoryName(fullPath);
+        if (directory is null || !string.Equals(directory, listing.Directory, StringComparison.OrdinalIgnoreCase))
+            return Find(resourcePath);
+        if (listing.Directories.Contains(fullPath)) return [];
+
+        string stem = GetStem(fullPath);
+        List<string> results = [];
+        void AddFile(string path) { if (listing.Files.Contains(path)) results.Add(path); }
+        void AddDirectory(string path) { if (listing.Directories.Contains(path)) results.Add(path); }
+
+        string meta = fullPath + ".meta";
+        AddFile(meta);
+        AddFile(fullPath + ".gterrain");
+        AddFile(Path.Combine(directory, stem + ".terrain"));
+        AddDirectory(fullPath + ".parts");
+        AddFile(fullPath + ".nature.json");
+        AddFile(fullPath + ".nature");
+        ResourceKind? kind = ResourceDefinitions.FromPath(fullPath)?.Kind;
+        if (kind == ResourceKind.Image) AddDirectory(Path.Combine(directory, stem + ".spritedata"));
+        if (kind == ResourceKind.Model) AddDirectory(Path.Combine(directory, stem + ".modeldata"));
+        if (kind == ResourceKind.GameObject) AddDirectory(Path.Combine(directory, stem));
+
+        // Owned siblings have a base name equal to the stem or starting with "stem_", so they all
+        // start with the stem: one contiguous run of the listing sorted by base name.
+        (string BaseName, string Path)[] sorted = listing.ByBaseName;
+        int low = 0, high = sorted.Length;
+        while (low < high)
+        {
+            int middle = (low + high) / 2;
+            if (string.Compare(sorted[middle].BaseName, stem, StringComparison.OrdinalIgnoreCase) < 0) low = middle + 1;
+            else high = middle;
+        }
+        for (int index = low; index < sorted.Length && sorted[index].BaseName.StartsWith(stem, StringComparison.OrdinalIgnoreCase); index++)
+        {
+            (string baseName, string candidate) = sorted[index];
+            if (string.Equals(candidate, fullPath, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(candidate, meta, StringComparison.OrdinalIgnoreCase))
+                continue;
+            bool owned =
+                string.Equals(baseName, stem, StringComparison.OrdinalIgnoreCase) ||
+                baseName.StartsWith(stem + "_", StringComparison.OrdinalIgnoreCase) ||
+                baseName.StartsWith(stem + "__layer_", StringComparison.OrdinalIgnoreCase);
+            if (!owned) continue;
+            string extension = Path.GetExtension(candidate);
+            if (MediaExtensions.Contains(extension) || extension.Equals(".meta", StringComparison.OrdinalIgnoreCase))
+                results.Add(candidate);
+        }
+
+        return results;
+    }
+
     public static IReadOnlyList<string> FindGeneratedFrames(string resourcePath)
     {
         string dataDirectory = GetSpriteDataDirectory(resourcePath);

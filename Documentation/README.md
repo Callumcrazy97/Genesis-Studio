@@ -1576,6 +1576,21 @@ engine libraries are what it was compiled from (a digest of them is kept beside 
 `GameScripts.dll.inputs`); PGSL is still checked on every press. On Golden Stag (27 C# scripts) a
 press with nothing changed went from about 4.3 s to 16 ms
 (`Speed.Run.UnchangedScriptsAreNotCompiledAgain`).
+Opening a project: Studio's log says where each open's time went (`Project opened in N ms: Read
+resource names …; List the Assets folders …`), and `Genesis.Application.Headless.exe --open-timing
+<copy of a project> [--repeat N] [--dump file]` times the same open without a window (`--dump`
+writes the resources, Assets tree and reference graph it produced, to compare two builds). On a copy
+of a 5,233-resource project (15,000 files in Assets, a 4.8 GB Debug folder), measured 11 Oct 2026:
+from a freshly started Studio to a usable window took 13-14 s and now 1.6-2.5 s; opening it again
+in the same Studio took 11.4-12.3 s and now 0.6 s (performance cores; the reference graph then
+takes about 1 s more on a worker thread). With the files out of the disk cache (on a hard disk) the
+first open took 330 s, 266 s of it reading the reference graph before the window could show.
+`--test project-open` runs the checks for this path.
+The Assets tree had listed each folder again for every resource in it; what refers to what (every
+text asset parsed) is now read on a worker thread once the window shows, and a change saved before
+then waits for it off the UI thread; a `.meta` is read once per Studio session while its time and
+size are unchanged; an image already in one of the project's texture groups is not loaded to check
+it.
 `--check` adds the 15-workflow gate and DX11/DX12 smokes to Quick. `--full-tests` adds the entire
 regression suite; `--full-smoke` adds all five renderer smokes; `--quick-smoke` adds DX11/DX12.
 `--skip-tests` is a legacy Quick alias and still runs package/startup checks. Full rejects Quick,

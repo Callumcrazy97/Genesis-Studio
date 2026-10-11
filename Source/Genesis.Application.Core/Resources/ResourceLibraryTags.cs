@@ -18,7 +18,9 @@ public static class ResourceLibraryTags
     public const int MaximumTags = 32;
     public const int MaximumTagLength = 48;
     public const int MaximumMetadataBytes = 256 * 1024;
-    private const int MaximumCachedResources = 4096;
+    // Enough for every resource of a large project: at 4,096 a project of 5,000 resources emptied
+    // the cache part way through each listing of the Assets tree and re-read every .meta file.
+    private const int MaximumCachedResources = 65536;
     private sealed record CachedTags(long Ticks, long Length, IReadOnlyList<string> Tags);
     private static readonly object CacheGate = new();
     private static readonly Dictionary<string, CachedTags> Cache = new(StringComparer.OrdinalIgnoreCase);
@@ -75,6 +77,34 @@ public static class ResourceLibraryTags
         }
         catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or JsonException or ArgumentException or InvalidOperationException or System.Security.SecurityException)
         { return []; }
+    }
+
+    /// <summary>
+    /// Keeps what <see cref="ReadOrEmpty"/> would return for a .meta the caller has just read (its
+    /// bytes and the file's details from just before), so the next ReadOrEmpty need not read it
+    /// again. Anything ReadOrEmpty would not keep (too large, linked, unreadable) is left for it.
+    /// </summary>
+    internal static void Remember(string resourcePath, FileInfo metadata, byte[] bytes)
+    {
+        try
+        {
+            if (!metadata.Exists || metadata.Length > MaximumMetadataBytes || bytes.Length != metadata.Length
+                || (metadata.Attributes & FileAttributes.ReparsePoint) != 0) return;
+            // A file written in the last few seconds could be written again within the same tick
+            // of the file system's clock, keeping its time: ReadOrEmpty reads it itself.
+            if (DateTime.UtcNow.Ticks - metadata.LastWriteTimeUtc.Ticks <= TimeSpan.TicksPerSecond * 3) return;
+            string path = Path.GetFullPath(resourcePath) + ".meta";
+            IReadOnlyList<string> tags = ReadTags(ReadObject(bytes));
+            lock (CacheGate)
+            {
+                if (Cache.Count >= MaximumCachedResources && !Cache.ContainsKey(path)) Cache.Clear();
+                Cache[path] = new(metadata.LastWriteTimeUtc.Ticks, metadata.Length, tags);
+            }
+        }
+        catch (Exception)
+        {
+            // Only a head start: ReadOrEmpty reads the file itself and reaches its own answer.
+        }
     }
 
     public static void Invalidate(string resourcePath)

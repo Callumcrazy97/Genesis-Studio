@@ -1161,6 +1161,9 @@ internal static class HeadlessTestRunner
         // Export Game's renderer choice: the dialog's list and layout, the exported project file and
         // the exported game starting on the chosen renderer (both suites are in the tiers too).
         ["export-renderer"] = ["studio-foundation", "export-pgsl"],
+        // Opening a project in Studio: resource names and the Assets tree, library tags and
+        // favourites, the shell, and live reload's asset monitor (not part of the tiers).
+        ["project-open"] = ["resource-names", "resource-library", "resource-tags", "studio-foundation", "studio-polish", "live-reload"],
     };
 
     private static void RunFocusedTarget(HeadlessContext ctx, string target)

@@ -37,7 +37,15 @@ public sealed class ResourceService
     {
         ResourceFolderPolicy.EnsureRoots(Project);
         ResourceNames.Invalidate(Project.RootPath);
-        return BuildFolderNode(AssetsRoot);
+        // Rooms are listed in the project's room order, which is where the game starts; everything
+        // else by name. The order is the same for every folder, so it is worked out once.
+        IReadOnlyList<string> roomOrder = ProjectRoomOrder.Rooms(Project);
+        // Each listed resource's name, by path, from the catalog just read. Asking the catalog by
+        // path checked every folder above each file for links: tens of thousands of file-system
+        // calls in a large project. A file the catalog does not list is still asked the slow way.
+        Dictionary<string, Genesis.Shared.Assets.NamedResource> catalogued = ResourceNames.For(Project.RootPath).Entries
+            .ToDictionary(entry => entry.FullPath, StringComparer.OrdinalIgnoreCase);
+        return BuildFolderNode(AssetsRoot, roomOrder, catalogued);
     }
 
     public ResourceLibraryTagSnapshot SetLibraryTags(ResourceLibraryTagSnapshot expected, IEnumerable<string> tags)
@@ -339,13 +347,14 @@ public sealed class ResourceService
         return results;
     }
 
-    private ResourceItem BuildFolderNode(string folder)
+    private ResourceItem BuildFolderNode(
+        string folder, IReadOnlyList<string> roomOrder, Dictionary<string, Genesis.Shared.Assets.NamedResource> catalogued)
     {
         List<ResourceItem> children = [];
         List<string> files = [];
-        // Rooms are listed in the project's room order, which is where the game starts; everything
-        // else by name.
-        IReadOnlyList<string> roomOrder = ProjectRoomOrder.Rooms(Project);
+        // The folder is listed once; finding each resource's associates used to list it again for
+        // every resource in it.
+        ResourceAssociates.FolderListing listing = ResourceAssociates.FolderListing.Read(folder);
         int RoomPosition(string path)
         {
             if (ResourceDefinitions.FromPath(path)?.Kind != ResourceKind.Room) return -1;
@@ -368,7 +377,7 @@ public sealed class ResourceService
         HashSet<string> hiddenAssociates = new(StringComparer.OrdinalIgnoreCase);
         foreach (string resourcePath in knownResources)
         {
-            foreach (string associate in ResourceAssociates.Find(resourcePath))
+            foreach (string associate in ResourceAssociates.Find(resourcePath, listing))
             {
                 hiddenAssociates.Add(Path.GetFullPath(associate));
             }
@@ -379,7 +388,7 @@ public sealed class ResourceService
                          (File.GetAttributes(path) & FileAttributes.ReparsePoint) == 0)
                      .OrderBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase))
         {
-            children.Add(BuildFolderNode(directory));
+            children.Add(BuildFolderNode(directory, roomOrder, catalogued));
         }
 
         foreach (string file in files)
@@ -403,7 +412,9 @@ public sealed class ResourceService
             Guid id = EnsureMetadata(file, kind);
             children.Add(new ResourceItem
             {
-                Name = ResourceNames.Name(Project.RootPath, file),
+                Name = catalogued.TryGetValue(Path.GetFullPath(file), out Genesis.Shared.Assets.NamedResource? named)
+                    ? named.Name
+                    : ResourceNames.Name(Project.RootPath, file),
                 FullPath = file,
                 RelativePath = ToAssetRelative(file),
                 Kind = kind,
@@ -911,21 +922,42 @@ public sealed class ResourceService
             : normalized;
     }
 
+    private sealed record CachedIdentity(long Ticks, long Length, Guid Id);
+
+    // Each .meta's identity as last read, kept while the file's time and size are unchanged, so
+    // listing the Assets tree again (every open and refresh) does not re-read thousands of them.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, CachedIdentity> IdentityCache =
+        new(StringComparer.OrdinalIgnoreCase);
+
     private Guid EnsureMetadata(string resourcePath, ResourceKind kind)
     {
         string metadataPath = MetadataPath(resourcePath);
-        if (File.Exists(metadataPath))
+        FileInfo info = new(metadataPath);
+        if (info.Exists)
         {
+            long ticks = info.LastWriteTimeUtc.Ticks, length = info.Length;
+            if (IdentityCache.TryGetValue(metadataPath, out CachedIdentity? cached) && cached.Ticks == ticks && cached.Length == length)
+                return cached.Id;
             try
             {
+                // Read once: the library tags listed beside the identity are kept from the same
+                // bytes, so the Assets tree does not read every .meta a second time for them.
+                byte[] bytes = File.ReadAllBytes(metadataPath);
+                ResourceLibraryTags.Remember(resourcePath, info, bytes);
+                // Decoded as File.ReadAllText would (UTF-8 unless a byte order mark says otherwise).
+                using StreamReader text = new(new MemoryStream(bytes), System.Text.Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
                 // Identity validation must not deserialize optional library classification.
                 // A malformed tag list is not permission to replace a valid resource GUID.
-                using JsonDocument metadata = JsonDocument.Parse(File.ReadAllText(metadataPath));
+                using JsonDocument metadata = JsonDocument.Parse(text.ReadToEnd());
                 if (metadata.RootElement.ValueKind == JsonValueKind.Object
                     && metadata.RootElement.TryGetProperty("guid", out JsonElement guid)
                     && guid.ValueKind == JsonValueKind.String
                     && Guid.TryParseExact(guid.GetString(), "N", out Guid existing))
                 {
+                    // A file written in the last few seconds could be written again within the
+                    // same tick of the file system's clock, keeping its time: read it again then.
+                    if (DateTime.UtcNow.Ticks - ticks > TimeSpan.TicksPerSecond * 3)
+                        IdentityCache[metadataPath] = new CachedIdentity(ticks, length, existing);
                     return existing;
                 }
             }
