@@ -147,6 +147,10 @@ internal static partial class PgslWorkerJobChecks
         function SjMapEdit(m) { DsMapSet(m, "a", 5); DsMapDelete(m, "b"); return DsMapSize(m); }
         function SjLeaveAlone(l) { return DsListSize(l); }
         function SjNothing() { return 1; }
+        // Reads two globals itself and one through a function it calls; another reads one by name.
+        function SjReadsThree() { return jvUsed * 10 + StringLength(jvText) + SjReadsDeep(); }
+        function SjReadsDeep() { return jvDeep; }
+        function SjReadsByName(n) { return VariableGet(n); }
         function SjSpinLong(n) { var k = 0; while (k < n) { k = k + 1; } return k; }
         """;
 
@@ -526,6 +530,68 @@ internal static partial class PgslWorkerJobChecks
             Console.WriteLine($"Sharing: JobScriptShareAll at a voxel game's size {F(sharedGame)} game thread, {F(sharedWorker)} worker; six big grids {F(gridsGame)} / {F(gridsWorker)}; copy of a held 4096 x 96 grid {F(copyMs)}, next write {F(laterMs)}");
             HeadlessHarness.Assert(!heldThroughout || copiesMade == 9, $"Nine first writes to held grids made {copiesMade} copies.");
             HeadlessHarness.Assert(sharedGame < 50 && gridsGame < 20, $"Sharing took {F(sharedGame)} (all) and {F(gridsGame)} (six grids) of the game's thread.");
+        });
+
+        // JobScriptShareAll gives a job the variables its code reads (its own and those of the
+        // functions it calls), not every variable the Object has; one reading by name gets them all.
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.Jobs.ShareAllGivesTheVariablesTheCodeReads", () =>
+        {
+            using Bench bench = new();
+            bench.Run("jvUsed = 7; jvText = \"ab\"; jvDeep = 5; r = 0;");
+            const string Start = """jr = JobScriptCreate("SjReadsThree"); JobScriptShareAll(jr); JobScriptStart(jr); r = jr;""";
+            double RunJob(string start, out long bytes)
+            {
+                long before = GC.GetAllocatedBytesForCurrentThread();
+                double job = bench.Number(start);
+                bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+                HeadlessHarness.Assert(bench.Wait(job) == "succeeded", "A share-all job failed: " + PgslCommands.JobError(job));
+                double result = PgslCommands.JobResultNumber(job);
+                PgslCommands.JobRelease(job);
+                return result;
+            }
+            long Fewest(out double result)
+            {
+                RunJob(Start, out _);
+                long fewest = long.MaxValue;
+                result = 0;
+                for (int i = 0; i < 5; i++) { result = RunJob(Start, out long bytes); fewest = Math.Min(fewest, bytes); }
+                return fewest;
+            }
+            long few = Fewest(out double readsFew);
+            var globals = new System.Text.StringBuilder();
+            for (int i = 0; i < 3000; i++) globals.Append("jv_").Append(i).Append(" = ").Append(i).Append("; ");
+            bench.Run(globals.Append("r = 0;").ToString());
+            long many = Fewest(out double reads);
+            double byName = RunJob("""jn = JobScriptCreate("SjReadsByName"); JobScriptShareAll(jn); JobScriptStart(jn, "jv_2999"); r = jn;""", out _);
+            long extra = many - few;
+            row("Jobs: shared data", "JobScriptShareAll gives the variables the job's code reads; reading by name (VariableGet) gives all", reads == 77 && readsFew == 77 && byName == 2999 ? "PASS" : "FAIL",
+                $"result {reads} (expected 77), by name {byName} (expected 2999); 3 000 more variables add {extra / 1024.0:F1} KB to a start on the game's thread");
+            HeadlessHarness.Assert(reads == 77 && readsFew == 77, $"The job read {readsFew} then {reads}, not 77: a variable it reads (itself or in a function it calls) was not given.");
+            HeadlessHarness.Assert(byName == 2999, $"A job reading a variable by name read {byName}, not 2999.");
+            // Giving every variable cost about 48 bytes each a start (a list and its copy): 140 KB for these.
+            HeadlessHarness.Assert(extra < 24 * 1024, $"3 000 variables the job never reads added {extra / 1024.0:F1} KB to starting it.");
+        });
+
+        // A number given as a map's key is the text it always was ("12"), and whole numbers cost no
+        // string per call: a game keying maps by number allocates nothing for it.
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.NumberKeysAreTextWithoutAllocating", () =>
+        {
+            using Bench bench = new();
+            double same = bench.Number("""
+                nk = DsMapCreate(); DsMapSet(nk, 12, 5); DsMapSet(nk, "13", 6); DsMapSet(nk, -4, 1); DsMapSet(nk, 2.5, 9);
+                r = DsMapGet(nk, "12") * 1000 + DsMapGet(nk, 13) * 100 + DsMapGet(nk, "-4") * 10 + (DsMapExists(nk, 2.5) && DsMapGet(nk, 2.5) == 9 ? 1 : 0);
+                """);
+            string firstKey = PgslCommands.DsMapKeyAt(bench.Number("r = nk;"), 0);
+            const string Loop = "s = 0; for (i = 0; i < 4000; i = i + 1) { s = s + DsMapGet(nk, i % 50); DsMapSet(nk, 100 + i % 50, i % 7); } r = s;";
+            bench.Run(Loop);
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            bench.Run(Loop);
+            long bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+            row("Values", "a number as a map key reads the same text key, allocating nothing per call for whole numbers", same == 5611 && firstKey == "12" && bytes < 64 * 1024 ? "PASS" : "FAIL",
+                $"{same} (expected 5611), first key \"{firstKey}\", 8 000 number-keyed calls allocated {bytes / 1024.0:F1} KB");
+            HeadlessHarness.Assert(same == 5611 && firstKey == "12", $"Number keys read {same} (expected 5611) and the first key is \"{firstKey}\".");
+            // Before, each call made a string and boxed its numbers: about 100 bytes, 800 KB for these.
+            HeadlessHarness.Assert(bytes < 64 * 1024, $"8 000 number-keyed map calls allocated {bytes / 1024.0:F1} KB.");
         });
     }
 }

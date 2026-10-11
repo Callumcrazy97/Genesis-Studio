@@ -117,7 +117,8 @@ namespace Genesis.Shared.Scripting
         public double UserDefined10 { get; set; }
         public double UserDefined11 { get; set; }
 
-        public Dictionary<string, object> Variables { get; } = new Dictionary<string, object>();
+        /// <summary>The Object's store; a worker job's context is given the one its job was started with, not a copy.</summary>
+        public Dictionary<string, object> Variables { get; init; } = new Dictionary<string, object>();
 
         /// <summary>
         /// Typed values consumed by animation-state controllers. Kept separate from ordinary script

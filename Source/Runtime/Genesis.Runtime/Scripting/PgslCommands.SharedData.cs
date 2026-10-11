@@ -96,11 +96,15 @@ public static partial class PgslCommands
     }
 
     /// <summary>Lets go of a job's hold on what it was given; called once, when its work has ended.</summary>
-    private static void ReleaseShared(SharedData[] held)
+    private static void ReleaseShared(List<SharedData> held)
     {
         if (held is null) return;
         foreach (SharedData shared in held) Interlocked.Decrement(ref shared.Holders);
     }
+
+    // The store's keys listed by JobScriptStart before sharing them, kept for the next job.
+    [System.ThreadStatic] private static List<KeyValuePair<string, object>> _shareAllScratch;
+    private static List<KeyValuePair<string, object>> ShareAllScratch => _shareAllScratch ??= [];
 
     /// <summary>A store key of a grid, list, map, stack or queue (not a family's next-handle counter).</summary>
     private static bool IsStructureKey(string key) =>

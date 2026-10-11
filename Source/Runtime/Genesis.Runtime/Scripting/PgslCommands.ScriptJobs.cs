@@ -280,7 +280,7 @@ public static partial class PgslCommands
         // Structures the job makes get the handles they would get here, after the game's own.
         foreach (string family in DsFamilies)
             if (store.TryGetValue("__ds_next_" + family, out object next)) data["__ds_next_" + family] = next;
-        List<SharedData> held = [];
+        List<SharedData> held = new(setup.ShareAll ? store.Count : setup.Shared.Count);
         void Give(string key, object value)
         {
             if (data.ContainsKey(key)) return;
@@ -291,26 +291,34 @@ public static partial class PgslCommands
         }
         if (setup.ShareAll)
         {
-            List<KeyValuePair<string, object>> structures = new(store.Count);
+            // Sharing writes the store (an entry becomes a SharedData), so the keys are listed first,
+            // into a list kept for the next job rather than one made per job.
+            List<KeyValuePair<string, object>> structures = ShareAllScratch;
+            structures.Clear();
             foreach (KeyValuePair<string, object> pair in store)
                 if (IsStructureKey(pair.Key)) structures.Add(pair);
             foreach (KeyValuePair<string, object> pair in structures) Give(pair.Key, pair.Value);
+            structures.Clear();
         }
         foreach ((string family, int handle, _) in setup.Shared)
         {
             string key = DsKey(family, handle);
             Give(key, store[key]);
         }
-        KeyValuePair<string, VmValue>[] variables = setup.ShareAll && owner.ActiveVm is PgslVm ownerVm ? ownerVm.ShareableVariables() : null;
-        SharedData[] holds = [.. held];
+        // The Object's variables the job's code can read, not all of them: a game with thousands of
+        // variables copied every one for each job (unless the code reads variables by name).
+        KeyValuePair<string, VmValue>[] variables = null;
+        if (setup.ShareAll && owner.ActiveVm is PgslVm ownerVm)
+            variables = VariablesReadBy(setup.Library, setup.Function, game) is { } reads
+                ? ownerVm.ShareableVariables(reads) : ownerVm.ShareableVariables();
 
         var run = new ScriptJobRun(setup.Function, driver, setup.Library, copied, data, variables, new Dictionary<string, object>(setup.Variables, StringComparer.Ordinal),
             setup.Shared.Where(entry => entry.CopyBack).Select(entry => (entry.Family, entry.Handle)).ToArray(),
             setup.Budget, game, owner.RoomWidth, owner.RoomHeight);
         // The job lets go of its data once its work has ended (or it ended without running).
-        if (!pool.Launch(JobId(job), token => RunScriptJob(run, token), () => ReleaseShared(holds)))
+        if (!pool.Launch(JobId(job), token => RunScriptJob(run, token), () => ReleaseShared(held)))
         {
-            ReleaseShared(holds);
+            ReleaseShared(held);
             return Refuse("Not a prepared script job (it may have started already).");
         }
         SetJobError(string.Empty);
@@ -355,6 +363,58 @@ public static partial class PgslCommands
         return true;
     }
 
+    // The instance variables a job's function can read, worked out once per function and set of
+    // Scripts: the names its code loads, and the code of every library function it calls.
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IReadOnlyDictionary<string, UserFunction>, ConcurrentDictionary<string, string[]>> JobReads = new();
+    private static readonly string[] EveryVariable = new string[1];
+
+    /// <summary>The variables a job's function can read; null when it reads any by name (VariableGet...).</summary>
+    private static string[] VariablesReadBy(IReadOnlyDictionary<string, UserFunction> library, string function, PgslEngineBridge game)
+    {
+        if (library == null || function == null || game == null) return null;
+        string[] names = JobReads.GetOrCreateValue(library).GetOrAdd(function, name => FindVariablesReadBy(library, name, game) ?? EveryVariable);
+        return ReferenceEquals(names, EveryVariable) ? null : names;
+    }
+
+    private static string[] FindVariablesReadBy(IReadOnlyDictionary<string, UserFunction> library, string function, PgslEngineBridge game)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var pending = new Stack<string>();
+        pending.Push(function);
+        while (pending.Count > 0)
+        {
+            string name = pending.Pop();
+            if (!visited.Add(name) || !library.TryGetValue(name, out UserFunction body) || body?.Bytecode == null) continue;
+            foreach (Instruction instruction in body.Bytecode)
+            {
+                switch (instruction.Opcode)
+                {
+                    // Named as PgslProgram decodes them: an instance variable's own name, and never a
+                    // function's local (which lives in its frame).
+                    case Opcode.LOAD_VAR when instruction.Operand is string variable:
+                        if (variable.StartsWith(PgslParser.InstanceVariablePrefix, StringComparison.Ordinal))
+                            names.Add(variable[PgslParser.InstanceVariablePrefix.Length..]);
+                        else if (!variable.StartsWith(PgslParser.FunctionLocalPrefix, StringComparison.Ordinal))
+                            names.Add(variable);
+                        break;
+                    case Opcode.CALL when instruction.Operand is (string called, int):
+                        if (ReadsVariablesByName(called)) return null;
+                        pending.Push(called);
+                        break;
+                    case Opcode.CALL_NATIVE when instruction.Operand is (int id, int):
+                        if (ReadsVariablesByName(game.NativeName(id))) return null;
+                        break;
+                }
+            }
+        }
+        return [.. names];
+    }
+
+    // VariableGet and its kin read a variable whose name is worked out as the code runs.
+    private static bool ReadsVariablesByName(string command) =>
+        command != null && command.StartsWith("Variable", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>How long a finished script job ran on its worker; 0 for any other job.</summary>
     internal static double ScriptJobWorkerMilliseconds(double job) =>
         JobSnapshot(job).Value is ScriptJobOutcome outcome ? outcome.WorkerMilliseconds : 0;
@@ -368,9 +428,8 @@ public static partial class PgslCommands
     {
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
         PgslEngineBridge bridge = RentWorkerBridge(run.Game);
-        PgslContext context = new() { RoomWidth = run.RoomWidth, RoomHeight = run.RoomHeight };
-        context.Variables.EnsureCapacity(run.Data.Count);
-        foreach (KeyValuePair<string, object> pair in run.Data) context.Variables[pair.Key] = pair.Value;
+        // The job's data was made for this job alone: it becomes the job's store as it is, not copied again.
+        PgslContext context = new() { RoomWidth = run.RoomWidth, RoomHeight = run.RoomHeight, Variables = run.Data };
         PgslContext previous = BindContext(context);
         try
         {

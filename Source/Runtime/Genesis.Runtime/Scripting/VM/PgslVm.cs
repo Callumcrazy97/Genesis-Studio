@@ -164,15 +164,37 @@ public class PgslVm
     /// </summary>
     internal KeyValuePair<string, VmValue>[] ShareableVariables()
     {
-        var shared = new List<KeyValuePair<string, VmValue>>(_variables.Count);
+        // Counted first, so each job gets one array of the right size (no list, no copy of it).
+        int count = 0;
         foreach (KeyValuePair<string, VmValue> pair in _variables)
-            if ((pair.Value.IsUnboxedNumber || pair.Value.IsString) && !IsArgumentName(pair.Key))
-                shared.Add(pair);
-        return shared.ToArray();
+            if (Shareable(pair)) count++;
+        var shared = new KeyValuePair<string, VmValue>[count];
+        int at = 0;
+        foreach (KeyValuePair<string, VmValue> pair in _variables)
+            if (Shareable(pair)) shared[at++] = pair;
+        return shared;
+
+        static bool Shareable(KeyValuePair<string, VmValue> pair) =>
+            (pair.Value.IsUnboxedNumber || pair.Value.IsString) && !IsArgumentName(pair.Key);
+    }
+
+    /// <summary>
+    /// <see cref="ShareableVariables()"/> limited to these names (the variables a job's code reads):
+    /// a job is given a handful, not every variable the instance has.
+    /// </summary>
+    internal KeyValuePair<string, VmValue>[] ShareableVariables(string[] names)
+    {
+        var shared = new List<KeyValuePair<string, VmValue>>(names.Length);
+        foreach (string name in names)
+            if (_variables.TryGetValue(name, out VmValue value) && (value.IsUnboxedNumber || value.IsString) && !IsArgumentName(name))
+                shared.Add(new KeyValuePair<string, VmValue>(name, value));
+        return [.. shared];
     }
 
     internal void LoadVariables(KeyValuePair<string, VmValue>[] variables)
     {
+        // Sized once: grown entry by entry, a game with thousands of variables reallocated it a dozen times a job.
+        _variables.EnsureCapacity(_variables.Count + variables.Length);
         foreach (KeyValuePair<string, VmValue> pair in variables) _variables[pair.Key] = pair.Value;
     }
 

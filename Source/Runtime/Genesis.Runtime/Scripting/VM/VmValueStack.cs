@@ -54,8 +54,9 @@ internal sealed class VmValueStack
     }
 
     /// <summary>
-    /// True when the top values are what a typed command call takes as they are: an unboxed
-    /// number for each number or bool parameter, text or nothing for each text parameter.
+    /// True when the top values are what a typed command call takes: an unboxed number for each
+    /// number or bool parameter; text, nothing or an unboxed number (not true or false, whose text
+    /// is its own) for each text parameter.
     /// </summary>
     public bool TopMatches(PgslEngineBridge.ArgumentKind[] kinds)
     {
@@ -63,20 +64,25 @@ internal sealed class VmValueStack
         for (int i = 0; i < kinds.Length; i++)
         {
             ref VmValue value = ref _values[start + i];
-            if (kinds[i] == PgslEngineBridge.ArgumentKind.Text ? !(value.IsString || value.IsNull) : !value.IsUnboxedNumber)
+            if (kinds[i] == PgslEngineBridge.ArgumentKind.Text ? !(value.IsString || value.IsNull || (value.IsUnboxedNumber && !value.IsBoolean)) : !value.IsUnboxedNumber)
                 return false;
         }
         return true;
     }
 
-    /// <summary>Pops the top values into a typed call's arrays (numbers and text), first pushed first.</summary>
+    /// <summary>
+    /// Pops the top values into a typed call's arrays (numbers and text), first pushed first. A
+    /// number given for text becomes the text it always did (DsMapGet(map, 12) reads key "12"),
+    /// without a string made per call for whole numbers.
+    /// </summary>
     public void PopArguments(PgslEngineBridge.ArgumentKind[] kinds, double[] numbers, object[] texts)
     {
         int start = Count - kinds.Length;
         for (int i = 0; i < kinds.Length; i++)
         {
             ref VmValue value = ref _values[start + i];
-            if (kinds[i] == PgslEngineBridge.ArgumentKind.Text) texts[i] = value.ToObject();
+            if (kinds[i] == PgslEngineBridge.ArgumentKind.Text)
+                texts[i] = value.IsUnboxedNumber ? PgslNumberText.Of(value.UnboxedNumber) : value.ToObject();
             else numbers[i] = value.Number;
             value = default;
         }
