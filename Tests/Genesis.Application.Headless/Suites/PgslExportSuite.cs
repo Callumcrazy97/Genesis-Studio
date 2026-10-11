@@ -134,6 +134,90 @@ internal static class PgslExportSuite
         });
 
         RunShaderCases(ctx);
+        RunRendererCases(ctx, export);
+    }
+
+    /// <summary>
+    /// The renderer an export names travels in the exported project file and is the one the game
+    /// starts on; keeping the project's own setting leaves the file as the project has it.
+    /// </summary>
+    private static void RunRendererCases(HeadlessContext ctx, GameExportResult? keptProjectSetting)
+    {
+        HeadlessHarness.RunCase(ctx.Report, "Export.Renderer.ProjectSettingKeepsTheProjectsOwnChoice", () =>
+        {
+            ProjectManifest manifest = new() { ProjectId = Guid.NewGuid().ToString("N"), Name = "Renderer setting" };
+            HeadlessHarness.Assert(GameExportService.ProjectRenderer(manifest) == Genesis.Rendering.Core.RenderBackendOption.SilkNetDx11,
+                "A project that names no renderer should export on the Player's own default, Direct3D 11.");
+            manifest.Rendering.Backend = "Vulkan";
+            HeadlessHarness.Assert(GameExportService.ProjectRenderer(manifest) == Genesis.Rendering.Core.RenderBackendOption.Vulkan,
+                "A project that names Vulkan should export on Vulkan when the export keeps its setting.");
+            manifest.Rendering.Backend = "webgpu";
+            HeadlessHarness.Assert(GameExportService.ProjectRenderer(manifest) == Genesis.Rendering.Core.RenderBackendOption.SilkNetDx11,
+                "A removed renderer should leave the Player's default, Direct3D 11.");
+
+            // The PGSL-only export above kept the project's setting (it names DX11).
+            HeadlessHarness.Assert(keptProjectSetting is { Success: true }, "The export that keeps the project's setting did not succeed.");
+            HeadlessHarness.Assert(ProjectPaths.ReadRenderBackend(keptProjectSetting!.OutputPath) == "DX11",
+                "The exported game does not read the renderer its project names: "
+                + (ProjectPaths.ReadRenderBackend(keptProjectSetting.OutputPath) ?? "(none)"));
+        });
+
+        GameExportResult? chosen = null;
+        HeadlessHarness.RunCase(ctx.Report, "Export.Renderer.ChosenRendererTravelsInTheExportedProjectFileOnly", () =>
+        {
+            ProjectSession project = BuildProject(ctx, "Renderer", out _);
+            string before = File.ReadAllText(project.ProjectFile);
+            chosen = GameExportService.Export(new(project, Path.Combine(ctx.OutputRoot, "RendererGame"), GameExportFormat.Folder,
+                PrecompileShaders: false, Renderer: Genesis.Rendering.Core.RenderBackendOption.Direct3D12));
+            HeadlessHarness.Assert(chosen.Success, "The export with a chosen renderer failed: " + chosen.ErrorMessage);
+
+            HeadlessHarness.Assert(File.ReadAllText(project.ProjectFile) == before && project.Manifest.Rendering.Backend == "DX11",
+                "Exporting with a chosen renderer changed the project's own setting.");
+            HeadlessHarness.Assert(ProjectPaths.ReadRenderBackend(chosen.OutputPath) == "Direct3D12",
+                "The exported project file does not name the chosen renderer: " + (ProjectPaths.ReadRenderBackend(chosen.OutputPath) ?? "(none)"));
+
+            // Everything else in the copy is the project's own.
+            string exportedFile = Path.Combine(chosen.OutputPath, Path.GetRelativePath(project.RootPath, project.ProjectFile));
+            JsonNode exported = JsonNode.Parse(File.ReadAllText(exportedFile))!;
+            exported["rendering"]!["backend"] = "DX11";
+            HeadlessHarness.Assert(JsonNode.DeepEquals(exported, JsonNode.Parse(before)),
+                "Naming the renderer changed other values in the exported project file.");
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Export.Renderer.ExportedGameStartsOnTheChosenRenderer", () =>
+        {
+            HeadlessHarness.Assert(chosen is { Success: true }, "The export with a chosen renderer did not succeed.");
+            string executable = Path.Combine(chosen!.OutputPath, chosen.ExecutableName);
+            if (!File.Exists(executable)) throw new CheckNotRunException("The export has no Player executable to start.");
+            string log = Path.Combine(chosen.OutputPath, "Debug", "Logs", "project_player.log");
+            if (File.Exists(log)) File.Delete(log);
+            ProcessStartInfo start = new(executable)
+            {
+                WorkingDirectory = chosen.OutputPath, UseShellExecute = false, CreateNoWindow = true,
+                RedirectStandardOutput = true, RedirectStandardError = true,
+            };
+            start.ArgumentList.Add("--autoshot");
+            start.ArgumentList.Add("3");
+            start.Environment["GENESIS_UNATTENDED_WINDOW"] = "1";
+            // Started as a player starts it: nothing on the command line or in the environment names a renderer.
+            foreach (string name in new[] { "GENESIS_RENDER_BACKEND", "GENESIS_PROJECT_PATH", "GENESIS_START_ROOM", "GENESIS_AUTOSHOT",
+                         "GENESIS_BOOT_COORDINATED", RuntimePaths.GameScriptsEnvironmentVariable })
+                start.Environment.Remove(name);
+            using Process process = Process.Start(start) ?? throw new InvalidOperationException("The exported Player did not start.");
+            var output = process.StandardOutput.ReadToEndAsync();
+            var errors = process.StandardError.ReadToEndAsync();
+            if (!process.WaitForExit(90_000)) { process.Kill(entireProcessTree: true); process.WaitForExit(); }
+            string console = output.GetAwaiter().GetResult() + errors.GetAwaiter().GetResult();
+            string playerLog = File.Exists(log) ? File.ReadAllText(log) : string.Empty;
+            File.WriteAllText(Path.Combine(ctx.Logs, "export-renderer-player.log"), playerLog + Environment.NewLine + console);
+            HeadlessHarness.Assert(process.ExitCode == 0, "The exported game with a chosen renderer did not run: " + Tail(console));
+            // Direct3D 12 here; a PC that cannot use it starts on Direct3D 11 and says why.
+            bool chosenRenderer = System.Text.RegularExpressions.Regex.IsMatch(playerLog, @"renderer=Direct3D 12\r?$",
+                System.Text.RegularExpressions.RegexOptions.Multiline);
+            bool fellBack = playerLog.Contains("renderer=Direct3D 11 (Direct3D 12 was asked for and cannot be used on this machine)", StringComparison.Ordinal);
+            HeadlessHarness.Assert(chosenRenderer || fellBack,
+                "The exported game did not start on the renderer its export named: " + Tail(playerLog));
+        });
     }
 
     /// <summary>
@@ -148,9 +232,14 @@ internal static class PgslExportSuite
             ProjectSession project = BuildProject(ctx, "Shaded", out _);
             ProjectShaderFixtures.Write(project.RootPath);
             Stopwatch timer = Stopwatch.StartNew();
-            shaded = GameExportService.Export(new(project, Path.Combine(ctx.OutputRoot, "ShadedGame"), GameExportFormat.Folder));
+            // Exported for Vulkan: naming a renderer still ships the shaders of every renderer, the
+            // named one among them.
+            shaded = GameExportService.Export(new(project, Path.Combine(ctx.OutputRoot, "ShadedGame"), GameExportFormat.Folder,
+                Renderer: Genesis.Rendering.Core.RenderBackendOption.Vulkan));
             timer.Stop();
             HeadlessHarness.Assert(shaded.Success, "The export with project shaders failed: " + shaded.ErrorMessage);
+            HeadlessHarness.Assert(ProjectPaths.ReadRenderBackend(shaded.OutputPath) == "Vulkan",
+                "The export with project shaders does not name the renderer it was given.");
             HeadlessHarness.Assert(shaded.ShaderFailures is { Count: 0 },
                 "Project shader programs did not compile at export: " + string.Join(" | ", shaded.ShaderFailures ?? []));
 

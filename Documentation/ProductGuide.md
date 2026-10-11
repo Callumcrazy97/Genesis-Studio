@@ -31,6 +31,10 @@ Player renamed to your game's title, and a `Licenses` folder.
   strictly as Run checks it and shipped as it is, the project file keeps its chosen backend,
   and there is no `GameScripts.dll`. Only a game with C# scripts (`Assets\Scripts\*.cs`) has
   them compiled into `GameScripts.dll` beside its executable.
+- *Renderer* picks what the game draws with. *Project setting* uses the renderer the project names
+  in *Preferences › Rendering*, or Direct3D 11 if it names none; any other choice is written into
+  the exported copy of the project file only. A player whose PC cannot use the chosen renderer
+  gets Direct3D 11 instead, and the game's log says so.
 - Your Shader resources (mesh, sprite and Fullscreen effects) ship compiled for DirectX 11 and
   12, Vulkan and OpenGL, so a player's first start does not stop to compile them. Leave
   *Precompile built-in and project shaders* ticked; if one of them does not compile for a

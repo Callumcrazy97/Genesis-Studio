@@ -1158,6 +1158,9 @@ internal static class HeadlessTestRunner
         // The 11 Oct 2026 small requests: 2D darkness, failing shaders named, the anti-aliasing
         // picker, lamp shadows on painted terrain, Ogg sources in the Audio editor (not part of the tiers).
         ["requests-1011"] = ["effects-2d", "shader-precompiled", "anti-aliasing", "shadows", "runtime-resources"],
+        // Export Game's renderer choice: the dialog's list and layout, the exported project file and
+        // the exported game starting on the chosen renderer (both suites are in the tiers too).
+        ["export-renderer"] = ["studio-foundation", "export-pgsl"],
     };
 
     private static void RunFocusedTarget(HeadlessContext ctx, string target)
