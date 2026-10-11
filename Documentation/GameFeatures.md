@@ -1867,6 +1867,59 @@ GenesisEngine.exe
 Checked by `Build.bat --test debug-screen`, which runs a game for three seconds this way and reads
 the folder it leaves.
 
+### Starting a game quickly (11 October 2026)
+
+A fresh install's first launch waits on the antivirus: Windows Defender scans each newly written
+file the first time it is opened (about 4 ms a file on this PC), so every file the game opens one
+at a time on its own thread adds up. What the Player does about it:
+
+- **Resource index.** An export writes `.genesis/resource-catalog.txt` (each `.meta`'s guid,
+  `resourceName` and size) and the game names its resources from it instead of opening every
+  `.meta`. A `.meta` of another size, or written after the index (a mod), is read as before; a game
+  without the index (Studio's Run) reads them all. The log says which:
+  `resource catalog: <n> resources in <ms> ms (<n> identities from .genesis/resource-catalog.txt, 0 .meta files read)`.
+- **Texture groups** read their descriptors and decode their pictures on a few threads of their
+  own. A picture larger than its group's sheet still makes the stitch fail (the game then draws
+  each sprite from its own texture, as before), but that is now found from the PNG headers before
+  anything is decoded, instead of after decoding every sprite of the project.
+- **Scripts** are read and compiled on a thread of their own from just before the window opens
+  (`GENESIS_SCRIPT_WARMUP=0` turns it off). The first PGSL event waits for that load when it is not
+  done; it used to do the whole load itself.
+
+Start-up work that runs side by side uses threads of its own (`StartupWorkers`), never the thread
+pool, so it never waits for a pool thread while the game's thread holds a lock.
+
+A freshly exported test game once wrote nothing for 90 s and was stopped (10 Oct 2026), and the
+change then blamed (an earlier version of the above) was taken back. It was not that change: 25
+launches with it never stopped, and on 11 Oct the same symptom hit builds without it while about
+900 MB of new files were copied beside the game (one start had not reached the Player's `Main` after
+60 s; a GenesisCraft export took 145 s to its first room, 30 s before the Player's own code ran).
+A start competing with a big copy, build or export for the antivirus can look stuck.
+`GENESIS_STARTUP_TRACE=<file>` writes each start-up step to that file as it happens (its first line
+before any engine assembly loads; the thread pool's state every two seconds), and
+`Export.PgslOnly.FreshCopiesStartEveryTime` (`--test export-pgsl`) starts three fresh copies of an
+exported game and quotes that trace when one does not finish.
+
+Measured on a copy of GenesisCraft (5,232 resources, 190 Scripts holding 42 MB of PGSL, a Texture
+Group whose 1024x2784 picture never fits; i7-14700F, Defender on, other sessions building), with
+`GENESIS_LOAD_PROFILE=1`. A fresh copy of its export, first launch, the old code and the new one
+started the same way one after the other:
+
+| First launch of a fresh export | Before | After |
+|---|---|---|
+| Listing the resources | 6.0 s | 4.5 s (index; the rest is listing 17,000 new files) |
+| Texture groups | 7.2 s | 3.0 s |
+| The first room's Create events | 13.5 s | 3.2 s (Scripts compiled beside, 21 s of reading and compiling) |
+| Process start to the first room | 46.3 s | 47.1 s (its graphics device took 11.8 s instead of 2.7 s) |
+
+A first launch is still 25 to 50 s on a busy PC: 3 to 13 s before the Player's own code runs (the
+runtime's files scanned), 4.5 s listing the resources, 3.5 s reading the first room (assemblies
+loaded and scanned) and a graphics device of 2 to 12 s. Later launches took 6.0 to 6.7 s (7.0 to
+8.1 s before). The Player's part of Studio's Run took 6.8 s either way: its Scripts take 4.3 s on
+one thread (the 17 MB one 1.8 s; each text is prepared twice, in `ScriptAssetCompiler` and again in
+`VMEngine.Compile`, 0.5 s) and the Create events' own work 1.2 s. Next: compile Scripts side by
+side or keep their compiled form between launches, and list an exported game's files from its index.
+
 ### Counting frames per second
 
 | Command | Meaning |
