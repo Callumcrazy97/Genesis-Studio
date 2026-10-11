@@ -940,9 +940,15 @@ public sealed class ResourceService
                 return cached.Id;
             try
             {
+                // Read once: the library tags listed beside the identity are kept from the same
+                // bytes, so the Assets tree does not read every .meta a second time for them.
+                byte[] bytes = File.ReadAllBytes(metadataPath);
+                ResourceLibraryTags.Remember(resourcePath, info, bytes);
+                // Decoded as File.ReadAllText would (UTF-8 unless a byte order mark says otherwise).
+                using StreamReader text = new(new MemoryStream(bytes), System.Text.Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
                 // Identity validation must not deserialize optional library classification.
                 // A malformed tag list is not permission to replace a valid resource GUID.
-                using JsonDocument metadata = JsonDocument.Parse(File.ReadAllText(metadataPath));
+                using JsonDocument metadata = JsonDocument.Parse(text.ReadToEnd());
                 if (metadata.RootElement.ValueKind == JsonValueKind.Object
                     && metadata.RootElement.TryGetProperty("guid", out JsonElement guid)
                     && guid.ValueKind == JsonValueKind.String

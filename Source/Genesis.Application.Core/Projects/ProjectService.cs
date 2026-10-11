@@ -35,6 +35,7 @@ public sealed partial class ProjectService
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(parentDirectory);
         ArgumentException.ThrowIfNullOrWhiteSpace(projectName);
+        Diagnostics.ProjectOpenTimings.Begin("Create the project");
 
         string safeName = SanitizeProjectName(projectName);
         string projectRoot = Path.Combine(Path.GetFullPath(parentDirectory), safeName);
@@ -111,6 +112,7 @@ public sealed partial class ProjectService
         ProjectRoomOrder.Normalize(session);
         WriteManifest(projectFile, manifest);
 
+        Diagnostics.ProjectOpenTimings.Mark("Prepare Studio");
         return session;
     }
 

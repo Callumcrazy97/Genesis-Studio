@@ -79,6 +79,31 @@ public static class ResourceLibraryTags
         { return []; }
     }
 
+    /// <summary>
+    /// Keeps what <see cref="ReadOrEmpty"/> would return for a .meta the caller has just read (its
+    /// bytes and the file's details from just before), so the next ReadOrEmpty need not read it
+    /// again. Anything ReadOrEmpty would not keep (too large, linked, unreadable) is left for it.
+    /// </summary>
+    internal static void Remember(string resourcePath, FileInfo metadata, byte[] bytes)
+    {
+        try
+        {
+            if (!metadata.Exists || metadata.Length > MaximumMetadataBytes || bytes.Length != metadata.Length
+                || (metadata.Attributes & FileAttributes.ReparsePoint) != 0) return;
+            string path = Path.GetFullPath(resourcePath) + ".meta";
+            IReadOnlyList<string> tags = ReadTags(ReadObject(bytes));
+            lock (CacheGate)
+            {
+                if (Cache.Count >= MaximumCachedResources && !Cache.ContainsKey(path)) Cache.Clear();
+                Cache[path] = new(metadata.LastWriteTimeUtc.Ticks, metadata.Length, tags);
+            }
+        }
+        catch (Exception)
+        {
+            // Only a head start: ReadOrEmpty reads the file itself and reaches its own answer.
+        }
+    }
+
     public static void Invalidate(string resourcePath)
     {
         lock (CacheGate) Cache.Remove(Path.GetFullPath(resourcePath) + ".meta");
