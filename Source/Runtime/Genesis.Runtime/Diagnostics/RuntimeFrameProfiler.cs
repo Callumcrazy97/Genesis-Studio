@@ -298,6 +298,7 @@ public sealed class RuntimeFrameProfiler : IDisposable
         if (Recording != null) return Recording;
         PgslProfiler.Reset();
         PgslProfiler.Enabled = true;
+        if (PgslAllocationLedger.Enabled) PgslAllocationLedger.Reset();
         _lastPgslTicks = 0;
         _lastPgslCalls = 0;
         Recording = DebugProfileRecording.Create(profilesDirectory, project, room, EngineEnabled);

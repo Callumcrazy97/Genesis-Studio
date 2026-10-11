@@ -558,6 +558,22 @@ Managed allocations: 14.5 MB in 5.0 s over 300 frames (49.5 KB a frame, 2.9 MB/s
 Most allocated types: System.Double 5.1 MB, System.Threading.ExecutionContext 1.3 MB, ...
 ```
 
+`GENESIS_ALLOCATION_LOG=commands` also says where in the scripts it was allocated, measured exactly
+rather than sampled:
+- **By PGSL command:** the bytes each command allocated, its calls and the bytes a call.
+- **By event and worker job:** what each one's own code allocated outside the commands it called.
+  That is joining text with `+`, new values and the like, so text a game builds itself shows apart
+  from text a command returns.
+
+A recording (the debug screen's, or `GENESIS_PROFILE=1`) made with it on has both tables in its
+report. It reads the thread's allocation counter around every command, which costs some tens of
+nanoseconds a call, so timings taken with it on run a little slow:
+
+```
+Allocated by PGSL command: StringOf 41.2 MB in 1203311 calls (36 B each), DsGridGetRegion 12.0 MB in 220 calls (57190 B each), ...
+Allocated by scripts outside commands (joining text, new values): Game.Step 30.5 MB in 300 runs (its commands 55.1 MB), job McMeshChunkJob 8.1 MB in 96 runs (its commands 70.3 MB)
+```
+
 Frames behind the start-up screen or a room change's cover are not counted. An idle Verdant
 Hollow allocated 3.9 MB a frame (a simulated lake rebuilt its whole surface, the foliage planner
 regrew its lists and every particle layer rebuilt its colour table, each frame); it now allocates

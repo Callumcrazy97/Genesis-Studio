@@ -427,6 +427,9 @@ public static partial class PgslCommands
     private static NativeJobPool.Result RunScriptJob(ScriptJobRun run, CancellationToken token)
     {
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
+        bool ledger = PgslAllocationLedger.Enabled;
+        long allocatedBefore = ledger ? GC.GetAllocatedBytesForCurrentThread() : 0;
+        long commandsBefore = ledger ? PgslAllocationLedger.CommandBytesSoFar : 0;
         PgslEngineBridge bridge = RentWorkerBridge(run.Game);
         // The job's data was made for this job alone: it becomes the job's store as it is, not copied again.
         PgslContext context = new() { RoomWidth = run.RoomWidth, RoomHeight = run.RoomHeight, Variables = run.Data };
@@ -466,6 +469,9 @@ public static partial class PgslCommands
             context.ActiveVm = null;
             ReturnWorkerBridge(run.Game, bridge);
             BindContext(previous);
+            if (ledger)
+                PgslAllocationLedger.AddScope("job " + run.Function, GC.GetAllocatedBytesForCurrentThread() - allocatedBefore,
+                    PgslAllocationLedger.CommandBytesSoFar - commandsBefore);
         }
     }
 

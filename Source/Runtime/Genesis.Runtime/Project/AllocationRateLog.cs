@@ -29,7 +29,7 @@ namespace Genesis.Runtime.Project
 
         /// <summary>True when the person running the game asked for the allocation rate.</summary>
         public static bool Requested(bool debugMode) =>
-            debugMode || Environment.GetEnvironmentVariable(EnvironmentVariable) is "1" or "types";
+            debugMode || Environment.GetEnvironmentVariable(EnvironmentVariable) is "1" or "types" or Scripting.PgslAllocationLedger.Mode;
 
         /// <summary>
         /// Called when a frame has been presented. Frames that are not the game's (the loading
@@ -56,6 +56,11 @@ namespace Genesis.Runtime.Project
                 + $"{collections} gen0 collections"));
             string types = _types?.TakeSummary();
             if (!string.IsNullOrEmpty(types)) _write("Most allocated types: " + types);
+            if (Scripting.PgslAllocationLedger.Enabled)
+            {
+                string scripts = Scripting.PgslAllocationLedger.TakeSummary(id => Scripting.VM.VMEngine.Bridge?.NativeName(id));
+                if (!string.IsNullOrEmpty(scripts)) _write(scripts);
+            }
             Restart(now);
         }
 
@@ -63,11 +68,13 @@ namespace Genesis.Runtime.Project
 
         /// <summary>
         /// With <see cref="EnvironmentVariable"/> set to "types", also names the types allocated
-        /// most, from the runtime's allocation samples (one about every 100 KB).
+        /// most, from the runtime's allocation samples (one about every 100 KB). "commands" does that
+        /// and also names the PGSL commands, events and jobs that allocate (PgslAllocationLedger).
         /// </summary>
         public void SampleTypes()
         {
-            if (Environment.GetEnvironmentVariable(EnvironmentVariable) == "types") _types ??= new AllocationTypeSampler();
+            if (Environment.GetEnvironmentVariable(EnvironmentVariable) is "types" or Scripting.PgslAllocationLedger.Mode)
+                _types ??= new AllocationTypeSampler();
         }
 
         /// <summary>Listens to the runtime's allocation samples and counts them by type.</summary>

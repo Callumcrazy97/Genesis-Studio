@@ -523,6 +523,27 @@ public sealed class DebugProfileRecording : IDisposable
             Line();
         }
 
+        // GENESIS_ALLOCATION_LOG=commands: exactly what the scripts allocated, by command, event and job.
+        if (PgslAllocationLedger.Enabled)
+        {
+            IReadOnlyList<PgslAllocationLedger.CommandAllocation> commands =
+                PgslAllocationLedger.Commands(20, id => Genesis.Runtime.Scripting.VM.VMEngine.Bridge?.NativeName(id));
+            Line("PGSL commands that allocated most (measured exactly; a command that runs script code counts that code too):");
+            Line();
+            Line("| Command | MB | Calls | Bytes a call |");
+            Line("|---|---|---|---|");
+            foreach (PgslAllocationLedger.CommandAllocation command in commands)
+                Line($"| {Escape(command.Command)} | {F(command.Bytes / (1024.0 * 1024.0), "0.0")} | {command.Calls} | {command.Bytes / Math.Max(1, command.Calls)} |");
+            Line();
+            Line("Events and worker jobs by what their own code allocated outside commands (joining text with +, new values):");
+            Line();
+            Line("| Event or job | Outside commands MB | In its commands MB | Runs |");
+            Line("|---|---|---|---|");
+            foreach (PgslAllocationLedger.ScopeAllocation scope in PgslAllocationLedger.Scopes(20))
+                Line($"| {Escape(scope.Name)} | {F(scope.Outside / (1024.0 * 1024.0), "0.0")} | {F(scope.InCommands / (1024.0 * 1024.0), "0.0")} | {scope.Runs} |");
+            Line();
+        }
+
         if (s.Gc.Reasons.Count > 0)
             Line("Collections by reason: " + string.Join(", ", s.Gc.Reasons.OrderByDescending(pair => pair.Value).Select(pair => $"{pair.Key} ×{pair.Value}")) + ".");
         else

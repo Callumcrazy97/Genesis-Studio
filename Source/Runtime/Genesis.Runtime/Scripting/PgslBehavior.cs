@@ -355,6 +355,9 @@ namespace Genesis.Runtime.Scripting
             if (asset?.CompileResult == null || _vm == null) return;
             bool profiling = PgslProfiler.Enabled;
             long profileStart = profiling ? Stopwatch.GetTimestamp() : 0;
+            bool ledger = PgslAllocationLedger.Enabled;
+            long allocatedBefore = ledger ? System.GC.GetAllocatedBytesForCurrentThread() : 0;
+            long commandsBefore = ledger ? PgslAllocationLedger.CommandBytesSoFar : 0;
             bool failed = false;
             var previousBridge = VMEngine.Bridge.GetContext();
             var previousCommands = PgslCommands.BindContext(_ctx);
@@ -399,6 +402,12 @@ namespace Genesis.Runtime.Scripting
                         Entity.Id,
                         Stopwatch.GetTimestamp() - profileStart,
                         failed);
+                }
+                if (ledger)
+                {
+                    PgslAllocationLedger.AddScope(_scriptName + "." + eventName,
+                        System.GC.GetAllocatedBytesForCurrentThread() - allocatedBefore,
+                        PgslAllocationLedger.CommandBytesSoFar - commandsBefore);
                 }
             }
 

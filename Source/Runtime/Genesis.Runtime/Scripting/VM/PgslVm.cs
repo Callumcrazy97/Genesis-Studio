@@ -1240,6 +1240,19 @@ public class PgslVm
 
     private void ExecuteNativeCall(int nativeId, int nativeArgCount)
     {
+        if (!PgslAllocationLedger.Enabled)
+        {
+            CallNative(nativeId, nativeArgCount);
+            return;
+        }
+        // GENESIS_ALLOCATION_LOG=commands: what this command allocated, from the thread's own counter.
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        try { CallNative(nativeId, nativeArgCount); }
+        finally { PgslAllocationLedger.AddCommand(nativeId, GC.GetAllocatedBytesForCurrentThread() - before); }
+    }
+
+    private void CallNative(int nativeId, int nativeArgCount)
+    {
         if (_stack.Count < nativeArgCount)
             throw new InvalidOperationException($"Not enough arguments for native call id={nativeId}");
 

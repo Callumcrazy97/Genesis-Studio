@@ -572,6 +572,37 @@ internal static partial class PgslWorkerJobChecks
             HeadlessHarness.Assert(extra < 24 * 1024, $"3 000 variables the job never reads added {extra / 1024.0:F1} KB to starting it.");
         });
 
+        // GENESIS_ALLOCATION_LOG=commands: the ledger names the command that allocated, with its
+        // calls, and a worker job's own allocation outside its commands.
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.AllocationLedgerNamesTheCommands", () =>
+        {
+            using Bench bench = new();
+            bool was = PgslAllocationLedger.Enabled;
+            PgslAllocationLedger.Enabled = true;
+            PgslAllocationLedger.Reset();
+            try
+            {
+                bench.Run("s = 0; for (i = 0; i < 300; i = i + 1) { t = StringRepeat(\"ab\", 40); s = s + StringLength(t); } r = s;");
+                double job = bench.Number("""lj = JobScriptCreate("SjNothing"); JobScriptStart(lj); r = lj;""");
+                HeadlessHarness.Assert(bench.Wait(job) == "succeeded", "The job failed: " + PgslCommands.JobError(job));
+                PgslCommands.JobRelease(job);
+                IReadOnlyList<PgslAllocationLedger.CommandAllocation> commands =
+                    PgslAllocationLedger.Commands(50, id => Genesis.Runtime.Scripting.VM.VMEngine.Bridge?.NativeName(id));
+                PgslAllocationLedger.CommandAllocation repeat = commands.FirstOrDefault(c => c.Command == "StringRepeat");
+                bool jobSeen = PgslAllocationLedger.Scopes(50).Any(scope => scope.Name == "job SjNothing" && scope.Runs == 1);
+                string summary = PgslAllocationLedger.TakeSummary(id => Genesis.Runtime.Scripting.VM.VMEngine.Bridge?.NativeName(id));
+                bool pass = repeat.Calls == 300 && repeat.Bytes >= 300 * 160 && jobSeen && summary.Contains("StringRepeat", StringComparison.Ordinal);
+                row("Values", "GENESIS_ALLOCATION_LOG=commands names the commands that allocate and what jobs allocate", pass ? "PASS" : "FAIL",
+                    $"StringRepeat {repeat.Bytes} bytes in {repeat.Calls} calls; job seen {jobSeen}; log: {summary}");
+                HeadlessHarness.Assert(pass, $"StringRepeat {repeat.Bytes} bytes in {repeat.Calls} calls (expected 300 of 160+ bytes), job seen {jobSeen}; log: {summary}");
+            }
+            finally
+            {
+                PgslAllocationLedger.Enabled = was;
+                PgslAllocationLedger.Reset();
+            }
+        });
+
         // A number given as a map's key is the text it always was ("12"), and whole numbers cost no
         // string per call: a game keying maps by number allocates nothing for it.
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.NumberKeysAreTextWithoutAllocating", () =>
