@@ -35,11 +35,20 @@ public sealed class RoomEffects2D : IDisposable
     private readonly float[] _rays = new float[RayCount];
     private int _count;
     private float _time;
-    private float _ambient = 0.32f;
+    // A room is not darkened until Light2DAmbient asks for it: a light alone only glows, and a
+    // particle burst never touches lighting. (Until 11 Oct 2026 the first light or burst turned on
+    // darkness at 0.32, which blacked out sunlit rooms; every project that darkens sets the amount.)
+    private float _ambient = 1f;
     private Vector3 _shadowColor = new(0.012f, 0.024f, 0.06f);
     private IRenderController _renderer;
     private TextureHandle _halo;
+    /// <summary>Any effect has been used in this room: particles, lights or darkness.</summary>
     public bool Enabled { get; private set; }
+    /// <summary>A 2D light or an ambient amount has been set, so lights glow and can light darkness.</summary>
+    public bool LightingEnabled { get; private set; }
+    /// <summary>The room's light mask draws: Light2DAmbient set an amount below 1.</summary>
+    public bool Darkened => LightingEnabled && _ambient < 1f;
+    public float Ambient => _ambient;
     public bool Paused { get; set; }
     public int ParticleCount => _count;
     public int LightCount => _lights.Count;
@@ -72,6 +81,7 @@ public sealed class RoomEffects2D : IDisposable
     {
         if (!float.IsFinite(amount) || !float.IsFinite(r) || !float.IsFinite(g) || !float.IsFinite(b)) return;
         Enabled = true;
+        LightingEnabled = true;
         _ambient = Math.Clamp(amount, 0.05f, 1f);
         _shadowColor = Vector3.Clamp(new Vector3(r, g, b), Vector3.Zero, Vector3.One);
     }
@@ -83,6 +93,7 @@ public sealed class RoomEffects2D : IDisposable
         if (radius <= 0 || intensity <= 0) { _lights.Remove(id); return; }
         if (!_lights.ContainsKey(id) && _lights.Count >= 128) return;
         Enabled = true;
+        LightingEnabled = true;
         _lights[id] = new Light
         {
             Position = new Vector2(x, y), Radius = Math.Clamp(radius, 1, 1800),
@@ -149,7 +160,7 @@ public sealed class RoomEffects2D : IDisposable
             configurations = ParticleAssetLoader.EnumerateEnabledEmitters(effect).Select(e => e.Config).ToArray();
             _configs[asset] = configurations;
         }
-        Enabled = true;
+        Enabled = true; // particles only: a burst never turns on lighting or darkness
         foreach (ParticleConfig config in configurations)
         {
             int emit = Math.Min(Math.Clamp(count, 0, 64), ParticleBudget - _count);
@@ -215,7 +226,9 @@ public sealed class RoomEffects2D : IDisposable
             Submit(commands, _halo, shadow.X * zoom + offsetX, shadow.Y * zoom + offsetY,
                 shadow.Width * zoom, shadow.Height * zoom, new RenderColor(.005f, .012f, .025f), shadow.Alpha, 4);
 
-        RenderMask(renderer, commands, viewport, offsetX, offsetY, zoom, width, height);
+        CollectVisibleLights(offsetX, offsetY, zoom, width, height);
+        // At ambient 1 the mask would be fully clear, so an undarkened room skips it (lights only glow).
+        if (Darkened) RenderMask(renderer, commands, viewport, offsetX, offsetY, zoom, width, height);
         // Glow lies over the lightmap, never over GUI. Broad source stamps have smooth opacity.
         foreach (Light light in _visibleLights)
         {
@@ -251,6 +264,21 @@ public sealed class RoomEffects2D : IDisposable
         }
     }
 
+    /// <summary>The lights this viewport shows, nearest and brightest first, within the light budget.</summary>
+    private void CollectVisibleLights(float offsetX, float offsetY, float zoom, int width, int height)
+    {
+        _visibleLights.Clear();
+        if (!LightingEnabled) return;
+        float originX = -offsetX / zoom, originY = -offsetY / zoom;
+        Vector2 centre = new(originX + width / zoom * .5f, originY + height / zoom * .5f);
+        foreach (Light light in _lights.Values)
+            if (light.Position.X + light.Radius >= originX && light.Position.X - light.Radius <= originX + width / zoom
+                && light.Position.Y + light.Radius >= originY && light.Position.Y - light.Radius <= originY + height / zoom)
+                _visibleLights.Add(light);
+        _visibleLights.Sort((a, b) => LightPriority(a, centre).CompareTo(LightPriority(b, centre)));
+        if (_visibleLights.Count > VisibleLightBudget) _visibleLights.RemoveRange(VisibleLightBudget, _visibleLights.Count - VisibleLightBudget);
+    }
+
     private void RenderMask(IRenderController renderer, IRenderCommandSink commands, int viewport,
         float offsetX, float offsetY, float zoom, int width, int height)
     {
@@ -265,14 +293,6 @@ public sealed class RoomEffects2D : IDisposable
         Array.Fill(mask.Illumination, _ambient);
         float originX = -offsetX / zoom, originY = -offsetY / zoom;
         float unitsX = width / (zoom * mw), unitsY = height / (zoom * mh);
-        Vector2 centre = new(originX + width / zoom * .5f, originY + height / zoom * .5f);
-        _visibleLights.Clear();
-        foreach (Light light in _lights.Values)
-            if (light.Position.X + light.Radius >= originX && light.Position.X - light.Radius <= originX + width / zoom
-                && light.Position.Y + light.Radius >= originY && light.Position.Y - light.Radius <= originY + height / zoom)
-                _visibleLights.Add(light);
-        _visibleLights.Sort((a, b) => LightPriority(a, centre).CompareTo(LightPriority(b, centre)));
-        if (_visibleLights.Count > VisibleLightBudget) _visibleLights.RemoveRange(VisibleLightBudget, _visibleLights.Count - VisibleLightBudget);
         foreach (Light light in _visibleLights)
         {
             for (int ray = 0; ray < RayCount; ray++)
@@ -376,6 +396,6 @@ public sealed class RoomEffects2D : IDisposable
     public void Dispose()
     {
         ReleaseGraphics(); _renderer = null; _count = 0; Array.Clear(_particles);
-        _lights.Clear(); _occluders.Clear(); _contacts.Clear(); _configs.Clear(); Enabled = false; Paused = false; _time = 0;
+        _lights.Clear(); _occluders.Clear(); _contacts.Clear(); _configs.Clear(); Enabled = false; LightingEnabled = false; Paused = false; _time = 0;
     }
 }

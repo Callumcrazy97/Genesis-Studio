@@ -14,17 +14,17 @@ public static partial class PgslCommands
     public static double InstanceSelf() => GetContext()?.InstanceId ?? 0;
 
     [PgslCommand("Light2DAmbient", "Light2DAmbient(amount, shadowR, shadowG, shadowB)",
-        "Enable room-local 2D illumination; colour channels are 0..1. Other rooms are unaffected.", "Lighting 2D")]
+        "Darken the current room for 2D lights: amount 0.05..1 is the light left where no light reaches (1 = not darkened); shadow colour channels are 0..1. Rooms start undarkened; other rooms are unaffected.", "Lighting 2D")]
     public static void Light2DAmbient(double amount, double r, double g, double b) =>
         Effects2D?.SetAmbient((float)amount, (float)r, (float)g, (float)b);
 
     [PgslCommand("Light2DPoint", "Light2DPoint(id, x, y, radius, intensity, r, g, b)",
-        "Create/update a bounded, shadow-tested 2D point light; zero radius removes it", "Lighting 2D")]
+        "Create/update a bounded, shadow-tested 2D point light; zero radius removes it. A light glows; it lights up darkness only once Light2DAmbient darkens the room.", "Lighting 2D")]
     public static void Light2DPoint(int id, double x, double y, double radius, double intensity, double r, double g, double b) =>
         Effects2D?.SetLight(id, (float)x, (float)y, (float)radius, (float)intensity, (float)r, (float)g, (float)b);
 
     [PgslCommand("Light2DCone", "Light2DCone(id, x, y, direction, spread, radius, intensity, r, g, b)",
-        "Shadow-tested torch cone. Direction is 0=right, 90=up; spread is the full angle.", "Lighting 2D")]
+        "Shadow-tested torch cone. Direction is 0=right, 90=up; spread is the full angle. Lights darkness set with Light2DAmbient.", "Lighting 2D")]
     public static void Light2DCone(int id, double x, double y, double direction, double spread, double radius,
         double intensity, double r, double g, double b) =>
         Effects2D?.SetLight(id, (float)x, (float)y, (float)radius, (float)intensity, (float)r, (float)g, (float)b, (float)direction, (float)spread);
@@ -48,7 +48,7 @@ public static partial class PgslCommands
         Effects2D?.SetContact(id, (float)x, (float)y, (float)width, (float)height, (float)opacity);
 
     [PgslCommand("Particle2DBurst", "Particle2DBurst(asset, x, y, count, direction)",
-        "Burst canonical Particle Editor emitters into a bounded room-owned 2D pool", "Particles 2D")]
+        "Burst canonical Particle Editor emitters into a bounded room-owned 2D pool (never darkens the room)", "Particles 2D")]
     public static void Particle2DBurst(string asset, double x, double y, int count, double direction) =>
         Effects2D?.Emit(ProjectPath, asset, (float)x, (float)y, count, (float)direction);
 

@@ -70,6 +70,53 @@ internal static class Effects2DSuite
             RoomEffects2D.For(a).Dispose(); RoomEffects2D.For(b).Dispose();
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Effects2D.OnlyLight2DAmbientDarkensARoom", () =>
+        {
+            // The first particle burst or light in a room used to turn darkness on at 0.32, so a
+            // sunlit room went dark unless the game also called Light2DAmbient(1, ...).
+            string project = Path.Combine(parent, "Darkness");
+            string folder = Path.Combine(project, "Assets", "Particles");
+            Directory.CreateDirectory(folder);
+            string sparks = Path.Combine(folder, "Sparks.particle.json");
+            File.WriteAllText(sparks, "{\"emitRate\":40}");
+            ResourceCatalog.Invalidate(project);
+            const int MaskDepth = -8000, GlowDepth = -8020, ParticleDepth = -8040;
+            EditorInteractionRenderProbe renderer = new();
+            using RoomEffects2D effects = new();
+            RecordingSink Draw()
+            {
+                RecordingSink sink = new();
+                effects.Render(renderer, sink, project, 0, 0, 0, 1, 640, 360);
+                return sink;
+            }
+
+            effects.Emit(project, sparks, 100, 100, 20, 90);
+            RecordingSink frame = Draw();
+            Assert(effects.Enabled && !effects.LightingEnabled && !effects.Darkened, "A particle burst turned on 2D lighting.");
+            Assert(frame.Calls.Any(call => call.Depth == ParticleDepth), "The burst's particles were not drawn.");
+            Assert(!frame.Calls.Any(call => call.Depth == MaskDepth), "A particle burst drew the darkness mask over a sunlit room.");
+
+            effects.SetLight(1, 320, 180, 120, 1, 1, .8f, .4f);
+            frame = Draw();
+            Assert(effects.LightingEnabled && !effects.Darkened && effects.Ambient == 1f, $"A light alone darkened the room (ambient {effects.Ambient}).");
+            Assert(!frame.Calls.Any(call => call.Depth == MaskDepth), "A light alone drew the darkness mask.");
+            Assert(frame.Calls.Any(call => call.Depth == GlowDepth), "A light in an undarkened room did not glow.");
+
+            effects.SetAmbient(.32f, .012f, .024f, .06f);
+            frame = Draw();
+            SpriteDrawCall mask = frame.Calls.FirstOrDefault(call => call.Depth == MaskDepth);
+            Assert(effects.Darkened && mask.Texture.IsValid, "Light2DAmbient did not darken the room.");
+            byte[] pixels = renderer.Textures[mask.Texture.Id];
+            const int maskWidth = 160, maskHeight = 90; // a quarter of 640 x 360
+            Assert(pixels.Length == maskWidth * maskHeight * 4, $"The light mask is {pixels.Length / 4} pixels, not {maskWidth} x {maskHeight}.");
+            int Alpha(int x, int y) => pixels[((y * maskWidth) + x) * 4 + 3];
+            Assert(Alpha(2, 2) > 150, $"A corner far from the light is not dark at ambient 0.32 (mask alpha {Alpha(2, 2)}).");
+            Assert(Alpha(maskWidth / 2, maskHeight / 2) < 30, $"The light did not light the darkness (mask alpha {Alpha(maskWidth / 2, maskHeight / 2)}).");
+
+            effects.SetAmbient(1, 0, 0, 0);
+            Assert(!effects.Darkened && !Draw().Calls.Any(call => call.Depth == MaskDepth), "Light2DAmbient(1, ...) did not turn darkness off.");
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Engine.Saves.NumbersRoundTripAtomicallyWithBoundsAndCorruption", () =>
         {
             string file = Path.Combine(parent, "NumericSave", "campaign.json");
