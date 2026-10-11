@@ -1581,10 +1581,11 @@ resource names …; List the Assets folders …`), and `Genesis.Application.Head
 <copy of a project> [--repeat N] [--dump file]` times the same open without a window (`--dump`
 writes the resources, Assets tree and reference graph it produced, to compare two builds). On a copy
 of a 5,233-resource project (15,000 files in Assets, a 4.8 GB Debug folder), measured 11 Oct 2026:
-from a freshly started Studio to a usable window took 22 s and now 3.4 s; opening it again in the
-same Studio took 21 s and now 1.1 s (efficiency cores, other work running; the reference graph then
-takes about 2 s more on a worker thread). With the files out of the disk cache (on a hard disk) the
+from a freshly started Studio to a usable window took 13-14 s and now 1.6-2.5 s; opening it again
+in the same Studio took 11.4-12.3 s and now 0.6 s (performance cores; the reference graph then
+takes about 1 s more on a worker thread). With the files out of the disk cache (on a hard disk) the
 first open took 330 s, 266 s of it reading the reference graph before the window could show.
+`--test project-open` runs the checks for this path.
 The Assets tree had listed each folder again for every resource in it; what refers to what (every
 text asset parsed) is now read on a worker thread once the window shows, and a change saved before
 then waits for it off the UI thread; a `.meta` is read once per Studio session while its time and

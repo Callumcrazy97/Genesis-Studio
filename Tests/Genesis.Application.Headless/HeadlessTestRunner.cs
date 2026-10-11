@@ -1155,6 +1155,9 @@ internal static class HeadlessTestRunner
         // flash lights, surface shaders and outlines, room changes with preloaded sounds (not part of the tiers).
         ["requests-1010"] = ["sky-light-exposure", "decals", "flash-lights", "mesh-surface", "outlines", "room-change"],
         ["combat-effects"] = ["flash-lights", "decals"],
+        // Opening a project in Studio: resource names and the Assets tree, library tags and
+        // favourites, the shell, and live reload's asset monitor (not part of the tiers).
+        ["project-open"] = ["resource-names", "resource-library", "resource-tags", "studio-foundation", "studio-polish", "live-reload"],
     };
 
     private static void RunFocusedTarget(HeadlessContext ctx, string target)
