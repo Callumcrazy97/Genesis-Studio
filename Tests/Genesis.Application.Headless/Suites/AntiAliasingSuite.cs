@@ -178,14 +178,21 @@ internal static class AntiAliasingSuite
                 if (field.GetBrightness() < 0.5f)
                     Check(drawn.GetBrightness() < 0.45f,
                         $"The anti-aliasing picker is drawn {drawn} (light) on a dark theme whose fields are {field}.");
-                // The Rendering page's pickers beside it, for comparison in the capture review.
-                if (preferences.SelectCategory("Rendering"))
-                {
-                    GateSuite.Pump(2, 15);
-                    string rendering = "preferences-rendering-pickers.png";
-                    ctx.Report.Images.Add(ImageResult.From("Studio.Preferences.Rendering.Pickers", rendering,
-                        VisualCapture.CaptureOpenForm(preferences, Path.Combine(ctx.Captures, rendering))));
-                }
+                // The Rendering page's pickers were plain list combos too.
+                string[] plain = Descendants(preferences).OfType<ComboBox>()
+                    .Where(combo => combo is not Genesis.Application.Editors.Suite.UiKit.ThemedComboBox)
+                    .Select(combo => string.IsNullOrEmpty(combo.Name) ? combo.Text : combo.Name).ToArray();
+                Check(plain.Length == 0, "Preferences pickers that draw system white: " + string.Join(", ", plain));
+                Check(preferences.SelectCategory("Rendering"), "Preferences has no Rendering page.");
+                GateSuite.Pump(2, 15);
+                string rendering = "preferences-rendering-pickers.png";
+                ctx.Report.Images.Add(ImageResult.From("Studio.Preferences.Rendering.Pickers", rendering,
+                    VisualCapture.CaptureOpenForm(preferences, Path.Combine(ctx.Captures, rendering))));
+                ComboBox culling = Descendants(preferences).OfType<ComboBox>().Single(combo => combo.Name == "FaceCullingPicker");
+                Color cullingDrawn = MeanColour(Path.Combine(ctx.Captures, rendering), preferences, culling);
+                if (field.GetBrightness() < 0.5f)
+                    Check(cullingDrawn.GetBrightness() < 0.45f,
+                        $"The cull-faces picker is drawn {cullingDrawn} (light) on a dark theme whose fields are {field}.");
                 Check(new ProjectService().OpenProject(project.RootPath).Manifest.Rendering.AntiAliasing == "SMAA"
                         && ProjectPaths.ReadAntiAliasing(project.RootPath) == AntiAliasingMode.Smaa,
                     "Applying the Project page did not save SMAA to the project file.");

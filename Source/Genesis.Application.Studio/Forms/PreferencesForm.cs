@@ -45,16 +45,17 @@ public sealed class PreferencesForm : DpiAwareForm
     private readonly NumericUpDown _autoSaveMinutes = new();
     private readonly CheckBox _backups = new();
     private readonly NumericUpDown _backupDays = new();
-    private readonly ComboBox _buildConfiguration = new();
-    private readonly ComboBox _architecture = new();
+    // Every picker here is the owner-drawn themed combo: a plain list combo draws system white.
+    private readonly ThemedComboBox _buildConfiguration = new();
+    private readonly ThemedComboBox _architecture = new();
     private readonly CheckBox _previewVsync = new();
     private readonly CheckBox _pauseUnfocused = new();
     private readonly CheckBox _runtimeDiagnostics = new();
     private readonly CheckBox _recordWhenDebugging = new();
     private readonly CheckBox _engineDebugCategory = new();
-    private readonly ComboBox _renderBackend = new();
-    private readonly ComboBox _faceCulling = new() { Name = "FaceCullingPicker" };
-    private readonly ComboBox _frontFaceWinding = new() { Name = "FrontFaceWindingPicker" };
+    private readonly ThemedComboBox _renderBackend = new();
+    private readonly ThemedComboBox _faceCulling = new() { Name = "FaceCullingPicker" };
+    private readonly ThemedComboBox _frontFaceWinding = new() { Name = "FrontFaceWindingPicker" };
     private readonly CheckBox _lightingEnabled = new() { Name = "LightingEnabledPicker" };
     private readonly CheckBox _shadowsEnabled = new() { Name = "ShadowsEnabledPicker" };
     private readonly NumericUpDown _shadowStrength = new() { Name = "ShadowStrengthPicker" };
@@ -70,7 +71,7 @@ public sealed class PreferencesForm : DpiAwareForm
     private readonly CheckBox _raymarchedCloudsEnabled = new() { Name = "RaymarchedCloudsEnabledPicker" };
     private readonly CheckBox _cloudTemporalEnabled = new() { Name = "CloudTemporalEnabledPicker" };
     private readonly CheckBox _celestialExtrasEnabled = new() { Name = "CelestialExtrasEnabledPicker" };
-    private readonly ComboBox _cloudQuality = new() { Name = "CloudQualityPicker" };
+    private readonly ThemedComboBox _cloudQuality = new() { Name = "CloudQualityPicker" };
     private readonly NumericUpDown _exposure = new() { Name = "ExposurePicker" };
     private readonly NumericUpDown _contrast = new() { Name = "ContrastPicker" };
     private readonly NumericUpDown _saturation = new() { Name = "SaturationPicker" };
@@ -83,7 +84,7 @@ public sealed class PreferencesForm : DpiAwareForm
     private readonly NumericUpDown _omniShadowBudget = new() { Name = "OmniShadowBudgetPicker" };
     private readonly NumericUpDown _localVolumetricLightBudget =
         new() { Name = "LocalVolumetricLightBudgetPicker" };
-    private readonly ComboBox _drawCallMode = new() { Name = "DrawCallModePicker" };
+    private readonly ThemedComboBox _drawCallMode = new() { Name = "DrawCallModePicker" };
     private readonly NumericUpDown _worldDrawBudget = new() { Name = "WorldDrawBudgetPicker" };
     private readonly CheckBox _fogEnabled = new();
     private readonly TextBox _fogColor = new();
@@ -93,7 +94,6 @@ public sealed class PreferencesForm : DpiAwareForm
     private readonly NumericUpDown _fogAlpha = new();
     private readonly CheckBox _allowEscapeToClose = new();
     private readonly CheckBox _blendGuiInLinearLight = new() { Name = "BlendGuiInLinearLightPicker" };
-    // Owner-drawn like the theme and density pickers: a plain list combo drew system white here.
     private readonly ThemedComboBox _antiAliasing = new() { Name = "AntiAliasingPicker" };
 
     private readonly Genesis.Application.Studio.Controls.AnimatedIconPlayer _projectIconPreview = new() { Size = new Size(128, 128), SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.FromArgb(40, 44, 52), Cursor = Cursors.Hand };
