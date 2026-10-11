@@ -21,9 +21,10 @@ namespace Genesis.Application.Headless.Suites;
 /// (GenesisCraft's) makes thousands of sprite draws a frame, and each used to leave an
 /// ObjectDrawAssetEntry, its two dictionaries, a closure and a delegate behind. 2,000 sprites a frame
 /// go through DrawSpritePart, DrawSprite, DrawSpriteScaled and DrawSpritePartsFromList into the
-/// game's buffered GUI canvas, 2,000 into a 2D Draw event's frame queue and 100 straight to the
-/// renderer (a GUI with no canvas); a steady frame must allocate next to nothing on each path, and
-/// the GUI sprites still land where they were drawn. Bytes per frame go to sprite-draw-alloc.txt.
+/// game's buffered GUI canvas (with 50 DrawText labels, then replayed onto the overlay), 2,000 into
+/// a 2D Draw event's frame queue and 100 straight to the renderer (a GUI with no canvas); a steady
+/// frame must allocate next to nothing on each path, and the GUI sprites still land where they were
+/// drawn. Bytes per frame go to sprite-draw-alloc.txt.
 /// </summary>
 internal static class SpriteDrawAllocationSuite
 {
@@ -31,7 +32,7 @@ internal static class SpriteDrawAllocationSuite
     private const int Width = 640, Height = 360;
     private const int GuiParts = 1000, GuiSprites = 500, GuiScaled = 250, GuiListCalls = 25, PartsPerList = 10;
     private const int GuiDraws = GuiParts + GuiSprites + GuiScaled + (GuiListCalls * PartsPerList);
-    private const int WorldDraws = 2000, DirectDraws = 100;
+    private const int GuiTexts = 50, WorldDraws = 2000, DirectDraws = 100;
     private const int WarmFrames = 4, MeasuredFrames = 9;
 
     /// <summary>Bytes a steady frame may allocate on each path; such a frame used to allocate hundreds of KB.</summary>
@@ -61,6 +62,8 @@ internal static class SpriteDrawAllocationSuite
             IHudCanvas buffered = (IHudCanvas)Activator.CreateInstance(bufferedType, nonPublic: true)!;
             MethodInfo reset = bufferedType.GetMethod("Reset")!;
             MethodInfo replay = bufferedType.GetMethod("Replay")!;
+            // Called through a delegate, as the game calls it: reflection's Invoke allocates its own.
+            Action<IHudCanvas> replayInto = (Action<IHudCanvas>)Delegate.CreateDelegate(typeof(Action<IHudCanvas>), buffered, replay);
             FrameRenderQueue worldQueue = new();
 
             // One instance's context for the whole run, so its list of image parts lasts.
@@ -77,7 +80,7 @@ internal static class SpriteDrawAllocationSuite
                     PgslCommands.DsListAdd(parts, value);
             }
 
-            List<long> guiBytes = [], worldBytes = [], directBytes = [];
+            List<long> guiBytes = [], textBytes = [], replayBytes = [], worldBytes = [], directBytes = [];
             List<string> failures = [];
             int worldQueued = -1;
             bool measuring = false;
@@ -107,6 +110,10 @@ internal static class SpriteDrawAllocationSuite
                     DrawGuiSprites(parts);
                     long guiAllocated = GC.GetAllocatedBytesForCurrentThread() - started;
 
+                    started = GC.GetAllocatedBytesForCurrentThread();
+                    DrawGuiTexts();
+                    long textAllocated = GC.GetAllocatedBytesForCurrentThread() - started;
+
                     context.DrawSurface = world;
                     started = GC.GetAllocatedBytesForCurrentThread();
                     DrawOffscreenSprites(WorldDraws);
@@ -120,6 +127,7 @@ internal static class SpriteDrawAllocationSuite
                     if (measuring)
                     {
                         guiBytes.Add(guiAllocated);
+                        textBytes.Add(textAllocated);
                         worldBytes.Add(worldAllocated);
                         directBytes.Add(directAllocated);
                         worldQueued = worldQueue.SpriteCount;
@@ -133,7 +141,14 @@ internal static class SpriteDrawAllocationSuite
                     worldQueue.Reset();
                 }
                 current.FlushOverlaySprites();
-                current.ComposeOverlay(canvas => replay.Invoke(buffered, [new OverlayHudCanvas(canvas, current.PixelWidth, current.PixelHeight)]));
+                current.ComposeOverlay(canvas =>
+                {
+                    OverlayHudCanvas hud = new(canvas, current.PixelWidth, current.PixelHeight);
+                    long started = GC.GetAllocatedBytesForCurrentThread();
+                    replayInto(hud);
+                    long replayed = GC.GetAllocatedBytesForCurrentThread() - started;
+                    if (measuring) replayBytes.Add(replayed);
+                });
             };
 
             using Form host = GateSuite.NewHost(Width, Height);
@@ -184,13 +199,19 @@ internal static class SpriteDrawAllocationSuite
             List<string> lines =
             [
                 Describe($"GUI canvas, {GuiDraws} sprites", guiBytes, GuiDraws),
+                Describe($"GUI canvas, {GuiTexts} texts", textBytes, GuiTexts),
+                Describe($"GUI replayed onto the overlay, {GuiDraws} sprites and {GuiTexts} texts", replayBytes, GuiDraws + GuiTexts),
                 Describe($"2D Draw queue, {WorldDraws} sprites", worldBytes, WorldDraws),
                 Describe($"straight to the renderer, {DirectDraws} sprites", directBytes, DirectDraws),
             ];
             File.WriteAllLines(Path.Combine(ctx.Logs, "sprite-draw-alloc.txt"), lines);
             File.WriteAllLines(Path.Combine(ctx.Captures, "sprite-draw-alloc.txt"), lines);
             foreach (string line in lines) Console.WriteLine("SpriteDrawAlloc: " + line);
-            foreach ((string path, List<long> bytes) in new[] { ("GUI canvas", guiBytes), ("2D Draw queue", worldBytes), ("renderer", directBytes) })
+            foreach ((string path, List<long> bytes) in new[]
+                     {
+                         ("GUI canvas", guiBytes), ("GUI text", textBytes), ("overlay replay", replayBytes),
+                         ("2D Draw queue", worldBytes), ("renderer", directBytes),
+                     })
                 if (bytes.Count > 0 && Median(bytes) > FrameBound)
                     failures.Add($"{path}: a steady frame allocated {Median(bytes)} bytes (bound {FrameBound})");
             HeadlessHarness.Assert(failures.Count == 0, string.Join(" | ", failures.Concat(lines)));
@@ -212,6 +233,15 @@ internal static class SpriteDrawAllocationSuite
             PgslCommands.DrawSpriteScaled(Quads, 8 + ((i % 50) * 12), 216 + ((i / 50) * 10), 0, 0.5, 0.5, 0, 1);
         for (int c = 0; c < GuiListCalls; c++)
             PgslCommands.DrawSpritePartsFromList(Quads, parts, (c % 5) * 120, 272 + ((c / 5) * 16));
+    }
+
+    private static readonly string[] Labels = ["Stone", "Dirt 64", "Health 20/20", "x 123 y 64 z -40", "Inventory"];
+
+    /// <summary>A HUD's labels along the bottom: 10 places, each drawn 5 times.</summary>
+    private static void DrawGuiTexts()
+    {
+        for (int i = 0; i < GuiTexts; i++)
+            PgslCommands.DrawText(4 + ((i % 10) * 63), 346, Labels[i % Labels.Length]);
     }
 
     /// <summary>Sprites, scaled and turned sprites and image parts, all off the screen.</summary>

@@ -1144,6 +1144,9 @@ internal static class HeadlessTestRunner
         // Bulk GUI drawing, what script sprite draws allocate, script textures and the sky layer with
         // the particle and mesh streaming checks, on every renderer (not part of the tiers).
         ["draw-and-stream"] = ["gui-batch", "sprite-draw-alloc", "script-textures", "sky-layer", "particle-bursts", "mesh-soak", "mesh-upload", "particle-workbench"],
+        // Script sprite draws: what a frame of them allocates, with the suites that pixel-check them
+        // (batches, script textures, linear GUI blending, 2D effects, menu images) (not part of the tiers).
+        ["sprite-draws"] = ["sprite-draw-alloc", "gui-batch", "script-textures", "gui-linear", "effects-2d", "menu-clips"],
         // Combat effects a first-person game asks for: flash lights and decals, on every renderer.
         // Surface and material shaders with the suites that compile, cache and draw mesh shaders
         // (not part of the tiers).
