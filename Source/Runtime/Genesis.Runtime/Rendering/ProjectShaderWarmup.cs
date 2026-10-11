@@ -41,6 +41,15 @@ namespace Genesis.Runtime.Rendering
         public static int Failed { get; private set; }
 
         /// <summary>
+        /// One line for each program the warm-up could not compile: the Shader resource's name and
+        /// file, the entry point, and the start of the compiler's error. Also written to the log.
+        /// </summary>
+        public static IReadOnlyList<string> Failures { get; private set; } = Array.Empty<string>();
+
+        // The log names this many failing programs; the rest are counted.
+        private const int FailuresLogged = 12;
+
+        /// <summary>
         /// True while the warm-up is still making a program of this Shader resource (named as a
         /// draw names it, or by its file's full path).
         /// </summary>
@@ -77,7 +86,8 @@ namespace Genesis.Runtime.Rendering
         }
 
         /// <summary>
-        /// Where to write one line saying what the warm-up did, when it is done (at once if it is).
+        /// Where to write a line saying what the warm-up did, and a line for each shader that did
+        /// not compile, when it is done (at once if it is).
         /// </summary>
         public static void ReportTo(Action<string> report)
         {
@@ -88,7 +98,8 @@ namespace Genesis.Runtime.Rendering
                 summary = _summary;
             }
 
-            if (summary != null) report?.Invoke(summary);
+            if (summary != null && report != null)
+                foreach (string line in summary.Split('\n')) report(line);
         }
 
         /// <summary>Waits until every program is made, or the time is up. True when they all are.</summary>
@@ -115,6 +126,7 @@ namespace Genesis.Runtime.Rendering
                 _report = null;
                 PendingByShader.Clear();
                 Read = Compiled = Failed = 0;
+                Failures = Array.Empty<string>();
             }
         }
 
@@ -123,6 +135,7 @@ namespace Genesis.Runtime.Rendering
             Stopwatch clock = Stopwatch.StartNew();
             ProjectShaderProgram[] programs = Array.Empty<ProjectShaderProgram>();
             int read = 0, compiled = 0, failed = 0;
+            var failures = new List<string>();
             try
             {
                 // Mesh and sprite programs first (drawn as soon as the room is), the largest first
@@ -155,11 +168,13 @@ namespace Genesis.Runtime.Rendering
                             if (result.CacheHit) Interlocked.Increment(ref read);
                             else Interlocked.Increment(ref compiled);
                         }
-                        catch (Exception)
+                        catch (Exception error)
                         {
-                            // A shader that does not compile is reported by the draw that uses it,
-                            // which compiles it again and logs the compiler's message.
+                            // The draw that uses it compiles it again and reports it too, but a post
+                            // effect that is never turned on never draws: name it and say why here.
                             Interlocked.Increment(ref failed);
+                            string failure = DescribeFailure(program, error);
+                            lock (failures) failures.Add(failure);
                         }
                         finally
                         {
@@ -197,21 +212,55 @@ namespace Genesis.Runtime.Rendering
             {
                 string summary = $"project shaders: {programs.Length} program{(programs.Length == 1 ? string.Empty : "s")} for {format} made on workers in "
                     + $"{clock.Elapsed.TotalMilliseconds:F0} ms ({read} read from the shader cache, {compiled} compiled"
-                    + (failed > 0 ? $", {failed} did not compile and are reported when drawn" : string.Empty) + ")";
+                    + (failed > 0 ? $", {failed} did not compile: listed below" : string.Empty) + ")";
+                string[] failureLines;
+                lock (failures)
+                {
+                    failures.Sort(StringComparer.Ordinal);
+                    failureLines = failures.ToArray();
+                }
+
+                var lines = new List<string> { summary };
+                lines.AddRange(failureLines.Take(FailuresLogged));
+                if (failureLines.Length > FailuresLogged)
+                    lines.Add($"project shaders: {failureLines.Length - FailuresLogged} more did not compile (open them in the Shader Editor)");
                 Action<string> report;
                 lock (Gate)
                 {
                     Read = read;
                     Compiled = compiled;
                     Failed = failed;
+                    Failures = failureLines;
                     PendingByShader.Clear();
-                    _summary = summary;
+                    _summary = string.Join("\n", lines);
                     report = _report;
                 }
 
                 Interlocked.Decrement(ref _pending);
-                report?.Invoke(summary);
+                if (report != null) foreach (string line in lines) report(line);
             }
+        }
+
+        /// <summary>
+        /// "project shader 'Name' (Fullscreen pixel MainPS, Assets/Shaders/Name.shader.json) did not
+        /// compile: [first lines of the compiler's error]", with a hint when the code declares an
+        /// HLSL reserved word (line, point, sample...) as a name.
+        /// </summary>
+        internal static string DescribeFailure(ProjectShaderProgram program, Exception error)
+        {
+            string[] errorLines = (error?.Message ?? "unknown error")
+                .Split('\n')
+                .Select(line => line.Trim())
+                .Where(line => line.Length > 0)
+                .Take(3)
+                .ToArray();
+            string message = string.Join(" | ", errorLines);
+            if (message.Length > 600) message = message[..600] + "...";
+            string variant = string.IsNullOrEmpty(program.Variant) ? string.Empty : $", variant {program.Variant}";
+            string file = string.IsNullOrWhiteSpace(program.ShaderPath) ? string.Empty : ", " + program.ShaderPath;
+            string hint = HlslReservedNames.Describe(HlslReservedNames.Find(program.Source), withLines: false);
+            return $"project shader '{program.Name}' ({program.Pipeline} {program.Stage.ToString().ToLowerInvariant()} {program.Entry}{variant}{file}) did not compile: {message}"
+                + (hint.Length > 0 ? " Hint: " + hint : string.Empty);
         }
 
         private static void Mark(string shader, int delta)

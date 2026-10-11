@@ -293,6 +293,100 @@ internal static class ShaderPrecompiledSuite
                 if (ProjectShaderWarmup.WaitUntilDone(TimeSpan.FromSeconds(60))) ProjectShaderWarmup.ResetForTests();
             }
         });
+
+        HeadlessHarness.RunCase(ctx.Report, "Render.Shaders.Project.AShaderThatDoesNotCompileIsNamedWithItsError", () =>
+        {
+            // A template post effect called a variable "line" (an HLSL keyword). The Player's log only
+            // said "1 did not compile and are reported when drawn", and an effect never drawn is never
+            // reported. The log now names each failing resource with its compiler error, and Studio's
+            // project check warns about the reserved word before the game runs.
+            string root = FreshFolder(ctx, "warm-broken");
+            string cache = FreshFolder(ctx, "warm-broken-cache");
+            string folder = Path.Combine(root, "Assets", "Shaders");
+            Directory.CreateDirectory(folder);
+            const string brokenSource = """
+                Texture2D SceneColor : register(t0);
+                SamplerState Linear : register(s0);
+                struct PreviewVSOut { float4 SvPos : SV_Position; float2 UV : TEXCOORD0; };
+                float4 MainPS(PreviewVSOut IN) : SV_Target
+                {
+                    float line = 0.5 + 0.5 * cos(IN.UV.y * 600.0);
+                    return SceneColor.Sample(Linear, IN.UV) * line;
+                }
+                """;
+            string brokenFile = Path.Combine(folder, "Broken Look.shader.json");
+            File.WriteAllText(brokenFile, System.Text.Json.JsonSerializer.Serialize(new ShaderAssetDocument
+            {
+                Pipeline = ShaderAssetPipeline.Fullscreen,
+                AuthoringMode = ShaderAuthoringMode.Code,
+                TargetType = ShaderTargetType.Fullscreen,
+                Source = brokenSource,
+            }, new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase }));
+            ResourceCatalog.Invalidate(root);
+
+            string? previous = Environment.GetEnvironmentVariable("GENESIS_SHADER_CACHE");
+            Environment.SetEnvironmentVariable("GENESIS_SHADER_CACHE", cache);
+            try
+            {
+                Check(ProjectShaderWarmup.WaitUntilDone(TimeSpan.FromSeconds(60)), "An earlier shader warm-up is still running.");
+                ProjectShaderWarmup.ResetForTests();
+                var lines = new List<string>();
+                ProjectShaderWarmup.ReportTo(line => { lock (lines) lines.Add(line); });
+                ProjectShaderWarmup.Start(root, GpuShaderBinaryFormat.Dxbc);
+                Check(ProjectShaderWarmup.WaitUntilDone(TimeSpan.FromSeconds(120)), "The broken shader's warm-up did not finish within two minutes.");
+                lock (lines)
+                {
+                    File.WriteAllLines(Path.Combine(ctx.Logs, "project-shader-warmup-broken.txt"), lines);
+                    string all = string.Join(" | ", lines);
+                    Check(ProjectShaderWarmup.Failed == 1 && ProjectShaderWarmup.Failures.Count == 1,
+                        $"The warm-up failed {ProjectShaderWarmup.Failed} programs, expected the one broken effect: {all}");
+                    Check(lines.Count == 2 && lines[0].Contains("1 did not compile", StringComparison.Ordinal),
+                        "The warm-up's summary does not count the failure, or the failure has no line of its own: " + all);
+                    string failure = lines[1];
+                    Check(failure.Contains("'Broken Look'", StringComparison.Ordinal) && failure.Contains("Broken Look.shader.json", StringComparison.Ordinal),
+                        "The failing shader is not named with its file: " + failure);
+                    Check(failure.Contains("compile failed", StringComparison.OrdinalIgnoreCase) && failure.Contains("error", StringComparison.OrdinalIgnoreCase),
+                        "The compiler's error is not in the log: " + failure);
+                    Check(failure.Contains("HLSL reserves 'line'", StringComparison.Ordinal), "The log does not point at the reserved word: " + failure);
+                    Check(failure == ProjectShaderWarmup.Failures[0], "Failures does not hold the logged line.");
+                }
+
+                // A log handed over after the warm-up finished gets the same lines.
+                var late = new List<string>();
+                ProjectShaderWarmup.ReportTo(late.Add);
+                Check(late.Count == 2 && late[1] == ProjectShaderWarmup.Failures[0], "A late log did not get the failure line: " + string.Join(" | ", late));
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("GENESIS_SHADER_CACHE", previous);
+                if (ProjectShaderWarmup.WaitUntilDone(TimeSpan.FromSeconds(60))) ProjectShaderWarmup.ResetForTests();
+            }
+
+            var issues = Genesis.Application.Core.Projects.ProjectValidator.ValidateShaderNames([brokenFile]).ToList();
+            Check(issues.Count == 1 && issues[0].Code == "SHADER_RESERVED_NAME"
+                && issues[0].Severity == Genesis.Application.Core.Projects.ProjectValidationSeverity.Warning
+                && issues[0].Message.Contains("'line' (line 6)", StringComparison.Ordinal),
+                "Studio's project check did not warn about 'line': " + string.Join(" | ", issues.Select(issue => issue.Code + " " + issue.Message)));
+            Check(!Genesis.Application.Core.Projects.ProjectValidator.ValidateShaderNames(
+                    Directory.GetFiles(ProjectShaderFixtures.Write(FreshFolder(ctx, "warm-clean")), "*.shader.json")).Any(),
+                "The project check warned about shaders that compile.");
+
+            // Modifiers, capitalised names, comments and strings are not names; lists and semantics are.
+            const string legal = """
+                SamplerState Linear : register(s0); // float line = 1;
+                /* float point;
+                   float sample; */ static const float half_width = 2;
+                #define line_width(x) (x)
+                string title = "float line;";
+                [maxvertexcount(3)] void GS(point VSOut v[1], inout TriangleStream<VSOut> stream) { }
+                float4 PS(sample float4 c : COLOR, in float2 uv : TEXCOORD0, nointerpolation float k : K) : SV_Target { return (half)c; }
+                """;
+            Check(HlslReservedNames.Find(legal).Count == 0,
+                "Legal HLSL was flagged: " + string.Join(", ", HlslReservedNames.Find(legal).Select(use => use.Word + "@" + use.Line)));
+            string found = string.Join(",", HlslReservedNames.Find("float a, point;\nfloat3 sample : TEXCOORD1;\nTexture2D<float4> texture : register(t1);")
+                .Select(use => use.Word + "@" + use.Line));
+            Check(found == "point@1,sample@2,texture@3", "Reserved names in a list, before a semantic or after a template type were missed: " + found);
+        });
     }
 
     private static string Key(ProjectShaderProgram program, string root, GpuShaderBinaryFormat format) =>
