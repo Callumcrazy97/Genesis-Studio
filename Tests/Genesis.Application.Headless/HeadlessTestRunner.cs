@@ -1164,6 +1164,9 @@ internal static class HeadlessTestRunner
         // Opening a project in Studio: resource names and the Assets tree, library tags and
         // favourites, the shell, and live reload's asset monitor (not part of the tiers).
         ["project-open"] = ["resource-names", "resource-library", "resource-tags", "studio-foundation", "studio-polish", "live-reload"],
+        // Everything from 11 Oct 2026 that the tiers do not run: the small requests, opening a
+        // project and exporting (the frame-rate choice and the export renderer are in the tiers).
+        ["checks-1011"] = ["requests-1011", "project-open", "export-publishing"],
     };
 
     private static void RunFocusedTarget(HeadlessContext ctx, string target)
