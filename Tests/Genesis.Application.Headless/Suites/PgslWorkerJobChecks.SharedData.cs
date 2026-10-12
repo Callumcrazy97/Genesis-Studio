@@ -572,6 +572,25 @@ internal static partial class PgslWorkerJobChecks
             HeadlessHarness.Assert(extra < 24 * 1024, $"3 000 variables the job never reads added {extra / 1024.0:F1} KB to starting it.");
         });
 
+        // A mesh builder's list: fractions it stores again and again (texture coordinates, light
+        // levels) reuse their boxes, and a list given room with DsListReserve never grows.
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.StoredFractionsReuseBoxesAndReservedListsDoNotGrow", () =>
+        {
+            using Bench bench = new();
+            bench.Run("fl = DsListCreate(); DsListReserve(fl, 8000); r = 0;");
+            const string Fill = "DsListClear(fl); for (i = 0; i < 4000; i = i + 1) { DsListAdd(fl, (i % 64) / 16 + 0.5); DsListAdd(fl, (i % 16) * 17 / 255); } r = DsListSize(fl);";
+            bench.Run(Fill);
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            double size = bench.Number(Fill);
+            long bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+            double second = bench.Number("r = DsListGet(fl, 2);"), third = bench.Number("r = DsListGet(fl, 3);");
+            bool values = size == 8000 && second == 1.0 / 16 + 0.5 && third == 17.0 / 255;
+            row("Values", "fractions stored again reuse their boxes; a reserved list does not grow", values && bytes < 32 * 1024 ? "PASS" : "FAIL",
+                $"8 000 adds of repeating fractions allocated {bytes / 1024.0:F1} KB (a box each was about 190 KB); entries {second}, {third}");
+            HeadlessHarness.Assert(values, $"The list holds {size} entries with {second} and {third} at 2 and 3.");
+            HeadlessHarness.Assert(bytes < 32 * 1024, $"8 000 adds of repeating fractions to a reserved list allocated {bytes / 1024.0:F1} KB.");
+        });
+
         // Emptying a list or map a running job holds gives this side a new empty one, not a copy of
         // entries about to go; the job still reads the original. The ledger counts real copies.
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.Jobs.EmptyingAHeldListCopiesNothing", () =>

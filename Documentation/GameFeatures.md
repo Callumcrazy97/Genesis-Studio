@@ -1063,6 +1063,13 @@ grid are skipped (or read as 0); a bad handle does nothing and returns 0 (-1 for
 | `DsGridClampRegion(grid, x1, y1, x2, y2, min, max)`, `DsGridFloorRegion(grid, x1, y1, x2, y2)` | Keep every cell between two values, or round every cell down. |
 | `DsGridAddGrid(destination, source, factor)` | `destination += source * factor` cell by cell where both have the cell (layering noise fields, a mask); returns the cells changed. |
 | `DsListFill(list, count, value)`, `DsListCopy(destination, source)` | A list of `count` copies of a number, or one list's entries replaced by another's. |
+| `DsListReserve(list, count)` | Room for `count` entries (up to 1 000 000), so adding them grows nothing: a list a mesh is built from, filled again for every chunk. |
+
+Storing a number in a list (or a map, stack or queue) costs no allocation for whole numbers from
+-1 024 to 65 535, nor for a number stored lately: the last box made for each of 32 768 slots is
+reused when the same number is stored again. A mesh builder's texture coordinates, light levels
+and half-block corners repeat face after face, so 8 000 such adds to a reserved list allocate
+nothing (before 12 Oct 2026 each fraction was a new 24-byte box).
 
 Already there before: `DsGridSetRegion` (fill a region with one value), `DsGridClear` (fill the
 grid), `DsGridCopy` (a whole grid), `DsGridGetSum` / `GetMax` / `GetMin` and `DsGridValueExists`.

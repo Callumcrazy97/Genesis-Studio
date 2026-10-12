@@ -119,6 +119,17 @@ public static partial class PgslCommands
         Resolve<List<object>>("list", id)?.Clear();
     }
 
+    [PgslCommand("DsListReserve", "DsListReserve(id, count)",
+        "Make room for this many entries (up to 1 000 000), so adding them grows nothing: a list a mesh is built from, filled again for every chunk", "Lists")]
+    public static void DsListReserve(double id, double count)
+    {
+        if (!double.IsFinite(count) || count <= 0) return;
+        List<object> list = Resolve<List<object>>("list", id);
+        if (list is null) return;
+        int wanted = (int)Math.Min(count, MaxCollectionElements);
+        if (list.Capacity < wanted) list.Capacity = wanted;
+    }
+
     [PgslCommand("DsListSize", "DsListSize(id) -> number", "Entry count", "Lists")]
     public static double DsListSize(double id) => ResolveRead<List<object>>("list", id)?.Count ?? 0;
 
