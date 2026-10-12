@@ -147,6 +147,14 @@ internal static partial class PgslWorkerJobChecks
         function SjMapEdit(m) { DsMapSet(m, "a", 5); DsMapDelete(m, "b"); return DsMapSize(m); }
         function SjLeaveAlone(l) { return DsListSize(l); }
         function SjNothing() { return 1; }
+        // Fills a list as a mesher fills its faces: whole numbers and fractions that repeat.
+        function SjFillFaces(faces, n) {
+            for (var f = 0; f < n; f = f + 1) {
+                var x = f % 16 + 0.5; var u = (f % 32) / 32 + 0.0002; var l = (f % 15) / 15;
+                for (var k = 0; k < 12; k = k + 1) { DsListAdd(faces, x); DsListAdd(faces, u); DsListAdd(faces, l); }
+            }
+            return DsListSize(faces);
+        }
         // Reads two globals itself and one through a function it calls; another reads one by name.
         function SjReadsThree() { return jvUsed * 10 + StringLength(jvText) + SjReadsDeep(); }
         function SjReadsDeep() { return jvDeep; }
@@ -589,6 +597,45 @@ internal static partial class PgslWorkerJobChecks
                 $"8 000 adds of repeating fractions allocated {bytes / 1024.0:F1} KB (a box each was about 190 KB); entries {second}, {third}");
             HeadlessHarness.Assert(values, $"The list holds {size} entries with {second} and {third} at 2 and 3.");
             HeadlessHarness.Assert(bytes < 32 * 1024, $"8 000 adds of repeating fractions to a reserved list allocated {bytes / 1024.0:F1} KB.");
+        });
+
+        // A list the game gives room (DsListReserve) and then to a job with copyBack keeps that room
+        // when the job's first add copies it, so filling it in the job grows nothing; the repeating
+        // fractions it adds reuse their boxes there too.
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.Jobs.AReservedListKeepsItsRoomInAJob", () =>
+        {
+            using Bench bench = new();
+            bool was = PgslAllocationLedger.Enabled;
+            PgslAllocationLedger.Enabled = true;
+            try
+            {
+                long fewest = long.MaxValue;
+                (long Made, long Reused) boxes = default;
+                double size = 0;
+                for (int round = 0; round < 3; round++)
+                {
+                    PgslAllocationLedger.Reset();
+                    double job = bench.Number("""pf = DsListCreate(); DsListReserve(pf, 40000); pj = JobScriptCreate("SjFillFaces"); JobScriptList(pj, pf, true); JobScriptStart(pj, pf, 1000); r = pj;""");
+                    HeadlessHarness.Assert(bench.Wait(job) == "succeeded", "The filling job failed: " + PgslCommands.JobError(job));
+                    size = PgslCommands.JobResultNumber(job);
+                    PgslCommands.JobRelease(job);
+                    var add = PgslAllocationLedger.Commands(200, id => Genesis.Runtime.Scripting.VM.VMEngine.Bridge?.NativeName(id)).FirstOrDefault(c => c.Command == "DsListAdd");
+                    fewest = Math.Min(fewest, add.Bytes);
+                    boxes = PgslAllocationLedger.Boxes;
+                }
+                // The job's first add copies the game's list, room and all (40 000 slots, 312.5 KB): that one copy and nothing more.
+                const long OneCopy = 40000L * 8;
+                bool pass = size == 36000 && fewest < OneCopy + 32 * 1024;
+                row("Jobs: shared data", "a reserved list keeps its room in a job; 36 000 adds there grow nothing", pass ? "PASS" : "FAIL",
+                    $"36 000 adds allocated {fewest / 1024.0:F1} KB, the first add's copy of the 40 000-slot list included (growing from nothing was about 1 MB); boxes {boxes.Made} new, {boxes.Reused} reused");
+                HeadlessHarness.Assert(size == 36000, $"The job's list holds {size} entries, not 36 000.");
+                HeadlessHarness.Assert(fewest < OneCopy + 32 * 1024, $"36 000 adds to a reserved list in a job allocated {fewest / 1024.0:F1} KB.");
+            }
+            finally
+            {
+                PgslAllocationLedger.Enabled = was;
+                PgslAllocationLedger.Reset();
+            }
         });
 
         // Emptying a list or map a running job holds gives this side a new empty one, not a copy of

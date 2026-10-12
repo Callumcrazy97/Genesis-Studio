@@ -542,6 +542,12 @@ public sealed class DebugProfileRecording : IDisposable
             foreach (PgslAllocationLedger.ScopeAllocation scope in PgslAllocationLedger.Scopes(20))
                 Line($"| {Escape(scope.Name)} | {F(scope.Outside / (1024.0 * 1024.0), "0.0")} | {F(scope.InCommands / (1024.0 * 1024.0), "0.0")} | {scope.Runs} |");
             Line();
+            (long boxesMade, long boxesReused) = PgslAllocationLedger.Boxes;
+            if (boxesMade + boxesReused > 0)
+            {
+                Line($"Numbers stored in collections that are not small whole numbers: {boxesMade} boxed anew (about {F(boxesMade * 24 / (1024.0 * 1024.0), "0.0")} MB, counted in the commands that stored them), {boxesReused} reused a recent box.");
+                Line();
+            }
             var copies = PgslAllocationLedger.Copies();
             if (copies.Count > 0)
             {

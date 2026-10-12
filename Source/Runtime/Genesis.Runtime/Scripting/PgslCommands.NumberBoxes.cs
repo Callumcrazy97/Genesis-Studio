@@ -30,9 +30,14 @@ public static partial class PgslCommands
         long bits = BitConverter.DoubleToInt64Bits(value);
         int index = (int)(unchecked((ulong)bits * 0x9E3779B97F4A7C15UL) >> (64 - RecentBoxBits));
         object recent = RecentBoxes[index];
-        if (recent is double kept && BitConverter.DoubleToInt64Bits(kept) == bits) return recent;
+        if (recent is double kept && BitConverter.DoubleToInt64Bits(kept) == bits)
+        {
+            if (PgslAllocationLedger.Enabled) PgslAllocationLedger.CountBox(made: false);
+            return recent;
+        }
         object box = value;
         RecentBoxes[index] = box;
+        if (PgslAllocationLedger.Enabled) PgslAllocationLedger.CountBox(made: true);
         return box;
     }
 }

@@ -88,6 +88,13 @@ public static partial class PgslCommands
         Store is { } store && store.TryGetValue(DsKey(family, (int)handle), out object value) && value is SharedData shared
             ? Volatile.Read(ref shared.Holders) : 0;
 
+    private static List<object> CopyList(List<object> list)
+    {
+        var copy = new List<object>(System.Math.Max(list.Capacity, list.Count));
+        copy.AddRange(list);
+        return copy;
+    }
+
     private static string StructureFamily(object value) => value switch
     {
         PgslGrid => "grids",
@@ -110,8 +117,10 @@ public static partial class PgslCommands
     private static object CopyStructure(object value) => value switch
     {
         PgslGrid grid => grid.Clone(),
-        // Entries are numbers, text, true/false or collection references, none of which change.
-        List<object> list => new List<object>(list),
+        // Entries are numbers, text, true/false or collection references, none of which change. The
+        // copy keeps the list's room: a list given room (DsListReserve) and then to a job, which
+        // writes it first, would otherwise grow again from nothing in the job.
+        List<object> list => CopyList(list),
         PgslMap map => map.Copy(),
         PgslPriority priority => priority.Clone(),
         _ => value,

@@ -131,10 +131,26 @@ public static class PgslAllocationLedger
 
     private static Dictionary<(string Family, bool ByJob), (long Copies, long Bytes)> _reportedCopies = new();
 
+    // Numbers stored in collections that were not small whole numbers: boxed anew, or a recent box reused.
+    private static long _boxesMade, _boxesReused, _reportedBoxesMade, _reportedBoxesReused;
+
+    internal static void CountBox(bool made)
+    {
+        if (made) System.Threading.Interlocked.Increment(ref _boxesMade);
+        else System.Threading.Interlocked.Increment(ref _boxesReused);
+    }
+
+    /// <summary>Numbers stored in collections (not small whole numbers) since the last reset: new boxes (24 bytes each) and reused ones.</summary>
+    public static (long Made, long Reused) Boxes =>
+        (System.Threading.Interlocked.Read(ref _boxesMade), System.Threading.Interlocked.Read(ref _boxesReused));
+
     /// <summary>Forgets everything measured so far (a recording starting).</summary>
     public static void Reset()
     {
         lock (CopiesMade) CopiesMade.Clear();
+        System.Threading.Interlocked.Exchange(ref _boxesMade, 0);
+        System.Threading.Interlocked.Exchange(ref _boxesReused, 0);
+        _reportedBoxesMade = _reportedBoxesReused = 0;
         lock (Sheets)
         {
             _reportedCopies = new Dictionary<(string, bool), (long, long)>();
@@ -217,6 +233,16 @@ public static class PgslAllocationLedger
             {
                 if (text.Length > 0) text.Append(". ");
                 text.Append("Copied because a running job held them (counted in the commands that wrote them): ").Append(string.Join(", ", newCopies));
+            }
+            (long boxesMade, long boxesReused) = Boxes;
+            long newMade = boxesMade - _reportedBoxesMade, newReused = boxesReused - _reportedBoxesReused;
+            _reportedBoxesMade = boxesMade;
+            _reportedBoxesReused = boxesReused;
+            if (newMade + newReused > 0)
+            {
+                if (text.Length > 0) text.Append(". ");
+                text.Append(string.Create(CultureInfo.InvariantCulture,
+                    $"Numbers stored in collections (not small whole numbers): {newMade} boxed anew ({Megabytes(newMade * 24)}), {newReused} reused a recent box"));
             }
             return text.ToString();
         }
