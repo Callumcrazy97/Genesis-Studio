@@ -183,6 +183,8 @@ DECOR = {"t": 16, "f": 17, "m": 18, "b": 19, "n": 20, "s": 21, "v": 22, "r": 23,
 ACTORS = set("@oOaeukZHRghW")
 # (column, row) of a seed pod -> Prize marker object placed at the block's centre.
 PRIZES = {(37, 6): "Prize Shield", (39, 6): "Prize Spore", (38, 3): "Prize Star"}
+# Optional pickups: the Sword just past the first acorn, the Propeller Flower beside the first giant cap.
+ITEM_PICKUPS = [("Item Sword", 21, 8), ("Item Propeller Flower", 89, 8)]
 SOLID_TILES = set(range(0, 16)) | set(range(24, 29)) | {33, 34, 38}
 
 
@@ -377,6 +379,12 @@ def main():
         instance("Heart Berry %d" % i, "Heart Berry", x, y)
     x, y = place("W", found["W"][0])
     instance("Glowspore", "Glowspore", x, y)
+    # Round 4: optional item pickups on open floor (Item Kit). (object, column, row of the empty cell above the floor)
+    for i, (prefab, c, r) in enumerate(ITEM_PICKUPS, 1):
+        assert grid[r][c] in ".tfmbnsvrc|" and grid[r + 1][c] == "G", "item %s needs open floor" % prefab
+        x, y = c * 32 + 16, (r + 1) * 32 - 12
+        clear("g", x, y)
+        instance("%s %d" % (prefab, i), prefab, x, y)
     for (c, r), prize in sorted(PRIZES.items()):
         assert grid[r][c] == "?", "%s must sit on a seed pod (column %d row %d)" % (prize, c, r)
         x, y = cell_center(c, r)

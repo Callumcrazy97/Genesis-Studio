@@ -165,10 +165,10 @@ CAVERN_SECTIONS = [
         "################################",
         "################################",
         "...b......b...l...v.....b...l...",
-        "............3...................",
-        "........oo..........oo....oo....",
         "",
+        "........oo..3.......oo....oo....",
         "",
+        "..............S.................",
         "............PP..................",
         "..m...PP....PP....PP....PP..f...",
         "####^^PP^^^^PP^^^^PP^^^^PP^^####",
@@ -209,10 +209,10 @@ CAVERN_SECTIONS = [
         "..l....v....l...",
         "",
         "",
+        "",
         "........5.......",
         "",
-        "",
-        ".n...k......f...",
+        ".n...k....S.f...",
         "################",
         "################",
         "################",
@@ -621,6 +621,18 @@ def prize_and_extra_instances(room, plan):
                 plan.append(("Crumble %03d" % (c * 100 + r), "Crumble Block", c * CELL, r * CELL, 0))
 
 
+# Round 4: optional item pickups (Item Kit): (object, column, row of the empty cell above a solid floor cell).
+CAVERN_ITEMS = [("Item Shield", 8, 8), ("Item Bow", 71, 8)]
+CANOPY_ITEMS = [("Item Propeller Flower", 8, 8), ("Item Bow", 26, 7)]
+
+
+def item_instances(room, plan, items):
+    for n, (prefab, c, r) in enumerate(items, 1):
+        assert room.grid[r][c] in CAVERN_DECOR or room.grid[r][c] in CANOPY_DECOR or room.grid[r][c] == ".",             "%s at %d,%d is not open floor" % (prefab, c, r)
+        assert room.grid[r + 1][c] in "#=MS", "%s at %d,%d has no floor under it" % (prefab, c, r)
+        plan.append(("%s %02d" % (prefab, n), prefab, c * CELL + 16, (r + 1) * CELL - 12, 0))
+
+
 def glow_instances(room, plan):
     count = 0
     for cell in room.layers["Decor"]:
@@ -650,7 +662,8 @@ SHAKE_FN = ("var shakeOn = 1;\n"
 FLIT_BAT_CREATE = ENEMY_NOTE + """enemy = 1; hp = 1; stompable = 1; contactDamage = 1; points = 200; dead = 0; hurt = 0;
 // mode 0 hangs asleep, 1 swoops through where Pip stood, 2 flutters and swoops again.
 mode = 0; t = 0; sx = x; sy = y; ex = x; dip = 0; cool = 0; flap = 0; flash = 0; dieTime = 0; vy = 0;
-roostY = y; homeX = x; facing = 1; lastX = x;
+roostY = y; homeX = x; facing = 1; lastX = x; baseX = x; baseY = y;
+GoreEnemyInit(0, 1, 16, 12, 8);
 AnimationPlay("Hang", true); AnimationSetSpeed(0);
 ShaderSet("Assets/Shaders/Pixel Flash.shader.json"); ShaderSetParameter("Flash", 0);
 """
@@ -659,15 +672,19 @@ FLIT_BAT_STEP = """if (RoomValueGet("frozen", 0) == 1) { AnimationSetSpeed(0); r
 var dt = Clamp(DeltaTime, 0, 0.05);
 if (dt <= 0) { return; }
 if (hurt > 0 && dead == 0) {
+    GoreEnemyHit();
     hp = hp - hurt; hurt = 0; flash = 0.2;
     if (hp <= 0) {
         dead = 1; dieTime = 0; vy = -140; stompable = 0; contactDamage = 0;
+        var goreResult = GoreEnemyDeath();
+        if (goreResult > 0) { InstanceDestroy(id); return; }
         Particle2DBurst("Assets/Particles/Bat Poof.particle.json", x, y, 16, 90);
     }
 }
 flash = Max(0, flash - dt);
 ShaderSetParameter("Flash", Min(1, flash * 6));
 if (dead == 1) {
+    if (hurt > 0 && GoreCorpseHit() == 1) { InstanceDestroy(id); return; }
     dieTime = dieTime + dt; vy = vy + 900 * dt; y = y + vy * dt;
     image_angle = image_angle + 600 * dt; image_alpha = Max(0, 1 - dieTime * 1.5);
     if (dieTime > 0.7) { InstanceDestroy(id); }
@@ -677,6 +694,26 @@ var hero = InstanceFind("Explorer", 0);
 var hx = x; var hy = y - 1000;
 if (hero > 0) { hx = InstanceGetX(hero); hy = InstanceGetY(hero); }
 cool = Max(0, cool - dt);
+var scared = FearCheck(170);
+if (scared == 1) {
+    // Afraid of a brutal Pip: wakes and flees (mode 3) near its roost, a little lower than the ceiling;
+    // walled in or at the edge of its range it hovers and cowers.
+    mode = 3; AnimationSetSpeed(1);
+    var away = FearDir();
+    var fx = x + away * 120 * dt;
+    if (Abs(fx - baseX) > 260 || TileMeeting(fx, y)) { FearCower(1); } else { x = fx; FearCower(0); }
+    y = y + ((baseY + 12 + Sin(flap * 300) * 5) - y) * Min(1, dt * 3);
+    flap = flap + dt;
+    if (x < lastX - 0.05) { image_xscale = -1; }
+    if (x > lastX + 0.05) { image_xscale = 1; }
+    lastX = x;
+    return;
+}
+if (mode == 3) {
+    // Calm again: flutter about here as after a swoop.
+    mode = 2; homeX = x; roostY = y; cool = 1.2; flap = 0; facing = 1;
+    AnimationPlay("Fly", true); AnimationSetSpeed(1);
+}
 if (mode == 0) {
     // Asleep under the ceiling until Pip walks below.
     if (hy > y + 40 && hy - y < 320 && Abs(hx - x) < 150) {
@@ -717,6 +754,7 @@ GLOW_GRUB_CREATE = ENEMY_NOTE + """enemy = 1; hp = 1; stompable = 1; contactDama
 moveDirection = -1; fallSpeed = 0; dieTime = 0; pulse = x % 360; flash = 0;
 // LEVELS-A owns 2D light ids 300-499 (handed out in creation order).
 lightId = 300 + RoomValueGet("levelsALightNext", 0) % 200; RoomValueSet("levelsALightNext", RoomValueGet("levelsALightNext", 0) + 1);
+GoreEnemyInit(1, 1, 16, 20, 0);
 AnimationPlay("Crawl", true); AnimationSetSpeed(0);
 ShaderSet("Assets/Shaders/Pixel Flash.shader.json"); ShaderSetParameter("Flash", 0);
 Light2DPoint(lightId, x, y - 9, 72, 0.9, 0.55, 1.0, 0.5);
@@ -726,9 +764,12 @@ GLOW_GRUB_STEP = """if (RoomValueGet("frozen", 0) == 1) { AnimationSetSpeed(0); 
 var dt = Clamp(DeltaTime, 0, 0.05);
 if (dt <= 0) { return; }
 if (hurt > 0 && dead == 0) {
+    GoreEnemyHit();
     hp = hp - hurt; hurt = 0; flash = 0.2;
     if (hp <= 0) {
         dead = 1; dieTime = 0; stompable = 0; contactDamage = 0;
+        var goreResult = GoreEnemyDeath();
+        if (goreResult > 0) { Light2DRemove(lightId); InstanceDestroy(id); return; }
         Particle2DBurst("Assets/Particles/Grub Glow.particle.json", x, y - 8, 18, 90);
     }
 }
@@ -744,13 +785,26 @@ if (dead == 1) {
     return;
 }
 AnimationSetSpeed(1);
-if (TileMeeting(x, y + 1)) {
-    if (!TileMeeting(x + moveDirection * 18, y + 2)) { moveDirection = -moveDirection; }
+var scared = FearCheck(120);
+if (scared == 1) {
+    // Afraid of a brutal Pip: hurries away (about 1.6x); a ledge or wall stops it and it cowers.
+    moveDirection = FearDir();
+    var fleeStep = moveDirection * 52 * dt;
+    var fleeEdge = 0;
+    if (TileMeeting(x, y + 1) && !TileMeeting(x + moveDirection * 18, y + 2)) { fleeEdge = 1; }
+    var fleeTo = x;
+    if (fleeEdge == 0) { fleeTo = TileMoveX(x, y, fleeStep); }
+    if (fleeEdge == 1 || Abs(x + fleeStep - fleeTo) > 0.001) { FearCower(1); } else { FearCower(0); }
+    x = fleeTo;
+} else {
+    if (TileMeeting(x, y + 1)) {
+        if (!TileMeeting(x + moveDirection * 18, y + 2)) { moveDirection = -moveDirection; }
+    }
+    var requested = x + moveDirection * 32 * dt;
+    var permitted = TileMoveX(x, y, moveDirection * 32 * dt);
+    if (Abs(requested - permitted) > 0.001) { moveDirection = -moveDirection; }
+    x = permitted;
 }
-var requested = x + moveDirection * 32 * dt;
-var permitted = TileMoveX(x, y, moveDirection * 32 * dt);
-if (Abs(requested - permitted) > 0.001) { moveDirection = -moveDirection; }
-x = permitted;
 fallSpeed = Min(fallSpeed + 1250 * dt, 600);
 var wanted = y + fallSpeed * dt;
 y = TileMoveY(x, y, fallSpeed * dt);
@@ -762,7 +816,7 @@ if (y > RoomGetHeight() + 80) { Light2DRemove(lightId); InstanceDestroy(id); }
 
 STALACTITE_CREATE = ENEMY_NOTE + """enemy = 1; hp = 1; stompable = 0; contactDamage = 1; points = 50; dead = 0; hurt = 0;
 // mode 0 hangs, 1 trembles (a warning), 2 falls and shatters on the floor.
-mode = 0; t = 0; vy = 0; homeX = x;
+mode = 0; t = 0; vy = 0; homeX = x; maxHp = 1; bloodKind = -1; weak = 0;
 AnimationPlay("Hang", true); AnimationSetSpeed(0);
 """
 
@@ -841,7 +895,7 @@ if (mode == 0) {
 
 PEBBLE_CREATE = ENEMY_NOTE + """enemy = 1; hp = 1; stompable = 0; contactDamage = 1; points = 0; dead = 0; hurt = 0;
 // Falls from the arena ceiling; a contact shadow on the floor warns where it lands.
-vy = 40; shadowId = 31000 + id; groundY = y; spin = RandomRange(-400, 400);
+vy = 40; shadowId = 31000 + id; groundY = y; spin = RandomRange(-400, 400); maxHp = 1; bloodKind = -1; weak = 0;
 var probe = 0;
 while (probe < 40 && groundY < RoomGetHeight() && TileIndexAt(x, groundY, "World") < 0) { groundY = groundY + 8; probe = probe + 1; }
 groundY = Floor(groundY / 32) * 32;
@@ -905,6 +959,7 @@ GRUMBLE_CREATE = ENEMY_NOTE + """enemy = 1; hp = 3; stompable = 0; contactDamage
 // "Gate" tile layer in its first column (blank 39 while open, crystal 33 while closed).
 state = 0; t = 0; facing = -1; vx = 0; vy = 0; flash = 0; pattern = 0; rolls = 0; rage = 0;
 homeX = x; homeY = y; gateX = RoomGetWidth() - 640; deathX = x; burstT = 0; roared = 0; maxHp = 3;
+GoreEnemyInit(5, 0, 48, 72, 0); isBoss = 1;
 barShown = 0; barHp = 3;
 // tilt is the drawn wobble only (see Step); graceT keeps a roll harmless for a moment after a hit.
 tilt = 0; graceT = 0; arenaL = gateX + 72; arenaR = RoomGetWidth() - 72;
@@ -961,6 +1016,7 @@ flash = Max(0, flash - dt);
 if (hurt > 0) {
     if (state == 5) {
         // dead = 1 while it reels: the Explorer ignores it, so Pip's bounce cannot land on a live shell.
+        GoreEnemyHit();
         hp = hp - 1; flash = 0.6; stompable = 0; contactDamage = 0; state = 7; t = 0; vx = 0; dead = 1;
         GrumbleLook("Hurt");
         PlaySound("Assets/Audio/Boss Hit.audio.json", 1, 1, false);
@@ -1045,6 +1101,7 @@ if (state == 0) {
     if (t >= 0.9) {
         if (hp <= 0) {
             state = 9; t = 0; dead = 1; stompable = 0; contactDamage = 0; deathX = x; burstT = 0;
+            GoreEnemyDeath();
             GrumbleLook("Hurt"); AnimationSetSpeed(0);
             PlaySound("Assets/Audio/Boss Roar.audio.json", 1, 0.8, false);
         } else {
@@ -1146,6 +1203,7 @@ MOTH_CREATE = ENEMY_NOTE + """enemy = 1; hp = 1; stompable = 1; contactDamage = 
 // Dusk Moth: a lazy figure-eight around its post; when Pip comes close it winds up and swoops.
 homeX = x; homeY = y; mode = 0; t = (x * 13) % 360; cool = 1.2; sx = x; sy = y; tx = x; ty = y;
 flash = 0; dieTime = 0; vy = 0; trail = 0; lastX = x; wind = 0;
+GoreEnemyInit(3, 1, 16, 12, 8);
 AnimationPlay("Fly", true); AnimationSetSpeed(0);
 ShaderSet("Assets/Shaders/Pixel Flash.shader.json"); ShaderSetParameter("Flash", 0);
 ShaderSetParameter("Shimmer", 0.4); ShaderSetParameter("ShimmerSpeed", 0.9);
@@ -1155,21 +1213,40 @@ MOTH_STEP = """if (RoomValueGet("frozen", 0) == 1) { AnimationSetSpeed(0); retur
 var dt = Clamp(DeltaTime, 0, 0.05);
 if (dt <= 0) { return; }
 if (hurt > 0 && dead == 0) {
+    GoreEnemyHit();
     hp = hp - hurt; hurt = 0; flash = 0.2;
     if (hp <= 0) {
         dead = 1; dieTime = 0; vy = -100; stompable = 0; contactDamage = 0;
+        var goreResult = GoreEnemyDeath();
+        if (goreResult > 0) { InstanceDestroy(id); return; }
         Particle2DBurst("Assets/Particles/Moth Dust.particle.json", x, y, 20, 90);
     }
 }
 flash = Max(0, flash - dt);
 ShaderSetParameter("Flash", Min(1, flash * 6));
 if (dead == 1) {
+    if (hurt > 0 && GoreCorpseHit() == 1) { InstanceDestroy(id); return; }
     dieTime = dieTime + dt; vy = vy + 700 * dt; y = y + vy * dt;
     image_angle = image_angle - 420 * dt; image_alpha = Max(0, 1 - dieTime * 1.6);
     if (dieTime > 0.65) { InstanceDestroy(id); }
     return;
 }
 AnimationSetSpeed(1);
+var scared = FearCheck(150);
+if (scared == 1) {
+    // Afraid of a brutal Pip: flutters off (within 220 px of its post), a little higher; walled in it cowers.
+    mode = 4;
+    var away = FearDir();
+    var fx = x + away * 110 * dt;
+    if (Abs(fx - homeX) > 220 || TileMeeting(fx, y)) { FearCower(1); } else { x = fx; FearCower(0); }
+    y = y + ((homeY - 18 + Sin(t * 5) * 6) - y) * Min(1, dt * 2);
+    t = t + dt * 60;
+    if (x < lastX - 0.05) { image_xscale = -1; }
+    if (x > lastX + 0.05) { image_xscale = 1; }
+    lastX = x;
+    return;
+}
+if (mode == 4) { mode = 3; t = 0; sx = x; sy = y; }
 var hero = InstanceFind("Explorer", 0);
 var hx = x; var hy = y + 1000;
 if (hero > 0) { hx = InstanceGetX(hero); hy = InstanceGetY(hero) - 18; }
@@ -1216,6 +1293,7 @@ HOPPER_CREATE = ENEMY_NOTE + """enemy = 1; hp = 1; stompable = 1; contactDamage 
 // Burr Hopper: sits still (spines flat: stompable), then hops toward Pip with its burrs out
 // (not stompable in the air). It never hops off a branch on purpose.
 moveDirection = -1; vx = 0; vy = 0; airborne = 0; wait = 0.6 + (x % 50) / 50; flash = 0; dieTime = 0;
+GoreEnemyInit(0, 1, 14, 28, 0);
 AnimationPlay("Idle", true); AnimationSetSpeed(0);
 ShaderSet("Assets/Shaders/Pixel Flash.shader.json"); ShaderSetParameter("Flash", 0);
 """
@@ -1224,9 +1302,12 @@ HOPPER_STEP = """if (RoomValueGet("frozen", 0) == 1) { return; }
 var dt = Clamp(DeltaTime, 0, 0.05);
 if (dt <= 0) { return; }
 if (hurt > 0 && dead == 0) {
+    GoreEnemyHit();
     hp = hp - hurt; hurt = 0; flash = 0.2;
     if (hp <= 0) {
         dead = 1; dieTime = 0; stompable = 0; contactDamage = 0;
+        var goreResult = GoreEnemyDeath();
+        if (goreResult > 0) { InstanceDestroy(id); return; }
         Particle2DBurst("Assets/Particles/Burr Fluff.particle.json", x, y - 12, 16, 90);
     }
 }
@@ -1242,18 +1323,33 @@ if (dead == 1) {
 var hero = InstanceFind("Explorer", 0);
 var hx = x;
 if (hero > 0) { hx = InstanceGetX(hero); }
+var scared = FearCheck(150);
 if (airborne == 0) {
     wait = wait - dt;
+    if (scared == 1) { AnimationPlay("Scared", true); }
     if (wait <= 0) {
-        if (Abs(hx - x) < 260 && Abs(hx - x) > 4) { moveDirection = Sign(hx - x); }
-        var hop = 1;
-        if (!TileMeeting(x + moveDirection * 74, y + 2) || TileMeeting(x + moveDirection * 36, y - 6)) {
-            moveDirection = -moveDirection;
-            if (!TileMeeting(x + moveDirection * 74, y + 2) || TileMeeting(x + moveDirection * 36, y - 6)) { hop = 0; }
+        if (scared == 1) {
+            // Afraid of a brutal Pip: hops away; with a wall or drop that way it cowers instead.
+            moveDirection = FearDir();
+            if (!TileMeeting(x + moveDirection * 74, y + 2) || TileMeeting(x + moveDirection * 36, y - 6)) {
+                wait = 0.3; FearCower(1);
+            } else {
+                FearCower(0);
+                airborne = 1; stompable = 0; vy = -430; vx = moveDirection * 140;
+                AnimationPlay("Jump", true);
+                Particle2DBurst("Assets/Particles/Burr Fluff.particle.json", x, y - 2, 3, 90);
+            }
+        } else {
+            if (Abs(hx - x) < 260 && Abs(hx - x) > 4) { moveDirection = Sign(hx - x); }
+            var hop = 1;
+            if (!TileMeeting(x + moveDirection * 74, y + 2) || TileMeeting(x + moveDirection * 36, y - 6)) {
+                moveDirection = -moveDirection;
+                if (!TileMeeting(x + moveDirection * 74, y + 2) || TileMeeting(x + moveDirection * 36, y - 6)) { hop = 0; }
+            }
+            airborne = 1; stompable = 0; vy = -430; vx = moveDirection * 110 * hop;
+            AnimationPlay("Jump", true);
+            Particle2DBurst("Assets/Particles/Burr Fluff.particle.json", x, y - 2, 3, 90);
         }
-        airborne = 1; stompable = 0; vy = -430; vx = moveDirection * 110 * hop;
-        AnimationPlay("Jump", true);
-        Particle2DBurst("Assets/Particles/Burr Fluff.particle.json", x, y - 2, 3, 90);
     }
 } else {
     var reqX = x + vx * dt;
@@ -1729,6 +1825,7 @@ def build_cavern():
     room.build_tiles()
     plan = plan_instances(room, CAVERN_ACTORS)
     prize_and_extra_instances(room, plan)
+    item_instances(room, plan, CAVERN_ITEMS)
     glows = glow_instances(room, plan)
     room.instance_plan = plan
     assert len(room.actors.get("O", [])) + len(room.actors.get("Y", [])) == 3, "three Big Sun Coins"
@@ -1747,6 +1844,7 @@ def build_canopy():
     room.build_tiles()
     plan = plan_instances(room, CANOPY_ACTORS)
     prize_and_extra_instances(room, plan)
+    item_instances(room, plan, CANOPY_ITEMS)
     plan.insert(1, ("Wind Controller", "Wind Controller", 48, 16, -150))
     room.instance_plan = plan
     assert len(room.actors.get("O", [])) == 3, "three Big Sun Coins"

@@ -142,7 +142,7 @@ starTimer = 0; sparkleTimer = 0; shotCooldown = 0; throwTimer = 0; gliding = 0; 
 swimSpeed = 120; swimBob = 0;
 windVx = 0; riding = 0; contactGrace = 0; talking = 0;
 levelId = 1; hub = 0; dark = 0; levelName = "MUSHROOM MEADOW";
-menuItems = [0, 1, 3]; menuIndex = 0; menuNote = 0;
+menuItems = [0, 1, 2]; menuIndex = 0; menuNote = 0;
 clearTimer = 0; clearKind = 0; clearJingle = 0; leaveReason = 0; overTimer = 0; bannerTimer = 0;
 enemyNames = ENEMY_LIST;
 itemNames = ITEM_LIST;
@@ -154,7 +154,19 @@ hasRainbow = ResourceExists("Rainbow Glow");
 // sv scales every effect; the sfx option volume itself is applied to the sfx bus (Apply Options).
 sv = 1;
 shakeOn = 1; if (GlobalExists("shake")) { shakeOn = GlobalGet("shake"); }
-muted = GlobalGet("muted"); SetMasterVolume(1 - muted);
+muted = GlobalGet("muted"); if (muted == 1) { SetMasterVolume(0); }
+// Round 4 kits. Each is optional: when a Script is missing Pip falls back to the old behaviour.
+hasInput = ResourceExists("Input Kit"); hasOptions = ResourceExists("Options Kit");
+hasItems = ResourceExists("Item Kit"); hasRep = ResourceExists("Reputation Kit"); hasGore = ResourceExists("Gore Kit");
+tipsOn = 1; if (GlobalExists("tips")) { tipsOn = GlobalGet("tips"); }
+pauseMode = 0; hurtSource = 0; menuStick = 0; menuMouseX = -1; menuMouseY = -1;
+repStageNow = 0; repStageSeen = -1; toastText = ""; toastTimer = 0; taintClock = 0; twitchTimer = 4; leakTimer = 0;
+// Held item and arrows carry between rooms in the globals heldItem and arrows (Item Kit); a standalone
+// room starts empty-handed. entryHeld/entryArrows are put back on a restart or Save and Quit.
+if (campaign == 0) { GlobalSet("heldItem", 0); GlobalSet("arrows", 0); }
+entryHeld = GlobalGet("heldItem"); entryArrows = GlobalGet("arrows");
+if (hasInput == 1) { InputInit(); }
+if (hasItems == 1) { ItemInit(); }
 if (GlobalExists("crt")) {
     RoomValueSet("crt", GlobalGet("crt"));
     PostEffectSetParameter("SNES Look", "Scanlines", GlobalGet("crt"));
@@ -169,7 +181,11 @@ ShaderSet("Assets/Shaders/Pixel Flash.shader.json");
 
 EXPLORER_STEP = r"""
 var dt = Clamp(DeltaTime, 0, 0.05);
+// Input Kit: once per frame, before anything reads an action (detects the last-used device, sprint toggle).
+if (hasInput == 1) { InputUpdate(); }
 if (dt <= 0) { return; }
+// Options > Gameplay > Enable Tips (live: it can change from the pause menu).
+tipsOn = 1; if (GlobalExists("tips")) { tipsOn = GlobalGet("tips"); }
 
 // ---- room rules (Level Rules publishes them in its Create; every Create runs before any Step)
 if (rulesRead == 0) {
@@ -180,10 +196,11 @@ if (rulesRead == 0) {
     }
     levelId = RoomValueGet("levelId", 1); hub = RoomValueGet("hub", 0); dark = RoomValueGet("dark", 0);
     timeLimit = RoomValueGet("timeLimit", 300); timeLeft = timeLimit;
-    if (hub == 1 || campaign == 1) {
-        // Campaign levels and the village skip the title card: play straight away.
+    if (hub == 1 || campaign == 1 || tipsOn == 0) {
+        // Campaign levels, the village and (tips off) a standalone room skip the title card: play straight away.
+        // The "About This Level" surfaces (title card, STAGE banner) only appear with Enable Tips on.
         state = 1; RoomValueSet("frozen", 0); RoomValueSet("musicState", 1);
-        if (hub == 0) { bannerTimer = 2.6; }
+        if (hub == 0 && tipsOn == 1) { bannerTimer = 2.6; }
         if (hasRules == 0) {
             music = PlaySound("Assets/Audio/Meadow Theme.audio.json", 0.6, 1, true);
             ambience = PlaySound("Assets/Audio/Meadow Ambience.audio.json", 0.35, 1, true);
@@ -209,22 +226,44 @@ GlobalSet("lives", lives); GlobalSet("coins", coins); GlobalSet("hearts", hearts
 GlobalSet("maxHearts", maxHearts); GlobalSet("power", powerUp);
 wroteLives = lives; wroteCoins = coins; wroteHearts = hearts; wroteMaxHearts = maxHearts; wrotePower = powerUp;
 
-// ---- input: keyboard and gamepad (the pad's A also presses Space)
-var padX = GamepadAxis("LeftX"); var padY = GamepadAxis("LeftY");
-var inLeft = KeyCheck("A") || KeyCheck("Left") || GamepadCheck("Left") || padX < -0.35;
-var inRight = KeyCheck("D") || KeyCheck("Right") || GamepadCheck("Right") || padX > 0.35;
-var inUp = KeyCheck("W") || KeyCheck("Up") || GamepadCheck("Up") || padY > 0.5;
-var inDown = KeyCheck("S") || KeyCheck("Down") || GamepadCheck("Down") || padY < -0.5;
-var jumpHeld = KeyCheck("Space") || KeyCheck("W") || KeyCheck("Up") || GamepadCheck("A");
-var jumpPressed = KeyPressed("Space") || KeyPressed("W") || KeyPressed("Up") || GamepadPressed("A");
-var runHeld = KeyCheck("Shift") || GamepadCheck("B") || GamepadCheck("RB");
-var actionPressed = KeyPressed("J") || KeyPressed("X") || KeyPressed("E") || GamepadPressed("X") || GamepadPressed("Y");
-var pausePressed = KeyPressed("P") || KeyPressed("Escape") || GamepadPressed("Start");
-var confirmPressed = KeyPressed("Enter") || KeyPressed("Space") || KeyPressed("J") || GamepadPressed("A");
-if (KeyPressed("M")) {
-    muted = 1 - muted; GlobalSet("muted", muted);
-    SetMasterVolume(1 - muted);
+// ---- input: every action comes from the Input Kit (bindings, both devices, sprint hold/toggle).
+// Without the kit the old direct key and gamepad reads below keep the game playable.
+var inLeft = 0; var inRight = 0; var inUp = 0; var inDown = 0;
+var jumpHeld = 0; var jumpPressed = 0; var strokePressed = 0; var runHeld = 0;
+var usePressed = 0; var useHeld = 0; var throwPressed = 0; var interactPressed = 0;
+if (hasInput == 1) {
+    var axisX = InputAxisX(); var axisY = InputAxisY();
+    inLeft = InputDown("left") || axisX < -0.35;
+    inRight = InputDown("right") || axisX > 0.35;
+    // InputAxisY is in screen direction: up is -1, down is +1.
+    inUp = InputDown("up") || axisY < -0.5;
+    inDown = InputDown("down") || axisY > 0.5;
+    jumpHeld = InputDown("jump");
+    jumpPressed = InputPressed("jump");
+    // A swimming stroke is the jump button, except when it is the same press as "up" (W swims up, no burst).
+    strokePressed = jumpPressed && !InputPressed("up");
+    runHeld = InputSprintHeld();
+    usePressed = InputPressed("use"); useHeld = InputDown("use");
+    throwPressed = InputPressed("throw"); interactPressed = InputPressed("interact");
+} else {
+    var padX = GamepadAxis("LeftX"); var padY = GamepadAxis("LeftY");
+    inLeft = KeyCheck("A") || KeyCheck("Left") || GamepadCheck("Left") || padX < -0.35;
+    inRight = KeyCheck("D") || KeyCheck("Right") || GamepadCheck("Right") || padX > 0.35;
+    inUp = KeyCheck("W") || KeyCheck("Up") || GamepadCheck("Up") || padY > 0.5;
+    inDown = KeyCheck("S") || KeyCheck("Down") || GamepadCheck("Down") || padY < -0.5;
+    jumpHeld = KeyCheck("Space") || KeyCheck("W") || KeyCheck("Up") || GamepadCheck("A");
+    jumpPressed = KeyPressed("Space") || KeyPressed("W") || KeyPressed("Up") || GamepadPressed("A");
+    strokePressed = KeyPressed("Space") || GamepadPressed("A");
+    runHeld = KeyCheck("Shift") || GamepadCheck("B") || GamepadCheck("RB");
+    usePressed = KeyPressed("J") || GamepadPressed("X"); useHeld = KeyCheck("J") || GamepadCheck("X");
+    throwPressed = KeyPressed("K"); interactPressed = KeyPressed("X") || KeyPressed("E") || GamepadPressed("Y");
 }
+// actionPressed: the "talk / use" press (hub interact, results screens, the Spore Puff).
+var actionPressed = usePressed || interactPressed;
+// Pause and the menus keep fixed keys (Esc/P/Start, Enter/Space/A) so a bad remap can never trap the player.
+var pausePressed = KeyPressed("P") || KeyPressed("Escape") || GamepadPressed("Start");
+var confirmPressed = KeyPressed("Enter") || KeyPressed("Space") || GamepadPressed("A");
+var heldNow = GlobalGet("heldItem");
 // talk lasts exactly one frame for every NPC, whatever order the steps run in.
 RoomValueSet("talk", 0);
 if (dark == 1) {
@@ -270,36 +309,64 @@ if (state == 4) {
     return;
 }
 talking = RoomValueGet("dialogue", 0) == 1;
+// Options page (Options Kit) opened from the pause menu: the world stays frozen and the kit owns the input.
+if (state == 2 && pauseMode == 1) {
+    var optionsAlive = 0;
+    if (hasOptions == 1) { OptionsStep(); optionsAlive = OptionsIsOpen(); }
+    if (!optionsAlive) {
+        pauseMode = 0;
+        if (ResourceExists("Apply Options")) { ScriptExecute("Apply Options"); }
+        shakeOn = 1; if (GlobalExists("shake")) { shakeOn = GlobalGet("shake"); }
+        tipsOn = 1; if (GlobalExists("tips")) { tipsOn = GlobalGet("tips"); }
+    }
+    return;
+}
 if (pausePressed && !talking) {
     SFX_PAUSE
     if (state == 1) {
         state = 2; RoomValueSet("frozen", 1); RoomValueSet("paused", 1); AnimationSetSpeed(0);
-        menuIndex = 0; menuNote = 0;
-        if (campaign == 1 && hub == 0) { menuItems = [0, 1, 2, 3]; }
-        else if (campaign == 1) { menuItems = [0, 2, 3]; }
-        else if (hub == 1) { menuItems = [0, 3]; }
-        else { menuItems = [0, 1, 3]; }
+        menuIndex = 0; menuNote = 0; pauseMode = 0; menuStick = 0;
+        menuMouseX = MouseX; menuMouseY = MouseY;
+        // 0 Resume, 1 Options, 2 Save and Quit (Options only when the Options Kit exists).
+        if (hasOptions == 1) { menuItems = [0, 1, 2]; } else { menuItems = [0, 2]; }
     } else { state = 1; RoomValueSet("frozen", 0); RoomValueSet("paused", 0); }
     return;
 }
-if (KeyPressed("R") && hub == 0) { EventUser(4); return; }
 if (state == 2) {
-    // Pause menu: W/S or arrows or d-pad choose, Enter/Space/J or pad A confirms, pad B resumes.
+    // Pause menu: arrows / W,S / d-pad / stick choose, the mouse points and clicks, Enter / Space / pad A
+    // confirms, pad B resumes (Esc, P and Start resume too, above).
     var menuCount = PgListSize(menuItems);
-    if (KeyPressed("W") || KeyPressed("Up") || GamepadPressed("Up")) {
-        menuIndex = (menuIndex + menuCount - 1) % menuCount; menuNote = 0; SFX_MOVE
+    var menuMove = 0;
+    var stickMenu = GamepadAxis("LeftY"); var stickDir = 0;
+    if (stickMenu > 0.6) { stickDir = -1; }
+    if (stickMenu < -0.6) { stickDir = 1; }
+    if (stickDir != 0 && stickDir != menuStick) { menuMove = stickDir; }
+    menuStick = stickDir;
+    if (KeyPressed("W") || KeyPressed("Up") || GamepadPressed("Up")) { menuMove = -1; }
+    if (KeyPressed("S") || KeyPressed("Down") || GamepadPressed("Down")) { menuMove = 1; }
+    if (menuMove != 0) {
+        menuIndex = (menuIndex + menuCount + menuMove) % menuCount; menuNote = 0; SFX_MOVE
     }
-    if (KeyPressed("S") || KeyPressed("Down") || GamepadPressed("Down")) {
-        menuIndex = (menuIndex + 1) % menuCount; menuNote = 0; SFX_MOVE
+    var menuScaleX = WindowGetWidth() / 1280; var menuScaleY = WindowGetHeight() / 720;
+    var mouseNowX = MouseX; var mouseNowY = MouseY;
+    var mouseOver = -1;
+    for (var mk = 0; mk < menuCount; mk = mk + 1) {
+        if (mouseNowX >= 250 * menuScaleX && mouseNowX <= 640 * menuScaleX
+            && mouseNowY >= (290 + mk * 40) * menuScaleY && mouseNowY <= (330 + mk * 40) * menuScaleY) { mouseOver = mk; }
     }
+    if (mouseOver >= 0 && mouseOver != menuIndex && (Abs(mouseNowX - menuMouseX) > 2 || Abs(mouseNowY - menuMouseY) > 2)) {
+        menuIndex = mouseOver; SFX_MOVE
+    }
+    menuMouseX = mouseNowX; menuMouseY = mouseNowY;
+    var menuClick = 0;
+    if (mouseOver >= 0 && MousePressed(MbLeft)) { menuIndex = mouseOver; menuClick = 1; }
     if (GamepadPressed("B")) { state = 1; RoomValueSet("frozen", 0); RoomValueSet("paused", 0); SFX_BACK return; }
-    if (confirmPressed) {
+    if (confirmPressed || menuClick == 1) {
         var choice = menuItems[menuIndex];
         SFX_SELECT
         if (choice == 0) { state = 1; RoomValueSet("frozen", 0); RoomValueSet("paused", 0); }
-        if (choice == 1) { EventUser(4); }
-        if (choice == 2) { leaveReason = 2; EventUser(3); }
-        if (choice == 3) { menuNote = 1 - menuNote; }
+        if (choice == 1 && hasOptions == 1) { OptionsOpen(1); pauseMode = 1; }
+        if (choice == 2) { leaveReason = 4; EventUser(3); }
     }
     return;
 }
@@ -322,9 +389,35 @@ if (starTimer > 0) {
     if (starTimer <= 0) { ShaderSet("Assets/Shaders/Pixel Flash.shader.json"); RoomValueSet("starlit", 0); }
 }
 if (hub == 0 && timeLeft <= 0) { EventUser(1); return; }
-if (hub == 1 && actionPressed && !talking) {
+// Village: Interact talks; Use talks too while Pip holds nothing (a held item keeps Use for itself).
+if (hub == 1 && !talking && (interactPressed || (usePressed && heldNow == 0))) {
     RoomValueSet("talk", 1); RoomValueSet("talkX", x); RoomValueSet("talkY", y);
 }
+
+// ---- reputation (hidden lore: only ever hinted). Slow kindness recovery, a toast when the stage
+// changes and a faint spore leak from the cap at stage 2 and up. The cap's colour is the Taint shader
+// parameters, set with the other shader parameters at the end of Step.
+repStageNow = 0;
+if (hasRep == 1) {
+    RepDecay(dt);
+    repStageNow = RepStage();
+    if (repStageSeen < 0) { repStageSeen = repStageNow; }
+    if (repStageNow != repStageSeen) {
+        if (repStageNow < repStageSeen) { toastText = "Your cap feels lighter."; }
+        else if (repStageNow == 1) { toastText = "Your cap tingles."; }
+        else if (repStageNow == 2) { toastText = "The spots on your cap seem to watch."; }
+        else { toastText = "Your cap hums when nobody is near."; }
+        toastTimer = 4.5; repStageSeen = repStageNow;
+    }
+    if (repStageNow >= 2) {
+        leakTimer = leakTimer - dt;
+        if (leakTimer <= 0) {
+            leakTimer = 0.7 - (repStageNow - 2) * 0.25;
+            ParticleBurstAt("Assets/Particles/Pip Spore Leak.particle.json", x, y - 38, 0, 1, 0);
+        }
+    }
+}
+toastTimer = Max(0, toastTimer - dt);
 
 // ---- water: the whole room (RoomValue underwater) or a non-solid tile layer named "Water"
 var inWater = RoomValueGet("underwater", 0) == 1 || TileIndexAt(x, y - 16, "Water") >= 0;
@@ -391,10 +484,10 @@ if (swimming == 1 && !talking) {
 }
 if (swimming == 1) {
     // Swimming: free 8-direction movement at a steady speed, eased by the water's drag.
-    // Run does nothing underwater. Space / pad A is a stroke burst the way Pip is swimming (up by default).
+    // Sprint does nothing underwater. The jump button is a stroke burst the way Pip is swimming (up by default).
     var swimDiag = 1; if (moveDirection != 0 && swimDirY != 0) { swimDiag = 0.7071; }
     vx = vx + (moveDirection * swimSpeed * swimDiag - vx) * Min(1, dt * 4);
-    if (!talking && (KeyPressed("Space") || GamepadPressed("A"))) {
+    if (!talking && strokePressed) {
         var strokeX = moveDirection * swimDiag; var strokeY = swimDirY * swimDiag;
         if (moveDirection == 0 && swimDirY == 0) { strokeY = -1; }
         vx = vx + strokeX * 200; vy = vy + strokeY * 200;
@@ -527,11 +620,18 @@ if (grounded == 1 && wasGrounded == 0) {
 // Falling out of the room costs a life at once.
 if (y > RoomGetHeight() + 64) { EventUser(1); return; }
 
+// ---- Item Kit (after movement): the held item acts on Use (sword swing, raised shield, bow draw,
+// propeller flower), and Throw lets go of it. Base movement above never depends on any of this.
+if (hasItems == 1 && !talking) {
+    ItemStep(dt);
+    if (throwPressed && GlobalGet("heldItem") > 0) { ItemThrow(); }
+}
+
 // Hazard tiles (thorns, spikes, urchins) live on the non-solid "Hazards" tile layer (index 32).
 var thorn = 0;
 if (TileIndexAt(x, y - 4, "Hazards") == 32 || TileIndexAt(x - 6, y - 4, "Hazards") == 32) { thorn = 1; }
 if (TileIndexAt(x + 6, y - 4, "Hazards") == 32 || TileIndexAt(x, y - 20, "Hazards") == 32) { thorn = 1; }
-if (thorn == 1 && invulnerable <= 0 && starTimer <= 0 && hub == 0) { EventUser(0); return; }
+if (thorn == 1 && invulnerable <= 0 && starTimer <= 0 && hub == 0) { hurtSource = 1; EventUser(0); return; }
 
 // ---- pickups
 var hit = CollisionRectangle(x - 7, y - 34, x + 7, y, "Sun Coin");
@@ -580,7 +680,12 @@ if (contactGrace <= 0) {
             var isBoss = foeName == "Grumblecrag" || foeName == "Duskmantle";
             if (starTimer > 0 && !isBoss) {
                 // Starlit: everything but a boss is knocked out on contact.
-                InstanceVariableSet(foe, "hurt", InstanceVariableGet(foe, "hurt") + Max(1, InstanceVariableGet(foe, "hp")));
+                // Damage convention: hitKind 6 (starlit touch), hitDir away from Pip, hitDmg what it takes.
+                var starDmg = Max(1, InstanceVariableGet(foe, "hp"));
+                InstanceVariableSet(foe, "hitKind", 6); InstanceVariableSet(foe, "hitDir", facing);
+                InstanceVariableSet(foe, "hitDmg", starDmg);
+                InstanceVariableSet(foe, "hitX", InstanceGetX(foe)); InstanceVariableSet(foe, "hitY", InstanceGetY(foe) - 12);
+                InstanceVariableSet(foe, "hurt", InstanceVariableGet(foe, "hurt") + starDmg);
                 score = score + InstanceVariableGet(foe, "points"); contactGrace = 0.05;
                 SFX_STOMP
                 ScriptExecute("Spawn Effect", 1, InstanceGetX(foe), InstanceGetY(foe));
@@ -594,6 +699,10 @@ if (contactGrace <= 0) {
                     y = foeTop - 2; vy = -340; grounded = 0; bounceLift = 0; riding = 0;
                     if (swimming == 1) { vy = -180; }
                     if (foeName == "Buzz Bee") { vy = -380; }
+                    // Damage convention: hitKind 1 (stomp), hitDir the way Pip faces, 1 damage at the foe's top edge.
+                    InstanceVariableSet(foe, "hitKind", 1); InstanceVariableSet(foe, "hitDir", facing);
+                    InstanceVariableSet(foe, "hitDmg", 1);
+                    InstanceVariableSet(foe, "hitX", InstanceGetX(foe)); InstanceVariableSet(foe, "hitY", foeTop);
                     InstanceVariableSet(foe, "hurt", InstanceVariableGet(foe, "hurt") + 1);
                     score = score + InstanceVariableGet(foe, "points"); contactGrace = 0.12;
                     SFX_STOMP
@@ -633,8 +742,9 @@ if (orb > 0 && PointDistance(InstanceGetX(orb), InstanceGetY(orb), x, y - 17) < 
 }
 if (goal > 0 && hub == 0) { clearKind = goal; EventUser(2); return; }
 
-// ---- Spore Puff: throw a bouncing spore (two on screen at most)
-if (powerUp == 2 && actionPressed && hub == 0 && shotCooldown <= 0 && InstanceNumber("Spore Shot") < 2) {
+// ---- Spore Puff: throw a bouncing spore (two on screen at most). Use does this only while Pip holds no item.
+if (powerUp == 2 && usePressed && GlobalGet("heldItem") == 0 && hub == 0 && !talking
+    && shotCooldown <= 0 && InstanceNumber("Spore Shot") < 2) {
     CreateInstance("Spore Shot", x + facing * 12, y - 22, 0);
     shotCooldown = 0.22; throwTimer = 0.22;
     SFX_THROW
@@ -676,6 +786,21 @@ if (starTimer > 0) {
 } else {
     ShaderSetParameter("Flash", hurtTimer > 0.25);
     if (invulnerable > 0 && Floor(invulnerable * 12) % 2 == 0) { image_alpha = 0.35; }
+    // Pixel Flash Taint (0..1) darkens the cap with the reputation; TaintPulse (0..1) is a slow throb with
+    // a brief twitch now and then at stage 2 and up. Both stay 0 (unchanged picture) without a reputation.
+    var taintNow = 0; var taintPulseNow = 0;
+    if (hasRep == 1) {
+        taintNow = Clamp(RepTaintAmount(), 0, 1);
+        taintClock = (taintClock + dt * 70) % 360;
+        taintPulseNow = taintNow * (0.5 + 0.5 * Sin(taintClock));
+        twitchTimer = twitchTimer - dt;
+        if (repStageNow >= 2 && twitchTimer < 0.12) {
+            taintPulseNow = 1;
+            if (twitchTimer <= 0) { twitchTimer = 3 + Random(5); }
+        }
+    }
+    ShaderSetParameter("Taint", taintNow);
+    ShaderSetParameter("TaintPulse", taintPulseNow);
 }
 """
 
@@ -683,10 +808,17 @@ EXPLORER_HURT = r"""
 // User Event 0: Pip takes one hit (enemy contact, hazard tile, enemy projectile).
 // Bark Shield breaks first; otherwise one heart and the current power-up are lost.
 // Enemy projectiles need nothing special: Pip's enemy check calls this event when they touch him.
+var fromHazard = hurtSource; hurtSource = 0;
 if (state != 1 || hub == 1 || invulnerable > 0 || starTimer > 0) { return; }
+// A raised Shield (Item Kit) absorbs enemy hits and projectiles; thorns and spikes still hurt.
+if (hasItems == 1 && fromHazard == 0) {
+    if (ItemOnHurt(1) == 1) { invulnerable = 0.5; contactGrace = 0.2; return; }
+}
 ScriptExecute("Spawn Effect", 5, x, y - 20);
 if (shakeOn == 1) { ViewShake(0, 3, 0.2); }
 GamepadVibrate(0.4, 0.2, 0.15);
+// A tainted Pip leaks a puff of spores when he is hurt (Gore Kit).
+if (hasGore == 1 && hasRep == 1 && RepStage() >= 1) { GoreSpore(x, y - 24); }
 if (powerUp == 3) {
     powerUp = 0; invulnerable = 1.2; hurtTimer = 0.3; vy = -260;
     SFX_SHIELD
@@ -743,7 +875,24 @@ ScriptExecute("Spawn Effect", 4, x, y - 96);
 EXPLORER_LEAVE = r"""
 // User Event 3 (campaign): leave the level for the Overworld map.
 // leaveReason 1 = cleared (records clear<id>, medals<id>, glowspores, returnFromLevel),
-// 2 = Return to map from the pause menu, 3 = game over (lives refilled to 5).
+// 2 = Return to map, 3 = game over (lives refilled to 5), 4 = Save and Quit from the pause menu
+// (saves the game, then the Main Menu; a level in progress keeps what Pip entered it with).
+if (leaveReason == 4) {
+    if (campaign == 1) {
+        if (hub == 0) {
+            coins = entryCoins; powerUp = entryPower; hearts = entryHearts;
+            GlobalSet("heldItem", entryHeld); GlobalSet("arrows", entryArrows);
+        }
+        GlobalSet("lives", lives); GlobalSet("coins", coins); GlobalSet("hearts", hearts);
+        GlobalSet("maxHearts", maxHearts); GlobalSet("power", powerUp);
+        if (levelId >= 1 && levelId <= 5) { GlobalSet("mapNode", levelId); }
+        if (ResourceExists("Game Save")) { ScriptExecute("Game Save"); }
+    }
+    state = 5; RoomValueSet("frozen", 1); RoomValueSet("paused", 0);
+    RoomChangeFade(0.4);
+    if (ResourceExists("Main Menu")) { RoomGoto("Main Menu"); } else { RoomRestart(); }
+    return;
+}
 if (leaveReason == 1 && levelId >= 1 && levelId <= 5) {
     GlobalSet(StringJoin2("clear", StringOf(levelId)), 1);
     var medalKey = StringJoin2("medals", StringOf(levelId));
@@ -756,7 +905,10 @@ if (leaveReason == 1 && levelId >= 1 && levelId <= 5) {
     GlobalSet("returnFromLevel", levelId);
     if (levelId == 5) { GlobalSet("gameComplete", 1); }
 }
-if (leaveReason == 2 && hub == 0) { coins = entryCoins; powerUp = entryPower; hearts = entryHearts; }
+if (leaveReason == 2 && hub == 0) {
+    coins = entryCoins; powerUp = entryPower; hearts = entryHearts;
+    GlobalSet("heldItem", entryHeld); GlobalSet("arrows", entryArrows);
+}
 if (leaveReason == 3) { lives = 5; hearts = maxHearts; powerUp = 0; }
 if (levelId >= 1 && levelId <= 5) { GlobalSet("mapNode", levelId); }
 GlobalSet("lives", lives); GlobalSet("coins", coins); GlobalSet("hearts", hearts);
@@ -775,6 +927,7 @@ EXPLORER_RESTART = r"""
 if (campaign == 1) {
     GlobalSet("coins", entryCoins); GlobalSet("power", entryPower); GlobalSet("hearts", entryHearts);
     GlobalSet("lives", lives);
+    GlobalSet("heldItem", entryHeld); GlobalSet("arrows", entryArrows);
 }
 RoomRestart();
 """
@@ -789,26 +942,58 @@ var s = Min(sx, sy);
 var hud = "Assets/User Interfaces/Meadow HUD.ui.json";
 var panels = "Assets/User Interfaces/Meadow Panels.ui.json";
 
-// C toggles the CRT scanlines of the SNES Look post effect (kept in the crt global).
-if (KeyPressed("C")) {
-    var crtOn = 1 - RoomValueGet("crt", 0);
-    RoomValueSet("crt", crtOn); GlobalSet("crt", crtOn);
-    PostEffectSetParameter("SNES Look", "Scanlines", crtOn);
-}
+DrawSetTextAlign("left");
 
-var help = "A/D MOVE   SPACE JUMP   SHIFT RUN   P/ESC PAUSE   R RESTART   M MUTE   C CRT";
-if (powerUp == 1) { help = "GLIDE SEED: HOLD SPACE WHILE FALLING TO GLIDE   SHIFT RUN   P/ESC PAUSE"; }
-if (powerUp == 2) { help = "SPORE PUFF: J / X THROWS SPORES   SPACE JUMP   SHIFT RUN   P/ESC PAUSE"; }
-if (powerUp == 3) { help = "BARK SHIELD: ABSORBS ONE HIT   SPACE JUMP   SHIFT RUN   P/ESC PAUSE"; }
-if (swimming == 1) { help = "W/A/S/D: SWIM ANY WAY   SPACE: STROKE   P/ESC PAUSE   M MUTE"; }
-if (hub == 1) { help = "A/D WALK   SPACE JUMP   E / J: TALK   P/ESC PAUSE   M MUTE   C CRT"; }
-UiSetText(hud, "helpText", help);
+// Control-hint bar (bottom): only with Options > Gameplay > Enable Tips. Keycaps or pad glyphs for the
+// device used last (Input Kit), by context. hintA are action names, hintL their captions ("" = glyph only).
+var showHints = state == 1 && tipsOn == 1;
+var padNow = GlobalGet("lastInput") == 1;
+var heldHint = GlobalGet("heldItem");
+var hintA = ["left", "right", "jump", "sprint"]; var hintL = ["", "MOVE", "JUMP", "RUN"];
+if (powerUp == 1) { hintA = ["left", "right", "jump", "sprint"]; hintL = ["", "MOVE", "HOLD JUMP TO GLIDE", "RUN"]; }
+if (powerUp == 2 && heldHint == 0) { hintA = ["left", "right", "jump", "sprint", "use"]; hintL = ["", "MOVE", "JUMP", "RUN", "SPORES"]; }
+if (heldHint == 1) { hintA = ["left", "right", "jump", "sprint", "use", "throw"]; hintL = ["", "MOVE", "JUMP", "RUN", "SWING SWORD", "THROW"]; }
+if (heldHint == 2) { hintA = ["left", "right", "jump", "sprint", "use", "throw"]; hintL = ["", "MOVE", "JUMP", "RUN", "HOLD TO BLOCK", "THROW"]; }
+if (heldHint == 3) { hintA = ["left", "right", "jump", "use", "throw"]; hintL = ["", "MOVE", "JUMP", "HOLD AND RELEASE TO SHOOT", "THROW"]; }
+if (heldHint == 4) { hintA = ["left", "right", "jump", "use", "throw"]; hintL = ["", "MOVE", "JUMP", "IN AIR: PARACHUTE", "THROW"]; }
+if (swimming == 1) { hintA = ["left", "right", "up", "down", "jump"]; hintL = ["", "", "", "SWIM", "STROKE"]; }
+if (hub == 1) { hintA = ["left", "right", "jump", "interact"]; hintL = ["", "WALK", "JUMP", "TALK"]; }
+var pauseHint = "ESC: PAUSE"; if (padNow) { pauseHint = "START: PAUSE"; }
+if (hasInput == 1) {
+    // The hint text lives in the bar drawn below (glyphs need code), so the bar's own text stays hidden.
+    UiSetVisible(hud, "helpText", false);
+} else {
+    var help = "A/D MOVE   SPACE JUMP   SHIFT RUN   P/ESC PAUSE";
+    if (swimming == 1) { help = "W/A/S/D: SWIM ANY WAY   SPACE: STROKE   P/ESC PAUSE"; }
+    if (hub == 1) { help = "A/D WALK   SPACE JUMP   E / J: TALK   P/ESC PAUSE"; }
+    UiSetText(hud, "helpText", help);
+    UiSetVisible(hud, "helpText", showHints);
+}
 UiSetVisible(hud, "pipFill1", bigCoins >= 1);
 UiSetVisible(hud, "pipFill2", bigCoins >= 2);
 UiSetVisible(hud, "pipFill3", bigCoins >= 3);
-UiSetVisible(hud, "helpBar", state == 1);
-UiSetVisible(hud, "helpText", state == 1);
+UiSetVisible(hud, "helpBar", showHints);
 DrawUi(hud);
+if (showHints && hasInput == 1) {
+    var hintX = 40 * sx; var hintY = 673 * sy; var hintSize = 26 * s;
+    for (var hk = 0; hk < PgListSize(hintA); hk = hk + 1) {
+        var hintAction = hintA[hk]; var hintLabel = hintL[hk];
+        // A pad's stick is one glyph for both directions (and up/down): draw it once, on "left".
+        var glyphWanted = 1;
+        if (padNow && (hintAction == "right" || hintAction == "up" || hintAction == "down")) { glyphWanted = 0; }
+        if (glyphWanted == 1) {
+            var glyphWidth = InputDrawGlyph(hintAction, hintX, hintY, hintSize);
+            hintX = hintX + glyphWidth + 6 * sx;
+        }
+        DrawSetFont("Consolas"); DrawSetAlpha(1); DrawSetColorRgb(240, 241, 219);
+        if (hintLabel != "") {
+            DrawTextScaled(hintX, 677 * sy, hintLabel, 17 * s);
+            hintX = hintX + DrawTextWidth(hintLabel, 17 * s) + 26 * sx;
+        }
+    }
+    DrawSetFont("Consolas"); DrawSetAlpha(1); DrawSetColorRgb(240, 241, 219);
+    DrawTextScaled(hintX, 677 * sy, pauseHint, 17 * s);
+}
 
 DrawSetFont("Consolas"); DrawSetAlpha(1);
 DrawSetColorRgb(42, 29, 46);
@@ -858,6 +1043,22 @@ if (hub == 0) {
 } else {
     DrawTextScaled(1090*sx, 57*sy, "VILLAGE", 19*s);
 }
+// Held item, arrows and flower fuel (Item Kit, drawn in this same 1280x720 GUI space).
+if (hasItems == 1 && (state == 1 || state == 2)) {
+    ItemDrawHud();
+    DrawSetTextAlign("left"); DrawSetFont("Consolas"); DrawSetAlpha(1); DrawSetColorRgb(248, 252, 244);
+}
+// A one-line hint when the reputation stage changes (never explained).
+if (toastTimer > 0 && state == 1 && toastText != "") {
+    var toastFade = Min(1, toastTimer / 0.8);
+    var toastSize = 19 * s; var toastW = DrawTextWidth(toastText, toastSize);
+    var toastX = 640 * sx - toastW / 2;
+    DrawSetAlpha(0.5 * toastFade); DrawSetColorRgb(20, 14, 30);
+    DrawRoundRect(toastX - 14 * sx, 612 * sy, toastX + toastW + 14 * sx, 644 * sy, 8 * s, false);
+    DrawSetAlpha(toastFade); DrawSetColorRgb(214, 200, 232);
+    DrawTextScaled(toastX, 619 * sy, toastText, toastSize);
+    DrawSetAlpha(1);
+}
 if (checkpoint == 1 && state == 1) {
     DrawSetAlpha(0.8); DrawSetColorRgb(29, 48, 67);
     DrawRectangle(28*sx, 100*sy, 230*sx, 128*sy);
@@ -877,7 +1078,10 @@ if (bannerTimer > 0 && state == 1) {
     DrawSetAlpha(1);
 }
 
-if (state != 1) {
+if (state == 2 && pauseMode == 1) {
+    // The Options Kit page draws itself over the frozen world.
+    if (hasOptions == 1) { OptionsDraw(); }
+} else if (state != 1) {
     UiSetVisible(panels, "logo", state == 0);
     UiSetVisible(panels, "ribbon", state == 0);
     UiSetVisible(panels, "ribbonText", state == 0);
@@ -899,8 +1103,22 @@ if (state != 1) {
         }
         if (levelId == 4) { cardGoal = "Brace for gusts; glide to the Giant Blossom."; }
         if (levelId == 5) { cardGoal = "Climb to the nest and face Duskmantle herself."; }
+        var cardUse = "J / X: throw spores   P / ESC: pause   (gamepad works too)";
+        if (hasInput == 1) {
+            // Built from the player's own bindings for the device used last.
+            var moveWord = "MOVE: "; var jumpWord = "   JUMP: ";
+            if (levelId == 3) { moveWord = "SWIM: "; jumpWord = "   STROKE: "; }
+            cardControls = StringJoin2(moveWord, InputGlyph("left"));
+            cardControls = StringJoin2(cardControls, StringJoin2("/", InputGlyph("right")));
+            cardControls = StringJoin2(cardControls, StringJoin2(jumpWord, InputGlyph("jump")));
+            cardControls = StringJoin2(cardControls, StringJoin2("   SPRINT: ", InputGlyph("sprint")));
+            cardUse = StringJoin2("USE: ", InputGlyph("use"));
+            cardUse = StringJoin2(cardUse, StringJoin2("   THROW: ", InputGlyph("throw")));
+            cardUse = StringJoin2(cardUse, StringJoin2("   INTERACT: ", InputGlyph("interact")));
+            cardUse = StringJoin2(cardUse, "   PAUSE: ESC / START");
+        }
         DrawTextScaled(238*sx, 376*sy, cardControls, 21*s);
-        DrawTextScaled(238*sx, 412*sy, "J / X: throw spores   P / ESC: pause   (gamepad works too)", 21*s);
+        DrawTextScaled(238*sx, 412*sy, cardUse, 21*s);
         DrawTextScaled(238*sx, 448*sy, cardGoal, 21*s);
         DrawSetColorRgb(255, 223, 145);
         DrawTextScaled(238*sx, 506*sy, "PRESS ENTER TO BEGIN", 28*s);
@@ -910,9 +1128,8 @@ if (state != 1) {
         for (var mi = 0; mi < PgListSize(menuItems); mi = mi + 1) {
             var code = menuItems[mi];
             var label = "RESUME";
-            if (code == 1) { label = "RESTART LEVEL"; }
-            if (code == 2) { label = "RETURN TO MAP"; }
-            if (code == 3) { label = "OPTIONS"; }
+            if (code == 1) { label = "OPTIONS"; }
+            if (code == 2) { label = "SAVE AND QUIT"; }
             if (mi == menuIndex) {
                 DrawSetColorRgb(255, 223, 145);
                 DrawTextScaled(270*sx, (296 + mi * 40)*sy, StringJoin2("> ", label), 26*s);
@@ -922,16 +1139,17 @@ if (state != 1) {
             }
         }
         DrawSetColorRgb(220, 239, 224);
-        if (menuNote == 1) {
-            DrawTextScaled(640*sx, 296*sy, "Music and sound volume, CRT", 20*s);
-            DrawTextScaled(640*sx, 324*sy, "scanlines and screen shake are", 20*s);
-            DrawTextScaled(640*sx, 352*sy, "set in the Main Menu's Options.", 20*s);
-            DrawTextScaled(640*sx, 392*sy, "Here: M mutes, C toggles CRT.", 20*s);
+        DrawTextScaled(270*sx, 440*sy, StringJoin2("COINS ", StringOf(coins)), 22*s);
+        DrawTextScaled(470*sx, 440*sy, StringJoin2("LIVES ", StringOf(lives)), 22*s);
+        DrawTextScaled(670*sx, 440*sy, StringJoin2("GLOWSPORES ", StringOf(GlobalGet("glowspores"))), 22*s);
+        if (hasRep == 1) {
+            DrawSetColorRgb(206, 196, 224);
+            DrawTextScaled(270*sx, 480*sy, StringJoin2("REPUTATION  ", RepLabel()), 22*s);
         }
-        DrawTextScaled(270*sx, 470*sy, StringJoin2("COINS ", StringOf(coins)), 22*s);
-        DrawTextScaled(470*sx, 470*sy, StringJoin2("LIVES ", StringOf(lives)), 22*s);
-        DrawTextScaled(670*sx, 470*sy, StringJoin2("GLOWSPORES ", StringOf(GlobalGet("glowspores"))), 22*s);
-        DrawTextScaled(270*sx, 520*sy, "W/S choose   ENTER select   P/ESC resume", 20*s);
+        DrawSetColorRgb(220, 239, 224);
+        var pauseHelp = "UP/DOWN choose   ENTER select   ESC resume";
+        if (GlobalGet("lastInput") == 1) { pauseHelp = "D-PAD choose   A select   START or B resume"; }
+        DrawTextScaled(270*sx, 530*sy, pauseHelp, 20*s);
     }
     if (state == 3) {
         if (campaign == 1 || clearKind == 2) { DrawTextScaled(270*sx, 226*sy, "GLOWSPORE RECOVERED!", 40*s); }
@@ -1168,6 +1386,10 @@ if (bounces > 4) { InstanceDestroy(id); return; }
 for (var ei = 0; ei < PgListSize(enemyNames); ei = ei + 1) {
     var foe = CollisionRectangle(x - 6, y - 6, x + 6, y + 6, enemyNames[ei]);
     if (foe > 0 && InstanceVariableGet(foe, "dead") == 0) {
+        // Damage convention: hitKind 5 (spore shot), travelling the way the spore flew.
+        InstanceVariableSet(foe, "hitKind", 5); InstanceVariableSet(foe, "hitDir", Sign(vx));
+        InstanceVariableSet(foe, "hitDmg", 1);
+        InstanceVariableSet(foe, "hitX", x); InstanceVariableSet(foe, "hitY", y);
         InstanceVariableSet(foe, "hurt", InstanceVariableGet(foe, "hurt") + 1);
         var pip = InstanceFind("Explorer", 0);
         if (pip > 0) { InstanceVariableSet(pip, "score", InstanceVariableGet(pip, "score") + InstanceVariableGet(foe, "points")); }
@@ -1271,15 +1493,19 @@ ACORN_CREATE = r"""
 // it on `hp`, plays its own defeat and removes itself. Pip ignores it while `dead` is 1.
 enemy = 1; hp = 1; stompable = 1; contactDamage = 1; points = 200; dead = 0; hurt = 0;
 moveDirection = -1; fallSpeed = 0; deadTime = 0;
+GoreEnemyInit(5, 1, 16, 28, 0);
 AnimationPlay("Walk", true); AnimationSetSpeed(0);
 """
 
 ACORN_STEP = r"""
 var dt = Clamp(DeltaTime, 0, 0.05);
 if (hurt > 0 && dead == 0) {
+    GoreEnemyHit();
     hp = hp - hurt; hurt = 0;
     if (hp <= 0) {
         dead = 1;
+        var goreResult = GoreEnemyDeath();
+        if (goreResult > 0) { InstanceDestroy(id); return; }
         SpriteSet("Assets/Sprites/Acorn Squashed.image.json"); AnimationPlay("Squash", false);
     }
 }
@@ -1291,13 +1517,26 @@ if (dead == 1) {
     return;
 }
 AnimationSetSpeed(1);
-if (TileMeeting(x, y + 1)) {
-    if (!TileMeeting(x + moveDirection * 20, y + 2)) { moveDirection = -moveDirection; }
+var scared = FearCheck(130);
+if (scared == 1) {
+    // Afraid of a brutal Pip: run away at 1.5x speed; at a ledge or wall it stops and cowers.
+    moveDirection = FearDir();
+    var fleeStep = moveDirection * 69 * dt;
+    var fleeEdge = 0;
+    if (TileMeeting(x, y + 1) && !TileMeeting(x + moveDirection * 20, y + 2)) { fleeEdge = 1; }
+    var fleeTo = x;
+    if (fleeEdge == 0) { fleeTo = TileMoveX(x, y, fleeStep); }
+    if (fleeEdge == 1 || Abs(x + fleeStep - fleeTo) > 0.001) { FearCower(1); } else { FearCower(0); }
+    x = fleeTo;
+} else {
+    if (TileMeeting(x, y + 1)) {
+        if (!TileMeeting(x + moveDirection * 20, y + 2)) { moveDirection = -moveDirection; }
+    }
+    var requested = x + moveDirection * 46 * dt;
+    var permitted = TileMoveX(x, y, moveDirection * 46 * dt);
+    if (Abs(requested - permitted) > 0.001) { moveDirection = -moveDirection; }
+    x = permitted;
 }
-var requested = x + moveDirection * 46 * dt;
-var permitted = TileMoveX(x, y, moveDirection * 46 * dt);
-if (Abs(requested - permitted) > 0.001) { moveDirection = -moveDirection; }
-x = permitted;
 fallSpeed = Min(fallSpeed + 1250 * dt, 600);
 var wanted = y + fallSpeed * dt;
 y = TileMoveY(x, y, fallSpeed * dt);
@@ -1309,15 +1548,19 @@ if (y > RoomGetHeight() + 80) { InstanceDestroy(id); }
 BEE_STEP = r"""
 var dt = Clamp(DeltaTime, 0, 0.05);
 if (hurt > 0 && dead == 0) {
+    GoreEnemyHit();
     hp = hp - hurt; hurt = 0;
     if (hp <= 0) {
         dead = 1; fallSpeed = -140;
         if (following == 1) { PathStop(); following = 0; }
         ShaderSetParameter("Shimmer", 0);
+        var goreResult = GoreEnemyDeath();
+        if (goreResult > 0) { InstanceDestroy(id); return; }
     }
 }
 if (dead == 1) {
     // Knocked out: tumble down and fade.
+    if (hurt > 0 && GoreCorpseHit() == 1) { InstanceDestroy(id); return; }
     deadTime = deadTime + dt;
     fallSpeed = fallSpeed + 900 * dt; y = y + fallSpeed * dt;
     image_angle = image_angle + 540 * dt; image_alpha = Max(0, 1 - deadTime / 0.7);
@@ -1329,7 +1572,24 @@ if (RoomValueGet("frozen", 1) == 1) {
     AnimationSetSpeed(0); return;
 }
 AnimationSetSpeed(1);
-if (route != "") {
+var scared = FearCheck(150);
+if (scared == 0 && fearEnded == 1) { fleeBack = 1; }
+if (scared == 1 || fleeBack == 1) {
+    // Afraid of a brutal Pip: dart away (within 260 px of home, a little upward); once calm glide home
+    // and take the route again from where it started.
+    if (following == 1) { PathStop(); following = 0; }
+    if (scared == 1) {
+        var away = FearDir();
+        var fx = x + away * 130 * dt;
+        if (Abs(fx - homeX) > 260 || TileMeeting(fx, y)) { FearCower(1); }
+        else { x = fx; FearCower(0); }
+        y = y + ((homeY - 24) - y) * Min(1, dt * 2);
+    } else {
+        var backLen = Max(1, PointDistance(x, y, homeX, homeY));
+        if (backLen < 4) { x = homeX; y = homeY; fleeBack = 0; }
+        else { x = x + (homeX - x) / backLen * 110 * dt; y = y + (homeY - y) / backLen * 110 * dt; }
+    }
+} else if (route != "") {
     if (following == 0) { PathFollow(route, ""); following = 1; }
 } else {
     hover = (hover + dt * 140) % 360;
@@ -1353,7 +1613,8 @@ def bee_create():
         "// It takes the route whose first waypoint is nearest to where the room placed it; a bee",
         "// placed far from every route hovers on the spot instead. Enemy convention: see Acorn Walker.",
         "enemy = 1; hp = 1; stompable = 1; contactDamage = 1; points = 300; dead = 0; hurt = 0;",
-        "fallSpeed = 0; deadTime = 0;",
+        "fallSpeed = 0; deadTime = 0; fleeBack = 0;",
+        "GoreEnemyInit(2, 1, 16, 12, 8);",
         "AnimationPlay(\"Fly\", true); AnimationSetSpeed(0);",
         "homeX = x; homeY = y; lastX = x; hover = 0; following = 0;",
         "route = \"\"; var best = 400;",
@@ -1445,6 +1706,10 @@ def build_assets():
              burstCount=14, maxParticles=24, shape="Cone", spreadDegrees=50, speed=8.0, drag=0.8,
              gravity=-9.0, lifetime=0.6, startSize=0.3, endSize=0.16,
              startColor=colour(0.9, 0.97, 1.0, 1), endColor=colour(0.45, 0.75, 0.95, 0))
+    particle("Pip Spore Leak", "Explorer: a faint pale puff of spores drifting off Pip's cap at reputation stage 2 and up.",
+             burstCount=2, maxParticles=10, shape="Sphere", emitRadius=0.5, speed=0.8, drag=1.5,
+             gravity=0.6, lifetime=1.4, lifetimeVariance=0.3, startSize=0.16, endSize=0.05,
+             startColor=colour(0.82, 0.78, 0.9, 0.55), endColor=colour(0.7, 0.62, 0.82, 0), colorJitter=0.15)
     particle("Starlit Sparkle", "Explorer: rainbow twinkles trail Pip while the Starlit Firefly lasts.",
              burstCount=3, maxParticles=8, shape="Sphere", emitRadius=0.9, speed=1.5, drag=2.0,
              gravity=1.0, lifetime=0.5, startSize=0.3, endSize=0.05, blendMode="Additive", emissive=1.6,

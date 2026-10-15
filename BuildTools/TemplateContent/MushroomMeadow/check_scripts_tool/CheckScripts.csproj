@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Static PGSL check for a project folder: the same strict validation F5 runs plus a VM compile of every .pgsl.
+       Compiles against the published engine in 'Genesis Application' (found by walking up to Build.bat). Never runs a game. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <PlatformTarget>x64</PlatformTarget>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <GenesisApp Condition="'$(GenesisApp)' == ''">$([MSBuild]::GetDirectoryNameOfFileAbove('$(MSBuildThisFileDirectory)', 'Build.bat'))\Genesis Application\</GenesisApp>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Reference Include="Genesis.Runtime"><HintPath>$(GenesisApp)Genesis.Runtime.dll</HintPath></Reference>
+    <Reference Include="Genesis.Shared"><HintPath>$(GenesisApp)Genesis.Shared.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>

@@ -32,8 +32,9 @@ the Tree lights up again.
      shows its Glowspores (also as five lights), coins, lives, where Pip stands on the map, and
      "THE TREE IS LIT" once the story has been finished.
    - **Delete** a slot with its Delete button, the Delete key or controller Y, then confirm.
-   - **Options**: music volume, sound effects volume, CRT scanlines and screen shake. They apply at
-     once and are saved when you leave the page.
+   - **Options** (also in the pause menu): Gameplay (Enable Tips, Gore, Screen Shake, Controls with
+     Sprint hold/toggle and full key and button remapping), Video (window mode, VSync, frame cap, CRT
+     scanlines) and Audio (master, music, effects, ambience). They apply at once and are saved when you leave.
    - **Credits** rolls the credits. **Quit** closes the game.
 3. **The valley map** (Overworld): walk Pip's marker along the open paths between the six places and
    press Enter, Space or A to go in. A cleared place shows a lit Glowspore, and the next path opens
@@ -41,15 +42,18 @@ the Tree lights up again.
 
 ## Controls in play
 
-| Action | Keyboard | Controller |
+| Action | Keyboard / mouse (defaults) | Controller (defaults) |
 |---|---|---|
 | Move | A/D or Left/Right | D-pad or left stick |
-| Jump (hold for height) | Space, W or Up | A |
-| Run | Shift | B |
-| Throw a spore / talk | J, X or E | X |
-| Pause | P or Esc | Start |
-| Mute | M | |
-| CRT scanlines on/off | C | |
+| Jump (hold for height) | Space or W | A |
+| Sprint | Shift (hold or toggle in Options) | Left stick click |
+| Use the held item / throw a spore | J or left mouse button | X |
+| Throw the held item | K or right mouse button | B |
+| Talk / interact | E or X | Y |
+| Pause menu (Resume, Options, Save and Quit) | P or Esc | Start |
+
+Every action except Pause can be remapped under Options > Gameplay > Controls (two bindings each). The hint bar along the
+bottom shows the current device's buttons and appears only with Enable Tips on.
 
 Underwater Pip truly swims: he hovers in the water, W/A/S/D or the arrows swim in any direction, and jump gives a stroke burst the way you are heading. There is no walking, running or jumping underwater. With the Glide Seed, hold jump while falling to glide.
 
@@ -67,6 +71,12 @@ Underwater Pip truly swims: he hovers in the water, W/A/S/D or the arrows swim i
   - **Starlit Firefly**: ten seconds of invincibility. Enemies you touch are defeated.
   - **Heart Berry**: one more heart, up to the most you can hold. Chanterelle sells extra heart
     containers (up to 6).
+- **Held items** (all optional, found in the levels or sold by Chanterelle; Pip holds one at a time):
+  - **Sword**: Use swings an arc in front of Pip (hold Up for overhead); **Shield**: hold Use to block
+    from the front and bash by walking into a foe; **Bow**: hold Use to draw, aim with the move keys
+    (or the mouse), release to fire arrows; **Propeller Flower**: Use in the air opens it as a
+    parachute, hold Jump while it spins to rise for a moment. The Throw action throws the held item.
+  - Stomping foes is the kind way to win; the bladed, gory ways have consequences the valley notices.
 - **Sun Medals** (Big Sun Coins): three secrets in every level. Your best count per level is kept.
 
 ## The valley

@@ -138,10 +138,13 @@ def build_particles():
 SPRITE_FLASH = """// Pixel Flash: a Sprite-pipeline shader for 2D Objects (ShaderSet in PGSL).
 // Flash 0..1 whitens the sprite (hit/bounce feedback); Shimmer adds a soft travelling
 // highlight (Buzz Bee wings). Pixel art stays crisp: only colour changes, never UVs.
+// Taint 0..1 (Pip only, hidden lore): the cap's reds sink through maroon and bruised violet to
+// near black, the cream spots turn a sickly pale green that glows (TaintPulse 0..1 sets how
+// strongly the glow breathes; Explorer drives it as a slow throb) and the rest of the sprite loses a little colour. Taint 0 = unchanged.
 Texture2D SpriteTex : register(t0);
 SamplerState SpriteSamp : register(s0);
 cbuffer GenesisFrame : register(b4) { float Time; float Frame; float2 Resolution; };
-cbuffer GenesisParameters : register(b5) { float Flash; float Shimmer; float ShimmerSpeed; float Warmth; };
+cbuffer GenesisParameters : register(b5) { float Flash; float Shimmer; float ShimmerSpeed; float Warmth; float Taint; float TaintPulse; };
 struct VSOut { float4 SvPos : SV_Position; float2 UV : TEXCOORD0; float4 Color : COLOR; float FogDepth : TEXCOORD1; };
 float4 MainPS(VSOut IN) : SV_Target
 {
@@ -150,6 +153,28 @@ float4 MainPS(VSOut IN) : SV_Target
     float band = saturate(1.0 - abs(frac(IN.UV.x * 0.8 - IN.UV.y * 0.4 - Time * max(ShimmerSpeed, 0.01)) - 0.5) * 6.0);
     rgb += band * saturate(Shimmer) * 0.35;
     rgb = lerp(rgb, rgb * float3(1.06, 1.0, 0.9), saturate(Warmth));
+    if (Taint > 0.001)
+    {
+        float tt = saturate(Taint);
+        float luma = dot(rgb, float3(0.299, 0.587, 0.114));
+        float redness = smoothstep(0.38, 0.5, 1.0 - max(rgb.g, rgb.b) / max(rgb.r, 0.001));
+        float pale = smoothstep(0.70, 0.73, rgb.b / max(rgb.r, 0.001)) * smoothstep(0.78, 0.86, luma);
+        float tone = saturate((luma - 0.1) / 0.5);
+        float3 maroon = lerp(float3(0.17, 0.03, 0.07), float3(0.58, 0.12, 0.16), tone);
+        float3 violet = lerp(float3(0.13, 0.05, 0.21), float3(0.47, 0.22, 0.58), tone);
+        float3 ember = lerp(float3(0.025, 0.015, 0.045), float3(0.15, 0.1, 0.19), tone);
+        float3 capTint = lerp(maroon, violet, saturate((tt - 0.4) / 0.35));
+        capTint = lerp(capTint, ember, saturate((tt - 0.75) / 0.25));
+        float3 aged = rgb;
+        aged = lerp(aged, luma * float3(0.96, 1.0, 0.92), 0.3 * tt);
+        aged = lerp(aged, capTint, saturate(tt * 2.5) * redness);
+        float glow = 0.7 + 0.5 * saturate(TaintPulse);
+        float3 sick = float3(0.6, 0.96, 0.5) * glow;
+        float spotAmount = saturate(tt * 2.0) * pale;
+        aged = lerp(aged, sick, spotAmount);
+        aged += float3(0.1, 0.32, 0.08) * spotAmount * glow * (0.25 + 0.75 * saturate(TaintPulse)) * 0.6;
+        rgb = aged;
+    }
     rgb = lerp(rgb, float3(1.0, 0.98, 0.92), saturate(Flash));
     return float4(saturate(rgb), tex.a);
 }
@@ -200,7 +225,7 @@ def build_shaders():
         "source": SPRITE_FLASH,
         "previewAsset": "Assets/Sprites/Buzz Bee Sprite.image.json",
         "parameters": [param("Flash", 0.0), param("Shimmer", 0.0), param("ShimmerSpeed", 0.8),
-                       param("Warmth", 0.0)],
+                       param("Warmth", 0.0), param("Taint", 0.0), param("TaintPulse", 0.0)],
     })
     write_meta(rel, "Shader", "Pixel Flash")
     rel = "Shaders/SNES Look.shader.json"

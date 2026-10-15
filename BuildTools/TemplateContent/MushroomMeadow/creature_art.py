@@ -2739,6 +2739,152 @@ def contact_sheet(rows, path, bg=(143, 211, 255, 255), scale=4, pad=4, mask_rows
     print("wrote", path)
 
 
+# ---------------------------------------------------------------- Scared frames (round 4, Fear Kit)
+def scared_wipe(cv, x0, y0, x1, y1, src_x, default):
+    """Repaint a face box with the body colour found just left of it (keeps the shading rows)."""
+    for y in range(y0, y1 + 1):
+        col = cv.get(src_x, y)
+        if col[3] == 0 or col == OUT:
+            col = default
+        for x in range(x0, x1 + 1):
+            cv.set(x, y, col)
+
+
+def scared_eye(cv, x0, y0, w, h, px, py):
+    """Huge round eye: outer box (with rounded corners) 1px outline, white inside, one tiny pupil."""
+    for y in range(y0, y0 + h):
+        for x in range(x0, x0 + w):
+            corner = x in (x0, x0 + w - 1) and y in (y0, y0 + h - 1)
+            if corner:
+                continue
+            edge = x in (x0, x0 + w - 1) or y in (y0, y0 + h - 1)
+            cv.set(x, y, OUT if edge else WHITE)
+    cv.set(px, py, BLACK)
+
+
+def scared_drop(cv, x, y):
+    """Blue sweat drop, 5x6."""
+    rows = ["..O..", ".OBO.", "OBBCO", "OBCCO", "OCCCO", ".OOO."]
+    leg = {"O": OUT, "B": BLUE[0], "C": BLUE[1]}
+    for dy, row in enumerate(rows):
+        for dx, ch in enumerate(row):
+            if ch != ".":
+                cv.set(x + dx, y + dy, leg[ch])
+    cv.set(x + 1, y + 2, WHITE)
+
+
+def scared_squash(src, row):
+    """Hunch: drop one pixel row at `row`; everything above shifts down 1 (feet stay planted)."""
+    c = Canvas(src.w, src.h)
+    for y in range(src.h):
+        if y < row:
+            c.px[y + 1] = list(src.px[y])
+        elif y > row:
+            c.px[y] = list(src.px[y])
+    return c
+
+
+def scared_shift(src, dx):
+    c = Canvas(src.w, src.h)
+    for y in range(src.h):
+        for x in range(src.w):
+            if src.px[y][x][3]:
+                if not 0 <= x + dx < src.w:
+                    return src  # would clip: keep the unshifted frame
+                c.px[y][x + dx] = src.px[y][x]
+    return c
+
+
+def scared_set(name, k):
+    """Two frames (k = 0, 1) of the 'Scared' face for one sprite family."""
+    j = k  # pupil jitter / shake
+    if name == "acorn":
+        c = scared_squash(ca.draw_acorn(0), 13)
+        scared_wipe(c, 13, 15, 26, 24, 11, hx("c98a4a"))
+        scared_eye(c, 13, 15, 6, 7, 15 + j, 18)
+        scared_eye(c, 20, 15, 6, 7, 22 + j, 18)
+        for i, x in enumerate(range(17, 22)):
+            c.set(x, 23 + (i % 2), hx("4a2e1c"))
+        scared_drop(c, 25, 1 + k)
+        return scared_shift(c, 1) if k else c
+    if name == "bee":
+        c = ca.draw_bee(k)
+        scared_wipe(c, 20, 8, 27, 15, 19, hx("3a2a3e"))
+        scared_eye(c, 21, 8, 6, 7, 23 + j, 12)
+        c.set(25, 15, BLACK); c.set(26, 16, BLACK)
+        scared_drop(c, 26, 15 + k)
+        return c
+    if name == "bat":
+        c = flit_bat(k)
+        scared_wipe(c, 11, 9, 21, 17, 10, BAT[1])
+        scared_eye(c, 11, 9, 5, 6, 13 + j, 12)
+        scared_eye(c, 17, 9, 5, 6, 19 + j, 12)
+        for i, x in enumerate(range(14, 19)):
+            c.set(x, 16 + (i % 2), BAT[3])
+        scared_drop(c, 25, 14 + k)
+        return c
+    if name == "grub":
+        c = glow_grub(k)
+        scared_wipe(c, 23, 8, 30, 16, 22, hx("f0b878"))
+        scared_eye(c, 25, 8, 6, 7, 27 + j, 12)
+        c.set(28, 15, GRUB[3]); c.set(29, 16, GRUB[3])
+        scared_drop(c, 19, 0 + k)
+        return c
+    if name == "moth":
+        c = dusk_moth(k)
+        scared_eye(c, 12, 4, 5, 6, 14 + j, 7)
+        scared_eye(c, 16, 4, 5, 6, 18 + j, 7)
+        scared_drop(c, 25, 12 + k)
+        return c
+    if name == "hopper":
+        c = scared_squash(burr_hopper(False), 9)
+        scared_wipe(c, 8, 11, 20, 21, 7, BURR[1])
+        scared_eye(c, 8, 11, 6, 7, 10 + j, 14)
+        scared_eye(c, 15, 11, 6, 7, 17 + j, 14)
+        for i, x in enumerate(range(11, 17)):
+            c.set(x, 19 + (i % 2), BURR[3])
+        scared_drop(c, 22, 2 + k)
+        return c
+    if name == "fish":
+        c = bloatfin(0, k)
+        scared_wipe(c, 20, 8, 25, 17, 19, FISH[1])
+        scared_eye(c, 20, 8, 6, 7, 22 + j, 12)
+        c.set(24, 16, OUT); c.set(25, 17, OUT); c.set(24, 18, OUT)
+        scared_drop(c, 3, 3 + k)
+        return c
+    raise KeyError(name)
+
+
+def write_scared_variants():
+    """Re-writes seven creature images with their original frames/tags/ids plus a trailing 'Scared' tag."""
+    rows = []
+    sc = lambda n: [scared_set(n, 0), scared_set(n, 1)]  # noqa: E731
+    a = [ca.draw_acorn(i) for i in range(4)] + sc("acorn")
+    ca.write_image("Acorn Walker Sprite", a, (16, 28), (3, 6, 26, 22), [("Walk", 0, 3, True), ("Scared", 4, 5, True)],
+                   [140, 140, 140, 140, 120, 120])
+    b = [ca.draw_bee(0), ca.draw_bee(1)] + sc("bee")
+    ca.write_image("Buzz Bee Sprite", b, (16, 12), (6, 4, 20, 16), [("Fly", 0, 1, True), ("Scared", 2, 3, True)],
+                   [60, 60, 120, 120])
+    ba = [flit_bat(0), flit_bat(1), flit_bat(2)] + sc("bat")
+    write_image("Flit Bat", ba, (16, 12), (6, 4, 20, 16),
+                [("Fly", 0, 1, True), ("Hang", 2, 2, True), ("Scared", 3, 4, True)], [110, 110, 1000, 120, 120])
+    g = [glow_grub(0), glow_grub(1)] + sc("grub")
+    write_image("Glow Grub", g, (16, 20), (3, 6, 26, 14), [("Crawl", 0, 1, True), ("Scared", 2, 3, True)],
+                [220, 220, 120, 120])
+    m = [dusk_moth(0), dusk_moth(1)] + sc("moth")
+    write_image("Dusk Moth", m, (16, 12), (6, 4, 20, 16), [("Fly", 0, 1, True), ("Scared", 2, 3, True)],
+                [90, 90, 120, 120])
+    h = [burr_hopper(False), burr_hopper(True)] + sc("hopper")
+    write_image("Burr Hopper", h, (14, 28), (4, 6, 20, 22),
+                [("Idle", 0, 0, True), ("Jump", 1, 1, True), ("Scared", 2, 3, True)], [1000, 1000, 120, 120])
+    f = [bloatfin(0, 0), bloatfin(0, 1), bloatfin(1, 0), bloatfin(1, 1)] + sc("fish")
+    write_image("Bloatfin", f, (16, 14), (6, 6, 20, 16),
+                [("Swim", 0, 1, True), ("Puffed", 2, 3, True), ("Scared", 4, 5, True)],
+                [200, 200, 140, 140, 120, 120])
+    rows = [x[-2:] for x in (a, b, ba, g, m, h, f)]
+    contact_sheet([sum(rows, [])], os.path.join(PREVIEW_DIR, "art4_scared.png"), bg=(70, 80, 110, 255), scale=6)
+
+
 # ---------------------------------------------------------------- main
 def main():
     only = set(sys.argv[1:])
@@ -2856,6 +3002,7 @@ def main():
         row_b += write_image(name, [fn()], (0, 0), (0, 0, 16, 16), [("Still", 0, 0, True)], 1000)
     contact_sheet([row_a, row_b], os.path.join(PREVIEW_DIR, "creatures_preview6.png"), bg=(110, 160, 200, 255),
                   scale=5)
+    write_scared_variants()
 
 
 if __name__ == "__main__":

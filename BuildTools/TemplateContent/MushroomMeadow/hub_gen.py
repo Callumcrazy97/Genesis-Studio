@@ -9,7 +9,8 @@ Writes into Source/Genesis.Application.Core/Projects/Templates/Assets/TwoDShowca
                   Village Host (dialogue box, Chanterelle's shop, leaving the village), Lantern Tree Glow,
                   NPC Elder Morel, NPC Chanterelle, NPC Bram, NPC Puffball, NPC Old Wick, Shop Stall, Exit Sign,
                   Chimney Smoke (live smoke puffs over the Village Houses chimneys)
-  Scripts         Hub Common (shared helpers), Village Lines (every NPC line, by story progress)
+  Scripts         Hub Common (shared helpers), Village Lines (every NPC line, by story progress, and the
+                  reputation-aware lines: HubRepPages)
   User Interfaces Overworld HUD, Dialogue Box, Shop Menu
   Particles       Map Unlock Burst, Path Sparkle, Node Glow, Village Fireflies, Shop Sparkle
   Images          Smoke Puff (the one piece of art made here; needs Pillow)
@@ -152,9 +153,23 @@ def write_ui(name, elements):
     write_meta(rel, "UserInterface", name)
 
 
+# Chanterelle's stall: 11 rows in two columns (indices 0-5 left, 6-10 right); the last row is "Leave".
+SHOP_ROW_W = 480
+SHOP_COLUMNS = (166, 654)
+
+
+def shop_row_pos(i):
+    """Top-left of shop row i in the 1280x720 design."""
+    col = 0 if i < 6 else 1
+    row = i if i < 6 else i - 6
+    return SHOP_COLUMNS[col], 134 + row * 44
+
+
 PORTRAITS = [("portraitPip", "Portrait Pip"), ("portraitMorel", "Portrait Elder Morel"),
              ("portraitChanterelle", "Portrait Chanterelle"), ("portraitBram", "Portrait Bram"),
-             ("portraitPuffball", "Portrait Puffball"), ("portraitWick", "Portrait Old Wick")]
+             ("portraitPuffball", "Portrait Puffball"), ("portraitWick", "Portrait Old Wick"),
+             ("portraitPipSpore1", "Portrait Pip Spore 1"), ("portraitPipSpore2", "Portrait Pip Spore 2"),
+             ("portraitPipSpore3", "Portrait Pip Spore 3")]
 
 
 def build_ui():
@@ -212,32 +227,34 @@ def build_ui():
     for i, (eid, asset) in enumerate(PORTRAITS):
         d.append(image(eid, 126, 466, 160, 160, 3 + i, asset))
     d += [
-        element("namePlate", "Panel", 312, 414, 270, 42, 10, background="#FFD8433B", fill="VerticalGradient",
+        element("namePlate", "Panel", 312, 414, 270, 42, 20, background="#FFD8433B", fill="VerticalGradient",
                 gradientEnd="#FFA52D2B", cornerRadius=8.0, borderWidth=2.0, borderColor="#FF2A1D2E"),
-        text("nameText", 312, 414, 270, 42, 11, "", 22.0, "#FFFFF4D6", "Center", spacing=1.0),
+        text("nameText", 312, 414, 270, 42, 21, "", 22.0, "#FFFFF4D6", "Center", spacing=1.0),
     ]
     write_ui("Dialogue Box", d)
 
-    # ---- Shop Menu: Chanterelle's stall. Names, prices and the highlight are drawn by Village Host.
+    # ---- Shop Menu: Chanterelle's stall, two columns of rows (see SHOP_COLUMNS). Names, prices and the
+    # highlight are drawn by Village Host.
     s = [
-        panel("shopPanel", 330, 104, 620, 300, 0, radius=14.0, border=4.0),
+        panel("shopPanel", 150, 104, 980, 300, 0, radius=14.0, border=4.0),
         element("shopRibbon", "Panel", 440, 86, 400, 38, 1, background="#FFD8433B", fill="VerticalGradient",
                 gradientEnd="#FFA52D2B", cornerRadius=6.0, borderWidth=2.0, borderColor="#FF2A1D2E"),
         text("shopTitle", 440, 86, 400, 38, 2, "CHANTERELLE'S STALL", 19.0, "#FFFFF4D6", "Center", spacing=1.5),
     ]
     icons = ["Heart Berry Sprite", "Explorer Idle", "Glide Seed Sprite", "Spore Puff Sprite", "Bark Shield Sprite",
-             "Exit Sign Sprite"]
+             "Item Sword Sprite", "Item Shield Sprite", "Item Bow Sprite", "Arrow Sprite",
+             "Item Propeller Flower Sprite", "Exit Sign Sprite"]
     for i, asset in enumerate(icons):
-        y = 134 + i * 44
-        s.append(element("row%d" % i, "Panel", 348, y, 584, 40, 3 + i, background="#40FFF1C8",
+        rx, ry = shop_row_pos(i)
+        s.append(element("row%d" % i, "Panel", rx, ry, SHOP_ROW_W, 40, 3 + i, background="#40FFF1C8",
                          cornerRadius=6.0, borderWidth=0.0))
-        s.append(image("icon%d" % i, 358, y + 4, 32, 32, 10 + i, asset))
-        if i < 5:
-            s.append(image("coin%d" % i, 900, y + 12, 16, 16, 20 + i, "Coin Icon"))
+        s.append(image("icon%d" % i, rx + 10, ry + 4, 32, 32, 20 + i, asset))
+        if i < len(icons) - 1:
+            s.append(image("coin%d" % i, rx + SHOP_ROW_W - 34, ry + 12, 16, 16, 40 + i, "Coin Icon"))
     s += [
-        panel("pursePanel", 960, 104, 200, 56, 30),
-        image("purseCoin", 974, 120, 24, 24, 31, "Coin Icon"),
-        text("purseText", 1006, 104, 150, 56, 32, "0", 24.0, "#FFFFF1C8"),
+        panel("pursePanel", 930, 34, 200, 56, 60),
+        image("purseCoin", 944, 50, 24, 24, 61, "Coin Icon"),
+        text("purseText", 976, 34, 150, 56, 62, "0", 24.0, "#FFFFF1C8"),
     ]
     write_ui("Shop Menu", s)
 
@@ -358,12 +375,98 @@ LINES = {
     },
 }
 
+# Reputation-aware extras (hidden lore: hinted, never explained). Keyed by NPC, then taint stage:
+# stage 0 is only used while Pip is "kind" (Reputation Kit RepIsKind: almost no brutality, a few stomps).
+# (mode, pages): "before" goes in front of the story lines, "after" behind them, "replace" instead of them.
+# "@" starts a page spoken by Pip. Puffball hides from stage 2 on (NPC Puffball) and only answers muffled.
+REP_LINES = {
+    1: {
+        0: ("after", ["Word reaches even an old man's ears, Pip: you hop on the acorns and leave them be. That is the way of a true hero."]),
+        1: ("before", ["Hm. Pip. You smell of crushed leaves and... something else.",
+                       "Old tales say a cap remembers what its wearer does. Tales, only tales. Forget I spoke."]),
+        2: ("before", ["Pip... your cap. It was red as a ripe berry once. Now it is the colour of a bruise.",
+                       "@It is just the light in here, Elder.",
+                       "Perhaps. Come, sit by the Tree and rest a while. Please. Let the night pass without you."]),
+        3: ("replace", ["Pip. Look at me. Your cap is nearly black, and the spots on it are glowing.",
+                        "@It is only a hat, Elder.",
+                        "Is it? Sit. Rest. Let the Tree's light fall on you. Do not go out again tonight, little one. I beg you."]),
+    },
+    2: {
+        0: ("after", ["And for a friend who never hurts a soul, a little off the top! Look at those prices."]),
+        1: ("before", ["Oh! Pip. Hello. Business as usual. Perfectly usual."]),
+        2: ("before", ["P-Pip! Of course, of course. Take what you need. The prices are... as marked. Only as marked."]),
+        3: ("replace", ["D-don't hurt me. The whole stall is yours, take what you like.",
+                        "Only... don't look at me like that. Your cap is humming."]),
+    },
+    3: {
+        0: ("after", ["I watched you bop an acorn and walk on by. Gentle. Even my shell approves."]),
+        1: ("before", ["Ah. Pip. I heard about the acorn. And the other acorn. And the beetle."]),
+        2: ("before", ["Slowly. I always move slowly. You have noticed. Please do not step on me."]),
+        3: ("replace", ["Sp-special... no. No letters. No tips.", "I am going now. Slowly, yes. But going."]),
+    },
+    4: {
+        0: ("after", ["Everybody says you are SO nice to the acorns! Can I be nice like you? Pretty please?"]),
+        1: ("before", ["Hi Pip. Is that... never mind. I am not looking. I am looking at the ground."]),
+        2: ("replace", ["(From behind a barrel, muffled) ...go away, please...",
+                        "(muffled) ...the spots are looking at me... I did not do anything..."]),
+        3: ("replace", ["(A whisper from behind the barrel) ...please... please... please..."]),
+    },
+    5: {
+        0: ("after", ["Not a mean bone in you, youngster. That cap shines like a freshly trimmed lamp."]),
+        1: ("before", ["Your cap is deeper in colour than I remember. Mushrooms do that when the night runs long."]),
+        2: ("before", ["Hm hm hmmm... hm-hm... Do you hear that tune? It is coming from your cap, youngster.",
+                       "@I do not hear anything.",
+                       "No. I suppose you would not."]),
+        3: ("replace", ["Hm-hm-hm... the tune is louder now. It knows all the words.",
+                        "Forty years of lamps, and I know when something under a hat is humming back.",
+                        "@Please, stop humming.",
+                        "That is not me, youngster. That has never been me."]),
+    },
+}
+
+
+def rep_function_lines():
+    out = [
+        "",
+        "// HubRepPages(npc, base) -> the pages to speak: `base` (HubVillageLines) with the reputation extras",
+        "// (REP_LINES in hub_gen.py) before, after or instead of it. Unchanged without the Reputation Kit.",
+        "function HubRepPages(npc, base) {",
+        "    if (!ResourceExists(\"Reputation Kit\")) { return base; }",
+        "    var rstage = RepStage();",
+        "    var kind = RepIsKind();",
+    ]
+    for npc in sorted(REP_LINES):
+        out.append("    if (npc == %d) {" % npc)
+        for rs in sorted(REP_LINES[npc]):
+            mode, texts = REP_LINES[npc][rs]
+            pages = "~".join(pages_of(texts))
+            cond = "rstage == %d" % rs
+            if rs == 0:
+                cond = "rstage == 0 && kind == 1"
+            if mode == "before":
+                body = "return StringJoin3(\"%s\", \"~\", base);" % pages
+            elif mode == "after":
+                body = "return StringJoin3(base, \"~\", \"%s\");" % pages
+            else:
+                body = "return \"%s\";" % pages
+            out.append("        if (%s) { %s }" % (cond, body))
+        out.append("    }")
+    out.append("    return base;")
+    out.append("}")
+    return out
+
+
 SHOP_INFO = [
     "Heart Berry: grow your heart. One more maximum heart, up to six in all.",
     "Extra Life: one more try, freshly bottled. Don't ask how.",
     "Glide Seed: hold jump while falling to float gently down.",
     "Spore Puff: press the action key to throw bouncing spores.",
     "Bark Shield: a sturdy oak ring that takes one hit for you.",
+    "Sword: swing it with the Use button. Two damage, and it cuts clean through.",
+    "Shield: hold Use to raise it. Blocks hits from the front, and bashes.",
+    "Bow: hold Use to draw, let go to fire. Comes with a dozen arrows.",
+    "Arrows x10: ammunition for a bow. A quiver holds ninety-nine.",
+    "Propeller Flower: Use it in the air to float down. Hold Jump to rise!",
     "Off you go? Come back soon, friend, and bring coins!",
 ]
 SHOP_BOUGHT = [
@@ -372,11 +475,20 @@ SHOP_BOUGHT = [
     "A Glide Seed! Hold jump while falling and float like dandelion fluff.",
     "Spore Puff! Press action to throw bouncy spores. Aim for the jellies.",
     "A Bark Shield. Sturdy oak, takes one hit for you. Knock on wood!",
+    "A fine Sword! Mind the edge. Sharp things keep their promises.",
+    "A Shield, good and solid. Hold Use to raise it, friend.",
+    "A Bow, and a dozen arrows to go with it. Aim true!",
+    "Ten arrows, tied with string. Don't spend them all in one place.",
+    "A Propeller Flower! Open it in the air and let the wind do the work.",
 ]
 SHOP_WELCOME = "Take your time, friend. Everything is fresh from the forest floor."
 SHOP_POOR = "Ah... you're a few coins short, friend. Come back after a stroll through the meadow."
 SHOP_FULL = "Your heart is as big as it gets, Pip! Six whole hearts."
 SHOP_HAVE = "You're already carrying one of those. Save your coins!"
+SHOP_REFUSE = "Oh... no, no. Not that one, Pip. I am out of stock. Entirely out."
+SHOP_QUIVER = "Your quiver is full to the brim, friend. Ninety-nine arrows!"
+SHOP_KIND = "Friends get friendly prices. Take your time, Pip!"
+SHOP_UNEASY = "Take... take what you need, Pip. Please. Just take it."
 
 
 def wrap_lines(text):
@@ -430,6 +542,7 @@ def build_lines_script():
         out.append("    }")
     out.append("    return \"...\";")
     out.append("}")
+    out += rep_function_lines()
     write_text("Scripts/Village Lines.pgsl", "\n".join(out) + "\n")
     write_meta("Scripts/Village Lines.pgsl", "Script", "Village Lines")
 
@@ -494,6 +607,29 @@ function HubSave(chime) {
     if (GlobalGet("slot") < 1) { return 0; }
     if (!ResourceExists("Game Save")) { return 0; }
     if (ScriptExecute("Game Save", chime)) { return 1; }
+    return 0;
+}
+
+// Reputation Kit helpers (all 0 / unchanged without the kit).
+function HubRepStage() {
+    if (ResourceExists("Reputation Kit")) { return RepStage(); }
+    return 0;
+}
+
+function HubRepKind() {
+    if (ResourceExists("Reputation Kit")) { return RepIsKind(); }
+    return 0;
+}
+
+// A shop price after the reputation multiplier (whole coins).
+function HubShopPrice(base) {
+    if (ResourceExists("Reputation Kit")) { return RepPrice(base); }
+    return base;
+}
+
+// The shop multiplier as a percent (-25 .. +60).
+function HubShopPercent() {
+    if (ResourceExists("Reputation Kit")) { return RepPricePercent(); }
     return 0;
 }
 
@@ -1025,13 +1161,20 @@ NPC_CREATE = """// @OBJ@: a Hearthollow villager. Idle animation; when Pip stand
 // and the action key (or the Explorer's RoomValue "talk") asks Village Host for the conversation
 // (RoomValue "talkRequest" = @KEY@). The lines themselves are in the Village Lines script.
 npcKey = @KEY@; npcName = "@NAME@"; headH = @HEAD@; wander = @WANDER@;
-homeX = x; near = 0; talking = -1; t = @KEY@ * 0.37; dir = 1; pause = 0;
+homeX = x; near = 0; talking = -1; t = @KEY@ * 0.37; dir = 1; pause = 0; hideKid = 0;
 SpriteSet("Assets/Sprites/@SPRITE@.image.json");
 AnimationPlay("Idle", true); AnimationSetSpeed(1);
 """
 
 NPC_STEP = """var dt = Clamp(DeltaTime, 0, 0.05);
 t += dt;
+// Puffball is afraid of a feared Pip (taint stage 2 and up): he hides behind the barrels and is only
+// heard, muffled (the lines are in Village Lines: HubRepPages).
+if (npcKey == 4) {
+    var hideNow = 0;
+    if (HubRepStage() >= 2) { hideNow = 1; }
+    if (hideNow != hideKid) { hideKid = hideNow; SpriteSetVisible(hideKid == 0); }
+}
 var hero = InstanceFind("Explorer", 0);
 near = 0;
 var hx = x;
@@ -1067,14 +1210,18 @@ NPC_DRAWGUI = """// The talk prompt above the villager's head while Pip is close
 if (near == 1 && RoomValueGet("dialogue", 0) == 0) {
     var s = Min(WindowGetWidth() / 1280, WindowGetHeight() / 720);
     var bob = Abs(Sin(t * 180)) * 4 * s;
-    HubPromptBubble(HubGuiX(x), HubGuiY(y - headH - 6) - bob, "E", npcName, s);
+    var label = npcName;
+    if (hideKid == 1) { label = "..."; }
+    HubPromptBubble(HubGuiX(x), HubGuiY(y - headH - 6) - bob, "E", label, s);
 }
 """
 
 HOST_CREATE = """// Village Host: Hearthollow's conversations, Chanterelle's shop and the way back to the map.
 // Villagers ask with RoomValueSet("talkRequest", npc); the Exit Sign with RoomValueSet("leaveRequest", 1).
 // While a box is open RoomValue "dialogue" is 1 (the Explorer stands still) and "talkingTo" names the
-// villager speaking. Shop prices: Heart Berry 30, Extra Life 50, Glide Seed 20, Spore Puff 25, Bark Shield 25.
+// villager speaking. Shop prices: Heart Berry 30, Extra Life 50, Glide Seed 20, Spore Puff 25, Bark Shield 25,
+// Sword 40, Shield 35, Bow 60 (with 12 arrows), Arrows x10 10, Propeller Flower 50; all times the Reputation Kit's
+// RepPriceMul (HubShopPrice). The weapons (Sword, Bow, Arrows) are refused at taint stage 3 (DREADED).
 // The Explorer mirrors lives/coins/hearts/maxHearts/power into the globals every step; changes made
 // here are handed to it with RoomValueSet("heroReload", 1).
 var fresh = HubEnsureDefaults();
@@ -1086,15 +1233,23 @@ totalChars = 0; reveal = 0; lastBlip = 0; inputDelay = 0; closeTimer = 0; stickL
 shopSel = 0; shopMsg = ""; shopMood = 0; leaving = 0; fadeT = 0; gone = 0; t = 0;
 speakerName = ["Pip", "Elder Morel", "Chanterelle", "Bram", "Puffball", "Old Wick"];
 voicePitch = [1.18, 0.78, 0.96, 0.66, 1.45, 0.88];
-portraitId = ["portraitPip", "portraitMorel", "portraitChanterelle", "portraitBram", "portraitPuffball", "portraitWick"];
-itemName = ["Heart Berry", "Extra Life", "Glide Seed", "Spore Puff", "Bark Shield", "Leave"];
-itemPrice = [30, 50, 20, 25, 25, 0];
+portraitId = ["portraitPip", "portraitMorel", "portraitChanterelle", "portraitBram", "portraitPuffball", "portraitWick",
+              "portraitPipSpore1", "portraitPipSpore2", "portraitPipSpore3"];
+itemName = ["Heart Berry", "Extra Life", "Glide Seed", "Spore Puff", "Bark Shield", "Sword", "Shield", "Bow",
+            "Arrows x10", "Propeller Flower", "Leave"];
+itemPrice = [30, 50, 20, 25, 25, 40, 35, 60, 10, 50, 0];
+shopX = @SHOPX@;
+shopY = @SHOPY@;
 itemInfo = @INFO@;
 itemBought = @BOUGHT@;
 shopWelcome = "@WELCOME@";
 shopPoor = "@POOR@";
 shopFull = "@FULL@";
 shopHave = "@HAVE@";
+shopRefuse = "@REFUSE@";
+shopQuiver = "@QUIVER@";
+shopKind = "@KIND@";
+shopUneasy = "@UNEASY@";
 RoomValueSet("dialogue", 0); RoomValueSet("talkRequest", 0); RoomValueSet("leaveRequest", 0);
 RoomValueSet("talkingTo", 0);
 GlobalSet("mapNode", 0);
@@ -1165,6 +1320,7 @@ if (mode == 0) {
         if (visits > 0) { again = 1; }
         GlobalSet("hubTalk" + npc, visits + 1);
         pages = HubVillageLines(npc, stage, again);
+        pages = HubRepPages(npc, pages);
         pageCount = StringSplitCount(pages, "~");
         page = 1;
         HostOpenPage();
@@ -1205,6 +1361,8 @@ if (mode == 1) {
         } else if (npc == 2) {
             // Chanterelle opens the shop after the greeting.
             mode = 2; shopSel = 0; shopMsg = shopWelcome; shopMood = 0; inputDelay = 0.15;
+            if (HubRepKind() == 1) { shopMsg = shopKind; }
+            if (HubRepStage() >= 2) { shopMsg = shopUneasy; shopMood = -1; }
             PlaySound("Assets/Audio/Menu Select.audio.json", 0.6, 1, false);
         } else {
             HostClose();
@@ -1213,11 +1371,18 @@ if (mode == 1) {
     return;
 }
 
-// 2: Chanterelle's shop.
+// 2: Chanterelle's shop. Rows: 0-4 the old goods, 5 Sword, 6 Shield, 7 Bow, 8 Arrows x10, 9 Propeller Flower, 10 Leave.
+// Left column is rows 0-5, right column 6-10. Prices are the base price times the Reputation Kit multiplier.
 if (mode == 2) {
     var moved = 0;
-    if (KeyPressed("Up") || KeyPressed("W") || GamepadPressed("Up") || stickNew == 1) { shopSel = (shopSel + 5) % 6; moved = 1; }
-    if (KeyPressed("Down") || KeyPressed("S") || GamepadPressed("Down") || stickNew == 2) { shopSel = (shopSel + 1) % 6; moved = 1; }
+    if (KeyPressed("Up") || KeyPressed("W") || GamepadPressed("Up") || stickNew == 1) { shopSel = (shopSel + 10) % 11; moved = 1; }
+    if (KeyPressed("Down") || KeyPressed("S") || GamepadPressed("Down") || stickNew == 2) { shopSel = (shopSel + 1) % 11; moved = 1; }
+    if (KeyPressed("Left") || KeyPressed("A") || GamepadPressed("Left") || stickNew == 3) {
+        if (shopSel >= 6) { shopSel = shopSel - 6; moved = 1; }
+    }
+    if (KeyPressed("Right") || KeyPressed("D") || GamepadPressed("Right") || stickNew == 4) {
+        if (shopSel < 6) { shopSel = Min(10, shopSel + 6); moved = 1; }
+    }
     if (moved == 1) {
         shopMsg = ""; shopMood = 0;
         PlaySound("Assets/Audio/Menu Move.audio.json", 0.55, 1, false);
@@ -1228,19 +1393,28 @@ if (mode == 2) {
         return;
     }
     if (advance) {
-        if (shopSel == 5) {
+        if (shopSel == 10) {
             HostClose();
             PlaySound("Assets/Audio/Menu Back.audio.json", 0.5, 1, false);
             return;
         }
-        var price = itemPrice[shopSel];
+        var price = HubShopPrice(itemPrice[shopSel]);
         var coins = GlobalGet("coins");
         var hearts = GlobalGet("hearts"); var maxHearts = GlobalGet("maxHearts");
         var lives = GlobalGet("lives"); var power = GlobalGet("power");
+        var heldNow = GlobalGet("heldItem"); var arrowsNow = GlobalGet("arrows");
+        var heldWant = 0;
+        if (shopSel == 5) { heldWant = 1; }
+        if (shopSel == 6) { heldWant = 2; }
+        if (shopSel == 7) { heldWant = 3; }
+        if (shopSel == 9) { heldWant = 4; }
         var deny = "";
-        if (coins < price) { deny = shopPoor; }
+        if (HubRepStage() >= 3 && (shopSel == 5 || shopSel == 7 || shopSel == 8)) { deny = shopRefuse; }
+        else if (coins < price) { deny = shopPoor; }
         else if (shopSel == 0 && maxHearts >= 6) { deny = shopFull; }
-        else if (shopSel >= 2 && power == shopSel - 1) { deny = shopHave; }
+        else if (shopSel >= 2 && shopSel <= 4 && power == shopSel - 1) { deny = shopHave; }
+        else if (heldWant > 0 && heldNow == heldWant) { deny = shopHave; }
+        else if (shopSel == 8 && arrowsNow >= 99) { deny = shopQuiver; }
         if (!StringEquals(deny, "")) {
             shopMsg = deny; shopMood = -1;
             PlaySound("Assets/Audio/Shop Deny.audio.json", 0.8, 1, false);
@@ -1251,7 +1425,14 @@ if (mode == 2) {
                 GlobalSet("hearts", Min(maxHearts + 1, hearts + 1));
             }
             if (shopSel == 1) { GlobalSet("lives", Min(99, lives + 1)); }
-            if (shopSel >= 2) { GlobalSet("power", shopSel - 1); }
+            if (shopSel >= 2 && shopSel <= 4) { GlobalSet("power", shopSel - 1); }
+            // A held item replaces whatever Pip carried (the Item Kit carries heldItem / arrows between rooms).
+            if (heldWant > 0) {
+                // The Item Kit tosses the item Pip carried out beside him instead of losing it.
+                if (ResourceExists("Item Kit")) { ItemGrantGlobal(heldWant); } else { GlobalSet("heldItem", heldWant); }
+            }
+            if (shopSel == 7) { GlobalSet("arrows", Min(99, arrowsNow + 12)); }
+            if (shopSel == 8) { GlobalSet("arrows", Min(99, arrowsNow + 10)); }
             // The Explorer takes the new counters over (it mirrors them into the globals every step).
             RoomValueSet("heroReload", 1);
             shopMsg = itemBought[shopSel]; shopMood = 1;
@@ -1290,7 +1471,15 @@ if (t < 3.4) {
 if (mode == 1 || mode == 2) {
     var who = speaker;
     if (mode == 2) { who = 2; }
-    for (var i = 0; i < 6; i += 1) { UiSetVisible(box, portraitId[i], i == who); }
+    // Pip's portrait follows the taint stage (Portrait Pip Spore 1..3).
+    var pipStage = HubRepStage();
+    for (var i = 0; i < 6; i += 1) {
+        var showIt = 0;
+        if (i == who) { showIt = 1; }
+        if (i == 0 && pipStage > 0) { showIt = 0; }
+        UiSetVisible(box, portraitId[i], showIt == 1);
+    }
+    for (var j = 1; j <= 3; j += 1) { UiSetVisible(box, portraitId[5 + j], who == 0 && pipStage == j); }
     UiSetText(box, "nameText", speakerName[who]);
     DrawUi(box);
     DrawSetFont("Consolas"); DrawSetAlpha(1);
@@ -1327,22 +1516,32 @@ if (mode == 2) {
     UiSetText(shop, "purseText", StringOf(GlobalGet("coins")));
     DrawUi(shop);
     var coinsNow = GlobalGet("coins");
-    for (var r = 0; r < 6; r += 1) {
-        var ry = 134 + r * 44;
+    var pct = HubShopPercent();
+    if (pct < 0) { HubShadowText(166 * sx, 94 * sy, StringJoin3("FRIENDLY DISCOUNT ", StringOf(pct), "%"), 18 * s, 170, 240, 150); }
+    if (pct > 0) { HubShadowText(166 * sx, 94 * sy, StringJoin3("SURCHARGE +", StringOf(pct), "%"), 18 * s, 255, 160, 140); }
+    var repShop = HubRepStage();
+    for (var r = 0; r < 11; r += 1) {
+        var rx = shopX[r]; var ry = shopY[r];
+        var refused = 0;
+        if (repShop >= 3 && (r == 5 || r == 7 || r == 8)) { refused = 1; }
+        var shownPrice = HubShopPrice(itemPrice[r]);
         if (r == shopSel) {
             var pulse = 0.75 + 0.25 * Sin(t * 360);
             DrawSetAlpha(0.35); DrawSetColorRgb(255, 210, 63);
-            DrawRoundRectEx(348 * sx, ry * sy, 932 * sx, (ry + 40) * sy, 6 * s, 0);
+            DrawRoundRectEx(rx * sx, ry * sy, (rx + 480) * sx, (ry + 40) * sy, 6 * s, 0);
             DrawSetAlpha(pulse);
-            DrawRoundRectEx(348 * sx, ry * sy, 932 * sx, (ry + 40) * sy, 6 * s, 3 * s);
+            DrawRoundRectEx(rx * sx, ry * sy, (rx + 480) * sx, (ry + 40) * sy, 6 * s, 3 * s);
             DrawSetAlpha(1);
         }
         var nr = 248; var ng = 252; var nb = 244;
-        if (r < 5 && coinsNow < itemPrice[r]) { nr = 170; ng = 160; nb = 170; }
-        HubShadowText(404 * sx, (ry + 7) * sy, itemName[r], 22 * s, nr, ng, nb);
-        if (r < 5) {
+        if (r < 10 && (coinsNow < shownPrice || refused == 1)) { nr = 170; ng = 160; nb = 170; }
+        HubShadowText((rx + 56) * sx, (ry + 7) * sy, itemName[r], 22 * s, nr, ng, nb);
+        if (r < 10) {
+            var pr = 255; var pg = 223; var pb = 145;
+            if (shownPrice < itemPrice[r]) { pr = 170; pg = 240; pb = 150; }
+            if (shownPrice > itemPrice[r]) { pr = 255; pg = 170; pb = 140; }
             DrawSetTextAlign("right");
-            HubShadowText(892 * sx, (ry + 7) * sy, StringOf(itemPrice[r]), 22 * s, 255, 223, 145);
+            HubShadowText((rx + 436) * sx, (ry + 7) * sy, StringOf(shownPrice), 22 * s, pr, pg, pb);
             DrawSetTextAlign("left");
         }
     }
@@ -1561,7 +1760,11 @@ def build_scripts_and_objects():
     host_create = (HOST_CREATE.replace("@INFO@", pgsl_list([wrapped(s) for s in SHOP_INFO]))
                    .replace("@BOUGHT@", pgsl_list([wrapped(s) for s in SHOP_BOUGHT]))
                    .replace("@WELCOME@", wrapped(SHOP_WELCOME)).replace("@POOR@", wrapped(SHOP_POOR))
-                   .replace("@FULL@", wrapped(SHOP_FULL)).replace("@HAVE@", wrapped(SHOP_HAVE)))
+                   .replace("@FULL@", wrapped(SHOP_FULL)).replace("@HAVE@", wrapped(SHOP_HAVE))
+                   .replace("@REFUSE@", wrapped(SHOP_REFUSE)).replace("@QUIVER@", wrapped(SHOP_QUIVER))
+                   .replace("@KIND@", wrapped(SHOP_KIND)).replace("@UNEASY@", wrapped(SHOP_UNEASY))
+                   .replace("@SHOPX@", pgsl_list([float(shop_row_pos(i)[0]) for i in range(11)]))
+                   .replace("@SHOPY@", pgsl_list([float(shop_row_pos(i)[1]) for i in range(11)])))
     write_object("Village Host", "", {"Create": host_create, "Step": HOST_STEP, "DrawGui": HOST_DRAWGUI})
     write_object("Lantern Tree Glow", "Lantern Tree Lights 1", {"Create": TREE_CREATE, "StepEnd": TREE_STEP_END})
     tops = chimney_tops()

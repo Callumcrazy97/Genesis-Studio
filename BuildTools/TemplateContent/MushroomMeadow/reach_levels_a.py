@@ -50,6 +50,13 @@ DT = hp.DT
 WIND_PEAK = 320.0          # Wind Controller: peak = 320 (px/s^2)
 LEAF_PHASES = 16
 MARGIN_JUMP = math.sqrt(hp.MARGIN)
+
+# Power-ups that sprout from a seed pod and then hover where Pip cannot reach them. Rootdeep Caverns' were
+# fixed (the Heart Berry before the boss arena and the Bark Shield in the Bat roost). This one is the same
+# bug in another level; Cal asked for only the caverns fix, so it is reported here instead of failing.
+KNOWN_UNREACHABLE_ITEMS = {
+    ("canopy", "Prize Heart 03 item"): "the Heart Berry pod at column 165 row 4 in Windswept Canopy",
+}
 MARGIN_SPEED = 0.92
 MAX_FRAMES = 300
 
@@ -143,6 +150,9 @@ class World:
         for prefab in ("Prize Glide", "Prize Spore", "Prize Shield", "Prize Star", "Prize Heart"):
             for (name, x, y) in self.grid.objects(prefab):
                 self.prize_pods.append((name, (int(x // TILE), int(y // TILE))))
+                # The power-up sprouts at the pod's centre and rises 30 px, so it hovers on top of the
+                # pod: Pip has to be able to reach it there (item masks are about 20 px square).
+                self.extras.append((name + " item", (x - 10, y - 40, x + 10, y - 20)))
         self.segs = hp.segments(self.grid)
         self.by_row = {}
         for s in self.segs:
@@ -649,7 +659,10 @@ def check_room(pool, key):
             real.touched.add(i)
         lines.append("  optional %-12s %s" % (name, "reachable" if i in real.touched else "NOT reachable"))
         if i not in real.touched:
-            failures.append("%s: optional %s unreachable even with the real physics" % (w.room_name, name))
+            if (key, name) in KNOWN_UNREACHABLE_ITEMS:
+                lines.append("    WARNING: known, reported to Cal, not changed yet: %s" % KNOWN_UNREACHABLE_ITEMS[(key, name)])
+            else:
+                failures.append("%s: optional %s unreachable even with the real physics" % (w.room_name, name))
     for name, cell in w.prize_pods:
         ok = cell in real.bonked
         lines.append("  optional %-12s seed pod at column %d row %d %s" % (name, cell[0], cell[1], "bumpable" if ok else "NOT bumpable"))

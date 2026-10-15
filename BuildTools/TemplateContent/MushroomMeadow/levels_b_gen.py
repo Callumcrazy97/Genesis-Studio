@@ -624,8 +624,22 @@ def place_common(level, instance):
             instance("%s %d" % (prefab, n), prefab, x, y)
 
 
+# Round 4: optional item pickups (Item Kit): (object, section index, column in the section, row above the floor).
+GROTTO_ITEMS = [("Item Bow", 0, 11, 9)]
+HOLLOW_ITEMS = [("Item Shield", 3, 12, 9)]
+
+
+def place_items(level, instance, items):
+    for n, (prefab, sec, c, r) in enumerate(items, 1):
+        col = level.starts[sec] + c
+        x, y = col * 32 + 16, (r + 1) * 32 - 12
+        level.check_clear(prefab, x, y, (-8, -8, 8, 8))
+        instance("%s %d" % (prefab, n), prefab, x, y)
+
+
 def place_grotto(level, instance):
     place_common(level, instance)
+    place_items(level, instance, GROTTO_ITEMS)
     instance("Grotto Controller", "Grotto Controller", 48, 16, -150)
     glow = level.cells("Z")
     assert len(glow) == 1
@@ -646,6 +660,7 @@ def place_grotto(level, instance):
 
 def place_hollow(level, instance):
     place_common(level, instance)
+    place_items(level, instance, HOLLOW_ITEMS)
     instance("Hollow Controller", "Hollow Controller", 48, 16, -150)
     for i, (c, r) in enumerate(level.cells("d"), 1):
         x, y = center(c, r)
@@ -704,6 +719,7 @@ BLOATFIN_CREATE = """
 enemy = 1; hp = 1; stompable = 1; contactDamage = 1; points = 200; dead = 0; hurt = 0;
 homeX = x; homeY = y; dir = -1; range = 80; puffed = 0; calm = 0; flash = 0; deadTime = 0;
 bob = (x * 3 + y) % 360; hero = 0;
+GoreEnemyInit(4, 1, 16, 14, 8);
 AnimationPlay("Swim", true);
 ShaderSet("Assets/Shaders/Pixel Flash.shader.json"); ShaderSetParameter("Flash", 0);
 """
@@ -721,9 +737,12 @@ if (dead == 1) {
     return;
 }
 if (hurt > 0) {
+    GoreEnemyHit();
     hp = hp - hurt; hurt = 0; flash = 0.3;
     if (hp <= 0) {
         dead = 1; deadTime = 0; stompable = 0; contactDamage = 0;
+        var goreResult = GoreEnemyDeath();
+        if (goreResult > 0) { InstanceDestroy(id); return; }
         AnimationPlay("Swim", false); AnimationSetSpeed(0);
         ParticleBurstAt("Assets/Particles/Bloatfin Pop.particle.json", x, y, 0, 1, 0);
         return;
@@ -753,9 +772,21 @@ if (near == 1) {
 bob = (bob + dt * 120) % 360;
 var swimSpeed = 38;
 if (puffed == 1) { swimSpeed = 6; }
-var nx = x + dir * swimSpeed * dt;
-if (nx < homeX - range || nx > homeX + range || LbSolidAt(nx + dir * 12, y) == 1) { dir = -dir; }
-else { x = nx; }
+var scared = FearCheck(130);
+if (scared == 1 && puffed == 0) {
+    // Afraid of a brutal Pip: swims away faster, further than its usual range; walled in it cowers.
+    dir = FearDir();
+    var fleeX = x + dir * 80 * dt;
+    if (fleeX < homeX - 170 || fleeX > homeX + 170 || LbSolidAt(fleeX + dir * 12, y) == 1) { FearCower(1); }
+    else { x = fleeX; FearCower(0); }
+} else if (Abs(x - homeX) > range) {
+    // Back from a flight: drift home before the usual patrol resumes.
+    dir = Sign(homeX - x); x = x + dir * 40 * dt;
+} else {
+    var nx = x + dir * swimSpeed * dt;
+    if (nx < homeX - range || nx > homeX + range || LbSolidAt(nx + dir * 12, y) == 1) { dir = -dir; }
+    else { x = nx; }
+}
 y = homeY + Sin(bob) * 6;
 if (puffed == 1) { y = homeY + Sin(bob) * 2; }
 image_xscale = dir;
@@ -767,6 +798,7 @@ JELLY_CREATE = """
 // Firefly pops it (enemy convention: hurt is added by the Explorer or its Spore Shot).
 enemy = 1; hp = 1; stompable = 0; contactDamage = 1; points = 300; dead = 0; hurt = 0;
 homeX = x; homeY = y; phase = (x * 7 + y * 3) % 360; flash = 0; deadTime = 0; hero = 0;
+GoreEnemyInit(4, 0, 12, 16, 8);
 AnimationPlay("Drift", true);
 ShaderSet("Assets/Shaders/Pixel Flash.shader.json");
 ShaderSetParameter("Shimmer", 0.5); ShaderSetParameter("ShimmerSpeed", 0.6);
@@ -785,9 +817,12 @@ if (dead == 1) {
     return;
 }
 if (hurt > 0) {
+    GoreEnemyHit();
     hp = hp - hurt; hurt = 0; flash = 0.3;
     if (hp <= 0) {
         dead = 1; deadTime = 0; contactDamage = 0;
+        var goreResult = GoreEnemyDeath();
+        if (goreResult > 0) { InstanceDestroy(id); return; }
         ParticleBurstAt("Assets/Particles/Jelly Sparkle.particle.json", x, y, 0, 1, 0);
         PlaySound("Assets/Audio/Spore Hit.audio.json", 0.7, 1.2, false);
         return;
@@ -898,7 +933,7 @@ ORB_CREATE = """
 // Gloom Orb (LEVELS-B): Duskmantle's projectile. Enemy convention with stompable 0 and hp 1:
 // a Spore Shot pops it; touching it hurts Pip. Duskmantle sets vx / vy after CreateInstance.
 enemy = 1; hp = 1; stompable = 0; contactDamage = 1; points = 50; dead = 0; hurt = 0;
-vx = 0; vy = 140; life = 6; touch = 0; glow = 700 + id % 60; hero = 0;
+vx = 0; vy = 140; life = 6; touch = 0; glow = 700 + id % 60; hero = 0; maxHp = 1; bloodKind = -1; weak = 0;
 AnimationPlay("Pulse", true);
 """
 
@@ -1010,6 +1045,7 @@ state = 0; stateTime = 0; hoverT = 0; attackTimer = 2; cycle = 0; phase = 1;
 sx = x; sy = y; targetX = x; flash = 0; invuln = 0; shots = 0; volleyTimer = 0; summoned = 0;
 starTimer = 0; trailTimer = 0; boomTimer = 0; deathX = x; deathY = y; spawned = 0;
 bannerTime = 0; bannerKind = 0; shownHp = 6; hero = 0; glow = 690; heroLives = -1; resets = 0;
+GoreEnemyInit(3, 0, 64, 56, 0); isBoss = 1;
 RoomValueSet("bossFight", 0); RoomValueSet("bossHp", hp);
 AnimationPlay("Fly", true);
 ShaderSet("Assets/Shaders/Pixel Flash.shader.json"); ShaderSetParameter("Flash", 0);
@@ -1037,9 +1073,9 @@ if (hero > 0) {
         Light2DRemove(glow);
         RoomValueSet("bossFight", 0); RoomValueSet("bossHp", hp);
         var no = InstanceNumber("Gloom Orb");
-        for (var io = 0; io < no; io++) { var orbR = InstanceFind("Gloom Orb", io); if (orbR > 0) { InstanceVariableSet(orbR, "dead", 1); } }
+        for (var io = 0; io < no; io = io + 1) { var orbR = InstanceFind("Gloom Orb", io); if (orbR > 0) { InstanceVariableSet(orbR, "dead", 1); } }
         var nm = InstanceNumber("Dusk Moth");
-        for (var im = 0; im < nm; im++) {
+        for (var im = 0; im < nm; im = im + 1) {
             var mothR = InstanceFind("Dusk Moth", im);
             if (mothR > 0 && InstanceGetX(mothR) > arenaL) { InstanceVariableSet(mothR, "hurt", InstanceVariableGet(mothR, "hurt") + 9); }
         }
@@ -1061,6 +1097,7 @@ shownHp = shownHp + (hp - shownHp) * Min(1, dt * 6);
 if (hurt > 0 && dead == 0) {
     if (state < 2 || invuln > 0) { hurt = 0; }
     else {
+        GoreEnemyHit();
         hurt = 0; hp = hp - 1; invuln = 0.9; flash = 0.35;
         RoomValueSet("bossHp", hp);
         PlaySound("Assets/Audio/Boss Hit.audio.json", 1, 1, false);
@@ -1071,13 +1108,14 @@ if (hurt > 0 && dead == 0) {
             // ---- defeat: clear her minions, start the death sequence
             dead = 1; stompable = 0; contactDamage = 0; state = 9; stateTime = 0;
             deathX = x; deathY = y; boomTimer = 0;
+            GoreEnemyDeath();
             RoomValueSet("bossFight", 2);
             bannerTime = 4; bannerKind = 2;
             PlaySound("Assets/Audio/Boss Roar.audio.json", 1, 0.8, false);
             var n = InstanceNumber("Gloom Orb");
-            for (var i = 0; i < n; i++) { var o = InstanceFind("Gloom Orb", i); if (o > 0) { InstanceVariableSet(o, "dead", 1); } }
+            for (var i = 0; i < n; i = i + 1) { var o = InstanceFind("Gloom Orb", i); if (o > 0) { InstanceVariableSet(o, "dead", 1); } }
             n = InstanceNumber("Dusk Moth");
-            for (var k = 0; k < n; k++) {
+            for (var k = 0; k < n; k = k + 1) {
                 var m = InstanceFind("Dusk Moth", k);
                 if (m > 0 && InstanceGetX(m) > arenaL) { InstanceVariableSet(m, "hurt", InstanceVariableGet(m, "hurt") + 9); }
             }
@@ -1258,7 +1296,7 @@ if (state == 7) {
         var count = 3;
         if (phase == 3) { count = 5; }
         var aim = PointDirection(x, y + 24, hx, hy - 17);
-        for (var j = 0; j < count; j++) {
+        for (var j = 0; j < count; j = j + 1) {
             var d = aim + (j - (count - 1) / 2) * 17;
             var orb = CreateInstance("Gloom Orb", x, y + 24, 0);
             if (orb > 0) {
@@ -1333,7 +1371,7 @@ if (barAlpha > 0) {
     DrawTextScaled(352 * sx, 121 * sy, "DUSKMANTLE", 22 * s);
     DrawSetColorRgb(236, 214, 255);
     DrawTextScaled(350 * sx, 119 * sy, "DUSKMANTLE", 22 * s);
-    for (var i = 0; i < maxHp; i++) {
+    for (var i = 0; i < maxHp; i = i + 1) {
         var x0 = 520 + i * 70;
         DrawSetColorRgb(52, 26, 70);
         DrawRectangle(x0 * sx, 120 * sy, (x0 + 60) * sx, 150 * sy);

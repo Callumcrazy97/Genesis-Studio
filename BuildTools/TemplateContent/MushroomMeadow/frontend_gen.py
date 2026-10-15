@@ -80,8 +80,16 @@ SAVE_FIELDS = (["lives", "coins", "hearts", "maxHearts", "power"]
                + ["clear%d" % i for i in range(1, 6)] + ["medals%d" % i for i in range(1, 6)]
                + ["glowspores", "mapNode", "gameComplete", "introSeen", "mapRevealed"]
                + ["hubTalk%d" % i for i in range(1, 6)] + [
-                  "musicVol", "sfxVol", "crt", "shake"])
+                  "musicVol", "sfxVol", "crt", "shake"]
+               # Round 4 game state, appended so older saves (which end before these) still load.
+               + ["heldItem", "arrows", "brutality", "killsStomp", "killsBlade", "killsArrow",
+                  "killsGib", "killsSliced", "fearedBy", "taintStage"])
 OPTION_FIELDS = ["musicVol", "sfxVol", "crt", "shake"]
+STATE_FIELDS = ["heldItem", "arrows", "brutality", "killsStomp", "killsBlade", "killsArrow",
+                "killsGib", "killsSliced", "fearedBy", "taintStage"]
+# Options slot text: "mmopt2,<field>,<field>,..." in this order ("mmopt1" saves hold the first four).
+OPTIONS_SLOT_FIELDS = ["musicVol", "sfxVol", "crt", "shake", "tips", "gore", "sprintModeKb", "sprintModePad",
+                       "windowMode", "vsync", "fpsCap", "masterVol", "ambVol", "winSize"]
 
 
 def field(name):
@@ -121,6 +129,10 @@ var glText = SaveSlotRead("Slot " + StringOf(glSlot));
 if (StringSplitPart(glText, ",", 1) != "mm2") { return 0; }
 var glNames = %(fields)s;
 var glKeep = %(options)s;
+// Round 4 state starts from defaults, so an older save (without these fields) or a save loaded
+// after another game in the same run never inherits the other game's items or reputation.
+var glState = %(state)s;
+for (var glD = 0; glD < PgListSize(glState); glD = glD + 1) { GlobalSet(glState[glD], 0); }
 for (var glI = 0; glI < PgListSize(glNames); glI += 1) {
     var glName = glNames[glI];
     var glPart = StringSplitPart(glText, ",", glI + 2);
@@ -133,11 +145,15 @@ GlobalSet("hearts", GlobalGet("maxHearts"));
 if (GlobalGet("lives") < 1) { GlobalSet("lives", 5); }
 GlobalSet("mapNode", Clamp(GlobalGet("mapNode"), 0, 5));
 GlobalSet("glowspores", Clamp(GlobalGet("glowspores"), 0, 5));
+GlobalSet("heldItem", Clamp(Round(GlobalGet("heldItem")), 0, 4));
+GlobalSet("arrows", Clamp(Round(GlobalGet("arrows")), 0, 99));
+GlobalSet("brutality", Clamp(GlobalGet("brutality"), 0, 100));
+GlobalSet("taintStage", Clamp(Round(GlobalGet("taintStage")), 0, 3));
 GlobalSet("slot", glSlot);
 GlobalSet("campaign", 1);
 GlobalSet("returnFromLevel", 0);
 return 1;
-""" % {"fields": pgsl_list(SAVE_FIELDS), "options": pgsl_list(OPTION_FIELDS)}
+""" % {"fields": pgsl_list(SAVE_FIELDS), "options": pgsl_list(OPTION_FIELDS), "state": pgsl_list(STATE_FIELDS)}
 
 NEW_GAME = """// New Game: ScriptExecute("New Game", slot) starts a fresh campaign in save slot 1-3:
 // 5 lives, 3 hearts, no coins, no power-up, nothing cleared, Pip at Hearthollow (map node 0).
@@ -166,6 +182,11 @@ GlobalSet("gameComplete", 0);
 GlobalSet("mapRevealed", 0);
 for (var ngT = 1; ngT <= 5; ngT += 1) { GlobalSet("hubTalk" + StringOf(ngT), 0); }
 GlobalSet("hubTalk1", 0);
+// Round 4 state (held item, arrows, reputation and kill counters) starts clean in a new game.
+GlobalSet("heldItem", 0); GlobalSet("arrows", 0); GlobalSet("brutality", 0);
+GlobalSet("killsStomp", 0); GlobalSet("killsBlade", 0); GlobalSet("killsArrow", 0);
+GlobalSet("killsGib", 0); GlobalSet("killsSliced", 0); GlobalSet("fearedBy", 0);
+GlobalSet("taintStage", 0);
 GlobalSet("introSeen", 1);
 ScriptExecute("Game Save");
 return 1;
@@ -178,30 +199,108 @@ APPLY_OPTIONS = """// Apply Options: ScriptExecute("Apply Options") applies the 
 //   crt      -> the SNES Look post effect's Scanlines parameter (rooms that run SNES Look),
 //   shake    -> read by gameplay objects: if (GlobalGet("shake") == 1) { ...shake the view... }
 // Every room's controller can call it in Create; Intro and Main Menu do.
+// Round 4 options (all global numbers; the Options Kit edits them):
+//   tips (1) gore (1) shake (1) crt (0) sprintModeKb (0 hold / 1 toggle) sprintModePad (0)
+//   masterVol (1) musicVol (0.8) sfxVol (0.9) ambVol (= sfxVol of an old save, else 0.9)
+//   windowMode (-1 = leave as launched, else 0 windowed / 1 borderless / 2 fullscreen), winSize
+//   (-1 or 0..3 = 1280x720, 1600x900, 1920x1080, 2560x1440; windowed only), vsync (-1 = room default,
+//   0/1), fpsCap (-1 = the rooms' frame rate, 0 = unlimited, else a cap). A video value that is -1 is
+//   never applied, so rooms keep their own settings until the player chooses; once chosen, the
+//   game's choice outranks the rooms' (WindowSetVSync / GameSetMaxFps) for the rest of the run.
+// The key bindings are kept by the Input Kit in its own save slot ("Input Bindings").
 if (GlobalGet("optionsLoaded") == 0) {
     GlobalSet("optionsLoaded", 1);
     GlobalSet("musicVol", 0.8);
     GlobalSet("sfxVol", 0.9);
     GlobalSet("crt", 0);
     GlobalSet("shake", 1);
+    GlobalSet("tips", 1);
+    GlobalSet("gore", 1);
+    GlobalSet("sprintModeKb", 0);
+    GlobalSet("sprintModePad", 0);
+    GlobalSet("windowMode", -1);
+    GlobalSet("vsync", -1);
+    GlobalSet("fpsCap", -1);
+    GlobalSet("masterVol", 1);
+    GlobalSet("ambVol", 0.9);
+    GlobalSet("winSize", -1);
+    GlobalSet("winApplied", -1);
+    GlobalSet("sizeApplied", -1);
+    GlobalSet("vsyncApplied", -1);
+    GlobalSet("fpsApplied", -1);
     var aoText = SaveSlotRead("Options");
-    if (StringSplitPart(aoText, ",", 1) == "mmopt1") {
-        GlobalSet("musicVol", Clamp(Real(StringSplitPart(aoText, ",", 2)), 0, 1));
-        GlobalSet("sfxVol", Clamp(Real(StringSplitPart(aoText, ",", 3)), 0, 1));
-        GlobalSet("crt", Clamp(Real(StringSplitPart(aoText, ",", 4)), 0, 1));
-        GlobalSet("shake", Clamp(Real(StringSplitPart(aoText, ",", 5)), 0, 1));
+    var aoHead = StringSplitPart(aoText, ",", 1);
+    if (aoHead == "mmopt1" || aoHead == "mmopt2") {
+        var aoNames = @OPTION_NAMES@;
+        for (var aoI = 0; aoI < PgListSize(aoNames); aoI = aoI + 1) {
+            var aoPart = StringSplitPart(aoText, ",", aoI + 2);
+            if (aoPart != "") { GlobalSet(aoNames[aoI], Real(aoPart)); }
+        }
+        // A saved layout from before the ambience slider keeps its old ambience volume (= sound effects).
+        if (aoHead == "mmopt1") { GlobalSet("ambVol", GlobalGet("sfxVol")); }
     }
+    GlobalSet("musicVol", Clamp(GlobalGet("musicVol"), 0, 1));
+    GlobalSet("sfxVol", Clamp(GlobalGet("sfxVol"), 0, 1));
+    GlobalSet("ambVol", Clamp(GlobalGet("ambVol"), 0, 1));
+    GlobalSet("masterVol", Clamp(GlobalGet("masterVol"), 0, 1));
+    GlobalSet("crt", Clamp(GlobalGet("crt"), 0, 1));
+    GlobalSet("shake", Clamp(GlobalGet("shake"), 0, 1));
+    GlobalSet("tips", Clamp(GlobalGet("tips"), 0, 1));
+    GlobalSet("gore", Clamp(GlobalGet("gore"), 0, 1));
+    GlobalSet("sprintModeKb", Clamp(GlobalGet("sprintModeKb"), 0, 1));
+    GlobalSet("sprintModePad", Clamp(GlobalGet("sprintModePad"), 0, 1));
+    GlobalSet("windowMode", Clamp(Round(GlobalGet("windowMode")), -1, 2));
+    GlobalSet("winSize", Clamp(Round(GlobalGet("winSize")), -1, 3));
+    GlobalSet("vsync", Clamp(Round(GlobalGet("vsync")), -1, 1));
+    GlobalSet("fpsCap", Clamp(Round(GlobalGet("fpsCap")), -1, 1000));
+    // The Input Kit reloads its bindings (guarded: a project without it still runs).
+    if (ResourceExists("Input Kit")) { InputLoadBindings(); }
 }
+SetMasterVolume(GlobalGet("masterVol"));
 SetBusVolume("music", GlobalGet("musicVol"));
 SetBusVolume("sfx", GlobalGet("sfxVol"));
-SetBusVolume("ambient", GlobalGet("sfxVol"));
+SetBusVolume("ambient", GlobalGet("ambVol"));
 PostEffectSetParameter("SNES Look", "Scanlines", GlobalGet("crt"));
+
+// Video: only values the player chose (>= 0) are applied, and only when they changed.
+var aoModes = ["windowed", "borderless", "fullscreen"];
+var aoMode = GlobalGet("windowMode");
+if (aoMode >= 0 && aoMode != GlobalGet("winApplied")) {
+    GlobalSet("winApplied", aoMode);
+    GlobalSet("sizeApplied", -1);
+    if (WindowGetMode() != aoModes[aoMode]) { WindowSetMode(aoModes[aoMode]); }
+}
+var aoSize = GlobalGet("winSize");
+if (aoSize >= 0 && aoSize != GlobalGet("sizeApplied") && WindowGetMode() == "windowed") {
+    GlobalSet("sizeApplied", aoSize);
+    var aoWidths = [1280, 1600, 1920, 2560];
+    var aoHeights = [720, 900, 1080, 1440];
+    if (Abs(WindowGetWidth() - aoWidths[aoSize]) > 2 || Abs(WindowGetHeight() - aoHeights[aoSize]) > 2) {
+        WindowSetSize(aoWidths[aoSize], aoHeights[aoSize]);
+    }
+}
+var aoFps = GlobalGet("fpsCap");
+if (aoFps != GlobalGet("fpsApplied")) {
+    if (aoFps >= 0) { GameSetMaxFps(aoFps); }
+    else if (GlobalGet("fpsApplied") >= 0) { GameUseRoomFps(); GlobalSet("vsyncApplied", -1); }
+    GlobalSet("fpsApplied", aoFps);
+}
+var aoVsync = GlobalGet("vsync");
+if (aoVsync >= 0 && aoVsync != GlobalGet("vsyncApplied")) {
+    GlobalSet("vsyncApplied", aoVsync);
+    WindowSetVSync(aoVsync == 1);
+}
+
 if (argument0 == 1) {
-    SaveSlotWrite("Options", "mmopt1," + StringOf(GlobalGet("musicVol")) + "," + StringOf(GlobalGet("sfxVol"))
-        + "," + StringOf(GlobalGet("crt")) + "," + StringOf(GlobalGet("shake")));
+    var aoSave = "mmopt2";
+    var aoKeys = @OPTION_NAMES@;
+    for (var aoJ = 0; aoJ < PgListSize(aoKeys); aoJ = aoJ + 1) {
+        aoSave = aoSave + "," + StringOf(GlobalGet(aoKeys[aoJ]));
+    }
+    SaveSlotWrite("Options", aoSave);
 }
 return 1;
-"""
+""".replace("@OPTION_NAMES@", pgsl_list(OPTIONS_SLOT_FIELDS))
 
 CINEMATIC_KIT = """// Cinematic Kit: a library Script. Its functions are called directly by the Intro Director
 // and the Credits Director (any object may use them). Everything here draws in Draw GUI, in a
@@ -582,7 +681,7 @@ def panel(eid, x, y, w, h, order, **extra):
 
 MAIN_IDS = ["btnNew", "btnContinue", "btnOptions", "btnCredits", "btnQuit"]
 SLOT_IDS = ["slot1", "slot2", "slot3", "slotBack"]
-OPTION_IDS = ["optMusic", "optSfx", "optCrt", "optShake", "optBack"]
+OPTION_IDS = []
 CONFIRM_IDS = ["confirmYes", "confirmNo"]
 OPTION_ROWS_Y = [318, 374, 430, 486]
 
@@ -639,30 +738,7 @@ def build_menu_ui():
                                       "foreground": "#FFFFFFFF", "borderColor": "#FFFFE0D0"}))
     add("slots", button("slotBack", 540, 614, 200, 46, 200, "BACK"))
 
-    # Options page.
-    add("options", panel("optPanel", 330, 244, 620, 396, 300))
-    add("options", text("optTitle", 330, 254, 620, 44, 301, "OPTIONS", 28.0, "#FFFFE7A0", letterSpacing=3.0))
-    labels = ["MUSIC VOLUME", "SOUND EFFECTS", "CRT SCANLINES", "SCREEN SHAKE"]
-    for r, (label, y) in enumerate(zip(labels, OPTION_ROWS_Y)):
-        add("options", element("optRow%d" % r, "Panel", 350, y - 8, 580, 46, 302, background="#50FFD23F",
-                               cornerRadius=10.0, borderWidth=2.0, borderColor="#B0FFD23F"))
-        add("options", text("optLabel%d" % r, 372, y, 260, 30, 303, label, 20.0, align="Left", letterSpacing=1.0))
-    slider = dict(background="#FF2A1D2E", foreground="#FFFFF4D6", accent="#FFF2B33D", minimum=0.0,
-                  maximum=100.0, step=5.0, cornerRadius=8.0, borderWidth=2.0, borderColor="#90FFE7A0",
-                  selected={"borderColor": "#FFFFFFFF", "accent": "#FFFFD23F"},
-                  hover={"borderColor": "#FFFFFFFF", "accent": "#FFFFD23F"})
-    add("options", element("optMusic", "Slider", 640, OPTION_ROWS_Y[0] + 3, 200, 24, 304, value=80.0, **slider))
-    add("options", element("optSfx", "Slider", 640, OPTION_ROWS_Y[1] + 3, 200, 24, 304, value=90.0, **slider))
-    add("options", text("optMusicValue", 850, OPTION_ROWS_Y[0], 70, 30, 305, "80%", 19.0, align="Right"))
-    add("options", text("optSfxValue", 850, OPTION_ROWS_Y[1], 70, 30, 305, "90%", 19.0, align="Right"))
-    toggle = dict(background="#FF2A1D2E", foreground="#FFFFF4D6", accent="#FFF2B33D", value=0.0, maximum=1.0,
-                  cornerRadius=15.0, borderWidth=2.0, borderColor="#90FFE7A0", text="",
-                  selected={"borderColor": "#FFFFFFFF"}, hover={"borderColor": "#FFFFFFFF"})
-    add("options", element("optCrt", "Toggle", 640, OPTION_ROWS_Y[2], 64, 30, 304, **toggle))
-    add("options", element("optShake", "Toggle", 640, OPTION_ROWS_Y[3], 64, 30, 304, **toggle))
-    add("options", text("optCrtValue", 720, OPTION_ROWS_Y[2], 200, 30, 305, "OFF", 19.0, align="Left"))
-    add("options", text("optShakeValue", 720, OPTION_ROWS_Y[3], 200, 30, 305, "ON", 19.0, align="Left"))
-    add("options", button("optBack", 540, 568, 200, 46, 306, "BACK"))
+    # Options page: drawn by the Options Kit (Draw GUI), so the group stays empty.
 
     # Confirmation dialog over the slot page.
     add("confirm", element("confirmShade", "Panel", 0, 0, 1280, 684, 400, background="#A0080510"))
@@ -704,10 +780,9 @@ WindowSetCursorVisible(true);
 ui = "%(ui)s";
 logo = "%(logo)s";
 page = 0; sel = 0; mode = 0; slotSel = 0; confirmKind = 0; confirmSlot = 1; confirmSel = 1;
-optSel = 0; stickCool = 0; t = 0; leaving = 0; leaveTimer = 0; leaveTo = ""; lastHover = ""; anySave = 0;
+stickCool = 0; t = 0; leaving = 0; leaveTimer = 0; leaveTo = ""; lastHover = ""; anySave = 0;
 mainIds = %(main)s;
 slotIds = %(slots)s;
-optionIds = %(options)s;
 confirmIds = %(confirm)s;
 clickIds = %(clicks)s;
 groupMain = %(gmain)s;
@@ -728,7 +803,7 @@ function MmShowPage(p) {
     MmRefreshSlots(p == 1 || p == 3);
     var hints = "ARROWS / D-PAD  choose      ENTER / A  select      ESC / B  back";
     if (p == 1) { hints = "LEFT / RIGHT  choose a slot      ENTER / A  play      DEL / Y  delete      ESC / B  back"; }
-    if (p == 2) { hints = "UP / DOWN  choose      LEFT / RIGHT  change      ESC / B  back (saves)"; }
+    if (p == 2) { hints = "ARROWS / D-PAD  choose and change      ENTER / A  select      ESC / B  back (saves)"; }
     if (p == 3) { hints = "LEFT / RIGHT  choose      ENTER / A  confirm      ESC / B  cancel"; }
     UiSetText(ui, "footerText", hints);
     return 0;
@@ -803,19 +878,6 @@ function MmLeave(target) {
     return 0;
 }
 
-function MmSyncOptions() {
-    UiSetValue(ui, "optMusic", Round(GlobalGet("musicVol") * 100));
-    UiSetValue(ui, "optSfx", Round(GlobalGet("sfxVol") * 100));
-    UiSetValue(ui, "optCrt", GlobalGet("crt"));
-    UiSetValue(ui, "optShake", GlobalGet("shake"));
-    UiSetText(ui, "optMusicValue", StringOf(Round(GlobalGet("musicVol") * 100)) + "%%");
-    UiSetText(ui, "optSfxValue", StringOf(Round(GlobalGet("sfxVol") * 100)) + "%%");
-    UiSetText(ui, "optCrtValue", GlobalGet("crt") == 1 ? "ON" : "OFF");
-    UiSetText(ui, "optShakeValue", GlobalGet("shake") == 1 ? "ON" : "OFF");
-    return 0;
-}
-
-MmSyncOptions();
 MmShowPage(0);
 if (MmRefreshSlots(0) == 1) { sel = 1; }
 music = PlaySound("%(theme)s", 0.75, 1, true);
@@ -911,7 +973,7 @@ if (page == 0) {
     } else if (pick == 1) {
         PlaySound("%(deny)s", 0.7, 1, false);
     } else if (pick == 2) {
-        page = 2; optSel = 0; MmSyncOptions(); MmShowPage(2);
+        page = 2; OptionsOpen(0); MmShowPage(2);
         PlaySound("%(select)s", 0.7, 1, false);
     } else if (pick == 3) {
         MmLeave("Credits");
@@ -951,32 +1013,10 @@ if (page == 0) {
         }
     }
 } else if (page == 2) {
-    var ho = PgListFind(optionIds, hovered);
-    if (hoverMoved == 1 && ho >= 0 && ho != optSel) { optSel = ho; PlaySound("%(move)s", 0.5, 1, false); }
-    if (navUp) { optSel = (optSel + 4) %% 5; PlaySound("%(move)s", 0.6, 1, false); }
-    if (navDown) { optSel = (optSel + 1) %% 5; PlaySound("%(move)s", 0.6, 1, false); }
-    var changed = 0;
-    var nudge = 0;
-    if (navLeft) { nudge = -1; }
-    if (navRight) { nudge = 1; }
-    if (nudge != 0 && optSel == 0) { GlobalSet("musicVol", Clamp(Round(GlobalGet("musicVol") * 10 + nudge) / 10, 0, 1)); changed = 1; }
-    if (nudge != 0 && optSel == 1) { GlobalSet("sfxVol", Clamp(Round(GlobalGet("sfxVol") * 10 + nudge) / 10, 0, 1)); changed = 1; }
-    if ((nudge != 0 || accept) && optSel == 2) { GlobalSet("crt", 1 - GlobalGet("crt")); changed = 1; }
-    if ((nudge != 0 || accept) && optSel == 3) { GlobalSet("shake", 1 - GlobalGet("shake")); changed = 1; }
-    // Mouse: drag a slider, click a switch.
-    if (UiValueChanged(ui, "optMusic")) { GlobalSet("musicVol", UiGetValue(ui, "optMusic") / 100); optSel = 0; changed = 2; }
-    if (UiValueChanged(ui, "optSfx")) { GlobalSet("sfxVol", UiGetValue(ui, "optSfx") / 100); optSel = 1; changed = 2; }
-    if (UiValueChanged(ui, "optCrt")) { GlobalSet("crt", UiGetValue(ui, "optCrt")); optSel = 2; changed = 1; }
-    if (UiValueChanged(ui, "optShake")) { GlobalSet("shake", UiGetValue(ui, "optShake")); optSel = 3; changed = 1; }
-    if (changed > 0) {
-        ScriptExecute("Apply Options");
-        MmSyncOptions();
-        if (changed == 1) { PlaySound("%(move)s", 0.7, 1, false); }
-    }
-    if (back || clicked == "optBack" || (accept && optSel == 4)) {
-        ScriptExecute("Apply Options", 1);
+    // The Options Kit owns this page (Gameplay / Video / Audio, Controls, Remap) and saves on close.
+    OptionsStep();
+    if (OptionsIsOpen() == 0) {
         page = 0; sel = 2; MmShowPage(0);
-        PlaySound("%(back)s", 0.7, 1, false);
     }
 } else if (page == 3) {
     var hc = PgListFind(confirmIds, hovered);
@@ -1006,10 +1046,8 @@ if (page == 0) {
 // Selected looks follow the keyboard/controller selection.
 for (var m = 0; m < 5; m += 1) {
     UiSetSelected(ui, mainIds[m], page == 0 && m == sel);
-    UiSetSelected(ui, optionIds[m], page == 2 && m == optSel);
     if (m < 4) {
         UiSetSelected(ui, slotIds[m], (page == 1 || page == 3) && m == slotSel);
-        UiSetVisible(ui, "optRow" + StringOf(m), page == 2 && m == optSel);
     }
     if (m < 2) { UiSetSelected(ui, confirmIds[m], page == 3 && m == confirmSel); }
 }
@@ -1039,6 +1077,7 @@ for (var i = 0; i < PgListSize(twinkleX); i += 1) {
 }
 DrawSetAlpha(1);
 DrawUi(ui);
+if (page == 2) { OptionsDraw(); }
 // Fade in from the intro; fade out when leaving.
 var fade = Max(1 - t / 0.6, Clamp(leaveTimer / 0.5, 0, 1) * (leaving > 0));
 if (fade > 0) {
@@ -1090,7 +1129,7 @@ CREDITS = [
     (2, "every one of them editable in Genesis Studio"), (4, ""),
     (0, "SPECIAL THANKS"), (1, "Everyone who plays, edits"), (1, "and extends this meadow"),
     (4, ""), (4, ""), (4, ""),
-    (3, "Thank you for playing!"),
+    (3, "Thank you for playing!"), (2, ""),
 ]
 CREDIT_HEIGHTS = {0: 40, 1: 40, 2: 30, 3: 80, 4: 34, 5: 220}
 THUMBS = ENDING_PANELS + [INTRO_PANELS[0], INTRO_PANELS[3], INTRO_PANELS[4]]
@@ -1136,6 +1175,15 @@ def credits_create():
     lines += [
         "burstDone = 0;",
         "creditText = %s;" % pgsl_list(texts),
+        # The last two entries (big title, small note) change with Pip's reputation (Reputation Kit).
+        "repEnd = 0; repKind = 0;",
+        "if (ResourceExists(\"Reputation Kit\")) { repEnd = RepStage(); repKind = RepIsKind(); }",
+        "endBig = [\"Thank you for playing!\", \"Thank you for playing.\", \"Thank you for playing?\", \"Rest now, little wanderer.\"];",
+        "endSmall = [\"The valley sleeps easy tonight.\", \"The valley remembers everything.\", "
+        "\"Somewhere under the cap, something hums.\", \"The spots are glowing. They will wait.\"];",
+        "if (repKind == 1) { PgListSet(endSmall, 0, \"The valley will remember your kindness.\"); }",
+        "PgListSet(creditText, PgListSize(creditText) - 2, endBig[repEnd]);",
+        "PgListSet(creditText, PgListSize(creditText) - 1, endSmall[repEnd]);",
         "creditStyle = %s;" % pgsl_list(styles),
         "creditTop = %s;" % pgsl_list(tops),
         "finalTop = %d;" % final_top,
@@ -1369,9 +1417,13 @@ def room(name, background_colour, nodes, post_effects):
                      "scaleViewportsWithWindow": True, "targetFps": 60, "fixedFps": 60, "vsync": True,
                      "captureMouse": False, "gridSize": 32, "snapEnabled": True, "pixelArtSampling": True},
         "environment": {"backgroundColor": background_colour, "fogEnabled": False, "postEffects": post_effects},
-        "viewports": [{"enabled": True, "sourceX": 0, "sourceY": 0, "sourceWidth": 640, "sourceHeight": 360,
-                       "portX": 0, "portY": 0, "portWidth": 1280, "portHeight": 720, "followTarget": "",
-                       "followMarginX": 0, "followMarginY": 0, "followSpeedX": -1, "followSpeedY": -1}],
+        # NO viewport on purpose. A viewport with scaleViewportsWithWindow letterboxes the room at a
+        # uniform scale, centred (RoomDisplayLayout.Port), leaving bands of the clear colour whenever the
+        # window is not 16:9 (maximised, snapped, borderless on 16:10 or ultrawide). Everything these
+        # rooms draw in DrawGui (and DrawUi) is scaled to the WHOLE window, so the backdrop and the
+        # menu drifted apart and bands showed on the sides. Without a viewport the room takes the
+        # single-camera path, whose StretchView backdrop fills the whole window exactly as the GUI does.
+        "viewports": [],
         "layers": [{"id": "scenery", "name": "Backdrop", "order": 0, "enabled": True},
                    {"id": "actors", "name": "Controllers", "order": 2, "enabled": True}],
         "nodes": nodes,
@@ -1400,6 +1452,7 @@ def main():
     write_script("New Game", NEW_GAME)
     write_script("Apply Options", APPLY_OPTIONS)
     write_script("Cinematic Kit", CINEMATIC_KIT)
+    # The Options Kit script itself comes from options_kit_gen.py (README order 13a).
     groups = build_menu_ui()
     build_particles()
     write_object("Intro Director", {"Create": intro_create(), "Step": INTRO_STEP, "KeyPressed": INTRO_KEY,

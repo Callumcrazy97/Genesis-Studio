@@ -24,8 +24,18 @@ Run from the repository root, in this order (later scripts read images or rooms 
 | 11 | `hero_gen.py` | Explorer (Pip), Level Rules, power-ups, Prize markers, Glowspore, Spore Shot, phase-1 actors |
 | 12 | `hub_gen.py` | Overworld and Hearthollow rooms, map, villagers, dialogue, shop, Chimney Smoke and its Smoke Puff image (chimney spots read from `worlds_art.py`) |
 | 13 | `frontend_gen.py` | Intro, Main Menu and Credits rooms, save/load/options scripts |
+| 13a | `options_kit_gen.py` | `Options Kit` library: the Gameplay/Video/Audio options menu with Controls and Remap screens (pause menu and Main Menu); needs `Input Kit` |
 | 14 | `levels_a_gen.py` | Rootdeep Caverns and Windswept Canopy with Grumblecrag, enemies and the wind |
 | 15 | `levels_b_gen.py` | Tidepool Grotto and Duskmantle Hollow with Duskmantle, enemies and currents (`--map`, `--preview`) |
+| 16 | `art_items_gen.py` | Round 4 art: item pickups, held items, arrows, thrown spins, blood stain / gore chunk / slice flash, `Pad Glyphs`, `Key Cap` (`--preview` writes only TestResults contact sheets); `creature_art.py` also adds the `Scared` tag to seven enemy sprites |
+| 16b | `items_gen.py` | `Item Kit` library plus `Held Item`, `Item Sword` / `Item Shield` / `Item Bow` / `Item Propeller Flower` pickups, `Thrown Item` and `Arrow` (run after `art_items_gen.py` so the pickups take their own masks; the level generators place the pickups) |
+| 16a | `reputation_gen.py` | `Reputation Kit` library (brutality, taint stage, shop multiplier), `Pip Spore Leak` particle and the tainted `Portrait Pip Spore 1-3` images (reads `Portrait Pip`, so it runs after `creature_art.py`; `hub_gen.py` and `frontend_gen.py` use the kit) |
+| any | `gore_gen.py` | `Gore Kit` and `Fear Kit` libraries, `Gore Half` / `Gore Chunk` / `Blood Stain` objects and the six-colour `Blood Spray` / `Blood Mist` / `Gore Chunks` / `Blood Drip` / `Slice Spray` particles plus `Pip Spore Cloud` (independent of the other generators; the enemy scripts in `hero_gen.py`, `levels_a_gen.py` and `levels_b_gen.py` call the kits; needs `Reputation Kit` for `RepKill`) |
+| any (before the rooms run) | `input_kit_gen.py` | `Scripts/Input Kit.pgsl`: remappable bindings, last-used device, sprint hold/toggle, rebind capture, keycap and controller glyphs (independent of the other generators; reads the `Pad Glyphs` image at run time if it exists) |
+
+Static script check (starts no game): `python check_scripts.py [project folder]` builds `check_scripts_tool/` against the published engine in
+`Genesis Application` (needs the .NET SDK) and runs the same strict PGSL validation F5 runs plus a VM compile of every `.pgsl`, printing each
+error and warning with its file. Default folder is the template; run it after regenerating. Exit code 0 means no errors.
 
 Playability checks (they write nothing): `hero_physics.py` mirrors Pip's movement constants, hitbox and
 frame-by-frame controller (hero_gen.py asserts they match) and offers a reachability search over a generated
