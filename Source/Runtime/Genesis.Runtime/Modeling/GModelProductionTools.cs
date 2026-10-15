@@ -358,6 +358,56 @@ namespace Genesis.Runtime.Modeling
             return new Vector2(0.5f + MathF.Atan2(n.Z, n.X) / (MathF.PI * 2f), 0.5f - MathF.Asin(n.Y) / MathF.PI);
         }
 
+        /// <summary>
+        /// A material option (in <see cref="GModelMaterial.Metadata"/>, or the model descriptor's
+        /// <c>materialBoxUvMetres</c>): the metres one repeat of the material's images covers when
+        /// its meshes are given box UVs in metres. Absent or 0: the mesh keeps its own UVs.
+        /// </summary>
+        public const string BoxUvMetresKey = "BoxUvMetres";
+
+        /// <summary>The material's box-UV repeat in metres, or 0 when it has none.</summary>
+        public static float BoxUvMetres(GModelMaterial material)
+        {
+            if (material?.Metadata == null || !material.Metadata.TryGetValue(BoxUvMetresKey, out string text)) return 0f;
+            return float.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float metres)
+                && float.IsFinite(metres) && metres > 0f ? Math.Clamp(metres, 0.001f, 10000f) : 0f;
+        }
+
+        /// <summary>
+        /// Gives every mesh whose material asks for it (<see cref="BoxUvMetresKey"/>) box UVs in
+        /// metres: each face takes the two model axes across its normal, divided by the repeat, so a
+        /// tileable set is laid at its real size whatever the mesh's bounds (a 10 m wall takes ten 1 m
+        /// repeats). For meshes without UVs. Positions are the model's own, before an Object's scale.
+        /// A mesh whose triangles use materials with different repeats, and a skinned mesh, are left
+        /// alone. Returns how many meshes were changed.
+        /// </summary>
+        public static int ApplyMaterialBoxUvs(GModelAsset asset)
+        {
+            if (asset?.Meshes == null || asset.Materials == null) return 0;
+            int changed = 0;
+            foreach (GModelMesh mesh in asset.Meshes)
+            {
+                if (mesh == null || mesh.IsSkinned || mesh.Vertices == null || mesh.Vertices.Length == 0) continue;
+                float metres = (uint)mesh.MaterialIndex < (uint)asset.Materials.Count ? BoxUvMetres(asset.Materials[mesh.MaterialIndex]) : 0f;
+                if (metres <= 0f) continue;
+                bool same = true;
+                foreach (int material in mesh.TriangleMaterialIndices ?? Array.Empty<int>())
+                {
+                    if (material == mesh.MaterialIndex) continue;
+                    if ((uint)material >= (uint)asset.Materials.Count || BoxUvMetres(asset.Materials[material]) != metres) { same = false; break; }
+                }
+                if (!same) continue;
+                // A new array: an undo snapshot or another holder of the old one keeps its UVs.
+                MeshVertex[] vertices = (MeshVertex[])mesh.Vertices.Clone();
+                for (int i = 0; i < vertices.Length; i++)
+                    vertices[i].UV = BoxUv(vertices[i].Normal, vertices[i].Position / metres);
+                mesh.Vertices = vertices;
+                mesh.UvOverride = true;
+                changed++;
+            }
+            return changed;
+        }
+
         private static Vector2 BoxUv(Vector3 normal, Vector3 p)
         {
             Vector3 n = Vector3.Abs(normal);

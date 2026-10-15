@@ -39,6 +39,7 @@ public sealed partial class ModelEditorControl
     private NumericUpDown? _uvOffsetVValue;
     private Label? _materialShaderValue;
     private Panel? _emissionColourSwatch;
+    private NumericUpDown? _boxUvMetresValue;
     private CollapsibleSection? _morphSection;
     private readonly Dictionary<string, NumericUpDown> _morphInputs = new(StringComparer.OrdinalIgnoreCase);
     private CollapsibleSection? _socketSection;
@@ -237,7 +238,7 @@ public sealed partial class ModelEditorControl
         imagePaint.Content.Controls.Add(paintImage);
         imagePaint.Content.Controls.Add(new Label { Text = "Assign an Albedo Image below. Paint on its 2D canvas or on the Model, then Save Image to update gameplay.",
             Location = new Point(8, 44), Size = new Size(250, 58), ForeColor = EditorChrome.Muted });
-        CollapsibleSection material = Section(page, "MATERIAL & PBR", 466);
+        CollapsibleSection material = Section(page, "MATERIAL & PBR", 500);
         _material.SetBounds(8, 7, 166, 28);
         material.Content.Controls.Add(_material);
         _material.SelectedIndexChanged += (_, _) => { if (!_syncingGroups) AssignMaterial(_material.SelectedIndex); };
@@ -291,6 +292,9 @@ public sealed partial class ModelEditorControl
         clearEmissionColour.Name = "ModelMaterialEmissionColourClear";
         clearEmissionColour.SetBounds(226, 430, 32, 28);
         material.Content.Controls.Add(clearEmissionColour);
+        // Box UVs in metres for a mesh without UVs: one repeat of the images every so many metres (0: off).
+        AddNumber("Box UVs (m)", 466, ref _boxUvMetresValue, 0, 10000, 0, value => { if (!_syncingGroups) SetMaterialBoxUvMetres((float)value); });
+        _boxUvMetresValue!.Name = "ModelMaterialBoxUvMetres";
 
         CollapsibleSection paint = Section(page, "VERTEX COLOUR", 100);
         _colour.SetBounds(8, 8, 250, 31);
@@ -899,6 +903,25 @@ public sealed partial class ModelEditorControl
         RefreshMaterialInspector();
     }
 
+    /// <summary>
+    /// Gives the selected material box UVs in metres (one repeat of its images every
+    /// <paramref name="metres"/>; 0 turns the option off and leaves the UVs as they are now).
+    /// </summary>
+    private void SetMaterialBoxUvMetres(float metres)
+    {
+        GModelMaterial? material = SelectedMaterial();
+        if (material is null || !float.IsFinite(metres)) return;
+        metres = Math.Clamp(metres, 0f, 10000f);
+        if (GModelProductionTools.BoxUvMetres(material) == metres || (metres <= 0f && !material.Metadata.ContainsKey(GModelProductionTools.BoxUvMetresKey))) return;
+        RunTopology(metres > 0f ? "Box UVs in metres" : "Clear box UVs in metres", () =>
+        {
+            if (metres > 0f) material.Metadata[GModelProductionTools.BoxUvMetresKey] = metres.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+            else material.Metadata.Remove(GModelProductionTools.BoxUvMetresKey);
+            GModelProductionTools.ApplyMaterialBoxUvs(Asset);
+        });
+        RefreshMaterialInspector();
+    }
+
     private static Color SwatchColour(System.Numerics.Vector3 colour) => Color.FromArgb(
         (int)Math.Round(Math.Clamp(colour.X, 0f, 1f) * 255f), (int)Math.Round(Math.Clamp(colour.Y, 0f, 1f) * 255f),
         (int)Math.Round(Math.Clamp(colour.Z, 0f, 1f) * 255f));
@@ -928,6 +951,7 @@ public sealed partial class ModelEditorControl
             if(_uvScaleValue is not null)_uvScaleValue.Value=(decimal)(material.Metadata.TryGetValue("UvScale",out string? text)&&float.TryParse(text,System.Globalization.NumberStyles.Float,System.Globalization.CultureInfo.InvariantCulture,out float scale)?Math.Clamp(scale,.01f,256f):1f);
             if(_uvOffsetUValue is not null)_uvOffsetUValue.Value=(decimal)MetadataFloat(material,"UvOffsetU",0,-1000,1000);
             if(_uvOffsetVValue is not null)_uvOffsetVValue.Value=(decimal)MetadataFloat(material,"UvOffsetV",0,-1000,1000);
+            if(_boxUvMetresValue is not null)_boxUvMetresValue.Value=(decimal)GModelProductionTools.BoxUvMetres(material);
             SetMaterialPreview(_albedoPreview, material.AlbedoTexture);
             SetMaterialPreview(_normalPreview, material.NormalTexture);
             SetMaterialPreview(_ormPreview, material.MetallicRoughnessTexture);

@@ -42,6 +42,11 @@ public static class StudioModelResourceLoader
         public List<string> AnimationLibraries { get; set; } = [];
         /// <summary>Material name to mesh Shader resource; kept here so a re-import keeps it.</summary>
         public Dictionary<string, string> MaterialShaders { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        /// <summary>
+        /// Material name to box-UV repeat in metres (GModelProductionTools.BoxUvMetresKey); kept
+        /// here so a re-import keeps it. Off for a material not named.
+        /// </summary>
+        public Dictionary<string, float> MaterialBoxUvMetres { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         /// <summary>SHA-256 of the source the cooked model was made from (see CanonicalMatchesSource).</summary>
         public string? SourceHash { get; set; }
         public List<Part> Parts { get; set; } = [];
@@ -137,11 +142,19 @@ public static class StudioModelResourceLoader
                 foreach (GModelMaterial material in asset.Materials)
                     if (material != null && shaders.TryGetValue(material.Name ?? string.Empty, out string shader))
                         material.Shader = shader ?? string.Empty;
+            if (asset != null && document.MaterialBoxUvMetres is { Count: > 0 } boxUvs)
+                foreach (GModelMaterial material in asset.Materials)
+                    if (material != null && boxUvs.TryGetValue(material.Name ?? string.Empty, out float metres) && float.IsFinite(metres) && metres > 0f)
+                        (material.Metadata ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase))[GModelProductionTools.BoxUvMetresKey]
+                            = metres.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
         {
+            if (asset != null) GModelProductionTools.ApplyMaterialBoxUvs(asset);
             return asset;
         }
+        // A material's box UVs in metres (its own option or the descriptor's), for meshes without UVs.
+        if (asset != null) GModelProductionTools.ApplyMaterialBoxUvs(asset);
         if (asset == null || libraries is not { Count: > 0 }) return asset;
 
         _loadingLibraries ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);

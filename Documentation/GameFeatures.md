@@ -114,6 +114,16 @@ forward shader on Direct3D 11 and 12, Vulkan and OpenGL; the Software renderer d
 images and ignores it. `ModelSetMaterialEmissionColor` keeps what it did (a tint on the whole
 material, which colours only its base-colour glow).
 
+**Box UVs in metres for meshes without UVs (15 October 2026).** A material can ask for box UVs at
+a real size: the Model editor's MATERIAL & PBR panel has **Box UVs (m)** (0, the default, is off),
+saved with the model as the material's `BoxUvMetres`, or a model's descriptor can name it per
+material (`"materialBoxUvMetres": { "Print band": 1 }`), which a re-import keeps. Each face of the
+material's meshes takes the two model axes across its normal, one repeat of the images every so
+many metres, so a 1 m brick set lies at 1 m on a 10 m wall where Quick UV Unwrap would stretch it
+over the wall's bounds. It is applied when the model is loaded, on every renderer. The metres are
+the model's own (an Object's scale stretches them), and skinned meshes and meshes whose triangles
+use materials with different repeats keep their UVs.
+
 Two things to know:
 
 - **A clip asked to play once now holds its last frame.** A clip imported with its loop flag on

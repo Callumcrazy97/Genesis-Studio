@@ -158,6 +158,47 @@ internal static class ModelIntakeSuite
             }
             Assert(StudioModelResourceLoader.LoadReadOnly(path).Materials[0].EmissiveColor == Vector3.One, "Clearing the light colour did not make it white again.");
         });
+        HeadlessHarness.RunCase(ctx.Report, "Editor.Model.Intake.BoxUvsInMetresFollowTheMaterial", () =>
+        {
+            // A 4 m cube: with box UVs of 1 m each face takes four repeats; 2 m from the descriptor, two;
+            // 0.5 m from the material panel, eight. Without the option the UVs stay as they were.
+            static float Span(GModelAsset model)
+            {
+                var front = model.Meshes[0].Vertices.Where(vertex => vertex.Normal.Z > .9f).Select(vertex => vertex.UV.X).ToArray();
+                return front.Length == 0 ? 0f : front.Max() - front.Min();
+            }
+            GModelAsset plain = GModelPrimitiveFactory.CreateCube("Box wall", 4f);
+            float authored = Span(plain);
+            Assert(GModelProductionTools.ApplyMaterialBoxUvs(plain) == 0 && Span(plain) == authored, "A material without the option changed the UVs.");
+            plain.Materials[0].Metadata[GModelProductionTools.BoxUvMetresKey] = "1";
+            Assert(GModelProductionTools.ApplyMaterialBoxUvs(plain) == 1 && MathF.Abs(Span(plain) - 4f) < 1e-3f,
+                $"A 4 m face should take four 1 m repeats, not {Span(plain)}.");
+
+            string path = resources.CreateResource(resources.AssetsRoot, ResourceKind.Model, "Box UV wall probe");
+            GModelAsset wall = GModelPrimitiveFactory.CreateCube("Box UV wall", 4f);
+            StudioModelResourceLoader.SaveCanonical(path, wall);
+            Assert(MathF.Abs(Span(StudioModelResourceLoader.LoadReadOnly(path)) - authored) < 1e-3f, "A model without the option loaded with other UVs.");
+            var descriptor = (System.Text.Json.Nodes.JsonObject)System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(path))!;
+            descriptor["materialBoxUvMetres"] = new System.Text.Json.Nodes.JsonObject { [wall.Materials[0].Name] = 2 };
+            File.WriteAllText(path, descriptor.ToJsonString());
+            Assert(MathF.Abs(Span(StudioModelResourceLoader.LoadReadOnly(path)) - 2f) < 1e-3f, "The descriptor's 2 m box UVs were not applied on load.");
+            descriptor.Remove("materialBoxUvMetres");
+            File.WriteAllText(path, descriptor.ToJsonString());
+
+            using (var editor = new ModelEditorControl(path, project.RootPath))
+            {
+                using var host = Host(editor);
+                ((ListBox)Descendants(editor).Single(control => control.Name == "ModelMeshGroups")).SelectedIndex = 0;
+                var metres = (NumericUpDown)Descendants(editor).Single(control => control.Name == "ModelMaterialBoxUvMetres");
+                Assert(metres.Value == 0, "A material without box UVs shows a repeat: " + metres.Value);
+                metres.Value = 0.5m;
+                Assert(editor.IsDirty, "Setting box UVs in metres did not change the model.");
+                editor.Save();
+            }
+            GModelAsset saved = StudioModelResourceLoader.LoadReadOnly(path);
+            Assert(GModelProductionTools.BoxUvMetres(saved.Materials[0]) == 0.5f && MathF.Abs(Span(saved) - 8f) < 1e-3f,
+                $"The material panel's 0.5 m box UVs were not saved and applied ({GModelProductionTools.BoxUvMetres(saved.Materials[0])}, span {Span(saved)}).");
+        });
         HeadlessHarness.RunCase(ctx.Report, "Editor.Model.Intake.FacingShapesRenderWithoutDuplicateFaces", () =>
         {
             foreach (string shape in new[] { "Plane", "SquareFace", "CircleFace", "TriangleFace" })
