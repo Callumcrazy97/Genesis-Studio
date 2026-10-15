@@ -709,12 +709,86 @@ internal static class NetworkReplicationSuite
         });
     }
 
+    private static void RunStatus(HeadlessContext context)
+    {
+        HeadlessHarness.RunCase(context.Report, "Engine.Net.Status.SaysWhyHostingOrJoiningFailed", () =>
+        {
+            const string key = "genesis-replication-check";
+            using var anna = new Genesis.Net.LiteNetGameNetwork(key) { LocalOnly = true };
+            using var ben = new Genesis.Net.LiteNetGameNetwork(key) { LocalOnly = true };
+            using var olderHost = new Genesis.Net.LiteNetGameNetwork("genesis-replication-older") { LocalOnly = true };
+            using var smallHost = new Genesis.Net.LiteNetGameNetwork(key, maximumPeers: 1) { LocalOnly = true };
+            Genesis.Net.LiteNetGameNetwork[] all = [anna, ben, olderHost, smallHost];
+            string State() => Genesis.Runtime.Scripting.PgslCommands.NetConnectState();
+            string Error() => Genesis.Runtime.Scripting.PgslCommands.NetLastError();
+            try
+            {
+                Genesis.Runtime.Scripting.PgslCommands.ActiveNetwork = anna;
+                HeadlessHarness.Assert(State() == "idle" && Error() == "", $"A network that has done nothing reads '{State()}' with error '{Error()}'.");
+
+                // Nobody listens on the port: joining is tried for a few seconds, then said to have failed.
+                int nobody = FreeUdpPort();
+                HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.NetConnect("127.0.0.1", nobody) && State() == "connecting",
+                    $"Joining did not start: the state is '{State()}'.");
+                PumpUntil(all, () => State() == "failed", () => $"Joining a port nobody listens on still reads '{State()}'.", 15);
+                HeadlessHarness.Assert(Error() is "refused" or "timed out", $"Joining a port nobody listens on failed with '{Error()}'.");
+
+                // A host of another version turns the player away and says why.
+                int older = FreeUdpPort();
+                olderHost.Host(older);
+                Genesis.Runtime.Scripting.PgslCommands.NetConnect("127.0.0.1", older);
+                HeadlessHarness.Assert(Error() == "", "Starting to join again did not clear the last error.");
+                PumpUntil(all, () => State() == "failed", () => $"Joining a host of another version reads '{State()}'.");
+                HeadlessHarness.Assert(Error() == "wrong version", $"A host of another version refused the player with '{Error()}'.");
+
+                // A full host.
+                int small = FreeUdpPort();
+                smallHost.Host(small);
+                ben.Connect("127.0.0.1", small);
+                PumpUntil(all, () => ben.ConnectionState == "connected" && smallHost.PeerCount == 1,
+                    () => $"Ben could not join the small game ({ben.ConnectionState}, {ben.LastError}).");
+                Genesis.Runtime.Scripting.PgslCommands.NetConnect("127.0.0.1", small);
+                PumpUntil(all, () => State() == "failed", () => $"Joining a full game reads '{State()}'.");
+                HeadlessHarness.Assert(Error() == "full" && smallHost.PeerCount == 1, $"A full game refused the player with '{Error()}'.");
+
+                // The host of a joined game stops.
+                Genesis.Runtime.Scripting.PgslCommands.ActiveNetwork = ben;
+                HeadlessHarness.Assert(State() == "connected" && Error() == "", $"Ben's joined game reads '{State()}' with error '{Error()}'.");
+                smallHost.Disconnect();
+                PumpUntil(all, () => State() == "disconnected", () => $"After the host stopped, Ben's game reads '{State()}'.", 15);
+                HeadlessHarness.Assert(Error() == "host closed", $"The host stopping was reported as '{Error()}'.");
+                Genesis.Runtime.Scripting.PgslCommands.NetDisconnect();
+                HeadlessHarness.Assert(State() == "idle" && Error() == "", "Leaving did not clear the state.");
+
+                // Hosting on a port another program holds.
+                using var holder = new System.Net.Sockets.UdpClient(new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 0));
+                int taken = ((System.Net.IPEndPoint)holder.Client.LocalEndPoint!).Port;
+                HeadlessHarness.Assert(!Genesis.Runtime.Scripting.PgslCommands.NetHost(taken) && State() == "failed" && Error() == "port in use",
+                    $"Hosting on a port in use reads '{State()}' with error '{Error()}'.");
+                HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.NetHost(FreeUdpPort()) && State() == "hosting" && Error() == "",
+                    $"Hosting reads '{State()}' with error '{Error()}'.");
+
+                // What to tell the other players to type.
+                string addresses = Genesis.Runtime.Scripting.PgslCommands.NetLocalAddresses();
+                HeadlessHarness.Assert(addresses.Length > 0 && addresses.Split(", ").All(address =>
+                        System.Net.IPAddress.TryParse(address, out System.Net.IPAddress? parsed)
+                        && parsed.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork),
+                    $"This computer's addresses read '{addresses}'.");
+            }
+            finally
+            {
+                Genesis.Runtime.Scripting.PgslCommands.ActiveNetwork = null;
+            }
+        });
+    }
+
     public static void Run(HeadlessContext context)
     {
         RunSockets(context);
         RunValues(context);
         RunDiscovery(context);
         RunTwoD(context);
+        RunStatus(context);
         HeadlessHarness.RunCase(context.Report, "Engine.Net.Replication.PlayersSeeNearbySharedObjectsAndEachOther", () =>
         {
             var host = new Machine(host: true);

@@ -28,8 +28,12 @@ namespace Genesis.Net
     /// A host also answers machines on the local network that look for games of the same title and
     /// version (<see cref="Discover"/>): a small unconnected request, broadcast and sent to this
     /// computer, answered with the host's name, port and number of players.
+    /// It keeps where this machine's own session stands and why the last attempt ended
+    /// (<see cref="ConnectionState"/>, <see cref="LastError"/>), from LiteNetLib's disconnect
+    /// reasons, the socket errors it reports, and the reason a host of this engine gives when it
+    /// turns a connection away.
     /// </remarks>
-    public sealed class LiteNetGameNetwork : IGameNetwork, IGameNetworkDiscovery, INetEventListener
+    public sealed class LiteNetGameNetwork : IGameNetwork, IGameNetworkDiscovery, IGameNetworkStatus, INetEventListener
     {
         private sealed class PeerEntry
         {
@@ -174,11 +178,17 @@ namespace Genesis.Net
             bool started = LocalOnly
                 ? _manager.Start(System.Net.IPAddress.Loopback, System.Net.IPAddress.IPv6Loopback, port)
                 : _manager.Start(port);
-            if (!started) throw new InvalidOperationException($"Could not bind UDP port {port}.");
+            if (!started)
+            {
+                Fail("port in use");
+                throw new InvalidOperationException($"Could not bind UDP port {port}.");
+            }
+
             IsHost = true;
             IsConnected = true;
             Port = port;
             _nextPeerId = _firstPeerId;
+            _state = LinkState.Hosting;
         }
 
         public void Connect(string ip, int port)
@@ -189,11 +199,111 @@ namespace Genesis.Net
             bool started = LocalOnly
                 ? _manager.Start(System.Net.IPAddress.Loopback, System.Net.IPAddress.IPv6Loopback, 0)
                 : _manager.Start();
-            if (!started) throw new InvalidOperationException("Could not start the UDP client.");
-            _manager.Connect(ip, port, AppKey);
+            if (!started)
+            {
+                Fail("unreachable");
+                throw new InvalidOperationException("Could not start the UDP client.");
+            }
+
+            try
+            {
+                _target = _manager.Connect(ip, port, AppKey);
+            }
+            catch (Exception exception) when (exception is System.Net.Sockets.SocketException or ArgumentException or FormatException)
+            {
+                // A name that does not resolve to an address.
+                Fail("bad address");
+                throw;
+            }
+
             IsHost = false;
             Port = port;
             _nextPeerId = _firstPeerId;   // clients assign ids just like hosts do
+            if (_target == null) Fail("bad address");
+            else _state = LinkState.Connecting;
+        }
+
+        // ── Where this machine's session stands ──────────────────────────────────
+
+        private enum LinkState { Idle, Hosting, Connecting, Connected, Failed, Disconnected }
+
+        private LinkState _state;
+        private string _lastError = "";
+        /// <summary>The host being joined, and what the operating system said about reaching it.</summary>
+        private System.Net.IPEndPoint _target;
+        private LSocketError _targetSocketError;
+        private readonly NetDataWriter _refusalWriter = new();
+        private const string Refusal = "genesis-refusal";
+
+        public string ConnectionState => _state switch
+        {
+            LinkState.Hosting => "hosting",
+            LinkState.Connecting => "connecting",
+            LinkState.Connected => "connected",
+            LinkState.Failed => "failed",
+            LinkState.Disconnected => "disconnected",
+            _ => "idle",
+        };
+
+        public string LastError => _lastError;
+
+        private void Fail(string reason)
+        {
+            _state = LinkState.Failed;
+            _lastError = reason;
+        }
+
+        /// <summary>Why a joined (or joining) session ended, in a few words a game can show; null when this machine left.</summary>
+        private string DescribeDisconnect(DisconnectInfo info)
+        {
+            switch (info.Reason)
+            {
+                case DisconnectReason.DisconnectPeerCalled:
+                    return null;
+                case DisconnectReason.ConnectionRejected:
+                    // A host of this engine says why it turned the connection away.
+                    try
+                    {
+                        if (info.AdditionalData is { AvailableBytes: > 0 } data
+                            && string.Equals(data.GetString(32), Refusal, StringComparison.Ordinal))
+                        {
+                            string why = data.GetString(32);
+                            if (why is "wrong version" or "full") return why;
+                        }
+                    }
+                    catch { /* an older engine's refusal carries nothing */ }
+                    return "refused";
+                case DisconnectReason.ConnectionFailed:
+                    // No answer at all. The operating system may have said why: nothing listens on
+                    // that port, or there is no way to that machine.
+                    return _targetSocketError switch
+                    {
+                        LSocketError.ConnectionReset or LSocketError.ConnectionRefused => "refused",
+                        LSocketError.HostUnreachable or LSocketError.NetworkUnreachable => "unreachable",
+                        _ => "timed out",
+                    };
+                case DisconnectReason.Timeout:
+                    return "timed out";
+                case DisconnectReason.HostUnreachable:
+                case DisconnectReason.NetworkUnreachable:
+                    return "unreachable";
+                case DisconnectReason.RemoteConnectionClose:
+                    return "host closed";
+                case DisconnectReason.InvalidProtocol:
+                    return "wrong version";
+                case DisconnectReason.UnknownHost:
+                    return "bad address";
+                default:
+                    return "disconnected";
+            }
+        }
+
+        private NetDataWriter RefusalFor(string reason)
+        {
+            _refusalWriter.Reset();
+            _refusalWriter.Put(Refusal);
+            _refusalWriter.Put(reason);
+            return _refusalWriter;
         }
 
         public void Disconnect()
@@ -207,6 +317,7 @@ namespace Genesis.Net
             IsConnected = false;
             Port = 0;
             _inbox.Clear(); _queuedPayloadBytes = 0; _connectionEvents.Clear(); _peerSnapshot.Clear();
+            _state = LinkState.Idle; _lastError = ""; _target = null; _targetSocketError = LSocketError.Success;
             // Looking for games belongs to the time before a session: hosting or joining ends it.
             StopDiscovery();
             foreach (var peer in disconnected) OnPeerDisconnected?.Invoke(peer);
@@ -409,7 +520,12 @@ namespace Genesis.Net
             _peersByLiteId[peer.Id] = entry;
             _connectionEvents.Enqueue((new GPeer(id, entry.Address), true));
             // For a client, a successful peer connection means we're now connected.
-            if (!IsHost) IsConnected = true;
+            if (!IsHost)
+            {
+                IsConnected = true;
+                _state = LinkState.Connected;
+                _lastError = "";
+            }
         }
 
         void INetEventListener.OnPeerDisconnected(LiteNetPeer peer, DisconnectInfo info)
@@ -421,7 +537,18 @@ namespace Genesis.Net
                 _connectionEvents.Enqueue((new GPeer(entry.Id, entry.Address), false));
             }
             // If we were a client and the host drops, mark disconnected.
-            if (!IsHost) IsConnected = false;
+            if (!IsHost)
+            {
+                IsConnected = false;
+                bool wasConnected = _state == LinkState.Connected;
+                string why = DescribeDisconnect(info);
+                if (why == null) _state = LinkState.Idle;
+                else
+                {
+                    _state = wasConnected ? LinkState.Disconnected : LinkState.Failed;
+                    _lastError = why;
+                }
+            }
         }
 
         void INetEventListener.OnNetworkReceive(LiteNetPeer peer, NetPacketReader reader, byte channel, DeliveryMethod delivery)
@@ -442,7 +569,11 @@ namespace Genesis.Net
             catch { /* malformed packet — ignore */ }
         }
 
-        void INetEventListener.OnNetworkError(System.Net.IPEndPoint endPoint, LSocketError socketError) { }
+        void INetEventListener.OnNetworkError(System.Net.IPEndPoint endPoint, LSocketError socketError)
+        {
+            // Kept for the reason given if joining fails: "nothing listens there" reads better than a time-out.
+            if (_state == LinkState.Connecting) _targetSocketError = socketError;
+        }
         void INetEventListener.OnNetworkReceiveUnconnected(System.Net.IPEndPoint endPoint, NetPacketReader reader, UnconnectedMessageType messageType)
         {
             if (endPoint == null || reader == null || reader.AvailableBytes > 2048) return;
@@ -457,8 +588,14 @@ namespace Genesis.Net
         void INetEventListener.OnNetworkLatencyUpdate(LiteNetPeer peer, int latency) { }
         void INetEventListener.OnConnectionRequest(ConnectionRequest request)
         {
-            if (!IsHost || _peersById.Count >= _maximumPeers) request.Reject();
-            else request.AcceptIfKey(AppKey);
+            // The machine joining is told why it was turned away; an older engine ignores the reason.
+            if (!IsHost) { request.Reject(RefusalFor("not hosting")); return; }
+            string key;
+            try { key = request.Data.GetString(128); }
+            catch { key = null; }
+            if (!string.Equals(key, AppKey, StringComparison.Ordinal)) request.Reject(RefusalFor("wrong version"));
+            else if (_peersById.Count >= _maximumPeers) request.Reject(RefusalFor("full"));
+            else request.Accept();
         }
 
         public void Dispose()

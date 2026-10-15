@@ -1591,6 +1591,12 @@ internal static class HeadlessTestRunner
             case "room-change":
                 RoomChangeSuite.Run(ctx);
                 break;
+            case "network":
+            case "network-replication":
+                // Multiplayer on its own (also part of large-world): shared objects, 2D looks,
+                // finding games on this computer and why joining failed, over real sockets.
+                NetworkReplicationSuite.Run(ctx);
+                break;
             case "release":
                 Suites.ReleaseSuite.Run(ctx);
                 break;

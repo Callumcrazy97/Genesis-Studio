@@ -207,6 +207,18 @@ not listed. A host answers whether or not a script ever looks. The request is a 
 reaches the local network only, not the Internet; Windows asks to let the game through its firewall
 the first time it hosts, and the answers need that too.
 
+Joining, and saying why it failed (15 October 2026). `NetConnect` returns true as soon as it starts
+trying; these say how it went:
+
+| Command | Meaning |
+|---|---|
+| `NetConnectState()` | `"idle"`, `"hosting"`, `"connecting"`, `"connected"`, `"failed"` (joining did not succeed) or `"disconnected"` (a joined game ended without this machine leaving). |
+| `NetLastError()` | Why: `"refused"` (nothing listens on that port, or the host turned the player away), `"timed out"` (no answer for about five seconds, or the host stopped answering), `"wrong version"` (the host runs another version of the engine), `"full"`, `"host closed"`, `"unreachable"`, `"bad address"`, or `"port in use"` when `NetHost` could not open its port. Empty while nothing has gone wrong; the next `NetHost`, `NetConnect` or `NetDisconnect` clears it. |
+| `NetLocalAddresses()` | This computer's IPv4 addresses on the local network, separated by commas, the home or office network first: what the other players type to join a game hosted here. `"127.0.0.1"` when there is no network. |
+
+A host of this engine tells a machine it turns away why (another version, or full); an older host
+gives no reason, which reads as `"refused"`.
+
 Sharing objects:
 
 | Command | Meaning |
@@ -267,7 +279,8 @@ colour set with `SpriteSetBlend` is not shared: the engine draws an instance wit
 tints only what a Draw event draws, which a copy does not run; share it as a named value if a Draw
 event of your own uses it. This changed what is sent, so the connection key is now
 `genesis-runtime-3`: a game built with an older engine is refused when it tries to join instead of
-misreading what it is sent.
+misreading what it is sent. A game of this engine joining an older host reads `"refused"` (an older
+host gives no reason); `"wrong version"` is what a host of this engine or later says.
 
 Script variables are not shared unless a script shares them as named
 values, and physics is not shared: a copy is not solid and

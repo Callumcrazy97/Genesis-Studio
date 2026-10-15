@@ -43,4 +43,21 @@ namespace Genesis.Shared.Net
         /// <summary>The games that answered within the last few seconds, in the order they first answered.</summary>
         IReadOnlyList<NetDiscoveredHost> DiscoveredHosts { get; }
     }
+
+    /// <summary>Where this machine's own session stands, and why the last attempt ended.</summary>
+    public interface IGameNetworkStatus
+    {
+        /// <summary>
+        /// "idle", "hosting", "connecting", "connected", "failed" (joining never succeeded) or
+        /// "disconnected" (a joined session ended without this machine leaving).
+        /// </summary>
+        string ConnectionState { get; }
+
+        /// <summary>
+        /// Why hosting or joining failed, or why a session ended: "refused", "timed out",
+        /// "wrong version", "full", "host closed", "unreachable", "bad address", "port in use",
+        /// "disconnected". Empty while nothing has gone wrong; cleared by the next attempt.
+        /// </summary>
+        string LastError { get; }
+    }
 }

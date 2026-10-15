@@ -69,4 +69,75 @@ public static partial class PgslCommands
     }
 
     #endregion
+
+    #region Where this machine's session stands
+
+    [PgslCommand("NetConnectState", "NetConnectState() -> string",
+        "\"idle\", \"hosting\", \"connecting\", \"connected\", \"failed\" (joining did not succeed) or \"disconnected\" (a joined game ended); NetLastError says why", "Networking")]
+    public static string NetConnectState()
+    {
+        IGameNetwork network = ActiveNetwork;
+        if (network is IGameNetworkStatus status) return status.ConnectionState ?? "idle";
+        return network == null ? "idle" : network.IsHost ? "hosting" : network.IsConnected ? "connected" : "idle";
+    }
+
+    [PgslCommand("NetLastError", "NetLastError() -> string",
+        "Why hosting or joining failed or a joined game ended: \"refused\", \"timed out\", \"wrong version\", \"full\", \"host closed\", \"unreachable\", \"bad address\", \"port in use\"; empty while nothing has gone wrong", "Networking")]
+    public static string NetLastError() => (ActiveNetwork as IGameNetworkStatus)?.LastError ?? "";
+
+    private static string _localAddresses;
+    private static long _localAddressesRead = long.MinValue;
+
+    [PgslCommand("NetLocalAddresses", "NetLocalAddresses() -> string",
+        "This computer's addresses on the local network (IPv4), separated by commas, the one most likely to work first: what other players type to join a game hosted here", "Networking")]
+    public static string NetLocalAddresses()
+    {
+        // Listing the adapters takes a moment; a lobby that shows this every frame reads it twice a second.
+        long now = Environment.TickCount64;
+        if (_localAddresses != null && now - _localAddressesRead < 500) return _localAddresses;
+        _localAddresses = ReadLocalAddresses();
+        _localAddressesRead = now;
+        return _localAddresses;
+    }
+
+    private static string ReadLocalAddresses()
+    {
+        var withGateway = new List<string>();
+        var others = new List<string>();
+        try
+        {
+            foreach (System.Net.NetworkInformation.NetworkInterface adapter in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (adapter.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up
+                    || adapter.NetworkInterfaceType is System.Net.NetworkInformation.NetworkInterfaceType.Loopback
+                        or System.Net.NetworkInformation.NetworkInterfaceType.Tunnel) continue;
+                System.Net.NetworkInformation.IPInterfaceProperties properties = adapter.GetIPProperties();
+                // The adapter that leads somewhere (it has a gateway) is the home or office network;
+                // the rest are usually virtual machines' and VPNs' own.
+                bool gateway = false;
+                foreach (System.Net.NetworkInformation.GatewayIPAddressInformation route in properties.GatewayAddresses)
+                    if (route.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && !route.Address.Equals(System.Net.IPAddress.Any))
+                        gateway = true;
+                foreach (System.Net.NetworkInformation.UnicastIPAddressInformation unicast in properties.UnicastAddresses)
+                {
+                    System.Net.IPAddress address = unicast.Address;
+                    if (address.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork || System.Net.IPAddress.IsLoopback(address)) continue;
+                    byte[] bytes = address.GetAddressBytes();
+                    if (bytes[0] == 169 && bytes[1] == 254) continue;   // self-assigned: no network answered
+                    string text = address.ToString();
+                    List<string> into = gateway ? withGateway : others;
+                    if (!withGateway.Contains(text) && !others.Contains(text)) into.Add(text);
+                }
+            }
+        }
+        catch (Exception exception) when (exception is System.Net.NetworkInformation.NetworkInformationException or InvalidOperationException or PlatformNotSupportedException)
+        {
+            // No adapters to list: this computer can still be joined from itself.
+        }
+
+        withGateway.AddRange(others);
+        return withGateway.Count > 0 ? string.Join(", ", withGateway) : "127.0.0.1";
+    }
+
+    #endregion
 }
