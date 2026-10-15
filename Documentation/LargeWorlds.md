@@ -491,6 +491,26 @@ Added on 2 October 2026, for multiplayer:
 - scripts starting a session, taking messages by tag, replying, and never being handed the
   engine's own messages.
 
+Added on 15 October 2026, five more checks in `large-world` (`Build.bat --test network` runs the
+eight multiplayer checks alone):
+
+- finding a game hosted on this computer through the script commands, its name and players
+  changing as a player joins, another game on the same computer not listed, and a stopped host
+  dropping off the list;
+- a 2D copy over a real connection showing its object's sprite, frame, flip, angle, alpha and
+  visibility as they change, a player's own 2D character on the host likewise; over the in-memory
+  link, a new frame costing one 13-byte message, a flip 17 bytes, and nothing sent while nothing
+  changes;
+- joining a port nobody listens on (`"refused"` or `"timed out"`), a host of another version
+  (`"wrong version"`), a full host (`"full"`), a host stopping (`"host closed"`), hosting on a port
+  in use (`"port in use"`), and this computer's addresses;
+- with `large-world`, four controllers' buttons, sticks and vibration kept apart, controller 0
+  reading as the unnumbered commands do. Reading real controllers in the window needs them
+  plugged in, and has not been tried.
+
+Finding games across a real local network (the broadcast) needs two computers and has not been
+tried yet; on one computer the request also goes to this computer, which is what the check uses.
+
 What those checks do not show, and has not been seen in a running game yet:
 
 - multiplayer between two computers. One machine cannot show packet loss, delay, routers or
