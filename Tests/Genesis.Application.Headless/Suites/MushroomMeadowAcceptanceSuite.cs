@@ -251,6 +251,40 @@ internal static class MushroomMeadowAcceptanceSuite
             });
             Check(game.Diagnostics.Count == 0, "Game script diagnostics: " + string.Join("; ", game.Diagnostics));
         });
+        HeadlessHarness.RunCase(context.Report, "Acceptance.MushroomMeadow.HeroForgivesCornersAndNeverSticks", () =>
+        {
+            // The Explorer forgiveness rules mirrored by BuildTools/TemplateContent/MushroomMeadow/hero_physics.py.
+            using MeadowGame game = new(project);
+            game.Tap(Key.Enter); game.Frames(2);
+            HeadlessHarness.Step("a head that clips a seed pod's corner slides past it without bumping it", () =>
+            {
+                // Seed pod at column 10 row 6 (x 320..352): Pip's box overlaps its left edge by 3 px.
+                game.Place(316, 7 * 32 + 35); game.Set("vy", -300); game.Frame();
+                Check(Math.Abs(game.Position.X - 313) < .01f && game.Position.Y < 7 * 32 + 34 && game.Value("vy") < 0,
+                    $"The rising head did not slide past the corner: {game.Position}, vy={game.Value("vy")}.");
+                Check(PgslCommands.TileIndexAt(336, 6 * 32 + 16, "Blocks") == 3, "A corner clip bumped the seed pod.");
+                game.Place(336, 7 * 32 + 35); game.Set("vy", -300); game.Frame();
+                Check(PgslCommands.TileIndexAt(336, 6 * 32 + 16, "Blocks") == 4, "A square head bump no longer opened the seed pod.");
+            });
+            HeadlessHarness.Step("a ledge clipped by a few pixels is stepped onto instead of stopping Pip", () =>
+            {
+                // Pipe at columns 50-51 (top y = 224): feet 2 px below its top, moving right into it.
+                game.Place(1592, 226); game.Set("vx", 200); game.Frame();
+                Check(game.Position.Y <= 224.01f && game.Position.X > 1593,
+                    $"Pip did not step up onto the pipe: {game.Position}.");
+                game.Frames(3);
+                Check(Math.Abs(game.Position.Y - 224) < .01f, $"Pip did not stay standing on the pipe: {game.Position}.");
+            });
+            HeadlessHarness.Step("Pip embedded in solid ground steps out instead of staying stuck", () =>
+            {
+                game.Place(200, 300); game.Frame();
+                RoomTileCollisionMap tiles = new(game.Game.Room, project.RootPath);
+                bool embedded = tiles.Intersects(new RectangleF(game.Position.X - 7, game.Position.Y - 34, 14, 34));
+                Check(game.Position.Y <= 288.01f && !embedded && game.Value("grounded") == 1,
+                    $"Pip stayed inside the ground: {game.Position}, grounded={game.Value("grounded")}.");
+            });
+            Check(game.Diagnostics.Count == 0, "Game script diagnostics: " + string.Join("; ", game.Diagnostics));
+        });
         HeadlessHarness.RunCase(context.Report, "Acceptance.MushroomMeadow.CampaignGlowsporeReturnsToMap", () =>
         {
             using MeadowGame game = new(project, campaign: true);

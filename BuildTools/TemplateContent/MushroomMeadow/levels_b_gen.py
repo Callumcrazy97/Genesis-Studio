@@ -296,32 +296,36 @@ HOLLOW_SECTIONS = [
         "################################",
         "################################",
     ]),
+    # Playability (round 3, proven by reach_finale.py at 85% of Pip's jump): pits are at most 5 tiles
+    # (160 px), every required rise is at most 2 tiles (64 px), silk platforms sit over pits only
+    # (never low over walkable floor), and the spires form a 2-4-2 pyramid so a fall between two
+    # spires can always climb back out.
     ("2 Thorn Hollow: pits, moth-silk platforms (Big Sun Coin 1)", 32, [
+        "................................",
         "................................",
         "................................",
         "................................",
         ".........O......................",
         "................................",
-        "........LLL.........d...........",
-        "....o.o.o..........o.o......o...",
-        "....LLL.......LLLL......o.o.....",
-        "...........d.............LLL....",
-        ".f.........t.^^^...l........l.m.",
-        "###.......######...####.....####",
-        "###.......######...####.....####",
-        "###.......######...####.....####",
-        "###.......######...####.....####",
-        "###.......######...####.....####",
+        "....o.o.o.LLL.......d...........",
+        "...................o.o..o.o.o...",
+        "....LLL....d............LLL.....",
+        ".f.......t.^^.......l........lm.",
+        "###.....########...####.....####",
+        "###.....########...####.....####",
+        "###.....########...####.....####",
+        "###.....########...####.....####",
+        "###.....########...####.....####",
     ]),
     ("3 Amethyst Spires: climb the crystals (Big Sun Coin 2)", 28, [
         "............................",
-        "....................O.......",
+        "............................",
+        "............................",
+        ".............O..............",
+        "....d...................d...",
         ".........o.o.....o.o........",
-        "...................CC.......",
-        "....d..............CC...d...",
-        ".............CC....CC.......",
-        ".............CC....CC.......",
-        ".......CC....CC....CC.......",
+        ".............CC.............",
+        ".............CC.............",
         ".......CC....CC....CC...o.o.",
         ".l.....CC..f.CC..^.CC.t...l.",
         "############################",
@@ -995,7 +999,9 @@ def duskmantle_create(level, arena_left, arena_right, floor_y):
 // while Dazed after a swoop; Spore Shots hurt her any time she is not recovering (0.9 s).
 // 6 hits, three phases by health (6-5 swoops; 4-3 swoops + Gloom Orb volleys; 2-1 adds summoned
 // Dusk Moths). RoomValue bossFight: 1 when her intro starts, 2 when she is defeated.
-// On defeat she spawns the last Glowspore in the middle of the nest.
+// On defeat she spawns the last Glowspore in the middle of the nest. If Pip loses a life the fight
+// resets (full health, hidden above the nest until he drops in again). Stomps alone win the fight:
+// she is harmless while rising after a daze, so a stomp bounce never costs a heart.
 // Arena constants are written by levels_b_gen.py from the room map.
 enemy = 1; hp = 6; maxHp = 6; stompable = 0; contactDamage = 1; points = 500; dead = 0; hurt = 0;
 arenaL = %d; arenaR = %d; floorY = %d; arenaCx = (arenaL + arenaR) / 2;
@@ -1003,7 +1009,7 @@ homeX = x; homeY = y; y = homeY - 320; image_alpha = 0;
 state = 0; stateTime = 0; hoverT = 0; attackTimer = 2; cycle = 0; phase = 1;
 sx = x; sy = y; targetX = x; flash = 0; invuln = 0; shots = 0; volleyTimer = 0; summoned = 0;
 starTimer = 0; trailTimer = 0; boomTimer = 0; deathX = x; deathY = y; spawned = 0;
-bannerTime = 0; bannerKind = 0; shownHp = 6; hero = 0; glow = 690;
+bannerTime = 0; bannerKind = 0; shownHp = 6; hero = 0; glow = 690; heroLives = -1; resets = 0;
 RoomValueSet("bossFight", 0); RoomValueSet("bossHp", hp);
 AnimationPlay("Fly", true);
 ShaderSet("Assets/Shaders/Pixel Flash.shader.json"); ShaderSetParameter("Flash", 0);
@@ -1018,6 +1024,28 @@ AnimationSetSpeed(1);
 if (hero == 0 || !InstanceExists(hero)) { hero = InstanceFind("Explorer", 0); }
 var hx = arenaCx; var hy = floorY;
 if (hero > 0) { hx = InstanceGetX(hero); hy = InstanceGetY(hero); }
+// ---- Pip lost a life (he respawns at the checkpoint, outside the nest): the fight resets cleanly.
+// Full health, hidden above the nest again, her orbs and summoned moths cleared, music back to normal.
+if (hero > 0) {
+    var livesNow = InstanceVariableGet(hero, "lives");
+    if (heroLives >= 0 && livesNow < heroLives && dead == 0 && state != 0) {
+        resets = resets + 1;
+        hp = maxHp; shownHp = maxHp; state = 0; stateTime = 0; hoverT = 0; cycle = 0; attackTimer = 2;
+        stompable = 0; contactDamage = 1; hurt = 0; invuln = 0; flash = 0; bannerTime = 0; shots = 0;
+        x = homeX; y = homeY - 320; image_alpha = 0; image_xscale = 1;
+        AnimationPlay("Fly", true);
+        Light2DRemove(glow);
+        RoomValueSet("bossFight", 0); RoomValueSet("bossHp", hp);
+        var no = InstanceNumber("Gloom Orb");
+        for (var io = 0; io < no; io++) { var orbR = InstanceFind("Gloom Orb", io); if (orbR > 0) { InstanceVariableSet(orbR, "dead", 1); } }
+        var nm = InstanceNumber("Dusk Moth");
+        for (var im = 0; im < nm; im++) {
+            var mothR = InstanceFind("Dusk Moth", im);
+            if (mothR > 0 && InstanceGetX(mothR) > arenaL) { InstanceVariableSet(mothR, "hurt", InstanceVariableGet(mothR, "hurt") + 9); }
+        }
+    }
+    heroLives = livesNow;
+}
 // Pip is in the nest once he has dropped below the gate ledge.
 var inside = 0;
 if (hero > 0 && hx > arenaL + 8 && hx < arenaR && hy > floorY - 120) { inside = 1; }
@@ -1060,8 +1088,9 @@ if (hurt > 0 && dead == 0) {
                 if (shakeOk == 1) { ViewShake(0, 6, 0.6); }
             }
             if (state == 5) {
-                // Knocked out of her daze: she flees upward at once.
-                state = 6; stateTime = 0; stompable = 0; sx = x; sy = y;
+                // Knocked out of her daze: she flees upward at once. She is harmless while she rises
+                // (state 6), so Pip's stomp bounce can never carry him back into her.
+                state = 6; stateTime = 0; stompable = 0; contactDamage = 0; sx = x; sy = y;
             }
         }
     }
@@ -1162,6 +1191,8 @@ if (state == 3) {
     if (stateTime >= windup) {
         state = 4; stateTime = 0; sx = x; sy = y;
         targetX = Clamp(hx, arenaL + 72, arenaR - 72);
+@PLATFORMS@
+        targetX = Clamp(targetX, arenaL + 72, arenaR - 72);
         PlaySound("Assets/Audio/Boss Charge.audio.json", 0.8, 1.2, false);
     }
     return;
@@ -1196,7 +1227,7 @@ if (state == 5) {
     starTimer = starTimer - dt;
     if (starTimer <= 0) { starTimer = 0.25; Particle2DBurst("Assets/Particles/Daze Stars.particle.json", x, y - 34, 3, 90); }
     if (stateTime >= daze) {
-        state = 6; stateTime = 0; stompable = 0; sx = x; sy = y;
+        state = 6; stateTime = 0; stompable = 0; contactDamage = 0; sx = x; sy = y;
         AnimationPlay("Fly", true);
         PlaySound("Assets/Audio/Moth Swoop.audio.json", 0.6, 1.3, false);
     }
@@ -1208,7 +1239,7 @@ if (state == 6) {
     var k6 = Min(1, stateTime / 0.9);
     y = sy + (homeY - sy) * (1 - (1 - k6) * (1 - k6));
     if (k6 >= 1) {
-        state = 2; stateTime = 0;
+        state = 2; stateTime = 0; contactDamage = 1;
         attackTimer = 2.2;
         if (phase == 2) { attackTimer = 1.8; }
         if (phase == 3) { attackTimer = 1.3; }
@@ -1261,6 +1292,29 @@ if (state == 8) {
     return;
 }
 """
+
+def duskmantle_step(level, arena_left, floor_y):
+    """DUSKMANTLE_STEP with her dive target kept off every nest platform low enough to cover her
+    back (dazed, her mask top is floorY - 60; Pip needs 40 px above it to fall onto her)."""
+    first_col = arena_left // 32
+    spans = []
+    for r in range(level.rows):
+        if (r + 1) * 32 <= floor_y - 60 - 40:
+            continue
+        c = first_col
+        while c < level.width:
+            if level.grid[r][c] in "LM" and r * 32 < floor_y - 32:
+                c0 = c
+                while c + 1 < level.width and level.grid[r][c + 1] in "LM":
+                    c += 1
+                spans.append((c0 * 32, (c + 1) * 32))
+            c += 1
+    lines = ["        // Never land under a silk platform: her back must stay open to a stomp from above."]
+    for x0, x1 in spans:
+        lines.append("        if (targetX > %d && targetX < %d) { if (targetX < %d) { targetX = %d; } else { targetX = %d; } }"
+                     % (x0 - 36, x1 + 36, (x0 + x1) // 2, x0 - 40, x1 + 40))
+    return DUSKMANTLE_STEP.replace("@PLATFORMS@", "\n".join(lines))
+
 
 DUSKMANTLE_DRAW_GUI = """
 // Duskmantle's boss bar and banners (1280 x 720 design space, scaled like the HUD).
@@ -1703,7 +1757,7 @@ def main():
     floor_y = (HOLLOW_ROWS - 1) * 32
     write_object("Duskmantle", "Assets/Sprites/Duskmantle Sprite.image.json",
                  {"Create": duskmantle_create(hollow, arena_left, arena_right, floor_y),
-                  "Step": DUSKMANTLE_STEP, "DrawGui": DUSKMANTLE_DRAW_GUI})
+                  "Step": duskmantle_step(hollow, arena_left, floor_y), "DrawGui": DUSKMANTLE_DRAW_GUI})
 
     grotto_room = make_room(
         grotto, "Tidepool Grotto", "tidepool-grotto", "Assets/Sprites/Grotto Tiles.image.json",

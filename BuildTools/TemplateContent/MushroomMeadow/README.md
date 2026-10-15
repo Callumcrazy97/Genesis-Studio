@@ -22,10 +22,15 @@ Run from the repository root, in this order (later scripts read images or rooms 
 | 9 | `fx_gen.py` | Phase-1 particles, shaders, physics, paths, HUD UI, Bounce Mushroom, Spawn Effect |
 | 10 | `level_gen.py` | Mushroom Meadow (level 1) room from its ASCII map (`--map` prints it) |
 | 11 | `hero_gen.py` | Explorer (Pip), Level Rules, power-ups, Prize markers, Glowspore, Spore Shot, phase-1 actors |
-| 12 | `hub_gen.py` | Overworld and Hearthollow rooms, map, villagers, dialogue, shop |
+| 12 | `hub_gen.py` | Overworld and Hearthollow rooms, map, villagers, dialogue, shop, Chimney Smoke and its Smoke Puff image (chimney spots read from `worlds_art.py`) |
 | 13 | `frontend_gen.py` | Intro, Main Menu and Credits rooms, save/load/options scripts |
 | 14 | `levels_a_gen.py` | Rootdeep Caverns and Windswept Canopy with Grumblecrag, enemies and the wind |
 | 15 | `levels_b_gen.py` | Tidepool Grotto and Duskmantle Hollow with Duskmantle, enemies and currents (`--map`, `--preview`) |
+
+Playability checks (they write nothing): `hero_physics.py` mirrors Pip's movement constants, hitbox and
+frame-by-frame controller (hero_gen.py asserts they match) and offers a reachability search over a generated
+room; `reach_meadow.py` proves level 1 completable from its start and checkpoint without power-ups, with no
+soft-locks, and replays the acceptance suite's input-only bot route.
 
 Two files are hand-written: `Assets/Notes/Showcase Guide.md` (the game manual and authoring guide) and
 `Assets/Scripts/Time Bonus.pgsl`. Their versioned copies are in this folder: edit them here and copy them into the
@@ -37,5 +42,14 @@ Rules the content relies on:
 - Resource names are unique across every kind (the Player refuses to start otherwise). An Image that shares
   an Object's name is called `<Name> Sprite`.
 - Each resource has a `.meta` with a stable guid derived from its name.
+- `reach_finale.py` proves Tidepool Grotto and Duskmantle Hollow completable from the start and the
+  checkpoint with no power-ups (85% jump margin, no traps); run it after changing `levels_b_gen.py`.
+- `reach_hub.py` proves every Hearthollow villager talkable and the way out reachable with no power-ups (full
+  and 85% physics, no soft-locks) and that the Overworld marker can walk between every pair of neighbouring
+  nodes; run it after changing `hub_gen.py`.
+- `reach_levels_a.py` proves Rootdeep Caverns and Windswept Canopy completable from the start and the
+  checkpoint with no power-ups (85% margin; moving leaves, the pool, gusts and crumble blocks modelled), no
+  soft-locks, climbable thorn trenches and a collectable Glowspore in the closed boss arena; `levels_a_gen.py`
+  runs it and fails when it fails (`--no-check` skips it).
 - Validate with `Build.bat --quick --test 2d-showcase` (compiles every PGSL event and plays level 1) and
   `Build.bat --quick --test mushroom-export` (exports and plays level 1 on all five renderers).

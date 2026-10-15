@@ -1517,6 +1517,14 @@ internal static class HeadlessTestRunner
             case "2d-showcase":
             case "resource-folders":
                 Suites.TwoDShowcaseSuite.Run(ctx);
+                if (normalized == "2d-showcase") Suites.MushroomMeadowFinaleSuite.Run(ctx);
+                if (normalized == "2d-showcase") Suites.MushroomMeadowLevelsSuite.Run(ctx);
+                break;
+            case "mushroom-levels":
+                Suites.MushroomMeadowLevelsSuite.Run(ctx);
+                break;
+            case "mushroom-finale":
+                Suites.MushroomMeadowFinaleSuite.Run(ctx);
                 break;
             case "mushroom-export":
                 Suites.MushroomMeadowExportSuite.Run(ctx);

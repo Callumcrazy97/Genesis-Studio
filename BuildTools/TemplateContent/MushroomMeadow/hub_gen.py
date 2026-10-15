@@ -7,13 +7,17 @@ Writes into Source/Genesis.Application.Core/Projects/Templates/Assets/TwoDShowca
   Rooms           Overworld, Hearthollow
   Objects         Map Marker (Pip's marker + the Overworld controller), Map Node, Map Clouds,
                   Village Host (dialogue box, Chanterelle's shop, leaving the village), Lantern Tree Glow,
-                  NPC Elder Morel, NPC Chanterelle, NPC Bram, NPC Puffball, NPC Old Wick, Shop Stall, Exit Sign
+                  NPC Elder Morel, NPC Chanterelle, NPC Bram, NPC Puffball, NPC Old Wick, Shop Stall, Exit Sign,
+                  Chimney Smoke (live smoke puffs over the Village Houses chimneys)
   Scripts         Hub Common (shared helpers), Village Lines (every NPC line, by story progress)
   User Interfaces Overworld HUD, Dialogue Box, Shop Menu
   Particles       Map Unlock Burst, Path Sparkle, Node Glow, Village Fireflies, Shop Sparkle
+  Images          Smoke Puff (the one piece of art made here; needs Pillow)
 
 Art (Pip Map, Map Node, NPC sprites, portraits, Overworld Map, Village tiles/backgrounds, Lantern
 Tree Lights 1..5) and audio come from the ART-*/AUDIO-* generators; this file only names them.
+The chimney positions are read from worlds_art.py (Village.chimneys()), which paints the chimneys
+without smoke.
 
 Dialogue text lives in LINES below. A page is wrapped here (56 characters a line, at most 3 lines;
 longer pages continue on a new page). In the generated PGSL, pages are joined by "~", lines by "/",
@@ -1374,6 +1378,110 @@ y = 0;
 image_alpha = 0.84 + 0.16 * Sin(t * 75);
 """
 
+SMOKE_PUFFS = 7       # puffs looping over each chimney
+SMOKE_DEPTH = 8450     # just in front of Village Houses (8500), behind the tiles and actors
+HOUSES_PARALLAX = 0.6  # Village Houses' parallaxX (worlds_art.py writes it)
+HOUSES_STRIP = 1024    # Village Houses' width: the strip repeats every 1024 px
+
+SMOKE_CREATE = """// Chimney Smoke: one puff of live smoke over the Village Houses backdrop, whose chimneys are
+// painted without smoke. The puff belongs to the chimney nearest to where the room placed it and
+// takes that chimney's next free slot, so the @PUFFS@ puffs of a chimney share its cycle evenly. Each
+// cycle it leaves the chimney top small and faint, swells, rises, leans with a slow breeze shared
+// by the whole village, and fades out. Village Houses scrolls with parallax @PARALLAX@ and repeats every
+// @STRIP@ px, so each step the puff follows the copy of its chimney nearest the middle of the view.
+chimX = @CHIMX@;
+chimY = @CHIMY@;
+puffs = @PUFFS@; housesParallax = @PARALLAX@; stripW = @STRIP@;
+chimney = 0;
+var best = 999999;
+for (var k = 0; k < PgListSize(chimX); k += 1) {
+    var d = Abs(x - chimX[k]) + Abs(y - chimY[k]);
+    if (d < best) { best = d; chimney = k; }
+}
+homeX = chimX[chimney]; homeY = chimY[chimney];
+slot = RoomValueGet("smokeSlot" + chimney, 0);
+RoomValueSet("smokeSlot" + chimney, slot + 1);
+slot = slot % puffs;
+// Each chimney breathes at its own pace (3.9, 4.25 or 4.6 s a puff).
+life = 3.9 + 0.35 * (chimney - Floor(chimney / 3) * 3);
+age = life * slot / puffs + 0.37 * chimney;
+while (age >= life) { age -= life; }
+mirror = 1;
+if (slot % 2 == 1) { mirror = -1; }
+clock = 0;
+SpriteSetDepth(@DEPTH@);
+image_alpha = 0; image_xscale = 0.35; image_yscale = 0.35;
+"""
+
+SMOKE_STEP_END = """var dt = Clamp(DeltaTime, 0, 0.05);
+clock += dt;
+age += dt;
+while (age >= life) { age -= life; }
+var f = age / life;
+// The breeze: every chimney's smoke leans right, now more, now less (a 17 s swell).
+var breeze = 18 + 8 * Sin(clock * 21);
+var rise = 54 * (0.5 * f + 0.5 * (1 - (1 - f) * (1 - f)));
+var lean = breeze * f * f + Sin(clock * 95 + slot * 77 + chimney * 41) * 2.5 * f;
+var s = 0.35 + 1.05 * Sqrt(f);
+image_alpha = 0.5 * Clamp(f / 0.06, 0, 1) * Clamp((1 - f) / 0.7, 0, 1);
+image_xscale = mirror * s * (1 + 0.06 * Sin(clock * 140 + slot * 50));
+image_yscale = s;
+// A background with parallax p is drawn at its room position + view left * (1 - p), repeated.
+var viewLeft = ViewGetPosX(0);
+var shift = viewLeft * (1 - housesParallax);
+var copy = Round((viewLeft + 320 - shift - homeX) / stripW);
+x = homeX + shift + copy * stripW + lean;
+y = homeY - 14 - rise;
+"""
+
+
+def chimney_tops():
+    """Village Houses' chimneys (centre x, base row y) from worlds_art.py, the painter of the strip."""
+    import sys
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import worlds_art
+    return [(round(x, 1), round(y, 1)) for (x, y) in worlds_art.Village.chimneys()]
+
+
+def build_smoke_puff():
+    """Smoke Puff: a soft 24x20 puff (three tones, half-clear rim) for Chimney Smoke to scale and fade."""
+    import sys
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    from PIL import Image
+    import world_art
+    W, H = 24, 20
+    blobs = [(12, 12, 7.5), (6.5, 13.5, 5), (17.5, 13.5, 5), (9.5, 7.5, 5), (15, 8, 4.5)]
+    hi, mid, lo = (242, 234, 244), (216, 206, 226), (184, 172, 202)
+
+    def inside(x, y):
+        return any((x + 0.5 - bx) ** 2 + (y + 0.5 - by) ** 2 <= r * r for (bx, by, r) in blobs)
+
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    px = img.load()
+    for y in range(H):
+        for x in range(W):
+            if not inside(x, y):
+                continue
+            # light from the top left, on the blob this pixel is deepest inside
+            bx, by, r = max(blobs, key=lambda b: b[2] - ((x + 0.5 - b[0]) ** 2 + (y + 0.5 - b[1]) ** 2) ** 0.5)
+            k = (-(x + 0.5 - bx) * 0.55 - (y + 0.5 - by) * 0.85) / r
+            if y >= 16:
+                k -= 0.4
+            if k > 0.3 or (k > 0.18 and (x + y) % 2 == 0):
+                c = hi
+            elif k < -0.4 or (k < -0.28 and (x + y) % 2 == 0):
+                c = lo
+            else:
+                c = mid
+            rim = not all(inside(x + dx, y + dy) for (dx, dy) in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+            px[x, y] = c + ((150 if rim else 255),)
+    world_art.write_image("Smoke Puff", img, "sprite", (12, 12), template_name="Cloud Hills", tag_name="Still")
+
+
 STALL_CREATE = """// Shop Stall: Chanterelle's market stall (decoration; the shop itself is run by Village Host).
 SpriteSetDepth(150);
 """
@@ -1456,6 +1564,12 @@ def build_scripts_and_objects():
                    .replace("@FULL@", wrapped(SHOP_FULL)).replace("@HAVE@", wrapped(SHOP_HAVE)))
     write_object("Village Host", "", {"Create": host_create, "Step": HOST_STEP, "DrawGui": HOST_DRAWGUI})
     write_object("Lantern Tree Glow", "Lantern Tree Lights 1", {"Create": TREE_CREATE, "StepEnd": TREE_STEP_END})
+    tops = chimney_tops()
+    smoke_create = (SMOKE_CREATE.replace("@CHIMX@", pgsl_list([float(p[0]) for p in tops]))
+                    .replace("@CHIMY@", pgsl_list([float(p[1]) for p in tops]))
+                    .replace("@PUFFS@", str(SMOKE_PUFFS)).replace("@PARALLAX@", str(HOUSES_PARALLAX))
+                    .replace("@STRIP@", str(HOUSES_STRIP)).replace("@DEPTH@", str(SMOKE_DEPTH)))
+    write_object("Chimney Smoke", "Smoke Puff", {"Create": smoke_create, "StepEnd": SMOKE_STEP_END})
     write_object("Shop Stall", "Shop Stall Sprite", {"Create": STALL_CREATE})
     write_object("Exit Sign", "Exit Sign Sprite", {"Create": EXIT_CREATE, "Step": EXIT_STEP, "DrawGui": EXIT_DRAWGUI})
 
@@ -1534,12 +1648,15 @@ VILLAGE = [
         ".t.GGGGGGGGGGGG.c.",
         "GGGGGGGGGGGGGGGGGG", "GGGGGGGGGGGGGGGGGG", "GGGGGGGGGGGGGGGGGG",
     ]),
-    ("Mushroom caps: Puffball's lookout and a log perch", [
+    # The caps are 3 tiles (96 px) up: too close to Pip's 110 px jump, so a 1-tile mossy mound in
+    # front of them makes the climb two easy hops (32 px, then 64 px). The mound stops a tile short
+    # of the cap: under the cap there is only room to walk on the ground (reach_hub.py checks it).
+    ("Mushroom caps: Puffball's lookout (up the mound) and a log perch", [
         "", "", "", "", "",
         "....4...........",
         "...MMMM....LLL..",
-        "....||..........",
-        "..f.||.m..b..t..",
+        "f...||..........",
+        "GG..||.m..b..t..",
         "GGGGGGGGGGGGGGGG", "GGGGGGGGGGGGGGGG", "GGGGGGGGGGGGGGGG",
     ]),
     ("Lamplighter's row and the road out", [
@@ -1627,6 +1744,12 @@ def build_hearthollow():
     instance(nodes, "hh-rules", "Level Rules", "Level Rules", 16, 16, -300)
     instance(nodes, "hh-host", "Village Host", "Village Host", 48, 16, -290)
     instance(nodes, "hh-tree", "Lantern Tree Glow", "Lantern Tree Glow", 0, 0, -280)
+    # Live chimney smoke: SMOKE_PUFFS puffs per Village Houses chimney, placed on its chimney top
+    # (where the strip draws it while the view is at the room's left edge).
+    for i, (chx, chy) in enumerate(chimney_tops()):
+        for k in range(SMOKE_PUFFS):
+            instance(nodes, "hh-smoke-%d-%d" % (i, k), "Chimney Smoke %d.%d" % (i + 1, k + 1), "Chimney Smoke",
+                     chx, chy - 16, -270)
     for ch, (label, prefab) in ACTORS.items():
         c, r = found[ch][0]
         x, y = c * 32 + 16, (r + 1) * 32
@@ -1642,6 +1765,7 @@ def build_hearthollow():
 
 
 def main():
+    build_smoke_puff()
     build_particles()
     build_ui()
     build_scripts_and_objects()

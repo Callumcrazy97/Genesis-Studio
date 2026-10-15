@@ -8,12 +8,13 @@ Writes, deterministically, into Source/Genesis.Application.Core/Projects/Templat
              Pebble Crack, Canopy Leaf, Gust Leaf, Moth Dust, Burr Fluff
   Shaders    Golden Hour (Canopy post effect), Cavern Damp (Caverns post effect)
 
-    python levels_a_gen.py            write everything, check every jump, render the previews
+    python levels_a_gen.py            write everything, render the previews, prove both rooms playable
     python levels_a_gen.py --map      also print the two maps
+    python levels_a_gen.py --no-check skip the playability proof
 
-The reachability check simulates the Explorer's jump (jumpSpeed 525, gravity 1250, run 260,
-mushroom bounce 760; moving leaves sampled along their motion) from the start and reports every
-coin, Big Sun Coin and the goal that cannot be reached. The previews go to
+The playability proof is reach_levels_a.py (Pip's real physics from hero_physics.py, plus moving
+leaves, the pool and wind): from the start and the checkpoint the goal is reachable with no
+power-ups at the design margin, and no reachable place is a soft-lock. It fails the run. The previews go to
 TestResults/MushroomMeadow/level_<name>.png (raw) and level_<name>_lit.png (Caverns, lit like the game).
 """
 import hashlib
@@ -159,6 +160,7 @@ CAVERN_SECTIONS = [
         "##############################",
         "##############################",
     ], []),
+    # Column tops at 256 / 224 px: every spike trench (floor 320) is climbable at the design margin.
     ("Bat roost: stone columns over spikes, the Bark Shield seed pod", [
         "################################",
         "################################",
@@ -166,8 +168,8 @@ CAVERN_SECTIONS = [
         "............3...................",
         "........oo..........oo....oo....",
         "",
+        "",
         "............PP..................",
-        "......PP....PP....PP............",
         "..m...PP....PP....PP....PP..f...",
         "####^^PP^^^^PP^^^^PP^^^^PP^^####",
         "################################",
@@ -904,6 +906,8 @@ GRUMBLE_CREATE = ENEMY_NOTE + """enemy = 1; hp = 3; stompable = 0; contactDamage
 state = 0; t = 0; facing = -1; vx = 0; vy = 0; flash = 0; pattern = 0; rolls = 0; rage = 0;
 homeX = x; homeY = y; gateX = RoomGetWidth() - 640; deathX = x; burstT = 0; roared = 0; maxHp = 3;
 barShown = 0; barHp = 3;
+// tilt is the drawn wobble only (see Step); graceT keeps a roll harmless for a moment after a hit.
+tilt = 0; graceT = 0; arenaL = gateX + 72; arenaR = RoomGetWidth() - 72;
 AnimationPlay("Walk", true); AnimationSetSpeed(0); image_xscale = facing;
 ShaderSet("Assets/Shaders/Pixel Flash.shader.json"); ShaderSetParameter("Flash", 0);
 RoomValueSet("bossFight", 0);
@@ -941,6 +945,12 @@ GRUMBLE_STEP = GRUMBLE_FUNCS + """
 if (RoomValueGet("frozen", 0) == 1) { AnimationSetSpeed(0); return; }
 var dt = Clamp(DeltaTime, 0, 0.05);
 if (dt <= 0) { return; }
+// Collision always uses the upright mask. A tilted mask's corner dips below the feet, overlaps the
+// floor, and a tile sweep ignores a tile it already overlaps, so a wobbling Grumblecrag used to sink
+// through the arena floor and fall out of the room (it "vanished" at its first wind-up). The wobble
+// is kept in tilt and only applied to image_angle after all movement, for drawing.
+image_angle = 0; tilt = 0;
+graceT = Max(0, graceT - dt);
 if (state >= 2 && state != 9) { AnimationSetSpeed(1); }
 var hero = InstanceFind("Explorer", 0);
 var hx = x; var hy = y;
@@ -965,7 +975,7 @@ if (hurt > 0) {
 // Pip went back to the checkpoint: the beetle settles down and the gate opens again.
 if (state >= 1 && state <= 8 && hero > 0 && hx < gateX - 8) {
     state = 0; t = 0; hp = maxHp; x = homeX; y = homeY; vx = 0; vy = 0; rage = 0; pattern = 0;
-    stompable = 0; contactDamage = 1; dead = 0; image_angle = 0; facing = -1; image_alpha = 1;
+    stompable = 0; contactDamage = 1; dead = 0; image_angle = 0; facing = -1; image_alpha = 1; graceT = 0; flash = 0;
     GrumbleGate(0); RoomValueSet("bossFight", 0); GrumbleLook("Walk"); AnimationSetSpeed(0);
 }
 var walkSpeed = 70 + rage * 30;
@@ -997,9 +1007,9 @@ if (state == 0) {
 } else if (state == 3) {
     vx = 0;
     var aim = Sign(hx - x); if (aim != 0) { facing = aim; }
-    image_angle = Sin(t * 2200) * 3;
+    tilt = Sin(t * 2200) * 3;
     if (Floor(t * 10) % 2 == 0) { flash = Max(flash, 0.05); }
-    if (t >= 0.7 - rage * 0.15) { state = 4; t = 0; image_angle = 0; }
+    if (t >= 0.7 - rage * 0.15) { state = 4; t = 0; tilt = 0; }
 } else if (state == 4) {
     vx = facing * (330 + rage * 60);
     if (Floor(t * 12) % 2 == 0) { Particle2DBurst("Assets/Particles/Cave Dust.particle.json", x - facing * 30, y - 4, 1, 90); }
@@ -1013,11 +1023,11 @@ if (state == 0) {
         PlaySound("Assets/Audio/Crumble.audio.json", 1, 0.7, false);
         Particle2DBurst("Assets/Particles/Boss Debris.particle.json", x + facing * 40, y - 30, 14, 90 + facing * 60);
         GrumblePebbles(4 + rage);
-    }
+    } else { x = nx; }
 } else if (state == 5) {
     vx = vx * Max(0, 1 - dt * 3);
-    image_angle = Sin(t * 900) * 2;
-    if (t >= 2.6 - rage * 0.6) { state = 8; t = 0; vy = -220; image_angle = 0; GrumbleLook("Walk"); }
+    tilt = Sin(t * 900) * 2;
+    if (t >= 2.6 - rage * 0.6) { state = 8; t = 0; vy = -220; tilt = 0; GrumbleLook("Walk"); }
 } else if (state == 6) {
     vx = facing * (340 + rage * 60);
     var rx = TileMoveX(x, y, vx * dt);
@@ -1027,7 +1037,9 @@ if (state == 0) {
         PlaySound("Assets/Audio/Crumble.audio.json", 0.6, 1.2, false);
         GrumblePebbles(1 + rage);
         if (rolls >= 3) { state = 2; t = 0; vx = 0; GrumbleLook("Walk"); }
-    }
+    } else { x = rx; }
+    // A roll that somehow never meets a wall still ends.
+    if (state == 6 && t > 6) { state = 2; t = 0; vx = 0; GrumbleLook("Walk"); }
 } else if (state == 7) {
     vx = 0;
     if (t >= 0.9) {
@@ -1037,8 +1049,10 @@ if (state == 0) {
             PlaySound("Assets/Audio/Boss Roar.audio.json", 1, 0.8, false);
         } else {
             if (hp <= 1) { rage = 1; }
-            dead = 0; contactDamage = 1; state = 6; t = 0; rolls = 0; vy = -260;
-            facing = Sign(hx - x); if (facing == 0) { facing = 1; }
+            // Pip has just bounced off the shell and is usually still overlapping it: roll away
+            // from him, harmless for the first 0.5 s.
+            dead = 0; contactDamage = 0; graceT = 0.5; state = 6; t = 0; rolls = 0; vy = -260;
+            facing = -Sign(hx - x); if (facing == 0) { facing = 1; }
             GrumbleLook("Roll");
         }
     }
@@ -1063,7 +1077,8 @@ if (state == 0) {
         GrumbleShake(9, 0.8);
         RoomValueSet("bossFight", 2);
         GrumbleGate(0);
-        CreateInstance("Glowspore", gateX + 320, 192, 0);
+        // On the arena floor's centre at Pip's chest height: walking into it takes it.
+        CreateInstance("Glowspore", gateX + 320, 254, 0);
         state = 10; InstanceDestroy(id); return;
     }
 }
@@ -1073,6 +1088,11 @@ var wantY = y + vy * dt;
 y = TileMoveY(x, y, vy * dt);
 if (Abs(y - wantY) > 0.001) { vy = 0; }
 if (state != 4 && state != 6 && vx != 0) { x = TileMoveX(x, y, vx * dt); }
+// Safety net: the arena floor is flat at homeY and the beetle never leaves the arena.
+if (y > homeY) { y = homeY; vy = 0; }
+x = Clamp(x, arenaL, arenaR);
+if (state == 6 && graceT <= 0 && contactDamage == 0) { contactDamage = 1; }
+image_angle = tilt;
 image_xscale = facing;
 ShaderSetParameter("Flash", Min(1, flash * 3));
 if (state == 2) { AnimationSetSpeed(0.6 + Abs(vx) / 140); }
@@ -1555,160 +1575,6 @@ def build_shaders():
 
 
 # =====================================================================================
-# Reachability: a small simulation of the Explorer's jump
-# =====================================================================================
-JUMP, GRAV, RUN, BOUNCE, MAXFALL = 525.0, 1250.0, 260.0, 760.0, 680.0
-DT = 1 / 60.0
-HW, HH = 7, 34
-
-
-class Sim:
-    def __init__(self, room, leaves, glide=False):
-        self.room, self.glide = room, glide
-        self.solid, self.hazard, self.water = room.solid, room.hazard, room.water
-        self.H = 360
-        # One-way leaf samples: (x, top)
-        self.leaf_samples = []
-        for li, (c, r, axis, amp, period, phase) in enumerate(leaves):
-            x, top = c * CELL, r * CELL
-            for k in range(9):
-                off = amp * math.sin(math.radians(k * 45))
-                self.leaf_samples.append((x + (off if axis == "x" else 0), top + (off if axis == "y" else 0), li))
-        self.mushrooms = [(c * CELL + 16, (r + 1) * CELL) for (c, r) in room.actors.get("u", [])]
-
-    def blocked(self, x0, y0, x1, y1):
-        for c in range(int(math.floor(x0 / CELL)), int(math.floor((x1 - 0.01) / CELL)) + 1):
-            for r in range(int(math.floor(y0 / CELL)), int(math.floor((y1 - 0.01) / CELL)) + 1):
-                if (c, r) in self.solid or c < 0 or c >= self.room.W:
-                    return True
-        return False
-
-    def touches(self, cells, x0, y0, x1, y1):
-        for c in range(int(math.floor(x0 / CELL)), int(math.floor((x1 - 0.01) / CELL)) + 1):
-            for r in range(int(math.floor(y0 / CELL)), int(math.floor((y1 - 0.01) / CELL)) + 1):
-                if (c, r) in cells:
-                    return True
-        return False
-
-    def run(self, x, y, vx, vy, stop_after=None, reverse_after=None, touched=None):
-        """Return the landing (x, y, kind) or None (death / timeout)."""
-        bounced = False
-        for frame in range(240):
-            if stop_after is not None and frame == stop_after:
-                vx = 0
-            if reverse_after is not None and frame == reverse_after:
-                vx = -vx
-            in_water = self.touches(self.water, x - 1, y - 17, x + 1, y - 15)
-            nx = x + vx * DT
-            if self.blocked(nx - HW, y - HH, nx + HW, y):
-                nx = x
-            x = max(8, min(self.room.W * CELL - 8, nx))
-            g, cap = (GRAV, MAXFALL) if not in_water else (380, 110)
-            vy = min(vy + g * DT, cap)
-            if self.glide and vy > 90 and not in_water:
-                vy = 90
-            ny = y + vy * DT
-            if vy < 0:
-                if self.blocked(x - HW, ny - HH, x + HW, ny):
-                    ny = math.floor((ny - HH) / CELL) * CELL + CELL + HH
-                    vy = 0
-            else:
-                landed = None
-                if self.blocked(x - HW, ny - HH, x + HW, ny):
-                    ny = math.floor(ny / CELL) * CELL
-                    landed = ("ground", ny)
-                for (lx, top, li) in self.leaf_samples:
-                    if y <= top + 0.01 and ny >= top and x + HW > lx and x - HW < lx + 64:
-                        landed = ("leaf", li)
-                        ny = top
-                        break
-                for (mx, my) in self.mushrooms:
-                    if y <= my - 14 and ny >= my - 20 and abs(x - mx) < 14 + HW:
-                        vy, ny, bounced = -BOUNCE, my - 20, True
-                        landed = None
-                        break
-                if landed:
-                    y = ny
-                    if touched is not None:
-                        touched.append((x, y))
-                    if self.touches(self.hazard, x - HW, y - HH, x + HW, y):
-                        return None
-                    return (x, y, landed[0], landed[1])
-            y = ny
-            if touched is not None:
-                touched.append((x, y))
-            if self.touches(self.hazard, x - HW, y - HH, x + HW, y):
-                return None
-            if y > self.H + 64:
-                return None
-            if in_water and vy > 0 and frame > 20:
-                return (x, y, "water", 0)
-        return None
-
-
-def reachability(room, leaves, glide=False):
-    sim = Sim(room, leaves, glide)
-    start = room.actors["@"][0]
-    sx, sy = start[0] * CELL + 16, (start[1] + 1) * CELL
-    seen = set()
-    queue = [(sx, sy)]
-    visited_points = []
-    key = lambda x, y: (int(x // 16), int(round(y)))
-    seen.add(key(sx, sy))
-    speeds = [-260, -180, -100, -40, 0, 40, 100, 180, 260]
-    while queue:
-        x, y = queue.pop()
-        visited_points.append((x, y))
-        starts = [(x, -JUMP), (x, 0.0)]
-        if (int(x // CELL), int(y // CELL) - 1) in room.water or room.grid[min(ROWS - 1, int((y - 17) // CELL))][int(x // CELL)] in "~qJY":
-            starts.append((x, -360.0))
-        for (x0, vy0) in starts:
-            for vx in speeds:
-                for stop in (None, 14, 26):
-                    if stop is not None and vx == 0:
-                        continue
-                    for rev in (None,) if stop is not None else (None, 30):
-                        touched = []
-                        res = sim.run(x0, y, vx, vy0, stop, rev, touched)
-                        if res is None:
-                            continue
-                        visited_points.extend(touched)
-                        targets = [(res[0], res[1])]
-                        if res[2] == "leaf":
-                            # Riding: every sampled position of that leaf is reachable too.
-                            targets += [(lx + 32, top) for (lx, top, li) in sim.leaf_samples if li == res[3]]
-                        for (tx, ty) in targets:
-                            k = key(tx, ty)
-                            if k not in seen:
-                                seen.add(k)
-                                queue.append((tx, ty))
-        # Walk along the surface in 8 px steps (ground only).
-        for d in (-8, 8):
-            nx = x + d
-            if not sim.blocked(nx - HW, y - HH, nx + HW, y) and sim.blocked(nx - HW, y, nx + HW, y + 1):
-                k = key(nx, y)
-                if k not in seen:
-                    seen.add(k)
-                    queue.append((nx, y))
-    return visited_points
-
-
-def check_room(room, leaves, pickups, goal):
-    report = []
-    for glide in (False, True):
-        pts = reachability(room, leaves, glide)
-        missing = []
-        for label, (px, py, half) in pickups:
-            ok = any(abs(x - px) < half + HW and y - HH < py + half and y > py - half for (x, y) in pts)
-            if not ok:
-                missing.append(label)
-        gx, gy, gh = goal
-        goal_ok = any(abs(x - gx) < gh + HW and y - HH < gy + gh and y > gy - gh for (x, y) in pts)
-        report.append((glide, goal_ok, missing, len(pts)))
-    return report
-
-
-# =====================================================================================
 # Preview rendering
 # =====================================================================================
 def render_preview(room, plan, out_name, lit=False):
@@ -1858,18 +1724,6 @@ def render_preview(room, plan, out_name, lit=False):
 # =====================================================================================
 # Main
 # =====================================================================================
-def pickups_of(room, plan):
-    items = []
-    for label, prefab, x, y, order in plan:
-        if prefab == "Sun Coin":
-            items.append((label, (x, y, 7)))
-        elif prefab == "Big Sun Coin":
-            items.append((label + " (BIG)", (x, y, 12)))
-        elif prefab.startswith("Prize "):
-            items.append((label + " (box: hit from below)", (x, y + 26, 10)))
-    return items
-
-
 def build_cavern():
     room = Room("rootdeep", "Rootdeep Caverns", CAVERN_SECTIONS, CAVERN_DECOR, "Cavern Tiles", "cavern")
     room.build_tiles()
@@ -1905,16 +1759,12 @@ def build_canopy():
     return room, plan, room.leaf_specs
 
 
-def summarize(room, plan, leaves, goal_label, goal):
+def summarize(room, plan):
     counts = {}
     for label, prefab, x, y, order in plan:
         counts[prefab] = counts.get(prefab, 0) + 1
     print("%s: %d x 360 px (%d columns), %d instances" % (room.name, room.W * CELL, room.W, len(plan)))
     print("  " + ", ".join("%s %d" % (k, v) for k, v in sorted(counts.items())))
-    for glide, goal_ok, missing, n in check_room(room, leaves, pickups_of(room, plan), goal):
-        print("  reachability%s: %s %s; unreachable pickups: %s" % (
-            " (with Glide Seed)" if glide else " (no power-up)", goal_label,
-            "REACHABLE" if goal_ok else "NOT REACHABLE", ", ".join(missing) if missing else "none"))
 
 
 def main():
@@ -1923,11 +1773,9 @@ def main():
     build_objects(leaves)
     build_particles()
     build_shaders()
-    arena_center = (cavern.W - 10) * CELL
-    summarize(cavern, cplan, [], "boss arena", (arena_center, 256, 24))
+    summarize(cavern, cplan)
     print("  Cavern Glow lights: %d" % glows)
-    z = canopy.actors["Z"][0]
-    summarize(canopy, nplan, leaves, "Glowspore", (z[0] * CELL + 16, z[1] * CELL + 16, 14))
+    summarize(canopy, nplan)
     if "--no-render" not in sys.argv:
         render_preview(cavern, cplan, "rootdeep_caverns", lit=True)
         render_preview(canopy, nplan, "windswept_canopy")
@@ -1936,6 +1784,11 @@ def main():
             print(room.name)
             for r in range(ROWS):
                 print("".join(room.grid[r]))
+    if "--no-check" not in sys.argv:
+        # The playability proof (reach_levels_a.py) reads the rooms just written.
+        import reach_levels_a
+        if reach_levels_a.main([]) != 0:
+            raise SystemExit("levels_a_gen: the playability check failed (see above)")
 
 
 if __name__ == "__main__":

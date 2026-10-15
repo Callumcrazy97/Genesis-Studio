@@ -1,11 +1,17 @@
-"""Mushroom Meadow (full game) sound-effect generator - SNES / chiptune style.
+"""Mushroom Meadow (full game) sound-effect generator.
+
+The effects share the game's own soft, woodland palette: kalimba tines, marimba bars, glass rods, wood
+blocks and singing bowls (modal synthesis), plucked strings (Karplus-Strong), a breathy wood flute, FM
+and filtered noise for whooshes, puffs, splashes and rustles. Reward jingles quote the music's
+Glowspore motif (sol-do-re-mi). There are deliberately no pulse-wave console blips or
+classic-platformer jingles.
 
 Deterministic: re-running produces byte-identical WAVs. Every sound is 44.1 kHz, 16-bit, mono,
 normalised to a -3 dBFS peak, with a faded-in first sample and a faded-out last sample (click free).
 Writes into Source/Genesis.Application.Core/Projects/Templates/Assets/TwoDShowcase/Assets/Audio the
 .wav, its .audio.json resource document (bus "sfx", loop false) and .audio.json.meta (kind "Audio").
 
-Reuses the phase-1 helpers in audio_gen.py (imported, never modified; phase-1 outputs are not touched).
+Reuses the helpers and organic instruments in audio_gen.py (imported; phase-1 outputs are not touched).
 
 Usage:  python BuildTools/TemplateContent/MushroomMeadow/sfx_gen.py
 Requires numpy + scipy.
@@ -19,9 +25,10 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from audio_gen import (OUT, as_array, bandpass, echo, env_adsr, env_exp, fade_tail, highpass,  # noqa: E402
-                       lowpass, nhz, noise, place, pulse, render_seq, sine, sweep, tone, triangle,
-                       write_resource, write_wav)
+from audio_gen import (OUT, as_array, bandpass, echo, env_adsr, env_exp, fade_tail, flute,  # noqa: E402
+                       highpass, ks_pluck, lowpass, nhz, noise, phrase, place, saw_wave, shaker, sine,
+                       struck, sweep, up, write_resource, write_wav)
+from audio_gen import chimes as chime_shower  # noqa: E402
 
 SR = 44100
 
@@ -31,7 +38,7 @@ SR = 44100
 # --------------------------------------------------------------------------------------------
 
 def secs(d):
-    return int(d * SR)      # same rounding as audio_gen.tone(), so envelopes and tones line up
+    return int(d * SR)
 
 
 def freq_of(note):
@@ -46,13 +53,6 @@ def mix(*parts):
         g = p[2] if len(p) > 2 else 1.0
         place(buf, g * p[0], secs(p[1]))
     return buf
-
-
-def blip(note, dur, duty=0.5, kind="pulse", decay=None, a=0.002, s=0.7, r=0.01, vibrato=0.0):
-    n = secs(dur)
-    env = env_exp(n, SR, decay, a) if decay else env_adsr(n, SR, a, max(dur * 0.5, 0.01), s, min(r, dur * 0.4))
-    env = fade_tail(env.copy(), SR, min(0.004, dur * 0.2))
-    return tone(kind, freq_of(note), dur, SR, duty, env, vibrato=vibrato, vib_delay=0.05)
 
 
 def bell(note, dur, decay=0.5, bright=1.0):
@@ -103,9 +103,9 @@ def bell_curve(n, peak, width):
 def raised(n, rise, total):
     """Smooth swell: raised-cosine rise over `rise` of the length, raised-cosine fall over the rest."""
     t = np.linspace(0.0, 1.0, n)
-    up = 0.5 - 0.5 * np.cos(np.pi * np.clip(t / rise, 0, 1))
+    up_ = 0.5 - 0.5 * np.cos(np.pi * np.clip(t / rise, 0, 1))
     down = 0.5 + 0.5 * np.cos(np.pi * np.clip((t - rise) / (total - rise), 0, 1))
-    return np.where(t < rise, up, down)
+    return np.where(t < rise, up_, down)
 
 
 def bubble(f0, dur, gain=1.0):
@@ -120,117 +120,114 @@ def grain(rng, dur, lo, hi):
     return bandpass(noise(n, rng), SR, lo, hi) * env_exp(n, SR, dur * 0.35, 0.0008)
 
 
+def thump(f0, f1, dur, decay, attack=0.001):
+    n = secs(dur)
+    return sine(sweep(f0, f1, n), n, SR) * env_exp(n, SR, decay, attack)
+
+
 # --------------------------------------------------------------------------------------------
 # Hero / power-ups
 # --------------------------------------------------------------------------------------------
 
 def sfx_spore_throw(rng):
-    """Light 'fwip' of a spore leaving Pip's hand: rising squeak + airy swish + tiny pop."""
-    n = secs(0.19)
-    y = 0.6 * pulse(sweep(380, 1250, n), n, SR, 0.25) * env_adsr(n, SR, 0.002, 0.06, 0.3, 0.06)
-    air = svf(noise(n, rng), sweep(1400, 5200, n), q=1.6) * env_exp(n, SR, 0.07, 0.012)
-    pop = blip(1900, 0.03, 0.125, decay=0.01)
-    y = mix((y, 0), (air, 0, 0.9), (pop, 0.12, 0.35))
-    y = lowpass(y, SR, 8500)
-    return echo(fade_tail(y, SR), SR, 0.05, 0.18, taps=2)
+    """Seed-pod flick: a short breath 'fwip' (noise band lifting 900 -> 3800 Hz) and a hollow wooden
+    'pok' as the spore leaves Pip's hand. No pitched squeak."""
+    n = secs(0.17)
+    air = svf(noise(n, rng), sweep(900, 3800, n), q=1.5) * env_adsr(n, SR, 0.01, 0.05, 0.3, 0.07)
+    pok = struck("wood", 760, 0.08, SR, 0.018, rng, mallet=0.3)
+    y = mix((air, 0, 1.0), (pok, 0.005, 0.45))
+    return echo(fade_tail(lowpass(y, SR, 9000), SR), SR, 0.05, 0.12, taps=2)
 
 
 def sfx_spore_hit(rng):
-    """Soft spore 'poff' bursting on something, with a little sparkle of dust."""
-    n = secs(0.26)
+    """Soft 'poff' of a spore bursting: a cushioned membrane thump, a puff of dust and two glass motes."""
+    n = secs(0.24)
     puff = lowpass(noise(n, rng, 2), SR, 2400) * env_exp(n, SR, 0.045, 0.001)
-    boop = triangle(sweep(720, 210, n), n, SR) * env_exp(n, SR, 0.07)
-    sparks = [blip(nm, 0.035, 0.125, decay=0.014) for nm in ("B6", "E7", "G#7")]
-    y = mix((puff, 0, 0.9), (boop, 0, 0.8), (sparks[0], 0.04, 0.22), (sparks[1], 0.075, 0.18),
-            (sparks[2], 0.11, 0.14))
-    return echo(fade_tail(lowpass(y, SR, 9000), SR), SR, 0.06, 0.2, taps=2)
+    body = thump(260, 120, 0.24, 0.05, 0.002)
+    motes = [struck("glass", nm, 0.25, SR, 0.07, rng, mallet=0.0) for nm in ("E7", "A7")]
+    y = mix((puff, 0, 0.9), (body, 0, 0.7), (motes[0], 0.05, 0.16), (motes[1], 0.1, 0.12))
+    return echo(fade_tail(lowpass(y, SR, 9000), SR), SR, 0.06, 0.15, taps=2)
 
 
 def sfx_power_up(rng):
-    """Classic stepped rising arpeggio (C -> D -> E), ending on a ringing fifth."""
-    groups = [("C5", "E5", "G5", "C6"), ("D5", "F#5", "A5", "D6"), ("E5", "G#5", "B5", "E6")]
-    parts = []
-    for gi, grp in enumerate(groups):
-        for k, nm in enumerate(grp):
-            parts.append(blip(nm, 0.048, 0.5 if k % 2 == 0 else 0.25, a=0.002, s=0.8, r=0.006))
-    run = np.concatenate(parts)
-    n = secs(0.45)
-    tail = 0.6 * tone("pulse", nhz("E6"), 0.45, SR, 0.5, env_exp(n, SR, 0.16), vibrato=0.3, vib_delay=0.04)
-    tail += 0.35 * tone("pulse", nhz("B6"), 0.45, SR, 0.25, env_exp(n, SR, 0.12), vibrato=0.3, vib_delay=0.04)
-    y = np.concatenate((run, tail))
-    y = y + 0.4 * triangle(np.repeat([nhz("C4"), nhz("D4"), nhz("E4"), nhz("E4")],
-                                     [secs(0.192), secs(0.192), secs(0.192), len(y) - 3 * secs(0.192)]),
-                           len(y), SR) * env_adsr(len(y), SR, 0.003, 0.4, 0.6, 0.15)
-    y = lowpass(y, SR, 9000)
-    return echo(fade_tail(y, SR), SR, 0.09, 0.3, taps=3)
+    """Growth: leaves rustle up into a bowed-glass swell that brightens (its pitch never steps), a
+    kalimba strum spread across C pentatonic, and a warm singing-bowl bloom."""
+    n = secs(1.0)
+    t = np.linspace(0.0, 1.0, n)
+    pad = np.zeros(n)
+    for nm, g, grow in (("C5", 0.6, 0.0), ("G5", 0.4, 0.6), ("C6", 0.3, 1.2), ("E6", 0.2, 1.8)):
+        f = nhz(nm)
+        pad += g * 0.5 * (sine(f, n, SR) + sine(f * 1.003, n, SR)) * t ** grow
+    pad *= raised(n, 0.5, 1.0)
+    parts = [(pad, 0.0, 0.35)]
+    for k in range(18):
+        t0 = 0.3 * (k / 18.0) ** 0.8 + rng.uniform(0, 0.02)
+        parts.append((grain(rng, rng.uniform(0.01, 0.03), 2500, 8000), t0, 0.12 + 0.18 * k / 18.0))
+    for k, nm in enumerate(("C6", "G6", "D6", "A6", "E7")):
+        parts.append((struck("kalimba", nm, 0.9, SR, 0.3, rng, mallet=0.3), 0.32 + 0.035 * k, 0.4))
+    parts.append((struck("bowl", "C5", 0.9, SR, 0.35, rng, mallet=0.05, detune=4.0), 0.45, 0.35))
+    parts.append((struck("glass", "E7", 0.8, SR, 0.3, rng, mallet=0.0), 0.5, 0.18))
+    y = mix(*parts)
+    y = lowpass(y, SR, 10000)
+    return echo(fade_tail(y, SR), SR, 0.09, 0.22, taps=3)
 
 
 def sfx_power_down(rng):
-    """Deflating, wobbling slide down by thirds: the power slipping away."""
-    starts = ["E6", "C6", "A5", "F5", "D5", "B4"]
-    parts = []
-    for i, nm in enumerate(starts):
-        n = secs(0.11)
-        f0 = nhz(nm)
-        t = np.arange(n) / SR
-        f = sweep(f0, f0 * 0.82, n) * (1 + 0.03 * np.sin(2 * np.pi * 28 * t))
-        parts.append(pulse(f, n, SR, 0.5 if i % 2 == 0 else 0.25) * env_adsr(n, SR, 0.003, 0.05, 0.6, 0.02))
-    y = np.concatenate(parts)
-    n = len(y)
-    y += 0.45 * triangle(sweep(nhz("E4"), nhz("E3"), n), n, SR) * env_adsr(n, SR, 0.01, 0.3, 0.6, 0.15)
-    y *= np.linspace(1.0, 0.55, n)
-    y = lowpass(y, SR, 6500)
-    return echo(fade_tail(y, SR), SR, 0.08, 0.25, taps=3)
+    """Wilting: a soft wood knock, then a glass dyad that droops 1.5 semitones and darkens while an
+    airy sigh deflates beneath it."""
+    knock = struck("wood", 300, 0.12, SR, 0.03, rng, mallet=0.4)
+    n = secs(0.85)
+    droop = np.concatenate((np.ones(secs(0.12)), sweep(1.0, 2 ** (-1.5 / 12), n - secs(0.12))))
+    dyad = struck("glass", "E6", 0.85, SR, 0.35, rng, mallet=0.1, bend=droop) \
+        + 0.8 * struck("glass", "B5", 0.85, SR, 0.35, rng, mallet=0.1, bend=droop)
+    dyad = svf(dyad, sweep(6000, 900, n), q=0.7, mode="low")
+    sigh = svf(noise(n, rng), sweep(1800, 350, n), q=1.0, mode="low") * raised(n, 0.15, 1.0)
+    y = mix((knock, 0, 0.6), (dyad, 0.02, 0.6), (sigh, 0.04, 0.5))
+    return echo(fade_tail(y, SR), SR, 0.08, 0.18, taps=2)
 
 
 def sfx_shield_break(rng):
-    """Bark ring splintering: sharp crack, woody clonks, scattering chips, a falling chip-tone."""
+    """Bark ring splintering: sharp crack, woody clonks, scattering chips and a snapped-fibre twang."""
     crack = highpass(noise(secs(0.09), rng), SR, 1300) * env_exp(secs(0.09), SR, 0.016, 0.0005)
     parts = [(crack, 0, 1.0)]
     for f, t0, g in ((430, 0.0, 1.0), (310, 0.035, 0.8), (540, 0.075, 0.6), (265, 0.12, 0.6),
                      (390, 0.19, 0.45), (300, 0.27, 0.32)):
-        n = secs(0.12)
-        wood = triangle(sweep(f, f * 0.86, n), n, SR) + 0.4 * sine(f * 2.71, n, SR)
-        parts.append((wood * env_exp(n, SR, 0.035, 0.0008), t0, 0.55 * g))
+        parts.append((struck("wood", f, 0.12, SR, 0.035, rng, mallet=0.2), t0, 0.55 * g))
     for k in range(14):
         t0 = 0.05 + 0.45 * (k / 14.0) ** 1.3 + rng.uniform(0, 0.02)
         parts.append((grain(rng, rng.uniform(0.01, 0.025), 2000, 6000), t0, 0.35 * (1 - k / 16.0)))
-    n = secs(0.14)
-    thump = sine(sweep(115, 55, n), n, SR) * env_exp(n, SR, 0.05)
-    parts.append((thump, 0, 0.8))
-    n = secs(0.3)
-    fall = pulse(sweep(1200, 260, n), n, SR, 0.25) * env_exp(n, SR, 0.1)
-    parts.append((fall, 0.06, 0.25))
+    parts.append((thump(115, 55, 0.14, 0.05), 0, 0.8))
+    parts.append((ks_pluck("A3", 0.4, SR, rng, t60=0.35, bright=0.8), 0.04, 0.3))
     y = mix(*parts)
     return echo(fade_tail(lowpass(y, SR, 9000), SR), SR, 0.07, 0.22, taps=2)
 
 
 def sfx_heart_get(rng):
-    """Two soft heartbeats, then a sweet rising chime."""
-    beats = []
-    for t0, g in ((0.0, 1.0), (0.14, 0.75)):
-        n = secs(0.12)
-        beats.append((sine(sweep(95, 55, n), n, SR) * env_exp(n, SR, 0.04, 0.003), t0, g))
-    chime = [(blip(nm, 0.07, 0.25, s=0.8), 0.28 + 0.06 * i, 0.5) for i, nm in enumerate(("E6", "G#6", "B6"))]
-    held = bell("E7", 0.7, 0.35)
-    pad = triangle(nhz("E5"), secs(0.7), SR) * env_exp(secs(0.7), SR, 0.25)
-    y = mix(*(beats + chime + [(held, 0.46, 0.45), (pad, 0.46, 0.35)]))
+    """Two soft heartbeats, then a warm bloom: a marimba E5 + B5, a kalimba G#6, a breathy flute E6
+    and a glass shimmer, all opening together (no arpeggio)."""
+    parts = [(thump(95, 55, 0.12, 0.04, 0.003), 0.0, 1.0), (thump(95, 55, 0.12, 0.04, 0.003), 0.14, 0.75)]
+    warm = mix((struck("marimba", "E5", 1.0, SR, 0.4, rng, mallet=0.2), 0, 1.0),
+               (struck("marimba", "B5", 1.0, SR, 0.35, rng, mallet=0.2), 0.02, 0.7))
+    parts.append((warm, 0.28, 0.45))
+    parts.append((struck("kalimba", "G#6", 0.8, SR, 0.3, rng, mallet=0.3), 0.3, 0.3))
+    parts.append((flute("E6", 0.6, SR, rng, a=0.12, r=0.3, s=0.7, vib=0.2, breath=0.15), 0.32, 0.3))
+    parts.append((struck("glass", "E7", 0.9, SR, 0.35, rng, mallet=0.0), 0.4, 0.2))
+    y = mix(*parts)
     y = lowpass(y, SR, 9500)
-    return echo(fade_tail(y, SR), SR, 0.1, 0.3, taps=3)
+    return echo(fade_tail(y, SR), SR, 0.1, 0.25, taps=3)
 
 
 def sfx_glide_open(rng):
-    """Dandelion parasol popping open: soft whoomp, fabric flutter, a floaty rising whistle."""
+    """Dandelion parasol popping open: soft whoomp, fabric flutter, a floaty breath-flute whistle."""
     n = secs(0.6)
     t = np.arange(n) / SR
     whoosh = svf(noise(n, rng), np.concatenate((sweep(500, 3200, secs(0.16)), sweep(3200, 1400, n - secs(0.16)))),
                  q=1.2) * env_adsr(n, SR, 0.03, 0.1, 0.25, 0.2)
     flutter = lowpass(noise(n, rng), SR, 2600) * (0.5 + 0.5 * np.sign(np.sin(2 * np.pi * 24 * t))) \
         * env_exp(n, SR, 0.12, 0.08)
-    whistle = tone("tri", sweep(nhz("G5"), nhz("D6"), n), 0.6, SR,
-                   env=env_adsr(n, SR, 0.08, 0.2, 0.5, 0.25), vibrato=0.3, vib_rate=6.5, vib_delay=0.15)
-    pop = triangle(sweep(240, 140, secs(0.05)), secs(0.05), SR) * env_exp(secs(0.05), SR, 0.015)
-    y = mix((whoosh, 0, 0.9), (flutter, 0.02, 0.25), (whistle, 0.04, 0.35), (pop, 0.0, 0.6))
+    whistle = flute(sweep(nhz("G5"), nhz("D6"), n), 0, SR, rng, a=0.08, r=0.25, s=0.5, vib=0.3, breath=0.4)
+    pop = thump(240, 140, 0.05, 0.015)
+    y = mix((whoosh, 0, 0.9), (flutter, 0.02, 0.25), (whistle, 0.04, 0.3), (pop, 0.0, 0.6))
     return echo(fade_tail(lowpass(y, SR, 8000), SR), SR, 0.08, 0.2, taps=2)
 
 
@@ -265,7 +262,7 @@ def sfx_splash(rng):
 # --------------------------------------------------------------------------------------------
 
 def sfx_crumble(rng):
-    """Rock block giving way: crack, crumbling gravel grains, low rumble."""
+    """Rock block giving way: crack, crumbling gravel grains, low rumble and earthy thuds."""
     n = secs(0.75)
     rumble = lowpass(noise(n, rng, 3), SR, 260) * env_adsr(n, SR, 0.02, 0.2, 0.5, 0.35)
     crack = highpass(noise(secs(0.06), rng), SR, 900) * env_exp(secs(0.06), SR, 0.012, 0.0005)
@@ -275,8 +272,7 @@ def sfx_crumble(rng):
         lo = rng.uniform(300, 1500)
         parts.append((grain(rng, rng.uniform(0.008, 0.03), lo, lo * 2.5), t0, rng.uniform(0.3, 0.8) * (1 - k / 75.0)))
     for t0, f in ((0.0, 120), (0.22, 95), (0.4, 80)):
-        m = secs(0.12)
-        parts.append((triangle(sweep(f, f * 0.6, m), m, SR) * env_exp(m, SR, 0.04), t0, 0.5))
+        parts.append((thump(f, f * 0.6, 0.12, 0.04, 0.002), t0, 0.5))
     y = mix(*parts)
     return fade_tail(lowpass(y, SR, 7000), SR, 0.03)
 
@@ -300,7 +296,7 @@ def sfx_wind_gust(rng):
 
 
 def sfx_bat_screech(rng):
-    """Three squeaky cave-bat chirps with a cavern echo."""
+    """Three squeaky cave-bat chirps (sine + FM squeak) with a cavern echo."""
     parts = []
     for i, (t0, dur, f0, fpk, f1) in enumerate(((0.0, 0.07, 3000, 4300, 2700), (0.1, 0.06, 3300, 4600, 3000),
                                                 (0.19, 0.12, 2800, 4400, 2200))):
@@ -308,7 +304,7 @@ def sfx_bat_screech(rng):
         t = np.linspace(0, 1, n)
         f = np.where(t < 0.35, f0 + (fpk - f0) * (t / 0.35), fpk + (f1 - fpk) * ((t - 0.35) / 0.65))
         f = f * (1 + 0.04 * np.sin(2 * np.pi * 70 * np.arange(n) / SR))
-        y = 0.6 * sine(f, n, SR) + 0.35 * pulse(f, n, SR, 0.125)
+        y = 0.6 * sine(f, n, SR) + 0.35 * fm(f, 1.5, 0.8, n)
         parts.append((y * env_adsr(n, SR, 0.004, dur * 0.4, 0.6, dur * 0.3), t0, 1.0 if i != 1 else 0.8))
     y = mix(*parts)
     y = lowpass(y, SR, 9500)
@@ -363,14 +359,13 @@ def sfx_pebble_fall(rng):
 # --------------------------------------------------------------------------------------------
 
 def sfx_boss_hit(rng):
-    """Heavy, satisfying hit on a boss: deep thump, metallic clang, crack, falling chip-tone."""
+    """Heavy, satisfying hit on a boss: deep thump, metallic clang, crack and a hollow-log 'bonk'."""
     n = secs(0.25)
-    thump = saturate(sine(sweep(150, 42, n), n, SR) * env_exp(n, SR, 0.09, 0.001), 2.0)
+    deep = saturate(sine(sweep(150, 42, n), n, SR) * env_exp(n, SR, 0.09, 0.001), 2.0)
     clang = mix((bell(330, 0.55, 0.22, bright=1.6), 0), (bell(497, 0.45, 0.15, bright=1.4), 0, 0.6))
     crack = highpass(noise(secs(0.06), rng), SR, 1500) * env_exp(secs(0.06), SR, 0.012, 0.0004)
-    m = secs(0.22)
-    chip = pulse(sweep(900, 180, m), m, SR, 0.5) * env_exp(m, SR, 0.07)
-    y = mix((thump, 0, 1.0), (clang, 0, 0.35), (crack, 0, 0.7), (chip, 0.01, 0.35))
+    bonk = struck("wood", 240, 0.3, SR, 0.08, rng, mallet=0.4, bend=sweep(1.0, 0.8, secs(0.3)))
+    y = mix((deep, 0, 1.0), (clang, 0, 0.35), (crack, 0, 0.7), (bonk, 0.005, 0.45))
     y = lowpass(y, SR, 9000)
     return echo(fade_tail(y, SR), SR, 0.1, 0.25, taps=3)
 
@@ -382,7 +377,7 @@ def sfx_boss_roar(rng):
     tn = t / t[-1]
     f = np.where(tn < 0.15, 140 + 40 * (tn / 0.15), 180 * (55 / 180) ** ((tn - 0.15) / 0.85))
     f = f * (1 + 0.07 * np.sin(2 * np.pi * 31 * t) + 0.03 * lowpass(noise(n, rng, 40), SR, 60) * 8)
-    growl = 0.55 * pulse(f, n, SR, 0.3) + 0.45 * pulse(f * 1.013, n, SR, 0.45)
+    growl = 0.55 * saw_wave(f, n, SR) + 0.45 * saw_wave(f * 1.013, n, SR)
     growl *= 0.75 + 0.25 * lowpass(noise(n, rng, 50), SR, 80) * 6
     sub = sine(f * 0.5, n, SR)
     breath = svf(noise(n, rng), 1800 * (1 - 0.6 * tn), q=0.7)
@@ -394,7 +389,7 @@ def sfx_boss_roar(rng):
 
 
 def sfx_boss_charge(rng):
-    """Boss winding up a charge: rising rumble and whine with a quickening tremolo, then a lunge."""
+    """Boss winding up a charge: rising rumble and growling whine with a quickening tremolo, then a lunge."""
     n = secs(1.05)
     t = np.arange(n) / SR
     tn = t / t[-1]
@@ -402,8 +397,8 @@ def sfx_boss_charge(rng):
     trem_rate = 6 + 18 * tn
     trem_ph = np.cumsum(trem_rate) / SR
     trem = 0.6 + 0.4 * np.sin(2 * np.pi * trem_ph)
-    whine = pulse(sweep(85, 480, n), n, SR, 0.3) * trem * (0.2 + 0.8 * tn ** 1.5)
-    whine = lowpass(whine, SR, 3500)
+    whine = saw_wave(sweep(85, 480, n), n, SR) * trem * (0.2 + 0.8 * tn ** 1.5)
+    whine = lowpass(whine, SR, 3000)
     y = 1.6 * rumble + 0.6 * whine
     y *= np.minimum(1.0, t / 0.05) * np.minimum(1.0, (t[-1] - t) / 0.06 + 0.0)
     m = secs(0.3)
@@ -413,7 +408,7 @@ def sfx_boss_charge(rng):
 
 
 def sfx_boss_defeated(rng):
-    """Boss collapses: chain of booms and a long falling wail, resolving into a soft light swell."""
+    """Boss collapses: chain of booms and a long falling wind-howl, resolving into a soft light swell."""
     parts = []
     for t0, g, f in ((0.0, 1.0, 110), (0.24, 0.8, 95), (0.5, 0.75, 120), (0.82, 0.65, 85), (1.18, 0.55, 70)):
         m = secs(0.45)
@@ -422,8 +417,9 @@ def sfx_boss_defeated(rng):
         parts.append((saturate(boom, 1.6), t0, g))
     m = secs(1.4)
     tt = np.arange(m) / SR
-    wail = pulse(sweep(1100, 90, m) * (1 + 0.04 * np.sin(2 * np.pi * 9 * tt)), m, SR, 0.5)
-    parts.append((wail * env_adsr(m, SR, 0.01, 0.6, 0.5, 0.3), 0.05, 0.3))
+    centre = sweep(1100, 120, m) * (1 + 0.04 * np.sin(2 * np.pi * 9 * tt))
+    howl = svf(noise(m, rng), centre, q=6.0) + 0.25 * sine(centre, m, SR)
+    parts.append((howl * env_adsr(m, SR, 0.05, 0.6, 0.5, 0.3), 0.05, 0.35))
     m = secs(1.5)
     glow = np.zeros(m)
     for nm, g in (("C6", 0.5), ("E6", 0.4), ("G6", 0.4), ("C7", 0.25)):
@@ -431,7 +427,7 @@ def sfx_boss_defeated(rng):
     glow *= raised(m, 0.35, 1.0)
     parts.append((glow, 1.35, 0.35))
     for k, nm in enumerate(("G6", "C7", "E7", "G7")):
-        parts.append((bell(nm, 0.5, 0.18), 1.55 + 0.09 * k, 0.18))
+        parts.append((struck("glass", nm, 0.6, SR, 0.22, rng, mallet=0.0), 1.55 + 0.09 * k, 0.18))
     y = mix(*parts)
     y = lowpass(y, SR, 8500)
     return echo(fade_tail(y, SR, 0.05), SR, 0.15, 0.3, taps=4)
@@ -442,97 +438,101 @@ def sfx_boss_defeated(rng):
 # --------------------------------------------------------------------------------------------
 
 def sfx_glowspore_get(rng):
-    """Shimmering magical fanfare (~3 s): harp sweep, a proud D-major call, twinkling held chord."""
+    """Glowspore found (~3 s): a plucked-harp sweep up C-major pentatonic (the Finish Fanfare's key,
+    which it can overlap), the Glowspore motif (sol-do-re-mi-- sol) on breathy flute doubled by
+    kalimba over marimba, then a shimmering glass pad with fireflies of glass chimes."""
     bpm = 132
     beat = 60.0 / bpm
     parts = []
-    harp = ["D5", "F#5", "A5", "D6", "E6", "F#6", "A6", "D7"]
-    for k, nm in enumerate(harp):
-        parts.append((bell(nm, 0.6, 0.25), 0.045 * k, 0.21))
-        parts.append((blip(nm, 0.06, 0.25, decay=0.03), 0.045 * k, 0.15))
+    for k, nm in enumerate(("C4", "E4", "G4", "C5", "D5", "E5", "G5", "C6")):
+        parts.append((ks_pluck(nm, 1.2, SR, rng, t60=1.0, bright=0.6), 0.04 * k, 0.22))
     t0 = 0.36
-    hold = 2.0
-    lead = [("A5", .5), ("D6", .5), ("F#6", 1.0), ("E6", .5), ("F#6", .5), ("A6", hold)]
-    harm = [("F#5", .5), ("A5", .5), ("D6", 1.0), ("C#6", .5), ("D6", .5), ("F#6", hold)]
-    bass = [("D3", 1.0), ("A2", 1.0), ("G2", .5), ("A2", .5), ("D3", hold)]
-    parts.append((render_seq(lead, SR, bpm, "pulse", 0.5, 0.55, vibrato=0.25, legato=0.95), t0, 1.0))
-    parts.append((render_seq(harm, SR, bpm, "pulse", 0.25, 0.3, vibrato=0.25, legato=0.95), t0, 1.0))
-    parts.append((render_seq(bass, SR, bpm, "tri", gain=0.8, legato=0.97), t0, 1.0))
-    # Held shimmer pad under the final note, chorused sines with a slow tremolo.
-    hold_start = t0 + 3.0 * beat
-    m = secs(hold * beat + 0.1)
+    for nm, s, d in phrase([("G5", .5), ("C6", .5), ("D6", .5), ("E6", 1.0), ("G6", 2.0)], bpm, t0):
+        parts.append((flute(nm, d * 0.97 + 0.06, SR, rng, a=0.03, r=0.15, vib=0.2, breath=0.1), s, 0.42))
+        parts.append((struck("kalimba", nm, min(1.0, d + 0.4), SR, 0.25, rng, mallet=0.3), s, 0.3))
+    for nm, s, d in phrase([("C3", 1.0), ("G2", 1.0), ("C3", 2.5)], bpm, t0):
+        parts.append((struck("marimba", nm, d + 0.4, SR, 0.5, rng, mallet=0.2), s, 0.45))
+        parts.append((struck("marimba", up(nm, 7), d + 0.3, SR, 0.4, rng, mallet=0.2), s + 0.02, 0.25))
+    hold_start = t0 + 2.5 * beat
+    m = secs(2.0 * beat + 0.3)
     tt = np.arange(m) / SR
     pad = np.zeros(m)
-    for nm, g in (("D6", 0.5), ("F#6", 0.4), ("A6", 0.4), ("D7", 0.25)):
+    for nm, g in (("C6", 0.5), ("E6", 0.4), ("G6", 0.4), ("C7", 0.25)):
         f = nhz(nm)
         pad += g * (sine(f, m, SR) + sine(f * 1.004, m, SR)) * 0.5
     pad *= (0.75 + 0.25 * np.sin(2 * np.pi * 6 * tt)) * raised(m, 0.25, 1.0)
-    parts.append((pad, hold_start, 0.25))
-    # Twinkles: pentatonic bell sparkles across the held chord, fading out.
-    penta = ["D7", "E7", "F#7", "A7", "B7", "A6", "F#7", "D7"]
-    for k in range(13):
-        nm = penta[int(rng.integers(0, len(penta)))]
-        parts.append((bell(nm, 0.3, 0.08, bright=0.6), hold_start + 0.07 * k + rng.uniform(0, 0.03),
-                      0.16 * (1 - k / 16.0)))
+    parts.append((pad, hold_start, 0.22))
+    parts += chime_shower(rng, SR, ["C7", "D7", "E7", "G7", "G6"], hold_start, 12, gap=0.07, gain=0.16,
+                          decay=0.12)
     y = mix(*parts)
     y = lowpass(y, SR, 10000)
-    return echo(fade_tail(y, SR, 0.05), SR, 0.13, 0.3, taps=3)
+    return echo(fade_tail(y, SR, 0.05), SR, 0.13, 0.25, taps=3)
 
 
 def sfx_level_clear(rng):
-    """Bouncy F-major victory jingle (~3.6 s) with kick/snare, a roll and a crash on the last note."""
+    """Cozy marimba jig in F (~3.8 s): the Glowspore motif opening (sol-do-re-mi) and a pentatonic
+    answer on marimba + kalimba, plucked-string offbeat chords, wood-block and shaker percussion,
+    closing on a rolled harp chord and a wind-chime shower. No drum kit, no crash."""
     bpm = 150
     beat = 60.0 / bpm
-    lead = [("C5", .5), ("F5", .5), ("A5", .5), ("C6", .5), ("Bb5", .33), ("A5", .33), ("G5", .34), ("A5", 1.0),
-            ("G5", .5), ("A5", .5), ("Bb5", .5), ("D6", .5), ("C6", .33), ("D6", .33), ("E6", .34), ("F6", 1.5)]
-    harm = [(None, 2.0), ("E5", 1.0), ("F5", 1.0), ("D5", .5), ("F5", .5), ("G5", .5), ("Bb5", .5),
-            ("G5", 1.0), ("A5", 1.5)]
-    bass = [("F2", 1), ("C3", 1), ("F2", 1), ("A2", 1), ("Bb2", 1), ("G2", 1), ("C3", 1), ("F2", 1.5)]
-    a = render_seq(lead, SR, bpm, "pulse", 0.5, 0.55, vibrato=0.2, legato=0.88)
-    b = render_seq(harm, SR, bpm, "pulse", 0.25, 0.3, vibrato=0.2, legato=0.85)
-    c = render_seq(bass, SR, bpm, "tri", gain=0.85, legato=0.8)
-    parts = [(a, 0), (b, 0), (c, 0)]
-    m = secs(0.15)
-    kick = sine(sweep(150, 50, m), m, SR) * env_exp(m, SR, 0.06)
-    m = secs(0.12)
-    snare = highpass(noise(m, rng, 2), SR, 900) * env_exp(m, SR, 0.04) * 0.8
-    for k in range(7):
-        parts.append((kick, k * beat, 0.5))
-        if k % 2 == 1:
-            parts.append((snare, k * beat, 0.4))
-    for k in range(4):
-        parts.append((snare, (6.0 + k * 0.25) * beat, 0.2 + 0.06 * k))
-    m = secs(1.2)
-    crash = highpass(noise(m, rng), SR, 4500) * env_exp(m, SR, 0.35, 0.002)
-    parts.append((crash, 7.0 * beat, 0.22))
-    parts.append((kick, 7.0 * beat, 0.6))
+    lead = [("C5", .5), ("F5", .5), ("G5", .5), ("A5", .5), ("C6", 1.0), ("A5", .5), ("G5", .5),
+            ("F5", .5), ("G5", .5), ("A5", .5), ("D6", .5), ("C6", .5), ("A5", .5), ("F5", 2.0)]
+    parts = []
+    for nm, s, d in phrase(lead, bpm):
+        parts.append((struck("marimba", nm, min(1.2, d + 0.5), SR, 0.3, rng, mallet=0.25), s, 0.5))
+        parts.append((struck("kalimba", up(nm, 12), min(0.9, d + 0.3), SR, 0.18, rng, mallet=0.25), s, 0.18))
+    chords = {"F": ("F3", "A3", "C4"), "Bb": ("F3", "Bb3", "D4"), "C": ("E3", "G3", "C4")}
+    roots = {"F": "F2", "Bb": "Bb2", "C": "C3"}
+    for b, ch in enumerate(("F", "F", "F", "F", "Bb", "Bb", "C", "C")):
+        parts.append((struck("marimba", roots[ch], 0.6, SR, 0.3, rng, mallet=0.2), b * beat, 0.4))
+        for k, nm in enumerate(chords[ch]):
+            parts.append((ks_pluck(nm, 0.35, SR, rng, t60=0.25, bright=0.5), (b + 0.5) * beat + 0.012 * k, 0.12))
+        if b % 2 == 1:
+            parts.append((struck("wood", 1100, 0.06, SR, 0.015, rng, mallet=0.25), b * beat, 0.16))
+    for e in range(16):
+        parts.append((shaker(rng, SR), e * 0.5 * beat, 0.04 if e % 2 else 0.07))
+    end = 7.0 * beat
+    parts.append((struck("marimba", "F2", 1.6, SR, 0.6, rng, mallet=0.2), end, 0.45))
+    for k, nm in enumerate(("F3", "C4", "F4", "A4", "C5", "F5")):
+        parts.append((ks_pluck(nm, 1.6, SR, rng, t60=0.9, bright=0.55), end + 0.028 * k, 0.15))
+    parts.append((struck("bowl", "F4", 1.3, SR, 0.4, rng, mallet=0.05, detune=4.0), end, 0.22))
+    parts += chime_shower(rng, SR, ["C7", "D7", "F7", "G7", "A7"], end + 0.25, 7, gap=0.1, gain=0.14)
     y = mix(*parts)
-    y = lowpass(y, SR, 9500)
-    return echo(fade_tail(y, SR, 0.05), SR, 0.12, 0.3, taps=4)
+    y = lowpass(y, SR, 10000)
+    return echo(fade_tail(y, SR, 0.05), SR, 0.12, 0.22, taps=3)
 
 
 def sfx_starlit_get(rng):
-    """Starlit Firefly: a dazzling upward glissando that bursts into a twinkling trill."""
-    penta = ["C6", "D6", "E6", "G6", "A6", "C7", "D7", "E7", "G7", "A7", "C8"]
-    gl = np.concatenate([blip(nm, 0.03, 0.125, a=0.001, s=0.9, r=0.004) for nm in penta])
-    n = secs(0.9)
+    """Starlit Firefly: a swarm of tiny glass chimes igniting (C pentatonic, a deterministic scatter
+    that thickens then thins) over a bowed-glass swell and a fluttering breath. No glissando or trill."""
+    penta = ["C7", "D7", "E7", "G7", "A7", "C8"]
+    parts = [(struck("kalimba", "C6", 0.9, SR, 0.3, rng, mallet=0.3), 0.0, 0.45)]
+    t0 = 0.0
+    for k in range(22):
+        nm = penta[int(rng.integers(0, len(penta)))]
+        g = 0.28 * (0.4 + 0.6 * np.sin(np.pi * k / 21.0))
+        parts.append((struck("glass", nm, 0.4, SR, 0.1, rng, mallet=0.0), t0, g))
+        t0 += 0.025 + 0.04 * abs(k - 8) / 14.0 + 0.01 * rng.uniform()
+    n = secs(1.3)
     t = np.arange(n) / SR
-    trill_f = np.where((t * 30).astype(int) % 2 == 0, nhz("E7"), nhz("G7"))
-    trill = pulse(trill_f, n, SR, 0.25) * env_exp(n, SR, 0.3)
-    sparkle = highpass(noise(n, rng), SR, 7000) * (0.5 + 0.5 * np.sin(2 * np.pi * 13 * t)) * env_exp(n, SR, 0.25, 0.02)
-    y = mix((gl, 0, 0.5), (trill, len(gl) / SR, 0.3), (bell("C7", 0.9, 0.3), len(gl) / SR, 0.5),
-            (sparkle, len(gl) / SR, 0.12),
-            (triangle(nhz("C5"), secs(1.2), SR) * env_exp(secs(1.2), SR, 0.35), 0.05, 0.3))
+    pad = np.zeros(n)
+    for nm, g in (("C6", 0.5), ("E6", 0.35), ("G6", 0.35), ("C7", 0.2)):
+        f = nhz(nm)
+        pad += g * 0.5 * (sine(f, n, SR) + sine(f * 1.004, n, SR))
+    pad *= raised(n, 0.3, 1.0)
+    breath = flute("G6", 0.9, SR, rng, a=0.1, r=0.4, s=0.6, vib=0.0, breath=0.5)
+    breath *= 0.6 + 0.4 * np.sin(2 * np.pi * 18 * np.arange(len(breath)) / SR)
+    parts += [(pad, 0.02, 0.3), (breath, 0.08, 0.18)]
+    y = mix(*parts)
     y = lowpass(y, SR, 11000)
-    return echo(fade_tail(y, SR), SR, 0.08, 0.32, taps=4)
+    return echo(fade_tail(y, SR), SR, 0.08, 0.25, taps=3)
 
 
 def sfx_save_chime(rng):
-    """Gentle bell triad, softly settling - reassurance that the game is saved."""
+    """Gentle bell triad, softly settling over a singing bowl - reassurance that the game is saved."""
     parts = [(bell(nm, 1.2, 0.5, bright=0.7), 0.13 * k, 0.4) for k, nm in enumerate(("G5", "C6", "E6"))]
     parts.append((bell("G6", 1.0, 0.4, bright=0.5), 0.42, 0.25))
-    m = secs(1.4)
-    parts.append((triangle(nhz("C4"), m, SR) * env_adsr(m, SR, 0.08, 0.4, 0.5, 0.5), 0.0, 0.3))
+    parts.append((struck("bowl", "C4", 1.4, SR, 0.6, rng, mallet=0.0, detune=3.0), 0.0, 0.3))
     y = mix(*parts)
     y = lowpass(y, SR, 8000)
     return echo(fade_tail(y, SR, 0.05), SR, 0.15, 0.3, taps=3)
@@ -543,55 +543,56 @@ def sfx_save_chime(rng):
 # --------------------------------------------------------------------------------------------
 
 def sfx_map_step(rng):
-    """Tiny soft footstep pluck for the map marker (plays every hop: kept short and quiet)."""
-    m = secs(0.085)
-    y = triangle(sweep(560, 380, m), m, SR) * env_exp(m, SR, 0.022, 0.001)
-    y += 0.35 * lowpass(noise(m, rng), SR, 2200) * env_exp(m, SR, 0.008, 0.0005)
+    """Tiny soft footfall on the map path: a muted wood tick and a felt thump (short and quiet)."""
+    tick = struck("wood", 520, 0.07, SR, 0.012, rng, mallet=0.25)
+    y = mix((tick, 0, 0.6), (thump(200, 120, 0.07, 0.02), 0, 0.6))
     return fade_tail(y, SR, 0.01)
 
 
 def sfx_map_unlock(rng):
-    """Path unlocked: a lock click-clunk, then a rising sparkle and a ringing bell."""
+    """Path unlocked: a wooden latch click-clunk, the Glowspore motif (sol-do-re-mi-sol) on kalimba,
+    then a ringing bell."""
     click = bandpass(noise(secs(0.02), rng), SR, 2000, 6000) * env_exp(secs(0.02), SR, 0.004, 0.0004)
-    m = secs(0.12)
-    clunk = triangle(sweep(220, 130, m), m, SR) * env_exp(m, SR, 0.04)
+    clunk = struck("wood", 200, 0.12, SR, 0.04, rng, mallet=0.4)
     parts = [(click, 0, 0.8), (clunk, 0.04, 0.8), (click, 0.08, 0.5)]
-    for k, nm in enumerate(("G5", "B5", "D6", "G6", "B6")):
-        parts.append((blip(nm, 0.06, 0.25, s=0.8), 0.2 + 0.055 * k, 0.4))
-    parts.append((bell("G6", 0.9, 0.3), 0.475, 0.5))
-    parts.append((bell("D7", 0.7, 0.2, bright=0.6), 0.5, 0.2))
+    for k, nm in enumerate(("G5", "C6", "D6", "E6", "G6")):
+        parts.append((struck("kalimba", nm, 0.5, SR, 0.2, rng, mallet=0.3), 0.2 + 0.07 * k, 0.4))
+    parts.append((bell("G6", 0.9, 0.3), 0.55, 0.4))
+    parts.append((struck("glass", "D7", 0.7, SR, 0.25, rng, mallet=0.0), 0.57, 0.16))
     y = mix(*parts)
     y = lowpass(y, SR, 9500)
-    return echo(fade_tail(y, SR), SR, 0.1, 0.3, taps=3)
+    return echo(fade_tail(y, SR), SR, 0.1, 0.25, taps=3)
 
 
 def sfx_menu_move(rng):
-    """Cursor tick: one short, bright pip (B5). The menu set shares timbre and key (E major)."""
-    return blip("B5", 0.045, 0.25, a=0.001, s=0.6, r=0.012)
+    """Cursor tick: a tiny wood-block tap with a damped kalimba E6 under it."""
+    tick = struck("wood", 1250, 0.045, SR, 0.01, rng, mallet=0.15)
+    tine = struck("kalimba", "E6", 0.045, SR, 0.03, rng, mallet=0.0)
+    return fade_tail(mix((tick, 0, 0.5), (tine, 0, 0.5)), SR, 0.01)
 
 
 def sfx_menu_select(rng):
-    """Confirm: the move pip answered by a fourth up (B5 -> E6), a touch of echo."""
-    a = blip("B5", 0.045, 0.25, a=0.001, s=0.7, r=0.008)
-    b = blip("E6", 0.16, 0.5, decay=0.06, a=0.001)
-    b += 0.4 * blip("E5", 0.16, 0.25, kind="tri", decay=0.07)
-    y = np.concatenate((a, b))
-    return echo(fade_tail(lowpass(y, SR, 9000), SR), SR, 0.06, 0.2, taps=2)
+    """Confirm: kalimba E6 and B6 struck together (one strike, not two notes in a row) with a glass shimmer."""
+    tick = struck("wood", 1250, 0.04, SR, 0.01, rng, mallet=0.15)
+    dyad = struck("kalimba", "E6", 0.3, SR, 0.1, rng, mallet=0.3) + 0.6 * struck("kalimba", "B6", 0.3, SR, 0.08, rng)
+    rod = struck("glass", "E7", 0.3, SR, 0.08, rng, mallet=0.0)
+    y = mix((tick, 0, 0.35), (dyad, 0, 0.6), (rod, 0.006, 0.15))
+    return echo(fade_tail(lowpass(y, SR, 9000), SR), SR, 0.06, 0.15, taps=2)
 
 
 def sfx_menu_back(rng):
-    """Cancel: the same pip falling a fourth (B5 -> F#5), thinner and duller."""
-    a = blip("B5", 0.04, 0.125, a=0.001, s=0.6, r=0.008)
-    b = blip("F#5", 0.12, 0.125, decay=0.04, a=0.001)
-    y = np.concatenate((a, b))
+    """Cancel: a lower, felt-damped wood 'tok' with a muted marimba B4."""
+    tok = struck("wood", 620, 0.06, SR, 0.015, rng, mallet=0.25)
+    bar = struck("marimba", "B4", 0.15, SR, 0.06, rng, mallet=0.15)
+    y = mix((tok, 0, 0.5), (bar, 0.004, 0.6))
     return fade_tail(lowpass(y, SR, 5000), SR)
 
 
 def sfx_dialogue_blip(rng):
-    """Soft, short voice pip, meant to repeat per typed character without fatigue."""
+    """Soft, short hollow 'pu', meant to repeat per typed character without fatigue."""
     m = secs(0.042)
     f = sweep(760, 700, m)
-    y = sine(f, m, SR) + 0.18 * triangle(f, m, SR)
+    y = sine(f, m, SR) + 0.15 * sine(f * 2, m, SR)
     y *= env_adsr(m, SR, 0.003, 0.015, 0.45, 0.015)
     return lowpass(y, SR, 4000)
 
@@ -622,11 +623,10 @@ def sfx_door(rng):
 
 
 def sfx_shop_buy(rng):
-    """Chanterelle's till: a 'ka' then a bright double 'ching', with a coin jingle."""
+    """Chanterelle's till: a wooden drawer 'ka', one warm singing-bowl 'ding' and a jingle of small coins."""
     ka = bandpass(noise(secs(0.035), rng), SR, 900, 3200) * env_exp(secs(0.035), SR, 0.01, 0.0005)
-    parts = [(ka, 0, 0.7), (bell("B6", 0.6, 0.25, bright=1.5), 0.05, 0.5),
-             (bell("E7", 0.7, 0.3, bright=1.5), 0.12, 0.5),
-             (blip("E7", 0.09, 0.25, decay=0.05), 0.12, 0.15)]
+    parts = [(ka, 0, 0.7), (struck("bowl", "G6", 0.8, SR, 0.35, rng, mallet=0.15, detune=6.0), 0.04, 0.55),
+             (struck("glass", "D7", 0.5, SR, 0.18, rng, mallet=0.0), 0.045, 0.15)]
     for k in range(6):
         parts.append((sine(rng.uniform(3200, 5200), secs(0.04), SR) * env_exp(secs(0.04), SR, 0.012, 0.0005),
                       0.15 + 0.05 * k + rng.uniform(0, 0.02), 0.18 * (1 - k / 8.0)))
@@ -636,14 +636,12 @@ def sfx_shop_buy(rng):
 
 
 def sfx_shop_deny(rng):
-    """Not enough coins: a low, buzzy 'uh-uh' (two falling notes)."""
-    def buzz(nm, dur):
-        n = secs(dur)
-        f = nhz(nm)
-        y = pulse(f, n, SR, 0.5) + 0.7 * pulse(f * 1.012, n, SR, 0.3)
-        return y * env_adsr(n, SR, 0.004, 0.05, 0.75, 0.02)
-    y = mix((buzz("D#4", 0.1), 0, 0.5), (buzz("A#3", 0.19), 0.13, 0.5))
-    return fade_tail(lowpass(y, SR, 2200), SR)
+    """Not enough coins: two dull, felted wood knocks falling a semitone ('tok-tok', marimba E4 -> D#4)."""
+    y = mix((struck("wood", 330, 0.1, SR, 0.03, rng, mallet=0.4), 0, 0.6),
+            (struck("marimba", "E4", 0.18, SR, 0.08, rng, mallet=0.2), 0, 0.36),
+            (struck("wood", 250, 0.16, SR, 0.04, rng, mallet=0.4), 0.13, 0.6),
+            (struck("marimba", "D#4", 0.25, SR, 0.1, rng, mallet=0.2), 0.13, 0.36))
+    return fade_tail(lowpass(y, SR, 3500), SR)
 
 
 # --------------------------------------------------------------------------------------------
@@ -706,7 +704,10 @@ def finish(y):
 
 def main():
     os.makedirs(OUT, exist_ok=True)
+    only = set(sys.argv[1:])
     for name, fn, volume in SOUNDS:
+        if only and name not in only:
+            continue
         y = finish(fn(np.random.default_rng(seed_for(name))))
         path = write_wav(name, y, SR, -3.0, False)
         write_resource(name, False, "sfx", volume)

@@ -98,8 +98,10 @@ def snd(name, volume, pitch="1"):
 # ====================================================================== Explorer
 EXPLORER_CREATE = r"""
 // Pip, the hero of Mushroom Meadow. All tuning is editable here; the controller uses the sprite
-// mask and room tile solidity. Jump physics: jumpSpeed 525 and gravity 1250 give about 110 px
-// (3 tiles) of height and about 218 px of distance at run speed, so 4-tile gaps are clearable.
+// mask and room tile solidity. Jump physics: jumpSpeed 525 and gravity 1250 give about 106 px
+// (3 tiles) of height and clear a gap of about 228 px at run speed (162 px walking), so 4-tile
+// gaps are clearable at a run. BuildTools/TemplateContent/MushroomMeadow/hero_physics.py mirrors
+// these numbers for the level reachability checks: change both together.
 //
 // RULES OTHER OBJECTS RELY ON (see Notes):
 //  Globals (GlobalSet/GlobalGet): campaign (1 = started from the Main Menu), lives, coins, hearts,
@@ -246,10 +248,9 @@ if (state == 0) {
 if (state == 3) {
     clearTimer = clearTimer + dt;
     if (campaign == 1 && hub == 0) {
-        if (clearJingle == 0 && clearTimer > 1.4) {
-            clearJingle = 1;
-            if (clearKind == 1) { SFX_GLOWSPORE }
-        }
+        // One clear sound only: the Finish Fanfare (~4.9 s) already carries the Glowspore motif, so a
+        // Finish clear no longer adds Glowspore Get on top of it. Auto-leave waits for the fanfare.
+        if (clearJingle == 0) { clearJingle = 1; }
         if (clearTimer > 7 || (clearTimer > 1.6 && (confirmPressed || actionPressed))) {
             leaveReason = 1; EventUser(3);
         }
@@ -261,7 +262,8 @@ if (state == 3) {
 if (state == 4) {
     overTimer = overTimer + dt;
     if (campaign == 1) {
-        if (overTimer > 4 || (overTimer > 1.2 && confirmPressed)) { leaveReason = 3; EventUser(3); }
+        // Game Over is ~4.8 s long: let it finish before the map loads (a press still skips it).
+        if (overTimer > 4.9 || (overTimer > 1.2 && confirmPressed)) { leaveReason = 3; EventUser(3); }
     } else {
         if (KeyPressed("Enter") || KeyPressed("R") || GamepadPressed("A") || GamepadPressed("Start")) { RoomRestart(); }
     }
@@ -345,8 +347,20 @@ if (riding > 0) {
     else {
         x = TileMoveX(x, y, InstanceVariableGet(riding, "platformDx"));
         y = InstanceVariableGet(riding, "platformTop");
+        // Standing on the leaf: no fall speed builds up (it used to sink Pip up to 11 px a frame).
+        if (vy > 0) { vy = 0; }
         var leafX = InstanceGetX(riding);
         if (x < leafX - 6 || x > leafX + InstanceVariableGet(riding, "platformW") + 6) { riding = 0; }
+    }
+}
+// Never stay embedded in solid tiles (a crumble block back under Pip, a leaf under a ledge, a
+// respawn): step out the shortest way, trying up first.
+if (TileMeeting(x, y)) {
+    riding = 0;
+    for (var uk = 1; uk <= 40; uk = uk + 1) {
+        if (!TileMeeting(x, y - uk)) { y = y - uk; break; }
+        if (!TileMeeting(x - uk, y)) { x = x - uk; break; }
+        if (!TileMeeting(x + uk, y)) { x = x + uk; break; }
     }
 }
 
@@ -400,8 +414,22 @@ if (windForce != 0 || windVx != 0) {
     windVx = windVx - windVx * Min(1, dt * 2.2);
 }
 var requestedX = x + (vx + windVx) * dt;
+var startX = x;
 x = TileMoveX(x, y, (vx + windVx) * dt);
-if (Abs(x - requestedX) > 0.001) { vx = 0; windVx = 0; }
+if (Abs(x - requestedX) > 0.001) {
+    // Ledge step-up: a wall whose top is at most 6 px above Pip's feet (a jump that only just
+    // clipped a ledge corner) is climbed instead of stopping him and dropping him down the side.
+    var stepped = 0;
+    if (swimming == 0 && vy >= 0) {
+        for (var sk = 1; sk <= 6 && stepped == 0; sk = sk + 1) {
+            if (!TileMeeting(startX, y - sk)) {
+                var stepX = TileMoveX(startX, y - sk, requestedX - startX);
+                if (Abs(stepX - requestedX) <= 0.001) { x = stepX; y = y - sk; stepped = 1; }
+            }
+        }
+    }
+    if (stepped == 0) { vx = 0; windVx = 0; }
+}
 x = Clamp(x, 8, RoomGetWidth() - 8);
 var oldY = y;
 if (swimming == 1) {
@@ -428,7 +456,16 @@ var descending = 0;
 if (vy > 0) { descending = 1; }
 if (grounded == 0) { fallPeak = Max(fallPeak, vy); }
 var requestedY = y + vy * dt;
+var preY = y;
 y = TileMoveY(x, y, vy * dt);
+if (Abs(y - requestedY) > 0.001 && vy < 0) {
+    // Ceiling corner nudge: a head that clips a block's corner by 5 px or less slides past it
+    // instead of killing the jump. A block hit squarely (seed pod, stone) is still bumped.
+    for (var nk = 1; nk <= 5; nk = nk + 1) {
+        if (!TileMeeting(x + nk, requestedY) && !TileMeeting(x + nk, preY)) { x = x + nk; y = requestedY; break; }
+        if (!TileMeeting(x - nk, requestedY) && !TileMeeting(x - nk, preY)) { x = x - nk; y = requestedY; break; }
+    }
+}
 if (Abs(y - requestedY) > 0.001) {
     if (vy < 0) {
         // Only the Blocks tile layer is destructible. Ground and pipes stay intact.
@@ -1482,7 +1519,26 @@ def build_objects():
     write_object("Buzz Bee", "Buzz Bee Sprite", [("Create", bee_create()), ("Step", BEE_STEP)])
 
 
+def check_physics_module():
+    """hero_physics.py (used by the level reachability checks) must match Explorer's numbers."""
+    import re
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import hero_physics as hp
+    expected = {"walkSpeed": hp.WALK_SPEED, "runSpeed": hp.RUN_SPEED, "jumpSpeed": hp.JUMP_SPEED,
+                "gravityAccel": hp.GRAVITY, "bounceSpeed": hp.BOUNCE_SPEED, "swimSpeed": hp.SWIM_SPEED}
+    for name, value in expected.items():
+        found = re.search(r"\b%s = ([0-9.]+);" % name, EXPLORER_CREATE)
+        assert found and float(found.group(1)) == value, "hero_physics.%s is out of sync with Explorer" % name
+    for snippet in ("coyote = 0.10", "jumpBuffer = 0.12", "vy < -%d) { vy = -%d; }" % (hp.JUMP_CUT, hp.JUMP_CUT),
+                    "vy = Min(vy + gravityAccel * dt, %d)" % hp.MAX_FALL, "Min(1, dt * %d)" % hp.ACCEL_RATE,
+                    "nk <= %d" % hp.CORNER_NUDGE, "sk <= %d" % hp.STEP_UP, "vy = -%d;" % hp.STOMP_BOUNCE,
+                    "vy = Min(vy, -%d)" % hp.SWIM_EXIT_HOP, "x - 7, y - 34, x + 7, y"):
+        assert snippet in EXPLORER_STEP, "hero_physics is out of sync with Explorer Step: " + snippet
+
+
 def main():
+    check_physics_module()
     build_assets()
     build_objects()
     print("Hero content written to", ASSETS)

@@ -78,7 +78,7 @@ Underwater Pip truly swims: he hovers in the water, W/A/S/D or the arrows swim i
 | 2 | **Rootdeep Caverns** | Dark caves lit by Pip's lantern, glowing crystals and lanterns: Flit Bats, Glow Grubs, falling stalactites, crumbling blocks. Boss: **Grumblecrag**, a rock-shell beetle that charges, rolls and shakes pebbles from the ceiling. It can only be stomped while flipped after slamming into a wall (3 hits). |
 | 3 | **Tidepool Grotto** | An undersea level you swim through: currents, Bloatfins (unstompable while puffed up), Driftjellies (never stompable: use spores), sunken ruins and treasure. |
 | 4 | **Windswept Canopy** | Treetops at golden hour: wind gusts (watch the gauge), moving leaf platforms, Dusk Moths and Burr Hoppers. Long glides make the Glide Seed shine here. |
-| 5 | **Duskmantle Hollow** | A twilight gauntlet and the final boss, **Duskmantle**: three phases of swoops, Gloom Orb volleys and summoned Dusk Moths. She can be stomped while dazed after a swoop, and spores hurt her at any time (6 hits). Defeating her returns the last Glowspore and plays the ending. |
+| 5 | **Duskmantle Hollow** | A twilight gauntlet and the final boss, **Duskmantle**: three phases of swoops, Gloom Orb volleys and summoned Dusk Moths. She can be stomped while dazed after a swoop, and spores hurt her at any time (6 hits; stomps alone are enough). If Pip loses a life the fight starts over. Defeating her returns the last Glowspore and plays the ending. |
 
 ---------------------------------------------------------------------------------------------------
 
@@ -146,7 +146,7 @@ uses a 1280x720 design space scaled to the window.
 | Main Menu | `frontend_gen.py` | Menu Backdrop (background), Menu Controller. Post effect SNES Look. |
 | Credits | `frontend_gen.py` | Credits Backdrop (background), Credits Director. Post effect SNES Look. |
 | Overworld | `hub_gen.py` | Overworld Map, Map Clouds, six Map Nodes, the Map Marker (also the map's controller). |
-| Hearthollow | `hub_gen.py` | Village Tiles and backdrops, Lantern Tree Glow, Village Host, the five NPCs, Shop Stall, Exit Sign, Explorer, Level Rules. |
+| Hearthollow | `hub_gen.py` | Village Tiles and backdrops, Lantern Tree Glow, Chimney Smoke, Village Host, the five NPCs, Shop Stall, Exit Sign, Explorer, Level Rules. |
 | Mushroom Meadow | `level_gen.py` | Level 1 (phase 1), now with Level Rules and the Glowspore. |
 | Rootdeep Caverns, Windswept Canopy | `levels_a_gen.py` | Levels 2 and 4 (Cavern Damp and Golden Hour post effects). |
 | Tidepool Grotto, Duskmantle Hollow | `levels_b_gen.py` | Levels 3 and 5 (Underwater and Gloom post effects). |
@@ -202,7 +202,8 @@ Firefly. The enemy's own Step spends `hurt` on `hp`, plays its defeat, sets `dea
 
 **Map and village** (`hub_gen.py`): Map Marker, Map Node, Map Clouds; Village Host (dialogue box,
 Chanterelle's shop, leaving the village), NPC Elder Morel / Chanterelle / Bram / Puffball / Old Wick (all
-their lines are in the **Village Lines** script), Lantern Tree Glow, Shop Stall, Exit Sign.
+their lines are in the **Village Lines** script), Lantern Tree Glow, Chimney Smoke (live puffs over the
+Village Houses chimneys, following that backdrop's 0.6 parallax), Shop Stall, Exit Sign.
 
 **Phase-1 helpers**: Sun Coin, Big Sun Coin, Checkpoint (with its sprite rig), Finish, Bounce Mushroom.
 

@@ -3800,25 +3800,28 @@ class Village(World):
                         if dxn * dxn + ((y + 0.5 - cy) / ry) ** 2 <= 0.85:
                             pset(px, W, H, x, y, (250, 238, 214, 255) if y < sy + r * 0.4 else (214, 196, 170, 255))
 
+    # Village Houses: (centre x, stem width, stem height, cap radius, cap colour, door side, windows).
+    HOUSES_BASE = 304
+    HOUSES = [(70, 46, 78, 54, 0, 0, 2), (210, 40, 104, 48, 2, 1, 1), (330, 52, 70, 60, 1, 0, 2), (470, 38, 92, 44, 3, -1, 1),
+              (600, 50, 82, 58, 0, 0, 2), (730, 42, 112, 52, 2, 1, 1), (860, 48, 74, 56, 3, 0, 2), (970, 36, 90, 42, 1, -1, 1)]
+
+    @classmethod
+    def chimneys(cls):
+        """(x, y) of each chimney's centre and its base row in Village Houses. The chimney is 8 px wide
+        and spans rows y - 16 .. y + 3; its smoke is live (hub_gen.py's Chimney Smoke), not painted."""
+        return [(cx + cr * 0.45, cls.HOUSES_BASE - hs - cr * 0.45) for (cx, w, hs, cr, ci, ds, nw) in cls.HOUSES]
+
     def bg_houses(self):
         W, H = BW, BH
         img = new(W, H)
         px = img.load()
-        base = 304
-        houses = [(70, 46, 78, 54, 0, 0, 2), (210, 40, 104, 48, 2, 1, 1), (330, 52, 70, 60, 1, 0, 2), (470, 38, 92, 44, 3, -1, 1),
-                  (600, 50, 82, 58, 0, 0, 2), (730, 42, 112, 52, 2, 1, 1), (860, 48, 74, 56, 3, 0, 2), (970, 36, 90, 42, 1, -1, 1)]
+        base = self.HOUSES_BASE
+        houses = self.HOUSES
         # chimneys first so caps overlap them
-        for (cx, w, hs, cr, ci, ds, nw) in houses:
-            chx = cx + cr * 0.45
-            chy = base - hs - cr * 0.45
+        for (chx, chy) in self.chimneys():
             for y in range(int(chy - 16), int(chy + 4)):
                 for x in range(int(chx - 4), int(chx + 4)):
                     pset(px, W, H, x, y, (150, 120, 120, 255) if x < chx else (110, 86, 94, 255))
-            for (k, (dx, dy, r)) in enumerate([(1, -22, 4), (4, -30, 5), (2, -40, 6), (6, -50, 6)]):
-                for y in range(int(chy + dy - r), int(chy + dy + r) + 1):
-                    for x in range(int(chx + dx - r), int(chx + dx + r) + 1):
-                        if math.hypot(x + 0.5 - chx - dx, y + 0.5 - chy - dy) <= r and px[x % W, y][3] == 0:
-                            pset(px, W, H, x, y, (220, 200, 220, 110 - k * 20))
         for (cx, w, hs, cr, ci, ds, nw) in houses:
             self.house(px, W, H, cx, base, w, hs, cr, self.CAPS[ci], ds, nw)
         # fences and hedges along the lane
