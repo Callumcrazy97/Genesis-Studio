@@ -1053,6 +1053,13 @@ namespace Genesis.Shared.Interfaces
         public int OutlineId;
         /// <summary>The mark and outline show where the draw is behind something as well.</summary>
         public bool OutlineThroughWalls;
+        /// <summary>
+        /// The colour of the material's own light (rgb, as picked; above 1 brightens): multiplies the
+        /// <see cref="EmissionMap"/> and the share of <see cref="Emissive"/> that w gives as the
+        /// material's own (0 to 1; the rest, a whole-model glow, keeps its colour). All zero, the
+        /// default, leaves the light as it was.
+        /// </summary>
+        public Vector4 EmissionColor;
     }
 
     /// <summary>

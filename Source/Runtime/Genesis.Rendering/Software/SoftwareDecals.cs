@@ -163,5 +163,132 @@ namespace Genesis.Rendering.Software
                 }
             }
         }
+
+        /// <summary>
+        /// See-through decals (DecalShaders VS_DecalCard / PS_DecalCard): each record is drawn as a
+        /// flat picture in its own plane, behind nothing nearer in <paramref name="depth"/> (the
+        /// bound depth, which see-through draws leave as the opaque world's), seen from either side.
+        /// </summary>
+        public static void DrawCards(
+            byte[] bgra, int width, int height, float[] depth,
+            byte[] constantBytes, byte[] decalBytes, int instanceCount,
+            byte[] texPixels, int texWidth, int texHeight, GpuFormat texFormat)
+        {
+            if (bgra == null || depth == null || constantBytes == null || decalBytes == null || instanceCount <= 0
+                || width <= 0 || height <= 0 || depth.Length < width * height || bgra.Length < width * height * 4)
+                return;
+            if (constantBytes.Length < Marshal.SizeOf<Constants>()) return;
+            Constants c = MemoryMarshal.Read<Constants>(constantBytes);
+            bool reversed = c.CameraPos.W > 0.5f;
+            int first = (int)MathF.Round(c.Params.X);
+            int mode = (int)MathF.Round(c.Params.Y);
+            int stride = Marshal.SizeOf<Decal>();
+            bool texture = texPixels != null && texWidth > 0 && texHeight > 0 && texPixels.Length >= texWidth * texHeight * 4
+                && texFormat is not (GpuFormat.BC5UNorm or GpuFormat.BC7UNorm or GpuFormat.BC7UNormSrgb);
+            bool bgrTexture = texFormat == GpuFormat.B8G8R8A8UNorm;
+
+            Vector3 WorldAt(int x, int y, float d)
+            {
+                float u = (x + 0.5f) / width, v = (y + 0.5f) / height;
+                Vector4 h = Vector4.Transform(new Vector4(u * 2f - 1f, 1f - v * 2f, d, 1f), c.InvViewProjection);
+                return new Vector3(h.X, h.Y, h.Z) / h.W;
+            }
+
+            for (int k = 0; k < instanceCount; k++)
+            {
+                int at = (first + k) * stride;
+                if (at < 0 || at + stride > decalBytes.Length) break;
+                Decal decal = MemoryMarshal.Read<Decal>(decalBytes.AsSpan(at));
+                Vector3 centre = new(decal.Center.X, decal.Center.Y, decal.Center.Z);
+                Vector3 ax = new(decal.AxisX.X, decal.AxisX.Y, decal.AxisX.Z);
+                Vector3 ay = new(decal.AxisY.X, decal.AxisY.Y, decal.AxisY.Z);
+                Vector3 az = new(decal.AxisZ.X, decal.AxisZ.Y, decal.AxisZ.Z);
+                if (az.LengthSquared() < 1e-12f) continue;
+                Vector3 n = Vector3.Normalize(az);
+                Vector3 ix = ax / MathF.Max(ax.LengthSquared(), 1e-8f);
+                Vector3 iy = ay / MathF.Max(ay.LengthSquared(), 1e-8f);
+
+                // The screen rectangle round the picture's four corners (the whole screen when one is behind the eye).
+                float loX = 1f, loY = 1f, hiX = -1f, hiY = -1f;
+                bool behind = false;
+                for (int i = 0; i < 4; i++)
+                {
+                    Vector3 corner = centre + ax * ((i & 1) != 0 ? 0.5f : -0.5f) + ay * ((i & 2) != 0 ? 0.5f : -0.5f);
+                    Vector4 clip = Vector4.Transform(new Vector4(corner, 1f), c.ViewProjection);
+                    if (clip.W <= 1e-4f) { behind = true; continue; }
+                    float nx = clip.X / clip.W, ny = clip.Y / clip.W;
+                    loX = MathF.Min(loX, nx); hiX = MathF.Max(hiX, nx);
+                    loY = MathF.Min(loY, ny); hiY = MathF.Max(hiY, ny);
+                }
+                if (behind) { loX = loY = -1f; hiX = hiY = 1f; }
+                if (hiX < -1f || loX > 1f || hiY < -1f || loY > 1f) continue;
+                int x0 = Math.Clamp((int)MathF.Floor((Math.Clamp(loX, -1f, 1f) * 0.5f + 0.5f) * width), 0, width - 1);
+                int x1 = Math.Clamp((int)MathF.Ceiling((Math.Clamp(hiX, -1f, 1f) * 0.5f + 0.5f) * width), 0, width - 1);
+                int y0 = Math.Clamp((int)MathF.Floor((0.5f - Math.Clamp(hiY, -1f, 1f) * 0.5f) * height), 0, height - 1);
+                int y1 = Math.Clamp((int)MathF.Ceiling((0.5f - Math.Clamp(loY, -1f, 1f) * 0.5f) * height), 0, height - 1);
+
+                for (int y = y0; y <= y1; y++)
+                {
+                    for (int x = x0; x <= x1; x++)
+                    {
+                        // Where this pixel's ray meets the picture's plane.
+                        Vector3 p0 = WorldAt(x, y, 0.2f), p1 = WorldAt(x, y, 0.8f);
+                        Vector3 ray = p1 - p0;
+                        float across = Vector3.Dot(ray, n);
+                        if (MathF.Abs(across) < 1e-9f) continue;
+                        Vector3 p = p0 + ray * (Vector3.Dot(centre - p0, n) / across);
+                        Vector3 rel = p - centre;
+                        float lx = Vector3.Dot(rel, ix), ly = Vector3.Dot(rel, iy);
+                        if (MathF.Abs(lx) > 0.5f || MathF.Abs(ly) > 0.5f) continue;
+                        Vector4 hit = Vector4.Transform(new Vector4(p, 1f), c.ViewProjection);
+                        if (hit.W <= 1e-4f) continue;
+                        float cardDepth = hit.Z / hit.W;
+                        int index = y * width + x;
+                        float sceneDepth = depth[index];
+                        // Hidden by anything opaque nearer than the plane (a small margin for a pane that writes depth).
+                        if (reversed ? cardDepth < sceneDepth - 1e-6f : cardDepth > sceneDepth + 1e-6f) continue;
+
+                        float tr = 1f, tg = 1f, tb = 1f, ta = 1f;
+                        if (texture)
+                        {
+                            int tx = Math.Clamp((int)((lx + 0.5f) * texWidth), 0, texWidth - 1);
+                            int ty = Math.Clamp((int)((0.5f - ly) * texHeight), 0, texHeight - 1);
+                            int t = (ty * texWidth + tx) * 4;
+                            tr = texPixels[t + (bgrTexture ? 2 : 0)] / 255f;
+                            tg = texPixels[t + 1] / 255f;
+                            tb = texPixels[t + (bgrTexture ? 0 : 2)] / 255f;
+                            ta = texPixels[t + 3] / 255f;
+                        }
+                        float alpha = Math.Clamp(ta * decal.Color.W, 0f, 1f);
+                        if (alpha <= 0.002f) continue;
+                        float r = tr * decal.Color.X, g = tg * decal.Color.Y, b = tb * decal.Color.Z;
+
+                        int px = index * 4;
+                        float db = bgra[px] / 255f, dg = bgra[px + 1] / 255f, dr8 = bgra[px + 2] / 255f;
+                        if (mode == 0)
+                        {
+                            db *= 1f + (b - 1f) * alpha;
+                            dg *= 1f + (g - 1f) * alpha;
+                            dr8 *= 1f + (r - 1f) * alpha;
+                        }
+                        else if (mode == 1)
+                        {
+                            db += (b - db) * alpha;
+                            dg += (g - dg) * alpha;
+                            dr8 += (r - dr8) * alpha;
+                        }
+                        else
+                        {
+                            db += b * alpha;
+                            dg += g * alpha;
+                            dr8 += r * alpha;
+                        }
+                        bgra[px] = (byte)(Math.Clamp(db, 0f, 1f) * 255f + 0.5f);
+                        bgra[px + 1] = (byte)(Math.Clamp(dg, 0f, 1f) * 255f + 0.5f);
+                        bgra[px + 2] = (byte)(Math.Clamp(dr8, 0f, 1f) * 255f + 0.5f);
+                    }
+                }
+            }
+        }
     }
 }

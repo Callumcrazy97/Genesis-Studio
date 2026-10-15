@@ -72,12 +72,12 @@ internal sealed partial class ForwardRenderer
     public int LastDecalDrawCalls { get; private set; }
 
     /// <summary>Decals given for the frame being made.</summary>
-    public int DecalsSubmitted => _pendingDecalCount;
+    public int DecalsSubmitted => _pendingDecalCount + _pendingDecalCardCount;
 
     /// <summary>Adds a decal for this frame (see IRenderController.DrawDecals).</summary>
     public void AddDecal(GpuTextureHandle texture, int textureId, in DecalDrawCall call)
     {
-        if (_pendingDecalCount >= MaxDecalsPerFrame) return;
+        if (_pendingDecalCount + _pendingDecalCardCount >= MaxDecalsPerFrame) return;
         if (!Finite(call.Position) || !Finite(call.Normal) || !Finite(call.Tangent)) return;
         if (!(call.Width > 0f) || !(call.Height > 0f) || !(call.Depth > 0f)
             || !float.IsFinite(call.Width) || !float.IsFinite(call.Height) || !float.IsFinite(call.Depth)) return;
@@ -96,9 +96,7 @@ internal sealed partial class ForwardRenderer
             float.IsFinite(call.Color.Y) ? Math.Clamp(call.Color.Y, 0f, 16f) : 1f,
             float.IsFinite(call.Color.Z) ? Math.Clamp(call.Color.Z, 0f, 16f) : 1f);
 
-        if (_pendingDecalCount == _pendingDecals.Length)
-            Array.Resize(ref _pendingDecals, Math.Min(_pendingDecals.Length * 2, MaxDecalsPerFrame));
-        _pendingDecals[_pendingDecalCount++] = new PendingDecal
+        var pending = new PendingDecal
         {
             Gpu = new DecalGpu
             {
@@ -113,11 +111,23 @@ internal sealed partial class ForwardRenderer
             TextureId = textureId,
             Blend = (byte)Math.Clamp((int)call.Blend, 0, 2),
         };
+        if (call.SeeThrough)
+        {
+            AddDecalCard(pending);
+            return;
+        }
+        if (_pendingDecalCount == _pendingDecals.Length)
+            Array.Resize(ref _pendingDecals, Math.Min(_pendingDecals.Length * 2, MaxDecalsPerFrame));
+        _pendingDecals[_pendingDecalCount++] = pending;
     }
 
     private static bool Finite(Vector3 v) => float.IsFinite(v.X) && float.IsFinite(v.Y) && float.IsFinite(v.Z);
 
-    private void ClearDecals() => _pendingDecalCount = 0;
+    private void ClearDecals()
+    {
+        _pendingDecalCount = 0;
+        _pendingDecalCardCount = 0;
+    }
 
     private bool EnsureDecalResources()
     {
@@ -333,5 +343,6 @@ internal sealed partial class ForwardRenderer
         _cbDecal = GpuBufferHandle.Invalid;
         _decalProgram = GpuShaderProgramHandle.Invalid;
         _decalBufferCapacity = 0;
+        ReleaseDecalCardResources();
     }
 }

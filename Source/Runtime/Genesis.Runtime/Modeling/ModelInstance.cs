@@ -311,6 +311,30 @@ public static class ModelInstance
     }
 
     /// <summary>
+    /// Gives the light one of the model's materials gives off a colour on this instance only: it
+    /// multiplies the material's emission image and its own glow, and leaves the surface's colour
+    /// and a whole-model glow alone (one grey glow pattern in any colour). White is as the
+    /// material is authored; null gives the material back its own emission colour.
+    /// </summary>
+    /// <returns>False when the model has no material of that name.</returns>
+    public static bool SetMaterialEmissionTint(EcsWorld? world, Entity entity, string material, Vector3? colour)
+    {
+        if (string.IsNullOrWhiteSpace(material) || !TryModel(world, entity, out GModelAsset asset)) return false;
+        string name = material.Trim();
+        if (asset.Materials?.Exists(candidate => string.Equals(candidate.Name, name, StringComparison.OrdinalIgnoreCase)) != true) return false;
+        ref ModelRendererComponent model = ref world!.GetRef<ModelRendererComponent>(entity);
+        if (colour is not Vector3 tint || !float.IsFinite(tint.LengthSquared()))
+        {
+            model.MaterialEmissionTints?.Remove(name);
+            return true;
+        }
+
+        model.MaterialEmissionTints ??= new Dictionary<string, Vector3>(StringComparer.OrdinalIgnoreCase);
+        model.MaterialEmissionTints[name] = Vector3.Clamp(tint, Vector3.Zero, new Vector3(16f));
+        return true;
+    }
+
+    /// <summary>
     /// Multiplies one of the model's materials by a colour on this instance only; the shared
     /// model is unchanged. Parts above 1 brighten. Null gives the material back its own colour.
     /// </summary>

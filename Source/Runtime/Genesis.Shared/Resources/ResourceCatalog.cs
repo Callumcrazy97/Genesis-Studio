@@ -174,6 +174,19 @@ public sealed partial class ResourceCatalog
         return null;
     }
 
+    /// <summary>
+    /// The resource whose .meta identity is <paramref name="assetId"/> (the id a rename and a folder
+    /// move keep), or null. The optional type checks the result.
+    /// </summary>
+    public NamedResource FindById(Guid assetId, ResourceType expected = ResourceType.Unknown)
+    {
+        if (assetId == Guid.Empty) return null;
+        foreach (NamedResource entry in Entries)
+            if (entry.AssetId == assetId)
+                return expected == ResourceType.Unknown || entry.Type == expected ? entry : null;
+        return null;
+    }
+
     /// <summary>Every name more than one resource uses, each with its resources (a Model and an Object called the same).</summary>
     public IReadOnlyList<NamedResource[]> DuplicateNames => _names.Values.Where(named => named.Length > 1).ToArray();
 

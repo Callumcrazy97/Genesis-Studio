@@ -64,6 +64,7 @@ internal static partial class ParticleWorkbenchSuite
         }));
         RunQuickSetupCases(context, Check);
         RunPlanarCases(context, Check);
+        RunImageResourceCases(context, Check);
         Check("Stack.AddClonesWithoutChangingOriginal", () =>
         {
             ParticleConfig original = Envelope(); string before = Text(original);

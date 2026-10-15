@@ -31,6 +31,7 @@ internal static class DecalSuite
         HeadlessHarness.BeginMajor(ctx.Report, "Decals");
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Decals.CommandsKeepLimitLifeAndOrder", Commands);
         HeadlessHarness.RunCase(ctx.Report, "Render.Decals.WallTerrainFadeLimitAndFacingOnEveryBackend", () => Pixels(ctx));
+        HeadlessHarness.RunCase(ctx.Report, "Render.Decals.SeeThroughDecalShowsOnABlendedPaneOnEveryBackend", () => SeeThrough(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Render.Decals.HundredsOfBulletHolesAt1080pOnDx11", () => Cost(ctx));
     }
 
@@ -46,6 +47,9 @@ internal static class DecalSuite
                 && PgslCommands.DecalSetFade(first, 0.25) && PgslCommands.DecalMove(first, 1, 1, 1, 0, 1, 0),
                 "A live decal refused a change.");
             Check(!PgslCommands.DecalSetBlend(first, "sideways"), "An unknown blend was accepted.");
+            Check(!WorldDecals.IsSeeThrough((int)first) && PgslCommands.DecalSetSeeThrough(first, true) && WorldDecals.IsSeeThrough((int)first)
+                && PgslCommands.DecalSetSeeThrough(first, false) && !WorldDecals.IsSeeThrough((int)first) && !PgslCommands.DecalSetSeeThrough(999, true),
+                "DecalSetSeeThrough did not switch a decal on and off, or changed a missing one.");
             Check(PgslCommands.DecalAdd("x", double.NaN, 0, 0, 0, 1, 0, 1, 1) == 0 && PgslCommands.DecalAdd("x", 0, 0, 0, 0, 0, 0, 1, 1) == 0
                 && PgslCommands.DecalAdd("x", 0, 0, 0, 0, 1, 0, 0, 1) == 0, "A decal with no position, normal or size was placed.");
             Check(!PgslCommands.DecalSetColor(999, 1, 1, 1, 1) && !PgslCommands.DecalRemove(-3), "A missing decal was changed.");
@@ -235,6 +239,104 @@ internal static class DecalSuite
         Directory.CreateDirectory(ctx.Logs);
         File.WriteAllLines(Path.Combine(ctx.Logs, "decal-readings.txt"), readings);
         Console.WriteLine("Decal readings: " + string.Join(" | ", readings));
+        HeadlessHarness.Assert(failures.Count == 0, string.Join(" | ", failures));
+    }
+
+    /// <summary>
+    /// A see-through glass pane (blended, writing no depth) in front of the wall: a see-through decal
+    /// (DecalSetSeeThrough) shows on it, an ordinary one at the same depth leaves it as it was (it
+    /// still lands only on the opaque world), and a see-through decal behind the wall is hidden by
+    /// it. On every renderer.
+    /// </summary>
+    private static void SeeThrough(HeadlessContext ctx)
+    {
+        Scene scene = Build(ctx, "DecalGlass");
+        Vector3 eye = new(0, 3.2f, -3.5f), target = new(0, 1.2f, 8f);
+        Matrix4x4 view = Matrix4x4.CreateLookAt(eye, target, Vector3.UnitY);
+        Matrix4x4 projection = Matrix4x4.CreatePerspectiveFieldOfView(MathF.PI / 3, Width / (float)Height, 0.1f, 200f);
+        Point Screen(Vector3 world)
+        {
+            Vector4 clip = Vector4.Transform(new Vector4(world, 1f), view * projection);
+            return new Point((int)((clip.X / clip.W * 0.5f + 0.5f) * Width), (int)((0.5f - clip.Y / clip.W * 0.5f) * Height));
+        }
+
+        // The pane stands at z = 4 from y = 1 to 3.5, facing the camera; the wall is at z = 8.
+        Vector3 onGlass = new(-1f, 2.2f, 4f), plainOnGlass = new(1f, 2.2f, 4f), behindWall = new(3f, 2.6f, 9f);
+        List<string> failures = [];
+        List<string> readings = [];
+        foreach (RenderBackendDescriptor backend in RenderBackendCatalog.All)
+        {
+            WorldDecals.Reset();
+            using Form host = UnattendedWindowing.NewHost(Width, Height); UnattendedWindowing.ShowWithoutFocus(host);
+            using IRenderController renderer = RenderControllerFactory.Create(backend.Backend); renderer.Initialize(host.Handle, Width, Height);
+            using var terrainRuntime = new RoomTerrainSubsystem(scene.Root, scene.Room, null!);
+            MeshDrawCall[] draws = new MeshDrawCall[terrainRuntime.GetMeshDrawCapacity(renderer) + 64];
+            MeshHandle wall = renderer.RegisterMesh(WallVertices(16f, 6f, 8f, 32, 12, new Vector4(0.8f, 0.8f, 0.8f, 1f)), WallIndices(32, 12));
+            MeshHandle pane = renderer.RegisterMesh(WallVertices(4f, 2.5f, 4f, 4, 4, new Vector4(0.55f, 0.75f, 0.9f, 1f)), WallIndices(4, 4));
+            string name = backend.ShortName.ToLowerInvariant();
+            try
+            {
+                byte[] Frame(string label)
+                {
+                    Mesh3DState state = Mesh3DState.Default;
+                    state.ShowFloor = false; state.ShowSunVisual = false; state.FogEnabled = false; state.ShadowsEnabled = false;
+                    state.CameraFarPlane = 200f;
+                    renderer.SetMesh3DState(state); renderer.Set3DFrameActive(true);
+                    renderer.SetCamera3D(view, projection);
+                    renderer.BeginFrame(); renderer.Clear(0.35f, 0.5f, 0.75f);
+                    int count = 0;
+                    terrainRuntime.SubmitPreviewMeshes(eye, view * projection, draws, ref count, renderer);
+                    for (int i = 0; i < count; i++) renderer.DrawMesh(draws[i]);
+                    renderer.DrawMesh(new MeshDrawCall { Mesh = wall, World = Matrix4x4.Identity, Tint = RenderColor.White, Alpha = 1, Flags = MeshDrawFlags.NoShadow });
+                    // Glass as a model's Blend material draws it: see-through, no depth, no shadow.
+                    renderer.DrawMesh(new MeshDrawCall
+                    {
+                        Mesh = pane, World = Matrix4x4.CreateTranslation(0f, 1f, 0f), Tint = RenderColor.White, Alpha = 0.35f,
+                        Flags = MeshDrawFlags.Transparent | MeshDrawFlags.NoDepthWrite | MeshDrawFlags.NoShadow,
+                    });
+                    WorldDecals.Submit(renderer, scene.Root);
+                    renderer.EndFrame();
+                    HeadlessHarness.Assert(renderer.TryReadSubmittedFramePixels(out int width, out int height, out byte[] pixels)
+                        && width == Width && height == Height, backend.ShortName + ": no frame could be read back.");
+                    FlashLightSuite.Save(ctx, pixels, width, height, "decals-glass-" + name + "-" + label);
+                    renderer.Present();
+                    return pixels;
+                }
+
+                byte[] bare = Frame("bare");
+                double glass = PgslCommands.DecalAdd("Decal paint red", onGlass.X, onGlass.Y, onGlass.Z, 0, 0, -1, 0.8, 0);
+                double plain = PgslCommands.DecalAdd("Decal paint red", plainOnGlass.X, plainOnGlass.Y, plainOnGlass.Z, 0, 0, -1, 0.8, 0);
+                double hidden = PgslCommands.DecalAdd("Decal paint red", behindWall.X, behindWall.Y, behindWall.Z, 0, 0, -1, 0.8, 0);
+                foreach (double id in new[] { glass, plain, hidden }) PgslCommands.DecalSetBlend(id, "alpha");
+                PgslCommands.DecalSetSeeThrough(glass, true);
+                PgslCommands.DecalSetSeeThrough(hidden, true);
+                byte[] placed = Frame("placed");
+                int drawn = renderer.GetStats().DecalsDrawn;
+
+                Color Px(byte[] frame, Point at) => Mean(frame, at.X, at.Y, 3);
+                bool Same(Color c, Color plainColor) => Math.Abs(c.R - plainColor.R) <= 6 && Math.Abs(c.G - plainColor.G) <= 6 && Math.Abs(c.B - plainColor.B) <= 6;
+                Point glassAt = Screen(onGlass), plainAt = Screen(plainOnGlass), hiddenAt = Screen(behindWall);
+                Color glassBare = Px(bare, glassAt), glassOn = Px(placed, glassAt);
+                Color plainBare = Px(bare, plainAt), plainOn = Px(placed, plainAt);
+                Color hiddenBare = Px(bare, hiddenAt), hiddenOn = Px(placed, hiddenAt);
+                readings.Add($"{backend.ShortName}: on glass {glassBare} -> {glassOn}; ordinary on glass {plainBare} -> {plainOn}; behind the wall {hiddenBare} -> {hiddenOn}; drawn {drawn}");
+                if (!(glass > 0 && plain > 0 && hidden > 0)) failures.Add(backend.ShortName + ": a decal could not be placed");
+                if (drawn != 3) failures.Add($"{backend.ShortName}: {drawn} decals drawn of 3");
+                if (!(glassOn.R > 150 && glassOn.R > glassOn.G * 2 && glassOn.R > glassOn.B * 2))
+                    failures.Add($"{backend.ShortName}: no see-through decal on the pane ({glassBare} -> {glassOn})");
+                if (!Same(plainOn, plainBare)) failures.Add($"{backend.ShortName}: an ordinary decal changed the pane ({plainBare} -> {plainOn})");
+                if (!Same(hiddenOn, hiddenBare)) failures.Add($"{backend.ShortName}: a see-through decal behind the wall shows through it ({hiddenBare} -> {hiddenOn})");
+            }
+            finally
+            {
+                renderer.ReleaseMesh(wall);
+                renderer.ReleaseMesh(pane);
+                WorldDecals.Reset();
+            }
+        }
+        Directory.CreateDirectory(ctx.Logs);
+        File.WriteAllLines(Path.Combine(ctx.Logs, "decal-glass-readings.txt"), readings);
+        Console.WriteLine("See-through decal readings: " + string.Join(" | ", readings));
         HeadlessHarness.Assert(failures.Count == 0, string.Join(" | ", failures));
     }
 

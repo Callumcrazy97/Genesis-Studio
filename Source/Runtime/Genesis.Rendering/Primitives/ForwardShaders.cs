@@ -126,6 +126,10 @@ cbuffer DrawConstants : register(b2)
     float              GpuSkinning;
     float              NoReceiveShadow;
     float              SkinPad1;
+    // The colour of the material's own light (MeshDrawCall.EmissionColor): rgb multiplies the
+    // emission map and the w share of MaterialParams.x that is the material's (the rest is a
+    // whole-model glow). w = 0 leaves the light as it was.
+    float4             MaterialEmissionColor;
 };
 
 // ── Resources ────────────────────────────────────────────────────────────────
@@ -1341,6 +1345,15 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
         mappedEmission = SrgbToLinear3(mappedEmission / max(MaterialSurface.z, 1e-4)) * MaterialSurface.z;
 #endif
     float3 color = lit + emissive * base + mappedEmission;
+    if (MaterialEmissionColor.w > 0.0)
+    {
+        // A material's light in a colour of its own; a glow over the whole model keeps the model's.
+        float3 lightColor = max(MaterialEmissionColor.rgb, 0.0);
+        if (LinearColorPipeline())
+            lightColor = SrgbToLinear3(lightColor);
+        float ownLight = MaterialParams.x * saturate(MaterialEmissionColor.w);
+        color = lit + (emissive - ownLight) * base + (ownLight * base + mappedEmission) * lightColor;
+    }
     if (StylizedParams.x > 0.5 && StylizedParams.w > 1.0)
     {
         float lum = dot(color, float3(0.299, 0.587, 0.114));

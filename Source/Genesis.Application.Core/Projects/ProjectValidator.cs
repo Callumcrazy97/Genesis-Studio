@@ -86,7 +86,48 @@ public sealed class ProjectValidator
 
         issues.AddRange(ValidateShaderNames(resourceFiles.Where(
             path => path.EndsWith(".shader.json", StringComparison.OrdinalIgnoreCase))));
+        issues.AddRange(ValidateModelColliders(session.RootPath, resourceFiles.Where(
+            path => path.EndsWith(".model.json", StringComparison.OrdinalIgnoreCase))));
         return issues;
+    }
+
+    /// <summary>
+    /// Warns about Models with a Mesh or Convex Hull collider that no part of the model makes
+    /// (every mesh named NOCOL_): the game leaves such a collider out (with a warning when the
+    /// model is placed or streamed in), so the model is not solid where it was meant to be.
+    /// </summary>
+    public static IEnumerable<ProjectValidationIssue> ValidateModelColliders(string projectRoot, IEnumerable<string> modelFiles)
+    {
+        foreach (string modelFile in modelFiles)
+        {
+            Genesis.Runtime.Modeling.GModelAsset model;
+            try
+            {
+                model = Genesis.Runtime.Modeling.StudioModelResourceLoader.LoadReadOnly(modelFile);
+            }
+            catch (Exception exception) when (exception is not (OutOfMemoryException or StackOverflowException))
+            {
+                continue; // an unreadable model is reported by its editor and by the room that places it
+            }
+
+            if (model == null || !Genesis.Runtime.Modeling.ModelCollisionNames.HasTriangleCollider(model)
+                || Genesis.Runtime.Modeling.ModelCollisionNames.HasColliderTriangles(model)) continue;
+            string name;
+            try
+            {
+                name = Genesis.Shared.Assets.ResourceCatalog.Name(projectRoot, modelFile, Genesis.Shared.Assets.ResourceType.Model);
+            }
+            catch (InvalidDataException)
+            {
+                name = Genesis.Shared.Assets.ResourceCatalog.FormatName(modelFile); // a shared name is reported on its own
+            }
+            yield return new ProjectValidationIssue(
+                ProjectValidationSeverity.Warning,
+                "MODEL_COLLIDER_EMPTY",
+                Genesis.Runtime.Modeling.ModelCollisionNames.EmptyColliderMessage(name)
+                    + " Remove the collider, or rename a part so it collides.",
+                modelFile);
+        }
     }
 
     /// <summary>
