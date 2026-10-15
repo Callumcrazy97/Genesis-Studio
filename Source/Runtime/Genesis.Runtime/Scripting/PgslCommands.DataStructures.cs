@@ -58,22 +58,54 @@ public static partial class PgslCommands
         if (store is not null) store[DsKey(family, handle)] = value;
     }
 
-    private static void Unbind(string family, double handle) =>
+    private static void Unbind(string family, double handle)
+    {
         Store?.Remove(DsKey(family, (int)handle));
+        ForgetDsKey(family, (int)handle);
+    }
 
-    // Every list or grid read looks its structure up by key; the keys of the first handles of each
-    // family are made once instead of formatted (and allocated) on every call.
+    // Every list or grid read looks its structure up by key; each handle's key is made once instead of
+    // formatted (and allocated) on every call. Handles are never reused, so a game that keeps creating
+    // structures (a worker job's per-run lists and grids) soon passes any fixed table: the table grows
+    // with the handles (up to MaxCachedDsKeys), and a destroyed structure's key is let go. Worker
+    // threads share it: a lost write only means a key is formatted again.
+    private const int MaxCachedDsKeys = 1 << 21;
     private static readonly string[][] DsKeys = [new string[4096], new string[4096], new string[4096], new string[4096], new string[4096], new string[4096]];
+    private static readonly object DsKeysGrow = new();
+
+    private static int DsFamilyIndex(string family) => family switch
+    {
+        "list" => 0, "grid" => 1, "map" => 2, "stack" => 3, "queue" => 4, "priority" => 5, _ => -1,
+    };
 
     private static string DsKey(string family, int handle)
     {
-        string[] keys = family switch
+        int f = DsFamilyIndex(family);
+        if (f < 0 || handle < 0 || handle >= MaxCachedDsKeys) return $"__ds_{family}_{handle}";
+        string[] keys = DsKeys[f];
+        if (handle >= keys.Length)
         {
-            "list" => DsKeys[0], "grid" => DsKeys[1], "map" => DsKeys[2], "stack" => DsKeys[3], "queue" => DsKeys[4], "priority" => DsKeys[5],
-            _ => null,
-        };
-        if (keys is null || (uint)handle >= (uint)keys.Length) return $"__ds_{family}_{handle}";
+            lock (DsKeysGrow)
+            {
+                keys = DsKeys[f];
+                if (handle >= keys.Length)
+                {
+                    int size = keys.Length;
+                    while (size <= handle) size *= 2;
+                    Array.Resize(ref keys, Math.Min(size, MaxCachedDsKeys));
+                    DsKeys[f] = keys;
+                }
+            }
+        }
         return keys[handle] ??= $"__ds_{family}_{handle}";
+    }
+
+    private static void ForgetDsKey(string family, int handle)
+    {
+        int f = DsFamilyIndex(family);
+        if (f < 0 || handle < 0) return;
+        string[] keys = DsKeys[f];
+        if (handle < keys.Length) keys[handle] = null;
     }
 
     private static double AsNumber(object value) => value switch
