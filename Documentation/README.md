@@ -147,6 +147,45 @@ against the sphere of its bind pose, which the seated pose had left by half a me
   hair as separate skinned meshes): all drawn. Not covered: the Software renderer is in neither
   the new drawn-scene case nor that game check.
 
+### A frozen roll drawn standing, 15 October
+
+Reported from Golden Stag: the hero (`GS_Body_M`, 36 bones, 95 clips at 10 fps) frozen on its
+"Roll" clip at 0.6 s (Animator Clip FPS 0, playback speed 0) was drawn standing upright on
+Direct3D 11 and Vulkan, while the clip evaluated on the CPU had the hips turned about 147°.
+
+- Not a renderer fault, and already fixed in the engine. The game runs a snapshot from 4 October
+  (`9ec9181`), in which `RuntimeModelAnimationState` turned a Clip FPS of 0 into 60 fps, although
+  the Animator, the scripts and the clip-state queries all read 0 as "the clip's own rate".
+  `c953d0b` (5 October) made the renderer agree. At 60 fps 0.6 s is frame 36, held at the
+  16-frame roll's last frame, where the character has stood up again; 0.15 s is frame 9 (still
+  crouched, which looked right), and Death at 1.6 s and Knockback at 0.4 s land on their last
+  frames, which also look right.
+- Reproduced through the game's own Object path (`ObjectDrawPass.SubmitMeshes3D`) with a copy of
+  the model, comparing each picture with the same vertices skinned on the CPU: on the current
+  engine Roll at 0.6 s is frame 6 and drawn rolled on DX11 and Vulkan; sampled at 60 fps it is
+  frame 15 of 16 and drawn standing, which is the report.
+- Also ruled out, with the same copy: palette reuse under load. With the hero frozen and 24
+  characters on the three `GS_Body_*` models asking for about 4,900 clip frames, the cache
+  released palettes and the renderer gave 1,455 of their ids out again; the hero's palette was
+  never one of them and its outline did not change, on DX11 and Vulkan. The palette cache and the
+  renderer's palette ids are unchanged since `9ec9181`.
+- Golden Stag needs an engine snapshot from `c953d0b` or later. On the old snapshot a Clip FPS of
+  10 on the Player's Animator gives the right frames.
+- Tests: `SkinnedPoseSuite` (`--test skinned-pose`, in the full regression). A built figure whose
+  10 fps "Tumble" is upside down at frame 6 and standing at its last frame is frozen at 0.6 s and
+  0.15 s with Clip FPS 0 and drawn through `ObjectDrawPass` on DX11, DX12, Vulkan and OpenGL; the
+  outline must match the CPU-skinned vertices and, at 0.6 s, show the head below the hips and
+  nothing where a standing head would be. The same check sampled at 60 fps must report it
+  standing. A second case keeps the frozen figure on screen while a crowd of sixteen on two
+  models plays three sets of clip frames, so the model cache passes its 128 poses per model,
+  calls the first set idle after two seconds, releases those palettes and gives their ids out
+  again; the hero's palette must never be one a crowd draw uses, and its outline must not change.
+  `GENESIS_SKINNED_POSE_PROJECT`, `_MODEL`, `_CROWD`, `_CLIPS` ("Clip@seconds" or
+  "Clip@seconds/fps") and `_BACKENDS` run the same checks on a game's own model.
+- Validation: `--test skinned-pose` passed, 4 checks with the Golden Stag copy named (2 without):
+  the tumble on DX11, DX12, Vulkan and OpenGL, the crowd case (1,219 poses, 399 palette ids given
+  out again, the hero's never shared), and the game's model on DX11 and Vulkan.
+
 ### Engine audit remediation — rendering, frame-path waste and volumetric fog, 30 September
 
 An engine audit (per-frame waste of the "model re-scanned and re-uploaded every frame" kind,
