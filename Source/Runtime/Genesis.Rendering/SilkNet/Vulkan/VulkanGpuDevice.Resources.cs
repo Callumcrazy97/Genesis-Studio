@@ -605,7 +605,7 @@ namespace Genesis.Rendering.SilkNet.Vulkan
                 CompareOp = VulkanGpuFormats.ToCompare(desc.CompareOp),
                 MinLod = 0,
                 MaxLod = Vk.LodClampNone,
-                BorderColor = BorderColor.FloatOpaqueBlack,
+                BorderColor = BorderFor(desc),
                 UnnormalizedCoordinates = false,
             };
 
@@ -616,6 +616,18 @@ namespace Genesis.Rendering.SilkNet.Vulkan
             int id = _nextId++;
             _samplers[id] = sampler;
             return new GpuSamplerHandle(id);
+        }
+
+        /// <summary>
+        /// The nearest of Vulkan's fixed border colours to the one asked for. The shadow sampler asks
+        /// for white (a lookup off the map is lit, as on the other backends); always using black made
+        /// the filtered taps at a shadow map's edge read as shadow on Vulkan only.
+        /// </summary>
+        internal static BorderColor BorderFor(in GpuSamplerDesc desc)
+        {
+            if (desc.BorderColorA < 0.5f) return BorderColor.FloatTransparentBlack;
+            float brightness = (desc.BorderColorR + desc.BorderColorG + desc.BorderColorB) / 3f;
+            return brightness >= 0.5f ? BorderColor.FloatOpaqueWhite : BorderColor.FloatOpaqueBlack;
         }
 
         public void ReleaseSampler(GpuSamplerHandle handle)

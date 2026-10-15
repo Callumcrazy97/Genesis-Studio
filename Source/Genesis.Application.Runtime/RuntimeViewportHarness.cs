@@ -56,6 +56,7 @@ public sealed partial class RuntimeViewportHarness : IDisposable
         DepthPrecision,
         RoomChangeScreen,
         LitScene,
+        FarView,
     }
 
     public RuntimeViewportHarness(int width = 640, int height = 360)
@@ -536,6 +537,7 @@ public sealed partial class RuntimeViewportHarness : IDisposable
         if (_mode == CaptureMode.DepthPrecision) { RenderDepthPrecision(renderer); return; }
         if (_mode == CaptureMode.RoomChangeScreen) { RenderRoomChangeScene(renderer); return; }
         if (_mode == CaptureMode.LitScene) { RenderLitScene(renderer); return; }
+        if (_mode == CaptureMode.FarView) { RenderFarView(renderer); return; }
         if (_mode == CaptureMode.TwoD)
         {
             RenderTwoD(renderer);
@@ -925,6 +927,8 @@ public sealed partial class RuntimeViewportHarness : IDisposable
                 renderer.ReleaseRuntimeShader(_authoredShader, ShaderPreviewProfile.MeshPipeline);
             if (_authoredSprite.IsValid) renderer.ReleaseTexture(_authoredSprite);
             if (_authoredMask.IsValid) renderer.ReleaseTexture(_authoredMask);
+            ReleaseFarViewResources();
+            if (_farTexture.IsValid) renderer.ReleaseTexture(_farTexture);
         }
 
         _viewport.Dispose();
