@@ -38,6 +38,8 @@ public sealed partial class ModelEditorControl
     private NumericUpDown? _uvOffsetUValue;
     private NumericUpDown? _uvOffsetVValue;
     private Label? _materialShaderValue;
+    private Panel? _emissionColourSwatch;
+    private NumericUpDown? _boxUvMetresValue;
     private CollapsibleSection? _morphSection;
     private readonly Dictionary<string, NumericUpDown> _morphInputs = new(StringComparer.OrdinalIgnoreCase);
     private CollapsibleSection? _socketSection;
@@ -236,7 +238,7 @@ public sealed partial class ModelEditorControl
         imagePaint.Content.Controls.Add(paintImage);
         imagePaint.Content.Controls.Add(new Label { Text = "Assign an Albedo Image below. Paint on its 2D canvas or on the Model, then Save Image to update gameplay.",
             Location = new Point(8, 44), Size = new Size(250, 58), ForeColor = EditorChrome.Muted });
-        CollapsibleSection material = Section(page, "MATERIAL & PBR", 430);
+        CollapsibleSection material = Section(page, "MATERIAL & PBR", 500);
         _material.SetBounds(8, 7, 166, 28);
         material.Content.Controls.Add(_material);
         _material.SelectedIndexChanged += (_, _) => { if (!_syncingGroups) AssignMaterial(_material.SelectedIndex); };
@@ -274,6 +276,25 @@ public sealed partial class ModelEditorControl
         clearShader.Name = "ModelMaterialShaderClear";
         clearShader.SetBounds(226, 394, 32, 28);
         material.Content.Controls.Add(clearShader);
+        // The colour of the material's own light: multiplies its emission image and its glow.
+        material.Content.Controls.Add(new Label { Text = "Light colour", Location = new Point(8, 434), Size = new Size(84, 22), ForeColor = EditorChrome.Muted });
+        _emissionColourSwatch = new Panel
+        {
+            Name = "ModelMaterialEmissionColour", Location = new Point(96, 432), Size = new Size(90, 24),
+            BorderStyle = BorderStyle.FixedSingle, BackColor = Color.White,
+        };
+        material.Content.Controls.Add(_emissionColourSwatch);
+        Button chooseEmissionColour = Tool("…", ChooseMaterialEmissionColour);
+        chooseEmissionColour.Name = "ModelMaterialEmissionColourChoose";
+        chooseEmissionColour.SetBounds(190, 430, 32, 28);
+        material.Content.Controls.Add(chooseEmissionColour);
+        Button clearEmissionColour = Tool("×", () => SetMaterialEmissionColour(System.Numerics.Vector3.One));
+        clearEmissionColour.Name = "ModelMaterialEmissionColourClear";
+        clearEmissionColour.SetBounds(226, 430, 32, 28);
+        material.Content.Controls.Add(clearEmissionColour);
+        // Box UVs in metres for a mesh without UVs: one repeat of the images every so many metres (0: off).
+        AddNumber("Box UVs (m)", 466, ref _boxUvMetresValue, 0, 10000, 0, value => { if (!_syncingGroups) SetMaterialBoxUvMetres((float)value); });
+        _boxUvMetresValue!.Name = "ModelMaterialBoxUvMetres";
 
         CollapsibleSection paint = Section(page, "VERTEX COLOUR", 100);
         _colour.SetBounds(8, 8, 250, 31);
@@ -862,9 +883,53 @@ public sealed partial class ModelEditorControl
         ChangeAsset("Change material colour",()=>material.BaseColor=new System.Numerics.Vector4(picker.Color.R/255f,picker.Color.G/255f,picker.Color.B/255f,material.BaseColor.W));
     }
 
+    private void ChooseMaterialEmissionColour()
+    {
+        GModelMaterial? material = SelectedMaterial(); if (material is null) return;
+        using ColorDialog picker = new() { Color = SwatchColour(material.EmissiveColor), FullOpen = true };
+        if (picker.ShowDialog(this) != DialogResult.OK) return;
+        SetMaterialEmissionColour(new System.Numerics.Vector3(picker.Color.R / 255f, picker.Color.G / 255f, picker.Color.B / 255f));
+    }
+
+    /// <summary>The selected material's light colour (its emission image and glow times this); white is as authored.</summary>
+    private void SetMaterialEmissionColour(System.Numerics.Vector3 colour)
+    {
+        GModelMaterial? material = SelectedMaterial();
+        if (material is null || !float.IsFinite(colour.X + colour.Y + colour.Z)) return;
+        colour = System.Numerics.Vector3.Clamp(colour, System.Numerics.Vector3.Zero, new System.Numerics.Vector3(16f));
+        if (material.EmissiveColor == colour) return;
+        ChangeAsset(colour == System.Numerics.Vector3.One ? "Clear material light colour" : "Change material light colour",
+            () => material.EmissiveColor = colour);
+        RefreshMaterialInspector();
+    }
+
+    /// <summary>
+    /// Gives the selected material box UVs in metres (one repeat of its images every
+    /// <paramref name="metres"/>; 0 turns the option off and leaves the UVs as they are now).
+    /// </summary>
+    private void SetMaterialBoxUvMetres(float metres)
+    {
+        GModelMaterial? material = SelectedMaterial();
+        if (material is null || !float.IsFinite(metres)) return;
+        metres = Math.Clamp(metres, 0f, 10000f);
+        if (GModelProductionTools.BoxUvMetres(material) == metres || (metres <= 0f && !material.Metadata.ContainsKey(GModelProductionTools.BoxUvMetresKey))) return;
+        RunTopology(metres > 0f ? "Box UVs in metres" : "Clear box UVs in metres", () =>
+        {
+            if (metres > 0f) material.Metadata[GModelProductionTools.BoxUvMetresKey] = metres.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+            else material.Metadata.Remove(GModelProductionTools.BoxUvMetresKey);
+            GModelProductionTools.ApplyMaterialBoxUvs(Asset);
+        });
+        RefreshMaterialInspector();
+    }
+
+    private static Color SwatchColour(System.Numerics.Vector3 colour) => Color.FromArgb(
+        (int)Math.Round(Math.Clamp(colour.X, 0f, 1f) * 255f), (int)Math.Round(Math.Clamp(colour.Y, 0f, 1f) * 255f),
+        (int)Math.Round(Math.Clamp(colour.Z, 0f, 1f) * 255f));
+
     private void RefreshMaterialInspector()
     {
         GModelMaterial? material=SelectedMaterial();
+        if(_emissionColourSwatch is not null)_emissionColourSwatch.BackColor=SwatchColour(material?.EmissiveColor??System.Numerics.Vector3.One);
         if(material is null)
         {
             if(_albedoValue is not null)_albedoValue.Text="(none)";
@@ -886,6 +951,7 @@ public sealed partial class ModelEditorControl
             if(_uvScaleValue is not null)_uvScaleValue.Value=(decimal)(material.Metadata.TryGetValue("UvScale",out string? text)&&float.TryParse(text,System.Globalization.NumberStyles.Float,System.Globalization.CultureInfo.InvariantCulture,out float scale)?Math.Clamp(scale,.01f,256f):1f);
             if(_uvOffsetUValue is not null)_uvOffsetUValue.Value=(decimal)MetadataFloat(material,"UvOffsetU",0,-1000,1000);
             if(_uvOffsetVValue is not null)_uvOffsetVValue.Value=(decimal)MetadataFloat(material,"UvOffsetV",0,-1000,1000);
+            if(_boxUvMetresValue is not null)_boxUvMetresValue.Value=(decimal)GModelProductionTools.BoxUvMetres(material);
             SetMaterialPreview(_albedoPreview, material.AlbedoTexture);
             SetMaterialPreview(_normalPreview, material.NormalTexture);
             SetMaterialPreview(_ormPreview, material.MetallicRoughnessTexture);

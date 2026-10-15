@@ -41,6 +41,7 @@ namespace Genesis.Runtime.Rendering
             public float Fade = -1f;
             public float Age;
             public DecalBlend Blend;
+            public bool SeeThrough;
         }
 
         private static readonly object Gate = new();
@@ -121,6 +122,23 @@ namespace Genesis.Runtime.Rendering
             });
 
         public static bool SetBlend(int id, DecalBlend blend) => Edit(id, decal => decal.Blend = blend);
+
+        /// <summary>
+        /// Puts a decal on a see-through surface (glass): drawn as a flat picture in its own plane
+        /// after the see-through draws instead of projected onto the opaque world (see
+        /// <see cref="DecalDrawCall.SeeThrough"/>); false when there is no such decal.
+        /// </summary>
+        public static bool SetSeeThrough(int id, bool seeThrough) => Edit(id, decal => decal.SeeThrough = seeThrough);
+
+        /// <summary>Whether a decal is drawn on see-through surfaces; false when there is no such decal.</summary>
+        public static bool IsSeeThrough(int id)
+        {
+            lock (Gate)
+            {
+                int index = IndexOf(id);
+                return index >= 0 && Decals[index].SeeThrough;
+            }
+        }
 
         /// <summary>How many seconds at the end of its life a decal takes to fade out; less than 0 uses the default.</summary>
         public static bool SetFade(int id, float seconds) =>
@@ -253,6 +271,7 @@ namespace Genesis.Runtime.Rendering
                         Depth = decal.Depth,
                         Color = new Vector4(decal.Color.X, decal.Color.Y, decal.Color.Z, opacity),
                         Blend = decal.Blend,
+                        SeeThrough = decal.SeeThrough,
                     };
                 }
                 Pictures.Clear();

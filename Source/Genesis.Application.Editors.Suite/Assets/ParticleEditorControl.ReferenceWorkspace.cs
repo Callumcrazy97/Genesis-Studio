@@ -626,12 +626,8 @@ public sealed partial class ParticleEditorControl
             TextureHandle texture = TextureHandle.Invalid;
             if (!string.IsNullOrWhiteSpace(config.TexturePath))
             {
-                string resolved = TexturePathResolver.Resolve(ProjectRoot, config.TexturePath);
-                if (!string.IsNullOrWhiteSpace(resolved) && SpriteAssetLoader.IsSpriteDescriptorPath(resolved))
-                {
-                    SpriteRuntimeAsset sprite = SpriteAssetLoader.Load(resolved);
-                    resolved = SpriteAssetLoader.ResolveFrameTexturePath(resolved, sprite, 0);
-                }
+                // An Image resource by name or id, or a file in the project: as the game resolves it.
+                string resolved = Genesis.Runtime.Particles.ParticleTextureResolver.ResolveFile(ProjectRoot, config.TexturePath);
                 if (!string.IsNullOrWhiteSpace(resolved) && File.Exists(resolved)) texture = renderer.LoadTexture(resolved);
             }
             bool ownsTexture = false;

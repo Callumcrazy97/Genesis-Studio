@@ -39,6 +39,11 @@ namespace Genesis.Runtime.ECS.Components
         /// <summary>Light given off by named materials on this instance, replacing what each was authored with.</summary>
         public System.Collections.Generic.Dictionary<string, float> MaterialEmission;
         /// <summary>
+        /// The colour of the light named materials give off on this instance, replacing each one's
+        /// own emission colour (ModelSetMaterialEmissionTint); null is as authored.
+        /// </summary>
+        public System.Collections.Generic.Dictionary<string, System.Numerics.Vector3> MaterialEmissionTints;
+        /// <summary>
         /// Images named materials use on this instance in place of their own, by material name and
         /// then slot: <c>albedo</c>, <c>normal</c>, <c>orm</c>, <c>emission</c>, or the name of a
         /// texture the material's Shader declares (ModelSetMaterialTexture). Null is as authored.

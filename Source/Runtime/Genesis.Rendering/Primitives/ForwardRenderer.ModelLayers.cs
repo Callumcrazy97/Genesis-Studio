@@ -209,7 +209,8 @@ namespace Genesis.Rendering.Primitives
                     noFog: true, gpuSkinning: skinned, skinMatrixOffset: 0,
                     surfaceParams: wm.SurfaceParams, detailParams: wm.DetailParams,
                     materialFeatures: new Vector4(wm.Orm.IsValid ? 1f : 0f, 0f, wm.EmissionMap.IsValid ? 1f : 0f, 0f),
-                    noReceiveShadow: wm.NoReceiveShadow || layer.NoReceiveShadow, materialFactors: wm.MaterialFactors);
+                    noReceiveShadow: wm.NoReceiveShadow || layer.NoReceiveShadow, materialFactors: wm.MaterialFactors,
+                    emissionColor: wm.EmissionColor);
                 _gpu.DrawIndexed(mesh.IndexCount);
                 LastDrawCalls++;
                 LastTriangles += mesh.IndexCount / 3;

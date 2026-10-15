@@ -682,7 +682,15 @@ namespace Genesis.Runtime.Platform
         // Polled each frame and translated into the same InputState the rest of the engine reads:
         //   left stick → analog move, right stick → look, LT/RT → LMB/RMB, LB/RB → inv cycle,
         //   A → jump (Space), L3/R3 → sprint/crouch, Start → pause, B → back/cancel.
+        // Controllers after the first are read too (up to four in all), for scripts only: they press
+        // no keys.
         private void PollGamepad(float dt)
+        {
+            PollFirstGamepad(dt);
+            PollOtherGamepads(dt);
+        }
+
+        private void PollFirstGamepad(float dt)
         {
             if (_silkInput == null || _silkInput.Gamepads.Count == 0) { LoseGamepad(); return; }
 
@@ -806,6 +814,85 @@ namespace Genesis.Runtime.Platform
             if (_input.GamepadConnected) _input.ReleaseGamepad();
             _input.GamepadConnected = false;
             _gpRumbling = false;
+        }
+
+        // Controllers 1 to 3: the next ones plugged in after the first, in the order the system lists them.
+        private readonly bool[] _otherRumbling = new bool[EngineInput.MaxGamepads];
+
+        private static readonly (ButtonName Name, Genesis.Runtime.Input.GamepadButton Button)[] OtherGamepadButtons =
+        [
+            (ButtonName.A, Genesis.Runtime.Input.GamepadButton.A), (ButtonName.B, Genesis.Runtime.Input.GamepadButton.B),
+            (ButtonName.X, Genesis.Runtime.Input.GamepadButton.X), (ButtonName.Y, Genesis.Runtime.Input.GamepadButton.Y),
+            (ButtonName.LeftBumper, Genesis.Runtime.Input.GamepadButton.LeftBumper),
+            (ButtonName.RightBumper, Genesis.Runtime.Input.GamepadButton.RightBumper),
+            (ButtonName.Back, Genesis.Runtime.Input.GamepadButton.Back), (ButtonName.Start, Genesis.Runtime.Input.GamepadButton.Start),
+            (ButtonName.LeftStick, Genesis.Runtime.Input.GamepadButton.LeftStick),
+            (ButtonName.RightStick, Genesis.Runtime.Input.GamepadButton.RightStick),
+            (ButtonName.DPadUp, Genesis.Runtime.Input.GamepadButton.DPadUp), (ButtonName.DPadDown, Genesis.Runtime.Input.GamepadButton.DPadDown),
+            (ButtonName.DPadLeft, Genesis.Runtime.Input.GamepadButton.DPadLeft), (ButtonName.DPadRight, Genesis.Runtime.Input.GamepadButton.DPadRight),
+        ];
+
+        private void PollOtherGamepads(float dt)
+        {
+            int pad = 1;
+            var gamepads = _silkInput?.Gamepads;
+            if (gamepads != null)
+            {
+                for (int i = 1; i < gamepads.Count && pad < EngineInput.MaxGamepads; i++)
+                {
+                    IGamepad gp = gamepads[i];
+                    if (gp == null || !gp.IsConnected) continue;
+                    PollOtherGamepad(pad++, gp, dt);
+                }
+            }
+
+            for (; pad < EngineInput.MaxGamepads; pad++)
+            {
+                if (_input.IsGamepadConnected(pad)) _input.ReleaseGamepad(pad);
+                _input.SetGamepadConnected(pad, false);
+                _otherRumbling[pad] = false;
+            }
+        }
+
+        private void PollOtherGamepad(int pad, IGamepad gp, float dt)
+        {
+            _input.SetGamepadConnected(pad, true);
+            // Read as the first controller is: away from the player is positive, with the same dead zones.
+            Vector2 lsRaw = ReadStick(gp, 0);
+            lsRaw.Y = -lsRaw.Y;
+            Vector2 rsRaw = ReadStick(gp, 1);
+            float ltRaw = ReadTrigger(gp, 0);
+            float rtRaw = ReadTrigger(gp, 1);
+            Vector2 ls = lsRaw.Length() < _input.LeftStickDeadZone ? Vector2.Zero : lsRaw;
+            Vector2 rs = rsRaw.Length() < _input.RightStickDeadZone ? Vector2.Zero : rsRaw;
+            float lt = ltRaw < _input.TriggerDeadZone ? 0f : ltRaw;
+            float rt = rtRaw < _input.TriggerDeadZone ? 0f : rtRaw;
+            _input.SetGamepadAxes(pad, new EngineInput.GamepadAxes(ls, rs, lt, rt, lsRaw, rsRaw, ltRaw, rtRaw));
+
+            foreach ((ButtonName name, Genesis.Runtime.Input.GamepadButton button) in OtherGamepadButtons)
+                _input.SetGamepadButton(pad, button, Btn(gp, name));
+            _input.SetGamepadButton(pad, Genesis.Runtime.Input.GamepadButton.LeftTrigger, lt > 0.5f);
+            _input.SetGamepadButton(pad, Genesis.Runtime.Input.GamepadButton.RightTrigger, rt > 0.5f);
+
+            (float low, float high, float seconds) = _input.GetRumble(pad);
+            bool rumble = seconds > 0f && (low > 0f || high > 0f);
+            if (rumble || _otherRumbling[pad])
+            {
+                try
+                {
+                    var motors = gp.VibrationMotors;
+                    if (motors.Count > 0) motors[0].Speed = rumble ? low : 0f;
+                    if (motors.Count > 1) motors[1].Speed = rumble ? high : 0f;
+                }
+                catch (Exception)
+                {
+                    // Not every controller or driver has motors; a game must not stop for that.
+                }
+
+                _otherRumbling[pad] = rumble;
+            }
+
+            _input.AdvanceRumble(pad, dt);
         }
 
         private void HoldKey(bool now, ref bool prev, GKey key)

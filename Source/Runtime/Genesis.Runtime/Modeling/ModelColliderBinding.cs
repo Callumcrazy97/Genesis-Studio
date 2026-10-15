@@ -16,9 +16,58 @@ internal static class ModelColliderBinding
     {
         public MeshColliderComponent Plain, Mirrored;
         public bool HasPlain, HasMirrored;
+        // The model has no triangle a collider may take (every part NOCOL_, say): known once, warned once.
+        public bool Empty;
     }
 
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<GModelAsset, SharedGeometry> Shared = new();
+
+    /// <summary>
+    /// <see cref="AttachGeometry"/> for a model that may have no collision triangles. A model whose
+    /// parts are all left out of its collider gets none: false is returned (the caller leaves the
+    /// body out too), and a warning naming the model is reported once per model rather than the
+    /// game stopping when the model is placed or streamed in.
+    /// </summary>
+    public static bool TryAttachGeometry(EcsWorld world, Entity entity, GModelAsset asset, Vector3 scale, string modelName = null)
+    {
+        if (asset == null) return false;
+        SharedGeometry shared = Shared.GetValue(asset, _ => new SharedGeometry());
+        bool warn = false;
+        lock (shared)
+        {
+            if (!shared.Empty && !shared.HasPlain && !shared.HasMirrored && !ModelCollisionNames.HasColliderTriangles(asset))
+            {
+                shared.Empty = true;
+                warn = true;
+            }
+        }
+        if (warn) ReportEmptyCollider(asset, modelName);
+        if (shared.Empty) return false;
+        AttachGeometry(world, entity, asset, scale);
+        return true;
+    }
+
+    private static readonly object WarningGate = new();
+    private static readonly List<string> Warnings = new();
+
+    /// <summary>The empty-collider warnings given so far in this process, oldest first (at most 256 kept).</summary>
+    public static IReadOnlyList<string> EmptyColliderWarnings
+    {
+        get { lock (WarningGate) return Warnings.ToArray(); }
+    }
+
+    private static void ReportEmptyCollider(GModelAsset asset, string modelName)
+    {
+        string name = !string.IsNullOrWhiteSpace(modelName) ? modelName : !string.IsNullOrWhiteSpace(asset.Name) ? asset.Name : "(unnamed)";
+        string message = ModelCollisionNames.EmptyColliderMessage(name);
+        lock (WarningGate)
+        {
+            if (Warnings.Count >= 256) Warnings.RemoveAt(0);
+            Warnings.Add(message);
+        }
+        System.Console.WriteLine("[Physics] Warning: " + message);
+        System.Diagnostics.Trace.TraceWarning(message);
+    }
 
     public static void AttachGeometry(EcsWorld world, Entity entity, GModelAsset asset, Vector3 scale)
     {

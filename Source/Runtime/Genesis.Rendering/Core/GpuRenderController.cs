@@ -79,6 +79,9 @@ namespace Genesis.Rendering.Core
         public int    PixelWidth    => _gpuSwapChain?.Width  ?? 0;
         public int    PixelHeight   => _gpuSwapChain?.Height ?? 0;
 
+        /// <summary>The window's swap chain, for checks of how a backend presents.</summary>
+        internal IGpuSwapChain SwapChain => _gpuSwapChain;
+
         // ── Lifecycle ────────────────────────────────────────────────────────────
 
         /// <summary>Drives a frame over any backend that implements <see cref="IGpuDevice"/>.</summary>
@@ -1151,7 +1154,8 @@ namespace Genesis.Rendering.Core
                     shaderParams2: c.ShaderParams2, shaderParams3: c.ShaderParams3,
                     authoredTextures: ResolveAuthoredTextures(c.AuthoredTextures),
                     materialFactors: c.MaterialFactors, layer: c.Layer,
-                    outline: c.Outline, outlineId: c.OutlineId, outlineThroughWalls: c.OutlineThroughWalls);
+                    outline: c.Outline, outlineId: c.OutlineId, outlineThroughWalls: c.OutlineThroughWalls,
+                    emissionColor: c.EmissionColor);
             }
         }
 

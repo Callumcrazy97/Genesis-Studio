@@ -357,7 +357,9 @@ public sealed class RoomEffects2D : IDisposable
         if (string.IsNullOrWhiteSpace(path)) return _halo;
         if (_textures.TryGetValue(path, out TextureHandle texture)) return texture.IsValid ? texture : _halo;
         string resolved = Path.IsPathRooted(path) ? path : Path.Combine(project, path.Replace('/', Path.DirectorySeparatorChar));
-        texture = File.Exists(resolved) ? _renderer.LoadTexture(resolved) : default;
+        // Not a file: an Image resource by name or id, as the 3D particles take it.
+        if (!File.Exists(resolved)) resolved = Genesis.Runtime.Particles.ParticleTextureResolver.ResolveFile(project, path);
+        texture = !string.IsNullOrEmpty(resolved) && File.Exists(resolved) ? _renderer.LoadTexture(resolved) : default;
         _textures[path] = texture;
         return texture.IsValid ? texture : _halo;
     }

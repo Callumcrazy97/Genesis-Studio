@@ -208,7 +208,10 @@ internal static class TerrainPartBinding
         if (asset != null)
         {
             if (body.Shape == Genesis.Shared.ECS.Components.CollisionShape.Mesh)
-                ModelColliderBinding.AttachGeometry(world, entity, asset, scale);
+            {
+                // A model with no part that collides (all NOCOL_) gets no body, with a warning once.
+                if (!ModelColliderBinding.TryAttachGeometry(world, entity, asset, scale)) return;
+            }
             else body.LocalOffset = (asset.Bounds.Center - (asset.Pivot?.Position ?? Vector3.Zero)) * scale;
         }
         body.Flags &= ~RigidBodyFlags.PlanarTwoD;

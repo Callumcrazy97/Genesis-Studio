@@ -30,6 +30,8 @@ internal static class NetworkReplicationSuite
         public int PeerCount => _peers.Count;
         public IReadOnlyList<NetPeer> Peers => _peers;
         public int Sent { get; private set; }
+        /// <summary>Every message sent, by tag and size.</summary>
+        public readonly List<(int Tag, int Bytes)> Log = new();
 
         public event Action<NetMessage>? OnMessageReceived;
         public event Action<NetPeer>? OnPeerConnected;
@@ -63,6 +65,7 @@ internal static class NetworkReplicationSuite
         {
             if (peerId == 0) { Broadcast(tag, payload, delivery); return; }
             Sent++;
+            Log.Add((tag, payload?.Length ?? 0));
             if (IsHost) { if (_links.TryGetValue(peerId, out LoopNetwork? player)) player._inbox.Enqueue(new NetMessage(tag, NetPeer.Host, payload)); }
             else _host?._inbox.Enqueue(new NetMessage(tag, new NetPeer(_idAtHost, "loop:" + _idAtHost), payload));
         }
@@ -455,10 +458,337 @@ internal static class NetworkReplicationSuite
         });
     }
 
+    /// <summary>Pumps real networks until something is true, or fails with what was seen.</summary>
+    private static void PumpUntil(Genesis.Net.LiteNetGameNetwork[] networks, Func<bool> done, Func<string> failure, double seconds = 8)
+    {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        while (!done() && watch.Elapsed.TotalSeconds < seconds)
+        {
+            foreach (Genesis.Net.LiteNetGameNetwork network in networks) network.Update();
+            Thread.Sleep(2);
+        }
+
+        HeadlessHarness.Assert(done(), failure());
+    }
+
+    private static void RunDiscovery(HeadlessContext context)
+    {
+        HeadlessHarness.RunCase(context.Report, "Engine.Net.Discovery.FindsAHostOfTheSameGameOnThisComputer", () =>
+        {
+            const string key = "genesis-replication-check";
+            using var host = new Genesis.Net.LiteNetGameNetwork(key) { LocalOnly = true, GameKey = "meadow-id", GameTitle = "Mushroom Meadow" };
+            using var anna = new Genesis.Net.LiteNetGameNetwork(key) { LocalOnly = true, GameKey = "meadow-id" };
+            using var ben = new Genesis.Net.LiteNetGameNetwork(key) { LocalOnly = true, GameKey = "meadow-id" };
+            using var otherGame = new Genesis.Net.LiteNetGameNetwork(key) { LocalOnly = true, GameKey = "another-game", GameTitle = "Another Game" };
+            Genesis.Net.LiteNetGameNetwork[] all = [host, anna, ben, otherGame];
+            try
+            {
+                int port = FreeUdpPort();
+                host.Host(port);
+                HeadlessHarness.Assert(host.AdvertisedName == "Mushroom Meadow", $"A host advertises '{host.AdvertisedName}' before a script names it; it should be the game's title.");
+
+                // Anna looks through the commands a lobby script would use, before she has hosted or joined.
+                Genesis.Runtime.Scripting.PgslCommands.ActiveNetwork = anna;
+                HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.NetDiscover(port) && Genesis.Runtime.Scripting.PgslCommands.NetDiscover(port),
+                    "A script could not start looking for games.");
+                PumpUntil(all, () => Genesis.Runtime.Scripting.PgslCommands.NetFoundCount() == 1,
+                    () => $"The game hosted on this computer was not found ({Genesis.Runtime.Scripting.PgslCommands.NetFoundCount()} found).");
+                HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.NetFoundAddress(0) == "127.0.0.1"
+                    && Genesis.Runtime.Scripting.PgslCommands.NetFoundPort(0) == port
+                    && Genesis.Runtime.Scripting.PgslCommands.NetFoundName(0) == "Mushroom Meadow"
+                    && Genesis.Runtime.Scripting.PgslCommands.NetFoundPlayers(0) == 1
+                    && Genesis.Runtime.Scripting.PgslCommands.NetFoundAddress(1) == "" && Genesis.Runtime.Scripting.PgslCommands.NetFoundPlayers(-1) == 0,
+                    $"The game was found as '{Genesis.Runtime.Scripting.PgslCommands.NetFoundName(0)}' at " +
+                    $"{Genesis.Runtime.Scripting.PgslCommands.NetFoundAddress(0)}:{Genesis.Runtime.Scripting.PgslCommands.NetFoundPort(0)} " +
+                    $"with {Genesis.Runtime.Scripting.PgslCommands.NetFoundPlayers(0)} players.");
+                HeadlessHarness.Assert(!anna.IsConnected && !anna.IsHost, "Looking for games joined or hosted one.");
+
+                // She joins what she found; looking stops, and the host's answer now counts her.
+                anna.Connect(Genesis.Runtime.Scripting.PgslCommands.NetFoundAddress(0), (int)Genesis.Runtime.Scripting.PgslCommands.NetFoundPort(0));
+                PumpUntil(all, () => anna.IsConnected && host.PeerCount == 1, () => "Anna could not join the game she found.");
+                HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.NetFoundCount() == 0, "Joining a game did not stop looking for games.");
+                Genesis.Runtime.Scripting.PgslCommands.ActiveNetwork = host;
+                Genesis.Runtime.Scripting.PgslCommands.NetHostName("Anna and Ben's meadow");
+                ben.Discover(port);
+                PumpUntil(all, () => ben.DiscoveredHosts.Count == 1 && ben.DiscoveredHosts[0].Players == 2
+                        && ben.DiscoveredHosts[0].Name == "Anna and Ben's meadow",
+                    () => $"Ben should find the game named by its host with two players; he found {ben.DiscoveredHosts.Count}" +
+                        (ben.DiscoveredHosts.Count > 0 ? $" ('{ben.DiscoveredHosts[0].Name}', {ben.DiscoveredHosts[0].Players} players)." : "."));
+                Genesis.Runtime.Scripting.PgslCommands.NetHostName("");
+                HeadlessHarness.Assert(host.AdvertisedName == "Mushroom Meadow", "An empty name did not give back the game's title.");
+
+                // Another game hosted on this computer is not listed by this one.
+                int otherPort = FreeUdpPort();
+                otherGame.Host(otherPort);
+                ben.Discover(otherPort);
+                var quiet = System.Diagnostics.Stopwatch.StartNew();
+                while (quiet.Elapsed.TotalSeconds < 2.5)
+                {
+                    foreach (Genesis.Net.LiteNetGameNetwork network in all) network.Update();
+                    Thread.Sleep(5);
+                }
+
+                HeadlessHarness.Assert(ben.DiscoveredHosts.All(found => found.Port != otherPort),
+                    "A different game answered a machine looking for this one.");
+
+                // A host that stops is dropped from the list a few seconds later.
+                ben.Discover(port);
+                PumpUntil(all, () => ben.DiscoveredHosts.Any(found => found.Port == port), () => "Ben lost the game when he looked on its port again.");
+                host.Disconnect();
+                PumpUntil(all, () => ben.DiscoveredHosts.Count == 0, () => "A game that stopped hosting stayed in the list.", 10);
+                HeadlessHarness.Assert(ben.Discover(0) && !ben.IsConnected, "Looking for games could not be stopped.");
+            }
+            finally
+            {
+                Genesis.Runtime.Scripting.PgslCommands.ActiveNetwork = null;
+            }
+        });
+    }
+
+    /// <summary>A 2D instance: a sprite drawn where it stands, as a 2D Object's instance is.</summary>
+    private static Entity PlaceSprite(EcsWorld world, string prefab, string image, Vector3 position)
+    {
+        Entity entity = Machine.Place(world, position);
+        world.Set(entity, new Draw2DComponent { Visible = true });
+        world.Set(entity, new SpriteComponent { Alpha = 1f, ImageSpeed = 1f, AnimationTagIndex = -1, AnimationLoopOverride = -1 });
+        Genesis.Runtime.Rendering.ObjectDrawAssetRegistry.Set(entity, new Genesis.Runtime.Rendering.ObjectDrawAssetEntry { Prefab = prefab, Image = image });
+        return entity;
+    }
+
+    /// <summary>What a 2D instance looks like, in one line to compare and to print.</summary>
+    private static string Look(EcsWorld world, Entity entity)
+    {
+        if (entity.IsNull || !world.IsAlive(entity) || !world.Has<SpriteComponent>(entity)) return "nothing";
+        string image = Genesis.Runtime.Rendering.ObjectDrawAssetRegistry.TryGet(entity, out var assets) ? assets.Image : "no image";
+        SpriteComponent sprite = world.GetRef<SpriteComponent>(entity);
+        TransformComponent transform = world.GetRef<TransformComponent>(entity);
+        bool shown = world.Has<Draw2DComponent>(entity) && world.GetRef<Draw2DComponent>(entity).Visible;
+        return FormattableString.Invariant(
+            $"{image}#{sprite.ImageIndex} scale {transform.ScaleX}x{transform.ScaleY} angle {transform.Rotation} alpha {sprite.Alpha} {(shown ? "shown" : "hidden")}");
+    }
+
+    private static void RunTwoD(HeadlessContext context)
+    {
+        HeadlessHarness.RunCase(context.Report, "Engine.Net.Replication.TwoDCopiesShowTheSpriteFrameAndFacingOverARealConnection", () =>
+        {
+            // Both worlds live in this process and share the registry of what instances draw; their
+            // ids are kept apart so one world's sprite is never read as the other's.
+            var drawn = new Genesis.Runtime.Rendering.ObjectDrawAssetRegistry.PreviewScope();
+            using IDisposable isolated = drawn.Activate();
+            using var host = new SocketMachine();
+            using var anna = new SocketMachine();
+            for (int i = 0; i < 500; i++) anna.World.CreateEntity();
+            SocketMachine[] machines = [host, anna];
+            foreach (SocketMachine machine in machines)
+            {
+                SocketMachine owner = machine;
+                owner.Replication.CreateCopy = (world, prefab, position, rotation, scale) =>
+                {
+                    owner.CopiesMade.Add(prefab);
+                    return PlaceSprite(world, prefab, prefab + "Idle", position);
+                };
+            }
+
+            void Until(Func<bool> done, Func<string> failure, double seconds = 8)
+            {
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                while (!done() && watch.Elapsed.TotalSeconds < seconds)
+                {
+                    foreach (SocketMachine machine in machines) machine.Step();
+                    Thread.Sleep(2);
+                }
+
+                HeadlessHarness.Assert(done(), failure());
+            }
+
+            int port = FreeUdpPort();
+            host.Network.Host(port);
+            anna.Network.Connect("127.0.0.1", port);
+            Until(() => anna.Network.IsConnected && host.Network.PeerCount == 1, () => "A player did not connect to the host on this machine.");
+
+            // The hero arrives as it looks: its own sprite on frame 2, not the Object's first frame.
+            Entity hero = PlaceSprite(host.World, "Hero", "HeroIdle", new Vector3(100, 50, 0));
+            host.World.GetRef<SpriteComponent>(hero).ImageIndex = 2;
+            host.Replication.Replicate(hero, "Hero");
+            Until(() => anna.Replication.CopyCount == 1, () => "The hero did not reach the player.");
+            Entity copy = anna.Replication.CopyAt(0);
+            HeadlessHarness.Assert(Look(anna.World, copy) == Look(host.World, hero),
+                $"The copy arrived as {Look(anna.World, copy)}; the hero is {Look(host.World, hero)}.");
+            HeadlessHarness.Assert(anna.World.GetRef<SpriteComponent>(copy).FrameFromNetwork,
+                "The copy would play the sprite's animation itself instead of showing the frame it is sent.");
+
+            // It turns round and walks: another sprite, a later frame, flipped, faded and tilted.
+            Genesis.Runtime.Rendering.ObjectDrawAssetRegistry.TryGet(hero, out var heroDrawn);
+            heroDrawn.Image = "HeroWalk";
+            host.World.GetRef<SpriteComponent>(hero).ImageIndex = 3;
+            host.World.GetRef<SpriteComponent>(hero).Alpha = 0.5f;
+            host.World.GetRef<TransformComponent>(hero).ScaleX = -1f;
+            host.World.GetRef<TransformComponent>(hero).Rotation = 15f;
+            Until(() => Look(anna.World, copy) == Look(host.World, hero),
+                () => $"Anna's copy shows {Look(anna.World, copy)}; the hero is {Look(host.World, hero)}.");
+
+            // The next frame alone, then hidden.
+            host.World.GetRef<SpriteComponent>(hero).ImageIndex = 4;
+            Until(() => Look(anna.World, copy) == Look(host.World, hero),
+                () => $"The next frame did not reach the copy: it shows {Look(anna.World, copy)}; the hero is {Look(host.World, hero)}.");
+            host.World.GetRef<Draw2DComponent>(hero).Visible = false;
+            Until(() => Look(anna.World, copy) == Look(host.World, hero), () => $"The hidden hero still shows on Anna's machine ({Look(anna.World, copy)}).");
+
+            // Anna's own character: the host's copy faces and animates as she does.
+            Entity annaSelf = PlaceSprite(anna.World, "Player", "PlayerIdle", new Vector3(10, 10, 0));
+            anna.Replication.Own(annaSelf, "Player");
+            Until(() => host.Replication.CopyCount == 1, () => "Anna's character did not reach the host.");
+            Entity annaAtHost = host.Replication.CopyAt(0);
+            Genesis.Runtime.Rendering.ObjectDrawAssetRegistry.TryGet(annaSelf, out var annaDrawn);
+            annaDrawn.Image = "PlayerRun";
+            anna.World.GetRef<SpriteComponent>(annaSelf).ImageIndex = 5;
+            anna.World.GetRef<TransformComponent>(annaSelf).ScaleX = -2f;
+            Until(() => Look(host.World, annaAtHost) == Look(anna.World, annaSelf),
+                () => $"The host's copy of Anna shows {Look(host.World, annaAtHost)}; she is {Look(anna.World, annaSelf)}.");
+        });
+
+        HeadlessHarness.RunCase(context.Report, "Engine.Net.Replication.TwoDLooksAreSentOnlyWhenTheyChange", () =>
+        {
+            var drawn = new Genesis.Runtime.Rendering.ObjectDrawAssetRegistry.PreviewScope();
+            using IDisposable isolated = drawn.Activate();
+            var host = new Machine(host: true);
+            var anna = new Machine(host: false);
+            for (int i = 0; i < 500; i++) anna.World.CreateEntity();
+            Machine[] machines = [host, anna];
+            foreach (Machine machine in machines)
+                machine.Replication.CreateCopy = (world, prefab, position, rotation, scale) => PlaceSprite(world, prefab, prefab + "Idle", position);
+            void Run(int frames)
+            {
+                for (int frame = 0; frame < frames; frame++)
+                    foreach (Machine machine in machines)
+                    {
+                        machine.Network.Update();
+                        machine.Replication.Update(machine.World, machine.Focus, 0.06f);
+                        machine.World.FlushDeferred();
+                    }
+            }
+
+            Entity hero = PlaceSprite(host.World, "Hero", "HeroIdle", new Vector3(100, 50, 0));
+            host.Replication.Replicate(hero, "Hero");
+            anna.Network.Join(host.Network, 1);
+            Run(12);
+            HeadlessHarness.Assert(anna.Replication.CopyCount == 1 && Look(anna.World, anna.Replication.CopyAt(0)) == Look(host.World, hero),
+                "The hero did not arrive as it looks.");
+
+            // Standing still on one frame costs nothing.
+            Run(10);
+            int quiet = host.Network.Log.Count;
+            Run(20);
+            HeadlessHarness.Assert(host.Network.Log.Count == quiet, $"The host sent {host.Network.Log.Count - quiet} messages while the hero did not change.");
+
+            // A new frame is one small message: the count, the id, which parts, the frame.
+            int SpriteBytesAfter(int start) => host.Network.Log.Skip(start).Where(sent => sent.Tag == NetworkReplication.TagSprites).Sum(sent => sent.Bytes);
+            int SpriteMessagesAfter(int start) => host.Network.Log.Skip(start).Count(sent => sent.Tag == NetworkReplication.TagSprites);
+            int before = host.Network.Log.Count;
+            host.World.GetRef<SpriteComponent>(hero).ImageIndex = 1;
+            Run(4);
+            HeadlessHarness.Assert(SpriteMessagesAfter(before) == 1 && SpriteBytesAfter(before) == 4 + 4 + 1 + 4,
+                $"A new frame cost {SpriteMessagesAfter(before)} messages of {SpriteBytesAfter(before)} bytes; it should be one of 13.");
+
+            // A flip sends the scale and nothing else.
+            before = host.Network.Log.Count;
+            host.World.GetRef<TransformComponent>(hero).ScaleX = -1f;
+            Run(4);
+            HeadlessHarness.Assert(SpriteMessagesAfter(before) == 1 && SpriteBytesAfter(before) == 4 + 4 + 1 + 8
+                && Look(anna.World, anna.Replication.CopyAt(0)) == Look(host.World, hero),
+                $"A flip cost {SpriteMessagesAfter(before)} messages of {SpriteBytesAfter(before)} bytes (17 expected); the copy shows {Look(anna.World, anna.Replication.CopyAt(0))}.");
+
+            // A 3D object has no 2D look to send.
+            Entity deer = Machine.Place(host.World, new Vector3(5, 0, 0));
+            host.Replication.Replicate(deer, "Deer");
+            Run(12);
+            before = host.Network.Log.Count;
+            host.World.GetRef<TransformComponent>(deer).ScaleX = 3f;
+            Run(4);
+            HeadlessHarness.Assert(SpriteMessagesAfter(before) == 0, "A 3D object's scale was sent as a 2D look.");
+        });
+    }
+
+    private static void RunStatus(HeadlessContext context)
+    {
+        HeadlessHarness.RunCase(context.Report, "Engine.Net.Status.SaysWhyHostingOrJoiningFailed", () =>
+        {
+            const string key = "genesis-replication-check";
+            using var anna = new Genesis.Net.LiteNetGameNetwork(key) { LocalOnly = true };
+            using var ben = new Genesis.Net.LiteNetGameNetwork(key) { LocalOnly = true };
+            using var olderHost = new Genesis.Net.LiteNetGameNetwork("genesis-replication-older") { LocalOnly = true };
+            using var smallHost = new Genesis.Net.LiteNetGameNetwork(key, maximumPeers: 1) { LocalOnly = true };
+            Genesis.Net.LiteNetGameNetwork[] all = [anna, ben, olderHost, smallHost];
+            string State() => Genesis.Runtime.Scripting.PgslCommands.NetConnectState();
+            string Error() => Genesis.Runtime.Scripting.PgslCommands.NetLastError();
+            try
+            {
+                Genesis.Runtime.Scripting.PgslCommands.ActiveNetwork = anna;
+                HeadlessHarness.Assert(State() == "idle" && Error() == "", $"A network that has done nothing reads '{State()}' with error '{Error()}'.");
+
+                // Nobody listens on the port: joining is tried for a few seconds, then said to have failed.
+                int nobody = FreeUdpPort();
+                HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.NetConnect("127.0.0.1", nobody) && State() == "connecting",
+                    $"Joining did not start: the state is '{State()}'.");
+                PumpUntil(all, () => State() == "failed", () => $"Joining a port nobody listens on still reads '{State()}'.", 15);
+                HeadlessHarness.Assert(Error() is "refused" or "timed out", $"Joining a port nobody listens on failed with '{Error()}'.");
+
+                // A host of another version turns the player away and says why.
+                int older = FreeUdpPort();
+                olderHost.Host(older);
+                Genesis.Runtime.Scripting.PgslCommands.NetConnect("127.0.0.1", older);
+                HeadlessHarness.Assert(Error() == "", "Starting to join again did not clear the last error.");
+                PumpUntil(all, () => State() == "failed", () => $"Joining a host of another version reads '{State()}'.");
+                HeadlessHarness.Assert(Error() == "wrong version", $"A host of another version refused the player with '{Error()}'.");
+
+                // A full host.
+                int small = FreeUdpPort();
+                smallHost.Host(small);
+                ben.Connect("127.0.0.1", small);
+                PumpUntil(all, () => ben.ConnectionState == "connected" && smallHost.PeerCount == 1,
+                    () => $"Ben could not join the small game ({ben.ConnectionState}, {ben.LastError}).");
+                Genesis.Runtime.Scripting.PgslCommands.NetConnect("127.0.0.1", small);
+                PumpUntil(all, () => State() == "failed", () => $"Joining a full game reads '{State()}'.");
+                HeadlessHarness.Assert(Error() == "full" && smallHost.PeerCount == 1, $"A full game refused the player with '{Error()}'.");
+
+                // The host of a joined game stops.
+                Genesis.Runtime.Scripting.PgslCommands.ActiveNetwork = ben;
+                HeadlessHarness.Assert(State() == "connected" && Error() == "", $"Ben's joined game reads '{State()}' with error '{Error()}'.");
+                smallHost.Disconnect();
+                PumpUntil(all, () => State() == "disconnected", () => $"After the host stopped, Ben's game reads '{State()}'.", 15);
+                HeadlessHarness.Assert(Error() == "host closed", $"The host stopping was reported as '{Error()}'.");
+                Genesis.Runtime.Scripting.PgslCommands.NetDisconnect();
+                HeadlessHarness.Assert(State() == "idle" && Error() == "", "Leaving did not clear the state.");
+
+                // Hosting on a port another program holds.
+                using var holder = new System.Net.Sockets.UdpClient(new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 0));
+                int taken = ((System.Net.IPEndPoint)holder.Client.LocalEndPoint!).Port;
+                HeadlessHarness.Assert(!Genesis.Runtime.Scripting.PgslCommands.NetHost(taken) && State() == "failed" && Error() == "port in use",
+                    $"Hosting on a port in use reads '{State()}' with error '{Error()}'.");
+                HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.NetHost(FreeUdpPort()) && State() == "hosting" && Error() == "",
+                    $"Hosting reads '{State()}' with error '{Error()}'.");
+
+                // What to tell the other players to type.
+                string addresses = Genesis.Runtime.Scripting.PgslCommands.NetLocalAddresses();
+                HeadlessHarness.Assert(addresses.Length > 0 && addresses.Split(", ").All(address =>
+                        System.Net.IPAddress.TryParse(address, out System.Net.IPAddress? parsed)
+                        && parsed.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork),
+                    $"This computer's addresses read '{addresses}'.");
+            }
+            finally
+            {
+                Genesis.Runtime.Scripting.PgslCommands.ActiveNetwork = null;
+            }
+        });
+    }
+
     public static void Run(HeadlessContext context)
     {
         RunSockets(context);
         RunValues(context);
+        RunDiscovery(context);
+        RunTwoD(context);
+        RunStatus(context);
         HeadlessHarness.RunCase(context.Report, "Engine.Net.Replication.PlayersSeeNearbySharedObjectsAndEachOther", () =>
         {
             var host = new Machine(host: true);

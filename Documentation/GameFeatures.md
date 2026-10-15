@@ -102,6 +102,27 @@ From C#, `ModelInstance.Crossed(world, entity, fraction)`, `Progress`, `Finished
 | `SetMaterialEmission(world, entity, material, strength)` | Make one material give off light whatever it was authored with: window glass at dusk. A negative strength gives it back its authored light. Events: `ModelSetMaterialEmission`. |
 | `SetMaterialEmission(world, entity, material, strength, colour)` | The same, in a colour: glass that glows warm whatever colour it is by day. The material gives off its own colour multiplied by this one, so the colour also tints the material while it is set. A negative strength gives back both. Events: `ModelSetMaterialEmissionColor(material, strength, r, g, b)`. |
 | `SetMaterialTint(world, entity, material, colour)` | Multiply one material's colour on this instance; null gives it back. Events: `ModelSetMaterialTint`. |
+| `SetMaterialEmissionTint(world, entity, material, colour)` | Colour the light one material gives off on this instance: its emission image and its own glow are multiplied by the colour, its surface is not (1, 1, 1 is as authored; null, or a negative r from a script, gives back the material's own light colour). Events: `ModelSetMaterialEmissionTint(material, r, g, b)`, `InstanceSetMaterialEmissionTint(id, material, r, g, b)`. |
+
+**A material's light colour (15 October 2026).** A model material has a **Light colour**
+(`EmissiveColor`, white by default, so every model looks as before) that multiplies the light it
+gives off: its emission image and the glow of its `EmissiveFactor`, but not its surface colour nor
+a glow a script adds over the whole model. One grey glow pattern can then serve every glow colour.
+It is set in the Model editor's MATERIAL & PBR panel (Light colour `…`, `×` for white) and saved
+with the model, and per instance by `ModelSetMaterialEmissionTint`. It is drawn by the shared
+forward shader on Direct3D 11 and 12, Vulkan and OpenGL; the Software renderer draws no emission
+images and ignores it. `ModelSetMaterialEmissionColor` keeps what it did (a tint on the whole
+material, which colours only its base-colour glow).
+
+**Box UVs in metres for meshes without UVs (15 October 2026).** A material can ask for box UVs at
+a real size: the Model editor's MATERIAL & PBR panel has **Box UVs (m)** (0, the default, is off),
+saved with the model as the material's `BoxUvMetres`, or a model's descriptor can name it per
+material (`"materialBoxUvMetres": { "Print band": 1 }`), which a re-import keeps. Each face of the
+material's meshes takes the two model axes across its normal, one repeat of the images every so
+many metres, so a 1 m brick set lies at 1 m on a 10 m wall where Quick UV Unwrap would stretch it
+over the wall's bounds. It is applied when the model is loaded, on every renderer. The metres are
+the model's own (an Object's scale stretches them), and skinned meshes and meshes whose triangles
+use materials with different repeats keep their UVs.
 
 Two things to know:
 
@@ -137,8 +158,25 @@ Button names: `A`, `B`, `X`, `Y`, `LB`, `RB`, `LT`, `RT`, `L3`, `R3`, `Start`, `
 The controller still presses keys as it always did unless a script turns that off: A is Space, the
 stick clicks are Control and Shift, the triggers are the left and right mouse buttons, and the
 right stick turns a captured view. A game that reads the controller itself should call
-`GamepadKeyboardEmulation(false)` so one press is not two actions. The first controller is the one
-read; a second is ignored.
+`GamepadKeyboardEmulation(false)` so one press is not two actions.
+
+### More than one controller (15 October 2026)
+
+Up to four controllers are read, for games two or more people play on one machine. Controller 0 is
+the one the commands above read, exactly as before; the next ones plugged in are 1, 2 and 3, in
+the order Windows lists them.
+
+| Command | Meaning |
+|---|---|
+| `GamepadCount()` | How many controllers are plugged in. |
+| `GamepadConnectedAt(index)` | True while controller 0 to 3 is plugged in. |
+| `GamepadCheckAt(index, button)`, `GamepadPressedAt(index, button)`, `GamepadReleasedAt(index, button)` | A button on that controller, with the same names. |
+| `GamepadAxisAt(index, axis)`, `GamepadAxisRawAt(index, axis)` | A stick or trigger on that controller, with the same names, directions and dead zones. |
+| `GamepadVibrateAt(index, low, high, seconds)` | Run that controller's motors. |
+
+`GamepadCheckAt(0, "A")` is `GamepadCheck("A")`. Only controller 0 presses keys; the dead zones
+set with `GamepadSetDeadZone` apply to all four. A recording of input (below) holds controller 0
+only.
 
 ## Sound
 
@@ -202,6 +240,17 @@ An emitter that is kept can fire its burst again: set `Restart` on its `Particle
 An effect that follows the camera (`FollowCameraXZ`, as the built-in rain and snow do) ignores its
 entity's position; that is what makes it weather. Any other effect is drawn where its entity's
 `TransformComponent` is, read every update.
+
+### Particle pictures from the Image library (15 October 2026)
+
+A Particle resource's `texturePath` names its picture as an **Image resource**: by name, which is
+what the Particle editor's Texture picker (Choose Image…) writes, or by the Image's id (the guid in
+its `.meta`). The Image's first frame is drawn, from its cooked texture when it has one. Renaming
+the Image in Studio rewrites the name in every Particle resource (an id needs no rewriting), and
+Export Game ships the Image with the effect. A file path inside the project still works as before.
+The same holds for 3D effects, `ParticleBurstAt` and batched bursts, the Particle editor's preview
+and, newly, the 2D script effects (`Particle2DBurst`, `Particle2DStream`, `Particle2DFlow`), which
+took only a file path. C#: `ParticleTextureResolver.ResolveFile(project, reference)`.
 
 ### Hundreds of bursts: batching and a limit
 
@@ -327,6 +376,7 @@ alike, bumps and all, so the same command marks a wall and the ground.
 | `DecalSetRotation(decal, degrees)` | Turns the picture about its normal, anticlockwise as seen from the front: a random turn makes bullet holes look less alike. |
 | `DecalSetSize(decal, width, height, depth)` | The picture's width and height, and how far through the surface the box reaches (half the size at first). |
 | `DecalSetBlend(decal, blend)` | `"multiply"` (the default), `"alpha"` or `"add"`: see below. |
+| `DecalSetSeeThrough(decal, onSeeThrough)` | A decal on glass or another see-through surface (off by default): see below. |
 | `DecalSetFade(decal, seconds)`, `DecalSetLife(decal, seconds)` | How long the fade at the end of its life takes (by default the last quarter of the life, at most 2 s); a new life from now. |
 | `DecalMove(decal, x, y, z, nx, ny, nz)` | Moves a decal and turns it to a new normal. |
 | `DecalRemove(decal)`, `DecalExists(decal)`, `DecalClear()`, `DecalCount()` | Removes one; whether it is still there; removes them all; how many there are. |
@@ -363,6 +413,12 @@ What it looks like, and what it does not do:
 - Decals are drawn after the opaque world and before water, glass, particles and the first-person
   layers: they never land on water, see-through draws or a held weapon. They go under the fog like
   the surface they are on.
+- **On glass (15 October 2026).** See-through surfaces write no depth, so a projected decal cannot
+  find them. `DecalSetSeeThrough(decal, true)` draws that decal instead as a flat picture in its
+  own plane (the box's face, through the point it was put at), right after the see-through draws:
+  a bullet hole in a shop window. It is seen from both sides, hidden only by opaque things in front
+  of it, and no longer projected onto the opaque world, so it is for a hit on a pane, not on a
+  wall. Every blend works as above. Decals without it are drawn exactly as before.
 - Decals stay where they were put in the world. On a moving object (a door, a vehicle) a decal stays
   behind unless the game moves it with `DecalMove` every frame, which is cheap. Anything opaque that
   passes through a decal's box takes the picture while it is inside it, which is why the box is
@@ -1431,7 +1487,7 @@ data. It also times sharing at a voxel game's size.
 | `WindowHasFocus()`, `WindowIsMinimized()` | Whether the player is in the game's window (false after switching to another window), and whether it is minimised. A minimised game draws no frames and runs no Draw events, but Step events go on: a game that should rest while nobody is looking (pause, stop starting particle bursts) asks these. Outside a game window they are true and false. |
 | `WindowSetMode(mode)`, `WindowGetMode()` | `"windowed"`, `"borderless"` or `"fullscreen"` (exclusive); false for any other name. |
 | `WindowSetSize(width, height)`, `WindowGetWidth()`, `WindowGetHeight()` | A windowed game's size in pixels. |
-| `WindowSetVSync(enabled)`, `WindowGetVSync()` | Wait for the display's refresh (no tearing). |
+| `WindowSetVSync(enabled)`, `WindowGetVSync()` | Wait for the display's refresh (no tearing). On Vulkan a change rebuilds the swap chain once, before the next frame: on waits for the display (FIFO); off shows each frame when it is ready (MAILBOX, else IMMEDIATE, else FIFO where the display offers nothing else). The render log names the mode chosen. |
 | `GameSetMaxFps(fps)`, `GameGetMaxFps()` | A frame-rate cap; 0 for none. |
 | `GameUseRoomFps()` | Follow the rooms' Frame rate and VSync settings again: the current room's apply at once. |
 | `DateNow()` | Now, as seconds since 1970 (UTC): what to store in a save for "last played". |

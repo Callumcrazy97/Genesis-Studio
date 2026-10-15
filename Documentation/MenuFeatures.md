@@ -191,6 +191,14 @@ Fixed in the language:
   collision part: it is never drawn, and when a model has any they are its whole Mesh collider. A
   mesh named `NOCOL_...` is drawn but left out of the collider (glass, trims, small detail).
   Models without such names collide with every triangle, as before.
+- **A Mesh collider with nothing to collide no longer stops the game (15 October 2026).** A model
+  whose parts are all `NOCOL_` (or whose `COL_` parts have no triangles) but which has a Mesh or
+  Convex Hull collider used to stop the game with "A Mesh collider requires saved, renderable model
+  geometry" when it was placed or streamed in as scenery. Now the model is drawn with no collider
+  and no body, and the log says so once per model (`[Physics] Warning: Model '...' has a Mesh or
+  Convex Hull collider, but no part of it collides ...`). Studio's Validate Project warns about it
+  too (`MODEL_COLLIDER_EMPTY`, naming the model): remove the collider, or rename a part so it
+  collides.
 
 ## Post effects
 

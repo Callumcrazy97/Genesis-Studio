@@ -191,6 +191,34 @@ The Player's performance snapshot reports `modelCache=read N written N` and
 commands, and `NetIsHost`, `NetIsConnected`, `NetPeerCount` and `NetSendText`, were never connected
 to the Player's network and did nothing in a running game; they are now.
 
+Finding a game on the local network (15 October 2026), for a lobby screen:
+
+| Command | Meaning |
+|---|---|
+| `NetDiscover(port)` | Look for games hosted on this port, on the local network and on this computer. It asks again every second until `NetDiscover(0)`, `NetHost`, `NetConnect` or `NetDisconnect`; calling it every frame is fine. False when no socket could be opened. |
+| `NetFoundCount()` | How many games answered in the last few seconds. A game that stops answering drops off after about four. |
+| `NetFoundAddress(index)`, `NetFoundPort(index)` | Where a found game is, counting from 0: pass both to `NetConnect`. |
+| `NetFoundName(index)`, `NetFoundPlayers(index)` | The name it advertises and how many players it has, its host included. |
+| `NetHostName(name)` | The name this machine advertises while it hosts. The game's title (the exported title, else the project's name) until a script names it; an empty name gives the title back. |
+
+Only hosts of the same game answer: the request carries the project's id and the engine's
+connection key, so a different game, or a different version of the engine, on the same network is
+not listed. A host answers whether or not a script ever looks. The request is a broadcast, so it
+reaches the local network only, not the Internet; Windows asks to let the game through its firewall
+the first time it hosts, and the answers need that too.
+
+Joining, and saying why it failed (15 October 2026). `NetConnect` returns true as soon as it starts
+trying; these say how it went:
+
+| Command | Meaning |
+|---|---|
+| `NetConnectState()` | `"idle"`, `"hosting"`, `"connecting"`, `"connected"`, `"failed"` (joining did not succeed) or `"disconnected"` (a joined game ended without this machine leaving). |
+| `NetLastError()` | Why: `"refused"` (nothing listens on that port, or the host turned the player away), `"timed out"` (no answer for about five seconds, or the host stopped answering), `"wrong version"` (the host runs another version of the engine), `"full"`, `"host closed"`, `"unreachable"`, `"bad address"`, or `"port in use"` when `NetHost` could not open its port. Empty while nothing has gone wrong; the next `NetHost`, `NetConnect` or `NetDisconnect` clears it. |
+| `NetLocalAddresses()` | This computer's IPv4 addresses on the local network, separated by commas, the home or office network first: what the other players type to join a game hosted here. `"127.0.0.1"` when there is no network. |
+
+A host of this engine tells a machine it turns away why (another version, or full); an older host
+gives no reason, which reads as `"refused"`.
+
 Sharing objects:
 
 | Command | Meaning |
@@ -240,7 +268,21 @@ object lives on is asked for again.
 Copies are made from the Object's own definition and run none of its scripts. Position and
 rotation are shared, scale as it was when the copy was made, and the animation a model is playing
 (its clip, whether it loops, its speed, and whether it is paused) whenever that changes, so a copy
-walks when its object walks. Script variables are not shared unless a script shares them as named
+walks when its object walks.
+
+A 2D instance's look is shared too (15 October 2026): its sprite, frame, scale (so a flip with a
+negative `image_xscale`), angle, alpha and whether it is visible. Each is sent with the instance
+when it arrives and then only when it changes, reliably and many instances to a message, at the
+same twenty times a second as movement: a new frame costs 13 bytes and a sprite that does not change
+costs nothing. A copy shows the frame it is sent and does not play the sprite's animation itself. A
+colour set with `SpriteSetBlend` is not shared: the engine draws an instance without it, and it
+tints only what a Draw event draws, which a copy does not run; share it as a named value if a Draw
+event of your own uses it. This changed what is sent, so the connection key is now
+`genesis-runtime-3`: a game built with an older engine is refused when it tries to join instead of
+misreading what it is sent. A game of this engine joining an older host reads `"refused"` (an older
+host gives no reason); `"wrong version"` is what a host of this engine or later says.
+
+Script variables are not shared unless a script shares them as named
 values, and physics is not shared: a copy is not solid and
 is not given the physics body or the collider its Object would have, because the machine that owns
 the object decides where it is. There is no prediction or
@@ -448,6 +490,26 @@ Added on 2 October 2026, for multiplayer:
   and held to their limits;
 - scripts starting a session, taking messages by tag, replying, and never being handed the
   engine's own messages.
+
+Added on 15 October 2026, five more checks in `large-world` (`Build.bat --test network` runs the
+eight multiplayer checks alone):
+
+- finding a game hosted on this computer through the script commands, its name and players
+  changing as a player joins, another game on the same computer not listed, and a stopped host
+  dropping off the list;
+- a 2D copy over a real connection showing its object's sprite, frame, flip, angle, alpha and
+  visibility as they change, a player's own 2D character on the host likewise; over the in-memory
+  link, a new frame costing one 13-byte message, a flip 17 bytes, and nothing sent while nothing
+  changes;
+- joining a port nobody listens on (`"refused"` or `"timed out"`), a host of another version
+  (`"wrong version"`), a full host (`"full"`), a host stopping (`"host closed"`), hosting on a port
+  in use (`"port in use"`), and this computer's addresses;
+- with `large-world`, four controllers' buttons, sticks and vibration kept apart, controller 0
+  reading as the unnumbered commands do. Reading real controllers in the window needs them
+  plugged in, and has not been tried.
+
+Finding games across a real local network (the broadcast) needs two computers and has not been
+tried yet; on one computer the request also goes to this computer, which is what the check uses.
 
 What those checks do not show, and has not been seen in a running game yet:
 

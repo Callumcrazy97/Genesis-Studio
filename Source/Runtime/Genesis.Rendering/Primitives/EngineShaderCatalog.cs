@@ -86,6 +86,9 @@ namespace Genesis.Rendering.Primitives
             // Made the first frame a game draws a decal.
             jobs.Add(new("DecalShaders.hlsl", DecalShaders.Source, "VS_Decal", GpuShaderStage.Vertex));
             jobs.Add(new("DecalShaders.hlsl", DecalShaders.Source, "PS_Decal", GpuShaderStage.Pixel));
+            // Made the first frame a game draws a decal on a see-through surface.
+            jobs.Add(new("DecalShaders.hlsl", DecalShaders.Source, "VS_DecalCard", GpuShaderStage.Vertex));
+            jobs.Add(new("DecalShaders.hlsl", DecalShaders.Source, "PS_DecalCard", GpuShaderStage.Pixel));
             return jobs.ToArray();
         }
 

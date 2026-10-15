@@ -46,5 +46,12 @@ namespace Genesis.Shared.Interfaces
         public Vector4 Color;
 
         public DecalBlend Blend;
+
+        /// <summary>
+        /// A decal on a see-through surface (a bullet hole in a window): drawn as a flat picture in
+        /// its own plane after the see-through draws, hidden only by opaque surfaces in front of it,
+        /// instead of projected onto the opaque world. Off by default.
+        /// </summary>
+        public bool SeeThrough;
     }
 }

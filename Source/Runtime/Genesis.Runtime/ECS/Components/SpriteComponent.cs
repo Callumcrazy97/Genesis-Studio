@@ -14,5 +14,10 @@ namespace Genesis.Runtime.ECS.Components
         public int   PlaybackStepDirection; // ping-pong direction within clip (+1 / -1)
         public float Alpha;        // 0–1
         public int   Depth;        // draw order; lower = drawn on top
+        /// <summary>
+        /// True on a network copy: the machine that owns the object says which frame shows, so
+        /// this machine does not play the sprite's animation itself. False everywhere else.
+        /// </summary>
+        public bool  FrameFromNetwork;
     }
 }

@@ -74,6 +74,31 @@ namespace Genesis.Runtime.Project
             }
         }
 
+        /// <summary>
+        /// The project's <c>projectId</c> and <c>name</c> from its project file; empty strings when
+        /// there is no single project file or it cannot be read. Copies and exports of one project
+        /// share both, so they identify one game across machines.
+        /// </summary>
+        public static (string Id, string Name) ReadProjectIdentity(string projectPath)
+        {
+            if (string.IsNullOrEmpty(projectPath) || !Directory.Exists(projectPath)) return ("", "");
+            try
+            {
+                string[] projects = Directory.EnumerateFiles(projectPath, "*.genesisproj", SearchOption.TopDirectoryOnly).ToArray();
+                if (projects.Length != 1) return ("", "");
+                using JsonDocument manifest = JsonDocument.Parse(File.ReadAllText(projects[0]));
+                if (manifest.RootElement.ValueKind != JsonValueKind.Object) return ("", "");
+                string Text(string camel, string pascal) =>
+                    (manifest.RootElement.TryGetProperty(camel, out JsonElement value) || manifest.RootElement.TryGetProperty(pascal, out value))
+                    && value.ValueKind == JsonValueKind.String ? value.GetString()?.Trim() ?? "" : "";
+                return (Text("projectId", "ProjectId"), Text("name", "Name"));
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+            {
+                return ("", "");
+            }
+        }
+
         /// <summary>Reads the legacy export override, then the authored project start room.</summary>
         /// <summary>The project's own audio buses (its <c>audioBuses</c>), lower case; empty when it names none.</summary>
         public static System.Collections.Generic.IReadOnlyList<string> ReadAudioBuses(string projectPath)

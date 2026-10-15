@@ -335,6 +335,7 @@ namespace Genesis.Runtime.Modeling
                 RenderColor tint = new(0.78f, 0.77f, 0.70f, 1f);
                 float alpha = 1f;
                 float emissive = 0f;
+                Vector4 emissionColor = default;
                 // Scatter and other callers that keep what is enqueued as a template need it whole, now.
                 bool background = BackgroundTextures && forcedLevel < 0;
                 bool texturesPending = false;
@@ -388,12 +389,22 @@ namespace Genesis.Runtime.Modeling
                     if (rendererComponent.EmissionScale is float emissionScale) emissive *= MathF.Max(0f, emissionScale);
                     if (emissive > 0.001f)
                         flags |= MeshDrawFlags.Emissive | MeshDrawFlags.NoShadow;
+                    float materialLight = emissive;
                     // A glow over the whole model (a hit flash, a selection) leaves its shadow alone.
                     if (rendererComponent.Glow > 0.001f)
                     {
                         emissive += rendererComponent.Glow;
                         flags |= MeshDrawFlags.Emissive;
                     }
+                    // The colour of the material's own light (its emission colour, or this instance's
+                    // ModelSetMaterialEmissionTint): white is as before and sends nothing.
+                    Vector3 lightColour = material?.EmissiveColor ?? Vector3.One;
+                    if (material != null && rendererComponent.MaterialEmissionTints != null
+                        && rendererComponent.MaterialEmissionTints.TryGetValue(material.Name ?? string.Empty, out Vector3 ownColour))
+                        lightColour = ownColour;
+                    if (lightColour != Vector3.One && float.IsFinite(lightColour.X + lightColour.Y + lightColour.Z))
+                        emissionColor = new Vector4(Vector3.Max(lightColour, Vector3.Zero),
+                            MathF.Max(emissive > 0f ? materialLight / emissive : 1f, 0.001f));
                 }
 
                 flags = MeshRasterDefaults.ApplyOverride(flags, asset.Culling, asset.WindingOrder);
@@ -440,6 +451,7 @@ namespace Genesis.Runtime.Modeling
                     Tint = tint,
                     Alpha = alpha,
                     Emissive = emissive,
+                    EmissionColor = emissionColor,
                     Flags = flags,
                     Layer = Genesis.Runtime.Rendering.ModelLayers.IsOverlay(rendererComponent.ModelLayer) ? rendererComponent.ModelLayer : 0,
                 };
