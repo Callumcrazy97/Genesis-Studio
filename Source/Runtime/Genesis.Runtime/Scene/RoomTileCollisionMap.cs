@@ -11,14 +11,18 @@ namespace Genesis.Runtime.Scene;
 
 /// <summary>
 /// Collision for authored 2D tile layers, independent of drawing and ECS placeholder entities.
-/// Axis sweeps prevent tunnelling. Rotated tiles use conservative world-space bounds (not slopes).
+/// Axis sweeps prevent tunnelling, and a body already overlapping a tile is not pushed deeper into it.
+/// Rotated tiles use conservative world-space bounds (not slopes).
 /// Descriptor-backed layers use the Image Editor's solid tile indices; raw textures use all cells.
 /// </summary>
 public sealed class RoomTileCollisionMap
 {
     private const int BucketSize = 128;
     private const float Epsilon = .0001f;
+    /// <summary>How close two tile faces must be to count as one surface or a shared seam.</summary>
+    private const float SurfaceTolerance = .01f;
     private static readonly ConditionalWeakTable<RoomAsset, RoomTileCollisionMap> Cache = new();
+    [ThreadStatic] private static List<RectangleF> t_nearby;
     private readonly Dictionary<(int X, int Y), List<int>> _buckets = new();
     private readonly List<RectangleF> _solids = new();
     private readonly List<Layer> _layers = new();
@@ -109,7 +113,11 @@ public sealed class RoomTileCollisionMap
         return false;
     }
 
-    /// <summary>Return the allowed displacement on one axis, stopping flush against solid tiles.</summary>
+    /// <summary>
+    /// Return the allowed displacement on one axis, stopping flush against solid tiles. A body that
+    /// already overlaps a tile (its angle, scale or frame grew its mask, or it was placed there) is swept
+    /// by <see cref="SweepOverlapping"/>; any other body gets exactly the plain sweep.
+    /// </summary>
     public float Sweep(RectangleF body, float amount, bool horizontal)
     {
         if (!Valid(body) || !float.IsFinite(amount)) return 0;
@@ -118,6 +126,7 @@ public sealed class RoomTileCollisionMap
         RectangleF swept = RectangleF.Union(body, end);
         swept.Inflate(Epsilon, Epsilon);
         float permitted = amount;
+        bool overlapping = false;
         foreach (RectangleF solid in Candidates(swept))
         {
             bool overlap = horizontal ? body.Bottom > solid.Top + Epsilon && body.Top < solid.Bottom - Epsilon
@@ -126,9 +135,122 @@ public sealed class RoomTileCollisionMap
             float lead = horizontal ? body.Right : body.Bottom, trail = horizontal ? body.Left : body.Top;
             float near = horizontal ? solid.Left : solid.Top, far = horizontal ? solid.Right : solid.Bottom;
             if (amount > 0 && lead <= near + Epsilon) permitted = MathF.Min(permitted, MathF.Max(0, near - lead));
-            if (amount < 0 && trail >= far - Epsilon) permitted = MathF.Max(permitted, MathF.Min(0, far - trail));
+            else if (amount < 0 && trail >= far - Epsilon) permitted = MathF.Max(permitted, MathF.Min(0, far - trail));
+            else if (lead > near + Epsilon && trail < far - Epsilon) overlapping = true;
+        }
+        return overlapping && amount != 0 ? SweepOverlapping(body, amount, horizontal, swept) : permitted;
+    }
+
+    /// <summary>
+    /// The sweep of a body that already overlaps a tile. Moving out of any tile stays free, but:
+    /// it is not pushed further in through a surface it reaches into from outside (a floor's top under a
+    /// body poking into it, while it falls) when that is the tile's shallowest way out, as a
+    /// separating-axis test picks the contact, so a body a pixel into a wall's side still moves up and down;
+    /// and a tile that only continues, past a seam, the surface the body reaches into (the next floor tile,
+    /// the next tile down a wall) does not stop it, so it slides along instead of catching on each tile.
+    /// </summary>
+    private float SweepOverlapping(RectangleF body, float amount, bool horizontal, RectangleF swept)
+    {
+        bool positive = amount > 0;
+        // Only tiles touching the swept area matter: the surfaces and seams these rules look at all lie
+        // within the body's own span across the move.
+        RectangleF region = RectangleF.Inflate(swept, SurfaceTolerance, SurfaceTolerance);
+        List<RectangleF> nearby = t_nearby ??= new List<RectangleF>();
+        nearby.Clear();
+        foreach (RectangleF solid in Candidates(region))
+            if (solid.IntersectsWith(region)) nearby.Add(solid);
+        Span(body, horizontal, out float b0, out float b1, out float bp0, out float bp1);
+        float permitted = amount;
+        foreach (RectangleF solid in nearby)
+        {
+            Span(solid, horizontal, out float s0, out float s1, out float sp0, out float sp1);
+            if (bp1 <= sp0 + Epsilon || bp0 >= sp1 - Epsilon) continue;
+            if (positive ? b1 <= s0 + Epsilon : b0 >= s1 - Epsilon)
+            {
+                if (!ContinuesSurface(nearby, horizontal, positive, bp0, bp1, s0, s1, sp0, sp1))
+                    permitted = positive ? MathF.Min(permitted, MathF.Max(0, s0 - b1)) : MathF.Max(permitted, MathF.Min(0, s1 - b0));
+            }
+            else if (b1 > s0 + Epsilon && b0 < s1 - Epsilon
+                && PushesDeeper(nearby, horizontal, positive, b0, b1, bp0, bp1, s0, s1, sp0, sp1)) return 0;
         }
         return permitted;
+    }
+
+    /// <summary>
+    /// Whether moving on would push the body deeper into a tile it overlaps (s0..s1 along the move,
+    /// sp0..sp1 across it): the body reaches in through the face it moves toward, part of it still
+    /// outside, that face is open (not against another tile), and the depth is no more than the way out
+    /// across the surface, measured along every tile sharing it so seams are not mistaken for edges.
+    /// </summary>
+    private static bool PushesDeeper(List<RectangleF> nearby, bool horizontal, bool positive,
+        float b0, float b1, float bp0, float bp1, float s0, float s1, float sp0, float sp1)
+    {
+        if (positive ? b0 >= s0 - Epsilon : b1 <= s1 + Epsilon) return false;
+        float face = positive ? s0 : s1;
+        float depth = positive ? b1 - s0 : s1 - b0;
+        float through = positive ? s1 - b0 : b1 - s0;
+        if (depth >= through
+            || Covered(nearby, horizontal, positive, face, MathF.Max(bp0, sp0), MathF.Min(bp1, sp1))) return false;
+        float run0 = sp0, run1 = sp1;
+        for (bool grown = true; grown;)
+        {
+            grown = false;
+            foreach (RectangleF other in nearby)
+            {
+                Span(other, horizontal, out float o0, out float o1, out float op0, out float op1);
+                if (MathF.Abs((positive ? o0 : o1) - face) > SurfaceTolerance
+                    || op0 > run1 + SurfaceTolerance || op1 < run0 - SurfaceTolerance) continue;
+                if (op0 < run0) { run0 = op0; grown = true; }
+                if (op1 > run1) { run1 = op1; grown = true; }
+            }
+        }
+        return depth <= MathF.Min(bp1 - run0, run1 - bp0);
+    }
+
+    /// <summary>
+    /// Whether a tile ahead (t0..t1 along the move, tp0..tp1 across it) only continues, past a seam, a
+    /// surface the body already reaches into across one of its sides: another tile ends where it begins,
+    /// with that side at the same place and as deep as the body reaches.
+    /// </summary>
+    private static bool ContinuesSurface(List<RectangleF> nearby, bool horizontal, bool positive,
+        float bp0, float bp1, float t0, float t1, float tp0, float tp1)
+    {
+        bool low = bp0 < tp0 - Epsilon && tp0 < bp1 - Epsilon;
+        bool high = bp0 < tp1 - Epsilon && tp1 < bp1 - Epsilon;
+        if (low == high) return false; // across neither side, or both: the tile's whole face is in the way
+        float side = low ? tp0 : tp1, reach = low ? bp1 : bp0, face = positive ? t0 : t1;
+        foreach (RectangleF other in nearby)
+        {
+            Span(other, horizontal, out float o0, out float o1, out float op0, out float op1);
+            if (MathF.Abs((positive ? o1 : o0) - face) > SurfaceTolerance) continue;
+            if (low ? MathF.Abs(op0 - side) <= SurfaceTolerance && op1 >= reach - SurfaceTolerance
+                : MathF.Abs(op1 - side) <= SurfaceTolerance && op0 <= reach + SurfaceTolerance) return true;
+        }
+        return false;
+    }
+
+    /// <summary>Whether tiles ending at <paramref name="face"/> on the body's side cover from..to across it.</summary>
+    private static bool Covered(List<RectangleF> nearby, bool horizontal, bool positive, float face, float from, float to)
+    {
+        for (bool grown = true; grown && from < to - SurfaceTolerance;)
+        {
+            grown = false;
+            foreach (RectangleF other in nearby)
+            {
+                Span(other, horizontal, out float o0, out float o1, out float op0, out float op1);
+                if (MathF.Abs((positive ? o1 : o0) - face) > SurfaceTolerance
+                    || op0 > from + SurfaceTolerance || op1 <= from) continue;
+                from = op1; grown = true;
+            }
+        }
+        return from >= to - SurfaceTolerance;
+    }
+
+    /// <summary>A box's extent along the movement axis (a0..a1) and across it (p0..p1).</summary>
+    private static void Span(RectangleF box, bool horizontal, out float a0, out float a1, out float p0, out float p1)
+    {
+        a0 = horizontal ? box.Left : box.Top; a1 = horizontal ? box.Right : box.Bottom;
+        p0 = horizontal ? box.Top : box.Left; p1 = horizontal ? box.Bottom : box.Right;
     }
 
     public bool TryCell(float x, float y, string layerName, out RoomNode node, out RoomTileCell cell, out int index)

@@ -10,7 +10,11 @@ using Genesis.Shared.ECS;
 
 namespace Genesis.Runtime.Spatial;
 
-/// <summary>Frame-aware authored mask bounds. Circles/polygons use conservative AABBs, not pixel masks.</summary>
+/// <summary>
+/// Frame-aware authored mask bounds: an axis-aligned box, not a pixel mask. Turned with the instance,
+/// each shape is turned itself (a circle stays its own size, a polygon's points are turned), so the box
+/// is the turned mask's true bounds rather than the bounds of its turned bounding box.
+/// </summary>
 public static class SpriteCollisionBounds
 {
     public static RectangleF Resolve(SpriteRuntimeAsset asset, int frameIndex, float x, float y,
@@ -24,11 +28,14 @@ public static class SpriteCollisionBounds
         bool normalized = !string.Equals(origin?.Space, "pixels", StringComparison.OrdinalIgnoreCase);
         float ox = (float)(origin?.X ?? .5) * (normalized ? asset.Canvas.Width : 1);
         float oy = (float)(origin?.Y ?? .5) * (normalized ? asset.Canvas.Height : 1);
+        float radians = rotation * MathF.PI / 180, cosine = MathF.Cos(radians), sine = MathF.Sin(radians);
+        if (sine != 0 && float.IsFinite(sine) && float.IsFinite(cosine))
+            return Turned(asset, frameId, x, y, ox, oy, scaleX, scaleY, cosine, sine);
         RectangleF local = default;
         bool found = false;
         foreach (SpriteRuntimeCollisionShape shape in asset.CollisionShapes)
         {
-            if (shape == null || shape.IsTrigger || (!string.IsNullOrEmpty(shape.FrameId) && shape.FrameId != frameId)) continue;
+            if (!Applies(shape, frameId)) continue;
             float px = (float)(shape.Position?.X ?? 0), py = (float)(shape.Position?.Y ?? 0);
             RectangleF box;
             if (shape.Points?.Count > 0)
@@ -50,7 +57,6 @@ public static class SpriteCollisionBounds
             found = true;
         }
         if (!found) local = new RectangleF(0, 0, asset.Canvas.Width, asset.Canvas.Height);
-        float radians = rotation * MathF.PI / 180, cosine = MathF.Cos(radians), sine = MathF.Sin(radians);
         float minX = float.PositiveInfinity, minY = minX, maxX = float.NegativeInfinity, maxY = maxX;
         for (int corner = 0; corner < 4; corner++)
         {
@@ -59,6 +65,63 @@ public static class SpriteCollisionBounds
             float wx = x + cx * cosine - cy * sine, wy = y + cx * sine + cy * cosine;
             minX = MathF.Min(minX, wx); maxX = MathF.Max(maxX, wx);
             minY = MathF.Min(minY, wy); maxY = MathF.Max(maxY, wy);
+        }
+        return RectangleF.FromLTRB(minX, minY, maxX, maxY);
+    }
+
+    private static bool Applies(SpriteRuntimeCollisionShape shape, string frameId) => shape != null && !shape.IsTrigger
+        && (string.IsNullOrEmpty(shape.FrameId) || shape.FrameId == frameId);
+
+    /// <summary>A turned instance's mask bounds: each shape turned on its own, then joined.</summary>
+    private static RectangleF Turned(SpriteRuntimeAsset asset, string frameId, float x, float y,
+        float ox, float oy, float scaleX, float scaleY, float cosine, float sine)
+    {
+        float minX = float.PositiveInfinity, minY = minX, maxX = float.NegativeInfinity, maxY = maxX;
+        void Add(float lx, float ly)
+        {
+            float cx = (lx - ox) * scaleX, cy = (ly - oy) * scaleY;
+            float wx = x + cx * cosine - cy * sine, wy = y + cx * sine + cy * cosine;
+            minX = MathF.Min(minX, wx); maxX = MathF.Max(maxX, wx);
+            minY = MathF.Min(minY, wy); maxY = MathF.Max(maxY, wy);
+        }
+        bool found = false;
+        foreach (SpriteRuntimeCollisionShape shape in asset.CollisionShapes)
+        {
+            if (!Applies(shape, frameId)) continue;
+            float px = (float)(shape.Position?.X ?? 0), py = (float)(shape.Position?.Y ?? 0);
+            if (shape.Points?.Count > 0)
+            {
+                float left = float.PositiveInfinity, top = left, right = float.NegativeInfinity, bottom = right;
+                foreach (SpriteRuntimePoint point in shape.Points)
+                {
+                    left = MathF.Min(left, (float)point.X + px); top = MathF.Min(top, (float)point.Y + py);
+                    right = MathF.Max(right, (float)point.X + px); bottom = MathF.Max(bottom, (float)point.Y + py);
+                }
+                if (right <= left || bottom <= top) continue;
+                foreach (SpriteRuntimePoint point in shape.Points) Add((float)point.X + px, (float)point.Y + py);
+            }
+            else if (shape.Radius > 0)
+            {
+                // A circle (an ellipse once scaled unevenly) keeps its own extent at any angle.
+                float cx = (px - ox) * scaleX, cy = (py - oy) * scaleY;
+                float wx = x + cx * cosine - cy * sine, wy = y + cx * sine + cy * cosine;
+                float a = (float)shape.Radius * MathF.Abs(scaleX), b = (float)shape.Radius * MathF.Abs(scaleY);
+                float halfX = MathF.Sqrt(a * a * cosine * cosine + b * b * sine * sine);
+                float halfY = MathF.Sqrt(a * a * sine * sine + b * b * cosine * cosine);
+                minX = MathF.Min(minX, wx - halfX); maxX = MathF.Max(maxX, wx + halfX);
+                minY = MathF.Min(minY, wy - halfY); maxY = MathF.Max(maxY, wy + halfY);
+            }
+            else
+            {
+                float width = (float)(shape.Size?.X ?? 0), height = (float)(shape.Size?.Y ?? 0);
+                if (width <= 0 || height <= 0) continue;
+                Add(px, py); Add(px + width, py); Add(px, py + height); Add(px + width, py + height);
+            }
+            found = true;
+        }
+        if (!found)
+        {
+            Add(0, 0); Add(asset.Canvas.Width, 0); Add(0, asset.Canvas.Height); Add(asset.Canvas.Width, asset.Canvas.Height);
         }
         return RectangleF.FromLTRB(minX, minY, maxX, maxY);
     }
