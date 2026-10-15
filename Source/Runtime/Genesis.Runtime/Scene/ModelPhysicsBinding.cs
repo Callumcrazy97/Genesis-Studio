@@ -42,7 +42,8 @@ public static class ModelPhysicsBinding
         if (body.Shape == Genesis.Shared.ECS.Components.CollisionShape.Mesh)
         {
             if (model == null) throw new InvalidDataException("A Mesh Physics body requires a saved Model on the Object.");
-            ModelColliderBinding.AttachGeometry(world, entity, model, scale);
+            // A model with no part that collides (all NOCOL_) gets no body, with a warning once.
+            if (!ModelColliderBinding.TryAttachGeometry(world, entity, model, scale, renderer.ModelAsset)) return true;
             volume = ModelColliderBinding.ClosedVolume(world.GetRef<MeshColliderComponent>(entity));
             // Open surfaces have no enclosed volume; their fitted bounds provide a stable mass.
             if (volume < .000001f) volume = half.X * half.Y * half.Z * 8;

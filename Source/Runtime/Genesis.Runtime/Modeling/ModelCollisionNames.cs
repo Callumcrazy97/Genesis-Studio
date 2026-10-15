@@ -35,6 +35,31 @@ public static class ModelCollisionNames
         return roles.HasCollisionOnly ? roles.CollisionOnly[meshIndex] : !roles.NoCollision[meshIndex];
     }
 
+    /// <summary>
+    /// Whether a Mesh or Convex Hull collider built from the model would have any triangles: false
+    /// for a model with no geometry, or whose parts are all left out of the collider (every mesh
+    /// named <c>NOCOL_</c>, or only empty <c>COL_</c> meshes).
+    /// </summary>
+    public static bool HasColliderTriangles(GModelAsset asset)
+    {
+        if (asset?.Meshes == null) return false;
+        for (int index = 0; index < asset.Meshes.Count; index++)
+        {
+            GModelMesh mesh = asset.Meshes[index];
+            if (mesh.Lod == 0 && mesh.Indices is { Length: >= 3 } && InCollider(asset, index)) return true;
+        }
+        return false;
+    }
+
+    /// <summary>Whether the model asks for a Mesh or Convex Hull collider (made from its triangles).</summary>
+    public static bool HasTriangleCollider(GModelAsset asset) =>
+        asset?.Colliders != null && asset.Colliders.Exists(collider =>
+            collider.Shape is GModelColliderShape.Mesh or GModelColliderShape.ConvexHull);
+
+    /// <summary>What the engine and Studio's validation say about a Mesh collider with no triangles.</summary>
+    public static string EmptyColliderMessage(string modelName) =>
+        $"Model '{modelName}' has a Mesh or Convex Hull collider, but no part of it collides (every part is named NOCOL_, or its COL_ parts have no triangles): the collider is left out.";
+
     private static Roles For(GModelAsset asset)
     {
         if (asset == null) return new Roles();

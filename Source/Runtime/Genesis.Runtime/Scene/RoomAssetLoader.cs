@@ -808,7 +808,10 @@ public sealed class RoomSceneBuilder
             _ => rigid.Size * absolute,
         };
         if (rigid.Shape is Genesis.Shared.ECS.Components.CollisionShape.Mesh or Genesis.Shared.ECS.Components.CollisionShape.ConvexHull)
-            ModelColliderBinding.AttachGeometry(world, entity, model, scale);
+        {
+            // A model with no part that collides (all NOCOL_) gets no collider, with a warning once.
+            if (!ModelColliderBinding.TryAttachGeometry(world, entity, model, scale, modelName)) return;
+        }
         else rigid.LocalOffset = (model.Colliders[0].Center - (model.Pivot?.Position ?? Vector3.Zero)) * scale;
         world.Set(entity, rigid);
     }

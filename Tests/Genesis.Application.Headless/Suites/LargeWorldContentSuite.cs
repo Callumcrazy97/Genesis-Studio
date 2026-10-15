@@ -223,6 +223,91 @@ internal static class LargeWorldContentSuite
                 $"Walking to the far hut should leave only its collider ({Registered()} colliding).");
         });
 
+        HeadlessHarness.RunCase(context.Report, "Engine.World.Scenery.AMeshColliderWithNoTrianglesIsLeftOutWithOneWarning", () =>
+        {
+            // Every part NOCOL_ (glass, trim) but a Mesh collider set: the collider has no triangles.
+            string parent = Path.Combine(context.Workspace, "EmptyCollider");
+            Directory.CreateDirectory(parent);
+            string suffix = Guid.NewGuid().ToString("N")[..6];
+            ProjectSession project = new ProjectService().CreateProject(parent, "EmptyCollider" + suffix, "Blank");
+            var resources = new ResourceService(project);
+            string modelName = "Glass kiosk " + suffix;
+            string modelFile = Path.Combine(project.RootPath, "Assets", "Models", modelName + ".model.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(modelFile)!);
+            File.WriteAllText(modelFile, "{}");
+            var kiosk = Genesis.Runtime.Modeling.GModelPrimitiveFactory.CreateCube(modelName, 3f);
+            foreach (Genesis.Runtime.Modeling.GModelMesh mesh in kiosk.Meshes) mesh.Name = "NOCOL_" + mesh.Name;
+            kiosk.Colliders.Add(new Genesis.Runtime.Modeling.GModelCollider { Shape = Genesis.Runtime.Modeling.GModelColliderShape.Mesh });
+            Genesis.Runtime.Modeling.StudioModelResourceLoader.SaveCanonical(modelFile, kiosk);
+            string objects = ResourceFolderPolicy.RootFor(project, ResourceKind.GameObject);
+            File.WriteAllText(resources.CreateResource(objects, ResourceKind.GameObject, "Kiosk " + suffix),
+                "{\"schemaVersion\":2,\"dimension\":\"ThreeD\",\"model\":\"\",\"components\":[{\"type\":\"ModelRendererComponent\",\"props\":{\"ModelAsset\":\""
+                + modelName + "\"}}],\"events\":[]}");
+            ResourceNames.Invalidate(project.RootPath);
+            Genesis.Shared.Assets.ResourceCatalog.Invalidate(project.RootPath);
+            RoomAsset room = RoomAsset.Create("Street", RoomDimension.ThreeD);
+            foreach (float x in new[] { 0f, 20f, 40f })
+                room.Nodes.Add(new RoomNode
+                {
+                    Name = "Kiosk " + x, Kind = RoomNodeKind.GameObject, LayerId = room.Layers[0].Id, EnabledIn2D = false,
+                    Transform = new RoomTransform { X = x, ScaleX = 1, ScaleY = 1, ScaleZ = 1 },
+                    GameObject = new RoomGameObjectData { Prefab = "Kiosk " + suffix },
+                });
+            int Warnings() => Genesis.Runtime.Modeling.ModelColliderBinding.EmptyColliderWarnings.Count(w => w.Contains("'" + modelName + "'", StringComparison.Ordinal));
+            int Colliding(RuntimeScene scene)
+            {
+                int count = 0;
+                scene.World.Query<Genesis.Shared.ECS.Components.RigidBodyComponent>(
+                    (Genesis.Shared.ECS.Entity _, ref Genesis.Shared.ECS.Components.RigidBodyComponent body) => count++);
+                scene.World.Query<Genesis.Shared.ECS.Components.MeshColliderComponent>(
+                    (Genesis.Shared.ECS.Entity _, ref Genesis.Shared.ECS.Components.MeshColliderComponent body) => count++);
+                return count;
+            }
+
+            Genesis.Runtime.Scripting.VM.VMEngine.Initialize();
+            // Streamed in as scenery (the Player's case), then the same room loaded whole.
+            using (var scene = new RuntimeScene("Streamed"))
+            {
+                scene.Physics = Genesis.Physics.PhysicsWorld.Create(new Genesis.Shared.Assets.PhysicsWorldAsset());
+                var registration = new Genesis.Physics.Systems.PhysicsRegistrationSystem(scene.Physics);
+                var streamer = new RoomSceneryStreamer(1000f);
+                var builder = new RoomSceneBuilder(project.RootPath, new ScriptHostSystem()) { Scenery = streamer };
+                builder.Build(scene, room);
+                streamer.Attach(builder, room);
+                var time = new GameTime();
+                time.Advance(1f / 60f);
+                scene.Camera3D.Position = new Vector3(0f, 2f, 0f);
+                for (int frame = 0; frame < 20; frame++)
+                {
+                    streamer.Update(scene, time);
+                    scene.World.FlushDeferred();
+                    registration.FixedUpdate(scene.World, 1f / 60f);
+                }
+                HeadlessHarness.Assert(streamer.Loaded == 3 && Colliding(scene) == 0,
+                    $"The kiosks should all be drawn with no collider ({streamer.Loaded} loaded, {Colliding(scene)} bodies or colliders).");
+            }
+            using (var scene = new RuntimeScene("Whole"))
+            {
+                scene.Physics = Genesis.Physics.PhysicsWorld.Create(new Genesis.Shared.Assets.PhysicsWorldAsset());
+                var registration = new Genesis.Physics.Systems.PhysicsRegistrationSystem(scene.Physics);
+                new RoomSceneBuilder(project.RootPath, new ScriptHostSystem()).Build(scene, room);
+                scene.World.FlushDeferred();
+                registration.FixedUpdate(scene.World, 1f / 60f);
+                HeadlessHarness.Assert(Colliding(scene) == 0, $"A kiosk loaded with its room has a collider ({Colliding(scene)}).");
+            }
+            HeadlessHarness.Assert(Warnings() == 1,
+                $"Six kiosks placed should warn once about their model, not {Warnings()} times: {string.Join(" | ", Genesis.Runtime.Modeling.ModelColliderBinding.EmptyColliderWarnings)}");
+
+            // Studio's Validate Project names the model.
+            var issues = new ProjectValidator().Validate(project).Where(issue => issue.Code == "MODEL_COLLIDER_EMPTY").ToArray();
+            HeadlessHarness.Assert(issues.Length == 1 && issues[0].Severity == ProjectValidationSeverity.Warning
+                && issues[0].Message.Contains("'" + modelName + "'", StringComparison.Ordinal),
+                "Validate Project did not warn about the model: " + string.Join(" | ", issues.Select(issue => issue.Message)));
+            HeadlessHarness.Assert(!ProjectValidator.ValidateModelColliders(project.RootPath,
+                    [Path.Combine(project.RootPath, "Assets", "Models", "missing.model.json")]).Any(),
+                "A missing model file was reported as an empty collider.");
+        });
+
         RunFarSceneryColliders(context);
 
         HeadlessHarness.RunCase(context.Report, "Engine.World.Scenery.AnObjectComesAndGoesAtItsOwnDistance", () =>
