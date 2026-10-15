@@ -447,6 +447,13 @@ namespace Genesis.Runtime.Project
                     // through Engine.Net.*. Gameplay calls Engine.NetHost/NetConnect to
                     // start a session; Update() pumps packets on the main thread.
                     _activeNet = new LiteNetGameNetwork();
+                    // A machine looking for games on the local network hears only hosts of this
+                    // game (its project id), and a host advertises the game's title until a script
+                    // names it (NetHostName).
+                    (string projectId, string projectName) = ProjectPaths.ReadProjectIdentity(projectPath);
+                    _activeNet.GameKey = !string.IsNullOrEmpty(projectId) ? projectId : projectName;
+                    _activeNet.GameTitle = !string.IsNullOrWhiteSpace(launchSettings.Title) ? launchSettings.Title
+                        : !string.IsNullOrEmpty(projectName) ? projectName : title;
                     Engine.SetNetwork(_activeNet);
                     // The script commands (NetHost, NetConnect, NetSendText ...) talk to the same network.
                     Genesis.Runtime.Scripting.PgslCommands.ActiveNetwork = _activeNet;

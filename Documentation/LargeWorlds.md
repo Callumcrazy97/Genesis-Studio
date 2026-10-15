@@ -191,6 +191,22 @@ The Player's performance snapshot reports `modelCache=read N written N` and
 commands, and `NetIsHost`, `NetIsConnected`, `NetPeerCount` and `NetSendText`, were never connected
 to the Player's network and did nothing in a running game; they are now.
 
+Finding a game on the local network (15 October 2026), for a lobby screen:
+
+| Command | Meaning |
+|---|---|
+| `NetDiscover(port)` | Look for games hosted on this port, on the local network and on this computer. It asks again every second until `NetDiscover(0)`, `NetHost`, `NetConnect` or `NetDisconnect`; calling it every frame is fine. False when no socket could be opened. |
+| `NetFoundCount()` | How many games answered in the last few seconds. A game that stops answering drops off after about four. |
+| `NetFoundAddress(index)`, `NetFoundPort(index)` | Where a found game is, counting from 0: pass both to `NetConnect`. |
+| `NetFoundName(index)`, `NetFoundPlayers(index)` | The name it advertises and how many players it has, its host included. |
+| `NetHostName(name)` | The name this machine advertises while it hosts. The game's title (the exported title, else the project's name) until a script names it; an empty name gives the title back. |
+
+Only hosts of the same game answer: the request carries the project's id and the engine's
+connection key, so a different game, or a different version of the engine, on the same network is
+not listed. A host answers whether or not a script ever looks. The request is a broadcast, so it
+reaches the local network only, not the Internet; Windows asks to let the game through its firewall
+the first time it hosts, and the answers need that too.
+
 Sharing objects:
 
 | Command | Meaning |

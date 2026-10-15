@@ -455,10 +455,98 @@ internal static class NetworkReplicationSuite
         });
     }
 
+    /// <summary>Pumps real networks until something is true, or fails with what was seen.</summary>
+    private static void PumpUntil(Genesis.Net.LiteNetGameNetwork[] networks, Func<bool> done, Func<string> failure, double seconds = 8)
+    {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        while (!done() && watch.Elapsed.TotalSeconds < seconds)
+        {
+            foreach (Genesis.Net.LiteNetGameNetwork network in networks) network.Update();
+            Thread.Sleep(2);
+        }
+
+        HeadlessHarness.Assert(done(), failure());
+    }
+
+    private static void RunDiscovery(HeadlessContext context)
+    {
+        HeadlessHarness.RunCase(context.Report, "Engine.Net.Discovery.FindsAHostOfTheSameGameOnThisComputer", () =>
+        {
+            const string key = "genesis-replication-check";
+            using var host = new Genesis.Net.LiteNetGameNetwork(key) { LocalOnly = true, GameKey = "meadow-id", GameTitle = "Mushroom Meadow" };
+            using var anna = new Genesis.Net.LiteNetGameNetwork(key) { LocalOnly = true, GameKey = "meadow-id" };
+            using var ben = new Genesis.Net.LiteNetGameNetwork(key) { LocalOnly = true, GameKey = "meadow-id" };
+            using var otherGame = new Genesis.Net.LiteNetGameNetwork(key) { LocalOnly = true, GameKey = "another-game", GameTitle = "Another Game" };
+            Genesis.Net.LiteNetGameNetwork[] all = [host, anna, ben, otherGame];
+            try
+            {
+                int port = FreeUdpPort();
+                host.Host(port);
+                HeadlessHarness.Assert(host.AdvertisedName == "Mushroom Meadow", $"A host advertises '{host.AdvertisedName}' before a script names it; it should be the game's title.");
+
+                // Anna looks through the commands a lobby script would use, before she has hosted or joined.
+                Genesis.Runtime.Scripting.PgslCommands.ActiveNetwork = anna;
+                HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.NetDiscover(port) && Genesis.Runtime.Scripting.PgslCommands.NetDiscover(port),
+                    "A script could not start looking for games.");
+                PumpUntil(all, () => Genesis.Runtime.Scripting.PgslCommands.NetFoundCount() == 1,
+                    () => $"The game hosted on this computer was not found ({Genesis.Runtime.Scripting.PgslCommands.NetFoundCount()} found).");
+                HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.NetFoundAddress(0) == "127.0.0.1"
+                    && Genesis.Runtime.Scripting.PgslCommands.NetFoundPort(0) == port
+                    && Genesis.Runtime.Scripting.PgslCommands.NetFoundName(0) == "Mushroom Meadow"
+                    && Genesis.Runtime.Scripting.PgslCommands.NetFoundPlayers(0) == 1
+                    && Genesis.Runtime.Scripting.PgslCommands.NetFoundAddress(1) == "" && Genesis.Runtime.Scripting.PgslCommands.NetFoundPlayers(-1) == 0,
+                    $"The game was found as '{Genesis.Runtime.Scripting.PgslCommands.NetFoundName(0)}' at " +
+                    $"{Genesis.Runtime.Scripting.PgslCommands.NetFoundAddress(0)}:{Genesis.Runtime.Scripting.PgslCommands.NetFoundPort(0)} " +
+                    $"with {Genesis.Runtime.Scripting.PgslCommands.NetFoundPlayers(0)} players.");
+                HeadlessHarness.Assert(!anna.IsConnected && !anna.IsHost, "Looking for games joined or hosted one.");
+
+                // She joins what she found; looking stops, and the host's answer now counts her.
+                anna.Connect(Genesis.Runtime.Scripting.PgslCommands.NetFoundAddress(0), (int)Genesis.Runtime.Scripting.PgslCommands.NetFoundPort(0));
+                PumpUntil(all, () => anna.IsConnected && host.PeerCount == 1, () => "Anna could not join the game she found.");
+                HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.NetFoundCount() == 0, "Joining a game did not stop looking for games.");
+                Genesis.Runtime.Scripting.PgslCommands.ActiveNetwork = host;
+                Genesis.Runtime.Scripting.PgslCommands.NetHostName("Anna and Ben's meadow");
+                ben.Discover(port);
+                PumpUntil(all, () => ben.DiscoveredHosts.Count == 1 && ben.DiscoveredHosts[0].Players == 2
+                        && ben.DiscoveredHosts[0].Name == "Anna and Ben's meadow",
+                    () => $"Ben should find the game named by its host with two players; he found {ben.DiscoveredHosts.Count}" +
+                        (ben.DiscoveredHosts.Count > 0 ? $" ('{ben.DiscoveredHosts[0].Name}', {ben.DiscoveredHosts[0].Players} players)." : "."));
+                Genesis.Runtime.Scripting.PgslCommands.NetHostName("");
+                HeadlessHarness.Assert(host.AdvertisedName == "Mushroom Meadow", "An empty name did not give back the game's title.");
+
+                // Another game hosted on this computer is not listed by this one.
+                int otherPort = FreeUdpPort();
+                otherGame.Host(otherPort);
+                ben.Discover(otherPort);
+                var quiet = System.Diagnostics.Stopwatch.StartNew();
+                while (quiet.Elapsed.TotalSeconds < 2.5)
+                {
+                    foreach (Genesis.Net.LiteNetGameNetwork network in all) network.Update();
+                    Thread.Sleep(5);
+                }
+
+                HeadlessHarness.Assert(ben.DiscoveredHosts.All(found => found.Port != otherPort),
+                    "A different game answered a machine looking for this one.");
+
+                // A host that stops is dropped from the list a few seconds later.
+                ben.Discover(port);
+                PumpUntil(all, () => ben.DiscoveredHosts.Any(found => found.Port == port), () => "Ben lost the game when he looked on its port again.");
+                host.Disconnect();
+                PumpUntil(all, () => ben.DiscoveredHosts.Count == 0, () => "A game that stopped hosting stayed in the list.", 10);
+                HeadlessHarness.Assert(ben.Discover(0) && !ben.IsConnected, "Looking for games could not be stopped.");
+            }
+            finally
+            {
+                Genesis.Runtime.Scripting.PgslCommands.ActiveNetwork = null;
+            }
+        });
+    }
+
     public static void Run(HeadlessContext context)
     {
         RunSockets(context);
         RunValues(context);
+        RunDiscovery(context);
         HeadlessHarness.RunCase(context.Report, "Engine.Net.Replication.PlayersSeeNearbySharedObjectsAndEachOther", () =>
         {
             var host = new Machine(host: true);
