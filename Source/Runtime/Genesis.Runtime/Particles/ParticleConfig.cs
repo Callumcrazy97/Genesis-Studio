@@ -359,8 +359,9 @@ public sealed class ParticleConfig
     // ── Texture ──────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Absolute path to a PNG/JPG texture (chosen from Sprites/ or Textures/).
-    /// Leave empty for an untextured solid-colour quad.
+    /// The particles' picture: an Image resource by name (what the Particle editor's picker
+    /// writes; Rename keeps it up to date) or by its id, or a PNG/JPG file in the project (see
+    /// <see cref="ParticleTextureResolver"/>). Leave empty for an untextured solid-colour quad.
     /// The texture size does NOT affect particle world size — that is always set by
     /// <see cref="StartSize"/> / <see cref="EndSize"/>.
     /// </summary>

@@ -641,14 +641,9 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomW
         }
     }
 
-    private string ResolveParticleTexture(string asset)
-    {
-        string resolved = TexturePathResolver.Resolve(_projectPath, asset);
-        if (string.IsNullOrWhiteSpace(resolved)) return string.Empty;
-        if (!SpriteAssetLoader.IsSpriteDescriptorPath(resolved)) return resolved;
-        SpriteRuntimeAsset sprite = SpriteAssetLoader.Load(resolved);
-        return SpriteAssetLoader.ResolveFrameTexturePath(resolved, sprite, 0);
-    }
+    // An Image resource by name or id, or a file in the project (ParticleTextureResolver).
+    private string ResolveParticleTexture(string asset) =>
+        Genesis.Runtime.Particles.ParticleTextureResolver.ResolveFile(_projectPath, asset);
 
     private readonly List<int> _missing = [];
 

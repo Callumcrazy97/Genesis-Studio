@@ -203,6 +203,17 @@ An effect that follows the camera (`FollowCameraXZ`, as the built-in rain and sn
 entity's position; that is what makes it weather. Any other effect is drawn where its entity's
 `TransformComponent` is, read every update.
 
+### Particle pictures from the Image library (15 October 2026)
+
+A Particle resource's `texturePath` names its picture as an **Image resource**: by name, which is
+what the Particle editor's Texture picker (Choose Image…) writes, or by the Image's id (the guid in
+its `.meta`). The Image's first frame is drawn, from its cooked texture when it has one. Renaming
+the Image in Studio rewrites the name in every Particle resource (an id needs no rewriting), and
+Export Game ships the Image with the effect. A file path inside the project still works as before.
+The same holds for 3D effects, `ParticleBurstAt` and batched bursts, the Particle editor's preview
+and, newly, the 2D script effects (`Particle2DBurst`, `Particle2DStream`, `Particle2DFlow`), which
+took only a file path. C#: `ParticleTextureResolver.ResolveFile(project, reference)`.
+
 ### Hundreds of bursts: batching and a limit
 
 | Command | What it does |
