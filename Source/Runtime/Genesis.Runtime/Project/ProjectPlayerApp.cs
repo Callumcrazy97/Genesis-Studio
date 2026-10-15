@@ -78,6 +78,7 @@ namespace Genesis.Runtime.Project
             // A game plays its project; it never cooks a model into it (see StudioModelResourceLoader).
             Genesis.Runtime.Modeling.StudioModelResourceLoader.WriteReimportsToProject = false;
             ScriptScreenshots.Reset();
+            Genesis.Runtime.Debugger.DebugKeys.Reset();
             Genesis.Runtime.Rendering.ScriptMeshes.Reset();
             Genesis.Runtime.Particles.ParticleBursts.ResetLimit();
             Genesis.Runtime.Rendering.ScriptTextures.Reset();
@@ -612,6 +613,12 @@ namespace Genesis.Runtime.Project
                         : null;
                     host.ScreenshotProjectPath = projectPath;
                     host.IsDebugMode = debugMode;
+                    // The debug screen's keys (F6, F7, F8, P, N) act in a game started to be worked
+                    // on (Studio's Debug or Run, or GENESIS_DEBUG_KEYS=1), not in an exported game,
+                    // where a player typing "p" in a chat line would pause it.
+                    Genesis.Runtime.Debugger.DebugKeys.LaunchAllows =
+                        Genesis.Runtime.Debugger.DebugKeys.AllowedFor(debugMode, liveReload, out string debugKeysReason);
+                    logger.Line((Genesis.Runtime.Debugger.DebugKeys.LaunchAllows ? "debug keys on: " : "debug keys off: ") + debugKeysReason);
                     // The debug screen records into the project's debug folder; a debug run starts
                     // recording at once unless Studio's preference (GENESIS_DEBUG_RECORD=0) says not to.
                     host.DebugProfilesDirectory = Path.Combine(ProjectPaths.DebugRoot(projectPath), "Profiles");

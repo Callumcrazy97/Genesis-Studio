@@ -136,6 +136,8 @@ public static class PgslCommandAutoTester
         float motionBlur = Genesis.Shared.Interfaces.MeshLightingDefaults.MotionBlur;
         bool decalsIdle = Genesis.Runtime.Rendering.WorldDecals.Count == 0
             && Genesis.Runtime.Rendering.WorldDecals.Limit == Genesis.Runtime.Rendering.WorldDecals.DefaultLimit;
+        // DebugKeysSetEnabled(false) would leave the debug screen's keys off for the open game.
+        bool debugKeysAllowed = Genesis.Runtime.Debugger.DebugKeys.GameAllows;
 
         try
         {
@@ -169,6 +171,7 @@ public static class PgslCommandAutoTester
             }
             if (flashesIdle) Genesis.Runtime.Rendering.FlashLights.Clear();
             Genesis.Shared.Interfaces.MeshLightingDefaults.MotionBlur = motionBlur;
+            Genesis.Runtime.Debugger.DebugKeys.GameAllows = debugKeysAllowed;
             if (decalsIdle)
             {
                 Genesis.Runtime.Rendering.WorldDecals.Clear();

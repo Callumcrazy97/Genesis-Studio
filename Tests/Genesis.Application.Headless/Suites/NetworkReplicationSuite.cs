@@ -103,10 +103,10 @@ internal static class NetworkReplicationSuite
             };
         }
 
-        public void Step()
+        public void Step(float seconds = 0.06f)
         {
             Network.Update();
-            Replication.Update(World, Focus, 0.06f);
+            Replication.Update(World, Focus, seconds);
             World.FlushDeferred();
         }
 
@@ -645,6 +645,88 @@ internal static class NetworkReplicationSuite
             anna.World.GetRef<TransformComponent>(annaSelf).ScaleX = -2f;
             Until(() => Look(host.World, annaAtHost) == Look(anna.World, annaSelf),
                 () => $"The host's copy of Anna shows {Look(host.World, annaAtHost)}; she is {Look(anna.World, annaSelf)}.");
+        });
+
+        HeadlessHarness.RunCase(context.Report, "Engine.Net.Replication.TheHostGlidesAPlayersOwnObjectEveryFrame", () =>
+        {
+            // The first two-player test: the joined player saw the host's square glide, but on the
+            // host the joined player's square jumped 18 pixels every third frame and stood still in
+            // the others, because the host set each report straight onto its copy.
+            var drawn = new Genesis.Runtime.Rendering.ObjectDrawAssetRegistry.PreviewScope();
+            using IDisposable isolated = drawn.Activate();
+            using var host = new SocketMachine();
+            using var anna = new SocketMachine();
+            for (int i = 0; i < 500; i++) anna.World.CreateEntity();
+            SocketMachine[] machines = [host, anna];
+            foreach (SocketMachine machine in machines)
+                machine.Replication.CreateCopy = (world, prefab, position, rotation, scale) => PlaceSprite(world, prefab, prefab + "Idle", position);
+
+            // Frames of a 60 fps game, about as often as a game draws them, so packets arrive as they would.
+            const float frame = 1f / 60f;
+            void Frame()
+            {
+                foreach (SocketMachine machine in machines) machine.Step(frame);
+                Thread.Sleep(15);
+            }
+
+            void Until(Func<bool> done, Func<string> failure, double seconds = 8)
+            {
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                while (!done() && watch.Elapsed.TotalSeconds < seconds) Frame();
+                HeadlessHarness.Assert(done(), failure());
+            }
+
+            int port = FreeUdpPort();
+            host.Network.Host(port);
+            anna.Network.Connect("127.0.0.1", port);
+            Until(() => anna.Network.IsConnected && host.Network.PeerCount == 1, () => "A player did not connect to the host on this machine.");
+            Entity annaSelf = PlaceSprite(anna.World, "Player", "PlayerRun", new Vector3(100, 200, 0));
+            anna.Replication.Own(annaSelf, "Player");
+            Until(() => host.Replication.CopyCount == 1, () => "Anna's character did not reach the host.");
+            Entity annaAtHost = host.Replication.CopyAt(0);
+
+            // Anna runs right at 6 pixels a frame, turning as she goes; the host hears of her twenty
+            // times a second. Her copy on the host moves, and turns, in every frame.
+            var seen = new List<TransformComponent>();
+            for (int i = 0; i < 150; i++)
+            {
+                ref TransformComponent self = ref anna.World.GetRef<TransformComponent>(annaSelf);
+                self.X += 6f;
+                self.Rotation += 2f;
+                self.RotationY += 2f;
+                Frame();
+                if (i >= 30) seen.Add(host.World.GetRef<TransformComponent>(annaAtHost));
+            }
+
+            float[] steps = seen.Skip(1).Select((now, index) => now.X - seen[index].X).ToArray();
+            int stillFrames = steps.Count(step => MathF.Abs(step) < 1e-3f);
+            int stillAngles = seen.Skip(1).Where((now, index) => MathF.Abs(now.Rotation - seen[index].Rotation) < 1e-3f).Count();
+            int stillTurns = seen.Skip(1).Where((now, index) => MathF.Abs(now.RotationY - seen[index].RotationY) < 1e-3f).Count();
+            string trace = string.Join(", ", steps.Take(24).Select(step => step.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)));
+            HeadlessHarness.Assert(stillFrames == 0,
+                $"While Anna ran, the host's copy of her stood still in {stillFrames} of {steps.Length} frames. Steps: {trace} ...");
+            float largest = steps.Max(step => MathF.Abs(step));
+            HeadlessHarness.Assert(largest <= 15f,
+                $"The host's copy of Anna jumped {largest:F1} pixels in one frame; she moves 6 a frame. Steps: {trace} ...");
+            HeadlessHarness.Assert(stillAngles == 0 && stillTurns == 0,
+                $"The host's copy of Anna did not turn in {stillAngles} frames (2D angle) and {stillTurns} frames (rotation) of {steps.Length}.");
+            float behind = anna.World.GetRef<TransformComponent>(annaSelf).X - seen[^1].X;
+            HeadlessHarness.Assert(behind > 0f && behind < 120f, $"The host's copy of Anna is {behind:F1} pixels behind her; it should trail her a little.");
+
+            // She stops: the copy comes to rest exactly where she is, facing as she faces.
+            Until(() =>
+                {
+                    TransformComponent at = host.World.GetRef<TransformComponent>(annaAtHost);
+                    TransformComponent she = anna.World.GetRef<TransformComponent>(annaSelf);
+                    return at.X == she.X && at.Y == she.Y && at.Rotation == she.Rotation && at.RotationY == she.RotationY;
+                },
+                () =>
+                {
+                    TransformComponent at = host.World.GetRef<TransformComponent>(annaAtHost);
+                    TransformComponent she = anna.World.GetRef<TransformComponent>(annaSelf);
+                    return FormattableString.Invariant(
+                        $"The host's copy of Anna stopped at {at.X}, {at.Y} angle {at.Rotation} turn {at.RotationY}; she is at {she.X}, {she.Y} angle {she.Rotation} turn {she.RotationY}.");
+                });
         });
 
         HeadlessHarness.RunCase(context.Report, "Engine.Net.Replication.TwoDLooksAreSentOnlyWhenTheyChange", () =>

@@ -173,7 +173,8 @@ namespace Genesis.Runtime
             _scene.Input = _window.Input;
 
             // Construct the in-game debugger (always present; only active in debug mode).
-            // Studio keeps diagnostics available in ordinary F5 play, not only F6/debug launches.
+            // Studio keeps diagnostics available in ordinary F5 play, not only F6/debug launches;
+            // an exported game has its keys off (see DebugKeys).
             Debugger ??= new DebugOverlay();
             if (IsDebugMode) Debugger.IsVisible = true;
             Debugger.BindScriptHost(ScriptHost);
@@ -266,9 +267,10 @@ namespace Genesis.Runtime
                 _scene.RenderViewportHeightPixels = _windowH;
             }
 
-            // Debugger: handle input and advance frame telemetry
+            // Debugger: handle input and advance frame telemetry. Its keys (F6, F7, F8, P, N) act
+            // only in a game started to be worked on, and not while the game has turned them off.
             if (Debugger != null) Debugger.RoomName = DebugRoomName;
-            Debugger?.HandleInput(_scene?.Input, true);
+            Debugger?.HandleInput(_scene?.Input, DebugKeys.Active);
             Debugger?.Advance((float)dt);
 
             if (BootSplash != null && !BootSplash.IsComplete)
@@ -625,14 +627,6 @@ namespace Genesis.Runtime
             }
 
             InvokePostRenderHooks();
-
-            if (_screenshotPending)
-            {
-                _screenshotPending = false;
-                try { RuntimeScreenshot.CaptureFrame(_renderer, ScreenshotProjectPath); }
-                catch (Exception ex) { RenderLog.Line("RuntimeScreenshot error: " + ex.Message); }
-            }
-
             FinishRender();
         }
 
@@ -733,6 +727,14 @@ namespace Genesis.Runtime
                 // Pictures a script asked for this frame (ScreenshotSave), of the finished frame.
                 if (Genesis.Runtime.Project.ScriptScreenshots.PendingCount > 0)
                     Genesis.Runtime.Project.ScriptScreenshots.CaptureFrame(_renderer, Genesis.Runtime.Scripting.PgslCommands.ProjectPath);
+                // F12's picture, taken here so a 2D room's frame has it too: it used to be taken
+                // after these hooks in the 3D path only, which a 2D frame returns before reaching.
+                if (_screenshotPending)
+                {
+                    _screenshotPending = false;
+                    try { RuntimeScreenshot.CaptureFrame(_renderer, ScreenshotProjectPath, frameAlreadySubmitted: true); }
+                    catch (Exception ex) { RenderLog.Line("RuntimeScreenshot error: " + ex.Message); }
+                }
                 EndFrame?.Invoke(_renderer);
             }
             LastOverlayMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(hooksStarted).TotalMilliseconds;

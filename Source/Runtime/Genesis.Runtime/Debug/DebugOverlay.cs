@@ -236,14 +236,21 @@ namespace Genesis.Runtime.Debugger
             _window = null;
         }
 
+        /// <summary>Reads this frame's input: the mouse for the screen's own buttons, and its keys.</summary>
+        /// <param name="debugMode">
+        /// True when the debug keys may act. The game host passes <see cref="DebugKeys.Active"/>:
+        /// off in an exported game started normally, and while the game has turned them off.
+        /// </param>
         public void HandleInput(InputState input, bool debugMode)
         {
-            if (!debugMode || input == null) return;
+            if (input == null) return;
 
+            // The mouse is read either way: an open screen's buttons still answer while its keys are off.
             _lastMousePos = input.MousePosition;
             _mouseClicked = input.WasPressed(MouseButton.Left);
             _mouseWheel = input.WheelDelta;
             _clickConsumed = false;
+            if (!debugMode) return;
 
             // F6: show / hide the debug screen (the compact strip).
             if (input.WasPressed(Key.F6))
@@ -266,6 +273,9 @@ namespace Genesis.Runtime.Debugger
 
             // While the Resources search box has the keyboard, letters are search text, not shortcuts.
             if (HandleSearchInput(input)) return;
+
+            // So are they while the game reads typed text (a chat line, a name box).
+            if (input.IsTakingText) return;
 
             // P: Pause / Resume
             if (input.WasPressed(Key.P))
