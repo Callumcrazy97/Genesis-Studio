@@ -338,6 +338,7 @@ alike, bumps and all, so the same command marks a wall and the ground.
 | `DecalSetRotation(decal, degrees)` | Turns the picture about its normal, anticlockwise as seen from the front: a random turn makes bullet holes look less alike. |
 | `DecalSetSize(decal, width, height, depth)` | The picture's width and height, and how far through the surface the box reaches (half the size at first). |
 | `DecalSetBlend(decal, blend)` | `"multiply"` (the default), `"alpha"` or `"add"`: see below. |
+| `DecalSetSeeThrough(decal, onSeeThrough)` | A decal on glass or another see-through surface (off by default): see below. |
 | `DecalSetFade(decal, seconds)`, `DecalSetLife(decal, seconds)` | How long the fade at the end of its life takes (by default the last quarter of the life, at most 2 s); a new life from now. |
 | `DecalMove(decal, x, y, z, nx, ny, nz)` | Moves a decal and turns it to a new normal. |
 | `DecalRemove(decal)`, `DecalExists(decal)`, `DecalClear()`, `DecalCount()` | Removes one; whether it is still there; removes them all; how many there are. |
@@ -374,6 +375,12 @@ What it looks like, and what it does not do:
 - Decals are drawn after the opaque world and before water, glass, particles and the first-person
   layers: they never land on water, see-through draws or a held weapon. They go under the fog like
   the surface they are on.
+- **On glass (15 October 2026).** See-through surfaces write no depth, so a projected decal cannot
+  find them. `DecalSetSeeThrough(decal, true)` draws that decal instead as a flat picture in its
+  own plane (the box's face, through the point it was put at), right after the see-through draws:
+  a bullet hole in a shop window. It is seen from both sides, hidden only by opaque things in front
+  of it, and no longer projected onto the opaque world, so it is for a hit on a pane, not on a
+  wall. Every blend works as above. Decals without it are drawn exactly as before.
 - Decals stay where they were put in the world. On a moving object (a door, a vehicle) a decal stays
   behind unless the game moves it with `DecalMove` every frame, which is cheap. Anything opaque that
   passes through a decal's box takes the picture while it is inside it, which is why the box is

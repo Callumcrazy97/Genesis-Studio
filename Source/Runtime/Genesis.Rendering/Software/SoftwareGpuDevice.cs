@@ -72,6 +72,7 @@ namespace Genesis.Rendering.Software
         private SoftwareRuntimeShade _runtimeShade = SoftwareRuntimeShade.None;
         private bool _boundWaterProgram;
         private bool _boundDecalProgram;
+        private bool _boundDecalCardProgram;
 
         public string BackendName => "Software";
         public string AdapterName => "CPU Software Rasterizer";
@@ -469,6 +470,9 @@ namespace Genesis.Rendering.Software
             _boundDecalProgram = handle.IsValid
                 && _programs.TryGetValue(handle.Id, out GpuShaderProgramDesc decal)
                 && string.Equals(decal.DebugName, Genesis.Rendering.Primitives.ForwardRenderer.DecalProgramName, StringComparison.Ordinal);
+            _boundDecalCardProgram = handle.IsValid
+                && _programs.TryGetValue(handle.Id, out GpuShaderProgramDesc card)
+                && string.Equals(card.DebugName, Genesis.Rendering.Primitives.ForwardRenderer.DecalCardProgramName, StringComparison.Ordinal);
         }
 
         public void SetVertexLayout(GpuVertexLayoutHandle handle)
@@ -585,6 +589,11 @@ namespace Genesis.Rendering.Software
                 DrawDecals(instanceCount);
                 return;
             }
+            if (_boundDecalCardProgram)
+            {
+                DrawDecalCards(instanceCount);
+                return;
+            }
 
             // SpriteRenderer's unit quad is 16 bytes (xy + uv). MeshVertex is 48. A leftover
             // sprite instance buffer at VS t1 must not steal grass/particle 6-index 3D draws.
@@ -638,6 +647,22 @@ namespace Genesis.Rendering.Software
             byte[] decals = TryGetBufferBytes(_vsStructuredBuffers[0]);
             if (depth?.Depth == null || depth.Width != width || depth.Height != height) return;
             SoftwareDecals.Draw(colour, width, height, depth.Depth, constants, decals, instanceCount,
+                picture?.Pixels, picture?.Width ?? 0, picture?.Height ?? 0, picture?.Format ?? GpuFormat.R8G8B8A8UNorm);
+        }
+
+        /// <summary>
+        /// See-through decals (ForwardRenderer.DrawDecalCardPass): the same constants and records,
+        /// drawn as flat pictures in their own plane, tested against the bound depth.
+        /// </summary>
+        private void DrawDecalCards(int instanceCount)
+        {
+            byte[] colour = GetActiveColorBuffer(out int width, out int height);
+            float[] depth = GetActiveDepthBuffer(width, height);
+            TextureData picture = TryGetTexture(_psTextures[2]);
+            byte[] constants = TryGetBufferBytes(_vsConstantBuffers[0].IsValid ? _vsConstantBuffers[0] : _psConstantBuffers[0]);
+            byte[] decals = TryGetBufferBytes(_vsStructuredBuffers[0]);
+            if (depth == null || depth.Length != width * height) return;
+            SoftwareDecals.DrawCards(colour, width, height, depth, constants, decals, instanceCount,
                 picture?.Pixels, picture?.Width ?? 0, picture?.Height ?? 0, picture?.Format ?? GpuFormat.R8G8B8A8UNorm);
         }
 

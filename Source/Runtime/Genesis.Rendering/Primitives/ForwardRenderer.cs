@@ -4799,6 +4799,9 @@ namespace Genesis.Rendering.Primitives
             // Transparent / additive particle instanced pass — one DrawIndexedInstanced per unique
             // (mesh, texture, blendMode) instead of one DrawIndexed per particle.
             DrawTransparentBatches(whiteTexture);
+            // Decals on see-through surfaces go over the glass just drawn, which is in either the
+            // loop above or these batches (none given: nothing changes).
+            DrawDecalCardPass();
             // With the particle layer active only multiply particles stay here; the rest are fogged
             // at their own depth in ParticleLayerPass.
             if (!_reflectionPassActive)

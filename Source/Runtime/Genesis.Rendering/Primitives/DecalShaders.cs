@@ -213,6 +213,61 @@ PSOut PS_Decal(VSOut IN)
     }
     return OUT;
 }
+
+// A decal on a see-through surface (DecalDrawCall.SeeThrough): drawn as a flat picture in its own
+// plane after the see-through draws, inside the forward pass, depth-tested against the scene and
+// writing no depth. Seen from either side; a millimetre or two off the plane towards the eye so a
+// pane that writes depth does not hide it.
+struct CardOut
+{
+    float4 SvPos : SV_Position;
+    float2 UV    : TEXCOORD0;
+    nointerpolation float4 Tint : TEXCOORD1;
+};
+
+CardOut VS_DecalCard(VSIn IN, uint instanceId : SV_InstanceID)
+{
+    DecalGpu d = Decals[instanceId + (uint)(DecalParams.x + 0.5)];
+    float2 c = saturate(IN.Position.xy);
+    float3 n = d.AxisZ.xyz / max(length(d.AxisZ.xyz), 1e-6);
+    float side = dot(n, CameraPos.xyz - d.Center.xyz) >= 0.0 ? 1.0 : -1.0;
+    float3 world = d.Center.xyz + d.AxisX.xyz * (c.x - 0.5) + d.AxisY.xyz * (c.y - 0.5) + n * (0.002 * side);
+    CardOut OUT;
+    OUT.SvPos = mul(float4(world, 1.0), ViewProjection);
+    OUT.UV = float2(c.x, 1.0 - c.y);
+    OUT.Tint = d.Color;
+    return OUT;
+}
+
+PSOut PS_DecalCard(CardOut IN)
+{
+    float4 tex = DecalTex.Sample(DecalSamp, IN.UV);
+    if (DecalParams.z > 0.5)
+        tex.rgb = DecalSrgbToLinear(tex.rgb);
+    float alpha = saturate(tex.a * IN.Tint.a);
+    if (alpha <= 0.002)
+        discard;
+    float3 rgb = tex.rgb * IN.Tint.rgb;
+
+    PSOut OUT;
+    if (DecalParams.y < 0.5)
+    {
+        float3 f = lerp(float3(1.0, 1.0, 1.0), rgb, alpha);
+        OUT.Color = float4(f, 1.0);
+        OUT.Aux = float4(1.0, f);
+    }
+    else if (DecalParams.y < 1.5)
+    {
+        OUT.Color = float4(rgb, alpha);
+        OUT.Aux = float4(0.0, 0.0, 0.0, 0.0);
+    }
+    else
+    {
+        OUT.Color = float4(rgb * alpha, alpha);
+        OUT.Aux = float4(0.0, 0.0, 0.0, 0.0);
+    }
+    return OUT;
+}
 ";
     }
 }

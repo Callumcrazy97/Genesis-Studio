@@ -61,6 +61,12 @@ public static partial class PgslCommands
         return WorldDecals.SetBlend((int)decal, mode);
     }
 
+    [PgslCommand("DecalSetSeeThrough", "DecalSetSeeThrough(decal, onSeeThrough) -> changed",
+        "Put a decal on a see-through surface (a bullet hole in a window pane): drawn as a flat picture in its own plane after glass and other see-through draws, seen from both sides and hidden only by opaque things in front, instead of projected onto the opaque world. Off by default",
+        "Decals", Namespace = "Engine.Rendering.Decals")]
+    public static bool DecalSetSeeThrough(double decal, bool onSeeThrough) =>
+        IsDecalId(decal) && WorldDecals.SetSeeThrough((int)decal, onSeeThrough);
+
     [PgslCommand("DecalSetFade", "DecalSetFade(decal, seconds) -> changed",
         "How many seconds at the end of its life a decal takes to fade out (by default the last quarter of its life, at most 2 seconds; less than 0 goes back to that)",
         "Decals", Namespace = "Engine.Rendering.Decals")]
