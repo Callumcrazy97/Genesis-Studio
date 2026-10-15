@@ -1068,6 +1068,7 @@ internal static class HeadlessTestRunner
         Suites.ClearWorkflowSuite.Run(ctx);
         Suites.BeginnerJourneySuite.Run(ctx);
         Suites.SkinnedCullingSuite.Run(ctx);
+        Suites.SkinnedPoseSuite.Run(ctx);
         Suites.LargeWorldSuite.Run(ctx);
         Suites.ReadinessJudgeSuite.Run(ctx);
         Suites.StudioPolishSuite.Run(ctx);
@@ -1606,6 +1607,9 @@ internal static class HeadlessTestRunner
                 break;
             case "skinned-culling":
                 Suites.SkinnedCullingSuite.Run(ctx);
+                break;
+            case "skinned-pose":
+                Suites.SkinnedPoseSuite.Run(ctx);
                 break;
             case "large-world":
                 Suites.LargeWorldSuite.Run(ctx);
