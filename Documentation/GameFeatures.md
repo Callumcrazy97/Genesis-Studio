@@ -594,7 +594,10 @@ While a game reads typed text (it called `KeyboardTextTake` this frame or the la
 does every frame it is open), P and N are letters, not debug keys, with no command needed; F6, F7
 and F8 type nothing and still act. The debug screen's own Resources search box already kept the
 keyboard to itself while it had it. F12 (a picture of the frame into the game's debug images
-folder, as `ScreenshotSave` takes) is not one of them and works in every game.
+folder, as `ScreenshotSave` takes) is not one of them and works in every game. Until 15 October
+2026 it saved nothing in a 2D room: the picture was taken at the end of a 3D frame only. It is now
+taken where `ScreenshotSave`'s are, in the first frame without a room change's cover, and the
+render log says where it went (`screenshot saved: ...`).
 
 ### Finding what a game allocates every frame
 

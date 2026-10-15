@@ -627,14 +627,6 @@ namespace Genesis.Runtime
             }
 
             InvokePostRenderHooks();
-
-            if (_screenshotPending)
-            {
-                _screenshotPending = false;
-                try { RuntimeScreenshot.CaptureFrame(_renderer, ScreenshotProjectPath); }
-                catch (Exception ex) { RenderLog.Line("RuntimeScreenshot error: " + ex.Message); }
-            }
-
             FinishRender();
         }
 
@@ -735,6 +727,14 @@ namespace Genesis.Runtime
                 // Pictures a script asked for this frame (ScreenshotSave), of the finished frame.
                 if (Genesis.Runtime.Project.ScriptScreenshots.PendingCount > 0)
                     Genesis.Runtime.Project.ScriptScreenshots.CaptureFrame(_renderer, Genesis.Runtime.Scripting.PgslCommands.ProjectPath);
+                // F12's picture, taken here so a 2D room's frame has it too: it used to be taken
+                // after these hooks in the 3D path only, which a 2D frame returns before reaching.
+                if (_screenshotPending)
+                {
+                    _screenshotPending = false;
+                    try { RuntimeScreenshot.CaptureFrame(_renderer, ScreenshotProjectPath, frameAlreadySubmitted: true); }
+                    catch (Exception ex) { RenderLog.Line("RuntimeScreenshot error: " + ex.Message); }
+                }
                 EndFrame?.Invoke(_renderer);
             }
             LastOverlayMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(hooksStarted).TotalMilliseconds;

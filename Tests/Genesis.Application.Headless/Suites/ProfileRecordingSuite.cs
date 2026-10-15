@@ -98,6 +98,94 @@ internal static class ProfileRecordingSuite
         });
     }
 
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern uint MapVirtualKey(uint code, uint mapType);
+
+    /// <summary>
+    /// F12 in a 2D room: the picture used to be taken only at the end of a 3D frame, so a 2D room
+    /// never saved one. The key is posted to the game's window, which reaches it without focus.
+    /// </summary>
+    public static void RunScreenshotKey(HeadlessContext ctx)
+    {
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Screenshot.F12SavesAPictureInA2DRoom", () =>
+        {
+            string runtime = NewestPlayer() ?? throw new InvalidOperationException("No Player found.");
+            string parent = Path.Combine(ctx.Workspace, "F12");
+            if (Directory.Exists(parent)) Directory.Delete(parent, recursive: true);
+            Directory.CreateDirectory(parent);
+            ProjectSession project = new ProjectService().CreateProject(parent, "Pictured Game", "Blank");
+            RoomAsset start = RoomAsset.Create("Start", RoomDimension.TwoD);
+            start.Settings.CaptureMouse = false;
+            RoomAssetLoader.Save(start, ProjectRoomResolver.ResolveRoomFile(project.RootPath, project.Manifest.StartRoom));
+
+            ProcessStartInfo info = new(Path.Combine(runtime, RuntimePaths.RuntimeExeName))
+            {
+                WorkingDirectory = runtime, UseShellExecute = false, CreateNoWindow = true,
+                RedirectStandardOutput = true, RedirectStandardError = true,
+            };
+            info.Environment["GENESIS_PROJECT_PATH"] = project.RootPath;
+            info.Environment["GENESIS_UNATTENDED_WINDOW"] = "1";
+            info.Environment["GENESIS_RENDER_BACKEND"] = "DX11";
+            foreach (string name in new[] { "GENESIS_START_ROOM", "GENESIS_AUTOSHOT", "GENESIS_BOOT_COORDINATED", ProjectPlayerApp.ProfileEnvironmentVariable })
+                info.Environment.Remove(name);
+            string images = ProjectPaths.ImagesDir(project.RootPath);
+            string playerLog = Path.Combine(ProjectPaths.LogsDir(project.RootPath), "project_player.log");
+            string ReadLog()
+            {
+                try
+                {
+                    using var stream = new FileStream(playerLog, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                    using var reader = new StreamReader(stream);
+                    return reader.ReadToEnd();
+                }
+                catch (IOException) { return ""; }
+            }
+
+            string[] Pictures() => Directory.Exists(images) ? Directory.GetFiles(images, "screenshot_*.png") : [];
+            using Process process = Process.Start(info) ?? throw new InvalidOperationException("The Player did not start.");
+            process.OutputDataReceived += (_, _) => { };
+            process.ErrorDataReceived += (_, _) => { };
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+            try
+            {
+                var watch = Stopwatch.StartNew();
+                IntPtr window = IntPtr.Zero;
+                while (watch.Elapsed.TotalSeconds < 60 && !process.HasExited
+                       && (window == IntPtr.Zero || !ReadLog().Contains("Runtime boot ready", StringComparison.Ordinal)))
+                {
+                    Thread.Sleep(250);
+                    process.Refresh();
+                    window = process.MainWindowHandle;
+                }
+
+                HeadlessHarness.Assert(window != IntPtr.Zero && !process.HasExited, "The game did not open its window. Log:\r\n" + Tail(ReadLog()));
+                // Pressed until a picture appears: the first presses may land before play has begun.
+                const uint keyDown = 0x100, keyUp = 0x101, f12 = 0x7B;
+                uint scan = MapVirtualKey(f12, 0);
+                var pressing = Stopwatch.StartNew();
+                while (Pictures().Length == 0 && pressing.Elapsed.TotalSeconds < 15 && !process.HasExited)
+                {
+                    PostMessage(window, keyDown, (IntPtr)f12, (IntPtr)(long)(1u | (scan << 16)));
+                    Thread.Sleep(100);
+                    PostMessage(window, keyUp, (IntPtr)f12, (IntPtr)(long)(1u | (scan << 16) | (1u << 30) | (1u << 31)));
+                    Thread.Sleep(900);
+                }
+
+                string[] pictures = Pictures();
+                HeadlessHarness.Assert(pictures.Length > 0 && new FileInfo(pictures[0]).Length > 0,
+                    $"F12 saved no picture in a 2D room ({images}). Log:\r\n" + Tail(ReadLog()));
+            }
+            finally
+            {
+                if (!process.HasExited) { process.Kill(entireProcessTree: true); process.WaitForExit(10_000); }
+            }
+        });
+    }
+
     // The newest Player within reach (as PgslProjectSuite finds it).
     private static string? NewestPlayer()
     {

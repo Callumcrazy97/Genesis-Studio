@@ -32,6 +32,7 @@ internal static class DebugScreenSuite
         {
             RunCases(ctx);
             ProfileRecordingSuite.Run(ctx);
+            ProfileRecordingSuite.RunScreenshotKey(ctx);
         }
         finally
         {
