@@ -564,6 +564,38 @@ Each recording is a folder in `Debug/Profiles/` holding `frames.csv` (one row pe
 warnings about allocation, garbage collection, long frames and script errors. The recording
 finishes when F8 is pressed again or the game closes.
 
+**When the debug keys act (15 October 2026).** F6, F7, F8, **P** (pause) and **N** (step a frame
+while paused) are for whoever is making the game, so they act only in a game started to be worked
+on:
+
+| Launch | Debug keys |
+|---|---|
+| Studio's Debug (the Player's `--debug`) | On |
+| Studio's Run (the Player's `--live-reload`) | On |
+| Any launch with `GENESIS_DEBUG_KEYS=1` | On |
+| An exported game started normally | Off |
+| Any launch with `GENESIS_DEBUG_KEYS=0` | Off |
+
+Until then they acted in every game, exported ones too: a player typing "p" in a chat line paused
+the game, and F8 started a recording with a hitch of about a second. The Player's log says which
+applies (`debug keys on: a debug run`, `debug keys off: ...`). A tool or script that starts the
+Player itself and wants the keys (a game's own dev-run launcher, say) passes `--debug` for the full
+debug run, or sets `GENESIS_DEBUG_KEYS=1` to have only the keys. A profile for the whole run
+(`GENESIS_PROFILE=1`, below) needs no key and is recorded either way.
+
+A game can also stand them aside while it has the keyboard:
+
+| Command | What it does |
+|---|---|
+| `DebugKeysSetEnabled(enabled)` | False turns the debug keys off (a chat line or a name box is open), true on again. It only takes them away: in an exported game they stay off. |
+| `DebugKeysEnabled()` | True when the debug keys act now. |
+
+While a game reads typed text (it called `KeyboardTextTake` this frame or the last, as a text box
+does every frame it is open), P and N are letters, not debug keys, with no command needed; F6, F7
+and F8 type nothing and still act. The debug screen's own Resources search box already kept the
+keyboard to itself while it had it. F12 (a picture of the frame into the game's debug images
+folder, as `ScreenshotSave` takes) is not one of them and works in every game.
+
 ### Finding what a game allocates every frame
 
 With `GENESIS_ALLOCATION_LOG=1` (or when the game runs with the debugger) the Player writes, every
@@ -1938,7 +1970,8 @@ GenesisEngine.exe
 ```
 
 Checked by `Build.bat --test debug-screen`, which runs a game for three seconds this way and reads
-the folder it leaves.
+the folder it leaves. Such a run is started as an exported game is, so its debug keys are off (see
+the debug screen above); the recording does not need them.
 
 ### Starting a game quickly (11 October 2026)
 

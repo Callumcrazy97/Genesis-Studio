@@ -50,9 +50,19 @@ namespace Genesis.Runtime.Input
             _typed.Append(character);
         }
 
+        private bool _textTakenThisFrame, _textTakenLastFrame;
+
+        /// <summary>
+        /// True while something reads typed text: <see cref="TakeTypedText"/> was called this frame
+        /// or the last. A game reading a chat line or a name box does so every frame, so its
+        /// letters are text then, not shortcuts (the debug screen's P and N stand aside).
+        /// </summary>
+        public bool IsTakingText => _textTakenThisFrame || _textTakenLastFrame;
+
         /// <summary>Everything typed since the last call, in order, and forgets it.</summary>
         public string TakeTypedText()
         {
+            _textTakenThisFrame = true;
             if (_typed.Length == 0) return string.Empty;
             string text = _typed.ToString();
             _typed.Clear();
@@ -445,6 +455,8 @@ namespace Genesis.Runtime.Input
 
         public void NextFrame()
         {
+            _textTakenLastFrame = _textTakenThisFrame;
+            _textTakenThisFrame = false;
             _pressed.Clear();
             _released.Clear();
             Array.Clear(_mousePressed);

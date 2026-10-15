@@ -173,7 +173,8 @@ namespace Genesis.Runtime
             _scene.Input = _window.Input;
 
             // Construct the in-game debugger (always present; only active in debug mode).
-            // Studio keeps diagnostics available in ordinary F5 play, not only F6/debug launches.
+            // Studio keeps diagnostics available in ordinary F5 play, not only F6/debug launches;
+            // an exported game has its keys off (see DebugKeys).
             Debugger ??= new DebugOverlay();
             if (IsDebugMode) Debugger.IsVisible = true;
             Debugger.BindScriptHost(ScriptHost);
@@ -266,9 +267,10 @@ namespace Genesis.Runtime
                 _scene.RenderViewportHeightPixels = _windowH;
             }
 
-            // Debugger: handle input and advance frame telemetry
+            // Debugger: handle input and advance frame telemetry. Its keys (F6, F7, F8, P, N) act
+            // only in a game started to be worked on, and not while the game has turned them off.
             if (Debugger != null) Debugger.RoomName = DebugRoomName;
-            Debugger?.HandleInput(_scene?.Input, true);
+            Debugger?.HandleInput(_scene?.Input, DebugKeys.Active);
             Debugger?.Advance((float)dt);
 
             if (BootSplash != null && !BootSplash.IsComplete)

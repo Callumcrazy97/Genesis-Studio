@@ -55,7 +55,8 @@ internal static class ProfileRecordingSuite
             info.Environment["GENESIS_UNATTENDED_WINDOW"] = "1";
             info.Environment["GENESIS_RENDER_BACKEND"] = "DX11";
             info.Environment[ProjectPlayerApp.ProfileEnvironmentVariable] = "1";
-            foreach (string name in new[] { "GENESIS_START_ROOM", "GENESIS_AUTOSHOT", "GENESIS_BOOT_COORDINATED", DebugCategories.EngineEnvironmentVariable })
+            foreach (string name in new[] { "GENESIS_START_ROOM", "GENESIS_AUTOSHOT", "GENESIS_BOOT_COORDINATED", DebugCategories.EngineEnvironmentVariable,
+                         Genesis.Runtime.Debugger.DebugKeys.EnvironmentVariable })
                 info.Environment.Remove(name);
             string output;
             using (Process process = Process.Start(info) ?? throw new InvalidOperationException("The Player did not start."))
@@ -71,6 +72,10 @@ internal static class ProfileRecordingSuite
 
             HeadlessHarness.Assert(log.Contains("profile saved: ", StringComparison.Ordinal) && output.Contains("GENESIS_PROFILE_SAVED", StringComparison.Ordinal),
                 "The run did not save a profile. Log:\r\n" + Tail(log));
+            // Started as an exported game is (no --debug, no --live-reload): the debug keys are off,
+            // and the whole-run profile, which needs no key, is recorded all the same.
+            HeadlessHarness.Assert(log.Contains("debug keys off: ", StringComparison.Ordinal),
+                "A game started without --debug or --live-reload did not turn its debug keys off. Log:\r\n" + Tail(log));
             string profiles = Path.Combine(ProjectPaths.DebugRoot(project.RootPath), "Profiles");
             string folder = Directory.Exists(profiles) ? Directory.GetDirectories(profiles).OrderBy(path => path).LastOrDefault() ?? "" : "";
             HeadlessHarness.Assert(folder.Length > 0

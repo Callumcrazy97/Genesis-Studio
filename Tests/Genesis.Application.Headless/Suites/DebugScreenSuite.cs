@@ -124,6 +124,101 @@ internal static class DebugScreenSuite
             }
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.DebugScreen.KeysActOnlyInGamesBeingWorkedOn", () =>
+        {
+            // The first two-player test: typing "p" in an exported game's chat line paused it.
+            string? previousKeys = Environment.GetEnvironmentVariable(DebugKeys.EnvironmentVariable);
+            IGameContext? previousGame = PgslCommands.ActiveGameContext;
+            try
+            {
+                // Who allows them: Studio's Debug and Run do, an exported game started normally does not.
+                Environment.SetEnvironmentVariable(DebugKeys.EnvironmentVariable, null);
+                HeadlessHarness.Assert(!DebugKeys.AllowedFor(debugRun: false, studioPlay: false, out string reason),
+                    "An exported game started normally allowed the debug keys: " + reason);
+                HeadlessHarness.Assert(DebugKeys.AllowedFor(debugRun: true, studioPlay: false, out _) && DebugKeys.AllowedFor(debugRun: false, studioPlay: true, out _),
+                    "Studio's Debug and Run must allow the debug keys.");
+                Environment.SetEnvironmentVariable(DebugKeys.EnvironmentVariable, "1");
+                HeadlessHarness.Assert(DebugKeys.AllowedFor(debugRun: false, studioPlay: false, out _),
+                    $"{DebugKeys.EnvironmentVariable}=1 must allow them in any launch.");
+                Environment.SetEnvironmentVariable(DebugKeys.EnvironmentVariable, "0");
+                HeadlessHarness.Assert(!DebugKeys.AllowedFor(debugRun: true, studioPlay: true, out _),
+                    $"{DebugKeys.EnvironmentVariable}=0 must turn them off even in Studio.");
+                Environment.SetEnvironmentVariable(DebugKeys.EnvironmentVariable, null);
+
+                using var overlay = new DebugOverlay();
+                overlay.ProfilesDirectory = Path.Combine(ctx.Workspace, "DebugScreen", "KeyProfiles");
+                var input = new InputState();
+                // One frame as the game host runs it: keys arrive, the debug screen reads them, then the scripts run.
+                void Frame(Action? scripts, params Key[] keys)
+                {
+                    input.NextFrame();
+                    foreach (Key key in keys) input.OnKeyDown(key);
+                    overlay.HandleInput(input, DebugKeys.Active);
+                    scripts?.Invoke();
+                    foreach (Key key in keys) input.OnKeyUp(key);
+                }
+
+                // An exported game: nothing the debug screen listens for does anything, and its script cannot change that.
+                DebugKeys.Reset();
+                DebugKeys.LaunchAllows = DebugKeys.AllowedFor(debugRun: false, studioPlay: false, out _);
+                Frame(null, Key.P);
+                Frame(null, Key.F6);
+                Frame(null, Key.F7);
+                Frame(null, Key.F8);
+                HeadlessHarness.Assert(!overlay.IsPaused && !overlay.IsVisible && !overlay.ShowExpandedPanels && !overlay.IsRecording,
+                    $"In an exported game a debug key acted: paused {overlay.IsPaused}, shown {overlay.IsVisible}, panel {overlay.ShowExpandedPanels}, recording {overlay.IsRecording}.");
+                RunScript("DebugKeysSetEnabled(true);");
+                Frame(null, Key.P);
+                HeadlessHarness.Assert(!overlay.IsPaused && !PgslCommands.DebugKeysEnabled(), "A game's script turned the debug keys on in an exported game.");
+
+                // A debug run: F6 shows the screen, P pauses, N steps, F8 records, P resumes.
+                DebugKeys.Reset();
+                DebugKeys.LaunchAllows = DebugKeys.AllowedFor(debugRun: true, studioPlay: false, out _);
+                HeadlessHarness.Assert(PgslCommands.DebugKeysEnabled(), "DebugKeysEnabled() is false in a debug run.");
+                Frame(null, Key.F6);
+                Frame(null, Key.P);
+                Frame(null, Key.N);
+                bool stepped = overlay.ConsumeStepRequest();
+                Frame(null, Key.F8);
+                bool recorded = overlay.IsRecording;
+                Frame(null, Key.F8);
+                HeadlessHarness.Assert(overlay.IsVisible && overlay.IsPaused && stepped && recorded && !overlay.IsRecording,
+                    $"In a debug run the keys did not act: shown {overlay.IsVisible}, paused {overlay.IsPaused}, stepped {stepped}, recorded {recorded}.");
+                Frame(null, Key.P);
+                HeadlessHarness.Assert(!overlay.IsPaused, "P did not resume the game.");
+
+                // The game opens its chat line and turns them off; every debug key is then the game's.
+                RunScript("DebugKeysSetEnabled(false);");
+                Frame(null, Key.P);
+                Frame(null, Key.F6);
+                HeadlessHarness.Assert(!PgslCommands.DebugKeysEnabled() && !overlay.IsPaused && overlay.IsVisible,
+                    $"With the debug keys turned off by the game, P paused ({overlay.IsPaused}) or F6 hid the screen ({!overlay.IsVisible}).");
+                RunScript("DebugKeysSetEnabled(true);");
+                Frame(null, Key.P);
+                HeadlessHarness.Assert(overlay.IsPaused && PgslCommands.DebugKeysEnabled(), "Turned on again, P did not pause.");
+                Frame(null, Key.P);
+
+                // A game reading typed text (KeyboardTextTake each frame) types a "p" without pausing;
+                // F6 types nothing and still acts. Once it stops reading, P pauses again.
+                PgslCommands.ActiveGameContext = new NullGameContext { Input = input };
+                string typed = "";
+                Frame(() => typed += PgslCommands.KeyboardTextTake());
+                input.OnChar('p');
+                Frame(() => typed += PgslCommands.KeyboardTextTake(), Key.P, Key.F6);
+                HeadlessHarness.Assert(typed == "p" && !overlay.IsPaused && !overlay.IsVisible,
+                    $"Typing \"p\" into the game's text: typed '{typed}', paused {overlay.IsPaused}, F6 hid the screen {!overlay.IsVisible}.");
+                Frame(null);
+                Frame(null, Key.P);
+                HeadlessHarness.Assert(overlay.IsPaused, "After the game stopped reading typed text, P did not pause.");
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable(DebugKeys.EnvironmentVariable, previousKeys);
+                PgslCommands.ActiveGameContext = previousGame;
+                DebugKeys.Reset();
+            }
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Runtime.DebugScreen.RecordingWritesCsvJsonReport", () =>
         {
             (ScriptHostSystem host, _) = TickerScene();
@@ -351,6 +446,18 @@ internal static class DebugScreenSuite
         overlay.IsVisible = true;
         overlay.SelectPanel(panel);
         overlay.ShowExpandedPanels = true;
+    }
+
+    /// <summary>Runs one line of PGSL in an Object's Step event for one frame, as a game's script would.</summary>
+    private static void RunScript(string code)
+    {
+        Genesis.Runtime.Scripting.VM.VMEngine.Initialize();
+        ScriptAssetRegistry.ClearCache();
+        var host = new ScriptHostSystem();
+        EcsWorld world = new();
+        var events = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["Step"] = code + "\n" };
+        using (host.UseEventSources(events)) host.Attach(world, world.CreateEntity(), "KeysProbe");
+        host.Update(1f / 60f);
     }
 
     /// <summary>A tiny scene: two instances of a Ticker object whose Step event counts.</summary>
