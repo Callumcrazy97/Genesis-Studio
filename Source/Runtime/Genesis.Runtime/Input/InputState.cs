@@ -130,6 +130,136 @@ namespace Genesis.Runtime.Input
             RumbleSeconds = Math.Clamp(float.IsFinite(seconds) ? seconds : 0f, 0f, 10f);
         }
 
+        // ── More than one controller ──
+        // Controller 0 is the one the properties above describe, exactly as before. Controllers 1
+        // to 3 are kept here; they never press keys, and the dead zones above apply to all four.
+
+        /// <summary>How many controllers are read at once.</summary>
+        public const int MaxGamepads = 4;
+
+        /// <summary>A controller's sticks and triggers, after the dead zones and as the controller reports them.</summary>
+        public readonly record struct GamepadAxes(
+            Vector2 LeftStick, Vector2 RightStick, float LeftTrigger, float RightTrigger,
+            Vector2 LeftStickRaw, Vector2 RightStickRaw, float LeftTriggerRaw, float RightTriggerRaw);
+
+        private sealed class OtherGamepad
+        {
+            public bool Connected;
+            public GamepadAxes Axes;
+            public readonly bool[] Down = new bool[GamepadButtonCount];
+            public readonly bool[] Pressed = new bool[GamepadButtonCount];
+            public readonly bool[] Released = new bool[GamepadButtonCount];
+            public float RumbleLow, RumbleHigh, RumbleSeconds;
+        }
+
+        private readonly OtherGamepad[] _otherPads = [new(), new(), new()];
+
+        /// <summary>Controller 1 to 3's state, or null for controller 0 and numbers out of range.</summary>
+        private OtherGamepad Other(int pad) => pad >= 1 && pad < MaxGamepads ? _otherPads[pad - 1] : null;
+
+        private static bool ValidButton(GamepadButton button) => (uint)button < GamepadButtonCount;
+
+        /// <summary>True while that controller (0 to 3) is plugged in.</summary>
+        public bool IsGamepadConnected(int pad) => pad == 0 ? GamepadConnected : Other(pad)?.Connected ?? false;
+
+        /// <summary>The platform window says whether controller 1 to 3 is there; 0 is <see cref="GamepadConnected"/>.</summary>
+        public void SetGamepadConnected(int pad, bool connected)
+        {
+            if (pad == 0) { GamepadConnected = connected; return; }
+            OtherGamepad other = Other(pad);
+            if (other != null) other.Connected = connected;
+        }
+
+        /// <summary>How many controllers are plugged in.</summary>
+        public int GamepadCount
+        {
+            get
+            {
+                int count = GamepadConnected ? 1 : 0;
+                foreach (OtherGamepad other in _otherPads) if (other.Connected) count++;
+                return count;
+            }
+        }
+
+        public bool IsDown(int pad, GamepadButton button) =>
+            ValidButton(button) && (pad == 0 ? _padDown[(int)button] : Other(pad)?.Down[(int)button] ?? false);
+
+        public bool WasPressed(int pad, GamepadButton button) =>
+            ValidButton(button) && (pad == 0 ? _padPressed[(int)button] : Other(pad)?.Pressed[(int)button] ?? false);
+
+        public bool WasReleased(int pad, GamepadButton button) =>
+            ValidButton(button) && (pad == 0 ? _padReleased[(int)button] : Other(pad)?.Released[(int)button] ?? false);
+
+        /// <summary>The platform window reports each button of each controller every frame; edges are worked out here.</summary>
+        public void SetGamepadButton(int pad, GamepadButton button, bool down)
+        {
+            if (pad == 0) { SetGamepadButton(button, down); return; }
+            OtherGamepad other = Other(pad);
+            if (other == null || !ValidButton(button)) return;
+            int index = (int)button;
+            if (other.Down[index] == down) return;
+            other.Down[index] = down;
+            if (down) other.Pressed[index] = true;
+            else other.Released[index] = true;
+        }
+
+        public GamepadAxes GetGamepadAxes(int pad) => pad == 0
+            ? new GamepadAxes(LeftStick, RightStick, LeftTrigger, RightTrigger, LeftStickRaw, RightStickRaw, LeftTriggerRaw, RightTriggerRaw)
+            : Other(pad)?.Axes ?? default;
+
+        public void SetGamepadAxes(int pad, in GamepadAxes axes)
+        {
+            if (pad == 0)
+            {
+                LeftStick = axes.LeftStick; RightStick = axes.RightStick;
+                LeftTrigger = axes.LeftTrigger; RightTrigger = axes.RightTrigger;
+                LeftStickRaw = axes.LeftStickRaw; RightStickRaw = axes.RightStickRaw;
+                LeftTriggerRaw = axes.LeftTriggerRaw; RightTriggerRaw = axes.RightTriggerRaw;
+                return;
+            }
+
+            OtherGamepad other = Other(pad);
+            if (other != null) other.Axes = axes;
+        }
+
+        /// <summary>That controller has gone: everything held on it is let go.</summary>
+        public void ReleaseGamepad(int pad)
+        {
+            if (pad == 0) { ReleaseGamepad(); return; }
+            OtherGamepad other = Other(pad);
+            if (other == null) return;
+            for (int i = 0; i < GamepadButtonCount; i++)
+                if (other.Down[i]) { other.Down[i] = false; other.Released[i] = true; }
+            other.Axes = default;
+        }
+
+        /// <summary>Runs one controller's motors, as <see cref="Rumble(float, float, float)"/> does for controller 0.</summary>
+        public void Rumble(int pad, float low, float high, float seconds)
+        {
+            if (pad == 0) { Rumble(low, high, seconds); return; }
+            OtherGamepad other = Other(pad);
+            if (other == null) return;
+            other.RumbleLow = Math.Clamp(float.IsFinite(low) ? low : 0f, 0f, 1f);
+            other.RumbleHigh = Math.Clamp(float.IsFinite(high) ? high : 0f, 0f, 1f);
+            other.RumbleSeconds = Math.Clamp(float.IsFinite(seconds) ? seconds : 0f, 0f, 10f);
+        }
+
+        /// <summary>A controller's motor strengths and how long they still run.</summary>
+        public (float Low, float High, float Seconds) GetRumble(int pad)
+        {
+            if (pad == 0) return (RumbleLow, RumbleHigh, RumbleSeconds);
+            OtherGamepad other = Other(pad);
+            return other == null ? (0f, 0f, 0f) : (other.RumbleLow, other.RumbleHigh, other.RumbleSeconds);
+        }
+
+        /// <summary>Counts a controller's vibration down by the frame's time.</summary>
+        public void AdvanceRumble(int pad, float seconds)
+        {
+            if (pad == 0) { if (RumbleSeconds > 0f) RumbleSeconds = MathF.Max(0f, RumbleSeconds - seconds); return; }
+            OtherGamepad other = Other(pad);
+            if (other != null && other.RumbleSeconds > 0f) other.RumbleSeconds = MathF.Max(0f, other.RumbleSeconds - seconds);
+        }
+
         public bool IsDown(Key key) => _down.Contains(key);
         public bool WasPressed(Key key) => _pressed.Contains(key);
         public bool WasReleased(Key key) => _released.Contains(key);
@@ -185,6 +315,7 @@ namespace Genesis.Runtime.Input
             _down.Clear();
             Array.Clear(_mouseDown);
             Array.Clear(_padDown);
+            foreach (OtherGamepad other in _otherPads) Array.Clear(other.Down);
         }
 
         // ── Recording and replay (InputReplay) ──
@@ -320,6 +451,11 @@ namespace Genesis.Runtime.Input
             Array.Clear(_mouseReleased);
             Array.Clear(_padPressed);
             Array.Clear(_padReleased);
+            foreach (OtherGamepad other in _otherPads)
+            {
+                Array.Clear(other.Pressed);
+                Array.Clear(other.Released);
+            }
             WheelDelta = 0;
             LookDelta = Vector2.Zero;
             StartPressed = false;

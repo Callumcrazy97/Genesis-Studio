@@ -137,8 +137,25 @@ Button names: `A`, `B`, `X`, `Y`, `LB`, `RB`, `LT`, `RT`, `L3`, `R3`, `Start`, `
 The controller still presses keys as it always did unless a script turns that off: A is Space, the
 stick clicks are Control and Shift, the triggers are the left and right mouse buttons, and the
 right stick turns a captured view. A game that reads the controller itself should call
-`GamepadKeyboardEmulation(false)` so one press is not two actions. The first controller is the one
-read; a second is ignored.
+`GamepadKeyboardEmulation(false)` so one press is not two actions.
+
+### More than one controller (15 October 2026)
+
+Up to four controllers are read, for games two or more people play on one machine. Controller 0 is
+the one the commands above read, exactly as before; the next ones plugged in are 1, 2 and 3, in
+the order Windows lists them.
+
+| Command | Meaning |
+|---|---|
+| `GamepadCount()` | How many controllers are plugged in. |
+| `GamepadConnectedAt(index)` | True while controller 0 to 3 is plugged in. |
+| `GamepadCheckAt(index, button)`, `GamepadPressedAt(index, button)`, `GamepadReleasedAt(index, button)` | A button on that controller, with the same names. |
+| `GamepadAxisAt(index, axis)`, `GamepadAxisRawAt(index, axis)` | A stick or trigger on that controller, with the same names, directions and dead zones. |
+| `GamepadVibrateAt(index, low, high, seconds)` | Run that controller's motors. |
+
+`GamepadCheckAt(0, "A")` is `GamepadCheck("A")`. Only controller 0 presses keys; the dead zones
+set with `GamepadSetDeadZone` apply to all four. A recording of input (below) holds controller 0
+only.
 
 ## Sound
 

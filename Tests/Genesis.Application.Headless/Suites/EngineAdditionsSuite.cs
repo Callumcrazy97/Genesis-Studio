@@ -151,6 +151,87 @@ internal static class EngineAdditionsSuite
             }
         });
 
+        HeadlessHarness.RunCase(context.Report, "Engine.Input.Gamepad.ScriptsReadEachOfFourControllers", () =>
+        {
+            using var scene = new RuntimeScene("Controllers") { Input = new Genesis.Runtime.Input.InputState() };
+            var game = new ProjectGameContext(context.Workspace, scene, null, null, RoomAsset.Create("Hall", RoomDimension.TwoD), null);
+            var oldGame = Genesis.Runtime.Scripting.PgslCommands.ActiveGameContext;
+            try
+            {
+                Genesis.Runtime.Scripting.PgslCommands.ActiveGameContext = game;
+                Genesis.Runtime.Input.InputState input = scene.Input;
+                HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.GamepadCount() == 0
+                    && !Genesis.Runtime.Scripting.PgslCommands.GamepadConnectedAt(0) && !Genesis.Runtime.Scripting.PgslCommands.GamepadConnectedAt(1),
+                    "A controller was reported with none plugged in.");
+
+                // Two controllers: the first is the one the unnumbered commands have always read.
+                input.GamepadConnected = true;
+                input.SetGamepadConnected(1, true);
+                HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.GamepadCount() == 2
+                    && Genesis.Runtime.Scripting.PgslCommands.GamepadConnectedAt(0) && Genesis.Runtime.Scripting.PgslCommands.GamepadConnectedAt(1)
+                    && !Genesis.Runtime.Scripting.PgslCommands.GamepadConnectedAt(2),
+                    $"Two controllers read as {Genesis.Runtime.Scripting.PgslCommands.GamepadCount()}.");
+
+                // A on the second controller is that controller's alone.
+                input.SetGamepadButton(1, Genesis.Runtime.Input.GamepadButton.A, true);
+                HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.GamepadPressedAt(1, "A") && Genesis.Runtime.Scripting.PgslCommands.GamepadCheckAt(1, "a")
+                    && !Genesis.Runtime.Scripting.PgslCommands.GamepadCheck("A") && !Genesis.Runtime.Scripting.PgslCommands.GamepadCheckAt(0, "A"),
+                    "A pressed on the second controller was not seen as its own, or was seen on the first.");
+                input.SetGamepadButton(Genesis.Runtime.Input.GamepadButton.B, true);
+                HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.GamepadCheckAt(0, "B") && Genesis.Runtime.Scripting.PgslCommands.GamepadCheck("B")
+                    && Genesis.Runtime.Scripting.PgslCommands.GamepadPressedAt(0, "B") && !Genesis.Runtime.Scripting.PgslCommands.GamepadCheckAt(1, "B"),
+                    "Controller 0 is not the one GamepadCheck reads.");
+                input.NextFrame();
+                input.SetGamepadButton(1, Genesis.Runtime.Input.GamepadButton.A, true);
+                HeadlessHarness.Assert(!Genesis.Runtime.Scripting.PgslCommands.GamepadPressedAt(1, "A") && Genesis.Runtime.Scripting.PgslCommands.GamepadCheckAt(1, "A"),
+                    "A held on the second controller for a second frame was reported as pressed again, or not as held.");
+                input.SetGamepadButton(1, Genesis.Runtime.Input.GamepadButton.A, false);
+                HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.GamepadReleasedAt(1, "A") && !Genesis.Runtime.Scripting.PgslCommands.GamepadCheckAt(1, "A"),
+                    "Letting go of A on the second controller was not seen.");
+                input.NextFrame();
+                HeadlessHarness.Assert(!Genesis.Runtime.Scripting.PgslCommands.GamepadReleasedAt(1, "A"), "A release on the second controller lasted more than its frame.");
+
+                // Its sticks and triggers, read as GamepadAxis reads the first controller's.
+                input.SetGamepadAxes(1, new Genesis.Runtime.Input.InputState.GamepadAxes(
+                    new Vector2(0.5f, 0.75f), new Vector2(-0.25f, 0.5f), 0.3f, 0f,
+                    new Vector2(0.1f, 0.75f), new Vector2(-0.25f, 0.5f), 0.3f, 0f));
+                HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.GamepadAxisAt(1, "LeftX") == 0.5 && Genesis.Runtime.Scripting.PgslCommands.GamepadAxisAt(1, "lefty") == 0.75
+                    && Genesis.Runtime.Scripting.PgslCommands.GamepadAxisAt(1, "RightY") == -0.5
+                    && Math.Abs(Genesis.Runtime.Scripting.PgslCommands.GamepadAxisAt(1, "LT") - 0.3) < 1e-6
+                    && Math.Abs(Genesis.Runtime.Scripting.PgslCommands.GamepadAxisRawAt(1, "LeftX") - 0.1) < 1e-6
+                    && Genesis.Runtime.Scripting.PgslCommands.GamepadAxis("LeftX") == 0 && Genesis.Runtime.Scripting.PgslCommands.GamepadAxisAt(0, "LeftX") == 0,
+                    "The second controller's sticks did not read back as they were set, or moved the first controller's.");
+                input.LeftStick = new Vector2(-1f, 0f);
+                HeadlessHarness.Assert(Genesis.Runtime.Scripting.PgslCommands.GamepadAxisAt(0, "LeftX") == Genesis.Runtime.Scripting.PgslCommands.GamepadAxis("LeftX"),
+                    "GamepadAxisAt(0) and GamepadAxis read different sticks.");
+
+                // Numbers that are not a controller read as nothing.
+                HeadlessHarness.Assert(!Genesis.Runtime.Scripting.PgslCommands.GamepadConnectedAt(4) && !Genesis.Runtime.Scripting.PgslCommands.GamepadConnectedAt(-1)
+                    && !Genesis.Runtime.Scripting.PgslCommands.GamepadCheckAt(9, "A") && Genesis.Runtime.Scripting.PgslCommands.GamepadAxisAt(double.NaN, "LeftX") == 0,
+                    "A controller number out of range read as a controller.");
+
+                // Each controller vibrates on its own.
+                Genesis.Runtime.Scripting.PgslCommands.GamepadVibrateAt(1, 0.5, 3, 0.25);
+                HeadlessHarness.Assert(input.GetRumble(1) == (0.5f, 1f, 0.25f) && input.RumbleSeconds == 0f,
+                    $"Vibration for the second controller was stored as {input.GetRumble(1)}, the first's for {input.RumbleSeconds} s.");
+                input.AdvanceRumble(1, 0.1f);
+                HeadlessHarness.Assert(Math.Abs(input.GetRumble(1).Seconds - 0.15f) < 1e-5, "The second controller's vibration did not count down.");
+
+                // Unplugging the second lets go of what it held and leaves the first alone.
+                input.SetGamepadButton(1, Genesis.Runtime.Input.GamepadButton.RightTrigger, true);
+                input.ReleaseGamepad(1);
+                input.SetGamepadConnected(1, false);
+                HeadlessHarness.Assert(!Genesis.Runtime.Scripting.PgslCommands.GamepadCheckAt(1, "RT") && Genesis.Runtime.Scripting.PgslCommands.GamepadReleasedAt(1, "RT")
+                    && Genesis.Runtime.Scripting.PgslCommands.GamepadAxisAt(1, "LeftX") == 0 && Genesis.Runtime.Scripting.PgslCommands.GamepadCount() == 1
+                    && Genesis.Runtime.Scripting.PgslCommands.GamepadCheck("B"),
+                    "Unplugging the second controller left a button held or a stick pushed, or touched the first.");
+            }
+            finally
+            {
+                Genesis.Runtime.Scripting.PgslCommands.ActiveGameContext = oldGame;
+            }
+        });
+
         HeadlessHarness.RunCase(context.Report, "Engine.Camera.FlyCameraStandsAsideForAScriptCamera", () =>
         {
             using var scene = new RuntimeScene("Fly") { Input = new Genesis.Runtime.Input.InputState() };
