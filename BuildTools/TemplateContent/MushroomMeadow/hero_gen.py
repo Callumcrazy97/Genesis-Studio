@@ -499,10 +499,15 @@ if (swimming == 1) {
     if (runHeld) { targetSpeed = moveDirection * runSpeed; }
     vx = vx + (targetSpeed - vx) * Min(1, dt * 16);
 }
-// Wind (RoomValue windForce, px/s^2) pushes Pip, less while standing on the ground.
+// Wind (RoomValue windForce, px/s^2) pushes Pip, less while standing on the ground and hardly at all while he
+// stands still there (a gust nudges him only a few px/s; walking keeps the old grip).
 var windForce = RoomValueGet("windForce", 0);
 if (windForce != 0 || windVx != 0) {
-    var windGrip = 1; if (grounded == 1) { windGrip = 0.35; }
+    var windGrip = 1;
+    if (grounded == 1) {
+        windGrip = 0.35;
+        if (moveDirection == 0) { windGrip = 0.06; }
+    }
     windVx = windVx + windForce * windGrip * dt;
     windVx = windVx - windVx * Min(1, dt * 2.2);
 }

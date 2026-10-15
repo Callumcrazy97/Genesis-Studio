@@ -238,6 +238,30 @@ function ItemScan(names, x1, y1, x2, y2, kind, dmg, dirX, hitList, pip) {
 // ------------------------------------------------------------------ drawing helpers (world or GUI space)
 // A simple code-made picture of an item for when its sprite is missing. ang in degrees (clockwise on screen,
 // 0 = pointing right); for the flower ang is its spin.
+// ---- World drawing from a Draw event: 2D Draw events draw in WINDOW pixels (no camera), so room coordinates are converted
+// with the same uniform scale and centring the room's 640x360 view gets on screen (ItemW*).
+function ItemWScale() { return Min(WindowGetWidth() / 640, WindowGetHeight() / 360); }
+function ItemWX(wx) { var ws = ItemWScale(); return (WindowGetWidth() - 640 * ws) / 2 + (wx - ViewGetPosX(0)) * ws; }
+function ItemWY(wy) { var ws = ItemWScale(); return (WindowGetHeight() - 360 * ws) / 2 + (wy - ViewGetPosY(0)) * ws; }
+function ItemWSprite(img, wx, wy, fr, xs, ys, ang, al) {
+    var ws = ItemWScale();
+    DrawSpriteScaled(img, ItemWX(wx), ItemWY(wy), fr, xs * ws, ys * ws, ang, al);
+    return 0;
+}
+function ItemWCircle(wx, wy, rad, fill) {
+    DrawCircle(ItemWX(wx), ItemWY(wy), rad * ItemWScale(), fill);
+    return 0;
+}
+function ItemWLine(wx0, wy0, wx1, wy1) {
+    DrawLine(ItemWX(wx0), ItemWY(wy0), ItemWX(wx1), ItemWY(wy1));
+    return 0;
+}
+function ItemDrawFallbackW(kind, wx, wy, ang, sc, al) {
+    var ws = ItemWScale();
+    ItemDrawFallback(kind, ItemWX(wx), ItemWY(wy), ang, sc * ws, al);
+    return 0;
+}
+
 function ItemDrawFallback(kind, cx, cy, ang, sc, al) {
     DrawSetAlpha(al);
     var ca = Cos(ang); var sa = Sin(ang);
@@ -292,17 +316,17 @@ function ItemDrawArrow(cx, cy, ang, al) {
     if (img != "") {
         var fy = 1;
         if (Cos(ang) < 0) { fy = -1; }
-        DrawSpriteScaled(img, cx, cy, 0, 1, fy, ang, al);
+        ItemWSprite(img, cx, cy, 0, 1, fy, ang, al);
     } else {
         var ca = Cos(ang); var sa = Sin(ang);
         DrawSetAlpha(al);
         DrawSetColorRgb(232, 218, 176);
-        DrawLine(cx - ca * 7, cy - sa * 7, cx + ca * 6, cy + sa * 6);
-        DrawLine(cx - ca * 7, cy - sa * 7 + 1, cx + ca * 6, cy + sa * 6 + 1);
+        ItemWLine(cx - ca * 7, cy - sa * 7, cx + ca * 6, cy + sa * 6);
+        ItemWLine(cx - ca * 7, cy - sa * 7 + 1, cx + ca * 6, cy + sa * 6 + 1);
         DrawSetColorRgb(214, 222, 232);
-        DrawCircle(cx + ca * 7, cy + sa * 7, 1.6, false);
+        ItemWCircle(cx + ca * 7, cy + sa * 7, 1.6, false);
         DrawSetColorRgb(206, 70, 64);
-        DrawCircle(cx - ca * 7, cy - sa * 7, 1.5, false);
+        ItemWCircle(cx - ca * 7, cy - sa * 7, 1.5, false);
         DrawSetAlpha(1);
     }
     return 0;
@@ -770,16 +794,16 @@ if (held == 1) {
     var swordAng = th; var swordFlip = 1;
     if (f < 0) { swordAng = 180 - th; swordFlip = -1; }
     if (ResourceExists("Held Sword")) {
-        DrawSpriteScaled("Assets/Sprites/Held Sword.image.json", hx, hy, fr, 1, swordFlip, swordAng, al);
+        ItemWSprite("Assets/Sprites/Held Sword.image.json", hx, hy, fr, 1, swordFlip, swordAng, al);
     } else {
-        ItemDrawFallback(1, hx, hy, swordAng, 1, al);
+        ItemDrawFallbackW(1, hx, hy, swordAng, 1, al);
     }
     if (swingT > 0) {
         for (var k = 1; k <= 4; k = k + 1) {
             var tha = th - k * 13;
             if (f < 0) { tha = 180 - (th - k * 13); }
             DrawSetAlpha(0.5 - k * 0.1); DrawSetColorRgb(255, 255, 255);
-            DrawCircle(hx + Cos(tha) * 30, hy + Sin(tha) * 30, 2.6 - k * 0.4, false);
+            ItemWCircle(hx + Cos(tha) * 30, hy + Sin(tha) * 30, 2.6 - k * 0.4, false);
         }
         DrawSetAlpha(1);
     }
@@ -790,14 +814,14 @@ if (held == 2) {
     var shx = px - f * 6; var shf = 0;
     if (up == 1) { shx = px + f * 11; shf = 1; }
     if (ResourceExists("Held Shield")) {
-        DrawSpriteScaled("Assets/Sprites/Held Shield.image.json", shx, py - 17, shf, f, 1, 0, al);
+        ItemWSprite("Assets/Sprites/Held Shield.image.json", shx, py - 17, shf, f, 1, 0, al);
     } else {
-        ItemDrawFallback(2, shx, py - 17, 0, 1.3, al);
+        ItemDrawFallbackW(2, shx, py - 17, 0, 1.3, al);
     }
     var blockT = InstanceVariableGet(pip, "itemBlockT");
     if (blockT > 0) {
         DrawSetAlpha(Clamp(blockT * 3, 0, 0.8)); DrawSetColorRgb(255, 255, 255);
-        DrawCircle(shx + f * 5, py - 17, 12 - blockT * 14, true);
+        ItemWCircle(shx + f * 5, py - 17, 12 - blockT * 14, true);
         DrawSetAlpha(1);
     }
 }
@@ -816,9 +840,9 @@ if (held == 3) {
         bowX = px + aimX * 5; bowY = py - 20 + aimY * 5;
     }
     if (ResourceExists("Held Bow")) {
-        DrawSpriteScaled("Assets/Sprites/Held Bow.image.json", bowX, bowY, bowFr, 1, bowFlip, bowAng, al);
+        ItemWSprite("Assets/Sprites/Held Bow.image.json", bowX, bowY, bowFr, 1, bowFlip, bowAng, al);
     } else {
-        ItemDrawFallback(3, bowX, bowY, bowAng, 1.2, al);
+        ItemDrawFallbackW(3, bowX, bowY, bowAng, 1.2, al);
     }
     if (drawing == 1) {
         var pull = drawT / 0.45;
@@ -827,14 +851,14 @@ if (held == 3) {
             DrawSetColorRgb(255, 245, 200);
             for (var dk = 1; dk <= 4; dk = dk + 1) {
                 DrawSetAlpha((0.7 - dk * 0.13) * Min(1, pull + 0.3));
-                DrawCircle(bowX + aimX * (14 + dk * 13), bowY + aimY * (14 + dk * 13), 1.5, false);
+                ItemWCircle(bowX + aimX * (14 + dk * 13), bowY + aimY * (14 + dk * 13), 1.5, false);
             }
             DrawSetAlpha(1);
         }
     }
     if (InstanceVariableGet(pip, "itemDryT") > 0) {
         DrawSetAlpha(0.8); DrawSetColorRgb(255, 140, 120);
-        DrawCircle(px + f * 16, py - 38, 2 + Sin(clock * 900), false);
+        ItemWCircle(px + f * 16, py - 38, 2 + Sin(clock * 900), false);
         DrawSetAlpha(1);
     }
 }
@@ -844,16 +868,16 @@ if (held == 4) {
     if (open == 1) {
         var flX = px; var flY = py - 33 + Sin(clock * 500);
         if (ResourceExists("Held Flower")) {
-            DrawSpriteScaled("Assets/Sprites/Held Flower.image.json", flX, flY, 1 + Floor(clock * 20) % 4, 1, 1, 0, al);
+            ItemWSprite("Assets/Sprites/Held Flower.image.json", flX, flY, 1 + Floor(clock * 20) % 4, 1, 1, 0, al);
         } else {
-            ItemDrawFallback(4, flX, flY + 4, clock * 1100, 1.2, al);
+            ItemDrawFallbackW(4, flX, flY + 4, clock * 1100, 1.2, al);
         }
     } else {
         var cx = px + f * 8; var cy = py - 12;
         if (ResourceExists("Held Flower")) {
-            DrawSpriteScaled("Assets/Sprites/Held Flower.image.json", cx, cy, 0, 1, 1, 0, al);
+            ItemWSprite("Assets/Sprites/Held Flower.image.json", cx, cy, 0, 1, 1, 0, al);
         } else {
-            ItemDrawFallback(4, cx, cy, 0, 1, al);
+            ItemDrawFallbackW(4, cx, cy, 0, 1, al);
         }
     }
 }
@@ -908,12 +932,12 @@ var fr = Floor(animT * 2.5) % 2;
 var al = 1;
 if (delay > 0 && Floor(delay * 12) % 2 == 0) { al = 0.45; }
 DrawSetAlpha((0.16 + 0.07 * Sin(bob)) * al); DrawSetColorRgb(255, 240, 180);
-DrawCircle(x, y, 11, false);
+ItemWCircle(x, y, 11, false);
 DrawSetAlpha(1);
 if (ResourceExists("SPRITENAME")) {
-    DrawSpriteScaled("Assets/Sprites/SPRITENAME.image.json", x, y, fr, 1, 1, 0, al);
+    ItemWSprite("Assets/Sprites/SPRITENAME.image.json", x, y, fr, 1, 1, 0, al);
 } else {
-    ItemDrawFallback(kindItem, x, y, animT * 300, 1, al);
+    ItemDrawFallbackW(kindItem, x, y, animT * 300, 1, al);
 }
 DrawSetAlpha(1);
 """
@@ -967,9 +991,9 @@ THROWN_DRAW = r"""
 var names = ["", "Thrown Sword", "Thrown Shield", "Thrown Bow", "Thrown Flower"];
 var nm = names[kindItem];
 if (ResourceExists(nm)) {
-    DrawSpriteScaled(StringJoin2(StringJoin2("Assets/Sprites/", nm), ".image.json"), x, y, Floor(spinT * 18) % 4, spinDir, 1, 0, 1);
+    ItemWSprite(StringJoin2(StringJoin2("Assets/Sprites/", nm), ".image.json"), x, y, Floor(spinT * 18) % 4, spinDir, 1, 0, 1);
 } else {
-    ItemDrawFallback(kindItem, x, y, spinT * 720 * spinDir, 1.1, 1);
+    ItemDrawFallbackW(kindItem, x, y, spinT * 720 * spinDir, 1.1, 1);
 }
 DrawSetAlpha(1);
 """

@@ -66,8 +66,9 @@ REPUTATION_KIT = """// Reputation Kit: how the valley sees Pip (library function
 // killsStomp, killsBlade, killsArrow, killsGib, killsSliced, fearedBy (the Fear Kit counts it).
 // Runtime only: repGrace (seconds before kindness starts to heal again).
 //
-// Brutality: a stomp is kind (-1), blades +4, arrows +3, shield bashes +2, spores and Starlit +1,
-// a sliced body +4 extra, an overkill / gib +6 extra, killing a fleeing enemy +6 extra, a boss 0.
+// Brutality (slow on purpose: dozens of cruel kills, not a handful): a stomp is kind (-0.3), blades +0.8,
+// arrows +0.6, shield bashes +0.4, spores and Starlit +0.2, a sliced body +0.9 extra, an overkill / gib +1.4
+// extra, killing a fleeing enemy +1.2 extra, a boss 0. Kindness heals 0.02 a second.
 // Stage: 0 below 25, 1 below 50, 2 below 75, 3 from 75 (leaving a stage needs 3 points less).
 //
 // Hidden lore: this kit only keeps numbers. What the stages mean is never said in the game.
@@ -173,7 +174,7 @@ function RepTaintAmount() {
     return Lerp(0.8, 1, (total - 75) / 25);
 }
 
-// Kindness heals a little: 0.15 per second, only below 40 and only after a quiet spell (repGrace).
+// Kindness heals a little: 0.02 per second (about 1.2 a minute), only below 40 and only after a quiet spell (repGrace).
 function RepDecay(dt) {
     var grace = GlobalGet("repGrace");
     if (grace > 0) {
@@ -181,7 +182,7 @@ function RepDecay(dt) {
         return 0;
     }
     var total = GlobalGet("brutality");
-    if (total > 0 && total < 40) { GlobalSet("brutality", Max(0, total - 0.15 * dt)); }
+    if (total > 0 && total < 40) { GlobalSet("brutality", Max(0, total - 0.02 * dt)); }
     return 0;
 }
 
@@ -201,30 +202,30 @@ function RepKill(hitKind, overkill, sliced, weak) {
     if (boss == 1) { return 0; }
     var gain = 0;
     if (hitKind == 1) {
-        gain = -1;
+        gain = -0.3;
         GlobalSet("killsStomp", GlobalGet("killsStomp") + 1);
     } else if (hitKind == 2 || hitKind == 4) {
-        gain = 4;
+        gain = 0.8;
         GlobalSet("killsBlade", GlobalGet("killsBlade") + 1);
     } else if (hitKind == 3) {
-        gain = 3;
+        gain = 0.6;
         GlobalSet("killsArrow", GlobalGet("killsArrow") + 1);
     } else if (hitKind == 7) {
-        gain = 2;
+        gain = 0.4;
         GlobalSet("killsBlade", GlobalGet("killsBlade") + 1);
     } else if (hitKind == 5 || hitKind == 6) {
-        gain = 1;
+        gain = 0.2;
     }
     if (sliced != 0) {
-        gain = gain + 4;
+        gain = gain + 0.9;
         GlobalSet("killsSliced", GlobalGet("killsSliced") + 1);
     }
     if (overkill != 0) {
-        gain = gain + 6;
+        gain = gain + 1.4;
         GlobalSet("killsGib", GlobalGet("killsGib") + 1);
     }
     if (InstanceVariableExists(me, "feared")) {
-        if (InstanceVariableGet(me, "feared") == 1) { gain = gain + 6; }
+        if (InstanceVariableGet(me, "feared") == 1) { gain = gain + 1.2; }
     }
     if (gain != 0) { RepAdd(gain); }
     if (gain > 0) { GlobalSet("repGrace", 10); }
