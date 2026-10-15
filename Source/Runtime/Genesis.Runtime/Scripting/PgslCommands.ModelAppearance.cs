@@ -170,6 +170,24 @@ public static partial class PgslCommands
         && Genesis.Runtime.Modeling.ModelInstance.SetMaterialEmission(world, entity, material, (float)strength,
             new Vector3((float)r, (float)g, (float)b));
 
+    [PgslCommand("ModelSetMaterialEmissionTint", "ModelSetMaterialEmissionTint(material, r, g, b) -> bool",
+        "Colour the light one of this model's materials gives off, on this instance only: multiplies its emission image and its own glow (1, 1, 1 is as authored; above 1 brightens), leaving its surface colour alone, so one grey glow pattern serves every colour. A negative r gives back the material's own emission colour", "Models")]
+    public static bool ModelSetMaterialEmissionTint(string material, double r, double g, double b) =>
+        Finite3(r, g, b) && ThisModel(out var world, out var entity)
+        && Genesis.Runtime.Modeling.ModelInstance.SetMaterialEmissionTint(world, entity, material,
+            r < 0 ? null : new Vector3((float)r, (float)Math.Max(g, 0), (float)Math.Max(b, 0)));
+
+    [PgslCommand("InstanceSetMaterialEmissionTint", "InstanceSetMaterialEmissionTint(id, material, r, g, b) -> bool",
+        "Colour the light one of another instance's model materials gives off (as ModelSetMaterialEmissionTint)", "Models")]
+    public static bool InstanceSetMaterialEmissionTint(double id, string material, double r, double g, double b)
+    {
+        var world = ActiveGameContext?.World;
+        if (world == null || !double.IsFinite(id) || id < 1 || id > int.MaxValue || !Finite3(r, g, b)) return false;
+        var entity = world.GetEntity((int)id);
+        return Genesis.Runtime.Modeling.ModelInstance.SetMaterialEmissionTint(world, entity, material,
+            r < 0 ? null : new Vector3((float)r, (float)Math.Max(g, 0), (float)Math.Max(b, 0)));
+    }
+
     [PgslCommand("ModelSetMaterialTexture", "ModelSetMaterialTexture(material, slot, image) -> bool",
         "Give one of this model's materials another Image on this instance only (each weapon its own camo). Slot: albedo, normal, orm, emission, or a texture the material's Shader declares. An empty image gives the slot back its own",
         "Models")]

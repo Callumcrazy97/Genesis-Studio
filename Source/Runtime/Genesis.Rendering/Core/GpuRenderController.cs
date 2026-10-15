@@ -1151,7 +1151,8 @@ namespace Genesis.Rendering.Core
                     shaderParams2: c.ShaderParams2, shaderParams3: c.ShaderParams3,
                     authoredTextures: ResolveAuthoredTextures(c.AuthoredTextures),
                     materialFactors: c.MaterialFactors, layer: c.Layer,
-                    outline: c.Outline, outlineId: c.OutlineId, outlineThroughWalls: c.OutlineThroughWalls);
+                    outline: c.Outline, outlineId: c.OutlineId, outlineThroughWalls: c.OutlineThroughWalls,
+                    emissionColor: c.EmissionColor);
             }
         }
 

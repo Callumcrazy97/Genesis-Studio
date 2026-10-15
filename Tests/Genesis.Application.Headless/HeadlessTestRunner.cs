@@ -1171,6 +1171,14 @@ internal static class HeadlessTestRunner
         // Everything from 11 Oct 2026 that the tiers do not run: the small requests, opening a
         // project and exporting (the frame-rate choice and the export renderer are in the tiers).
         ["checks-1011"] = ["requests-1011", "project-open", "export-publishing"],
+        // The Aetherium port's 15 Oct 2026 requests: decals on see-through surfaces, particles taking
+        // Image resources, then the engine and editor tiers' suites (emission colour and empty mesh
+        // colliders run in large-world, the Model editor's light colour in model-intake). Listed
+        // flat rather than as "tier-engine" and "tier-editor": a nested group's deeper workspace
+        // made GDI+ image paths too long (not part of the tiers).
+        ["requests-1015"] = ["decals", "particle-workbench",
+            "engine-systems", "asset-import", "readback-alpha", "post-effects", "large-world", "runtime", "model-system", "debug-screen", "terrain-layers-grass", "shader-precompiled", "gui-linear", "sprite-draw-alloc", "opengl-compat", "window-lifecycle", "anti-aliasing", "frame-rate-choice",
+            "studio-foundation", "shell-layout", "resource-names", "code-assistance", "editor-suite", "room-workspace", "model-intake", "model-sprites", "pixel-model", "menu-clips"],
     };
 
     private static void RunFocusedTarget(HeadlessContext ctx, string target)

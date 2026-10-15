@@ -116,6 +116,48 @@ internal static class ModelIntakeSuite
             Assert(runtime.Meshes[0].Indices.SequenceEqual(indices) && runtime.WindingOrder == FrontFaceWindingOverride.Default,
                 "Saving changed geometry winding or silently forced a model override for the runtime.");
         });
+        HeadlessHarness.RunCase(ctx.Report, "Editor.Model.Intake.MaterialLightColourSavesAndReopens", () =>
+        {
+            // The material panel's Light colour: set, saved with the model, reopened, cleared back to white.
+            string path = resources.CreateResource(resources.AssetsRoot, ResourceKind.Model, "Neon sign probe");
+            var (vertices, indices) = MeshGeometry.BuildCube(RenderColor.White, 1);
+            var asset = new GModelAsset { Name = "Neon sign", Meshes = [new() { Vertices = vertices, Indices = indices }],
+                Materials = [new() { Name = "Neon", EmissiveFactor = Vector3.One }] };
+            asset.RecalculateBounds();
+            StudioModelResourceLoader.SaveCanonical(path, asset);
+            Vector3 red = new(1f, .2f, .1f);
+            void SetLight(ModelEditorControl editor, Vector3 colour) =>
+                (typeof(ModelEditorControl).GetMethod("SetMaterialEmissionColour", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                    ?? throw new InvalidOperationException("The Model editor has no light colour setter.")).Invoke(editor, [colour]);
+            using (var editor = new ModelEditorControl(path, project.RootPath))
+            {
+                using var host = Host(editor);
+                var groups = (ListBox)Descendants(editor).Single(control => control.Name == "ModelMeshGroups");
+                groups.SelectedIndex = 0;
+                Control swatch = Descendants(editor).Single(control => control.Name == "ModelMaterialEmissionColour");
+                Assert(Descendants(editor).Any(control => control.Name == "ModelMaterialEmissionColourChoose")
+                    && Descendants(editor).Any(control => control.Name == "ModelMaterialEmissionColourClear"),
+                    "The material panel has no Light colour buttons.");
+                Assert(swatch.BackColor.ToArgb() == Color.White.ToArgb(), "A new material's light colour is not white: " + swatch.BackColor);
+                SetLight(editor, red);
+                Assert(swatch.BackColor.R == 255 && swatch.BackColor.G == 51 && swatch.BackColor.B == 26 && editor.IsDirty,
+                    "Setting the light colour did not show it or mark the model changed: " + swatch.BackColor);
+                Capture(host, ctx, "model-light-colour");
+                editor.Save();
+            }
+            Assert(StudioModelResourceLoader.LoadReadOnly(path).Materials[0].EmissiveColor == red, "The light colour was not saved with the model.");
+            using (var reopened = new ModelEditorControl(path, project.RootPath))
+            {
+                using var host = Host(reopened);
+                ((ListBox)Descendants(reopened).Single(control => control.Name == "ModelMeshGroups")).SelectedIndex = 0;
+                Control swatch = Descendants(reopened).Single(control => control.Name == "ModelMaterialEmissionColour");
+                Assert(swatch.BackColor.R == 255 && swatch.BackColor.G == 51, "The reopened model does not show its light colour: " + swatch.BackColor);
+                Assert(Descendants(reopened).OfType<Button>().Any(control => control.Name == "ModelMaterialEmissionColourClear"), "The clear button is missing.");
+                SetLight(reopened, Vector3.One); // what the clear button does
+                reopened.Save();
+            }
+            Assert(StudioModelResourceLoader.LoadReadOnly(path).Materials[0].EmissiveColor == Vector3.One, "Clearing the light colour did not make it white again.");
+        });
         HeadlessHarness.RunCase(ctx.Report, "Editor.Model.Intake.FacingShapesRenderWithoutDuplicateFaces", () =>
         {
             foreach (string shape in new[] { "Plane", "SquareFace", "CircleFace", "TriangleFace" })

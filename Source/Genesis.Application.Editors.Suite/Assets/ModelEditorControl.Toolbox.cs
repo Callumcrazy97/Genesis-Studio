@@ -38,6 +38,7 @@ public sealed partial class ModelEditorControl
     private NumericUpDown? _uvOffsetUValue;
     private NumericUpDown? _uvOffsetVValue;
     private Label? _materialShaderValue;
+    private Panel? _emissionColourSwatch;
     private CollapsibleSection? _morphSection;
     private readonly Dictionary<string, NumericUpDown> _morphInputs = new(StringComparer.OrdinalIgnoreCase);
     private CollapsibleSection? _socketSection;
@@ -236,7 +237,7 @@ public sealed partial class ModelEditorControl
         imagePaint.Content.Controls.Add(paintImage);
         imagePaint.Content.Controls.Add(new Label { Text = "Assign an Albedo Image below. Paint on its 2D canvas or on the Model, then Save Image to update gameplay.",
             Location = new Point(8, 44), Size = new Size(250, 58), ForeColor = EditorChrome.Muted });
-        CollapsibleSection material = Section(page, "MATERIAL & PBR", 430);
+        CollapsibleSection material = Section(page, "MATERIAL & PBR", 466);
         _material.SetBounds(8, 7, 166, 28);
         material.Content.Controls.Add(_material);
         _material.SelectedIndexChanged += (_, _) => { if (!_syncingGroups) AssignMaterial(_material.SelectedIndex); };
@@ -274,6 +275,22 @@ public sealed partial class ModelEditorControl
         clearShader.Name = "ModelMaterialShaderClear";
         clearShader.SetBounds(226, 394, 32, 28);
         material.Content.Controls.Add(clearShader);
+        // The colour of the material's own light: multiplies its emission image and its glow.
+        material.Content.Controls.Add(new Label { Text = "Light colour", Location = new Point(8, 434), Size = new Size(84, 22), ForeColor = EditorChrome.Muted });
+        _emissionColourSwatch = new Panel
+        {
+            Name = "ModelMaterialEmissionColour", Location = new Point(96, 432), Size = new Size(90, 24),
+            BorderStyle = BorderStyle.FixedSingle, BackColor = Color.White,
+        };
+        material.Content.Controls.Add(_emissionColourSwatch);
+        Button chooseEmissionColour = Tool("…", ChooseMaterialEmissionColour);
+        chooseEmissionColour.Name = "ModelMaterialEmissionColourChoose";
+        chooseEmissionColour.SetBounds(190, 430, 32, 28);
+        material.Content.Controls.Add(chooseEmissionColour);
+        Button clearEmissionColour = Tool("×", () => SetMaterialEmissionColour(System.Numerics.Vector3.One));
+        clearEmissionColour.Name = "ModelMaterialEmissionColourClear";
+        clearEmissionColour.SetBounds(226, 430, 32, 28);
+        material.Content.Controls.Add(clearEmissionColour);
 
         CollapsibleSection paint = Section(page, "VERTEX COLOUR", 100);
         _colour.SetBounds(8, 8, 250, 31);
@@ -862,9 +879,34 @@ public sealed partial class ModelEditorControl
         ChangeAsset("Change material colour",()=>material.BaseColor=new System.Numerics.Vector4(picker.Color.R/255f,picker.Color.G/255f,picker.Color.B/255f,material.BaseColor.W));
     }
 
+    private void ChooseMaterialEmissionColour()
+    {
+        GModelMaterial? material = SelectedMaterial(); if (material is null) return;
+        using ColorDialog picker = new() { Color = SwatchColour(material.EmissiveColor), FullOpen = true };
+        if (picker.ShowDialog(this) != DialogResult.OK) return;
+        SetMaterialEmissionColour(new System.Numerics.Vector3(picker.Color.R / 255f, picker.Color.G / 255f, picker.Color.B / 255f));
+    }
+
+    /// <summary>The selected material's light colour (its emission image and glow times this); white is as authored.</summary>
+    private void SetMaterialEmissionColour(System.Numerics.Vector3 colour)
+    {
+        GModelMaterial? material = SelectedMaterial();
+        if (material is null || !float.IsFinite(colour.X + colour.Y + colour.Z)) return;
+        colour = System.Numerics.Vector3.Clamp(colour, System.Numerics.Vector3.Zero, new System.Numerics.Vector3(16f));
+        if (material.EmissiveColor == colour) return;
+        ChangeAsset(colour == System.Numerics.Vector3.One ? "Clear material light colour" : "Change material light colour",
+            () => material.EmissiveColor = colour);
+        RefreshMaterialInspector();
+    }
+
+    private static Color SwatchColour(System.Numerics.Vector3 colour) => Color.FromArgb(
+        (int)Math.Round(Math.Clamp(colour.X, 0f, 1f) * 255f), (int)Math.Round(Math.Clamp(colour.Y, 0f, 1f) * 255f),
+        (int)Math.Round(Math.Clamp(colour.Z, 0f, 1f) * 255f));
+
     private void RefreshMaterialInspector()
     {
         GModelMaterial? material=SelectedMaterial();
+        if(_emissionColourSwatch is not null)_emissionColourSwatch.BackColor=SwatchColour(material?.EmissiveColor??System.Numerics.Vector3.One);
         if(material is null)
         {
             if(_albedoValue is not null)_albedoValue.Text="(none)";

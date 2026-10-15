@@ -567,12 +567,166 @@ internal static class EngineAdditionsSuite
                 MeshDrawCall again = Drawn();
                 HeadlessHarness.Assert(again.Emissive == 0f && MathF.Abs(again.Tint.G - plainGlass.G) < 1e-4f && MathF.Abs(again.Tint.B - plainGlass.B) < 1e-4f,
                     "Giving a material back its light did not give back its colour.");
+
+                // The light's own colour (ModelSetMaterialEmissionTint): the surface keeps its colour,
+                // the draw carries the light's, and a whole-model glow keeps its share uncoloured.
+                HeadlessHarness.Assert(plain.EmissionColor == default && again.EmissionColor == default,
+                    "A material with a white light colour should send no emission colour.");
+                HeadlessHarness.Assert(Genesis.Runtime.Modeling.ModelInstance.SetMaterialEmission(world, entity, "Glass", 2f)
+                    && Genesis.Runtime.Modeling.ModelInstance.SetMaterialEmissionTint(world, entity, "glass", new Vector3(1f, 0.2f, 0.1f))
+                    && !Genesis.Runtime.Modeling.ModelInstance.SetMaterialEmissionTint(world, entity, "Brass", Vector3.One),
+                    "A light colour is set by the material's name.");
+                MeshDrawCall red = Drawn();
+                HeadlessHarness.Assert(red.EmissionColor == new Vector4(1f, 0.2f, 0.1f, 1f) && MathF.Abs(red.Tint.G - plainGlass.G) < 1e-4f,
+                    $"The glass's light should be red and its surface as authored: light {red.EmissionColor}, tint {red.Tint.G:F2}.");
+                Genesis.Runtime.Modeling.ModelInstance.SetGlow(world, entity, 1f);
+                MeshDrawCall flashed = Drawn();
+                HeadlessHarness.Assert(MathF.Abs(flashed.Emissive - 3f) < 1e-4f && MathF.Abs(flashed.EmissionColor.W - 2f / 3f) < 1e-4f,
+                    $"With a glow of 1 over a light of 2, two thirds of the light should be the material's ({flashed.EmissionColor.W}).");
+                Genesis.Runtime.Modeling.ModelInstance.SetGlow(world, entity, 0f);
+                Genesis.Runtime.Modeling.ModelInstance.SetMaterialEmissionTint(world, entity, "Glass", null);
+                Genesis.Runtime.Modeling.ModelInstance.SetMaterialEmission(world, entity, "Glass", -1f);
+                HeadlessHarness.Assert(Drawn().EmissionColor == default, "Giving the glass back its own light colour did not.");
+
+                // A material authored with a light colour (the Model editor's Light colour).
+                Genesis.Runtime.Modeling.GModelAsset sign = Genesis.Runtime.Modeling.GModelPrimitiveFactory.CreateCube("Sign", 1f);
+                sign.Materials[0].Name = "Neon";
+                sign.Materials[0].EmissiveFactor = Vector3.One;
+                sign.Materials[0].EmissiveColor = new Vector3(0.1f, 0.4f, 1f);
+                string signFile = Path.Combine(project, "Models", "Sign.gmodel");
+                Genesis.Runtime.Modeling.RuntimeModelStore.Save(signFile, sign);
+                HeadlessHarness.Assert(Genesis.Runtime.Modeling.RuntimeModelStore.Load(signFile).Materials[0].EmissiveColor == new Vector3(0.1f, 0.4f, 1f),
+                    "A material's light colour was not saved with the model.");
+                var signQueue = new Genesis.Runtime.Modeling.ModelRenderQueue();
+                HeadlessHarness.Assert(models.Enqueue(signQueue, project, "Sign", "", Matrix4x4.Identity,
+                    new Draw3DComponent { Visible = true, CastShadows = true, ReceiveShadows = true },
+                    new ModelRendererComponent { ModelAsset = "Sign", ScaleX = 1, ScaleY = 1, ScaleZ = 1 }, default, renderer) && signQueue.Count == 1,
+                    "The sign was not drawn as one mesh.");
+                var signDraw = new MeshDrawCall[1];
+                signQueue.CopyTo(signDraw, 0);
+                HeadlessHarness.Assert(signDraw[0].EmissionColor == new Vector4(0.1f, 0.4f, 1f, 1f) && MathF.Abs(signDraw[0].Emissive - 1f) < 1e-4f,
+                    $"The sign's authored light colour did not reach its draw ({signDraw[0].EmissionColor}).");
             }
             finally
             {
                 Genesis.Runtime.Scripting.PgslCommands.ProjectPath = oldProject;
             }
         });
+
+        HeadlessHarness.RunCase(context.Report, "Render.Models.EmissionColourTintsTheMaterialsLightOnGpuRenderers", () => EmissionColourPixels(context));
+    }
+
+    /// <summary>
+    /// Two panels on every GPU renderer: a black one lit only by a white emission image, and a
+    /// grey one glowing by its own colour. A red light colour (MeshDrawCall.EmissionColor) turns
+    /// the image's light red and the glow red while the grey panel's lit surface keeps its colour;
+    /// a white light colour draws what no light colour draws.
+    /// </summary>
+    private static void EmissionColourPixels(HeadlessContext context)
+    {
+        const int W = 320, H = 200;
+        Matrix4x4 view = Matrix4x4.CreateLookAt(new Vector3(0f, 0f, -3f), Vector3.Zero, Vector3.UnitY);
+        Matrix4x4 projection = Matrix4x4.CreatePerspectiveFieldOfView(MathF.PI / 3f, W / (float)H, 0.1f, 50f);
+        (int X, int Y) Screen(Vector3 point)
+        {
+            Vector4 clip = Vector4.Transform(new Vector4(point, 1f), view * projection);
+            return ((int)((clip.X / clip.W * 0.5f + 0.5f) * W), (int)((0.5f - clip.Y / clip.W * 0.5f) * H));
+        }
+        (int R, int G, int B) Mean(byte[] bgra, (int X, int Y) at)
+        {
+            int r = 0, g = 0, b = 0, n = 0;
+            for (int y = at.Y - 3; y <= at.Y + 3; y++)
+                for (int x = at.X - 3; x <= at.X + 3; x++)
+                {
+                    if (x < 0 || y < 0 || x >= W || y >= H) continue;
+                    int i = (y * W + x) * 4;
+                    b += bgra[i]; g += bgra[i + 1]; r += bgra[i + 2]; n++;
+                }
+            return n == 0 ? (0, 0, 0) : (r / n, g / n, b / n);
+        }
+        MeshVertex[] Panel(Vector4 colour) =>
+        [
+            new() { Position = new Vector3(-0.6f, -0.6f, 0f), Normal = -Vector3.UnitZ, Color = colour, UV = new Vector2(0f, 1f) },
+            new() { Position = new Vector3(0.6f, -0.6f, 0f), Normal = -Vector3.UnitZ, Color = colour, UV = new Vector2(1f, 1f) },
+            new() { Position = new Vector3(0.6f, 0.6f, 0f), Normal = -Vector3.UnitZ, Color = colour, UV = new Vector2(1f, 0f) },
+            new() { Position = new Vector3(-0.6f, 0.6f, 0f), Normal = -Vector3.UnitZ, Color = colour, UV = new Vector2(0f, 0f) },
+        ];
+        ushort[] indices = [0, 1, 2, 0, 2, 3];
+        Vector3 imageAt = new(0.8f, 0f, 0f), glowAt = new(-0.8f, 0f, 0f);
+        Vector4 red = new(1f, 0.2f, 0.1f, 1f);
+        List<string> failures = [];
+        List<string> readings = [];
+        foreach (Genesis.Rendering.Core.RenderBackendOption backend in new[]
+        {
+            Genesis.Rendering.Core.RenderBackendOption.SilkNetDx11, Genesis.Rendering.Core.RenderBackendOption.Direct3D12,
+            Genesis.Rendering.Core.RenderBackendOption.Vulkan, Genesis.Rendering.Core.RenderBackendOption.OpenGL,
+        })
+        {
+            using System.Windows.Forms.Form host = UnattendedWindowing.NewHost(W, H);
+            UnattendedWindowing.ShowWithoutFocus(host);
+            using IRenderController renderer = Genesis.Rendering.Core.RenderControllerFactory.Create(backend);
+            renderer.Initialize(host.Handle, W, H);
+            MeshHandle panel = renderer.RegisterMesh(Panel(Vector4.One), indices);
+            byte[] white = Enumerable.Repeat((byte)255, 8 * 8 * 4).ToArray();
+            TextureHandle glowImage = renderer.CreateTexture(8, 8, white, Genesis.Shared.Materials.TextureColorSpace.Srgb);
+            try
+            {
+                byte[] Frame(Vector4 lightColour, string label)
+                {
+                    Mesh3DState state = Mesh3DState.Default;
+                    state.ShowFloor = false; state.ShowSunVisual = false; state.FogEnabled = false; state.ShadowsEnabled = false;
+                    state.CameraFarPlane = 50f;
+                    renderer.SetMesh3DState(state); renderer.Set3DFrameActive(true);
+                    renderer.SetCamera3D(view, projection);
+                    renderer.BeginFrame(); renderer.Clear(0.1f, 0.1f, 0.1f);
+                    // Lit only by its emission image: a black surface, a white image at strength 1.
+                    renderer.DrawMesh(new MeshDrawCall
+                    {
+                        Mesh = panel, World = Matrix4x4.CreateTranslation(imageAt), Tint = new RenderColor(0f, 0f, 0f, 1f), Alpha = 1f,
+                        EmissionMap = glowImage, SurfaceParams = new Vector4(0f, 0f, 1f, 0f), Emissive = 1f,
+                        Flags = MeshDrawFlags.Emissive | MeshDrawFlags.NoShadow | MeshDrawFlags.NoCull, EmissionColor = lightColour,
+                    });
+                    // A grey surface glowing by its own colour (no image).
+                    renderer.DrawMesh(new MeshDrawCall
+                    {
+                        Mesh = panel, World = Matrix4x4.CreateTranslation(glowAt), Tint = new RenderColor(0.6f, 0.6f, 0.6f, 1f), Alpha = 1f,
+                        SurfaceParams = new Vector4(0f, 0f, 1f, 0f), Emissive = 1f,
+                        Flags = MeshDrawFlags.Emissive | MeshDrawFlags.NoShadow | MeshDrawFlags.NoCull, EmissionColor = lightColour,
+                    });
+                    renderer.EndFrame();
+                    HeadlessHarness.Assert(renderer.TryReadSubmittedFramePixels(out int width, out int height, out byte[] pixels)
+                        && width == W && height == H, backend + ": no frame could be read back.");
+                    Suites.FlashLightSuite.Save(context, pixels, width, height, "emission-colour-" + backend + "-" + label);
+                    renderer.Present();
+                    return pixels;
+                }
+
+                byte[] none = Frame(default, "none");
+                byte[] whiteLight = Frame(new Vector4(1f, 1f, 1f, 1f), "white");
+                byte[] redLight = Frame(red, "red");
+                (int R, int G, int B) imageNone = Mean(none, Screen(imageAt)), imageWhite = Mean(whiteLight, Screen(imageAt)), imageRed = Mean(redLight, Screen(imageAt));
+                (int R, int G, int B) glowNone = Mean(none, Screen(glowAt)), glowWhite = Mean(whiteLight, Screen(glowAt)), glowRed = Mean(redLight, Screen(glowAt));
+                readings.Add($"{backend}: image {imageNone} / white {imageWhite} / red {imageRed}; glow {glowNone} / white {glowWhite} / red {glowRed}");
+                bool Same((int R, int G, int B) a, (int R, int G, int B) b) => Math.Abs(a.R - b.R) <= 2 && Math.Abs(a.G - b.G) <= 2 && Math.Abs(a.B - b.B) <= 2;
+                if (!(imageNone.R > 150 && imageNone.G > 150 && imageNone.B > 150))
+                    failures.Add($"{backend}: the white emission image does not light the black panel ({imageNone})");
+                if (!Same(imageWhite, imageNone) || !Same(glowWhite, glowNone))
+                    failures.Add($"{backend}: a white light colour changed the picture ({imageNone} -> {imageWhite}, {glowNone} -> {glowWhite})");
+                if (!(imageRed.R > 150 && imageRed.G < imageRed.R * 0.5 && imageRed.B < imageRed.R * 0.5))
+                    failures.Add($"{backend}: the emission image's light is not red ({imageRed})");
+                if (!(glowRed.R >= glowNone.R - 4 && glowRed.G < glowNone.G - 20 && glowRed.B < glowNone.B - 20 && glowRed.R > glowRed.G + 20))
+                    failures.Add($"{backend}: the material's own glow is not red ({glowNone} -> {glowRed})");
+            }
+            finally
+            {
+                renderer.ReleaseTexture(glowImage);
+                renderer.ReleaseMesh(panel);
+            }
+        }
+        Directory.CreateDirectory(context.Logs);
+        File.WriteAllLines(Path.Combine(context.Logs, "emission-colour-readings.txt"), readings);
+        Console.WriteLine("Emission colour readings: " + string.Join(" | ", readings));
+        HeadlessHarness.Assert(failures.Count == 0, string.Join(" | ", failures));
     }
 
     /// <summary>Keeps the rectangles and lines a HUD shape is made of.</summary>

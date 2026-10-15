@@ -102,6 +102,17 @@ From C#, `ModelInstance.Crossed(world, entity, fraction)`, `Progress`, `Finished
 | `SetMaterialEmission(world, entity, material, strength)` | Make one material give off light whatever it was authored with: window glass at dusk. A negative strength gives it back its authored light. Events: `ModelSetMaterialEmission`. |
 | `SetMaterialEmission(world, entity, material, strength, colour)` | The same, in a colour: glass that glows warm whatever colour it is by day. The material gives off its own colour multiplied by this one, so the colour also tints the material while it is set. A negative strength gives back both. Events: `ModelSetMaterialEmissionColor(material, strength, r, g, b)`. |
 | `SetMaterialTint(world, entity, material, colour)` | Multiply one material's colour on this instance; null gives it back. Events: `ModelSetMaterialTint`. |
+| `SetMaterialEmissionTint(world, entity, material, colour)` | Colour the light one material gives off on this instance: its emission image and its own glow are multiplied by the colour, its surface is not (1, 1, 1 is as authored; null, or a negative r from a script, gives back the material's own light colour). Events: `ModelSetMaterialEmissionTint(material, r, g, b)`, `InstanceSetMaterialEmissionTint(id, material, r, g, b)`. |
+
+**A material's light colour (15 October 2026).** A model material has a **Light colour**
+(`EmissiveColor`, white by default, so every model looks as before) that multiplies the light it
+gives off: its emission image and the glow of its `EmissiveFactor`, but not its surface colour nor
+a glow a script adds over the whole model. One grey glow pattern can then serve every glow colour.
+It is set in the Model editor's MATERIAL & PBR panel (Light colour `…`, `×` for white) and saved
+with the model, and per instance by `ModelSetMaterialEmissionTint`. It is drawn by the shared
+forward shader on Direct3D 11 and 12, Vulkan and OpenGL; the Software renderer draws no emission
+images and ignores it. `ModelSetMaterialEmissionColor` keeps what it did (a tint on the whole
+material, which colours only its base-colour glow).
 
 Two things to know:
 
