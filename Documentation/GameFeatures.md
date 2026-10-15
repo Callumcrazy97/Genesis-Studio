@@ -313,6 +313,28 @@ project then using 2D lights (one, a dark mansion game) sets the amount itself i
 none looked different; that call is now unnecessary. A dark game calls `Light2DAmbient` in the
 room's first Create, for example `Light2DAmbient(0.32, 0.012, 0.024, 0.06)` for the old default.
 
+## Solid tiles in a 2D room (15 October 2026)
+
+`TileMoveX(x, y, amount)` and `TileMoveY(x, y, amount)` move the caller's mask through the room's
+solid tiles and return the new `x` or `y`. The mask is the box around the sprite's collision shapes,
+turned with `image_angle` and scaled with `image_xscale` and `image_yscale`, so a rectangle tilted a
+few degrees dips a corner a pixel or two into the floor it stands on.
+
+A mask that already overlaps a tile (its angle, scale or sprite changed, or it was placed there) is
+never moved further in through the surface it dips into. It can always move back out, and it slides
+along that surface without catching on tile seams: across a floor, or up and down a wall it is
+pressed into. Until 15 October 2026 an overlapped tile was ignored, so a boss wobbling its angle on a
+floor fell through it and out of the room. A mask that overlaps no tile moves exactly as before.
+
+Every collision tile is a whole solid box (a turned tile is the box around it, not a slope). There are
+no one-way tiles: a one-way platform is an Object with its own landing rule, as in Mushroom Meadow. A
+game that lets a body rise through tiles without `TileMoveY` and expects it to fall back through them
+now sees it held where it overlaps a tile's top.
+
+A turned circle or polygon mask is now the box around the turned shape: a circle keeps its size at
+any angle (it used to grow by up to 41%, at 45 degrees). Unturned masks, and a single rectangle at
+any angle, are unchanged. `Build.bat --test 2d-showcase` checks all of this.
+
 ## Flash lights: muzzle flashes and explosions
 
 A game fires a short light from any event (the Step that fires a gun, an explosion's Create) and
