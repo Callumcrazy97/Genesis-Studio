@@ -33,6 +33,15 @@ namespace Genesis.Runtime.Net
     /// no prediction, rollback or cheat prevention; a player's own objects are trusted.
     /// </para>
     /// <para>
+    /// Every copy glides: a player's copies of the host's objects, and the host's copies of the
+    /// players' own objects alike. Each frame a copy moves part of the way to where its object was
+    /// last reported, so its position, rotation and 2D angle change every frame instead of
+    /// jumping twenty times a second. The copy's transform is what is drawn and what the scripts
+    /// on that machine read, so a script's hit test against a copy uses where the copy is seen,
+    /// about a fourteenth of a second behind the report. The host passes on what the owner
+    /// reported, not its own smoothed copy, so the other players' copies are smoothed once.
+    /// </para>
+    /// <para>
     /// A 2D object's look is sent the same way: its sprite, frame, scale (a negative one is a
     /// flip), angle, alpha and visibility, each only when it changes, so a value that stays the
     /// same costs nothing after the object has arrived. A copy holds the frame it is sent instead
@@ -64,6 +73,15 @@ namespace Genesis.Runtime.Net
         /// </summary>
         private const int SettleRepeats = 4;
 
+        /// <summary>
+        /// Below these a sender treats an object as standing still (squared distance, and degrees),
+        /// and a gliding copy this close is put exactly where its object is.
+        /// </summary>
+        private const float StillDistanceSquared = 1e-6f, StillDegrees = 0.01f;
+
+        /// <summary>How quickly a copy closes on where its object was last reported, per second.</summary>
+        private const float GlideRate = 14f;
+
         /// <summary>The animation a model is playing, as far as a copy needs to know it.</summary>
         private readonly record struct ClipState(string Clip, bool Loop, float Speed)
         {
@@ -82,6 +100,15 @@ namespace Genesis.Runtime.Net
         private enum SpriteFields : byte
         {
             None = 0, Sprite = 1, Frame = 2, Scale = 4, Angle = 8, Alpha = 16, Visible = 32,
+        }
+
+        /// <summary>Where the machine that controls an object last said it is; the copy here glides there.</summary>
+        private struct GlideTarget
+        {
+            public Vector3 Position, Rotation;
+            /// <summary>A 2D object's angle, once the copy has been sent one.</summary>
+            public float Angle;
+            public bool HasAngle;
         }
 
         /// <summary>Something this machine shares or holds a copy of, and the values it carries.</summary>
@@ -106,6 +133,8 @@ namespace Genesis.Runtime.Net
             public byte[] SpritePayload;
             /// <summary>0 for the host's own; otherwise the player who owns it.</summary>
             public int OwnerPeer;
+            /// <summary>A player's own object: where the player last said it is. Not used for the host's own.</summary>
+            public GlideTarget Target;
             public Vector3 LastSentPosition, LastSentRotation;
             public bool Moved;
             public int Repeats;
@@ -124,7 +153,7 @@ namespace Genesis.Runtime.Net
         {
             /// <summary>0 for the host's own object; otherwise the player it belongs to, as the host numbers them.</summary>
             public int OwnerPeer;
-            public Vector3 TargetPosition, TargetRotation;
+            public GlideTarget Target;
         }
 
         private sealed class Mine : Tracked
@@ -376,15 +405,24 @@ namespace Genesis.Runtime.Net
             }
 
             // Copies glide to where they were last reported, so twenty updates a second look smooth.
-            float blend = 1f - MathF.Exp(-MathF.Max(0f, deltaSeconds) * 14f);
+            // On the host the copies are the players' own objects; it glides them the same way.
+            float blend = 1f - MathF.Exp(-MathF.Max(0f, deltaSeconds) * GlideRate);
+            if (_network.IsHost)
+            {
+                foreach (Shared shared in _shared.Values)
+                {
+                    // One that has gone is dropped by the next send.
+                    if (shared.OwnerPeer == 0 || !world.IsAlive(shared.Entity) || !world.Has<TransformComponent>(shared.Entity)) continue;
+                    Glide(world, shared.Entity, ref shared.Target, blend);
+                }
+            }
+
             _scratch.Clear();
             foreach (KeyValuePair<int, Copy> pair in _copies)
             {
                 Copy copy = pair.Value;
                 if (!world.IsAlive(copy.Entity) || !world.Has<TransformComponent>(copy.Entity)) { _scratch.Add(pair.Key); continue; }
-                ReadTransform(world, copy.Entity, out Vector3 position, out Vector3 rotation);
-                SetTransform(world, copy.Entity, Vector3.Lerp(position, copy.TargetPosition, blend),
-                    LerpAngles(rotation, copy.TargetRotation, blend));
+                Glide(world, copy.Entity, ref copy.Target, blend);
             }
 
             // A copy that was removed here (a script, a reloaded room) while its object lives on:
@@ -443,9 +481,12 @@ namespace Genesis.Runtime.Net
             {
                 Shared shared = pair.Value;
                 if (!world.IsAlive(shared.Entity) || !world.Has<TransformComponent>(shared.Entity)) { _scratch.Add(pair.Key); continue; }
-                ReadTransform(world, shared.Entity, out Vector3 position, out Vector3 rotation);
-                bool moved = Vector3.DistanceSquared(position, shared.LastSentPosition) > 1e-6f
-                    || Vector3.DistanceSquared(rotation, shared.LastSentRotation) > 1e-4f;
+                // A player's own object is passed on as the player reported it, not as the host's
+                // copy has glided so far: the other players' copies glide from the report themselves.
+                Vector3 position = shared.Target.Position, rotation = shared.Target.Rotation;
+                if (shared.OwnerPeer == 0) ReadTransform(world, shared.Entity, out position, out rotation);
+                bool moved = Vector3.DistanceSquared(position, shared.LastSentPosition) > StillDistanceSquared
+                    || Vector3.DistanceSquared(rotation, shared.LastSentRotation) > StillDegrees * StillDegrees;
                 if (moved) { shared.LastSentPosition = position; shared.LastSentRotation = rotation; shared.Repeats = SettleRepeats; }
                 else if (shared.Repeats > 0) shared.Repeats--;
                 shared.Moved = moved || shared.Repeats > 0;
@@ -453,6 +494,7 @@ namespace Genesis.Runtime.Net
                 shared.ClipChanged = clip != shared.Clip;
                 shared.Clip = clip;
                 SpriteState sprite = ReadSprite(world, shared.Entity);
+                if (shared.OwnerPeer != 0 && shared.Target.HasAngle && sprite.Is2D) sprite = sprite with { Angle = shared.Target.Angle };
                 shared.SpriteChanged = SpriteChanges(shared.Sprite, sprite);
                 shared.Sprite = sprite;
                 shared.SpritePayload = null;
@@ -661,8 +703,8 @@ namespace Genesis.Runtime.Net
                     mine.Dirty.Clear();
                 }
 
-                bool moved = Vector3.DistanceSquared(position, mine.LastSentPosition) > 1e-6f
-                    || Vector3.DistanceSquared(rotation, mine.LastSentRotation) > 1e-4f;
+                bool moved = Vector3.DistanceSquared(position, mine.LastSentPosition) > StillDistanceSquared
+                    || Vector3.DistanceSquared(rotation, mine.LastSentRotation) > StillDegrees * StillDegrees;
                 if (moved) mine.Repeats = SettleRepeats;
                 else if (mine.Repeats > 0) mine.Repeats--;
                 if (!moved && mine.Repeats == 0) continue;
@@ -721,10 +763,13 @@ namespace Genesis.Runtime.Net
                         {
                             Entity = entity, Prefab = prefab, OwnerPeer = message.From.Id,
                             LastSentPosition = position, LastSentRotation = rotation,
+                            Target = new GlideTarget { Position = position, Rotation = rotation },
                         };
                         ReadValues(reader, arrived, changed: false);
                         SpriteState look = ReadSprite(reader, out SpriteFields lookFields);
+                        // Made as it looks; later angles are glided to (see Glide).
                         ApplySprite(_world, entity, lookFields, look);
+                        if ((lookFields & SpriteFields.Angle) != 0) { arrived.Target.Angle = look.Angle; arrived.Target.HasAngle = true; }
                         _shared[netId] = arrived;
                         _indexStale = true;
                         state.Owned[localId] = netId;
@@ -737,7 +782,7 @@ namespace Genesis.Runtime.Net
                         // Shown on the host's copy; the host then tells the other players as it would for its own objects.
                         if (_peers.TryGetValue(message.From.Id, out PeerState state) && state.Owned.TryGetValue(localId, out int netId)
                             && _shared.TryGetValue(netId, out Shared shared))
-                            ApplySprite(_world, shared.Entity, lookFields, look);
+                            ApplySprite(_world, shared.Entity, GlideAngle(ref shared.Target, lookFields, look), look);
                         break;
                     }
                     case TagSprites when !host:
@@ -747,7 +792,8 @@ namespace Genesis.Runtime.Net
                         {
                             int netId = reader.ReadInt32();
                             SpriteState look = ReadSprite(reader, out SpriteFields lookFields);
-                            if (_copies.TryGetValue(netId, out Copy copy)) ApplySprite(_world, copy.Entity, lookFields, look);
+                            if (_copies.TryGetValue(netId, out Copy copy))
+                                ApplySprite(_world, copy.Entity, GlideAngle(ref copy.Target, lookFields, look), look);
                         }
 
                         break;
@@ -788,9 +834,14 @@ namespace Genesis.Runtime.Net
                     {
                         int localId = reader.ReadInt32();
                         Vector3 position = ReadVector(reader), rotation = ReadVector(reader);
+                        // The host's copy glides there each frame (see Update), as a player's copies do.
                         if (_peers.TryGetValue(message.From.Id, out PeerState state) && state.Owned.TryGetValue(localId, out int netId)
-                            && _shared.TryGetValue(netId, out Shared shared) && _world.IsAlive(shared.Entity))
-                            SetTransform(_world, shared.Entity, position, rotation);
+                            && _shared.TryGetValue(netId, out Shared shared))
+                        {
+                            shared.Target.Position = position;
+                            shared.Target.Rotation = rotation;
+                        }
+
                         break;
                     }
                     case TagOwnedDespawn when host:
@@ -829,11 +880,13 @@ namespace Genesis.Runtime.Net
                         var copy = new Copy
                         {
                             Entity = entity, Prefab = prefab, OwnerPeer = reader.ReadInt32(),
-                            TargetPosition = position, TargetRotation = rotation,
+                            Target = new GlideTarget { Position = position, Rotation = rotation },
                         };
                         ReadValues(reader, copy, changed: false);
                         SpriteState look = ReadSprite(reader, out SpriteFields lookFields);
+                        // Made as it looks; later angles are glided to (see Glide).
                         ApplySprite(_world, entity, lookFields, look);
+                        if ((lookFields & SpriteFields.Angle) != 0) { copy.Target.Angle = look.Angle; copy.Target.HasAngle = true; }
                         _copies[netId] = copy;
                         _indexStale = true;
                         break;
@@ -857,8 +910,8 @@ namespace Genesis.Runtime.Net
                             int netId = reader.ReadInt32();
                             Vector3 position = ReadVector(reader), rotation = ReadVector(reader);
                             if (!_copies.TryGetValue(netId, out Copy copy)) continue;
-                            copy.TargetPosition = position;
-                            copy.TargetRotation = rotation;
+                            copy.Target.Position = position;
+                            copy.Target.Rotation = rotation;
                         }
 
                         break;
@@ -898,6 +951,35 @@ namespace Genesis.Runtime.Net
         {
             ref TransformComponent transform = ref world.GetRef<TransformComponent>(entity);
             scale = new Vector3(transform.ScaleX, transform.ScaleY, transform.ScaleZ);
+        }
+
+        /// <summary>
+        /// Moves a copy one frame's share of the way to where its object was last reported: its
+        /// position, its rotation and a 2D object's angle. A copy within what a sender treats as
+        /// standing still is put exactly there.
+        /// </summary>
+        private static void Glide(EcsWorld world, Entity entity, ref GlideTarget target, float blend)
+        {
+            ReadTransform(world, entity, out Vector3 position, out Vector3 rotation);
+            Vector3 next = Vector3.DistanceSquared(position, target.Position) <= StillDistanceSquared
+                ? target.Position : Vector3.Lerp(position, target.Position, blend);
+            SetTransform(world, entity, next, LerpAngles(rotation, target.Rotation, blend));
+            if (!target.HasAngle) return;
+            ref TransformComponent transform = ref world.GetRef<TransformComponent>(entity);
+            transform.Rotation = LerpAngle(transform.Rotation, target.Angle, blend);
+        }
+
+        /// <summary>
+        /// A 2D angle that arrives is glided to, not set at once: it becomes the copy's target and
+        /// is taken out of what is applied. The other parts of a look are set as they arrive: a
+        /// sprite, a frame or a flip has nothing between, and a blink or flash of alpha would blur.
+        /// </summary>
+        private static SpriteFields GlideAngle(ref GlideTarget target, SpriteFields fields, SpriteState look)
+        {
+            if ((fields & SpriteFields.Angle) == 0) return fields;
+            target.Angle = look.Angle;
+            target.HasAngle = true;
+            return fields & ~SpriteFields.Angle;
         }
 
         private static void SetTransform(EcsWorld world, Entity entity, Vector3 position, Vector3 rotation)
@@ -1112,7 +1194,8 @@ namespace Genesis.Runtime.Net
             float difference = (to - from) % 360f;
             if (difference > 180f) difference -= 360f;
             if (difference < -180f) difference += 360f;
-            return from + difference * amount;
+            // Close enough is exactly there: a float glide would otherwise stop a hair short.
+            return MathF.Abs(difference) <= StillDegrees ? to : from + difference * amount;
         }
 
         private static byte[] Write(Action<BinaryWriter> body)

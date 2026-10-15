@@ -270,6 +270,23 @@ rotation are shared, scale as it was when the copy was made, and the animation a
 (its clip, whether it loops, its speed, and whether it is paused) whenever that changes, so a copy
 walks when its object walks.
 
+Every copy glides (15 October 2026). Each frame it moves part of the way to where its object was
+last reported, so it moves and turns in every frame rather than twenty times a second, and comes to
+rest exactly where its object stopped. This holds for the host's copies of the players' own
+characters as well as for the players' copies; before, the host put each report straight onto its
+copy, so at 60 fps a joined player's character jumped every third frame on the host's screen. A 2D
+angle glides too; a sprite, a frame, a flip, alpha and visibility change as they arrive, since they
+have nothing in between (and a blink would blur).
+
+A copy's position is where it is drawn, and it is what the scripts on that machine read: `x`, `y`,
+a distance check or a hit test against a copy all use where the copy is seen, on the host as on a
+player's machine. It trails what its owner last reported by about a fourteenth of a second, and
+moves on in every frame, so a test against it agrees with the picture and a fast character does
+not skip past a narrow target between reports. When a game needs its owner's word instead (who was
+hit, whether a pick-up was reached), let the owner's machine decide and send the result as a value
+or a message: a player's own objects are trusted. The host passes on to the other players what the
+owner reported, not its own smoothed copy, so their copies are smoothed once.
+
 A 2D instance's look is shared too (15 October 2026): its sprite, frame, scale (so a flip with a
 negative `image_xscale`), angle, alpha and whether it is visible. Each is sent with the instance
 when it arrives and then only when it changes, reliably and many instances to a message, at the
