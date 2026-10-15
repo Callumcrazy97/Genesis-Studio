@@ -197,7 +197,24 @@ namespace Genesis.Rendering.SilkNet.Vulkan
             {
                 _needsRecreate = needsRecreate;
             }
+
+            // Vulkan fixes the present mode when the swap chain is built, so a change of vsync
+            // (WindowSetVSync) builds it again before the next frame, the way a resize does. Only a
+            // change does: the same setting every frame leaves the swap chain alone.
+            if (_inner.RequestVSync(vsync))
+            {
+                _needsRecreate = true;
+            }
         }
+
+        /// <summary>Whether the swap chain is built to wait for the display.</summary>
+        internal bool VSync => _inner.VSync;
+
+        /// <summary>The present mode the swap chain was last built with: FIFO, MAILBOX or IMMEDIATE.</summary>
+        internal string PresentModeName => VulkanSwapChain.PresentModeName(_inner.PresentMode);
+
+        /// <summary>How many times the swap chain has been built.</summary>
+        internal int BuildCount => _inner.BuildCount;
 
         /// <summary>
         /// The back buffer as a texture. Vulkan owns the image, so the wrapper never destroys it.

@@ -98,6 +98,7 @@ internal static class HeadlessTestRunner
         Suites.RenderBackendSuite.Run(ctx);
         Suites.ShadowQualitySuite.Run(ctx);
         Suites.FroxelFogSuite.Run(ctx);
+        Suites.DistantViewSuite.Run(ctx);
         Suites.TavernBenchmarkSuite.Run(ctx, native: false);
 
         Suites.RuntimeSuite.Run(ctx);
@@ -1249,6 +1250,11 @@ internal static class HeadlessTestRunner
                 break;
             case "fog":
                 Suites.FroxelFogSuite.Run(ctx);
+                break;
+            case "distant-view":
+            case "far-view":
+            case "vulkan-vsync":
+                Suites.DistantViewSuite.Run(ctx);
                 break;
             case "mesh-surface":
             case "surface-shaders":
