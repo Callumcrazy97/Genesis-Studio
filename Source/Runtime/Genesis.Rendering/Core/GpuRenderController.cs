@@ -79,6 +79,9 @@ namespace Genesis.Rendering.Core
         public int    PixelWidth    => _gpuSwapChain?.Width  ?? 0;
         public int    PixelHeight   => _gpuSwapChain?.Height ?? 0;
 
+        /// <summary>The window's swap chain, for checks of how a backend presents.</summary>
+        internal IGpuSwapChain SwapChain => _gpuSwapChain;
+
         // ── Lifecycle ────────────────────────────────────────────────────────────
 
         /// <summary>Drives a frame over any backend that implements <see cref="IGpuDevice"/>.</summary>

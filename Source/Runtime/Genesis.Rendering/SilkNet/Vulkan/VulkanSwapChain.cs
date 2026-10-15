@@ -92,6 +92,19 @@ namespace Genesis.Rendering.SilkNet.Vulkan
 
         public static GpuFormat DepthFormat => DepthGpuFormat;
 
+        /// <summary>
+        /// Whether the swap chain is built to wait for the display (FIFO) or not (MAILBOX, else
+        /// IMMEDIATE, else FIFO). Off until a present asks for it, which is what a renderer that
+        /// never calls SetVSync presents with.
+        /// </summary>
+        public bool VSync { get; private set; }
+
+        /// <summary>The present mode the swap chain was last built with.</summary>
+        public PresentModeKHR PresentMode { get; private set; }
+
+        /// <summary>How many times the swap chain has been built (a resize or a vsync change each adds one).</summary>
+        public int BuildCount { get; private set; }
+
         public int ImageCount => _images.Length;
 
         /// <summary>Index acquired this frame, or -1 when nothing is acquired.</summary>
@@ -206,6 +219,16 @@ namespace Genesis.Rendering.SilkNet.Vulkan
                 imageCount = capabilities.MaxImageCount;
             }
 
+            PresentModeKHR presentMode = ChoosePresentMode(VSync);
+            if (presentMode != PresentMode || BuildCount == 0)
+            {
+                Genesis.Rendering.Diagnostics.RenderLog.Line(
+                    $"Vulkan present mode: {PresentModeName(presentMode)} (vsync {(VSync ? "on" : "off")})");
+            }
+
+            PresentMode = presentMode;
+            BuildCount++;
+
             var createInfo = new SwapchainCreateInfoKHR
             {
                 SType = StructureType.SwapchainCreateInfoKhr,
@@ -221,7 +244,7 @@ namespace Genesis.Rendering.SilkNet.Vulkan
                 ImageSharingMode = SharingMode.Exclusive,
                 PreTransform = capabilities.CurrentTransform,
                 CompositeAlpha = CompositeAlphaFlagsKHR.OpaqueBitKhr,
-                PresentMode = ChoosePresentMode(),
+                PresentMode = presentMode,
                 Clipped = true,
                 OldSwapchain = default,
             };
@@ -301,8 +324,26 @@ namespace Genesis.Rendering.SilkNet.Vulkan
             return formats[0];
         }
 
-        private PresentModeKHR ChoosePresentMode()
+        /// <summary>
+        /// Chooses vsync for the swap chain's next build. True when that changes its present mode,
+        /// so it must be rebuilt; the caller does that between frames, as it does for a resize.
+        /// </summary>
+        public bool RequestVSync(bool vsync)
         {
+            if (vsync == VSync) return false;
+            VSync = vsync;
+            return _swapchain.Handle != 0 && ChoosePresentMode(vsync) != PresentMode;
+        }
+
+        /// <summary>
+        /// Vsync waits for the display: FIFO, the one mode every device has. Without it a frame is
+        /// shown as soon as it is ready: MAILBOX (no tearing) where there is one, else IMMEDIATE,
+        /// else FIFO after all.
+        /// </summary>
+        private PresentModeKHR ChoosePresentMode(bool vsync)
+        {
+            if (vsync) return PresentModeKHR.FifoKhr;
+
             uint count = 0;
             if (_surfaceApi.GetPhysicalDeviceSurfacePresentModes(_runtime.PhysicalDevice, _surface, &count, null)
                 != Result.Success || count == 0)
@@ -316,17 +357,19 @@ namespace Genesis.Rendering.SilkNet.Vulkan
                 _surfaceApi.GetPhysicalDeviceSurfacePresentModes(_runtime.PhysicalDevice, _surface, &count, pointer);
             }
 
-            foreach (PresentModeKHR mode in modes)
-            {
-                if (mode == PresentModeKHR.MailboxKhr)
-                {
-                    return mode;
-                }
-            }
-
-            // FIFO is the only mode guaranteed to exist, and is a correct vsync.
+            if (Array.IndexOf(modes, PresentModeKHR.MailboxKhr, 0, (int)count) >= 0) return PresentModeKHR.MailboxKhr;
+            if (Array.IndexOf(modes, PresentModeKHR.ImmediateKhr, 0, (int)count) >= 0) return PresentModeKHR.ImmediateKhr;
             return PresentModeKHR.FifoKhr;
         }
+
+        internal static string PresentModeName(PresentModeKHR mode) => mode switch
+        {
+            PresentModeKHR.FifoKhr => "FIFO",
+            PresentModeKHR.MailboxKhr => "MAILBOX",
+            PresentModeKHR.ImmediateKhr => "IMMEDIATE",
+            PresentModeKHR.FifoRelaxedKhr => "FIFO_RELAXED",
+            _ => mode.ToString(),
+        };
 
         private void CreateImageViews()
         {
