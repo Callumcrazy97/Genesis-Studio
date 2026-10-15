@@ -142,7 +142,14 @@ namespace Genesis.Net
         public event Action<GPeer> OnPeerConnected;
         public event Action<GPeer> OnPeerDisconnected;
 
-        public LiteNetGameNetwork(string applicationKey = "genesis-runtime-2", int maximumPeers = 64)
+        /// <summary>
+        /// The connection key the Player uses. It names the wire format: a build that encodes shared
+        /// objects differently has a different key, so it is refused instead of misread.
+        /// "genesis-runtime-3" (15 October 2026) added 2D looks to shared objects.
+        /// </summary>
+        public const string DefaultApplicationKey = "genesis-runtime-3";
+
+        public LiteNetGameNetwork(string applicationKey = DefaultApplicationKey, int maximumPeers = 64)
         {
             if (string.IsNullOrWhiteSpace(applicationKey) || applicationKey.Length > 128) throw new ArgumentException("Invalid application key.", nameof(applicationKey));
             if (maximumPeers < 1 || maximumPeers > 4096) throw new ArgumentOutOfRangeException(nameof(maximumPeers));

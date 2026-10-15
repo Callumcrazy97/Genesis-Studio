@@ -256,7 +256,20 @@ object lives on is asked for again.
 Copies are made from the Object's own definition and run none of its scripts. Position and
 rotation are shared, scale as it was when the copy was made, and the animation a model is playing
 (its clip, whether it loops, its speed, and whether it is paused) whenever that changes, so a copy
-walks when its object walks. Script variables are not shared unless a script shares them as named
+walks when its object walks.
+
+A 2D instance's look is shared too (15 October 2026): its sprite, frame, scale (so a flip with a
+negative `image_xscale`), angle, alpha and whether it is visible. Each is sent with the instance
+when it arrives and then only when it changes, reliably and many instances to a message, at the
+same twenty times a second as movement: a new frame costs 13 bytes and a sprite that does not change
+costs nothing. A copy shows the frame it is sent and does not play the sprite's animation itself. A
+colour set with `SpriteSetBlend` is not shared: the engine draws an instance without it, and it
+tints only what a Draw event draws, which a copy does not run; share it as a named value if a Draw
+event of your own uses it. This changed what is sent, so the connection key is now
+`genesis-runtime-3`: a game built with an older engine is refused when it tries to join instead of
+misreading what it is sent.
+
+Script variables are not shared unless a script shares them as named
 values, and physics is not shared: a copy is not solid and
 is not given the physics body or the collider its Object would have, because the machine that owns
 the object decides where it is. There is no prediction or

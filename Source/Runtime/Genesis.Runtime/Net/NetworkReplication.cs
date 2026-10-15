@@ -33,6 +33,12 @@ namespace Genesis.Runtime.Net
     /// no prediction, rollback or cheat prevention; a player's own objects are trusted.
     /// </para>
     /// <para>
+    /// A 2D object's look is sent the same way: its sprite, frame, scale (a negative one is a
+    /// flip), angle, alpha and visibility, each only when it changes, so a value that stays the
+    /// same costs nothing after the object has arrived. A copy holds the frame it is sent instead
+    /// of playing the sprite's animation itself.
+    /// </para>
+    /// <para>
     /// A shared object also carries a few named values (health, a name, a team) that the machine
     /// controlling it sets and every machine holding a copy can read. They are sent when they
     /// change and with the object when it arrives.
@@ -43,12 +49,13 @@ namespace Genesis.Runtime.Net
         // Negative tags are reserved for the engine; game messages use positive ones.
         public const int TagSpawn = -7001, TagDespawn = -7002, TagSnapshot = -7003, TagFocus = -7004,
             TagOwnedSpawn = -7005, TagOwnedState = -7006, TagOwnedDespawn = -7007, TagResync = -7008,
-            TagClip = -7009, TagOwnedClip = -7010, TagValues = -7011, TagOwnedValues = -7012;
+            TagClip = -7009, TagOwnedClip = -7010, TagValues = -7011, TagOwnedValues = -7012,
+            TagSprites = -7013, TagOwnedSprite = -7014;
 
         /// <summary>Most named values one object carries, and the longest name and text.</summary>
         public const int MaxValues = 32, MaxValueName = 48, MaxValueText = 512;
 
-        private const int SnapshotEntriesPerMessage = 36;
+        private const int SnapshotEntriesPerMessage = 36, SpriteEntriesPerMessage = 64, MaxSpriteName = 256;
 
         /// <summary>
         /// Movement is sent unreliably, so the last message of a move may be lost and leave a copy
@@ -61,6 +68,20 @@ namespace Genesis.Runtime.Net
         private readonly record struct ClipState(string Clip, bool Loop, float Speed)
         {
             public static readonly ClipState None = new("", true, 1f);
+        }
+
+        /// <summary>What a 2D object looks like, as far as a copy needs to know it.</summary>
+        private readonly record struct SpriteState(
+            bool Is2D, bool HasFrames, string Sprite, int Frame, float XScale, float YScale, float Angle, float Alpha, bool Visible)
+        {
+            public static readonly SpriteState None = default;
+        }
+
+        /// <summary>Which parts of a <see cref="SpriteState"/> a message carries.</summary>
+        [Flags]
+        private enum SpriteFields : byte
+        {
+            None = 0, Sprite = 1, Frame = 2, Scale = 4, Angle = 8, Alpha = 16, Visible = 32,
         }
 
         /// <summary>Something this machine shares or holds a copy of, and the values it carries.</summary>
@@ -79,6 +100,10 @@ namespace Genesis.Runtime.Net
             public byte[] ValuesPayload;
             public ClipState Clip = ClipState.None;
             public bool ClipChanged;
+            public SpriteState Sprite = SpriteState.None;
+            /// <summary>What of the look changed this send, and those parts written once for every player.</summary>
+            public SpriteFields SpriteChanged;
+            public byte[] SpritePayload;
             /// <summary>0 for the host's own; otherwise the player who owns it.</summary>
             public int OwnerPeer;
             public Vector3 LastSentPosition, LastSentRotation;
@@ -105,6 +130,7 @@ namespace Genesis.Runtime.Net
         private sealed class Mine : Tracked
         {
             public ClipState Clip = ClipState.None;
+            public SpriteState Sprite = SpriteState.None;
             public bool Announced;
             public Vector3 LastSentPosition, LastSentRotation;
             public int Repeats;
@@ -426,6 +452,10 @@ namespace Genesis.Runtime.Net
                 ClipState clip = ReadClip(world, shared.Entity);
                 shared.ClipChanged = clip != shared.Clip;
                 shared.Clip = clip;
+                SpriteState sprite = ReadSprite(world, shared.Entity);
+                shared.SpriteChanged = SpriteChanges(shared.Sprite, sprite);
+                shared.Sprite = sprite;
+                shared.SpritePayload = null;
             }
 
             foreach (int id in _scratch)
@@ -458,6 +488,23 @@ namespace Genesis.Runtime.Net
                     entries = 0;
                 }
 
+                // Changes to 2D looks go reliably, many objects to a message: a frame that is lost
+                // would leave a copy showing the wrong one until the next change.
+                MemoryStream spriteStream = null;
+                BinaryWriter spriteWriter = null;
+                int spriteEntries = 0;
+                void FlushSprites()
+                {
+                    if (spriteEntries == 0) return;
+                    spriteWriter.Flush();
+                    byte[] bytes = spriteStream.ToArray();
+                    BitConverter.TryWriteBytes(bytes.AsSpan(0, 4), spriteEntries);
+                    _network.Send(peer.Id, TagSprites, bytes);
+                    spriteStream.Dispose();
+                    spriteStream = null;
+                    spriteEntries = 0;
+                }
+
                 foreach (KeyValuePair<int, Shared> pair in _shared)
                 {
                     Shared shared = pair.Value;
@@ -475,6 +522,7 @@ namespace Genesis.Runtime.Net
                             WriteClip(w, shared.Clip);
                             w.Write(shared.OwnerPeer);
                             WriteValues(w, shared, onlyChanged: false);
+                            WriteSprite(w, shared.Sprite, AllSpriteFields(shared.Sprite));
                         }));
                         continue;
                     }
@@ -491,6 +539,20 @@ namespace Genesis.Runtime.Net
                     if (known && shared.Dirty is { Count: > 0 })
                         _network.Send(peer.Id, TagValues,
                             shared.ValuesPayload ??= Write(w => { w.Write(pair.Key); WriteValues(w, shared, onlyChanged: true); }));
+                    if (known && shared.SpriteChanged != SpriteFields.None)
+                    {
+                        if (spriteStream == null)
+                        {
+                            spriteStream = new MemoryStream(64);
+                            spriteWriter = new BinaryWriter(spriteStream);
+                            spriteWriter.Write(0);
+                        }
+
+                        spriteWriter.Write(pair.Key);
+                        spriteWriter.Write(shared.SpritePayload ??= Write(w => WriteSprite(w, shared.Sprite, shared.SpriteChanged)));
+                        if (++spriteEntries >= SpriteEntriesPerMessage) FlushSprites();
+                    }
+
                     if (!known || !shared.Moved) continue;
                     if (stream == null)
                     {
@@ -506,6 +568,7 @@ namespace Genesis.Runtime.Net
                 }
 
                 Flush();
+                FlushSprites();
             }
 
             // Every player that should hear of a changed value has now been told.
@@ -558,6 +621,7 @@ namespace Genesis.Runtime.Net
                 if (!world.IsAlive(mine.Entity) || !world.Has<TransformComponent>(mine.Entity)) { _scratch.Add(pair.Key); continue; }
                 ReadTransform(world, mine.Entity, out Vector3 position, out Vector3 rotation);
                 ClipState clip = ReadClip(world, mine.Entity);
+                SpriteState sprite = ReadSprite(world, mine.Entity);
                 if (!mine.Announced)
                 {
                     ReadScale(world, mine.Entity, out Vector3 scale);
@@ -567,12 +631,14 @@ namespace Genesis.Runtime.Net
                         WriteVector(w, position); WriteVector(w, rotation); WriteVector(w, scale);
                         WriteClip(w, clip);
                         WriteValues(w, mine, onlyChanged: false);
+                        WriteSprite(w, sprite, AllSpriteFields(sprite));
                     }));
                     mine.Dirty?.Clear();
                     mine.Announced = true;
                     mine.LastSentPosition = position;
                     mine.LastSentRotation = rotation;
                     mine.Clip = clip;
+                    mine.Sprite = sprite;
                     continue;
                 }
 
@@ -580,6 +646,13 @@ namespace Genesis.Runtime.Net
                 {
                     mine.Clip = clip;
                     _network.Send(NetPeer.Host.Id, TagOwnedClip, Write(w => { w.Write(pair.Key); WriteClip(w, clip); }));
+                }
+
+                SpriteFields spriteChanged = SpriteChanges(mine.Sprite, sprite);
+                if (spriteChanged != SpriteFields.None)
+                {
+                    mine.Sprite = sprite;
+                    _network.Send(NetPeer.Host.Id, TagOwnedSprite, Write(w => { w.Write(pair.Key); WriteSprite(w, sprite, spriteChanged); }));
                 }
 
                 if (mine.Dirty is { Count: > 0 })
@@ -611,7 +684,7 @@ namespace Genesis.Runtime.Net
 
         private void OnMessage(NetMessage message)
         {
-            if (message.Tag > TagSpawn || message.Tag < TagOwnedValues || message.Payload == null) return;
+            if (message.Tag > TagSpawn || message.Tag < TagOwnedSprite || message.Payload == null) return;
             if (_world == null)
             {
                 // Losing an arrival here would leave the sender believing it had been shown.
@@ -650,9 +723,33 @@ namespace Genesis.Runtime.Net
                             LastSentPosition = position, LastSentRotation = rotation,
                         };
                         ReadValues(reader, arrived, changed: false);
+                        SpriteState look = ReadSprite(reader, out SpriteFields lookFields);
+                        ApplySprite(_world, entity, lookFields, look);
                         _shared[netId] = arrived;
                         _indexStale = true;
                         state.Owned[localId] = netId;
+                        break;
+                    }
+                    case TagOwnedSprite when host:
+                    {
+                        int localId = reader.ReadInt32();
+                        SpriteState look = ReadSprite(reader, out SpriteFields lookFields);
+                        // Shown on the host's copy; the host then tells the other players as it would for its own objects.
+                        if (_peers.TryGetValue(message.From.Id, out PeerState state) && state.Owned.TryGetValue(localId, out int netId)
+                            && _shared.TryGetValue(netId, out Shared shared))
+                            ApplySprite(_world, shared.Entity, lookFields, look);
+                        break;
+                    }
+                    case TagSprites when !host:
+                    {
+                        int count = reader.ReadInt32();
+                        for (int i = 0; i < count; i++)
+                        {
+                            int netId = reader.ReadInt32();
+                            SpriteState look = ReadSprite(reader, out SpriteFields lookFields);
+                            if (_copies.TryGetValue(netId, out Copy copy)) ApplySprite(_world, copy.Entity, lookFields, look);
+                        }
+
                         break;
                     }
                     case TagOwnedValues when host:
@@ -735,6 +832,8 @@ namespace Genesis.Runtime.Net
                             TargetPosition = position, TargetRotation = rotation,
                         };
                         ReadValues(reader, copy, changed: false);
+                        SpriteState look = ReadSprite(reader, out SpriteFields lookFields);
+                        ApplySprite(_world, entity, lookFields, look);
                         _copies[netId] = copy;
                         _indexStale = true;
                         break;
@@ -845,6 +944,112 @@ namespace Genesis.Runtime.Net
             animator.Loop = clip.Loop;
             animator.Playing = clip.Speed != 0f;
             if (clip.Speed != 0f) animator.PlaybackSpeed = clip.Speed;
+        }
+
+        /// <summary>The look of an object drawn in 2D; <see cref="SpriteState.None"/> for anything else.</summary>
+        private static SpriteState ReadSprite(EcsWorld world, Entity entity)
+        {
+            if (!world.Has<Draw2DComponent>(entity)) return SpriteState.None;
+            bool visible = world.GetRef<Draw2DComponent>(entity).Visible;
+            ref TransformComponent transform = ref world.GetRef<TransformComponent>(entity);
+            string image = Genesis.Runtime.Rendering.ObjectDrawAssetRegistry.TryGet(entity, out var assets) ? assets.Image ?? "" : "";
+            bool frames = world.Has<SpriteComponent>(entity);
+            int frame = 0;
+            float alpha = 1f;
+            if (frames)
+            {
+                ref SpriteComponent sprite = ref world.GetRef<SpriteComponent>(entity);
+                frame = sprite.ImageIndex;
+                alpha = sprite.Alpha;
+            }
+
+            return new SpriteState(true, frames, image, frame, transform.ScaleX, transform.ScaleY, transform.Rotation, alpha, visible);
+        }
+
+        /// <summary>Everything a copy needs to look like the object when it is made.</summary>
+        private static SpriteFields AllSpriteFields(SpriteState state) =>
+            !state.Is2D ? SpriteFields.None
+            : SpriteFields.Sprite | SpriteFields.Scale | SpriteFields.Angle | SpriteFields.Visible
+                | (state.HasFrames ? SpriteFields.Frame | SpriteFields.Alpha : SpriteFields.None);
+
+        /// <summary>The parts of an object's look that are not what was last sent.</summary>
+        private static SpriteFields SpriteChanges(SpriteState sent, SpriteState now)
+        {
+            if (!now.Is2D) return SpriteFields.None;
+            if (!sent.Is2D || sent.HasFrames != now.HasFrames) return AllSpriteFields(now);
+            SpriteFields changed = SpriteFields.None;
+            if (!string.Equals(sent.Sprite, now.Sprite, StringComparison.Ordinal)) changed |= SpriteFields.Sprite;
+            if (now.HasFrames && sent.Frame != now.Frame) changed |= SpriteFields.Frame;
+            if (sent.XScale != now.XScale || sent.YScale != now.YScale) changed |= SpriteFields.Scale;
+            if (sent.Angle != now.Angle) changed |= SpriteFields.Angle;
+            if (now.HasFrames && sent.Alpha != now.Alpha) changed |= SpriteFields.Alpha;
+            if (sent.Visible != now.Visible) changed |= SpriteFields.Visible;
+            return changed;
+        }
+
+        /// <summary>One byte saying which parts follow, then only those parts.</summary>
+        private static void WriteSprite(BinaryWriter writer, SpriteState state, SpriteFields fields)
+        {
+            writer.Write((byte)fields);
+            if ((fields & SpriteFields.Sprite) != 0) writer.Write(state.Sprite ?? "");
+            if ((fields & SpriteFields.Frame) != 0) writer.Write(state.Frame);
+            if ((fields & SpriteFields.Scale) != 0) { writer.Write(state.XScale); writer.Write(state.YScale); }
+            if ((fields & SpriteFields.Angle) != 0) writer.Write(state.Angle);
+            if ((fields & SpriteFields.Alpha) != 0) writer.Write(state.Alpha);
+            if ((fields & SpriteFields.Visible) != 0) writer.Write(state.Visible);
+        }
+
+        private static SpriteState ReadSprite(BinaryReader reader, out SpriteFields fields)
+        {
+            fields = (SpriteFields)reader.ReadByte();
+            string sprite = (fields & SpriteFields.Sprite) != 0 ? reader.ReadString() : "";
+            int frame = (fields & SpriteFields.Frame) != 0 ? reader.ReadInt32() : 0;
+            float xScale = 1f, yScale = 1f;
+            if ((fields & SpriteFields.Scale) != 0) { xScale = reader.ReadSingle(); yScale = reader.ReadSingle(); }
+            float angle = (fields & SpriteFields.Angle) != 0 ? reader.ReadSingle() : 0f;
+            float alpha = (fields & SpriteFields.Alpha) != 0 ? reader.ReadSingle() : 1f;
+            bool visible = (fields & SpriteFields.Visible) == 0 || reader.ReadBoolean();
+            // What another machine sends is held to sensible limits.
+            if (sprite.Length > MaxSpriteName) fields &= ~SpriteFields.Sprite;
+            if (!float.IsFinite(xScale) || !float.IsFinite(yScale)) fields &= ~SpriteFields.Scale;
+            if (!float.IsFinite(angle)) fields &= ~SpriteFields.Angle;
+            if (!float.IsFinite(alpha)) fields &= ~SpriteFields.Alpha;
+            return new SpriteState(true, (fields & (SpriteFields.Frame | SpriteFields.Alpha)) != 0, sprite, Math.Max(0, frame),
+                xScale, yScale, angle, Math.Clamp(alpha, 0f, 1f), visible);
+        }
+
+        /// <summary>Makes a copy look as its object does, in the parts that were sent.</summary>
+        private static void ApplySprite(EcsWorld world, Entity entity, SpriteFields fields, SpriteState state)
+        {
+            if (fields == SpriteFields.None || !world.IsAlive(entity)) return;
+            if ((fields & SpriteFields.Sprite) != 0)
+            {
+                if (Genesis.Runtime.Rendering.ObjectDrawAssetRegistry.TryGet(entity, out var assets)) assets.Image = state.Sprite;
+                else if (state.Sprite.Length > 0)
+                    Genesis.Runtime.Rendering.ObjectDrawAssetRegistry.Set(entity, new Genesis.Runtime.Rendering.ObjectDrawAssetEntry { Image = state.Sprite });
+            }
+
+            bool frames = (fields & (SpriteFields.Frame | SpriteFields.Alpha)) != 0;
+            if (frames && !world.Has<SpriteComponent>(entity))
+                world.Set(entity, new SpriteComponent { Alpha = 1f, AnimationTagIndex = -1, AnimationLoopOverride = -1 });
+            if (world.Has<SpriteComponent>(entity))
+            {
+                // The copy holds the frame it is sent; its own playback would move it on.
+                ref SpriteComponent sprite = ref world.GetRef<SpriteComponent>(entity);
+                sprite.FrameFromNetwork = true;
+                if ((fields & SpriteFields.Frame) != 0) sprite.ImageIndex = state.Frame;
+                if ((fields & SpriteFields.Alpha) != 0) sprite.Alpha = state.Alpha;
+            }
+
+            if ((fields & (SpriteFields.Scale | SpriteFields.Angle)) != 0 && world.Has<TransformComponent>(entity))
+            {
+                ref TransformComponent transform = ref world.GetRef<TransformComponent>(entity);
+                if ((fields & SpriteFields.Scale) != 0) { transform.ScaleX = state.XScale; transform.ScaleY = state.YScale; }
+                if ((fields & SpriteFields.Angle) != 0) transform.Rotation = state.Angle;
+            }
+
+            if ((fields & SpriteFields.Visible) != 0 && world.Has<Draw2DComponent>(entity))
+                world.GetRef<Draw2DComponent>(entity).Visible = state.Visible;
         }
 
         private static void WriteValues(BinaryWriter writer, Tracked record, bool onlyChanged)

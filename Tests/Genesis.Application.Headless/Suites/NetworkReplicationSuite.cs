@@ -30,6 +30,8 @@ internal static class NetworkReplicationSuite
         public int PeerCount => _peers.Count;
         public IReadOnlyList<NetPeer> Peers => _peers;
         public int Sent { get; private set; }
+        /// <summary>Every message sent, by tag and size.</summary>
+        public readonly List<(int Tag, int Bytes)> Log = new();
 
         public event Action<NetMessage>? OnMessageReceived;
         public event Action<NetPeer>? OnPeerConnected;
@@ -63,6 +65,7 @@ internal static class NetworkReplicationSuite
         {
             if (peerId == 0) { Broadcast(tag, payload, delivery); return; }
             Sent++;
+            Log.Add((tag, payload?.Length ?? 0));
             if (IsHost) { if (_links.TryGetValue(peerId, out LoopNetwork? player)) player._inbox.Enqueue(new NetMessage(tag, NetPeer.Host, payload)); }
             else _host?._inbox.Enqueue(new NetMessage(tag, new NetPeer(_idAtHost, "loop:" + _idAtHost), payload));
         }
@@ -542,11 +545,176 @@ internal static class NetworkReplicationSuite
         });
     }
 
+    /// <summary>A 2D instance: a sprite drawn where it stands, as a 2D Object's instance is.</summary>
+    private static Entity PlaceSprite(EcsWorld world, string prefab, string image, Vector3 position)
+    {
+        Entity entity = Machine.Place(world, position);
+        world.Set(entity, new Draw2DComponent { Visible = true });
+        world.Set(entity, new SpriteComponent { Alpha = 1f, ImageSpeed = 1f, AnimationTagIndex = -1, AnimationLoopOverride = -1 });
+        Genesis.Runtime.Rendering.ObjectDrawAssetRegistry.Set(entity, new Genesis.Runtime.Rendering.ObjectDrawAssetEntry { Prefab = prefab, Image = image });
+        return entity;
+    }
+
+    /// <summary>What a 2D instance looks like, in one line to compare and to print.</summary>
+    private static string Look(EcsWorld world, Entity entity)
+    {
+        if (entity.IsNull || !world.IsAlive(entity) || !world.Has<SpriteComponent>(entity)) return "nothing";
+        string image = Genesis.Runtime.Rendering.ObjectDrawAssetRegistry.TryGet(entity, out var assets) ? assets.Image : "no image";
+        SpriteComponent sprite = world.GetRef<SpriteComponent>(entity);
+        TransformComponent transform = world.GetRef<TransformComponent>(entity);
+        bool shown = world.Has<Draw2DComponent>(entity) && world.GetRef<Draw2DComponent>(entity).Visible;
+        return FormattableString.Invariant(
+            $"{image}#{sprite.ImageIndex} scale {transform.ScaleX}x{transform.ScaleY} angle {transform.Rotation} alpha {sprite.Alpha} {(shown ? "shown" : "hidden")}");
+    }
+
+    private static void RunTwoD(HeadlessContext context)
+    {
+        HeadlessHarness.RunCase(context.Report, "Engine.Net.Replication.TwoDCopiesShowTheSpriteFrameAndFacingOverARealConnection", () =>
+        {
+            // Both worlds live in this process and share the registry of what instances draw; their
+            // ids are kept apart so one world's sprite is never read as the other's.
+            var drawn = new Genesis.Runtime.Rendering.ObjectDrawAssetRegistry.PreviewScope();
+            using IDisposable isolated = drawn.Activate();
+            using var host = new SocketMachine();
+            using var anna = new SocketMachine();
+            for (int i = 0; i < 500; i++) anna.World.CreateEntity();
+            SocketMachine[] machines = [host, anna];
+            foreach (SocketMachine machine in machines)
+            {
+                SocketMachine owner = machine;
+                owner.Replication.CreateCopy = (world, prefab, position, rotation, scale) =>
+                {
+                    owner.CopiesMade.Add(prefab);
+                    return PlaceSprite(world, prefab, prefab + "Idle", position);
+                };
+            }
+
+            void Until(Func<bool> done, Func<string> failure, double seconds = 8)
+            {
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                while (!done() && watch.Elapsed.TotalSeconds < seconds)
+                {
+                    foreach (SocketMachine machine in machines) machine.Step();
+                    Thread.Sleep(2);
+                }
+
+                HeadlessHarness.Assert(done(), failure());
+            }
+
+            int port = FreeUdpPort();
+            host.Network.Host(port);
+            anna.Network.Connect("127.0.0.1", port);
+            Until(() => anna.Network.IsConnected && host.Network.PeerCount == 1, () => "A player did not connect to the host on this machine.");
+
+            // The hero arrives as it looks: its own sprite on frame 2, not the Object's first frame.
+            Entity hero = PlaceSprite(host.World, "Hero", "HeroIdle", new Vector3(100, 50, 0));
+            host.World.GetRef<SpriteComponent>(hero).ImageIndex = 2;
+            host.Replication.Replicate(hero, "Hero");
+            Until(() => anna.Replication.CopyCount == 1, () => "The hero did not reach the player.");
+            Entity copy = anna.Replication.CopyAt(0);
+            HeadlessHarness.Assert(Look(anna.World, copy) == Look(host.World, hero),
+                $"The copy arrived as {Look(anna.World, copy)}; the hero is {Look(host.World, hero)}.");
+            HeadlessHarness.Assert(anna.World.GetRef<SpriteComponent>(copy).FrameFromNetwork,
+                "The copy would play the sprite's animation itself instead of showing the frame it is sent.");
+
+            // It turns round and walks: another sprite, a later frame, flipped, faded and tilted.
+            Genesis.Runtime.Rendering.ObjectDrawAssetRegistry.TryGet(hero, out var heroDrawn);
+            heroDrawn.Image = "HeroWalk";
+            host.World.GetRef<SpriteComponent>(hero).ImageIndex = 3;
+            host.World.GetRef<SpriteComponent>(hero).Alpha = 0.5f;
+            host.World.GetRef<TransformComponent>(hero).ScaleX = -1f;
+            host.World.GetRef<TransformComponent>(hero).Rotation = 15f;
+            Until(() => Look(anna.World, copy) == Look(host.World, hero),
+                () => $"Anna's copy shows {Look(anna.World, copy)}; the hero is {Look(host.World, hero)}.");
+
+            // The next frame alone, then hidden.
+            host.World.GetRef<SpriteComponent>(hero).ImageIndex = 4;
+            Until(() => Look(anna.World, copy) == Look(host.World, hero),
+                () => $"The next frame did not reach the copy: it shows {Look(anna.World, copy)}; the hero is {Look(host.World, hero)}.");
+            host.World.GetRef<Draw2DComponent>(hero).Visible = false;
+            Until(() => Look(anna.World, copy) == Look(host.World, hero), () => $"The hidden hero still shows on Anna's machine ({Look(anna.World, copy)}).");
+
+            // Anna's own character: the host's copy faces and animates as she does.
+            Entity annaSelf = PlaceSprite(anna.World, "Player", "PlayerIdle", new Vector3(10, 10, 0));
+            anna.Replication.Own(annaSelf, "Player");
+            Until(() => host.Replication.CopyCount == 1, () => "Anna's character did not reach the host.");
+            Entity annaAtHost = host.Replication.CopyAt(0);
+            Genesis.Runtime.Rendering.ObjectDrawAssetRegistry.TryGet(annaSelf, out var annaDrawn);
+            annaDrawn.Image = "PlayerRun";
+            anna.World.GetRef<SpriteComponent>(annaSelf).ImageIndex = 5;
+            anna.World.GetRef<TransformComponent>(annaSelf).ScaleX = -2f;
+            Until(() => Look(host.World, annaAtHost) == Look(anna.World, annaSelf),
+                () => $"The host's copy of Anna shows {Look(host.World, annaAtHost)}; she is {Look(anna.World, annaSelf)}.");
+        });
+
+        HeadlessHarness.RunCase(context.Report, "Engine.Net.Replication.TwoDLooksAreSentOnlyWhenTheyChange", () =>
+        {
+            var drawn = new Genesis.Runtime.Rendering.ObjectDrawAssetRegistry.PreviewScope();
+            using IDisposable isolated = drawn.Activate();
+            var host = new Machine(host: true);
+            var anna = new Machine(host: false);
+            for (int i = 0; i < 500; i++) anna.World.CreateEntity();
+            Machine[] machines = [host, anna];
+            foreach (Machine machine in machines)
+                machine.Replication.CreateCopy = (world, prefab, position, rotation, scale) => PlaceSprite(world, prefab, prefab + "Idle", position);
+            void Run(int frames)
+            {
+                for (int frame = 0; frame < frames; frame++)
+                    foreach (Machine machine in machines)
+                    {
+                        machine.Network.Update();
+                        machine.Replication.Update(machine.World, machine.Focus, 0.06f);
+                        machine.World.FlushDeferred();
+                    }
+            }
+
+            Entity hero = PlaceSprite(host.World, "Hero", "HeroIdle", new Vector3(100, 50, 0));
+            host.Replication.Replicate(hero, "Hero");
+            anna.Network.Join(host.Network, 1);
+            Run(12);
+            HeadlessHarness.Assert(anna.Replication.CopyCount == 1 && Look(anna.World, anna.Replication.CopyAt(0)) == Look(host.World, hero),
+                "The hero did not arrive as it looks.");
+
+            // Standing still on one frame costs nothing.
+            Run(10);
+            int quiet = host.Network.Log.Count;
+            Run(20);
+            HeadlessHarness.Assert(host.Network.Log.Count == quiet, $"The host sent {host.Network.Log.Count - quiet} messages while the hero did not change.");
+
+            // A new frame is one small message: the count, the id, which parts, the frame.
+            int SpriteBytesAfter(int start) => host.Network.Log.Skip(start).Where(sent => sent.Tag == NetworkReplication.TagSprites).Sum(sent => sent.Bytes);
+            int SpriteMessagesAfter(int start) => host.Network.Log.Skip(start).Count(sent => sent.Tag == NetworkReplication.TagSprites);
+            int before = host.Network.Log.Count;
+            host.World.GetRef<SpriteComponent>(hero).ImageIndex = 1;
+            Run(4);
+            HeadlessHarness.Assert(SpriteMessagesAfter(before) == 1 && SpriteBytesAfter(before) == 4 + 4 + 1 + 4,
+                $"A new frame cost {SpriteMessagesAfter(before)} messages of {SpriteBytesAfter(before)} bytes; it should be one of 13.");
+
+            // A flip sends the scale and nothing else.
+            before = host.Network.Log.Count;
+            host.World.GetRef<TransformComponent>(hero).ScaleX = -1f;
+            Run(4);
+            HeadlessHarness.Assert(SpriteMessagesAfter(before) == 1 && SpriteBytesAfter(before) == 4 + 4 + 1 + 8
+                && Look(anna.World, anna.Replication.CopyAt(0)) == Look(host.World, hero),
+                $"A flip cost {SpriteMessagesAfter(before)} messages of {SpriteBytesAfter(before)} bytes (17 expected); the copy shows {Look(anna.World, anna.Replication.CopyAt(0))}.");
+
+            // A 3D object has no 2D look to send.
+            Entity deer = Machine.Place(host.World, new Vector3(5, 0, 0));
+            host.Replication.Replicate(deer, "Deer");
+            Run(12);
+            before = host.Network.Log.Count;
+            host.World.GetRef<TransformComponent>(deer).ScaleX = 3f;
+            Run(4);
+            HeadlessHarness.Assert(SpriteMessagesAfter(before) == 0, "A 3D object's scale was sent as a 2D look.");
+        });
+    }
+
     public static void Run(HeadlessContext context)
     {
         RunSockets(context);
         RunValues(context);
         RunDiscovery(context);
+        RunTwoD(context);
         HeadlessHarness.RunCase(context.Report, "Engine.Net.Replication.PlayersSeeNearbySharedObjectsAndEachOther", () =>
         {
             var host = new Machine(host: true);

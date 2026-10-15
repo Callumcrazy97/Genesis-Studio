@@ -116,7 +116,9 @@ namespace Genesis.Runtime.ECS
                     }
                 }
 
-                if (string.IsNullOrWhiteSpace(assets.Image) ||
+                // A network copy shows the frame its object's machine sends; playing the animation
+                // here as well would fight it.
+                if (sprite.FrameFromNetwork || string.IsNullOrWhiteSpace(assets.Image) ||
                     !SpriteAssetLoader.TryGetCachedAsset(assets.Image, out SpriteRuntimeAsset asset))
                 {
                     return;
