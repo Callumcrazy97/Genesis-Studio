@@ -326,8 +326,12 @@ namespace Genesis.Runtime.Debugger
 
             if (!IsVisible) return;
 
-            // Update raycast picker against real scene entities
-            _picker.Update(_lastMousePos, _mouseClicked && !_clickConsumed, _activeScene, _scriptHost, _renderer, width, height);
+            // Update raycast picker against real scene entities: only for what reads it (the World panel's
+            // inspector and gizmos, inspect mode). It builds an entry with two dictionaries per entity, so
+            // run every frame behind the compact strip it allocated hundreds of MB a minute in big scenes
+            // (GenesisCraft: 550 MB of dictionaries per 28 s), for nothing on screen.
+            if ((ShowExpandedPanels && ActivePanel == DebugHudPanel.World) || _picker.IsInspectModeActive)
+                _picker.Update(_lastMousePos, _mouseClicked && !_clickConsumed, _activeScene, _scriptHost, _renderer, width, height);
 
             // Scene gizmos (bounds, wireframe outlines, light / audio / camera markers) belong to
             // the World tab; the compact strip leaves the game view clear.
