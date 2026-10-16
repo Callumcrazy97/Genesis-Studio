@@ -108,6 +108,50 @@ internal static class Program
             return 0;
         }
 
+        // --ocr-check <folder>: Genesis Nova OCR on (a) a sprite with text on a transparent background and
+        // (b) a real screenshot of a small text window. Exit 0 when both are read.
+        int ocrCheck = Array.FindIndex(args, argument => string.Equals(argument, "--ocr-check", StringComparison.OrdinalIgnoreCase));
+        if (ocrCheck >= 0 && ocrCheck + 1 < args.Length)
+        {
+            string folder = Path.GetFullPath(args[ocrCheck + 1]);
+            Directory.CreateDirectory(folder);
+            string spritePath = Path.Combine(folder, "score-sprite.png");
+            using (var sprite = new System.Drawing.Bitmap(160, 40, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+            {
+                using (var g = System.Drawing.Graphics.FromImage(sprite))
+                {
+                    g.Clear(System.Drawing.Color.Transparent);
+                    using var font = new System.Drawing.Font("Consolas", 13f, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Pixel);
+                    g.DrawString("SCORE 120", font, System.Drawing.Brushes.Navy, 8, 12);
+                }
+                sprite.Save(spritePath, System.Drawing.Imaging.ImageFormat.Png);
+            }
+            using var spriteImage = Genesis.Application.Studio.Assistant.StudioCapture.Image(spritePath)!;
+            var spriteText = Genesis.Application.Studio.Assistant.GenesisOcr.Read(spriteImage);
+            Console.WriteLine("[OCR Check] sprite (160 x 40, 13 px text): " + spriteText.Describe("SCORE"));
+
+            using var window = new System.Windows.Forms.Form
+            {
+                Text = "OCR window test", StartPosition = System.Windows.Forms.FormStartPosition.Manual,
+                Location = new System.Drawing.Point(120, 120), ClientSize = new System.Drawing.Size(520, 160),
+                BackColor = System.Drawing.Color.White, ShowInTaskbar = false, FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedToolWindow,
+            };
+            window.Controls.Add(new System.Windows.Forms.Label { Text = "Genesis OCR window test 42", Font = new System.Drawing.Font("Segoe UI", 16f), AutoSize = true, Location = new System.Drawing.Point(16, 20) });
+            window.Controls.Add(new System.Windows.Forms.Label { Text = "Room: Main Room   Objects: 3", Font = new System.Drawing.Font("Segoe UI", 12f), AutoSize = true, Location = new System.Drawing.Point(16, 80) });
+            window.Show();
+            for (int i = 0; i < 20; i++) { System.Windows.Forms.Application.DoEvents(); Thread.Sleep(25); }
+            using var shot = Genesis.Application.Studio.Assistant.StudioCapture.Control(window);
+            shot.Save(Path.Combine(folder, "text-window.png"), System.Drawing.Imaging.ImageFormat.Png);
+            window.Close();
+            var windowText = Genesis.Application.Studio.Assistant.GenesisOcr.Read(shot);
+            Console.WriteLine("[OCR Check] window screenshot (" + shot.Width + " x " + shot.Height + "): " + windowText.Describe("Main Room"));
+            bool passed = spriteText.Text.Contains("SCORE 120", StringComparison.OrdinalIgnoreCase)
+                && windowText.Text.Contains("window test 42", StringComparison.OrdinalIgnoreCase)
+                && windowText.Text.Contains("Main Room", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine("[OCR Check] " + (passed ? "PASSED" : "FAILED") + " — pictures in " + folder);
+            return passed ? 0 : 1;
+        }
+
         // --assistant-game <folder> <request>: a blank project in <folder>, then the local model makes the
         // whole game (sprites, objects, room) and the project gets the full strict PGSL check.
         int assistantGame = Array.FindIndex(args, argument => string.Equals(argument, "--assistant-game", StringComparison.OrdinalIgnoreCase));

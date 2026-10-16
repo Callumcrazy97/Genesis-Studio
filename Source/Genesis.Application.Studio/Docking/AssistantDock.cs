@@ -40,10 +40,20 @@ public sealed class AssistantDock : GenesisDockContent
     private readonly List<(string Name, string Text)> _attachments = [];
     private string _lastCode = string.Empty;
     private bool _busy;
+    // What the assistant can do in Studio, supplied by the shell.
+    private readonly Func<string, string> _openResource;
+    private readonly Func<Control?> _activeEditor;
+    private readonly Func<IReadOnlyList<string>> _resourceNames;
+    private readonly Func<string, string?> _resourcePath;
 
-    public AssistantDock(ProjectSession project)
+    public AssistantDock(ProjectSession project, Func<string, string>? openResource = null, Func<Control?>? activeEditor = null,
+        Func<IReadOnlyList<string>>? resourceNames = null, Func<string, string?>? resourcePath = null)
     {
         _project = project;
+        _openResource = openResource ?? (name => "Opening resources is not available here.");
+        _activeEditor = activeEditor ?? (() => null);
+        _resourceNames = resourceNames ?? (() => []);
+        _resourcePath = resourcePath ?? (_ => null);
         Text = "AI Assistant";
         TabText = "AI Assistant";
         DockAreas = DockAreas.DockRight | DockAreas.DockLeft | DockAreas.DockBottom | DockAreas.Float;
@@ -294,12 +304,119 @@ public sealed class AssistantDock : GenesisDockContent
         return messages;
     }
 
+    private const int MaxSteps = 6;
+
+    private const string ToolGuide = """
+        You can act in Genesis Studio, one step at a time. Reply with JSON {"action", "target", "text"}:
+        - "open": open a resource in its editor. target = the resource's name as the user means it (for example "Main Room"); Genesis picks the closest name. text = "".
+        - "look": take a picture and have it described. target = "editor" (the open editor), "window" (all of Studio), "image:NAME" (a sprite or image resource), or "region:x,y,width,height" (pixels inside Studio's window). text = what to look for, or "".
+        - "answer": reply to the user. target = "", text = the answer.
+        After "open" or "look" you are told the result; then choose the next step.
+        When the user asks about a room, sprite, object or what is on screen, open it if needed, look at it, then answer from what you were told.
+        """;
+
+    private static readonly JsonObject StepSchema = new()
+    {
+        ["type"] = "object",
+        ["properties"] = new JsonObject
+        {
+            ["action"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray("answer", "open", "look") },
+            ["target"] = new JsonObject { ["type"] = "string" },
+            ["text"] = new JsonObject { ["type"] = "string" },
+        },
+        ["required"] = new JsonArray("action", "target", "text"),
+        ["additionalProperties"] = false,
+    };
+
+    /// <summary>
+    /// A question answered in steps: the model may open a resource or look at part of Studio first.
+    /// Looking gives a vision model the picture, and every model Genesis Nova OCR's text and a
+    /// description of the picture, so models that cannot see still know what is there.
+    /// </summary>
     private async Task AskAsync(string question)
     {
-        string reply = await LocalModelServer.Shared.ChatAsync(Messages(question, Context(question)));
-        _history.Add(("user", question));
-        _history.Add(("assistant", reply));
-        Say("Assistant", reply);
+        string names = string.Join(", ", _resourceNames().Take(150));
+        string system = Context(question) + "\n" + ToolGuide + (names.Length > 0 ? "\nResources in this project: " + names : string.Empty);
+        List<(string Role, string Content)> messages = Messages(question, system);
+        byte[]? picture = null;
+        for (int step = 1; step <= MaxSteps; step++)
+        {
+            _status.Text = step == 1 ? "Thinking…" : $"Step {step}…";
+            string reply = await LocalModelServer.Shared.ChatAsync(messages, StepSchema, 1024, image: picture);
+            picture = null;
+            JsonNode? act = JsonNode.Parse(reply);
+            string action = act?["action"]?.GetValue<string>() ?? "answer";
+            string target = act?["target"]?.GetValue<string>() ?? string.Empty;
+            string text = act?["text"]?.GetValue<string>() ?? string.Empty;
+            if (action == "answer")
+            {
+                _history.Add(("user", question));
+                _history.Add(("assistant", text));
+                Say("Assistant", text);
+                return;
+            }
+            messages.Add(("assistant", reply));
+            string observation;
+            if (action == "open")
+            {
+                observation = _openResource(target);
+                Say("Assistant", "▸ " + observation);
+                // Let the editor open and paint before anything looks at it.
+                await Task.Delay(600);
+            }
+            else
+            {
+                (observation, picture) = await LookAsync(target, text);
+                Say("Assistant", "▸ Looked at " + (target.Length == 0 ? "the editor" : target) + ".");
+            }
+            messages.Add(("user", "Result: " + observation));
+        }
+        Say("Assistant", $"I could not finish in {MaxSteps} steps; ask again more specifically.");
+    }
+
+    /// <summary>Takes the picture the model asked for and describes it: OCR text, colours and size (and the picture itself for a vision model).</summary>
+    private async Task<(string Observation, byte[]? Picture)> LookAsync(string target, string query)
+    {
+        Bitmap? shot = null;
+        string what = target.Trim();
+        Form? window = FindForm();
+        try
+        {
+            if (what.StartsWith("image:", StringComparison.OrdinalIgnoreCase))
+            {
+                string? path = _resourcePath(what["image:".Length..].Trim());
+                shot = path is null ? null : StudioCapture.Image(path);
+                if (shot is null) return ($"There is no image resource named like \"{what[6..]}\".", null);
+            }
+            else if (what.StartsWith("region:", StringComparison.OrdinalIgnoreCase) && window is not null)
+            {
+                int[] numbers = [.. what[7..].Split(',').Select(part => int.TryParse(part.Trim(), out int value) ? value : 0)];
+                if (numbers.Length < 4 || numbers[2] <= 0 || numbers[3] <= 0) return ("A region needs x,y,width,height in pixels.", null);
+                shot = StudioCapture.Region(window, new Rectangle(numbers[0], numbers[1], numbers[2], numbers[3]));
+            }
+            else if (what.Equals("window", StringComparison.OrdinalIgnoreCase) && window is not null)
+                shot = StudioCapture.Window(window);
+            else
+            {
+                Control? editor = _activeEditor();
+                shot = editor is not null && editor.Visible ? StudioCapture.Control(editor) : window is null ? null : StudioCapture.Window(window);
+            }
+            if (shot is null) return ("There was nothing to look at.", null);
+            OcrResult text = await GenesisOcr.ReadAsync(shot);
+            StringBuilder observation = new($"A picture of {(what.Length == 0 ? "the editor" : what)}, {shot.Width} x {shot.Height} pixels.\n");
+            observation.AppendLine(AssistantKnowledge.DescribeBitmap(shot));
+            observation.Append(text.Describe(query));
+            byte[]? picture = null;
+            if (LocalModelServer.Shared.HasVision)
+            {
+                using MemoryStream png = new();
+                shot.Save(png, System.Drawing.Imaging.ImageFormat.Png);
+                picture = png.ToArray();
+                observation.Insert(0, "The picture is attached. ");
+            }
+            return (observation.ToString(), picture);
+        }
+        finally { shot?.Dispose(); }
     }
 
     private static readonly JsonObject CodeSchema = new()

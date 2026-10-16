@@ -25,6 +25,37 @@ Press **Start** to load the model; **Stop** frees its memory. Studio stops it wh
   command that does not exist. If there are problems, they go back to the model, up to three times.
   The result shows whether it passed; **Copy code** or **Save as Script…** keeps it.
 
+## Opening and looking
+
+In **Ask**, the model can take up to six steps before it answers. Each step is JSON that llama.cpp
+enforces: `answer`, `open` or `look`.
+- **open** finds the resource the user means by name, even when they only say part of it ("the main
+  room", "player sprite"). It tries the exact name first, then a name that contains what was said,
+  then shared words; a kind word such as room, sprite, object or script breaks ties. The resource
+  then opens in its editor. The model is given the project's resource names.
+- **look** takes a picture of one of these:
+  - `window`: the whole Studio window;
+  - `region:x,y,w,h`: an area of the window, in pixels from its top-left corner;
+  - `image:NAME`: an image resource's first frame;
+  - anything else: the open editor.
+
+  Window and editor pictures come from the window itself (PrintWindow), so another app on top of
+  Studio does not get into the picture.
+- **What the model receives:**
+  - **Every model:** the picture described in words, and the text in it read by **Genesis Nova
+    OCR**. Each line of text comes with its position and a confidence score.
+  - **A vision model:** also the picture itself. A model counts as having vision when an
+    `*mmproj*.gguf` file sits beside it; that file is passed to llama-server as `--mmproj`.
+
+Genesis Nova OCR is Tesseract 5 with its English LSTM data (`tessdata\eng.traineddata`), the same
+engine Nova uses. Small pictures such as sprites are scaled up first, and transparent pixels are
+read as white. Attaching an **Image…** also adds the text found in it.
+
+Checked on 16 Oct 2026 (`--ocr-check <folder>`):
+- **A 160×40 sprite:** it read "SCORE 120" at 94% confidence.
+- **A text window:** it read "Genesis OCR window test 42" at 96% and "Room: Main Room Objects: 3"
+  at 87%, with their positions.
+
 ## Make a game
 
 Describe a small 2D game ("a few coloured squares that move around and bounce off the edges"). The
@@ -58,7 +89,6 @@ time, because small models have short contexts.
 ## Not yet
 
 These are planned:
-- reading text in images (Nova's OCR);
 - a description of a running game's scene;
 - making sounds, particles or 3D games (Make a game covers 2D sprites, objects and a room);
 - an evaluation set for comparing models.

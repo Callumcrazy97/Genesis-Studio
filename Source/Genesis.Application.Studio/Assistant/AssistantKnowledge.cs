@@ -159,6 +159,15 @@ public static partial class AssistantKnowledge
     public static string DescribeImage(string path)
     {
         using Bitmap source = new(path);
+        string description = DescribeBitmap(source, "Image " + Path.GetFileName(path));
+        // Text inside the picture (a sign, a HUD, a sprite's label), read by Genesis Nova OCR.
+        OcrResult text = GenesisOcr.Read(source);
+        return text.Available && text.Lines.Count > 0 ? description + text.Describe() : description;
+    }
+
+    /// <summary>A picture in words: size, transparency, visible bounds, main colours, brightness, frame strips.</summary>
+    public static string DescribeBitmap(Bitmap source, string label = "The picture")
+    {
         int width = source.Width, height = source.Height;
         using Bitmap bitmap = source.Clone(new Rectangle(0, 0, width, height), PixelFormat.Format32bppArgb);
         BitmapData data = bitmap.LockBits(new Rectangle(0, 0, width, height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
@@ -185,7 +194,7 @@ public static partial class AssistantKnowledge
             }
         int opaque = width * height - transparent;
         StringBuilder text = new();
-        text.AppendLine($"Image {Path.GetFileName(path)}: {width} x {height} pixels.");
+        text.AppendLine($"{label}: {width} x {height} pixels.");
         if (opaque == 0)
         {
             text.AppendLine("It is fully transparent.");

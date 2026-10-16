@@ -48,6 +48,11 @@ LiteNetLib                              LiteNetLib.dll                          
 Vortice.Windows                         Vortice.XAudio2.dll,                    MIT                S P
                                         Vortice.DirectX.dll,
                                         Vortice.Mathematics.dll
+Tesseract (.NET wrapper)                Tesseract.dll                           Apache-2.0         S
+Tesseract OCR engine                    x64\tesseract50.dll                     Apache-2.0         S
+Leptonica                               x64\leptonica-1.82.0.dll                BSD-2-Clause       S
+InteropDotNet                           (inside Tesseract.dll)                  MIT                S
+Tesseract English data                  tessdata\eng.traineddata                Apache-2.0         S
 SharpGen.Runtime                        SharpGen.Runtime.dll,                   MIT                S P
                                         SharpGen.Runtime.COM.dll
 ZstdSharp                               ZstdSharp.dll                           MIT                S P

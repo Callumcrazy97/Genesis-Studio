@@ -17,11 +17,14 @@
     <Content Include="Assets\Genesis_Studio_Logo.png" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\Genesis_Studio_Emblem.png" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\CommandVisualTest\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The AI assistant's OCR (Tesseract, as in Nova): English LSTM data, read from tessdata beside Studio. -->
+    <Content Include="Assets\Ocr\eng.traineddata" Link="tessdata\eng.traineddata" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\Themes\*.jpg" Link="Themes\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="DockPanelSuite" Version="3.1.1" />
+    <PackageReference Include="Tesseract" Version="5.2.0" />
     <PackageReference Include="DockPanelSuite.ThemeVS2015" Version="3.1.1" />
   </ItemGroup>
 

@@ -90,6 +90,9 @@ public sealed partial class LocalModelServer : IDisposable
 
     public string ModelName { get; private set; } = string.Empty;
 
+    /// <summary>True when the model was started with a vision projector, so it can see pictures itself.</summary>
+    public bool HasVision { get; private set; }
+
     public bool IsRunning => _process is { HasExited: false } && _port != 0;
 
     public event EventHandler? StateChanged;
@@ -127,6 +130,14 @@ public sealed partial class LocalModelServer : IDisposable
             WorkingDirectory = Path.GetDirectoryName(server)!,
         };
         foreach (string arg in args) start.ArgumentList.Add(arg);
+        // A vision projector (an "mmproj" GGUF) beside the model lets it see pictures; without one, pictures reach it as OCR text.
+        string? projector = Directory.EnumerateFiles(Path.GetDirectoryName(settings.ModelPath)!, "*mmproj*.gguf").FirstOrDefault();
+        HasVision = projector is not null;
+        if (projector is not null)
+        {
+            start.ArgumentList.Add("--mmproj");
+            start.ArgumentList.Add(projector);
+        }
         lock (_log) _log.Clear();
         Process process = Process.Start(start) ?? throw new InvalidOperationException("llama-server could not be started.");
         process.OutputDataReceived += (_, e) => Remember(e.Data);
@@ -180,7 +191,7 @@ public sealed partial class LocalModelServer : IDisposable
     /// JSON shape (llama.cpp turns the schema into a grammar), so a small model cannot wander off it.
     /// </summary>
     public async Task<string> ChatAsync(IReadOnlyList<(string Role, string Content)> messages, JsonObject? jsonSchema = null,
-        int maxTokens = 1536, CancellationToken ct = default)
+        int maxTokens = 1536, CancellationToken ct = default, byte[]? image = null)
     {
         if (!IsRunning) throw new InvalidOperationException("Start the assistant's model first.");
         JsonObject body = new()
@@ -190,7 +201,17 @@ public sealed partial class LocalModelServer : IDisposable
             ["max_tokens"] = maxTokens,
             // Reasoning models (Qwen3 and others) would spend the answer's tokens thinking; Genesis asks for the answer.
             ["chat_template_kwargs"] = new JsonObject { ["enable_thinking"] = false },
-            ["messages"] = new JsonArray([.. messages.Select(message => (JsonNode)new JsonObject { ["role"] = message.Role, ["content"] = message.Content })]),
+            ["messages"] = new JsonArray([.. messages.Select((message, index) =>
+                (JsonNode)new JsonObject
+                {
+                    ["role"] = message.Role,
+                    // A picture rides with the last message, for models that can see.
+                    ["content"] = image is not null && HasVision && index == messages.Count - 1
+                        ? new JsonArray(
+                            new JsonObject { ["type"] = "text", ["text"] = message.Content },
+                            new JsonObject { ["type"] = "image_url", ["image_url"] = new JsonObject { ["url"] = "data:image/png;base64," + Convert.ToBase64String(image) } })
+                        : JsonValue.Create(message.Content),
+                })]),
         };
         if (jsonSchema is not null)
             body["response_format"] = new JsonObject
