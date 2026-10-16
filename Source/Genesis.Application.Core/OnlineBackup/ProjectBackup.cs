@@ -50,7 +50,7 @@ public sealed class BackupIgnoreFile
     private const string YoursHeader = "# Added by you";
 
     public static readonly string[] Defaults =
-        [".genesis/Cache/", ".genesis/Backup/", ".git/", "Debug/", "Exports/", "Builds/", "*.tmp", "Thumbs.db", "desktop.ini"];
+        [".genesis/Cache/", ".genesis/Backup/", ".git/", "Debug/", "Exports/", "Builds/", "Recordings/", "*.tmp", "Thumbs.db", "desktop.ini"];
 
     public List<string> Always { get; } = [];
     public List<string> Automatic { get; } = [];

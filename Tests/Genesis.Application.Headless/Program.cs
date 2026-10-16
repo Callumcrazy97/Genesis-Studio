@@ -108,6 +108,16 @@ internal static class Program
             return 0;
         }
 
+        // --recording-check <file.mp4>: write a short synthetic video through Media Foundation.
+        int recordingCheck = Array.FindIndex(args, argument => string.Equals(argument, "--recording-check", StringComparison.OrdinalIgnoreCase));
+        if (recordingCheck >= 0 && recordingCheck + 1 < args.Length)
+        {
+            string video = Path.GetFullPath(args[recordingCheck + 1]);
+            Genesis.Runtime.Recording.GameRecorder.WriteTestVideo(video);
+            Console.WriteLine($"[Recording Check] {video}: {new FileInfo(video).Length} bytes");
+            return 0;
+        }
+
         // --template-check <id>: create a project from a template in a scratch folder and run the
         // same full PGSL check as Run (F5), with no game window. Exit 0 when every script passes.
         int templateCheck = Array.FindIndex(args, argument => string.Equals(argument, "--template-check", StringComparison.OrdinalIgnoreCase));

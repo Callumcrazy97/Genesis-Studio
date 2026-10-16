@@ -46,6 +46,8 @@ namespace Genesis.Runtime
         private long _frame;
         public string ScreenshotProjectPath { get; set; }
         private bool _screenshotPending;
+        // F9 in Debug mode starts or stops a recording (Recordings/debug_<time>.mp4).
+        private bool _recordTogglePending;
 
         /// <summary>The in-game debugger overlay (F6). Constructed in debug mode.</summary>
         public DebugOverlay Debugger { get; private set; }
@@ -349,6 +351,8 @@ namespace Genesis.Runtime
             // A stop requested from FrameUpdate may close/dispose the scene synchronously.
             if (_scene?.Input?.WasPressed(Key.F12) == true && !string.IsNullOrWhiteSpace(ScreenshotProjectPath))
                 _screenshotPending = true;
+            if (IsDebugMode && _scene?.Input?.WasPressed(Key.F9) == true)
+                _recordTogglePending = true;
         }
 
         /// <summary>Current room name shown in the F6 debug overlay. Set by the player.</summary>
@@ -735,6 +739,14 @@ namespace Genesis.Runtime
                     try { RuntimeScreenshot.CaptureFrame(_renderer, ScreenshotProjectPath, frameAlreadySubmitted: true); }
                     catch (Exception ex) { RenderLog.Line("RuntimeScreenshot error: " + ex.Message); }
                 }
+                if (_recordTogglePending)
+                {
+                    _recordTogglePending = false;
+                    if (Recording.GameRecorder.IsRecording) Recording.GameRecorder.StopRecording();
+                    else Recording.GameRecorder.StartRecording("debug_" + DateTime.Now.ToString("yyyyMMdd_HHmmss"), png: false);
+                }
+                // Recording and the replay buffer take the finished frame here; idle unless a game or F9 asked.
+                Recording.GameRecorder.AfterFrame(_renderer);
                 EndFrame?.Invoke(_renderer);
             }
             LastOverlayMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(hooksStarted).TotalMilliseconds;
@@ -1003,6 +1015,9 @@ namespace Genesis.Runtime
 
         public void Dispose()
         {
+            // A recording still running when the game closes is finished, not lost.
+            try { Recording.GameRecorder.Shutdown(); }
+            catch (Exception ex) { RenderLog.Line("Recording could not be finished: " + ex.Message); }
             try { OnClosing(); } finally { _window?.Dispose(); }
         }
     }
