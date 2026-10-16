@@ -103,6 +103,7 @@ internal static class Program
             System.Windows.Forms.Application.SetDefaultFont(Genesis.Application.Studio.Theme.ThemeService.InterfaceFont);
             Directory.CreateDirectory(args[shellCaptures + 2]);
             EditorReviewCaptureRunner.CaptureProjectEntry(Path.GetFullPath(args[shellCaptures + 1]), Path.GetFullPath(args[shellCaptures + 2]), 1440, 900);
+            EditorReviewCaptureRunner.CapturePreferences(Path.GetFullPath(args[shellCaptures + 1]), Path.GetFullPath(args[shellCaptures + 2]));
             Console.WriteLine("[Shell Captures] " + Path.GetFullPath(args[shellCaptures + 2]));
             return 0;
         }

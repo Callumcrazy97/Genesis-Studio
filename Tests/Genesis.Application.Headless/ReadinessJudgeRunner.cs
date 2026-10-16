@@ -423,7 +423,7 @@ internal static partial class ReadinessJudgeRunner
                 foreach (string state in new[] { "menu-File", "menu-Edit", "menu-View", "menu-Tools", "menu-Help",
                     "renderer", "inspector", "commands-pgsl", "commands-engine", "commands-editor", "commands-shell",
                     "palette", "project-hub", "project-hub-templates", "project-hub-recent", "new-project", "preferences", "export",
-                    "preferences-Appearance", "preferences-Editing", "preferences-Runtime", "preferences-Rendering", "preferences-Project", "preferences-Shortcuts" })
+                    "preferences-Appearance", "preferences-Running", "preferences-Graphics", "preferences-Performance", "preferences-Game", "preferences-Project", "preferences-Shortcuts" })
                 {
                     variants.Add((state, new Size(1480, 900), 1f));
                     variants.Add((state + "-scale200", new Size(1480, 900), 2f));
@@ -435,7 +435,7 @@ internal static partial class ReadinessJudgeRunner
                     variants.Add(("inspector-" + inspectorKind, new Size(1480, 900), 1f));
                     variants.Add(("inspector-" + inspectorKind + "-scale200", new Size(1480, 900), 2f));
                 }
-                foreach (string state in new[] { "General", "Appearance", "Editing", "Runtime", "Rendering", "Project", "Shortcuts" })
+                foreach (string state in new[] { "General", "Appearance", "Running", "Graphics", "Performance", "Game", "Project", "Shortcuts" })
                     variants.Add(("preferences-" + state + "-bottom-scale200", new Size(1480, 900), 2f));
                 foreach (string state in new[] { "preferences-Appearance-image", "export-bottom", "project-hub-templates-bottom", "new-project-bottom" })
                     variants.Add((state + "-scale200", new Size(1480, 900), 2f));

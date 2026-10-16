@@ -397,6 +397,20 @@ internal static class EditorReviewCaptureRunner
         CaptureControl(control, outputPath, captureWidth, captureHeight, settleIterations, afterShown);
     }
 
+    /// <summary>Every Preferences page, for checking its layout by eye.</summary>
+    internal static void CapturePreferences(string projectRoot, string outputDirectory)
+    {
+        string userData = Path.Combine(Path.GetFullPath(outputDirectory), "capture-userdata");
+        Directory.CreateDirectory(userData);
+        var settings = new Genesis.Application.Core.Settings.SettingsService(Path.Combine(userData, "settings.json"));
+        ProjectSession project = new ProjectService().OpenProject(projectRoot);
+        foreach (string page in new[] { "General", "Appearance", "Shortcuts", "Running", "Graphics", "Performance", "Game", "Project" })
+        {
+            var form = new Genesis.Application.Studio.Forms.PreferencesForm(settings, project);
+            CaptureControl(form, Path.Combine(outputDirectory, $"20-preferences-{page}.png"), 1240, 860, 8, () => form.SelectCategory(page));
+        }
+    }
+
     internal static void CaptureProjectEntry(string projectRoot, string outputDirectory, int width, int height)
     {
         string userData = Path.Combine(Path.GetFullPath(outputDirectory), "capture-userdata");

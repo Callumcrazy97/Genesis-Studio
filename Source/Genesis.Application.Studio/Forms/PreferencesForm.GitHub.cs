@@ -16,7 +16,7 @@ public sealed partial class PreferencesForm
     private readonly ModernButton _gitHubUseToken = new() { Text = "Use token" };
     private readonly ModernButton _gitHubSignOut = new() { Text = "Sign out" };
 
-    private readonly CheckBox _backupEnabled = new() { Name = "ProjectBackupEnabled" };
+    private readonly CheckBox _backupEnabled = new PreferenceSwitch { Name = "ProjectBackupEnabled" };
     private readonly Label _backupStatus = new() { AutoSize = false, Size = new Size(620, 40), Name = "ProjectBackupStatus" };
     private readonly ModernButton _backupChoose = new() { Text = "Choose what is backed up…" };
     private readonly ModernButton _backupNow = new() { Text = "Back up now" };
@@ -36,39 +36,11 @@ public sealed partial class PreferencesForm
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     internal bool RequestedBackup { get; private set; }
 
-    private static Label SectionHeading(string text) => new()
-    {
-        AutoSize = false,
-        Font = new Font(ThemeService.InterfaceFont.FontFamily, 10f, FontStyle.Bold),
-        ForeColor = ThemeService.Palette.Text,
-        Margin = new Padding(0, 16, 0, 4),
-        Size = new Size(620, 24),
-        Text = text,
-    };
-
-    private static FlowLayoutPanel ButtonRow(params Control[] controls)
-    {
-        FlowLayoutPanel row = new()
-        {
-            AutoSize = true,
-            BackColor = Color.Transparent,
-            FlowDirection = FlowDirection.LeftToRight,
-            Margin = new Padding(0, 0, 0, 10),
-            Tag = "transparent",
-            WrapContents = true,
-        };
-        foreach (Control control in controls)
-        {
-            control.Margin = new Padding(0, 0, 8, 0);
-            if (control is ModernButton button) ShellDialogLayout.FitButton(button);
-            row.Controls.Add(control);
-        }
-        return row;
-    }
-
-    private IEnumerable<Control> BuildGitHubSection()
+    private void BuildGitHubRows(SettingsSection section)
     {
         _gitHubStatus.ForeColor = ThemeService.Palette.TextMuted;
+        _gitHubStatus.Height = 26;
+        _gitHubBrowser.Glyph = "↗";
         _gitHubBrowser.Click += async (_, _) => await SignInAsync(() => GitHubAccount.Shared.SignInWithBrowserAsync());
         _gitHubUseToken.Click += async (_, _) => await SignInAsync(() => GitHubAccount.Shared.SignInWithTokenAsync(_gitHubToken.Text));
         _gitHubSignOut.Click += (_, _) =>
@@ -76,13 +48,14 @@ public sealed partial class PreferencesForm
             GitHubAccount.Shared.SignOut();
             ShowGitHubAccount();
         };
-        yield return SectionHeading("GitHub");
-        yield return _gitHubStatus;
-        yield return ButtonRow(_gitHubBrowser, _gitHubSignOut);
-        yield return Field("Or paste a personal access token (it needs the \"repo\" scope)", ButtonRow(_gitHubToken, _gitHubUseToken));
-        yield return Note("Browser sign-in uses Git Credential Manager (part of Git for Windows). The token is kept encrypted "
-            + "for your Windows account, never inside a project. Projects back up to github.com/<you>/"
-            + ProjectBackup.RepositoryName + ", one folder per project.");
+        _gitHubToken.Width = 300;
+        section.AddWide(_gitHubStatus, searchText: "github account signed in");
+        section.Add("Sign in", "With the GitHub sign-in git already has on this PC, or GitHub's own page in your browser (needs Git for Windows).",
+            ControlRow(_gitHubBrowser, _gitHubSignOut), searchText: "browser credential manager sign out");
+        section.Add("Access token", "Or paste a personal access token. A classic token needs the \"repo\" scope.",
+            ControlRow(new TextFieldHost(_gitHubToken, 300), _gitHubUseToken), searchText: "token pat");
+        section.AddWide(WideText("The token is kept encrypted for your Windows account, never inside a project. Projects back up to "
+            + "github.com/<you>/" + ProjectBackup.RepositoryName + ", a folder each."), searchText: "github");
         _ = RefreshGitHubAccountAsync();
     }
 
@@ -123,13 +96,15 @@ public sealed partial class PreferencesForm
         ShowGitHubAccount();
     }
 
-    private IEnumerable<Control> BuildBackupSection()
+    private void BuildBackupRows(SettingsSection section)
     {
         ProjectSession project = _project!;
         ProjectBackupSettings settings = ProjectBackupSettings.Load(project.RootPath);
-        ConfigureCheckBox(_backupEnabled, "Back up this project to GitHub");
         _backupEnabled.Checked = settings.Enabled;
         _backupStatus.ForeColor = ThemeService.Palette.TextMuted;
+        _backupChoose.Glyph = "☰";
+        _backupNow.Glyph = "↑";
+        _backupRestore.Glyph = "↓";
         _backupChoose.Click += (_, _) =>
         {
             using BackupIgnoreDialog dialog = new(project.RootPath);
@@ -147,12 +122,11 @@ public sealed partial class PreferencesForm
             DialogResult = DialogResult.OK;
             Close();
         };
-        yield return SectionHeading("Online backup");
-        yield return _backupEnabled;
-        yield return _backupStatus;
-        yield return ButtonRow(_backupChoose, _backupNow, _backupRestore);
-        yield return Note("Each backup sends only what changed, at most 10 MB per round with a short pause between rounds. "
-            + "Files over 10 MB and models are skipped until you choose them under 'Choose what is backed up'.");
+        section.Add("Back up to GitHub", "Every Save Project also sends what changed, at most 10 MB per round with a short pause between rounds.",
+            _backupEnabled, searchText: "online backup github");
+        section.AddWide(_backupStatus, searchText: "backup status");
+        section.AddWide(ControlRow(_backupChoose, _backupNow, _backupRestore), null,
+            "Files over 10 MB and models are skipped until you choose them under 'Choose what is backed up'.", "restore backup now skipped");
     }
 
     private async Task RefreshBackupStatusAsync()
@@ -198,10 +172,11 @@ public sealed partial class PreferencesForm
         if (!IsDisposed) _backupNow.Enabled = true;
     }
 
-    private IEnumerable<Control> BuildRenameSection()
+    private void BuildRenameRows(SettingsSection section)
     {
         ProjectSession project = _project!;
         _projectNewName.Text = project.Manifest.Name;
+        _projectNewName.Width = 280;
         _projectRename.Click += (_, _) =>
         {
             string name = _projectNewName.Text.Trim();
@@ -224,8 +199,8 @@ public sealed partial class PreferencesForm
             DialogResult = DialogResult.OK;
             Close();
         };
-        yield return SectionHeading("Project name");
-        yield return Field("Name (the folder, the project file and the online backup follow it)", ButtonRow(_projectNewName, _projectRename));
+        section.Add("Project name", "The folder, the project file and the online backup follow it.", ControlRow(new TextFieldHost(_projectNewName, 280), _projectRename),
+            searchText: "rename");
     }
 
     private void SaveBackupSettings()

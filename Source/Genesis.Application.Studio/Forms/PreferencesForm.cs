@@ -33,44 +33,44 @@ public sealed partial class PreferencesForm : DpiAwareForm
     private bool _loadingAppearance;
     private string _loadedThemeName = "Dark";
 
-    private readonly CheckBox _showSplash = new();
-    private readonly CheckBox _reopenLast = new();
-    private readonly CheckBox _confirmDelete = new();
-    private readonly CheckBox _externalChanges = new();
+    private readonly CheckBox _showSplash = new PreferenceSwitch();
+    private readonly CheckBox _reopenLast = new PreferenceSwitch();
+    private readonly CheckBox _confirmDelete = new PreferenceSwitch();
+    private readonly CheckBox _externalChanges = new PreferenceSwitch();
     private readonly ThemedComboBox _density = new();
     private readonly NumericUpDown _scale = new();
     private readonly NumericUpDown _codeFontSize = new();
-    private readonly KitToggle _animations = new() { Name = "AnimationsToggle" };
-    private readonly CheckBox _autoSave = new();
+    private readonly CheckBox _animations = new PreferenceSwitch { Name = "AnimationsToggle" };
+    private readonly CheckBox _autoSave = new PreferenceSwitch();
     private readonly NumericUpDown _autoSaveMinutes = new();
-    private readonly CheckBox _backups = new();
+    private readonly CheckBox _backups = new PreferenceSwitch();
     private readonly NumericUpDown _backupDays = new();
     // Every picker here is the owner-drawn themed combo: a plain list combo draws system white.
     private readonly ThemedComboBox _buildConfiguration = new();
     private readonly ThemedComboBox _architecture = new();
-    private readonly CheckBox _previewVsync = new();
-    private readonly CheckBox _pauseUnfocused = new();
-    private readonly CheckBox _runtimeDiagnostics = new();
-    private readonly CheckBox _recordWhenDebugging = new();
-    private readonly CheckBox _engineDebugCategory = new();
+    private readonly CheckBox _previewVsync = new PreferenceSwitch();
+    private readonly CheckBox _pauseUnfocused = new PreferenceSwitch();
+    private readonly CheckBox _runtimeDiagnostics = new PreferenceSwitch();
+    private readonly CheckBox _recordWhenDebugging = new PreferenceSwitch();
+    private readonly CheckBox _engineDebugCategory = new PreferenceSwitch();
     private readonly ThemedComboBox _renderBackend = new();
     private readonly ThemedComboBox _faceCulling = new() { Name = "FaceCullingPicker" };
     private readonly ThemedComboBox _frontFaceWinding = new() { Name = "FrontFaceWindingPicker" };
-    private readonly CheckBox _lightingEnabled = new() { Name = "LightingEnabledPicker" };
-    private readonly CheckBox _shadowsEnabled = new() { Name = "ShadowsEnabledPicker" };
+    private readonly CheckBox _lightingEnabled = new PreferenceSwitch { Name = "LightingEnabledPicker" };
+    private readonly CheckBox _shadowsEnabled = new PreferenceSwitch { Name = "ShadowsEnabledPicker" };
     private readonly NumericUpDown _shadowStrength = new() { Name = "ShadowStrengthPicker" };
     private readonly NumericUpDown _shadowCascadeCount = new() { Name = "ShadowCascadeCountPicker" };
-    private readonly CheckBox _gtaoEnabled = new() { Name = "GtaoEnabledPicker" };
-    private readonly CheckBox _contactShadowsEnabled = new() { Name = "ContactShadowsEnabledPicker" };
-    private readonly CheckBox _localVolumetricsEnabled = new() { Name = "LocalVolumetricsEnabledPicker" };
-    private readonly CheckBox _smokeExtinctionEnabled = new() { Name = "SmokeExtinctionEnabledPicker" };
-    private readonly CheckBox _bloomEnabled = new() { Name = "BloomEnabledPicker" };
-    private readonly CheckBox _waterReflections = new() { Name = "WaterReflectionsPicker" };
-    private readonly CheckBox _reversedDepth = new() { Name = "ReversedDepthPicker" };
-    private readonly CheckBox _atmosphereLutEnabled = new() { Name = "AtmosphereLutEnabledPicker" };
-    private readonly CheckBox _raymarchedCloudsEnabled = new() { Name = "RaymarchedCloudsEnabledPicker" };
-    private readonly CheckBox _cloudTemporalEnabled = new() { Name = "CloudTemporalEnabledPicker" };
-    private readonly CheckBox _celestialExtrasEnabled = new() { Name = "CelestialExtrasEnabledPicker" };
+    private readonly CheckBox _gtaoEnabled = new PreferenceSwitch { Name = "GtaoEnabledPicker" };
+    private readonly CheckBox _contactShadowsEnabled = new PreferenceSwitch { Name = "ContactShadowsEnabledPicker" };
+    private readonly CheckBox _localVolumetricsEnabled = new PreferenceSwitch { Name = "LocalVolumetricsEnabledPicker" };
+    private readonly CheckBox _smokeExtinctionEnabled = new PreferenceSwitch { Name = "SmokeExtinctionEnabledPicker" };
+    private readonly CheckBox _bloomEnabled = new PreferenceSwitch { Name = "BloomEnabledPicker" };
+    private readonly CheckBox _waterReflections = new PreferenceSwitch { Name = "WaterReflectionsPicker" };
+    private readonly CheckBox _reversedDepth = new PreferenceSwitch { Name = "ReversedDepthPicker" };
+    private readonly CheckBox _atmosphereLutEnabled = new PreferenceSwitch { Name = "AtmosphereLutEnabledPicker" };
+    private readonly CheckBox _raymarchedCloudsEnabled = new PreferenceSwitch { Name = "RaymarchedCloudsEnabledPicker" };
+    private readonly CheckBox _cloudTemporalEnabled = new PreferenceSwitch { Name = "CloudTemporalEnabledPicker" };
+    private readonly CheckBox _celestialExtrasEnabled = new PreferenceSwitch { Name = "CelestialExtrasEnabledPicker" };
     private readonly ThemedComboBox _cloudQuality = new() { Name = "CloudQualityPicker" };
     private readonly NumericUpDown _exposure = new() { Name = "ExposurePicker" };
     private readonly NumericUpDown _contrast = new() { Name = "ContrastPicker" };
@@ -86,14 +86,14 @@ public sealed partial class PreferencesForm : DpiAwareForm
         new() { Name = "LocalVolumetricLightBudgetPicker" };
     private readonly ThemedComboBox _drawCallMode = new() { Name = "DrawCallModePicker" };
     private readonly NumericUpDown _worldDrawBudget = new() { Name = "WorldDrawBudgetPicker" };
-    private readonly CheckBox _fogEnabled = new();
+    private readonly CheckBox _fogEnabled = new PreferenceSwitch();
     private readonly TextBox _fogColor = new();
     private readonly Panel _fogColorSwatch = new();
     private readonly NumericUpDown _fogDepth = new();
     private readonly NumericUpDown _fogThickness = new();
     private readonly NumericUpDown _fogAlpha = new();
-    private readonly CheckBox _allowEscapeToClose = new();
-    private readonly CheckBox _blendGuiInLinearLight = new() { Name = "BlendGuiInLinearLightPicker" };
+    private readonly CheckBox _allowEscapeToClose = new PreferenceSwitch();
+    private readonly CheckBox _blendGuiInLinearLight = new PreferenceSwitch { Name = "BlendGuiInLinearLightPicker" };
     private readonly ThemedComboBox _antiAliasing = new() { Name = "AntiAliasingPicker" };
 
     private readonly Genesis.Application.Studio.Controls.AnimatedIconPlayer _projectIconPreview = new() { Size = new Size(128, 128), SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.FromArgb(40, 44, 52), Cursor = Cursors.Hand };
@@ -127,686 +127,15 @@ public sealed partial class PreferencesForm : DpiAwareForm
         BackColor = ThemeService.Palette.Canvas;
         Tag = ThemeService.MeasuredLayoutTag;
 
-        _allCategories = _project is null
-            ? ["General", "Appearance", "Editing", "Runtime", "Rendering", "Shortcuts"]
-            : ["General", "Appearance", "Editing", "Runtime", "Rendering", "Project", "Shortcuts"];
-
-        TableLayoutPanel layout = new()
-        {
-            BackColor = ThemeService.Palette.Canvas,
-            ColumnCount = 2,
-            Dock = DockStyle.Fill,
-            RowCount = 3,
-            Tag = "canvas",
-        };
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 232));
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 84));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 70));
-        Controls.Add(layout);
-
-        Panel heading = new()
-        {
-            BackColor = ThemeService.Palette.Canvas,
-            Dock = DockStyle.Fill,
-            Padding = new Padding(28, 20, 28, 12),
-            Tag = "canvas",
-        };
-        Label title = new()
-        {
-            AutoSize = true,
-            Font = ThemeService.HeadingFont,
-            ForeColor = ThemeService.Palette.Text,
-            Location = new Point(28, 18),
-            Text = "Preferences",
-        };
-        heading.Controls.Add(title);
-        Label subtitle = new()
-        {
-            AutoSize = true,
-            ForeColor = ThemeService.Palette.TextMuted,
-            Location = new Point(30, 51),
-            Text = "Central settings for the Studio, editors, runtime preview, and shortcuts.",
-        };
-        heading.Controls.Add(subtitle);
-        layout.Controls.Add(heading, 0, 0);
-        layout.SetColumnSpan(heading, 2);
-
-        Panel navigation = new()
-        {
-            BackColor = ThemeService.Palette.Surface,
-            Dock = DockStyle.Fill,
-            Padding = new Padding(12, 12, 12, 12),
-            Tag = "surface",
-        };
-        Panel filterHost = new()
-        {
-            Dock = DockStyle.Top,
-            Height = DpiLayout.Scale(this, 40),
-            Padding = new Padding(8, 8, 8, 8),
-            Tag = "surface",
-        };
-        _categoryFilter.BackColor = ThemeService.Palette.SurfaceRaised;
-        _categoryFilter.BorderStyle = BorderStyle.None;
-        _categoryFilter.Dock = DockStyle.Fill;
-        _categoryFilter.ForeColor = ThemeService.Palette.Text;
-        _categoryFilter.PlaceholderText = "Filter…";
-        _categoryFilter.TextChanged += (_, _) => FilterCategories();
-        filterHost.Controls.Add(_categoryFilter);
-        filterHost.Paint += (_, e) =>
-        {
-            Rectangle box = new(0, 4, filterHost.Width - 1, filterHost.Height - 9);
-            using Pen pen = new(ThemeService.Palette.Border);
-            e.Graphics.DrawRectangle(pen, box);
-        };
-        navigation.Controls.Add(filterHost);
-
-        _categories = new ListBox
-        {
-            BackColor = ThemeService.Palette.Surface,
-            BorderStyle = BorderStyle.None,
-            Dock = DockStyle.Fill,
-            DrawMode = DrawMode.OwnerDrawFixed,
-            Font = ThemeService.InterfaceFont,
-            ForeColor = ThemeService.Palette.Text,
-            ItemHeight = DpiLayout.Scale(this, 40),
-            IntegralHeight = false,
-        };
-        _categories.Items.AddRange(_allCategories);
-        _categories.DrawItem += DrawCategory;
-        _categories.SelectedIndexChanged += (_, _) => ShowSelectedPage();
-        navigation.Controls.Add(_categories);
-        _categories.BringToFront();
-        layout.Controls.Add(navigation, 0, 1);
-
-        Panel footer = new()
-        {
-            BackColor = ThemeService.Palette.Surface,
-            Dock = DockStyle.Fill,
-            Padding = new Padding(16),
-            Tag = "surface",
-        };
-        ModernButton reset = new()
-        {
-            Dock = DockStyle.Left,
-            Size = new Size(142, 38),
-            Text = "Restore defaults",
-        };
-        reset.Click += (_, _) => RestoreDefaults();
-        footer.Controls.Add(reset);
-
-        ModernButton cancel = new()
-        {
-            DialogResult = DialogResult.Cancel,
-            Dock = DockStyle.Right,
-            Margin = new Padding(0, 0, 10, 0),
-            Size = new Size(104, 38),
-            Text = "Cancel",
-        };
-        footer.Controls.Add(cancel);
-
-        ModernButton ok = new()
-        {
-            Accent = true,
-            Dock = DockStyle.Right,
-            Margin = new Padding(0, 0, 10, 0),
-            Size = new Size(104, 38),
-            Text = "OK",
-        };
-        ok.Click += (_, _) =>
-        {
-            if (TrySaveAndApply())
-            {
-                DialogResult = DialogResult.OK;
-                Close();
-            }
-        };
-        footer.Controls.Add(ok);
-
-        ModernButton apply = new()
-        {
-            Dock = DockStyle.Right,
-            Margin = new Padding(0, 0, 10, 0),
-            Name = "ApplyPreferences",
-            Size = new Size(104, 38),
-            Text = "Apply",
-        };
-        apply.Click += (_, _) => TrySaveAndApply();
-        footer.Controls.Add(apply);
-        layout.Controls.Add(footer, 0, 2);
-        layout.SetColumnSpan(footer, 2);
-
-        _contentHost = new Panel
-        {
-            AutoScroll = true,
-            BackColor = ThemeService.Palette.Canvas,
-            Dock = DockStyle.Fill,
-            Padding = new Padding(36, 24, 36, 24),
-            Tag = "canvas",
-        };
-        layout.Controls.Add(_contentHost, 1, 1);
-
+        _allCategories = _project is null ? StudioCategoryNames : [.. StudioCategoryNames, .. ProjectCategoryNames];
+        (_categories, _contentHost) = BuildShell();
         BuildPages();
         LoadValues(_settings.Current);
         _categories.SelectedIndex = 0;
-        bool arranging = false;
-        _layoutMeasured = () =>
-        {
-            if (arranging || IsDisposed) return;
-            arranging = true;
-            try
-            {
-                layout.SuspendLayout();
-                title.Font = ThemeService.HeadingFont;
-                subtitle.Font = ThemeService.InterfaceFont;
-                title.Location = new Point(24, 18);
-                subtitle.AutoSize = false;
-                subtitle.Bounds = new Rectangle(24, title.Bottom + 6, Math.Max(1, ClientSize.Width - 48),
-                    ShellDialogLayout.TextHeight(subtitle, Math.Max(1, ClientSize.Width - 48)));
-                layout.RowStyles[0].Height = subtitle.Bottom + 16;
-                using Font categoryFont = new(Font, FontStyle.Bold);
-                layout.ColumnStyles[0].Width = Math.Clamp(TextRenderer.MeasureText("Appearance", categoryFont).Width + 64, 186, 300);
-                filterHost.Height = _categoryFilter.Font.Height + 24;
-                _categories.ItemHeight = Math.Max(36, Font.Height + 16);
-                foreach (Button button in footer.Controls.OfType<Button>()) ShellDialogLayout.FitButton(button);
-                layout.RowStyles[2].Height = Font.Height + 48;
-                _contentHost.Padding = new Padding(20, 12, 20, 12);
-                foreach (FlowLayoutPanel page in _pages.Values.OfType<FlowLayoutPanel>()) ResizePageChildren(page);
-                layout.ResumeLayout(true);
-            }
-            finally { arranging = false; }
-        };
-        ClientSizeChanged += (_, _) => ApplyInterfaceLayout();
-        Shown += (_, _) => { _categories.TopIndex = 0; ApplyInterfaceLayout(); };
         ThemeService.Apply(this);
     }
 
     public override void ApplyInterfaceLayout() => _layoutMeasured?.Invoke();
-
-    private void BuildPages()
-    {
-        _pages["General"] = BuildGeneralPage();
-        _pages["Appearance"] = BuildAppearancePage();
-        _pages["Editing"] = BuildEditingPage();
-        _pages["Runtime"] = BuildRuntimePage();
-        _pages["Rendering"] = BuildRenderingPage();
-        if (_project is not null) _pages["Project"] = BuildProjectPage();
-        _pages["Shortcuts"] = BuildShortcutsPage();
-        foreach (Control page in _pages.Values)
-        {
-            page.Dock = DockStyle.Fill;
-            page.Visible = false;
-            _contentHost.Controls.Add(page);
-        }
-    }
-
-    private Control BuildGeneralPage()
-    {
-        FlowLayoutPanel page = CreatePage("General", "Startup and project safety.");
-        ConfigureCheckBox(_showSplash, "Show launch splash");
-        ConfigureCheckBox(_reopenLast, "Reopen the last project at startup");
-        ConfigureCheckBox(_confirmDelete, "Confirm destructive actions");
-        ConfigureCheckBox(_externalChanges, "Watch projects for external file changes");
-        page.Controls.Add(_showSplash);
-        page.Controls.Add(_reopenLast);
-        page.Controls.Add(_confirmDelete);
-        page.Controls.Add(_externalChanges);
-        foreach (Control control in BuildGitHubSection()) page.Controls.Add(control);
-        return page;
-    }
-
-    private Control BuildAppearancePage()
-    {
-        FlowLayoutPanel page = CreatePage(
-            "Appearance",
-            "Choose flat interface colours or a picture-backed workspace. Image themes derive a "
-            + "readable palette from the selected picture.");
-
-        ConfigureThemeMode(_colourThemeMode, "Colour theme", new Point(0, 0));
-        ConfigureThemeMode(_imageThemeMode, "Image theme", new Point(190, 0));
-        _colourThemeMode.CheckedChanged += (_, _) => ThemeModeChanged();
-        _imageThemeMode.CheckedChanged += (_, _) => ThemeModeChanged();
-        page.Controls.Add(BuildThemeModePicker());
-
-        ConfigureCombo(
-            _colourTheme,
-            [.. ThemeCatalog.ColourNames.Select(ThemeCatalog.ColourDisplayName)],
-            260);
-        _colourTheme.SelectedIndexChanged += (_, _) => RefreshThemePreview();
-        _colourThemeField = Field("Colour theme", _colourTheme);
-        page.Controls.Add(_colourThemeField);
-
-        _imageThemeGallery.Size = new Size(560, 138);
-        _imageThemeGallery.SelectedThemeChanged += (_, _) => RefreshThemePreview();
-        _imageThemeGallery.SetImages(ThemeCatalog.Images);
-        _imageThemeField = BuildImageThemeField();
-        page.Controls.Add(_imageThemeField);
-
-        _addThemeImage.Margin = new Padding(0, 0, 0, 16);
-        _addThemeImage.Size = new Size(190, 36);
-        _addThemeImage.Text = "Add theme image…";
-        _addThemeImage.Click += (_, _) => AddThemeImage();
-        page.Controls.Add(_addThemeImage);
-        ConfigureCombo(_density, ["Compact", "Comfortable", "Spacious"], 260);
-        ConfigureNumeric(_scale, 75, 200, 5, 260);
-        ConfigureNumeric(_codeFontSize, 8, 24, 1, 260);
-
-        // Tall enough to actually show the picture. A row of swatches alone cannot tell you whether
-        // an image works as a backdrop, which is the only question this preview exists to answer.
-        _themePreview.Size = new Size(560, 220);
-        _themePreview.Margin = new Padding(0, 0, 0, 10);
-        _themePreview.Paint += PaintThemePreview;
-        page.Controls.Add(_themePreview);
-
-        page.Controls.Add(Field("Interface density", _density));
-        page.Controls.Add(Field("Interface scale (%)", _scale));
-        page.Controls.Add(Field("Code font size", _codeFontSize));
-        page.Controls.Add(BuildToggleRow("Use subtle interface animations", _animations));
-        RefreshThemePreview();
-        return page;
-    }
-
-    private Control BuildThemeModePicker()
-    {
-        FlowLayoutPanel picker = new()
-        {
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true,
-            BackColor = Color.Transparent,
-            Margin = new Padding(0, 0, 0, 12),
-            Size = new Size(560, 34),
-            Tag = "transparent",
-        };
-        picker.Controls.Add(_colourThemeMode);
-        picker.Controls.Add(_imageThemeMode);
-        return picker;
-    }
-
-    private Control BuildImageThemeField()
-    {
-        Panel field = new()
-        {
-            BackColor = Color.Transparent,
-            Margin = new Padding(0, 0, 0, 12),
-            Size = new Size(620, 168),
-            Tag = "transparent",
-        };
-        Label label = new()
-        {
-            AutoSize = false,
-            ForeColor = ThemeService.Palette.Text,
-            Location = Point.Empty,
-            Size = new Size(420, 25),
-            Text = "Theme images",
-        };
-        _imageThemeGallery.Location = new Point(0, 27);
-        _imageThemeGallery.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-        label.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-        void ArrangeGallery()
-        {
-            label.Width = Math.Max(1, field.ClientSize.Width);
-            label.Height = ShellDialogLayout.TextHeight(label, label.Width) + 4;
-            _imageThemeGallery.Top = label.Bottom + 4;
-            _imageThemeGallery.Width = Math.Max(1, field.ClientSize.Width);
-            field.Height = _imageThemeGallery.Bottom + 8;
-        }
-        field.Resize += (_, _) => ArrangeGallery();
-        label.FontChanged += (_, _) => ArrangeGallery();
-        field.Controls.Add(label);
-        field.Controls.Add(_imageThemeGallery);
-        return field;
-    }
-
-    private static void ConfigureThemeMode(RadioButton mode, string text, Point location)
-    {
-        mode.AutoSize = true;
-        mode.BackColor = Color.Transparent;
-        mode.ForeColor = ThemeService.Palette.Text;
-        mode.Location = location;
-        mode.Size = new Size(170, 30);
-        mode.Text = text;
-        mode.Margin = new Padding(0, 4, 20, 4);
-    }
-
-    private Control BuildEditingPage()
-    {
-        FlowLayoutPanel page = CreatePage(
-            "Editing",
-            "Autosave and backups. Grid and snapping are per-editor: each surface keeps its own, "
-            + "because a room grid in world units and an image grid in pixels are not the same setting.");
-        ConfigureCheckBox(_autoSave, "Autosave modified assets");
-        ConfigureNumeric(_autoSaveMinutes, 1, 60, 1, 260);
-        ConfigureCheckBox(_backups, "Create project backups before destructive migrations");
-        ConfigureNumeric(_backupDays, 1, 365, 1, 260);
-        page.Controls.Add(_autoSave);
-        page.Controls.Add(Field("Autosave interval (minutes)", _autoSaveMinutes));
-        page.Controls.Add(_backups);
-        page.Controls.Add(Field("Backup retention (days)", _backupDays));
-        return page;
-    }
-
-    private Control BuildRuntimePage()
-    {
-        FlowLayoutPanel page = CreatePage("Runtime", "Preview and standalone player defaults.");
-        ConfigureCombo(_buildConfiguration, ["Debug", "Release"], 260);
-        ConfigureCombo(_architecture, ["win-x64"], 260);
-        ConfigureCheckBox(_previewVsync, "Use VSync in editor previews");
-        ConfigureCheckBox(_pauseUnfocused, "Pause preview when Studio loses focus");
-        ConfigureCheckBox(_runtimeDiagnostics, "Collect runtime diagnostics for Profiler");
-        ConfigureCheckBox(_recordWhenDebugging, "Start recording when debugging starts");
-        ConfigureCheckBox(_engineDebugCategory, "Show Engine debug category (developer)");
-        page.Controls.Add(Field("Build configuration", _buildConfiguration));
-        page.Controls.Add(Field("Player architecture", _architecture));
-        page.Controls.Add(_previewVsync);
-        page.Controls.Add(_pauseUnfocused);
-        page.Controls.Add(_runtimeDiagnostics);
-        page.Controls.Add(_recordWhenDebugging);
-        page.Controls.Add(_engineDebugCategory);
-        return page;
-    }
-
-    private Control BuildRenderingPage()
-    {
-        FlowLayoutPanel page = CreatePage(
-            "Rendering",
-            "How this installation drives the GPU. Engine fog belongs to the game, so it lives on "
-            + "the Project page and is saved with the project.");
-
-        // Built from the catalogue rather than typed out, so a backend's label cannot claim
-        // something its descriptor contradicts — this list said DX12 "uses DX11 fallback until
-        // available" for a while after DX12 started rendering.
-        string[] backends =
-        [
-            .. RenderBackendCatalog.All.Select(backend => backend.IsImplemented
-                ? backend.DisplayName
-                : $"{backend.DisplayName} (not available yet — falls back to Direct3D 11)"),
-        ];
-
-        ConfigureCombo(_renderBackend, backends, 420);
-        page.Controls.Add(Field("Rendering backend", _renderBackend));
-
-        ConfigureCombo(_faceCulling, ["Back", "Front", "None"], 420);
-        ConfigureCombo(_frontFaceWinding, ["Clockwise", "CounterClockwise"], 420);
-        page.Controls.Add(Field("Cull faces", _faceCulling));
-        page.Controls.Add(Field("Front-face winding", _frontFaceWinding));
-        page.Controls.Add(Note(
-            "These are the installation defaults. Renderable resources and placed terrain objects "
-            + "use Default unless their Inspector explicitly overrides culling or winding."));
-
-        ConfigureCheckBox(_lightingEnabled, "Enable lighting globally");
-        ConfigureCheckBox(_shadowsEnabled, "Enable shadows globally");
-        ConfigureNumeric(_shadowStrength, 0, 100, 1, 260);
-        _shadowStrength.DecimalPlaces = 0;
-        ConfigureNumeric(_shadowCascadeCount, 2, 3, 1, 120);
-        _shadowCascadeCount.DecimalPlaces = 0;
-        _lightingEnabled.CheckedChanged += (_, _) => RefreshLightingPreferenceState();
-        _shadowsEnabled.CheckedChanged += (_, _) => RefreshLightingPreferenceState();
-        _bloomEnabled.CheckedChanged += (_, _) => RefreshLightingPreferenceState();
-        page.Controls.Add(_lightingEnabled);
-        page.Controls.Add(_shadowsEnabled);
-        page.Controls.Add(Field("Shadow strength (%)", _shadowStrength));
-        page.Controls.Add(Field("Shadow cascades (2 or 3)", _shadowCascadeCount));
-        ConfigureCheckBox(_gtaoEnabled, "AO — GTAO (half-res ambient occlusion)");
-        page.Controls.Add(_gtaoEnabled);
-        ConfigureCheckBox(_contactShadowsEnabled, "CS — Contact shadows (screen-space)");
-        page.Controls.Add(_contactShadowsEnabled);
-        ConfigureCheckBox(_localVolumetricsEnabled, "LV — Local volumetric scatter");
-        page.Controls.Add(_localVolumetricsEnabled);
-        ConfigureCheckBox(_smokeExtinctionEnabled, "SE — Smoke extinction");
-        page.Controls.Add(_smokeExtinctionEnabled);
-        ConfigureCheckBox(_bloomEnabled, "BL — HDR bloom");
-        page.Controls.Add(_bloomEnabled);
-        ConfigureCheckBox(_waterReflections, "Water reflections (one plane, half resolution)");
-        page.Controls.Add(_waterReflections);
-        ConfigureCheckBox(_reversedDepth, "Reversed depth (long views keep a close near plane)");
-        page.Controls.Add(_reversedDepth);
-        ConfigureCheckBox(_atmosphereLutEnabled, "AL — Atmosphere LUT (sky-view)");
-        page.Controls.Add(_atmosphereLutEnabled);
-        ConfigureCheckBox(_raymarchedCloudsEnabled, "CL — Raymarched clouds");
-        page.Controls.Add(_raymarchedCloudsEnabled);
-        ConfigureCheckBox(_cloudTemporalEnabled, "CT — Cloud temporal");
-        page.Controls.Add(_cloudTemporalEnabled);
-        ConfigureCheckBox(_celestialExtrasEnabled, "CE — Celestial extras (stars / Milky Way / moon)");
-        page.Controls.Add(_celestialExtrasEnabled);
-        ConfigureCombo(_cloudQuality, ["Performance", "Balanced", "High", "Cinematic"], 260);
-        page.Controls.Add(Field("Cloud quality", _cloudQuality));
-        ConfigureNumeric(_exposure, 0.05m, 8m, 0.05m, 160);
-        _exposure.DecimalPlaces = 2;
-        ConfigureNumeric(_contrast, 0.05m, 4m, 0.05m, 160);
-        _contrast.DecimalPlaces = 2;
-        ConfigureNumeric(_saturation, 0m, 4m, 0.05m, 160);
-        _saturation.DecimalPlaces = 2;
-        ConfigureNumeric(_vignetteStrength, 0m, 1m, 0.05m, 160);
-        _vignetteStrength.DecimalPlaces = 2;
-        ConfigureNumeric(_bloomThreshold, 0m, 16m, 0.1m, 160);
-        _bloomThreshold.DecimalPlaces = 2;
-        ConfigureNumeric(_bloomIntensity, 0m, 2m, 0.01m, 160);
-        _bloomIntensity.DecimalPlaces = 2;
-        page.Controls.Add(Field("Exposure", _exposure));
-        page.Controls.Add(Field("Contrast", _contrast));
-        page.Controls.Add(Field("Saturation", _saturation));
-        page.Controls.Add(Field("Vignette", _vignetteStrength));
-        page.Controls.Add(Field("Bloom threshold", _bloomThreshold));
-        page.Controls.Add(Field("Bloom intensity", _bloomIntensity));
-        page.Controls.Add(Note(
-            "Lighting is the master switch for sunlight, ambient light, and Light Emitters. "
-            + "Shadows can be disabled independently; strength controls their global darkness. "
-            + "Three cascades add a far envelope with texel-snapped centres (AF1.1). "
-            + "GTAO is optional and off by default (AF1.2); skipped on the Software backend. "
-            + "Contact shadows are short-range and sun-gated (AF1.4), so they tighten contacts "
-            + "the cascades miss without darkening the same creases GTAO already does. "
-            + "Local volumetric scatter adds bounded local-light beams and glow (AF1.5) on top of the "
-            + "existing height fog and sun shafts, for the strongest few local lights only. "
-            + "Smoke extinction darkens what is seen through alpha-blended particle plumes "
-            + "(AF1.6) as one Beer-Lambert term in the fog composite — never additive fire. "
-            + "HDR bloom (AF1.7) is off by default; exposure/grade/vignette default to identity "
-            + "so untouched goldens stay bit-stable. ACES remains the sole tonemap. "
-            + "Atmosphere LUT (AF2.1) replaces flat sky colour on far pixels with a baked "
-            + "transmittance / multi-scatter / sky-view atlas; off by default; Software keeps "
-            + "analytic clear colour + fog. "
-            + "Raymarched clouds (AF2.3) march every frame when on — never skip 3-in-4. "
-            + "Cloud temporal (AF2.4) is off by default; quality only changes internal resolution "
-            + "(High = half-res). "
-            + "Celestial extras (AF2.5) add sidereal stars, Milky Way, and a phase-aware moon in "
-            + "FogPost only — default off, Software skip, never on the cloud budget."));
-
-        ConfigureNumeric(
-            _spriteInstanceCap,
-            RenderCapacityDefaults.MinInstanceCap,
-            RenderCapacityDefaults.HardwareSpriteInstanceCap,
-            256,
-            260);
-        ConfigureNumeric(
-            _meshInstanceCap,
-            RenderCapacityDefaults.MinInstanceCap,
-            RenderCapacityDefaults.HardwareMeshInstanceCap,
-            256,
-            260);
-        ConfigureNumeric(
-            _sceneLocalLightCap,
-            RenderCapacityDefaults.MinSceneLocalLightCap,
-            RenderCapacityDefaults.MaxSceneLocalLightCap,
-            8,
-            260);
-        ConfigureNumeric(
-            _omniShadowBudget,
-            RenderCapacityDefaults.MinOmniShadowBudget,
-            RenderCapacityDefaults.MaxOmniShadowBudget,
-            1,
-            120);
-        ConfigureNumeric(
-            _localVolumetricLightBudget,
-            RenderCapacityDefaults.MinLocalVolumetricLightBudget,
-            RenderCapacityDefaults.MaxLocalVolumetricLightBudget,
-            1,
-            120);
-        ConfigureCombo(_drawCallMode, [RenderCapacityDefaults.DrawCallModeAuto, RenderCapacityDefaults.DrawCallModeManual], 420);
-        ConfigureNumeric(
-            _worldDrawBudget,
-            RenderCapacityDefaults.MinWorldDrawBudget,
-            RenderCapacityDefaults.MaxWorldDrawBudget,
-            1,
-            260);
-        _drawCallMode.SelectedIndexChanged += (_, _) => RefreshDrawBudgetPreferenceState();
-        page.Controls.Add(Field("2D sprite instance cap", _spriteInstanceCap));
-        page.Controls.Add(Field("3D mesh instance cap", _meshInstanceCap));
-        page.Controls.Add(Field("Scene local light cap", _sceneLocalLightCap));
-        page.Controls.Add(Field("Omni-shadow budget (0–4)", _omniShadowBudget));
-        page.Controls.Add(
-            Field("Local volumetric light budget (0–4)", _localVolumetricLightBudget));
-        page.Controls.Add(Field("Draw calls", _drawCallMode));
-        page.Controls.Add(Field("World draw budget", _worldDrawBudget));
-        page.Controls.Add(Note(
-            "Instance limits control how much geometry is uploaded to the renderer. The light limit "
-            + "applies to the whole scene; each screen tile considers up to 32 lights. Shadow maps "
-            + "have a separate limit. The world draw budget excludes shadows, post-processing, "
-            + "the HUD and the environment."));
-
-        ModernButton testBackendsBtn = new()
-        {
-            Text = "Test Backends…",
-            Size = new Size(160, 36),
-            Margin = new Padding(0, 4, 0, 12),
-        };
-        testBackendsBtn.Click += (_, _) =>
-        {
-            RenderBackendOption backend = BackendAt(_renderBackend.SelectedIndex).Backend;
-            using PgslCommandReferenceForm commands = new();
-            commands.PrepareBackendVisualTest(backend);
-            commands.Shown += async (_, _) => await commands.RunVisualTestAsync();
-            commands.ShowDialog(this);
-        };
-        page.Controls.Add(testBackendsBtn);
-
-        page.Controls.Add(Note(
-            "The selected backend renders the editor viewports and the game alike. Test Backends "
-            + "opens the live 3D Visual Test on that backend (Help → Commands). A machine that "
-            + "cannot create the requested device falls back to Direct3D 11 with the reason written "
-            + "to the log."));
-        return page;
-    }
-
-    /// <summary>
-    /// Settings stored in the project file rather than in this machine's preferences.
-    /// </summary>
-    /// <remarks>
-    /// Shown only when a project is open, because there is nothing to write them to otherwise. The
-    /// test for what belongs here is whether you would expect the setting to follow the project to
-    /// another machine — fog and "can the player press Escape to quit" both describe the game.
-    /// </remarks>
-    private Control BuildProjectPage()
-    {
-        FlowLayoutPanel page = CreatePage(
-            "Project",
-            _project is null
-                ? "Open a project to edit its settings."
-                : $"Saved with '{_project.Manifest.Name}' and shared with anyone who opens it. "
-                  + "In 2D, authored Z/layer order is the depth axis; in 3D, depth is camera distance.");
-
-        ConfigureCheckBox(_allowEscapeToClose, "Allow ESC to close the game");
-        ConfigureCheckBox(_fogEnabled, "Enable engine-default fog");
-        ConfigureCheckBox(_blendGuiInLinearLight, "Blend GUI in linear light");
-
-        _fogColor.Size = new Size(120, 32);
-        _fogColor.MaxLength = 7;
-        _fogColor.PlaceholderText = "#RRGGBB";
-        _fogColor.TextChanged += (_, _) => SyncFogSwatch();
-
-        ConfigureNumeric(_fogDepth, -10240, 10240, 1, 260);
-        _fogDepth.DecimalPlaces = 1;
-        ConfigureNumeric(_fogThickness, 0.1m, 20480, 1, 260);
-        _fogThickness.DecimalPlaces = 1;
-        ConfigureNumeric(_fogAlpha, 0, 100, 1, 260);
-        _fogAlpha.DecimalPlaces = 0;
-
-        page.Controls.Add(_allowEscapeToClose);
-        page.Controls.Add(_fogEnabled);
-        page.Controls.Add(Field("Fog colour", BuildFogColourPicker()));
-        page.Controls.Add(Field("Fog depth / start (3D distance; 2D Z/layer depth)", _fogDepth));
-        page.Controls.Add(Field("Fog thickness", _fogThickness));
-        page.Controls.Add(Field("Fog alpha (%)", _fogAlpha));
-        page.Controls.Add(_blendGuiInLinearLight);
-        page.Controls.Add(Note(
-            "Draw GUI shapes, text and images mix with the screen in linear light, as a linear-light UI "
-            + "does (a white panel at 8% over black shows as 80/255, not 20/255). DrawSetBlendLinear "
-            + "switches it per draw. Off renders exactly as before."));
-        ConfigureCombo(_antiAliasing, ["Off", "FXAA", "SMAA"], 260);
-        page.Controls.Add(Field("Anti-aliasing (3D)", _antiAliasing));
-        page.Controls.Add(Note(
-            "Smooths the jagged edges of the 3D picture before the GUI is drawn, so text and HUD stay "
-            + "sharp. FXAA is one cheap pass; SMAA is sharper and costs a little more. A script changes it "
-            + "with RenderSetAntiAliasing. Off renders exactly as before."));
-
-        ConfigureNumeric(_projectIconFps, 0, 60, 1, 80);
-        _projectIconFps.DecimalPlaces = 0;
-        _projectIconFps.ValueChanged += (_, _) => 
-        {
-            if (!string.IsNullOrEmpty(_projectIconPath))
-                _projectIconPreview.LoadIcon(_projectIconPath, (int)_projectIconFps.Value);
-        };
-
-        var pickIconBtn = new ModernButton { Text = "Set Icon..." };
-        pickIconBtn.FontChanged += (_, _) => ShellDialogLayout.FitButton(pickIconBtn);
-        ShellDialogLayout.FitButton(pickIconBtn);
-        pickIconBtn.Click += (_, _) =>
-        {
-            var menu = new ContextMenuStrip();
-            menu.Items.Add("Import from disk...", null, (_, _) => PickProjectIconFromDisk());
-            menu.Items.Add("Import from project resources...", null, (_, _) => PickProjectIconFromProject());
-            menu.Items.Add("Clear", null, (_, _) => { _projectIconPath = string.Empty; _projectIconPreview.LoadIcon("", 0); });
-            menu.Show(pickIconBtn, new Point(0, pickIconBtn.Height));
-        };
-
-        var iconPanel = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight };
-        iconPanel.Controls.Add(_projectIconPreview);
-        var iconControls = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown };
-        iconControls.Controls.Add(pickIconBtn);
-        iconControls.Controls.Add(Field("Playback Speed (FPS)", _projectIconFps));
-        iconPanel.Controls.Add(iconControls);
-
-        page.Controls.Add(Field("Project Icon", iconPanel));
-
-        // R7.8: canned example-scene estimate from authored caps — not a bench of this PC.
-        Label requirementsHeading = new()
-        {
-            AutoSize = false,
-            Font = new Font(ThemeService.InterfaceFont.FontFamily, 10f, FontStyle.Bold),
-            ForeColor = ThemeService.Palette.Text,
-            Margin = new Padding(0, 12, 0, 4),
-            Size = new Size(620, 24),
-            Text = "System requirements",
-        };
-        Label requirementsHint = new()
-        {
-            AutoSize = false,
-            ForeColor = ThemeService.Palette.TextMuted,
-            Margin = new Padding(0, 0, 0, 8),
-            Size = new Size(620, 36),
-            Text = "Estimate for a canned outdoor showcase with this project's backend, caps, "
-                + "shadows and texture groups. Not a benchmark of this PC.",
-        };
-        _systemRequirementsSummary.ForeColor = ThemeService.Palette.Text;
-        _systemRequirementsSummary.BackColor = Color.Transparent;
-        ModernButton refreshEstimate = new()
-        {
-            Name = "SystemRequirementsRefresh",
-            Text = "Refresh estimate",
-            Margin = new Padding(0, 0, 0, 8),
-        };
-        refreshEstimate.Click += (_, _) => RefreshSystemRequirementsEstimate();
-        page.Controls.Add(requirementsHeading);
-        page.Controls.Add(requirementsHint);
-        page.Controls.Add(refreshEstimate);
-        page.Controls.Add(_systemRequirementsSummary);
-        RefreshSystemRequirementsEstimate();
-
-        foreach (Control control in BuildBackupSection()) page.Controls.Add(control);
-        foreach (Control control in BuildRenameSection()) page.Controls.Add(control);
-        return page;
-    }
 
     private void RefreshSystemRequirementsEstimate()
     {
@@ -883,39 +212,6 @@ public sealed partial class PreferencesForm : DpiAwareForm
         }
     }
 
-    private Control BuildShortcutsPage()
-    {
-        FlowLayoutPanel page = CreatePage("Shortcuts", "One command map shared by menus and editors.");
-        ListView shortcuts = new()
-        {
-            BackColor = ThemeService.Palette.Surface,
-            BorderStyle = BorderStyle.None,
-            ForeColor = ThemeService.Palette.Text,
-            FullRowSelect = true,
-            HeaderStyle = ColumnHeaderStyle.Nonclickable,
-            MultiSelect = false,
-            Size = new Size(600, 340),
-            View = View.Details,
-        };
-        shortcuts.Columns.Add("Command", 360);
-        shortcuts.Columns.Add("Shortcut", 180);
-        foreach ((string command, string binding) in _settings.Current.Shortcuts.Bindings
-                     .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase))
-        {
-            shortcuts.Items.Add(new ListViewItem([command, binding]));
-        }
-
-        shortcuts.Resize += (_, _) =>
-        {
-            int available = Math.Max(1, shortcuts.ClientSize.Width - SystemInformation.VerticalScrollBarWidth);
-            shortcuts.Columns[0].Width = Math.Max(DpiLayout.Scale(shortcuts, 180), (int)(available * 0.68f));
-            shortcuts.Columns[1].Width = Math.Max(1, available - shortcuts.Columns[0].Width);
-        };
-
-        page.Controls.Add(shortcuts);
-        return page;
-    }
-
     /// <summary>Position of a backend in the combo, which mirrors <see cref="RenderBackendCatalog.All"/>.</summary>
     /// <remarks>
     /// Both ends of the round-trip go through the catalog rather than literal strings or magic
@@ -938,91 +234,6 @@ public sealed partial class PreferencesForm : DpiAwareForm
 
     private static RenderBackendDescriptor BackendAt(int index) =>
         RenderBackendCatalog.All[Math.Clamp(index, 0, RenderBackendCatalog.All.Count - 1)];
-
-    /// <summary>A muted explanatory line placed under a field.</summary>
-    private static Control Note(string text) => new Label
-    {
-        AutoSize = false,
-        BackColor = Color.Transparent,
-        ForeColor = ThemeService.Palette.TextMuted,
-        Margin = new Padding(0, 0, 0, 12),
-        Size = new Size(620, 56),
-        Text = text,
-    };
-
-    private static FlowLayoutPanel CreatePage(string title, string description)
-    {
-        FlowLayoutPanel page = new()
-        {
-            AutoScroll = true,
-            BackColor = ThemeService.Palette.Canvas,
-            FlowDirection = FlowDirection.TopDown,
-            Padding = new Padding(8),
-            Tag = "canvas",
-            WrapContents = false,
-        };
-        Label eyebrow = new()
-        {
-            AutoSize = false,
-            Font = new Font(ThemeService.InterfaceFont.FontFamily, 7.5f, FontStyle.Bold),
-            ForeColor = ThemeService.Palette.Accent,
-            Margin = new Padding(0, 0, 0, 2),
-            Size = new Size(620, 18),
-            Text = "PREFERENCES",
-        };
-        page.Controls.Add(eyebrow);
-        Label heading = new()
-        {
-            AutoSize = false,
-            Font = new Font("Segoe UI Variable Display", 18f, FontStyle.Bold),
-            ForeColor = ThemeService.Palette.Text,
-            Margin = new Padding(0, 0, 0, 4),
-            Size = new Size(620, 38),
-            Text = title,
-        };
-        page.Controls.Add(heading);
-        Label detail = new()
-        {
-            AutoSize = false,
-            ForeColor = ThemeService.Palette.TextMuted,
-            Margin = new Padding(0, 0, 0, 18),
-            Size = new Size(620, 42),
-            Text = description,
-        };
-        page.Controls.Add(detail);
-        page.ClientSizeChanged += (_, _) => ResizePageChildren(page);
-        page.ControlAdded += (_, _) => ResizePageChildren(page);
-        return page;
-    }
-
-    private static void ResizePageChildren(FlowLayoutPanel page)
-    {
-        if (page.ClientSize.Width <= 0)
-        {
-            return;
-        }
-
-        int scrollbar = page.VerticalScroll.Visible ? SystemInformation.VerticalScrollBarWidth : 0;
-        int available = Math.Max(
-            1,
-            page.ClientSize.Width - page.Padding.Horizontal - scrollbar - DpiLayout.Scale(page, 4));
-        foreach (Control child in page.Controls)
-        {
-            // Command buttons keep a deliberate compact action width; content surfaces use the
-            // whole Preferences page when the dialog is resized or maximized.
-            if (child is Button button)
-            {
-                ShellDialogLayout.FitButton(button);
-                continue;
-            }
-
-            child.Width = Math.Max(1, available - child.Margin.Horizontal);
-            if (child is Label label)
-                label.Height = ShellDialogLayout.TextHeight(label, label.Width) + 4;
-            else if (child is CheckBox check)
-                check.Height = ShellDialogLayout.TextHeight(check, Math.Max(1, check.Width - 24)) + 12;
-        }
-    }
 
     /// <summary>
     /// Fog colour as a swatch you click, with the hex kept beside it.
@@ -1122,119 +333,6 @@ public sealed partial class PreferencesForm : DpiAwareForm
             Convert.ToInt32(normalized.Substring(1, 2), 16),
             Convert.ToInt32(normalized.Substring(3, 2), 16),
             Convert.ToInt32(normalized.Substring(5, 2), 16));
-    }
-
-    private static Control Field(string labelText, Control editor)
-    {
-        Panel field = new()
-        {
-            BackColor = Color.Transparent,
-            Margin = new Padding(0, 0, 0, 12),
-            Size = new Size(620, 62),
-            Tag = "transparent",
-        };
-        Label label = new()
-        {
-            AutoSize = false,
-            ForeColor = ThemeService.Palette.Text,
-            Location = new Point(0, 0),
-            Size = new Size(420, 25),
-            Text = labelText,
-        };
-        editor.Location = new Point(0, 27);
-        label.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-        editor.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-        void ArrangeField()
-        {
-            label.Width = Math.Max(1, field.ClientSize.Width);
-            label.Height = ShellDialogLayout.TextHeight(label, label.Width) + 4;
-            editor.Top = label.Bottom + 4;
-            editor.Width = Math.Max(1, field.ClientSize.Width);
-            field.Height = editor.Bottom + 8;
-        }
-        field.Resize += (_, _) => ArrangeField();
-        label.FontChanged += (_, _) => ArrangeField();
-        editor.FontChanged += (_, _) => ArrangeField();
-        field.Controls.Add(label);
-        field.Controls.Add(editor);
-        return field;
-    }
-
-    private static Control BuildToggleRow(string label, KitToggle toggle)
-    {
-        Panel row = new()
-        {
-            BackColor = Color.Transparent,
-            Margin = new Padding(0, 0, 0, 12),
-            Size = new Size(620, 36),
-            Tag = "transparent",
-        };
-        Label text = new()
-        {
-            AutoSize = false,
-            BackColor = Color.Transparent,
-            ForeColor = ThemeService.Palette.Text,
-            Location = new Point(0, 6),
-            Size = new Size(520, 24),
-            Text = label,
-            TextAlign = ContentAlignment.MiddleLeft,
-        };
-        toggle.Size = new Size(44, 24);
-        toggle.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        row.Controls.Add(text);
-        row.Controls.Add(toggle);
-        void ArrangeToggle()
-        {
-            text.Width = Math.Max(1, row.ClientSize.Width - toggle.Width - 16);
-            text.Height = ShellDialogLayout.TextHeight(text, text.Width) + 4;
-            toggle.Location = new Point(row.ClientSize.Width - toggle.Width, 6);
-            row.Height = Math.Max(text.Bottom, toggle.Bottom) + 8;
-        }
-        row.Resize += (_, _) => ArrangeToggle();
-        text.FontChanged += (_, _) => ArrangeToggle();
-        toggle.Location = new Point(row.Width - toggle.Width, 6);
-        return row;
-    }
-
-    private void FilterCategories()
-    {
-        string? selected = _categories.SelectedItem?.ToString();
-        string filter = _categoryFilter.Text.Trim();
-        _categories.BeginUpdate();
-        try
-        {
-            _categories.Items.Clear();
-            foreach (string category in _allCategories)
-            {
-                if (string.IsNullOrEmpty(filter)
-                    || category.Contains(filter, StringComparison.OrdinalIgnoreCase))
-                {
-                    _categories.Items.Add(category);
-                }
-            }
-
-            if (selected is not null && _categories.Items.Contains(selected))
-            {
-                _categories.SelectedItem = selected;
-            }
-            else if (_categories.Items.Count > 0)
-            {
-                _categories.SelectedIndex = 0;
-            }
-        }
-        finally
-        {
-            _categories.EndUpdate();
-        }
-    }
-
-    private static void ConfigureCheckBox(CheckBox checkBox, string text)
-    {
-        checkBox.AutoSize = false;
-        checkBox.ForeColor = ThemeService.Palette.Text;
-        checkBox.Margin = new Padding(0, 0, 0, 10);
-        checkBox.Size = new Size(620, 34);
-        checkBox.Text = text;
     }
 
     private static void ConfigureCombo(ComboBox combo, string[] values, int width)
@@ -1592,39 +690,6 @@ public sealed partial class PreferencesForm : DpiAwareForm
         LoadValues(defaults);
     }
 
-    private void ShowSelectedPage()
-    {
-        string? selected = _categories.SelectedItem?.ToString();
-        foreach ((string name, Control page) in _pages)
-        {
-            page.Visible = string.Equals(name, selected, StringComparison.Ordinal);
-            if (page.Visible)
-            {
-                page.BringToFront();
-            }
-        }
-
-        if (string.Equals(selected, "Project", StringComparison.Ordinal))
-        {
-            RefreshSystemRequirementsEstimate();
-        }
-    }
-
-    /// <summary>Headless seam: switch the visible preferences page by category name.</summary>
-    internal bool SelectCategory(string category)
-    {
-        for (int index = 0; index < _categories.Items.Count; index++)
-        {
-            if (string.Equals(_categories.Items[index]?.ToString(), category, StringComparison.Ordinal))
-            {
-                _categories.SelectedIndex = index;
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     private string SelectedThemeMode => _imageThemeMode.Checked
         ? AppearanceThemeModes.Image
         : AppearanceThemeModes.Colour;
@@ -1654,18 +719,15 @@ public sealed partial class PreferencesForm : DpiAwareForm
     private void UpdateThemeModeVisibility()
     {
         bool imageMode = _imageThemeMode.Checked;
-        if (_colourThemeField is not null)
+        if (_themeSection is not null)
         {
-            _colourThemeField.Visible = !imageMode;
+            if (_colourThemeField is SettingRow colour) _themeSection.SetRowShown(colour, !imageMode);
+            if (_imageThemeField is SettingRow image) _themeSection.SetRowShown(image, imageMode);
+            if (_addThemeImageRow is not null) _themeSection.SetRowShown(_addThemeImageRow, imageMode);
         }
 
-        if (_imageThemeField is not null)
-        {
-            _imageThemeField.Visible = imageMode;
-        }
-
-        _addThemeImage.Visible = imageMode;
         _themePreview.Height = DpiLayout.Scale(this, imageMode ? 220 : 60);
+        ArrangeCurrentPage();
     }
 
     private void RefreshThemePreview() => _themePreview.Invalidate();
@@ -1812,62 +874,6 @@ public sealed partial class PreferencesForm : DpiAwareForm
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
         }
-    }
-
-    private void DrawCategory(object? sender, DrawItemEventArgs e)
-    {
-        if (e.Index < 0)
-        {
-            return;
-        }
-
-        bool selected = (e.State & DrawItemState.Selected) != 0;
-        Rectangle bounds = e.Bounds;
-        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        using (SolidBrush clear = new(ThemeService.Palette.Surface))
-        {
-            e.Graphics.FillRectangle(clear, bounds);
-        }
-
-        Rectangle pill = Rectangle.Inflate(bounds, -4, -3);
-        if (selected)
-        {
-            Color fill = Color.FromArgb(55, ThemeService.Palette.Accent);
-            using GraphicsPath path = RoundedRect(pill, 8);
-            using SolidBrush brush = new(fill);
-            e.Graphics.FillPath(brush, path);
-            using SolidBrush accent = new(ThemeService.Palette.Accent);
-            e.Graphics.FillRectangle(
-                accent,
-                new Rectangle(pill.X, pill.Y + 4, 3, Math.Max(8, pill.Height - 8)));
-        }
-        else if ((e.State & DrawItemState.HotLight) != 0)
-        {
-            using GraphicsPath path = RoundedRect(pill, 8);
-            using SolidBrush brush = new(ThemeService.Palette.SurfaceHover);
-            e.Graphics.FillPath(brush, path);
-        }
-
-        string text = _categories.Items[e.Index]?.ToString() ?? string.Empty;
-        TextRenderer.DrawText(
-            e.Graphics,
-            text,
-            selected ? new Font(ThemeService.InterfaceFont, FontStyle.Bold) : ThemeService.InterfaceFont,
-            new Rectangle(pill.X + 16, pill.Y, pill.Width - 20, pill.Height),
-            selected ? ThemeService.Palette.Text : ThemeService.Palette.TextMuted,
-            TextFormatFlags.VerticalCenter | TextFormatFlags.Left);
-    }
-
-    private static GraphicsPath RoundedRect(Rectangle bounds, int radius)
-    {
-        int d = Math.Max(2, radius * 2);
-        GraphicsPath path = new();
-        path.AddArc(bounds.Left, bounds.Top, d, d, 180, 90);
-        path.AddArc(bounds.Right - d, bounds.Top, d, d, 270, 90);
-        path.AddArc(bounds.Right - d, bounds.Bottom - d, d, d, 0, 90);
-        path.AddArc(bounds.Left, bounds.Bottom - d, d, d, 90, 90);
-        path.CloseFigure();
-        return path;
     }
 
     private static string NormalizeFogHex(string? value)
