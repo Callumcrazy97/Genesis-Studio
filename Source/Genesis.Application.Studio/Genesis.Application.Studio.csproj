@@ -45,6 +45,8 @@
     <GenesisBuildId Condition="'$(GenesisBuildId)' == ''">local</GenesisBuildId>
     <!-- The version a user sees. The installer reads the same file, so the two cannot differ. -->
     <GenesisProductVersion>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)..\..\Installer\AppVersion.txt').Trim())</GenesisProductVersion>
+    <!-- The assembly carries the same version, so file properties and diagnostics agree with it. -->
+    <Version>$(GenesisProductVersion)</Version>
   </PropertyGroup>
 
   <ItemGroup>

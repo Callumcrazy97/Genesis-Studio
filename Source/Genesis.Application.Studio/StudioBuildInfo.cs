@@ -12,6 +12,13 @@ public static class StudioBuildInfo
     public static string Configuration { get; } = Metadata("Genesis.BuildConfiguration", "unspecified");
     /// <summary>The version the installer and Add/Remove Programs show, from Installer/AppVersion.txt.</summary>
     public static string ProductVersion { get; } = Metadata("Genesis.ProductVersion", "0.0.0");
+    /// <summary>"Version 0.1.0 · Preview": the one version Studio shows; Preview until 1.0.</summary>
+    public static string VersionLabel =>
+        $"Version {ProductVersion}" + (ProductVersion.StartsWith("0.", StringComparison.Ordinal) ? " · Preview" : string.Empty);
+
+    /// <summary>The version, then which hotfix and build it is, for the Hub and the splash.</summary>
+    public static string IdentityLabel => $"{VersionLabel}  ·  Hotfix {Revision}  ·  Build {BuildId}";
+
     public static string ShortLabel => $"H{Revision} / {BuildId}";
     public static string WindowLabel => $"Genesis Studio — H{Revision} — Build {BuildId}";
 

@@ -507,7 +507,7 @@ public sealed class ProjectHubForm : DpiAwareForm
             ForeColor = ThemeService.Palette.TextMuted,
             Location = new Point(14, 38),
             Size = new Size(NavigationWidth - 64, 58),
-            Text = $"Hotfix {StudioBuildInfo.Revision} · {StudioBuildInfo.Configuration}\nBuild {StudioBuildInfo.BuildId}",
+            Text = $"{StudioBuildInfo.VersionLabel}\nHotfix {StudioBuildInfo.Revision} · Build {StudioBuildInfo.BuildId}",
         });
         buildIdentityHost.Controls.Add(runtime);
         navigation.Controls.Add(buildIdentityHost);

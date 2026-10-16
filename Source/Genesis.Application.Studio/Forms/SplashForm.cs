@@ -41,7 +41,7 @@ public sealed class SplashForm : DpiAwareForm
             ForeColor = ThemeService.Palette.TextMuted,
             Name = "StudioBuildIdentity",
             Location = new Point(24, 18),
-            Text = StudioBuildInfo.WindowLabel,
+            Text = StudioBuildInfo.IdentityLabel,
         };
         _canvas.Controls.Add(version);
 

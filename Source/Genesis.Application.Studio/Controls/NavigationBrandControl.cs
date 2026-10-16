@@ -80,13 +80,8 @@ internal sealed class NavigationBrandControl : Control
             Math.Max(LogicalLogoSize, logicalTextHeight));
     }
 
-    private static string FormatEditionLine()
-    {
-        Version? version = typeof(NavigationBrandControl).Assembly.GetName().Version;
-        return version is null
-            ? "Studio"
-            : $"Version {version.Major}.{version.Minor}.{Math.Max(0, version.Build)}";
-    }
+    // The installer's version (Installer/AppVersion.txt), the same one the Hub's build card shows.
+    private static string FormatEditionLine() => StudioBuildInfo.VersionLabel;
 
     internal GenesisLogoControl Logo => _logo;
 
