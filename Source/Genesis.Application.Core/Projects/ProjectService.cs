@@ -79,6 +79,10 @@ public sealed partial class ProjectService
         {
             Templates.TwoDShowcaseTemplate.Apply(session);
         }
+        else if (normalizedTemplate == Templates.TumbleIslesTemplate.TemplateId)
+        {
+            Templates.TumbleIslesTemplate.Apply(session);
+        }
         else if (normalizedTemplate == "2D")
         {
             // A template's job is that F5 works before you have typed anything, so this fills the
@@ -278,6 +282,7 @@ public sealed partial class ProjectService
             "2DSHOWCASE" or "MUSHROOMMEADOW" => Templates.TwoDShowcaseTemplate.TemplateId,
             "2DDUNGEONCRAWLER" or "DUNGEONCRAWLER" or "CRYPTSOFGENESIS" or "CRYPTS" => "2DDungeonCrawler",
             "3DNATUREWALK" or "NATUREWALK" or "NATURE" => "3DNatureWalk",
+            "3DTUMBLEISLES" or "TUMBLEISLES" => Templates.TumbleIslesTemplate.TemplateId,
             "3D" => "3D",
             "3DSANDBOX" => "3DSandbox",
             "VOXEL" => "Voxel",
@@ -287,7 +292,7 @@ public sealed partial class ProjectService
     private static List<string> PacksForTemplate(string template) =>
         template switch
         {
-            "2D" or "2DShowcase" => ["core", "rendering", "physics", "audio"],
+            "2D" or "2DShowcase" or "3DTumbleIsles" => ["core", "rendering", "physics", "audio"],
             "2DDungeonCrawler" => ["core", "rendering", "physics", "audio", "particles"],
             "3DNatureWalk" or "3DSandbox" => ["core", "rendering", "physics", "audio", "terrain", "particles"],
             "3D" => ["core", "rendering", "physics", "audio", "terrain"],

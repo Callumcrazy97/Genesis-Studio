@@ -131,25 +131,28 @@ internal static class ShellLayoutSuite
         }
     }
 
-    /// <summary>The gallery shows a "2D games" heading, its cards, then a "3D games" heading below them.</summary>
+    /// <summary>The gallery shows a "2D games" heading over the 2D cards, then "3D games" over the 3D cards.</summary>
     private static void AssertTemplateSections(ProjectHubForm hub, string context)
     {
         Label[] headings = hub.TemplateGallery.Controls.OfType<Label>()
             .Where(label => label.Text is "2D games" or "3D games").ToArray();
+        ProjectTemplateCard[] twoD = [.. hub.TemplateCards.Where(card => card.Template.Dimension == ProjectTemplateDimension.TwoD)];
+        ProjectTemplateCard[] threeD = [.. hub.TemplateCards.Where(card => card.Template.Dimension == ProjectTemplateDimension.ThreeD)];
         HeadlessHarness.Assert(
-            headings.Length == 2
-            && headings[0].Bottom <= hub.TemplateCards.Min(card => card.Top)
-            && headings[1].Top >= hub.TemplateCards.Max(card => card.Bottom),
+            headings.Length == 2 && twoD.Length > 0 && threeD.Length > 0
+            && headings[0].Bottom <= twoD.Min(card => card.Top)
+            && headings[1].Top >= twoD.Max(card => card.Bottom)
+            && headings[1].Bottom <= threeD.Min(card => card.Top),
             $"The {context} is not split into 2D and 3D sections.");
     }
 
     /// <summary>Guards the complete project-entry flow at desktop and reduced window sizes.</summary>
     internal static void AssertResponsiveProjectExperience(ProjectHubForm hub)
     {
-        string[] expectedIds = ["2DShowcase"];
+        string[] expectedIds = ["2DShowcase", "3DTumbleIsles"];
         HeadlessHarness.Assert(
             ProjectTemplateCatalog.Available.Select(template => template.Id).SequenceEqual(expectedIds),
-            "Since the 16 Oct template purge the production gallery offers Mushroom Meadow only.");
+            "Since the 16 Oct template purge the production gallery offers Mushroom Meadow and Tumble Isles only.");
         HeadlessHarness.Assert(
             ProjectTemplateCatalog.Find("3DSandbox") is null,
             "The duplicate 3D Sandbox template card returned to the public catalog.");

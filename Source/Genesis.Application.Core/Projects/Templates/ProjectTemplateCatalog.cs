@@ -36,6 +36,7 @@ public enum ProjectTemplateArtwork
     NatureWalk,
     World,
     Voxel,
+    Marble,
 }
 
 /// <summary>
@@ -50,9 +51,9 @@ public enum ProjectTemplateArtwork
 /// Note that "Blank" is deliberately not in this list: a blank project is what **New Project**
 /// makes, and the Templates gallery is for starting points with content in them.
 ///
-/// 16 Oct 2026 purge: galleries offer Mushroom Meadow (2D) only. The other starters are kept
-/// unavailable rather than deleted: <see cref="ProjectService.CreateProject"/> still builds them by
-/// id for the regression suites, but no gallery shows them. A new 3D starter replaces them.
+/// 16 Oct 2026 purge: galleries offer Mushroom Meadow (2D) and Tumble Isles (3D) only. The other
+/// starters are kept unavailable rather than deleted: <see cref="ProjectService.CreateProject"/>
+/// still builds them by id for the regression suites, but no gallery shows them.
 /// </remarks>
 public static class ProjectTemplateCatalog
 {
@@ -65,6 +66,15 @@ public static class ProjectTemplateCatalog
              "Intro cinematic, main menu, three save slots, options and credits",
              "Hearts, power-ups, swimming, wind, dark caves and gamepad play in PGSL",
              "Original pixel art, music and sound, and an authoring guide"],
+            Available: true),
+
+        new(
+            TumbleIslesTemplate.TemplateId, "Tumble Isles", "A bright 3D marble-rolling game to learn from", "●",
+            ProjectTemplateDimension.ThreeD, ProjectTemplateArtwork.Marble,
+            ["Five floating-isle courses: bumpers, moving decks, boost pads, springs and ice",
+             "Rolling physics, camera and HUD in one readable PGSL object",
+             "Gems, checkpoints, best times and course unlocks saved",
+             "Original sound and music; keyboard, mouse or gamepad"],
             Available: true),
 
         new(

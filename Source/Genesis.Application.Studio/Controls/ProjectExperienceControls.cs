@@ -125,6 +125,9 @@ internal sealed class ProjectTemplateArtworkControl : Control
             case ProjectTemplateArtwork.Voxel:
                 DrawVoxel(e.Graphics, bounds, palette);
                 break;
+            case ProjectTemplateArtwork.Marble:
+                DrawMarble(e.Graphics, bounds, palette);
+                break;
             default:
                 DrawWorld(e.Graphics, bounds, palette);
                 break;
@@ -133,6 +136,41 @@ internal sealed class ProjectTemplateArtworkControl : Control
         e.Graphics.Restore(state);
         using Pen border = new(UiDrawing.WithAlpha(palette.Text, 42), 1f);
         e.Graphics.DrawPath(border, clip);
+    }
+
+    /// <summary>Tumble Isles: floating islands at three heights, a marble rolling and a gem to reach.</summary>
+    private static void DrawMarble(Graphics graphics, Rectangle b, ThemePalette p)
+    {
+        graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        Color grass = UiDrawing.Blend(p.Success, Color.FromArgb(120, 210, 120), 0.5f);
+        Color rock = UiDrawing.Blend(p.Canvas, Color.FromArgb(150, 118, 92), 0.55f);
+        void Island(float x, float y, float w)
+        {
+            using SolidBrush rockBrush = new(rock);
+            graphics.FillPolygon(rockBrush, new[]
+            {
+                new PointF(x, y + 6), new PointF(x + w, y + 6), new PointF(x + w * 0.62f, y + 6 + w * 0.42f),
+                new PointF(x + w * 0.38f, y + 6 + w * 0.42f),
+            });
+            using SolidBrush grassBrush = new(grass);
+            graphics.FillRectangle(grassBrush, x, y, w, 8);
+        }
+        float u = b.Width / 100f, v = b.Height / 100f;
+        Island(b.Left + 6 * u, b.Top + 70 * v, 34 * u);
+        Island(b.Left + 46 * u, b.Top + 52 * v, 26 * u);
+        Island(b.Left + 74 * u, b.Top + 34 * v, 20 * u);
+        float r = Math.Max(6f, 9 * v);
+        RectangleF ball = new(b.Left + 20 * u - r, b.Top + 70 * v - r * 2, r * 2, r * 2);
+        using (LinearGradientBrush shine = new(ball, Color.FromArgb(255, 236, 140), Color.FromArgb(232, 120, 52), 45f))
+            graphics.FillEllipse(shine, ball);
+        using (SolidBrush spot = new(Color.FromArgb(150, 255, 255, 255)))
+            graphics.FillEllipse(spot, ball.Left + r * 0.45f, ball.Top + r * 0.35f, r * 0.6f, r * 0.5f);
+        PointF gem = new(b.Left + 84 * u, b.Top + 34 * v - 12 * v);
+        float g = Math.Max(4f, 5 * v);
+        using SolidBrush gemBrush = new(Color.FromArgb(110, 220, 255));
+        graphics.FillPolygon(gemBrush, new[] { new PointF(gem.X, gem.Y - g), new PointF(gem.X + g, gem.Y), new PointF(gem.X, gem.Y + g), new PointF(gem.X - g, gem.Y) });
+        using Pen trail = new(UiDrawing.WithAlpha(p.Text, 70), 1.5f) { DashStyle = DashStyle.Dash };
+        graphics.DrawBezier(trail, ball.Right, ball.Top, b.Left + 40 * u, b.Top + 40 * v, b.Left + 60 * u, b.Top + 30 * v, gem.X - g, gem.Y);
     }
 
     private static void DrawBlank(Graphics graphics, Rectangle b, ThemePalette p)

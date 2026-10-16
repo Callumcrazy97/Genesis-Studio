@@ -92,6 +92,24 @@ internal static class Program
             return EditorReviewCaptureRunner.Run(projectRoot, output, width, height);
         }
 
+        // --template-check <id>: create a project from a template in a scratch folder and run the
+        // same full PGSL check as Run (F5), with no game window. Exit 0 when every script passes.
+        int templateCheck = Array.FindIndex(args, argument => string.Equals(argument, "--template-check", StringComparison.OrdinalIgnoreCase));
+        if (templateCheck >= 0 && templateCheck + 1 < args.Length)
+        {
+            string scratch = Path.Combine(AppContext.BaseDirectory, "TestResults", "TemplateCheck", args[templateCheck + 1]);
+            if (Directory.Exists(scratch)) Directory.Delete(scratch, recursive: true);
+            Directory.CreateDirectory(scratch);
+            Genesis.Application.Core.Projects.ProjectSession created =
+                new Genesis.Application.Core.Projects.ProjectService().CreateProject(scratch, "Template Check", args[templateCheck + 1]);
+            var report = Genesis.Runtime.Scripting.PgslScriptValidator.ValidateProject(created.RootPath, strict: true);
+            Console.WriteLine($"[Template Check] {args[templateCheck + 1]}: {report.ScriptCount} scripts, {report.Errors.Count} errors, {report.Warnings.Count} warnings");
+            foreach (string error in report.Errors) Console.WriteLine("  error: " + error);
+            foreach (string warning in report.Warnings) Console.WriteLine("  warning: " + warning);
+            Console.WriteLine("  project: " + created.RootPath);
+            return report.Success ? 0 : 1;
+        }
+
         if (args.Any(argument => string.Equals(argument, "--climbing-smoke", StringComparison.OrdinalIgnoreCase)))
         {
             string output = Path.Combine(AppContext.BaseDirectory, "TestResults", "ClimbingSmoke");

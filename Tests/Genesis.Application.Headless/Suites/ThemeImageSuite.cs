@@ -910,8 +910,8 @@ internal static class ThemeImageSuite
                 ThemeCatalog.Images.Count >= ThemeCatalog.RequiredBuiltInImageThemes.Count,
                 "Hub polish must not disturb built-in image themes.");
             HeadlessHarness.Assert(
-                ProjectTemplateCatalog.Available.Count() == 1,
-                "Hub must keep exactly one Available template (Mushroom Meadow) since the 16 Oct purge.");
+                ProjectTemplateCatalog.Available.Count() == 2,
+                "Hub must keep exactly two Available templates (Mushroom Meadow, Tumble Isles) since the 16 Oct purge.");
 
             ThemeService.SetPalette(ThemePalette.Dark);
             SuiteChromeBridge.Push();
