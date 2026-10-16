@@ -111,7 +111,16 @@ public sealed partial class ResourceBrowserDock
             return;
         }
         _scopeButton.ToolTipText = "All assets, shared favourites or recently opened/selected resources";
-        if (_renderedPreferenceRevision != _preferences.SnapshotRevision && render && _treeSnapshot is not null) RenderTree();
+        if (_renderedPreferenceRevision != _preferences.SnapshotRevision && render && _treeSnapshot is not null)
+        {
+            // Favourites and recents only decide which nodes the Favourites and Recent views list.
+            // The whole-project view just repaints its stars: opening any resource updates the
+            // recents, and rebuilding thousands of nodes each time the tree regained focus took seconds.
+            if (_scope != ResourceBrowserScope.All) { RenderTree(); return; }
+            _renderedPreferenceRevision = _preferences.SnapshotRevision;
+            UpdateFavouriteButton();
+            _tree.Invalidate();
+        }
         else UpdateFavouriteButton();
     }
 

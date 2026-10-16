@@ -511,6 +511,7 @@ public sealed partial class NoteEditorControl : EditorSurfaceControl, IResourceI
         _highlightingSource = true;
         int selectionStart = _source.SelectionStart;
         int selectionLength = _source.SelectionLength;
+        using var batch = new RichTextBatch(_source);
         try
         {
             _source.SuspendLayout();
@@ -659,6 +660,13 @@ public sealed partial class NoteEditorControl : EditorSurfaceControl, IResourceI
 
     private void RenderPreview()
     {
+        using (new RichTextBatch(_preview)) RenderPreviewLines();
+        _preview.SelectionStart = 0;
+        UpdatePreviewHeight();
+    }
+
+    private void RenderPreviewLines()
+    {
         _preview.SuspendLayout();
         _preview.Clear();
         _previewTasks.Clear();
@@ -732,8 +740,6 @@ public sealed partial class NoteEditorControl : EditorSurfaceControl, IResourceI
         }
 
         _preview.ResumeLayout();
-        _preview.SelectionStart = 0;
-        UpdatePreviewHeight();
     }
 
     private void UpdateSourceHeight()

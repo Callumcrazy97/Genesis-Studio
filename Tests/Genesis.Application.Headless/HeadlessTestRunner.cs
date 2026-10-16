@@ -836,14 +836,15 @@ internal static class HeadlessTestRunner
             hub.ClickNavigation(HubSection.Templates);
             PumpMessages(2, 20);
 
-            // Every offered template must be one the service can actually build, and the 2D
-            // platformer must be among them — the gallery cannot advertise what does not exist.
+            // Every offered template must be one the service can actually build, and Mushroom
+            // Meadow must be among them — the gallery cannot advertise what does not exist.
             Assert(
-                ProjectTemplateCatalog.Available.Any(template => template.Id == "2D"),
-                "The 2D Platformer template is not available in the catalogue.");
+                ProjectTemplateCatalog.Available.Any(template => template.Id == "2DShowcase"),
+                "The Mushroom Meadow template is not available in the catalogue.");
             Assert(
-                ProjectTemplateCatalog.Available.Any(template => template.Id == "2DDungeonCrawler"),
-                "The Crypts of Genesis template is not available in the catalogue.");
+                ProjectTemplateCatalog.Find("2D") is { Available: false }
+                && ProjectTemplateCatalog.Find("2DDungeonCrawler") is { Available: false },
+                "Retired templates must stay findable by id but hidden from the galleries.");
             Assert(
                 ProjectTemplateCatalog.All.All(template => !template.Available || template.Contents.Count > 0),
                 "An available template lists no contents, so its card would be blank.");

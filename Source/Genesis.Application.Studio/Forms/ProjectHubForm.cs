@@ -223,7 +223,7 @@ public sealed class ProjectHubForm : DpiAwareForm
         layout.Controls.Add(BuildPageHeader(
             "PROJECT TEMPLATES",
             "New Project and Templates",
-            "Choose a 2D or 3D starting point. Each project includes editable assets and gameplay; Crypts of Genesis is a preview template."), 0, 0);
+            "Choose a 2D or 3D starting point. Each project includes editable assets and gameplay you can learn from."), 0, 0);
 
         FlowLayoutPanel gallery = new()
         {
@@ -235,13 +235,7 @@ public sealed class ProjectHubForm : DpiAwareForm
             Tag = "transparent",
             WrapContents = true,
         };
-        foreach (ProjectTemplate template in ProjectTemplateCatalog.Available)
-        {
-            ProjectTemplateCard card = new(template);
-            card.CreateRequested += (_, _) => CreateProject(template.Id);
-            _templateCards.Add(card);
-            gallery.Controls.Add(card);
-        }
+        ProjectTemplateGallery.Fill(gallery, template => CreateProject(template.Id), _templateCards);
 
         layout.Controls.Add(gallery, 0, 1);
         return (page, layout, gallery);
@@ -595,7 +589,7 @@ public sealed class ProjectHubForm : DpiAwareForm
         }
     }
 
-    private static int LayoutFlowCards(
+    internal static int LayoutFlowCards(
         FlowLayoutPanel flow,
         int logicalMinimumWidth,
         int maximumColumns,
@@ -615,10 +609,12 @@ public sealed class ProjectHubForm : DpiAwareForm
         int width = Math.Max(minimumWidth, (viewport - gap * (columns - 1)) / columns);
         foreach (Control card in flow.Controls)
         {
+            if (card is Label) continue;
             card.Margin = new Padding(0, 0, gap, gap);
             card.Size = new Size(width, height);
             if (card is ProjectTemplateCard template) template.ApplyInterfaceLayout();
         }
+        ProjectTemplateGallery.LayoutHeadings(flow, viewport, dpi);
         return columns;
     }
 

@@ -49,6 +49,10 @@ public enum ProjectTemplateArtwork
 ///
 /// Note that "Blank" is deliberately not in this list: a blank project is what **New Project**
 /// makes, and the Templates gallery is for starting points with content in them.
+///
+/// 16 Oct 2026 purge: galleries offer Mushroom Meadow (2D) only. The other starters are kept
+/// unavailable rather than deleted: <see cref="ProjectService.CreateProject"/> still builds them by
+/// id for the regression suites, but no gallery shows them. A new 3D starter replaces them.
 /// </remarks>
 public static class ProjectTemplateCatalog
 {
@@ -76,7 +80,7 @@ public static class ProjectTemplateCatalog
                 "Editable PGSL events and all twelve alarms",
                 "Ready-to-run authored 2D room",
             ],
-            Available: true),
+            Available: false),
 
         new(
             "2DDungeonCrawler",
@@ -91,7 +95,7 @@ public static class ProjectTemplateCatalog
                 "Pixel art, audio, particles, shaders and HUD",
                 "Five ready-to-run editable 2D rooms",
             ],
-            Available: true),
+            Available: false),
 
         new(
             "3DNatureWalk",
@@ -106,7 +110,7 @@ public static class ProjectTemplateCatalog
                 "Landmarks, campfire, lanterns, weather and effects",
                 "First-person PGSL, collision, buoyancy and swimming",
             ],
-            Available: true),
+            Available: false),
 
         new(
             "3D",
@@ -121,7 +125,7 @@ public static class ProjectTemplateCatalog
                 "First-person controller + terrain physics",
                 "Instanced foliage + visible performance budget",
             ],
-            Available: true),
+            Available: false),
 
         new(
             "Voxel",

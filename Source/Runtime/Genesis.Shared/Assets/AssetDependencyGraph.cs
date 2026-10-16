@@ -10,7 +10,7 @@ namespace Genesis.Shared.Assets
     /// Project-wide resource reference graph. Paths are canonical absolute paths internally;
     /// callers may use absolute, project-relative, Assets-relative, file-name, or asset-stem keys.
     /// </summary>
-    public sealed class AssetDependencyGraph
+    public sealed partial class AssetDependencyGraph
     {
         private static readonly HashSet<string> TextExtensions = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -63,8 +63,10 @@ namespace Genesis.Shared.Assets
             foreach (NamedResource entry in catalog.Entries)
                 _aliases[NormalizeKey(entry.Name)] = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { entry.FullPath };
 
+            LoadLiteralStore();
             foreach (string resource in _resources)
                 IndexReferences(resource);
+            SaveLiteralStore();
         }
 
         /// <summary>
@@ -109,7 +111,7 @@ namespace Genesis.Shared.Assets
         private void IndexReferences(string resource)
         {
             HashSet<string> direct = new(StringComparer.OrdinalIgnoreCase);
-            foreach (string literal in ReadReferenceLiterals(resource))
+            foreach (string literal in ReadReferenceLiteralsCached(resource))
             {
                 foreach (string resolved in ResolveAll(literal))
                 {

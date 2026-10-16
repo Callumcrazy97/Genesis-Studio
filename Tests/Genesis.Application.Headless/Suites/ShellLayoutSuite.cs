@@ -131,13 +131,25 @@ internal static class ShellLayoutSuite
         }
     }
 
+    /// <summary>The gallery shows a "2D games" heading, its cards, then a "3D games" heading below them.</summary>
+    private static void AssertTemplateSections(ProjectHubForm hub, string context)
+    {
+        Label[] headings = hub.TemplateGallery.Controls.OfType<Label>()
+            .Where(label => label.Text is "2D games" or "3D games").ToArray();
+        HeadlessHarness.Assert(
+            headings.Length == 2
+            && headings[0].Bottom <= hub.TemplateCards.Min(card => card.Top)
+            && headings[1].Top >= hub.TemplateCards.Max(card => card.Bottom),
+            $"The {context} is not split into 2D and 3D sections.");
+    }
+
     /// <summary>Guards the complete project-entry flow at desktop and reduced window sizes.</summary>
     internal static void AssertResponsiveProjectExperience(ProjectHubForm hub)
     {
-        string[] expectedIds = ["2DShowcase", "2D", "2DDungeonCrawler", "3DNatureWalk", "3D"];
+        string[] expectedIds = ["2DShowcase"];
         HeadlessHarness.Assert(
             ProjectTemplateCatalog.Available.Select(template => template.Id).SequenceEqual(expectedIds),
-            "The production gallery must contain four 2D templates and the two distinct 3D templates.");
+            "Since the 16 Oct template purge the production gallery offers Mushroom Meadow only.");
         HeadlessHarness.Assert(
             ProjectTemplateCatalog.Find("3DSandbox") is null,
             "The duplicate 3D Sandbox template card returned to the public catalog.");
@@ -170,10 +182,7 @@ internal static class ShellLayoutSuite
             hub.TemplateCards.Count == expectedIds.Length
             && hub.TemplateCards.Select(card => card.Template.Id).SequenceEqual(expectedIds),
             "The visible gallery does not contain the complete available template catalog.");
-        HeadlessHarness.Assert(
-            hub.TemplateCards.GroupBy(card => card.Top).First().Count() == 4
-            && hub.TemplateCards.Select(card => card.Top).Distinct().Count() == 2,
-            "The six-template gallery should form a readable four-card row and a second row at desktop width.");
+        AssertTemplateSections(hub, "desktop template gallery");
         AssertCardsFitViewport(hub.TemplateGallery, hub.TemplateCards, "desktop template gallery");
 
         hub.ClientSize = new Size(
@@ -181,9 +190,7 @@ internal static class ShellLayoutSuite
             DpiLayout.Scale(hub, 600));
         hub.ApplyResponsiveLayoutForTest();
         AssertCardsFitViewport(hub.TemplateGallery, hub.TemplateCards, "reduced-window template gallery");
-        HeadlessHarness.Assert(
-            hub.TemplateCards.Select(card => card.Top).Distinct().Count() >= 2,
-            "The template gallery did not wrap at the minimum supported window width.");
+        AssertTemplateSections(hub, "reduced-window template gallery");
 
         hub.ShowSection(HubSection.Projects);
         hub.ApplyResponsiveLayoutForTest();

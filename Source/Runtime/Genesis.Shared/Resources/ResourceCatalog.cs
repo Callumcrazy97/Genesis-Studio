@@ -59,6 +59,7 @@ public sealed partial class ResourceCatalog
     {
         ProjectRoot = projectRoot;
         BeginIndexedBuild(projectRoot);
+        BeginMetaStore(projectRoot);
         var entries = new List<NamedResource>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         string assets = Path.Combine(projectRoot, "Assets");
@@ -75,6 +76,7 @@ public sealed partial class ResourceCatalog
         _names = Entries.GroupBy(e => e.Name, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.ToArray(), StringComparer.OrdinalIgnoreCase);
         _paths = Entries.ToDictionary(e => Path.GetFullPath(e.FullPath), e => e, StringComparer.OrdinalIgnoreCase);
         EndIndexedBuild(Entries.Count);
+        EndMetaStore(projectRoot);
     }
 
     public static ResourceCatalog For(string projectRoot)
@@ -285,6 +287,7 @@ public sealed partial class ResourceCatalog
             // the same unchanged file: the build report says where identities came from (the index
             // or the .meta files), and a fresh process (a game) remembers nothing.
             CountMetaRead();
+            NoteMetaSeen(metaPath);
             if (!MetaIdentities.TryGetValue(metaPath, out MetaIdentity identity) || identity.Ticks != ticks || identity.Length != length)
             {
                 try
@@ -296,7 +299,11 @@ public sealed partial class ResourceCatalog
                 catch (Newtonsoft.Json.JsonException error) { throw new InvalidDataException("Invalid resource identity metadata for '" + name + "'.", error); }
                 // A file written in the last few seconds could be written again within the same
                 // tick of the file system's clock, keeping its time; it is read again next time.
-                if (DateTime.UtcNow.Ticks - ticks > TimeSpan.TicksPerSecond * 3) MetaIdentities[metaPath] = identity;
+                if (DateTime.UtcNow.Ticks - ticks > TimeSpan.TicksPerSecond * 3)
+                {
+                    MetaIdentities[metaPath] = identity;
+                    NoteMetaRead();
+                }
             }
             assetId = identity.Guid;
             if (!string.IsNullOrWhiteSpace(identity.Authored)) name = ValidateName(identity.Authored);

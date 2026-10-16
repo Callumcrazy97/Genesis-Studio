@@ -1454,7 +1454,9 @@ public sealed partial class StudioShellForm : DpiAwareForm
 
     private void CreateProject()
     {
-        using NewProjectDialog dialog = new();
+        using ProjectTemplatePickerDialog picker = new();
+        if (picker.ShowDialog(this) != DialogResult.OK) return;
+        using NewProjectDialog dialog = new(picker.TemplateId);
         if (dialog.ShowDialog(this) != DialogResult.OK)
         {
             return;
