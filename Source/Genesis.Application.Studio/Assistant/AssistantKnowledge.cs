@@ -24,6 +24,9 @@ public static partial class AssistantKnowledge
         - In an event, a plain assignment or var sets the instance's variable. Inside a function, var is local; write self.name to set the instance's variable.
         - Lists: var a = [1, 2, 3]; a[0]; PgListSize(a); PgListAdd(a, v). Lists count from 0; strings count from 1.
         - Text joins with +; a number joined to text becomes text.
+        - x, y, room_width and room_height are built in: assign x and y (x = 10;), never declare them with var.
+        - To move something, give it your own speed variables in Create (moveX = 3; moveY = -2;) and add them in Step (x += moveX;). Do not use hspeed or vspeed.
+        - Random(n) gives a number from 0 to n (one argument). For a range write low + Random(high - low).
         - Keys and buttons are names in quotes, never constants: KeyCheck("Right"), KeyPressed("Space"), KeyCheck("W"), GamepadPressed("A").
         - Sin, Cos and PointDirection use degrees. Events of an object: Create, Step, Draw, DrawGui (and others).
         - Use only commands listed in the reference you are given; do not invent commands.
@@ -92,10 +95,12 @@ public static partial class AssistantKnowledge
     /// (the checker leaves calls alone; a small model invents them). Functions the code defines, and
     /// those in the project's own Scripts, count as known.
     /// </summary>
-    public static IReadOnlyList<string> Check(string code, string? projectRoot = null)
+    public static IReadOnlyList<string> Check(string code, string? projectRoot = null, bool allowUndeclared = false)
     {
-        PgslValidationReport report = PgslScriptValidator.ValidateSource(code, "assistant", strict: false);
-        List<string> errors = [.. report.Errors];
+        // Strict, as Run (F5) checks: wrong argument counts and shadowed built-ins are errors there.
+        PgslValidationReport report = PgslScriptValidator.ValidateSource(code, "assistant", strict: true);
+        // A lone snippet may read variables another event sets; those are allowed when asked.
+        List<string> errors = [.. report.Errors.Where(error => !allowUndeclared || !error.Contains("Undeclared variable", StringComparison.Ordinal))];
         _ = Index.Value; // builds the registry
         HashSet<string> own = new(FunctionDeclaration().Matches(code).Select(match => match.Groups[1].Value), StringComparer.OrdinalIgnoreCase);
         if (projectRoot is not null && Directory.Exists(projectRoot))

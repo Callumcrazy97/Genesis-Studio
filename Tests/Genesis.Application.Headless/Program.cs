@@ -108,6 +108,39 @@ internal static class Program
             return 0;
         }
 
+        // --assistant-game <folder> <request>: a blank project in <folder>, then the local model makes the
+        // whole game (sprites, objects, room) and the project gets the full strict PGSL check.
+        int assistantGame = Array.FindIndex(args, argument => string.Equals(argument, "--assistant-game", StringComparison.OrdinalIgnoreCase));
+        if (assistantGame >= 0 && assistantGame + 2 < args.Length)
+        {
+            string parent = Path.GetFullPath(args[assistantGame + 1]);
+            if (Directory.Exists(parent)) Directory.Delete(parent, recursive: true);
+            Directory.CreateDirectory(parent);
+            var project = new Genesis.Application.Core.Projects.ProjectService().CreateProject(parent, "Squares Game");
+            var settings = Genesis.Application.Studio.Assistant.AssistantSettings.Load();
+            if (!File.Exists(settings.ModelPath)) settings.ModelPath = settings.FindModels().FirstOrDefault() ?? string.Empty;
+            var server = Genesis.Application.Studio.Assistant.LocalModelServer.Shared;
+            try
+            {
+                server.StartAsync(settings, null).GetAwaiter().GetResult();
+                var progress = new Progress<string>(text => Console.WriteLine("[Assistant Game] " + text));
+                var result = Genesis.Application.Studio.Assistant.GameBuilder.BuildAsync(project, args[assistantGame + 2], progress).GetAwaiter().GetResult();
+                Console.WriteLine("[Assistant Game] model " + server.ModelName + ", rounds " + result.RoundsUsed + ", success " + result.Success);
+                Console.WriteLine(result.Json);
+                foreach (string problem in result.Problems) Console.WriteLine("  problem: " + problem);
+                foreach (string item in result.Written) Console.WriteLine("  made: " + item);
+                if (result.Success)
+                {
+                    var report = Genesis.Runtime.Scripting.PgslScriptValidator.ValidateProject(project.RootPath, strict: true);
+                    Console.WriteLine($"[Assistant Game] project check: {report.ScriptCount} scripts, {report.Errors.Count} errors");
+                    foreach (string error in report.Errors) Console.WriteLine("  error: " + error);
+                }
+                Console.WriteLine("  project: " + project.RootPath);
+            }
+            finally { server.Stop(); }
+            return 0;
+        }
+
         // --assistant-check [--with-model]: the assistant's command lookup and PGSL check, and with
         // --with-model one JSON-shaped answer from the local model (the first GGUF found).
         if (args.Any(argument => string.Equals(argument, "--assistant-check", StringComparison.OrdinalIgnoreCase)))

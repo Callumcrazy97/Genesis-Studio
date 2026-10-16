@@ -196,7 +196,7 @@ public sealed partial class LocalModelServer : IDisposable
             body["response_format"] = new JsonObject
             {
                 ["type"] = "json_schema",
-                ["json_schema"] = new JsonObject { ["name"] = "answer", ["schema"] = jsonSchema, ["strict"] = true },
+                ["json_schema"] = new JsonObject { ["name"] = "answer", ["schema"] = jsonSchema.DeepClone(), ["strict"] = true },
             };
         using HttpRequestMessage request = new(HttpMethod.Post, $"http://127.0.0.1:{_port}/v1/chat/completions")
         {

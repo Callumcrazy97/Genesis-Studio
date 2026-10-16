@@ -28,7 +28,8 @@ public sealed class AssistantDock : GenesisDockContent
     private readonly ModernButton _gear = new() { Text = "⚙", Width = 40 };
     private readonly Label _status = new() { AutoSize = true, Margin = new Padding(8, 10, 0, 0) };
     private readonly RadioButton _ask = new() { Text = "Ask", Checked = true, AutoSize = true, Margin = new Padding(0, 8, 12, 0) };
-    private readonly RadioButton _write = new() { Text = "Write PGSL", AutoSize = true, Margin = new Padding(0, 8, 16, 0) };
+    private readonly RadioButton _write = new() { Text = "Write PGSL", AutoSize = true, Margin = new Padding(0, 8, 12, 0) };
+    private readonly RadioButton _game = new() { Text = "Make a game", AutoSize = true, Margin = new Padding(0, 8, 16, 0) };
     private readonly Label _attached = new() { AutoSize = true, Margin = new Padding(8, 10, 0, 0) };
     private readonly RichTextBox _transcript = new() { ReadOnly = true, BorderStyle = BorderStyle.None, Dock = DockStyle.Fill, DetectUrls = false };
     private readonly TextBox _input = new() { Multiline = true, Dock = DockStyle.Fill, ScrollBars = ScrollBars.Vertical, AcceptsReturn = true };
@@ -68,7 +69,7 @@ public sealed class AssistantDock : GenesisDockContent
         attachRoom.Click += (_, _) => Attach("Rooms|*.room.json", AssistantKnowledge.DescribeRoom);
         attachScript.Click += (_, _) => Attach("PGSL|*.pgsl", path => "Script " + Path.GetFileName(path) + ":\n" + Truncate(File.ReadAllText(path), 4000));
         clear.Click += (_, _) => ClearConversation();
-        layout.Controls.Add(Row(_ask, _write, attachImage, attachRoom, attachScript, clear, _attached), 0, 1);
+        layout.Controls.Add(Row(_ask, _write, _game, attachImage, attachRoom, attachScript, clear, _attached), 0, 1);
 
         _transcript.Font = ThemeService.InterfaceFont;
         layout.Controls.Add(_transcript, 0, 2);
@@ -261,7 +262,8 @@ public sealed class AssistantDock : GenesisDockContent
         Say("You", question);
         try
         {
-            if (_write.Checked) await WriteCodeAsync(question);
+            if (_game.Checked) await MakeGameAsync(question);
+            else if (_write.Checked) await WriteCodeAsync(question);
             else await AskAsync(question);
         }
         catch (Exception error) when (error is InvalidOperationException or HttpRequestException or TaskCanceledException
@@ -325,7 +327,7 @@ public sealed class AssistantDock : GenesisDockContent
             JsonNode? answer = JsonNode.Parse(reply);
             code = answer?["code"]?.GetValue<string>() ?? string.Empty;
             notes = answer?["notes"]?.GetValue<string>() ?? string.Empty;
-            errors = AssistantKnowledge.Check(code, _project.RootPath);
+            errors = AssistantKnowledge.Check(code, _project.RootPath, allowUndeclared: true);
             if (errors.Count == 0) break;
             messages.Add(("assistant", reply));
             messages.Add(("user", "The PGSL checker found these errors:\n- " + string.Join("\n- ", errors.Take(8))
@@ -340,6 +342,17 @@ public sealed class AssistantDock : GenesisDockContent
             ? "✓ Passes the PGSL check."
             : $"Still {errors.Count} problem(s) after {CheckRounds} tries:\n- " + string.Join("\n- ", errors.Take(6)));
         _copy.Visible = _save.Visible = code.Length > 0;
+    }
+
+    /// <summary>The model designs a small 2D game; Genesis checks it and writes its sprites, objects and room.</summary>
+    private async Task MakeGameAsync(string request)
+    {
+        Progress<string> progress = new(text => _status.Text = text);
+        GameBuilder.Result result = await GameBuilder.BuildAsync(_project, request, progress);
+        Say("Assistant", GameBuilder.Describe(result.Json));
+        Say("Checker", result.Success
+            ? $"✓ Checked and made in {result.RoundsUsed} round(s):\n- " + string.Join("\n- ", result.Written) + "\nPress Run to play it."
+            : $"Not made: {result.Problems.Count} problem(s) left after {result.RoundsUsed} tries:\n- " + string.Join("\n- ", result.Problems.Take(8)));
     }
 
     private void SaveScript()

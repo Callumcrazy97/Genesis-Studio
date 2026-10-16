@@ -25,6 +25,25 @@ Press **Start** to load the model; **Stop** frees its memory. Studio stops it wh
   command that does not exist. If there are problems, they go back to the model, up to three times.
   The result shows whether it passed; **Copy code** or **Save as Script…** keeps it.
 
+## Make a game
+
+Describe a small 2D game ("a few coloured squares that move around and bounce off the edges"). The
+model answers with one JSON document: sprites (a square or circle, its size and colour), objects
+(the sprite each shows, and its Create and Step code) and a room (size, background and where each
+object is placed). Genesis checks it before anything is written:
+- every sprite, object and room has its own name, unused in the project;
+- objects use sprites, and the room places objects, that exist;
+- each object's Create and Step code passes the strict PGSL check Run uses, with no invented commands;
+- an object that moves by a variable its Create never sets would stand still, so that is reported too.
+
+Problems go back to the model, up to three times. Then Genesis writes exactly what the model
+specified: the sprites' pictures, the objects and their event code, and the room, which becomes the
+start room. Press Run.
+
+Checked on 16 Oct 2026 with Qwen3-4B (`--assistant-game`): it built three moving squares in an
+800×600 room in three rounds. The project passed the strict check, and two screenshots three
+seconds apart showed the squares moving and staying inside the room.
+
 ## Context
 
 - **Image…** describes a picture in words for models without vision: its size, transparent area,
@@ -41,7 +60,7 @@ time, because small models have short contexts.
 These are planned:
 - reading text in images (Nova's OCR);
 - a description of a running game's scene;
-- tools that create other kinds of resources;
+- making sounds, particles or 3D games (Make a game covers 2D sprites, objects and a room);
 - an evaluation set for comparing models.
 
 The check `Genesis.Application.Headless.exe --assistant-check --with-model` loads the first model
