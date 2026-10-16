@@ -350,7 +350,7 @@ public sealed partial class StudioShellForm : DpiAwareForm
         ToolStripMenuItem view = new("&View");
         view.DropDownItems.Add(CommandMenuItem("studio.commands"));
         view.DropDownItems.Add(new ToolStripSeparator());
-        foreach (string id in new[] { "view.assets", "view.inspector", "view.console", "view.start" }) view.DropDownItems.Add(CommandMenuItem(id));
+        foreach (string id in new[] { "view.assets", "view.inspector", "view.console", "view.start", "view.assistant" }) view.DropDownItems.Add(CommandMenuItem(id));
         view.DropDownItems.Add(new ToolStripSeparator());
         view.DropDownItems.Add(CommandMenuItem("view.reset"));
         ToolStripMenuItem tools = new("&Tools");

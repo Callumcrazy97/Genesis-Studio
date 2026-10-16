@@ -56,6 +56,7 @@ public sealed partial class StudioShellForm
         Register("view.inspector", "Inspector", "View", "Show the Inspector.", _ => ShowToolWindow(_inspector));
         Register("view.console", "Console", "View", "Show diagnostics and build output.", _ => ShowToolWindow(_console), Keys.Control | Keys.Oemtilde);
         Register("view.start", "Start Page", "View", "Show the project's start page.", _ => ShowStartPage());
+        Register("view.assistant", "AI Assistant", "View", "Ask a local AI model about PGSL, or have it write code the PGSL checker checks.", _ => ShowAssistant());
         Register("view.reset", "Reset Workspace Layout", "View", "Restore the default dock layout.", _ => ResetLayout());
         Register("resource.refresh", "Refresh Asset Database", "Resources", "Refresh the project's resource catalog and browser.",
             _ => _assetBrowser.Execute(ResourceBrowserCommand.Refresh), Keys.Control | Keys.R);

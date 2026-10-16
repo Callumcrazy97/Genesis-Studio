@@ -108,6 +108,40 @@ internal static class Program
             return 0;
         }
 
+        // --assistant-check [--with-model]: the assistant's command lookup and PGSL check, and with
+        // --with-model one JSON-shaped answer from the local model (the first GGUF found).
+        if (args.Any(argument => string.Equals(argument, "--assistant-check", StringComparison.OrdinalIgnoreCase)))
+        {
+            string reference = Genesis.Application.Studio.Assistant.AssistantKnowledge.Reference("move the player with the arrow keys and jump");
+            Console.WriteLine("[Assistant Check] reference lines: " + reference.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries).Length);
+            Console.WriteLine(reference.Length > 600 ? reference[..600] : reference);
+            Console.WriteLine("[Assistant Check] checker errors for 'x = ;': " + Genesis.Application.Studio.Assistant.AssistantKnowledge.Check("x = ;").Count);
+            if (args.Any(argument => string.Equals(argument, "--with-model", StringComparison.OrdinalIgnoreCase)))
+            {
+                var settings = Genesis.Application.Studio.Assistant.AssistantSettings.Load();
+                if (!File.Exists(settings.ModelPath)) settings.ModelPath = settings.FindModels().FirstOrDefault() ?? string.Empty;
+                var server = Genesis.Application.Studio.Assistant.LocalModelServer.Shared;
+                try
+                {
+                    server.StartAsync(settings, null).GetAwaiter().GetResult();
+                    var schema = new System.Text.Json.Nodes.JsonObject
+                    {
+                        ["type"] = "object",
+                        ["properties"] = new System.Text.Json.Nodes.JsonObject { ["code"] = new System.Text.Json.Nodes.JsonObject { ["type"] = "string" } },
+                        ["required"] = new System.Text.Json.Nodes.JsonArray("code"),
+                    };
+                    string reply = server.ChatAsync([("system", Genesis.Application.Studio.Assistant.AssistantKnowledge.Primer + Environment.NewLine + "Reference:" + Environment.NewLine + reference
+                            + Environment.NewLine + "Core commands:" + Environment.NewLine + Genesis.Application.Studio.Assistant.AssistantKnowledge.EssentialReference()),
+                        ("user", "Write a PGSL Step event that moves x by 4 when the Right arrow key is held. Reply with JSON.")], schema, 400).GetAwaiter().GetResult();
+                    Console.WriteLine("[Assistant Check] model " + server.ModelName + " replied: " + reply);
+                    string code = System.Text.Json.Nodes.JsonNode.Parse(reply)?["code"]?.GetValue<string>() ?? "";
+                    Console.WriteLine("[Assistant Check] checker errors in the model's code: " + Genesis.Application.Studio.Assistant.AssistantKnowledge.Check(code).Count);
+                }
+                finally { server.Stop(); }
+            }
+            return 0;
+        }
+
         // --recording-check <file.mp4>: write a short synthetic video through Media Foundation.
         int recordingCheck = Array.FindIndex(args, argument => string.Equals(argument, "--recording-check", StringComparison.OrdinalIgnoreCase));
         if (recordingCheck >= 0 && recordingCheck + 1 < args.Length)
