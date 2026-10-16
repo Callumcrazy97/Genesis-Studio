@@ -120,7 +120,10 @@ namespace Genesis.Shared.Assets
             if (!_readsReferences || GraphRead) return Task.CompletedTask;
             return Task.Run(() =>
             {
-                try { _ = Graph; }
+                try
+                {
+                    using (Diagnostics.ConsoleTimings.Measure("Read how the project files refer to each other")) _ = Graph;
+                }
                 catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException
                     or Newtonsoft.Json.JsonException or ArgumentException)
                 {

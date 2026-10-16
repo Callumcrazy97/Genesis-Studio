@@ -203,7 +203,11 @@ internal sealed class StudioApplicationContext : ApplicationContext
             CompleteTransition(previous);
             var timings = Genesis.Application.Core.Diagnostics.ProjectOpenTimings.End();
             if (timings.Count > 0)
-                _services.Log.Information("Studio", Genesis.Application.Core.Diagnostics.ProjectOpenTimings.Describe(timings));
+            {
+                string breakdown = Genesis.Application.Core.Diagnostics.ProjectOpenTimings.Describe(timings);
+                _services.Log.Information("Studio", breakdown);
+                Genesis.Shared.Diagnostics.ConsoleTimings.Write(breakdown);
+            }
         }
         catch
         {

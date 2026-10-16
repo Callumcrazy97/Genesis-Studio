@@ -634,6 +634,10 @@ public sealed partial class AudioEditorControl : EditorSurfaceControl, IResource
         _listenerLabel.Text = _document.Spatial
             ? $"{ListenerDistance:0.0} units → gain {GainAtDistance(ListenerDistance):0.00}"
             : "Non-spatial — plays at full gain";
+    // One options object for every read: a new one per call rebuilt the serializer's type contract
+    // for each audio file in the project, so opening an Audio editor took over a second.
+    private static readonly System.Text.Json.JsonSerializerOptions MetaJsonOptions = new() { PropertyNameCaseInsensitive = true };
+
     private string GetDisplayName(string? relativePath)
     {
         if (string.IsNullOrWhiteSpace(relativePath)) return "No source selected";
@@ -644,7 +648,7 @@ public sealed partial class AudioEditorControl : EditorSurfaceControl, IResource
             try
             {
                 var json = System.IO.File.ReadAllText(metaFile);
-                var meta = System.Text.Json.JsonSerializer.Deserialize<Genesis.Application.Core.Resources.AssetMetadata>(json, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                var meta = System.Text.Json.JsonSerializer.Deserialize<Genesis.Application.Core.Resources.AssetMetadata>(json, MetaJsonOptions);
                 if (meta != null && !string.IsNullOrWhiteSpace(meta.DisplayName))
                 {
                     return meta.DisplayName;

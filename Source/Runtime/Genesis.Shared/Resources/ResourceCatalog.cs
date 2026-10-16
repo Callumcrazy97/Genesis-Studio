@@ -235,6 +235,10 @@ public sealed partial class ResourceCatalog
         return name;
     }
 
+    // The project file each folder was last found to belong to. Each level of the walk below lists
+    // a folder for *.genesisproj; a remembered answer costs one existence check instead.
+    private static readonly ConcurrentDictionary<string, string> ProjectFileByFolder = new(StringComparer.OrdinalIgnoreCase);
+
     public static string FindProjectRoot(string file)
     {
         if (string.IsNullOrWhiteSpace(file)) return string.Empty;
@@ -242,7 +246,16 @@ public sealed partial class ResourceCatalog
         while (!string.IsNullOrEmpty(current))
         {
             if (string.Equals(Path.GetFileName(current), "Assets", StringComparison.OrdinalIgnoreCase)) return Path.GetDirectoryName(current) ?? current;
-            if (Directory.Exists(current) && Directory.EnumerateFiles(current, "*.genesisproj", SearchOption.TopDirectoryOnly).Any()) return current;
+            if (ProjectFileByFolder.TryGetValue(current, out string known) && File.Exists(known)) return Path.GetDirectoryName(known);
+            string project = Directory.Exists(current)
+                ? Directory.EnumerateFiles(current, "*.genesisproj", SearchOption.TopDirectoryOnly).FirstOrDefault()
+                : null;
+            if (project != null)
+            {
+                // Only the folder holding the file: a folder between could gain its own project later.
+                ProjectFileByFolder[current] = project;
+                return current;
+            }
             current = Path.GetDirectoryName(current);
         }
         return Path.GetDirectoryName(Path.GetFullPath(file)) ?? string.Empty;
@@ -251,20 +264,36 @@ public sealed partial class ResourceCatalog
     private static void Scan(string directory, List<NamedResource> entries, HashSet<string> seen)
     {
         if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0) return;
-        foreach (string file in Directory.EnumerateFiles(directory)) AddFile(file, entries, seen, allowText: true);
-        foreach (string child in Directory.EnumerateDirectories(directory))
+        // One listing answers every entry's attributes, time and size, and which .meta and Object
+        // files sit beside it. Asking the file system again for each file cost two or three more
+        // calls per file, the largest part of a big project's scan once the .meta reads were stored.
+        var files = new List<FileInfo>();
+        var children = new List<DirectoryInfo>();
+        var siblings = new Dictionary<string, FileInfo>(StringComparer.OrdinalIgnoreCase);
+        foreach (FileSystemInfo item in new DirectoryInfo(directory).EnumerateFileSystemInfos())
         {
-            string name = Path.GetFileName(child);
+            if (item is DirectoryInfo child) children.Add(child);
+            else if (item is FileInfo file) { files.Add(file); siblings[file.Name] = file; }
+        }
+        foreach (FileInfo file in files) AddFile(file.FullName, file.Attributes, siblings, entries, seen, allowText: true);
+        foreach (DirectoryInfo child in children)
+        {
+            string name = child.Name;
             if (name.StartsWith(".", StringComparison.Ordinal) || name.EndsWith(".spritedata", StringComparison.OrdinalIgnoreCase)
                 || name.EndsWith(".modeldata", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".parts", StringComparison.OrdinalIgnoreCase)
-                || File.Exists(child + ".object.json")) continue; // Private event programs belong to their Object.
-            Scan(child, entries, seen);
+                || siblings.ContainsKey(name + ".object.json")) continue; // Private event programs belong to their Object.
+            Scan(child.FullName, entries, seen);
         }
     }
 
-    private static void AddFile(string file, List<NamedResource> entries, HashSet<string> seen, bool allowText)
+    private static void AddFile(string file, List<NamedResource> entries, HashSet<string> seen, bool allowText) =>
+        AddFile(file, File.GetAttributes(file), null, entries, seen, allowText);
+
+    /// <param name="siblings">The folder's files by name, from one listing; null asks the file system.</param>
+    private static void AddFile(string file, FileAttributes attributes, Dictionary<string, FileInfo> siblings,
+        List<NamedResource> entries, HashSet<string> seen, bool allowText)
     {
-        if ((File.GetAttributes(file) & FileAttributes.ReparsePoint) != 0) return;
+        if ((attributes & FileAttributes.ReparsePoint) != 0) return;
         ResourceType type = TypeOf(file);
         if (type == ResourceType.Unknown || (!allowText && (type is ResourceType.Script or ResourceType.Note))) return;
         string full = Path.GetFullPath(file);
@@ -280,7 +309,7 @@ public sealed partial class ResourceCatalog
             assetId = indexedId;
             if (!string.IsNullOrWhiteSpace(indexedName)) name = ValidateName(indexedName);
         }
-        else if ((meta = new FileInfo(metaPath)).Exists)
+        else if ((meta = siblings == null ? new FileInfo(metaPath) : siblings.GetValueOrDefault(Path.GetFileName(metaPath))) is { Exists: true })
         {
             long ticks = meta.LastWriteTimeUtc.Ticks, length = meta.Length;
             // Counted as a .meta read whether it is read now or remembered from an earlier read of

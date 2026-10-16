@@ -723,7 +723,9 @@ public sealed partial class ResourceBrowserDock : GenesisDockContent
             ThemeService.Palette.Text,
             TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
 
-        if (item is not null
+        // Only while a search is showing: there is nothing to match otherwise, and normalising every
+        // row's path on each paint was wasted work.
+        if (item is not null && _finderResults.Count > 0
             && _finderResults.TryGetValue(Path.GetFullPath(item.FullPath), out ResourceSearchResult? result))
         {
             int nameWidth = TextRenderer.MeasureText(

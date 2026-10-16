@@ -110,12 +110,15 @@ public sealed class AnimatedIconPlayer : PictureBox
         }
     }
 
+    // One options object for every icon: a new one per load rebuilt the image document's contract.
+    private static readonly JsonSerializerOptions ImageJsonOptions = new() { PropertyNameCaseInsensitive = true };
+
     private void LoadGenesisImage(string path)
     {
         try
         {
             string json = File.ReadAllText(path);
-            var document = JsonSerializer.Deserialize<ImageDocument>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            var document = JsonSerializer.Deserialize<ImageDocument>(json, ImageJsonOptions);
             if (document == null) return;
 
             var session = new ImageDocumentSession(document, path, ImageDocumentAccess.Viewer);

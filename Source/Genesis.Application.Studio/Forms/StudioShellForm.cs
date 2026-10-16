@@ -1082,6 +1082,7 @@ public sealed partial class StudioShellForm : DpiAwareForm
 
     private void OpenResource(ResourceItem resource)
     {
+        using var timing = Genesis.Shared.Diagnostics.ConsoleTimings.Measure($"Open {resource.Kind} '{resource.Name}'");
         // Terrain Entities are authored through a modal wizard (matches the create/edit flow
         // in the Terrain Editor's own library panel), not a dock document — there's nothing
         // useful to keep open in the workspace once the dialog closes.

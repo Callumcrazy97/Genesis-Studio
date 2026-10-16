@@ -35,7 +35,9 @@ public sealed partial class PhysicsWorld : IDisposable
     private readonly Dictionary<StaticHandle, (byte Layer, uint Mask)> _staticCollisionFilter = new();
     private readonly Dictionary<int, BodyBinding> _bindings = new();
     private readonly Dictionary<BodyHandle, BodyBinding> _dynamicBindingsByHandle = new();
-    private readonly ThreadDispatcher _threadDispatcher;
+    // Made on the first threaded step: editors load rooms (and so physics worlds) that never step,
+    // and each dispatcher parks one thread per core for the life of the world.
+    private ThreadDispatcher? _threadDispatcher;
     private readonly List<int> _staticRegistrationIds = new();
     private int _nextRegistrationId = 1;
 
@@ -49,14 +51,13 @@ public sealed partial class PhysicsWorld : IDisposable
     public bool AllowSleep { get; set; } = true;
     public float SleepThreshold { get; set; } = 0.25f;
     public bool EnableThreadDispatcher { get; set; } = true;
-    public int DispatcherThreadCount => _threadDispatcher.ThreadCount;
+    public int DispatcherThreadCount => _threadDispatcher?.ThreadCount ?? Math.Max(1, Environment.ProcessorCount);
     public int SolverIterations { get; }
     public float RecoveryVelocity { get; set; } = 4f;
 
     private PhysicsWorld(int solverIterations)
     {
         SolverIterations = solverIterations;
-        _threadDispatcher = new ThreadDispatcher(Math.Max(1, Environment.ProcessorCount), 1 << 18);
         _simulation = Simulation.Create(
             _pool,
             new PhysicsNarrowPhaseCallbacks(this),
@@ -249,7 +250,7 @@ public sealed partial class PhysicsWorld : IDisposable
         RefreshContactSettings(world);
         _reportedContacts.Clear();
         if (EnableThreadDispatcher)
-            _simulation.Timestep(fixedDelta, _threadDispatcher);
+            _simulation.Timestep(fixedDelta, _threadDispatcher ??= new ThreadDispatcher(DispatcherThreadCount, 1 << 18));
         else
             _simulation.Timestep(fixedDelta);
         FinishContacts(world);
@@ -487,7 +488,7 @@ public sealed partial class PhysicsWorld : IDisposable
     {
         ClearExternalStatics();
         _simulation.Dispose();
-        _threadDispatcher.Dispose();
+        _threadDispatcher?.Dispose();
         _pool.Clear();
         _sharedMeshes.Clear();
         _sharedMeshShapes.Clear();

@@ -27,7 +27,9 @@ public sealed class SandboxPhysicsWorld : IDisposable
     private readonly Dictionary<StaticHandle, int> _staticIndices = new();
     private readonly Dictionary<BodyHandle, (byte Layer, uint Mask)> _dynamicCollisionFilter = new();
     private readonly Dictionary<StaticHandle, (byte Layer, uint Mask)> _staticCollisionFilter = new();
-    private readonly ThreadDispatcher _threadDispatcher;
+    // Made on the first threaded step, like PhysicsWorld's: a preview that never steps parks no threads.
+    private ThreadDispatcher? _threadDispatcher;
+    private readonly int _dispatcherThreads;
 
     public Vector3 Gravity { get; set; } = new(0f, -9.81f, 0f);
     public float MaxVelocity { get; set; } = 45f;
@@ -38,7 +40,7 @@ public sealed class SandboxPhysicsWorld : IDisposable
     public float LinearDamping { get; set; } = 0.02f;
     public float AngularDamping { get; set; } = 0.05f;
     public bool EnableThreadDispatcher { get; set; }
-    public int DispatcherThreadCount => _threadDispatcher.ThreadCount;
+    public int DispatcherThreadCount => _threadDispatcher?.ThreadCount ?? _dispatcherThreads;
     public byte DefaultCollisionLayer { get; set; }
     public uint DefaultCollisionMask { get; set; } = 0x7Fu;
 
@@ -78,7 +80,7 @@ public sealed class SandboxPhysicsWorld : IDisposable
         EnableThreadDispatcher = enableThreadDispatcher;
         AllowSleep = allowSleep;
         _pool = new BufferPool();
-        _threadDispatcher = new ThreadDispatcher(Math.Max(1, dispatcherThreadCount ?? Environment.ProcessorCount), 1 << 18);
+        _dispatcherThreads = Math.Max(1, dispatcherThreadCount ?? Environment.ProcessorCount);
         _sim = Simulation.Create(
             _pool,
             new SandboxNarrowPhaseCallbacks(this),
@@ -250,7 +252,7 @@ public sealed class SandboxPhysicsWorld : IDisposable
         while (_timeAccumulator >= FixedTimeStep)
         {
             if (EnableThreadDispatcher)
-                _sim.Timestep(FixedTimeStep, _threadDispatcher);
+                _sim.Timestep(FixedTimeStep, _threadDispatcher ??= new ThreadDispatcher(_dispatcherThreads, 1 << 18));
             else
                 _sim.Timestep(FixedTimeStep);
 
@@ -587,7 +589,7 @@ public sealed class SandboxPhysicsWorld : IDisposable
         if (_disposed) return;
         _disposed = true;
         _sim.Dispose();
-        _threadDispatcher.Dispose();
+        _threadDispatcher?.Dispose();
         _dynamicIndices.Clear();
         _staticIndices.Clear();
         _dynamicCollisionFilter.Clear();

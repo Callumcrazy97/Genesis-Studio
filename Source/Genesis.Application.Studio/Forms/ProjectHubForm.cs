@@ -589,6 +589,10 @@ public sealed class ProjectHubForm : DpiAwareForm
         }
     }
 
+    // Shared by every recent card: a new options object per card rebuilt the manifest's serializer
+    // contract each time, a visible pause per card when the Hub opened.
+    private static readonly JsonSerializerOptions ManifestJsonOptions = new() { PropertyNameCaseInsensitive = true };
+
     internal static int LayoutFlowCards(
         FlowLayoutPanel flow,
         int logicalMinimumWidth,
@@ -688,9 +692,7 @@ public sealed class ProjectHubForm : DpiAwareForm
             try
             {
                 string json = File.ReadAllText(recent.ProjectFile);
-                var manifest = JsonSerializer.Deserialize<ProjectManifest>(
-                    json,
-                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                var manifest = JsonSerializer.Deserialize<ProjectManifest>(json, ManifestJsonOptions);
                 if (manifest != null)
                 {
                     if (!string.IsNullOrWhiteSpace(manifest.ProjectIcon))
