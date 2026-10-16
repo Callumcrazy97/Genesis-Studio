@@ -9,6 +9,8 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        // Studio's hover fades and reveals finish at once, so no capture or layout check sees a frame mid-animation.
+        Environment.SetEnvironmentVariable("GENESIS_REDUCED_MOTION", "1");
         Console.OutputEncoding = Encoding.UTF8;
         Console.InputEncoding = Encoding.UTF8;
         StreamWriter stdout = new(Console.OpenStandardOutput(), Encoding.UTF8) { AutoFlush = true };
@@ -90,6 +92,19 @@ internal static class Program
             int width = ReadPositiveInt(args, "--width", 1360);
             int height = ReadPositiveInt(args, "--height", 840);
             return EditorReviewCaptureRunner.Run(projectRoot, output, width, height);
+        }
+
+        // --shell-captures <project-root> <output>: the splash, Hub, Templates, New Project and Start
+        // page for any project, without the editor fixture the full review needs.
+        int shellCaptures = Array.FindIndex(args, argument => string.Equals(argument, "--shell-captures", StringComparison.OrdinalIgnoreCase));
+        if (shellCaptures >= 0 && shellCaptures + 2 < args.Length)
+        {
+            Genesis.Application.Studio.Docking.SuiteChromeBridge.Push();
+            System.Windows.Forms.Application.SetDefaultFont(Genesis.Application.Studio.Theme.ThemeService.InterfaceFont);
+            Directory.CreateDirectory(args[shellCaptures + 2]);
+            EditorReviewCaptureRunner.CaptureProjectEntry(Path.GetFullPath(args[shellCaptures + 1]), Path.GetFullPath(args[shellCaptures + 2]), 1440, 900);
+            Console.WriteLine("[Shell Captures] " + Path.GetFullPath(args[shellCaptures + 2]));
+            return 0;
         }
 
         // --template-check <id>: create a project from a template in a scratch folder and run the

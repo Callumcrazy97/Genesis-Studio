@@ -145,7 +145,25 @@ public sealed class WelcomeDocument : GenesisDockContent
             if (IsDisposed) return;
             ApplyInterfaceLayout();
             _scroll.AutoScrollPosition = Point.Empty;
+            RevealCards();
         }));
+    }
+
+    /// <summary>Fades the page's cards in from the top down when the page first appears.</summary>
+    private void RevealCards()
+    {
+        static IEnumerable<Control> Descendants(Control parent)
+        {
+            foreach (Control child in parent.Controls)
+            {
+                yield return child;
+                foreach (Control grandchild in Descendants(child)) yield return grandchild;
+            }
+        }
+        int index = 0;
+        foreach (RoundedSurfacePanel card in Descendants(_scroll).OfType<RoundedSurfacePanel>()
+            .OrderBy(card => card.PointToScreen(Point.Empty).Y).ThenBy(card => card.PointToScreen(Point.Empty).X))
+            card.Reveal(Math.Min(index++, 12) * 40);
     }
 
     /// <summary>Rebuilds the recents strip and counters from the project on disk.</summary>
@@ -225,14 +243,13 @@ public sealed class WelcomeDocument : GenesisDockContent
 
     private Control BuildHero()
     {
-        RoundedSurfacePanel hero = new()
+        // The banner shows the project's newest screenshot on its right, fading into the card.
+        ProjectBannerPanel hero = new(_project.Manifest.Name, _project.ProjectFile)
         {
-            CornerRadius = 14,
             Dock = DockStyle.Fill,
             Height = 146,
             Margin = new Padding(0, 0, 0, 14),
             MinimumSize = new Size(320, 146),
-            Raised = true,
         };
 
         GenesisLogoControl logo = new()
@@ -281,7 +298,7 @@ public sealed class WelcomeDocument : GenesisDockContent
         void ResizeText()
         {
             path.Width = Math.Max(DpiLayout.Scale(hero, 100),
-                hero.ClientSize.Width - path.Left - DpiLayout.Scale(hero, 24));
+                hero.ClientSize.Width - path.Left - DpiLayout.Scale(hero, 24) - hero.PictureWidth);
             title.Width = path.Width;
         }
         hero.Resize += (_, _) => ResizeText();
@@ -406,8 +423,11 @@ public sealed class WelcomeDocument : GenesisDockContent
     {
         (string Id, string Title, string Description, ResourceKind Kind, string Glyph, bool Done)[] steps =
         [
+            // Art is done once there is an image, or once Objects already sit in a Room: a game drawn
+            // from 3D shapes (Tumble Isles) needs no sprite before it can run.
             ("StepImage", "1  Draw a sprite", "Paint your player, an enemy or a tile in the Image editor.",
-                ResourceKind.Image, UiGlyphs.Brush, snapshot.CountOf(ResourceKind.Image) > 0),
+                ResourceKind.Image, UiGlyphs.Brush, snapshot.CountOf(ResourceKind.Image) > 0
+                    || (snapshot.CountOf(ResourceKind.GameObject) > 0 && snapshot.CountOf(ResourceKind.Room) > 0)),
             ("StepObject", "2  Make an Object", "Give the sprite behaviour: movement, collisions and events.",
                 ResourceKind.GameObject, UiGlyphs.Puzzle, snapshot.CountOf(ResourceKind.GameObject) > 0),
             ("StepRoom", "3  Build a Room", "Place your Objects in a level, in 2D or 3D.",

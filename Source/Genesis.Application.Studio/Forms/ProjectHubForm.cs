@@ -17,9 +17,73 @@ public enum HubSection
 }
 
 /// <summary>A navigation item whose real click path can be exercised by the headless gate.</summary>
+/// <remarks>Painted as a rounded pill: hover fades it in, and the selected item grows an accent bar.</remarks>
 internal sealed class NavigationItem : Label
 {
+    private float _hover;
+    private float _select;
+    private bool _selected;
+
+    public NavigationItem()
+    {
+        SetStyle(ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint
+            | ControlStyles.SupportsTransparentBackColor, true);
+    }
+
     public void RaiseClick() => OnClick(EventArgs.Empty);
+
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    internal bool Selected
+    {
+        get => _selected;
+        set
+        {
+            if (_selected == value) return;
+            _selected = value;
+            float from = _select, to = value ? 1f : 0f;
+            UiMotion.Animate(this, "select", 240, t => { _select = UiMotion.Lerp(from, to, t); Invalidate(); });
+        }
+    }
+
+    protected override void OnMouseEnter(EventArgs e)
+    {
+        float from = _hover;
+        UiMotion.Animate(this, "hover", 140, t => { _hover = UiMotion.Lerp(from, 1f, t); Invalidate(); });
+        base.OnMouseEnter(e);
+    }
+
+    protected override void OnMouseLeave(EventArgs e)
+    {
+        float from = _hover;
+        UiMotion.Animate(this, "hover", 220, t => { _hover = UiMotion.Lerp(from, 0f, t); Invalidate(); });
+        base.OnMouseLeave(e);
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        ThemePalette palette = ThemeService.Palette;
+        Graphics g = e.Graphics;
+        Color behind = Parent?.BackColor is { A: 255 } solid ? solid : palette.Surface;
+        g.Clear(behind);
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        Rectangle pill = ClientRectangle;
+        pill.Inflate(-1, -2);
+        Color fill = UiMotion.Mix(UiMotion.Mix(behind, palette.SurfaceHover, _hover * 0.85f), UiDrawing.Blend(palette.Accent, behind, 0.78f), _select);
+        using (System.Drawing.Drawing2D.GraphicsPath path = UiDrawing.RoundedRectangle(pill, 9))
+        using (SolidBrush brush = new(fill))
+            g.FillPath(brush, path);
+        if (_select > 0.01f)
+        {
+            int barHeight = Math.Max(2, (int)(pill.Height * 0.55f * _select));
+            Rectangle bar = new(pill.Left + 5, pill.Top + (pill.Height - barHeight) / 2, 3, barHeight);
+            using System.Drawing.Drawing2D.GraphicsPath barPath = UiDrawing.RoundedRectangle(bar, 1);
+            using SolidBrush accent = new(palette.Accent);
+            g.FillPath(accent, barPath);
+        }
+        Rectangle text = new(pill.Left + Padding.Left + 4, pill.Top, Math.Max(1, pill.Width - Padding.Left - 8), pill.Height);
+        TextRenderer.DrawText(g, Text, Font, text, UiMotion.Mix(palette.TextMuted, palette.Text, Math.Max(_select, _hover)),
+            TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
+    }
 }
 
 /// <summary>The responsive front door for creating, opening and resuming Genesis projects.</summary>
@@ -92,6 +156,12 @@ public sealed class ProjectHubForm : DpiAwareForm
         ThemeService.Apply(this);
         ReloadRecentProjects();
         ShowSection(HubSection.Projects);
+        if (UiMotion.Enabled)
+        {
+            // The Hub fades in rather than popping onto the screen.
+            Opacity = 0;
+            Shown += (_, _) => UiMotion.Animate(this, "fade", 220, t => Opacity = t);
+        }
     }
 
     public event EventHandler<ProjectSessionEventArgs>? ProjectOpened;
@@ -128,6 +198,7 @@ public sealed class ProjectHubForm : DpiAwareForm
         foreach (NavigationItem item in _navigationItems)
         {
             bool selected = item.Tag is HubSection tagged && tagged == section;
+            item.Selected = selected;
             item.BackColor = selected ? Color.FromArgb(40, ThemeService.Palette.Accent) : Color.Transparent;
             item.ForeColor = selected ? ThemeService.Palette.Text : ThemeService.Palette.TextMuted;
             item.Font = selected
@@ -136,6 +207,17 @@ public sealed class ProjectHubForm : DpiAwareForm
         }
 
         LayoutResponsiveSurfaces();
+        RevealSection(section);
+    }
+
+    /// <summary>Fades the page's cards in one after another, so changing page reads as a transition.</summary>
+    private void RevealSection(HubSection section)
+    {
+        IEnumerable<RoundedSurfacePanel> cards = section == HubSection.Projects
+            ? _recentList.Controls.OfType<RoundedSurfacePanel>()
+            : _templateCards;
+        int index = 0;
+        foreach (RoundedSurfacePanel card in cards) card.Reveal(Math.Min(index++, 10) * 45);
     }
 
     internal void ApplyResponsiveLayoutForTest()
@@ -447,14 +529,6 @@ public sealed class ProjectHubForm : DpiAwareForm
             TextAlign = ContentAlignment.MiddleLeft,
         };
         item.Click += (_, _) => ShowSection(section);
-        item.MouseEnter += (_, _) =>
-        {
-            if (_section != section) item.BackColor = ThemeService.Palette.SurfaceHover;
-        };
-        item.MouseLeave += (_, _) =>
-        {
-            if (_section != section) item.BackColor = Color.Transparent;
-        };
         _navigationItems.Add(item);
         return item;
     }
@@ -475,8 +549,6 @@ public sealed class ProjectHubForm : DpiAwareForm
             TextAlign = ContentAlignment.MiddleLeft,
         };
         item.Click += (_, _) => onClick();
-        item.MouseEnter += (_, _) => item.BackColor = ThemeService.Palette.SurfaceHover;
-        item.MouseLeave += (_, _) => item.BackColor = Color.Transparent;
         return item;
     }
 
@@ -561,31 +633,35 @@ public sealed class ProjectHubForm : DpiAwareForm
             return;
         }
 
-        int minimumWidth = DpiLayout.Scale(280, DeviceDpi);
-        int height = Math.Max(DpiLayout.Scale(210, DeviceDpi), DpiLayout.Scale(112, DeviceDpi) + Font.Height * 4 + 72);
+        int minimumWidth = DpiLayout.Scale(250, DeviceDpi);
         int viewport = Math.Max(
             minimumWidth,
             Math.Min(_recentList.ClientSize.Width, visibleContentWidth)
                 - _recentList.Padding.Horizontal
                 - DpiLayout.Scale(18, DeviceDpi));
+        foreach (ContinueProjectCard hero in _recentList.Controls.OfType<ContinueProjectCard>()) hero.ApplyLayout(viewport);
         int gap = DpiLayout.Scale(16, DeviceDpi);
-        int columns = Math.Clamp((viewport + gap) / (minimumWidth + gap), 1, 3);
+        int columns = Math.Clamp((viewport + gap) / (minimumWidth + gap), 1, 4);
         int width = Math.Max(minimumWidth, (viewport - gap * (columns - 1)) / columns);
+        int picture = width * 9 / 16;
         foreach (Control card in cards)
         {
             card.Margin = new Padding(0, 0, gap, gap);
-            card.Size = new Size(width, height);
-            int y = DpiLayout.Scale(120, DeviceDpi);
+            card.Width = width;
+            if (card is RecentProjectTile tile) tile.SetThumbnailHeight(picture);
+            int y = picture + DpiLayout.Scale(12, DeviceDpi);
             foreach (Label label in card.Controls.OfType<Label>().OrderBy(label => label.Top).ToArray())
             {
-                label.Bounds = new Rectangle(12, y, Math.Max(1, width - 24), label.Font.Height + 4);
-                y = label.Bottom + 6;
+                label.Bounds = new Rectangle(DpiLayout.Scale(14, DeviceDpi), y, Math.Max(1, width - DpiLayout.Scale(28, DeviceDpi)), label.Font.Height + 4);
+                y = label.Bottom + DpiLayout.Scale(2, DeviceDpi);
             }
             foreach (Button button in card.Controls.OfType<Button>())
             {
-                ShellDialogLayout.FitButton(button); button.Location = new Point(12, y);
-                card.Height = Math.Max(card.Height, button.Bottom + 12);
+                ShellDialogLayout.FitButton(button);
+                button.Location = new Point(DpiLayout.Scale(14, DeviceDpi), y + DpiLayout.Scale(4, DeviceDpi));
+                y = button.Bottom;
             }
+            card.Height = y + DpiLayout.Scale(16, DeviceDpi);
         }
     }
 
@@ -643,10 +719,29 @@ public sealed class ProjectHubForm : DpiAwareForm
         }
         else
         {
+            // The project worked on last leads the page as a large Continue card (not while searching).
+            RecentProject? latest = query.Length == 0
+                ? recents.Where(recent => File.Exists(recent.ProjectFile)).OrderByDescending(recent => recent.LastOpenedUtc).FirstOrDefault()
+                : null;
+            if (latest is not null)
+                _recentList.Controls.Add(new ContinueProjectCard(latest, () => TryOpenProject(latest.ProjectFile), StartActions()));
             foreach (RecentProject recent in recents) _recentList.Controls.Add(CreateRecentCard(recent));
         }
         _recentList.ResumeLayout();
         LayoutResponsiveSurfaces();
+        if (_section == HubSection.Projects) RevealSection(HubSection.Projects);
+    }
+
+    /// <summary>The Continue card's shortcuts: a blank project, each template, and the template page.</summary>
+    private IEnumerable<LauncherAction> StartActions()
+    {
+        yield return new LauncherAction("＋", "Blank project", "An empty workspace", () => CreateProject());
+        foreach (ProjectTemplate template in ProjectTemplateCatalog.Available)
+        {
+            string id = template.Id;
+            yield return new LauncherAction(template.Glyph, template.Name, template.Tagline, () => CreateProject(id));
+        }
+        yield return new LauncherAction("▦", "All templates", "Browse 2D and 3D starters", () => ShowSection(HubSection.Templates));
     }
 
     private static Control BuildEmptyRecentState()
@@ -709,85 +804,29 @@ public sealed class ProjectHubForm : DpiAwareForm
             }
         }
 
-        RoundedSurfacePanel card = new()
-        {
-            CornerRadius = 10,
-            Cursor = exists ? Cursors.Hand : Cursors.Default,
-            Width = 280,
-            Height = 210,
-            Interactive = exists,
-            Margin = new Padding(0, 0, 16, 16),
-            Raised = true,
-            Tag = recent,
-        };
+        RecentProjectTile card = new(recent, exists);
 
-        AnimatedIconPlayer thumb = new()
+        // An animated project icon, when the project has one, takes the picture's place.
+        if (exists && !string.IsNullOrWhiteSpace(projectIconPath))
         {
-            Dock = DockStyle.Top,
-            Height = 112,
-        };
-
-        if (exists)
-        {
-            if (!string.IsNullOrWhiteSpace(projectIconPath))
-            {
-                thumb.LoadIcon(projectIconPath, projectIconFps);
-            }
-            else
-            {
-                Label fallback = new()
-                {
-                    AutoSize = false,
-                    Dock = DockStyle.Fill,
-                    Font = new Font("Segoe UI Symbol", 24f),
-                    ForeColor = ThemeService.Palette.TextMuted,
-                    Text = "◈",
-                    TextAlign = ContentAlignment.MiddleCenter,
-                };
-                thumb.Controls.Add(fallback);
-            }
+            AnimatedIconPlayer thumb = new() { Dock = DockStyle.Top, Height = card.ThumbnailHeight };
+            thumb.LoadIcon(projectIconPath, projectIconFps);
+            card.Controls.Add(thumb);
         }
-        else
-        {
-            Label missing = new()
-            {
-                AutoSize = false,
-                Dock = DockStyle.Fill,
-                Font = new Font("Segoe UI Symbol", 24f),
-                ForeColor = ThemeService.Palette.Error,
-                Text = "⊘",
-                TextAlign = ContentAlignment.MiddleCenter,
-            };
-            thumb.Controls.Add(missing);
-        }
-
-        card.Controls.Add(thumb);
 
         Label name = new()
         {
             AutoEllipsis = true,
             AutoSize = false,
             BackColor = Color.Transparent,
-            Font = new Font(ThemeService.InterfaceFont, FontStyle.Bold),
+            Font = new Font(ThemeService.InterfaceFont.FontFamily, ThemeService.InterfaceFont.Size + 1.5f, FontStyle.Bold),
             ForeColor = exists ? ThemeService.Palette.Text : ThemeService.Palette.TextMuted,
-            Location = new Point(12, 120),
-            Size = new Size(170, 20),
+            Location = new Point(12, 1),
+            Size = new Size(256, 24),
             Text = recent.Name,
+            UseMnemonic = false,
         };
         card.Controls.Add(name);
-
-        Label status = new()
-        {
-            AutoEllipsis = true,
-            AutoSize = false,
-            BackColor = Color.Transparent,
-            ForeColor = exists ? ThemeService.Palette.Success : ThemeService.Palette.Error,
-            Location = new Point(180, 122),
-            Size = new Size(88, 18),
-            Text = exists ? "● Active" : "● Missing",
-            TextAlign = ContentAlignment.TopRight,
-        };
-        card.Controls.Add(status);
 
         Label date = new()
         {
@@ -795,25 +834,17 @@ public sealed class ProjectHubForm : DpiAwareForm
             AutoEllipsis = true,
             AutoSize = false,
             BackColor = Color.Transparent,
-            ForeColor = ThemeService.Palette.TextMuted,
-            Location = new Point(12, 146),
+            ForeColor = exists ? ThemeService.Palette.TextMuted : ThemeService.Palette.Error,
+            Location = new Point(12, 2),
             Size = new Size(256, 18),
-            Text = "Last opened " + recent.LastOpenedUtc.ToLocalTime().ToString("d MMM yyyy"),
+            Text = exists ? "Opened " + ProjectPreview.Ago(recent.LastOpenedUtc) : "Missing: moved or deleted",
         };
         card.Controls.Add(date);
 
-        Label path = new()
-        {
-            Name = "RecentProjectPath",
-            AutoEllipsis = true,
-            AutoSize = false,
-            BackColor = Color.Transparent,
-            ForeColor = ThemeService.Palette.TextMuted,
-            Location = new Point(12, 168),
-            Size = new Size(256, 28),
-            Text = recent.ProjectFile,
-        };
-        card.Controls.Add(path);
+        ToolTip pathTip = new();
+        pathTip.SetToolTip(card, recent.ProjectFile);
+        pathTip.SetToolTip(name, recent.ProjectFile);
+        card.Disposed += (_, _) => pathTip.Dispose();
 
         ContextMenuStrip menu = new();
         menu.Items.Add("Locate project…", null, (_, _) => LocateRecentProject(recent));
@@ -826,7 +857,6 @@ public sealed class ProjectHubForm : DpiAwareForm
             locate.Click += (_, _) => LocateRecentProject(recent);
             card.Controls.Add(locate);
             locate.BringToFront();
-            path.Visible = false;
         }
 
         if (exists)

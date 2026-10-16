@@ -4,6 +4,7 @@ using Genesis.Application.Core.Projects;
 using Genesis.Application.Core.Resources;
 using Genesis.Application.Core.Diagnostics;
 using Genesis.Application.Core.Settings;
+using Genesis.Application.Studio.Controls;
 using Genesis.Application.Studio.Forms;
 using Genesis.Application.Studio.Resources;
 using Genesis.Application.Studio.Theme;
@@ -675,6 +676,7 @@ public sealed partial class ResourceBrowserDock : GenesisDockContent
         }
 
         ResourceItem? item = e.Node.Tag as ResourceItem;
+        TreeRowMotion? motion = MotionFor(item);
         bool selected = (e.State & TreeNodeStates.Selected) != 0;
         bool hovered = (e.State & TreeNodeStates.Hot) != 0;
         // Opaque on purpose. The themed tree paints a selected row's label itself before this runs;
@@ -684,17 +686,19 @@ public sealed partial class ResourceBrowserDock : GenesisDockContent
             : hovered
                 ? ThemeService.Palette.SurfaceHover
                 : ThemeService.Palette.Surface;
+        if (motion is not null) background = RowGlow(background, motion.Glow);
         Rectangle row = new(0, e.Bounds.Y, _tree.ClientSize.Width, e.Bounds.Height);
         using SolidBrush rowBrush = new(background);
         e.Graphics.FillRectangle(rowBrush, row);
         DrawExpander(e.Graphics, e.Node, e.Bounds, selected || hovered);
 
-        int textX = e.Bounds.X;
+        int textX = e.Bounds.X + (int)(motion?.Offset ?? 0);
+        Color textColour = motion is null ? ThemeService.Palette.Text : UiMotion.Mix(background, ThemeService.Palette.Text, motion.Opacity);
         if (item is not null)
         {
             Image icon = _thumbnails.GetCachedIcon(item);
             int iconY = e.Bounds.Y + ((e.Bounds.Height - icon.Height) / 2);
-            e.Graphics.DrawImage(icon, textX, iconY, icon.Width, icon.Height);
+            DrawRowIcon(e.Graphics, icon, textX, iconY, motion?.Opacity ?? 1f);
             textX += icon.Width + 6;
         }
         else
@@ -720,7 +724,7 @@ public sealed partial class ResourceBrowserDock : GenesisDockContent
             name,
             Font,
             new Rectangle(textX, e.Bounds.Y, row.Width - textX - 8, e.Bounds.Height),
-            ThemeService.Palette.Text,
+            textColour,
             TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
 
         // Only while a search is showing: there is nothing to match otherwise, and normalising every
@@ -841,7 +845,8 @@ public sealed partial class ResourceBrowserDock : GenesisDockContent
                 string path = _resources.CreateFolder(destination, dialog.Value);
                 return path;
             },
-            "Folder created.");
+            "Folder created.",
+            TreeRowMotionKind.Arrival);
     }
 
     /// <summary>
@@ -874,7 +879,8 @@ public sealed partial class ResourceBrowserDock : GenesisDockContent
                 created = _resources.CreateResource(destination, kind, dialog.Value);
                 return created;
             },
-            $"{definition.DisplayName} created.");
+            $"{definition.DisplayName} created.",
+            TreeRowMotionKind.Arrival);
         return created;
     }
 
@@ -902,7 +908,7 @@ public sealed partial class ResourceBrowserDock : GenesisDockContent
         BeginInvoke(new Action(() =>
         {
             if (IsDisposed) return;
-            ExecuteGuarded(() => _resources.Rename(item.FullPath, label), "Resource renamed.");
+            ExecuteGuarded(() => _resources.Rename(item.FullPath, label), "Resource renamed.", TreeRowMotionKind.Renamed);
         }));
     }
 
@@ -931,7 +937,8 @@ public sealed partial class ResourceBrowserDock : GenesisDockContent
                 IReadOnlyList<string> pasted = _resources.Paste(destination);
                 return pasted.LastOrDefault() ?? destination;
             },
-            "Resources pasted.");
+            "Resources pasted.",
+            TreeRowMotionKind.Arrival);
     }
 
     private void Duplicate()
@@ -948,7 +955,8 @@ public sealed partial class ResourceBrowserDock : GenesisDockContent
                 string path = _resources.Duplicate(selected.FullPath);
                 return path;
             },
-            "Resource duplicated.");
+            "Resource duplicated.",
+            TreeRowMotionKind.Arrival);
     }
 
     private void DeleteSelected()
@@ -974,13 +982,14 @@ public sealed partial class ResourceBrowserDock : GenesisDockContent
             }
         }
 
-        ExecuteGuarded(
+        // The row fades away first; the move to the trash happens when it has gone.
+        AnimateDeparture(selected.FullPath, () => ExecuteGuarded(
             () =>
             {
                 string path = _resources.MoveToTrash(selected.FullPath);
                 return path;
             },
-            "Resource moved to project trash.");
+            "Resource moved to project trash."));
     }
 
     private string SelectedFolder()
@@ -1114,14 +1123,16 @@ public sealed partial class ResourceBrowserDock : GenesisDockContent
         }
     }
 
-    private void ExecuteGuarded(Func<string> operation, string successMessage)
+    private void ExecuteGuarded(Func<string> operation, string successMessage, TreeRowMotionKind motion = TreeRowMotionKind.None)
     {
         try
         {
             _resourceOperationDepth++;
-            try { _pathToSelect = operation(); }
+            string result;
+            try { _pathToSelect = result = operation(); }
             finally { _resourceOperationDepth--; }
             RefreshTree();
+            AnimateRow(result, motion);
             FinderInvalidated?.Invoke(this, EventArgs.Empty);
             StatusMessage?.Invoke(this, successMessage);
         }

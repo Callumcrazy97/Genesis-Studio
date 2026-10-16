@@ -397,7 +397,7 @@ internal static class EditorReviewCaptureRunner
         CaptureControl(control, outputPath, captureWidth, captureHeight, settleIterations, afterShown);
     }
 
-    private static void CaptureProjectEntry(string projectRoot, string outputDirectory, int width, int height)
+    internal static void CaptureProjectEntry(string projectRoot, string outputDirectory, int width, int height)
     {
         string userData = Path.Combine(Path.GetFullPath(outputDirectory), "capture-userdata");
         Directory.CreateDirectory(userData);

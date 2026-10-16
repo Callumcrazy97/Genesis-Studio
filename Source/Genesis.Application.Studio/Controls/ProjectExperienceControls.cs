@@ -8,9 +8,16 @@ using Genesis.Application.Studio.Theme;
 namespace Genesis.Application.Studio.Controls;
 
 /// <summary>Theme-aware rounded surface shared by the Project Hub and in-project Start page.</summary>
+/// <remarks>
+/// Raised surfaces sit on a soft shadow; interactive ones fade their fill and border towards the
+/// accent on hover; <see cref="Reveal"/> fades a surface and its text in, for staggered entrances.
+/// All of it is paint only: the panel's bounds never move.
+/// </remarks>
 internal class RoundedSurfacePanel : Panel
 {
-    private bool _hovered;
+    private float _hover;
+    private float _reveal = 1f;
+    private Dictionary<Label, Color>? _revealColours;
 
     public RoundedSurfacePanel()
     {
@@ -37,37 +44,106 @@ internal class RoundedSurfacePanel : Panel
     [DefaultValue(12)]
     public int CornerRadius { get; set; } = 12;
 
+    /// <summary>How far the hover highlight has faded in, 0 to 1.</summary>
+    protected float HoverAmount => _hover;
+
+    /// <summary>How far the entrance has faded in, 0 to 1.</summary>
+    protected float RevealAmount => _reveal;
+
+    /// <summary>Fades the surface and its labels in after <paramref name="delayMilliseconds"/>.</summary>
+    public void Reveal(int delayMilliseconds)
+    {
+        _revealColours ??= Controls.OfType<Label>().ToDictionary(label => label, label => label.ForeColor);
+        UiMotion.Animate(this, "reveal", 320, t =>
+        {
+            _reveal = t;
+            Color behind = SurfaceColour();
+            foreach ((Label label, Color target) in _revealColours)
+                if (!label.IsDisposed) label.ForeColor = UiMotion.Mix(behind, target, t);
+            Invalidate();
+        }, () => _revealColours = null, UiMotion.EaseOutCubic, delayMilliseconds);
+    }
+
     protected override void OnMouseEnter(EventArgs e)
     {
-        _hovered = true;
-        if (Interactive) Invalidate();
+        FadeHover(1f, 140);
         base.OnMouseEnter(e);
     }
 
     protected override void OnMouseLeave(EventArgs e)
     {
-        _hovered = ClientRectangle.Contains(PointToClient(Cursor.Position));
-        if (Interactive) Invalidate();
+        if (!ClientRectangle.Contains(PointToClient(Cursor.Position))) FadeHover(0f, 240);
         base.OnMouseLeave(e);
     }
+
+    private void FadeHover(float target, int milliseconds)
+    {
+        if (!Interactive) return;
+        float from = _hover;
+        UiMotion.Animate(this, "hover", milliseconds, t => { _hover = UiMotion.Lerp(from, target, t); OnHoverChanged(); Invalidate(); });
+    }
+
+    /// <summary>Called on every hover frame, for surfaces that animate something of their own.</summary>
+    protected virtual void OnHoverChanged() { }
+
+    /// <summary>The body rectangle, inside the shadow margin of raised surfaces.</summary>
+    protected Rectangle BodyBounds
+    {
+        get
+        {
+            Rectangle bounds = ClientRectangle;
+            bounds.Inflate(-1, -1);
+            if (Raised) bounds = new Rectangle(bounds.X + 1, bounds.Y, bounds.Width - 2, bounds.Height - 3);
+            return bounds;
+        }
+    }
+
+    private Color SurfaceColour()
+    {
+        ThemePalette palette = ThemeService.Palette;
+        Color fill = Raised ? palette.SurfaceRaised : palette.Surface;
+        return Interactive ? UiMotion.Mix(fill, palette.SurfaceHover, _hover) : fill;
+    }
+
+    /// <summary>The colour the body is filled with right now, for children that paint their own corners.</summary>
+    internal Color FillColour => UiMotion.Mix(UiDrawing.EffectiveBackColor(Parent), SurfaceColour(), _reveal);
 
     protected override void OnPaintBackground(PaintEventArgs e)
     {
         ThemePalette palette = ThemeService.Palette;
+        // A transparent panel lets WinForms paint what is behind it (a parent card, the page, the
+        // theme picture) so the rounded corners show that rather than black.
+        if (BackColor.A < 255 && Parent is not null) base.OnPaintBackground(e);
+        else e.Graphics.Clear(Parent?.BackColor ?? palette.Canvas);
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        e.Graphics.Clear(Parent?.BackColor ?? palette.Canvas);
 
-        Rectangle bounds = ClientRectangle;
-        bounds.Inflate(-1, -1);
+        Rectangle bounds = BodyBounds;
         if (bounds.Width <= 2 || bounds.Height <= 2) return;
+        Color under = UiDrawing.EffectiveBackColor(Parent);
 
-        Color fill = Interactive && _hovered
-            ? palette.SurfaceHover
-            : Raised ? palette.SurfaceRaised : palette.Surface;
+        if (Raised)
+        {
+            // A soft shadow, deeper while hovered: three widening translucent layers below the body.
+            for (int layer = 3; layer >= 1; layer--)
+            {
+                Rectangle shade = new(bounds.X, bounds.Y + layer, bounds.Width, bounds.Height);
+                using GraphicsPath shadow = UiDrawing.RoundedRectangle(shade, CornerRadius);
+                using SolidBrush shadowBrush = new(Color.FromArgb((int)((10 + _hover * 8) * _reveal * (4 - layer)), Color.Black));
+                e.Graphics.FillPath(shadowBrush, shadow);
+            }
+        }
+
         using GraphicsPath path = UiDrawing.RoundedRectangle(bounds, CornerRadius);
-        using SolidBrush brush = new(fill);
+        using SolidBrush brush = new(UiMotion.Mix(under, SurfaceColour(), _reveal));
         e.Graphics.FillPath(brush, path);
-        using Pen border = new(Selected ? palette.Accent : palette.Border, Selected ? 2f : 1f);
+
+        // A faint top highlight gives the layered-glass edge.
+        using Pen highlight = new(Color.FromArgb((int)(16 * _reveal), Color.White), 1f);
+        int inset = Math.Min(CornerRadius, bounds.Width / 2);
+        e.Graphics.DrawLine(highlight, bounds.Left + inset, bounds.Top + 1, bounds.Right - inset, bounds.Top + 1);
+
+        Color edge = Selected ? palette.Accent : UiMotion.Mix(palette.Border, palette.Accent, _hover * 0.8f);
+        using Pen border = new(UiMotion.Mix(under, edge, _reveal), Selected ? 2f : 1f);
         e.Graphics.DrawPath(border, path);
     }
 }
@@ -504,4 +580,18 @@ internal static class UiDrawing
 
     public static Color WithAlpha(Color color, int alpha) =>
         Color.FromArgb(Math.Clamp(alpha, 0, 255), color);
+
+    /// <summary>
+    /// The colour actually seen behind a control: the nearest rounded card's fill, or the nearest
+    /// opaque parent's background, or the theme canvas.
+    /// </summary>
+    public static Color EffectiveBackColor(Control? control)
+    {
+        for (; control is not null; control = control.Parent)
+        {
+            if (control is RoundedSurfacePanel card) return card.FillColour;
+            if (control.BackColor.A == 255) return control.BackColor;
+        }
+        return ThemeService.Palette.Canvas;
+    }
 }

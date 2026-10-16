@@ -8,8 +8,9 @@ namespace Genesis.Application.Studio.Controls;
 
 public sealed class ModernButton : Button
 {
-    private bool _hovered;
-    private bool _pressed;
+    // Hover and press as 0..1 amounts, eased by UiMotion, so colours fade rather than snap.
+    private float _hover;
+    private float _press;
 
     public ModernButton()
     {
@@ -31,53 +32,75 @@ public sealed class ModernButton : Button
 
     protected override void OnMouseEnter(EventArgs e)
     {
-        _hovered = true;
-        Invalidate();
+        FadeHover(1f, 120);
         base.OnMouseEnter(e);
     }
 
     protected override void OnMouseLeave(EventArgs e)
     {
-        _hovered = false;
-        _pressed = false;
-        Invalidate();
+        FadeHover(0f, 220);
+        FadePress(0f, 120);
         base.OnMouseLeave(e);
     }
 
     protected override void OnMouseDown(MouseEventArgs e)
     {
-        _pressed = true;
-        Invalidate();
+        FadePress(1f, 60);
         base.OnMouseDown(e);
     }
 
     protected override void OnMouseUp(MouseEventArgs e)
     {
-        _pressed = false;
-        Invalidate();
+        FadePress(0f, 160);
         base.OnMouseUp(e);
+    }
+
+    private void FadeHover(float target, int milliseconds)
+    {
+        float from = _hover;
+        UiMotion.Animate(this, "hover", milliseconds, t => { _hover = UiMotion.Lerp(from, target, t); Invalidate(); });
+    }
+
+    private void FadePress(float target, int milliseconds)
+    {
+        float from = _press;
+        UiMotion.Animate(this, "press", milliseconds, t => { _press = UiMotion.Lerp(from, target, t); Invalidate(); });
     }
 
     protected override void OnPaint(PaintEventArgs e)
     {
         ThemePalette palette = ThemeService.Palette;
+        // The corners outside the rounded body show what the button sits on, not a square.
+        e.Graphics.Clear(UiDrawing.EffectiveBackColor(Parent));
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
         Rectangle bounds = ClientRectangle;
         bounds.Inflate(-1, -1);
+        // Pressing sinks the button a pixel or so into the surface.
+        int sink = (int)MathF.Round(_press * 1.5f);
+        bounds.Inflate(-sink, -sink);
+        if (bounds.Width <= 2 || bounds.Height <= 2) return;
 
         Color fill = Accent
-            ? (_pressed ? palette.AccentHover : palette.Accent)
-            : (_pressed
-                ? palette.BorderStrong
-                : _hovered ? palette.SurfaceHover : palette.SurfaceRaised);
+            ? UiMotion.Mix(UiMotion.Mix(palette.Accent, palette.AccentHover, _hover * 0.55f), palette.AccentHover, _press)
+            : UiMotion.Mix(UiMotion.Mix(palette.SurfaceRaised, palette.SurfaceHover, _hover), palette.BorderStrong, _press * 0.7f);
 
-        using GraphicsPath path = RoundedRectangle(bounds, 7);
-        using SolidBrush background = new(fill);
+        using GraphicsPath path = RoundedRectangle(bounds, 8);
+        using SolidBrush background = new(Enabled ? fill : UiMotion.Mix(fill, palette.Surface, 0.5f));
         e.Graphics.FillPath(background, path);
 
-        if (!Accent)
+        if (Accent)
         {
-            using Pen border = new(palette.Border, 1);
+            // A soft sheen on the upper half reads as a lit, raised control.
+            Rectangle upper = new(bounds.Left, bounds.Top, bounds.Width, Math.Max(1, bounds.Height / 2));
+            using LinearGradientBrush sheen = new(upper, Color.FromArgb(38 + (int)(_hover * 22), Color.White), Color.FromArgb(0, Color.White), LinearGradientMode.Vertical);
+            GraphicsState state = e.Graphics.Save();
+            e.Graphics.SetClip(path, CombineMode.Intersect);
+            e.Graphics.FillRectangle(sheen, upper);
+            e.Graphics.Restore(state);
+        }
+        else
+        {
+            using Pen border = new(UiMotion.Mix(palette.Border, palette.Accent, _hover * 0.75f), 1);
             e.Graphics.DrawPath(border, path);
         }
 
