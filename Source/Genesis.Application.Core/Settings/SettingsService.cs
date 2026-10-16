@@ -76,6 +76,23 @@ public sealed class SettingsService
         SettingsChanged?.Invoke(this, EventArgs.Empty);
     }
 
+    /// <summary>Points a recent project at its renamed file, keeping its place and pin.</summary>
+    public void RenameRecentProject(string oldProjectFile, string newName, string newProjectFile)
+    {
+        string oldPath = Path.GetFullPath(oldProjectFile);
+        RecentProject? entry = Current.RecentProjects.FirstOrDefault(
+            item => string.Equals(Path.GetFullPath(item.ProjectFile), oldPath, StringComparison.OrdinalIgnoreCase));
+        if (entry is null)
+        {
+            AddRecentProject(newName, newProjectFile);
+            return;
+        }
+        entry.Name = newName;
+        entry.ProjectFile = Path.GetFullPath(newProjectFile);
+        Save();
+        SettingsChanged?.Invoke(this, EventArgs.Empty);
+    }
+
     public void RemoveMissingRecentProjects()
     {
         int removed = Current.RecentProjects.RemoveAll(

@@ -231,6 +231,49 @@ public sealed partial class ProjectService
         WriteManifest(session.ProjectFile, session.Manifest);
     }
 
+    /// <summary>
+    /// Renames a project that is not open: its folder, its .genesisproj file and the name in it.
+    /// Returns the renamed project file. Nothing is changed when the new folder name is taken.
+    /// </summary>
+    public string RenameProject(string projectFile, string newName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(newName);
+        string safeName = SanitizeProjectName(newName);
+        string oldRoot = Path.GetDirectoryName(Path.GetFullPath(projectFile))
+            ?? throw new ArgumentException("The project file has no folder.", nameof(projectFile));
+        string parent = Path.GetDirectoryName(oldRoot)
+            ?? throw new InvalidOperationException("A project at the root of a drive cannot be renamed.");
+        string newRoot = Path.Combine(parent, safeName);
+        bool sameFolder = string.Equals(oldRoot, newRoot, StringComparison.OrdinalIgnoreCase);
+        if (!sameFolder && (Directory.Exists(newRoot) || File.Exists(newRoot)))
+            throw new IOException($"A folder named '{safeName}' already exists in {parent}.");
+
+        if (!string.Equals(oldRoot, newRoot, StringComparison.Ordinal))
+        {
+            if (sameFolder)
+            {
+                // Only the letter case changes: Windows needs a step through another name.
+                string step = oldRoot + ".renaming";
+                Directory.Move(oldRoot, step);
+                Directory.Move(step, newRoot);
+            }
+            else
+            {
+                Directory.Move(oldRoot, newRoot);
+            }
+        }
+
+        string movedFile = Path.Combine(newRoot, Path.GetFileName(projectFile));
+        string renamedFile = Path.Combine(newRoot, safeName + ProjectExtension);
+        if (!string.Equals(movedFile, renamedFile, StringComparison.Ordinal)) File.Move(movedFile, renamedFile);
+        ProjectManifest manifest = JsonSerializer.Deserialize<ProjectManifest>(File.ReadAllText(renamedFile), JsonOptions)
+            ?? throw new InvalidDataException("The project file could not be read after the rename.");
+        manifest.Name = newName.Trim();
+        manifest.ModifiedUtc = DateTime.UtcNow;
+        WriteManifest(renamedFile, manifest);
+        return renamedFile;
+    }
+
     private static void WriteManifest(string projectFile, ProjectManifest manifest)
     {
         string json = JsonSerializer.Serialize(manifest, JsonOptions);

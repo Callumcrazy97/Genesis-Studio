@@ -13,7 +13,7 @@ using Genesis.Shared.Interfaces;
 
 namespace Genesis.Application.Studio.Forms;
 
-public sealed class PreferencesForm : DpiAwareForm
+public sealed partial class PreferencesForm : DpiAwareForm
 {
     private readonly SettingsService _settings;
     private Action? _layoutMeasured;
@@ -352,6 +352,7 @@ public sealed class PreferencesForm : DpiAwareForm
         page.Controls.Add(_reopenLast);
         page.Controls.Add(_confirmDelete);
         page.Controls.Add(_externalChanges);
+        foreach (Control control in BuildGitHubSection()) page.Controls.Add(control);
         return page;
     }
 
@@ -802,6 +803,8 @@ public sealed class PreferencesForm : DpiAwareForm
         page.Controls.Add(_systemRequirementsSummary);
         RefreshSystemRequirementsEstimate();
 
+        foreach (Control control in BuildBackupSection()) page.Controls.Add(control);
+        foreach (Control control in BuildRenameSection()) page.Controls.Add(control);
         return page;
     }
 
@@ -1580,6 +1583,7 @@ public sealed class PreferencesForm : DpiAwareForm
 
         new ProjectService().Save(_project);
         RenderingPreferencesBridge.ApplyProject(_project.Manifest);
+        SaveBackupSettings();
     }
 
     private void RestoreDefaults()

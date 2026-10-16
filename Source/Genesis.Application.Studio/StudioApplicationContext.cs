@@ -195,6 +195,7 @@ internal sealed class StudioApplicationContext : ApplicationContext
             MainForm = studio;
             studio.CloseProjectRequested += (_, _) => ShowProjectHub(studio);
             studio.SwitchProjectRequested += (_, args) => ShowStudio(args.Session, studio);
+            studio.MaintenanceRequested += (_, args) => RunMaintenance(studio, args);
             studio.FormClosed += (_, _) =>
             {
                 if (!_transitioning && ReferenceEquals(MainForm, studio)) ExitThread();
@@ -215,6 +216,81 @@ internal sealed class StudioApplicationContext : ApplicationContext
             _transitioning = false;
             if (previous != null && !previous.IsDisposed) { MainForm = previous; previous.Show(); }
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Closes the project, renames it or restores it from GitHub while a small progress window
+    /// shows what is happening, then opens it again (the original if anything failed).
+    /// </summary>
+    private async void RunMaintenance(StudioShellForm studio, ProjectMaintenanceEventArgs request)
+    {
+        ProjectSession project = request.Session;
+        string title = request.Kind == ProjectMaintenanceKind.Rename ? "Renaming the project" : "Restoring from GitHub";
+        MaintenanceProgressForm progress = new(title);
+        TransitionFrom(studio);
+        MainForm = progress;
+        progress.FormClosed += (_, _) =>
+        {
+            if (!_transitioning && ReferenceEquals(MainForm, progress)) ExitThread();
+        };
+        progress.Show();
+        CompleteTransition(studio);
+        _transitioning = true;
+
+        string projectFile = project.ProjectFile;
+        Progress<string> report = new(progress.SetStatus);
+        try
+        {
+            if (request.Kind == ProjectMaintenanceKind.Rename)
+            {
+                string oldName = project.Manifest.Name, newName = request.NewName.Trim();
+                bool backedUp = Genesis.Application.Core.Backup.ProjectBackupSettings.Load(project.RootPath).Enabled;
+                progress.SetStatus("Renaming the folder and project file…");
+                projectFile = await Task.Run(() => _services.Projects.RenameProject(project.ProjectFile, newName));
+                _services.Settings.RenameRecentProject(project.ProjectFile, newName, projectFile);
+                if (backedUp)
+                {
+                    progress.SetStatus("Renaming the online backup…");
+                    try
+                    {
+                        await new Genesis.Application.Core.Backup.ProjectBackup(Genesis.Application.Core.Backup.GitHubAccount.Shared)
+                            .RenameOnlineAsync(oldName, newName);
+                    }
+                    catch (Exception error) when (error is Genesis.Application.Core.Backup.GitHubApiException or HttpRequestException
+                        or InvalidOperationException or TaskCanceledException)
+                    {
+                        MessageBox.Show(progress, "The project was renamed on disk, but its online backup could not be renamed:\n\n"
+                            + error.Message + "\n\nThe next backup will create a folder under the new name.", title,
+                            MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    }
+                }
+            }
+            else
+            {
+                var result = await new Genesis.Application.Core.Backup.ProjectBackup(Genesis.Application.Core.Backup.GitHubAccount.Shared)
+                    .RestoreAsync(project.RootPath, project.Manifest.Name, report);
+                MessageBox.Show(progress, result.Summary, title, MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException
+            or InvalidOperationException or InvalidDataException or HttpRequestException or TaskCanceledException
+            or Genesis.Application.Core.Backup.GitHubApiException)
+        {
+            MessageBox.Show(progress, error.Message, title + " failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+
+        progress.SetStatus("Opening the project…");
+        _transitioning = false;
+        try
+        {
+            ShowStudio(_services.Projects.OpenProject(projectFile), progress);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or InvalidDataException
+            or System.Text.Json.JsonException)
+        {
+            MessageBox.Show(progress, error.Message, "Could not open the project", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            ShowProjectHub(progress);
         }
     }
 

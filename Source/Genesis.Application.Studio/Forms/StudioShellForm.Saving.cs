@@ -46,7 +46,11 @@ public sealed partial class StudioShellForm
         }
     }
 
-    private void SaveAll() => TrySaveProject("Save Project");
+    private void SaveAll()
+    {
+        // Saving is when a project with online backup switched on is backed up.
+        if (TrySaveProject("Save Project")) BackUpIfEnabled();
+    }
 
     private bool TrySaveProject(string operation)
     {

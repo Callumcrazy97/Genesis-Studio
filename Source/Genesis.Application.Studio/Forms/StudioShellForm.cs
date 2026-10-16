@@ -1518,6 +1518,10 @@ public sealed partial class StudioShellForm : DpiAwareForm
         if (preferences.ShowDialog(this) == DialogResult.OK)
         {
             SetStatus("Preferences applied.");
+            // A rename or restore needs the project closed; Studio reopens it afterwards.
+            if (preferences.RequestedRename is { } newName) RequestMaintenance(ProjectMaintenanceKind.Rename, newName);
+            else if (preferences.RequestedRestore) RequestMaintenance(ProjectMaintenanceKind.Restore);
+            else if (preferences.RequestedBackup) _ = BackUpAsync();
         }
     }
 
