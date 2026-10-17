@@ -889,6 +889,29 @@ glow the night sky is drawn with.
 A script's own ambient colour still wins over the sky's: while one is set, the hemisphere sky light
 is off. Models in a model layer with studio lighting keep the studio's light.
 
+### Sun shafts in the haze (17 October 2026)
+
+With volumetric fog on (a room with haze or fog, `RenderSetQuality("high")` or above), the sun
+lights the fog and whatever shades it carves shafts. By default the haze scatters light almost
+evenly and each fog cell takes one shadow sample, so indoors, with dense haze, the shafts are
+hard-edged bright and dark slabs. Three settings make them look like sunbeams in dusty air; the
+defaults draw the fog exactly as before.
+
+| Setting | Default | Use |
+|---|---|---|
+| `Engine.Rendering.FogShaftAnisotropy` | 0.25 | 0 to 0.95: how strongly the haze scatters forward. Above 0.25 shafts glow towards the sun and fade side-on or with the sun behind (capped at six times side-on brightness). About 0.7 for sunbeams indoors. |
+| `Engine.Rendering.FogShaftFloor` | 0.35 | 0 to 1: fog in shadow against fog in sunlight. Higher is subtler shafts. |
+| `Engine.Rendering.FogShaftSoftness` | 0 | 0 to 4 metres: the width of a shaft's soft edge (five shadow samples across the light instead of one). |
+
+```
+Engine.Rendering.FogShaftAnisotropy = 0.7;
+Engine.Rendering.FogShaftFloor = 0.42;
+Engine.Rendering.FogShaftSoftness = 0.9;
+```
+
+They hold until changed, for every room. Cathedral Test uses the values above with
+`visibilityKilometres` 0.6. Softness costs four more shadow lookups per fog cell.
+
 ### Eye adaptation (auto exposure)
 
 With **Auto exposure** on (`autoExposure`), the exposure follows the brightness of the scene: walk

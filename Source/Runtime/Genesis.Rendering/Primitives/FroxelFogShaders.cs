@@ -72,7 +72,8 @@ cbuffer FroxelConstants : register(b2)
     float4             FroxelCamera;   // xyz = camera position, w = near depth
     float4             FroxelForward;  // xyz = camera forward, w = fog volume count
     float4             FroxelJitter;   // xyz = cell jitter, w = history weight (0 = no history)
-    float4             FroxelLighting; // x = local light scatter, y = shadowed floor, z = horizon boost
+    float4             FroxelLighting; // x = local light scatter, y = shadowed floor, z = horizon boost, w = sun-shaft anisotropy (0 = 0.25)
+    float4             FroxelShafts;   // x = shaft softness in metres, y = 1 for the forward-scattering lobe
 };
 
 cbuffer LocalShadowConstants : register(b4)
@@ -233,7 +234,8 @@ float ComputeFogVolumes(float3 worldPos, out float3 outColor)
 
 float FogPhase(float cosTheta)
 {
-    const float g = 0.25;
+    // Engine.Rendering.FogShaftAnisotropy; 0.25 as the fog always had.
+    float g = FroxelLighting.w > 0.0 ? FroxelLighting.w : 0.25;
     float denominator = max(1.0 + g * g - 2.0 * g * cosTheta, 1e-4);
     return (1.0 - g * g) / (denominator * sqrt(denominator));
 }
@@ -242,7 +244,10 @@ float FogPhase(float cosTheta)
 // toward it the Henyey-Greenstein lobe brightens the haze.
 float FogSunScatter(float cosTheta)
 {
-    return max(FogPhase(cosTheta) / FogPhase(0.0), 1.0);
+    float scatter = FogPhase(cosTheta) / FogPhase(0.0);
+    // The forward-scattering lobe (a game raised the anisotropy): fainter side-on and with the sun
+    // behind, as dusty air is, and held below a glare towards it. Otherwise only ever brighter.
+    return FroxelShafts.y > 0.5 ? min(scatter, 6.0) : max(scatter, 1.0);
 }
 
 // The sun's forward-scatter glow fades with the lighting switch and the sun's own intensity: an
@@ -358,6 +363,21 @@ float3 LocalLightScatter(float3 worldPos, float3 viewDir, float2 screenUv, float
 
 // ── Passes ───────────────────────────────────────────────────────────────────
 
+// Engine.Rendering.FogShaftSoftness: the sun's visibility averaged over a small cross across the
+// light, so a shaft has a soft edge (the sun is not a point and dust blurs it) instead of a cut one.
+float SoftSunVisibility(float3 worldPos)
+{
+    float radius = FroxelShafts.x;
+    if (radius <= 0.0)
+        return SunVisibility(worldPos);
+    float3 l = normalize(-LightDirEnabled.xyz);
+    float3 across = normalize(cross(l, abs(l.y) < 0.95 ? float3(0.0, 1.0, 0.0) : float3(1.0, 0.0, 0.0)));
+    float3 other = cross(l, across);
+    return (SunVisibility(worldPos)
+        + SunVisibility(worldPos + across * radius) + SunVisibility(worldPos - across * radius)
+        + SunVisibility(worldPos + other * radius) + SunVisibility(worldPos - other * radius)) * 0.2;
+}
+
 float4 PS_FroxelInject(VSOut IN) : SV_Target
 {
     int3 cell = FroxelCell(IN.pos.xy);
@@ -375,7 +395,7 @@ float4 PS_FroxelInject(VSOut IN) : SV_Target
 
     // Shadowed froxels keep an ambient floor so fog never goes pitch black; lit ones scatter the sun.
     float lightAmount = lerp(FroxelLighting.y, SunGlow(dot(ray, normalize(-LightDirEnabled.xyz))),
-        SunVisibility(worldPos));
+        SoftSunVisibility(worldPos));
     float3 albedo = volumeDensity > 1e-4
         ? lerp(FogColor.rgb, volumeColor, saturate(volumeDensity / density))
         : FogColor.rgb;

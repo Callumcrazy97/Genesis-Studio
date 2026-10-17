@@ -23,7 +23,8 @@ internal sealed partial class ForwardRenderer
         public Vector4 Camera;    // camera position, near depth
         public Vector4 Forward;   // camera forward, fog volume count
         public Vector4 Jitter;    // cell jitter, history weight
-        public Vector4 Lighting;  // local light scatter, shadowed floor, horizon boost, unused
+        public Vector4 Lighting;  // local light scatter, shadowed floor, horizon boost, sun-shaft anisotropy (0 = 0.25)
+        public Vector4 Shafts;    // shaft softness in metres, 1 = forward-scattering lobe, unused, unused
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -219,7 +220,9 @@ internal sealed partial class ForwardRenderer
             Camera = new Vector4(_cameraPos, FroxelFogMath.NearDepth),
             Forward = new Vector4(forward, volumeCount),
             Jitter = new Vector4(jitter, historyWeight),
-            Lighting = new Vector4(localScatter, FroxelShadowedFloor, FroxelHorizonBoost, 0f),
+            // FogShaftSettings: the defaults reproduce the fog as it always was.
+            Lighting = new Vector4(localScatter, FogShaftSettings.ShadowedFloor, FroxelHorizonBoost, FogShaftSettings.Anisotropy),
+            Shafts = new Vector4(FogShaftSettings.Softness, FogShaftSettings.ForwardLobe ? 1f : 0f, 0f, 0f),
         });
 
         // The integrated volume and history are sampled by the previous frame's passes; unbind
