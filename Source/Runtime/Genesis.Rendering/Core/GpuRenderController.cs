@@ -967,8 +967,11 @@ namespace Genesis.Rendering.Core
             if (!_initialized || _fwd == null) return;
             _postEffectPasses.Clear();
             _postEffectsRunning.Clear();
-            foreach (PostEffectRequest effect in effects ?? Array.Empty<PostEffectRequest>())
+            // Indexed: a foreach through the list interface boxed an enumerator every frame.
+            int effectCount = effects?.Count ?? 0;
+            for (int effectIndex = 0; effectIndex < effectCount; effectIndex++)
             {
+                PostEffectRequest effect = effects![effectIndex];
                 if (string.IsNullOrWhiteSpace(effect.Source)) continue;
                 string key = effect.Name ?? string.Empty;
                 string entry = string.IsNullOrWhiteSpace(effect.Entry) ? "MainPS" : effect.Entry.Trim();

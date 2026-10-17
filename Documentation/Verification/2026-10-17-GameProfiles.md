@@ -86,6 +86,7 @@ SustainedLowLatency the collector paused for 137 ms in all, 42 ms at most; with 
   what is left is the check's own screenshots. An allocation trace of the visit then showed the
   engine's own per-frame garbage, now gone: the overlay flush's boxed enumerator, a texture-lookup
   delegate per sprite flush, a new attachment-action array per render pass, and the audio update's
-  list of finished channels. Still per frame: a closure in `RuntimeScene.CollectMeshes` and in
+  list of finished channels, then the post effects' boxed enumerator. Measured over the visit (30 s,
+  compare.ps1): steady allocation 16 -> 8 KB a frame, p99 17.5 -> 17.3 ms. Still per frame: a closure in `RuntimeScene.CollectMeshes` and in
   `ObjectCompositionSubsystem.Update` (ECS queries), bone arrays per animated model
   (`EvaluateClipLocals`), and numbers boxed for engine commands (`PgslEngineBridge.CallMethod`).
