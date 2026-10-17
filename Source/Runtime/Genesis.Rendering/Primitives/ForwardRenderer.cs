@@ -15,6 +15,13 @@ namespace Genesis.Rendering.Primitives
 {
     internal sealed partial class ForwardRenderer : IDisposable
     {
+        // Attachment actions every pass shares (the devices only read them): a pass made a new array of
+        // one each frame, several passes a frame.
+        private static readonly GpuAttachmentAction[] KeepColor = { GpuAttachmentAction.Keep() };
+        private static readonly GpuAttachmentAction[] KeepTwoColors = { GpuAttachmentAction.Keep(), GpuAttachmentAction.Keep() };
+        private static readonly GpuAttachmentAction[] ClearToBlack = { GpuAttachmentAction.Clear(0f, 0f, 0f, 1f) };
+        private static readonly GpuAttachmentAction[] ClearToTransparent = { GpuAttachmentAction.Clear(0f, 0f, 0f, 0f) };
+
         // ── CB structs (must match HLSL layout exactly) ───────────────────────────
 
         [StructLayout(LayoutKind.Sequential)]
@@ -3721,7 +3728,7 @@ namespace Genesis.Rendering.Primitives
             _gpu.BeginRenderPass(new GpuRenderPassDesc
             {
                 Target = target,
-                ColorActions = new[] { GpuAttachmentAction.Keep() },
+                ColorActions = KeepColor,
                 HasDepth = false,
                 DebugName = "Forward view models",
             });
@@ -4332,7 +4339,7 @@ namespace Genesis.Rendering.Primitives
             {
                 Target = target,
                 ColorActions = _gpu.GetRenderTargetTexture(target, 0).IsValid
-                    ? new[] { GpuAttachmentAction.Clear(0f, 0f, 0f, 0f) }
+                    ? ClearToTransparent
                     : Array.Empty<GpuAttachmentAction>(),
                 DepthAction = GpuAttachmentAction.Clear(1f, 0f, 0f, 0f),
                 HasDepth = true,
@@ -4425,7 +4432,7 @@ namespace Genesis.Rendering.Primitives
                     GpuAttachmentAction.Clear(bg.X, bg.Y, bg.Z, 1f),
                     GpuAttachmentAction.Clear(0f, 0f, 0f, 0f),
                 }
-                : new[] { GpuAttachmentAction.Keep() };
+                : KeepColor;
             _gpu.BeginRenderPass(new GpuRenderPassDesc
             {
                 Target = target,
@@ -4959,8 +4966,8 @@ namespace Genesis.Rendering.Primitives
 
         private GpuAttachmentAction[] CurrentColorKeepActions() =>
             _mainPassHdrMrt
-                ? new[] { GpuAttachmentAction.Keep(), GpuAttachmentAction.Keep() }
-                : new[] { GpuAttachmentAction.Keep() };
+                ? KeepTwoColors
+                : KeepColor;
 
         private void UploadWaterCB(Vector4 deep, Vector4 waterParams, Vector4 skyHorizon, Vector4 skyZenith, bool reflection)
         {
@@ -5307,7 +5314,7 @@ namespace Genesis.Rendering.Primitives
             _gpu.BeginRenderPass(new GpuRenderPassDesc
             {
                 Target = target,
-                ColorActions = new[] { GpuAttachmentAction.Clear(0f, 0f, 0f, 1f) },
+                ColorActions = ClearToBlack,
                 HasDepth = false,
                 DebugName = "Bloom pass",
             });
@@ -5408,7 +5415,7 @@ namespace Genesis.Rendering.Primitives
             {
                 Target = _contactTarget,
                 // Cleared to zero occlusion, so a pass that bails still composites as "no contact".
-                ColorActions = new[] { GpuAttachmentAction.Clear(0f, 0f, 0f, 1f) },
+                ColorActions = ClearToBlack,
                 HasDepth = false,
                 DebugName = "Contact shadows",
             });
@@ -5562,7 +5569,7 @@ namespace Genesis.Rendering.Primitives
             {
                 Target = _localVolTarget,
                 // Cleared to zero inscatter, so a pass that bails composites as "no beams".
-                ColorActions = new[] { GpuAttachmentAction.Clear(0f, 0f, 0f, 1f) },
+                ColorActions = ClearToBlack,
                 HasDepth = false,
                 DebugName = "Local volumetric scatter",
             });
@@ -5646,7 +5653,7 @@ namespace Genesis.Rendering.Primitives
             _gpu.BeginRenderPass(new GpuRenderPassDesc
             {
                 Target = _raymarchedCloudsTarget,
-                ColorActions = new[] { GpuAttachmentAction.Clear(0f, 0f, 0f, 0f) },
+                ColorActions = ClearToTransparent,
                 HasDepth = false,
                 DebugName = "Raymarched clouds",
             });
@@ -5695,7 +5702,7 @@ namespace Genesis.Rendering.Primitives
                 _gpu.BeginRenderPass(new GpuRenderPassDesc
                 {
                     Target = _cloudHistoryTargets[write],
-                    ColorActions = new[] { GpuAttachmentAction.Clear(0f, 0f, 0f, 0f) },
+                    ColorActions = ClearToTransparent,
                     HasDepth = false,
                     DebugName = "Cloud temporal resolve",
                 });
@@ -5753,7 +5760,7 @@ namespace Genesis.Rendering.Primitives
                 _gpu.BeginRenderPass(new GpuRenderPassDesc
                 {
                     Target = _cloudUpsampleTarget,
-                    ColorActions = new[] { GpuAttachmentAction.Clear(0f, 0f, 0f, 0f) },
+                    ColorActions = ClearToTransparent,
                     HasDepth = false,
                     DebugName = "Cloud bilateral upsample",
                 });

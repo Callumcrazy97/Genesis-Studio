@@ -146,7 +146,7 @@ namespace Genesis.Rendering.Primitives
             _gpu.BeginRenderPass(new GpuRenderPassDesc
             {
                 Target = output,
-                ColorActions = new[] { GpuAttachmentAction.Keep() },
+                ColorActions = KeepColor,
                 HasDepth = false,
                 DebugName = "Camera motion blur",
             });

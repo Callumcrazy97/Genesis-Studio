@@ -331,6 +331,7 @@ namespace Genesis.Audio
             return current;
         }
 
+        private readonly List<int> _finishedChannels = new();
         private const long SoundRecheckMilliseconds = 500;
         private readonly Dictionary<int, long> _soundCheckedAt = new();
 
@@ -672,7 +673,9 @@ namespace Genesis.Audio
                 foreach (int id in faded) Stop(new AudioChannel(id));
             if (_channels.Count == 0) return;
 
-            var dead = new List<int>();
+            // One list for the whole game: an ambience loop keeps a channel open in every frame.
+            List<int> dead = _finishedChannels;
+            dead.Clear();
             foreach (var kv in _channels)
             {
                 try

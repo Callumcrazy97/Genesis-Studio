@@ -220,7 +220,7 @@ namespace Genesis.Rendering.Primitives
                 _gpu.BeginRenderPass(new GpuRenderPassDesc
                 {
                     Target = target,
-                    ColorActions = new[] { GpuAttachmentAction.Keep() },
+                    ColorActions = KeepColor,
                     HasDepth = false,
                     DebugName = "Outlines",
                 });

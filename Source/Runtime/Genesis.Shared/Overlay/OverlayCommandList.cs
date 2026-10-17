@@ -107,6 +107,9 @@ namespace Genesis.Shared.Overlay
 
         public IReadOnlyList<OverlayCommand> Commands => _commands;
 
+        /// <summary>The commands as a span: a foreach over it allocates nothing (one over <see cref="Commands"/> boxes its enumerator).</summary>
+        public ReadOnlySpan<OverlayCommand> CommandSpan => System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_commands);
+
         /// <summary>
         /// Order-sensitive digest of every recorded command, including the surface size. Equal
         /// hashes mean the rasterised result would be pixel-identical.

@@ -83,4 +83,9 @@ SustainedLowLatency the collector paused for 137 ms in all, 42 ms at most; with 
   - each `ScreenshotSave` allocates an 8 MB frame copy (`TryReadSubmittedFramePixels`) on the large
     object heap, which caused the run's two full collections.
   After the fix: 52.1 KB a frame (from 56.6), the delegate gone from the allocation samples; most of
-  what is left is the check's own screenshots.
+  what is left is the check's own screenshots. An allocation trace of the visit then showed the
+  engine's own per-frame garbage, now gone: the overlay flush's boxed enumerator, a texture-lookup
+  delegate per sprite flush, a new attachment-action array per render pass, and the audio update's
+  list of finished channels. Still per frame: a closure in `RuntimeScene.CollectMeshes` and in
+  `ObjectCompositionSubsystem.Update` (ECS queries), bone arrays per animated model
+  (`EvaluateClipLocals`), and numbers boxed for engine commands (`PgslEngineBridge.CallMethod`).

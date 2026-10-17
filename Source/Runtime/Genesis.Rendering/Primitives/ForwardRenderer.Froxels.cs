@@ -262,7 +262,7 @@ internal sealed partial class ForwardRenderer
         _gpu.BeginRenderPass(new GpuRenderPassDesc
         {
             Target = target,
-            ColorActions = new[] { GpuAttachmentAction.Clear(0f, 0f, 0f, 1f) },
+            ColorActions = ClearToBlack,
             HasDepth = false,
             DebugName = name,
         });

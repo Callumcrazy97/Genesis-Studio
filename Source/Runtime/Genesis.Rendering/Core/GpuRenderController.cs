@@ -372,7 +372,7 @@ namespace Genesis.Rendering.Core
                 clearDepth: true, "Controller.Sprites2D");
 
             _spr?.SetFog(_spriteFog);
-            _spr?.Flush(width, height, ResolveGpuTexture, _whiteTexture, _cam2DX, _cam2DY, _cam2DZoom);
+            _spr?.Flush(width, height, ResolveGpuTextureOnce, _whiteTexture, _cam2DX, _cam2DY, _cam2DZoom);
             // Close the 2D pass before post-EndFrame overlay composition. SDL cannot record a
             // copy while a pass is open; leaving this bound forced HUD instance uploads onto a
             // dedicated command buffer that waited for the previous 3D frame (~15 FPS).
@@ -388,10 +388,15 @@ namespace Genesis.Rendering.Core
                 _gpuSwapChain.Width, _gpuSwapChain.Height, clearDepth: true, "Controller.OverlaySprites");
             // GUI/HUD is screen-space and must remain legible regardless of room fog.
             _spr?.SetFog(RoomFogState.Disabled);
-            _spr?.Flush(_gpuSwapChain.Width, _gpuSwapChain.Height, ResolveGpuTexture, _whiteTexture, _gpuSwapChain.Width / 2f, _gpuSwapChain.Height / 2f, 1f);
+            _spr?.Flush(_gpuSwapChain.Width, _gpuSwapChain.Height, ResolveGpuTextureOnce, _whiteTexture, _gpuSwapChain.Width / 2f, _gpuSwapChain.Height / 2f, 1f);
             _spr?.SetFog(_spriteFog);
             _gpu.EndRenderPass();
         }
+
+        // The sprite renderer's texture lookup, made once: passing the method itself made a new delegate
+        // on every flush (several a frame, overlay included).
+        private Func<int, GpuTextureHandle>? _resolveGpuTexture;
+        private Func<int, GpuTextureHandle> ResolveGpuTextureOnce => _resolveGpuTexture ??= ResolveGpuTexture;
 
         private GpuTextureHandle ResolveGpuTexture(int id)
         {
@@ -472,7 +477,7 @@ namespace Genesis.Rendering.Core
             bool segmentLinear = false;
             bool drawn = false;
 
-            foreach (OverlayCommand command in _overlayCommands.Commands)
+            foreach (OverlayCommand command in _overlayCommands.CommandSpan)
             {
                 if (linearPasses && command.Linear != segmentLinear)
                 {
@@ -554,7 +559,7 @@ namespace Genesis.Rendering.Core
 
             // The overlay is screen-space, like the GUI sprite pass: legible whatever the room's fog.
             _spr?.SetFog(RoomFogState.Disabled);
-            _spr?.Flush(_gpuSwapChain.Width, _gpuSwapChain.Height, ResolveGpuTexture, _whiteTexture,
+            _spr?.Flush(_gpuSwapChain.Width, _gpuSwapChain.Height, ResolveGpuTextureOnce, _whiteTexture,
                 _gpuSwapChain.Width / 2f, _gpuSwapChain.Height / 2f, 1f);
             _spr?.SetFog(_spriteFog);
             _gpu.EndRenderPass();
@@ -570,7 +575,7 @@ namespace Genesis.Rendering.Core
                 _gpuSwapChain.Width, _gpuSwapChain.Height, clearDepth: false,
                 linear ? "Controller.OverlayComposeLinear" : "Controller.OverlayCompose", linearBlend: linear);
             _spr?.SetFog(RoomFogState.Disabled);
-            _spr?.Flush(_gpuSwapChain.Width, _gpuSwapChain.Height, ResolveGpuTexture, _whiteTexture,
+            _spr?.Flush(_gpuSwapChain.Width, _gpuSwapChain.Height, ResolveGpuTextureOnce, _whiteTexture,
                 _gpuSwapChain.Width / 2f, _gpuSwapChain.Height / 2f, 1f);
             _spr?.SetFog(_spriteFog);
             _gpu.EndRenderPass();
