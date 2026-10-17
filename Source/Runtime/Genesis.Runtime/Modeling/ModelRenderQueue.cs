@@ -44,6 +44,13 @@ namespace Genesis.Runtime.Modeling
             renderer.DrawMeshBatch(CollectionsMarshalAsSpan(_draws));
         }
 
+        /// <summary>
+        /// The queued draws, to adjust in place before submission (<c>foreach (ref MeshDrawCall call in queue.Calls)</c>).
+        /// Valid until the next Add or Clear. Unlike <see cref="Transform"/> it needs no delegate, so a
+        /// hot path that captures per-draw state (tint, alpha, shader) allocates nothing.
+        /// </summary>
+        public Span<MeshDrawCall> Calls => System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_draws);
+
         /// <summary>Adjust every queued model draw before submission (shader/tint/preview state).</summary>
         public void Transform(Func<MeshDrawCall, MeshDrawCall> transform)
         {

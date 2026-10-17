@@ -74,3 +74,14 @@ SustainedLowLatency the collector paused for 137 ms in all, 42 ms at most; with 
   (`VmValue.ToObject`).
 - Screen-space reflections are still not an engine feature; Cathedral Test does floor reflections
   as a project post effect.
+- Cathedral Test's horror chase (evening round, `GENESIS_PROFILE=1` over the unattended story walk,
+  87 s): 59.9 fps, CPU 1.34 ms, GPU 2.32 ms, 56.6 KB allocated a frame. Fixed: a capturing delegate
+  per script model draw (`ModelRenderQueue.Calls`), and four file-time reads per `PlaySound` in
+  development runs (now at most twice a second per sound). Open:
+  - a 27 ms frame at the first translucent glowing draw (no allocation, so likely a shader variant
+    or render state made on first use);
+  - each `ScreenshotSave` allocates an 8 MB frame copy (`TryReadSubmittedFramePixels`) on the large
+    object heap, which caused the run's two full collections;
+  - a room object's pitch (`InstanceSetRotation3D(id, -90, 0, 0)`, or a room node's X rotation) left
+    an animated model upright in Cathedral Test, though every render path reads `RotationX`. Not yet
+    reproduced in a test.

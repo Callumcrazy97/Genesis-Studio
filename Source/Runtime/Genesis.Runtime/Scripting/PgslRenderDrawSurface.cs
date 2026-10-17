@@ -608,7 +608,8 @@ namespace Genesis.Runtime.Scripting
                 || modelName.Contains("ground", StringComparison.OrdinalIgnoreCase);
             float a = Math.Clamp(alpha, 0f, 1f) * (color.A / 255f);
             RenderColor tint = ToRender(color);
-            queue.Transform(call =>
+            // In place, without a capturing delegate: this runs for every DrawModel* call a script makes.
+            foreach (ref MeshDrawCall call in queue.Calls)
             {
                 call.Tint = new RenderColor(
                     call.Tint.R * tint.R,
@@ -630,8 +631,7 @@ namespace Genesis.Runtime.Scripting
                     call.Flags |= MeshDrawFlags.IsFloor | MeshDrawFlags.NoCull | MeshDrawFlags.NoShadow;
                 if (!string.IsNullOrWhiteSpace(shaderName))
                     ObjectDrawPass.TryApplyMeshShader(_renderer, _projectPath, shaderName, ref call);
-                return call;
-            });
+            }
 
             if (_commands is IMeshDrawList meshList)
             {

@@ -321,8 +321,18 @@ namespace Genesis.Audio
         {
             if (!_soundVersions.TryGetValue(id, out var versions)) return false;
             if (!Genesis.Shared.Assets.RuntimeAssetPolicy.PollingEnabled) return true;
-            return Array.TrueForAll(versions, version => CaptureVersion(version.Path) == version);
+            // A sound played over and over (footsteps, a heartbeat) reads its files' times at most twice a
+            // second, not on every play: an edit to it is still picked up within half a second.
+            long now = Environment.TickCount64;
+            if (_soundCheckedAt.TryGetValue(id, out long checkedAt) && now - checkedAt < SoundRecheckMilliseconds) return true;
+            bool current = Array.TrueForAll(versions, version => CaptureVersion(version.Path) == version);
+            if (current) _soundCheckedAt[id] = now;
+            else _soundCheckedAt.Remove(id);
+            return current;
         }
+
+        private const long SoundRecheckMilliseconds = 500;
+        private readonly Dictionary<int, long> _soundCheckedAt = new();
 
         /// <summary>
         /// Whether a game decodes this sound on a worker: every Ogg Vorbis file (its decoding costs

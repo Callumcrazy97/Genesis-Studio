@@ -151,12 +151,11 @@ namespace Genesis.Runtime.Rendering
                 }, preserveRootTransform: false);
             ModelRenderQueue queue = ModelRenderQueue.Rent();
             if (!Models.Enqueue(queue, projectPath, request.Model, null, world, draw, renderer3d, animation, renderer)) return;
-            queue.Transform(call =>
+            foreach (ref MeshDrawCall call in queue.Calls)
             {
                 call.Layer = layer;
                 call.Flags |= MeshDrawFlags.NoShadow | MeshDrawFlags.NoReceiveShadow;
-                return call;
-            });
+            }
             if (_buffer.Length < queue.Count) _buffer = new MeshDrawCall[queue.Count * 2];
             int count = queue.CopyTo(_buffer, 0);
             renderer.SetModelLayerCamera(layer, view, projection, request.Width, request.Height, receiveShadows: false, studioLighting: true);
