@@ -12,6 +12,7 @@ namespace Genesis.Runtime.Scripting
   /// </summary>
   public static class ScriptAssetRegistry
   {
+    private static readonly Dictionary<string, (long Generation, long NextCheck)> _missing = new(StringComparer.OrdinalIgnoreCase);
     private static readonly Dictionary<string, CompiledScriptAsset> _byName =
       new(StringComparer.OrdinalIgnoreCase);
     private static readonly Dictionary<string, CompiledScriptAsset> _byHash =
@@ -113,7 +114,7 @@ namespace Genesis.Runtime.Scripting
       lock (_lock)
       {
         _projectPath = projectPath;
-        _byName.Clear();
+        _byName.Clear(); _missing.Clear();
         _functions = null;
         _byHash.Clear();
         _sourceByName.Clear();
@@ -176,7 +177,7 @@ namespace Genesis.Runtime.Scripting
         {
           // Put the tables back as they were: a running game keeps the Scripts it had.
           _projectPath = previousProject ?? projectPath;
-          _byName.Clear();
+          _byName.Clear(); _missing.Clear();
           _byHash.Clear();
           _sourceByName.Clear();
           _loadErrors.Clear();
@@ -370,9 +371,21 @@ namespace Genesis.Runtime.Scripting
       if (string.IsNullOrEmpty(_projectPath) || string.IsNullOrEmpty(name))
         return null;
 
+      // A name that is no Script is remembered until the asset policy says to look again: calls by
+      // such a name searched the catalog and the disk every time (Kinfield: a sixth of its allocation).
+      long now = Environment.TickCount64;
+      long generation = Genesis.Shared.Assets.RuntimeAssetPolicy.Generation;
+      lock (_lock)
+        if (_missing.TryGetValue(name, out (long Generation, long NextCheck) miss) && miss.Generation == generation && now < miss.NextCheck)
+          return null;
       string path = ResourceNames.Resolve(_projectPath, name, ResourceType.Script);
       if (!File.Exists(path) || !path.EndsWith(".pgsl", StringComparison.OrdinalIgnoreCase))
+      {
+        lock (_lock)
+          _missing[name] = (generation, Genesis.Shared.Assets.RuntimeAssetPolicy.NextCheck(now,
+            Math.Max(1000, Genesis.Shared.Assets.RuntimeAssetPolicy.FramePathIntervalMilliseconds), name.GetHashCode()));
         return null;
+      }
 
       try
       {
@@ -538,7 +551,7 @@ namespace Genesis.Runtime.Scripting
     {
       lock (_lock)
       {
-        _byName.Clear();
+        _byName.Clear(); _missing.Clear();
         _functions = null;
         _byHash.Clear();
         _sourceByName.Clear();

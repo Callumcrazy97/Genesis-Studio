@@ -15,12 +15,7 @@ public static class SpritePlayback
             return Array.Empty<int>();
 
         if (animationTagIndex < 0 || asset.Tags.Count == 0 || animationTagIndex >= asset.Tags.Count)
-        {
-            int[] all = new int[asset.Frames.Count];
-            for (int i = 0; i < all.Length; i++)
-                all[i] = i;
-            return all;
-        }
+            return Range(0, asset.Frames.Count - 1);
 
         SpriteRuntimeAnimationTag tag = asset.Tags[animationTagIndex];
         int start = FindFrameIndex(asset, tag.StartFrameId);
@@ -30,12 +25,23 @@ public static class SpritePlayback
 
         if (start > end)
             (start, end) = (end, start);
-
-        List<int> indices = new(end - start + 1);
-        for (int i = start; i <= end; i++)
-            indices.Add(i);
-        return indices;
+        return Range(start, end);
     }
+
+    // The playable frames are always a run start..end; one shared, read-only array per run.
+    // Every animated sprite built a new list on every advance (Kinfield: a third of its allocation).
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<long, int[]> Ranges = new();
+
+    private static int[] Range(int start, int end) =>
+        Ranges.GetOrAdd(((long)start << 32) | (uint)end, static key =>
+        {
+            int first = (int)(key >> 32);
+            int last = (int)(uint)key;
+            int[] run = new int[last - first + 1];
+            for (int i = 0; i < run.Length; i++)
+                run[i] = first + i;
+            return run;
+        });
 
     public static void Advance(
         ref SpriteComponent sprite,

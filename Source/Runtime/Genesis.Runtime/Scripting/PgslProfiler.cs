@@ -23,8 +23,9 @@ namespace Genesis.Runtime.Scripting
         }
 
         private static readonly object Gate = new();
-        private static readonly Dictionary<string, MutableEventProfile> Events =
-            new(StringComparer.Ordinal);
+        // Keyed by the pair, not a joined string: a string per recorded call allocated more than the
+        // game did in some profiles (Kinfield: 13 MB in 12 s).
+        private static readonly Dictionary<(string Object, string Event), MutableEventProfile> Events = new();
         private static volatile bool _enabled;
 
         public static bool Enabled
@@ -68,7 +69,7 @@ namespace Genesis.Runtime.Scripting
 
             objectName ??= "<object>";
             eventName ??= "<event>";
-            string key = objectName + '\u001f' + eventName;
+            var key = (objectName, eventName);
             lock (Gate)
             {
                 if (!Events.TryGetValue(key, out MutableEventProfile profile))

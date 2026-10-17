@@ -2296,10 +2296,22 @@ namespace Genesis.Rendering.Primitives
             if (matrixCount <= 0)
                 return SkinPaletteHandle.Invalid;
 
+            // A palette released earlier of the same size is reused: clip-frame palettes come and go
+            // as characters animate, and each new one made a GPU buffer and its upload copy
+            // (Golden Stag's tavern: a tenth of its allocation).
+            GpuBufferHandle buffer;
+            Matrix4x4[] matrices;
+            if (_sparePalettes.TryGetValue(matrixCount, out var spare) && spare.Count > 0)
+                (buffer, matrices) = spare.Pop();
+            else
+            {
+                buffer = CreateSkinMatrixBuffer(matrixCount);
+                matrices = new Matrix4x4[matrixCount];
+            }
             var entry = new SkinPaletteEntry
             {
-                Buffer = CreateSkinMatrixBuffer(matrixCount),
-                Matrices = new Matrix4x4[matrixCount],
+                Buffer = buffer,
+                Matrices = matrices,
                 MatrixCount = matrixCount,
                 IsReleased = false,
             };
@@ -2325,10 +2337,16 @@ namespace Genesis.Rendering.Primitives
             ref SkinPaletteEntry entry = ref System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_skinPalettes)[idx];
             if (entry.IsReleased)
                 return;
-            _gpu.ReleaseBuffer(entry.Buffer);
+            if (!_sparePalettes.TryGetValue(entry.MatrixCount, out var pool))
+                _sparePalettes[entry.MatrixCount] = pool = new Stack<(GpuBufferHandle, Matrix4x4[])>();
+            if (pool.Count < MaxSparePalettesPerSize) pool.Push((entry.Buffer, entry.Matrices));
+            else _gpu.ReleaseBuffer(entry.Buffer);
             entry = new SkinPaletteEntry { IsReleased = true };
             _freeSkinPaletteIds.Push(handle.Id);
         }
+
+        private const int MaxSparePalettesPerSize = 64;
+        private readonly Dictionary<int, Stack<(GpuBufferHandle Buffer, Matrix4x4[] Matrices)>> _sparePalettes = new();
 
         public void UpdateSkinPalette(SkinPaletteHandle handle, ReadOnlySpan<Matrix4x4> matrices)
         {

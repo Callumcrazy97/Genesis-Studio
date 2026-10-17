@@ -48,6 +48,19 @@ namespace Genesis.Runtime.Scripting.PG
             }
         }
 
+        /// <summary>The entry as a number without boxing it, when the list holds only numbers and the
+        /// index is inside it; false otherwise (read it with <see cref="Get"/>).</summary>
+        public bool TryGetNumber(double index, out double value)
+        {
+            if (!_useObjects && index >= 0 && index < _numbers.Count)
+            {
+                value = _numbers[(int)index];
+                return true;
+            }
+            value = 0;
+            return false;
+        }
+
         public object Get(int index)
         {
             if (index < 0) return 0;

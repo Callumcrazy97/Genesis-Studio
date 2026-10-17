@@ -201,6 +201,27 @@ namespace Genesis.Runtime.Modeling
                 : bones[index].BindLocal;
         }
 
+        /// <summary>
+        /// One bone's model-space transform from a local pose: its own chain of parents only, with no
+        /// arrays. A socket needs one bone, and every attachment built the whole skeleton's transforms
+        /// every frame (Golden Stag's tavern: a quarter of its allocation).
+        /// </summary>
+        public static Matrix4x4 ComputeBoneWorld(IReadOnlyList<GModelBone> bones, Matrix4x4[] localTransforms, int boneIndex)
+        {
+            int count = bones?.Count ?? 0;
+            if (boneIndex < 0 || boneIndex >= count) return Matrix4x4.Identity;
+            Matrix4x4 world = localTransforms != null && boneIndex < localTransforms.Length ? localTransforms[boneIndex] : bones[boneIndex].BindLocal;
+            int index = boneIndex;
+            for (int guard = 0; guard < count; guard++)
+            {
+                int parent = bones[index].ParentIndex;
+                if (parent < 0 || parent >= count || parent == index) break;
+                world *= localTransforms != null && parent < localTransforms.Length ? localTransforms[parent] : bones[parent].BindLocal;
+                index = parent;
+            }
+            return world;
+        }
+
         public static Matrix4x4[] EvaluateAnimatedLocals(GModelAsset asset, RuntimeModelAnimationState animation)
         {
             if (asset?.Rig?.Bones == null || asset.Rig.Bones.Count == 0)

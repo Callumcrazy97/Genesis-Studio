@@ -1111,7 +1111,11 @@ public class PgslVm
                     object indexed = collection.ToObject();
                     // A list read by a number needs no boxed index (list[i] in loops boxed one per read).
                     if (indexVal.IsUnboxedNumber && !indexVal.IsBoolean && indexed is PGList fastList)
-                        _stack.Push(VmValue.FromObject(Genesis.Runtime.Scripting.PgslCommands.ReadListEntry(fastList, indexVal.UnboxedNumber)));
+                    {
+                        // A list of numbers hands the number back unboxed too.
+                        if (fastList.TryGetNumber(indexVal.UnboxedNumber, out double number)) _stack.Push(number);
+                        else _stack.Push(VmValue.FromObject(Genesis.Runtime.Scripting.PgslCommands.ReadListEntry(fastList, indexVal.UnboxedNumber)));
+                    }
                     else
                         _stack.Push(VmValue.FromObject(GetIndexValue(indexed, indexVal.ToObject())));
                 }
