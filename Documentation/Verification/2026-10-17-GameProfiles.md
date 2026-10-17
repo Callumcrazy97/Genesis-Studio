@@ -36,22 +36,32 @@ GenesisCraft was not run here (its own session was measuring it); its latest pro
 | `ScreenshotSave` encoded the PNG on the game thread (about 110 ms a picture) | Cathedral Test | Encoded on a worker; flushed at exit |
 | Models a Script function names for `DrawModel3D` were not in the first-room preload (a 175 ms first draw) | Cathedral Test | The preload follows calls into Script resources |
 | Post effects had no world-to-clip matrix, and the docs' `float4x4` read the camera matrices transposed | Cathedral Test's floor reflections | `ViewProjection` added; docs say `row_major` |
+| Every animated sprite built a list of its playable frames on every advance | Kinfield: a third of what remained | One shared array per run of frames |
+| Attachment sockets built every bone's world transform to find one bone | Golden Stag: a quarter | The bone's own chain only |
+| Each new clip frame made a GPU skin palette and its upload copy | Golden Stag | Released palettes are reused by size |
+| A call by a name that is no Script searched the catalog and the disk every time | Kinfield | Misses remembered until the asset policy says to look again |
+| Reading a list of numbers boxed each number | Kinfield | `PGList.TryGetNumber` |
 
-Commits: 82dce27 (game profiles), 82fce20 (Cathedral Test profile).
+Commits: 82dce27 (game profiles), 82fce20 (Cathedral Test profile), 9e40b21 (list indexes, tests), a62ca5c (third round).
 
 ## Before and after (same build method, quiet machine)
 
 | Project, room | Steady allocation | Longest GC pause | Script time | Other |
 |---|---|---|---|---|
-| Kinfield 25D, Pennywick | 320 → 152 KB/frame | 50 → 6 ms | 1.43 → 0.76 ms/frame | Load allocation 2.2 GB → 0.4 GB; start to "boot ready" about 4.4 → 2.7 s; worst frame 106 → 19 ms |
+| Kinfield 25D, Pennywick | 320 → 16 KB/frame | 50 → 11 ms | 1.43 → 0.68 ms/frame | Load allocation 2.2 GB → 0.4 GB; start to "boot ready" about 4.4 → 2.7 s; worst frame 106 → 19 ms |
 | Aetherium, island | 706 → 64 KB/frame | 47 → 39 ms | unchanged | Sampled allocation in 12 s: 333 → 60 MB |
 | Mushroom Meadow, meadow | 96 → 64 KB/frame | 40 → 7 ms | 1.10 → 0.97 ms/frame | |
-| Golden Stag, tavern | 128 → 120 KB/frame | 10 → 4.5 ms | (C# scripts) | |
+| Golden Stag, tavern | 128 → 64 KB/frame | 10 → 4.4 ms | (C# scripts) | Allocation 23 → 17 MB/s |
 | Multiplayer Test, arena | 21 KB/frame | none | 0.21 ms/frame | Nothing to fix |
 | Cathedral Test (3-minute guided tour) | 87 KB/frame | 4 ms | 0.58 ms/frame | Ultra tier with volumetric haze and floor reflections: 59.8 fps, p99 17.4 ms, worst 31 ms, GPU 2.4 ms; script pictures no longer hitch; first draws preloaded |
 
 All of them hold 60 fps at the 95th percentile; the differences are in hitches, collections and
 memory churn, which is what long sessions and slower machines feel.
+
+## The Player's GC mode
+Aetherium (the largest heap measured here, 1.3 GB) was run twice. With the Player's
+SustainedLowLatency the collector paused for 137 ms in all, 42 ms at most; with .NET's default
+(`GENESIS_GC_LATENCY=interactive`) for 243 ms, 82 ms at most. The Player keeps SustainedLowLatency.
 
 ## Still open
 

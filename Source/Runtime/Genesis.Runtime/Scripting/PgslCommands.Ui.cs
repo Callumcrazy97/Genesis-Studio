@@ -270,6 +270,11 @@ public static partial class PgslCommands
         return false;
     }
 
+    // Made once per asset, element and property: every element's visibility (and its parents'),
+    // text and value were looked up with a freshly joined key every frame (Mushroom Meadow's menus).
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<(string Asset, string Id, string Property), string> UiOverrideKeys = new();
+
     private static string UiOverrideKey(string asset, string id, string property) =>
-        "__ui:" + asset + ":" + id + ":" + property;
+        UiOverrideKeys.GetOrAdd((asset ?? string.Empty, id ?? string.Empty, property ?? string.Empty),
+            static key => "__ui:" + key.Asset + ":" + key.Id + ":" + key.Property);
 }
