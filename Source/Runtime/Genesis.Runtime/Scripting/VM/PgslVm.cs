@@ -1699,6 +1699,30 @@ public class PgslVm
                 return PgslRegisterFile.Read(ctx, slot);
         }
 
+        if (_bridge is PgslEngineBridge engine)
+        {
+            // A name nothing has set is answered without an exception (see TryInvokeKnown).
+            bool known;
+            object value;
+            try { known = engine.TryInvokeKnown(name, Array.Empty<object>(), out value); }
+            catch (Exception ex) when (ex is not Genesis.Runtime.Scripting.PgslWorkerJobException)
+            {
+                VMLogger.LogDiag1D($"LOAD_VAR '{name}' fallback 0: {ex.Message}");
+                Genesis.Runtime.Scripting.PgslRuntimeDiagnostics.Note(Genesis.Runtime.Scripting.PgslNoteKind.ReadFailed, name, ex.Message);
+                return 0;
+            }
+            if (known) return VmValue.FromObject(value);
+            // As before: a Script that did not compile is a failed read with its reason; anything
+            // else is a name read before anything set it.
+            string why = Genesis.Runtime.Scripting.ScriptAssetRegistry.DescribeUnknown(name);
+            bool unset = why.Contains("Unknown command", StringComparison.OrdinalIgnoreCase);
+            if (!unset) VMLogger.LogDiag1D($"LOAD_VAR '{name}' fallback 0: {why}");
+            Genesis.Runtime.Scripting.PgslRuntimeDiagnostics.Note(
+                unset ? Genesis.Runtime.Scripting.PgslNoteKind.UnresolvedRead : Genesis.Runtime.Scripting.PgslNoteKind.ReadFailed,
+                name, unset ? "read before anything set it; used 0" : why);
+            return 0;
+        }
+
         try { return VmValue.FromObject(_bridge.Invoke(name, Array.Empty<object>())); }
         // In a worker job a name with no value is an error, not 0: nothing else can have set it.
         catch (Exception ex) when (ex is not Genesis.Runtime.Scripting.PgslWorkerJobException)

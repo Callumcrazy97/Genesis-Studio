@@ -41,6 +41,8 @@ GenesisCraft was not run here (its own session was measuring it); its latest pro
 | Each new clip frame made a GPU skin palette and its upload copy | Golden Stag | Released palettes are reused by size |
 | A call by a name that is no Script searched the catalog and the disk every time | Kinfield | Misses remembered until the asset policy says to look again |
 | Reading a list of numbers boxed each number | Kinfield | `PGList.TryGetNumber` |
+| Each UI element's override keys were joined strings, made per lookup per frame | Mushroom Meadow's menus | Keys made once per asset, element and property |
+| A variable read before anything set it threw and caught an exception on every read | GenesisCraft's title screen, every frame | `PgslEngineBridge.TryInvokeKnown`: no exception; the same diagnostics note |
 
 Commits: 82dce27 (game profiles), 82fce20 (Cathedral Test profile), 9e40b21 (list indexes, tests), a62ca5c (third round).
 

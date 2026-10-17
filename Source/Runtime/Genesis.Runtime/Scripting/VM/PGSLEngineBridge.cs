@@ -406,57 +406,87 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
 
     public object Invoke(string name, object[] args)
     {
+        if (TryInvokeKnown(name, args, out object result))
+            return result;
+        VMLogger.LogWarn1D($"Unknown PGSL command: {name}");
+        // A Script that did not compile (or a library whose function this is) is unknown for
+        // that reason, and the error says which and where.
+        throw new InvalidOperationException(Genesis.Runtime.Scripting.ScriptAssetRegistry.DescribeUnknown(name));
+    }
+
+    /// <summary>
+    /// <see cref="Invoke"/> for a name that may be nothing: false instead of an exception when no
+    /// Script, command, property or context value has that name. A variable read before anything
+    /// set it threw and caught an exception on every read (GenesisCraft's title, every frame).
+    /// Errors inside a command still throw, as from <see cref="Invoke"/>.
+    /// </summary>
+    public bool TryInvokeKnown(string name, object[] args, out object result)
+    {
+        result = null;
         if (_workerAllows != null)
-            return InvokeInWorker(name, args);
+        {
+            result = InvokeInWorker(name, args);
+            return true;
+        }
 
         if (TryInvokeScriptAsset(name, args, out var scriptResult))
-            return scriptResult;
+        {
+            result = scriptResult;
+            return true;
+        }
 
         if (!_commandDefs.TryGetValue(name, out var def))
         {
             if (PgslNamespaceResolver.TryResolveEngineCommand(name, out _, out _))
-                return PgslNamespaceResolver.InvokeEngineCommand(name, args);
+            {
+                result = PgslNamespaceResolver.InvokeEngineCommand(name, args);
+                return true;
+            }
 
             var propRef = GetOrCacheProperty(name);
             if (propRef != null)
             {
-                if (args.Length == 0) return propRef.GetValue(null);
-                propRef.SetValue(null, ConvertArg(args[0], propRef.PropertyType));
-                return null;
+                if (args.Length == 0) result = propRef.GetValue(null);
+                else propRef.SetValue(null, ConvertArg(args[0], propRef.PropertyType));
+                return true;
             }
 
             var methodRef = GetOrCacheMethod("PgslCommands." + name, args?.Length ?? 0);
             if (methodRef != null)
-                return CallMethod("PgslCommands." + name, args);
+            {
+                result = CallMethod("PgslCommands." + name, args);
+                return true;
+            }
 
             if (_context != null)
             {
                 var prop = ResolveContextProperty(name);
                 if (prop != null)
                 {
-                    if (args.Length == 0) return prop.GetValue(_context);
+                    if (args.Length == 0)
+                    {
+                        result = prop.GetValue(_context);
+                        return true;
+                    }
                     if (args.Length == 1 && prop.CanWrite)
                     {
                         prop.SetValue(_context, ConvertArg(args[0], prop.PropertyType));
-                        return null;
+                        return true;
                     }
                 }
             }
-
-            VMLogger.LogWarn1D($"Unknown PGSL command: {name}");
-            // A Script that did not compile (or a library whose function this is) is unknown for
-            // that reason, and the error says which and where.
-            throw new InvalidOperationException(Genesis.Runtime.Scripting.ScriptAssetRegistry.DescribeUnknown(name));
+            return false;
         }
 
         if (def.IsProperty)
         {
-            if (args.Length == 0) return GetProperty(def.Name);
-            SetProperty(def.Name, args[0]);
-            return null;
+            if (args.Length == 0) result = GetProperty(def.Name);
+            else SetProperty(def.Name, args[0]);
+            return true;
         }
 
-        return CallMethod(def.CSharpMember, args);
+        result = CallMethod(def.CSharpMember, args);
+        return true;
     }
 
     public bool TrySetProperty(string name, object value)
