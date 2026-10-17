@@ -153,11 +153,12 @@ internal static class AntiAliasingSuite
             using Genesis.Application.Studio.Forms.PreferencesForm preferences = new(settings, project);
             GateSuite.ShowHost(preferences);
             GateSuite.Pump(3, 15);
-            Check(preferences.SelectCategory("Project"), "Preferences has no Project page.");
+            // Since the 16 October redo, project look settings are on the Game page.
+            Check(preferences.SelectCategory("Game"), "Preferences has no Game page.");
             GateSuite.Pump(3, 15);
             ComboBox picker = Descendants(preferences).OfType<ComboBox>().Single(combo => combo.Name == "AntiAliasingPicker");
             Check(picker.Visible && picker.SelectedIndex == 0 && string.Join(",", picker.Items.Cast<object>()) == "Off,FXAA,SMAA",
-                $"The Project page does not offer Off/FXAA/SMAA with Off chosen: visible={picker.Visible} index={picker.SelectedIndex}.");
+                $"The Game page does not offer Off/FXAA/SMAA with Off chosen: visible={picker.Visible} index={picker.SelectedIndex}.");
             Button apply = Descendants(preferences).OfType<Button>().Single(button => button.Name == "ApplyPreferences");
             try
             {

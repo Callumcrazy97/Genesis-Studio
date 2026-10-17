@@ -1108,7 +1108,12 @@ public class PgslVm
                     if (_stack.Count < 2) throw new InvalidOperationException("Stack underflow on GET_INDEX");
                     var indexVal = _stack.Pop();
                     var collection = _stack.Pop();
-                    _stack.Push(VmValue.FromObject(GetIndexValue(collection.ToObject(), indexVal.ToObject())));
+                    object indexed = collection.ToObject();
+                    // A list read by a number needs no boxed index (list[i] in loops boxed one per read).
+                    if (indexVal.IsUnboxedNumber && !indexVal.IsBoolean && indexed is PGList fastList)
+                        _stack.Push(VmValue.FromObject(Genesis.Runtime.Scripting.PgslCommands.ReadListEntry(fastList, indexVal.UnboxedNumber)));
+                    else
+                        _stack.Push(VmValue.FromObject(GetIndexValue(indexed, indexVal.ToObject())));
                 }
                 break;
 
@@ -1118,7 +1123,11 @@ public class PgslVm
                     var setVal = _stack.Pop();
                     var setIdx = _stack.Pop();
                     var setColl = _stack.Pop();
-                    SetIndexValue(setColl.ToObject(), setIdx.ToObject(), setVal.ToObject());
+                    object target = setColl.ToObject();
+                    if (setIdx.IsUnboxedNumber && !setIdx.IsBoolean && target is PGList fastTarget)
+                        Genesis.Runtime.Scripting.PgslCommands.WriteListEntry(fastTarget, setIdx.UnboxedNumber, setVal.ToObject());
+                    else
+                        SetIndexValue(target, setIdx.ToObject(), setVal.ToObject());
                 }
                 break;
 

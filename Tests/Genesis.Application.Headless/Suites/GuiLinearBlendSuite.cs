@@ -75,11 +75,12 @@ internal static class GuiLinearBlendSuite
             using Genesis.Application.Studio.Forms.PreferencesForm preferences = new(settings, project);
             GateSuite.ShowHost(preferences);
             GateSuite.Pump(3, 15);
-            HeadlessHarness.Assert(preferences.SelectCategory("Project"), "Preferences has no Project page.");
+            // Since the 16 October redo, project look settings are on the Game page, and a switch's label is its row.
+            HeadlessHarness.Assert(preferences.SelectCategory("Game"), "Preferences has no Game page.");
             GateSuite.Pump(3, 15);
             CheckBox box = Descendants(preferences).OfType<CheckBox>().Single(check => check.Name == "BlendGuiInLinearLightPicker");
-            HeadlessHarness.Assert(box.Visible && !box.Checked && box.Text == "Blend GUI in linear light",
-                "The Project page does not offer Blend GUI in linear light, unticked: visible=" + box.Visible + " checked=" + box.Checked + " '" + box.Text + "'");
+            HeadlessHarness.Assert(box.Visible && !box.Checked,
+                "The Game page does not offer Blend GUI in linear light, unticked: visible=" + box.Visible + " checked=" + box.Checked + " '" + box.Text + "'");
             box.Checked = true;
             Button apply = Descendants(preferences).OfType<Button>().Single(button => button.Name == "ApplyPreferences");
             apply.PerformClick();

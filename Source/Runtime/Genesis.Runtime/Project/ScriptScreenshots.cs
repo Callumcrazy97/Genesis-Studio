@@ -22,7 +22,17 @@ namespace Genesis.Runtime.Project
         public static int Saved { get; private set; }
 
         /// <summary>Pictures asked for and not yet written: still to be read back, or being encoded.</summary>
-        public static int PendingCount { get { lock (Gate) return Pending.Count + Writing.Count; } }
+        public static int PendingCount
+        {
+            get
+            {
+                lock (Gate)
+                {
+                    Writing.RemoveAll(static task => task.IsCompleted);
+                    return Pending.Count + Writing.Count;
+                }
+            }
+        }
 
         // Read-back pixels being encoded and written on workers. Encoding a 1920x1080 PNG on the
         // game thread held the frame it was taken in for about 110 ms (Cathedral Test's shots).

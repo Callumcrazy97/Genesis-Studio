@@ -221,7 +221,12 @@ public sealed partial class PreferencesForm
         foreach (Control control in controls)
         {
             control.Margin = new Padding(0, 2, 8, 2);
-            if (control is ModernButton button) ShellDialogLayout.FitButton(button);
+            if (control is ModernButton button)
+            {
+                ShellDialogLayout.FitButton(button);
+                // Sized for its text again when the dialog's font grows (larger text settings).
+                button.FontChanged += (_, _) => ShellDialogLayout.FitButton(button);
+            }
             row.Controls.Add(control);
         }
         return row;

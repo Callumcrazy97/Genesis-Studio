@@ -38,6 +38,8 @@ internal static class ReadbackAlphaSuite
             renderer.ComposeOverlay(static _ => { });
             Genesis.Runtime.Project.ScriptScreenshots.CaptureFrame(renderer, project);
             renderer.Present();
+            // Pictures are encoded on a worker; Flush waits for them as a game's exit does.
+            Genesis.Runtime.Project.ScriptScreenshots.Flush();
             string path = Genesis.Runtime.Project.ScriptScreenshots.LastPath;
             Assert(File.Exists(path), $"The picture '{view.Name}' was not saved.");
             using Bitmap picture = new(path);

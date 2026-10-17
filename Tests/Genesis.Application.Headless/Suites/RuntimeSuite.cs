@@ -546,8 +546,9 @@ internal static class RuntimeSuite
             string root = project.RootPath;
 
             HeadlessHarness.Assert(
-                ProjectTemplateCatalog.Find("3D")?.Available == true,
-                "The implemented 3D template is still unavailable in the Project Hub.");
+                // The Hub's 3D template is Tumble Isles since the 16 October purge; "3D" still builds for this check.
+                ProjectTemplateCatalog.Find(Genesis.Application.Core.Projects.Templates.TumbleIslesTemplate.TemplateId)?.Available == true,
+                "No 3D template is offered in the Project Hub.");
             foreach (string expected in new[]
                      {
                          "Assets/Objects/Player.object.json",
