@@ -619,7 +619,13 @@ namespace Genesis.Runtime.Scripting
                 if (call.Alpha < 0.999f)
                     call.Flags |= MeshDrawFlags.Transparent | MeshDrawFlags.NoDepthWrite | MeshDrawFlags.NoShadow;
                 if (call.Alpha < 0.999f && (call.Flags & MeshDrawFlags.Emissive) != 0)
+                {
                     call.Flags |= MeshDrawFlags.Additive;
+                    // Additive blending adds the colour as it is, so the alpha has to fade the colour
+                    // itself: before this a glowing model drawn at DrawSetAlpha(0.1) was added at full
+                    // strength (Cathedral Test's light shafts came out as solid planks).
+                    call.Tint = new RenderColor(call.Tint.R * call.Alpha, call.Tint.G * call.Alpha, call.Tint.B * call.Alpha, call.Tint.A);
+                }
                 if (floorAsset)
                     call.Flags |= MeshDrawFlags.IsFloor | MeshDrawFlags.NoCull | MeshDrawFlags.NoShadow;
                 if (!string.IsNullOrWhiteSpace(shaderName))

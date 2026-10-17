@@ -1079,7 +1079,7 @@ internal static class HeadlessTestRunner
         Suites.PgslPreprocessingSuite.Run(ctx);
         Suites.PgslPersistenceSuite.Run(ctx);
         Suites.PgslCompileCacheSuite.Run(ctx);
-        Suites.PgslValueSuite.Run(ctx);
+        Suites.PgslValueSuite.Run(ctx); Suites.ProfileRoundSuite.Run(ctx);
         Suites.RoomPalettePlacementSuite.Run(ctx);
         Suites.RoomObjectsPanelSuite.Run(ctx);
         Suites.RoomCompletionSuite.Run(ctx);
@@ -1570,7 +1570,7 @@ internal static class HeadlessTestRunner
                 break;
             case "pgsl-engine":
                 Suites.PgslCompileCacheSuite.Run(ctx);
-                Suites.PgslValueSuite.Run(ctx);
+                Suites.PgslValueSuite.Run(ctx); Suites.ProfileRoundSuite.Run(ctx);
                 Suites.PgslPersistenceSuite.Run(ctx);
                 break;
             case "pgsl-cache":
@@ -1580,7 +1580,7 @@ internal static class HeadlessTestRunner
                 Suites.WorldStreamingSuite.Run(ctx);
                 break;
             case "pgsl-values":
-                Suites.PgslValueSuite.Run(ctx);
+                Suites.PgslValueSuite.Run(ctx); Suites.ProfileRoundSuite.Run(ctx);
                 break;
             case "text-rendering":
                 Suites.TextRenderingSuite.Run(ctx);
