@@ -81,7 +81,6 @@ SustainedLowLatency the collector paused for 137 ms in all, 42 ms at most; with 
   - a 27 ms frame at the first translucent glowing draw (no allocation, so likely a shader variant
     or render state made on first use);
   - each `ScreenshotSave` allocates an 8 MB frame copy (`TryReadSubmittedFramePixels`) on the large
-    object heap, which caused the run's two full collections;
-  - a room object's pitch (`InstanceSetRotation3D(id, -90, 0, 0)`, or a room node's X rotation) left
-    an animated model upright in Cathedral Test, though every render path reads `RotationX`. Not yet
-    reproduced in a test.
+    object heap, which caused the run's two full collections.
+  After the fix: 52.1 KB a frame (from 56.6), the delegate gone from the allocation samples; most of
+  what is left is the check's own screenshots.
