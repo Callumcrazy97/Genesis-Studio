@@ -373,14 +373,13 @@ namespace Genesis.Runtime.Scripting
                 PgslCommands.ProjectPath = Game.ResolveAssetPath(".");
 
                 _vm.LoadUserFunctions(asset.CompileResult.UserFunctions);
-                _vm.Execute(asset.CompileResult.Instructions, asset.CompileResult.Constants, clearVariables: false);
+                // A top-level `return;` ends the event normally, without an exception.
+                _vm.ExecuteEvent(asset.CompileResult.Instructions, asset.CompileResult.Constants, clearVariables: false);
             }
             catch (ReturnException)
             {
-                // PgslVm uses ReturnException only to unwind a top-level event `return;`. User
-                // function returns are already consumed inside the VM. Reaching here therefore
-                // means the event completed intentionally; treating it as a script fault prevented
-                // SyncFromContext and filled the debugger with false-positive red diagnostics.
+                // Kept for a return that still unwinds as an exception from a nested runner: the
+                // event completed intentionally, so it is not a script fault.
             }
             catch (Exception ex)
             {
@@ -833,17 +832,31 @@ namespace Genesis.Runtime.Scripting
             asset = null;
             if (string.IsNullOrWhiteSpace(image)) return false;
             if (SpriteAssetLoader.TryGetCachedAsset(image, out asset)) return true;
+            // A name that resolves to no sprite is remembered until the asset policy says to look
+            // again: Aetherium named one every frame, and each miss searched the catalog and threw
+            // FileNotFoundException (about a fifth of its allocation).
+            long now = Environment.TickCount64;
+            long generation = Genesis.Shared.Assets.RuntimeAssetPolicy.Generation;
+            lock (UnresolvedSprites)
+                if (UnresolvedSprites.TryGetValue(image, out (long Generation, long NextCheck) miss)
+                    && miss.Generation == generation && now < miss.NextCheck)
+                    return false;
             try
             {
                 asset = SpriteAssetLoader.Load(PgslCommands.ProjectPath, image);
-                return asset != null;
+                if (asset != null) return true;
             }
             catch (Exception exception) when (
                 exception is IOException or UnauthorizedAccessException or InvalidDataException
                 or System.Text.Json.JsonException or ArgumentException)
             {
-                return false;
             }
+            lock (UnresolvedSprites)
+                UnresolvedSprites[image] = (generation, Genesis.Shared.Assets.RuntimeAssetPolicy.NextCheck(now,
+                    Math.Max(1000, Genesis.Shared.Assets.RuntimeAssetPolicy.FramePathIntervalMilliseconds), image.GetHashCode()));
+            return false;
         }
+
+        private static readonly Dictionary<string, (long Generation, long NextCheck)> UnresolvedSprites = new(StringComparer.OrdinalIgnoreCase);
     }
 }

@@ -20,11 +20,14 @@ public static partial class PgslCommands
     public static IGameContext ActiveGameContext;
     public static string ProjectPath;
 
-    private static readonly AsyncLocal<PgslContext> _ctx = new();
-    internal static PgslContext Ctx => _ctx.Value ?? throw new InvalidOperationException("No active PGSL context.");
+    // Per thread, not AsyncLocal: every event binds its instance's context and puts the previous one
+    // back, and each AsyncLocal change allocated a new ExecutionContext (Kinfield: 212 MB in 45 s
+    // over 950,000 event calls). Scripts run synchronously; job workers bind their own context.
+    [ThreadStatic] private static PgslContext _ctx;
+    internal static PgslContext Ctx => _ctx ?? throw new InvalidOperationException("No active PGSL context.");
 
-    internal static void SetContext(PgslContext ctx) => _ctx.Value = ctx;
-    public static PgslContext GetContext() => _ctx.Value;
+    internal static void SetContext(PgslContext ctx) => _ctx = ctx;
+    public static PgslContext GetContext() => _ctx;
 
     /// <summary>
     /// Binds a context (and its <see cref="PgslContext.DrawSurface"/>) for direct command
@@ -34,8 +37,8 @@ public static partial class PgslCommands
     /// </summary>
     public static PgslContext BindContext(PgslContext ctx)
     {
-        PgslContext previous = _ctx.Value;
-        _ctx.Value = ctx;
+        PgslContext previous = _ctx;
+        _ctx = ctx;
         return previous;
     }
 

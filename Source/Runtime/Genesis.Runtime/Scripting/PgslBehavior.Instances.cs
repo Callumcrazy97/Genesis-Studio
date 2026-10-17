@@ -55,35 +55,55 @@ namespace Genesis.Runtime.Scripting
             var found = new List<object>();
             if (string.IsNullOrWhiteSpace(target)) return found;
             string name = target.Trim();
-            var world = PgslCommands.ActiveGameContext?.World;
-            PgslBehavior[] snapshot;
-            lock (LiveInstances)
+            if (double.TryParse(name, NumberStyles.Float, CultureInfo.InvariantCulture, out double id))
             {
-                LiveInstances.RemoveAll(instance => !instance.IsAlive);
-                snapshot = LiveInstances.ToArray();
+                if (FindById(id) is { } one) found.Add(one);
+                return found;
             }
-
-            bool byId = double.TryParse(name, NumberStyles.Float, CultureInfo.InvariantCulture, out double id);
-            bool all = string.Equals(name, "all", StringComparison.OrdinalIgnoreCase);
-            foreach (PgslBehavior instance in snapshot)
+            var world = PgslCommands.ActiveGameContext?.World;
+            // A reused list, not a copy per `with` (Aetherium: 319 MB of PgslBehavior[] in 45 s).
+            // Taken off the thread while in use, in case a matcher below looks targets up again.
+            List<PgslBehavior> snapshot = _targetScratch ?? new List<PgslBehavior>();
+            _targetScratch = null;
+            try
             {
-                if (world != null && instance.World != world) continue;
-                bool matches = byId
-                    ? instance.Entity.Id == id
-                    : all || PgslCommands.InstanceIsObject(instance.Entity.Id, name)
+                lock (LiveInstances)
+                {
+                    LiveInstances.RemoveAll(static instance => !instance.IsAlive);
+                    snapshot.AddRange(LiveInstances);
+                }
+
+                bool all = string.Equals(name, "all", StringComparison.OrdinalIgnoreCase);
+                foreach (PgslBehavior instance in snapshot)
+                {
+                    if (world != null && instance.World != world) continue;
+                    bool matches = all || PgslCommands.InstanceIsObject(instance.Entity.Id, name)
                         || Genesis.Runtime.Scene.ObjectNameMatcher.Matches(instance._scriptName ?? string.Empty, name);
-                if (matches) found.Add(instance);
+                    if (matches) found.Add(instance);
+                }
+            }
+            finally
+            {
+                snapshot.Clear();
+                _targetScratch = snapshot;
             }
             return found;
         }
 
+        [ThreadStatic] private static List<PgslBehavior> _targetScratch;
+
         /// <summary>The live PGSL instance with this id in the running game, or null.</summary>
         internal static PgslBehavior FindById(double id)
         {
-            List<object> found = double.IsFinite(id) && id >= 1
-                ? FindTargets(id.ToString(CultureInfo.InvariantCulture))
-                : new List<object>();
-            return found.Count > 0 ? (PgslBehavior)found[0] : null;
+            if (!double.IsFinite(id) || id < 1) return null;
+            var world = PgslCommands.ActiveGameContext?.World;
+            lock (LiveInstances)
+            {
+                foreach (PgslBehavior instance in LiveInstances)
+                    if (instance.IsAlive && (world == null || instance.World == world) && instance.Entity.Id == id)
+                        return instance;
+            }
+            return null;
         }
     }
 }

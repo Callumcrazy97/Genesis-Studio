@@ -97,7 +97,7 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
         foreach (RoomNode node in room.Nodes)
         {
             if (node.Kind != RoomNodeKind.Terrain || !node.Enabled || !node.Supports(room.Dimension) ||
-                room.Layers.Find(layer => layer.Id == node.LayerId)?.Enabled == false ||
+                room.FindLayer(node.LayerId)?.Enabled == false ||
                 string.IsNullOrWhiteSpace(node.Terrain?.Asset)) continue;
             string binaryPath = ResolveTerrainFile(_projectPath, node.Terrain.Asset);
             if (binaryPath == null) continue;
@@ -492,7 +492,7 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
 
     public static bool ShouldRegister(RoomAsset room) => room?.Nodes.Exists(node =>
         node.Kind == RoomNodeKind.Terrain && node.Enabled && node.Supports(room.Dimension) &&
-        room.Layers.Find(layer => layer.Id == node.LayerId)?.Enabled != false &&
+        room.FindLayer(node.LayerId)?.Enabled != false &&
         !string.IsNullOrWhiteSpace(node.Terrain?.Asset)) == true;
 
     public void Update(RuntimeScene scene, GameTime time)

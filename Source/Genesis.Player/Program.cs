@@ -24,7 +24,10 @@ internal static class Program
         // A game, not a batch job: full collections run in the background rather than stopping every
         // thread (GenesisCraft streaming chunks: a blocking gen 2 froze one frame for 561 ms). Only a
         // collection Windows forces under real memory pressure still blocks.
-        System.Runtime.GCSettings.LatencyMode = System.Runtime.GCLatencyMode.SustainedLowLatency;
+        // GENESIS_GC_LATENCY=interactive keeps .NET's default mode, for comparing the two.
+        System.Runtime.GCSettings.LatencyMode = string.Equals(Environment.GetEnvironmentVariable("GENESIS_GC_LATENCY"), "interactive", StringComparison.OrdinalIgnoreCase)
+            ? System.Runtime.GCLatencyMode.Interactive
+            : System.Runtime.GCLatencyMode.SustainedLowLatency;
         // Packaging step: compile the engine's built-in shaders into the folder shipped beside
         // Studio and the Player. Opens no window and plays nothing.
         if (args.Length > 0 && string.Equals(args[0], Genesis.Rendering.Primitives.PrecompiledShaders.CommandLineSwitch, StringComparison.OrdinalIgnoreCase))

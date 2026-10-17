@@ -960,6 +960,6 @@ public sealed class RoomSceneBuilder
         _ => value?.ToString() ?? "",
     };
 
-    public static int LayerOrder(RoomAsset room, RoomNode node) => room.Layers.FirstOrDefault(l => l.Id == node.LayerId)?.Order ?? 0;
+    public static int LayerOrder(RoomAsset room, RoomNode node) => room.FindLayer(node.LayerId)?.Order ?? 0;
     private static float SafeScale(float value) => Math.Abs(value) < .0001f ? 1f : value;
 }

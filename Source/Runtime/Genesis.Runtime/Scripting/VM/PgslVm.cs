@@ -298,6 +298,22 @@ public class PgslVm
         }
     }
 
+    /// <summary>
+    /// Runs an event body. A top-level <c>return</c> just ends it: unlike <see cref="Execute"/>, no
+    /// exception is thrown for it (an `if (...) return;` at the top of a Step cost a throw a frame).
+    /// </summary>
+    public void ExecuteEvent(List<Instruction> instructions, List<object> constants, bool clearVariables = false)
+    {
+        try
+        {
+            ExecuteCore(PgslProgram.ForTopLevel(instructions, constants), instructions, constants, clearVariables);
+        }
+        finally
+        {
+            Debugger?.OnCompleted();
+        }
+    }
+
     private ExecutionResult ExecuteCore(
         PgslProgram program,
         List<Instruction> instructions,

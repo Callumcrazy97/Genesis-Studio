@@ -26,6 +26,9 @@ public sealed partial class PhysicsWorld
         _reportedContacts.TryAdd(a < b ? (a, b) : (b, a), 0);
     }
 
+    private readonly List<(int A, int B)> _sortedContacts = new();
+    private readonly List<KeyValuePair<int, BodyBinding>> _missingBindings = new();
+
     private void FinishContacts(IEcsWorld world)
     {
         _contactChanges.Clear();
@@ -38,7 +41,11 @@ public sealed partial class PhysicsWorld
         foreach (var pair in _contacts)
             if (!_reportedContacts.ContainsKey(pair.Key))
                 _contactChanges.Add(new(pair.Value.A, pair.Value.B, PhysicsContactPhase.Exit));
-        foreach (var pair in _reportedContacts.Keys.OrderBy(pair => pair.A).ThenBy(pair => pair.B))
+        // A reused sorted list: OrderBy/ThenBy and ConcurrentDictionary.Keys allocated on every step.
+        _sortedContacts.Clear();
+        foreach (var reported in _reportedContacts) _sortedContacts.Add(reported.Key);
+        _sortedContacts.Sort(static (x, y) => x.A != y.A ? x.A.CompareTo(y.A) : x.B.CompareTo(y.B));
+        foreach (var pair in _sortedContacts)
         {
             Entity a = _bindings.TryGetValue(pair.A, out BodyBinding? bindingA) ? bindingA.Entity : Entity.Null;
             Entity b = _bindings.TryGetValue(pair.B, out BodyBinding? bindingB) ? bindingB.Entity : Entity.Null;
@@ -46,7 +53,7 @@ public sealed partial class PhysicsWorld
             _contactChanges.Add(new(a, b, _contacts.ContainsKey(pair) ? PhysicsContactPhase.Stay : PhysicsContactPhase.Enter));
         }
         _contacts.Clear();
-        foreach (var pair in _reportedContacts.Keys)
+        foreach (var pair in _sortedContacts)
         {
             Entity a = _bindings.TryGetValue(pair.A, out BodyBinding? bindingA) ? bindingA.Entity : Entity.Null;
             Entity b = _bindings.TryGetValue(pair.B, out BodyBinding? bindingB) ? bindingB.Entity : Entity.Null;
@@ -82,9 +89,13 @@ public sealed partial class PhysicsWorld
 
     private void RemoveMissingBodyBindings(IEcsWorld world)
     {
-        foreach (var pair in _bindings.ToArray())
+        // Collected into a reused list only when a binding is gone, not copied on every step.
+        _missingBindings.Clear();
+        foreach (var binding in _bindings)
+            if (!world.IsAlive(binding.Value.Entity) || !world.Has<Genesis.Shared.ECS.Components.RigidBodyComponent>(binding.Value.Entity))
+                _missingBindings.Add(binding);
+        foreach (var pair in _missingBindings)
         {
-            if (world.IsAlive(pair.Value.Entity) && world.Has<Genesis.Shared.ECS.Components.RigidBodyComponent>(pair.Value.Entity)) continue;
             var removed = new Genesis.Shared.ECS.Components.RigidBodyComponent { RegistrationId = pair.Key };
             UnregisterEntity(world, pair.Value.Entity, ref removed);
         }

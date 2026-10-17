@@ -19,7 +19,7 @@ public static class RoomHierarchyTransforms
         while (node != null)
         {
             if (!visited.Add(node.Id) || !node.Enabled || !node.Supports(room.Dimension)) return false;
-            if (room.Layers.FirstOrDefault(layer => layer.Id == node.LayerId)?.Enabled == false) return false;
+            if (room.FindLayer(node.LayerId)?.Enabled == false) return false;
             node = Parent(room, node);
         }
         return true;

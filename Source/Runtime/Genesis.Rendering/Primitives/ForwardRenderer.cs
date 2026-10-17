@@ -856,6 +856,7 @@ namespace Genesis.Rendering.Primitives
         private readonly Dictionary<BatchKey, Batch> _batches   = new();
         private readonly List<Batch>                 _batchList = new();
         private readonly Stack<Batch>                _batchPool = new();
+        private readonly Dictionary<BatchKey, Batch> _previousBatches = new();
         private readonly Dictionary<SkinnedBatchKey, SkinnedBatch> _skinnedBatches = new();
         private readonly List<SkinnedBatch>          _skinnedBatchList = new();
         private readonly Stack<SkinnedBatch>         _skinnedBatchPool = new();
@@ -3002,7 +3003,7 @@ namespace Genesis.Rendering.Primitives
                 };
                 if (!_batches.TryGetValue(floorKey, out var floorBatch))
                 {
-                    floorBatch = RentBatch();
+                    floorBatch = RentBatch(floorKey);
                     floorBatch.MeshId = mesh.Id;
                     floorBatch.TextureId = textureId;
                     floorBatch.Texture = texture;
@@ -3104,7 +3105,7 @@ namespace Genesis.Rendering.Primitives
                     ShaderParams2 = shaderParams2, ShaderParams3 = shaderParams3, AuthoredTextures = authoredTextures };
                 if (!_batches.TryGetValue(fKey, out var fBatch))
                 {
-                    fBatch = RentBatch();
+                    fBatch = RentBatch(fKey);
                     fBatch.MeshId = mesh.Id;
                     fBatch.TextureId = textureId;
                     fBatch.Texture = texture;
@@ -3147,7 +3148,7 @@ namespace Genesis.Rendering.Primitives
                 MaterialFactors = materialFactors, EmissionColor = emissionColor };
             if (!_batches.TryGetValue(key, out var batch))
             {
-                batch = RentBatch();
+                batch = RentBatch(key);
                 batch.MeshId = mesh.Id;
                 batch.TextureId = textureId;
                 batch.Texture = texture;
@@ -3330,7 +3331,7 @@ namespace Genesis.Rendering.Primitives
             };
             if (!_batches.TryGetValue(key, out Batch batch))
             {
-                batch = RentBatch();
+                batch = RentBatch(key);
                 batch.MeshId = mesh.Id;
                 batch.TextureId = textureId;
                 batch.Texture = texture;
@@ -6255,9 +6256,13 @@ namespace Genesis.Rendering.Primitives
 
         // ── Accumulator clear ─────────────────────────────────────────────────────
 
-        private Batch RentBatch()
+        private Batch RentBatch(in BatchKey key)
         {
-            Batch batch = _batchPool.Count > 0 ? _batchPool.Pop() : new Batch();
+            // The batch that drew this key last frame first: its instance list already has the room.
+            // From the pool, a big batch's list regrew from a smaller one's every frame (Aetherium:
+            // 70 MB of InstanceGpu[] in 12 s).
+            Batch batch = _previousBatches.Remove(key, out Batch kept) ? kept
+                : _batchPool.Count > 0 ? _batchPool.Pop() : new Batch();
             batch.SubmissionOrder = 0;
             batch.MeshId = 0;
             batch.TextureId = 0;
@@ -6345,11 +6350,15 @@ namespace Genesis.Rendering.Primitives
         private void ClearAccumulators()
         {
             _submittedSkinPalettes.Clear();
-            foreach (var b in _batchList)
-            {
-                b.Instances.Clear();
+            // Batches not drawn again this frame go back to the pool; this frame's wait a frame for
+            // their own key (RentBatch).
+            foreach (var b in _previousBatches.Values)
                 _batchPool.Push(b);
-            }
+            _previousBatches.Clear();
+            foreach (var b in _batchList)
+                b.Instances.Clear();
+            foreach (var pair in _batches)
+                _previousBatches[pair.Key] = pair.Value;
             _batches.Clear();
             _batchList.Clear();
             foreach (var b in _skinnedBatchList)

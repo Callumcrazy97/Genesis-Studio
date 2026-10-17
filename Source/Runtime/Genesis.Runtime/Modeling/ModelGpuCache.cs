@@ -625,11 +625,17 @@ namespace Genesis.Runtime.Modeling
 
         private static Matrix4x4[] EvaluatePalette(GModelAsset asset, RuntimeModelAnimationState animation, int paletteSize)
         {
-            var palette = IdentityPalette(paletteSize);
+            // One buffer per thread: UpdateSkinPalette copies the matrices, and controller-driven
+            // characters are evaluated on every draw (Golden Stag's tavern: 270 MB of Matrix4x4[]).
+            int size = Math.Max(1, paletteSize);
+            Matrix4x4[] palette = _paletteScratch is { } scratch && scratch.Length >= size
+                ? scratch : (_paletteScratch = new Matrix4x4[Math.Max(size, 64)]);
+            palette.AsSpan(0, size).Fill(Matrix4x4.Identity);
+            if (palette.Length > size) palette.AsSpan(size).Clear();
             if (asset.Rig?.Bones == null || asset.Rig.Bones.Count == 0)
                 return palette;
 
-            int count = Math.Min(palette.Length, asset.Rig.Bones.Count);
+            int count = Math.Min(size, asset.Rig.Bones.Count);
             Matrix4x4[] evaluatedLocals = GModelPrimitiveFactory.EvaluateAnimatedLocals(asset, animation);
 
             Matrix4x4[] world = GModelPrimitiveFactory.ComputeWorldTransforms(asset.Rig.Bones, evaluatedLocals);
@@ -654,6 +660,8 @@ namespace Genesis.Runtime.Modeling
                     return c;
             return null;
         }
+
+        [ThreadStatic] private static Matrix4x4[] _paletteScratch;
 
         private static Matrix4x4[] IdentityPalette(int count)
         {

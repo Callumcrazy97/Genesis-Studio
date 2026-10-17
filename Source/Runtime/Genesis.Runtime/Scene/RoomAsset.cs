@@ -28,6 +28,16 @@ public sealed class RoomAsset
     [JsonProperty("layers")] public List<RoomLayer> Layers { get; set; } = new();
     [JsonProperty("nodes")] public List<RoomNode> Nodes { get; set; } = new();
 
+    /// <summary>The layer with this id, or null. A loop, not a lambda: it runs per node per frame.</summary>
+    public RoomLayer FindLayer(string id)
+    {
+        List<RoomLayer> layers = Layers;
+        if (layers == null) return null;
+        for (int i = 0; i < layers.Count; i++)
+            if (string.Equals(layers[i].Id, id, StringComparison.Ordinal)) return layers[i];
+        return null;
+    }
+
     /// <summary>
     /// Fixed viewport count. A fixed set means slot 3 stays slot 3 for the life of the room, so
     /// scripts and split-screen layouts can address them by index without an id indirection.

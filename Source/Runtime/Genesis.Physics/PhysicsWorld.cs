@@ -248,7 +248,9 @@ public sealed partial class PhysicsWorld : IDisposable
         RemoveMissingBodyBindings(world);
         RefreshDynamicBindingCache(world);
         RefreshContactSettings(world);
-        _reportedContacts.Clear();
+        // Emptied key by key: ConcurrentDictionary.Clear dropped its table, so the contact
+        // callbacks grew it again on every step.
+        foreach (var reported in _reportedContacts) _reportedContacts.TryRemove(reported.Key, out _);
         if (EnableThreadDispatcher)
             _simulation.Timestep(fixedDelta, _threadDispatcher ??= new ThreadDispatcher(DispatcherThreadCount, 1 << 18));
         else

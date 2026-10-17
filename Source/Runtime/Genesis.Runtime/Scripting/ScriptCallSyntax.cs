@@ -26,6 +26,8 @@ public static class ScriptCallSyntax
     // ten seconds of a 253-Script game's start.)
     private static readonly Regex IfColonCall = new(@"^(\s*)if\s+(.+?):\s*([A-Za-z_][A-Za-z0-9_]*)\s*$", RegexOptions.Multiline | RegexOptions.Compiled);
     private static readonly Regex BareCall = new(@"\b([A-Za-z_][A-Za-z0-9_]*)\s*;", RegexOptions.Compiled);
+    // The same two patterns for a Script name that is not an identifier ("Pw Game"), made once per name.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (Regex IfColon, Regex Bare)> OtherNamePatterns = new(StringComparer.Ordinal);
 
     public static string Apply(string source, IEnumerable<string> scriptNames)
     {
@@ -75,12 +77,18 @@ public static class ScriptCallSyntax
             {
                 foreach (string name in otherNames)
                 {
-                    string esc = Regex.Escape(name);
-                    code = Regex.Replace(code,
-                        $@"^(\s*)if\s+(.+?):\s*{esc}\s*$",
-                        m => $"{m.Groups[1].Value}if ({m.Groups[2].Value}) {{ {name}(); }}",
-                        RegexOptions.Multiline);
-                    code = Regex.Replace(code, $@"\b{esc}\s*;", $"{name}();");
+                    // Both patterns contain the name verbatim, so code without it cannot match.
+                    // Kinfield has ~280 such names ("Pw Game"): two fresh Regex parses per name per
+                    // code segment were most of its script load (400 MB of RegexNode).
+                    if (!code.Contains(name, StringComparison.Ordinal)) continue;
+                    (Regex ifColon, Regex bare) = OtherNamePatterns.GetOrAdd(name, static key =>
+                    {
+                        string esc = Regex.Escape(key);
+                        return (new Regex($@"^(\s*)if\s+(.+?):\s*{esc}\s*$", RegexOptions.Multiline | RegexOptions.CultureInvariant),
+                            new Regex($@"\b{esc}\s*;", RegexOptions.CultureInvariant));
+                    });
+                    code = ifColon.Replace(code, m => $"{m.Groups[1].Value}if ({m.Groups[2].Value}) {{ {name}(); }}");
+                    code = bare.Replace(code, $"{name}();");
                 }
             }
 

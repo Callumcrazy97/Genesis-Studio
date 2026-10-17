@@ -24,8 +24,10 @@ public sealed partial class PhysicsWorld
             Vector3 position = reference.Pose.Position;
             PhysicsWaterVolume? selected = null;
             float fraction = 0f;
-            foreach (PhysicsWaterVolume volume in volumes)
+            // By index: foreach over IReadOnlyList boxed an enumerator per body per step.
+            for (int v = 0; v < volumes.Count; v++)
             {
+                PhysicsWaterVolume volume = volumes[v];
                 float candidate = volume.SubmergedFraction(position, rigid.HalfExtents);
                 if (candidate > fraction) { selected = volume; fraction = candidate; }
             }

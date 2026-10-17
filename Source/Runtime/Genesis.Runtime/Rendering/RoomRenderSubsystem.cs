@@ -330,7 +330,7 @@ public sealed partial class RoomRenderSubsystem : ISceneSubsystem
     }
 
     private IEnumerable<RoomNode> Active(RoomNodeKind kind) => _room.Nodes.Where(n => n.Kind == kind && RoomHierarchyTransforms.IsActive(_room, n));
-    private int LayerDepth(RoomNode node) => _room.Layers.FirstOrDefault(l => l.Id == node.LayerId)?.Order ?? 0;
+    private int LayerDepth(RoomNode node) => _room.FindLayer(node.LayerId)?.Order ?? 0;
     /// <summary>Names already reported as unresolvable, so a per-frame failure logs once, not 60×/s.</summary>
     private readonly HashSet<string> _reportedMissing = new(StringComparer.OrdinalIgnoreCase);
     private bool _loggedCamera;
