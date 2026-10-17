@@ -111,7 +111,7 @@ struct PreviewVSOut { float4 SvPos : SV_Position; float2 UV : TEXCOORD0; };
 | sampler | `s0` | Linear, clamped. |
 | `GenesisFrame` | `b4` | `float Time; float Frame; float2 Resolution;` as in the Shader editor. |
 | `GenesisParameters` | `b5` | Your parameters (up to 16 floats), set in the Shader editor and by scripts. |
-| `GenesisCamera` | `b6` | `float4 Clip` (near, far, 1 when depth is reversed, tan of half the vertical field of view); `float4 View` (aspect, 1 for a perspective view, radians per pixel, unused); `float4x4 InvViewProjection`; `float4 CameraPosition`. |
+| `GenesisCamera` | `b6` | `float4 Clip` (near, far, 1 when depth is reversed, tan of half the vertical field of view); `float4 View` (aspect, 1 for a perspective view, radians per pixel, unused); `row_major float4x4 InvViewProjection` (clip to world); `float4 CameraPosition`; `row_major float4x4 ViewProjection` (world to clip, since 17 October 2026). Declare the matrices `row_major` and multiply a row vector: `mul(float4(world, 1), ViewProjection)`. |
 
 HLSL reserves some ordinary-looking words, and a shader that names a variable, parameter or field
 with one does not compile: `line`, `point`, `triangle`, `linear`, `sample`, `centroid`, `precise`,

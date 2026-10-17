@@ -21,7 +21,12 @@ namespace Genesis.Runtime.Project
         /// <summary>Pictures saved since the game started.</summary>
         public static int Saved { get; private set; }
 
-        public static int PendingCount { get { lock (Gate) return Pending.Count; } }
+        /// <summary>Pictures asked for and not yet written: still to be read back, or being encoded.</summary>
+        public static int PendingCount { get { lock (Gate) return Pending.Count + Writing.Count; } }
+
+        // Read-back pixels being encoded and written on workers. Encoding a 1920x1080 PNG on the
+        // game thread held the frame it was taken in for about 110 ms (Cathedral Test's shots).
+        private static readonly List<System.Threading.Tasks.Task> Writing = new();
 
         /// <summary>Asks for a picture of this frame; false for an empty name.</summary>
         public static bool Request(string name)
@@ -48,12 +53,40 @@ namespace Genesis.Runtime.Project
                     if (Pending.Count == 0) return;
                     name = Pending.Dequeue();
                 }
-                string path = string.IsNullOrWhiteSpace(projectPath)
-                    ? null
-                    : ProjectScreenshot.Capture(renderer, projectPath, name, frameAlreadySubmitted: true);
-                LastPath = path ?? string.Empty;
-                if (path != null) Saved++;
+                // The pixels are read back now, from the frame just drawn; the PNG is made off the frame.
+                if (string.IsNullOrWhiteSpace(projectPath)
+                    || !renderer.TryReadSubmittedFramePixels(out int w, out int h, out byte[] bgra) || bgra == null)
+                {
+                    LastPath = string.Empty;
+                    continue;
+                }
+                string path;
+                try { path = ProjectScreenshot.PathFor(projectPath, name); }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException) { LastPath = string.Empty; continue; }
+                lock (Gate)
+                {
+                    Writing.RemoveAll(task => task.IsCompleted);
+                    System.Threading.Tasks.Task task = System.Threading.Tasks.Task.Run(() =>
+                    {
+                        try
+                        {
+                            ProjectScreenshot.WritePng(path, w, h, bgra);
+                            lock (Gate) { LastPath = path; Saved++; }
+                        }
+                        catch (Exception) { lock (Gate) LastPath = string.Empty; }
+                    });
+                    Writing.Add(task);
+                }
             }
+        }
+
+        /// <summary>Waits for pictures still being written, so a game that ends straight after asking keeps them.</summary>
+        public static void Flush(int milliseconds = 5000)
+        {
+            System.Threading.Tasks.Task[] tasks;
+            lock (Gate) tasks = Writing.ToArray();
+            if (tasks.Length > 0) System.Threading.Tasks.Task.WaitAll(tasks, milliseconds);
+            lock (Gate) Writing.RemoveAll(task => task.IsCompleted);
         }
 
         /// <summary>Forgets pictures not yet taken (a new game).</summary>

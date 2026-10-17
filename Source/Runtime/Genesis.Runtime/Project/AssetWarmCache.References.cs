@@ -38,6 +38,7 @@ namespace Genesis.Runtime.Project
             var assets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var pending = new Queue<(string Path, int Depth)>();
             pending.Enqueue((Path.GetFullPath(roomFile), 0));
+            Dictionary<string, string> functionScripts = null;
 
             while (pending.Count > 0)
             {
@@ -62,6 +63,12 @@ namespace Genesis.Runtime.Project
                     foreach (string script in Directory.EnumerateFiles(events, "*.pgsl")) Follow(script);
                 }
 
+                // A script's functions are global: follow a call to the Script resource that defines
+                // it, so models it names for drawing are ready too (Cathedral Test's halls cost a
+                // 175 ms frame the first time a kit function named them).
+                if (document.EndsWith(".pgsl", StringComparison.OrdinalIgnoreCase))
+                    foreach (string script in ScriptsCalledFrom(document, root, ref functionScripts)) Follow(script);
+
                 string directory = Path.GetDirectoryName(document) ?? root;
                 foreach (string reference in ReferencesIn(document))
                 {
@@ -82,6 +89,43 @@ namespace Genesis.Runtime.Project
             _criticalPaths.Sort(StringComparer.OrdinalIgnoreCase);
             Scope = $"referenced by the first room '{startRoomName}'";
             return true;
+        }
+
+        private static readonly Regex FunctionDefinition = new(@"\bfunction\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", RegexOptions.Compiled);
+        private static readonly Regex CallName = new(@"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(", RegexOptions.Compiled);
+
+        /// <summary>The script files defining functions that <paramref name="document"/> calls. The map of
+        /// function names to files is made on first use, from every script under Assets.</summary>
+        private static IEnumerable<string> ScriptsCalledFrom(string document, string root, ref Dictionary<string, string> functions)
+        {
+            if (functions == null)
+            {
+                functions = new Dictionary<string, string>(StringComparer.Ordinal);
+                string assets = Path.Combine(root, "Assets");
+                if (Directory.Exists(assets))
+                    foreach (string file in Directory.EnumerateFiles(assets, "*.pgsl", SearchOption.AllDirectories))
+                    {
+                        string source;
+                        try
+                        {
+                            if (new FileInfo(file).Length > MaxScannedFileBytes) continue;
+                            source = File.ReadAllText(file);
+                        }
+                        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { continue; }
+                        foreach (Match match in FunctionDefinition.Matches(source))
+                            functions.TryAdd(match.Groups[1].Value, Path.GetFullPath(file));
+                    }
+            }
+            if (functions.Count == 0) return Array.Empty<string>();
+            string text;
+            try { text = File.ReadAllText(document); }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { return Array.Empty<string>(); }
+            var called = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (Match match in CallName.Matches(text))
+                if (functions.TryGetValue(match.Groups[1].Value, out string script)
+                    && !string.Equals(script, document, StringComparison.OrdinalIgnoreCase))
+                    called.Add(script);
+            return called;
         }
 
         private static bool IsDocument(string path) =>

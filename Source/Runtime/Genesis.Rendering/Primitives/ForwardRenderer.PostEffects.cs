@@ -36,6 +36,10 @@ namespace Genesis.Rendering.Primitives
             public Vector4 View;
             public Matrix4x4 InvViewProjection;
             public Vector4 CameraPosition;
+            // World to clip, so a screen-space effect (reflections, rays) can project points back
+            // onto the screen without inverting InvViewProjection per pixel. After the fields above
+            // so shaders written before it keep their layout.
+            public Matrix4x4 ViewProjection;
         }
 
         internal readonly struct PostEffectPass
@@ -207,6 +211,7 @@ namespace Genesis.Rendering.Primitives
                     perspective ? 2f * tanHalfFov / Math.Max(height, 1) : 0f, 0f),
                 InvViewProjection = inverse,
                 CameraPosition = new Vector4(_cameraPos, 1f),
+                ViewProjection = SceneViewProj,
             });
 
             int source = 0;

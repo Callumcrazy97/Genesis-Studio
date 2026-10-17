@@ -1018,6 +1018,8 @@ namespace Genesis.Runtime
             // A recording still running when the game closes is finished, not lost.
             try { Recording.GameRecorder.Shutdown(); }
             catch (Exception ex) { RenderLog.Line("Recording could not be finished: " + ex.Message); }
+            // Pictures a script asked for are encoded on workers; let the last ones finish.
+            Genesis.Runtime.Project.ScriptScreenshots.Flush();
             try { OnClosing(); } finally { _window?.Dispose(); }
         }
     }

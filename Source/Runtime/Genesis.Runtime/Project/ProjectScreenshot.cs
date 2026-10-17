@@ -24,9 +24,28 @@ namespace Genesis.Runtime.Project
 
             try
             {
-                ProjectPaths.EnsureDebugDirs(projectPath);
-                string fileName = name.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ? name : name + ".png";
-                string path = Path.Combine(ProjectPaths.ImagesDir(projectPath), fileName);
+                string path = PathFor(projectPath, name);
+                WritePng(path, w, h, bgra);
+                return path;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>The file a picture called <paramref name="name"/> is saved to (the debug images folder, made if missing).</summary>
+        public static string PathFor(string projectPath, string name)
+        {
+            ProjectPaths.EnsureDebugDirs(projectPath);
+            string fileName = name.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ? name : name + ".png";
+            return Path.Combine(ProjectPaths.ImagesDir(projectPath), fileName);
+        }
+
+        /// <summary>Encodes read-back BGRA pixels as a PNG. Safe on a worker thread: it touches no renderer state.</summary>
+        public static void WritePng(string path, int w, int h, byte[] bgra)
+        {
+            {
                 using var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
                 var data = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
                 if (data.Stride == w * 4)
@@ -40,11 +59,6 @@ namespace Genesis.Runtime.Project
                 }
                 bmp.UnlockBits(data);
                 bmp.Save(path, ImageFormat.Png);
-                return path;
-            }
-            catch
-            {
-                return null;
             }
         }
     }
