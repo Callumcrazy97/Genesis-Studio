@@ -237,6 +237,32 @@ internal static class AutomationSuite
             HeadlessHarness.Assert(!Call("script.write", """{ "path": "Assets/Objects/Barrel/Create.pgsl", "code": "x = 1;" }""").Ok, "script.write wrote over an Object's event.");
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.ParticlesComeFromPresetsAndResourcesTakeCheckedSettings", () =>
+        {
+            AutomationResult fire = Call("particle.create", """{ "name": "Camp Fire", "preset": "fire", "values": { "emitRate": 90 } }""");
+            HeadlessHarness.Assert(fire.Ok, "particle.create failed: " + fire.ToJson().ToJsonString());
+            string path = PathOf(fire);
+            var reference = Genesis.Runtime.Particles.ParticlePresets.Create("Fire");
+            Genesis.Runtime.Particles.ParticleConfig Read() => System.Text.Json.JsonSerializer.Deserialize<Genesis.Runtime.Particles.ParticleConfig>(File.ReadAllText(context.Resolve(path)),
+                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true, Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() } })!;
+            var made = Read();
+            HeadlessHarness.Assert(made.EmitRate == 90 && made.Shape == reference.Shape && made.Speed == reference.Speed && made.Gravity == reference.Gravity,
+                "The effect was not the Fire preset with its emit rate changed.");
+            HeadlessHarness.Assert(Call("particle.create", """{ "name": "Odd", "preset": "Lava Lamp" }""").Message.Contains("Presets:", StringComparison.Ordinal), "An unknown preset was not explained.");
+            AutomationResult wrong = Call("particle.create", """{ "name": "Wrong Fire", "values": { "emitRate": "lots" } }""");
+            HeadlessHarness.Assert(!wrong.Ok && !File.Exists(context.Resolve("Assets/Particles/Wrong Fire.particle.json")), "A value of the wrong kind made an effect: " + wrong.Message);
+
+            AutomationResult faster = Call("resource.set", $$"""{ "path": "{{path}}", "values": { "speed": 7 } }""");
+            HeadlessHarness.Assert(faster.Ok && Read().Speed == 7 && Read().EmitRate == 90, "resource.set did not change only the speed: " + faster.Message);
+            string before = File.ReadAllText(context.Resolve(path));
+            HeadlessHarness.Assert(!Call("resource.set", $$"""{ "path": "{{path}}", "values": { "speed": "fast" } }""").Ok && File.ReadAllText(context.Resolve(path)) == before,
+                "A value the engine cannot read was saved.");
+            string rock = PathOf(Call("object.create", """{ "name": "Set Rock" }"""));
+            HeadlessHarness.Assert(Call("resource.set", $$"""{ "path": "{{rock}}", "values": { "events": [] } }""").Message.Contains("object.setEvent", StringComparison.Ordinal),
+                "An Object's events were set behind its event scripts' back.");
+            HeadlessHarness.Assert(!Call("resource.set", """{ "path": "Assets/Scripts/Helpers.pgsl", "values": { "a": 1 } }""").Ok, "A script was treated as JSON.");
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.ScriptedInputBecomesAReplayTheEngineReads", () =>
         {
             var steps = new List<GameRunCommands.InputStep>
