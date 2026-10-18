@@ -145,10 +145,19 @@ namespace Genesis.Runtime.Scripting
             Consume(TokenType.Semicolon, "Expected ';' after for-initializer.");
             if (!Check(TokenType.Semicolon)) node.Condition = Expression();
             Consume(TokenType.Semicolon, "Expected ';' after for-condition.");
-            if (!Check(TokenType.RightParen)) node.Increment = Expression();
+            if (!Check(TokenType.RightParen)) node.Increment = IncrementClause();
             Consume(TokenType.RightParen, "Expected ')' after for-clauses.");
             node.Body = Statement();
             return node;
+        }
+
+        // i++, i--, i += 2 and i = i + 1 are statements elsewhere; as a for's third clause they are its
+        // expression, as the game's compiler (VM/PgslParser) has always taken them.
+        private Expr IncrementClause()
+        {
+            Token start = Peek();
+            return SimpleStatementNoSemi() is ExprStmt { Expression: { } expression } ? expression
+                : throw new System.Exception($"Expected an increment such as i++ or i += 1 (found '{start.Value}' at line {start.Line}:{start.Column}).");
         }
 
         private Stmt WithStatement()

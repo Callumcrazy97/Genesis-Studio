@@ -9145,7 +9145,7 @@ results rather than accepting a no-op.
 
 | Command | Signature | Description |
 |---|---|---|
-| `CreateInstance` | `CreateInstance(obj,x,y,z)` | Create object instance |
+| `CreateInstance` | `CreateInstance(obj,x,y,z)` | Create object instance; its Create event has run when this returns (also inside another instance's Create), so what the caller sets on it stays |
 | `InstanceAlive` | `InstanceAlive(id) -> bool` | True when an instance still exists |
 | `InstanceCount` | `InstanceCount() -> number` | How many instances are alive |
 | `InstanceDestroy` | `InstanceDestroy(id)` | Destroy instance |

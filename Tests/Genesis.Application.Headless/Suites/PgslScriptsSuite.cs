@@ -52,6 +52,72 @@ internal static class PgslScriptsSuite
                 $"Wrong values: r={Value(result, "r")} (12), m={Value(result, "m")} (2), s={Value(result, "s")} (6).");
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.TheCheckerTakesIncrementsInForClausesAsTheGameDoes", () =>
+        {
+            const string loops =
+                "t = 0;\n" +
+                "for (var i = 0; i < 4; i++) { t += i; }\n" +
+                "for (var j = 10; j > 0; j -= 5) { t += 1; }\n" +
+                "for (var k = 2; k > 0; k--) { t += 1; }\n" +
+                "for (var n = 0; n < 2; n = n + 1) { t += 1; }\n";
+            PgslValidationReport report = PgslScriptValidator.ValidateSource(loops, "Create", strict: true);
+            // Before, the checker could not read these, so it left the whole script unchecked ("not
+            // checked - ... but the game compiles it"), hiding every other mistake in it.
+            Check(report.Errors.Count == 0 && !report.Warnings.Any(w => w.Contains("not checked", StringComparison.Ordinal)),
+                "The script check did not read increments in for-clauses that the game runs: " + string.Join(" | ", report.Errors.Concat(report.Warnings)));
+            ObjectSandboxResult result = RunCreate(loops);
+            Check(result.Ok && Near(result, "t", 12), $"The loops did not run as written: t={Value(result, "t")} (12). " + Errors(result));
+            Check(PgslScriptValidator.ValidateSource(loops + "u = Nonexistent(1);\n", "Create", strict: true).Errors.Count > 0,
+                "A mistake in a script with for-loops went unreported.");
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.TestChecksAreWrittenForAnAutomationRun", () =>
+        {
+            string checks = Path.Combine(Genesis.Runtime.Project.ProjectPaths.LogsDir(project.RootPath), PgslCommands.TestChecksFileName);
+            if (File.Exists(checks)) File.Delete(checks);
+            ObjectSandboxResult result = RunCreate("a = TestCheck(\"door opens\", 2 > 1, \"open\") ? 1 : 0;\nb = TestCheck(\"coins\", 3 == 4, \"3 of 4 collected\") ? 1 : 0;\n");
+            string[] lines = File.Exists(checks) ? File.ReadAllLines(checks) : [];
+            Check(result.Ok && lines.Length == 2 && lines[0] == "PASS\tdoor opens\topen" && lines[1] == "FAIL\tcoins\t3 of 4 collected",
+                "TestCheck did not write its results for game.run: " + string.Join(" | ", lines) + " " + Errors(result));
+            Check(Near(result, "a", 1) && Near(result, "b", 0), $"TestCheck did not return whether it passed: a={Value(result, "a")}, b={Value(result, "b")}.");
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.AnInstanceMadeInACreateHasRunItsCreateWhenTheCallerSetsIt", () =>
+        {
+            // Aetherium 80: an instance made inside another's Create had its own Create queued, so it
+            // ran later (at the next spawn) and reset what the caller had set on it.
+            string objects = Path.Combine(project.AssetsPath, "Objects");
+            void Obj(string name, string create)
+            {
+                File.WriteAllText(Path.Combine(objects, name + ".object.json"),
+                    "{ \"schemaVersion\": 3, \"dimension\": \"TwoD\", \"sprite\": \"\", \"model\": \"\", \"components\": [ { \"type\": \"ScriptComponent\", \"enabled\": true, \"props\": { \"ScriptClass\": \"" + name + "\" } } ], \"events\": [\"Create\"] }");
+                Directory.CreateDirectory(Path.Combine(objects, name));
+                File.WriteAllText(Path.Combine(objects, name, "Create.pgsl"), create);
+            }
+            Obj("Order Kid", "hp = 10;\n");
+            Obj("Order Parent", "kid = CreateInstance(\"Order Kid\", 0, 0);\nInstanceVariableSet(kid, \"hp\", 5);\n");
+            ResourceNames.Invalidate(project.RootPath);
+            Genesis.Runtime.Scripting.VM.VMEngine.Initialize();
+            ScriptAssetRegistry.ClearCache();
+            using var scene = new Genesis.Runtime.RuntimeScene("Create order");
+            var game = new Genesis.Runtime.Project.ProjectGameContext(project.RootPath, scene, null, null,
+                Genesis.Runtime.Scene.RoomAsset.Create("Probe", Genesis.Runtime.Scene.RoomDimension.TwoD), null);
+            var host = new ScriptHostSystem();
+            host.SetContext(game); // as the Player does: scripts run with this game context
+            var oldGame = PgslCommands.ActiveGameContext; string oldPath = PgslCommands.ProjectPath;
+            try
+            {
+                PgslCommands.ActiveGameContext = game; PgslCommands.ProjectPath = project.RootPath;
+                int parent = PgslCommands.CreateInstance("Order Parent", 0, 0);
+                host.FlushDeferredCreates(); // what the next spawn or room load does
+                object? kid = PgslCommands.InstanceVariableGet(parent, "kid");
+                object? hp = kid is null ? null : PgslCommands.InstanceVariableGet(Convert.ToDouble(kid), "hp");
+                Check(parent > 0 && kid is not null && Convert.ToDouble(hp) == 5,
+                    $"The made instance's own Create ran after its maker set it: hp = {hp} (5), parent {parent}, kid {kid}.");
+            }
+            finally { PgslCommands.ActiveGameContext = oldGame; PgslCommands.ProjectPath = oldPath; ScriptAssetRegistry.ClearCache(); }
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.ACalledScriptKeepsItsOwnArgumentsAndFunctions", () =>
         {
             ObjectSandboxResult result = RunCreate("a = ArgKeeper(1);\nd = HelperFour();\n");

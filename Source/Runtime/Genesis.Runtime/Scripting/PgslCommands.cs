@@ -494,7 +494,15 @@ public static partial class PgslCommands
                             host.Attach(ActiveGameContext.World, entity, ResourceNames.Name(ProjectPath, path, ResourceType.Object));
                         var assets = Rendering.ObjectDrawAssetRegistry.TryGet(entity, out var entry) ? entry : new Rendering.ObjectDrawAssetEntry();
                         assets.Prefab = obj; Rendering.ObjectDrawAssetRegistry.Set(entity, assets);
-                        if (!wasDeferring) host?.FlushDeferredCreates();
+                        if (!wasDeferring && host != null)
+                        {
+                            // Create runs with deferral off again: left on, an instance this Create made
+                            // was only queued, so its own Create ran later and reset whatever the caller had
+                            // set on it (Aetherium 80). Now CreateInstance returns an instance whose Create
+                            // has run, as GameMaker's instance_create does.
+                            host.DeferCreateEvents = false;
+                            host.FlushDeferredCreates();
+                        }
                         return entity.Id;
                     }
                     finally { if (host != null) host.DeferCreateEvents = wasDeferring; }
