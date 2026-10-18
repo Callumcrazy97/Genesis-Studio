@@ -296,14 +296,32 @@ namespace Genesis.Runtime.Modeling
         {
             if (asset == null || string.IsNullOrWhiteSpace(path)) return;
             Directory.CreateDirectory(Path.GetDirectoryName(path) ?? ".");
+            File.WriteAllText(path, Serialize(asset));
+        }
+
+        /// <summary>
+        /// The text <see cref="Save"/> writes for a model, made without writing it, so the slow part
+        /// of saving a large model can run on a worker (the Model editor's import) and
+        /// <see cref="SaveText"/> write it later. Stamps the import time and bounds as Save does.
+        /// </summary>
+        public static string Serialize(GModelAsset asset)
+        {
             asset.ImportedUtc = asset.ImportedUtc == default ? DateTime.UtcNow : asset.ImportedUtc;
             asset.RecalculateBounds();
             // Clips borrowed from animation libraries stay in their libraries.
             System.Collections.Generic.List<GModelAnimationClip> all = asset.Animations;
             if (asset.LibraryClipNames is { Count: > 0 } borrowed && all != null)
                 asset.Animations = all.FindAll(clip => !borrowed.Contains(clip?.Name ?? string.Empty));
-            try { File.WriteAllText(path, JsonConvert.SerializeObject(asset, Settings)); }
+            try { return JsonConvert.SerializeObject(asset, Settings); }
             finally { asset.Animations = all; }
+        }
+
+        /// <summary>Writes a model's text made by <see cref="Serialize"/>.</summary>
+        public static void SaveText(string path, string text)
+        {
+            if (text == null || string.IsNullOrWhiteSpace(path)) return;
+            Directory.CreateDirectory(Path.GetDirectoryName(path) ?? ".");
+            File.WriteAllText(path, text);
         }
 
         public static void SaveByName(string projectPath, string modelName, GModelAsset asset)

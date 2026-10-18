@@ -227,6 +227,51 @@ namespace Genesis.Runtime.Modeling
             Task.Run(() => Write(cachePath, payload));
         }
 
+        /// <summary>
+        /// Makes the cache of a model that is about to be saved, on whatever thread the caller is on
+        /// (the Model editor's import makes it on its worker, with the model's text).
+        /// <see cref="SavePrepared"/> writes it once the model file is saved, so the first load after
+        /// an import reads the cache instead of parsing the JSON. Null when caches are off or the
+        /// model cannot be written; clips borrowed from libraries are left out, as the model file does.
+        /// </summary>
+        public static byte[] Prepare(GModelAsset asset)
+        {
+            if (!Enabled || asset == null) return null;
+            System.Collections.Generic.List<GModelAnimationClip> all = asset.Animations;
+            if (asset.LibraryClipNames is { Count: > 0 } borrowed && all != null)
+                asset.Animations = all.FindAll(clip => !borrowed.Contains(clip?.Name ?? string.Empty));
+            try { return Serialize(asset, 0, 0); }
+            catch (Exception exception) when (exception is JsonException or InvalidOperationException or NotSupportedException or ArgumentException)
+            {
+                return null;
+            }
+            finally { asset.Animations = all; }
+        }
+
+        /// <summary>
+        /// Writes a cache made by <see cref="Prepare"/> for the model file just saved at
+        /// <paramref name="modelPath"/>, stamped with that file's size and time. False when it was not
+        /// written (caches off, a small model, a failed write): the model then loads from its JSON.
+        /// </summary>
+        public static bool SavePrepared(string modelPath, byte[] prepared)
+        {
+            if (!Enabled || prepared == null || prepared.Length < HeaderBytes) return false;
+            try
+            {
+                string cachePath = PathFor(modelPath);
+                if (cachePath == null) return false;
+                var source = new FileInfo(modelPath);
+                if (!source.Exists || source.Length < MinimumSourceBytes) return false;
+                BinaryPrimitives.WriteInt64LittleEndian(prepared.AsSpan(8), source.Length);
+                BinaryPrimitives.WriteInt64LittleEndian(prepared.AsSpan(16), source.LastWriteTimeUtc.Ticks);
+                return Write(cachePath, prepared);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+            {
+                return false;
+            }
+        }
+
         private static byte[] Serialize(GModelAsset asset, long sourceLength, long sourceWriteTicks, byte[] sourceHash = null)
         {
             using var memory = new MemoryStream(1 << 20);

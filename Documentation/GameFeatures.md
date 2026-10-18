@@ -2308,6 +2308,12 @@ measures the cost at 1920 x 1080 on DX11.
 - **Exported games ship their model cache.** Export writes each large model's binary cache into the
   game. These caches are checked against the model's content instead of its modified time, so they
   survive being copied, zipped or installed. A player's first load is as fast as later ones.
+- **Importing a model does its slow work once, off the editor.** The Model editor's Import / Replace
+  imports the file once on its worker (it used to import a throwaway copy, save it as JSON, hash the
+  source and delete it, then save again on the editor's thread). The worker also makes the cooked
+  model's text, its binary cache and the source's hash; the editor only writes them. So the first
+  open after an import reads the cache, and the source is not read again to check it. A model
+  cooked when a Model resource is first opened writes its cache at once as well.
 
 ## Verification
 

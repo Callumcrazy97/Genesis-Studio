@@ -127,6 +127,41 @@ public static class StudioModelResourceLoader
     /// <summary>Reads the last saved model for background previews without importing or writing assets.</summary>
     public static GModelAsset LoadReadOnly(string path) => LoadWithLibraries(path, allowReimport: false);
 
+    /// <summary>
+    /// Imports a Model resource's source file as <see cref="Load"/> does when its cooked model is
+    /// missing, but writes nothing: no cooked model, no recorded hash. For the Model editor's import,
+    /// which validates a copy and then saves the result itself (Load wrote, hashed and deleted a
+    /// cooked copy of the whole model first). A source that is not glTF is loaded as Load would.
+    /// </summary>
+    public static GModelAsset ImportSource(string path)
+    {
+        Document document = ReadDocument(path);
+        string source = ResolveSource(path, document);
+        if (!File.Exists(source) || !ExternalModelImporter.CanImport(source)) return Load(path);
+        GModelAsset imported;
+        try
+        {
+            string projectRoot = FindProjectRoot(path);
+            bool convert = document.ConvertRightHanded
+                ?? Genesis.Runtime.Project.ProjectPaths.ReadConvertRightHandedModels(projectRoot);
+            using (Genesis.Shared.Diagnostics.LoadProfile.Begin("model resource: import its source"))
+                imported = ExternalModelImporter.Import(source, projectRoot, path, convertRightHanded: convert);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+            or InvalidDataException or JsonException or NotSupportedException or OverflowException)
+        {
+            GModelAsset failed = RuntimeModelStore.CreateEmpty(
+                Path.GetFileName(path).Replace(".model.json", string.Empty, StringComparison.OrdinalIgnoreCase),
+                "External model import failed: " + exception.Message);
+            failed.SourceFile = source;
+            return failed;
+        }
+        imported.Culling = document.Culling;
+        imported.WindingOrder = document.WindingOrder;
+        GModelProductionTools.ApplyMaterialBoxUvs(imported);
+        return imported;
+    }
+
     [ThreadStatic] private static HashSet<string> _loadingLibraries;
 
     /// <summary>The model with the clips of the Models its descriptor names as animation libraries.</summary>
@@ -203,7 +238,7 @@ public static class StudioModelResourceLoader
     }
 
     /// <summary>SHA-256 of a source file (lower-case hex), kept per path, time and length; empty when unreadable.</summary>
-    internal static string HashSource(string source)
+    public static string HashSource(string source)
     {
         try
         {
@@ -279,6 +314,9 @@ public static class StudioModelResourceLoader
                 {
                     RuntimeModelStore.Save(canonical, imported);
                     RecordSourceHash(path, HashSource(source));
+                    // Its fast-loading copy now (raw arrays, quick to make), so the next open reads that
+                    // instead of parsing the JSON just written; it used to wait for a slow load first.
+                    ModelBinaryCache.SaveInBackground(canonical, imported);
                 }
                 return imported;
             }

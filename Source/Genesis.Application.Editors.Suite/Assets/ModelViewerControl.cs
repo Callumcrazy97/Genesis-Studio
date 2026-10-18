@@ -443,15 +443,21 @@ public partial class ModelViewerControl : EditorSurfaceControl
         using var dialog = new OpenFileDialog { Title = "Import Model", Filter = ModelSourceConversion.FileFilter, CheckFileExists = true };
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
         _importing = true; Commands.Enabled = Menus.Enabled = false; Status.Text = "Importing model\u2026"; UseWaitCursor = true;
-        try { var imported = await Task.Run(() => PrepareImport(dialog.FileName)); if (!IsDisposed) CommitImport(imported.Asset, imported.Source); }
+        try { var imported = await Task.Run(() => PrepareImport(dialog.FileName)); if (!IsDisposed) CommitImport(imported); }
         catch (Exception ex) { if (!IsDisposed) MessageBox.Show(this, ex.Message, "Model import failed", MessageBoxButtons.OK, MessageBoxIcon.Error); }
         finally { if (!IsDisposed) { _importing = false; Commands.Enabled = Menus.Enabled = true; UseWaitCursor = false; } }
     }
     public string ImportExternalModel(string source)
     {
-        var imported = PrepareImport(source); CommitImport(imported.Asset, imported.Source); return ResourcePath;
+        CommitImport(PrepareImport(source)); return ResourcePath;
     }
-    private (GModelAsset Asset, string Source) PrepareImport(string source)
+    /// <summary>
+    /// An imported model ready to commit: everything slow about importing and saving it done on the
+    /// worker (the import itself, the cooked model's text, its fast-loading cache and the source's
+    /// hash), so committing only writes files and the first open reads the cache.
+    /// </summary>
+    private sealed record PreparedImport(GModelAsset Asset, string Source, string CanonicalText, byte[]? Cache, string SourceHash);
+    private PreparedImport PrepareImport(string source)
     {
         string data = ResourceAssociates.GetModelDataDirectory(ResourcePath);
         string folder = System.IO.Path.Combine(data, "import-" + Guid.NewGuid().ToString("N"));
@@ -460,24 +466,36 @@ public partial class ModelViewerControl : EditorSurfaceControl
         try
         {
             File.WriteAllText(draft, new JsonObject { ["schemaVersion"] = 5, ["source"] = System.IO.Path.GetFileName(copied), ["parts"] = new JsonArray() }.ToJsonString());
-            var asset = StudioModelResourceLoader.Load(draft);
+            // Imported once, with nothing written for the throwaway draft (loading it wrote, hashed and
+            // deleted a cooked copy of the whole model before the real save wrote it again).
+            var asset = StudioModelResourceLoader.ImportSource(draft);
             if (asset.ImportRequired || !asset.HasRenderableMeshes) throw new InvalidDataException(string.IsNullOrWhiteSpace(asset.ImportMessage) ? "The file contains no renderable geometry." : asset.ImportMessage);
-            return (asset, System.IO.Path.GetRelativePath(System.IO.Path.GetDirectoryName(ResourcePath)!, copied).Replace('\\', '/'));
+            string text = RuntimeModelStore.Serialize(asset);
+            byte[]? cache = ModelBinaryCache.Prepare(asset);
+            string hash = StudioModelResourceLoader.HashSource(copied);
+            return new PreparedImport(asset, System.IO.Path.GetRelativePath(System.IO.Path.GetDirectoryName(ResourcePath)!, copied).Replace('\\', '/'), text, cache, hash);
         }
         finally { if (File.Exists(draft)) File.Delete(draft); string canonical = StudioModelResourceLoader.CanonicalPath(draft); if (File.Exists(canonical)) File.Delete(canonical); }
     }
-    private void CommitImport(GModelAsset imported, string source)
+    private void CommitImport(PreparedImport imported)
     {
         string canonical = StudioModelResourceLoader.CanonicalPath(ResourcePath);
         byte[]? previous = File.Exists(canonical) ? File.ReadAllBytes(canonical) : null;
         string original = File.ReadAllText(ResourcePath);
         var document = JsonNode.Parse(original)!.AsObject();
-        document["schemaVersion"] = 5; document["source"] = source; document["parts"] = new JsonArray();
-        document.Remove("primitive"); document["rig"] = imported.Rig.IsValid ? "Canonical" : null;
-        document["animations"] = new JsonArray(imported.Animations.Select(c => (JsonNode?)JsonValue.Create(c.Name)).ToArray());
-        try { ResourceBackupService.BackupBeforeOverwrite(canonical); StudioModelResourceLoader.SaveCanonical(ResourcePath, imported); WriteResourceText(document.ToJsonString(new() { WriteIndented = true })); }
+        document["schemaVersion"] = 5; document["source"] = imported.Source; document["parts"] = new JsonArray();
+        document.Remove("primitive"); document["rig"] = imported.Asset.Rig.IsValid ? "Canonical" : null;
+        document["animations"] = new JsonArray(imported.Asset.Animations.Select(c => (JsonNode?)JsonValue.Create(c.Name)).ToArray());
+        // The new source's hash, so the first open trusts the cooked model without reading the
+        // source again (and an old hash cannot make a later open import the source over edits).
+        foreach (string key in document.Select(property => property.Key).Where(name => name.Equals("sourceHash", StringComparison.OrdinalIgnoreCase)).ToList())
+            document.Remove(key);
+        if (imported.SourceHash.Length > 0) document["sourceHash"] = imported.SourceHash;
+        try { ResourceBackupService.BackupBeforeOverwrite(canonical); RuntimeModelStore.SaveText(canonical, imported.CanonicalText); WriteResourceText(document.ToJsonString(new() { WriteIndented = true })); }
         catch { if (previous is null) File.Delete(canonical); else File.WriteAllBytes(canonical, previous); File.WriteAllText(ResourcePath, original); throw; }
-        Asset = imported; ClearEditHistory(); AcceptSave(); RefreshAssetPresentation(); OnModelImported(); FrameModel();
+        ModelBinaryCache.SavePrepared(canonical, imported.Cache);
+        // Bounds were worked out when the model's text was made.
+        Asset = imported.Asset; ClearEditHistory(); AcceptSave(); RefreshAssetPresentation(recalculateBounds: false); OnModelImported(); FrameModel();
     }
     protected virtual void OnModelImported() { }
     private void LocateBlender()
