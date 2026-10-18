@@ -217,6 +217,13 @@ public sealed class TerrainScatterRenderer : IDisposable
     /// <summary>True while cells or merged meshes the last frame wanted are still being made.</summary>
     public bool Busy { get; private set; }
 
+    /// <summary>
+    /// True while a cell drawn copy by copy near the camera (grass, flowers, the nearest trees) is
+    /// still being made. A room's cover waits for this, so the ground is not bare when play starts
+    /// and its grass does not fill in afterwards; far merged meshes are not waited for.
+    /// </summary>
+    public bool NearBusy { get; private set; }
+
     /// <summary>Draw calls to reserve for merged meshes.</summary>
     public int MaximumDrawCalls => _layers.Count == 0 ? 0 : 4096;
 
@@ -236,7 +243,7 @@ public sealed class TerrainScatterRenderer : IDisposable
         int uploadBudget = UploadBytesPerFrame;
         int instanceBudget = InstanceBudget;
         int cellsWithCopies = 0, copies = 0, near = 0, shadow = 0, dropped = 0, mergedDraws = 0, mergedTriangles = 0;
-        bool waiting = false;
+        bool waiting = false, nearWaiting = false;
         _wanted.Clear();
         float projectionScale = ModelLodView.Active ? ModelLodView.ProjectionScale : 1.73f;
 
@@ -285,6 +292,7 @@ public sealed class TerrainScatterRenderer : IDisposable
                         {
                             if (cell.Generating == null) _wanted.Add((state, cell, distance));
                             waiting = true;
+                            if (distance < NearDistance || !merged) nearWaiting = true;
                             continue;
                         }
                     }
@@ -379,6 +387,7 @@ public sealed class TerrainScatterRenderer : IDisposable
         }
 
         Busy = waiting || _generating > 0 || _building > 0;
+        NearBusy = nearWaiting;
         Statistics = new TerrainScatterStatistics(_layers.Count, cellsWithCopies, copies, _generating + _building,
             near, shadow, dropped, mergedDraws, mergedTriangles, _mergedBytes);
     }

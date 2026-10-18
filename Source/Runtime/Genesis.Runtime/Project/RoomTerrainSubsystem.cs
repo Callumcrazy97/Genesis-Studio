@@ -180,11 +180,14 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
     /// <summary>
     /// Prepares the terrain for a room that is about to be shown: reads the terrains near the
     /// camera and makes the ground and the scattered objects around the camera and every moving
-    /// body solid, all on worker threads. Returns true when none of that is still under way.
+    /// body solid, all on worker threads. Returns true when none of that is still under way, and the
+    /// scattered copies the camera sees nearby (the grass) have been made: the frames behind the
+    /// cover draw the terrain, which starts them. Before, the cover lifted on bare ground and the
+    /// grass filled in during the first seconds of play.
     /// </summary>
     public bool WarmUp(RuntimeScene scene)
     {
-        bool ready = true;
+        bool ready = !NearScatterBusy;
         UpdateTerrainStreaming(scene, inBackground: true);
         foreach (StreamedTerrain terrain in _streamed)
             if (terrain.Loading != null) ready = false;
@@ -433,6 +436,12 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
 
     /// <summary>True while scattered cells the camera can see are still being made.</summary>
     public bool ScatterBusy => _entries.Exists(entry => entry.Scatter?.Busy == true);
+
+    /// <summary>
+    /// True while what grows near the camera is still being made: scattered copies drawn one by one
+    /// (grass, flowers, the nearest trees) or the grass rule's cells in reach.
+    /// </summary>
+    public bool NearScatterBusy => _entries.Exists(entry => entry.Scatter?.NearBusy == true || entry.GrassField?.Pending == true);
 
     /// <summary>Applies view settings to every terrain's scatter.</summary>
     public void ConfigureScatter(float nearDistance, float midDistance, float maximumDistance)
