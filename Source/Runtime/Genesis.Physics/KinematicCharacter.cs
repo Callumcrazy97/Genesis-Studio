@@ -42,7 +42,21 @@ public sealed class KinematicCharacter
     public float MaxSlopeDegrees { get; set; }
 
     /// <summary>The feet: the bottom of the capsule.</summary>
-    public Vector3 Position { get; set; }
+    public Vector3 Position
+    {
+        get => _position;
+        set
+        {
+            _position = value;
+            _placed = true;
+        }
+    }
+
+    private Vector3 _position;
+
+    // Set when the feet were put somewhere from outside (created, teleported) rather than moved here:
+    // the next Move first lifts a capsule that starts touching something onto it.
+    private bool _placed = true;
 
     public bool Grounded { get; private set; }
     public Vector3 GroundNormal { get; private set; } = Vector3.UnitY;
@@ -78,6 +92,11 @@ public sealed class KinematicCharacter
         CharacterMoveFlags flags = CharacterMoveFlags.None;
         bool wasGrounded = Grounded;
         Vector3 feet = Position;
+        if (_placed)
+        {
+            _placed = false;
+            feet = ResolveStartingContact(physics, world, feet, skip);
+        }
 
         feet = Slide(physics, world, feet, new Vector3(delta.X, 0f, delta.Z), wasGrounded, skip, ref flags);
         feet = Slide(physics, world, feet, new Vector3(0f, delta.Y, 0f), false, skip, ref flags);
@@ -98,9 +117,26 @@ public sealed class KinematicCharacter
             GroundNormal = Vector3.UnitY;
         }
 
-        Position = feet;
+        _position = feet;
         if (Grounded) flags |= CharacterMoveFlags.Grounded;
         return flags;
+    }
+
+    /// <summary>
+    /// A capsule placed exactly on the floor (CharacterCreate at an instance's own position) touches
+    /// it, so every sweep stopped at distance 0 and the character never moved (Aetherium 78). One
+    /// that starts in a shallow contact is lifted onto the surface, a skin above it, as a move would
+    /// have left it; one wedged deeper (inside a wall) is left where it is.
+    /// </summary>
+    private Vector3 ResolveStartingContact(PhysicsWorld physics, IEcsWorld world, Vector3 feet, Entity? skip)
+    {
+        if (!physics.CapsuleOverlaps(world, Centre(feet, Height), Radius, Height, out _, skip)) return feet;
+        float lift = MathF.Max(StepHeight, Skin * 4f) + Skin;
+        Vector3 above = feet + Vector3.UnitY * lift;
+        if (physics.CapsuleOverlaps(world, Centre(above, Height), Radius, Height, out _, skip)) return feet;
+        if (!physics.CapsuleCast(world, Centre(above, Height), Radius, Height, -Vector3.UnitY, lift + Skin, out PhysicsRaycastHit ground, skip))
+            return feet;
+        return above - Vector3.UnitY * MathF.Max(0f, ground.Distance - Skin);
     }
 
     private Vector3 Slide(PhysicsWorld physics, IEcsWorld world, Vector3 feet, Vector3 move, bool allowStep, Entity? skip,

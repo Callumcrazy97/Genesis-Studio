@@ -375,6 +375,13 @@ internal static class EngineSystemsSuite
             Check(character.Position.Z > 5.5f && !character.Fits(scene.Physics, world, 1.8f)
                 && !character.SetHeight(scene.Physics, world, 1.8f) && character.Height == 1.0f,
                 $"A crouched character should pass under the ceiling and not stand up there (z = {character.Position.Z:F2}).");
+
+            // Aetherium 78: a character placed exactly on the floor (CharacterCreate at an instance's
+            // own position) found every sweep blocked at distance 0 and never moved.
+            var placed = new Genesis.Physics.KinematicCharacter(0.3f, 1.8f, 0.3f, 45f) { Position = new Vector3(0, 0, -3) };
+            for (int i = 0; i < 5; i++) flags = placed.Move(scene.Physics, world, new Vector3(0.2f, -0.05f, 0));
+            Check(placed.Position.X > 0.9f && Math.Abs(placed.Position.Y) < 0.03f && placed.Grounded,
+                $"A character created exactly on the floor did not walk ({placed.Position}, {flags}).");
         }));
         RunMeshSweeps(ctx);
         HeadlessHarness.RunCase(ctx.Report, "Runtime.PGSL.SphereAndCapsuleQueries", () => WithScene(ctx, (scene, context, game) =>
@@ -564,6 +571,14 @@ internal static class EngineSystemsSuite
             for (int i = 0; i < 4; i++) character.Move(scene.Physics, world, new Vector3(-0.25f, -0.02f, 0.1f));
             Check(character.Position.X < hut.X - 3.2f && character.Position.Z > 0.35f,
                 $"The character could not walk away from the mesh wall ({character.Position}).");
+
+            // Aetherium 78 on mesh ground: feet placed exactly on it, walking level (dy 0) and down.
+            var level = new Genesis.Physics.KinematicCharacter(0.4f, 1.8f, 0.3f, 45f) { Position = new Vector3(hut.X - 8f, 0f, 6f) };
+            for (int i = 0; i < 5; i++) flags = level.Move(scene.Physics, world, new Vector3(0f, 0f, 0.2f));
+            var pressed = new Genesis.Physics.KinematicCharacter(0.4f, 1.8f, 0.3f, 45f) { Position = new Vector3(hut.X - 10f, 0f, 6f) };
+            for (int i = 0; i < 5; i++) pressed.Move(scene.Physics, world, new Vector3(0f, -0.05f, 0.2f));
+            Check(level.Position.Z > 6.9f && pressed.Position.Z > 6.9f && Math.Abs(level.Position.Y) < 0.03f && Math.Abs(pressed.Position.Y) < 0.03f,
+                $"A character placed exactly on mesh ground did not walk (level {level.Position}, pressing down {pressed.Position}, {flags}).");
         }));
     }
 

@@ -1010,7 +1010,7 @@ instance; its position is its feet, and the script copies it to the instance:
 
 | Command | What it does |
 |---|---|
-| `CharacterCreate(radius, height, stepHeight, maxSlopeDegrees)` | Give this instance a character at its own position. |
+| `CharacterCreate(radius, height, stepHeight, maxSlopeDegrees)` | Give this instance a character at its own position. Feet placed exactly on (or a little into) the ground are lifted onto it on the first move, so there is no margin to leave. |
 | `CharacterMove(dx, dy, dz)` | Move as far as the world allows: slides along walls, climbs steps up to `stepHeight`, follows the ground down slopes and steps. Returns flags: 1 grounded, 2 ceiling, 4 wall, 8 climbed a step. |
 | `CharacterX()`, `CharacterY()`, `CharacterZ()`, `CharacterSetPosition(x, y, z)` | Where its feet are; a teleport. |
 | `CharacterGrounded()`, `CharacterGroundNormalY()` | Whether it stands on walkable ground, and how upright that ground is. |
@@ -1567,6 +1567,8 @@ data. It also times sharing at a voxel game's size.
 | `WindowHasFocus()`, `WindowIsMinimized()` | Whether the player is in the game's window (false after switching to another window), and whether it is minimised. A minimised game draws no frames and runs no Draw events, but Step events go on: a game that should rest while nobody is looking (pause, stop starting particle bursts) asks these. Outside a game window they are true and false. |
 | `WindowSetMode(mode)`, `WindowGetMode()` | `"windowed"`, `"borderless"` or `"fullscreen"` (exclusive); false for any other name. |
 | `WindowSetSize(width, height)`, `WindowGetWidth()`, `WindowGetHeight()` | A windowed game's size in pixels. |
+| `WindowGetGuiX()`, `WindowGetGuiY()`, `WindowGetGuiWidth()`, `WindowGetGuiHeight()`, `WindowGetGuiScale()` | The GUI area: where the room's window lands in the real one. With Scale viewports with window on, the world is fitted at one scale and centred, leaving bands on a window of another shape; DrawGui laid out in this rectangle (design sizes times the scale) lines up with the world at any size. Without it, the whole window and its scale. |
+| `TestCheck(name, passed, detail)` | A self-test: the game reports something it checked (the door opened, the count is right). Written to the project's Logs/checks.log; Studio's automation `game.run` returns the run's checks, and a failed one fails the run. |
 | `WindowSetVSync(enabled)`, `WindowGetVSync()` | Wait for the display's refresh (no tearing). On Vulkan a change rebuilds the swap chain once, before the next frame: on waits for the display (FIFO); off shows each frame when it is ready (MAILBOX, else IMMEDIATE, else FIFO where the display offers nothing else). The render log names the mode chosen. |
 | `GameSetMaxFps(fps)`, `GameGetMaxFps()` | A frame-rate cap; 0 for none. |
 | `GameUseRoomFps()` | Follow the rooms' Frame rate and VSync settings again: the current room's apply at once. |
