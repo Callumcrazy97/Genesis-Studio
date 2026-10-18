@@ -90,6 +90,10 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
         Truth,
         /// <summary>A string, given text or nothing.</summary>
         Text,
+        /// <summary>An int, given an unboxed number that fits one (converted as ConvertArg does).</summary>
+        Integer,
+        /// <summary>An object (a list, a map, any value), given whatever the script passes, as its object.</summary>
+        Value,
     }
 
     /// <summary>
@@ -173,11 +177,13 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
         return call;
     }
 
-    // Commands whose parameters are all numbers (double, float), bools or text, called with exactly
-    // that many: a compiled call over reusable arrays (no object[] of boxed numbers, no
-    // per-argument conversion). It does what ConvertArg does for those values: a number given for
-    // a float is narrowed, a number given for a bool is true when not 0, and text is passed as is.
-    // Any other value (text for a number, a number for text, a list...) takes the general path.
+    // Commands whose parameters are all numbers (double, float, int), bools, text or plain objects,
+    // called with exactly that many: a compiled call over reusable arrays (no object[] of boxed
+    // numbers, no per-argument conversion, no boxed result). It does what ConvertArg does for those
+    // values: a number given for a float is narrowed, for an int rounded (Convert.ToInt32), for a bool
+    // true when not 0; text is passed as is, and so is any value given for an object parameter
+    // (PgListSize(list), DsMapGet(map, key)...). Any other value (text for a number, a number too big
+    // for an int...) takes the general path, which converts it or says why it cannot.
     private static void CompileTypedCall(NativeCall call)
     {
         ParameterInfo[] parameters = call.Plan.Parameters;
@@ -191,6 +197,8 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
             else if (type == typeof(float)) kinds[i] = ArgumentKind.Single;
             else if (type == typeof(bool)) kinds[i] = ArgumentKind.Truth;
             else if (type == typeof(string)) kinds[i] = ArgumentKind.Text;
+            else if (type == typeof(int)) kinds[i] = ArgumentKind.Integer;
+            else if (type == typeof(object)) kinds[i] = ArgumentKind.Value;
             else return;
         }
 
@@ -205,6 +213,8 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
                 ArgumentKind.Single => Expression.Convert(Expression.ArrayIndex(numbers, index), typeof(float)),
                 ArgumentKind.Truth => Expression.NotEqual(Expression.ArrayIndex(numbers, index), Expression.Constant(0.0)),
                 ArgumentKind.Text => Expression.Convert(Expression.ArrayIndex(texts, index), typeof(string)),
+                ArgumentKind.Integer => Expression.Call(ToInt32FromDouble, Expression.ArrayIndex(numbers, index)),
+                ArgumentKind.Value => Expression.ArrayIndex(texts, index),
                 _ => Expression.ArrayIndex(numbers, index),
             };
         }
@@ -215,9 +225,11 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
         else if (returns == typeof(void)) call.VoidCall = Expression.Lambda<Action<double[], object[]>>(body, numbers, texts).Compile();
         else call.ObjectCall = Expression.Lambda<Func<double[], object[], object>>(Expression.Convert(body, typeof(object)), numbers, texts).Compile();
         call.Kinds = kinds;
-        call.HasText = Array.IndexOf(kinds, ArgumentKind.Text) >= 0;
+        call.HasText = Array.IndexOf(kinds, ArgumentKind.Text) >= 0 || Array.IndexOf(kinds, ArgumentKind.Value) >= 0;
         CreateDirectCall(call, kinds);
     }
+
+    private static readonly MethodInfo ToInt32FromDouble = typeof(Convert).GetMethod(nameof(Convert.ToInt32), new[] { typeof(double) })!;
 
     // The same method as the typed call, bound as a plain delegate when it takes only doubles.
     private static void CreateDirectCall(NativeCall call, ArgumentKind[] kinds)

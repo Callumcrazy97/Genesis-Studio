@@ -64,8 +64,22 @@ internal sealed class VmValueStack
         for (int i = 0; i < kinds.Length; i++)
         {
             ref VmValue value = ref _values[start + i];
-            if (kinds[i] == PgslEngineBridge.ArgumentKind.Text ? !(value.IsString || value.IsNull || (value.IsUnboxedNumber && !value.IsBoolean)) : !value.IsUnboxedNumber)
-                return false;
+            switch (kinds[i])
+            {
+                case PgslEngineBridge.ArgumentKind.Text:
+                    if (!(value.IsString || value.IsNull || (value.IsUnboxedNumber && !value.IsBoolean))) return false;
+                    break;
+                case PgslEngineBridge.ArgumentKind.Value:
+                    break;
+                case PgslEngineBridge.ArgumentKind.Integer:
+                    // Only what Convert.ToInt32 takes without overflowing; anything else gets the general
+                    // path's conversion and its message.
+                    if (!value.IsUnboxedNumber || !(value.UnboxedNumber >= int.MinValue && value.UnboxedNumber <= int.MaxValue)) return false;
+                    break;
+                default:
+                    if (!value.IsUnboxedNumber) return false;
+                    break;
+            }
         }
         return true;
     }
@@ -83,6 +97,8 @@ internal sealed class VmValueStack
             ref VmValue value = ref _values[start + i];
             if (kinds[i] == PgslEngineBridge.ArgumentKind.Text)
                 texts[i] = value.IsUnboxedNumber ? PgslNumberText.Of(value.UnboxedNumber) : value.ToObject();
+            else if (kinds[i] == PgslEngineBridge.ArgumentKind.Value)
+                texts[i] = value.ToObject();
             else numbers[i] = value.Number;
             value = default;
         }

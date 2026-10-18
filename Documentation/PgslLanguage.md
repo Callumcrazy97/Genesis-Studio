@@ -85,10 +85,11 @@ The VM decodes each event body and function once (operands unboxed, constants co
 name resolved) and reuses that, keeping the operand stack in locals while it runs. A function's
 parameters and `var` names live in numbered slots of its frame; a name it has not set is still
 looked for in each caller's frame and then the instance, exactly as before. A command whose
-parameters are all numbers, bools or text (`DsGridGet`, `DsListGet`, `DsMapGet`, `Floor`, `Clamp`,
-`MeshAddVertex`, `VariableSet`...) is called through a compiled call that takes numbers unboxed and
-text as it is; any other value (text for a number, a list, an object, `params`) goes the general
-way with the same conversions and errors. Nothing about the language changed: scoping, `self.`,
+parameters are all numbers (double, float or int), bools, text or plain objects (`DsGridGet`,
+`DsListGet`, `DsMapGet`, `Floor`, `Clamp`, `MeshAddVertex`, `VariableSet`, `PgListSize`, `PgListAdd`...)
+is called through a compiled call that takes numbers unboxed, text as it is, lists and other values
+as they are, and returns its number without boxing it. Any other value (text for a number, a number
+too big for an int) or a `params` command goes the general way with the same conversions and errors. Nothing about the language changed: scoping, `self.`,
 the instruction budget and count, and every message are the same, and `--test vm-speed` checks that
 a voxel project's light spread and chunk mesher produce the same light, faces and vertices as
 before.
