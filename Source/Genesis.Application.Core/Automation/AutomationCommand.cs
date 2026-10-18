@@ -87,6 +87,8 @@ public static class AutomationSchema
         if (plain.IsArray) return new JsonObject { ["type"] = "array", ["items"] = TypeSchema(plain.GetElementType()!) };
         if (plain.IsGenericType && plain.GetGenericTypeDefinition() == typeof(List<>))
             return new JsonObject { ["type"] = "array", ["items"] = TypeSchema(plain.GetGenericArguments()[0]) };
+        if (plain.IsGenericType && plain.GetGenericTypeDefinition() == typeof(Dictionary<,>) && plain.GetGenericArguments()[0] == typeof(string))
+            return new JsonObject { ["type"] = "object", ["additionalProperties"] = TypeSchema(plain.GetGenericArguments()[1]) };
         if (plain == typeof(JsonObject) || plain == typeof(JsonNode)) return new JsonObject { ["type"] = "object" };
         return For(plain);
     }

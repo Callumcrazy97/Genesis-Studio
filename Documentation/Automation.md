@@ -66,11 +66,16 @@ A result is `{ "ok", "message", "data", "changed", "issues" }`.
 | `room.nodes` | A room's instances with their objects, positions, rotations and scales. |
 | `room.addInstance` / `room.moveInstance` / `room.removeInstance` | Places, moves or removes instances of Objects, as the Room editor does. Removing needs confirm. |
 | `room.setEnvironment` | Sets environment fields as named in the room file (time of day, weather, sky, fog, shadow distance...); the room must still load, so a value of the wrong kind is refused. |
+| `object.create` | Makes an Object as the Object editor does: an Image (2D) or a Model (3D), solid, visible, persistent, and its first PGSL events. |
+| `object.info` | What an Object shows, its components with their settings, its events, and the components it could have. |
+| `object.setComponent` / `object.removeComponent` | Adds or changes a component (physics, light, audio, particles, material, shader, animation, camera, navigation...); only the settings given change, and asset paths become resource names. Removing needs confirm. |
+| `object.setEvent` / `object.removeEvent` | Writes or removes one of an Object's PGSL events (Create, Step, Draw, DrawGui, KeyPressed, Collision, Alarm0...), kept where the runtime finds them; the script check's findings come back with their lines. Removing needs confirm. |
+| `script.write` | Writes a library PGSL Script, making the resource if it is new; the script check's findings come back with their lines. |
 
 ## What comes next
 
-These are the first stage and the start of the second (terrain nature, room instances and
-environment). Next, each editor's operations become commands that its buttons and the automation
-share: terrain creation and sculpting, Object and Script, then the run, test and profile loop (an unattended run with scripted inputs, timed
+These are the first stage and most of the second (terrain nature, room instances and environment,
+Objects and scripts). Next, each editor's operations become commands that its buttons and the
+automation share: terrain creation and sculpting, then the run, test and profile loop (an unattended run with scripted inputs, timed
 screenshots and a structured report), then Image, Model, Shader, Particle, Physics and audio
 synthesis, and a live mode that works on the Studio that is open, with undo.

@@ -1,7 +1,7 @@
 using Newtonsoft.Json.Linq;
 using Genesis.Application.Core.Resources;
 
-namespace Genesis.Application.Editors.Suite.Objects;
+namespace Genesis.Application.Core.Objects;
 
 /// <summary>One designer-facing capability that can be attached to an Object.</summary>
 public sealed record ObjectComponentDefinition(

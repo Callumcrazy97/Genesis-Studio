@@ -30,6 +30,7 @@ public sealed class AutomationRegistry
         foreach (IAutomationCommand command in ResourceCommands.All()) registry.Register(command);
         foreach (IAutomationCommand command in TerrainCommands.All()) registry.Register(command);
         foreach (IAutomationCommand command in RoomCommands.All()) registry.Register(command);
+        foreach (IAutomationCommand command in ObjectCommands.All()) registry.Register(command);
         return registry;
     }
 

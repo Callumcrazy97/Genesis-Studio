@@ -143,6 +143,64 @@ internal static class AutomationSuite
                 "room.removeInstance left the instance: " + removed.Message);
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.ObjectsAreComposedAsTheObjectEditorDoes", () =>
+        {
+            string model = PathOf(Call("resource.create", """{ "kind": "Model", "folder": "Assets", "name": "Barrel Mesh" }"""));
+            AutomationResult made = Call("object.create", $$"""{ "name": "Barrel", "model": "{{model}}", "solid": true, "events": { "Create": "x = 0;\n" } }""");
+            HeadlessHarness.Assert(made.Ok, "object.create failed: " + made.ToJson().ToJsonString());
+            string barrel = PathOf(made);
+            var document = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(context.Resolve(barrel)));
+            var composition = new ObjectCompositionModel(document);
+            HeadlessHarness.Assert((string?)document["dimension"] == "ThreeD" && (bool?)document["solid"] == true
+                && (string?)ObjectCompositionModel.Props(composition.Find("ModelRendererComponent")!)["ModelAsset"] == "Barrel Mesh"
+                && composition.Find("SpriteComponent") is null
+                && (string?)ObjectCompositionModel.Props(composition.Find("ScriptComponent")!)["ScriptClass"] == "Barrel",
+                "The Object was not composed as the editor composes one: " + document.ToString(Newtonsoft.Json.Formatting.None));
+            HeadlessHarness.Assert(Genesis.Runtime.Scripting.ObjectEventStore.Load(context.Resolve(barrel)).ContainsKey("Create"), "The Create event was not saved where the runtime finds it.");
+
+            AutomationResult light = Call("object.setComponent", $$"""{ "object": "{{barrel}}", "type": "PointLightComponent", "values": { "Radius": 12 } }""");
+            var lit = ObjectCompositionModel.Props(new ObjectCompositionModel(Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(context.Resolve(barrel)))).Find("PointLightComponent")!);
+            HeadlessHarness.Assert(light.Ok && (float?)lit["Radius"] == 12f && (float?)lit["Intensity"] == 2f, "object.setComponent did not add the light with its defaults: " + light.Message);
+
+            AutomationResult broken = Call("object.setEvent", $$"""{ "object": "{{barrel}}", "event": "Step", "code": "x = ;\n" }""");
+            HeadlessHarness.Assert(broken.Ok && broken.Issues.Any(i => i.Severity == "error" && (i.Path ?? string.Empty).EndsWith("Barrel/Step.pgsl", StringComparison.Ordinal) && i.Line == 1),
+                "A broken event did not come back with its error and line: " + broken.ToJson().ToJsonString());
+            AutomationResult fixedStep = Call("object.setEvent", $$"""{ "object": "{{barrel}}", "event": "Step", "code": "x = x + 1;\n" }""");
+            HeadlessHarness.Assert(fixedStep.Ok && !fixedStep.Issues.Any(i => i.Severity == "error" && (i.Path ?? string.Empty).Contains("Barrel", StringComparison.Ordinal)),
+                "The fixed event still reported errors: " + fixedStep.ToJson().ToJsonString());
+            AutomationResult info = Call("object.info", $$"""{ "object": "{{barrel}}" }""");
+            HeadlessHarness.Assert(info.Ok && info.Data!["events"]!.ToJsonString() == "[\"Create\",\"Step\"]", "object.info did not list the events: " + info.Data?.ToJsonString());
+
+            HeadlessHarness.Assert(!Call("object.removeEvent", $$"""{ "object": "{{barrel}}", "event": "Step" }""").Ok, "Removing an event did not need confirming.");
+            AutomationResult removed = Call("object.removeEvent", $$"""{ "object": "{{barrel}}", "event": "Step", "confirm": true }""");
+            HeadlessHarness.Assert(removed.Ok && !File.Exists(Genesis.Runtime.Scripting.ObjectEventStore.PathFor(context.Resolve(barrel), "Step"))
+                && !File.ReadAllText(context.Resolve(barrel)).Contains("\"Step\"", StringComparison.Ordinal), "object.removeEvent left the event: " + removed.Message);
+            AutomationResult unlit = Call("object.removeComponent", $$"""{ "object": "{{barrel}}", "type": "PointLightComponent", "confirm": true }""");
+            HeadlessHarness.Assert(unlit.Ok && !File.ReadAllText(context.Resolve(barrel)).Contains("PointLightComponent", StringComparison.Ordinal), "object.removeComponent left the light: " + unlit.Message);
+
+            string image = PathOf(Call("resource.create", """{ "kind": "Image", "folder": "Assets", "name": "Coin Picture" }"""));
+            AutomationResult coin = Call("object.create", $$"""{ "name": "Coin", "sprite": "{{image}}" }""");
+            HeadlessHarness.Assert(coin.Ok && coin.Data!["sprite"]?.GetValue<string>() == "Coin Picture" && coin.Data["dimension"]?.GetValue<string>() == "TwoD",
+                "object.create did not make a 2D Object showing the image: " + coin.ToJson().ToJsonString());
+            AutomationResult wrongKind = Call("object.create", $$"""{ "name": "Odd", "sprite": "{{model}}" }""");
+            HeadlessHarness.Assert(!wrongKind.Ok && wrongKind.Message.Contains("should be a", StringComparison.Ordinal), "A model given as an image was not refused: " + wrongKind.Message);
+            HeadlessHarness.Assert(Call("object.setEvent", $$"""{ "object": "{{barrel}}", "event": "Tuesday", "code": "x = 1;" }""").Message.Contains("not an event", StringComparison.Ordinal),
+                "An unknown event was not explained.");
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.LibraryScriptsAreWrittenAndChecked", () =>
+        {
+            AutomationResult made = Call("script.write", """{ "path": "Assets/Scripts/Helpers.pgsl", "code": "function Twice(n) {\n    return n * 2;\n}\n" }""");
+            HeadlessHarness.Assert(made.Ok && File.Exists(context.Resolve("Assets/Scripts/Helpers.pgsl")) && File.Exists(context.Resolve("Assets/Scripts/Helpers.pgsl") + ".meta")
+                && !made.Issues.Any(i => i.Severity == "error" && (i.Path ?? string.Empty).Contains("Helpers", StringComparison.Ordinal)),
+                "script.write did not make a clean script resource: " + made.ToJson().ToJsonString());
+            AutomationResult broken = Call("script.write", """{ "path": "Assets/Scripts/Helpers.pgsl", "code": "function Twice(n) {\n    return n * ;\n}\n" }""");
+            HeadlessHarness.Assert(broken.Ok && broken.Issues.Any(i => i.Severity == "error" && (i.Path ?? string.Empty).Contains("Helpers", StringComparison.Ordinal) && i.Line == 2),
+                "A broken script did not come back with its error and line: " + broken.ToJson().ToJsonString());
+            Call("script.write", """{ "path": "Assets/Scripts/Helpers.pgsl", "code": "function Twice(n) {\n    return n * 2;\n}\n" }""");
+            HeadlessHarness.Assert(!Call("script.write", """{ "path": "Assets/Objects/Barrel/Create.pgsl", "code": "x = 1;" }""").Ok, "script.write wrote over an Object's event.");
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.CommandLineAndMcpServeTheSameCommands", () =>
         {
             var output = new StringWriter();
