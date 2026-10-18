@@ -442,13 +442,17 @@ namespace Genesis.Runtime
             LodPolicy lodPolicy = LodPolicy.Current;
             int drawCount = count;
 
-            World.Query<Transform3DComponent, EntityLifecycleComponent>((entity, ref transform, ref lifecycle) =>
+            // The delegate-free query: a lambda here captured the locals and cost a closure every frame.
+            foreach (var item in World.Query<Transform3DComponent, EntityLifecycleComponent>())
             {
-                if (!lifecycle.Enabled || drawCount >= buffer.Length) return;
+                Entity entity = item.Entity;
+                ref Transform3DComponent transform = ref item.C1;
+                ref EntityLifecycleComponent lifecycle = ref item.C2;
+                if (!lifecycle.Enabled || drawCount >= buffer.Length) continue;
 
                 bool hasDraw = World.Has<MeshDrawComponent>(entity);
                 bool hasLod  = World.Has<LodMeshComponent>(entity);
-                if (!hasDraw && !hasLod) return;
+                if (!hasDraw && !hasLod) continue;
 
                 float radius = BoundsHelper.BoundingRadiusFromScale(
                     transform.Scale.X, transform.Scale.Y, transform.Scale.Z);
@@ -464,7 +468,7 @@ namespace Genesis.Runtime
                         or VisibilityResult.Disabled
                         or VisibilityResult.Occluded)
                     {
-                        return;
+                        continue;
                     }
 
                     if (result == VisibilityResult.Visible)
@@ -472,17 +476,17 @@ namespace Genesis.Runtime
                         if (occlude
                             && !Visibility.IsVisible(frustum, viewProjection, transform.Position, radius, testOcclusion: true))
                         {
-                            return;
+                            continue;
                         }
                     }
                     else if (cull && !Visibility.IsVisible(frustum, viewProjection, transform.Position, radius, occlude))
                     {
-                        return;
+                        continue;
                     }
                 }
                 else if (cull && !Visibility.IsVisible(frustum, viewProjection, transform.Position, radius, occlude))
                 {
-                    return;
+                    continue;
                 }
 
                 MeshHandle mesh = MeshHandle.Invalid;
@@ -512,7 +516,7 @@ namespace Genesis.Runtime
                     shadowMesh = MeshLodBuilder.SelectMeshForShadow(policyLod, distance);
                 }
 
-                if (!mesh.IsValid) return;
+                if (!mesh.IsValid) continue;
 
                 float alpha = FixedTimestep.InterpolationAlpha;
                 buffer[drawCount++] = new MeshDrawCall
@@ -528,7 +532,7 @@ namespace Genesis.Runtime
                 RenderAutoState.SubmittedMeshes++;
                 if ((flags & MeshDrawFlags.NoShadow) == 0)
                     RenderAutoState.ShadowCastersSubmitted++;
-            });
+            }
 
             count = drawCount;
         }

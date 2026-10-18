@@ -636,9 +636,10 @@ namespace Genesis.Runtime.Modeling
                 return palette;
 
             int count = Math.Min(size, asset.Rig.Bones.Count);
-            Matrix4x4[] evaluatedLocals = GModelPrimitiveFactory.EvaluateAnimatedLocals(asset, animation);
+            // This thread's bone buffers too: both are used here and nowhere else.
+            Matrix4x4[] evaluatedLocals = GModelPrimitiveFactory.EvaluateAnimatedLocalsScratch(asset, animation);
 
-            Matrix4x4[] world = GModelPrimitiveFactory.ComputeWorldTransforms(asset.Rig.Bones, evaluatedLocals);
+            Matrix4x4[] world = GModelPrimitiveFactory.ComputeWorldTransformsScratch(asset.Rig.Bones, evaluatedLocals);
             for (int i = 0; i < count; i++)
             {
                 Matrix4x4 inverseBind = asset.Rig.InverseBindMatrices != null && i < asset.Rig.InverseBindMatrices.Length

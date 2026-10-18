@@ -79,7 +79,7 @@ public static class ModelSocketRuntime
             // No socket of that name: a bone's own name is where that bone is.
             int bone = bones?.FindIndex(candidate => string.Equals(candidate.Name, socketName, StringComparison.OrdinalIgnoreCase)) ?? -1;
             if (bone < 0) return false;
-            socketWorld = GModelPrimitiveFactory.ComputeBoneWorld(bones, GModelPrimitiveFactory.EvaluateAnimatedLocals(asset, animation), bone) * modelWorld;
+            socketWorld = GModelPrimitiveFactory.ComputeBoneWorld(bones, GModelPrimitiveFactory.EvaluateAnimatedLocalsScratch(asset, animation), bone) * modelWorld;
             return IsUsable(socketWorld);
         }
 
@@ -87,7 +87,7 @@ public static class ModelSocketRuntime
         if (socket.BoneIndex >= 0 && bones is { Count: > 0 }
             && socket.BoneIndex < bones.Count)
         {
-            anchor = GModelPrimitiveFactory.ComputeBoneWorld(bones, GModelPrimitiveFactory.EvaluateAnimatedLocals(asset, animation), socket.BoneIndex);
+            anchor = GModelPrimitiveFactory.ComputeBoneWorld(bones, GModelPrimitiveFactory.EvaluateAnimatedLocalsScratch(asset, animation), socket.BoneIndex);
         }
         else
         {

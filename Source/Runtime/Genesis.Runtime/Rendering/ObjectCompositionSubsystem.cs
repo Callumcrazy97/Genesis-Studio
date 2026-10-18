@@ -127,17 +127,22 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomW
         // Advance component-owned playback exactly once per live entity. Before this subsystem
         // existed, ModelAnimatorLifecycle and SpriteLifecycle were attachable but never ticked by
         // either the Player or an editor preview.
-        scene.World.Query<TransformComponent>((Entity entity, ref TransformComponent transform) =>
-            ComponentLifecycle.OnUpdate(scene.World, entity, dt));
+        // Delegate-free queries in this per-frame path: each lambda here captured locals and cost a
+        // closure and a delegate every frame (17 Oct allocation traces).
+        foreach (var item in scene.World.Query<TransformComponent>())
+            ComponentLifecycle.OnUpdate(scene.World, item.Entity, dt);
 
         ModelSocketRuntime.Update(scene.World, _projectPath, _attachmentModelAssets);
 
         Genesis.Runtime.Scripting.PgslCommands.UpdateNavigation(scene, dt);
         Cameras.ThirdPersonCamera.UpdateScene(scene, dt);
 
-        scene.World.Query<TransformComponent, ParticleComponent>((entity, ref transform, ref component) =>
+        foreach (var item in scene.World.Query<TransformComponent, ParticleComponent>())
         {
-            if (!component.Emitting || string.IsNullOrWhiteSpace(component.Asset)) return;
+            Entity entity = item.Entity;
+            ref TransformComponent transform = ref item.C1;
+            ref ParticleComponent component = ref item.C2;
+            if (!component.Emitting || string.IsNullOrWhiteSpace(component.Asset)) continue;
             _seenParticles.Add(entity.Id);
             ParticleState? state = EnsureParticle(entity, component, scene);
             if (state == null)
@@ -149,7 +154,7 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomW
                     component.Age += dt;
                     if (component.Age >= 5f) scene.World.DestroyEntity(entity);
                 }
-                return;
+                continue;
             }
             if (component.Restart)
             {
@@ -186,7 +191,7 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomW
                 if (component.Age >= emitting + longestLife + 0.25f)
                 {
                     scene.World.DestroyEntity(entity);
-                    return;
+                    continue;
                 }
             }
 
@@ -195,11 +200,14 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomW
                 layer.World = ResolveParticleWorld(layer.Config, component, transform, scene.Camera3D.Position);
                 layer.PendingSeconds = Math.Min(1f, layer.PendingSeconds + dt);
             }
-        });
+        }
 
-        scene.World.Query<TransformComponent, AudioComponent>((entity, ref transform, ref component) =>
+        foreach (var item in scene.World.Query<TransformComponent, AudioComponent>())
         {
-            if (string.IsNullOrWhiteSpace(component.Asset)) return;
+            Entity entity = item.Entity;
+            ref TransformComponent transform = ref item.C1;
+            ref AudioComponent component = ref item.C2;
+            if (string.IsNullOrWhiteSpace(component.Asset)) continue;
             _seenAudio.Add(entity.Id);
             if (!_audioStates.TryGetValue(entity.Id, out AudioState? state))
             {
@@ -238,13 +246,14 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomW
                 if (component.SpatialSettings is { } spatial)
                     _audio.SetChannelSpatialSettings(state.Channel, component.Spatial, spatial);
             }
-        });
+        }
 
-        scene.World.Query<PointLightComponent>((Entity entity, ref PointLightComponent component) =>
+        foreach (var item in scene.World.Query<PointLightComponent>())
         {
+            ref PointLightComponent component = ref item.C1;
             if (component.Enabled && component.Intensity > 0f && component.Radius > 0f)
                 PointLightCount++;
-        });
+        }
 
         RemoveMissingStates();
     }
@@ -383,9 +392,12 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomW
     {
         if (scene?.World == null || renderer == null) return 0;
         int submitted = 0;
-        scene.World.Query<TransformComponent, PointLightComponent>((entity, ref transform, ref light) =>
+        foreach (var item in scene.World.Query<TransformComponent, PointLightComponent>())
         {
-            if (!light.Enabled || light.Intensity <= 0f || light.Radius <= 0f) return;
+            Entity entity = item.Entity;
+            ref TransformComponent transform = ref item.C1;
+            ref PointLightComponent light = ref item.C2;
+            if (!light.Enabled || light.Intensity <= 0f || light.Radius <= 0f) continue;
             EvaluateLight(entity.Id, light, out Vector3 color, out float radius, out float intensity);
             renderer.AddPointLight(
                 new Vector3(transform.X, transform.Y, transform.Z) + light.Offset,
@@ -394,7 +406,7 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomW
                 intensity,
                 light.Falloff <= 0f ? 2f : light.Falloff);
             submitted++;
-        });
+        }
         foreach (ParticleState state in _particles.Values)
         {
             ParticleLightConfig light = state.Effect.Light;

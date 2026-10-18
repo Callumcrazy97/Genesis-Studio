@@ -166,8 +166,26 @@ namespace Genesis.Runtime.Modeling
         public static Matrix4x4[] ComputeWorldTransforms(IReadOnlyList<GModelBone> bones, Matrix4x4[] localTransforms)
         {
             int count = Math.Max(0, bones?.Count ?? 0);
-            var world = new Matrix4x4[count];
-            var state = new byte[count];
+            return ComputeWorldTransformsInto(bones, localTransforms, new Matrix4x4[count], new byte[count]);
+        }
+
+        /// <summary>
+        /// <see cref="ComputeWorldTransforms"/> into this thread's buffers: the result is valid until the
+        /// next call on the same thread. For the per-frame path that uses it at once (the skin palette).
+        /// </summary>
+        public static Matrix4x4[] ComputeWorldTransformsScratch(IReadOnlyList<GModelBone> bones, Matrix4x4[] localTransforms)
+        {
+            int count = Math.Max(0, bones?.Count ?? 0);
+            if (count == 0) return Array.Empty<Matrix4x4>();
+            _stateScratch ??= new Dictionary<int, byte[]>();
+            if (!_stateScratch.TryGetValue(count, out byte[] state)) _stateScratch[count] = state = new byte[count];
+            else Array.Clear(state);
+            return ComputeWorldTransformsInto(bones, localTransforms, Scratch(count, 3), state);
+        }
+
+        private static Matrix4x4[] ComputeWorldTransformsInto(IReadOnlyList<GModelBone> bones, Matrix4x4[] localTransforms, Matrix4x4[] world, byte[] state)
+        {
+            int count = world.Length;
             for (int i = 0; i < count; i++) Resolve(i);
             return world;
 
@@ -222,7 +240,30 @@ namespace Genesis.Runtime.Modeling
             return world;
         }
 
+        /// <summary>A model's animated local bone transforms, in a new array the caller may keep.</summary>
         public static Matrix4x4[] EvaluateAnimatedLocals(GModelAsset asset, RuntimeModelAnimationState animation)
+        {
+            Matrix4x4[] locals = EvaluateAnimatedLocalsScratch(asset, animation);
+            return locals.Length == 0 ? locals : (Matrix4x4[])locals.Clone();
+        }
+
+        // Per-thread bone buffers by bone count (slots: current clip, previous clip, layer, world):
+        // each animated model allocated up to four bone arrays a frame (17 Oct allocation traces).
+        [ThreadStatic] private static Dictionary<int, Matrix4x4[][]> _boneScratch;
+        [ThreadStatic] private static Dictionary<int, byte[]> _stateScratch;
+
+        private static Matrix4x4[] Scratch(int count, int slot)
+        {
+            _boneScratch ??= new Dictionary<int, Matrix4x4[][]>();
+            if (!_boneScratch.TryGetValue(count, out Matrix4x4[][] set)) _boneScratch[count] = set = new Matrix4x4[4][];
+            return set[slot] ??= new Matrix4x4[count];
+        }
+
+        /// <summary>
+        /// <see cref="EvaluateAnimatedLocals"/> into this thread's buffers: valid until the next call on
+        /// the same thread, for the per-frame paths that use it at once (skin palettes, sockets).
+        /// </summary>
+        public static Matrix4x4[] EvaluateAnimatedLocalsScratch(GModelAsset asset, RuntimeModelAnimationState animation)
         {
             if (asset?.Rig?.Bones == null || asset.Rig.Bones.Count == 0)
                 return Array.Empty<Matrix4x4>();
@@ -230,13 +271,14 @@ namespace Genesis.Runtime.Modeling
             if (animation.Controller != null)
                 return PreserveRootTransforms(asset, animation.Controller.Evaluate(asset), animation.PreserveRootTransform);
 
+            int count = asset.Rig.Bones.Count;
             Matrix4x4[] current = EvaluateClipLocals(asset, animation.ClipName, animation.TimeSeconds,
-                animation.Fps, animation.Loop);
+                animation.Fps, animation.Loop, Scratch(count, 0));
             if (string.IsNullOrWhiteSpace(animation.PreviousClipName) || animation.BlendFactor >= 1f)
                 return PreserveRootTransforms(asset, ApplyLayer(asset, current, animation), animation.PreserveRootTransform);
 
             Matrix4x4[] previous = EvaluateClipLocals(asset, animation.PreviousClipName,
-                animation.PreviousTimeSeconds, animation.Fps, animation.Loop);
+                animation.PreviousTimeSeconds, animation.Fps, animation.Loop, Scratch(count, 1));
             float blend = Math.Clamp(animation.BlendFactor, 0f, 1f);
             for (int i = 0; i < current.Length && i < previous.Length; i++)
                 current[i] = BlendLocalTransform(previous[i], current[i], blend);
@@ -252,7 +294,7 @@ namespace Genesis.Runtime.Modeling
             if (!animation.HasLayer) return locals;
             var bones = asset.Rig.Bones;
             Matrix4x4[] layer = EvaluateClipLocals(asset, animation.LayerClipName, animation.LayerTimeSeconds,
-                animation.Fps, animation.LayerLoop);
+                animation.Fps, animation.LayerLoop, Scratch(bones.Count, 2));
             float weight = animation.LayerWeight;
             for (int i = 0; i < locals.Length && i < layer.Length; i++)
             {
@@ -294,21 +336,24 @@ namespace Genesis.Runtime.Modeling
             string clipName,
             float timeSeconds,
             float fpsOverride,
-            bool loop)
+            bool loop,
+            Matrix4x4[] into)
         {
             if (asset?.Rig?.Bones == null || asset.Rig.Bones.Count == 0)
                 return Array.Empty<Matrix4x4>();
 
             int count = asset.Rig.Bones.Count;
-            var locals = new Matrix4x4[count];
+            Matrix4x4[] locals = into != null && into.Length == count ? into : new Matrix4x4[count];
             for (int i = 0; i < count; i++)
                 locals[i] = asset.Rig.Bones[i].BindLocal;
 
             if (string.IsNullOrWhiteSpace(clipName) || asset.Animations == null)
                 return locals;
 
-            GModelAnimationClip clip = asset.Animations.FirstOrDefault(c =>
-                string.Equals(c.Name, clipName, StringComparison.OrdinalIgnoreCase));
+            // A loop, not FirstOrDefault: its lambda captured the name and cost a closure per call.
+            GModelAnimationClip clip = null;
+            foreach (GModelAnimationClip candidate in asset.Animations)
+                if (string.Equals(candidate.Name, clipName, StringComparison.OrdinalIgnoreCase)) { clip = candidate; break; }
             if (clip?.Frames == null || clip.Frames.Count == 0)
                 return locals;
 

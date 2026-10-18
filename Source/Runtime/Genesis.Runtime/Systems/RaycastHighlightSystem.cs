@@ -30,13 +30,23 @@ namespace Genesis.Runtime.Systems
             }
 
             Entity ignore = default;
-            world.Query<RaycastHighlightTag, PhysicsPlayerTag, RigidBodyComponent>(
-                (entity, ref _, ref __, ref body) =>
+            if (world is ECS.World engineWorld)
             {
-                if (!IsEnabled(world, entity) || body.RegistrationId == 0)
-                    return;
-                ignore = entity;
-            });
+                // Delegate-free: the lambda below captured locals and cost a closure every fixed step.
+                foreach (var item in engineWorld.Query<RaycastHighlightTag, PhysicsPlayerTag, RigidBodyComponent>())
+                    if (IsEnabled(world, item.Entity) && item.C3.RegistrationId != 0)
+                        ignore = item.Entity;
+            }
+            else
+            {
+                world.Query<RaycastHighlightTag, PhysicsPlayerTag, RigidBodyComponent>(
+                    (entity, ref _, ref __, ref body) =>
+                {
+                    if (!IsEnabled(world, entity) || body.RegistrationId == 0)
+                        return;
+                    ignore = entity;
+                });
+            }
 
             var camera = _scene.Camera3D;
             ClearHighlight(world);
