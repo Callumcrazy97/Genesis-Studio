@@ -1,0 +1,211 @@
+using System.ComponentModel;
+using System.Reflection;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using Genesis.Application.Core.Projects;
+using Genesis.World.Foliage;
+using Genesis.World.Terrain;
+
+namespace Genesis.Application.Core.Automation;
+
+/// <summary>
+/// The Terrain editor's nature as commands: the grass grown around the camera (the grass rule) and
+/// the scatter layers that fill a terrain with copies of a Model (forests, rocks, flowers), stored
+/// in the terrain's <c>.nature.json</c> beside it, as the editor stores them. A game's grass belongs
+/// here, not in a script that places tufts itself.
+/// </summary>
+public static class TerrainCommands
+{
+    public static IEnumerable<IAutomationCommand> All() =>
+        [new TerrainNature(), new TerrainSetGrass(), new TerrainAddScatterLayer(), new TerrainUpdateScatterLayer(), new TerrainRemoveScatterLayer()];
+
+    private static readonly JsonSerializerOptions Json = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
+    };
+
+    private static string Terrain(AutomationContext context, string path)
+    {
+        string full = context.Resolve(path);
+        if (!File.Exists(full) || !full.EndsWith(".terrain.json", StringComparison.OrdinalIgnoreCase))
+            throw new AutomationException($"'{path}' is not a Terrain resource (a .terrain.json file).");
+        return full;
+    }
+
+    private static AutomationResult Save(AutomationContext context, string terrain, TerrainNatureDocument document, string message, JsonNode? data = null)
+    {
+        string sidecar = TerrainNatureSerializer.SidecarPath(terrain);
+        if (File.Exists(sidecar)) ResourceBackupService.BackupBeforeOverwrite(sidecar);
+        TerrainNatureSerializer.Save(terrain, document);
+        return AutomationResult.Success(message, data, context.Relative(sidecar));
+    }
+
+    /// <summary>Copies every input property that was given (not null) onto the target property of the same name.</summary>
+    private static void Apply(object input, object target, params string[] skip)
+    {
+        foreach (PropertyInfo property in input.GetType().GetProperties())
+        {
+            if (skip.Contains(property.Name, StringComparer.Ordinal)) continue;
+            object? value = property.GetValue(input);
+            if (value is null) continue;
+            PropertyInfo? destination = target.GetType().GetProperty(property.Name);
+            if (destination is null || !destination.CanWrite) continue;
+            Type type = Nullable.GetUnderlyingType(destination.PropertyType) ?? destination.PropertyType;
+            destination.SetValue(target, type.IsEnum && value is string text ? Enum.Parse(type, text, true) : Convert.ChangeType(value, type, System.Globalization.CultureInfo.InvariantCulture));
+        }
+    }
+
+    public sealed class TerrainInput
+    {
+        [Description("The Terrain resource, project-relative (Assets/.../Name.terrain.json)."), RequiredInput] public string Terrain { get; set; } = string.Empty;
+    }
+
+    public sealed class TerrainNature : AutomationCommand<TerrainInput>
+    {
+        public override string Name => "terrain.nature";
+        public override string Description => "A terrain's grass rule and scatter layers (forests, rocks, flowers), as the Terrain editor's Decorate step shows them.";
+        public override bool ChangesProject => false;
+
+        protected override AutomationResult Execute(AutomationContext context, TerrainInput input)
+        {
+            TerrainNatureDocument document = TerrainNatureSerializer.LoadOrDefault(Terrain(context, input.Terrain));
+            return AutomationResult.Success($"{document.ScatterLayers.Count} scatter layers; grass rule {(document.GrassRule.Enabled ? "on" : "off")}.", new JsonObject
+            {
+                ["grass"] = JsonSerializer.SerializeToNode(document.GrassRule, Json),
+                ["scatterLayers"] = JsonSerializer.SerializeToNode(document.ScatterLayers, Json),
+            });
+        }
+    }
+
+    public sealed class GrassInput
+    {
+        [Description("The Terrain resource, project-relative."), RequiredInput] public string Terrain { get; set; } = string.Empty;
+        [Description("Grow grass around the camera from the rule.")] public bool? Enabled { get; set; }
+        [Description("Metres from the camera grass is grown and drawn to (default 100).")] public float? Radius { get; set; }
+        [Description("Metres between neighbouring tufts at full density (default 0.5).")] public float? Spacing { get; set; }
+        [Description("Fraction of the radius at full density before it thins out (default 0.45).")] public float? FullDensityFraction { get; set; }
+        [Description("Tufts nearer than this use the detailed blade mesh (default 30 m).")] public float? DetailDistance { get; set; }
+        [Description("How far a tuft wanders from its lattice point, as a fraction of the spacing (default 0.9).")] public float? Jitter { get; set; }
+        [Description("Smallest tuft scale (default 0.75).")] public float? MinimumScale { get; set; }
+        [Description("Largest tuft scale (default 1.2).")] public float? MaximumScale { get; set; }
+        [Description("Steepest ground in degrees grass grows on (default 40).")] public float? SteepestSlopeDegrees { get; set; }
+        [Description("Which tuft to grow (MeadowGrass looks like the scattered grass).")] public FoliageSpecies? Species { get; set; }
+        [Description("Picks the pattern of tufts.")] public int? PatternSeed { get; set; }
+    }
+
+    public sealed class TerrainSetGrass : AutomationCommand<GrassInput>
+    {
+        public override string Name => "terrain.setGrass";
+        public override string Description => "Sets a terrain's grass rule (grass grown around the camera, as the Terrain editor's grass does); only the fields given change.";
+
+        protected override AutomationResult Execute(AutomationContext context, GrassInput input)
+        {
+            string terrain = Terrain(context, input.Terrain);
+            TerrainNatureDocument document = TerrainNatureSerializer.LoadOrDefault(terrain);
+            Apply(input, document.GrassRule, nameof(GrassInput.Terrain));
+            document.GrassRule.Normalize();
+            return Save(context, terrain, document, $"Grass rule {(document.GrassRule.Enabled ? "on" : "off")}.", JsonSerializer.SerializeToNode(document.GrassRule, Json));
+        }
+    }
+
+    public class ScatterLayerFields
+    {
+        [Description("The layer's name, shown in the Terrain editor.")] public string? Name { get; set; }
+        [Description("The Model resource to place, project-relative (Assets/.../Tree.model.json).")] public string? Model { get; set; }
+        [Description("Whether the layer is drawn.")] public bool? Enabled { get; set; }
+        [Description("Copies per hectare (100 m x 100 m) where every condition is met (default 120).")] public float? DensityPerHectare { get; set; }
+        [Description("Closest two copies may stand, in metres (default 3).")] public float? MinimumSpacing { get; set; }
+        [Description("Lowest ground height copies stand on.")] public float? MinimumHeight { get; set; }
+        [Description("Highest ground height copies stand on.")] public float? MaximumHeight { get; set; }
+        [Description("Steepest ground in degrees (default 30).")] public float? MaximumSlopeDegrees { get; set; }
+        [Description("Painted layers (bits 0-3) copies may stand on; 15 allows all four.")] public int? PaintLayerMask { get; set; }
+        [Description("How much of an allowed painted layer a spot needs, 0 to 1.")] public float? MinimumPaintWeight { get; set; }
+        [Description("Size of the clumps the layer gathers into, in metres; 0 spreads it evenly.")] public float? ClumpSize { get; set; }
+        [Description("How strongly clumps gather, 0 to 1.")] public float? ClumpStrength { get; set; }
+        [Description("Smallest scale (default 0.8).")] public float? MinimumScale { get; set; }
+        [Description("Largest scale (default 1.25).")] public float? MaximumScale { get; set; }
+        [Description("Metres each copy sinks into the ground.")] public float? Sink { get; set; }
+        [Description("Tilt each copy to the ground instead of standing upright.")] public bool? AlignToGround { get; set; }
+        [Description("Distance copies stop being drawn; 0 uses the view distance.")] public float? DrawDistance { get; set; }
+        [Description("Whether copies cast shadows.")] public bool? CastShadows { get; set; }
+        [Description("Half-width of each copy's collision box at scale 1 (a trunk's radius); 0 = no collision.")] public float? CollisionRadius { get; set; }
+        [Description("Height of that box at scale 1.")] public float? CollisionHeight { get; set; }
+        [Description("Picks the pattern of copies.")] public int? Seed { get; set; }
+    }
+
+    public sealed class AddLayerInput : ScatterLayerFields
+    {
+        [Description("The Terrain resource, project-relative."), RequiredInput] public string Terrain { get; set; } = string.Empty;
+    }
+
+    public sealed class TerrainAddScatterLayer : AutomationCommand<AddLayerInput>
+    {
+        public override string Name => "terrain.addScatterLayer";
+        public override string Description => "Adds a scatter layer: many copies of a Model over a terrain by rules (density, spacing, slope, height, painted layer, scale), drawn and streamed by the engine.";
+
+        protected override AutomationResult Execute(AutomationContext context, AddLayerInput input)
+        {
+            string terrain = Terrain(context, input.Terrain);
+            if (string.IsNullOrWhiteSpace(input.Model)) throw new AutomationException("Say which Model resource to scatter ('model').");
+            // The editor takes a model's path or its name; a path must exist.
+            bool isPath = input.Model.Contains('/') || input.Model.Contains('\\') || input.Model.EndsWith(".json", StringComparison.OrdinalIgnoreCase);
+            if (isPath && !File.Exists(context.Resolve(input.Model))) throw new AutomationException($"There is no Model resource at '{input.Model}'.");
+            TerrainNatureDocument document = TerrainNatureSerializer.LoadOrDefault(terrain);
+            var layer = new TerrainScatterLayer();
+            Apply(input, layer, nameof(AddLayerInput.Terrain));
+            layer.Normalize();
+            document.ScatterLayers.Add(layer);
+            return Save(context, terrain, document, $"Added the scatter layer '{layer.Name}' ({layer.Id}).", JsonSerializer.SerializeToNode(layer, Json));
+        }
+    }
+
+    public sealed class UpdateLayerInput : ScatterLayerFields
+    {
+        [Description("The Terrain resource, project-relative."), RequiredInput] public string Terrain { get; set; } = string.Empty;
+        [Description("The layer to change: its id, or its name."), RequiredInput] public string Layer { get; set; } = string.Empty;
+    }
+
+    private static TerrainScatterLayer Layer(TerrainNatureDocument document, string layer) =>
+        document.ScatterLayers.FirstOrDefault(l => l.Id.Equals(layer, StringComparison.OrdinalIgnoreCase))
+        ?? document.ScatterLayers.FirstOrDefault(l => l.Name.Equals(layer, StringComparison.OrdinalIgnoreCase))
+        ?? throw new AutomationException($"The terrain has no scatter layer '{layer}'.");
+
+    public sealed class TerrainUpdateScatterLayer : AutomationCommand<UpdateLayerInput>
+    {
+        public override string Name => "terrain.updateScatterLayer";
+        public override string Description => "Changes a scatter layer's rules; only the fields given change.";
+
+        protected override AutomationResult Execute(AutomationContext context, UpdateLayerInput input)
+        {
+            string terrain = Terrain(context, input.Terrain);
+            TerrainNatureDocument document = TerrainNatureSerializer.LoadOrDefault(terrain);
+            TerrainScatterLayer layer = Layer(document, input.Layer);
+            Apply(input, layer, nameof(UpdateLayerInput.Terrain), nameof(UpdateLayerInput.Layer));
+            layer.Normalize();
+            return Save(context, terrain, document, $"Changed the scatter layer '{layer.Name}'.", JsonSerializer.SerializeToNode(layer, Json));
+        }
+    }
+
+    public sealed class RemoveLayerInput
+    {
+        [Description("The Terrain resource, project-relative."), RequiredInput] public string Terrain { get; set; } = string.Empty;
+        [Description("The layer to remove: its id, or its name."), RequiredInput] public string Layer { get; set; } = string.Empty;
+    }
+
+    public sealed class TerrainRemoveScatterLayer : AutomationCommand<RemoveLayerInput>
+    {
+        public override string Name => "terrain.removeScatterLayer";
+        public override string Description => "Removes a scatter layer from a terrain (the nature file is backed up first).";
+        public override bool Destructive => true;
+
+        protected override AutomationResult Execute(AutomationContext context, RemoveLayerInput input)
+        {
+            string terrain = Terrain(context, input.Terrain);
+            TerrainNatureDocument document = TerrainNatureSerializer.LoadOrDefault(terrain);
+            TerrainScatterLayer layer = Layer(document, input.Layer);
+            document.ScatterLayers.Remove(layer);
+            return Save(context, terrain, document, $"Removed the scatter layer '{layer.Name}'.");
+        }
+    }
+}

@@ -7,9 +7,21 @@ namespace Genesis.Application.Studio;
 
 internal static class Program
 {
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+    private static extern bool AttachConsole(int processId);
+
     [STAThread]
     private static int Main(string[] args)
     {
+        // --automation: Studio's commands for AIs, Nova and tools, with no window and no graphics
+        // device (Documentation/Automation.md). Before anything else, so nothing opens.
+        if (args.Length > 0 && string.Equals(args[0], "--automation", StringComparison.OrdinalIgnoreCase))
+        {
+            // Studio is a windowed program: from a terminal it writes to that terminal's console.
+            if (!Console.IsOutputRedirected) AttachConsole(-1);
+            return Core.Automation.AutomationHost.Run(args[1..], Console.In, Console.Out, Console.Error);
+        }
+
         // --smoke-test is Build.bat driving the published executable with nobody watching, so no
         // dialog may wait for a click. Declared before anything can open a window.
         if (args.Any(argument => string.Equals(argument, "--smoke-test", StringComparison.OrdinalIgnoreCase)))

@@ -1119,6 +1119,7 @@ internal static class HeadlessTestRunner
         Suites.PgslLogicSuite.Run(ctx);
         Suites.InputReplaySuite.Run(ctx);
         Suites.AssetImportSuite.Run(ctx);
+        Suites.AutomationSuite.Run(ctx);
         Suites.TextRenderingSuite.Run(ctx);
         Suites.Effects2DSuite.Run(ctx);
         Suites.PostEffectsSuite.Run(ctx);
@@ -1135,7 +1136,7 @@ internal static class HeadlessTestRunner
     /// </summary>
     internal static readonly IReadOnlyDictionary<string, string[]> Tiers = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
     {
-        ["tier-editor"] = ["studio-foundation", "shell-layout", "resource-names", "code-assistance", "editor-suite", "room-workspace", "model-intake", "model-sprites", "pixel-model", "menu-clips"],
+        ["tier-editor"] = ["studio-foundation", "shell-layout", "resource-names", "code-assistance", "editor-suite", "room-workspace", "model-intake", "model-sprites", "pixel-model", "menu-clips", "automation"],
         ["tier-engine"] = ["engine-systems", "asset-import", "readback-alpha", "post-effects", "large-world", "runtime", "model-system", "debug-screen", "terrain-layers-grass", "shader-precompiled", "gui-linear", "sprite-draw-alloc", "opengl-compat", "window-lifecycle", "anti-aliasing", "frame-rate-choice"],
         ["tier-pgsl"] = ["pgsl-values", "pgsl-cache", "pgsl-scripts", "pgsl-logic", "input-replay", "pgsl-project", "export-pgsl", "live-reload", "runtime-resources"],
         // A running game's files, sounds, post effects and profile (the 2026-10-09 game requests).
@@ -1757,6 +1758,9 @@ internal static class HeadlessTestRunner
                 break;
             case "vm-speed":
                 Suites.VmSpeedSuite.Run(ctx);
+                break;
+            case "automation":
+                Suites.AutomationSuite.Run(ctx);
                 break;
             case "asset-import":
                 Suites.AssetImportSuite.Run(ctx);
