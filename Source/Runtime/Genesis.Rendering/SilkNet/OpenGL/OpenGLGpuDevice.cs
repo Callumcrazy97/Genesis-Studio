@@ -497,6 +497,44 @@ namespace Genesis.Rendering.SilkNet.OpenGL
             public GpuTextureHandle[] Colors;
             public GpuTextureHandle Depth;
             public int Width, Height;
+            /// <summary>How many of the colours the framebuffer's draw buffers write now (see ApplyDrawBuffers).</summary>
+            public int ActiveOutputs;
+        }
+
+        // The render target the current pass draws into; null for the swap chain.
+        private RenderTargetResource _boundTarget;
+
+        /// <summary>
+        /// A fragment program writing fewer colours than its target has leaves the others undefined on
+        /// OpenGL, where D3D and Vulkan keep what is there. The forward pass's fog flag (attachment 1,
+        /// cleared to "fog me") read "already fogged" under a project mesh shader that writes only its
+        /// colour, so the screen fog passed over it at every distance. Such a draw turns the outputs it
+        /// does not write off, and they keep their cleared value as on the other renderers.
+        /// </summary>
+        private void ApplyDrawBuffers(RenderTargetResource target, int outputs)
+        {
+            int count = Math.Min(target.Colors.Length, 8);
+            if (count < 2) return;
+            outputs = Math.Clamp(outputs, 1, count);
+            if (target.ActiveOutputs == outputs) return;
+            GLEnum* buffers = stackalloc GLEnum[8];
+            for (int i = 0; i < count; i++) buffers[i] = i < outputs ? GLEnum.ColorAttachment0 + i : GLEnum.None;
+            _gl.DrawBuffers((uint)count, buffers);
+            target.ActiveOutputs = outputs;
+        }
+
+        // "layout(location = 1) out vec4 ..." in the transpiled fragment source; the highest is how many it writes.
+        private static readonly System.Text.RegularExpressions.Regex FragmentOutput = new(
+            @"layout\s*\(\s*location\s*=\s*(\d+)\s*\)\s*out\b", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        private static int CountColorOutputs(string pixelSource)
+        {
+            if (string.IsNullOrWhiteSpace(pixelSource)) return 0;
+            int highest = -1;
+            foreach (System.Text.RegularExpressions.Match match in FragmentOutput.Matches(pixelSource))
+                highest = Math.Max(highest, int.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture));
+            // None declared with a location: not a transpiled shader; leave every output on.
+            return highest < 0 ? int.MaxValue : highest + 1;
         }
 
         public GpuRenderTargetHandle CreateRenderTarget(in GpuRenderTargetDesc desc)
@@ -561,6 +599,7 @@ namespace Genesis.Rendering.SilkNet.OpenGL
                 Depth = depth,
                 Width = desc.Width,
                 Height = desc.Height,
+                ActiveOutputs = Math.Min(colorFormats.Length, 8),
             };
 
             RestoreFramebuffer();
@@ -585,6 +624,7 @@ namespace Genesis.Rendering.SilkNet.OpenGL
                 return;
             }
 
+            if (ReferenceEquals(_boundTarget, target)) _boundTarget = null;
             _gl.DeleteFramebuffer(target.Framebuffer);
             foreach (GpuTextureHandle color in target.Colors)
             {
@@ -599,11 +639,13 @@ namespace Genesis.Rendering.SilkNet.OpenGL
         public void BeginRenderPass(in GpuRenderPassDesc desc)
         {
             EndLinearBlend();
+            _boundTarget = null;
             if (desc.Target.IsValid && _renderTargets.TryGetValue(desc.Target.Id, out RenderTargetResource target))
             {
                 _boundFramebuffer = target.Framebuffer;
                 _passWidth = target.Width;
                 _passHeight = target.Height;
+                _boundTarget = target;
             }
             else if (_activeSwapChain != null)
             {
@@ -622,6 +664,9 @@ namespace Genesis.Rendering.SilkNet.OpenGL
             _gl.BindFramebuffer(FramebufferTarget.Framebuffer, _boundFramebuffer);
             _gl.Viewport(0, 0, (uint)Math.Max(1, _passWidth), (uint)Math.Max(1, _passHeight));
 
+            // Every output on for the clears (ClearBuffer clears draw buffer i; one turned off by an
+            // earlier draw would not be cleared).
+            if (_boundTarget != null) ApplyDrawBuffers(_boundTarget, int.MaxValue);
             ApplyClears(desc);
         }
 
@@ -685,6 +730,7 @@ namespace Genesis.Rendering.SilkNet.OpenGL
 
         public void UnbindRenderTargets()
         {
+            _boundTarget = null;
             _boundFramebuffer = 0;
             _gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
         }
@@ -716,6 +762,8 @@ namespace Genesis.Rendering.SilkNet.OpenGL
             /// <summary>Sampler register feeding each texture unit, from the transpiler's map.</summary>
             public int[] SamplerRegisterForUnit;
             public bool IsCompute;
+            /// <summary>Colour outputs the fragment stage declares (int.MaxValue when unknown).</summary>
+            public int ColorOutputs = int.MaxValue;
         }
 
         public GpuShaderProgramHandle CreateShaderProgram(in GpuShaderProgramDesc desc)
@@ -758,6 +806,7 @@ namespace Genesis.Rendering.SilkNet.OpenGL
             {
                 Name = program,
                 SamplerRegisterForUnit = ParseSamplerMap(vertexSource, pixelSource),
+                ColorOutputs = CountColorOutputs(pixelSource),
             };
 
             return new GpuShaderProgramHandle(id);
@@ -969,6 +1018,7 @@ namespace Genesis.Rendering.SilkNet.OpenGL
             }
 
             _gl.UseProgram(program.Name);
+            if (_boundTarget != null) ApplyDrawBuffers(_boundTarget, program.ColorOutputs);
             ApplyBlend();
             ApplyDepth();
             ApplyRaster();

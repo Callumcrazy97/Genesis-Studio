@@ -105,10 +105,8 @@ internal static class DistantViewSuite
 
         Check(seen.TryGetValue("plain", out var plain) && plain.ContainsKey(RenderBackendOption.SilkNetDx11),
             "Direct3D 11, the reference, did not draw the far view.");
-        if (plain!.ContainsKey(RenderBackendOption.OpenGL))
-            Console.WriteLine("      not compared: OpenGL's project-shader boxes with engine fog on (they escape the screen fog there, at every distance)");
 
-        foreach ((string name, bool fog, _, _, _) in Views)
+        foreach ((string name, _, _, _, _) in Views)
         {
             Dictionary<RenderBackendOption, Color[,]> byBackend = seen[name];
             Color[,] reference = byBackend[RenderBackendOption.SilkNetDx11];
@@ -134,12 +132,6 @@ internal static class DistantViewSuite
                 for (int row = 0; row < rows; row++)
                     for (int column = 0; column < Columns.Length; column++)
                     {
-                        // Known, and not a distance problem: on OpenGL the screen fog passes over a
-                        // project mesh shader that writes only its colour (its second target, the fog
-                        // flag, is left undefined and reads "already fogged"). The other backends fog
-                        // it. Its distant pixels are still compared with fog off.
-                        if (backend == RenderBackendOption.OpenGL && fog && column > 0)
-                            continue;
                         Color expected = reference[row, column], actual = colours[row, column];
                         Check(Near(actual, expected, Tolerance),
                             $"{name}: {backend} draws the {Columns[column]} box {RuntimeViewportHarness.FarViewDistances[row]} m away "
