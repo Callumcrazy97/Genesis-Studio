@@ -408,6 +408,24 @@ internal static class TwoDShowcaseSuite
             Assert(sink.Calls.Count == 1, "An empty intersection was submitted.");
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Display.GuiAreaFollowsTheLetterboxedWorldAtEverySize", () =>
+        {
+            // Mushroom Meadow, 15 Oct: DrawGui used the whole window while the world was letterboxed,
+            // so menus slid off the art on any window not 16:9. WindowGetGui* give the world's rectangle.
+            RoomAsset room = LoadRoom(Require(project));
+            foreach ((int w, int h) in new[] { (1280, 720), (1920, 1000), (1920, 1200), (2560, 1080), (1000, 720) })
+            {
+                RectangleF gui = RoomDisplayLayout.Gui(room, w, h);
+                Rectangle world = RoomDisplayLayout.Port(room, room.Viewports[0], w, h);
+                Assert(Math.Abs(gui.X - world.X) <= 1 && Math.Abs(gui.Y - world.Y) <= 1 && Math.Abs(gui.Width - world.Width) <= 1 && Math.Abs(gui.Height - world.Height) <= 1,
+                    $"At {w}x{h} the GUI area {gui} is not where the world is drawn ({world}).");
+                Assert(Math.Abs(gui.Width / gui.Height - 1280f / 720f) < 0.01f && (Math.Abs(gui.X) < 0.5f || Math.Abs(gui.Y) < 0.5f),
+                    $"At {w}x{h} the GUI area {gui} is not the 16:9 window fitted at one scale.");
+            }
+            room.Settings.ScaleViewportsWithWindow = false;
+            Assert(RoomDisplayLayout.Gui(room, 1920, 1000) == new RectangleF(0, 0, 1920, 1000), "Without letterboxing the GUI area was not the whole window.");
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Showcase.RealRoomCreateTitleStartMovementAndPause", () =>
         {
             ProjectSession p = Require(project);

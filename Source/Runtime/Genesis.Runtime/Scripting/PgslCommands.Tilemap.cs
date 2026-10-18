@@ -15,6 +15,22 @@ public static partial class PgslCommands
     [PgslCommand("WindowGetHeight", "WindowGetHeight() -> number", "Current render/window height for responsive DrawGui layouts", "Display")]
     public static double WindowGetHeight() => Math.Max(1, ActiveGameContext?.RenderHeight ?? 720);
 
+    private static RectangleF GuiRect() => RoomDisplayLayout.Gui(ActiveGameContext?.Room, (int)WindowGetWidth(), (int)WindowGetHeight());
+    [PgslCommand("WindowGetGuiX", "WindowGetGuiX() -> number", "Left of the GUI area: where the room's window lands when it is letterboxed (scaleViewportsWithWindow), else 0", "Display")]
+    public static double WindowGetGuiX() => GuiRect().X;
+    [PgslCommand("WindowGetGuiY", "WindowGetGuiY() -> number", "Top of the GUI area: where the room's window lands when it is letterboxed, else 0", "Display")]
+    public static double WindowGetGuiY() => GuiRect().Y;
+    [PgslCommand("WindowGetGuiWidth", "WindowGetGuiWidth() -> number", "Width of the GUI area, the letterboxed room window (the whole window when not letterboxed)", "Display")]
+    public static double WindowGetGuiWidth() => GuiRect().Width;
+    [PgslCommand("WindowGetGuiHeight", "WindowGetGuiHeight() -> number", "Height of the GUI area, the letterboxed room window (the whole window when not letterboxed)", "Display")]
+    public static double WindowGetGuiHeight() => GuiRect().Height;
+    [PgslCommand("WindowGetGuiScale", "WindowGetGuiScale() -> number", "GUI area width over the room's authored window width: multiply design-size GUI by this to match the world", "Display")]
+    public static double WindowGetGuiScale()
+    {
+        RoomAsset room = ActiveGameContext?.Room;
+        return GuiRect().Width / Math.Max(1, room == null ? WindowGetWidth() : RoomDisplayLayout.WindowSize(room).Width);
+    }
+
     private static readonly ConditionalWeakTable<RoomAsset, Dictionary<string, double>> RoomValues = new();
     private static RoomTileCollisionMap TileMap => RoomTileCollisionMap.Get(ActiveGameContext?.Room, ProjectPath);
     private static RectangleF CallerBounds(double x, double y)

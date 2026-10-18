@@ -24,6 +24,24 @@ public static class RoomDisplayLayout
         return new Size((int)Math.Clamp(width, 1, 16384), (int)Math.Clamp(height, 1, 16384));
     }
 
+    /// <summary>
+    /// Where the room's authored window lands in a real window of this size: with
+    /// <c>scaleViewportsWithWindow</c>, the centred rectangle at one uniform scale that the world's
+    /// ports are fitted into (bands left over on the sides or top and bottom); otherwise the whole
+    /// window. DrawGui code that lays itself out in this rectangle lines up with the world at any
+    /// window size (WindowGetGuiX/Y/Width/Height/Scale).
+    /// </summary>
+    public static RectangleF Gui(RoomAsset room, int width, int height)
+    {
+        width = Math.Max(1, width);
+        height = Math.Max(1, height);
+        if (room == null || !room.Settings.ScaleViewportsWithWindow) return new RectangleF(0, 0, width, height);
+        Size authored = WindowSize(room);
+        float scale = Math.Min(width / (float)authored.Width, height / (float)authored.Height);
+        float w = authored.Width * scale, h = authored.Height * scale;
+        return new RectangleF((width - w) * .5f, (height - h) * .5f, w, h);
+    }
+
     public static Rectangle Port(RoomAsset room, RoomViewport port, int width, int height)
     {
         if (!room.Settings.ScaleViewportsWithWindow)
