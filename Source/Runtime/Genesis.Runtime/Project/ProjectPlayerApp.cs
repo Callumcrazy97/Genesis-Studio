@@ -584,6 +584,14 @@ namespace Genesis.Runtime.Project
                             countElapsed: () => h.BootSplash == null || h.BootSplash.IsComplete));
                     };
                 }
+                else if (TimedShots.Parse(Environment.GetEnvironmentVariable(TimedShots.EnvironmentVariable)) is { Length: > 0 } shotSeconds)
+                {
+                    // An automation run's pictures: taken at these seconds of play, the game left running.
+                    var timedShots = new TimedShots(shotSeconds, projectPath, logger);
+                    logger.Line("timed shots at " + string.Join(", ", shotSeconds.Select(s => s.ToString(System.Globalization.CultureInfo.InvariantCulture))) + " s");
+                    host.EndFrame += timedShots.OnEndFrame;
+                    host.SceneBuilt += h => h.Scene.AddSubsystem(timedShots.Clock(() => h.BootSplash == null || h.BootSplash.IsComplete));
+                }
 
                 // "Allow ESC to close the game" is a property of the game, so it arrives from the
                 // project's own settings (via F5) rather than from whoever's machine is running it.

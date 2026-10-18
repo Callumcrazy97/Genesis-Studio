@@ -121,6 +121,42 @@ internal static class AutomationSuite
                 "terrain.removeScatterLayer left the layer: " + removed.Message);
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.TerrainIsMadeAndSculptedAsTheTerrainEditorDoes", () =>
+        {
+            AutomationResult made = Call("terrain.create", """{ "name": "Twin Land", "preset": "Flatlands", "resolutionX": 65, "resolutionZ": 65, "seed": 4 }""");
+            HeadlessHarness.Assert(made.Ok && File.Exists(context.Resolve(PathOf(made)) + ".gterrain"), "terrain.create did not make the terrain and its heights: " + made.ToJson().ToJsonString());
+            string terrain = PathOf(made);
+            JsonObject extent = made.Data!["extent"]!.AsObject();
+            float cx = (extent["minX"]!.GetValue<float>() + extent["maxX"]!.GetValue<float>()) / 2f, cz = (extent["minZ"]!.GetValue<float>() + extent["maxZ"]!.GetValue<float>()) / 2f;
+
+            // The editor's own brush on the same terrain, without saving: the command must move the ground identically.
+            ushort[] byEditor;
+            float radius, strength;
+            using (var editor = new Genesis.Application.Editors.Suite.Terrain.TerrainEditorControl(context.Resolve(terrain), project.RootPath))
+            {
+                radius = editor.BrushRadius;
+                strength = editor.BrushStrength;
+                editor.ApplyBrushAt(cx, cz, Genesis.Application.Editors.Suite.Terrain.TerrainEditorControl.TerrainBrush.Raise);
+                byEditor = (ushort[])editor.Terrain.HeightsData.Clone();
+            }
+            AutomationResult raised = Call("terrain.sculpt", $$"""{ "terrain": "{{terrain}}", "brush": "Raise", "points": [[{{cx}}, {{cz}}]], "radius": {{radius}}, "strength": {{strength}} }""");
+            ushort[] byCommand = Genesis.World.Terrain.TerrainAsset.Load(context.Resolve(terrain) + ".gterrain").HeightsData;
+            HeadlessHarness.Assert(raised.Ok && byCommand.AsSpan().SequenceEqual(byEditor) && byCommand.Distinct().Count() > 1,
+                "terrain.sculpt did not raise the ground exactly as the editor's brush does: " + raised.ToJson().ToJsonString());
+
+            AutomationResult info = Call("terrain.info", $$"""{ "terrain": "{{terrain}}", "points": [[{{cx}}, {{cz}}], [{{extent["minX"]}}, {{extent["minZ"]}}]] }""");
+            JsonArray heights = info.Data!["pointHeights"]!.AsArray();
+            HeadlessHarness.Assert(info.Ok && heights[0]!.GetValue<float>() > heights[1]!.GetValue<float>(), "terrain.info did not report the raised centre above the corner: " + info.Data?.ToJsonString());
+
+            byte[] paintBefore = Genesis.World.Terrain.TerrainAsset.Load(context.Resolve(terrain) + ".gterrain").CaptureSplatState();
+            AutomationResult painted = Call("terrain.sculpt", $$"""{ "terrain": "{{terrain}}", "brush": "Paint", "layer": "1", "points": [[{{cx - 10}}, {{cz}}], [{{cx + 10}}, {{cz}}]], "radius": 4, "strength": 1 }""");
+            HeadlessHarness.Assert(painted.Ok && !Genesis.World.Terrain.TerrainAsset.Load(context.Resolve(terrain) + ".gterrain").CaptureSplatState().AsSpan().SequenceEqual(paintBefore),
+                "terrain.sculpt Paint did not lay the layer: " + painted.Message);
+            HeadlessHarness.Assert(!Call("terrain.sculpt", $$"""{ "terrain": "{{terrain}}", "brush": "Paint", "layer": "Lava", "points": [[0, 0]] }""").Ok, "An unknown paint layer was not refused.");
+            HeadlessHarness.Assert(!Call("terrain.sculpt", $$"""{ "terrain": "{{terrain}}", "brush": "Erase", "points": [[0, 0]] }""").Ok, "Erase, which a command cannot honour, was not refused.");
+            HeadlessHarness.Assert(!Call("terrain.create", """{ "name": "Huge", "resolutionX": 9000 }""").Ok, "An impossible resolution was not refused.");
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.RoomInstancesAndEnvironmentAreSetByCommand", () =>
         {
             string room = PathOf(Call("resource.create", """{ "kind": "Room", "folder": "Assets", "name": "Field Room" }"""));
@@ -199,6 +235,31 @@ internal static class AutomationSuite
                 "A broken script did not come back with its error and line: " + broken.ToJson().ToJsonString());
             Call("script.write", """{ "path": "Assets/Scripts/Helpers.pgsl", "code": "function Twice(n) {\n    return n * 2;\n}\n" }""");
             HeadlessHarness.Assert(!Call("script.write", """{ "path": "Assets/Objects/Barrel/Create.pgsl", "code": "x = 1;" }""").Ok, "script.write wrote over an Object's event.");
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.ScriptedInputBecomesAReplayTheEngineReads", () =>
+        {
+            var steps = new List<GameRunCommands.InputStep>
+            {
+                new() { Seconds = 0.5f, Hold = ["W"] },
+                new() { Press = ["Space"], Hold = ["W"], Look = [120f, 0f], Seconds = 0.25f },
+                new() { Seconds = 1f, Click = "Left", Mouse = [100f, 50f] },
+            };
+            Genesis.Runtime.Input.InputFrame[] frames = GameRunCommands.Frames(steps);
+            string path = Path.Combine(ctx.Workspace, "automation-input.ginput");
+            Genesis.Runtime.Input.InputReplay.Write(path, 7, frames);
+            HeadlessHarness.Assert(Genesis.Runtime.Input.InputReplay.TryRead(path, out int seed, out Genesis.Runtime.Input.InputFrame[] read, out string error) && seed == 7,
+                "The engine could not read the scripted input back: " + error);
+            UInt128 w = UInt128.One << (int)Genesis.Runtime.Input.Key.W, space = UInt128.One << (int)Genesis.Runtime.Input.Key.Space;
+            HeadlessHarness.Assert(read.Length == 30 + 15 + 60, $"Expected 105 frames at 60 a second, read {read.Length}.");
+            HeadlessHarness.Assert(read[0].KeysPressed == w && read[1].KeysPressed == UInt128.Zero && read[29].KeysDown == w
+                && read[30].KeysPressed == space && read[31].KeysReleased == space && Math.Abs(read[30].LookX - 2f) < 0.001f
+                && read[45].KeysReleased == w && read[45].MousePressed == 1 && read[46].MouseReleased == 1 && read[100].MouseX == 100f
+                && Math.Abs(read[0].Delta - 1f / 60f) < 1e-6f, "The scripted input's presses, holds, releases, look and clicks were not as a person's would be.");
+            HeadlessHarness.Assert(!Call("game.run", """{ "steps": [ { "press": ["Escape"] } ] }""").Ok, "Escape, which ends a replay, was accepted.");
+            HeadlessHarness.Assert(Call("game.run", """{ "steps": [ { "press": ["Jump"] } ] }""").Message.Contains("is not a key", StringComparison.Ordinal), "An unknown key was not explained.");
+            HeadlessHarness.Assert(!Call("game.run", """{ "steps": [ { "seconds": 2 } ], "shots": [5] }""").Ok, "A picture after the run's end was accepted.");
+            HeadlessHarness.Assert(Genesis.Runtime.Project.TimedShots.Parse("9, 2,x,5.5").SequenceEqual(new[] { 2f, 5.5f, 9f }), "GENESIS_SHOTS was not read in order.");
         });
 
         HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.CommandLineAndMcpServeTheSameCommands", () =>

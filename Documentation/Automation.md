@@ -60,6 +60,9 @@ A result is `{ "ok", "message", "data", "changed", "issues" }`.
 | `resource.read` | The text of a script, a resource's JSON or a note. |
 | `text.replacePreview` | What `text.replace` would change: each file, how many times, the lines before and after. |
 | `text.replace` | Replaces text in scripts and resource JSON under a folder, backing files up. Needs confirm. |
+| `terrain.create` | Makes a Terrain from a landform (Flatlands, RollingHills, Hills, Mountains, ErodedMountains, RidgeValleys, Badlands, Volcanic, Islands, Canyon), as the Terrain editor's landform gallery does: size, height range, seed, erosion, terraces, rivers. |
+| `terrain.info` | A terrain's landform, size, x and z extent, height limits, the heights it reaches, its paint layers, and the ground height at any points asked about. |
+| `terrain.sculpt` | One stroke of the Terrain editor's own brushes (Raise, Lower, Smooth, Flatten, InFill, Paint) along world points, dabbed every quarter radius as dragging does; moves the ground exactly as the editor's brush. |
 | `terrain.nature` | A terrain's grass rule and scatter layers, as the Terrain editor's Decorate step shows them. |
 | `terrain.setGrass` | The grass grown around the camera (the Terrain editor's grass): on or off, radius, spacing, species, slope, scale. Only the fields given change. |
 | `terrain.addScatterLayer` / `terrain.updateScatterLayer` / `terrain.removeScatterLayer` | Many copies of a Model over a terrain by rules: density, spacing, slope, height, painted layer, clumps, scale, draw distance, shadows, collision. Removing needs confirm. |
@@ -71,11 +74,11 @@ A result is `{ "ok", "message", "data", "changed", "issues" }`.
 | `object.setComponent` / `object.removeComponent` | Adds or changes a component (physics, light, audio, particles, material, shader, animation, camera, navigation...); only the settings given change, and asset paths become resource names. Removing needs confirm. |
 | `object.setEvent` / `object.removeEvent` | Writes or removes one of an Object's PGSL events (Create, Step, Draw, DrawGui, KeyPressed, Collision, Alarm0...), kept where the runtime finds them; the script check's findings come back with their lines. Removing needs confirm. |
 | `script.write` | Writes a library PGSL Script, making the resource if it is new; the script check's findings come back with their lines. |
+| `game.run` | Plays the game unattended: scripted input step by step (keys held or tapped, mouse-look, pointer, clicks, a controller stick, typed text) written as an engine input recording and played with the Player's replay; pictures at set seconds of play (GENESIS_SHOTS); optionally a profile. Reports the checks the game's scripts made with `TestCheck(name, passed, detail)` (a failed check fails the run), the exit code, the log's problems and tail, the pictures and the profile report. The game closes when the input ends. |
 
 ## What comes next
 
-These are the first stage and most of the second (terrain nature, room instances and environment,
-Objects and scripts). Next, each editor's operations become commands that its buttons and the
-automation share: terrain creation and sculpting, then the run, test and profile loop (an unattended run with scripted inputs, timed
-screenshots and a structured report), then Image, Model, Shader, Particle, Physics and audio
+These are the first stage and the second (terrain shape, sculpting and nature, room instances and
+environment, Objects and scripts). Next, each editor's operations become commands that its buttons and the
+automation share: Image, Model, Shader, Particle, Physics and audio
 synthesis, and a live mode that works on the Studio that is open, with undo.

@@ -200,6 +200,21 @@ namespace Genesis.Runtime.Input
             else if (Mode == InputReplayMode.Replaying) StopReplay();
         }
 
+        /// <summary>
+        /// Writes frames made elsewhere (an automation run's scripted input) as a recording the
+        /// Player's <c>--replay</c> plays, in the same format a recording is saved in.
+        /// </summary>
+        public static void Write(string path, int seed, IReadOnlyList<InputFrame> frames)
+        {
+            string folder = Path.GetDirectoryName(Path.GetFullPath(path));
+            if (!string.IsNullOrEmpty(folder)) Directory.CreateDirectory(folder);
+            using var writer = new BinaryWriter(new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read, 1 << 16));
+            writer.Write(Magic);
+            writer.Write(FormatVersion);
+            writer.Write(seed);
+            for (int i = 0; i < frames.Count; i++) Write(writer, frames[i]);
+        }
+
         /// <summary>Stops everything and forgets the last run (a new game).</summary>
         public static void Reset()
         {

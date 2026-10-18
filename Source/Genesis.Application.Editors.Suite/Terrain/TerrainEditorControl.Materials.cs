@@ -342,9 +342,5 @@ public sealed partial class TerrainEditorControl
         }
     }
 
-    private (int MinX, int MaxX, int MinZ, int MaxZ) BrushCellBounds(float x, float z, float radius) => (
-        Math.Max(0, (int)MathF.Floor((x - radius - _terrain.OriginX) / _terrain.CellSize)),
-        Math.Min(_terrain.ResolutionX - 1, (int)MathF.Ceiling((x + radius - _terrain.OriginX) / _terrain.CellSize)),
-        Math.Max(0, (int)MathF.Floor((z - radius - _terrain.OriginZ) / _terrain.CellSize)),
-        Math.Min(_terrain.ResolutionZ - 1, (int)MathF.Ceiling((z + radius - _terrain.OriginZ) / _terrain.CellSize)));
+    private (int MinX, int MaxX, int MinZ, int MaxZ) BrushCellBounds(float x, float z, float radius) => TerrainSculpt.CellBounds(_terrain, x, z, radius);
 }

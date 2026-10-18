@@ -29,8 +29,10 @@ public sealed class AutomationRegistry
         var registry = new AutomationRegistry();
         foreach (IAutomationCommand command in ResourceCommands.All()) registry.Register(command);
         foreach (IAutomationCommand command in TerrainCommands.All()) registry.Register(command);
+        foreach (IAutomationCommand command in TerrainShapeCommands.All()) registry.Register(command);
         foreach (IAutomationCommand command in RoomCommands.All()) registry.Register(command);
         foreach (IAutomationCommand command in ObjectCommands.All()) registry.Register(command);
+        foreach (IAutomationCommand command in GameRunCommands.All()) registry.Register(command);
         return registry;
     }
 

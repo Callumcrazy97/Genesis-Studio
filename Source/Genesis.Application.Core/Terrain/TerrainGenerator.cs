@@ -1,7 +1,7 @@
 using Genesis.World;
 using Genesis.World.Terrain;
 
-namespace Genesis.Application.Editors.Suite.Terrain;
+namespace Genesis.Application.Core.Terrain;
 
 /// <summary>The generation presets the New-Terrain wizard offers. Each is a distinct heightfield
 /// recipe (not just a different seed) so the choice visibly changes the landscape shape.</summary>
