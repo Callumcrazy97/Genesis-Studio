@@ -7,10 +7,18 @@ using System.Numerics;
 
 namespace Genesis.Runtime.Modeling;
 
-public readonly record struct WeightedClip(string Clip, float Weight, float Time, bool Loop);
+/// <summary>One clip's share of a pose. <paramref name="Rate"/>: seconds of the clip per second of the state (1 unless synced).</summary>
+public readonly record struct WeightedClip(string Clip, float Weight, float Time, bool Loop, float Rate = 1f);
 
 public abstract class AnimationBlendTree
 {
+    /// <summary>
+    /// A sync group: the clips share one phase instead of one clock, so a 1 s walk and a 0.7 s run
+    /// blended together put their feet down together rather than drifting apart and sliding
+    /// (Aetherium 77). The phase advances by the weighted average of the clips' loop lengths.
+    /// </summary>
+    public bool Synced { get; set; }
+
     public abstract IReadOnlyList<WeightedClip> Evaluate(IReadOnlyDictionary<string, object> parameters, float time);
     protected static float Number(IReadOnlyDictionary<string, object> parameters, string key) =>
         parameters.TryGetValue(key, out object? value)
@@ -118,6 +126,9 @@ public sealed class AnimationStateMachine
     private readonly List<(string From, string To, AnimationCondition Condition, float Duration)> _transitions = [];
     private string? _previous;
     private float _previousTime, _elapsed, _duration;
+    // Synced trees' phases in cycles (current state, outgoing state), and the model they were timed on.
+    private float _phase, _previousPhase;
+    private GModelAsset? _asset;
     public string CurrentState { get; private set; } = "";
     public float Time { get; private set; }
     public bool Contains(string state) => _states.ContainsKey(state);
@@ -144,13 +155,67 @@ public sealed class AnimationStateMachine
         if (!_states.ContainsKey(state)) throw new ArgumentException($"Unknown animation state '{state}'.");
         _previous = duration > 0 ? CurrentState : null;
         _previousTime = Time;
+        _previousPhase = _phase;
         _elapsed = 0;
         _duration = duration;
         CurrentState = state;
         Time = 0;
+        _phase = 0;
     }
+
+    /// <summary>A clip's loop length in seconds (frames / fps, as sampling wraps it); 0 when unknown.</summary>
+    private static float LoopLength(GModelAsset? asset, string clip)
+    {
+        if (asset?.Animations == null) return 0;
+        foreach (GModelAnimationClip candidate in asset.Animations)
+            if (string.Equals(candidate.Name, clip, StringComparison.OrdinalIgnoreCase))
+                return candidate.Frames is { Count: > 0 } ? candidate.Frames.Count / MathF.Max(1, candidate.Fps) : 0;
+        return 0;
+    }
+
+    /// <summary>The weighted cycle length of a synced tree's clips now; 0 when none has a length.</summary>
+    private static float CycleLength(IReadOnlyList<WeightedClip> clips, GModelAsset? asset)
+    {
+        float total = 0, weights = 0;
+        foreach (WeightedClip clip in clips)
+        {
+            float length = LoopLength(asset, clip.Clip);
+            if (length <= 0 || clip.Weight <= 0) continue;
+            total += clip.Weight * length;
+            weights += clip.Weight;
+        }
+        return weights > 0 ? total / weights : 0;
+    }
+
+    /// <summary>A synced tree's clips placed at one phase of their own lengths, each with its rate.</summary>
+    private static IReadOnlyList<WeightedClip> AtPhase(IReadOnlyList<WeightedClip> clips, float phase, GModelAsset? asset)
+    {
+        float cycle = CycleLength(clips, asset);
+        if (cycle <= 0) return clips;
+        float fraction = phase - MathF.Floor(phase);
+        var placed = new WeightedClip[clips.Count];
+        for (int i = 0; i < clips.Count; i++)
+        {
+            float length = LoopLength(asset, clips[i].Clip);
+            placed[i] = length <= 0 ? clips[i] : clips[i] with { Time = fraction * length, Rate = length / cycle };
+        }
+        return placed;
+    }
+
     public void Advance(float dt, float speed, IReadOnlyDictionary<string, object> parameters, GModelAsset? asset)
     {
+        _asset = asset ?? _asset;
+        // Synced phases move on by the weighted cycle length the clips have at this moment.
+        if (_states.TryGetValue(CurrentState, out AnimationBlendTree? syncedTree) && syncedTree.Synced)
+        {
+            float cycle = CycleLength(syncedTree.Evaluate(parameters, Time), _asset);
+            if (cycle > 0) _phase += dt * speed / cycle;
+        }
+        if (_previous != null && _states.TryGetValue(_previous, out AnimationBlendTree? outgoing) && outgoing.Synced)
+        {
+            float cycle = CycleLength(outgoing.Evaluate(parameters, _previousTime), _asset);
+            if (cycle > 0) _previousPhase += dt * speed / cycle;
+        }
         Time += dt * speed;
         _previousTime += dt * speed;
         _elapsed += dt;
@@ -170,9 +235,12 @@ public sealed class AnimationStateMachine
     {
         if (!_states.TryGetValue(CurrentState, out AnimationBlendTree? tree)) return [];
         var current = tree.Evaluate(parameters, Time);
+        if (tree.Synced) current = AtPhase(current, _phase, _asset);
         if (_previous == null || !_states.TryGetValue(_previous, out AnimationBlendTree? previous)) return current;
         float blend = _duration <= 0 ? 1 : Math.Clamp(_elapsed / _duration, 0, 1);
-        return previous.Evaluate(parameters, _previousTime).Select(c => c with { Weight = c.Weight * (1 - blend) })
+        var outgoing = previous.Evaluate(parameters, _previousTime);
+        if (previous.Synced) outgoing = AtPhase(outgoing, _previousPhase, _asset);
+        return outgoing.Select(c => c with { Weight = c.Weight * (1 - blend) })
             .Concat(current.Select(c => c with { Weight = c.Weight * blend })).ToArray();
     }
 }
@@ -242,7 +310,7 @@ public sealed class AnimationController
                 {
                     if (clip.Weight <= 0) continue;
                     Matrix4x4 a = AnimationPose.SampleRoot(asset, clip, root);
-                    Matrix4x4 b = AnimationPose.SampleRoot(asset, clip with { Time = clip.Time + dt * speed }, root);
+                    Matrix4x4 b = AnimationPose.SampleRoot(asset, clip with { Time = clip.Time + dt * speed * clip.Rate }, root);
                     RootMotionDelta += (b.Translation - a.Translation) * clip.Weight;
                     if (Matrix4x4.Decompose(a, out _, out Quaternion qa, out _)
                         && Matrix4x4.Decompose(b, out _, out Quaternion qb, out _))

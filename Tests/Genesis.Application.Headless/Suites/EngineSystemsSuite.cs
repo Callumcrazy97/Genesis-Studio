@@ -41,6 +41,32 @@ internal static class EngineSystemsSuite
             ModelSocketReuseChecks.Run(ctx.Workspace, Check));
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Particles.BoundedFreshnessPreservesLiveControls", () =>
             ParticleResourceCacheChecks.Run(ctx.Workspace, Check));
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Animation.SyncedBlendClipsShareOnePhase", () =>
+        {
+            // Aetherium 77: a 4 s stride and a 2 s stride blended half and half. On one clock they
+            // drift apart; in a sync group the 3 s blended cycle keeps them at the same phase.
+            var asset = Asset();
+            asset.Animations.Add(Clip("Long Stride", 0, 1, 2, 3));
+            asset.Animations.Add(Clip("Short Stride", 0, 1));
+            IReadOnlyList<WeightedClip> After(bool synced, float seconds)
+            {
+                var graph = new AnimationController();
+                var tree = new BlendTree1D("Speed") { Synced = synced };
+                tree.AddClip("Long Stride", 0); tree.AddClip("Short Stride", 1);
+                graph.Layers[0].StateMachine.AddState("Move", tree);
+                graph.Parameters["Speed"] = 0.5;
+                for (int i = 0; i < (int)(seconds * 10); i++) graph.Advance(0.1f, 1f, asset);
+                return graph.Layers[0].StateMachine.Evaluate(graph.Parameters);
+            }
+            var synced = After(true, 1.5f);
+            var free = After(false, 1.5f);
+            Check(synced.Count == 2 && Near(synced[0].Time / 4f, synced[1].Time / 2f) && Near(synced[0].Time, 2f) && Near(synced[1].Time, 1f)
+                && Near(synced[0].Rate, 4f / 3f) && Near(synced[1].Rate, 2f / 3f),
+                $"Synced clips were not at one phase: {string.Join(", ", synced.Select(c => $"{c.Clip} {c.Time:F3}s x{c.Rate:F3}"))}.");
+            Check(free.Count == 2 && Near(free[0].Time, 1.5f) && Near(free[1].Time, 1.5f) && free[0].Rate == 1f,
+                "A tree not in a sync group no longer ran its clips on one clock.");
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Animation.BoneRotationPreservesMotionAndIsolation", () =>
         {
             var asset = Asset();

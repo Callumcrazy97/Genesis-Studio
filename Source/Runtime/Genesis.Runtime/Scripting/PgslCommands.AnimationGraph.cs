@@ -45,6 +45,12 @@ public static partial class PgslCommands
         if (Graph()?.Trees.TryGetValue((int)treeId, out var tree) == true && tree is DirectBlend blend)
             blend.SetWeight(clip, (float)weight);
     }
+    [PgslCommand("AnimationBlendTreeSetSync", "AnimationBlendTreeSetSync(treeId, synced)",
+        "Keep a blend tree's clips in step (a sync group): they share one phase, so a walk and a run of different lengths put their feet down together", "Animation")]
+    public static void AnimationBlendTreeSetSync(double treeId, bool synced)
+    {
+        if (Graph()?.Trees.TryGetValue((int)treeId, out var tree) == true) tree.Synced = synced;
+    }
     [PgslCommand("AnimationStateCreate", "AnimationStateCreate(stateName, clipOrBlendTree)", "Create a state from a clip name or numeric tree ID; first state is entry", "Animation")]
     public static void AnimationStateCreate(string stateName, object clipOrBlendTree)
     {
