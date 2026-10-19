@@ -263,6 +263,42 @@ internal static class AutomationSuite
             HeadlessHarness.Assert(!Call("resource.set", """{ "path": "Assets/Scripts/Helpers.pgsl", "values": { "a": 1 } }""").Ok, "A script was treated as JSON.");
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.SoundsAreSynthesisedAndImportedAsAudio", () =>
+        {
+            AutomationResult coin = Call("audio.synth", """{ "name": "Coin Ping", "preset": "coin" }""");
+            HeadlessHarness.Assert(coin.Ok && PathOf(coin).EndsWith(".audio.json", StringComparison.Ordinal), "audio.synth did not make an Audio resource: " + coin.ToJson().ToJsonString());
+            var document = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(context.Resolve(PathOf(coin))));
+            string? source = (string?)document["source"];
+            string wav = source is null ? string.Empty : Path.Combine(Path.GetDirectoryName(context.Resolve(PathOf(coin)))!, Path.GetFileName(source));
+            if (!File.Exists(wav) && source is not null) wav = context.Resolve(source);
+            HeadlessHarness.Assert(File.Exists(wav), $"The Audio resource's sound file was not found: {source}");
+            byte[] bytes = File.ReadAllBytes(wav);
+            HeadlessHarness.Assert(System.Text.Encoding.ASCII.GetString(bytes, 0, 4) == "RIFF" && System.Text.Encoding.ASCII.GetString(bytes, 8, 4) == "WAVE"
+                && BitConverter.ToInt32(bytes, 24) == 44100 && BitConverter.ToInt16(bytes, 34) == 16, "The sound is not a 16-bit 44.1 kHz WAV.");
+
+            // A pure A4 for one second: about 880 sign changes, and its loop and volume set on the resource.
+            AutomationResult tone = Call("audio.synth", """{ "name": "A Tone", "layers": [ { "note": "A4", "duration": 1, "attack": 0.01, "release": 0.01, "sustain": 1 } ], "loop": true, "volume": 0.6 }""");
+            HeadlessHarness.Assert(tone.Ok && Math.Abs(tone.Data!["seconds"]!.GetValue<double>() - 1) < 0.01, "The one-second tone was not one second: " + tone.ToJson().ToJsonString());
+            var toneDoc = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(context.Resolve(PathOf(tone))));
+            string toneWav = Path.Combine(Path.GetDirectoryName(context.Resolve(PathOf(tone)))!, Path.GetFileName((string)toneDoc["source"]!));
+            if (!File.Exists(toneWav)) toneWav = context.Resolve((string)toneDoc["source"]!);
+            byte[] pcm = File.ReadAllBytes(toneWav);
+            int crossings = 0; short previous = 0;
+            for (int i = 44; i + 1 < pcm.Length; i += 2)
+            {
+                short sample = BitConverter.ToInt16(pcm, i);
+                if ((sample >= 0) != (previous >= 0)) crossings++;
+                previous = sample;
+            }
+            HeadlessHarness.Assert(Math.Abs(crossings - 880) < 20 && (bool?)toneDoc["loop"] == true && Math.Abs(((double?)toneDoc["volume"] ?? 0) - 0.6) < 0.001,
+                $"The A4 tone was not 440 Hz with its loop and volume set: {crossings} sign changes, loop {toneDoc["loop"]}, volume {toneDoc["volume"]}.");
+
+            AutomationResult tune = Call("audio.synth", """{ "name": "Tune", "melodies": [ { "notes": "C4 E4 G4 - C5+E5:2", "beatSeconds": 0.2, "voice": { "wave": "Organ" } } ], "echoDelay": 0.15, "echoFeedback": 0.3 }""");
+            HeadlessHarness.Assert(tune.Ok && tune.Data!["layers"]!.GetValue<int>() == 5, "The melody did not become its five notes: " + tune.ToJson().ToJsonString());
+            HeadlessHarness.Assert(Call("audio.synth", """{ "name": "Odd", "preset": "Kazoo" }""").Message.Contains("Presets:", StringComparison.Ordinal), "An unknown preset was not explained.");
+            HeadlessHarness.Assert(Call("audio.synth", """{ "name": "Odd", "layers": [ { "note": "H9" } ] }""").Message.Contains("not a note", StringComparison.Ordinal), "A bad note was not explained.");
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.ScriptedInputBecomesAReplayTheEngineReads", () =>
         {
             var steps = new List<GameRunCommands.InputStep>
