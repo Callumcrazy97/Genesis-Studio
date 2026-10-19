@@ -85,6 +85,7 @@ namespace Genesis.Runtime.Project
             Genesis.Runtime.Rendering.ModelLayers.Reset();
             Genesis.Runtime.Rendering.FlashLights.Reset();
             Genesis.Runtime.Rendering.WorldDecals.Reset();
+            Genesis.Runtime.Scripting.GameText.Reset();
             Genesis.Runtime.Input.InputReplay.Reset();
             Genesis.Runtime.Input.InputReplay.ReplayEnded -= OnInputReplayEnded;
             Genesis.Runtime.Input.InputReplay.ReplayEnded += OnInputReplayEnded;

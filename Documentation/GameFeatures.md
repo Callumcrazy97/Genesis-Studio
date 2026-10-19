@@ -220,6 +220,28 @@ the route's smoothing never cuts back across ground dearer than the route itself
 `NavMeshGetAreaCost(x, z)` reads a cell's cost back. Costs are not saved with the grid: set them
 after baking or after the room loads (its Create event), and routes found before keep their way.
 
+## The game's text in several languages (19 October 2026)
+
+Put each language's text in the project's `Assets/Text` folder, one file per language named by its
+code (`en.txt`, `fr.txt`, `de.txt`), one line per piece of text:
+
+```
+# Title screen
+title = Mushroom Meadow
+start = Press Start
+coins = You have {0} coins
+credits = Made by\nCal
+```
+
+`LocalText("title")` gives the line in the chosen language. A key the language does not have falls
+back to English (or, with no `en.txt`, the first language alphabetically) and then to the key
+itself, so an untranslated line shows its key rather than nothing. `LocalTextWith("coins", n)` puts
+values in for `{0}`, `{1}` and `{2}`. `\n` in a line is a new line, `\t` a tab; lines starting with
+`#` are notes. The language starts as the player's own when the game has it, else English;
+`LanguageSet("fr")` changes it (false when there is no `fr.txt`), `LanguageGet()` names it, and
+`LanguageCount()` with `LanguageAt(i)` lists them for a language menu. Keep the choice with the
+player's other settings (for example `FileWriteText`).
+
 ## Sound
 
 | Command | Meaning |
@@ -524,6 +546,12 @@ thirds on the wall and a third on the ground, 120 frames after 45, the range ove
 Small decals cost little more than the screen rectangles they cover: hundreds of bullet holes are
 within the frame-to-frame noise on this card. A decal close to the camera costs what its rectangle
 covers, a full-screen one about a full-screen pass.
+
+**Decals on moving objects (19 October 2026).** A decal is fixed in the world, so an object moving
+under it slides out of it. `DecalFollow(decal, instance)` keeps it on the object instead: from then
+on it moves and turns with the object (its model's transform when it draws one) and is removed when
+the object is destroyed. `DecalUnfollow(decal)` leaves it where it is. A bullet hole on a door or a
+cart, a scorch on a crate that is pushed; the picture's own turn about its normal stays as set.
 
 ## Save slots
 

@@ -68,6 +68,31 @@ internal static class EngineSystemsSuite
                 "A tree not in a sync group no longer ran its clips on one clock.");
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Text.LanguagesFallBackToEnglishThenToTheKey", () =>
+        {
+            // The game's text in several languages: Assets/Text/<language>.txt with key = text lines.
+            string project = Path.Combine(ctx.Workspace, "TextTables" + Guid.NewGuid().ToString("N")[..6]);
+            string folder = Path.Combine(project, "Assets", "Text");
+            Directory.CreateDirectory(folder);
+            File.WriteAllText(Path.Combine(folder, "en.txt"),
+                "# The title screen\ntitle = Mushroom Meadow\ncoins = You have {0} coins\ntwo.lines = One\\nTwo\nonly.english = English only\n");
+            File.WriteAllText(Path.Combine(folder, "fr.txt"), "title = Prairie aux champignons\r\ncoins = Tu as {0} pièces\r\n");
+            GameText.Reset();
+            try
+            {
+                var languages = GameText.Languages(project);
+                Check(languages.Count == 2 && languages[0] == "en" && languages[1] == "fr", "The languages were not listed from the text folder.");
+                Check(GameText.SetLanguage(project, "FR") && GameText.Language(project) == "fr", "A language could not be chosen by its code.");
+                Check(GameText.Get(project, "title") == "Prairie aux champignons" && GameText.Get(project, "only.english") == "English only"
+                    && GameText.Get(project, "no.such.key") == "no.such.key" && GameText.Has(project, "only.english") && !GameText.Has(project, "no.such.key"),
+                    "A missing line did not fall back to English and then to its key.");
+                Check(GameText.Fill(GameText.Get(project, "coins"), [12.0]) == "Tu as 12 pièces", "A value was not put in for {0}.");
+                Check(!GameText.SetLanguage(project, "de") && GameText.Language(project) == "fr", "A language the game has no text for was chosen.");
+                Check(GameText.SetLanguage(project, "en") && GameText.Get(project, "two.lines") == "One\nTwo", "\\n in a line was not a new line.");
+            }
+            finally { GameText.Reset(); }
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Input.ActionsBindRebindAndKeepTheirBindings", () =>
         {
             // Named actions a player can rebind: several bindings each, the next press rebinds,
