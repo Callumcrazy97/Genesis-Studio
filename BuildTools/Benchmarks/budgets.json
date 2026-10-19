@@ -1,0 +1,8 @@
+{
+  "_note": "Milliseconds and KB a frame, uncapped. Set 19 Oct 2026 at about 2.5 times the first measurements (Cal's desktop, DX11: Sprites 2D p95 3.2, Objects 3D 4.1, Terrain 0.5, Physics Pile 0.9, GUI 0.7), so a real slowdown fails and a busy machine does not. Lower them as the engine gets faster.",
+  "Sprites 2D": { "p95": 8, "p99": 10, "kbPerFrame": 6 },
+  "Objects 3D": { "p95": 10, "p99": 12, "kbPerFrame": 8 },
+  "Terrain": { "p95": 3, "p99": 5, "kbPerFrame": 8 },
+  "Physics Pile": { "p95": 4, "p99": 8, "kbPerFrame": 8 },
+  "GUI": { "p95": 3, "p99": 5, "kbPerFrame": 64 }
+}

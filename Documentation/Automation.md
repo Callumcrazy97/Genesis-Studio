@@ -89,6 +89,16 @@ A result is `{ "ok", "message", "data", "changed", "issues" }`.
 | `script.write` | Writes a library PGSL Script, making the resource if it is new; the script check's findings come back with their lines. |
 | `game.run` | Plays the game unattended: scripted input step by step (keys held or tapped, mouse-look, pointer, clicks, a controller stick, typed text) written as an engine input recording and played with the Player's replay; pictures at set seconds of play (GENESIS_SHOTS); optionally a profile. Reports the checks the game's scripts made with `TestCheck(name, passed, detail)` (a failed check fails the run), the exit code, the log's problems and tail, the pictures and the profile report. The game closes when the input ends. |
 
+## Benchmark scenes
+
+`powershell -ExecutionPolicy Bypass -File BuildTools\Benchmarks\BenchmarkScenes.ps1 [-Rebuild]` builds
+a test project with these commands (in `.build\benchmark-scenes`) and measures five standard scenes
+uncapped with `game.benchmark`: 2D sprites (3000 bouncing), 3D objects (4096 crates), terrain with
+grass and scattered rocks, a physics pile (500 crates) and a heavy GUI (400 labelled panels). It writes
+`TestResults\Benchmarks\<time>.md` and `.json` and fails when a scene is over the budgets in
+`BuildTools\Benchmarks\budgets.json`. First run, 19 Oct (DX11), median ms: sprites 2.85, objects
+3.78, terrain 0.36, physics 0.56, GUI 0.52. Close Studio and games first: each run opens a game
+window.
 ## What comes next
 
 These are the first stage and the second (terrain shape, sculpting and nature, room instances and
