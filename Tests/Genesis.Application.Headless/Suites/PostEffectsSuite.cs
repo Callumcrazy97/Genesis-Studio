@@ -408,10 +408,12 @@ internal static class PostEffectsSuite
                 string cache = Path.Combine(parent, "ShaderCache-" + label);
                 if (Directory.Exists(images)) Directory.Delete(images, recursive: true);
                 if (File.Exists(ready)) File.Delete(ready);
-                string log = RunPlayer(runtime, project.RootPath, cache, ready, out TimeSpan? readyWritten);
+                string stallTrace = Path.Combine(ctx.Logs, $"post-effects-player-{label}-stall.nettrace");
+                string log = RunPlayer(runtime, project.RootPath, cache, ready, stallTrace, out TimeSpan? readyWritten);
                 File.WriteAllText(Path.Combine(ctx.Logs, $"post-effects-player-{label}.log"), log);
                 string compiled = System.Text.RegularExpressions.Regex.Match(log, @"Post effect 'Fresh Invert' compiled on a worker in \d+ ms").Value;
-                HeadlessHarness.Assert(compiled.Length > 0 && readyWritten != null, $"[{label}] The effect was not compiled on a worker. Log:\r\n{Tail(log)}");
+                string sampled = File.Exists(stallTrace) ? $"The game stopped drawing; its threads are sampled in {stallTrace}.\r\n" : string.Empty;
+                HeadlessHarness.Assert(compiled.Length > 0 && readyWritten != null, $"[{label}] The effect was not compiled on a worker. {sampled}Log:\r\n{Tail(log)}");
                 Console.WriteLine($"[PostEffects] {label}: {compiled}");
                 // No frame after the effect was asked for, until it was compiled and made into a
                 // program (the line just after the compile is logged), may wait for it.
@@ -448,9 +450,10 @@ internal static class PostEffectsSuite
     /// <summary>
     /// Runs the game until it quits, writing <paramref name="readyFile"/> once its log says the
     /// effect was compiled (at most 90 s after it starts). <paramref name="readyWritten"/> is when,
-    /// as a time of day; null if it never was.
+    /// as a time of day; null if it never was. A game that stops drawing first has its threads
+    /// sampled into <paramref name="stallTrace"/>.
     /// </summary>
-    private static string RunPlayer(string runtime, string projectPath, string shaderCache, string readyFile, out TimeSpan? readyWritten)
+    private static string RunPlayer(string runtime, string projectPath, string shaderCache, string readyFile, string stallTrace, out TimeSpan? readyWritten)
     {
         readyWritten = null;
         System.Diagnostics.ProcessStartInfo start = new(Path.Combine(runtime, RuntimePaths.RuntimeExeName))
@@ -478,13 +481,27 @@ internal static class PostEffectsSuite
         string renderLog = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "GenesisRuntime", "Logs", "render-" + process.Id + ".log");
         var clock = System.Diagnostics.Stopwatch.StartNew();
+        int logLength = 0;
+        TimeSpan logGrew = TimeSpan.Zero;
+        bool traced = false;
         while (!process.HasExited && clock.Elapsed < TimeSpan.FromSeconds(120))
         {
+            string seen = ReadShared(renderLog);
+            if (seen.Length != logLength) { logLength = seen.Length; logGrew = clock.Elapsed; }
             if (readyWritten == null && clock.Elapsed < TimeSpan.FromSeconds(90)
-                && ReadShared(renderLog).Contains("Post effect 'Fresh Invert' compiled on a worker", StringComparison.Ordinal))
+                && seen.Contains("Post effect 'Fresh Invert' compiled on a worker", StringComparison.Ordinal))
             {
                 File.WriteAllText(readyFile, "compiled");
                 readyWritten = DateTime.Now.TimeOfDay;
+            }
+            // A game that has stopped drawing (frames are logged every 2 s) before the effect was
+            // compiled has been seen under load and never on an idle machine: what its threads are
+            // waiting for is sampled, where dotnet-trace is installed, for the failure to show.
+            if (!traced && readyWritten == null && seen.Contains("render frame=121", StringComparison.Ordinal)
+                && clock.Elapsed - logGrew > TimeSpan.FromSeconds(8))
+            {
+                traced = true;
+                SampleThreads(process.Id, stallTrace);
             }
             Thread.Sleep(100);
         }
@@ -495,6 +512,29 @@ internal static class PostEffectsSuite
         return ReadShared(playerLog)
             + Environment.NewLine + (File.Exists(renderLog) ? ReadShared(renderLog) : "(no render log at " + renderLog + ")")
             + Environment.NewLine + text;
+    }
+
+    /// <summary>
+    /// Four seconds of where each of the process's threads is (dotnet-trace's thread-time samples),
+    /// waiting threads included. Nothing when the tool is not installed.
+    /// </summary>
+    private static void SampleThreads(int processId, string tracePath)
+    {
+        string tool = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dotnet", "tools", "dotnet-trace.exe");
+        if (!File.Exists(tool)) return;
+        System.Diagnostics.ProcessStartInfo start = new(tool) { UseShellExecute = false, CreateNoWindow = true };
+        foreach (string argument in new[] { "collect", "-p", processId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "--profile", "dotnet-sampled-thread-time", "--duration", "00:00:00:04", "-o", tracePath })
+            start.ArgumentList.Add(argument);
+        try
+        {
+            using System.Diagnostics.Process trace = System.Diagnostics.Process.Start(start)!;
+            if (!trace.WaitForExit(30_000)) trace.Kill(entireProcessTree: true);
+        }
+        catch (Exception exception) when (exception is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            // A sample is only an aid to reading a failure.
+        }
     }
 
     private static string ReadShared(string path)
