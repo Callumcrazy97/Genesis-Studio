@@ -299,6 +299,40 @@ internal static class AutomationSuite
             HeadlessHarness.Assert(Call("audio.synth", """{ "name": "Odd", "layers": [ { "note": "H9" } ] }""").Message.Contains("not a note", StringComparison.Ordinal), "A bad note was not explained.");
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.ImagesAreMadeAndDrawnOnFrameByFrame", () =>
+        {
+            AutomationResult made = Call("image.create", """{ "name": "Gem", "width": 32, "height": 24, "frames": 2, "background": "#00000000" }""");
+            HeadlessHarness.Assert(made.Ok, "image.create failed: " + made.ToJson().ToJsonString());
+            string gem = PathOf(made);
+            var loaded = Genesis.Application.Core.Images.ImageDocumentSerializer.LoadAtomic(context.Resolve(gem)).Document;
+            HeadlessHarness.Assert(loaded.Canvas.Width == 32 && loaded.Canvas.Height == 24 && loaded.Frames.Count == 2 && loaded.Layers.Count == 1 && loaded.Layers[0].Cels.Count == 2,
+                "The image was not 32 x 24 with two frames on one layer.");
+            AutomationResult drawn = Call("image.draw", $$"""
+                { "image": "{{gem}}", "frame": 1, "operations": [
+                    { "shape": "rect", "x": 2, "y": 2, "width": 10, "height": 8, "color": "#FF0000" },
+                    { "shape": "pixels", "points": [[20, 5]], "color": "Lime" },
+                    { "shape": "line", "points": [[0, 20], [31, 20]], "color": "#0000FFFF" },
+                    { "shape": "ellipse", "x": 14, "y": 8, "width": 8, "height": 8, "color": "#FFFF00", "thickness": 1 } ] }
+                """);
+            HeadlessHarness.Assert(drawn.Ok, "image.draw failed: " + drawn.ToJson().ToJsonString());
+            AutomationResult info = Call("image.info", $$"""{ "image": "{{gem}}" }""");
+            string frame0 = info.Data!["frames"]![0]!["picture"]!.GetValue<string>(), frame1 = info.Data["frames"]![1]!["picture"]!.GetValue<string>();
+            using (var picture = new System.Drawing.Bitmap(frame1))
+            using (var untouched = new System.Drawing.Bitmap(frame0))
+            {
+                System.Drawing.Color red = picture.GetPixel(5, 5), lime = picture.GetPixel(20, 5), empty = picture.GetPixel(28, 2);
+                System.Drawing.Color blue = picture.GetPixel(10, 20).B == 255 ? picture.GetPixel(10, 20) : picture.GetPixel(10, 19);
+                HeadlessHarness.Assert(red.R == 255 && red.G == 0 && red.A == 255 && lime.G == 255 && lime.R == 0 && blue.B == 255 && blue.A == 255 && empty.A == 0
+                    && untouched.GetPixel(5, 5).A == 0,
+                    $"The drawing is not where it was asked: red {red}, lime {lime}, blue {blue}, empty {empty}, frame 0 {untouched.GetPixel(5, 5)}.");
+            }
+            var sprite = Genesis.Runtime.Assets.SpriteAssetLoader.Load(project.RootPath, gem);
+            HeadlessHarness.Assert(sprite.Frames.Count == 2 && sprite.Canvas.Width == 32 && sprite.Canvas.Height == 24, "The game's sprite loader did not read the image the commands made.");
+            HeadlessHarness.Assert(Call("image.draw", $$"""{ "image": "{{gem}}", "operations": [ { "shape": "star" } ] }""").Message.Contains("not a shape", StringComparison.Ordinal), "An unknown shape was not explained.");
+            HeadlessHarness.Assert(Call("image.draw", $$"""{ "image": "{{gem}}", "operations": [ { "shape": "fill", "color": "Mauvish" } ] }""").Message.Contains("not a colour", StringComparison.Ordinal), "An unknown colour was not explained.");
+            HeadlessHarness.Assert(!Call("image.create", """{ "name": "Huge", "width": 99999 }""").Ok, "An impossible size was accepted.");
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.ScriptedInputBecomesAReplayTheEngineReads", () =>
         {
             var steps = new List<GameRunCommands.InputStep>

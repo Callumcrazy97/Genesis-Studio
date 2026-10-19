@@ -61,6 +61,9 @@ A result is `{ "ok", "message", "data", "changed", "issues" }`.
 | `resource.set` | Sets fields of any JSON resource (particle effect, physics material, shader, audio, model settings...) as named in the file; objects merge, arrays are replaced. The engine's loader must still read it, so a value of the wrong kind is refused. An Object's components and events, and a terrain's size, have their own commands. |
 | `particle.create` | Makes a Particle effect from one of the engine's presets (Fire, Smoke, Embers, Sparks, Explosion, Magic, Fountain, Snow, Rain, Portal...), as the Particle editor's gallery does, with any settings changed. |
 | `audio.synth` | Makes a sound with Genesis's synthesiser and imports it as an Audio resource (as a dropped WAV): presets (Coin, Jump, Laser, Explosion, Hit, Power Up, Blip, Footstep, Heartbeat, Wind, Drone, Choir Pad, Organ Chord), layers (sine, square, saw, triangle, noise or organ oscillators with a note or Hz, pitch glide, ADSR envelope, vibrato, unison detune, low-pass, tremolo) and melodies as note strings (C4 E4 G4, - rests, C4:2 lengths, C4+E4+G4 chords), with an echo; the resource can loop and take a volume. 16-bit 44.1 kHz mono. |
+| `image.create` | Makes an Image resource of a size and number of frames (animation), every frame filled with a colour; Sprite, Background, Tileset or Texture use. Frames are stored as the Image editor stores them. |
+| `image.draw` | Draws on a frame (or every frame): rect, ellipse, line, polygon, text, fill, pixels, clear; filled or outlined, crisp for pixel art or smoothed; colours as #RGB, #RRGGBB, #RRGGBBAA or names. Backs the frame up first. |
+| `image.info` | An Image's size, use, layers and frames, each with the full path of its picture, so whoever drew it can look at it. |
 | `text.replacePreview` | What `text.replace` would change: each file, how many times, the lines before and after. |
 | `text.replace` | Replaces text in scripts and resource JSON under a folder, backing files up. Needs confirm. |
 | `terrain.create` | Makes a Terrain from a landform (Flatlands, RollingHills, Hills, Mountains, ErodedMountains, RidgeValleys, Badlands, Volcanic, Islands, Canyon), as the Terrain editor's landform gallery does: size, height range, seed, erosion, terraces, rivers. |
@@ -84,4 +87,4 @@ A result is `{ "ok", "message", "data", "changed", "issues" }`.
 
 These are the first stage and the second (terrain shape, sculpting and nature, room instances and
 environment, Objects and scripts). Next, each editor's operations become commands that its buttons and the
-automation share: Image, Model, Shader and Physics presets, and a live mode that works on the Studio that is open, with undo.
+automation share: Model, Shader and Physics presets, the Image editor's layers and tools beyond drawing, and a live mode that works on the Studio that is open, with undo.
