@@ -22,6 +22,16 @@ namespace Genesis.Shared.Scripting
         }
     }
 
+    /// <summary>
+    /// On a command's <c>params</c> parameter: the command neither keeps the array nor calls back into
+    /// scripts while it runs, so each call may be handed the same per-thread array instead of a new one
+    /// (Choose, list creation: an array per call in the 17 Oct allocation traces).
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Parameter)]
+    public sealed class ParamsNotKeptAttribute : Attribute
+    {
+    }
+
     public sealed class PgslCommandInfo
     {
         public string Name { get; set; }

@@ -141,7 +141,22 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
         public ParameterInfo[] Parameters;
         public bool[] IsParams;
         public Type[] ParamsElementTypes;
+        /// <summary>A params parameter marked <see cref="Genesis.Shared.Scripting.ParamsNotKeptAttribute"/>.</summary>
+        public bool[] ParamsReusable;
         public Func<object[], object> Invoke;
+    }
+
+    // Per-thread params arrays by element type and length, for commands that do not keep them
+    // (job scripts call commands on worker threads, hence per thread).
+    [ThreadStatic] private static Dictionary<(Type, int), Array> _paramsScratch;
+
+    private static Array ParamsArray(Type elementType, int count, bool reusable)
+    {
+        if (!reusable || count == 0 || count > 32) return Array.CreateInstance(elementType, count);
+        _paramsScratch ??= new Dictionary<(Type, int), Array>();
+        if (!_paramsScratch.TryGetValue((elementType, count), out Array array))
+            _paramsScratch[(elementType, count)] = array = Array.CreateInstance(elementType, count);
+        return array;
     }
 
     private NativeCall[] _nativeCalls = Array.Empty<NativeCall>();
@@ -579,12 +594,14 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
             Parameters = parameters,
             IsParams = new bool[parameters.Length],
             ParamsElementTypes = new Type[parameters.Length],
+            ParamsReusable = new bool[parameters.Length],
             Invoke = GetOrCreateDelegate(method),
         };
         for (int i = 0; i < parameters.Length; i++)
         {
             plan.IsParams[i] = parameters[i].IsDefined(typeof(ParamArrayAttribute), false);
             if (plan.IsParams[i]) plan.ParamsElementTypes[i] = parameters[i].ParameterType.GetElementType() ?? typeof(object);
+            plan.ParamsReusable[i] = plan.IsParams[i] && parameters[i].IsDefined(typeof(Genesis.Shared.Scripting.ParamsNotKeptAttribute), false);
         }
         _planCache[method] = plan;
         return plan;
@@ -605,7 +622,7 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
                 {
                     Type elementType = plan.ParamsElementTypes[i];
                     int count = Math.Max(0, args.Length - i);
-                    Array tail = Array.CreateInstance(elementType, count);
+                    Array tail = ParamsArray(elementType, count, plan.ParamsReusable[i]);
                     for (int j = 0; j < count; j++) tail.SetValue(ConvertArg(args[i + j], elementType), j);
                     callArgs[i] = tail;
                 }
@@ -626,6 +643,9 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
         }
         finally
         {
+            // A reused params array lets go of this call's values.
+            for (int i = 0; i < parameters.Length; i++)
+                if (plan.ParamsReusable[i] && callArgs[i] is Array reused) Array.Clear(reused);
             Array.Clear(callArgs, 0, parameters.Length);
             ArrayPool<object>.Shared.Return(callArgs);
         }

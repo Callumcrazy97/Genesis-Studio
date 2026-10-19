@@ -11,7 +11,7 @@ public static partial class PgslCommands
 {
     [PgslCommand("PgListCreate", "PgListCreate(values...) -> list",
         "A new list holding the values given, in order; what an array literal such as [1, 2, 3] makes", "Lists")]
-    public static PGList PgListCreate(params object[] values)
+    public static PGList PgListCreate([ParamsNotKept] params object[] values)
     {
         var list = new PGList();
         if (values != null)

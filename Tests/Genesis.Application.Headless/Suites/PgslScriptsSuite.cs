@@ -118,6 +118,19 @@ internal static class PgslScriptsSuite
             finally { PgslCommands.ActiveGameContext = oldGame; PgslCommands.ProjectPath = oldPath; ScriptAssetRegistry.ClearCache(); }
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.ChooseAndListCreateShareOneArrayAndStillWork", () =>
+        {
+            // 17 Oct traces: an array per Choose call. Marked [ParamsNotKept], they reuse one per thread,
+            // cleared after each call; the list made from it must still hold its values.
+            ObjectSandboxResult result = RunCreate("a = Choose(7, 7, 7);\nl = PgListCreate(4, 5, 6);\nb = PgListSize(l);\nc = PgListGet(l, 2);\nd = Choose(8, 8, 8);\ne = PgListGet(l, 0);\n");
+            Check(result.Ok && Near(result, "a", 7) && Near(result, "b", 3) && Near(result, "c", 6) && Near(result, "d", 8) && Near(result, "e", 4),
+                $"Choose or PgListCreate broke with a shared array: a={Value(result, "a")} b={Value(result, "b")} c={Value(result, "c")} d={Value(result, "d")} e={Value(result, "e")}. " + Errors(result));
+            var paramsArray = typeof(Genesis.Runtime.Scripting.VM.PgslEngineBridge).GetMethod("ParamsArray", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+            object? first = paramsArray.Invoke(null, [typeof(object), 3, true]), second = paramsArray.Invoke(null, [typeof(object), 3, true]);
+            object? fresh = paramsArray.Invoke(null, [typeof(object), 3, false]);
+            Check(ReferenceEquals(first, second) && !ReferenceEquals(first, fresh), "A command marked [ParamsNotKept] was not given the same array again.");
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.ACalledScriptKeepsItsOwnArgumentsAndFunctions", () =>
         {
             ObjectSandboxResult result = RunCreate("a = ArgKeeper(1);\nd = HelperFour();\n");

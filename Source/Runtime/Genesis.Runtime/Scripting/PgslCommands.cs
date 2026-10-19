@@ -181,7 +181,7 @@ public static partial class PgslCommands
         NextRandomDouble() * (max - min) + min;
 
     [PgslCommand("Choose", "Choose(a, b, ...)", "Pick random argument", "Math")]
-    public static object Choose(params object[] options)
+    public static object Choose([ParamsNotKept] params object[] options)
     {
         if (options == null || options.Length == 0) return null;
         return options[NextRandomInt(options.Length)];
