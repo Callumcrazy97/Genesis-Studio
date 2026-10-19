@@ -625,11 +625,14 @@ internal static partial class PgslWorkerJobChecks
                 }
                 // The job's first add copies the game's list, room and all (40 000 slots, 312.5 KB): that one copy and nothing more.
                 const long OneCopy = 40000L * 8;
-                bool pass = size == 36000 && fewest < OneCopy + 32 * 1024;
+                // 40 KB over the one copy: runs on 18-19 Oct measured 345 KB (32.7 KB over) now and then with nothing changed;
+                // the regression this guards against grew it from nothing, about 1 MB.
+                const long Slack = 40 * 1024;
+                bool pass = size == 36000 && fewest < OneCopy + Slack;
                 row("Jobs: shared data", "a reserved list keeps its room in a job; 36 000 adds there grow nothing", pass ? "PASS" : "FAIL",
                     $"36 000 adds allocated {fewest / 1024.0:F1} KB, the first add's copy of the 40 000-slot list included (growing from nothing was about 1 MB); boxes {boxes.Made} new, {boxes.Reused} reused");
                 HeadlessHarness.Assert(size == 36000, $"The job's list holds {size} entries, not 36 000.");
-                HeadlessHarness.Assert(fewest < OneCopy + 32 * 1024, $"36 000 adds to a reserved list in a job allocated {fewest / 1024.0:F1} KB.");
+                HeadlessHarness.Assert(fewest < OneCopy + Slack, $"36 000 adds to a reserved list in a job allocated {fewest / 1024.0:F1} KB.");
             }
             finally
             {
