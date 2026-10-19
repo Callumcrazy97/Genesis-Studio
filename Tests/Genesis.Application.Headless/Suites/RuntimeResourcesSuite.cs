@@ -58,6 +58,37 @@ internal static class RuntimeResourcesSuite
             }
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Audio.ABusDucksWhileAnotherPlays", () =>
+        {
+            // Music under dialogue: while a sound on "voice" plays, "music" drops by the amount
+            // (instantly here, gradually with an attack time) and comes back when it stops.
+            string project = Path.Combine(ctx.Workspace, "AudioDuck" + Guid.NewGuid().ToString("N")[..6]);
+            string audio = Path.Combine(project, "Assets", "Audio");
+            Directory.CreateDirectory(audio);
+            File.WriteAllText(Path.Combine(project, "Audio Duck.genesisproj"), "{}");
+            WriteSilentWave(Path.Combine(audio, "Line.wav"), 2.0);
+            File.WriteAllText(Path.Combine(audio, "Line.audio.json"), "{ \"source\": \"Line.wav\" }");
+            Genesis.Shared.Assets.ResourceCatalog.Invalidate(project);
+            using var mixer = new Genesis.Audio.XAudioSystem(project) { Muted = true };
+            mixer.SetBusDuck("music", "voice", 0.6f, 0f, 0f);
+            mixer.Update();
+            HeadlessHarness.Assert(mixer.GetBusDuckLevel("music") == 1f, "Music was ducked with nothing playing.");
+            int line = mixer.LoadSound("Line");
+            var channel = mixer.Play(line);
+            mixer.SetChannelBus(channel, "voice");
+            mixer.Update(); mixer.Update();
+            if (!mixer.IsPlaying(channel)) throw new CheckNotRunException("No sound device here: nothing plays, so nothing can be ducked.");
+            HeadlessHarness.Assert(Math.Abs(mixer.GetBusDuckLevel("music") - 0.4f) < 1e-4f && mixer.GetBusDuckLevel("sfx") == 1f,
+                $"Music was not ducked to 0.4 while the voice played (level {mixer.GetBusDuckLevel("music")}).");
+            mixer.SetBusDuck("music", "voice", 0.6f, 0f, 30f);
+            mixer.Stop(channel);
+            mixer.Update(); mixer.Update();
+            float releasing = mixer.GetBusDuckLevel("music");
+            HeadlessHarness.Assert(releasing > 0.4f && releasing < 0.5f, $"A 30 s release did not come back gradually (level {releasing}).");
+            mixer.SetBusDuck("music", "voice", 0f, 0f, 0f);
+            HeadlessHarness.Assert(mixer.GetBusDuckLevel("music") == 1f, "Turning ducking off left the bus down.");
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Studio.Audio.EditorListsEverySoundFileAGamePlays", () =>
         {
             // The Audio editor's source list once offered only .wav files, so an Ogg resource showed

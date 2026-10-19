@@ -645,9 +645,60 @@ namespace Genesis.Audio
             ApplySpatial(channel.Id);
         }
 
+        // Ducking: a bus that drops while another bus plays (music under dialogue).
+        private sealed class Duck
+        {
+            public string ByBus = "";
+            public float Amount, AttackSeconds, ReleaseSeconds, Level = 1f;
+        }
+        private readonly Dictionary<string, Duck> _ducks = new();
+        private long _lastDuckUpdate;
+
+        public void SetBusDuck(string bus, string byBus, float amount, float attackSeconds, float releaseSeconds)
+        {
+            string name = BusName(bus);
+            if (name == "master") return;
+            float drop = float.IsFinite(amount) ? Math.Clamp(amount, 0f, 1f) : 0f;
+            if (drop <= 0f)
+            {
+                if (_ducks.Remove(name)) RefreshChannelVolumes();
+                return;
+            }
+            if (!_ducks.TryGetValue(name, out Duck? duck)) _ducks[name] = duck = new Duck();
+            duck.ByBus = BusName(byBus);
+            duck.Amount = drop;
+            duck.AttackSeconds = float.IsFinite(attackSeconds) ? Math.Max(0f, attackSeconds) : 0f;
+            duck.ReleaseSeconds = float.IsFinite(releaseSeconds) ? Math.Max(0f, releaseSeconds) : 0f;
+        }
+
+        public float GetBusDuckLevel(string bus) => _ducks.TryGetValue(BusName(bus), out Duck? duck) ? duck.Level : 1f;
+
+        private void UpdateDucks()
+        {
+            long now = System.Diagnostics.Stopwatch.GetTimestamp();
+            float seconds = _lastDuckUpdate == 0 ? 0f : (float)System.Diagnostics.Stopwatch.GetElapsedTime(_lastDuckUpdate, now).TotalSeconds;
+            _lastDuckUpdate = now;
+            if (_ducks.Count == 0) return;
+            bool changed = false;
+            foreach (KeyValuePair<string, Duck> pair in _ducks)
+            {
+                Duck duck = pair.Value;
+                bool playing = false;
+                foreach (ChannelState channel in _channels.Values)
+                    if (!channel.Pending && channel.Voice != null && channel.Bus == duck.ByBus) { playing = true; break; }
+                float target = playing ? 1f - duck.Amount : 1f;
+                float span = playing ? duck.AttackSeconds : duck.ReleaseSeconds;
+                float step = span <= 0f ? 1f : Math.Min(1f, seconds / span) * duck.Amount;
+                float level = duck.Level < target ? Math.Min(target, duck.Level + step) : Math.Max(target, duck.Level - step);
+                if (level != duck.Level) { duck.Level = level; changed = true; }
+            }
+            if (changed) RefreshChannelVolumes();
+        }
+
         public void Update()
         {
             _engine?.Update();
+            UpdateDucks();
             if (_channels.Count == 0) return;
             StartPendingChannels();
 
@@ -729,7 +780,8 @@ namespace Genesis.Audio
         {
             string name = BusName(bus);
             if (name == "master") return 1f;
-            return _buses.TryGetValue(name, out float volume) ? volume : 1f;
+            float gain = _buses.TryGetValue(name, out float volume) ? volume : 1f;
+            return _ducks.TryGetValue(name, out Duck? duck) ? gain * duck.Level : gain;
         }
 
         private void RefreshChannelVolumes()

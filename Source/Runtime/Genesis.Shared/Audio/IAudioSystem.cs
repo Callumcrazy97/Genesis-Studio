@@ -115,6 +115,16 @@ namespace Genesis.Shared.Audio
         float GetBusVolume(string bus) => 1f;
 
         /// <summary>
+        /// Ducking: while any sound on <paramref name="byBus"/> plays, <paramref name="bus"/> drops by
+        /// <paramref name="amount"/> (0.6 leaves 40%), going down over <paramref name="attackSeconds"/>
+        /// and back over <paramref name="releaseSeconds"/>. An amount of 0 turns it off.
+        /// </summary>
+        void SetBusDuck(string bus, string byBus, float amount, float attackSeconds, float releaseSeconds) { }
+
+        /// <summary>How far a ducked bus is down now: 1 when it is not ducked.</summary>
+        float GetBusDuckLevel(string bus) => 1f;
+
+        /// <summary>
         /// Starts decoding a sound off the game's thread so that a later play of it starts at once.
         /// Returns the sound's id (as <see cref="LoadSound"/> does), or 0 when there is no such
         /// sound. A system that cannot decode ahead loads it now.

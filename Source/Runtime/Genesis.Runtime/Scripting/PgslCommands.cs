@@ -375,6 +375,53 @@ public static partial class PgslCommands
         ActiveGameContext?.Audio?.FadeChannel(
             new Genesis.Shared.Audio.AudioChannel((int)channel), 0f, (float)Math.Clamp(seconds, 0, 600), stopWhenDone: true);
 
+    // The track MusicPlay last started, per audio system (one per game).
+    private sealed class MusicState { public Genesis.Shared.Audio.AudioChannel Channel; public string Path = ""; }
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Genesis.Shared.Audio.IAudioSystem, MusicState> Music = new();
+
+    [PgslCommand("MusicPlay", "MusicPlay(path, fadeSeconds?, volume?) -> channel",
+        "Play a looping music track on the music bus, cross-fading from the one playing over fadeSeconds (default 1); the same track already playing only moves to the new volume", "Audio")]
+    public static double MusicPlay(string path, double fadeSeconds = 1, double volume = 1)
+    {
+        var audio = ActiveGameContext?.Audio;
+        if (audio == null || string.IsNullOrWhiteSpace(path)) return 0;
+        float fade = (float)(double.IsFinite(fadeSeconds) ? Math.Clamp(fadeSeconds, 0, 600) : 1);
+        float level = (float)(double.IsFinite(volume) ? Math.Clamp(volume, 0, 1) : 1);
+        MusicState music = Music.GetValue(audio, _ => new MusicState());
+        if (audio.IsPlaying(music.Channel) && string.Equals(music.Path, path.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            audio.FadeChannel(music.Channel, level, fade);
+            return music.Channel.Id;
+        }
+        int sound = audio.LoadSound(path);
+        if (sound == 0) return 0;
+        if (audio.IsPlaying(music.Channel)) audio.FadeChannel(music.Channel, 0f, fade, stopWhenDone: true);
+        var channel = audio.Play(sound, fade > 0 ? 0f : level, 1f, loop: true);
+        audio.SetChannelBus(channel, "music");
+        if (fade > 0) audio.FadeChannel(channel, level, fade);
+        music.Channel = channel;
+        music.Path = path.Trim();
+        return channel.Id;
+    }
+
+    [PgslCommand("MusicStop", "MusicStop(fadeSeconds?)", "Fade the music MusicPlay started to silence (default 1 second) and stop it", "Audio")]
+    public static void MusicStop(double fadeSeconds = 1)
+    {
+        var audio = ActiveGameContext?.Audio;
+        if (audio == null || !Music.TryGetValue(audio, out MusicState music)) return;
+        if (audio.IsPlaying(music.Channel))
+            audio.FadeChannel(music.Channel, 0f, (float)(double.IsFinite(fadeSeconds) ? Math.Clamp(fadeSeconds, 0, 600) : 1), stopWhenDone: true);
+        music.Channel = default;
+        music.Path = "";
+    }
+
+    [PgslCommand("MusicCurrent", "MusicCurrent() -> string", "The track MusicPlay is playing, or empty", "Audio")]
+    public static string MusicCurrent()
+    {
+        var audio = ActiveGameContext?.Audio;
+        return audio != null && Music.TryGetValue(audio, out MusicState music) && audio.IsPlaying(music.Channel) ? music.Path : "";
+    }
+
     [PgslCommand("SetBusVolume", "SetBusVolume(bus, volume)", "Set the volume of a group of sounds: \"music\", \"sfx\" or \"master\" (0..1)", "Audio")]
     public static void SetBusVolume(string bus, double volume) =>
         ActiveGameContext?.Audio?.SetBusVolume(bus, (float)Math.Clamp(volume, 0, 1));
@@ -386,6 +433,14 @@ public static partial class PgslCommands
 
     [PgslCommand("GetBusVolume", "GetBusVolume(bus) -> number", "The volume of a group of sounds: \"music\", \"sfx\" or \"master\"", "Audio")]
     public static double GetBusVolume(string bus) => ActiveGameContext?.Audio?.GetBusVolume(bus) ?? 1;
+
+    [PgslCommand("BusDuck", "BusDuck(bus, byBus, amount, attack?, release?)",
+        "Ducking: while any sound on byBus plays, bus drops by amount (0.6 leaves 40%), down over attack seconds (default 0.15) and back over release (default 0.6): BusDuck(\"music\", \"voice\", 0.6). Amount 0 turns it off", "Audio")]
+    public static void BusDuck(string bus, string byBus, double amount, double attack = 0.15, double release = 0.6) =>
+        ActiveGameContext?.Audio?.SetBusDuck(bus, byBus, (float)amount, (float)attack, (float)release);
+
+    [PgslCommand("BusDuckLevel", "BusDuckLevel(bus) -> number", "How far a ducked bus is down now: 1 when not ducked, 0.4 when ducked by 0.6", "Audio")]
+    public static double BusDuckLevel(string bus) => ActiveGameContext?.Audio?.GetBusDuckLevel(bus) ?? 1;
 
     #endregion
 
