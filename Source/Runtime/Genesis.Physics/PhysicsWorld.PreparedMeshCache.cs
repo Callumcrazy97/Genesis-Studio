@@ -108,19 +108,27 @@ public sealed partial class PhysicsWorld
         BufferPool? pool = null;
         try
         {
-            if (!File.Exists(path)) return false;
-            byte[] bytes = File.ReadAllBytes(path);
-            if (bytes.Length <= PreparedMeshHeaderBytes) return false;
-            ReadOnlySpan<byte> header = bytes.AsSpan(0, PreparedMeshHeaderBytes);
-            if (BinaryPrimitives.ReadUInt32LittleEndian(header) != PreparedMeshMagic
-                || BinaryPrimitives.ReadInt32LittleEndian(header[4..]) != PreparedMeshVersion
-                || BinaryPrimitives.ReadInt32LittleEndian(header[8..]) != triangleCount
-                || BinaryPrimitives.ReadInt64LittleEndian(header[12..]) != bytes.Length - PreparedMeshHeaderBytes)
+            var file = new FileInfo(path);
+            if (!file.Exists) return false;
+            byte[]? bytes = RecentEntry(path, file.Length, file.LastWriteTimeUtc);
+            if (bytes == null)
+            {
+                bytes = File.ReadAllBytes(path);
+                if (bytes.Length <= PreparedMeshHeaderBytes) return false;
+                ReadOnlySpan<byte> header = bytes.AsSpan(0, PreparedMeshHeaderBytes);
+                if (BinaryPrimitives.ReadUInt32LittleEndian(header) != PreparedMeshMagic
+                    || BinaryPrimitives.ReadInt32LittleEndian(header[4..]) != PreparedMeshVersion
+                    || BinaryPrimitives.ReadInt32LittleEndian(header[8..]) != triangleCount
+                    || BinaryPrimitives.ReadInt64LittleEndian(header[12..]) != bytes.Length - PreparedMeshHeaderBytes)
+                    return false;
+                // The engine copies the stored mesh without checking it, so a damaged file must never reach it.
+                Span<byte> hash = stackalloc byte[32];
+                SHA256.HashData(bytes.AsSpan(PreparedMeshHeaderBytes), hash);
+                if (!hash.SequenceEqual(header.Slice(20, 32))) return false;
+                KeepRecentEntry(path, file.Length, file.LastWriteTimeUtc, bytes);
+            }
+            else if (BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(8)) != triangleCount)
                 return false;
-            // The engine copies the stored mesh without checking it, so a damaged file must never reach it.
-            Span<byte> hash = stackalloc byte[32];
-            SHA256.HashData(bytes.AsSpan(PreparedMeshHeaderBytes), hash);
-            if (!hash.SequenceEqual(header.Slice(20, 32))) return false;
 
             pool = new BufferPool();
             var mesh = new Mesh(bytes.AsSpan(PreparedMeshHeaderBytes), pool);
@@ -139,6 +147,39 @@ public sealed partial class PhysicsWorld
             pool?.Clear();
             prepared = null;
             return false;
+        }
+    }
+
+    // Entries read lately and found sound, by file: the tiles of one terrain read and hashed the
+    // same file once each on every visit to their room (room soak, 19 Oct). The engine copies a
+    // mesh out of these bytes, so they are only ever read. Up to 64 MB is kept.
+    private const long RecentEntryLimit = 64L << 20;
+    private static readonly object RecentEntriesLock = new();
+    private static readonly List<(string Path, long Length, DateTime Written, byte[] Bytes)> RecentEntries = [];
+
+    private static byte[]? RecentEntry(string path, long length, DateTime written)
+    {
+        lock (RecentEntriesLock)
+            foreach (var entry in RecentEntries)
+                if (entry.Length == length && entry.Written == written && string.Equals(entry.Path, path, StringComparison.OrdinalIgnoreCase))
+                    return entry.Bytes;
+        return null;
+    }
+
+    private static void KeepRecentEntry(string path, long length, DateTime written, byte[] bytes)
+    {
+        if (bytes.LongLength > RecentEntryLimit / 2) return;
+        lock (RecentEntriesLock)
+        {
+            RecentEntries.RemoveAll(entry => string.Equals(entry.Path, path, StringComparison.OrdinalIgnoreCase));
+            RecentEntries.Add((path, length, written, bytes));
+            long total = 0;
+            foreach (var entry in RecentEntries) total += entry.Bytes.LongLength;
+            while (total > RecentEntryLimit && RecentEntries.Count > 1)
+            {
+                total -= RecentEntries[0].Bytes.LongLength;
+                RecentEntries.RemoveAt(0);
+            }
         }
     }
 

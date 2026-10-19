@@ -23,7 +23,38 @@ internal static class LoadCacheSuite
         HeadlessHarness.RunCase(ctx.Report, "Runtime.LoadCache.Textures.DamagedOrForeignEntriesAreIgnored", () => DamagedEntry(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Runtime.LoadCache.Colliders.CachedTreeMatchesBuiltTree", () => CachedCollider(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Runtime.LoadCache.Colliders.ChangedOrDamagedTrianglesBuildAgain", () => ChangedCollider(ctx));
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.LoadCache.Terrain.TilesOfOneTerrainShareOneSurfaceBake", SharedSurfaceBake);
         HeadlessHarness.RunCase(ctx.Report, "Runtime.LoadProfile.SpansNestAndRecordNothingWhenOff", LoadProfileTree);
+    }
+
+    /// <summary>
+    /// Tiles of one terrain, and the next visit to their room, take the surface already baked
+    /// instead of baking three 2048-square maps again; a changed source bakes anew and a failed
+    /// bake is tried again.
+    /// </summary>
+    private static void SharedSurfaceBake()
+    {
+        string key = "test|" + Guid.NewGuid().ToString("N");
+        int bakes = 0;
+        Genesis.Runtime.Assets.TerrainSurfaceMaterialPixels Bake()
+        {
+            Interlocked.Increment(ref bakes);
+            return new(2, new byte[16], new byte[16], new byte[16], [], [], 1f, 1f);
+        }
+        var first = Genesis.Runtime.Project.RoomTerrainSubsystem.BakedSurface(key, Bake);
+        var second = Genesis.Runtime.Project.RoomTerrainSubsystem.BakedSurface(key, Bake);
+        first.Wait();
+        HeadlessHarness.Assert(ReferenceEquals(first, second) && bakes == 1, $"Two tiles of one terrain baked {bakes} times.");
+        var changed = Genesis.Runtime.Project.RoomTerrainSubsystem.BakedSurface(key + "|changed", Bake);
+        changed.Wait();
+        HeadlessHarness.Assert(!ReferenceEquals(first, changed) && bakes == 2, "A changed terrain was answered from the old bake.");
+
+        string failing = "test|" + Guid.NewGuid().ToString("N");
+        var failed = Genesis.Runtime.Project.RoomTerrainSubsystem.BakedSurface(failing, () => throw new InvalidDataException("broken paint"));
+        try { failed.Wait(); } catch (AggregateException) { }
+        var retried = Genesis.Runtime.Project.RoomTerrainSubsystem.BakedSurface(failing, Bake);
+        retried.Wait();
+        HeadlessHarness.Assert(retried.IsCompletedSuccessfully && bakes == 3, "A failed bake was kept instead of tried again.");
     }
 
     /// <summary>A folder laid out as a project: Assets beside the project's .genesis folder.</summary>

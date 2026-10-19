@@ -463,6 +463,22 @@ before, about 25 MB more every round), with managed memory settling at about 220
 card its rooms then ran at 16.7 ms a frame in the village and the tavern and 20.1 ms on the river
 road, with its ground cover, three ranges of mountains and 83 animals.
 
+The test island's folder is gone, so on 19 October a two-room soak was made with Studio's own
+automation commands: a field with four streamed tiles of one painted 129 by 129 terrain (grass,
+scattered rocks, a terrain distance of 250 m), 60 crates and 20 animated figures, and a hall with
+the same objects, each room going to the other after 20 frames. In 7,500 changes (3,750 visits to
+the field) managed memory was level: the lowest value in each run of 500 changes stayed between
+710 and 880 MB, and two heap snapshots 5,000 changes apart differed only by the benchmark's own
+list of frames. The island's rise did not appear. What the soak did show was waste: every visit
+baked the terrain's surface material again for each tile, three 2048-square maps (48 MB) each
+time, and read and checked the same collision entry from disk once per tile. That was 4 MB of
+garbage a frame on average, a 5.5 GB peak and 10.7 s of collector pauses in five minutes. Baked
+surfaces are now shared by everything baked from the same files and paint, with the last two kept
+for the next visit; checked collision entries are kept in memory (up to 64 MB) while their file is
+unchanged; and a surface already baked is used before the ground is first built, which had been
+built twice on every visit. The same soak then made 304 KB a frame with a 968 MB peak and about a
+second of pauses in two minutes, and changed room 33 times a second instead of 25.
+
 ## Verification
 
 `Build.bat --test large-world` runs fifty-four checks. Twenty-eight of them are described in
