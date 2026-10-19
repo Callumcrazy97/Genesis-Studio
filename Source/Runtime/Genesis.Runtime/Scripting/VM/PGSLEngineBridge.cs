@@ -202,9 +202,15 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
     private static void CompileTypedCall(NativeCall call)
     {
         ParameterInfo[] parameters = call.Plan.Parameters;
-        if (parameters.Length != call.ArgumentCount) return;
-        var kinds = new ArgumentKind[parameters.Length];
-        for (int i = 0; i < parameters.Length; i++)
+        // Fewer arguments than parameters is the same typed call when the rest have defaults
+        // (DrawText(x, y, text) for a command with an optional scale): those calls took the general
+        // path and boxed their results.
+        int given = call.ArgumentCount;
+        if (given > parameters.Length) return;
+        for (int i = given; i < parameters.Length; i++)
+            if (!parameters[i].HasDefaultValue || call.Plan.IsParams[i]) return;
+        var kinds = new ArgumentKind[given];
+        for (int i = 0; i < given; i++)
         {
             Type type = parameters[i].ParameterType;
             if (call.Plan.IsParams[i]) return;
@@ -220,7 +226,9 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
         var numbers = Expression.Parameter(typeof(double[]), "numbers");
         var texts = Expression.Parameter(typeof(object[]), "texts");
         var arguments = new Expression[parameters.Length];
-        for (int i = 0; i < parameters.Length; i++)
+        for (int i = given; i < parameters.Length; i++)
+            arguments[i] = DefaultArgument(parameters[i]);
+        for (int i = 0; i < given; i++)
         {
             Expression index = Expression.Constant(i);
             arguments[i] = kinds[i] switch
@@ -246,10 +254,23 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
 
     private static readonly MethodInfo ToInt32FromDouble = typeof(Convert).GetMethod(nameof(Convert.ToInt32), new[] { typeof(double) })!;
 
+    // A parameter's declared default as a constant of its own type (an enum's comes as its number).
+    private static Expression DefaultArgument(ParameterInfo parameter)
+    {
+        Type type = parameter.ParameterType;
+        object value = parameter.DefaultValue;
+        if (value == null) return Expression.Default(type);
+        Type underlying = Nullable.GetUnderlyingType(type) ?? type;
+        if (underlying.IsEnum) value = Enum.ToObject(underlying, value);
+        else if (value.GetType() != underlying) value = Convert.ChangeType(value, underlying, System.Globalization.CultureInfo.InvariantCulture);
+        return Expression.Constant(value, type);
+    }
+
     // The same method as the typed call, bound as a plain delegate when it takes only doubles.
     private static void CreateDirectCall(NativeCall call, ArgumentKind[] kinds)
     {
-        if (!ScriptingDebugSettings.VmFastCalls || kinds.Length > 4 || Array.Exists(kinds, kind => kind != ArgumentKind.Number)) return;
+        if (!ScriptingDebugSettings.VmFastCalls || kinds.Length > 4 || Array.Exists(kinds, kind => kind != ArgumentKind.Number)
+            || call.Plan.Parameters.Length != kinds.Length) return; // defaults left to the typed call
         Type returns = call.Method.ReturnType;
         (Type type, DirectShape shape) = (returns == typeof(double), kinds.Length) switch
         {

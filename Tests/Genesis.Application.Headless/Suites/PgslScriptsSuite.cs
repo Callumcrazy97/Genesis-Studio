@@ -131,6 +131,17 @@ internal static class PgslScriptsSuite
             Check(ReferenceEquals(first, second) && !ReferenceEquals(first, fresh), "A command marked [ParamsNotKept] was not given the same array again.");
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.OptionalArgumentsAndEngineNumbersReadAsBefore", () =>
+        {
+            // A command called without its optional arguments now takes the typed call with the
+            // declared defaults, and DeltaTime-style properties are read without boxing: both
+            // must give what the general path gave.
+            ObjectSandboxResult result = RunCreate("g = DsGridCreate(3, 4);\nDsGridSet(g, 2, 3, 9);\nw = DsGridWidth(g);\nh = DsGridHeight(g);\nv = DsGridGet(g, 2, 3);\n" +
+                "k = DsGridCreate(2, 2, \"u8\");\nkw = DsGridWidth(k);\nd = DeltaTime;\nok = d >= 0;\n");
+            Check(result.Ok && Near(result, "w", 3) && Near(result, "h", 4) && Near(result, "v", 9) && Near(result, "kw", 2) && Near(result, "ok", 1),
+                $"Defaults or engine numbers read differently: w={Value(result, "w")} h={Value(result, "h")} v={Value(result, "v")} kw={Value(result, "kw")} ok={Value(result, "ok")}. " + Errors(result));
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.NestedForLoopsEnd", () =>
         {
             // The benchmark scenes' crate grid (two nested for-loops with var counters) ran until the
