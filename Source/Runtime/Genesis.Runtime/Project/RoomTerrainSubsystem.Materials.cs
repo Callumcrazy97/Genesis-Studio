@@ -20,7 +20,14 @@ public sealed partial class RoomTerrainSubsystem
         public Task<TerrainSurfaceMaterialPixels> Pending;
         public TerrainSurfaceMaterialPixels Pixels;
         public MeshDrawCall? Draw;
+        /// <summary>The graphics-card maps <see cref="Draw"/> shares with other tiles of the same surface.</summary>
+        public SharedMaterial Shared;
     }
+
+    // One set of graphics-card maps for every tile showing the same baked surface: four tiles of
+    // one terrain uploaded the same 2048-square maps four times on every visit (room soak).
+    private sealed class SharedMaterial { public MeshDrawCall Draw; public int Users; }
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IRenderController, Dictionary<TerrainSurfaceMaterialPixels, SharedMaterial>> SharedMaterials = new();
 
     public int AuthoredMaterialGroundCount => _entries.Count(entry => entry.Material.Draw.HasValue);
 
@@ -81,7 +88,14 @@ public sealed partial class RoomTerrainSubsystem
         }
         if (state.Pixels is { } pixels && !state.Draw.HasValue)
         {
-            state.Draw = TerrainSurfaceMaterialBinding.Create(renderer, pixels, entry.Terrain.CaptureSplatState(), entry.Terrain.ResolutionX, entry.Terrain.ResolutionZ);
+            // By the surface itself: it was baked from these files and this paint (BakedSurface).
+            Dictionary<TerrainSurfaceMaterialPixels, SharedMaterial> shared = SharedMaterials.GetValue(renderer,
+                _ => new Dictionary<TerrainSurfaceMaterialPixels, SharedMaterial>(ReferenceEqualityComparer.Instance));
+            if (!shared.TryGetValue(pixels, out SharedMaterial material))
+                shared[pixels] = material = new SharedMaterial { Draw = TerrainSurfaceMaterialBinding.Create(renderer, pixels, entry.Terrain.CaptureSplatState(), entry.Terrain.ResolutionX, entry.Terrain.ResolutionZ) };
+            material.Users++;
+            state.Shared = material;
+            state.Draw = material.Draw;
             entry.Ground.SurfaceMaterial = state.Draw;
             if (entry.Bound) entry.Ground.Bind(renderer, state.Draw.Value.Texture, 1);
         }
@@ -119,8 +133,17 @@ public sealed partial class RoomTerrainSubsystem
     private static void ReleaseMaterial(Entry entry)
     {
         if (entry.Material.Draw is { } draw && entry.Renderer is { } renderer)
-            TerrainSurfaceMaterialBinding.Release(renderer, draw);
+        {
+            // The maps go when the last tile showing them does.
+            if (entry.Material.Shared is not { } material || --material.Users <= 0)
+            {
+                TerrainSurfaceMaterialBinding.Release(renderer, draw);
+                if (entry.Material.Shared != null && entry.Material.Pixels != null && SharedMaterials.TryGetValue(renderer, out var shared))
+                    shared.Remove(entry.Material.Pixels);
+            }
+        }
         entry.Material.Draw = null;
+        entry.Material.Shared = null;
         if (entry.Ground != null) entry.Ground.SurfaceMaterial = null;
     }
 }
