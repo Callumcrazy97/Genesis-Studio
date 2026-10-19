@@ -227,7 +227,9 @@ internal static class PostEffectsSuite
                 }
                 if (stage == 2 && TimeMs() > t + 300) { ScreenshotSave("pack-red"); stage = 3; }
                 if (stage == 3 && ScreenshotPending() == 0 && FileExists(changed)) { t = TimeMs(); stage = 4; }
-                if (stage == 4 && TimeMs() > t + 500) { ScreenshotSave("pack-green"); stage = 5; }
+                // Long enough for the renderer to see the file and compile it again: half a second was
+                // too short for DX12 while the full engine tier loaded the machine (0% green, 19 Oct).
+                if (stage == 4 && TimeMs() > t + 2500) { ScreenshotSave("pack-green"); stage = 5; }
                 if (stage == 5 && ScreenshotPending() == 0) { GameQuit(); stage = 6; }
                 if (stage < 6 && TimeMs() > t0 + 90000)
                 {
