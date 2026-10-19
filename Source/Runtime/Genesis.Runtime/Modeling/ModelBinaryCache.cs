@@ -32,7 +32,9 @@ namespace Genesis.Runtime.Modeling
     public static class ModelBinaryCache
     {
         private const uint Magic = 0x31434D47;   // "GMC1"
-        private const int FormatVersion = 3;
+        // 4: each large array's bytes follow the text, which holds where they are; in 3 they were base64
+        // text, so a load made a string of 2.7 times the array, then its bytes, then the array (Kinfield).
+        private const int FormatVersion = 4;
         private const int HashBytes = 32;
         // Magic, version, the source's length and modified time, the payload's length and its hash,
         // flags, and (for a sealed cache) the hash of the source file.
@@ -80,26 +82,52 @@ namespace Genesis.Runtime.Modeling
             return settings;
         }
 
-        /// <summary>Writes an array of plain values as one base64 string of its bytes.</summary>
+        /// <summary>The bytes after a cache's text: where arrays are written to, or read from.</summary>
+        private sealed class ArrayBytes
+        {
+            public MemoryStream Output;
+            public byte[] Input;
+            public int Start;
+        }
+
+        // The arrays of the cache being written or read on this thread (Json.NET runs converters on
+        // the caller's thread).
+        [ThreadStatic] private static ArrayBytes _arrays;
+
+        /// <summary>
+        /// Writes an array of plain values as its raw bytes after the text (their length first),
+        /// leaving in the text only where they start.
+        /// </summary>
         private sealed class RawArrayConverter<T> : JsonConverter<T[]> where T : unmanaged
         {
             public override void WriteJson(JsonWriter writer, T[] value, JsonSerializer serializer)
             {
                 if (value == null) { writer.WriteNull(); return; }
-                writer.WriteValue(Convert.ToBase64String(MemoryMarshal.AsBytes(value.AsSpan())));
+                ArrayBytes arrays = _arrays ?? throw new JsonSerializationException("A model cache array was written outside a cache.");
+                long offset = arrays.Output.Length;
+                ReadOnlySpan<byte> bytes = MemoryMarshal.AsBytes(value.AsSpan());
+                Span<byte> length = stackalloc byte[8];
+                BinaryPrimitives.WriteInt64LittleEndian(length, bytes.Length);
+                arrays.Output.Write(length);
+                arrays.Output.Write(bytes);
+                writer.WriteValue(offset);
             }
 
             public override T[] ReadJson(JsonReader reader, Type objectType, T[] existingValue, bool hasExistingValue, JsonSerializer serializer)
             {
                 if (reader.TokenType == JsonToken.Null) return Array.Empty<T>();
-                if (reader.TokenType != JsonToken.String)
+                if (reader.TokenType != JsonToken.Integer || _arrays is not { } arrays)
                     throw new JsonSerializationException("A model cache array is not stored as bytes.");
-                byte[] bytes = Convert.FromBase64String((string)reader.Value ?? "");
+                long offset = Convert.ToInt64(reader.Value, System.Globalization.CultureInfo.InvariantCulture);
+                long at = arrays.Start + offset;
+                if (offset < 0 || at + 8 > arrays.Input.Length)
+                    throw new JsonSerializationException("A model cache array lies outside the file.");
+                long byteLength = BinaryPrimitives.ReadInt64LittleEndian(arrays.Input.AsSpan((int)at, 8));
                 int size = System.Runtime.CompilerServices.Unsafe.SizeOf<T>();
-                if (bytes.Length % size != 0)
+                if (byteLength < 0 || byteLength % size != 0 || at + 8 + byteLength > arrays.Input.Length)
                     throw new JsonSerializationException("A model cache array has a partial element.");
-                var values = new T[bytes.Length / size];
-                bytes.AsSpan().CopyTo(MemoryMarshal.AsBytes(values.AsSpan()));
+                var values = new T[byteLength / size];
+                arrays.Input.AsSpan((int)at + 8, (int)byteLength).CopyTo(MemoryMarshal.AsBytes(values.AsSpan()));
                 return values;
             }
         }
@@ -140,45 +168,7 @@ namespace Genesis.Runtime.Modeling
                 if (cachePath == null || !File.Exists(cachePath)) return false;
                 var source = new FileInfo(modelPath);
                 if (!source.Exists) return false;
-
-                byte[] bytes = File.ReadAllBytes(cachePath);
-                if (bytes.Length <= HeaderBytes) return false;
-                ReadOnlySpan<byte> header = bytes.AsSpan(0, HeaderBytes);
-                if (BinaryPrimitives.ReadUInt32LittleEndian(header) != Magic
-                    || BinaryPrimitives.ReadInt32LittleEndian(header[4..]) != FormatVersion
-                    || BinaryPrimitives.ReadInt64LittleEndian(header[8..]) != source.Length
-                    || BinaryPrimitives.ReadInt64LittleEndian(header[24..]) != bytes.Length - HeaderBytes)
-                    return false;
-
-                bool viaContent = false;
-                if (BinaryPrimitives.ReadInt64LittleEndian(header[16..]) != source.LastWriteTimeUtc.Ticks)
-                {
-                    // An exported game's files lose their exact dates in an archive, so its caches
-                    // are sealed with the hash of the model they were made from. Checking it means
-                    // reading the model file, which is still far quicker than parsing it. A cache
-                    // that is not sealed belongs to a file that has since been saved again.
-                    if ((BinaryPrimitives.ReadInt32LittleEndian(header[FlagsOffset..]) & SealedFlag) == 0) return false;
-                    Span<byte> sourceHash = stackalloc byte[HashBytes];
-                    using (FileStream model = new(modelPath, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16, FileOptions.SequentialScan))
-                        SHA256.HashData(model, sourceHash);
-                    if (!sourceHash.SequenceEqual(header.Slice(SourceHashOffset, HashBytes))) return false;
-                    viaContent = true;
-                }
-
-                // A damaged cache can still be well-formed text that reads back as a different
-                // model, so the content is checked against the hash taken when it was written.
-                Span<byte> hash = stackalloc byte[HashBytes];
-                SHA256.HashData(bytes.AsSpan(HeaderBytes), hash);
-                if (!hash.SequenceEqual(header.Slice(32, HashBytes))) return false;
-
-                using var stream = new MemoryStream(bytes, HeaderBytes, bytes.Length - HeaderBytes, writable: false);
-                using var text = new StreamReader(stream, Encoding.UTF8, false, 1 << 16);
-                using var reader = new JsonTextReader(text) { MaxDepth = 256 };
-                asset = JsonSerializer.Create(Settings).Deserialize<GModelAsset>(reader);
-                if (asset == null) return false;
-                System.Threading.Interlocked.Increment(ref _hits);
-                if (viaContent) System.Threading.Interlocked.Increment(ref _sealedHits);
-                return true;
+                return TryRead(cachePath, modelPath, source.Length, source.LastWriteTimeUtc.Ticks, sealable: true, out asset);
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException
                 or FormatException or InvalidDataException or NotSupportedException or ArgumentException)
@@ -188,6 +178,126 @@ namespace Genesis.Runtime.Modeling
                 return false;
             }
         }
+
+        /// <summary>
+        /// Reads a cache made from a source of <paramref name="length"/> bytes stamped
+        /// <paramref name="ticks"/>; a sealable one is also taken when only the date differs and the
+        /// content of <paramref name="modelPath"/> is still what it was made from.
+        /// </summary>
+        private static bool TryRead(string cachePath, string modelPath, long length, long ticks, bool sealable, out GModelAsset asset)
+        {
+            asset = null;
+            if (!File.Exists(cachePath)) return false;
+            byte[] bytes = File.ReadAllBytes(cachePath);
+            if (bytes.Length <= HeaderBytes) return false;
+            ReadOnlySpan<byte> header = bytes.AsSpan(0, HeaderBytes);
+            if (BinaryPrimitives.ReadUInt32LittleEndian(header) != Magic
+                || BinaryPrimitives.ReadInt32LittleEndian(header[4..]) != FormatVersion
+                || BinaryPrimitives.ReadInt64LittleEndian(header[8..]) != length
+                || BinaryPrimitives.ReadInt64LittleEndian(header[24..]) != bytes.Length - HeaderBytes)
+                return false;
+
+            bool viaContent = false;
+            if (BinaryPrimitives.ReadInt64LittleEndian(header[16..]) != ticks)
+            {
+                if (!sealable) return false;
+                // An exported game's files lose their exact dates in an archive, so its caches
+                // are sealed with the hash of the model they were made from. Checking it means
+                // reading the model file, which is still far quicker than parsing it. A cache
+                // that is not sealed belongs to a file that has since been saved again.
+                if ((BinaryPrimitives.ReadInt32LittleEndian(header[FlagsOffset..]) & SealedFlag) == 0) return false;
+                Span<byte> sourceHash = stackalloc byte[HashBytes];
+                using (FileStream model = new(modelPath, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16, FileOptions.SequentialScan))
+                    SHA256.HashData(model, sourceHash);
+                if (!sourceHash.SequenceEqual(header.Slice(SourceHashOffset, HashBytes))) return false;
+                viaContent = true;
+            }
+
+            // A damaged cache can still be well-formed text that reads back as a different
+            // model, so the content is checked against the hash taken when it was written.
+            Span<byte> hash = stackalloc byte[HashBytes];
+            SHA256.HashData(bytes.AsSpan(HeaderBytes), hash);
+            if (!hash.SequenceEqual(header.Slice(32, HashBytes))) return false;
+
+            // The text, then the arrays' bytes.
+            int textLength = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(HeaderBytes, 4));
+            if (textLength <= 0 || (long)HeaderBytes + 4 + textLength > bytes.Length) return false;
+            using var stream = new MemoryStream(bytes, HeaderBytes + 4, textLength, writable: false);
+            using var text = new StreamReader(stream, Encoding.UTF8, false, 1 << 16);
+            using var reader = new JsonTextReader(text) { MaxDepth = 256 };
+            _arrays = new ArrayBytes { Input = bytes, Start = HeaderBytes + 4 + textLength };
+            try { asset = JsonSerializer.Create(Settings).Deserialize<GModelAsset>(reader); }
+            finally { _arrays = null; }
+            if (asset == null) return false;
+            System.Threading.Interlocked.Increment(ref _hits);
+            if (viaContent) System.Threading.Interlocked.Increment(ref _sealedHits);
+            return true;
+        }
+
+        /// <summary>
+        /// Reads the cache of a model a game imported from its source file (a <c>.glb</c>, say)
+        /// because the project holds no cooked copy and a game never writes one into the project.
+        /// Valid while the source file and <paramref name="settings"/> (the descriptor's date, the
+        /// import options, the engine's build) are as they were. Without it the game imported the
+        /// source again at every launch (Kinfield: an 88 MB village and twenty more, over a second
+        /// before the first frame).
+        /// </summary>
+        public static bool TryLoadImport(string descriptorPath, string sourcePath, long settings, out GModelAsset asset)
+        {
+            asset = null;
+            if (!Enabled) return false;
+            try
+            {
+                string cachePath = ImportPathFor(descriptorPath);
+                var source = new FileInfo(sourcePath);
+                if (cachePath == null || !source.Exists) return false;
+                return TryRead(cachePath, sourcePath, source.Length, ImportStamp(source, settings), sealable: false, out asset);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException
+                or FormatException or InvalidDataException or NotSupportedException or ArgumentException)
+            {
+                asset = null;
+                return false;
+            }
+        }
+
+        /// <summary>Keeps a model just imported by a game for <see cref="TryLoadImport"/>; written on a worker.</summary>
+        public static void SaveImportInBackground(string descriptorPath, string sourcePath, long settings, GModelAsset asset)
+        {
+            if (!Enabled || asset == null) return;
+            string cachePath;
+            long length, ticks;
+            try
+            {
+                cachePath = ImportPathFor(descriptorPath);
+                var source = new FileInfo(sourcePath);
+                if (cachePath == null || !source.Exists || source.Length < MinimumSourceBytes) return;
+                length = source.Length;
+                ticks = ImportStamp(source, settings);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+            {
+                return;
+            }
+
+            byte[] payload;
+            try
+            {
+                payload = Serialize(asset, length, ticks);
+            }
+            catch (Exception exception) when (exception is JsonException or InvalidOperationException or NotSupportedException or ArgumentException)
+            {
+                return;
+            }
+
+            Task.Run(() => Write(cachePath, payload));
+        }
+
+        private static string ImportPathFor(string descriptorPath) =>
+            PathFor(descriptorPath) is { } path ? path[..^".gmc".Length] + "-import.gmc" : null;
+
+        private static long ImportStamp(FileInfo source, long settings) =>
+            unchecked(source.LastWriteTimeUtc.Ticks ^ (settings * (long)0x9E3779B97F4A7C15));
 
         /// <summary>
         /// Writes the cache for a model that has just been parsed. The model is copied into the
@@ -275,11 +385,21 @@ namespace Genesis.Runtime.Modeling
         private static byte[] Serialize(GModelAsset asset, long sourceLength, long sourceWriteTicks, byte[] sourceHash = null)
         {
             using var memory = new MemoryStream(1 << 20);
-            memory.Write(new byte[HeaderBytes]);
-            using (var text = new StreamWriter(memory, new UTF8Encoding(false), 1 << 16, leaveOpen: true))
-            using (var writer = new JsonTextWriter(text))
+            memory.Write(new byte[HeaderBytes + 4]);
+            var arrays = new ArrayBytes { Output = new MemoryStream(1 << 20) };
+            _arrays = arrays;
+            try
+            {
+                using var text = new StreamWriter(memory, new UTF8Encoding(false), 1 << 16, leaveOpen: true);
+                using var writer = new JsonTextWriter(text);
                 JsonSerializer.Create(Settings).Serialize(writer, asset);
+            }
+            finally { _arrays = null; }
+            int textLength = checked((int)(memory.Length - HeaderBytes - 4));
+            arrays.Output.Position = 0;
+            arrays.Output.CopyTo(memory);
             byte[] bytes = memory.ToArray();
+            BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(HeaderBytes, 4), textLength);
             Span<byte> header = bytes.AsSpan(0, HeaderBytes);
             BinaryPrimitives.WriteUInt32LittleEndian(header, Magic);
             BinaryPrimitives.WriteInt32LittleEndian(header[4..], FormatVersion);

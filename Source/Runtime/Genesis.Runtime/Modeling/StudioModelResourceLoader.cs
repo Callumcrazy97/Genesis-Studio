@@ -306,8 +306,15 @@ public static class StudioModelResourceLoader
                 bool convert = document.ConvertRightHanded
                     ?? Genesis.Runtime.Project.ProjectPaths.ReadConvertRightHandedModels(projectRoot);
                 GModelAsset imported;
-                using (Genesis.Shared.Diagnostics.LoadProfile.Begin("model resource: import its source again (the cooked model is older)"))
-                    imported = ExternalModelImporter.Import(source, projectRoot, path, convertRightHanded: convert);
+                // A game writes no cooked model into the project, so it keeps its import in the
+                // project's cache instead and reads that at the next launch.
+                long settings = ImportSettings(path, convert);
+                if (WriteReimportsToProject || !ModelBinaryCache.TryLoadImport(path, source, settings, out imported))
+                {
+                    using (Genesis.Shared.Diagnostics.LoadProfile.Begin("model resource: import its source again (the cooked model is older)"))
+                        imported = ExternalModelImporter.Import(source, projectRoot, path, convertRightHanded: convert);
+                    if (!WriteReimportsToProject) ModelBinaryCache.SaveImportInBackground(path, source, settings, imported);
+                }
                 imported.Culling = document.Culling;
                 imported.WindingOrder = document.WindingOrder;
                 if (WriteReimportsToProject)
@@ -376,6 +383,13 @@ public static class StudioModelResourceLoader
     }
 
     /// <summary>The canonical model beside a Studio descriptor. It moves/renames with the resource.</summary>
+    // What an import depends on besides its source file: the descriptor (its date), the handedness
+    // option and the importer itself (this engine build), so a kept import is never stale.
+    private static readonly long ImporterBuild = typeof(ExternalModelImporter).Assembly.ManifestModule.ModuleVersionId.GetHashCode();
+
+    private static long ImportSettings(string descriptorPath, bool convertRightHanded) =>
+        unchecked(File.GetLastWriteTimeUtc(descriptorPath).Ticks * 4 + (convertRightHanded ? 1 : 0) + (ImporterBuild << 40));
+
     public static string CanonicalPath(string resourcePath)
     {
         string full = Path.GetFullPath(resourcePath ?? string.Empty);

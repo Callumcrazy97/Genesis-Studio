@@ -283,6 +283,37 @@ internal static class AssetImportSuite
             {
                 StudioModelResourceLoader.WriteReimportsToProject = true;
             }
+
+            // A model the project holds no cooked copy of: the Player keeps its import in the
+            // project's cache and reads that at the next launch, until the source changes.
+            string keptFolder = Path.Combine(project.RootPath, "Assets", "Models", "Kept");
+            Directory.CreateDirectory(keptFolder);
+            string keptSource = Path.Combine(keptFolder, "big.gltf");
+            string keptResource = Path.Combine(keptFolder, "Kept.model.json");
+            string Padded(float z) => Triangle(z) + new string(' ', (int)ModelBinaryCache.MinimumSourceBytes);
+            File.WriteAllText(keptSource, Padded(4));
+            File.WriteAllText(keptResource, "{ \"source\": \"big.gltf\" }");
+            StudioModelResourceLoader.WriteReimportsToProject = false;
+            try
+            {
+                int writes = ModelBinaryCache.Writes, hits = ModelBinaryCache.Hits;
+                StudioModelResourceLoader.Load(keptResource);
+                bool written = SpinWait.SpinUntil(() => ModelBinaryCache.Writes > writes, 10000);
+                GModelAsset again = StudioModelResourceLoader.Load(keptResource);
+                Check(written && ModelBinaryCache.Hits == hits + 1 && Math.Abs(again.Meshes[0].Vertices[0].Position.Z - 4f) < 1e-4f,
+                    "The Player imported a model's source again instead of reading the import it kept.");
+                Check(!File.Exists(StudioModelResourceLoader.CanonicalPath(keptResource)), "The Player wrote a cooked model into the project.");
+                File.WriteAllText(keptSource, Padded(5));
+                File.SetLastWriteTimeUtc(keptSource, DateTime.UtcNow.AddMinutes(5));
+                hits = ModelBinaryCache.Hits;
+                GModelAsset changed = StudioModelResourceLoader.Load(keptResource);
+                Check(ModelBinaryCache.Hits == hits && Math.Abs(changed.Meshes[0].Vertices[0].Position.Z - 5f) < 1e-4f,
+                    "A changed source was answered from the import kept before.");
+            }
+            finally
+            {
+                StudioModelResourceLoader.WriteReimportsToProject = true;
+            }
         });
     }
 
