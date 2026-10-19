@@ -3,6 +3,7 @@ using Genesis.Runtime;
 using Genesis.Runtime.Cameras;
 using Genesis.Runtime.ECS;
 using Genesis.Runtime.ECS.Components;
+using Genesis.Runtime.Input;
 using Genesis.Runtime.Modeling;
 using Genesis.Runtime.Navigation;
 using Genesis.Runtime.Project;
@@ -65,6 +66,53 @@ internal static class EngineSystemsSuite
                 $"Synced clips were not at one phase: {string.Join(", ", synced.Select(c => $"{c.Clip} {c.Time:F3}s x{c.Rate:F3}"))}.");
             Check(free.Count == 2 && Near(free[0].Time, 1.5f) && Near(free[1].Time, 1.5f) && free[0].Rate == 1f,
                 "A tree not in a sync group no longer ran its clips on one clock.");
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Input.ActionsBindRebindAndKeepTheirBindings", () =>
+        {
+            // Named actions a player can rebind: several bindings each, the next press rebinds,
+            // Escape gives up, and saved bindings replace only the actions they name.
+            var space = InputBinding.ForKey(Key.Space);
+            var input = new InputState();
+            input.Actions.Bind("Jump", space);
+            input.Actions.Bind("Jump", InputBinding.ForGamepad(GamepadButton.A));
+            input.OnKeyDown(Key.Space);
+            Check(input.Actions.IsDown(input, "Jump") && input.Actions.WasPressed(input, "jump") && !input.Actions.IsDown(input, "Fire"),
+                "A key bound to an action did not trigger it.");
+            input.OnKeyUp(Key.Space);
+            input.SetGamepadButton(GamepadButton.A, true);
+            Check(input.Actions.IsDown(input, "Jump") && input.Actions.Axis(input, "Left", "Jump") == 1f,
+                "A controller button bound to the same action did not trigger it.");
+
+            var rebind = new InputState();
+            rebind.Actions.Bind("Jump", space);
+            rebind.Actions.Listen("Jump");
+            Check(!rebind.Actions.TakeListenedPress(rebind) && rebind.Actions.Listening == "Jump", "Listening ended with nothing pressed.");
+            rebind.OnKeyDown(Key.W);
+            Check(rebind.Actions.TakeListenedPress(rebind) && rebind.Actions.Listening == null
+                && rebind.Actions.BindingCount("Jump") == 1 && rebind.Actions.BindingAt("Jump", 0) == InputBinding.ForKey(Key.W),
+                "The next key pressed did not rebind the action.");
+
+            var cancel = new InputState();
+            cancel.Actions.Bind("Jump", space);
+            cancel.Actions.Listen("Jump");
+            cancel.OnKeyDown(Key.Escape);
+            Check(cancel.Actions.TakeListenedPress(cancel) && cancel.Actions.BindingAt("Jump", 0) == space, "Escape rebound the action instead of giving up.");
+
+            var loaded = new InputState();
+            loaded.Actions.Bind("Jump", space);
+            loaded.Actions.Bind("Fire", InputBinding.ForMouse(MouseButton.Left));
+            Check(loaded.Actions.Load(rebind.Actions.Save()) == 1 && loaded.Actions.BindingAt("Jump", 0) == InputBinding.ForKey(Key.W)
+                && loaded.Actions.BindingCount("Jump") == 1 && loaded.Actions.BindingAt("Fire", 0) == InputBinding.ForMouse(MouseButton.Left),
+                $"Saved bindings did not load as saved: {loaded.Actions.Save().Replace('\n', ' ')}");
+
+            // The names scripts give InputActionBind.
+            static InputBinding? Parsed(string text) => PgslCommands.TryParseBinding(text, out InputBinding binding) ? binding : null;
+            Check(Parsed("Space") == space && Parsed("Key:W") == InputBinding.ForKey(Key.W) && Parsed("w") == InputBinding.ForKey(Key.W)
+                && Parsed("Mouse:Left") == InputBinding.ForMouse(MouseButton.Left) && Parsed("Mouse Right") == InputBinding.ForMouse(MouseButton.Right)
+                && Parsed("Pad:A") == InputBinding.ForGamepad(GamepadButton.A) && Parsed("Pad LB") == InputBinding.ForGamepad(GamepadButton.LeftBumper)
+                && Parsed("Gamepad Start") == InputBinding.ForGamepad(GamepadButton.Start) && Parsed("Nonsense") == null && Parsed("") == null,
+                "A binding name was read wrongly.");
         });
 
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Animation.SmallFiguresArePosedLessOften", () =>

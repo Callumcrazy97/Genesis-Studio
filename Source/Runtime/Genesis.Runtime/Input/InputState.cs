@@ -275,6 +275,11 @@ namespace Genesis.Runtime.Input
         public bool WasReleased(Key key) => _released.Contains(key);
         public bool AnyKeyDown => _down.Count > 0;
         public bool AnyKeyPressed => _pressed.Count > 0;
+        /// <summary>The keys that went down this frame (for rebinding: "press a key").</summary>
+        public IReadOnlyCollection<Key> PressedKeys => _pressed;
+
+        /// <summary>The game's named actions and what they are bound to (<see cref="InputActions"/>).</summary>
+        public InputActions Actions { get; } = new();
         public bool AnyKeyReleased => _released.Count > 0;
 
         public bool IsDown(MouseButton b) => _mouseDown[(int)b];

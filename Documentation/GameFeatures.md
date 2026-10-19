@@ -178,6 +178,38 @@ the order Windows lists them.
 set with `GamepadSetDeadZone` apply to all four. A recording of input (below) holds controller 0
 only.
 
+### Actions a player can rebind (19 October 2026)
+
+A script can ask for a named action instead of a key, so a settings screen can change what the
+action means:
+
+```
+// Create of the game's controller object: the defaults, then whatever the player chose before.
+InputActionBind("Jump", "Space");
+InputActionBind("Jump", "Pad:A");
+InputActionBind("Fire", "Mouse:Left");
+InputActionsLoad();
+
+// Step of the player.
+if (InputActionPressed("Jump")) { jumping = true; }
+x = x + InputActionAxis("Left", "Right") * 4;
+```
+
+A binding is a key by the name `KeyCheck` takes (`"Space"`, `"W"`, `"Key:W"`), a mouse button
+(`"Mouse:Left"`, `"Mouse Right"`) or controller 0's button by the names `GamepadCheck` takes
+(`"Pad:A"`, `"Pad LB"`, `"Gamepad Start"`); an action can have several. `InputActionCheck`,
+`InputActionPressed` and `InputActionReleased` answer for any of them, and `InputActionAxis(negative,
+positive)` gives -1, 0 or 1.
+
+To rebind, `InputActionListen("Jump")` waits for the next key, mouse button or controller button
+pressed, which replaces the action's bindings (`InputActionListen("Jump", false)` adds it instead);
+Escape gives up. Call `InputActionListening()` every frame while the prompt shows: it is true while
+it still waits. `InputActionBindingCount` and `InputActionBindingName(action, index)` ("W",
+"Mouse Left", "Pad A") fill the settings screen. `InputActionsSave()` keeps every action in the
+game's saves (`input-bindings.txt`, or a name given), and `InputActionsLoad()` reads it back:
+actions it names are rebound, actions it does not name keep the bindings the game gave them, so an
+action added in an update keeps its default.
+
 ## Sound
 
 | Command | Meaning |
