@@ -44,6 +44,9 @@ public static partial class PgslCommands
             if (ParseGamepadButton(rest, out GamepadButton pad)) { binding = InputBinding.ForGamepad(pad); return true; }
             if (Enum.TryParse(rest.Replace(" ", ""), true, out GamepadDirection direction) && Enum.IsDefined(direction)) { binding = InputBinding.ForDirection(direction); return true; }
         }
+        // "Ctrl+S", "Shift+Tab": a key with the modifiers it needs held.
+        if (trimmed.Contains('+') && trimmed.Length > 1 && InputBinding.TryParseCombination(trimmed, out Key combined, out int modifiers, ParseKey))
+        { binding = InputBinding.ForKey(combined, modifiers); return true; }
         Key key = ParseKey(trimmed);
         if (key == Key.Unknown) return false;
         binding = InputBinding.ForKey(key);

@@ -182,6 +182,31 @@ internal static class EngineSystemsSuite
             Check(twoKept.Actions.Load(two.Actions.Save()) == 1 && twoKept.Actions.BindingAt("Jump2", 0) == InputBinding.ForGamepad(GamepadButton.A, 1)
                 && twoKept.Actions.BindingAt("Jump2", 0)?.DisplayName == "Pad2 A",
                 $"A second controller's binding did not save and load: {two.Actions.Save().Replace('\n', ' ')}");
+            // Key combinations: Ctrl+S needs Ctrl held; a rebinding prompt takes Ctrl then S as Ctrl+S,
+            // and a modifier let go on its own as itself.
+            var combo = new InputState();
+            combo.Actions.Bind("Save", InputBinding.ForKey(Key.S, InputBinding.Ctrl));
+            combo.OnKeyDown(Key.S);
+            Check(!combo.Actions.IsDown(combo, "Save"), "S alone pressed an action bound to Ctrl+S.");
+            combo.OnKeyDown(Key.Control);
+            Check(combo.Actions.IsDown(combo, "Save"), "Ctrl+S did not press its action.");
+            Check(Parsed("Ctrl+S") == InputBinding.ForKey(Key.S, InputBinding.Ctrl) && Parsed("Shift+Alt+Tab") == InputBinding.ForKey(Key.Tab, InputBinding.Shift | InputBinding.Alt)
+                && Parsed("Key:Ctrl+S") == InputBinding.ForKey(Key.S, InputBinding.Ctrl) && InputBinding.ForKey(Key.S, InputBinding.Ctrl).DisplayName == "Ctrl+S",
+                "A key combination was read or named wrongly.");
+            var chord = new InputState();
+            chord.Actions.Listen("Save");
+            chord.OnKeyDown(Key.Control);
+            Check(!chord.Actions.TakeListenedPress(chord), "Pressing Ctrl alone bound at once instead of waiting for a key.");
+            chord.NextFrame(); chord.OnKeyDown(Key.S);
+            Check(chord.Actions.TakeListenedPress(chord) && chord.Actions.BindingAt("Save", 0) == InputBinding.ForKey(Key.S, InputBinding.Ctrl),
+                "Ctrl then S did not bind Ctrl+S.");
+            var lone = new InputState();
+            lone.Actions.Listen("Sprint");
+            lone.OnKeyDown(Key.Shift);
+            lone.Actions.TakeListenedPress(lone);
+            lone.NextFrame(); lone.OnKeyUp(Key.Shift);
+            Check(lone.Actions.TakeListenedPress(lone) && lone.Actions.BindingAt("Sprint", 0) == InputBinding.ForKey(Key.Shift),
+                "Shift pressed and let go on its own did not bind Shift.");
         });
 
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Animation.AHeadLooksAtAPointWithinItsLimit", () =>

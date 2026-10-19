@@ -10,7 +10,14 @@ namespace Genesis.Runtime.Input
     /// <summary>One thing that triggers an action.</summary>
     public readonly record struct InputBinding(InputBindingKind Kind, int Code)
     {
-        public static InputBinding ForKey(Key key) => new(InputBindingKind.Key, (int)key);
+        /// <summary>Modifier keys a key binding needs held (Ctrl+S): add these together.</summary>
+        public const int Ctrl = 1, Shift = 2, Alt = 4;
+
+        public static InputBinding ForKey(Key key, int modifiers = 0) => new(InputBindingKind.Key, (int)key | ((modifiers & 7) << 16));
+
+        /// <summary>The modifiers a key binding needs held (<see cref="Ctrl"/>, <see cref="Shift"/>, <see cref="Alt"/>).</summary>
+        public int Modifiers => Kind == InputBindingKind.Key ? (Code >> 16) & 7 : 0;
+        private string KeyName => ((Modifiers & Ctrl) != 0 ? "Ctrl+" : "") + ((Modifiers & Shift) != 0 ? "Shift+" : "") + ((Modifiers & Alt) != 0 ? "Alt+" : "") + (Key)(Code & 0xFFFF);
         public static InputBinding ForMouse(MouseButton button) => new(InputBindingKind.Mouse, (int)button);
         // A controller's number (0 to 3) is kept above the button or direction, so controller 0's
         // bindings are the numbers they always were.
@@ -31,7 +38,7 @@ namespace Genesis.Runtime.Input
             InputBindingKind.Mouse => "Mouse " + (MouseButton)Code,
             InputBindingKind.Gamepad => PadName + " " + (GamepadButton)Part,
             InputBindingKind.Stick => PadName + " " + (GamepadDirection)Part,
-            _ => ((Key)Code).ToString(),
+            _ => KeyName,
         };
 
         /// <summary>The form saved in a bindings file ("Key:W", "Mouse:Left", "Pad:A").</summary>
@@ -40,7 +47,7 @@ namespace Genesis.Runtime.Input
             InputBindingKind.Mouse => "Mouse:" + (MouseButton)Code,
             InputBindingKind.Gamepad => PadName + ":" + (GamepadButton)Part,
             InputBindingKind.Stick => (Pad == 0 ? "Stick" : "Stick" + (Pad + 1)) + ":" + (GamepadDirection)Part,
-            _ => "Key:" + (Key)Code,
+            _ => "Key:" + KeyName,
         };
 
         public static bool TryParseSaved(string text, out InputBinding binding)
@@ -57,8 +64,8 @@ namespace Genesis.Runtime.Input
                 if (pad < 0 || pad > 3) return false;
                 kind = kind[..^1];
             }
-            if (kind.Equals("Key", StringComparison.OrdinalIgnoreCase) && Enum.TryParse(name, true, out Key key) && Enum.IsDefined(key) && key != Key.Unknown)
-                binding = ForKey(key);
+            if (kind.Equals("Key", StringComparison.OrdinalIgnoreCase) && TryParseCombination(name, out Key key, out int modifiers))
+                binding = ForKey(key, modifiers);
             else if (kind.Equals("Mouse", StringComparison.OrdinalIgnoreCase) && Enum.TryParse(name, true, out MouseButton mouse) && Enum.IsDefined(mouse))
                 binding = ForMouse(mouse);
             else if (kind.Equals("Pad", StringComparison.OrdinalIgnoreCase) && Enum.TryParse(name, true, out GamepadButton padButton) && Enum.IsDefined(padButton))
@@ -68,6 +75,25 @@ namespace Genesis.Runtime.Input
                 binding = ForDirection(direction, pad);
             else return false;
             return true;
+        }
+
+        /// <summary>"S", "Ctrl+S", "Shift+Alt+Tab": the last part is the key, the others modifiers.</summary>
+        public static bool TryParseCombination(string text, out Key key, out int modifiers, Func<string, Key> parseKey = null)
+        {
+            key = Key.Unknown; modifiers = 0;
+            if (string.IsNullOrWhiteSpace(text)) return false;
+            string[] parts = text.Split('+', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0) return false;
+            for (int i = 0; i < parts.Length - 1; i++)
+            {
+                if (parts[i].Equals("Ctrl", StringComparison.OrdinalIgnoreCase) || parts[i].Equals("Control", StringComparison.OrdinalIgnoreCase)) modifiers |= Ctrl;
+                else if (parts[i].Equals("Shift", StringComparison.OrdinalIgnoreCase)) modifiers |= Shift;
+                else if (parts[i].Equals("Alt", StringComparison.OrdinalIgnoreCase)) modifiers |= Alt;
+                else return false;
+            }
+            string last = parts[^1];
+            key = parseKey != null ? parseKey(last) : Enum.TryParse(last, true, out Key parsed) && Enum.IsDefined(parsed) ? parsed : Key.Unknown;
+            return key != Key.Unknown;
         }
     }
 
@@ -158,10 +184,22 @@ namespace Genesis.Runtime.Input
                     : query == 1 ? input.WasPressed((MouseButton)binding.Code) : input.WasReleased((MouseButton)binding.Code),
                 InputBindingKind.Gamepad => query == 0 ? input.IsDown(binding.Pad, (GamepadButton)(binding.Code & 0xFF))
                     : query == 1 ? input.WasPressed(binding.Pad, (GamepadButton)(binding.Code & 0xFF)) : input.WasReleased(binding.Pad, (GamepadButton)(binding.Code & 0xFF)),
-                _ => query == 0 ? input.IsDown((Key)binding.Code)
-                    : query == 1 ? input.WasPressed((Key)binding.Code) : input.WasReleased((Key)binding.Code),
+                _ => ModifiersHeld(input, binding.Modifiers) && (query == 0 ? input.IsDown((Key)(binding.Code & 0xFFFF))
+                    : query == 1 ? input.WasPressed((Key)(binding.Code & 0xFFFF)) : input.WasReleased((Key)(binding.Code & 0xFFFF))),
             };
         }
+
+        private static bool ModifiersHeld(InputState input, int modifiers) =>
+            ((modifiers & InputBinding.Ctrl) == 0 || input.IsDown(Key.Control))
+            && ((modifiers & InputBinding.Shift) == 0 || input.IsDown(Key.Shift))
+            && ((modifiers & InputBinding.Alt) == 0 || input.IsDown(Key.Alt));
+
+        private static bool IsModifier(Key key) => key is Key.Control or Key.Shift or Key.Alt;
+
+        // A modifier pressed while listening: bound alone when it is let go with no other key pressed
+        // meanwhile, or held for the key pressed with it (Ctrl then S binds Ctrl+S).
+        private Key _heldModifier = Key.Unknown;
+        private bool _modifierUsed;
 
         /// <summary>
         /// Waits for the next key, mouse button or controller button pressed, which then binds the
@@ -171,6 +209,7 @@ namespace Genesis.Runtime.Input
         {
             _listening = string.IsNullOrWhiteSpace(action) ? null : action.Trim();
             _listenReplaces = replace;
+            _heldModifier = Key.Unknown;
         }
 
         public void StopListening() => _listening = null;
@@ -184,7 +223,16 @@ namespace Genesis.Runtime.Input
             if (_listening == null || input == null) return false;
             InputBinding? pressed = null;
             if (input.WasPressed(Key.Escape)) { _listening = null; return true; }
-            foreach (Key key in input.PressedKeys) { pressed = InputBinding.ForKey(key); break; }
+            foreach (Key key in input.PressedKeys)
+            {
+                if (IsModifier(key)) { if (_heldModifier == Key.Unknown) { _heldModifier = key; _modifierUsed = false; } continue; }
+                int modifiers = (input.IsDown(Key.Control) ? InputBinding.Ctrl : 0) | (input.IsDown(Key.Shift) ? InputBinding.Shift : 0) | (input.IsDown(Key.Alt) ? InputBinding.Alt : 0);
+                pressed = InputBinding.ForKey(key, modifiers);
+                _modifierUsed = true;
+                break;
+            }
+            if (pressed == null && _heldModifier != Key.Unknown && input.WasReleased(_heldModifier) && !_modifierUsed)
+                pressed = InputBinding.ForKey(_heldModifier);
             if (pressed == null)
                 foreach (MouseButton button in Enum.GetValues<MouseButton>())
                     if (input.WasPressed(button)) { pressed = InputBinding.ForMouse(button); break; }
@@ -200,6 +248,7 @@ namespace Genesis.Runtime.Input
                     }
             }
             if (pressed == null) return false;
+            _heldModifier = Key.Unknown;
             if (_listenReplaces) Clear(_listening);
             Bind(_listening, pressed.Value);
             _listening = null;
