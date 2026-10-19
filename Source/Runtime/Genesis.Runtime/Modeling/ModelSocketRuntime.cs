@@ -15,18 +15,21 @@ public static class ModelSocketRuntime
     public static void Update(EcsWorld world, string projectPath, RuntimeModelAssetRegistry assets)
     {
         if (world is null || assets is null) return;
-        world.Query<TransformComponent, ModelSocketAttachmentComponent>((Entity entity, ref TransformComponent child,
-            ref ModelSocketAttachmentComponent attachment) =>
+        // Delegate-free: the lambda here captured world, project and registry, a closure every frame.
+        foreach (var item in world.Query<TransformComponent, ModelSocketAttachmentComponent>())
         {
+            Entity entity = item.Entity;
+            ref TransformComponent child = ref item.C1;
+            ref ModelSocketAttachmentComponent attachment = ref item.C2;
             if (!attachment.Enabled || attachment.ParentEntityId < 0 || attachment.ParentEntityId == entity.Id
-                || string.IsNullOrWhiteSpace(attachment.SocketName)) return;
+                || string.IsNullOrWhiteSpace(attachment.SocketName)) continue;
             Entity parent = world.GetEntity(attachment.ParentEntityId);
             if (!world.IsAlive(parent) || !world.Has<TransformComponent>(parent)
-                || !world.Has<ModelRendererComponent>(parent)) return;
+                || !world.Has<ModelRendererComponent>(parent)) continue;
 
             ref TransformComponent parentTransform = ref world.GetRef<TransformComponent>(parent);
             ref ModelRendererComponent parentModel = ref world.GetRef<ModelRendererComponent>(parent);
-            if (string.IsNullOrWhiteSpace(parentModel.ModelAsset)) return;
+            if (string.IsNullOrWhiteSpace(parentModel.ModelAsset)) continue;
             GModelAsset? asset = null;
             if (world.Has<ModelAnimatorComponent>(parent))
             {
@@ -43,9 +46,9 @@ public static class ModelSocketRuntime
             RuntimeModelAnimationState animation = AnimationState(world, parent, parentModel);
             Matrix4x4 parentWorld = RuntimeModelRenderSystem.TransformMatrix(parentTransform, parentModel);
             Matrix4x4 offset = IsUsable(attachment.LocalOffset) ? attachment.LocalOffset : Matrix4x4.Identity;
-            if (!TryResolve(asset, attachment.SocketName, animation, parentWorld, out Matrix4x4 resolved)) return;
+            if (!TryResolve(asset, attachment.SocketName, animation, parentWorld, out Matrix4x4 resolved)) continue;
             resolved = offset * resolved;
-            if (!Matrix4x4.Decompose(resolved, out Vector3 scale, out Quaternion rotation, out Vector3 position)) return;
+            if (!Matrix4x4.Decompose(resolved, out Vector3 scale, out Quaternion rotation, out Vector3 position)) continue;
 
             Vector3 euler = EulerDegrees(rotation);
             child.X = position.X;
@@ -59,7 +62,7 @@ public static class ModelSocketRuntime
             child.RotationY = euler.Y;
             child.RotationZ = euler.Z;
             Genesis.Runtime.Scripting.PgslCommands.SynchronizeTransform(world, entity, Vector3.One);
-        });
+        }
     }
 
     public static bool TryResolve(
