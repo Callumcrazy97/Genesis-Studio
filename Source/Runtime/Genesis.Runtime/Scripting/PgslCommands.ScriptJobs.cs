@@ -73,7 +73,8 @@ public static partial class PgslCommands
         public string Function;
         public int ParameterCount;
         public IReadOnlyDictionary<string, UserFunction> Library;
-        public readonly List<(string Family, int Handle, bool CopyBack)> Shared = [];
+        /// <summary>What the job is given; a grid with a region is lent in part (JobScriptGridRegion).</summary>
+        public readonly List<(string Family, int Handle, bool CopyBack, GridRect? Region)> Shared = [];
         public readonly Dictionary<string, object> Variables = new(StringComparer.Ordinal);
         public long Budget = DefaultScriptJobBudget;
         /// <summary>JobScriptShareAll: every structure and instance variable of the Object, as at the start.</summary>
@@ -84,7 +85,9 @@ public static partial class PgslCommands
     internal sealed class ScriptJobOutcome
     {
         public object Result;
-        public List<(string Family, int Handle, object Data)> Outputs = [];
+        public List<(string Family, int Handle, object Data, GridRect? Region)> Outputs = [];
+        /// <summary>The grid copies made for parts lent to the job, given back for reuse once taken or released.</summary>
+        public List<object> LentCopies;
         public bool Taken;
         /// <summary>How long the job ran on its worker, from taking a worker to its result, for speed reports.</summary>
         public double WorkerMilliseconds;
@@ -183,7 +186,7 @@ public static partial class PgslCommands
         return true;
     }
 
-    private static bool ShareWithJob(double job, string family, double handle, bool copyBack)
+    private static bool ShareWithJob(double job, string family, double handle, bool copyBack, GridRect? region = null)
     {
         ScriptJobSetup setup = PreparedJob(job);
         if (setup == null) return Refuse("Not a prepared script job (JobScriptCreate makes one; data is given before JobScriptStart).");
@@ -196,8 +199,8 @@ public static partial class PgslCommands
         };
         if (!exists) return Refuse($"No {family} with handle {StringOf(handle)} in this Object.");
         int at = setup.Shared.FindIndex(entry => entry.Family == family && entry.Handle == (int)handle);
-        if (at >= 0) setup.Shared[at] = (family, (int)handle, copyBack);
-        else setup.Shared.Add((family, (int)handle, copyBack));
+        if (at >= 0) setup.Shared[at] = (family, (int)handle, copyBack, region);
+        else setup.Shared.Add((family, (int)handle, copyBack, region));
         SetJobError(string.Empty);
         return true;
     }
@@ -260,8 +263,16 @@ public static partial class PgslCommands
         }
 
         Dictionary<string, object> store = Store;
-        foreach ((string family, int handle, _) in setup.Shared)
-            if (!store.TryGetValue(DsKey(family, handle), out _)) return Refuse($"The {family} {handle} given to the job no longer exists.");
+        // Grids lent in part (JobScriptGridRegion) are not shared: the job gets a copy of its own.
+        HashSet<string> lent = null;
+        foreach ((string family, int handle, _, GridRect? region) in setup.Shared)
+        {
+            string key = DsKey(family, handle);
+            if (!store.TryGetValue(key, out object entry)) return Refuse($"The {family} {handle} given to the job no longer exists.");
+            if (region == null) continue;
+            if ((entry is SharedData sharedEntry ? sharedEntry.Value : entry) is not PgslGrid) return Refuse($"The grid {handle} lent to the job is no longer a grid.");
+            (lent ??= new HashSet<string>(StringComparer.Ordinal)).Add(key);
+        }
 
         CompileResult driver;
         try { driver = JobDriver(setup.Library, setup.Function, arguments.Length); }
@@ -281,7 +292,7 @@ public static partial class PgslCommands
         List<SharedData> held = new(setup.ShareAll ? store.Count : setup.Shared.Count);
         void Give(string key, object value)
         {
-            if (data.ContainsKey(key)) return;
+            if (data.ContainsKey(key) || lent?.Contains(key) == true) return;
             SharedData shared = ShareEntry(store, key, value);
             if (shared == null) return;
             data[key] = shared;
@@ -298,10 +309,15 @@ public static partial class PgslCommands
             foreach (KeyValuePair<string, object> pair in structures) Give(pair.Key, pair.Value);
             structures.Clear();
         }
-        foreach ((string family, int handle, _) in setup.Shared)
+        List<object> lentCopies = null;
+        foreach ((string family, int handle, _, GridRect? region) in setup.Shared)
         {
             string key = DsKey(family, handle);
-            Give(key, store[key]);
+            if (region == null) { Give(key, store[key]); continue; }
+            // The game goes on writing its own grid in place; only the rectangle comes back.
+            PgslGrid copy = RentGridCopy((PgslGrid)(store[key] is SharedData sharedGrid ? sharedGrid.Value : store[key]));
+            data[key] = copy;
+            (lentCopies ??= []).Add(copy);
         }
         // The Object's variables the job's code can read, not all of them: a game with thousands of
         // variables copied every one for each job (unless the code reads variables by name).
@@ -311,12 +327,13 @@ public static partial class PgslCommands
                 ? ownerVm.ShareableVariables(reads) : ownerVm.ShareableVariables();
 
         var run = new ScriptJobRun(setup.Function, driver, setup.Library, copied, data, variables, new Dictionary<string, object>(setup.Variables, StringComparer.Ordinal),
-            setup.Shared.Where(entry => entry.CopyBack).Select(entry => (entry.Family, entry.Handle)).ToArray(),
-            setup.Budget, game, owner.RoomWidth, owner.RoomHeight);
+            setup.Shared.Where(entry => entry.CopyBack).Select(entry => (entry.Family, entry.Handle, entry.Region)).ToArray(),
+            setup.Budget, game, owner.RoomWidth, owner.RoomHeight, lentCopies);
         // The job lets go of its data once its work has ended (or it ended without running).
         if (!pool.Launch(JobId(job), token => RunScriptJob(run, token), () => ReleaseShared(held)))
         {
             ReleaseShared(held);
+            ReturnGridCopies(lentCopies);
             return Refuse("Not a prepared script job (it may have started already).");
         }
         SetJobError(string.Empty);
@@ -348,15 +365,23 @@ public static partial class PgslCommands
         // Each is the job's own (it changed it, so it made its own copy) and the job has ended: it
         // becomes the Object's structure under the same handle, in place of whatever it holds now.
         Dictionary<string, object> store = Store;
-        foreach ((string family, int handle, object data) in outcome.Outputs)
+        foreach ((string family, int handle, object data, GridRect? region) in outcome.Outputs)
         {
             string key = DsKey(family, handle);
             if (store == null || !store.TryGetValue(key, out object current)) continue;
+            // A part lent: its rectangle is written into the game's grid; every other cell stays the game's.
+            if (region is { } rect)
+            {
+                if (data is PgslGrid fromJob) MergeGridRegion(handle, fromJob, rect);
+                continue;
+            }
             object live = current is SharedData shared ? shared.Value : current;
             if (live?.GetType() == data?.GetType()) store[key] = data;
         }
         outcome.Taken = true;
         outcome.Outputs = [];
+        ReturnGridCopies(outcome.LentCopies);
+        outcome.LentCopies = null;
         SetJobError(string.Empty);
         return true;
     }
@@ -441,7 +466,8 @@ public static partial class PgslCommands
 
     private sealed record ScriptJobRun(string Function, CompileResult Driver, IReadOnlyDictionary<string, UserFunction> Library,
         object[] Arguments, Dictionary<string, object> Data, KeyValuePair<string, VmValue>[] SharedVariables, Dictionary<string, object> Variables,
-        (string Family, int Handle)[] CopyBack, long Budget, PgslEngineBridge Game, double RoomWidth, double RoomHeight);
+        (string Family, int Handle, GridRect? Region)[] CopyBack, long Budget, PgslEngineBridge Game, double RoomWidth, double RoomHeight,
+        List<object> LentCopies);
 
     // On a worker thread: a VM, bridge and context of the job's own; nothing of the game's is written.
     private static NativeJobPool.Result RunScriptJob(ScriptJobRun run, CancellationToken token)
@@ -470,9 +496,11 @@ public static partial class PgslCommands
             };
             // Only what the job changed comes back: one it left alone is still the shared original
             // (and the game's own may have moved on since).
-            foreach ((string family, int handle) in run.CopyBack)
+            // A part lent (a region) is the job's copy, never shared: its rectangle always comes back.
+            foreach ((string family, int handle, GridRect? region) in run.CopyBack)
                 if (context.Variables.TryGetValue(DsKey(family, handle), out object data) && data is not SharedData)
-                    outcome.Outputs.Add((family, handle, data));
+                    outcome.Outputs.Add((family, handle, data, region));
+            outcome.LentCopies = run.LentCopies;
             outcome.WorkerMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
             return new NativeJobPool.Result("script", outcome);
         }

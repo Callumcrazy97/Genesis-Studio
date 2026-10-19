@@ -44,6 +44,26 @@ public static partial class PgslCommands
             return grid;
         }
 
+        /// <summary>A grid whose cells are an existing array of its kind (width x height long).</summary>
+        public static PgslGrid Over(GridKind kind, int width, int height, Array storage)
+        {
+            var grid = new PgslGrid { Kind = kind, Width = width, Height = height };
+            grid.Cells = kind == GridKind.Number ? (double[])storage : [];
+            grid.U8 = kind == GridKind.U8 ? (byte[])storage : null;
+            grid.U16 = kind == GridKind.U16 ? (ushort[])storage : null;
+            grid.I32 = kind == GridKind.I32 ? (int[])storage : null;
+            grid.F32 = kind == GridKind.F32 ? (float[])storage : null;
+            return grid;
+        }
+
+        /// <summary>No cells any more (0 x 0): its array has gone to another grid.</summary>
+        public void Empty()
+        {
+            Width = 0;
+            Height = 0;
+            Allocate(0);
+        }
+
         private void Allocate(int count)
         {
             Cells = Kind == GridKind.Number ? new double[count] : [];

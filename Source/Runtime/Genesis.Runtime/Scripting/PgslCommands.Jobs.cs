@@ -87,6 +87,12 @@ public static partial class PgslCommands
     [PgslCommand("JobRelease", "JobRelease(job) -> bool", "Release the handle/result; cancel pending work; capacity is returned when running work stops", "Native Jobs")]
     public static bool JobRelease(double id)
     {
+        // A script job's copies of grids lent in part, never taken, go back for later jobs.
+        if (JobSnapshot(id).Value is ScriptJobOutcome { Taken: false } untaken)
+        {
+            ReturnGridCopies(untaken.LentCopies);
+            untaken.LentCopies = null;
+        }
         bool released = GetContext() != null && JobPools.TryGetValue(GetContext(), out NativeJobPool pool) && pool.Release(JobId(id));
         SetJobError(released ? "" : "Unknown or released job handle."); return released;
     }

@@ -1464,6 +1464,7 @@ in an Object's events are not available to jobs; put the function in a Script.
 |---|---|
 | `JobScriptCreate(function)` | A prepared job for a function of the project's Scripts (as they are now); 0 when there is no such function (`JobLastError` says why). |
 | `JobScriptGrid(job, grid, copyBack)`, `JobScriptList(job, list, copyBack)`, `JobScriptMap(job, map, copyBack)` | Give the job a grid, list or map as it is when the job starts (shared, not copied); with `copyBack` true, `JobTake` puts the job's version in its place (size included) if the job changed it. |
+| `JobScriptGridRegion(job, grid, x1, y1, x2, y2, copyBack)` | Give the job a grid it fills part of: it reads the whole grid as it is when the job starts, and with `copyBack` true `JobTake` writes only the rectangle (corners included) into the game's grid, keeping every other cell as the game has it. See [several jobs filling one grid](#several-jobs-filling-one-grid). |
 | `JobScriptShareAll(job)` | Give the job every grid, list, map, stack and queue of this Object and its instance variables (numbers, text, true/false), as they are when it starts. See [a job that reads the game's own data](#a-job-that-reads-the-games-own-data). |
 | `JobScriptVariable(job, name, value)`, `JobScriptVariableText(job, name, text)` | Give the job a variable of its own by name (a seed, a sea level, a grid's handle), so a function that reads that instance variable runs unchanged in the job. Built-in instance variables (`x`, `speed`...) cannot be given; pass those as arguments. |
 | `JobScriptBudget(job, instructions)` | Instructions the job may run in all, every call counted (100 000 000 unless set, 1 000 to 2 000 000 000). The per-call limit of events does not apply. |
@@ -1505,6 +1506,34 @@ Meshes are made on the game's thread, but working out their faces need not be: a
 list with each face's corners, normal, texture and colours (36 numbers a face), and the game's
 thread adds them with one `MeshAddQuadsFromList(mesh, faces)` (see [meshes a script
 builds](#meshes-a-script-builds)).
+
+### Several jobs filling one grid
+
+A big grid can be filled by several jobs at once, each lent its own part of it with
+`JobScriptGridRegion(job, grid, x1, y1, x2, y2, true)`. For example, each tile of a map or each
+area of a world can be filled by its own job. A job reads the whole grid as it was when the job
+started, so it can look beyond its edges, and only its rectangle comes back at `JobTake`. The
+game is not stopped from changing the grid while the jobs run: its own changes elsewhere are
+kept, and a change inside a lent rectangle is replaced by the job's rectangle when the job is
+taken. Rectangles that do not overlap all come back whole. Where two overlap, the one taken last
+wins. If the game or the job changes the grid's size, nothing comes back.
+
+The job gets a copy of the whole grid when it starts. The copy goes into memory kept for the next
+job, so a grid lent again and again is copied but not allocated again: lending a 4 096 x 256 u16
+grid costs one copy of its 2 MB. Unlike `JobScriptGrid`, the job does not hold the game's grid,
+so the game's changes while the job runs never copy it.
+
+```pgsl
+// Four jobs, one for each quarter of a 512 x 512 height map (jobs = DsListCreate() in Create).
+for (var q = 0; q < 4; q = q + 1) {
+    var x1 = (q % 2) * 256; var y1 = Floor(q / 2) * 256;
+    var job = JobScriptCreate("FillHeights");
+    JobScriptGridRegion(job, heights, x1, y1, x1 + 255, y1 + 255, true);
+    JobScriptStart(job, heights, x1, y1);
+    DsListAdd(jobs, job);
+}
+// Later, each one that has succeeded: JobTake(job); JobRelease(job);
+```
 
 Measured on the development PC (8 Oct 2026, `--test pgsl-logic`; an i7-14700F, 8 performance
 and 12 efficiency cores, in other use meanwhile) with a chunk of 8 x 8 columns 32 blocks high

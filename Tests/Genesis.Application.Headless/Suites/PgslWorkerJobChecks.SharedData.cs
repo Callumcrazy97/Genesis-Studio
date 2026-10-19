@@ -120,6 +120,14 @@ internal static partial class PgslWorkerJobChecks
             var kinds = 0; if (DsGridKind(blocks) == "u16") { kinds = kinds + 1; } if (DsGridKind(light) == "u8") { kinds = kinds + 2; }
             return s * 10 + kinds;
         }
+        // A job lent columns x1..x2 of a grid (JobScriptGridRegion): fills them, writes a cell outside
+        // them too (which stays the job's), and returns that cell as the job found it.
+        function SjRegionFill(g, x1, x2, value) {
+            var seen = DsGridGet(g, 0, 0);
+            for (var y = 0; y < DsGridHeight(g); y = y + 1) { for (var x = x1; x <= x2; x = x + 1) { DsGridSet(g, x, y, value + x); } }
+            DsGridSet(g, 0, 0, 4444);
+            return seen;
+        }
         // A* over a 32 x 32 grid of walls (sjWalls, 1 = wall) with the open set in a priority queue
         // the job was given (pq, emptied first): the length of the shortest path from (0, 0) to
         // (31, 31), -1 when there is none. Leaves a marker entry in the queue for copyBack.
@@ -385,6 +393,49 @@ internal static partial class PgslWorkerJobChecks
             HeadlessHarness.Assert(result == Expected, $"The job read {result} from the compact grids, not {Expected}.");
             HeadlessHarness.Assert(blocks == 655351, $"After JobTake the u16 grid reads {blocks} (cell * 10 + is u16), not 655351.");
             HeadlessHarness.Assert(light == 17551, $"The u8 grid (no copyBack) reads {light} (cell(0,0) * 1000 + cell(1,1) * 10 + is u8), not 17551.");
+        });
+
+        // Two parts of one u16 grid lent to two jobs at once: each reads the grid as at its start, only
+        // its rectangle comes back, the game's changes meanwhile stay (and copy nothing), and lending
+        // the grid again reuses the memory of the jobs' copies.
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.Jobs.PartsOfOneGridComeBackOnTheirOwn", () =>
+        {
+            using Bench bench = new();
+            bench.Run("""rg = DsGridCreate(1024, 512, "u16"); DsGridClear(rg, 7); r = 0;""");
+            const string Lend = """
+                ra = JobScriptCreate("SjRegionFill"); JobScriptGridRegion(ra, rg, 8, 0, 15, 511, true);
+                rb = JobScriptCreate("SjRegionFill"); JobScriptGridRegion(rb, rg, 16, 0, 23, 511, true);
+                r = (JobScriptStart(ra, rg, 8, 15, 100) && JobScriptStart(rb, rg, 16, 23, 200)) ? ra : -1;
+                """;
+            long copiesBefore = PgslCommands.SharedCopies;
+            string[] seen = new string[2];
+            long arraysAfterFirst = 0;
+            for (int round = 0; round < 2; round++)
+            {
+                double a = bench.Number(Lend), b = bench.Number("r = rb;");
+                HeadlessHarness.Assert(a > 0, "The jobs lent parts of the grid did not start: " + PgslCommands.JobLastError());
+                if (round == 0) bench.Run("DsGridSet(rg, 0, 0, 9); DsGridSet(rg, 40, 5, 11); DsGridSet(rg, 10, 10, 5); r = 0;");
+                string statusA = bench.Wait(a), statusB = bench.Wait(b);
+                HeadlessHarness.Assert(statusA == "succeeded" && statusB == "succeeded", $"A job lent part of the grid ended {statusA} / {statusB}: {PgslCommands.JobError(a)} {PgslCommands.JobError(b)}");
+                seen[round] = $"{PgslCommands.JobResultNumber(a)},{PgslCommands.JobResultNumber(b)}";
+                HeadlessHarness.Assert(PgslCommands.JobTake(a) && PgslCommands.JobTake(b), "JobTake refused a job lent part of the grid: " + PgslCommands.JobLastError());
+                PgslCommands.JobRelease(a); PgslCommands.JobRelease(b);
+                if (round == 0) arraysAfterFirst = PgslCommands.LentGridArraysMade;
+            }
+            long copiesByGame = PgslCommands.SharedCopies - copiesBefore;
+            bool arraysReused = PgslCommands.LentGridArraysMade == arraysAfterFirst;
+            string cells = bench.Text("""
+                r = StringOf(DsGridGet(rg, 8, 3)) + "," + StringOf(DsGridGet(rg, 15, 511)) + "," + StringOf(DsGridGet(rg, 16, 3)) + "," + StringOf(DsGridGet(rg, 23, 0))
+                    + "," + StringOf(DsGridGet(rg, 10, 10)) + "," + StringOf(DsGridGet(rg, 0, 0)) + "," + StringOf(DsGridGet(rg, 40, 5)) + "," + StringOf(DsGridGet(rg, 30, 30)) + "," + DsGridKind(rg);
+                """);
+            const string Expected = "108,115,216,223,110,9,11,7,u16";
+            bool pass = seen[0] == "7,7" && seen[1] == "9,9" && cells == Expected && copiesByGame == 0 && arraysReused;
+            row("Jobs: shared data", "parts of one u16 grid lent to two jobs at once: read as at their start, only each rectangle comes back, the game's own changes stay",
+                pass ? "PASS" : "FAIL", $"jobs read {seen[0]} then {seen[1]}; cells {cells}; copies by the game's changes {copiesByGame}; copy memory reused {arraysReused}");
+            HeadlessHarness.Assert(seen[0] == "7,7" && seen[1] == "9,9", $"The jobs read cell (0, 0) as {seen[0]} and then {seen[1]}, not as the grid was when each started (7,7 then 9,9).");
+            HeadlessHarness.Assert(cells == Expected, $"After JobTake the grid reads {cells}, not {Expected} (each rectangle, the game's own changes outside them, the rest untouched).");
+            HeadlessHarness.Assert(copiesByGame == 0, $"The game's changes while parts were lent copied the grid {copiesByGame} times.");
+            HeadlessHarness.Assert(arraysReused, $"Lending the grid again made new copy memory ({PgslCommands.LentGridArraysMade - arraysAfterFirst} arrays).");
         });
 
         // A* with its open set in a priority queue, run in a job: the queue is shared like a list
