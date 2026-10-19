@@ -170,6 +170,41 @@ internal static class EngineSystemsSuite
                 $"A stick binding did not save and load: {pad.Actions.Save().Replace('\n', ' ')}");
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Animation.AHeadLooksAtAPointWithinItsLimit", () =>
+        {
+            // Look-at: a head 1.7 up, facing +Z, asked to look at a point to its side turns as far as
+            // its limit, half as far at half weight, about its own position, and not at all for a
+            // point straight ahead.
+            var figure = new GModelAsset
+            {
+                Rig = new GModelRig { Bones = [new GModelBone { Name = "Root", ParentIndex = -1, BindLocal = Matrix4x4.Identity },
+                    new GModelBone { Name = "Head", ParentIndex = 0, BindLocal = Matrix4x4.CreateTranslation(0, 1.7f, 0) }] },
+            };
+            float Turned(AnimationController graph, out Vector3 at)
+            {
+                Matrix4x4[] local = graph.Evaluate(figure);
+                Matrix4x4 head = local[1] * local[0];
+                at = head.Translation;
+                Vector3 facing = Vector3.Normalize(Vector3.TransformNormal(Vector3.UnitZ, head));
+                return MathF.Acos(Math.Clamp(facing.Z, -1f, 1f)) * 180f / MathF.PI * MathF.Sign(facing.X == 0 ? 1 : facing.X);
+            }
+            var side = new AnimationController();
+            side.SetBoneLookAt("Head", new Vector3(10, 1.7f, 0), 1f, 70f);
+            float limited = Turned(side, out Vector3 headAt);
+            Check(MathF.Abs(limited - 70f) < 0.5f && Vector3.Distance(headAt, new Vector3(0, 1.7f, 0)) < 1e-4f,
+                $"The head did not turn to its 70 degree limit about itself (turned {limited:F1}, at {headAt}).");
+            var half = new AnimationController();
+            half.SetBoneLookAt("Head", new Vector3(10, 1.7f, 0), 0.5f, 180f);
+            float halfway = Turned(half, out _);
+            Check(MathF.Abs(halfway - 45f) < 0.5f, $"Half weight did not turn half way (turned {halfway:F1}).");
+            var ahead = new AnimationController();
+            ahead.SetBoneLookAt("Head", new Vector3(0, 1.7f, 10), 1f, 70f);
+            Check(MathF.Abs(Turned(ahead, out _)) < 0.5f, "A point straight ahead turned the head.");
+            var sideways = new AnimationController { LookForward = Vector3.UnitX };
+            sideways.SetBoneLookAt("Head", new Vector3(10, 1.7f, 0), 1f, 70f);
+            Check(MathF.Abs(Turned(sideways, out _)) < 0.5f, "A model facing +X turned to look at a point in front of it.");
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Animation.SmallFiguresArePosedLessOften", () =>
         {
             // Animation detail by size on screen: level 2 is posed every second draw and level 3

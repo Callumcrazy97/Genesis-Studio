@@ -353,6 +353,79 @@ public sealed class AnimationController
             throw new ArgumentException("A bone translation requires a name and a finite offset.");
         BoneTranslations[bone] = offset;
     }
+    /// <summary>A bone turned to face a point after blending (a head looking at the player).</summary>
+    public sealed class BoneLookAt
+    {
+        /// <summary>The point, in the model's own space (the space its bones are in).</summary>
+        public Vector3 Target;
+        public float Weight = 1f;
+        public float MaxRadians = 70f * MathF.PI / 180f;
+    }
+
+    /// <summary>Per-instance look-ats by bone, applied after <see cref="BoneRotations"/>.</summary>
+    public Dictionary<string, BoneLookAt> BoneLookAts { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The way the model faces in its own space; a looking bone faces this way in the bind pose. +Z unless set.</summary>
+    public Vector3 LookForward { get; set; } = Vector3.UnitZ;
+
+    public void SetBoneLookAt(string bone, Vector3 modelTarget, float weight, float maxDegrees)
+    {
+        if (string.IsNullOrWhiteSpace(bone) || !float.IsFinite(modelTarget.X) || !float.IsFinite(modelTarget.Y) || !float.IsFinite(modelTarget.Z))
+            throw new ArgumentException("A bone look-at requires a name and a finite point.");
+        if (!BoneLookAts.TryGetValue(bone, out BoneLookAt? look)) BoneLookAts[bone] = look = new BoneLookAt();
+        look.Target = modelTarget;
+        look.Weight = float.IsFinite(weight) ? Math.Clamp(weight, 0f, 1f) : 1f;
+        look.MaxRadians = (float.IsFinite(maxDegrees) ? Math.Clamp(maxDegrees, 0f, 180f) : 70f) * MathF.PI / 180f;
+    }
+
+    private Matrix4x4[] _lookWorld = [];
+
+    // Turns each looking bone about its own position towards its point, as far as its limit and
+    // weight allow, measured from the way it faces in the pose (the model's forward carried
+    // through the bone's bind pose). Bones are stored parents first.
+    private void ApplyLookAts(GModelAsset asset, Matrix4x4[] local)
+    {
+        var bones = asset.Rig.Bones;
+        int count = local.Length;
+        if (_lookWorld.Length != count) _lookWorld = new Matrix4x4[count];
+        foreach (KeyValuePair<string, BoneLookAt> pair in BoneLookAts)
+        {
+            int bone = -1;
+            for (int i = 0; i < count; i++)
+                if (string.Equals(bones[i].Name, pair.Key, StringComparison.OrdinalIgnoreCase)) { bone = i; break; }
+            if (bone < 0 || pair.Value.Weight <= 0f) continue;
+            for (int i = 0; i < count; i++)
+            {
+                int parent = bones[i].ParentIndex;
+                _lookWorld[i] = parent >= 0 && parent < i ? local[i] * _lookWorld[parent] : local[i];
+            }
+            Matrix4x4 bind = Matrix4x4.Identity;
+            for (int i = bone; i >= 0 && i < count; i = bones[i].ParentIndex)
+            {
+                bind *= bones[i].BindLocal;
+                if (bones[i].ParentIndex >= i) break;
+            }
+            if (!Matrix4x4.Invert(bind, out Matrix4x4 bindInverse)) continue;
+            Vector3 forwardInBone = Vector3.TransformNormal(LookForward, bindInverse);
+            Matrix4x4 world = _lookWorld[bone];
+            Vector3 position = world.Translation;
+            Vector3 facing = Vector3.TransformNormal(forwardInBone, world);
+            Vector3 wanted = pair.Value.Target - position;
+            if (facing.LengthSquared() < 1e-10f || wanted.LengthSquared() < 1e-8f) continue;
+            facing = Vector3.Normalize(facing);
+            wanted = Vector3.Normalize(wanted);
+            float angle = MathF.Acos(Math.Clamp(Vector3.Dot(facing, wanted), -1f, 1f));
+            if (angle < 1e-5f) continue;
+            Vector3 axis = Vector3.Cross(facing, wanted);
+            if (axis.LengthSquared() < 1e-10f) axis = MathF.Abs(facing.Y) < 0.9f ? Vector3.UnitY : Vector3.UnitX;
+            Quaternion turn = Quaternion.CreateFromAxisAngle(Vector3.Normalize(axis), MathF.Min(angle, pair.Value.MaxRadians) * pair.Value.Weight);
+            Matrix4x4 turned = world * Matrix4x4.CreateTranslation(-position) * Matrix4x4.CreateFromQuaternion(turn) * Matrix4x4.CreateTranslation(position);
+            int parentBone = bones[bone].ParentIndex;
+            Matrix4x4 parentWorld = parentBone >= 0 && parentBone < bone ? _lookWorld[parentBone] : Matrix4x4.Identity;
+            if (Matrix4x4.Invert(parentWorld, out Matrix4x4 parentInverse)) local[bone] = turned * parentInverse;
+        }
+    }
+
     public Vector3 RootMotionDelta { get; private set; }
     public Quaternion RootMotionRotation { get; private set; } = Quaternion.Identity;
     public AnimationController(Dictionary<string, object>? parameters = null) =>
@@ -462,6 +535,7 @@ public sealed class AnimationController
             for (int i = 0; i < result.Length; i++)
                 if (BoneTranslations.TryGetValue(asset.Rig.Bones[i].Name, out Vector3 move))
                     result[i].Translation += move;
+        if (BoneLookAts.Count > 0) ApplyLookAts(asset, result);
         return result;
     }
 }

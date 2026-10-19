@@ -220,6 +220,17 @@ the route's smoothing never cuts back across ground dearer than the route itself
 `NavMeshGetAreaCost(x, z)` reads a cell's cost back. Costs are not saved with the grid: set them
 after baking or after the room loads (its Create event), and routes found before keep their way.
 
+## Heads that look at things (19 October 2026)
+
+`AnimationBoneLookAt("Head", x, y, z)` turns a bone to face a point in the world after the animation
+is blended: an NPC following the player with their eyes, a guard turning their head to a noise. It
+turns at most 70 degrees (`AnimationBoneLookAt(bone, x, y, z, weight, maxDegrees)`; weight 0 to 1
+blends it in), about the bone's own position, so the neck stays joined. Call it every frame while the
+point moves; `AnimationBoneClearLookAt("Head")` lets the animation have the bone back. Turns are
+measured from the way the model faces in its own space, +Z for most imported characters;
+`AnimationSetLookForward(x, y, z)` sets another for a model built facing elsewhere. A neck can look
+too, with a smaller weight, for a turn shared down the spine.
+
 ## The game's text in several languages (19 October 2026)
 
 Put each language's text in the project's `Assets/Text` folder, one file per language named by its

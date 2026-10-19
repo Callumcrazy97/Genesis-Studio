@@ -37,6 +37,38 @@ public static partial class PgslCommands
         "Remove an instance-local bone offset and return to the sampled animation pose", "Animation")]
     public static void AnimationBoneClearTranslation(string bone) => GetContext()?.AnimationController?.BoneTranslations.Remove(bone);
 
+    [PgslCommand("AnimationBoneLookAt", "AnimationBoneLookAt(bone, x, y, z, weight?, maxDegrees?)",
+        "Turn a bone (a head, a neck) to face a point in the world after animation blending, as far as maxDegrees (default 70) and weight (0 to 1, default 1) allow; call it each frame as the point moves. The model is taken to face +Z in its own space unless AnimationSetLookForward says otherwise", "Animation")]
+    public static void AnimationBoneLookAt(string bone, double x, double y, double z, double weight = 1, double maxDegrees = 70)
+    {
+        if (!Finite3(x, y, z) || !double.IsFinite(weight) || !double.IsFinite(maxDegrees))
+            throw new ArgumentException("A look-at point, weight and limit must be finite.");
+        var context = GetContext();
+        var world = ActiveGameContext?.World;
+        if (context == null || world == null || string.IsNullOrWhiteSpace(bone)) return;
+        var entity = world.GetEntity(context.InstanceId);
+        if (!world.IsAlive(entity) || !world.Has<Genesis.Runtime.ECS.Components.ModelRendererComponent>(entity)
+            || !world.Has<Genesis.Runtime.ECS.Components.TransformComponent>(entity)) return;
+        ref var model = ref world.GetRef<Genesis.Runtime.ECS.Components.ModelRendererComponent>(entity);
+        ref var transform = ref world.GetRef<Genesis.Runtime.ECS.Components.TransformComponent>(entity);
+        // Into the model's own space, the space its bones are in: the draw's transform with its pivot.
+        Vector3 pivot = SocketModelAssets.Load(ProjectPath, model.ModelAsset)?.Pivot?.Position ?? Vector3.Zero;
+        Matrix4x4 placed = Matrix4x4.CreateTranslation(-pivot) * RuntimeModelRenderSystem.TransformMatrix(transform, model);
+        if (!Matrix4x4.Invert(placed, out Matrix4x4 inverse)) return;
+        BoneGraph()?.SetBoneLookAt(bone.Trim(), Vector3.Transform(new Vector3((float)x, (float)y, (float)z), inverse), (float)weight, (float)maxDegrees);
+    }
+
+    [PgslCommand("AnimationBoneClearLookAt", "AnimationBoneClearLookAt(bone)", "Stop a bone looking at a point; it follows its animation again", "Animation")]
+    public static void AnimationBoneClearLookAt(string bone) => GetContext()?.AnimationController?.BoneLookAts.Remove(bone ?? "");
+
+    [PgslCommand("AnimationSetLookForward", "AnimationSetLookForward(x, y, z)",
+        "Which way the model faces in its own space (default 0, 0, 1), for a model built facing another way; AnimationBoneLookAt measures turns from it", "Animation")]
+    public static void AnimationSetLookForward(double x, double y, double z)
+    {
+        if (!Finite3(x, y, z) || x * x + y * y + z * z < 1e-12) return;
+        var graph = BoneGraph();
+        if (graph != null) graph.LookForward = Vector3.Normalize(new Vector3((float)x, (float)y, (float)z));
+    }
     // The instance's animation graph, keeping the clip it was already playing as its current state.
     private static AnimationController BoneGraph()
     {
