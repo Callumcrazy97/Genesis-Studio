@@ -77,6 +77,7 @@ public readonly record struct AtmosphereFrame(
 public sealed class AtmosphereService
 {
     private readonly List<FogVolume> _cloudVolumes = new(6);
+    private FogVolume[] _publishedClouds = [];
 
     public AtmosphereService(AtmosphereOptions options = null)
     {
@@ -102,8 +103,12 @@ public sealed class AtmosphereService
 
         ApplyPreset(Options.Preset, ref zenith, ref horizon, ref sun, ref intensity, ref cloud, ref haze);
         BuildCloudVolumes(environment, observerPosition, cloud, zenith, horizon);
+        // The same array each update while the count holds (a new one every frame was garbage):
+        // a frame's volumes are for reading while it is current, as every reader does.
+        if (_publishedClouds.Length != _cloudVolumes.Count) _publishedClouds = new FogVolume[_cloudVolumes.Count];
+        _cloudVolumes.CopyTo(_publishedClouds);
         Current = new AtmosphereFrame(zenith, horizon, sun, intensity, cloud,
-            cloud * (0.22f + 0.2f * environment.LocalRain), haze, _cloudVolumes.ToArray());
+            cloud * (0.22f + 0.2f * environment.LocalRain), haze, _publishedClouds);
         return Current;
     }
 

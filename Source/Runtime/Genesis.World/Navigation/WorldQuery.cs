@@ -80,10 +80,22 @@ public sealed class WorldQuery : IWorldQuery
         return new TerrainSurfaceSample(height, normal, slope, splat, path.Mask(), moisture, Math.Clamp(slope * 1.4f + splat.Z * 0.5f, 0f, 1f));
     }
 
-    public TerrainWaterDefinition WaterAt(float worldX, float worldZ) => Manifest.WaterBodies
-        .Where(water => MathF.Abs(worldX - water.Center.X) <= water.SizeX * 0.5f && MathF.Abs(worldZ - water.Center.Z) <= water.SizeZ * 0.5f)
-        .OrderBy(water => Vector2.DistanceSquared(new Vector2(worldX, worldZ), new Vector2(water.Center.X, water.Center.Z)))
-        .FirstOrDefault();
+    // A loop, not Where/OrderBy: the weather asks every frame (closures, iterators and a sort
+    // buffer each time). The nearest centre wins; on a tie, the first listed, as OrderBy kept.
+    public TerrainWaterDefinition WaterAt(float worldX, float worldZ)
+    {
+        TerrainWaterDefinition nearest = null;
+        float nearestDistance = float.MaxValue;
+        Vector2 point = new(worldX, worldZ);
+        foreach (TerrainWaterDefinition water in Manifest.WaterBodies)
+        {
+            if (MathF.Abs(worldX - water.Center.X) > water.SizeX * 0.5f || MathF.Abs(worldZ - water.Center.Z) > water.SizeZ * 0.5f)
+                continue;
+            float distance = Vector2.DistanceSquared(point, new Vector2(water.Center.X, water.Center.Z));
+            if (nearest == null || distance < nearestDistance) { nearest = water; nearestDistance = distance; }
+        }
+        return nearest;
+    }
 
     public float? WaterSurfaceHeightAt(float worldX, float worldZ)
     {

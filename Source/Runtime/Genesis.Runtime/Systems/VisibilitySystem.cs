@@ -45,28 +45,14 @@ namespace Genesis.Runtime.Systems
             float fov = Math.Clamp(_scene.Camera3D.FieldOfView, 0.05f, MathF.PI - 0.05f);
             CameraFrustum cameraFrustum = new(_scene.Camera3D.ViewProjection);
 
-            int count = 0;
-            world.Query<Transform3DComponent, VisibilityComponent>((Entity entity, ref Transform3DComponent transform, ref VisibilityComponent visibility) =>
-            {
-                if (!visibility.Enabled || !LifecycleAllows(world, entity))
-                {
-                    visibility.LastResult = VisibilityResult.Disabled;
-                    return;
-                }
-
-                if (!frustumOn && !distanceOn && !subPixelOn)
-                {
-                    visibility.LastResult = VisibilityResult.Visible;
-                    return;
-                }
-
-                EnsureCapacity(count + 1);
-                ResolveSphere(in transform, in visibility, out Vector3 center, out float radius);
-                _entities[count] = entity;
-                _centers[count] = center;
-                _radii[count] = radius;
-                count++;
-            });
+            // One delegate for the life of the system, the frame's values in fields: a lambda here
+            // was a closure and a delegate every frame.
+            _collectWorld = world;
+            _collectAnyCulling = frustumOn || distanceOn || subPixelOn;
+            _collectCount = 0;
+            world.Query(_collect ??= Collect);
+            int count = _collectCount;
+            _collectWorld = null;
 
             if (count == 0)
                 return;
@@ -122,6 +108,34 @@ namespace Genesis.Runtime.Systems
 
                 visibility.LastResult = VisibilityResult.Visible;
             }
+        }
+
+        private IEcsWorld _collectWorld;
+        private bool _collectAnyCulling;
+        private int _collectCount;
+        private ComponentAction<Transform3DComponent, VisibilityComponent> _collect;
+
+        private void Collect(Entity entity, ref Transform3DComponent transform, ref VisibilityComponent visibility)
+        {
+            if (!visibility.Enabled || !LifecycleAllows(_collectWorld, entity))
+            {
+                visibility.LastResult = VisibilityResult.Disabled;
+                return;
+            }
+
+            if (!_collectAnyCulling)
+            {
+                visibility.LastResult = VisibilityResult.Visible;
+                return;
+            }
+
+            int count = _collectCount;
+            EnsureCapacity(count + 1);
+            ResolveSphere(in transform, in visibility, out Vector3 center, out float radius);
+            _entities[count] = entity;
+            _centers[count] = center;
+            _radii[count] = radius;
+            _collectCount = count + 1;
         }
 
         /// <summary>Projected sphere diameter in pixels (same focal model as <see cref="LodSystem"/>).</summary>

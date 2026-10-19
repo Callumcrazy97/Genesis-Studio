@@ -24,11 +24,26 @@ namespace Genesis.Runtime.Systems
 
         public void Update(IEcsWorld world, float dt)
         {
-            Vector3 cameraPosition = _scene.Camera3D.Position;
-            float viewportHeight = MathF.Max(1f, _scene.RenderViewportHeightPixels);
-            float fov = Math.Clamp(_scene.Camera3D.FieldOfView, 0.05f, MathF.PI - 0.05f);
+            // One delegate for the life of the system, the frame's values in fields: a lambda here
+            // was a closure and a delegate every frame.
+            _cameraPosition = _scene.Camera3D.Position;
+            _viewportHeight = MathF.Max(1f, _scene.RenderViewportHeightPixels);
+            _fov = Math.Clamp(_scene.Camera3D.FieldOfView, 0.05f, MathF.PI - 0.05f);
+            _world = world;
+            world.Query(_select ??= Select);
+            _world = null;
+        }
 
-            world.Query<Transform3DComponent, LodComponent>((Entity entity, ref Transform3DComponent transform, ref LodComponent lod) =>
+        private IEcsWorld _world;
+        private Vector3 _cameraPosition;
+        private float _viewportHeight, _fov;
+        private ComponentAction<Transform3DComponent, LodComponent> _select;
+
+        private void Select(Entity entity, ref Transform3DComponent transform, ref LodComponent lod)
+        {
+            IEcsWorld world = _world;
+            Vector3 cameraPosition = _cameraPosition;
+            float viewportHeight = _viewportHeight, fov = _fov;
             {
                 if (!LifecycleAllows(world, entity) || !VisibilityAllows(world, entity))
                     return;
@@ -54,7 +69,7 @@ namespace Genesis.Runtime.Systems
 
                 lod.Selected = ApplyHysteresis(lod, candidate, distance, transform.Scale, world, entity, viewportHeight, fov);
                 lod.SelectionValid = 1;
-            });
+            }
         }
 
         /// <summary>Distance-only selector used by tests and authoring diagnostics.</summary>

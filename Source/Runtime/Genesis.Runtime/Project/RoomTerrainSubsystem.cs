@@ -32,6 +32,8 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
         public WaterBody Body;
         public WaterBodySimulation Simulation;
         public double LastRainImpulse;
+        /// <summary>The key of this water's shader in the room's component shaders, made once.</summary>
+        public string ShaderKey;
     }
 
     private sealed class Entry
@@ -1099,7 +1101,7 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
             draws.Clear();
             WaterDrawSystem.BuildDrawCalls(water.Body, entry.WaterCache, camera, draws, water.Simulation);
             string shaderPath = null;
-            entry.ComponentShaders?.TryGetValue("water:" + water.Definition.Id, out shaderPath);
+            entry.ComponentShaders?.TryGetValue(water.ShaderKey ??= "water:" + water.Definition.Id, out shaderPath);
             foreach (MeshDrawCall drawValue in draws)
             {
                 if (count >= buffer.Length) break;

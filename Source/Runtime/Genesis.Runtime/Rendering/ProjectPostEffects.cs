@@ -313,9 +313,14 @@ namespace Genesis.Runtime.Rendering
             // else what the Shader resource binds there.
             Span<int> slots = stackalloc int[LastTextureSlot + 1];
             int count = 0;
-            foreach (ShaderResourceBinding resource in shader.Resources)
+            // Indexed: a foreach over the list's interface boxed an enumerator each frame.
+            IReadOnlyList<ShaderResourceBinding> resources = shader.Resources;
+            for (int r = 0; r < resources.Count; r++)
+            {
+                ShaderResourceBinding resource = resources[r];
                 if (ShaderResourceReflection.IsTextureKind(resource.Kind) && resource.Slot is >= FirstTextureSlot and <= LastTextureSlot && slots[..count].IndexOf(resource.Slot) < 0)
                     slots[count++] = resource.Slot;
+            }
             foreach (string key in effect.Textures.Keys)
                 if (int.TryParse(key, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int register) && slots[..count].IndexOf(register) < 0)
                     slots[count++] = register;
@@ -324,8 +329,9 @@ namespace Genesis.Runtime.Rendering
             {
                 int slot = slots[i];
                 object binding = null;
-                foreach (ShaderResourceBinding resource in shader.Resources)
+                for (int r = 0; r < resources.Count; r++)
                 {
+                    ShaderResourceBinding resource = resources[r];
                     if (resource.Slot != slot || !ShaderResourceReflection.IsTextureKind(resource.Kind)) continue;
                     if (effect.Textures.TryGetValue(resource.Name, out object named)) binding = named;
                     else if (!string.IsNullOrWhiteSpace(resource.Binding)) binding = resource.Binding;

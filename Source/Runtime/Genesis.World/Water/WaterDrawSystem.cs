@@ -50,7 +50,7 @@ namespace Genesis.World.Water
             if (body.SimulationEnabled && simulation != null)
                 return GetOrUpdateSimulated(body, cameraPos, simulation);
 
-            string key = BuildCacheKey(body, cameraPos, simulation);
+            string key = CacheKey(body, cameraPos, simulation);
             if (_handles.TryGetValue(key, out MeshHandle existing) && existing.IsValid)
                 return existing;
 
@@ -173,6 +173,62 @@ namespace Genesis.World.Water
 
         public void Dispose() => Invalidate();
 
+        // The key's text is made again only when what it is made of changes: a still pond built
+        // its key string every frame (Golden Stag village).
+        private readonly Dictionary<string, (int Fingerprint, string Key)> _keys = new(StringComparer.Ordinal);
+
+        private string CacheKey(WaterBody body, Vector3 cameraPos, WaterBodySimulation simulation)
+        {
+            if (body.Id == null) return BuildCacheKey(body, cameraPos, simulation);
+            int fingerprint = Fingerprint(body, cameraPos, simulation);
+            if (_keys.TryGetValue(body.Id, out var kept) && kept.Fingerprint == fingerprint) return kept.Key;
+            string key = BuildCacheKey(body, cameraPos, simulation);
+            _keys[body.Id] = (fingerprint, key);
+            return key;
+        }
+
+        /// <summary>Everything <see cref="BuildCacheKey"/> writes, hashed without making text.</summary>
+        private static int Fingerprint(WaterBody body, Vector3 cameraPos, WaterBodySimulation simulation)
+        {
+            var hash = new HashCode();
+            hash.Add(body.Kind);
+            if (body.SimulationEnabled && simulation != null)
+            {
+                hash.Add(1); hash.Add(simulation.Resolution); hash.Add(simulation.Revision);
+            }
+            else if (body.Kind == WaterBodyKind.Ocean && body.OceanRadius > 0f)
+            {
+                (float centreX, float centreZ) = WaterSurfaceMesh.OceanCentre(cameraPos);
+                hash.Add(2); hash.Add(centreX); hash.Add(centreZ); hash.Add(body.OceanRadius); hash.Add(body.SurfaceY);
+            }
+            else if (body.Kind == WaterBodyKind.Ocean)
+            {
+                float tile = body.OceanTileSize;
+                hash.Add(3); hash.Add((int)MathF.Floor(cameraPos.X / tile)); hash.Add((int)MathF.Floor(cameraPos.Z / tile));
+                hash.Add(body.GridResolution);
+            }
+            else
+            {
+                hash.Add(4); hash.Add(body.GridResolution); hash.Add(body.RiverWidth); hash.Add(body.SizeX); hash.Add(body.SizeZ);
+                hash.Add(body.SurfaceY); hash.Add(body.VisualDepth); hash.Add(body.FootprintWidth); hash.Add(body.FootprintHeight);
+                hash.Add(body.Footprint == null ? 0 : body.Footprint.Length); hash.Add(GeometryHash(body));
+            }
+            return hash.ToHashCode();
+        }
+
+        private static int GeometryHash(WaterBody body)
+        {
+            var geometry = new HashCode();
+            foreach (Vector3 point in body.SplinePoints ?? Array.Empty<Vector3>()) geometry.Add(point);
+            foreach (float width in body.SplineWidths ?? Array.Empty<float>()) geometry.Add(width);
+            foreach (WaterfallParams cascade in body.Cascades ?? Array.Empty<WaterfallParams>())
+            {
+                geometry.Add(cascade.TopLeft); geometry.Add(cascade.TopRight);
+                geometry.Add(cascade.BottomLeft); geometry.Add(cascade.BottomRight);
+                geometry.Add(cascade.CrestRadius); geometry.Add(cascade.VerticalSegments);
+            }
+            return geometry.ToHashCode();
+        }
         private static string BuildCacheKey(WaterBody body, Vector3 cameraPos, WaterBodySimulation simulation)
         {
             if (body.SimulationEnabled && simulation != null)
@@ -191,16 +247,7 @@ namespace Genesis.World.Water
                 return $"{body.Id}:ocean:{tx}:{tz}:{body.GridResolution}";
             }
 
-            var geometry = new HashCode();
-            foreach (Vector3 point in body.SplinePoints ?? Array.Empty<Vector3>()) geometry.Add(point);
-            foreach (float width in body.SplineWidths ?? Array.Empty<float>()) geometry.Add(width);
-            foreach (WaterfallParams cascade in body.Cascades ?? Array.Empty<WaterfallParams>())
-            {
-                geometry.Add(cascade.TopLeft); geometry.Add(cascade.TopRight);
-                geometry.Add(cascade.BottomLeft); geometry.Add(cascade.BottomRight);
-                geometry.Add(cascade.CrestRadius); geometry.Add(cascade.VerticalSegments);
-            }
-            return $"{body.Id}:{body.Kind}:{body.GridResolution}:{body.RiverWidth}:{body.SizeX}:{body.SizeZ}:{body.SurfaceY}:{body.VisualDepth}:{body.FootprintWidth}x{body.FootprintHeight}:{(body.Footprint == null ? 0 : body.Footprint.Length)}:{geometry.ToHashCode()}";
+            return $"{body.Id}:{body.Kind}:{body.GridResolution}:{body.RiverWidth}:{body.SizeX}:{body.SizeZ}:{body.SurfaceY}:{body.VisualDepth}:{body.FootprintWidth}x{body.FootprintHeight}:{(body.Footprint == null ? 0 : body.Footprint.Length)}:{GeometryHash(body)}";
         }
     }
 

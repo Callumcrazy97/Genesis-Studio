@@ -171,61 +171,78 @@ namespace Genesis.Runtime.Systems
             return trianglesComfortable && gpuComfortable;
         }
 
-        private static void Measure(
+        // One delegate each for the life of the system, the pass's values in fields: lambdas here
+        // were a closure and a delegate a frame each.
+        private IEcsWorld _passWorld;
+        private byte _passBias;
+        private int _passCount;
+        private long _passLocal, _passEffective;
+        private ComponentAction<LodComponent> _measure, _applyBias;
+
+        private void Measure(
             IEcsWorld world,
             byte bias,
             out int visibleCount,
             out long localCost,
             out long effectiveCost)
         {
-            int count = 0;
-            long local = 0;
-            long effective = 0;
-
-            world.Query<LodComponent>((Entity entity, ref LodComponent lod) =>
-            {
-                if (!Participates(world, entity, in lod))
-                    return;
-
-                count++;
-                local = SaturatingAdd(local, lod.CostForLevel(lod.Selected));
-                int effectiveLevel = Math.Min(3, lod.Selected + bias);
-                effective = SaturatingAdd(effective, lod.CostForLevel(effectiveLevel));
-            });
-
-            visibleCount = count;
-            localCost = local;
-            effectiveCost = effective;
+            BeginPass(world, bias);
+            world.Query(_measure ??= MeasureOne);
+            EndPass(out visibleCount, out localCost, out effectiveCost);
         }
 
-        private static void ApplyBias(
+        private void MeasureOne(Entity entity, ref LodComponent lod)
+        {
+            if (!Participates(_passWorld, entity, in lod))
+                return;
+
+            _passCount++;
+            _passLocal = SaturatingAdd(_passLocal, lod.CostForLevel(lod.Selected));
+            int effectiveLevel = Math.Min(3, lod.Selected + _passBias);
+            _passEffective = SaturatingAdd(_passEffective, lod.CostForLevel(effectiveLevel));
+        }
+
+        private void ApplyBias(
             IEcsWorld world,
             byte bias,
             out int visibleCount,
             out long localCost,
             out long effectiveCost)
         {
-            int count = 0;
-            long local = 0;
-            long effective = 0;
+            BeginPass(world, bias);
+            world.Query(_applyBias ??= ApplyBiasOne);
+            EndPass(out visibleCount, out localCost, out effectiveCost);
+        }
 
-            world.Query<LodComponent>((Entity entity, ref LodComponent lod) =>
-            {
-                // Bias is runtime-owned state. Clear/set it for every LOD component so disabling the
-                // controller or moving an entity out of view cannot leave stale emergency coarsening.
-                lod.Bias = bias;
+        private void ApplyBiasOne(Entity entity, ref LodComponent lod)
+        {
+            // Bias is runtime-owned state. Clear/set it for every LOD component so disabling the
+            // controller or moving an entity out of view cannot leave stale emergency coarsening.
+            lod.Bias = _passBias;
 
-                if (!Participates(world, entity, in lod))
-                    return;
+            if (!Participates(_passWorld, entity, in lod))
+                return;
 
-                count++;
-                local = SaturatingAdd(local, lod.CostForLevel(lod.Selected));
-                effective = SaturatingAdd(effective, lod.EffectiveCost);
-            });
+            _passCount++;
+            _passLocal = SaturatingAdd(_passLocal, lod.CostForLevel(lod.Selected));
+            _passEffective = SaturatingAdd(_passEffective, lod.EffectiveCost);
+        }
 
-            visibleCount = count;
-            localCost = local;
-            effectiveCost = effective;
+        private void BeginPass(IEcsWorld world, byte bias)
+        {
+            _passWorld = world;
+            _passBias = bias;
+            _passCount = 0;
+            _passLocal = 0;
+            _passEffective = 0;
+        }
+
+        private void EndPass(out int visibleCount, out long localCost, out long effectiveCost)
+        {
+            visibleCount = _passCount;
+            localCost = _passLocal;
+            effectiveCost = _passEffective;
+            _passWorld = null;
         }
 
         private static bool Participates(IEcsWorld world, Entity entity, in LodComponent lod)
