@@ -126,6 +126,13 @@ namespace Genesis.Runtime.Scripting
         {
             Genesis.Runtime.Input.InputState input = Game.Input;
             if (input == null) return;
+            // No input events at all: nothing could run, so no context sync and no mouse hit test of
+            // the sprite each frame (3000 sprites with only Create and Step spent more here than in
+            // their Step; benchmark scenes, Sprites 2D).
+            if (!HasScript(_onKeyPressedScript) && !HasScript(_onKeyHeldScript) && !HasScript(_onKeyReleasedScript)
+                && !HasScript(_onMouseLeftPressedScript) && !HasScript(_onMouseRightPressedScript)
+                && !HasScript(_onMouseEnterScript) && !HasScript(_onMouseLeaveScript))
+                return;
 
             SyncToContext();
             if (input.AnyKeyPressed) ExecuteScript(_onKeyPressedScript, "KeyPressed");
@@ -349,6 +356,9 @@ namespace Genesis.Runtime.Scripting
             ScriptAssetRegistry.Register(key, effectiveSource);
             return ScriptAssetRegistry.TryGet(key, out CompiledScriptAsset asset) ? asset : null;
         }
+
+        /// <summary>Whether an event has code that <see cref="ExecuteScript"/> would run.</summary>
+        private static bool HasScript(CompiledScriptAsset asset) => asset?.CompileResult != null;
 
         private void ExecuteScript(CompiledScriptAsset asset, string eventName)
         {
