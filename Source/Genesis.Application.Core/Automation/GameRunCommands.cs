@@ -142,6 +142,7 @@ public static class GameRunCommands
                 [InputReplay.ReplayEnvironmentVariable] = recording,
                 [TimedShots.EnvironmentVariable] = string.Join(",", shots.Select(s => s.ToString(CultureInfo.InvariantCulture))),
                 [ProjectPlayerApp.ProfileEnvironmentVariable] = input.Profile == true ? "1" : "0",
+                [Genesis.Rendering.Core.EngineRenderingDefaults.UncappedEnvironmentVariable] = "0",
             };
 
             // The game's own self-tests (PGSL TestCheck) of this run only.
@@ -229,6 +230,7 @@ public static class GameRunCommands
         [Description("Seconds of play before measuring starts, not counted (default 5).")] public float? WarmupSeconds { get; set; }
         [Description("Scripted input played meanwhile, as game.run takes it (a walk or a camera turn); without it the game is left standing.")]
         public List<InputStep>? Steps { get; set; }
+        [Description("Vsync and frame caps off, so frame times show the real headroom (default true); false keeps the game's own pacing.")] public bool? Uncapped { get; set; }
         [Description("Fail the run if the 95th-percentile frame takes longer than this, milliseconds.")] public double? P95BudgetMilliseconds { get; set; }
         [Description("Fail the run if the 99th-percentile frame takes longer than this, milliseconds.")] public double? P99BudgetMilliseconds { get; set; }
         [Description("Fail the run if the game allocates more than this many kilobytes a frame on average.")] public double? AllocationBudgetKilobytesPerFrame { get; set; }
@@ -263,6 +265,7 @@ public static class GameRunCommands
                 [TimedShots.EnvironmentVariable] = string.Empty,
                 [ProjectPlayerApp.ProfileEnvironmentVariable] = "0",
                 [InputReplay.ReplayEnvironmentVariable] = string.Empty,
+                [Genesis.Rendering.Core.EngineRenderingDefaults.UncappedEnvironmentVariable] = input.Uncapped == false ? "0" : "1",
             };
             if (input.Steps is { Count: > 0 } given)
             {

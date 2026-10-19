@@ -23,6 +23,16 @@ public readonly record struct EngineFogDefaults(
 
 public static class EngineRenderingDefaults
 {
+    public const string UncappedEnvironmentVariable = "GENESIS_UNCAPPED";
+
+    /// <summary>
+    /// GENESIS_UNCAPPED=1: vsync off and no frame cap whatever the rooms or the game ask for, so a
+    /// benchmark (Studio's game.benchmark) measures how fast a frame really is rather than 16.7 ms.
+    /// Off unless set.
+    /// </summary>
+    public static bool Uncapped { get; } =
+        Environment.GetEnvironmentVariable(UncappedEnvironmentVariable) is { } uncapped && uncapped.Trim() is "1" or "true";
+
     public const string WaterReflectionsEnvironmentVariable = "GENESIS_WATER_REFLECTIONS";
     public const string LinearColorPipelineEnvironmentVariable = "GENESIS_LINEAR_COLOR";
 

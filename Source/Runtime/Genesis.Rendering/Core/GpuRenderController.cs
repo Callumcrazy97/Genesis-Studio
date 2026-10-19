@@ -771,7 +771,7 @@ namespace Genesis.Rendering.Core
 
             _gpu.EndFrame();
             if (_gpuSwapChain != null && _gpuSwapChain.IsReady)
-                _gpuSwapChain.Present(_vsync);
+                _gpuSwapChain.Present(_vsync && !EngineRenderingDefaults.Uncapped);
         }
 
         /// <summary>

@@ -220,7 +220,8 @@ namespace Genesis.Runtime.Platform
             get => _targetFps;
             set
             {
-                _targetFps = Math.Max(0, value);
+                // GENESIS_UNCAPPED (a benchmark): no cap, whatever is asked.
+                _targetFps = Genesis.Rendering.Core.EngineRenderingDefaults.Uncapped ? 0 : Math.Max(0, value);
                 if (_window != null)
                 {
                     _window.FramesPerSecond  = _targetFps;
