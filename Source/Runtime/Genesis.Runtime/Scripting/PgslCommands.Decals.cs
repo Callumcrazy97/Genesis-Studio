@@ -23,6 +23,19 @@ public static partial class PgslCommands
             new Vector3((float)nx, (float)ny, (float)nz), (float)size, (float)life);
     }
 
+    [PgslCommand("DecalFollow", "DecalFollow(decal, instance) -> following",
+        "Keep a decal on an object that moves (a door, a cart, a crate): it moves and turns with it from now on and goes when the object does. False when there is no such decal or object",
+        "Decals", Namespace = "Engine.Rendering.Decals")]
+    public static bool DecalFollow(double decal, double instance)
+    {
+        if (!double.IsFinite(decal) || !double.IsFinite(instance)) return false;
+        Matrix4x4? world = WorldDecals.ObjectWorld(ActiveGameContext?.World as Genesis.Runtime.ECS.World, (int)instance);
+        return world is { } placed && WorldDecals.Follow((int)decal, (int)instance, placed);
+    }
+
+    [PgslCommand("DecalUnfollow", "DecalUnfollow(decal) -> changed", "Stop a decal following its object; it stays where it is",
+        "Decals", Namespace = "Engine.Rendering.Decals")]
+    public static bool DecalUnfollow(double decal) => double.IsFinite(decal) && WorldDecals.Unfollow((int)decal);
     [PgslCommand("DecalSetColor", "DecalSetColor(decal, r, g, b, alpha) -> changed",
         "Tint a decal (0-255 each; white leaves the picture as it is) and set its opacity (0-1)",
         "Decals", Namespace = "Engine.Rendering.Decals")]

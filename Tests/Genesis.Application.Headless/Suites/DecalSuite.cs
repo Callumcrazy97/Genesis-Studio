@@ -30,11 +30,39 @@ internal static class DecalSuite
     {
         HeadlessHarness.BeginMajor(ctx.Report, "Decals");
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Decals.CommandsKeepLimitLifeAndOrder", Commands);
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Decals.AFollowingDecalMovesAndTurnsWithItsObject", Following);
         HeadlessHarness.RunCase(ctx.Report, "Render.Decals.WallTerrainFadeLimitAndFacingOnEveryBackend", () => Pixels(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Render.Decals.SeeThroughDecalShowsOnABlendedPaneOnEveryBackend", () => SeeThrough(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Render.Decals.HundredsOfBulletHolesAt1080pOnDx11", () => Cost(ctx));
     }
 
+    private static void Following()
+    {
+        // A bullet hole on a door: placed in the door's frame, then moved and turned with it each
+        // frame, gone with it, and left where it is when it stops following.
+        WorldDecals.Reset();
+        try
+        {
+            int hole = WorldDecals.Add("hole", new Vector3(1, 0, 0), new Vector3(0, 0, 1), 0.2f, 0);
+            int other = WorldDecals.Add("hole", new Vector3(5, 0, 0), new Vector3(0, 0, 1), 0.2f, 0);
+            Check(WorldDecals.Follow(hole, 7, Matrix4x4.Identity) && !WorldDecals.Follow(hole, 0, Matrix4x4.Identity), "A decal did not start following its object.");
+            Matrix4x4 door = Matrix4x4.CreateRotationY(MathF.PI / 2) * Matrix4x4.CreateTranslation(10, 0, 0);
+            WorldDecals.UpdateFollowers(id => id == 7 ? door : null);
+            Check(WorldDecals.TryGetPlacement(hole, out Vector3 at, out Vector3 facing)
+                && Vector3.Distance(at, Vector3.Transform(new Vector3(1, 0, 0), door)) < 1e-4f
+                && Vector3.Distance(facing, Vector3.Normalize(Vector3.TransformNormal(new Vector3(0, 0, 1), door))) < 1e-4f,
+                $"The decal did not move and turn with its object (at {at}, facing {facing}).");
+            Check(WorldDecals.TryGetPlacement(other, out Vector3 still, out _) && still == new Vector3(5, 0, 0), "A decal on nothing moved.");
+            Check(WorldDecals.Unfollow(hole), "A decal did not stop following.");
+            WorldDecals.UpdateFollowers(_ => null);
+            Check(WorldDecals.Exists(hole) && WorldDecals.TryGetPlacement(hole, out Vector3 kept, out _) && Vector3.Distance(kept, at) < 1e-4f,
+                "A decal that stopped following moved or went.");
+            WorldDecals.Follow(hole, 7, door);
+            WorldDecals.UpdateFollowers(_ => null);
+            Check(!WorldDecals.Exists(hole) && WorldDecals.Exists(other), "A decal stayed after its object went.");
+        }
+        finally { WorldDecals.Reset(); }
+    }
     private static void Commands()
     {
         WorldDecals.Reset();

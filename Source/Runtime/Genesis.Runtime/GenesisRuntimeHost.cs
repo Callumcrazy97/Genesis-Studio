@@ -589,6 +589,7 @@ namespace Genesis.Runtime
                 {
                     BeforeRenderSubmit?.Invoke();
                     Genesis.Runtime.Rendering.FlashLights.Submit(_renderer);
+                    Genesis.Runtime.Rendering.WorldDecals.UpdateFollowers(_decalWorldOf ??= DecalWorldOf);
                     Genesis.Runtime.Rendering.WorldDecals.Submit(_renderer, Genesis.Runtime.Scripting.PgslCommands.ProjectPath);
                     Genesis.Runtime.Rendering.ScriptMeshes.BeginFrame();
                     ScriptHost?.DispatchRenderFrame(_renderer, _frameQueue);
@@ -817,6 +818,10 @@ namespace Genesis.Runtime
 
         private bool _overlayScriptsReady;
         private Action<Genesis.Shared.Interfaces.IOverlayCanvas> _composeOverlay;
+
+        // Where a decal's object is now (WorldDecals.UpdateFollowers), one delegate for the host's life.
+        private Func<int, System.Numerics.Matrix4x4?> _decalWorldOf;
+        private System.Numerics.Matrix4x4? DecalWorldOf(int entityId) => Genesis.Runtime.Rendering.WorldDecals.ObjectWorld(_scene?.World, entityId);
 
         private void ComposeOverlayCanvas(Genesis.Shared.Interfaces.IOverlayCanvas canvas)
         {

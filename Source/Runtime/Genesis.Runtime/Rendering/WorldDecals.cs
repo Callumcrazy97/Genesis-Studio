@@ -42,6 +42,9 @@ namespace Genesis.Runtime.Rendering
             public float Age;
             public DecalBlend Blend;
             public bool SeeThrough;
+            // The object it stays on (an entity id, 0 for none), and where it sits in that object's frame.
+            public int Follow;
+            public Vector3 LocalPosition, LocalNormal;
         }
 
         private static readonly object Gate = new();
@@ -161,6 +164,72 @@ namespace Genesis.Runtime.Rendering
                 decal.Normal = Vector3.Normalize(normal);
             });
 
+        /// <summary>
+        /// Keeps a decal on an object that moves (a door, a cart, a crate): from now on it is placed
+        /// from the object's transform each frame by <see cref="UpdateFollowers"/>,
+        /// and goes when the object does. False when there is no such decal or the transform is unusable.
+        /// </summary>
+        public static bool Follow(int id, int entityId, Matrix4x4 entityWorld)
+        {
+            if (entityId <= 0 || !Matrix4x4.Invert(entityWorld, out Matrix4x4 inverse)) return false;
+            return Edit(id, decal =>
+            {
+                decal.Follow = entityId;
+                decal.LocalPosition = Vector3.Transform(decal.Position, inverse);
+                decal.LocalNormal = Vector3.TransformNormal(decal.Normal, inverse);
+            });
+        }
+
+        /// <summary>
+        /// Where an object is in the world, as a following decal needs it: its model's own transform
+        /// (pivot and model scale included) when it draws a model, else its position, turns and scale.
+        /// Null when the object is gone.
+        /// </summary>
+        public static Matrix4x4? ObjectWorld(Genesis.Runtime.ECS.World world, int entityId)
+        {
+            if (world == null || entityId <= 0) return null;
+            Genesis.Shared.ECS.Entity entity = world.GetEntity(entityId);
+            if (!world.IsAlive(entity) || !world.Has<Genesis.Runtime.ECS.Components.TransformComponent>(entity)) return null;
+            ref Genesis.Runtime.ECS.Components.TransformComponent transform = ref world.GetRef<Genesis.Runtime.ECS.Components.TransformComponent>(entity);
+            if (world.Has<Genesis.Runtime.ECS.Components.ModelRendererComponent>(entity))
+                return Genesis.Runtime.Modeling.RuntimeModelRenderSystem.TransformMatrix(transform, world.GetRef<Genesis.Runtime.ECS.Components.ModelRendererComponent>(entity));
+            float Scale(float value) => MathF.Abs(value) < 0.0001f ? 1f : value;
+            const float radians = MathF.PI / 180f;
+            return Matrix4x4.CreateScale(Scale(transform.ScaleX), Scale(transform.ScaleY), Scale(transform.ScaleZ))
+                * Matrix4x4.CreateRotationX(transform.RotationX * radians)
+                * Matrix4x4.CreateRotationY(transform.RotationY * radians)
+                * Matrix4x4.CreateRotationZ((transform.RotationZ + transform.Rotation) * radians)
+                * Matrix4x4.CreateTranslation(transform.X, transform.Y, transform.Z);
+        }
+        /// <summary>Stops a decal following its object; it stays where it is now.</summary>
+        public static bool Unfollow(int id) => Edit(id, decal => decal.Follow = 0);
+
+        /// <summary>
+        /// Places every following decal from its object's transform this frame (null when the object
+        /// is gone, which removes the decal). Called once a frame before <see cref="Submit"/>.
+        /// </summary>
+        public static void UpdateFollowers(Func<int, Matrix4x4?> worldOf)
+        {
+            if (worldOf == null) return;
+            lock (Gate)
+            {
+                int kept = 0;
+                for (int i = 0; i < Decals.Count; i++)
+                {
+                    Decal decal = Decals[i];
+                    if (decal.Follow != 0)
+                    {
+                        if (worldOf(decal.Follow) is not { } world) continue;
+                        Vector3 normal = Vector3.TransformNormal(decal.LocalNormal, world);
+                        decal.Position = Vector3.Transform(decal.LocalPosition, world);
+                        if (normal.LengthSquared() > 1e-10f) decal.Normal = Vector3.Normalize(normal);
+                    }
+                    Decals[kept++] = decal;
+                }
+                if (kept < Decals.Count) Decals.RemoveRange(kept, Decals.Count - kept);
+            }
+        }
+
         public static bool Remove(int id)
         {
             lock (Gate)
@@ -169,6 +238,18 @@ namespace Genesis.Runtime.Rendering
                 if (index < 0) return false;
                 Decals.RemoveAt(index);
                 return true;
+            }
+        }
+
+        /// <summary>Where a decal is now and which way it faces; false when there is no such decal.</summary>
+        public static bool TryGetPlacement(int id, out Vector3 position, out Vector3 normal)
+        {
+            lock (Gate)
+            {
+                int index = IndexOf(id);
+                position = index >= 0 ? Decals[index].Position : default;
+                normal = index >= 0 ? Decals[index].Normal : default;
+                return index >= 0;
             }
         }
 
