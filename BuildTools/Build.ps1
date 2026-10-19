@@ -3,7 +3,7 @@ param([Parameter(ValueFromRemainingArguments = $true)][string[]]$BuildArguments)
 $ErrorActionPreference = 'Stop'
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $profile = 'Quick'; $config = 'Release'; $tests = 'Skipped'; $backends = @()
-$focused = $null; $installer = $false; $launch = $false; $explicitQuick = $false; $explicitFull = $false
+$focused = $null; $installer = $false; $launch = $false; $explicitQuick = $false; $explicitFull = $false; $benchmarks = $false
 try {
     for ($i = 0; $i -lt $BuildArguments.Count; $i++) {
         switch ($BuildArguments[$i].ToLowerInvariant()) {
@@ -21,6 +21,8 @@ Genesis Studio - Quick Build / Full Build
   --full-tests             Add full regression to Quick.
   --quick-smoke            Add DX11/DX12 smokes.
   --full-smoke             Add all five renderer smokes.
+  --benchmarks             Add the six benchmark scenes (BuildTools/Benchmarks) measured
+                           against budgets.json; over budget fails the build. Opens game windows.
   --skip-tests             Legacy Quick alias; startup smoke remains required.
   --debug                  Debug Quick Build. Full always uses Release.
   --installer              Compile installer from validated staging.
@@ -42,6 +44,7 @@ These profiles build Genesis Studio and Player. Game export is separate.
             '--full-tests' { $tests = 'Full' }
             '--quick-smoke' { $backends += @('dx11','dx12') }
             '--full-smoke' { $backends += @('dx11','dx12','vulkan','opengl','software') }
+            '--benchmarks' { $benchmarks = $true }
             { $_ -in @('--test','-test','--backend','-backend') } {
                 $flag = $_
                 if (++$i -ge $BuildArguments.Count) { throw "$flag requires a value." }
@@ -264,6 +267,15 @@ try {
             if (-not $smokeText.Contains($success)) { throw "Missing smoke evidence: $success ($smokeLog)" }
         }
     }
+    # The staged build, before promotion: scenes over budget keep the published output, as any
+    # other failed check does. User data stays in the smoke's isolated folder.
+    if ($benchmarks) {
+        Invoke-BuildStep 'Benchmark scenes against budgets' {
+            Invoke-Logged 'powershell.exe' @('-NoProfile','-ExecutionPolicy','Bypass','-File',
+                (Join-Path $PSScriptRoot 'Benchmarks/BenchmarkScenes.ps1'),
+                '-Studio',(Join-Path $staging 'Genesis Application.exe')) 'benchmarks.log'
+        }
+    }
     # After every check: signing changes the files' bytes, and the audit compares Studio's and
     # the Player's copies of the shared libraries byte for byte.
     if (-not [string]::IsNullOrWhiteSpace($env:GENESIS_SIGN_COMMAND)) {
@@ -322,6 +334,7 @@ finally {
         RequestedBackends = $backends; BackendCoverage = $passedBackends
         SkippedBackends = @(@('dx11','dx12','vulkan','opengl','software') | Where-Object { $_ -notin $passedBackends })
         ChecksNotRun = $checksNotRun
+        Benchmarks = $(if (-not $benchmarks) { 'Skipped' } else { $b = @($stages | Where-Object { $_.Name -eq 'Benchmark scenes against budgets' }); if ($b.Count) { $b[0].Result } else { 'Not reached' } })
         Signed = @($stages | Where-Object { $_.Name -eq 'Sign Genesis executables and libraries' -and $_.Result -eq 'Passed' }).Count -gt 0
         Stages = @($stages.ToArray())
     }
@@ -330,6 +343,7 @@ finally {
     Write-Host "Studio identity: H$studioRevision / $runId"
     Write-Host "`n$profile Build: $($summary.Result) in $($summary.Seconds)s. Regression: $($summary.Regression)."
     Write-Host "Renderer smokes passed: $($passedBackends -join ', '). Skipped: $($summary.SkippedBackends -join ', ')."
+    if ($benchmarks) { Write-Host "Benchmark scenes: $($summary.Benchmarks). Report: TestResults/Benchmarks." }
     if ($checksNotRun.Count) {
         Write-Host "Regression checks NOT RUN ($($checksNotRun.Count)), not counted as passed:" -ForegroundColor Yellow
         foreach ($check in $checksNotRun) { Write-Host "  $check" -ForegroundColor Yellow }

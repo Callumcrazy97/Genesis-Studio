@@ -1632,6 +1632,9 @@ size are unchanged; an image already in one of the project's texture groups is n
 it.
 `--check` adds the 15-workflow gate and DX11/DX12 smokes to Quick. `--full-tests` adds the entire
 regression suite; `--full-smoke` adds all five renderer smokes; `--quick-smoke` adds DX11/DX12.
+`--benchmarks` measures the six benchmark scenes (`BuildTools/Benchmarks`, game windows open)
+with the staged build and fails it, keeping the published output, when a scene is over its
+`budgets.json` limits; the report goes to `TestResults/Benchmarks`.
 `--skip-tests` is a legacy Quick alias and still runs package/startup checks. Full rejects Quick,
 skip-tests, Debug and focused-test combinations. The renderer selector accepts only `dx11`,
 `dx12`, `vulkan`, `opengl`, `software`; removed aliases produce an actionable error.
