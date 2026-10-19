@@ -863,10 +863,23 @@ public static partial class PgslCommands
     [PgslCommand("MouseWheel", "MouseWheel() -> number", "How far the mouse wheel turned this frame; positive is away from you", "Input")]
     public static double MouseWheel() => ActiveGameContext?.Input?.WheelDelta ?? 0;
 
+    // Names already read: a game asks for its buttons by the same few names every frame, and each
+    // ask made a lower-case copy of the name (Kinfield).
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (bool Known, GamepadButton Button)> GamepadButtonNames = new(StringComparer.Ordinal);
+
     private static bool ParseGamepadButton(string name, out GamepadButton button)
     {
         button = default;
         if (string.IsNullOrWhiteSpace(name)) return false;
+        if (GamepadButtonNames.TryGetValue(name, out var known)) { button = known.Button; return known.Known; }
+        bool parsed = ParseGamepadButtonName(name, out button);
+        if (GamepadButtonNames.Count < 256) GamepadButtonNames.TryAdd(name, (parsed, button));
+        return parsed;
+    }
+
+    private static bool ParseGamepadButtonName(string name, out GamepadButton button)
+    {
+        button = default;
         switch (name.Trim().ToLowerInvariant())
         {
             case "lb": case "l1": button = GamepadButton.LeftBumper; return true;

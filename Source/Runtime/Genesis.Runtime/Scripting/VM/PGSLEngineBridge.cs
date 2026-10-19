@@ -753,6 +753,47 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
         return resolved;
     }
 
+    // Typed getters for the engine's number, whole-number and true/false properties: DeltaTime and
+    // the like, read by most scripts every frame, were boxed by the reflection call on every read
+    // (Kinfield).
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<PropertyInfo, Func<VmValue>> TypedGetters = new();
+
+    /// <summary>
+    /// Reads an engine property as <see cref="TryInvokeKnown"/> would, without boxing it, when the
+    /// name is a plain number, whole-number or true/false property; false leaves the read to
+    /// <see cref="TryInvokeKnown"/>.
+    /// </summary>
+    internal bool TryReadTypedProperty(string name, out VmValue value)
+    {
+        value = default;
+        // In TryInvokeKnown's order: a worker's reads and Script resources keep their own way; then
+        // a registered property command (DeltaTime), or a plain property no command or namespaced
+        // name claims.
+        if (_workerAllows != null || string.IsNullOrWhiteSpace(name)
+            || name.StartsWith("scr_", StringComparison.OrdinalIgnoreCase) || ScriptAssetRegistry.TryGet(name.Trim(), out _))
+            return false;
+        string propertyName = name;
+        if (_commandDefs.TryGetValue(name, out CommandDef def))
+        {
+            if (!def.IsProperty) return false;
+            propertyName = def.Name;
+        }
+        else if (PgslNamespaceResolver.TryResolveEngineCommand(name, out _, out _))
+            return false;
+        PropertyInfo property = GetOrCacheProperty(propertyName);
+        if (property?.GetMethod is not { IsStatic: true } getter) return false;
+        Func<VmValue> read = TypedGetters.GetOrAdd(property, static (_, method) =>
+        {
+            if (method.ReturnType == typeof(double)) { var number = method.CreateDelegate<Func<double>>(); return () => number(); }
+            if (method.ReturnType == typeof(int)) { var whole = method.CreateDelegate<Func<int>>(); return () => whole(); }
+            if (method.ReturnType == typeof(bool)) { var flag = method.CreateDelegate<Func<bool>>(); return () => flag(); }
+            return null;
+        }, getter);
+        if (read == null) return false;
+        value = read();
+        return true;
+    }
+
     private PropertyInfo GetOrCacheProperty(string pgslName)
     {
         if (_propertyCache.TryGetValue(pgslName, out var cached)) return cached;

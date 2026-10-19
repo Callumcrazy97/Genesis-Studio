@@ -617,14 +617,38 @@ namespace Genesis.Runtime.Modeling
             int frame = FrameIndex(clip, animation.TimeSeconds, animation.Fps, animation.Loop);
             string policy = animation.PreserveRootTransform ? "|keep-root" : string.Empty;
             if (string.IsNullOrWhiteSpace(animation.PreviousClipName) || animation.BlendFactor >= 1f)
-                return $"{clip.Name}|{frame}{policy}";
+                return ClipFrameKey(clip, frame, animation.PreserveRootTransform);
 
             GModelAnimationClip previous = FindClip(asset, animation.PreviousClipName);
             if (previous?.Frames == null || previous.Frames.Count == 0)
-                return $"{clip.Name}|{frame}{policy}";
+                return ClipFrameKey(clip, frame, animation.PreserveRootTransform);
             int previousFrame = FrameIndex(previous, animation.PreviousTimeSeconds, animation.Fps, animation.Loop);
             int blendStep = (int)MathF.Round(Math.Clamp(animation.BlendFactor, 0f, 1f) * 255f);
             return $"{previous.Name}|{previousFrame}>{clip.Name}|{frame}@{blendStep}{policy}";
+        }
+
+        // The key of one clip frame, made once per frame: every animated figure's clip and frame
+        // were formatted into a new string on every draw (Kinfield). Remade if the clip is renamed
+        // or its frames change.
+        private sealed class ClipKeys { public string Name; public string[] Plain, KeepRoot; }
+        private static readonly ConditionalWeakTable<GModelAnimationClip, ClipKeys> ClipFrameKeys = new();
+
+        private static string ClipFrameKey(GModelAnimationClip clip, int frame, bool keepRoot)
+        {
+            ClipKeys keys = ClipFrameKeys.GetValue(clip, _ => new ClipKeys());
+            lock (keys)
+            {
+                int count = clip.Frames.Count;
+                if (!string.Equals(keys.Name, clip.Name, StringComparison.Ordinal) || keys.Plain?.Length != count)
+                {
+                    keys.Name = clip.Name;
+                    keys.Plain = new string[count];
+                    keys.KeepRoot = new string[count];
+                }
+                if ((uint)frame >= (uint)count) return keepRoot ? $"{clip.Name}|{frame}|keep-root" : $"{clip.Name}|{frame}";
+                string[] row = keepRoot ? keys.KeepRoot : keys.Plain;
+                return row[frame] ??= keepRoot ? $"{clip.Name}|{frame}|keep-root" : $"{clip.Name}|{frame}";
+            }
         }
 
         private static int FrameIndex(GModelAnimationClip clip, float timeSeconds, float fpsOverride, bool loop)

@@ -175,6 +175,10 @@ namespace Genesis.Rendering.SilkNet.DX11
         private readonly Dictionary<int, ShaderProgramResource> _shaderPrograms = new();
         private readonly Dictionary<int, VertexLayoutResource> _vertexLayouts = new();
         private readonly Dictionary<int, TimestampResource> _queries = new();
+        // Read scopes kept for the next: every particle emitter timed itself each frame, and each
+        // scope created three queries and an object, then destroyed them once read.
+        private readonly Stack<TimestampResource> _freeQueries = new();
+        private const int MaximumFreeQueries = 64;
         private readonly Dictionary<GpuBlendState, nint> _blendStates = new();
         private readonly Dictionary<GpuDepthState, nint> _depthStates = new();
         private readonly Dictionary<GpuRasterState, nint> _rasterStates = new();
@@ -1239,6 +1243,15 @@ namespace Genesis.Rendering.SilkNet.DX11
         {
             var disjointDesc = new QueryDesc { Query = Query.TimestampDisjoint };
             var timestampDesc = new QueryDesc { Query = Query.Timestamp };
+            if (_freeQueries.TryPop(out TimestampResource reused))
+            {
+                reused.Ended = false;
+                Context->Begin((ID3D11Asynchronous*)reused.Disjoint);
+                Context->End((ID3D11Asynchronous*)reused.Begin);
+                int reusedId = _nextQuery++;
+                _queries.Add(reusedId, reused);
+                return new GpuQueryHandle(reusedId);
+            }
             ID3D11Query* disjoint = null;
             ID3D11Query* begin = null;
             ID3D11Query* end = null;
@@ -1285,7 +1298,8 @@ namespace Genesis.Rendering.SilkNet.DX11
             if (!disjoint.Disjoint && disjoint.Frequency != 0 && end >= begin)
                 milliseconds = (end - begin) * 1000.0 / disjoint.Frequency;
             _queries.Remove(handle.Id);
-            DestroyQuery(query);
+            if (_freeQueries.Count < MaximumFreeQueries) _freeQueries.Push(query);
+            else DestroyQuery(query);
             return true;
         }
 
@@ -1471,6 +1485,7 @@ namespace Genesis.Rendering.SilkNet.DX11
 
             foreach (SwapChainAdapter swapChain in new List<SwapChainAdapter>(_swapChains)) swapChain.Dispose();
             foreach (TimestampResource query in _queries.Values) DestroyQuery(query);
+            while (_freeQueries.TryPop(out TimestampResource free)) DestroyQuery(free);
             foreach (RenderTargetResource target in new List<RenderTargetResource>(_renderTargets.Values)) DestroyRenderTarget(target);
             _renderTargets.Clear();
             foreach (BufferResource buffer in _buffers.Values)

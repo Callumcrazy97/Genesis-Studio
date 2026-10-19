@@ -864,6 +864,8 @@ namespace Genesis.Rendering.Primitives
         private readonly List<Batch>                 _batchList = new();
         private readonly Stack<Batch>                _batchPool = new();
         private readonly Dictionary<BatchKey, Batch> _previousBatches = new();
+        // The composite pass's clear, one array for every frame rather than a new one each.
+        private readonly GpuAttachmentAction[] _compositeClear = new GpuAttachmentAction[1];
         private readonly Dictionary<SkinnedBatchKey, SkinnedBatch> _skinnedBatches = new();
         private readonly List<SkinnedBatch>          _skinnedBatchList = new();
         private readonly Stack<SkinnedBatch>         _skinnedBatchPool = new();
@@ -5118,10 +5120,11 @@ namespace Genesis.Rendering.Primitives
             }
             _gpu.SetViewport(0, 0, width, height);
             Vector3 bg = _state.BackgroundColor;
+            _compositeClear[0] = GpuAttachmentAction.Clear(bg.X, bg.Y, bg.Z, 1f);
             _gpu.BeginRenderPass(new GpuRenderPassDesc
             {
                 Target = target,
-                ColorActions = new[] { GpuAttachmentAction.Clear(bg.X, bg.Y, bg.Z, 1f) },
+                ColorActions = _compositeClear,
                 HasDepth = false,
                 DebugName = "Forward tonemap and fog composite",
             });

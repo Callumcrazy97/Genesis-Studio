@@ -78,15 +78,21 @@ namespace Genesis.Runtime.Systems
             _haveLeft = true;
         }
 
-        private static bool HasPhysicsPlayer(IEcsWorld world)
+        // One delegate for the life of the system: the lambda was a closure and a delegate a frame.
+        private bool _foundPlayer;
+        private ComponentAction<PhysicsPlayerTag, EntityLifecycleComponent> _findPlayer;
+
+        private bool HasPhysicsPlayer(IEcsWorld world)
         {
-            bool found = false;
-            world.Query<PhysicsPlayerTag, EntityLifecycleComponent>((entity, ref _, ref lifecycle) =>
-            {
-                if (lifecycle.Enabled)
-                    found = true;
-            });
-            return found;
+            _foundPlayer = false;
+            world.Query(_findPlayer ??= FindPlayer);
+            return _foundPlayer;
+        }
+
+        private void FindPlayer(Entity entity, ref PhysicsPlayerTag tag, ref EntityLifecycleComponent lifecycle)
+        {
+            if (lifecycle.Enabled)
+                _foundPlayer = true;
         }
 
         private static bool AnyMovementKey(InputState input) =>

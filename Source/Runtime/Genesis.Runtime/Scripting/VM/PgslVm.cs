@@ -1714,7 +1714,11 @@ public class PgslVm
             // A name nothing has set is answered without an exception (see TryInvokeKnown).
             bool known;
             object value;
-            try { known = engine.TryInvokeKnown(name, Array.Empty<object>(), out value); }
+            try
+            {
+                if (engine.TryReadTypedProperty(name, out VmValue typed)) return typed;
+                known = engine.TryInvokeKnown(name, Array.Empty<object>(), out value);
+            }
             catch (Exception ex) when (ex is not Genesis.Runtime.Scripting.PgslWorkerJobException)
             {
                 VMLogger.LogDiag1D($"LOAD_VAR '{name}' fallback 0: {ex.Message}");
