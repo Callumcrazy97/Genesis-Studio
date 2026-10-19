@@ -1,0 +1,24 @@
+# What exists against Unity: navigation, input, decals, cloth, vehicles, netcode
+
+Thursday list item 23, audited 19 October 2026 from the engine source (`Source/Runtime`) and its
+script commands. It records what a game can use today and what Unity has that Genesis does not, so
+each gap can be planned as its own piece of work.
+
+| Area | Genesis has | Missing next to Unity | Size of the gap |
+|---|---|---|---|
+| Navigation | A walkable height grid baked per room (`NavMeshBake`, `NavMeshBakeGrid`: one quad per walkable cell, neighbours by shared edges, box obstacles at bake time). Path finding with waypoints (`NavMeshPathFind`, `NavMeshPathGetWaypoint*`). Agents with destination, speed, arrival and remaining distance (`NavMeshAgent*`). Crowd avoidance between agents (`CrowdNavigationSolver`, `NavMeshAgentConfigureAvoidance`) with update rates by distance (`NavMeshAgentConfigureUpdateRates`). Steering checks each step against physics with a ray, so agents do not walk through solid scenery. Simple steering for anything (`PathSeek`, `PathFollow`, `PathWander`). | A polygon nav mesh (slopes, stairs and overhangs are cells on a grid, one level per cell). Obstacles that carve the mesh at run time (a door or a cart only blocks by the steering ray). Off-mesh links (jumps, ladders, drops between areas). Area costs (prefer roads, avoid water). Several agent sizes from one bake. | Large: a polygon builder (Recast-style) is the core of it; links and costs follow from it. |
+| Input rebinding | Keys, mouse and gamepad read directly by name (`KeyCheck`, `KeyPressed`, `GamepadCheck` and friends), input recording and replay (`InputRecord*`, `InputReplay*`). | Named actions bound to keys and buttons, rebinding at run time with saving of the player's choice, a rebinding screen helper, composite axes (WASD as one stick). Nothing named InputAction, ActionMap, KeyBinding or Rebind exists. | Medium: an action map over the existing input state, a few commands, and a settings file. |
+| Decals | World decals from scripts (`DecalAdd`, move, rotate, size, colour, blend, fade, life, a limit on how many, see-through), projected from the depth buffer onto whatever opaque surface lies around a point (walls, models, terrain): bullet holes, scorch marks, footprints. | Decals that stay on a moving or animated model (they are fixed in the world, so a model moving under one slides out of it), normal and roughness maps on decals (a picture only today), layers that choose what a decal lands on, a Room-editor tool for placing them by hand. | Small to medium, each part separate. |
+| Cloth | Nothing (no cloth, rope or soft-body code). Hair and fabric animate only through bones and clips. | Cloth on skinned models (capes, flags, skirts) with collision against the body; ropes and chains. | Large: a position-based solver on the GPU or in jobs, plus authoring in the Model editor. |
+| Vehicles | Rigid bodies and constraints through BepuPhysics; a kinematic character controller. No vehicle code. | Wheel colliders (suspension, friction curves, motor and brake torque), a car controller, a vehicle preset for Objects. | Medium: BepuPhysics has the pieces (constraints, ray casts); a wheel model and a script API are the work. |
+| Netcode | LAN multiplayer over LiteNetLib: host, join, discovery on the local network (`NetHost`, `NetConnect`, `NetDiscover`), shared objects with owners (`NetCopy*`, `NetOwn`), named values and messages, interest distance. Movement is sent at a fixed rate and smoothed on arrival; the owner of an object is trusted. | Client-side prediction and reconciliation, lag compensation, rollback, a server-authoritative mode, cheat protection, relay or NAT punch-through for internet play (Thursday list item 4), bandwidth budgets per object. | Large: prediction needs a fixed simulation tick and input replay on the client, which the engine partly has (input recording). |
+
+Notes for planning:
+
+- The navigation grid already gives agents walls, slopes they can climb and crowds that part; most
+  gameplay that keeps to one ground level works today. Multi-storey interiors are the first place
+  the grid falls short.
+- Input rebinding is the cheapest gap with the widest reach: every released game is expected to
+  offer it.
+- Netcode prediction depends on item 4 (internet play) only for testing across real latency; on a
+  LAN it can be built and measured with an artificial delay.
