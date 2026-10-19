@@ -362,9 +362,19 @@ public class PgslVm
                 if (++executed > checkpoint)
                 {
                     if (JobBudget is null)
-                        ThrowInstructionLimit(CurrentFunction());
-                    JobBudget.Check(InstructionsExecuted + executed);
-                    checkpoint += PgslJobBudget.Slice;
+                    {
+                        // ScriptInstructionLimit may have raised the limit during this very event (a
+                        // Create that spawns thousands): it counts from now on, not from the next event,
+                        // and the error names the limit that actually stopped it.
+                        int limit = CallInstructionLimit;
+                        if (executed > limit) ThrowInstructionLimit(CurrentFunction());
+                        checkpoint = limit;
+                    }
+                    else
+                    {
+                        JobBudget.Check(InstructionsExecuted + executed);
+                        checkpoint += PgslJobBudget.Slice;
+                    }
                 }
 
                 if (Debugger is not null)

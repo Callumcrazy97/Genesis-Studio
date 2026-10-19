@@ -131,6 +131,27 @@ internal static class PgslScriptsSuite
             Check(ReferenceEquals(first, second) && !ReferenceEquals(first, fresh), "A command marked [ParamsNotKept] was not given the same array again.");
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.NestedForLoopsEnd", () =>
+        {
+            // The benchmark scenes' crate grid (two nested for-loops with var counters) ran until the
+            // instruction limit stopped it.
+            ObjectSandboxResult result = RunCreate("n = 0;\nfor (var gx = 0; gx < 3; gx++) { for (var gz = 0; gz < 4; gz++) { n = n + 1; } }\n" +
+                "m = 0;\nfor (var a = 0; a < 5; a++) {\n    for (var b = 0; b < 6; b++) {\n        m = m + 1;\n    }\n}\n");
+            Check(result.Ok && Near(result, "n", 12) && Near(result, "m", 30), $"Nested for-loops did not run 3x4 and 5x6 times: n={Value(result, "n")}, m={Value(result, "m")}. " + Errors(result));
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.ARaisedInstructionLimitCountsInTheSameEvent", () =>
+        {
+            // The benchmark scenes' spawner raised the limit at the top of its Create and was still
+            // stopped at the old 100 000 a little later in the same event.
+            try
+            {
+                ObjectSandboxResult result = RunCreate("ScriptInstructionLimit(3000000);\nn = 0;\nfor (var i = 0; i < 60000; i++) { n = n + 1; }\n");
+                Check(result.Ok && Near(result, "n", 60000), $"A limit raised in the event did not let it finish: n={Value(result, "n")}. " + Errors(result));
+            }
+            finally { Genesis.Runtime.Scripting.VM.PgslVm.CallInstructionLimit = Genesis.Runtime.Scripting.VM.PgslVm.DefaultCallInstructionLimit; }
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.ACalledScriptKeepsItsOwnArgumentsAndFunctions", () =>
         {
             ObjectSandboxResult result = RunCreate("a = ArgKeeper(1);\nd = HelperFour();\n");
