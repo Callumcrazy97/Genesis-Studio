@@ -249,17 +249,21 @@ public static partial class PgslCommands
         UpdatePathingRoutines(scene, session, dt);
         session.CrowdSamples.Clear();
         Vector3 camera = scene.Camera3D.Position;
-        scene.World.Query<TransformComponent, NavMeshAgentComponent>((entity, ref transform, ref component) =>
+        // The delegate-free query: the lambda was a closure (scene, camera, dt, session) every frame.
+        foreach (var item in scene.World.Query<TransformComponent, NavMeshAgentComponent>())
         {
-            if (NavigationDebugTelemetry.IsPreviewDriven(scene, entity.Id)) return;
-            if (component.Agent == null || !scene.World.Has<CrowdAgentComponent>(entity)) return;
+            var entity = item.Entity;
+            ref TransformComponent transform = ref item.C1;
+            ref NavMeshAgentComponent component = ref item.C2;
+            if (NavigationDebugTelemetry.IsPreviewDriven(scene, entity.Id)) continue;
+            if (component.Agent == null || !scene.World.Has<CrowdAgentComponent>(entity)) continue;
             ref CrowdAgentComponent crowd = ref scene.World.GetRef<CrowdAgentComponent>(entity);
             NormalizeCrowd(ref crowd);
             if (!crowd.Enabled)
             {
                 crowd.Steering = Vector3.Zero;
                 crowd.Velocity = Vector3.Zero;
-                return;
+                continue;
             }
 
             Vector3 position = new(transform.X, transform.Y, transform.Z);
@@ -283,7 +287,7 @@ public static partial class PgslCommands
                 crowd.MaxNeighbors,
                 recalculate,
                 crowd.Steering));
-        });
+        }
         session.CrowdSolver.Solve(session.CrowdSamples);
 
         scene.World.Query<TransformComponent, NavMeshAgentComponent>((entity, ref transform, ref component) =>
