@@ -798,19 +798,10 @@ namespace Genesis.Runtime
                 _renderer.FlushOverlaySprites();
             }
 
-            _renderer.ComposeOverlay(canvas =>
-            {
-                if (scriptsReady)
-                {
-                    var hud = new OverlayHudCanvas(canvas, OverlayWidth, OverlayHeight);
-                    ScriptHost.DispatchDrawHud(hud);
-                    _pgslHud.Replay(hud);
-                }
-                // In-game debugger draws on the same HUD canvas (F6 overlay).
-                if (Debugger != null && (Debugger.IsVisible || Debugger.ShowNavigation || Debugger.HasScriptErrors || IsDebugMode))
-                    Debugger.Draw(new OverlayHudCanvas(canvas, OverlayWidth, OverlayHeight), _renderer, OverlayWidth, OverlayHeight);
-                _overlayDraw?.Invoke(canvas);
-            });
+            // One delegate for the overlay's drawing: the lambda here captured this frame's script
+            // readiness and made a closure and a delegate every frame.
+            _overlayScriptsReady = scriptsReady;
+            _renderer.ComposeOverlay(_composeOverlay ??= ComposeOverlayCanvas);
 
             // Native HUD sprites intentionally sit above overlay text (icons/cursors). Submit
             // them before the overlay flush so they appear in this frame, not the next one.
@@ -822,6 +813,23 @@ namespace Genesis.Runtime
             // is drawn beneath these sprites: an icon in the overlay could never carry a caption.
             // With nothing queued this does no work.
             _renderer.ComposeOverlay(static _ => { });
+        }
+
+        private bool _overlayScriptsReady;
+        private Action<Genesis.Shared.Interfaces.IOverlayCanvas> _composeOverlay;
+
+        private void ComposeOverlayCanvas(Genesis.Shared.Interfaces.IOverlayCanvas canvas)
+        {
+            if (_overlayScriptsReady)
+            {
+                var hud = new OverlayHudCanvas(canvas, OverlayWidth, OverlayHeight);
+                ScriptHost.DispatchDrawHud(hud);
+                _pgslHud.Replay(hud);
+            }
+            // In-game debugger draws on the same HUD canvas (F6 overlay).
+            if (Debugger != null && (Debugger.IsVisible || Debugger.ShowNavigation || Debugger.HasScriptErrors || IsDebugMode))
+                Debugger.Draw(new OverlayHudCanvas(canvas, OverlayWidth, OverlayHeight), _renderer, OverlayWidth, OverlayHeight);
+            _overlayDraw?.Invoke(canvas);
         }
 
         /// <summary>
