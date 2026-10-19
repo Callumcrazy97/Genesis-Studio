@@ -67,13 +67,13 @@ function Build-Project {
     Call "object.create" @{ name = "Mover"; sprite = $ball; events = @{
         Create = "dx = RandomRange(-3, 3);`ndy = RandomRange(-3, 3);`n";
         Step = "x = x + dx;`ny = y + dy;`nif (x < 0 || x > 1280) { dx = -dx; }`nif (y < 0 || y > 720) { dy = -dy; }`n" } } | Out-Null
-    Spawner "Sprite Spawner" $sprites "for (var i = 0; i < 3000; i++) { CreateInstance(`"Mover`", Random(1280), Random(720), 0); }`n" ""
+    Spawner "Sprite Spawner" $sprites "ScriptInstructionLimit(5000000);`nfor (var i = 0; i < 3000; i++) { CreateInstance(`"Mover`", Random(1280), Random(720), 0); }`n" ""
 
     # 3D objects: 4096 crates in a grid.
     $objects = Room "Objects 3D" $true
     $crate = (Call "model.create" @{ name = "Crate Model"; parts = @(@{ primitive = "Cube"; color = "#A0703C" }) }).data.path
     Call "object.create" @{ name = "Crate"; model = $crate } | Out-Null
-    Spawner "Crate Spawner" $objects ("SetCameraPosition(0, 45, -110);`nSetCameraTarget(0, 0, 0);`n" +
+    Spawner "Crate Spawner" $objects ("ScriptInstructionLimit(5000000);`nSetCameraPosition(0, 45, -110);`nSetCameraTarget(0, 0, 0);`n" +
         "for (var gx = 0; gx < 64; gx++) { for (var gz = 0; gz < 64; gz++) { CreateInstance(`"Crate`", gx * 2 - 64, 0.5, gz * 2 - 64); } }`n") ""
 
     # Terrain: rolling hills with the grass rule and scattered rocks.
@@ -96,12 +96,12 @@ function Build-Project {
     Call "room.addInstance" @{ room = $pile; object = $floor; y = -30; scale = 60 } | Out-Null
     $box = (Call "object.create" @{ name = "Falling Crate"; model = $crate; solid = $true }).data.path
     Call "resource.set" @{ path = $box; values = @{ physics = "Dynamic" } } | Out-Null
-    Spawner "Pile Spawner" $pile ("SetCameraPosition(0, 22, -40);`nSetCameraTarget(0, 4, 0);`n" +
+    Spawner "Pile Spawner" $pile ("ScriptInstructionLimit(5000000);`nSetCameraPosition(0, 22, -40);`nSetCameraTarget(0, 4, 0);`n" +
         "for (var i = 0; i < 500; i++) { CreateInstance(`"Falling Crate`", RandomRange(-6, 6), 3 + i * 0.12, RandomRange(-6, 6)); }`n") ""
 
     # Heavy GUI: 400 labelled panels drawn every frame.
     $gui = Room "GUI" $false
-    Spawner "Panels" $gui "t = 0;`n" ("t = t + 1;`nfor (var i = 0; i < 400; i++) {`n    var px = (i % 20) * 64;`n    var py = Floor(i / 20) * 36;`n" +
+    Spawner "Panels" $gui "t = 0;`n" ("ScriptInstructionLimit(1000000);`nt = t + 1;`nfor (var i = 0; i < 400; i++) {`n    var px = (i % 20) * 64;`n    var py = Floor(i / 20) * 36;`n" +
         "    DrawSetColorRgb((i * 37) % 255, (i * 91 + t) % 255, 180);`n    DrawRectangle(px, py, px + 60, py + 32);`n" +
         "    DrawSetColorRgb(255, 255, 255);`n    DrawText(px + 4, py + 8, `"Item `" + i);`n}`n")
 

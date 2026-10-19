@@ -330,6 +330,10 @@ public static class GameRunCommands
             if (input.P99BudgetMilliseconds is double p99Budget && p99 > p99Budget) over.Add($"99th percentile {p99:0.##} ms over {p99Budget:0.##} ms");
             if (input.AllocationBudgetKilobytesPerFrame is double allocationBudget && allocationKb > allocationBudget)
                 over.Add($"{allocationKb:0.##} KB a frame over {allocationBudget:0.##} KB");
+            // A scene whose scripts failed did not do its work, so its numbers flatter it.
+            long scriptFailures = (summary["Pgsl"] as JsonArray ?? []).Sum(s => s?["FailedCalls"] is JsonValue v && v.TryGetValue(out long n) ? n : 0);
+            data["scriptFailures"] = scriptFailures;
+            if (scriptFailures > 0) over.Add($"{scriptFailures} script event call(s) failed (see the log)");
             data["overBudget"] = new JsonArray([.. over.Select(o => (JsonNode?)o)]);
             string message = $"{launched.RoomName}: median {median:0.##} ms ({(median > 0 ? 1000 / median : 0):0} fps), 95th {p95:0.##} ms, 99th {p99:0.##} ms, {allocationKb:0.#} KB a frame over {frames.Count} frames"
                 + (over.Count == 0 ? "." : "; over budget: " + string.Join("; ", over) + ".");
