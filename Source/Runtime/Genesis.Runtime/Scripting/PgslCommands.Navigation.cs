@@ -106,6 +106,20 @@ public static partial class PgslCommands
         string? file = NavigationFile();
         if (file != null) data.Save(file);
     }
+    [PgslCommand("NavMeshSetAreaCost", "NavMeshSetAreaCost(x1, z1, x2, z2, cost) -> number",
+        "Make the navigation cells in a rectangle cheaper or dearer to cross (a road 0.5, mud 3; 1 is normal, 0.05 to 1000), so routes prefer or avoid them; in a 2D room z is y. Set after NavMeshBake or a room load. Returns how many cells changed", "Navigation")]
+    public static double NavMeshSetAreaCost(double x1, double z1, double x2, double z2, double cost)
+    {
+        var session = Navigation();
+        if (session?.Query == null || !Finite3(x1, z1, cost) || !double.IsFinite(x2) || !double.IsFinite(z2)) return 0;
+        // Routes already found keep their way; the next route found follows the costs.
+        return session.Query.SetAreaCost((float)x1, (float)z1, (float)x2, (float)z2, (float)cost);
+    }
+
+    [PgslCommand("NavMeshGetAreaCost", "NavMeshGetAreaCost(x, z) -> number", "The area cost of the navigation cell at a point (1 unless set); in a 2D room z is y", "Navigation")]
+    public static double NavMeshGetAreaCost(double x, double z) =>
+        Navigation()?.Query?.AreaCostAt(new Vector3((float)x, 0, (float)z)) ?? 1;
+
     [PgslCommand("NavMeshPathFind", "NavMeshPathFind(startX, startY, startZ, endX, endY, endZ) -> number", "Find a smoothed route; -1 means no route or mesh", "Navigation")]
     public static double NavMeshPathFind(double startX, double startY, double startZ, double endX, double endY, double endZ)
     {

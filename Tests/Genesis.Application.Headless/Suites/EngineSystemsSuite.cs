@@ -555,6 +555,29 @@ internal static class EngineSystemsSuite
             game.SetRoom(RoomAsset.Create("Different", RoomDimension.ThreeD));
             Check(PgslCommands.NavMeshPathFind(.5, 0, .5, 2.5, 0, 2.5) == -1, "Navigation leaked between rooms.");
         }));
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Navigation.AreaCostsSteerRoutes", () =>
+        {
+            // Area costs: a route goes round mud it could walk through, takes a cheap road when the
+            // road is worth the detour, and its smoothing does not cut back across the mud.
+            var flat = NavMeshBuilder.Build(0, 0, 12, 12, 1, (_, _) => 0);
+            var query = new NavMeshQuery(flat);
+            Vector3 from = new(1.5f, 0, 6.5f), to = new(10.5f, 0, 6.5f);
+            Check(query.FindPath(from, to).Count == 2, "With no costs set the route was not straight.");
+            Check(query.SetAreaCost(4, 2, 8, 11, 10) > 0 && query.AreaCostAt(new Vector3(6, 0, 6)) == 10f && query.AreaCostAt(new Vector3(1, 0, 1)) == 1f,
+                "Area costs were not set where asked.");
+            var round = query.FindPath(from, to);
+            bool crossesMud = false;
+            for (int i = 1; i < round.Count; i++)
+                for (float t = 0; t <= 1f; t += 0.05f)
+                    crossesMud |= query.AreaCostAt(Vector3.Lerp(round[i - 1], round[i], t)) > 1f;
+            Check(round.Count > 2 && !crossesMud, $"The route crossed the mud instead of going round it ({round.Count} points).");
+
+            var roads = new NavMeshQuery(flat);
+            roads.SetAreaCost(0, 0, 12, 0.9f, 0.1f);
+            var road = roads.FindPath(new Vector3(1.5f, 0, 2.5f), new Vector3(10.5f, 0, 2.5f));
+            Check(road.Any(point => point.Z < 1f), "A route did not take a cheap road worth its detour.");
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Navigation.ObstaclesAndPersistence", () =>
         {
             var data = NavMeshBuilder.Build(0, 0, 12, 12, 1, (_, _) => 0,

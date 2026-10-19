@@ -10,6 +10,42 @@ public sealed class NavMeshQuery
 {
     public NavMeshData Data { get; }
     public NavMeshQuery(NavMeshData data) { data.Validate(); Data = data; }
+
+    // Area costs: how much more (or less) a cell costs to cross than its length, 1 everywhere
+    // until a game sets them (a road 0.5, mud 3). Not saved with the grid: set after a bake or load.
+    private float[]? _costs;
+    private float _cheapest = 1f;
+    public const float MinimumAreaCost = 0.05f, MaximumAreaCost = 1000f;
+
+    /// <summary>Sets the cost of every cell whose centre lies in the rectangle; returns how many.</summary>
+    public int SetAreaCost(float minX, float minZ, float maxX, float maxZ, float cost)
+    {
+        if (!float.IsFinite(cost)) return 0;
+        cost = Math.Clamp(cost, MinimumAreaCost, MaximumAreaCost);
+        if (minX > maxX) (minX, maxX) = (maxX, minX);
+        if (minZ > maxZ) (minZ, maxZ) = (maxZ, minZ);
+        _costs ??= Enumerable.Repeat(1f, Data.Count).ToArray();
+        int changed = 0;
+        for (int cell = 0; cell < Data.Count; cell++)
+        {
+            Vector3 centre = Data.Center(cell);
+            if (centre.X < minX || centre.X > maxX || centre.Z < minZ || centre.Z > maxZ) continue;
+            _costs[cell] = cost;
+            changed++;
+        }
+        _cheapest = 1f;
+        foreach (float each in _costs) _cheapest = Math.Min(_cheapest, each);
+        return changed;
+    }
+
+    /// <summary>The area cost of the cell at a point; 1 where none was set or off the grid.</summary>
+    public float AreaCostAt(Vector3 position)
+    {
+        int cell = Data.Cell(position);
+        return _costs != null && cell >= 0 ? _costs[cell] : 1f;
+    }
+
+    private float Cost(int cell) => _costs?[cell] ?? 1f;
     public IReadOnlyList<Vector3> FindPath(Vector3 start, Vector3 end)
     {
         int first = Data.Cell(start), last = Data.Cell(end);
@@ -34,10 +70,12 @@ public sealed class NavMeshQuery
             }
             foreach (int neighbor in Data.Neighbors(current))
             {
-                float cost = costs[current] + Vector3.Distance(Data.Center(current), Data.Center(neighbor));
+                // Half of each cell's area cost: the step crosses half of one and half of the other.
+                float step = Vector3.Distance(Data.Center(current), Data.Center(neighbor));
+                float cost = costs[current] + (_costs == null ? step : step * 0.5f * (Cost(current) + Cost(neighbor)));
                 if (costs.TryGetValue(neighbor, out float old) && cost >= old) continue;
                 costs[neighbor] = cost; previous[neighbor] = current;
-                frontier.Enqueue(neighbor, cost + Vector3.Distance(Data.Center(neighbor), Data.Center(last)));
+                frontier.Enqueue(neighbor, cost + Vector3.Distance(Data.Center(neighbor), Data.Center(last)) * _cheapest);
             }
         }
         return [];
@@ -47,16 +85,43 @@ public sealed class NavMeshQuery
         // Conservative grid string pulling uses a supercover walk, including both cells at a
         // diagonal corner. It cannot smooth a route through an obstacle or across a disconnected edge.
         var result = new List<Vector3> { points[0] };
+        // With area costs, what the route costs up to each point, so a shortcut can be compared
+        // with the stretch it would replace.
+        float[]? routeCost = null;
+        if (_costs != null)
+        {
+            routeCost = new float[points.Count];
+            for (int i = 1; i < points.Count; i++) routeCost[i] = routeCost[i - 1] + LineCost(points[i - 1], points[i]);
+        }
         int anchor = 0;
         while (anchor < points.Count - 1)
         {
             int next = anchor + 1;
             for (int candidate = points.Count - 1; candidate > next; candidate--)
-                if (CanTravel(points[anchor], points[candidate])) { next = candidate; break; }
+                if (CanTravel(points[anchor], points[candidate])
+                    && (routeCost == null || LineCost(points[anchor], points[candidate]) <= (routeCost[candidate] - routeCost[anchor]) * 1.001f + 1e-4f))
+                { next = candidate; break; }
             result.Add(points[next]); anchor = next;
         }
         return result;
     }
+    // A straight stretch's cost: its length weighed by the cells it crosses, sampled a quarter of a
+    // cell apart. Smoothing takes a shortcut only when it costs no more than the route it replaces,
+    // so it neither cuts back across mud the search went round nor leaves a road it chose.
+    private float LineCost(Vector3 start, Vector3 end)
+    {
+        float length = Vector3.Distance(new Vector3(start.X, 0, start.Z), new Vector3(end.X, 0, end.Z));
+        if (length <= 0f) return 0f;
+        int samples = Math.Max(1, (int)MathF.Ceiling(length / (Data.CellSize * 0.25f)));
+        float total = 0f;
+        for (int i = 0; i < samples; i++)
+        {
+            int cell = Data.Cell(Vector3.Lerp(start, end, (i + 0.5f) / samples));
+            total += cell >= 0 ? Cost(cell) : 1f;
+        }
+        return total * length / samples;
+    }
+
     public bool CanTravel(Vector3 start, Vector3 end)
     {
         int cell = Data.Cell(start), target = Data.Cell(end);

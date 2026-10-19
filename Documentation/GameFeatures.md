@@ -210,6 +210,16 @@ game's saves (`input-bindings.txt`, or a name given), and `InputActionsLoad()` r
 actions it names are rebound, actions it does not name keep the bindings the game gave them, so an
 action added in an update keeps its default.
 
+## Routes that prefer roads (19 October 2026)
+
+A navigation grid (`NavMeshBake`, `NavMeshBakeGrid`) can make some ground cheaper or dearer to cross:
+`NavMeshSetAreaCost(x1, z1, x2, z2, cost)` sets every cell whose centre lies in the rectangle (in a
+2D room z is y) to a cost from 0.05 to 1000, where 1 is normal ground. A road at 0.3 draws routes
+onto it when the detour is worth it; mud at 4 is walked through only when going round costs more;
+the route's smoothing never cuts back across ground dearer than the route itself crossed.
+`NavMeshGetAreaCost(x, z)` reads a cell's cost back. Costs are not saved with the grid: set them
+after baking or after the room loads (its Create event), and routes found before keep their way.
+
 ## Sound
 
 | Command | Meaning |
@@ -245,6 +255,19 @@ and never gave it back, so a game lost a sound's whole size each time it played 
 at each door. Every play now reads the sound's one set of samples. Found by a game measuring its
 own room changes with the memory line described under
 [Finding what a game holds on to](#finding-what-a-game-holds-on-to).
+
+**Ducking (19 October 2026).** `BusDuck("music", "voice", 0.6)` lowers the music bus to 40% while
+any sound on the voice bus plays (put a line there with `SoundSetBus(channel, "voice")`), going down
+over 0.15 s and back over 0.6 s; `BusDuck(bus, byBus, amount, attack, release)` sets both times,
+and an amount of 0 turns it off. It multiplies the bus's own volume (`SetBusVolume`), so a player's
+music setting still holds; `BusDuckLevel("music")` says how far down it is now.
+
+**Music that cross-fades (19 October 2026).** `MusicPlay("Town Theme")` plays a track looping on the
+music bus; the next `MusicPlay("Battle Theme", 1.5)` fades the first out and the second in over 1.5
+seconds (default 1), and asking for the track already playing only moves it to the volume given
+(`MusicPlay(path, fadeSeconds, volume)`). `MusicStop(seconds)` fades it out and stops it, and
+`MusicCurrent()` names the track playing. Both return or use ordinary channels, so `SoundFade` and
+`IsSoundPlaying` work on them too.
 
 ## HUD: measuring text, and shapes
 
