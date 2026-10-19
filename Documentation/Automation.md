@@ -20,7 +20,7 @@ From the published Studio folder:
 
 - `list` prints every command with its description and input schema.
 - `call` runs one command and prints its result; the exit code is 0 when it worked, 1 when it did
-  not, 2 for a mistake in the command line itself. The input can be inline JSON or `@file.json`.
+  not, 2 for a mistake in the command line itself. The input can be inline JSON or `@file.json`; from Windows PowerShell use `@file.json`, as it strips the quotes from inline JSON passed to a program.
 - `mcp` is a Model Context Protocol server on standard input and output. Add it to an MCP client
   (Claude Code: `claude mcp add genesis -- "<Studio folder>\Genesis Application.exe" --automation
   "<project folder>" mcp`). Commands appear as tools with underscores for dots
