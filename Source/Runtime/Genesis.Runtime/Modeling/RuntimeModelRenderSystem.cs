@@ -552,6 +552,10 @@ namespace Genesis.Runtime.Modeling
         private TextureHandle LoadMaterialTexture(IRenderController renderer, string projectPath, string texturePath,
             TextureColorSpace colorSpace, bool background, ref bool pending)
         {
+            // No texture named resolves to none: return before hashing a cache key with the project
+            // path, four times a mesh a frame (half the drawing cost of 4096 untextured crates in the
+            // benchmark scenes).
+            if (string.IsNullOrWhiteSpace(texturePath)) return TextureHandle.Invalid;
             var textures = _textures.GetValue(renderer, _ => new());
             var key = (projectPath, texturePath, colorSpace);
             long now = Environment.TickCount64;
