@@ -289,9 +289,6 @@ namespace Genesis.Runtime.Modeling
                 renderMeshes = _gpu.ResolveMeshes(renderer, asset, gpuAsset, morphWeights);
             }
 
-            SkinPaletteHandle palette;
-            using (Genesis.Shared.Diagnostics.LoadProfile.Begin("model: skinning palette"))
-                palette = _gpu.UpdatePalette(renderer, asset, gpuAsset, animation);
             ModelHairSelection hair = ModelHairRuntime.Resolve(asset, rendererComponent.Hair);
             Vector3 pivot = asset.Pivot?.Position ?? Vector3.Zero;
             bool drawsMaterialFactors = asset.DrawsMaterialFactors();
@@ -305,14 +302,20 @@ namespace Genesis.Runtime.Modeling
             // Level of detail. A positive policy pins an authored level. Otherwise the level follows
             // the model's size on screen: authored levels when the asset has them, automatically
             // simplified meshes when it does not. A negative policy always draws in full.
-            int viewLevel = Math.Max(0, forcedLevel);
+            int viewLevel = Math.Max(0, forcedLevel), animationStride = 1;
             if (forcedLevel < 0 && rendererComponent.LodPolicy == 0 && ModelLodView.Active && !animation.FlatUntextured && asset.Bounds != null)
             {
                 Vector3 centre = Vector3.Transform((asset.Bounds.Min + asset.Bounds.Max) * 0.5f, pivotedWorld);
                 float radius = Vector3.Distance(asset.Bounds.Min, asset.Bounds.Max) * 0.5f * MatrixScaleHelper.MaxScale(pivotedWorld);
                 viewLevel = Math.Max(0, ModelLodView.LevelFor(centre, radius));
                 ModelLodView.Count(viewLevel);
+                animationStride = ModelLodView.AnimationStride(viewLevel);
             }
+
+            // After the level: a figure small on screen keeps its last pose for a draw or three.
+            SkinPaletteHandle palette;
+            using (Genesis.Shared.Diagnostics.LoadProfile.Begin("model: skinning palette"))
+                palette = _gpu.UpdatePalette(renderer, asset, gpuAsset, animation, animationStride);
 
             if (viewLevel > 0 && !gpuAsset.AutoLodsRequested) _gpu.RequestAutoLods(asset, gpuAsset);
             int activeLod = ResolveLodLevel(asset, Math.Max(viewLevel, Math.Max(0, rendererComponent.LodPolicy)));

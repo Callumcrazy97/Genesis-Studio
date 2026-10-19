@@ -67,6 +67,38 @@ internal static class EngineSystemsSuite
                 "A tree not in a sync group no longer ran its clips on one clock.");
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Animation.SmallFiguresArePosedLessOften", () =>
+        {
+            // Animation detail by size on screen: level 2 is posed every second draw and level 3
+            // every fourth; full size, no camera view (editors, thumbnails) and the switch off pose
+            // every draw.
+            var projection = Matrix4x4.CreatePerspectiveFieldOfView(MathF.PI / 3f, 16f / 9f, 0.1f, 500f);
+            bool saved = ModelLodView.AnimationRateBySize;
+            try
+            {
+                ModelLodView.End();
+                Check(ModelLodView.AnimationStride(3) == 1, "With no camera view, a model was posed less often.");
+                ModelLodView.Begin(Vector3.Zero, projection);
+                Check(ModelLodView.AnimationStride(0) == 1 && ModelLodView.AnimationStride(1) == 1
+                    && ModelLodView.AnimationStride(2) == 2 && ModelLodView.AnimationStride(3) == 4,
+                    $"Strides by level were {ModelLodView.AnimationStride(0)}, {ModelLodView.AnimationStride(1)}, {ModelLodView.AnimationStride(2)}, {ModelLodView.AnimationStride(3)}.");
+                ModelLodView.AnimationRateBySize = false;
+                Check(ModelLodView.AnimationStride(3) == 1, "Switched off, a small figure was still posed less often.");
+                var graph = new AnimationController();
+                int posed = 0;
+                for (int i = 0; i < 16; i++) if (!graph.KeepsLastPose(4)) posed++;
+                Check(posed == 4, $"A stride of 4 posed {posed} of 16 draws.");
+                posed = 0;
+                for (int i = 0; i < 16; i++) if (!graph.KeepsLastPose(1)) posed++;
+                Check(posed == 16, $"Full size posed {posed} of 16 draws.");
+            }
+            finally
+            {
+                ModelLodView.AnimationRateBySize = saved;
+                ModelLodView.End();
+            }
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Animation.BoneRotationPreservesMotionAndIsolation", () =>
         {
             var asset = Asset();

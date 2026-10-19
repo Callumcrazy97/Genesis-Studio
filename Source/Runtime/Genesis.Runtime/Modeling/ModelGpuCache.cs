@@ -28,6 +28,10 @@ namespace Genesis.Runtime.Modeling
             public readonly Dictionary<string, WeakReference<AnimationController>> ControllerOwners = new();
             /// <summary>Last use of each clip/frame palette, so unused poses can be released.</summary>
             public readonly Dictionary<string, long> PaletteLastUsed = new(StringComparer.OrdinalIgnoreCase);
+            /// <summary>Idle clip palettes kept for the next new pose: releasing one and creating
+            /// the next made a GPU buffer and its arrays every time a pose came round again.</summary>
+            public readonly Stack<SkinPaletteHandle> FreePalettes = new();
+            public readonly List<string> IdlePaletteKeys = new();
             public int ControllerUpdates;
             public bool BindPoseApplied;
             /// <summary>Simplified versions being worked out in the background, until they are uploaded.</summary>
@@ -135,6 +139,8 @@ namespace Genesis.Runtime.Modeling
                         if (mesh.Mesh.IsValid && mesh.Mesh.Id != cache.PlaceholderMesh.Id) renderer.ReleaseMesh(mesh.Mesh);
                 if (asset.IdentityPalette.IsValid) renderer.ReleaseSkinPalette(asset.IdentityPalette);
                 foreach (SkinPaletteHandle palette in asset.AnimationPalettes.Values)
+                    if (palette.IsValid) renderer.ReleaseSkinPalette(palette);
+                foreach (SkinPaletteHandle palette in asset.FreePalettes)
                     if (palette.IsValid) renderer.ReleaseSkinPalette(palette);
             }
             if (cache.PlaceholderMesh.IsValid) renderer.ReleaseMesh(cache.PlaceholderMesh);
@@ -489,7 +495,8 @@ namespace Genesis.Runtime.Modeling
             IRenderController renderer,
             GModelAsset asset,
             CachedAsset cached,
-            RuntimeModelAnimationState animation)
+            RuntimeModelAnimationState animation,
+            int animationStride = 1)
         {
             if (renderer == null || asset?.Rig?.IsValid != true || cached == null)
                 return SkinPaletteHandle.Invalid;
@@ -542,11 +549,15 @@ namespace Genesis.Runtime.Modeling
                     cached.PaletteLastUsed[key] = Environment.TickCount64;
                     return handle;
                 }
+                // Small on screen: the pose drawn last time stands for this draw too
+                // (ModelLodView.AnimationRateBySize).
+                if (animation.Controller.KeepsLastPose(animationStride))
+                    return handle;
             }
             else
             {
-                if (!controllerDriven) ReleaseIdleClipPalettes(renderer, cached);
-                handle = renderer.CreateSkinPalette(cached.PaletteSize);
+                if (!controllerDriven) ReleaseIdleClipPalettes(cached);
+                handle = cached.FreePalettes.Count > 0 ? cached.FreePalettes.Pop() : renderer.CreateSkinPalette(cached.PaletteSize);
                 cached.AnimationPalettes[key] = handle;
             }
 
@@ -559,22 +570,24 @@ namespace Genesis.Runtime.Modeling
         /// <summary>
         /// Every distinct clip frame and crossfade step creates a palette. Without a bound, long
         /// sessions accumulated one GPU buffer per pose ever shown. Only palettes idle for a while
-        /// are released, so nothing submitted this frame loses its buffer.
+        /// are freed, so nothing submitted this frame loses its buffer; freed ones wait in
+        /// <see cref="CachedAsset.FreePalettes"/> for the next new pose of the same model.
         /// </summary>
-        private static void ReleaseIdleClipPalettes(IRenderController renderer, CachedAsset cached)
+        private static void ReleaseIdleClipPalettes(CachedAsset cached)
         {
-            if (cached.PaletteLastUsed.Count < MaximumClipPalettes) return;
+            if (cached.PaletteLastUsed.Count < MaximumClipPalettes || cached.FreePalettes.Count > 0) return;
             long cutoff = Environment.TickCount64 - IdlePaletteMilliseconds;
-            List<string> idle = null;
+            List<string> idle = cached.IdlePaletteKeys;
+            idle.Clear();
             foreach (KeyValuePair<string, long> pair in cached.PaletteLastUsed)
-                if (pair.Value < cutoff) (idle ??= new List<string>()).Add(pair.Key);
-            if (idle == null) return;
+                if (pair.Value < cutoff) idle.Add(pair.Key);
             foreach (string key in idle)
             {
                 cached.PaletteLastUsed.Remove(key);
                 if (cached.AnimationPalettes.Remove(key, out SkinPaletteHandle palette) && palette.IsValid)
-                    renderer.ReleaseSkinPalette(palette);
+                    cached.FreePalettes.Push(palette);
             }
+            idle.Clear();
         }
 
         private static string PaletteKey(GModelAsset asset, RuntimeModelAnimationState animation)

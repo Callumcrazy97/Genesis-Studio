@@ -311,6 +311,21 @@ public sealed class AnimationController
     /// <summary>The key of this controller's skin palette, made once rather than a string a draw.</summary>
     public string PaletteKey => _paletteKey ??= "controller:" + Id;
     private string? _paletteKey;
+
+    // Draws since the pose was last worked out for the screen, started from the id so a crowd's
+    // figures take their turns on different frames rather than all on one.
+    private int _paletteDraws = -1;
+
+    /// <summary>
+    /// True when this draw may keep the pose last drawn: a figure small on screen is posed every
+    /// <paramref name="stride"/>th draw (see <see cref="ModelLodView.AnimationRateBySize"/>).
+    /// </summary>
+    internal bool KeepsLastPose(int stride)
+    {
+        if (_paletteDraws < 0) _paletteDraws = (Id.GetHashCode() & int.MaxValue) % 4;
+        if (stride <= 1) return false;
+        return ++_paletteDraws % stride != 0;
+    }
     public Dictionary<string, object> Parameters { get; }
     public Dictionary<int, AnimationBlendTree> Trees { get; } = [];
     public SortedDictionary<int, AnimationLayer> Layers { get; } = new() { [0] = new() };

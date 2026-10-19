@@ -34,6 +34,17 @@ namespace Genesis.Runtime.Modeling
         /// <summary>Models smaller than this fraction of the screen's height are not drawn.</summary>
         public static float CullSize { get; set; } = 0.0025f;
 
+        /// <summary>
+        /// Animation detail by size on screen: a figure drawn at level 2 is posed every second draw
+        /// and one at level 3 every fourth, keeping its last pose between (about 17 and 44 metres
+        /// away for a person at a 60 degree view). Off poses every figure every draw.
+        /// </summary>
+        public static bool AnimationRateBySize { get; set; } = true;
+
+        /// <summary>How many draws one pose of an animated model at <paramref name="level"/> lasts.</summary>
+        public static int AnimationStride(int level) =>
+            !AnimationRateBySize || !Active ? 1 : level >= 3 ? 4 : level == 2 ? 2 : 1;
+
         /// <summary>Models drawn at each level since the view began, and those too small to draw.</summary>
         public static int[] LevelCounts { get; } = new int[4];
         public static int CulledSmall { get; private set; }
