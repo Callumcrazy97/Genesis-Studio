@@ -319,9 +319,10 @@ public static partial class PgslCommands
     private static IReadOnlyList<Vector3> FindPath(NavigationSession session, Vector3 from, Vector3 to, bool planarXY = false)
     {
         if (session.Query is null) return [to];
-        if (!planarXY) return session.Query.FindPath(from, to);
-        return session.Query.FindPath(new Vector3(from.X, 0, from.Y), new Vector3(to.X, 0, to.Y))
-            .Select(point => new Vector3(point.X, point.Z, from.Z)).ToArray();
+        if (!planarXY) return session.Query.FindRoute(from, to);
+        // The route keeps the links it crosses.
+        return session.Query.FindRoute(new Vector3(from.X, 0, from.Y), new Vector3(to.X, 0, to.Y))
+            .Moved(point => new Vector3(point.X, point.Z, from.Z));
     }
 
     private static bool TryFindNamedEntity(RuntimeScene scene, string name, Entity self, out Vector3 position)

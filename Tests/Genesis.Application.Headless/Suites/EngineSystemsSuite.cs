@@ -731,6 +731,17 @@ internal static class EngineSystemsSuite
             Check(agent.HasArrived && agent.DistanceRemaining == 0 && Vector3.Distance(point, new(10.5f, 0, 10.5f)) < .001, "Agent overshot or did not arrive.");
             PgslCommands.NavMeshAgentSetDestination(-10, 0, -10);
             Check(!agent.HasArrived && agent.DistanceRemaining == -1, "An unreachable path reported success.");
+            // A script's link cheaper than the walk is taken, and the agent says when it is on it.
+            double link = PgslCommands.NavMeshAddLink(1.5, 0, 5.5, 9.5, 0, 5.5, true, 1);
+            double linked = PgslCommands.NavMeshPathFind(1.5, 0, 5.5, 9.5, 0, 5.5);
+            Check(link > 0 && PgslCommands.NavMeshPathGetWaypointCount(linked) == 2 && PgslCommands.NavMeshPathGetWaypointLink(linked, 0) == link
+                && PgslCommands.NavMeshPathGetWaypointLink(linked, 1) == 0, "A script's link was not taken.");
+            context.X = 1.5; context.Z = 5.5;
+            PgslCommands.NavMeshAgentSetDestination(9.5, 0, 5.5);
+            agent.Update(new(1.5f, 0, 5.5f), .2f);
+            Check(PgslCommands.NavMeshAgentGetLink() == link && Math.Abs(PgslCommands.NavMeshAgentGetLinkProgress() - .5) < .01,
+                $"The agent did not say it was half way across the link ({PgslCommands.NavMeshAgentGetLink()}, {PgslCommands.NavMeshAgentGetLinkProgress()}).");
+            Check(PgslCommands.NavMeshRemoveLink(link) && !PgslCommands.NavMeshRemoveLink(link), "A script's link was not taken away once.");
             game.SetRoom(RoomAsset.Create("Different", RoomDimension.ThreeD));
             Check(PgslCommands.NavMeshPathFind(.5, 0, .5, 2.5, 0, 2.5) == -1, "Navigation leaked between rooms.");
         }));
@@ -755,6 +766,51 @@ internal static class EngineSystemsSuite
             roads.SetAreaCost(0, 0, 12, 0.9f, 0.1f);
             var road = roads.FindPath(new Vector3(1.5f, 0, 2.5f), new Vector3(10.5f, 0, 2.5f));
             Check(road.Any(point => point.Z < 1f), "A route did not take a cheap road worth its detour.");
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Navigation.LinksJoinWhatWalkingCannot", () =>
+        {
+            // A 4 m cliff at x = 10, with a ramp round it beyond z = 11.5: walking from one side to
+            // the other goes round by the ramp until a link (a jump down, a ladder) is added.
+            var cliff = NavMeshBuilder.Build(0, 0, 20, 14, 1, (x, z) =>
+                z >= 11.5f ? Math.Clamp((x - 6) * 0.5f, 0, 4) : x >= 10 ? 4 : 0);
+            var query = new NavMeshQuery(cliff);
+            Vector3 low = new(3.5f, 0, 3.5f), high = new(16.5f, 4, 3.5f);
+            static bool ByRamp(NavMeshRoute route) => route.Any(point => point.Z > 11f);
+            Check(query.FindRoute(low, high) is { Count: > 2 } up && ByRamp(up) && !up.HasLinks, "Without links the route did not go round by the ramp.");
+
+            int jump = query.AddLink(new Vector3(10.5f, 4, 3.5f), new Vector3(8.5f, 0, 3.5f), bothWays: false);
+            NavMeshRoute down = query.FindRoute(high, low);
+            int crossing = Enumerable.Range(0, down.Count - 1).FirstOrDefault(i => down.LinkAt(i) == jump, -1);
+            Check(jump > 0 && crossing >= 0 && !ByRamp(down) && down[crossing].X > 10 && down[crossing + 1].X < 10 && Near(down[crossing + 1].Y, 0f),
+                $"A route down did not take the jump ({down.Count} points, link at {crossing}).");
+            for (int i = 0; i < down.Count - 1; i++)
+                if (i != crossing) Check(query.CanTravel(down[i], down[i + 1]), $"A walked stretch of the route ({i}) cannot be walked.");
+            Check(ByRamp(query.FindRoute(low, high)), "A one-way jump down was climbed.");
+
+            // An agent crosses the link straight (it cannot walk it) and says it is on it.
+            var agent = new NavMeshAgent { Speed = 4 };
+            agent.SetPath(down);
+            Vector3 at = high;
+            bool sawLink = false, sawMiddle = false;
+            for (int frame = 0; frame < 600 && !agent.HasArrived; frame++)
+            {
+                at = agent.Update(at, 0.05f, (a, b) => query.CanTravel(a, b));
+                sawLink |= agent.CurrentLink == jump;
+                sawMiddle |= agent.CurrentLink == jump && agent.LinkProgress > 0.05f && agent.LinkProgress < 0.95f;
+            }
+            Check(agent.HasArrived && sawLink && sawMiddle && agent.CurrentLink == 0 && Vector3.Distance(at, low) < 0.2f,
+                $"The agent did not cross the link to the end (arrived {agent.HasArrived}, on it {sawLink}, part way {sawMiddle}, at {at}).");
+
+            Check(query.RemoveLink(jump) && ByRamp(query.FindRoute(high, low)) && !query.RemoveLink(jump), "A removed link was still taken.");
+
+            // Cost: a ladder dearer than the walk round is left alone; one at its length is climbed.
+            int dear = query.AddLink(new Vector3(8.5f, 0, 5.5f), new Vector3(10.5f, 4, 5.5f), cost: 1000);
+            Check(dear > 0 && ByRamp(query.FindRoute(low, high)), "A link dearer than walking round was taken.");
+            int ladder = query.AddLink(new Vector3(8.5f, 0, 6.5f), new Vector3(10.5f, 4, 6.5f));
+            NavMeshRoute climb = query.FindRoute(low, high);
+            Check(!ByRamp(climb) && Enumerable.Range(0, climb.Count - 1).Any(i => climb.LinkAt(i) == ladder), "A ladder that saves the walk round was not climbed.");
+            Check(query.AddLink(new Vector3(-5, 0, 0), new Vector3(8.5f, 0, 6.5f)) == 0, "A link off the grid was added.");
         });
 
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Navigation.ObstaclesAndPersistence", () =>

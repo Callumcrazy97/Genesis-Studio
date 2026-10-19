@@ -120,6 +120,36 @@ public static partial class PgslCommands
     public static double NavMeshGetAreaCost(double x, double z) =>
         Navigation()?.Query?.AreaCostAt(new Vector3((float)x, 0, (float)z)) ?? 1;
 
+    [PgslCommand("NavMeshAddLink", "NavMeshAddLink(x1, y1, z1, x2, y2, z2, bothWays?, cost?) -> number",
+        "Let routes go straight between two points walking cannot join (a jump down, a gap, a ladder, a door): one way unless bothWays (the default), for cost (the link's length when left out; more makes routes walk round instead). In a 2D room x, y are the point and z is not used. Set after NavMeshBake or a room load. Returns the link's id, 0 when an end is off the grid or cannot be stood on", "Navigation")]
+    public static double NavMeshAddLink(double x1, double y1, double z1, double x2, double y2, double z2, bool bothWays = true, double cost = 0)
+    {
+        var session = Navigation();
+        if (session?.Query == null || !Finite3(x1, y1, z1) || !Finite3(x2, y2, z2) || !double.IsFinite(cost)) return 0;
+        bool planarXY = ActiveGameContext?.Room?.Dimension == Genesis.Runtime.Scene.RoomDimension.TwoD;
+        Vector3 start = planarXY ? new((float)x1, 0, (float)y1) : new((float)x1, (float)y1, (float)z1);
+        Vector3 end = planarXY ? new((float)x2, 0, (float)y2) : new((float)x2, (float)y2, (float)z2);
+        return session.Query.AddLink(start, end, bothWays, (float)cost);
+    }
+
+    [PgslCommand("NavMeshRemoveLink", "NavMeshRemoveLink(linkId) -> bool", "Take a link away (routes already found keep it); false when there is no such link", "Navigation")]
+    public static bool NavMeshRemoveLink(double id) =>
+        double.IsFinite(id) && id >= 1 && id <= int.MaxValue && Navigation()?.Query?.RemoveLink((int)id) == true;
+
+    [PgslCommand("NavMeshPathGetWaypointLink", "NavMeshPathGetWaypointLink(pathId, index) -> number",
+        "The link a route crosses from this waypoint to the next (its id from NavMeshAddLink), 0 where it is walked", "Navigation")]
+    public static double NavMeshPathGetWaypointLink(double id, double index) =>
+        NavigationPath(id) is NavMeshRoute route && double.IsFinite(index) && index == Math.Truncate(index) && index >= 0 && index < int.MaxValue
+            ? route.LinkAt((int)index) : 0;
+
+    [PgslCommand("NavMeshAgentGetLink", "NavMeshAgentGetLink() -> number",
+        "The link this agent is crossing (it goes straight to the far end; play a jump or climb), 0 while it walks", "Navigation")]
+    public static double NavMeshAgentGetLink() => Agent()?.CurrentLink ?? 0;
+
+    [PgslCommand("NavMeshAgentGetLinkProgress", "NavMeshAgentGetLinkProgress() -> number",
+        "How far across its link this agent is, 0 to 1 (for an arc or an animation's time); 0 while it walks", "Navigation")]
+    public static double NavMeshAgentGetLinkProgress() => Agent()?.LinkProgress ?? 0;
+
     [PgslCommand("NavMeshPathFind", "NavMeshPathFind(startX, startY, startZ, endX, endY, endZ) -> number", "Find a smoothed route; -1 means no route or mesh", "Navigation")]
     public static double NavMeshPathFind(double startX, double startY, double startZ, double endX, double endY, double endZ)
     {
@@ -315,7 +345,9 @@ public static partial class PgslCommands
                     length + .35f, out _, entity) != true;
             }, avoidance);
             int cell = session.Query?.Data.Cell(component.Agent.PlanarXY ? new Vector3(to.X, 0, to.Y) : to) ?? -1;
-            if (!component.Agent.PlanarXY && session.Query != null && cell >= 0) to.Y = session.Query.Data.Heights[cell];
+            // On a link the agent goes straight from one end's height to the other's.
+            if (!component.Agent.PlanarXY && session.Query != null && cell >= 0 && component.Agent.CurrentLink == 0)
+                to.Y = session.Query.Data.Heights[cell];
             transform.X = to.X; transform.Y = to.Y; transform.Z = to.Z;
             if (hasCrowd)
             {

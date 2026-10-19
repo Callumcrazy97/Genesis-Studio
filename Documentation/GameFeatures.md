@@ -220,6 +220,22 @@ the route's smoothing never cuts back across ground dearer than the route itself
 `NavMeshGetAreaCost(x, z)` reads a cell's cost back. Costs are not saved with the grid: set them
 after baking or after the room loads (its Create event), and routes found before keep their way.
 
+### Jumps, gaps and ladders
+
+`NavMeshAddLink(x1, y1, z1, x2, y2, z2)` joins two points that walking cannot join, such as a ledge
+to jump down from, a gap to leap, a ladder or a door, and returns the link's id. Routes take a link
+when it is the cheaper way. `NavMeshAddLink(..., false)` makes it one way, for a drop that cannot be
+climbed back. `NavMeshAddLink(..., true, cost)` gives it a cost: by default the cost is the link's
+length, and more makes routes walk round unless the walk is longer.
+
+An agent crosses a link in a straight line from one end to the other, height included, and nothing
+in the way stops it. `NavMeshAgentGetLink()` says which link it is on (0 while it walks), and
+`NavMeshAgentGetLinkProgress()` says how far across it is, from 0 to 1, for a jump's arc or a climb
+animation's time. A script that follows its own route reads
+`NavMeshPathGetWaypointLink(path, index)`, which gives the link from that waypoint to the next.
+`NavMeshRemoveLink(id)` takes a link away. Like costs, links are not saved with the grid. In a 2D
+room, x and y are the point and z is not used.
+
 ## Heads that look at things (19 October 2026)
 
 `AnimationBoneLookAt("Head", x, y, z)` turns a bone to face a point in the world after the animation
