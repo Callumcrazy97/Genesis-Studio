@@ -239,7 +239,7 @@ height there and plant the foot on it:
 
 ```
 fx = ModelSocketX("Foot.L"); fy = ModelSocketY("Foot.L"); fz = ModelSocketZ("Foot.L");
-if (PhysicsRaycast(fx, fy + 0.5, fz, 0, -1, 0, 1.2)) {
+if (PhysicsRaycast(fx, fy + 0.5, fz, 0, -1, 0, 1.2) >= 0) {
     AnimationBoneReach("Foot.L", fx, PhysicsRaycastHitY() + 0.08, fz, 1);
 } else {
     AnimationBoneClearReach("Foot.L");
