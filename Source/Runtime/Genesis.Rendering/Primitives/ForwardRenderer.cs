@@ -6376,16 +6376,21 @@ namespace Genesis.Rendering.Primitives
         {
             _submittedSkinPalettes.Clear();
             // Batches not drawn again this frame go back to the pool; this frame's wait a frame for
-            // their own key (RentBatch).
-            foreach (var b in _previousBatches.Values)
-                _batchPool.Push(b);
-            _previousBatches.Clear();
-            foreach (var b in _batchList)
-                b.Instances.Clear();
-            foreach (var pair in _batches)
-                _previousBatches[pair.Key] = pair.Value;
-            _batches.Clear();
-            _batchList.Clear();
+            // their own key (RentBatch). A clear with nothing drawn since the last one keeps them
+            // waiting: Flush and BeginSubmitFrame both clear, and the second sent every kept batch
+            // to the pool (Golden Stag's foliage lists regrew each frame).
+            if (_batches.Count > 0)
+            {
+                foreach (var b in _previousBatches.Values)
+                    _batchPool.Push(b);
+                _previousBatches.Clear();
+                foreach (var b in _batchList)
+                    b.Instances.Clear();
+                foreach (var pair in _batches)
+                    _previousBatches[pair.Key] = pair.Value;
+                _batches.Clear();
+                _batchList.Clear();
+            }
             foreach (var b in _skinnedBatchList)
             {
                 b.Instances.Clear();

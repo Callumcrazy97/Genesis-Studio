@@ -193,9 +193,13 @@ namespace Genesis.Runtime.Rendering
                 cull = false;
 
             int drawCount = count;
-            world.Query<TransformComponent, Draw3DComponent>((entity, ref transform, ref draw3d) =>
+            // The delegate-free query: the lambda was a closure (drawCount, buffer, frustum...) every frame.
+            foreach (var item in world.Query<TransformComponent, Draw3DComponent>())
             {
-                if (!draw3d.Visible || drawCount >= buffer.Length) return;
+                Entity entity = item.Entity;
+                ref TransformComponent transform = ref item.C1;
+                ref Draw3DComponent draw3d = ref item.C2;
+                if (!draw3d.Visible || drawCount >= buffer.Length) continue;
 
                 Vector3 pos = new(transform.X, transform.Y, transform.Z);
                 bool measured = false;
@@ -221,16 +225,16 @@ namespace Genesis.Runtime.Rendering
                 }
                 if (cull && !IsPosedByAnimation(world, entity)
                     && !Visibility.IsVisible(frustum, viewProjection, pos, radius, occlude))
-                    return;
+                    continue;
                 // A model that would cover a pixel or two costs a draw call and shows nothing.
                 if (measured && ModelLodView.Active && ModelLodView.LevelFor(pos, radius) < 0)
                 {
                     ModelLodView.Count(-1);
-                    return;
+                    continue;
                 }
 
                 bool hasAssets = ObjectDrawAssetRegistry.TryGet(entity, out ObjectDrawAssetEntry assets);
-                if (hasAssets && assets.Is3D == false) return;
+                if (hasAssets && assets.Is3D == false) continue;
 
                 if (draw3d.Procedural && ProceduralMeshDrawRegistry.TryGet(entity, out MeshDrawCall[] procedural))
                 {
@@ -249,7 +253,7 @@ namespace Genesis.Runtime.Rendering
                     }
                     if (hasAssets) MarkOutline(assets, entity, buffer, first, drawCount);
                     RenderAutoState.SubmittedMeshes += added;
-                    return;
+                    continue;
                 }
 
                 if (world.Has<ModelRendererComponent>(entity))
@@ -280,16 +284,16 @@ namespace Genesis.Runtime.Rendering
                                 drawCount = ExpandObjectShaderPasses(renderer, projectPath, assets, shader, buffer, before, drawCount);
                             if (hasAssets) MarkOutline(assets, entity, buffer, before, drawCount);
                             RenderAutoState.SubmittedMeshes += drawCount - before;
-                            return;
+                            continue;
                         }
                     }
                 }
 
                 if (!hasAssets)
-                    return;
+                    continue;
 
                 string image = ResolveImageName(entity, world, assets);
-                if (!HasAuthoredGeometry(assets, image)) return;
+                if (!HasAuthoredGeometry(assets, image)) continue;
                 int frameIndex = ReadSpriteFrameIndex(world, entity);
                 TextureHandle tex = TextureHandle.Invalid;
                 if (assets.TerrainTextureMode == null && !string.IsNullOrWhiteSpace(image)) TryGetTexture(renderer, projectPath, image, frameIndex, out tex, out _, out _, TextureColorSpace.Srgb);
@@ -302,7 +306,7 @@ namespace Genesis.Runtime.Rendering
                 MarkOutline(assets, entity, buffer, cubeStart, drawCount);
                 RenderAutoState.SubmittedMeshes += cubePasses;
                 if ((cube.Flags & MeshDrawFlags.NoShadow) == 0) RenderAutoState.ShadowCastersSubmitted++;
-            });
+            }
             count = drawCount;
         }
 

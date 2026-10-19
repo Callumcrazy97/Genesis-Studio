@@ -74,13 +74,20 @@ public static class ModelSocketRuntime
     {
         socketWorld = Matrix4x4.Identity;
         if (asset is null) return false;
-        GModelSocket? socket = asset.Sockets?.FirstOrDefault(candidate =>
-            string.Equals(candidate.Name, socketName, StringComparison.OrdinalIgnoreCase));
+        // Loops, not FirstOrDefault/FindIndex: their lambda captured socketName, a closure and a
+        // delegate for every attached child every frame (Golden Stag village).
+        GModelSocket? socket = null;
+        if (asset.Sockets is { } sockets)
+            foreach (GModelSocket candidate in sockets)
+                if (string.Equals(candidate.Name, socketName, StringComparison.OrdinalIgnoreCase)) { socket = candidate; break; }
         var bones = asset.Rig?.Bones;
         if (socket is null)
         {
             // No socket of that name: a bone's own name is where that bone is.
-            int bone = bones?.FindIndex(candidate => string.Equals(candidate.Name, socketName, StringComparison.OrdinalIgnoreCase)) ?? -1;
+            int bone = -1;
+            if (bones is not null)
+                for (int i = 0; i < bones.Count; i++)
+                    if (string.Equals(bones[i].Name, socketName, StringComparison.OrdinalIgnoreCase)) { bone = i; break; }
             if (bone < 0) return false;
             socketWorld = GModelPrimitiveFactory.ComputeBoneWorld(bones, GModelPrimitiveFactory.EvaluateAnimatedLocalsScratch(asset, animation), bone) * modelWorld;
             return IsUsable(socketWorld);

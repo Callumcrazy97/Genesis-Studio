@@ -1088,9 +1088,12 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
         return Math.Max(value, capacity);
     }
 
+    // Kept between frames: a new list a frame regrew its array each time (Golden Stag village).
+    private readonly List<MeshDrawCall> _waterDraws = new();
+
     private void SubmitWater(Entry entry, Vector3 camera, Matrix4x4 placement, IRenderController renderer, MeshDrawCall[] buffer, ref int count)
     {
-        var draws = new List<MeshDrawCall>(1);
+        List<MeshDrawCall> draws = _waterDraws;
         foreach (WaterRuntime water in entry.Waters)
         {
             draws.Clear();
