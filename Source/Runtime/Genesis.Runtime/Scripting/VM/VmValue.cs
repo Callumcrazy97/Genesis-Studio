@@ -43,9 +43,23 @@ internal readonly struct VmValue
         if (IsBoolean) return _number != 0;
         return _reference;
     }
+    // The text of small whole numbers, made once: HUDs write "Score: " + score and "Item " + i every
+    // frame, and each number's text was a new string (benchmark scenes, GUI).
+    private static readonly string[] SmallWholeNumbers = BuildSmallWholeNumbers();
+
+    private static string[] BuildSmallWholeNumbers()
+    {
+        var texts = new string[1024];
+        for (int i = 0; i < texts.Length; i++) texts[i] = i.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        return texts;
+    }
+
     public override string ToString()
     {
         // Text the same on every PC: a decimal point whatever the locale, and true/false as written.
+        if ((ReferenceEquals(_reference, DoubleMarker) || ReferenceEquals(_reference, IntegerMarker))
+            && _number >= 0 && _number < SmallWholeNumbers.Length && _number == Math.Floor(_number) && !double.IsNegative(_number))
+            return SmallWholeNumbers[(int)_number];
         if (ReferenceEquals(_reference, DoubleMarker)) return _number.ToString(System.Globalization.CultureInfo.InvariantCulture);
         if (ReferenceEquals(_reference, IntegerMarker)) return ((int)_number).ToString(System.Globalization.CultureInfo.InvariantCulture);
         if (IsBoolean) return _number != 0 ? "true" : "false";
