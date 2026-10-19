@@ -790,19 +790,19 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
         // In TryInvokeKnown's order: a worker's reads and Script resources keep their own way; then
         // a registered property command (DeltaTime), or a plain property no command or namespaced
         // name claims.
-        if (_workerAllows != null || string.IsNullOrWhiteSpace(name)
+        if (_workerAllows != null || string.IsNullOrWhiteSpace(name) || NotTypedProperties.ContainsKey(name)
             || name.StartsWith("scr_", StringComparison.OrdinalIgnoreCase) || ScriptAssetRegistry.TryGet(name.Trim(), out _))
             return false;
         string propertyName = name;
         if (_commandDefs.TryGetValue(name, out CommandDef def))
         {
-            if (!def.IsProperty) return false;
+            if (!def.IsProperty) return NotTyped(name);
             propertyName = def.Name;
         }
         else if (PgslNamespaceResolver.TryResolveEngineCommand(name, out _, out _))
-            return false;
+            return NotTyped(name);
         PropertyInfo property = GetOrCacheProperty(propertyName);
-        if (property?.GetMethod is not { IsStatic: true } getter) return false;
+        if (property?.GetMethod is not { IsStatic: true } getter) return NotTyped(name);
         Func<VmValue> read = TypedGetters.GetOrAdd(property, static (_, method) =>
         {
             if (method.ReturnType == typeof(double)) { var number = method.CreateDelegate<Func<double>>(); return () => number(); }
@@ -810,9 +810,20 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
             if (method.ReturnType == typeof(bool)) { var flag = method.CreateDelegate<Func<bool>>(); return () => flag(); }
             return null;
         }, getter);
-        if (read == null) return false;
+        if (read == null) return NotTyped(name);
         value = read();
         return true;
+    }
+
+    // Names found not to be typed engine properties (an instance's x and y, a context value),
+    // remembered so each later read goes straight to TryInvokeKnown: every read of x had paid for
+    // these lookups before falling back.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> NotTypedProperties = new(StringComparer.Ordinal);
+
+    private static bool NotTyped(string name)
+    {
+        if (NotTypedProperties.Count < 4096) NotTypedProperties.TryAdd(name, true);
+        return false;
     }
 
     private PropertyInfo GetOrCacheProperty(string pgslName)
