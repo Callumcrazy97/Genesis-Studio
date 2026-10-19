@@ -22,6 +22,16 @@ public static partial class PgslCommands
         if (string.IsNullOrWhiteSpace(text)) return false;
         string trimmed = text.Trim();
         if (InputBinding.TryParseSaved(trimmed, out binding)) return true;
+        // "Pad2 A", "Gamepad3 LB", "Pad2 LeftStick Left": controller 2 to 4 by number.
+        var numbered = System.Text.RegularExpressions.Regex.Match(trimmed, @"^(?:Pad|Gamepad)([1-4])[ :_]+(.+)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (numbered.Success)
+        {
+            int pad = numbered.Groups[1].Value[0] - '1';
+            string part = numbered.Groups[2].Value.Trim();
+            if (ParseGamepadButton(part, out GamepadButton numberedButton)) { binding = InputBinding.ForGamepad(numberedButton, pad); return true; }
+            if (Enum.TryParse(part.Replace(" ", ""), true, out GamepadDirection numberedDirection) && Enum.IsDefined(numberedDirection)) { binding = InputBinding.ForDirection(numberedDirection, pad); return true; }
+            return false;
+        }
         foreach (string prefix in new[] { "Mouse", "Gamepad", "Pad" })
         {
             if (!trimmed.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) || trimmed.Length == prefix.Length) continue;

@@ -12,8 +12,15 @@ namespace Genesis.Runtime.Input
     {
         public static InputBinding ForKey(Key key) => new(InputBindingKind.Key, (int)key);
         public static InputBinding ForMouse(MouseButton button) => new(InputBindingKind.Mouse, (int)button);
-        public static InputBinding ForGamepad(GamepadButton button) => new(InputBindingKind.Gamepad, (int)button);
-        public static InputBinding ForDirection(GamepadDirection direction) => new(InputBindingKind.Stick, (int)direction);
+        // A controller's number (0 to 3) is kept above the button or direction, so controller 0's
+        // bindings are the numbers they always were.
+        public static InputBinding ForGamepad(GamepadButton button, int pad = 0) => new(InputBindingKind.Gamepad, (int)button | (Math.Clamp(pad, 0, 3) << 8));
+        public static InputBinding ForDirection(GamepadDirection direction, int pad = 0) => new(InputBindingKind.Stick, (int)direction | (Math.Clamp(pad, 0, 3) << 8));
+
+        /// <summary>Which controller a controller binding is for, 0 to 3.</summary>
+        public int Pad => Kind is InputBindingKind.Gamepad or InputBindingKind.Stick ? (Code >> 8) & 3 : 0;
+        private int Part => Code & 0xFF;
+        private string PadName => Pad == 0 ? "Pad" : "Pad" + (Pad + 1);
 
         /// <summary>How far a stick or trigger must go to count as held.</summary>
         public const float StickThreshold = 0.5f;
@@ -22,8 +29,8 @@ namespace Genesis.Runtime.Input
         public string DisplayName => Kind switch
         {
             InputBindingKind.Mouse => "Mouse " + (MouseButton)Code,
-            InputBindingKind.Gamepad => "Pad " + (GamepadButton)Code,
-            InputBindingKind.Stick => "Pad " + (GamepadDirection)Code,
+            InputBindingKind.Gamepad => PadName + " " + (GamepadButton)Part,
+            InputBindingKind.Stick => PadName + " " + (GamepadDirection)Part,
             _ => ((Key)Code).ToString(),
         };
 
@@ -31,8 +38,8 @@ namespace Genesis.Runtime.Input
         public string SavedName => Kind switch
         {
             InputBindingKind.Mouse => "Mouse:" + (MouseButton)Code,
-            InputBindingKind.Gamepad => "Pad:" + (GamepadButton)Code,
-            InputBindingKind.Stick => "Stick:" + (GamepadDirection)Code,
+            InputBindingKind.Gamepad => PadName + ":" + (GamepadButton)Part,
+            InputBindingKind.Stick => (Pad == 0 ? "Stick" : "Stick" + (Pad + 1)) + ":" + (GamepadDirection)Part,
             _ => "Key:" + (Key)Code,
         };
 
@@ -42,15 +49,23 @@ namespace Genesis.Runtime.Input
             int colon = text?.IndexOf(':') ?? -1;
             if (colon <= 0) return false;
             string kind = text[..colon].Trim(), name = text[(colon + 1)..].Trim();
+            // "Pad2", "Stick3": the controller's number, 1 to 4, after the kind.
+            int pad = 0;
+            if (kind.Length > 3 && char.IsDigit(kind[^1]) && (kind.StartsWith("Pad", StringComparison.OrdinalIgnoreCase) || kind.StartsWith("Stick", StringComparison.OrdinalIgnoreCase)))
+            {
+                pad = kind[^1] - '1';
+                if (pad < 0 || pad > 3) return false;
+                kind = kind[..^1];
+            }
             if (kind.Equals("Key", StringComparison.OrdinalIgnoreCase) && Enum.TryParse(name, true, out Key key) && Enum.IsDefined(key) && key != Key.Unknown)
                 binding = ForKey(key);
             else if (kind.Equals("Mouse", StringComparison.OrdinalIgnoreCase) && Enum.TryParse(name, true, out MouseButton mouse) && Enum.IsDefined(mouse))
                 binding = ForMouse(mouse);
-            else if (kind.Equals("Pad", StringComparison.OrdinalIgnoreCase) && Enum.TryParse(name, true, out GamepadButton pad) && Enum.IsDefined(pad))
-                binding = ForGamepad(pad);
+            else if (kind.Equals("Pad", StringComparison.OrdinalIgnoreCase) && Enum.TryParse(name, true, out GamepadButton padButton) && Enum.IsDefined(padButton))
+                binding = ForGamepad(padButton, pad);
             else if ((kind.Equals("Stick", StringComparison.OrdinalIgnoreCase) || kind.Equals("Pad", StringComparison.OrdinalIgnoreCase))
                 && Enum.TryParse(name.Replace(" ", ""), true, out GamepadDirection direction) && Enum.IsDefined(direction))
-                binding = ForDirection(direction);
+                binding = ForDirection(direction, pad);
             else return false;
             return true;
         }
@@ -108,7 +123,7 @@ namespace Genesis.Runtime.Input
             for (int i = 0; i < bindings.Count; i++)
             {
                 InputBinding binding = bindings[i];
-                float value = binding.Kind == InputBindingKind.Stick ? input.DirectionValue((GamepadDirection)binding.Code)
+                float value = binding.Kind == InputBindingKind.Stick ? input.DirectionValue(binding.Pad, (GamepadDirection)(binding.Code & 0xFF))
                     : Hit(input, binding, 0) ? 1f : 0f;
                 if (value > strongest) strongest = value;
             }
@@ -130,8 +145,9 @@ namespace Genesis.Runtime.Input
         {
             if (binding.Kind == InputBindingKind.Stick)
             {
-                float now = input.DirectionValue((GamepadDirection)binding.Code);
-                float before = input.PreviousDirectionValue((GamepadDirection)binding.Code);
+                var direction = (GamepadDirection)(binding.Code & 0xFF);
+                float now = input.DirectionValue(binding.Pad, direction);
+                float before = input.PreviousDirectionValue(binding.Pad, direction);
                 return query == 0 ? now >= InputBinding.StickThreshold
                     : query == 1 ? now >= InputBinding.StickThreshold && before < InputBinding.StickThreshold
                     : now < InputBinding.StickThreshold && before >= InputBinding.StickThreshold;
@@ -140,8 +156,8 @@ namespace Genesis.Runtime.Input
             {
                 InputBindingKind.Mouse => query == 0 ? input.IsDown((MouseButton)binding.Code)
                     : query == 1 ? input.WasPressed((MouseButton)binding.Code) : input.WasReleased((MouseButton)binding.Code),
-                InputBindingKind.Gamepad => query == 0 ? input.IsDown((GamepadButton)binding.Code)
-                    : query == 1 ? input.WasPressed((GamepadButton)binding.Code) : input.WasReleased((GamepadButton)binding.Code),
+                InputBindingKind.Gamepad => query == 0 ? input.IsDown(binding.Pad, (GamepadButton)(binding.Code & 0xFF))
+                    : query == 1 ? input.WasPressed(binding.Pad, (GamepadButton)(binding.Code & 0xFF)) : input.WasReleased(binding.Pad, (GamepadButton)(binding.Code & 0xFF)),
                 _ => query == 0 ? input.IsDown((Key)binding.Code)
                     : query == 1 ? input.WasPressed((Key)binding.Code) : input.WasReleased((Key)binding.Code),
             };
@@ -172,15 +188,17 @@ namespace Genesis.Runtime.Input
             if (pressed == null)
                 foreach (MouseButton button in Enum.GetValues<MouseButton>())
                     if (input.WasPressed(button)) { pressed = InputBinding.ForMouse(button); break; }
-            if (pressed == null)
+            for (int pad = 0; pad < InputState.MaxGamepads && pressed == null; pad++)
+            {
                 foreach (GamepadButton button in Enum.GetValues<GamepadButton>())
-                    if (input.WasPressed(button)) { pressed = InputBinding.ForGamepad(button); break; }
-            if (pressed == null)
-                foreach (GamepadDirection direction in Enum.GetValues<GamepadDirection>())
-                {
-                    InputBinding stick = InputBinding.ForDirection(direction);
-                    if (Hit(input, stick, 1)) { pressed = stick; break; }
-                }
+                    if (input.WasPressed(pad, button)) { pressed = InputBinding.ForGamepad(button, pad); break; }
+                if (pressed == null)
+                    foreach (GamepadDirection direction in Enum.GetValues<GamepadDirection>())
+                    {
+                        InputBinding stick = InputBinding.ForDirection(direction, pad);
+                        if (Hit(input, stick, 1)) { pressed = stick; break; }
+                    }
+            }
             if (pressed == null) return false;
             if (_listenReplaces) Clear(_listening);
             Bind(_listening, pressed.Value);

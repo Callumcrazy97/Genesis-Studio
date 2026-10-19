@@ -168,6 +168,20 @@ internal static class EngineSystemsSuite
             var kept = new InputState();
             Check(kept.Actions.Load(pad.Actions.Save()) == 2 && kept.Actions.BindingAt("Left", 1) == InputBinding.ForDirection(GamepadDirection.LeftStickLeft),
                 $"A stick binding did not save and load: {pad.Actions.Save().Replace('\n', ' ')}");
+            // Bindings for the second to fourth controller: local multiplayer.
+            var two = new InputState();
+            two.Actions.Bind("Jump2", InputBinding.ForGamepad(GamepadButton.A, 1));
+            two.SetGamepadButton(GamepadButton.A, true);
+            Check(!two.Actions.IsDown(two, "Jump2"), "Controller 1's A pressed an action bound to controller 2.");
+            two.SetGamepadButton(1, GamepadButton.A, true);
+            Check(two.Actions.IsDown(two, "Jump2") && two.Actions.WasPressed(two, "Jump2"), "Controller 2's A did not press its action.");
+            Check(Parsed("Pad2:A") == InputBinding.ForGamepad(GamepadButton.A, 1) && Parsed("Gamepad3 LB") == InputBinding.ForGamepad(GamepadButton.LeftBumper, 2)
+                && Parsed("Pad4 LeftStick Up") == InputBinding.ForDirection(GamepadDirection.LeftStickUp, 3) && Parsed("Pad:A") == InputBinding.ForGamepad(GamepadButton.A),
+                "A numbered controller binding was read wrongly.");
+            var twoKept = new InputState();
+            Check(twoKept.Actions.Load(two.Actions.Save()) == 1 && twoKept.Actions.BindingAt("Jump2", 0) == InputBinding.ForGamepad(GamepadButton.A, 1)
+                && twoKept.Actions.BindingAt("Jump2", 0)?.DisplayName == "Pad2 A",
+                $"A second controller's binding did not save and load: {two.Actions.Save().Replace('\n', ' ')}");
         });
 
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Animation.AHeadLooksAtAPointWithinItsLimit", () =>

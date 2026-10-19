@@ -478,15 +478,44 @@ namespace Genesis.Runtime.Input
         };
 
         /// <summary>The same value as it was in the frame before, so a push can be told from a hold.</summary>
-        public float PreviousDirectionValue(GamepadDirection direction) =>
-            (uint)direction < (uint)_previousDirections.Length ? _previousDirections[(int)direction] : 0f;
+        public float PreviousDirectionValue(GamepadDirection direction) => PreviousDirectionValue(0, direction);
 
-        private readonly float[] _previousDirections = new float[GamepadDirectionCount];
+        /// <summary><see cref="DirectionValue(GamepadDirection)"/> for controller 0 to 3.</summary>
+        public float DirectionValue(int pad, GamepadDirection direction)
+        {
+            if (pad == 0) return DirectionValue(direction);
+            if (Other(pad) is not { } other) return 0f;
+            GamepadAxes axes = other.Axes;
+            return direction switch
+            {
+                GamepadDirection.LeftStickLeft => MathF.Max(0f, -axes.LeftStick.X),
+                GamepadDirection.LeftStickRight => MathF.Max(0f, axes.LeftStick.X),
+                GamepadDirection.LeftStickUp => MathF.Max(0f, axes.LeftStick.Y),
+                GamepadDirection.LeftStickDown => MathF.Max(0f, -axes.LeftStick.Y),
+                GamepadDirection.RightStickLeft => MathF.Max(0f, -axes.RightStick.X),
+                GamepadDirection.RightStickRight => MathF.Max(0f, axes.RightStick.X),
+                GamepadDirection.RightStickUp => MathF.Max(0f, -axes.RightStick.Y),
+                GamepadDirection.RightStickDown => MathF.Max(0f, axes.RightStick.Y),
+                GamepadDirection.LeftTrigger => Math.Clamp(axes.LeftTrigger, 0f, 1f),
+                GamepadDirection.RightTrigger => Math.Clamp(axes.RightTrigger, 0f, 1f),
+                _ => 0f,
+            };
+        }
+
+        public float PreviousDirectionValue(int pad, GamepadDirection direction)
+        {
+            int index = pad * GamepadDirectionCount + (int)direction;
+            return pad >= 0 && pad < MaxGamepads && (uint)direction < GamepadDirectionCount ? _previousDirections[index] : 0f;
+        }
+
+        private readonly float[] _previousDirections = new float[GamepadDirectionCount * MaxGamepads];
         private const int GamepadDirectionCount = 10;
 
         public void NextFrame()
         {
-            for (int i = 0; i < GamepadDirectionCount; i++) _previousDirections[i] = DirectionValue((GamepadDirection)i);
+            for (int pad = 0; pad < MaxGamepads; pad++)
+                for (int i = 0; i < GamepadDirectionCount; i++)
+                    _previousDirections[pad * GamepadDirectionCount + i] = DirectionValue(pad, (GamepadDirection)i);
             _textTakenLastFrame = _textTakenThisFrame;
             _textTakenThisFrame = false;
             _pressed.Clear();
