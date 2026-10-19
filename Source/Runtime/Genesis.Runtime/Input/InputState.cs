@@ -458,8 +458,35 @@ namespace Genesis.Runtime.Input
             for (int i = 0; i < buttons.Length; i++) buttons[i] = (bits & (1 << i)) != 0;
         }
 
+        /// <summary>
+        /// How far a stick is pushed one way, or a trigger pulled, from 0 to 1 (for input actions):
+        /// up is away from you on both sticks.
+        /// </summary>
+        public float DirectionValue(GamepadDirection direction) => direction switch
+        {
+            GamepadDirection.LeftStickLeft => MathF.Max(0f, -LeftStick.X),
+            GamepadDirection.LeftStickRight => MathF.Max(0f, LeftStick.X),
+            GamepadDirection.LeftStickUp => MathF.Max(0f, LeftStick.Y),
+            GamepadDirection.LeftStickDown => MathF.Max(0f, -LeftStick.Y),
+            GamepadDirection.RightStickLeft => MathF.Max(0f, -RightStick.X),
+            GamepadDirection.RightStickRight => MathF.Max(0f, RightStick.X),
+            GamepadDirection.RightStickUp => MathF.Max(0f, -RightStick.Y),
+            GamepadDirection.RightStickDown => MathF.Max(0f, RightStick.Y),
+            GamepadDirection.LeftTrigger => Math.Clamp(LeftTrigger, 0f, 1f),
+            GamepadDirection.RightTrigger => Math.Clamp(RightTrigger, 0f, 1f),
+            _ => 0f,
+        };
+
+        /// <summary>The same value as it was in the frame before, so a push can be told from a hold.</summary>
+        public float PreviousDirectionValue(GamepadDirection direction) =>
+            (uint)direction < (uint)_previousDirections.Length ? _previousDirections[(int)direction] : 0f;
+
+        private readonly float[] _previousDirections = new float[GamepadDirectionCount];
+        private const int GamepadDirectionCount = 10;
+
         public void NextFrame()
         {
+            for (int i = 0; i < GamepadDirectionCount; i++) _previousDirections[i] = DirectionValue((GamepadDirection)i);
             _textTakenLastFrame = _textTakenThisFrame;
             _textTakenThisFrame = false;
             _pressed.Clear();

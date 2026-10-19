@@ -138,6 +138,36 @@ internal static class EngineSystemsSuite
                 && Parsed("Pad:A") == InputBinding.ForGamepad(GamepadButton.A) && Parsed("Pad LB") == InputBinding.ForGamepad(GamepadButton.LeftBumper)
                 && Parsed("Gamepad Start") == InputBinding.ForGamepad(GamepadButton.Start) && Parsed("Nonsense") == null && Parsed("") == null,
                 "A binding name was read wrongly.");
+
+            // Sticks and triggers as bindings: smooth values, held from half way, pushed and let go
+            // between frames, bindable by pushing, named and saved like the rest.
+            var pad = new InputState();
+            pad.Actions.Bind("Left", InputBinding.ForKey(Key.A));
+            pad.Actions.Bind("Left", InputBinding.ForDirection(GamepadDirection.LeftStickLeft));
+            pad.Actions.Bind("Right", InputBinding.ForDirection(GamepadDirection.LeftStickRight));
+            pad.LeftStick = new Vector2(-0.3f, 0f);
+            Check(MathF.Abs(pad.Actions.Axis(pad, "Left", "Right") + 0.3f) < 1e-4f && !pad.Actions.IsDown(pad, "Left"),
+                "A light push did not give a smooth axis, or counted as held.");
+            pad.NextFrame(); pad.LeftStick = new Vector2(-0.8f, 0f);
+            Check(pad.Actions.IsDown(pad, "Left") && pad.Actions.WasPressed(pad, "Left") && MathF.Abs(pad.Actions.Value(pad, "Left") - 0.8f) < 1e-4f,
+                "Pushing the stick past half way did not press the action.");
+            pad.NextFrame();
+            Check(pad.Actions.IsDown(pad, "Left") && !pad.Actions.WasPressed(pad, "Left"), "Holding the stick pressed the action again.");
+            pad.NextFrame(); pad.LeftStick = Vector2.Zero;
+            Check(pad.Actions.WasReleased(pad, "Left") && !pad.Actions.IsDown(pad, "Left"), "Letting the stick go did not release the action.");
+            var pushed = new InputState();
+            pushed.Actions.Listen("Up");
+            pushed.NextFrame(); pushed.LeftStick = new Vector2(0f, 0.9f);
+            Check(pushed.Actions.TakeListenedPress(pushed) && pushed.Actions.BindingAt("Up", 0) == InputBinding.ForDirection(GamepadDirection.LeftStickUp),
+                "Pushing a stick did not rebind an action that was listening.");
+            Check(Parsed("Pad:LeftStickLeft") == InputBinding.ForDirection(GamepadDirection.LeftStickLeft)
+                && Parsed("Pad RightStick Up") == InputBinding.ForDirection(GamepadDirection.RightStickUp)
+                && Parsed("Pad:LeftTrigger") == InputBinding.ForGamepad(GamepadButton.LeftTrigger)
+                && Parsed("Stick:RightTrigger") == InputBinding.ForDirection(GamepadDirection.RightTrigger),
+                "A stick binding name was read wrongly.");
+            var kept = new InputState();
+            Check(kept.Actions.Load(pad.Actions.Save()) == 2 && kept.Actions.BindingAt("Left", 1) == InputBinding.ForDirection(GamepadDirection.LeftStickLeft),
+                $"A stick binding did not save and load: {pad.Actions.Save().Replace('\n', ' ')}");
         });
 
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Animation.SmallFiguresArePosedLessOften", () =>

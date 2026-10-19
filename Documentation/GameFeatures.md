@@ -197,9 +197,9 @@ x = x + InputActionAxis("Left", "Right") * 4;
 
 A binding is a key by the name `KeyCheck` takes (`"Space"`, `"W"`, `"Key:W"`), a mouse button
 (`"Mouse:Left"`, `"Mouse Right"`) or controller 0's button by the names `GamepadCheck` takes
-(`"Pad:A"`, `"Pad LB"`, `"Gamepad Start"`); an action can have several. `InputActionCheck`,
+(`"Pad:A"`, `"Pad LB"`, `"Gamepad Start"`), or a way a stick is pushed or a trigger pulled (`"Pad:LeftStickLeft"`, `"Pad:RightStickUp"`, `"Pad LeftStick Down"`, `"Stick:RightTrigger"`, held from half way); an action can have several, so `"Left"` can be A, the left arrow and the stick at once. `InputActionCheck`,
 `InputActionPressed` and `InputActionReleased` answer for any of them, and `InputActionAxis(negative,
-positive)` gives -1, 0 or 1.
+positive)` goes from -1 to 1 (smooth with a stick, -1, 0 or 1 with keys); `InputActionValue(action)` is how strongly one is held, 0 to 1. Pushing a stick past half way presses an action, and letting it back releases it, so menus can step with the stick. A rebinding prompt also takes a stick push.
 
 To rebind, `InputActionListen("Jump")` waits for the next key, mouse button or controller button
 pressed, which replaces the action's bindings (`InputActionListen("Jump", false)` adds it instead);

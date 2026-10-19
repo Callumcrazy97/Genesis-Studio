@@ -13,7 +13,7 @@ public static partial class PgslCommands
     private static InputActions Actions => ActiveGameContext?.Input?.Actions;
 
     /// <summary>
-    /// "W", "Space", "Key:W" for keys; "Mouse:Left" (or "Mouse Left"); "Pad:A", "Pad A" or
+    /// "W", "Space", "Key:W" for keys; "Mouse:Left" (or "Mouse Left"); "Pad:LeftStickLeft" (or "Pad LeftStick Left") and the other stick directions and "Pad:LeftTrigger"; "Pad:A", "Pad A" or
     /// "Gamepad A" for controller buttons, by the names GamepadCheck takes.
     /// </summary>
     internal static bool TryParseBinding(string text, out InputBinding binding)
@@ -32,6 +32,7 @@ public static partial class PgslCommands
                 continue;
             }
             if (ParseGamepadButton(rest, out GamepadButton pad)) { binding = InputBinding.ForGamepad(pad); return true; }
+            if (Enum.TryParse(rest.Replace(" ", ""), true, out GamepadDirection direction) && Enum.IsDefined(direction)) { binding = InputBinding.ForDirection(direction); return true; }
         }
         Key key = ParseKey(trimmed);
         if (key == Key.Unknown) return false;
@@ -40,7 +41,7 @@ public static partial class PgslCommands
     }
 
     [PgslCommand("InputActionBind", "InputActionBind(action, binding) -> bool",
-        "Bind an action to a key (\"Space\"), mouse button (\"Mouse:Left\") or controller button (\"Pad:A\"); an action can have several. False when the binding is not understood", "Input")]
+        "Bind an action to a key (\"Space\"), mouse button (\"Mouse:Left\"), controller button (\"Pad:A\") or stick direction (\"Pad:LeftStickLeft\", \"Pad:RightStickUp\", \"Pad:LeftTrigger\"); an action can have several. False when the binding is not understood", "Input")]
     public static bool InputActionBind(string action, string binding)
     {
         if (Actions is not { } actions || string.IsNullOrWhiteSpace(action) || !TryParseBinding(binding, out InputBinding parsed)) return false;
@@ -60,8 +61,12 @@ public static partial class PgslCommands
     [PgslCommand("InputActionReleased", "InputActionReleased(action) -> bool", "True in the frame anything bound to the action comes up", "Input")]
     public static bool InputActionReleased(string action) => Actions?.WasReleased(ActiveGameContext.Input, action) ?? false;
 
+    [PgslCommand("InputActionValue", "InputActionValue(action) -> number",
+        "How strongly an action is held, 0 to 1: 1 for a key or button, how far a stick is pushed or a trigger pulled for those", "Input")]
+    public static double InputActionValue(string action) => Actions?.Value(ActiveGameContext.Input, action) ?? 0;
+
     [PgslCommand("InputActionAxis", "InputActionAxis(negative, positive) -> number",
-        "-1, 0 or 1 from two actions held, for moving: InputActionAxis(\"Left\", \"Right\")", "Input")]
+        "From -1 to 1 between two actions, for moving: InputActionAxis(\"Left\", \"Right\"); smooth with a stick, -1, 0 or 1 with keys", "Input")]
     public static double InputActionAxis(string negative, string positive) =>
         Actions?.Axis(ActiveGameContext.Input, negative, positive) ?? 0;
 
