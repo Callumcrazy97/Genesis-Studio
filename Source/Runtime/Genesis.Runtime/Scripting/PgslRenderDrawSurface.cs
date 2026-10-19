@@ -63,6 +63,20 @@ namespace Genesis.Runtime.Scripting
             _isGui = isGui;
         }
 
+        /// <summary>Whether this surface was made with these, so a dispatch can use it again next frame.</summary>
+        internal bool Matches(IRenderController renderer, IHudCanvas hud, int width, int height, IRenderCommandSink commands,
+            string projectPath, bool is3DActive, bool isGui) =>
+            ReferenceEquals(_renderer, renderer) && ReferenceEquals(_hud, hud) && _width == width && _height == height
+            && ReferenceEquals(_commands, commands) && string.Equals(_projectPath, projectPath, StringComparison.Ordinal)
+            && _is3DActive == is3DActive && _isGui == isGui;
+
+        /// <summary>Back to how a new surface starts (no clip, ordinary blending), for its next frame.</summary>
+        internal void ResetFrameState()
+        {
+            _clip = default;
+            _blendLinear = false;
+        }
+
         public bool Is3DActive => _is3DActive;
         public Size GuiSize => _isGui ? new Size(_width, _height) : Size.Empty;
 

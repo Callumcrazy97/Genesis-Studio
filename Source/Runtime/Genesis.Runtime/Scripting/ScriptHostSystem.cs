@@ -477,14 +477,7 @@ namespace Genesis.Runtime.Scripting
             {
                 if (b is not PgslBehavior pgsl || !pgsl.HasWorldDrawScript) continue;
                 if (b.World == null || !b.World.IsAlive(b.Entity)) continue;
-                surface ??= new PgslRenderDrawSurface(
-                    renderer,
-                    hud: null,
-                    _context.RenderWidth > 0 ? _context.RenderWidth : 1280,
-                    _context.RenderHeight > 0 ? _context.RenderHeight : 720,
-                    commands,
-                    _context.ResolveAssetPath("."),
-                    is3DActive: is3D);
+                surface ??= WorldSurface(renderer, commands, is3D);
                 if (_context.Camera is not null)
                 {
                     pgsl.Context.View3D = _context.Camera.ViewMatrix;
@@ -493,6 +486,23 @@ namespace Genesis.Runtime.Scripting
                 try { pgsl.OnDrawWorldFrame(surface); }
                 catch (Exception ex) { LogBehaviorError(b, "PGSL Draw", ex); }
             }
+        }
+
+        private PgslRenderDrawSurface _worldSurface;
+
+        // One world-draw surface while nothing it was made with changes, reset for each frame: a new
+        // one every frame was the largest allocation left in Cathedral Test's frames.
+        private PgslRenderDrawSurface WorldSurface(IRenderController renderer, IRenderCommandSink commands, bool is3D)
+        {
+            int width = _context.RenderWidth > 0 ? _context.RenderWidth : 1280;
+            int height = _context.RenderHeight > 0 ? _context.RenderHeight : 720;
+            string projectPath = _context.ResolveAssetPath(".");
+            if (_worldSurface is not null && _worldSurface.Matches(renderer, null, width, height, commands, projectPath, is3D, false))
+            {
+                _worldSurface.ResetFrameState();
+                return _worldSurface;
+            }
+            return _worldSurface = new PgslRenderDrawSurface(renderer, hud: null, width, height, commands, projectPath, is3DActive: is3D);
         }
 
         public void DispatchPgslGuiDraw(IRenderController renderer, IHudCanvas hud, IPgslDrawSurface surfaceOverride = null)
