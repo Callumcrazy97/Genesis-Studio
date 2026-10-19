@@ -285,6 +285,7 @@ internal static class AutomationSuite
             HeadlessHarness.Assert(!Call("game.run", """{ "steps": [ { "press": ["Escape"] } ] }""").Ok, "Escape, which ends a replay, was accepted.");
             HeadlessHarness.Assert(Call("game.run", """{ "steps": [ { "press": ["Jump"] } ] }""").Message.Contains("is not a key", StringComparison.Ordinal), "An unknown key was not explained.");
             HeadlessHarness.Assert(!Call("game.run", """{ "steps": [ { "seconds": 2 } ], "shots": [5] }""").Ok, "A picture after the run's end was accepted.");
+            HeadlessHarness.Assert(Call("game.benchmark", """{ "seconds": 0.5 }""").Message.Contains("Measure 1 to 900", StringComparison.Ordinal), "A benchmark too short to mean anything was accepted.");
             HeadlessHarness.Assert(Genesis.Runtime.Project.TimedShots.Parse("9, 2,x,5.5").SequenceEqual(new[] { 2f, 5.5f, 9f }), "GENESIS_SHOTS was not read in order.");
         });
 

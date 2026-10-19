@@ -16,7 +16,7 @@ namespace Genesis.Application.Core.Automation;
 /// </summary>
 public static class GameRunCommands
 {
-    public static IEnumerable<IAutomationCommand> All() => [new GameRun()];
+    public static IEnumerable<IAutomationCommand> All() => [new GameRun(), new GameBenchmark()];
 
     public const float FramesPerSecond = 60f;
 
@@ -213,12 +213,124 @@ public static class GameRunCommands
         }
 
         /// <summary>A path inside the project as the project-relative path commands use; anywhere else as it is.</summary>
-        private static string Shown(AutomationContext context, string path)
+        internal static string Shown(AutomationContext context, string path)
         {
             string full = Path.GetFullPath(path);
             return full.StartsWith(Path.GetFullPath(context.Root), StringComparison.OrdinalIgnoreCase) ? context.Relative(full) : full;
         }
 
         private static string Truncate(string text, int length) => text.Length <= length ? text : text[..length] + "\n...";
+    }
+
+    public sealed class BenchmarkInput
+    {
+        [Description("The room to measure, by name (default the game's start room).")] public string? Room { get; set; }
+        [Description("Seconds measured after the warm-up (default 20).")] public float? Seconds { get; set; }
+        [Description("Seconds of play before measuring starts, not counted (default 5).")] public float? WarmupSeconds { get; set; }
+        [Description("Scripted input played meanwhile, as game.run takes it (a walk or a camera turn); without it the game is left standing.")]
+        public List<InputStep>? Steps { get; set; }
+        [Description("Fail the run if the 95th-percentile frame takes longer than this, milliseconds.")] public double? P95BudgetMilliseconds { get; set; }
+        [Description("Fail the run if the 99th-percentile frame takes longer than this, milliseconds.")] public double? P99BudgetMilliseconds { get; set; }
+        [Description("Fail the run if the game allocates more than this many kilobytes a frame on average.")] public double? AllocationBudgetKilobytesPerFrame { get; set; }
+    }
+
+    /// <summary>
+    /// The Player's own benchmark (--benchmark-output) as a command: frame times, allocation, memory,
+    /// draw calls and the scripts that cost most, with budgets that fail the run, so "faster" and
+    /// "slower" are numbers a caller can compare from one change to the next.
+    /// </summary>
+    public sealed class GameBenchmark : AutomationCommand<BenchmarkInput>
+    {
+        public override string Name => "game.benchmark";
+        public override string Description => "Measures the game running (optionally with scripted input): median, 95th and 99th percentile and worst frame times, allocation a frame, collector pauses, memory, draw calls and the costliest scripts; budgets given fail the run when exceeded.";
+        public override bool ChangesProject => false;
+
+        protected override AutomationResult Execute(AutomationContext context, BenchmarkInput input)
+        {
+            double seconds = input.Seconds ?? 20, warmup = input.WarmupSeconds ?? 5;
+            if (seconds is < 1 or > 900 || warmup is < 0 or > 120) throw new AutomationException("Measure 1 to 900 seconds after a warm-up of 0 to 120.");
+            string root = context.Root;
+            if (ProjectRunLauncher.HasCSharpScripts(root))
+            {
+                ProjectRunLauncher.CompileOutcome compiled = ProjectRunLauncher.CompileScripts(root);
+                if (!compiled.Success) throw new AutomationException("The game's C# scripts did not compile: " + compiled.ErrorMessage);
+            }
+
+            string folder = Path.Combine(context.Project.InternalPath, "Automation", "Benchmarks", DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture));
+            Directory.CreateDirectory(folder);
+            var environment = new Dictionary<string, string>
+            {
+                [TimedShots.EnvironmentVariable] = string.Empty,
+                [ProjectPlayerApp.ProfileEnvironmentVariable] = "0",
+                [InputReplay.ReplayEnvironmentVariable] = string.Empty,
+            };
+            if (input.Steps is { Count: > 0 } given)
+            {
+                // A replay closes the game when it ends: steps shorter than the run are padded with
+                // standing still, so the benchmark is not cut short.
+                List<InputStep> steps = [.. given];
+                float length = Frames(steps).Length / FramesPerSecond, needed = (float)(seconds + warmup + 10);
+                if (length < needed) steps.Add(new InputStep { Seconds = needed - length });
+                string recording = Path.Combine(folder, "input" + InputReplay.FileExtension);
+                InputReplay.Write(recording, 1, Frames(steps));
+                environment[InputReplay.ReplayEnvironmentVariable] = recording;
+            }
+            string arguments = string.Create(CultureInfo.InvariantCulture,
+                $"--benchmark-output \"{folder}\" --benchmark-seconds {seconds} --benchmark-warmup-seconds {warmup}");
+
+            ProjectRunLauncher.LaunchOutcome launched = ProjectRunLauncher.Launch(root, input.Room, extraEnvironment: environment,
+                extraArguments: arguments, liveReload: false);
+            if (!launched.Success) throw new AutomationException("The game could not start: " + launched.ErrorMessage);
+            using Process process = launched.Process;
+            bool timedOut = !process.WaitForExit(TimeSpan.FromSeconds(seconds + warmup + 120));
+            if (timedOut)
+            {
+                try { process.Kill(entireProcessTree: true); process.WaitForExit(5000); } catch (InvalidOperationException) { }
+                throw new AutomationException($"The benchmark did not finish within {seconds + warmup + 120:0} s and was stopped.");
+            }
+
+            string summaryPath = Path.Combine(folder, "benchmark.json");
+            if (!File.Exists(summaryPath))
+                throw new AutomationException($"The game closed with code {process.ExitCode} before writing its benchmark; see {GameRun.Shown(context, Path.Combine(ProjectPaths.LogsDir(root), "project_player.log"))}.");
+            JsonObject summary = JsonNode.Parse(File.ReadAllText(summaryPath))!.AsObject();
+            JsonArray frames = File.Exists(Path.Combine(folder, "frames.json"))
+                ? JsonNode.Parse(File.ReadAllText(Path.Combine(folder, "frames.json"))) as JsonArray ?? [] : [];
+            double[] times = [.. frames.Select(f => f?["FrameMilliseconds"]?.GetValue<double>() ?? 0).Order()];
+            double Mean(string field) => frames.Count == 0 ? 0 : frames.Average(f => f?[field] is JsonValue v && v.TryGetValue(out double d) ? d : 0);
+            double Sum(string field) => frames.Sum(f => f?[field] is JsonValue v && v.TryGetValue(out double d) ? d : 0);
+            double median = times.Length == 0 ? 0 : times[times.Length / 2];
+            double p95 = summary["P95Milliseconds"]?.GetValue<double>() ?? 0, p99 = summary["P99Milliseconds"]?.GetValue<double>() ?? 0;
+            double allocationKb = frames.Count == 0 ? 0 : Sum("AllocatedBytes") / frames.Count / 1024.0;
+
+            var data = new JsonObject
+            {
+                ["room"] = launched.RoomName,
+                ["completed"] = summary["Completed"]?.GetValue<bool>() ?? false,
+                ["backend"] = summary["Backend"]?.DeepClone(),
+                ["resolution"] = new JsonArray(summary["Width"]?.DeepClone(), summary["Height"]?.DeepClone()),
+                ["frames"] = frames.Count,
+                ["medianMilliseconds"] = Math.Round(median, 2),
+                ["medianFps"] = median > 0 ? Math.Round(1000 / median, 1) : 0,
+                ["p95Milliseconds"] = Math.Round(p95, 2),
+                ["p99Milliseconds"] = Math.Round(p99, 2),
+                ["worstMilliseconds"] = Math.Round(summary["MaximumFrameMilliseconds"]?.GetValue<double>() ?? 0, 2),
+                ["allocationKilobytesPerFrame"] = Math.Round(allocationKb, 2),
+                ["collectorPauseMilliseconds"] = Math.Round(Sum("GcPauseMilliseconds"), 1),
+                ["peakWorkingSetMegabytes"] = Math.Round((summary["PeakWorkingSetBytes"]?.GetValue<long>() ?? 0) / 1048576.0, 1),
+                ["averageDrawCalls"] = Math.Round(Mean("DrawCalls"), 1),
+                ["averageTriangles"] = Math.Round(Mean("Triangles")),
+                ["scripts"] = new JsonArray([.. (summary["Pgsl"] as JsonArray ?? []).Take(12).Select(s => s?.DeepClone())]),
+                ["folder"] = GameRun.Shown(context, folder),
+            };
+            var over = new List<string>();
+            if (input.P95BudgetMilliseconds is double p95Budget && p95 > p95Budget) over.Add($"95th percentile {p95:0.##} ms over {p95Budget:0.##} ms");
+            if (input.P99BudgetMilliseconds is double p99Budget && p99 > p99Budget) over.Add($"99th percentile {p99:0.##} ms over {p99Budget:0.##} ms");
+            if (input.AllocationBudgetKilobytesPerFrame is double allocationBudget && allocationKb > allocationBudget)
+                over.Add($"{allocationKb:0.##} KB a frame over {allocationBudget:0.##} KB");
+            data["overBudget"] = new JsonArray([.. over.Select(o => (JsonNode?)o)]);
+            string message = $"{launched.RoomName}: median {median:0.##} ms ({(median > 0 ? 1000 / median : 0):0} fps), 95th {p95:0.##} ms, 99th {p99:0.##} ms, {allocationKb:0.#} KB a frame over {frames.Count} frames"
+                + (over.Count == 0 ? "." : "; over budget: " + string.Join("; ", over) + ".");
+            return over.Count == 0 && process.ExitCode == 0 ? AutomationResult.Success(message, data) : AutomationResult.Failure(message, data);
+        }
     }
 }

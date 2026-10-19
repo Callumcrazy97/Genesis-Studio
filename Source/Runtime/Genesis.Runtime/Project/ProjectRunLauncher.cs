@@ -271,7 +271,9 @@ namespace Genesis.Runtime.Project
             IDictionary<string, string> extraEnvironment = null,
             bool debug = false,
             bool supervised = false,
-            Action<int, string> exited = null)
+            Action<int, string> exited = null,
+            string extraArguments = null,
+            bool liveReload = true)
         {
             projectPath = ProjectRoomResolver.ResolveProjectRoot(projectPath);
             runtimeDir ??= RuntimePaths.ResolveRuntimeDir();
@@ -317,7 +319,10 @@ namespace Genesis.Runtime.Project
                 RedirectStandardOutput = supervised,
                 CreateNoWindow = true,
                 // Studio play keeps assets live; exported games (launched without this flag) load once.
-                Arguments = (debug ? $"--room \"{roomName}\" --debug" : $"--room \"{roomName}\"") + " " + ProjectPlayerApp.LiveReloadArgument,
+                Arguments = (debug ? $"--room \"{roomName}\" --debug" : $"--room \"{roomName}\"")
+                    + (liveReload ? " " + ProjectPlayerApp.LiveReloadArgument : string.Empty)
+                    // An automation run's own options (a benchmark's output folder and length).
+                    + (string.IsNullOrWhiteSpace(extraArguments) ? string.Empty : " " + extraArguments),
             };
             startInfo.EnvironmentVariables["GENESIS_PROJECT_PATH"] = projectPath;
             startInfo.EnvironmentVariables["GENESIS_START_ROOM"] = roomName;
