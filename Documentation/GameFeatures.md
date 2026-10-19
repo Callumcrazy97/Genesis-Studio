@@ -231,6 +231,8 @@ measured from the way the model faces in its own space, +Z for most imported cha
 `AnimationSetLookForward(x, y, z)` sets another for a model built facing elsewhere. A neck can look
 too, with a smaller weight, for a turn shared down the spine.
 
+`AnimationBoneReach("Hand.R", x, y, z)` bends the two bones above a bone so that it reaches a point: a hand to a door handle or a lever, a foot onto a step. The bone lengths stay as they are, the limb keeps the way it already bends (elbows out, knees forward), and a point out of reach is reached towards with the limb straight; `AnimationBoneReach(bone, x, y, z, weight)` blends it in and `AnimationBoneClearReach(bone)` gives the limb back to its animation. Reaches are applied before look-ats, so a character can reach for something and look at it in the same frame. Both work with rigs that list their bones in any order.
+
 ## The game's text in several languages (19 October 2026)
 
 Put each language's text in the project's `Assets/Text` folder, one file per language named by its

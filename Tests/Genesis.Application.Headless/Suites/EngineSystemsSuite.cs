@@ -205,6 +205,56 @@ internal static class EngineSystemsSuite
             Check(MathF.Abs(Turned(sideways, out _)) < 0.5f, "A model facing +X turned to look at a point in front of it.");
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Animation.AHandReachesAPointWithTwoBones", () =>
+        {
+            // Two-bone reach: a slightly bent arm (shoulder at 2 m, two bones about 1 m long) brings its
+            // hand to a point in reach with its lengths kept and its shoulder still, reaches straight
+            // towards a point out of reach, and goes part way at half weight.
+            var arm = new GModelAsset
+            {
+                Rig = new GModelRig { Bones = [
+                    new GModelBone { Name = "Shoulder", ParentIndex = -1, BindLocal = Matrix4x4.CreateTranslation(0, 2, 0) },
+                    new GModelBone { Name = "Elbow", ParentIndex = 0, BindLocal = Matrix4x4.CreateTranslation(1, -0.1f, 0) },
+                    new GModelBone { Name = "Hand", ParentIndex = 1, BindLocal = Matrix4x4.CreateTranslation(1, 0.1f, 0) }] },
+            };
+            (Vector3 Shoulder, Vector3 Elbow, Vector3 Hand) Pose(AnimationController graph)
+            {
+                Matrix4x4[] local = graph.Evaluate(arm);
+                Matrix4x4 shoulder = local[0], elbow = local[1] * shoulder, hand = local[2] * elbow;
+                return (shoulder.Translation, elbow.Translation, hand.Translation);
+            }
+            float upper = new Vector3(1, -0.1f, 0).Length(), lower = new Vector3(1, 0.1f, 0).Length();
+            var reaching = new AnimationController();
+            Vector3 handle = new(1.2f, 2.6f, 0.3f);
+            reaching.SetBoneReach("Hand", handle, 1f);
+            var reached = Pose(reaching);
+            Check(Vector3.Distance(reached.Hand, handle) < 2e-3f && MathF.Abs(Vector3.Distance(reached.Shoulder, reached.Elbow) - upper) < 1e-3f
+                && MathF.Abs(Vector3.Distance(reached.Elbow, reached.Hand) - lower) < 1e-3f && Vector3.Distance(reached.Shoulder, new Vector3(0, 2, 0)) < 1e-4f,
+                $"The hand did not reach the point with its lengths kept (hand {reached.Hand}, elbow {reached.Elbow}).");
+            var stretching = new AnimationController();
+            stretching.SetBoneReach("Hand", new Vector3(5, 2, 0), 1f);
+            var stretched = Pose(stretching);
+            Check(MathF.Abs(stretched.Hand.X - (upper + lower)) < 5e-3f && MathF.Abs(stretched.Hand.Y - 2f) < 5e-3f,
+                $"Out of reach, the arm did not reach straight towards the point (hand {stretched.Hand}).");
+            var halfway = new AnimationController();
+            halfway.SetBoneReach("Hand", handle, 0.5f);
+            float before = Vector3.Distance(new Vector3(2, 2, 0), handle), part = Vector3.Distance(Pose(halfway).Hand, handle);
+            Check(part > 0.05f && part < before - 0.05f, $"Half weight did not go part way (left {part:F2} of {before:F2}).");
+            // A rig that lists children before their parents, as imported characters can.
+            var reversed = new GModelAsset
+            {
+                Rig = new GModelRig { Bones = [
+                    new GModelBone { Name = "Hand", ParentIndex = 1, BindLocal = Matrix4x4.CreateTranslation(1, 0.1f, 0) },
+                    new GModelBone { Name = "Elbow", ParentIndex = 2, BindLocal = Matrix4x4.CreateTranslation(1, -0.1f, 0) },
+                    new GModelBone { Name = "Shoulder", ParentIndex = -1, BindLocal = Matrix4x4.CreateTranslation(0, 2, 0) }] },
+            };
+            var backwards = new AnimationController();
+            backwards.SetBoneReach("Hand", handle, 1f);
+            Matrix4x4[] parts = backwards.Evaluate(reversed);
+            Vector3 reversedHand = (parts[0] * parts[1] * parts[2]).Translation;
+            Check(Vector3.Distance(reversedHand, handle) < 2e-3f, $"A rig listing children first did not reach the point (hand {reversedHand}).");
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Animation.SmallFiguresArePosedLessOften", () =>
         {
             // Animation detail by size on screen: level 2 is posed every second draw and level 3

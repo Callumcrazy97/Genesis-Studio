@@ -43,19 +43,40 @@ public static partial class PgslCommands
     {
         if (!Finite3(x, y, z) || !double.IsFinite(weight) || !double.IsFinite(maxDegrees))
             throw new ArgumentException("A look-at point, weight and limit must be finite.");
+        if (string.IsNullOrWhiteSpace(bone) || !TryModelPoint(x, y, z, out Vector3 point)) return;
+        BoneGraph()?.SetBoneLookAt(bone.Trim(), point, (float)weight, (float)maxDegrees);
+    }
+
+    [PgslCommand("AnimationBoneReach", "AnimationBoneReach(bone, x, y, z, weight?)",
+        "Bend the two bones above a bone so it reaches a point in the world after animation blending: a hand to a door handle, a foot onto a step. Lengths stay as they are, the limb keeps the way it bends, and a point out of reach is reached towards. Weight 0 to 1 (default 1); call it each frame as the point moves", "Animation")]
+    public static void AnimationBoneReach(string bone, double x, double y, double z, double weight = 1)
+    {
+        if (!Finite3(x, y, z) || !double.IsFinite(weight)) throw new ArgumentException("A reach point and weight must be finite.");
+        if (string.IsNullOrWhiteSpace(bone) || !TryModelPoint(x, y, z, out Vector3 point)) return;
+        BoneGraph()?.SetBoneReach(bone.Trim(), point, (float)weight);
+    }
+
+    [PgslCommand("AnimationBoneClearReach", "AnimationBoneClearReach(bone)", "Stop a bone reaching for a point; its limb follows its animation again", "Animation")]
+    public static void AnimationBoneClearReach(string bone) => GetContext()?.AnimationController?.BoneReaches.Remove(bone ?? "");
+
+    // A point in the world in the instance's model's own space, the space its bones are in: the
+    // inverse of the draw's transform with the model's pivot.
+    private static bool TryModelPoint(double x, double y, double z, out Vector3 point)
+    {
+        point = default;
         var context = GetContext();
         var world = ActiveGameContext?.World;
-        if (context == null || world == null || string.IsNullOrWhiteSpace(bone)) return;
+        if (context == null || world == null) return false;
         var entity = world.GetEntity(context.InstanceId);
         if (!world.IsAlive(entity) || !world.Has<Genesis.Runtime.ECS.Components.ModelRendererComponent>(entity)
-            || !world.Has<Genesis.Runtime.ECS.Components.TransformComponent>(entity)) return;
+            || !world.Has<Genesis.Runtime.ECS.Components.TransformComponent>(entity)) return false;
         ref var model = ref world.GetRef<Genesis.Runtime.ECS.Components.ModelRendererComponent>(entity);
         ref var transform = ref world.GetRef<Genesis.Runtime.ECS.Components.TransformComponent>(entity);
-        // Into the model's own space, the space its bones are in: the draw's transform with its pivot.
         Vector3 pivot = SocketModelAssets.Load(ProjectPath, model.ModelAsset)?.Pivot?.Position ?? Vector3.Zero;
         Matrix4x4 placed = Matrix4x4.CreateTranslation(-pivot) * RuntimeModelRenderSystem.TransformMatrix(transform, model);
-        if (!Matrix4x4.Invert(placed, out Matrix4x4 inverse)) return;
-        BoneGraph()?.SetBoneLookAt(bone.Trim(), Vector3.Transform(new Vector3((float)x, (float)y, (float)z), inverse), (float)weight, (float)maxDegrees);
+        if (!Matrix4x4.Invert(placed, out Matrix4x4 inverse)) return false;
+        point = Vector3.Transform(new Vector3((float)x, (float)y, (float)z), inverse);
+        return true;
     }
 
     [PgslCommand("AnimationBoneClearLookAt", "AnimationBoneClearLookAt(bone)", "Stop a bone looking at a point; it follows its animation again", "Animation")]
