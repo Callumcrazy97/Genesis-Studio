@@ -237,8 +237,21 @@ public sealed partial class RoomRenderSubsystem : ISceneSubsystem
         float cameraX,
         float cameraY)
     {
-        foreach (RoomNode node in Active(RoomNodeKind.Background)
-            .OrderByDescending(n => LayerDepth(n) + n.Background.Depth))
+        // Deepest first, equals in authored order (as OrderByDescending did), sorted in place.
+        List<RoomNode> backgrounds = Active(RoomNodeKind.Background);
+        for (int i = 1; i < backgrounds.Count; i++)
+        {
+            RoomNode moving = backgrounds[i];
+            int depth = LayerDepth(moving) + moving.Background.Depth;
+            int j = i - 1;
+            while (j >= 0 && LayerDepth(backgrounds[j]) + backgrounds[j].Background.Depth < depth)
+            {
+                backgrounds[j + 1] = backgrounds[j];
+                j--;
+            }
+            backgrounds[j + 1] = moving;
+        }
+        foreach (RoomNode node in backgrounds)
         {
             RoomTransform nodeWorld = RoomHierarchyTransforms.World(_room, node); RoomBackgroundData bg = node.Background;
             if (bg.Mode != RoomBackgroundMode.TwoD) continue;
@@ -329,7 +342,17 @@ public sealed partial class RoomRenderSubsystem : ISceneSubsystem
         }
     }
 
-    private IEnumerable<RoomNode> Active(RoomNodeKind kind) => _room.Nodes.Where(n => n.Kind == kind && RoomHierarchyTransforms.IsActive(_room, n));
+    // The room's active nodes of a kind, in this reused list: a LINQ filter here cost an iterator and
+    // a closure several times a frame in every 2D room. Read it before the next call.
+    private readonly List<RoomNode> _active = new();
+
+    private List<RoomNode> Active(RoomNodeKind kind)
+    {
+        _active.Clear();
+        foreach (RoomNode node in _room.Nodes)
+            if (node.Kind == kind && RoomHierarchyTransforms.IsActive(_room, node)) _active.Add(node);
+        return _active;
+    }
     private int LayerDepth(RoomNode node) => _room.FindLayer(node.LayerId)?.Order ?? 0;
     /// <summary>Names already reported as unresolvable, so a per-frame failure logs once, not 60×/s.</summary>
     private readonly HashSet<string> _reportedMissing = new(StringComparer.OrdinalIgnoreCase);
