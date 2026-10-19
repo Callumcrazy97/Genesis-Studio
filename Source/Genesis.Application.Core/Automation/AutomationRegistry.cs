@@ -34,6 +34,7 @@ public sealed class AutomationRegistry
         foreach (IAutomationCommand command in JsonResourceCommands.All()) registry.Register(command);
         foreach (IAutomationCommand command in AudioCommands.All()) registry.Register(command);
         foreach (IAutomationCommand command in ImageCommands.All()) registry.Register(command);
+        foreach (IAutomationCommand command in ModelCommands.All()) registry.Register(command);
         foreach (IAutomationCommand command in ObjectCommands.All()) registry.Register(command);
         foreach (IAutomationCommand command in GameRunCommands.All()) registry.Register(command);
         return registry;

@@ -64,6 +64,8 @@ A result is `{ "ok", "message", "data", "changed", "issues" }`.
 | `image.create` | Makes an Image resource of a size and number of frames (animation), every frame filled with a colour; Sprite, Background, Tileset or Texture use. Frames are stored as the Image editor stores them. |
 | `image.draw` | Draws on a frame (or every frame): rect, ellipse, line, polygon, text, fill, pixels, clear; filled or outlined, crisp for pixel art or smoothed; colours as #RGB, #RRGGBB, #RRGGBBAA or names. Backs the frame up first. |
 | `image.info` | An Image's size, use, layers and frames, each with the full path of its picture, so whoever drew it can look at it. |
+| `model.create` | Makes a Model from primitive parts (Cube, Sphere, Cylinder, Cone, Pyramid, Torus, Quad), each with its centre, turn, size and colour, as the Model editor's kitbash and the templates store them; the engine's model loader bakes it and must read it back. Optional glow and double-sided faces. |
+| `model.info` | A Model as the engine loads it: meshes, vertices, triangles, bounds, materials, animations, rigged or not. |
 | `text.replacePreview` | What `text.replace` would change: each file, how many times, the lines before and after. |
 | `text.replace` | Replaces text in scripts and resource JSON under a folder, backing files up. Needs confirm. |
 | `terrain.create` | Makes a Terrain from a landform (Flatlands, RollingHills, Hills, Mountains, ErodedMountains, RidgeValleys, Badlands, Volcanic, Islands, Canyon), as the Terrain editor's landform gallery does: size, height range, seed, erosion, terraces, rivers. |
@@ -87,4 +89,4 @@ A result is `{ "ok", "message", "data", "changed", "issues" }`.
 
 These are the first stage and the second (terrain shape, sculpting and nature, room instances and
 environment, Objects and scripts). Next, each editor's operations become commands that its buttons and the
-automation share: Model, Shader and Physics presets, the Image editor's layers and tools beyond drawing, and a live mode that works on the Studio that is open, with undo.
+automation share: the Model editor's mesh tools and rigging, Shader and Physics presets, the Image editor's layers and tools beyond drawing, and a live mode that works on the Studio that is open, with undo.

@@ -333,6 +333,24 @@ internal static class AutomationSuite
             HeadlessHarness.Assert(!Call("image.create", """{ "name": "Huge", "width": 99999 }""").Ok, "An impossible size was accepted.");
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.ModelsAreBuiltFromPartsTheEngineBakes", () =>
+        {
+            AutomationResult lamp = Call("model.create", """
+                { "name": "Lamp Post", "parts": [
+                    { "primitive": "Cylinder", "position": [0, 1.5, 0], "scale": [0.2, 3, 0.2], "color": "#333333" },
+                    { "primitive": "Sphere", "position": [0, 3.2, 0], "scale": [0.6, 0.6, 0.6], "color": "#FFE9A0" } ], "emissive": 0.5 }
+                """);
+            HeadlessHarness.Assert(lamp.Ok, "model.create failed: " + lamp.ToJson().ToJsonString());
+            JsonArray top = lamp.Data!["boundsMax"]!.AsArray(), bottom = lamp.Data["boundsMin"]!.AsArray();
+            HeadlessHarness.Assert(lamp.Data["vertices"]!.GetValue<int>() > 0 && Math.Abs(top[1]!.GetValue<double>() - 3.5) < 0.05 && Math.Abs(bottom[1]!.GetValue<double>()) < 0.05,
+                "The engine did not bake the post and lamp to stand from 0 to 3.5 m: " + lamp.Data.ToJsonString());
+            AutomationResult info = Call("model.info", $$"""{ "model": "{{PathOf(lamp)}}" }""");
+            HeadlessHarness.Assert(info.Ok && info.Data!["vertices"]!.GetValue<int>() == lamp.Data["vertices"]!.GetValue<int>(), "model.info did not describe the same model.");
+            AutomationResult placed = Call("object.create", $$"""{ "name": "Lamp", "model": "{{PathOf(lamp)}}" }""");
+            HeadlessHarness.Assert(placed.Ok && placed.Data!["model"]?.GetValue<string>() == "Lamp Post", "The model could not be given to an Object: " + placed.Message);
+            HeadlessHarness.Assert(Call("model.create", """{ "name": "Odd", "parts": [ { "primitive": "Teapot" } ] }""").Message.Contains("not a primitive", StringComparison.Ordinal), "An unknown primitive was not explained.");
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.ScriptedInputBecomesAReplayTheEngineReads", () =>
         {
             var steps = new List<GameRunCommands.InputStep>
