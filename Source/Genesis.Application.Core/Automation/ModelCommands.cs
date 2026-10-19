@@ -35,6 +35,8 @@ public static class ModelCommands
         [Description("The parts, each a primitive with its place, turn, size and colour."), RequiredInput] public List<PartInput> Parts { get; set; } = [];
         [Description("Glow, 0 upwards (default 0).")] public float? Emissive { get; set; }
         [Description("Draw both sides of every face (thin things: leaves, banners).")] public bool? DoubleSided { get; set; }
+        [Description("Give it a skeleton and the template's animation clips (Idle, Walk, Run...): Humanoid or Quadruped, as the Model editor's auto-rig does.")] public string? Rig { get; set; }
+        [Description("The rig template's variant (Humanoid: Generic; Quadruped: Fox, Horse...).")] public string? RigVariant { get; set; }
     }
 
     public sealed class ModelCreate : AutomationCommand<CreateInput>
@@ -82,6 +84,38 @@ public static class ModelCommands
             }
             int vertices = asset.Meshes.Sum(m => m.Vertices?.Length ?? 0);
             if (vertices == 0) throw new AutomationException("The engine baked the parts into nothing.");
+
+            if (!string.IsNullOrWhiteSpace(input.Rig))
+            {
+                string category = input.Rig.Trim();
+                if (!category.Equals("Humanoid", StringComparison.OrdinalIgnoreCase) && !category.Equals("Quadruped", StringComparison.OrdinalIgnoreCase))
+                    throw new AutomationException($"'{input.Rig}' is not a rig: Humanoid or Quadruped.");
+                // As the Model editor saves a rigged model: the baked mesh with its skeleton and clips in
+                // the canonical .gmodel, and the resource pointing at it instead of at its parts.
+                // A copy (through the store's own format), so the loader's cached asset is not changed.
+                string copy = Path.Combine(Path.GetTempPath(), "genesis-rig-" + Guid.NewGuid().ToString("N") + ".gmodel");
+                GModelAsset rigged;
+                try
+                {
+                    RuntimeModelStore.Save(copy, asset);
+                    rigged = RuntimeModelStore.Load(copy);
+                }
+                finally
+                {
+                    if (File.Exists(copy)) File.Delete(copy);
+                }
+                rigged.Bounds = Bounds(rigged);
+                GModelPrimitiveFactory.ApplyTemplateRigAndClips(rigged, category, input.RigVariant ?? (category.Equals("Humanoid", StringComparison.OrdinalIgnoreCase) ? "Generic" : "Fox"));
+                StudioModelResourceLoader.SaveCanonical(full, rigged);
+                document["schemaVersion"] = 5;
+                document["parts"] = new JArray();
+                document.Remove("primitive");
+                document["rig"] = rigged.Rig?.IsValid == true ? "Canonical" : null;
+                document["animations"] = new JArray(rigged.Animations.Select(clip => clip.Name));
+                File.WriteAllText(full, document.ToString(Newtonsoft.Json.Formatting.Indented));
+                asset = StudioModelResourceLoader.LoadReadOnly(full);
+                if (asset.Rig?.IsValid != true) throw new AutomationException("The rig did not take: the engine loaded the model without a skeleton.");
+            }
             return AutomationResult.Success($"Made {Path.GetFileName(full)}: {input.Parts.Count} part(s), {vertices} vertices.", Describe(context, full, asset), context.Relative(full));
         }
 
@@ -91,6 +125,20 @@ public static class ModelCommands
             if (values.Length != 3 || values.Any(v => !float.IsFinite(v))) throw new AutomationException($"A part's {what} is [x, y, z].");
             return new JArray(values[0], values[1], values[2]);
         }
+    }
+
+    /// <summary>The mesh's box, which the rigger needs to give hands and feet a real direction.</summary>
+    private static GModelBounds Bounds(GModelAsset asset)
+    {
+        System.Numerics.Vector3 min = new(float.MaxValue), max = new(float.MinValue);
+        foreach (GModelMesh mesh in asset.Meshes)
+            foreach (var vertex in mesh.Vertices ?? [])
+            {
+                min = System.Numerics.Vector3.Min(min, vertex.Position);
+                max = System.Numerics.Vector3.Max(max, vertex.Position);
+            }
+        if (min.X > max.X) return new GModelBounds();
+        return new GModelBounds { Min = min, Max = max, Center = (min + max) * 0.5f, Size = max - min };
     }
 
     private static JsonObject Describe(AutomationContext context, string full, GModelAsset asset)

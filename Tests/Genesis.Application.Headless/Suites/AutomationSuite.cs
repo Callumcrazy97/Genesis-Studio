@@ -349,6 +349,19 @@ internal static class AutomationSuite
             AutomationResult placed = Call("object.create", $$"""{ "name": "Lamp", "model": "{{PathOf(lamp)}}" }""");
             HeadlessHarness.Assert(placed.Ok && placed.Data!["model"]?.GetValue<string>() == "Lamp Post", "The model could not be given to an Object: " + placed.Message);
             HeadlessHarness.Assert(Call("model.create", """{ "name": "Odd", "parts": [ { "primitive": "Teapot" } ] }""").Message.Contains("not a primitive", StringComparison.Ordinal), "An unknown primitive was not explained.");
+
+            AutomationResult walker = Call("model.create", """
+                { "name": "Walker Figure", "rig": "Humanoid", "parts": [
+                    { "primitive": "Cube", "position": [0, 1.25, 0], "scale": [0.5, 0.7, 0.3] },
+                    { "primitive": "Sphere", "position": [0, 1.8, 0], "scale": [0.3, 0.3, 0.3] },
+                    { "primitive": "Cylinder", "position": [-0.15, 0.45, 0], "scale": [0.16, 0.9, 0.16] },
+                    { "primitive": "Cylinder", "position": [0.15, 0.45, 0], "scale": [0.16, 0.9, 0.16] },
+                    { "primitive": "Cylinder", "position": [-0.35, 1.25, 0], "scale": [0.12, 0.7, 0.12] },
+                    { "primitive": "Cylinder", "position": [0.35, 1.25, 0], "scale": [0.12, 0.7, 0.12] } ] }
+                """);
+            HeadlessHarness.Assert(walker.Ok && walker.Data!["rigged"]!.GetValue<bool>()
+                && walker.Data["animations"]!.AsArray().Any(a => a!.GetValue<string>().Contains("Walk", StringComparison.OrdinalIgnoreCase)),
+                "model.create with a rig did not make a rigged model with a walk: " + walker.ToJson().ToJsonString());
         });
 
         HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.ProjectsAreMadeAndRoomsGetTerrainAndAStart", () =>
