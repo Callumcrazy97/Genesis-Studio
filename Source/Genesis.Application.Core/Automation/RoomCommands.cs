@@ -14,7 +14,55 @@ namespace Genesis.Application.Core.Automation;
 public static class RoomCommands
 {
     public static IEnumerable<IAutomationCommand> All() =>
-        [new RoomNodes(), new RoomAddInstance(), new RoomMoveInstance(), new RoomRemoveInstance(), new RoomSetEnvironment()];
+        [new RoomNodes(), new RoomAddInstance(), new RoomMoveInstance(), new RoomRemoveInstance(), new RoomSetEnvironment(), new RoomAddTerrain(), new RoomMakeStart()];
+
+    public sealed class AddTerrainInput
+    {
+        [Description("The Room resource, project-relative (a 3D room)."), RequiredInput] public string Room { get; set; } = string.Empty;
+        [Description("The Terrain resource, project-relative (Assets/Terrain/Name.terrain.json)."), RequiredInput] public string Terrain { get; set; } = string.Empty;
+        [Description("How often its paint layers' pictures repeat across it (default 6).")] public float? UvScale { get; set; }
+        [Description("The instance's name (default the terrain's name).")] public string? Name { get; set; }
+    }
+
+    public sealed class RoomAddTerrain : AutomationCommand<AddTerrainInput>
+    {
+        public override string Name => "room.addTerrain";
+        public override string Description => "Puts a Terrain in a 3D room, as dragging it in from the Room editor's palette does; its grass and scatter layers come with it.";
+
+        protected override AutomationResult Execute(AutomationContext context, AddTerrainInput input)
+        {
+            string full = Room(context, input.Room);
+            string terrain = context.Resolve(input.Terrain);
+            if (!File.Exists(terrain) || !terrain.EndsWith(".terrain.json", StringComparison.OrdinalIgnoreCase))
+                throw new AutomationException($"'{input.Terrain}' is not a Terrain resource (a .terrain.json file).");
+            RoomAsset room = RoomAssetLoader.Parse(full);
+            if (room.Dimension != RoomDimension.ThreeD) throw new AutomationException("A terrain goes in a 3D room.");
+            string name = string.IsNullOrWhiteSpace(input.Name) ? Path.GetFileName(terrain)[..^".terrain.json".Length] : input.Name;
+            var node = new RoomNode
+            {
+                Name = name,
+                Kind = RoomNodeKind.Terrain,
+                LayerId = room.Layers.FirstOrDefault()?.Id ?? string.Empty,
+                Terrain = new RoomTerrainData { Asset = context.Relative(terrain), UvScale = input.UvScale ?? 6f },
+            };
+            room.Nodes.Add(node);
+            return Save(context, full, room, $"Put {name} in the room.", Describe(node));
+        }
+    }
+
+    public sealed class RoomMakeStart : AutomationCommand<RoomInput>
+    {
+        public override string Name => "room.makeStart";
+        public override string Description => "Makes a room the one the game starts in, as the Room editor's Make starting room does.";
+
+        protected override AutomationResult Execute(AutomationContext context, RoomInput input)
+        {
+            string full = Room(context, input.Room);
+            context.Project.Manifest.StartRoom = context.Relative(full);
+            new ProjectService().Save(context.Project);
+            return AutomationResult.Success($"{Path.GetFileName(full)} is the start room.", null, context.Relative(full));
+        }
+    }
 
     private static string Room(AutomationContext context, string path)
     {

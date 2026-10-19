@@ -351,6 +351,26 @@ internal static class AutomationSuite
             HeadlessHarness.Assert(Call("model.create", """{ "name": "Odd", "parts": [ { "primitive": "Teapot" } ] }""").Message.Contains("not a primitive", StringComparison.Ordinal), "An unknown primitive was not explained.");
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.ProjectsAreMadeAndRoomsGetTerrainAndAStart", () =>
+        {
+            var output = new StringWriter();
+            int code = AutomationHost.Run(["new", ctx.Workspace, "Made By Command"], new StringReader(""), output, new StringWriter());
+            string madePath = Path.Combine(ctx.Workspace, "Made By Command");
+            HeadlessHarness.Assert(code == 0 && Directory.Exists(Path.Combine(madePath, "Assets")) && output.ToString().Contains("\"ok\": true", StringComparison.Ordinal),
+                "--automation new did not make a project: " + output);
+
+            string room = PathOf(Call("resource.create", """{ "kind": "Room", "folder": "Assets", "name": "Hill Room" }"""));
+            HeadlessHarness.Assert(Call("resource.set", $$"""{ "path": "{{room}}", "values": { "dimension": 1 } }""").Ok, "The room could not be made 3D.");
+            string land = PathOf(Call("terrain.create", """{ "name": "Hill Land", "preset": "Hills", "resolutionX": 33, "resolutionZ": 33 }"""));
+            AutomationResult placed = Call("room.addTerrain", $$"""{ "room": "{{room}}", "terrain": "{{land}}", "uvScale": 12 }""");
+            var asset = Genesis.Runtime.Scene.RoomAssetLoader.Parse(context.Resolve(room));
+            HeadlessHarness.Assert(placed.Ok && asset.Nodes.Any(n => n.Kind == Genesis.Runtime.Scene.RoomNodeKind.Terrain && (n.Terrain?.Asset ?? "").Contains("Hill Land", StringComparison.Ordinal) && Math.Abs(n.Terrain!.UvScale - 12) < 0.01f),
+                "room.addTerrain did not put the terrain in the room: " + placed.Message);
+            AutomationResult start = Call("room.makeStart", $$"""{ "room": "{{room}}" }""");
+            var reopened = new ProjectService().OpenProject(project.RootPath);
+            HeadlessHarness.Assert(start.Ok && reopened.Manifest.StartRoom.Contains("Hill Room", StringComparison.Ordinal), $"room.makeStart did not set the start room: {reopened.Manifest.StartRoom}.");
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.ScriptedInputBecomesAReplayTheEngineReads", () =>
         {
             var steps = new List<GameRunCommands.InputStep>

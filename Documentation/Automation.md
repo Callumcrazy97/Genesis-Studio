@@ -16,11 +16,13 @@ From the published Studio folder:
 "Genesis Application.exe" --automation "<project folder>" call resource.create "{\"kind\":\"GameObject\",\"name\":\"Hero\"}"
 "Genesis Application.exe" --automation "<project folder>" call text.replace @replace.json
 "Genesis Application.exe" --automation "<project folder>" mcp
+"Genesis Application.exe" --automation new "<parent folder>" "My Game" [Blank | 2D | TumbleIsles ...]
 ```
 
 - `list` prints every command with its description and input schema.
 - `call` runs one command and prints its result; the exit code is 0 when it worked, 1 when it did
   not, 2 for a mistake in the command line itself. The input can be inline JSON or `@file.json`; from Windows PowerShell use `@file.json`, as it strips the quotes from inline JSON passed to a program.
+- `new` makes a project, as the Project Hub's New Project does, and prints its folder.
 - `mcp` is a Model Context Protocol server on standard input and output. Add it to an MCP client
   (Claude Code: `claude mcp add genesis -- "<Studio folder>\Genesis Application.exe" --automation
   "<project folder>" mcp`). Commands appear as tools with underscores for dots
@@ -76,6 +78,8 @@ A result is `{ "ok", "message", "data", "changed", "issues" }`.
 | `terrain.addScatterLayer` / `terrain.updateScatterLayer` / `terrain.removeScatterLayer` | Many copies of a Model over a terrain by rules: density, spacing, slope, height, painted layer, clumps, scale, draw distance, shadows, collision. Removing needs confirm. |
 | `room.nodes` | A room's instances with their objects, positions, rotations and scales. |
 | `room.addInstance` / `room.moveInstance` / `room.removeInstance` | Places, moves or removes instances of Objects, as the Room editor does. Removing needs confirm. |
+| `room.addTerrain` | Puts a Terrain in a 3D room, as dragging it in from the palette does; its grass and scatter layers come with it. |
+| `room.makeStart` | Makes a room the one the game starts in. |
 | `room.setEnvironment` | Sets environment fields as named in the room file (time of day, weather, sky, fog, shadow distance...); the room must still load, so a value of the wrong kind is refused. |
 | `object.create` | Makes an Object as the Object editor does: an Image (2D) or a Model (3D), solid, visible, persistent, and its first PGSL events. |
 | `object.info` | What an Object shows, its components with their settings, its events, and the components it could have. |

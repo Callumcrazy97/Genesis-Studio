@@ -20,6 +20,7 @@ public static class AutomationHost
           --automation <project folder> list
           --automation <project folder> call <command> [json | @file.json]
           --automation <project folder> mcp
+          --automation new <parent folder> <name> [template]
         """;
 
     public static int Run(string[] args, TextReader input, TextWriter output, TextWriter error)
@@ -28,6 +29,28 @@ public static class AutomationHost
         {
             error.WriteLine(Usage);
             return 2;
+        }
+
+        // A new project, as the Project Hub's New Project does: --automation new <parent folder> <name> [template].
+        if (args[0].Equals("new", StringComparison.OrdinalIgnoreCase))
+        {
+            if (args.Length < 3)
+            {
+                error.WriteLine(Usage);
+                return 2;
+            }
+            try
+            {
+                Projects.ProjectSession made = new Projects.ProjectService().CreateProject(args[1], args[2], args.Length > 3 ? args[3] : "Blank");
+                output.WriteLine(new JsonObject { ["ok"] = true, ["message"] = $"Made the project {made.Manifest.Name}.", ["path"] = made.RootPath, ["template"] = made.Manifest.Template }
+                    .ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+                return 0;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
+            {
+                error.WriteLine("Could not make the project: " + exception.Message);
+                return 1;
+            }
         }
 
         AutomationContext context;
