@@ -579,7 +579,7 @@ namespace Genesis.Runtime.Modeling
 
         private static string PaletteKey(GModelAsset asset, RuntimeModelAnimationState animation)
         {
-            if (animation.Controller != null) return "controller:" + animation.Controller.Id;
+            if (animation.Controller != null) return animation.Controller.PaletteKey;
             string body = BodyPaletteKey(asset, animation);
             if (!animation.HasLayer) return body;
             GModelAnimationClip layer = FindClip(asset, animation.LayerClipName);

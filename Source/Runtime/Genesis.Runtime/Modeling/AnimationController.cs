@@ -28,8 +28,14 @@ public abstract class AnimationBlendTree
 
 public sealed class ClipNode(string clip, bool loop = true) : AnimationBlendTree
 {
-    public override IReadOnlyList<WeightedClip> Evaluate(IReadOnlyDictionary<string, object> parameters, float time) =>
-        [new(clip, 1f, time, loop)];
+    // Reused by every evaluation (a crowd evaluates thousands a second); read it before the next.
+    private readonly WeightedClip[] _one = new WeightedClip[1];
+
+    public override IReadOnlyList<WeightedClip> Evaluate(IReadOnlyDictionary<string, object> parameters, float time)
+    {
+        _one[0] = new(clip, 1f, time, loop);
+        return _one;
+    }
 }
 
 public sealed class BlendTree1D(string parameter) : AnimationBlendTree
@@ -41,18 +47,24 @@ public sealed class BlendTree1D(string parameter) : AnimationBlendTree
             throw new ArgumentException("A blend clip needs a name and a finite threshold.");
         _clips[threshold] = clip;
     }
+    // Reused by every evaluation (a crowd evaluates thousands a second); read it before the next.
+    private readonly WeightedClip[] _one = new WeightedClip[1], _two = new WeightedClip[2];
+
     public override IReadOnlyList<WeightedClip> Evaluate(IReadOnlyDictionary<string, object> parameters, float time)
     {
         if (_clips.Count == 0) return [];
         float value = Number(parameters, parameter);
-        if (value <= _clips.Keys[0]) return [new(_clips.Values[0], 1, time, true)];
+        if (value <= _clips.Keys[0]) { _one[0] = new(_clips.Values[0], 1, time, true); return _one; }
         for (int i = 1; i < _clips.Count; i++)
         {
             if (value > _clips.Keys[i]) continue;
             float weight = (value - _clips.Keys[i - 1]) / (_clips.Keys[i] - _clips.Keys[i - 1]);
-            return [new(_clips.Values[i - 1], 1 - weight, time, true), new(_clips.Values[i], weight, time, true)];
+            _two[0] = new(_clips.Values[i - 1], 1 - weight, time, true);
+            _two[1] = new(_clips.Values[i], weight, time, true);
+            return _two;
         }
-        return [new(_clips.Values[^1], 1, time, true)];
+        _one[0] = new(_clips.Values[^1], 1, time, true);
+        return _one;
     }
 }
 
@@ -132,10 +144,16 @@ public sealed class AnimationStateMachine
     public string CurrentState { get; private set; } = "";
     public float Time { get; private set; }
     public bool Contains(string state) => _states.ContainsKey(state);
-    public bool HasFinished(IReadOnlyDictionary<string, object> parameters, GModelAsset? asset) =>
-        asset != null && _states.TryGetValue(CurrentState, out AnimationBlendTree? tree)
-        && tree.Evaluate(parameters, Time) is { Count: > 0 } clips
-        && clips.All(c => !c.Loop && c.Time >= AnimationPose.Duration(asset, c.Clip));
+    public bool HasFinished(IReadOnlyDictionary<string, object> parameters, GModelAsset? asset)
+    {
+        if (asset == null || !_states.TryGetValue(CurrentState, out AnimationBlendTree? tree)) return false;
+        IReadOnlyList<WeightedClip> clips = tree.Evaluate(parameters, Time);
+        if (clips.Count == 0) return false;
+        // A loop, not All with a lambda that captured the model: a closure every tick per character.
+        for (int i = 0; i < clips.Count; i++)
+            if (clips[i].Loop || clips[i].Time < AnimationPose.Duration(asset, clips[i].Clip)) return false;
+        return true;
+    }
     public void Seek(float time) => Time = float.IsFinite(time) ? MathF.Max(0, time) : 0;
     public void AddState(string name, AnimationBlendTree tree)
     {
@@ -148,7 +166,15 @@ public sealed class AnimationStateMachine
         if (!_states.ContainsKey(to) || (from != "*" && !_states.ContainsKey(from)))
             throw new ArgumentException("Create transition states first; use * for any-state transitions.");
         if (!float.IsFinite(seconds) || seconds < 0) throw new ArgumentOutOfRangeException(nameof(seconds));
-        _transitions.Add((from, to, new AnimationCondition(condition), seconds));
+        // Kept in the order they are tried (any-state transitions first, then as authored), so a tick
+        // walks the list instead of sorting it.
+        var transition = (from, to, new AnimationCondition(condition), seconds);
+        if (from == "*")
+        {
+            int at = _transitions.FindIndex(t => t.From != "*");
+            _transitions.Insert(at < 0 ? _transitions.Count : at, transition);
+        }
+        else _transitions.Add(transition);
     }
     public void Play(string state, float duration = 0)
     {
@@ -222,7 +248,7 @@ public sealed class AnimationStateMachine
         if (_elapsed >= _duration) _previous = null;
         bool finished = HasFinished(parameters, asset);
         // Stable authored order, any-state transitions first. One transition per simulation tick.
-        foreach (var transition in _transitions.OrderBy(t => t.From == "*" ? 0 : 1))
+        foreach (var transition in _transitions)
         {
             if (string.Equals(transition.To, CurrentState, StringComparison.OrdinalIgnoreCase)) continue;
             if (transition.From != "*" && !string.Equals(transition.From, CurrentState, StringComparison.OrdinalIgnoreCase)) continue;
@@ -237,6 +263,8 @@ public sealed class AnimationStateMachine
         var current = tree.Evaluate(parameters, Time);
         if (tree.Synced) current = AtPhase(current, _phase, _asset);
         if (_previous == null || !_states.TryGetValue(_previous, out AnimationBlendTree? previous)) return current;
+        // Two states that share one tree: its reused result would be overwritten by the outgoing state's.
+        if (ReferenceEquals(previous, tree)) current = current.ToArray();
         float blend = _duration <= 0 ? 1 : Math.Clamp(_elapsed / _duration, 0, 1);
         var outgoing = previous.Evaluate(parameters, _previousTime);
         if (previous.Synced) outgoing = AtPhase(outgoing, _previousPhase, _asset);
@@ -261,6 +289,9 @@ public sealed class AnimationController
     private GModelAsset? _lastAsset;
     public bool ActiveStateHasFinished => Layers[ActiveLayer].StateMachine.HasFinished(Parameters, _lastAsset);
     public Guid Id { get; } = Guid.NewGuid();
+    /// <summary>The key of this controller's skin palette, made once rather than a string a draw.</summary>
+    public string PaletteKey => _paletteKey ??= "controller:" + Id;
+    private string? _paletteKey;
     public Dictionary<string, object> Parameters { get; }
     public Dictionary<int, AnimationBlendTree> Trees { get; } = [];
     public SortedDictionary<int, AnimationLayer> Layers { get; } = new() { [0] = new() };
@@ -321,19 +352,37 @@ public sealed class AnimationController
         }
         foreach (AnimationLayer layer in Layers.Values) layer.StateMachine.Advance(dt, speed, Parameters, asset);
     }
+    // This controller's pose buffers, reused every evaluation: a crowd of 200 graph-driven characters
+    // allocated about 3 KB each a frame in new bone arrays (benchmark scenes, Skinned Crowd).
+    private Matrix4x4[] _result = [], _pose = [], _next = [];
+    private readonly List<WeightedClip> _clips = new(4);
+
+    /// <summary>
+    /// The pose: local bone transforms. The array is this controller's own and is reused by its next
+    /// evaluation; copy it to keep it (GModelPrimitiveFactory.EvaluateAnimatedLocals does).
+    /// </summary>
     public Matrix4x4[] Evaluate(GModelAsset asset)
     {
         if (asset.Rig?.Bones == null) return [];
-        Matrix4x4[] result = asset.Rig.Bones.Select(b => b.BindLocal).ToArray();
+        var bones = asset.Rig.Bones;
+        int count = bones.Count;
+        if (_result.Length != count) { _result = new Matrix4x4[count]; _pose = new Matrix4x4[count]; _next = new Matrix4x4[count]; }
+        Matrix4x4[] result = _result;
+        for (int i = 0; i < count; i++) result[i] = bones[i].BindLocal;
         foreach (AnimationLayer layer in Layers.Values)
         {
-            var clips = layer.StateMachine.Evaluate(Parameters).Where(c => c.Weight > 0).ToArray();
-            if (clips.Length == 0) continue;
-            Matrix4x4[] pose = AnimationPose.Sample(asset, clips[0]);
-            float total = clips[0].Weight;
-            foreach (WeightedClip clip in clips.Skip(1))
+            _clips.Clear();
+            foreach (WeightedClip candidate in layer.StateMachine.Evaluate(Parameters))
+                if (candidate.Weight > 0) _clips.Add(candidate);
+            if (_clips.Count == 0) continue;
+            Matrix4x4[] pose = _pose;
+            AnimationPose.SampleInto(asset, _clips[0], pose);
+            float total = _clips[0].Weight;
+            for (int c = 1; c < _clips.Count; c++)
             {
-                Matrix4x4[] next = AnimationPose.Sample(asset, clip);
+                WeightedClip clip = _clips[c];
+                Matrix4x4[] next = _next;
+                AnimationPose.SampleInto(asset, clip, next);
                 float blend = clip.Weight / (total + clip.Weight);
                 for (int i = 0; i < pose.Length; i++) pose[i] = AnimationPose.Blend(pose[i], next[i], blend);
                 total += clip.Weight;
@@ -371,10 +420,22 @@ public static class AnimationPose
     }
     public static Matrix4x4[] Sample(GModelAsset asset, WeightedClip sample)
     {
+        var result = new Matrix4x4[asset.Rig.Bones.Count];
+        SampleInto(asset, sample, result);
+        return result;
+    }
+
+    /// <summary><see cref="Sample"/> into the caller's buffer (one bone count long), allocating nothing.</summary>
+    public static void SampleInto(GModelAsset asset, WeightedClip sample, Matrix4x4[] result)
+    {
         var bones = asset.Rig.Bones;
-        Matrix4x4[] result = bones.Select(b => b.BindLocal).ToArray();
-        var clip = asset.Animations?.FirstOrDefault(c => string.Equals(c.Name, sample.Clip, StringComparison.OrdinalIgnoreCase));
-        if (clip?.Frames is not { Count: > 0 }) return result;
+        for (int i = 0; i < result.Length && i < bones.Count; i++) result[i] = bones[i].BindLocal;
+        // A loop, not FirstOrDefault: its lambda captured the clip name and cost a closure per call.
+        GModelAnimationClip? clip = null;
+        if (asset.Animations != null)
+            foreach (GModelAnimationClip candidate in asset.Animations)
+                if (string.Equals(candidate.Name, sample.Clip, StringComparison.OrdinalIgnoreCase)) { clip = candidate; break; }
+        if (clip?.Frames is not { Count: > 0 }) return;
         float frame = sample.Time * MathF.Max(1, clip.Fps);
         frame = sample.Loop ? ((frame % clip.Frames.Count) + clip.Frames.Count) % clip.Frames.Count
             : Math.Clamp(frame, 0, clip.Frames.Count - 1);
@@ -385,7 +446,6 @@ public static class AnimationPose
         for (int i = 0; i < result.Length; i++)
             result[i] = Blend(a != null && i < a.Length ? a[i] : result[i],
                 b != null && i < b.Length ? b[i] : result[i], frame - first);
-        return result;
     }
     public static Matrix4x4 SampleRoot(GModelAsset asset, WeightedClip sample, int root)
     {

@@ -4,5 +4,6 @@
   "Objects 3D": { "p95": 10, "p99": 12, "kbPerFrame": 8 },
   "Terrain": { "p95": 3, "p99": 5, "kbPerFrame": 8 },
   "Physics Pile": { "p95": 4, "p99": 8, "kbPerFrame": 8 },
+  "Skinned Crowd": { "p95": 4, "p99": 6, "kbPerFrame": 160 },
   "GUI": { "p95": 3, "p99": 5, "kbPerFrame": 64 }
 }

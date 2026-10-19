@@ -6,7 +6,8 @@
 
 .DESCRIPTION
     Scenes: 2D sprites (3000 bouncing), 3D objects (4096 crates), terrain with grass and scattered
-    rocks, a physics pile (500 crates falling on a floor) and a heavy GUI (400 labelled panels).
+    rocks, a physics pile (500 crates falling on a floor), a skinned crowd (200 rigged figures, each
+    with its own animation graph) and a heavy GUI (400 labelled panels).
     The project is made in -Folder (generated output) only when missing or with -Rebuild. The report
     goes to TestResults\Benchmarks\<time>.md and .json. Exit code 1 when a scene is over budget or
     failed. Close Studio and any game first: the runs open a game window.
@@ -99,6 +100,21 @@ function Build-Project {
     Spawner "Pile Spawner" $pile ("ScriptInstructionLimit(5000000);`nSetCameraPosition(0, 22, -40);`nSetCameraTarget(0, 4, 0);`n" +
         "for (var i = 0; i < 500; i++) { CreateInstance(`"Falling Crate`", RandomRange(-6, 6), 3 + i * 0.12, RandomRange(-6, 6)); }`n") ""
 
+    # Skinned crowd: 200 rigged figures, each with its own animation graph (idle-walk blend).
+    $crowd = Room "Skinned Crowd" $true
+    $figure = (Call "model.create" @{ name = "Walker Model"; rig = "Humanoid"; parts = @(
+        @{ primitive = "Cube"; position = @(0, 1.25, 0); scale = @(0.5, 0.7, 0.3); color = "#4A6FA5" },
+        @{ primitive = "Sphere"; position = @(0, 1.8, 0); scale = @(0.3, 0.3, 0.3); color = "#E0B090" },
+        @{ primitive = "Cylinder"; position = @(-0.15, 0.45, 0); scale = @(0.16, 0.9, 0.16); color = "#333344" },
+        @{ primitive = "Cylinder"; position = @(0.15, 0.45, 0); scale = @(0.16, 0.9, 0.16); color = "#333344" },
+        @{ primitive = "Cylinder"; position = @(-0.35, 1.25, 0); scale = @(0.12, 0.7, 0.12); color = "#4A6FA5" },
+        @{ primitive = "Cylinder"; position = @(0.35, 1.25, 0); scale = @(0.12, 0.7, 0.12); color = "#4A6FA5" }) }).data.path
+    $walker = (Call "object.create" @{ name = "Walker"; model = $figure; events = @{
+        Create = "var tree = AnimationBlendTreeCreate1D(`"Speed`");`nAnimationBlendTreeAddClip(tree, `"Idle`", 0);`nAnimationBlendTreeAddClip(tree, `"Walk`", 1);`nAnimationStateCreate(`"Move`", tree);`nAnimationSetParameter(`"Speed`", Random(1));`n" } }).data.path
+    Call "object.setComponent" @{ object = $walker; type = "ModelAnimatorComponent"; values = @{ Playing = $true; Loop = $true } } | Out-Null
+    Spawner "Crowd Spawner" $crowd ("ScriptInstructionLimit(5000000);`nSetCameraPosition(0, 9, -26);`nSetCameraTarget(0, 1, 0);`n" +
+        "for (var cx = 0; cx < 20; cx++) { for (var cz = 0; cz < 10; cz++) { CreateInstance(`"Walker`", cx * 1.6 - 15, 0, cz * 1.6 - 6); } }`n") ""
+
     # Heavy GUI: 400 labelled panels drawn every frame.
     $gui = Room "GUI" $false
     Spawner "Panels" $gui "t = 0;`n" ("ScriptInstructionLimit(1000000);`nt = t + 1;`nfor (var i = 0; i < 400; i++) {`n    var px = (i % 20) * 64;`n    var py = Floor(i / 20) * 36;`n" +
@@ -110,7 +126,7 @@ function Build-Project {
 
 if ($Rebuild -or -not (Test-Path (Join-Path $project "Assets"))) { Build-Project }
 
-$scenes = @("Sprites 2D", "Objects 3D", "Terrain", "Physics Pile", "GUI")
+$scenes = @("Sprites 2D", "Objects 3D", "Terrain", "Physics Pile", "Skinned Crowd", "GUI")
 $budget = if (Test-Path $Budgets) { Get-Content $Budgets -Raw | ConvertFrom-Json } else { $null }
 $rows = @(); $failed = 0
 foreach ($scene in $scenes) {
