@@ -233,6 +233,23 @@ too, with a smaller weight, for a turn shared down the spine.
 
 `AnimationBoneReach("Hand.R", x, y, z)` bends the two bones above a bone so that it reaches a point: a hand to a door handle or a lever, a foot onto a step. The bone lengths stay as they are, the limb keeps the way it already bends (elbows out, knees forward), and a point out of reach is reached towards with the limb straight; `AnimationBoneReach(bone, x, y, z, weight)` blends it in and `AnimationBoneClearReach(bone)` gives the limb back to its animation. Reaches are applied before look-ats, so a character can reach for something and look at it in the same frame. Both work with rigs that list their bones in any order.
 
+Feet on uneven ground are a reach to the ground under the foot. `ModelSocketX/Y/Z` take a bone's name
+as well as a socket's, so a Step event can find where the animation put a foot, ask the ground's
+height there and plant the foot on it:
+
+```
+fx = ModelSocketX("Foot.L"); fy = ModelSocketY("Foot.L"); fz = ModelSocketZ("Foot.L");
+if (PhysicsRaycast(fx, fy + 0.5, fz, 0, -1, 0, 1.2)) {
+    AnimationBoneReach("Foot.L", fx, PhysicsRaycastHitY() + 0.08, fz, 1);
+} else {
+    AnimationBoneClearReach("Foot.L");
+}
+```
+
+(`GetTerrainHeight(x, z)` gives the height on terrain without a ray; 0.08 is the ankle above the
+sole, which depends on the model.) Do the same for the other foot, and lower the body by the
+deeper of the two offsets when one foot steps down, so the other leg is not left straight.
+
 ## The game's text in several languages (19 October 2026)
 
 Put each language's text in the project's `Assets/Text` folder, one file per language named by its
