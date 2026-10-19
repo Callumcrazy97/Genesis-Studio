@@ -20,10 +20,21 @@ public abstract class AnimationBlendTree
     public bool Synced { get; set; }
 
     public abstract IReadOnlyList<WeightedClip> Evaluate(IReadOnlyDictionary<string, object> parameters, float time);
-    protected static float Number(IReadOnlyDictionary<string, object> parameters, string key) =>
-        parameters.TryGetValue(key, out object? value)
-        && float.TryParse(Convert.ToString(value, CultureInfo.InvariantCulture), NumberStyles.Float,
-            CultureInfo.InvariantCulture, out float number) && float.IsFinite(number) ? number : 0f;
+    protected static float Number(IReadOnlyDictionary<string, object> parameters, string key)
+    {
+        if (!parameters.TryGetValue(key, out object? value)) return 0f;
+        // Numbers as they are: turning each into text to parse it again was a string per evaluation
+        // per character (benchmark scenes, Skinned Crowd).
+        float number = value switch
+        {
+            double d => (float)d,
+            float f => f,
+            int i => i,
+            long l => l,
+            _ => float.TryParse(Convert.ToString(value, CultureInfo.InvariantCulture), NumberStyles.Float, CultureInfo.InvariantCulture, out float parsed) ? parsed : 0f,
+        };
+        return float.IsFinite(number) ? number : 0f;
+    }
 }
 
 public sealed class ClipNode(string clip, bool loop = true) : AnimationBlendTree
@@ -263,6 +274,14 @@ public sealed class AnimationStateMachine
         var current = tree.Evaluate(parameters, Time);
         if (tree.Synced) current = AtPhase(current, _phase, _asset);
         if (_previous == null || !_states.TryGetValue(_previous, out AnimationBlendTree? previous)) return current;
+        return Crossfade(parameters, tree, previous, current);
+    }
+
+    // Its own method: the blend its lambdas capture made a closure on every evaluation of the state
+    // machine, crossfading or not (the closure is made where the captured variable's scope starts).
+    private IReadOnlyList<WeightedClip> Crossfade(IReadOnlyDictionary<string, object> parameters, AnimationBlendTree tree,
+        AnimationBlendTree previous, IReadOnlyList<WeightedClip> current)
+    {
         // Two states that share one tree: its reused result would be overwritten by the outgoing state's.
         if (ReferenceEquals(previous, tree)) current = current.ToArray();
         float blend = _duration <= 0 ? 1 : Math.Clamp(_elapsed / _duration, 0, 1);
@@ -350,7 +369,24 @@ public sealed class AnimationController
                 }
             }
         }
-        foreach (AnimationLayer layer in Layers.Values) layer.StateMachine.Advance(dt, speed, Parameters, asset);
+        IReadOnlyList<AnimationLayer> layers = LayersInOrder();
+        for (int l = 0; l < layers.Count; l++) layers[l].StateMachine.Advance(dt, speed, Parameters, asset);
+    }
+
+    private readonly AnimationLayer[] _onlyLayer = new AnimationLayer[1];
+
+    /// <summary>
+    /// The layers in order. One layer (nearly every character) is read without enumerating the
+    /// SortedDictionary, whose enumerator and its stack were allocated twice a frame per character.
+    /// </summary>
+    private IReadOnlyList<AnimationLayer> LayersInOrder()
+    {
+        if (Layers.Count == 1 && Layers.TryGetValue(0, out AnimationLayer? only))
+        {
+            _onlyLayer[0] = only;
+            return _onlyLayer;
+        }
+        return Layers.Values.ToArray();
     }
     // This controller's pose buffers, reused every evaluation: a crowd of 200 graph-driven characters
     // allocated about 3 KB each a frame in new bone arrays (benchmark scenes, Skinned Crowd).
@@ -369,11 +405,15 @@ public sealed class AnimationController
         if (_result.Length != count) { _result = new Matrix4x4[count]; _pose = new Matrix4x4[count]; _next = new Matrix4x4[count]; }
         Matrix4x4[] result = _result;
         for (int i = 0; i < count; i++) result[i] = bones[i].BindLocal;
-        foreach (AnimationLayer layer in Layers.Values)
+        IReadOnlyList<AnimationLayer> layers = LayersInOrder();
+        for (int l = 0; l < layers.Count; l++)
         {
+            AnimationLayer layer = layers[l];
             _clips.Clear();
-            foreach (WeightedClip candidate in layer.StateMachine.Evaluate(Parameters))
-                if (candidate.Weight > 0) _clips.Add(candidate);
+            // Indexed: a foreach over the list's interface boxed an enumerator each time.
+            IReadOnlyList<WeightedClip> candidates = layer.StateMachine.Evaluate(Parameters);
+            for (int k = 0; k < candidates.Count; k++)
+                if (candidates[k].Weight > 0) _clips.Add(candidates[k]);
             if (_clips.Count == 0) continue;
             Matrix4x4[] pose = _pose;
             AnimationPose.SampleInto(asset, _clips[0], pose);
