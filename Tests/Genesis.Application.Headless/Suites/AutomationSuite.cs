@@ -244,6 +244,35 @@ internal static class AutomationSuite
             AutomationResult removed = Call("terrain.removeWater", $$"""{ "terrain": "{{terrain}}", "water": "Sea", "confirm": true }""");
             HeadlessHarness.Assert(removed.Ok && Genesis.World.Terrain.TerrainNatureSerializer.LoadOrDefault(context.Resolve(terrain)).WaterBodies.Count == 2, "terrain.removeWater left the sea: " + removed.Message);
         });
+        HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.AGlbsPicturesBesideItComeWithItsImport", () =>
+        {
+            // A .glb whose material's picture is a file beside it (as converters write them), not inside it.
+            string folder = Path.Combine(ctx.Workspace, "glb-outside");
+            Directory.CreateDirectory(folder);
+            File.WriteAllBytes(Path.Combine(folder, "tile.png"), Convert.FromBase64String(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="));
+            string json = """
+                {"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"mesh":0}],
+                 "meshes":[{"primitives":[{"attributes":{"POSITION":0},"material":0}]}],
+                 "materials":[{"name":"tiled","pbrMetallicRoughness":{"baseColorTexture":{"index":0}}}],
+                 "textures":[{"source":0}],"images":[{"uri":"tile.png"}],
+                 "buffers":[{"byteLength":36}],"bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":36}],
+                 "accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[1,0,1]}]}
+                """;
+            byte[] text = System.Text.Encoding.UTF8.GetBytes(json.PadRight((json.Length + 3) / 4 * 4));
+            using (var glb = new BinaryWriter(File.Create(Path.Combine(folder, "Tiled Floor.glb"))))
+            {
+                glb.Write(0x46546C67u); glb.Write(2u); glb.Write((uint)(12 + 8 + text.Length + 8 + 36));
+                glb.Write((uint)text.Length); glb.Write(0x4E4F534Au); glb.Write(text);
+                glb.Write(36u); glb.Write(0x004E4942u);
+                foreach (float value in new float[] { 0, 0, 0, 1, 0, 0, 0, 0, 1 }) glb.Write(value);
+            }
+            AutomationResult imported = Call("resource.import", $$"""{ "files": ["{{Path.Combine(folder, "Tiled Floor.glb").Replace("\\", "\\\\")}}"], "folder": "Assets" }""");
+            string model = imported.Changed.FirstOrDefault(path => path.EndsWith(".model.json", StringComparison.OrdinalIgnoreCase)) ?? string.Empty;
+            HeadlessHarness.Assert(imported.Ok && model.Length > 0, "The .glb was not imported: " + imported.Message);
+            string picture = Path.Combine(context.Resolve(model)[..^".model.json".Length] + ".modeldata", "tile.png");
+            HeadlessHarness.Assert(File.Exists(picture), "The picture beside the .glb did not come with it: " + picture);
+        });
         HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.RoomInstancesAndEnvironmentAreSetByCommand", () =>
         {
             string room = PathOf(Call("resource.create", """{ "kind": "Room", "folder": "Assets", "name": "Field Room" }"""));

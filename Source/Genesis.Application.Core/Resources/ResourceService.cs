@@ -630,7 +630,9 @@ public sealed class ResourceService
                 if (!PathsEqual(originalSource, sourcePath))
                     transaction.Copy(originalSource, Path.Combine(modelData, "original" + Path.GetExtension(originalSource)));
                 mediaDestination = Path.Combine(modelData, "source" + mediaExtension);
-                if (mediaExtension.Equals(".gltf", StringComparison.OrdinalIgnoreCase))
+                // A .glb usually carries its pictures inside, but may name files beside it as a .gltf does.
+                if (mediaExtension.Equals(".gltf", StringComparison.OrdinalIgnoreCase)
+                    || mediaExtension.Equals(".glb", StringComparison.OrdinalIgnoreCase))
                     CopyGltfDependencies(sourcePath, modelData, transaction);
             }
             else
@@ -673,7 +675,7 @@ public sealed class ResourceService
         string modelDataDirectory,
         ResourceFileTransaction transaction)
     {
-        using JsonDocument document = JsonDocument.Parse(File.ReadAllBytes(gltfPath));
+        using JsonDocument document = JsonDocument.Parse(GltfJson(gltfPath));
         string sourceDirectory = Path.GetDirectoryName(Path.GetFullPath(gltfPath)) ?? ".";
         string sourcePrefix = sourceDirectory.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
         string destinationPrefix = Path.GetFullPath(modelDataDirectory).TrimEnd(Path.DirectorySeparatorChar)
@@ -704,6 +706,18 @@ public sealed class ResourceService
                 if (copied.Add(destination)) transaction.Copy(source, destination);
             }
         }
+    }
+
+    /// <summary>The JSON of a .gltf, or of a .glb (its first chunk).</summary>
+    private static byte[] GltfJson(string path)
+    {
+        byte[] bytes = File.ReadAllBytes(path);
+        if (!path.EndsWith(".glb", StringComparison.OrdinalIgnoreCase)) return bytes;
+        if (bytes.Length < 20 || BitConverter.ToUInt32(bytes, 0) != 0x46546C67 || BitConverter.ToUInt32(bytes, 16) != 0x4E4F534A)
+            throw new InvalidDataException("The .glb has no JSON chunk.");
+        int length = BitConverter.ToInt32(bytes, 12);
+        if (length < 0 || 20 + length > bytes.Length) throw new InvalidDataException("The .glb's JSON chunk is cut short.");
+        return bytes.AsSpan(20, length).ToArray();
     }
 
     private static bool IsImageExtension(string extension) =>
