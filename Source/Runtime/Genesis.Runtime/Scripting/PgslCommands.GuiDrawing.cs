@@ -89,6 +89,22 @@ public static partial class PgslCommands
         Draw?.SetClip(new RectangleF((float)x, (float)y, (float)Math.Max(width, 0.001), (float)Math.Max(height, 0.001)));
     }
 
+    [PgslCommand("DrawSetOffset", "DrawSetOffset(x, y)",
+        "Move later GUI drawing (shapes, text and images) by x, y pixels until it is set again, so a panel laid out from 0, 0 can be drawn anywhere (a second screen, a window); 0, 0 puts it back", "Drawing 2D")]
+    public static void DrawSetOffset(double x, double y)
+    {
+        PgslContext ctx = GetContext();
+        if (ctx is null) return;
+        ctx.DrawOffsetX = double.IsFinite(x) ? x : 0;
+        ctx.DrawOffsetY = double.IsFinite(y) ? y : 0;
+    }
+
+    [PgslCommand("DrawGetOffsetX", "DrawGetOffsetX() -> number", "The x DrawSetOffset last set", "Drawing 2D")]
+    public static double DrawGetOffsetX() => GetContext()?.DrawOffsetX ?? 0;
+
+    [PgslCommand("DrawGetOffsetY", "DrawGetOffsetY() -> number", "The y DrawSetOffset last set", "Drawing 2D")]
+    public static double DrawGetOffsetY() => GetContext()?.DrawOffsetY ?? 0;
+
     [PgslCommand("DrawResetClip", "DrawResetClip()", "Draw everywhere again after DrawSetClip", "Drawing 2D")]
     public static void DrawResetClip() => Draw?.SetClip(RectangleF.Empty);
 

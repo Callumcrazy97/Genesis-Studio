@@ -29,7 +29,8 @@ public sealed partial class RoomEditorControl
         {
             bool live = _room.Dimension == RoomDimension.ThreeD ? Engine.TryGetCamera3DPose(i, out _, out _, out _, out _, out _, out _, out _)
                 : Engine.TryGetCamera2DPose(i, out _, out _, out _, out _, out _, out _);
-            _sceneViewBox.Items.Add(new SceneViewChoice("@view:" + i, $"View {i + 1}" + (live ? " · live ID " + i : "")
+            string named = string.IsNullOrWhiteSpace(_room.Viewports[i].Name) ? "" : " · " + _room.Viewports[i].Name;
+            _sceneViewBox.Items.Add(new SceneViewChoice("@view:" + i, $"View {i + 1}" + named + (live ? " · live ID " + i : "")
                 + (_room.Viewports[i].Enabled ? "" : " (disabled)"), CameraChoiceKind.Viewport, i));
         }
         for (int i = _room.Viewports.Count; i < RoomAsset.MaxViewports; i++)

@@ -42,7 +42,17 @@ public static partial class PgslCommands
         return previous;
     }
 
-    private static IPgslDrawSurface Draw => Ctx.DrawSurface as IPgslDrawSurface;
+    private static IPgslDrawSurface Draw
+    {
+        get
+        {
+            PgslContext ctx = Ctx;
+            if (ctx?.DrawSurface is not IPgslDrawSurface surface) return null;
+            return ctx.DrawOffsetX == 0 && ctx.DrawOffsetY == 0
+                ? surface
+                : OffsetDrawSurface.Wrap(surface, (float)ctx.DrawOffsetX, (float)ctx.DrawOffsetY);
+        }
+    }
 
     internal static string PreProcessScript(string pgsl, bool isForVm = false, string projectPath = null)
     {

@@ -187,6 +187,9 @@ public sealed class RoomViewport
     /// <summary>Off by default: a room with every viewport live would letterbox itself eight ways.</summary>
     [JsonProperty("enabled")] public bool Enabled { get; set; }
 
+    /// <summary>Optional name ("DS Top", "Minimap"): shown in the Room editor and found by ViewFind.</summary>
+    [JsonProperty("name")] public string Name { get; set; } = "";
+
     // ── Source: the region of the room this viewport looks at ──────────────────
     [JsonProperty("sourceX")] public float SourceX { get; set; }
     [JsonProperty("sourceY")] public float SourceY { get; set; }
@@ -242,6 +245,7 @@ public sealed class RoomViewport
         FollowMarginY = Math.Clamp(FollowMarginY, 0f, 100000f);
         FollowMarginZ = Math.Clamp(FollowMarginZ, 0f, 100000f);
         FollowTarget ??= "";
+        Name ??= "";
         if (EditorColor is not { Length: 4 }) EditorColor = new[] { 0.35f, 0.78f, 1f, 1f };
     }
 

@@ -53,6 +53,14 @@ public static partial class PgslCommands
     [PgslCommand("ViewGetCount", "ViewGetCount() -> number", "Number of viewport slots in the current room", "Views")]
     public static double ViewGetCount() => ActiveGameContext?.Room?.Viewports?.Count ?? 0;
 
+    [PgslCommand("ViewFind", "ViewFind(name) -> number", "The viewport slot with this name (\"DS Top\"), or -1", "Views")]
+    public static double ViewFind(string name)
+    {
+        var viewports = ActiveGameContext?.Room?.Viewports;
+        if (viewports == null || string.IsNullOrWhiteSpace(name)) return -1;
+        return viewports.FindIndex(v => string.Equals(v.Name, name.Trim(), StringComparison.OrdinalIgnoreCase));
+    }
+
     [PgslCommand("ViewGetActive", "ViewGetActive() -> number", "Currently active viewport slot", "Views")]
     public static double ViewGetActive() => _activeView;
 

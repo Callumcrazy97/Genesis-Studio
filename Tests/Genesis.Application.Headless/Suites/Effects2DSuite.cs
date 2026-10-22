@@ -275,6 +275,29 @@ internal static class Effects2DSuite
             Assert(list.Commands[2].Clip == default, "Drawing after DrawResetClip was still clipped.");
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Gui.AnOffsetMovesLaterDrawingUntilReset", () =>
+        {
+            // A panel laid out from 0, 0 drawn on a second screen (Nuvema's DS Bottom) by moving its origin.
+            PgslRecordingDrawSurface surface = new();
+            ObjectSandboxResult result = ObjectSandbox.Run(new Dictionary<string, string>
+            {
+                ["Create"] =
+                    "DrawSetOffset(100, 384);\n" +
+                    "DrawRectangle(10, 20, 40, 60);\n" +
+                    "DrawTextScaled(5, 6, \"A\", 12);\n" +
+                    "ox = DrawGetOffsetX(); oy = DrawGetOffsetY();\n" +
+                    "DrawSetOffset(0, 0);\n" +
+                    "DrawRectangle(10, 20, 40, 60);\n",
+            }, frames: 0, surface);
+            Assert(result.Ok, "The offset script failed: " + string.Join(" | ", result.Errors));
+            Assert(result.Numbers["ox"] == 100 && result.Numbers["oy"] == 384, "DrawGetOffsetX/Y did not return what DrawSetOffset set.");
+            Assert(surface.Rectangles.Count == 2 && surface.Texts.Count == 1, $"Expected two rectangles and a text, got {surface.Rectangles.Count} and {surface.Texts.Count}.");
+            var moved = surface.Rectangles[0]; var back = surface.Rectangles[1];
+            Assert(moved.X == 110 && moved.Y == 404 && moved.W == 30 && moved.H == 40, $"The offset rectangle landed at {moved.X},{moved.Y} {moved.W}x{moved.H}.");
+            Assert(surface.Texts[0].X == 105 && surface.Texts[0].Y == 390, $"The offset text landed at {surface.Texts[0].X},{surface.Texts[0].Y}.");
+            Assert(back.X == 10 && back.Y == 20, "Drawing after DrawSetOffset(0, 0) was still moved.");
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Engine.Effects2D.MouseButtonsAndSmoothEffectSpritesPreserveContract", () =>
         {
             Assert(PgslCommands.MbRight == (int)MouseButton.Right && PgslCommands.MbMiddle == (int)MouseButton.Middle, "Right/middle mouse mapping is swapped.");
