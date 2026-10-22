@@ -228,6 +228,14 @@ public static class StudioModelResourceLoader
     {
         bool timesAgree = File.GetLastWriteTimeUtc(canonical) >= File.GetLastWriteTimeUtc(source);
         string recorded = document.SourceHash ?? string.Empty;
+        // "hash:rh" or "hash:lh": the handedness it was cooked with. Turning "convert right-handed" on or
+        // off afterwards must cook it again; a hash without one (cooked before this was kept) does not.
+        int colon = recorded.IndexOf(':');
+        if (colon >= 0)
+        {
+            if (!string.Equals(recorded[(colon + 1)..], Handedness(path, document), StringComparison.Ordinal)) return false;
+            recorded = recorded[..colon];
+        }
         if (recorded.Length == 0)
         {
             // A model cooked before hashes were kept: its times decide this once, and while they agree
@@ -244,6 +252,9 @@ public static class StudioModelResourceLoader
         string current = HashSource(source);
         return current.Length == 0 || string.Equals(current, recorded, StringComparison.OrdinalIgnoreCase);
     }
+
+    private static string Handedness(string path, Document document) =>
+        (document.ConvertRightHanded ?? Genesis.Runtime.Project.ProjectPaths.ReadConvertRightHandedModels(FindProjectRoot(path))) ? "rh" : "lh";
 
     /// <summary>SHA-256 of a source file (lower-case hex), kept per path, time and length; empty when unreadable.</summary>
     public static string HashSource(string source)
@@ -328,7 +339,8 @@ public static class StudioModelResourceLoader
                 if (WriteReimportsToProject)
                 {
                     RuntimeModelStore.Save(canonical, imported);
-                    RecordSourceHash(path, HashSource(source));
+                    string hash = HashSource(source);
+                    RecordSourceHash(path, hash.Length == 0 ? hash : hash + ":" + (convert ? "rh" : "lh"));
                     // Its fast-loading copy now (raw arrays, quick to make), so the next open reads that
                     // instead of parsing the JSON just written; it used to wait for a slow load first.
                     ModelBinaryCache.SaveInBackground(canonical, imported);

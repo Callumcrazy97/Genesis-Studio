@@ -272,6 +272,25 @@ internal static class AutomationSuite
             HeadlessHarness.Assert(imported.Ok && model.Length > 0, "The .glb was not imported: " + imported.Message);
             string picture = Path.Combine(context.Resolve(model)[..^".model.json".Length] + ".modeldata", "tile.png");
             HeadlessHarness.Assert(File.Exists(picture), "The picture beside the .glb did not come with it: " + picture);
+            // Turning "convert right-handed" on or off cooks the model again (it used to keep the old cook).
+            float FarthestZ(bool mirrored)
+            {
+                AutomationResult set = Call("resource.set", $$"""{ "path": "{{model}}", "values": { "convertRightHanded": {{(mirrored ? "true" : "false")}} } }""");
+                HeadlessHarness.Assert(set.Ok, "convertRightHanded was not set: " + set.Message);
+                var asset = Genesis.Runtime.Modeling.StudioModelResourceLoader.Load(context.Resolve(model));
+                return asset.Meshes.SelectMany(mesh => mesh.Vertices).Select(vertex => vertex.Position.Z).OrderBy(z => Math.Abs(z)).Last();
+            }
+            float plain = FarthestZ(false), mirrored = FarthestZ(true);
+            HeadlessHarness.Assert(Math.Abs(plain - 1f) < 0.001f && Math.Abs(mirrored + 1f) < 0.001f,
+                $"Changing the model's handedness did not cook it again (z {plain} then {mirrored}; 1 then -1 expected).");
+            // Importing it again leaves its pictures alone when they are the same (a rewrite reloaded a playing game without end).
+            string data = context.Resolve(model)[..^".model.json".Length] + ".modeldata";
+            Dictionary<string, DateTime> Stamps() => Directory.GetFiles(data, "*.png", SearchOption.AllDirectories).ToDictionary(file => file, File.GetLastWriteTimeUtc);
+            var before = Stamps();
+            Thread.Sleep(50);
+            Genesis.Runtime.Modeling.StudioModelResourceLoader.ImportSource(context.Resolve(model));
+            HeadlessHarness.Assert(before.Count > 0 && Stamps().All(pair => before.TryGetValue(pair.Key, out DateTime was) && was == pair.Value),
+                "Importing the model again rewrote pictures that had not changed.");
         });
         HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.RoomInstancesAndEnvironmentAreSetByCommand", () =>
         {

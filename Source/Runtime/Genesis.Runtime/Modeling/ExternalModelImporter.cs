@@ -652,7 +652,11 @@ public static class ExternalModelImporter
             ? SafeFileName(name.GetString() ?? $"image-{index}")
             : $"image-{index}";
         string destination = Path.Combine(directory, $"{index:D2}-{clean}{extension.ToLowerInvariant()}");
-        File.WriteAllBytes(destination, bytes);
+        // Only a picture that differs is written: rewriting the same one told the game's file watcher it
+        // had changed, so a model imported during play reloaded the room, which imported it again, forever.
+        if (!File.Exists(destination) || new FileInfo(destination).Length != bytes.Length
+            || !File.ReadAllBytes(destination).AsSpan().SequenceEqual(bytes))
+            File.WriteAllBytes(destination, bytes);
         return RelativeOrFull(projectRoot, destination);
     }
 
