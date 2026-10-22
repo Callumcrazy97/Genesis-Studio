@@ -1124,6 +1124,7 @@ internal static class HeadlessTestRunner
         Suites.Effects2DSuite.Run(ctx);
         Suites.PostEffectsSuite.Run(ctx);
         Suites.AntiAliasingSuite.Run(ctx);
+        Suites.GpuCullingSuite.Run(ctx);
         Suites.SkyLightExposureSuite.Run(ctx);
         Suites.ShaderPrecompiledSuite.Run(ctx);
 
@@ -1695,6 +1696,11 @@ internal static class HeadlessTestRunner
                 // Textures a script paints, drawn in the GUI and the 2D world on every renderer, and their cost.
                 PrepareFocusedProject(ctx, requireStudioServices: false);
                 Suites.ScriptTextureSuite.Run(ctx);
+                break;
+            case "gpu-culling":
+                // Instanced batches culled on the GPU: the same picture, out-of-view cubes skipped, on every renderer.
+                PrepareFocusedProject(ctx, requireStudioServices: false);
+                Suites.GpuCullingSuite.Run(ctx);
                 break;
             case "anti-aliasing":
                 // FXAA and SMAA on every renderer (edges softened, GUI untouched, post effects after),

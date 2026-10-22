@@ -3519,6 +3519,7 @@ namespace Genesis.Rendering.Primitives
             LastBatchCount = _batchList.Count + _skinnedBatchList.Count;
 
             UploadAllInstances();
+            CullBatchesOnGpu();
             RenderPlanarReflection(whiteTexture, viewW, viewH);
 
             // The HDR offscreen target + post composite (tonemap, fog, shadow-aware volumetric
@@ -4543,8 +4544,10 @@ namespace Genesis.Rendering.Primitives
             int instOffset = 0;
             MeshDrawFlags lastBatchRaster = 0;
             bool batchCullStateSet = false;
+            int batchIndex = -1;
             foreach (var b in _batchList)
             {
+                batchIndex++;
                 if (b.Instances.Count == 0) continue;
                 if (instOffset >= SoftMeshInstanceCap) break;
                 if (_worldDrawBudgetLeft <= 0) break;
@@ -4592,7 +4595,9 @@ namespace Genesis.Rendering.Primitives
                     materialFeatures: new Vector4(b.Orm.IsValid ? 1f : 0f, (float)b.HeightMode,
                         b.Emission.IsValid ? 1f : 0f, (b.Extras.IsValid ? 1f : 0f) + (b.Flow.IsValid ? 2f : 0f)),
                     noReceiveShadow: b.NoReceiveShadow, materialFactors: b.MaterialFactors, emissionColor: b.EmissionColor);
-                _gpu.DrawIndexedInstanced(mesh.IndexCount, drawCount);
+                // Culled on the GPU: only the instances in view, counted there.
+                if (!TryDrawCulledBatch(batchIndex))
+                    _gpu.DrawIndexedInstanced(mesh.IndexCount, drawCount);
                 _worldDrawBudgetLeft--;
                 if (b.Foliage)
                 {
@@ -6459,6 +6464,7 @@ namespace Genesis.Rendering.Primitives
         {
             ReleasePostEffectTargets();
             ReleaseAntiAliasResources();
+            ReleaseGpuCulling();
             ReleaseMotionBlurResources();
             ReleaseModelLayers();
             ReleaseOutlineResources();

@@ -2389,6 +2389,20 @@ the scripts' Draw events in "gathering what to draw" and names them among the lo
 for the graphics card to give its buffers back) and `project post effects`. All three used to be
 part of the time "outside the frame's own work", which was most of a game's long first frames.
 
+## GPU culling of instanced batches (22 October 2026)
+
+A batch of 64 or more instances of one mesh is checked against the camera on the GPU before it is
+drawn. Batches like this come from scattered grass, trees and rocks, a crowd of one model, or
+DrawMesh calls the renderer groups. A compute pass tests each instance's bounding sphere against
+the sides of the view, writes the instances in view one after another into a second buffer, and
+counts them into the batch's draw arguments. The batch is then drawn with those arguments, so
+instances out of view cost the GPU nothing.
+
+It runs on DX11, DX12, Vulkan and OpenGL. The software renderer draws every instance. Shadows and
+reflections draw every instance too, since they look from elsewhere. `GENESIS_GPU_CULLING=0`
+turns it off for a run. The renderer's statistics give the batches culled this way
+(`GpuCulledBatches`) and, read back a few frames late, how many of their instances were in view
+(`GpuCullVisibleInstances` of `GpuCullCandidateInstances`).
 ## Surface shaders, a shader per material and each instance's own camo
 
 Added 9 October 2026 (request 33 of the Aetherium port). [Mesh shaders](MeshShaders.md) has the

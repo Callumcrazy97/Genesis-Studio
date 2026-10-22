@@ -555,6 +555,12 @@ namespace Genesis.Shared.Interfaces
     /// </summary>
     public static class RenderCapacityDefaults
     {
+        /// <summary>
+        /// Whether instanced batches of 64 instances or more are culled against the camera on the
+        /// GPU where the backend can (on unless GENESIS_GPU_CULLING is 0); every instance is drawn otherwise.
+        /// </summary>
+        public static bool GpuCulling { get; set; } = Environment.GetEnvironmentVariable("GENESIS_GPU_CULLING") != "0";
+
         public const string SpriteInstanceCapEnvironmentVariable = "GENESIS_SPRITE_INSTANCE_CAP";
         public const string MeshInstanceCapEnvironmentVariable = "GENESIS_MESH_INSTANCE_CAP";
         public const string SceneLocalLightCapEnvironmentVariable = "GENESIS_SCENE_LOCAL_LIGHT_CAP";
@@ -1184,6 +1190,12 @@ namespace Genesis.Shared.Interfaces
         public AntiAliasingMode AntiAliasing;
         /// <summary>CPU milliseconds recording the anti-aliasing passes (0 when none ran).</summary>
         public double AntiAliasMs;
+        /// <summary>Instanced batches whose instances were culled against the camera on the GPU in the last frame.</summary>
+        public int GpuCulledBatches;
+        /// <summary>Of the instances the GPU culled, those in view, as last read back a few frames ago (-1 before any).</summary>
+        public int GpuCullVisibleInstances;
+        /// <summary>The instances the GPU tested in that frame.</summary>
+        public int GpuCullCandidateInstances;
         /// <summary>Sun shadow map size in texels per side, every cascade.</summary>
         public int ShadowMapResolution;
         /// <summary>Projected decals drawn in the last frame (IRenderController.DrawDecals).</summary>
