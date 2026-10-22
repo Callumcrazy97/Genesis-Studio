@@ -1015,17 +1015,29 @@ namespace Genesis.Rendering.SilkNet.DX12
                     };
 
                     ComPtr<ID3D12PipelineState> pso = default;
-                    GpuTelemetry.PipelineCreated();
-                    int hr;
-                    using (Genesis.Shared.Assets.LoadClock.Measure(Genesis.Shared.Assets.LoadWork.Pipeline))
+                    // Kept on disk from an earlier run, it is loaded rather than compiled again.
+                    Dx12PipelineLibrary library = _runtime.PipelineLibrary;
+                    string libraryName = library != null ? Dx12PipelineLibrary.NameOf(&desc, program.VertexShader, program.PixelShader) : null;
+                    nint loaded = library?.Load(libraryName, &desc) ?? 0;
+                    int hr = 0;
+                    if (loaded == 0)
                     {
-                        hr = _runtime.Device.Handle->CreateGraphicsPipelineState(
-                            &desc, SilkMarshal.GuidPtrOf<ID3D12PipelineState>(), (void**)pso.GetAddressOf());
+                        GpuTelemetry.PipelineCreated();
+                        using (Genesis.Shared.Assets.LoadClock.Measure(Genesis.Shared.Assets.LoadWork.Pipeline))
+                        {
+                            hr = _runtime.Device.Handle->CreateGraphicsPipelineState(
+                                &desc, SilkMarshal.GuidPtrOf<ID3D12PipelineState>(), (void**)pso.GetAddressOf());
+                        }
                     }
 
                     if (elements != null)
                     {
                         NativeMemory.Free(elements);
+                    }
+
+                    if (loaded != 0)
+                    {
+                        return loaded;
                     }
 
                     if (hr < 0)
@@ -1035,6 +1047,7 @@ namespace Genesis.Rendering.SilkNet.DX12
                         return 0;
                     }
 
+                    library?.Store(libraryName, (nint)pso.Handle);
                     return (nint)pso.Handle;
                 }
             }

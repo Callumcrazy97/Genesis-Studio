@@ -1125,6 +1125,7 @@ internal static class HeadlessTestRunner
         Suites.PostEffectsSuite.Run(ctx);
         Suites.AntiAliasingSuite.Run(ctx);
         Suites.GpuCullingSuite.Run(ctx);
+        Suites.Dx12PipelineLibrarySuite.Run(ctx);
         Suites.SkyLightExposureSuite.Run(ctx);
         Suites.ShaderPrecompiledSuite.Run(ctx);
 
@@ -1696,6 +1697,11 @@ internal static class HeadlessTestRunner
                 // Textures a script paints, drawn in the GUI and the 2D world on every renderer, and their cost.
                 PrepareFocusedProject(ctx, requireStudioServices: false);
                 Suites.ScriptTextureSuite.Run(ctx);
+                break;
+            case "dx12-pipelines":
+                // A game run twice on DX12 loads its pipeline states from the library the second time.
+                PrepareFocusedProject(ctx, requireStudioServices: false);
+                Suites.Dx12PipelineLibrarySuite.Run(ctx);
                 break;
             case "gpu-culling":
                 // Instanced batches culled on the GPU: the same picture, out-of-view cubes skipped, on every renderer.

@@ -2403,6 +2403,21 @@ reflections draw every instance too, since they look from elsewhere. `GENESIS_GP
 turns it off for a run. The renderer's statistics give the batches culled this way
 (`GpuCulledBatches`) and, read back a few frames late, how many of their instances were in view
 (`GpuCullVisibleInstances` of `GpuCullCandidateInstances`).
+## DX12 pipeline states kept between runs (22 October 2026)
+
+On Direct3D 12 a pipeline state, made the first time a draw needs it, is compiled by the driver,
+and a first compile can hold up a frame. The pipeline states a game makes are now kept on disk in
+a D3D12 pipeline library, `DX12Pipelines\pipelines-<build>.bin`, beside the shader cache
+(`GENESIS_SHADER_CACHE`, otherwise `%LOCALAPPDATA%\GenesisRuntime\ShaderCache`). The next run
+loads them instead of compiling them again.
+
+Each pipeline is filed under a hash of what it is made from: shader code, blend, depth and raster
+states, attachment formats, topology and vertex layout. A new engine build starts a new file and
+deletes the old one. A file written by another driver or GPU is not accepted by D3D12, and a new
+one is made in its place. The file is written when a viewport or the game closes, and every ten
+seconds while new pipelines are being made. The render log gives each run's count ("Pipelines
+this run: N loaded from the library, M compiled"). `GENESIS_DX12_PIPELINE_LIBRARY=0` turns the
+library off. Vulkan's pipeline cache is not kept yet.
 ## Surface shaders, a shader per material and each instance's own camo
 
 Added 9 October 2026 (request 33 of the Aetherium port). [Mesh shaders](MeshShaders.md) has the

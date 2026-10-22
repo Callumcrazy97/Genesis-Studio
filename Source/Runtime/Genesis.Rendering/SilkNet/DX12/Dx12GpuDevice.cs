@@ -1263,6 +1263,12 @@ namespace Genesis.Rendering.SilkNet.DX12
             _disposed = true;
 
             _frames.WaitIdle();
+            // The pipelines this viewport compiled, for the next run.
+            if (_runtime.PipelineLibrary is { } library)
+            {
+                library.Save();
+                Diagnostics.RenderLog.Line($"[DX12] Pipelines this run: {Dx12PipelineLibrary.Loaded} loaded from the library, {Dx12PipelineLibrary.Compiled} compiled");
+            }
 
             // Everything queued for deletion is now safe: the GPU has finished every submission.
             DrainDeferred(force: true);

@@ -44,6 +44,27 @@ namespace Genesis.Rendering.SilkNet.DX12
         /// <summary>True when GENESIS_D3D12_DEBUG asked for the validation layer.</summary>
         public bool DebugEnabled { get; private set; }
 
+        private Dx12PipelineLibrary _pipelineLibrary;
+        private bool _pipelineLibraryOpened;
+        private readonly object _pipelineLibraryGate = new();
+
+        /// <summary>The pipeline states kept on disk for this device (null when none can be kept); opened on first use.</summary>
+        public Dx12PipelineLibrary PipelineLibrary
+        {
+            get
+            {
+                lock (_pipelineLibraryGate)
+                {
+                    if (!_pipelineLibraryOpened)
+                    {
+                        _pipelineLibraryOpened = true;
+                        _pipelineLibrary = Dx12PipelineLibrary.Open(Device);
+                    }
+                    return _pipelineLibrary;
+                }
+            }
+        }
+
         private ComPtr<ID3D12InfoQueue> _infoQueue;
 
         /// <summary>
@@ -290,6 +311,11 @@ namespace Genesis.Rendering.SilkNet.DX12
 
         public void Dispose()
         {
+            lock (_pipelineLibraryGate)
+            {
+                _pipelineLibrary?.Dispose();
+                _pipelineLibrary = null;
+            }
             Queue.Dispose();
             Queue = default;
             Device.Dispose();
