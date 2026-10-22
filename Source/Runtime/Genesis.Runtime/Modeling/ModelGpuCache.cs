@@ -168,7 +168,7 @@ namespace Genesis.Runtime.Modeling
                         continue;
 
                     bool skinned = mesh.IsSkinned && mesh.SkinnedVertices != null && mesh.SkinnedVertices.Length > 0;
-                    foreach ((int materialIndex, ushort[] indices) in MaterialBatches(mesh))
+                    foreach ((int materialIndex, ushort[] indices) in MaterialBatches(mesh, asset.Materials))
                     {
                         MeshHandle handle = skinned
                             ? renderer.RegisterSkinnedMesh(mesh.SkinnedVertices, indices)
@@ -197,7 +197,8 @@ namespace Genesis.Runtime.Modeling
                 renderer.UpdateSkinPalette(cached.IdentityPalette, IdentityPalette(cached.PaletteSize));
             }
 
-            if (cached.Meshes.Count == 0)
+            // A model with nothing to draw shows a placeholder, unless what it has is hidden on purpose.
+            if (cached.Meshes.Count == 0 && asset.Materials?.Exists(material => material?.Hidden == true) != true)
             {
                 if (!cache.PlaceholderMesh.IsValid)
                     cache.PlaceholderMesh = MeshGeometry.RegisterCube(renderer, new RenderColor(1f, 0.15f, 0.35f, 1f), 1f);
@@ -441,7 +442,7 @@ namespace Genesis.Runtime.Modeling
                 bool skinned = mesh.IsSkinned && mesh.SkinnedVertices is { Length: > 0 };
                 MeshVertex[] plain = skinned ? [] : ModelMorphEvaluator.Apply(mesh, morphWeights);
                 SkinnedMeshVertex[] animated = skinned ? ModelMorphEvaluator.ApplySkinned(mesh, morphWeights) : [];
-                foreach ((int materialIndex, ushort[] indices) in MaterialBatches(mesh))
+                foreach ((int materialIndex, ushort[] indices) in MaterialBatches(mesh, asset.Materials))
                 {
                     MeshHandle handle = skinned
                         ? renderer.RegisterSkinnedMesh(animated, indices)
@@ -464,13 +465,17 @@ namespace Genesis.Runtime.Modeling
             return created;
         }
 
-        /// <summary>The triangle list a mesh draws for each of its materials.</summary>
-        public static IEnumerable<(int MaterialIndex, ushort[] Indices)> MaterialBatches(GModelMesh mesh)
+        /// <summary>
+        /// The triangle list a mesh draws for each of its materials; with the model's materials,
+        /// none for a material that is hidden.
+        /// </summary>
+        public static IEnumerable<(int MaterialIndex, ushort[] Indices)> MaterialBatches(GModelMesh mesh, IReadOnlyList<GModelMaterial> materials = null)
         {
+            bool Hidden(int material) => materials != null && (uint)material < (uint)materials.Count && materials[material]?.Hidden == true;
             int triangles = mesh.Indices.Length / 3;
             if (mesh.TriangleMaterialIndices == null || mesh.TriangleMaterialIndices.Length != triangles)
             {
-                yield return (mesh.MaterialIndex, mesh.Indices);
+                if (!Hidden(mesh.MaterialIndex)) yield return (mesh.MaterialIndex, mesh.Indices);
                 yield break;
             }
 
@@ -488,7 +493,7 @@ namespace Genesis.Runtime.Modeling
                 indices.Add(mesh.Indices[triangle * 3 + 2]);
             }
             foreach ((int material, List<ushort> indices) in groups)
-                if (indices.Count > 0) yield return (material, indices.ToArray());
+                if (indices.Count > 0 && !Hidden(material)) yield return (material, indices.ToArray());
         }
 
         public SkinPaletteHandle UpdatePalette(

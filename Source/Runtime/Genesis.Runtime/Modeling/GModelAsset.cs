@@ -242,6 +242,14 @@ namespace Genesis.Runtime.Modeling
         /// <summary>A mesh Shader resource this material is drawn with, in place of the Object's (empty for none).</summary>
         public string Shader { get; set; } = "";
         public Dictionary<string, string> Metadata { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        /// <summary>
+        /// Surfaces drawn with this material are left out of the drawn model (the Model resource's
+        /// hiddenMaterials): an imported scene's ground, once a Terrain stands in for it. The
+        /// geometry stays in the model; it is set from the resource on every load, never saved here.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool Hidden { get; set; }
     }
 
     /// <summary>Lossless authoring hierarchy retained independently of the flattened render meshes.</summary>

@@ -157,6 +157,85 @@ internal static class AutomationSuite
             HeadlessHarness.Assert(!Call("terrain.create", """{ "name": "Huge", "resolutionX": 9000 }""").Ok, "An impossible resolution was not refused.");
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.TerrainIsMadeFromAModelsGroundAndGivenWater", () =>
+        {
+            // A model with two ground surfaces (grass flat at 1 m, sand rising from 1 to 3 m) and a roof over them.
+            string sources = context.Resolve("Assets/ModelSources");
+            Directory.CreateDirectory(sources);
+            Directory.CreateDirectory(context.Resolve("Assets/Models"));
+            float[][] quads =
+            [
+                [-10, 1, -5, 0, 1, -5, 0, 1, 5, -10, 1, 5],
+                [0, 1, -5, 10, 3, -5, 10, 3, 5, 0, 1, 5],
+                [-2, 8, -2, 2, 8, -2, 2, 8, 2, -2, 8, 2],
+            ];
+            using (var bin = new BinaryWriter(File.Create(Path.Combine(sources, "Ground Source.bin"))))
+            {
+                foreach (float[] quad in quads) foreach (float value in quad) bin.Write(value);
+                for (int quad = 0; quad < quads.Length; quad++) foreach (ushort index in new ushort[] { 0, 2, 1, 0, 3, 2 }) bin.Write(index);
+            }
+            string Accessor(int view, int offset, int componentType, int count, string type, float[]? quad = null) =>
+                $$"""{"bufferView":{{view}},"byteOffset":{{offset}},"componentType":{{componentType}},"count":{{count}},"type":"{{type}}"{{(quad == null ? "" :
+                    $",\"min\":[{quad.Where((_, i) => i % 3 == 0).Min()},{quad.Where((_, i) => i % 3 == 1).Min()},{quad.Where((_, i) => i % 3 == 2).Min()}],\"max\":[{quad.Where((_, i) => i % 3 == 0).Max()},{quad.Where((_, i) => i % 3 == 1).Max()},{quad.Where((_, i) => i % 3 == 2).Max()}]")}}}""";
+            File.WriteAllText(Path.Combine(sources, "Ground Source.gltf"), $$"""
+                {"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"mesh":0}],
+                 "meshes":[{"primitives":[{"attributes":{"POSITION":0},"indices":3,"material":0},{"attributes":{"POSITION":1},"indices":4,"material":1},{"attributes":{"POSITION":2},"indices":5,"material":2}]}],
+                 "materials":[{"name":"grass"},{"name":"sand"},{"name":"roof"}],
+                 "buffers":[{"uri":"Ground Source.bin","byteLength":180}],
+                 "bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":144},{"buffer":0,"byteOffset":144,"byteLength":36}],
+                 "accessors":[{{Accessor(0, 0, 5126, 4, "VEC3", quads[0])}},{{Accessor(0, 48, 5126, 4, "VEC3", quads[1])}},{{Accessor(0, 96, 5126, 4, "VEC3", quads[2])}},
+                   {{Accessor(1, 0, 5123, 6, "SCALAR")}},{{Accessor(1, 12, 5123, 6, "SCALAR")}},{{Accessor(1, 24, 5123, 6, "SCALAR")}}]}
+                """);
+            string model = "Assets/Models/Ground Source.model.json";
+            File.WriteAllText(context.Resolve(model), """{"schemaVersion": 2, "source": "../ModelSources/Ground Source.gltf", "parts": []}""");
+
+            AutomationResult made = Call("terrain.fromModel", $$"""
+                { "name": "Ground Land", "model": "{{model}}", "surfaces": ["grass", "sand"], "cellSize": 0.5, "hideSurfaces": true,
+                  "layers": [ { "name": "Grass", "materials": ["grass"] }, { "name": "Sand", "materials": ["sand"], "color": [0.9, 0.8, 0.5] } ] }
+                """);
+            HeadlessHarness.Assert(made.Ok, "terrain.fromModel failed: " + made.Message);
+            string terrain = PathOf(made);
+            AutomationResult info = Call("terrain.info", $$"""{ "terrain": "{{terrain}}", "points": [[-5, 0], [5, 0], [0.5, 0.5], [10, 0]] }""");
+            float[] heights = [.. info.Data!["pointHeights"]!.AsArray().Select(node => node!.GetValue<float>())];
+            HeadlessHarness.Assert(Math.Abs(heights[0] - 1f) < 0.02f && Math.Abs(heights[1] - 2f) < 0.02f && Math.Abs(heights[2] - 1.1f) < 0.02f && Math.Abs(heights[3] - 3f) < 0.02f,
+                "The terrain does not follow the model's ground (1, 2, 1.1 and 3 m expected, the roof left out): " + string.Join(", ", heights));
+            var land = Genesis.World.Terrain.TerrainAsset.Load(context.Resolve(terrain) + ".gterrain");
+            int Column(float x) => (int)MathF.Round((x - land.OriginX) / land.CellSize);
+            int Row(float z) => (int)MathF.Round((z - land.OriginZ) / land.CellSize);
+            HeadlessHarness.Assert(land.GetLayerWeight(Column(-5), Row(0), 0) == 255 && land.GetLayerWeight(Column(5), Row(0), 1) == 255,
+                "The ground was not painted with the layer of the material it came from.");
+            JsonArray layers = JsonNode.Parse(File.ReadAllText(context.Resolve(terrain)))!["layers"]!.AsArray();
+            HeadlessHarness.Assert(layers.Count == 2 && layers[1]!["name"]!.GetValue<string>() == "Sand", "The terrain's paint layers were not named: " + layers.ToJsonString());
+
+            // The model keeps its ground but no longer draws it; only the roof is left to draw.
+            var asset = Genesis.Runtime.Modeling.StudioModelResourceLoader.Load(context.Resolve(model));
+            int drawn = asset.Meshes.Sum(mesh => Genesis.Runtime.Modeling.ModelGpuCache.MaterialBatches(mesh, asset.Materials).Count());
+            int all = asset.Meshes.Sum(mesh => Genesis.Runtime.Modeling.ModelGpuCache.MaterialBatches(mesh).Count());
+            HeadlessHarness.Assert(asset.Materials.Count(material => material.Hidden) == 2 && asset.Materials.Single(material => !material.Hidden).Name == "roof" && drawn == 1 && all == 3,
+                $"The model's ground surfaces were not hidden ({drawn} of {all} surfaces drawn).");
+
+            // Water: a river that falls along its course, a pond to wade in with its own shader, and the sea.
+            string shader = PathOf(Call("resource.create", """{ "kind": "Shader", "folder": "Assets", "name": "Pond Look" }"""));
+            AutomationResult river = Call("terrain.addWater", $$"""{ "terrain": "{{terrain}}", "name": "Brook", "kind": "River", "riverPoints": [[-8, 0.9, 0, 2, 0.5], [8, 1.8, 0, 2.5, 0.5]] }""");
+            AutomationResult pond = Call("terrain.addWater", $$"""{ "terrain": "{{terrain}}", "name": "Pond", "center": [-6, 0.95, 2], "sizeX": 4, "sizeZ": 3, "surfaceHeight": 0.95, "physicsMode": "Shallow", "shader": "{{shader}}" }""");
+            AutomationResult sea = Call("terrain.addWater", $$"""{ "terrain": "{{terrain}}", "name": "Sea", "kind": "Ocean", "surfaceHeight": 0.2, "sizeX": 5000 }""");
+            HeadlessHarness.Assert(river.Ok && pond.Ok && sea.Ok, "terrain.addWater failed: " + river.Message + " / " + pond.Message + " / " + sea.Message);
+            HeadlessHarness.Assert(!Call("terrain.addWater", $$"""{ "terrain": "{{terrain}}", "kind": "River", "riverPoints": [[0, 0, 0, 1, 1]] }""").Ok, "A river of one point was not refused.");
+            AutomationResult changed = Call("terrain.updateWater", $$"""{ "terrain": "{{terrain}}", "water": "Pond", "surfaceHeight": 1.05 }""");
+            var nature = Genesis.World.Terrain.TerrainNatureSerializer.LoadOrDefault(context.Resolve(terrain));
+            var brook = nature.WaterBodies.Single(water => water.Name == "Brook");
+            var pondBody = nature.WaterBodies.Single(water => water.Name == "Pond");
+            HeadlessHarness.Assert(changed.Ok && nature.WaterBodies.Count == 3 && brook.Kind == Genesis.World.Terrain.TerrainWaterKind.River && brook.RiverPoints.Count == 2
+                && Math.Abs(brook.RiverPoints[1].Position.Y - 1.8f) < 0.001f && brook.ToWaterBody().SplineUsesPointHeights
+                && Math.Abs(pondBody.SurfaceHeight - 1.05f) < 0.001f && pondBody.PhysicsMode == Genesis.World.Terrain.WaterPhysicsMode.Shallow
+                && nature.WaterBodies.Single(water => water.Name == "Sea").Kind == Genesis.World.Terrain.TerrainWaterKind.Ocean,
+                "The engine did not read back the water the commands wrote.");
+            HeadlessHarness.Assert(Genesis.World.Terrain.TerrainNatureSerializer.LoadComponentShaders(context.Resolve(terrain)).GetValueOrDefault("water:" + pondBody.Id) == shader,
+                "The pond's shader was not given to the terrain.");
+            HeadlessHarness.Assert(!Call("terrain.removeWater", $$"""{ "terrain": "{{terrain}}", "water": "Sea" }""").Ok, "Removing water did not need confirming.");
+            AutomationResult removed = Call("terrain.removeWater", $$"""{ "terrain": "{{terrain}}", "water": "Sea", "confirm": true }""");
+            HeadlessHarness.Assert(removed.Ok && Genesis.World.Terrain.TerrainNatureSerializer.LoadOrDefault(context.Resolve(terrain)).WaterBodies.Count == 2, "terrain.removeWater left the sea: " + removed.Message);
+        });
         HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.RoomInstancesAndEnvironmentAreSetByCommand", () =>
         {
             string room = PathOf(Call("resource.create", """{ "kind": "Room", "folder": "Assets", "name": "Field Room" }"""));

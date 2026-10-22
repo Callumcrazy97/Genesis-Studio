@@ -15,7 +15,7 @@ namespace Genesis.Application.Core.Automation;
 /// </summary>
 public static class TerrainShapeCommands
 {
-    public static IEnumerable<IAutomationCommand> All() => [new TerrainCreate(), new TerrainInfo(), new TerrainSculptStroke()];
+    public static IEnumerable<IAutomationCommand> All() => [new TerrainCreate(), new TerrainFromModel(), new TerrainInfo(), new TerrainSculptStroke()];
 
     private static string Terrain(AutomationContext context, string path)
     {
@@ -160,6 +160,180 @@ public static class TerrainShapeCommands
         }
     }
 
+    public sealed class FromModelLayer
+    {
+        [Description("The paint layer's name."), RequiredInput] public string Name { get; set; } = string.Empty;
+        [Description("The model's materials whose ground is painted with this layer.")] public List<string>? Materials { get; set; }
+        [Description("Its colour [r, g, b], 0 to 1 (default the first material's colour).")] public float[]? Color { get; set; }
+    }
+
+    public sealed class FromModelInput
+    {
+        [Description("The terrain's name."), RequiredInput] public string Name { get; set; } = string.Empty;
+        [Description("Folder to make it in, project-relative (default Assets/Terrain).")] public string? Folder { get; set; }
+        [Description("The Model resource whose surfaces become the ground, project-relative (Assets/Models/Name.model.json)."), RequiredInput]
+        public string Model { get; set; } = string.Empty;
+        [Description("The model's materials that are ground (default all of them); walls and roofs left out stay with the model.")] public List<string>? Surfaces { get; set; }
+        [Description("Metres between height samples (default 1).")] public float? CellSize { get; set; }
+        [Description("Where the model stands in the room [x, y, z] (default the origin), so the terrain lies under it.")] public float[]? Position { get; set; }
+        [Description("Paint layers (up to 8), each with the materials painted with it; ground of a material in none of them takes the first layer. Default: one layer per ground material.")]
+        public List<FromModelLayer>? Layers { get; set; }
+        [Description("Also hide those surfaces on the Model (its hiddenMaterials), so the terrain stands in for them (default false).")] public bool? HideSurfaces { get; set; }
+    }
+
+    /// <summary>
+    /// A Terrain made from the ground of a Model: the highest of its chosen surfaces at every sample
+    /// (an imported scene's ground, a hand-made landscape), each sample painted with the layer of the
+    /// material it came from. Gaps the surfaces leave take the nearest ground's height.
+    /// </summary>
+    public sealed class TerrainFromModel : AutomationCommand<FromModelInput>
+    {
+        public override string Name => "terrain.fromModel";
+        public override string Description => "Makes a Terrain from a Model's ground surfaces (chosen by material): their heights, a paint layer per material, and optionally hides those surfaces on the Model so the terrain takes their place.";
+
+        protected override AutomationResult Execute(AutomationContext context, FromModelInput input)
+        {
+            string modelPath = context.Resolve(input.Model);
+            if (!File.Exists(modelPath) || !modelPath.EndsWith(".model.json", StringComparison.OrdinalIgnoreCase))
+                throw new AutomationException($"'{input.Model}' is not a Model resource (a .model.json file).");
+            float cell = input.CellSize ?? 1f;
+            if (!(cell > 0f)) throw new AutomationException("The cell size must be above 0.");
+            System.Numerics.Vector3 offset = input.Position is { Length: 3 } place ? new(place[0], place[1], place[2])
+                : input.Position == null ? System.Numerics.Vector3.Zero : throw new AutomationException("The position is [x, y, z].");
+            // Imported first if it never was, as opening it in the Model editor does.
+            Genesis.Runtime.Modeling.GModelAsset model = Genesis.Runtime.Modeling.StudioModelResourceLoader.Load(modelPath);
+            List<string> names = [.. model.Materials.Select(material => material?.Name ?? string.Empty)];
+
+            int Material(string name) => names.FindIndex(known => string.Equals(known, name, StringComparison.OrdinalIgnoreCase)) is int found and >= 0 ? found
+                : throw new AutomationException($"The model has no material '{name}'. Its materials: {string.Join(", ", names)}.");
+            var ground = new HashSet<int>(input.Surfaces is { Count: > 0 } surfaces ? surfaces.Select(Material) : Enumerable.Range(0, Math.Max(1, names.Count)));
+            List<FromModelLayer> layers = input.Layers is { Count: > 0 } given ? given
+                : [.. ground.Order().Select(index => new FromModelLayer { Name = index < names.Count ? names[index] : "Ground", Materials = index < names.Count ? [names[index]] : [] })];
+            if (layers.Count > TerrainAsset.MaximumPaintLayers)
+                throw new AutomationException($"A terrain has at most {TerrainAsset.MaximumPaintLayers} paint layers; give fewer, each with several materials.");
+            var layerOf = new Dictionary<int, int>();
+            for (int layer = 0; layer < layers.Count; layer++)
+                foreach (string name in layers[layer].Materials ?? [])
+                    layerOf[Material(name)] = layer;
+
+            // The ground's extent, then every chosen triangle laid over the grid from above.
+            var triangles = new List<(System.Numerics.Vector3 A, System.Numerics.Vector3 B, System.Numerics.Vector3 C, int Material)>();
+            foreach (Genesis.Runtime.Modeling.GModelMesh mesh in model.Meshes)
+            {
+                if (mesh?.Vertices is not { Length: > 0 } vertices || mesh.Lod != 0 || mesh.Indices == null) continue;
+                int count = mesh.Indices.Length / 3;
+                bool perTriangle = mesh.TriangleMaterialIndices?.Length == count;
+                for (int triangle = 0; triangle < count; triangle++)
+                {
+                    int material = perTriangle ? mesh.TriangleMaterialIndices![triangle] : mesh.MaterialIndex;
+                    if (!ground.Contains(material)) continue;
+                    triangles.Add((vertices[mesh.Indices[triangle * 3]].Position + offset, vertices[mesh.Indices[triangle * 3 + 1]].Position + offset,
+                        vertices[mesh.Indices[triangle * 3 + 2]].Position + offset, material));
+                }
+            }
+            if (triangles.Count == 0) throw new AutomationException("The model has no triangles of those materials.");
+            float minX = triangles.Min(t => MathF.Min(t.A.X, MathF.Min(t.B.X, t.C.X))), maxX = triangles.Max(t => MathF.Max(t.A.X, MathF.Max(t.B.X, t.C.X)));
+            float minZ = triangles.Min(t => MathF.Min(t.A.Z, MathF.Min(t.B.Z, t.C.Z))), maxZ = triangles.Max(t => MathF.Max(t.A.Z, MathF.Max(t.B.Z, t.C.Z)));
+            float originX = MathF.Floor(minX / cell) * cell, originZ = MathF.Floor(minZ / cell) * cell;
+            int resX = (int)MathF.Ceiling((maxX - originX) / cell) + 1, resZ = (int)MathF.Ceiling((maxZ - originZ) / cell) + 1;
+            if (resX > 4097 || resZ > 4097)
+                throw new AutomationException($"At {cell} m a sample the ground needs {resX} x {resZ} samples; the most is 4097 each way. Use a larger cell size.");
+            resX = Math.Max(resX, 17); resZ = Math.Max(resZ, 17);
+
+            var heights = new float[resX * resZ];
+            var source = new int[heights.Length];
+            Array.Fill(heights, float.NaN);
+            foreach ((System.Numerics.Vector3 a, System.Numerics.Vector3 b, System.Numerics.Vector3 c, int material) in triangles)
+            {
+                float area = (b.X - a.X) * (c.Z - a.Z) - (c.X - a.X) * (b.Z - a.Z);
+                if (MathF.Abs(area) < 1e-9f) continue; // seen edge-on from above: a wall, not ground
+                int x0 = Math.Max(0, (int)MathF.Ceiling((MathF.Min(a.X, MathF.Min(b.X, c.X)) - originX) / cell));
+                int x1 = Math.Min(resX - 1, (int)MathF.Floor((MathF.Max(a.X, MathF.Max(b.X, c.X)) - originX) / cell));
+                int z0 = Math.Max(0, (int)MathF.Ceiling((MathF.Min(a.Z, MathF.Min(b.Z, c.Z)) - originZ) / cell));
+                int z1 = Math.Min(resZ - 1, (int)MathF.Floor((MathF.Max(a.Z, MathF.Max(b.Z, c.Z)) - originZ) / cell));
+                for (int z = z0; z <= z1; z++)
+                    for (int x = x0; x <= x1; x++)
+                    {
+                        float px = originX + x * cell, pz = originZ + z * cell;
+                        float u = ((b.X - px) * (c.Z - pz) - (c.X - px) * (b.Z - pz)) / area;
+                        float v = ((c.X - px) * (a.Z - pz) - (a.X - px) * (c.Z - pz)) / area;
+                        float w = 1f - u - v;
+                        if (u < -1e-5f || v < -1e-5f || w < -1e-5f) continue;
+                        float y = u * a.Y + v * b.Y + w * c.Y;
+                        int at = z * resX + x;
+                        if (float.IsNaN(heights[at]) || y > heights[at]) { heights[at] = y; source[at] = material; }
+                    }
+            }
+
+            // Samples no surface covers take the height and paint of the nearest one that it does.
+            var queue = new Queue<int>();
+            for (int i = 0; i < heights.Length; i++) if (!float.IsNaN(heights[i])) queue.Enqueue(i);
+            int covered = queue.Count;
+            if (covered == 0) throw new AutomationException("No sample lies under those surfaces; use a smaller cell size.");
+            while (queue.Count > 0)
+            {
+                int i = queue.Dequeue(), x = i % resX, z = i / resX;
+                foreach ((int nx, int nz) in new[] { (x - 1, z), (x + 1, z), (x, z - 1), (x, z + 1) })
+                {
+                    if (nx < 0 || nz < 0 || nx >= resX || nz >= resZ) continue;
+                    int n = nz * resX + nx;
+                    if (!float.IsNaN(heights[n])) continue;
+                    heights[n] = heights[i]; source[n] = source[i]; queue.Enqueue(n);
+                }
+            }
+
+            float low = heights.Min(), high = heights.Max();
+            var terrain = new TerrainAsset(resX, resZ, cell, originX, originZ, MathF.Floor(low) - 1f, MathF.Ceiling(high) + 1f);
+            for (int z = 0; z < resZ; z++)
+                for (int x = 0; x < resX; x++)
+                {
+                    int at = z * resX + x;
+                    terrain.SetHeight(x, z, heights[at]);
+                    terrain.SetLayerAt(at, layerOf.GetValueOrDefault(source[at], 0));
+                }
+
+            string full = context.Resources.CreateResource(context.Resolve(input.Folder ?? "Assets/Terrain"), ResourceKind.Terrain, input.Name);
+            JsonObject settings = Settings(full);
+            settings["schemaVersion"] = 2;
+            settings["resolution"] = new JsonArray(resX, resZ);
+            settings["cellSize"] = cell;
+            settings["minHeight"] = terrain.MinHeight;
+            settings["maxHeight"] = terrain.MaxHeight;
+            settings["preset"] = TerrainPreset.Flatlands.ToString();
+            settings["seedProfile"] = TerrainPreset.Flatlands.ToString();
+            settings["sourceModel"] = context.Relative(modelPath);
+            settings["layers"] = new JsonArray([.. layers.Select(layer =>
+            {
+                float[] colour = layer.Color is { Length: 3 } own ? own : Colour(model, layer.Materials?.Select(Material).FirstOrDefault(-1) ?? -1);
+                return (JsonNode?)new JsonObject { ["name"] = layer.Name, ["color"] = new JsonArray(colour[0], colour[1], colour[2]) };
+            })]);
+            File.WriteAllText(full, settings.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+            terrain.Save(full + ".gterrain");
+
+            var changed = new List<string> { context.Relative(full), context.Relative(full + ".gterrain") };
+            if (input.HideSurfaces == true)
+            {
+                JsonObject descriptor = JsonNode.Parse(File.ReadAllText(modelPath)) as JsonObject ?? throw new AutomationException("The model's settings are not a JSON object.");
+                var hidden = new List<string>((descriptor["hiddenMaterials"] as JsonArray ?? []).Select(node => node?.GetValue<string>() ?? string.Empty));
+                foreach (int index in ground.Order())
+                    if (index < names.Count && !hidden.Contains(names[index], StringComparer.OrdinalIgnoreCase)) hidden.Add(names[index]);
+                descriptor["hiddenMaterials"] = new JsonArray([.. hidden.Select(name => (JsonNode?)name)]);
+                ResourceBackupService.BackupBeforeOverwrite(modelPath);
+                File.WriteAllText(modelPath, descriptor.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+                changed.Add(context.Relative(modelPath));
+            }
+            JsonObject data = Describe(context, full, terrain);
+            data["coveredSamples"] = covered;
+            data["samples"] = heights.Length;
+            return AutomationResult.Success($"Made {Path.GetFileName(full)} from {triangles.Count} triangles: {resX} x {resZ} samples, {covered * 100 / heights.Length}% under the surfaces.",
+                data, [.. changed]);
+        }
+
+        private static float[] Colour(Genesis.Runtime.Modeling.GModelAsset model, int material) =>
+            material >= 0 && material < model.Materials.Count && model.Materials[material] is { } found
+                ? [Math.Clamp(found.BaseColor.X, 0f, 1f), Math.Clamp(found.BaseColor.Y, 0f, 1f), Math.Clamp(found.BaseColor.Z, 0f, 1f)]
+                : [0.33f, 0.52f, 0.26f];
+    }
     public sealed class InfoInput
     {
         [Description("The Terrain resource, project-relative (Assets/Terrain/Name.terrain.json)."), RequiredInput] public string Terrain { get; set; } = string.Empty;

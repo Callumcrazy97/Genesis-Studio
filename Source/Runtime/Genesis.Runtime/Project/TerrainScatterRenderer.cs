@@ -494,7 +494,7 @@ public sealed class TerrainScatterRenderer : IDisposable
             if (cached.IsSkinned || cached.SourceIndex < 0 || cached.SourceIndex >= state.Asset.Meshes.Count) continue;
             GModelMesh mesh = state.Asset.Meshes[cached.SourceIndex];
             if (mesh?.Vertices == null || mesh.Vertices.Length == 0) continue;
-            foreach ((int material, ushort[] indices) in ModelGpuCache.MaterialBatches(mesh))
+            foreach ((int material, ushort[] indices) in ModelGpuCache.MaterialBatches(mesh, state.Asset.Materials))
             {
                 if (material != cached.MaterialIndex) continue;
                 parts.Add(new Part { Template = _templateScratch[i], Vertices = mesh.Vertices, Indices = indices });

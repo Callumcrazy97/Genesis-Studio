@@ -47,6 +47,8 @@ public static class StudioModelResourceLoader
         /// here so a re-import keeps it. Off for a material not named.
         /// </summary>
         public Dictionary<string, float> MaterialBoxUvMetres { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        /// <summary>Materials whose surfaces are not drawn (GModelMaterial.Hidden).</summary>
+        public List<string> HiddenMaterials { get; set; } = [];
         /// <summary>SHA-256 of the source the cooked model was made from (see CanonicalMatchesSource).</summary>
         public string? SourceHash { get; set; }
         public List<Part> Parts { get; set; } = [];
@@ -177,6 +179,12 @@ public static class StudioModelResourceLoader
                 foreach (GModelMaterial material in asset.Materials)
                     if (material != null && shaders.TryGetValue(material.Name ?? string.Empty, out string shader))
                         material.Shader = shader ?? string.Empty;
+            if (asset != null && document.HiddenMaterials is { Count: > 0 } hidden)
+            {
+                var names = new HashSet<string>(hidden, StringComparer.OrdinalIgnoreCase);
+                foreach (GModelMaterial material in asset.Materials)
+                    if (material != null) material.Hidden = names.Contains(material.Name ?? string.Empty);
+            }
             if (asset != null && document.MaterialBoxUvMetres is { Count: > 0 } boxUvs)
                 foreach (GModelMaterial material in asset.Materials)
                     if (material != null && boxUvs.TryGetValue(material.Name ?? string.Empty, out float metres) && float.IsFinite(metres) && metres > 0f)

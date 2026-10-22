@@ -17,7 +17,8 @@ namespace Genesis.Application.Core.Automation;
 public static class TerrainCommands
 {
     public static IEnumerable<IAutomationCommand> All() =>
-        [new TerrainNature(), new TerrainSetGrass(), new TerrainAddScatterLayer(), new TerrainUpdateScatterLayer(), new TerrainRemoveScatterLayer()];
+        [new TerrainNature(), new TerrainSetGrass(), new TerrainAddScatterLayer(), new TerrainUpdateScatterLayer(), new TerrainRemoveScatterLayer(),
+         new TerrainAddWater(), new TerrainUpdateWater(), new TerrainRemoveWater()];
 
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -64,16 +65,17 @@ public static class TerrainCommands
     public sealed class TerrainNature : AutomationCommand<TerrainInput>
     {
         public override string Name => "terrain.nature";
-        public override string Description => "A terrain's grass rule and scatter layers (forests, rocks, flowers), as the Terrain editor's Decorate step shows them.";
+        public override string Description => "A terrain's grass rule, scatter layers (forests, rocks, flowers) and water (lakes, rivers, the sea), as the Terrain editor's Decorate step shows them.";
         public override bool ChangesProject => false;
 
         protected override AutomationResult Execute(AutomationContext context, TerrainInput input)
         {
             TerrainNatureDocument document = TerrainNatureSerializer.LoadOrDefault(Terrain(context, input.Terrain));
-            return AutomationResult.Success($"{document.ScatterLayers.Count} scatter layers; grass rule {(document.GrassRule.Enabled ? "on" : "off")}.", new JsonObject
+            return AutomationResult.Success($"{document.ScatterLayers.Count} scatter layers, {document.WaterBodies.Count} water; grass rule {(document.GrassRule.Enabled ? "on" : "off")}.", new JsonObject
             {
                 ["grass"] = JsonSerializer.SerializeToNode(document.GrassRule, Json),
                 ["scatterLayers"] = JsonSerializer.SerializeToNode(document.ScatterLayers, Json),
+                ["water"] = new JsonArray([.. document.WaterBodies.Select(water => (JsonNode?)DescribeWater(water))]),
             });
         }
     }
@@ -206,6 +208,145 @@ public static class TerrainCommands
             TerrainScatterLayer layer = Layer(document, input.Layer);
             document.ScatterLayers.Remove(layer);
             return Save(context, terrain, document, $"Removed the scatter layer '{layer.Name}'.");
+        }
+    }
+
+    public class WaterFields
+    {
+        [Description("The water's name, shown in the Terrain editor.")] public string? Name { get; set; }
+        [Description("Water (a lake or pond: an ellipse, sizeX by sizeZ), River (along riverPoints) or Ocean (the sea to the horizon at surfaceHeight).")] public TerrainWaterKind? Kind { get; set; }
+        [Description("Centre [x, y, z] of a lake, or of the sea's reach.")] public float[]? Center { get; set; }
+        [Description("A lake's width across x, metres; for the sea, how far it reaches.")] public float? SizeX { get; set; }
+        [Description("A lake's width across z, metres.")] public float? SizeZ { get; set; }
+        [Description("Height of a lake's or the sea's surface.")] public float? SurfaceHeight { get; set; }
+        [Description("A river's course: points [x, y, z, width, depth], y the surface there (so a river can fall), width and depth in metres.")] public List<float[]>? RiverPoints { get; set; }
+        [Description("Cut a river's bed into the ground (default true).")] public bool? CarveRiverbed { get; set; }
+        [Description("Height of the waves, metres (default 0.18).")] public float? WaveAmplitude { get; set; }
+        [Description("How fast the surface flows (default 0.2).")] public float? FlowSpeed { get; set; }
+        [Description("Use the colours below instead of the kind's own look.")] public bool? CustomAppearance { get; set; }
+        [Description("Colour over shallow water [r, g, b], 0 to 1.")] public float[]? ShallowColor { get; set; }
+        [Description("Colour the water darkens to with depth [r, g, b].")] public float[]? DeepColor { get; set; }
+        [Description("How much the surface hides what is under it, 0 (glass) to 1.")] public float? Opacity { get; set; }
+        [Description("Depth in metres over which the shallow colour becomes the deep one.")] public float? ClarityDepth { get; set; }
+        [Description("Width of the foam along the shore, metres.")] public float? FoamWidth { get; set; }
+        [Description("What the water does to things in it: None, Shallow (wading) or SwimmableVolume.")] public WaterPhysicsMode? PhysicsMode { get; set; }
+        [Description("How deep the water is for floating and swimming, metres.")] public float? PhysicsDepth { get; set; }
+        [Description("A mesh Shader resource to draw this water with, project-relative (the Terrain editor's water shader); empty clears it.")] public string? Shader { get; set; }
+    }
+
+    private static JsonObject DescribeWater(TerrainWaterDefinition water) => new()
+    {
+        ["id"] = water.Id,
+        ["name"] = water.Name,
+        ["kind"] = water.Kind.ToString(),
+        ["center"] = new JsonArray(water.Center.X, water.Center.Y, water.Center.Z),
+        ["size"] = new JsonArray(water.SizeX, water.SizeZ),
+        ["surfaceHeight"] = water.SurfaceHeight,
+        ["riverPoints"] = water.RiverPoints.Count,
+        ["physicsMode"] = water.PhysicsMode.ToString(),
+    };
+
+    private static System.Numerics.Vector3 Vector(float[] values, string what) =>
+        values is { Length: 3 } && values.All(float.IsFinite) ? new(values[0], values[1], values[2]) : throw new AutomationException($"{what} is three numbers.");
+
+    /// <summary>The given fields onto a water body, and its shader into the terrain's settings.</summary>
+    private static void ApplyWater(AutomationContext context, string terrain, WaterFields input, TerrainWaterDefinition water)
+    {
+        Apply(input, water, nameof(WaterFields.Center), nameof(WaterFields.RiverPoints), nameof(WaterFields.ShallowColor), nameof(WaterFields.DeepColor), nameof(WaterFields.Shader),
+            nameof(AddWaterInput.Terrain), nameof(UpdateWaterInput.Water));
+        if (input.Center != null) water.Center = Vector(input.Center, "The centre");
+        if (input.ShallowColor != null) water.ShallowColor = Vector(input.ShallowColor, "The shallow colour");
+        if (input.DeepColor != null) water.DeepColor = Vector(input.DeepColor, "The deep colour");
+        if (input.RiverPoints != null)
+        {
+            water.RiverPoints = [.. input.RiverPoints.Select(point => point is { Length: 5 } && point.All(float.IsFinite)
+                ? new Genesis.World.Water.WaterSplinePoint { Position = new(point[0], point[1], point[2]), Width = point[3], Depth = point[4] }
+                : throw new AutomationException("Each river point is [x, y, z, width, depth]."))];
+            if (water.Kind == TerrainWaterKind.River && water.RiverPoints.Count >= 2)
+                water.Center = water.RiverPoints.Aggregate(System.Numerics.Vector3.Zero, (sum, point) => sum + point.Position) / water.RiverPoints.Count;
+        }
+        if (water.Kind == TerrainWaterKind.River && water.RiverPoints.Count < 2) throw new AutomationException("A river needs at least two riverPoints.");
+        water.Normalize();
+        if (input.Shader == null) return;
+        JsonObject settings = JsonNode.Parse(File.ReadAllText(terrain)) as JsonObject ?? throw new AutomationException("The terrain's settings are not a JSON object.");
+        JsonObject shaders = settings["componentShaders"] as JsonObject ?? [];
+        if (string.IsNullOrWhiteSpace(input.Shader)) shaders.Remove("water:" + water.Id);
+        else
+        {
+            if (!File.Exists(context.Resolve(input.Shader))) throw new AutomationException($"There is no Shader resource at '{input.Shader}'.");
+            shaders["water:" + water.Id] = input.Shader;
+        }
+        settings["componentShaders"] = shaders;
+        ResourceBackupService.BackupBeforeOverwrite(terrain);
+        File.WriteAllText(terrain, settings.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    public sealed class AddWaterInput : WaterFields
+    {
+        [Description("The Terrain resource, project-relative."), RequiredInput] public string Terrain { get; set; } = string.Empty;
+    }
+
+    public sealed class TerrainAddWater : AutomationCommand<AddWaterInput>
+    {
+        public override string Name => "terrain.addWater";
+        public override string Description => "Adds water to a terrain, as the Terrain editor's Add water does: a lake or pond, a river along points (it may fall), or the sea; with its look, flow, wading or swimming, and optionally its own shader.";
+
+        protected override AutomationResult Execute(AutomationContext context, AddWaterInput input)
+        {
+            string terrain = Terrain(context, input.Terrain);
+            TerrainNatureDocument document = TerrainNatureSerializer.LoadOrDefault(terrain);
+            var water = new TerrainWaterDefinition { Name = input.Name ?? (input.Kind ?? TerrainWaterKind.Water).ToString() };
+            ApplyWater(context, terrain, input, water);
+            document.WaterBodies.Add(water);
+            return Save(context, terrain, document, $"Added the water '{water.Name}' ({water.Id}).", DescribeWater(water));
+        }
+    }
+
+    public sealed class UpdateWaterInput : WaterFields
+    {
+        [Description("The Terrain resource, project-relative."), RequiredInput] public string Terrain { get; set; } = string.Empty;
+        [Description("The water to change: its id, or its name."), RequiredInput] public string Water { get; set; } = string.Empty;
+    }
+
+    private static TerrainWaterDefinition Water(TerrainNatureDocument document, string water) =>
+        document.WaterBodies.FirstOrDefault(w => w.Id.Equals(water, StringComparison.OrdinalIgnoreCase))
+        ?? document.WaterBodies.FirstOrDefault(w => w.Name.Equals(water, StringComparison.OrdinalIgnoreCase))
+        ?? throw new AutomationException($"The terrain has no water '{water}'.");
+
+    public sealed class TerrainUpdateWater : AutomationCommand<UpdateWaterInput>
+    {
+        public override string Name => "terrain.updateWater";
+        public override string Description => "Changes a terrain's water; only the fields given change.";
+
+        protected override AutomationResult Execute(AutomationContext context, UpdateWaterInput input)
+        {
+            string terrain = Terrain(context, input.Terrain);
+            TerrainNatureDocument document = TerrainNatureSerializer.LoadOrDefault(terrain);
+            TerrainWaterDefinition water = Water(document, input.Water);
+            ApplyWater(context, terrain, input, water);
+            return Save(context, terrain, document, $"Changed the water '{water.Name}'.", DescribeWater(water));
+        }
+    }
+
+    public sealed class RemoveWaterInput
+    {
+        [Description("The Terrain resource, project-relative."), RequiredInput] public string Terrain { get; set; } = string.Empty;
+        [Description("The water to remove: its id, or its name."), RequiredInput] public string Water { get; set; } = string.Empty;
+    }
+
+    public sealed class TerrainRemoveWater : AutomationCommand<RemoveWaterInput>
+    {
+        public override string Name => "terrain.removeWater";
+        public override string Description => "Removes water from a terrain (the nature file is backed up first).";
+        public override bool Destructive => true;
+
+        protected override AutomationResult Execute(AutomationContext context, RemoveWaterInput input)
+        {
+            string terrain = Terrain(context, input.Terrain);
+            TerrainNatureDocument document = TerrainNatureSerializer.LoadOrDefault(terrain);
+            TerrainWaterDefinition water = Water(document, input.Water);
+            document.WaterBodies.Remove(water);
+            return Save(context, terrain, document, $"Removed the water '{water.Name}'.");
         }
     }
 }
