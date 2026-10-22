@@ -73,7 +73,7 @@ public sealed partial class TerrainEditorControl
         if (EntityImageMaterial(renderer, texture.Get("Texture"), frame) is not { } material) return;
         MeshHandle mesh = _entityImages.Geometry(renderer, ProjectRoot, texture.Get("Texture"), frame, texture.Get("Mode"));
         float scale = float.TryParse(texture.Get("Scale", "1"), NumberStyles.Float, CultureInfo.InvariantCulture, out float value) ? Math.Clamp(value, .001f, 1000) : 1;
-        Matrix4x4 facing = TerrainTextureGeometry.Facing(texture.Get("Mode"), world, _viewport.Camera.Eye);
+        Matrix4x4 facing = TerrainTextureGeometry.Facing(texture.Get("Mode"), world, _viewport.Camera.Eye, _viewport.Camera.Target - _viewport.Camera.Eye);
         material.Mesh = mesh; material.World = Matrix4x4.CreateScale(scale) * facing * world;
         material.Tint = RenderColor.White; material.Alpha = 1;
         material.Flags = MeshRasterDefaults.ApplyOverride(MeshDrawFlags.Transparent, FaceCullingOverride.None, document.WindingOrder);

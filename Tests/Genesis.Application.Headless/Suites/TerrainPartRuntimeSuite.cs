@@ -572,7 +572,7 @@ internal static class TerrainPartRuntimeSuite
         preview.Viewport.Camera.Target = Vector3.UnitY; preview.Viewport.Camera.Distance = 5;
         preview.Viewport.Camera.Pitch = -.15f; preview.Viewport.Camera.Yaw = .8f;
         MeshDrawCall? previous = null;
-        foreach (string mode in new[] { "Plane3D", "Diagonal2D", "Billboard2D", "Extruded2D" })
+        foreach (string mode in new[] { "Plane3D", "Diagonal2D", "Billboard2D", "Screen2D", "Extruded2D" })
         {
             texture.Set("Mode", mode); assets.TerrainTextureMode = mode;
             using Bitmap capture = CaptureReady(preview.Viewport, blue: false);
@@ -592,6 +592,13 @@ internal static class TerrainPartRuntimeSuite
                 Vector3 normal = Vector3.Normalize(Vector3.TransformNormal(Vector3.UnitZ, draws[0].World));
                 Assert(Vector3.Dot(normal, Vector3.Normalize(new Vector3(4, 0, 4))) > .999f,
                     "The billboard applied the terrain's yaw twice and faced away from the camera.");
+            }
+            if (mode == "Screen2D")
+            {
+                // Parallel to the screen (camera looking along -Z), not turned toward the eye at (4, 1, 4).
+                Vector3 normal = Vector3.Normalize(Vector3.TransformNormal(Vector3.UnitZ, draws[0].World));
+                Assert(Vector3.Dot(normal, Vector3.UnitZ) > .999f,
+                    "A screen-parallel sprite turned toward the camera's position instead of facing along its view.");
             }
         }
         texture.Set("Mode", "Extruded2D"); fixture.SaveDocument();

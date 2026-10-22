@@ -300,7 +300,7 @@ namespace Genesis.Runtime.Rendering
 
                 MeshDrawCall cube = assets.TerrainTextureMode == null
                     ? ImageCube(renderer, assets, transform, draw3d, tex)
-                    : TerrainTexture(renderer, projectPath, assets, transform, draw3d, cameraEye, frameIndex);
+                    : TerrainTexture(renderer, projectPath, assets, transform, draw3d, cameraEye, cameraForward, frameIndex);
                 int cubeStart = drawCount;
                 int cubePasses = AppendMeshShaderPasses(renderer, projectPath, assets, cube, buffer, ref drawCount);
                 MarkOutline(assets, entity, buffer, cubeStart, drawCount);
@@ -516,7 +516,7 @@ namespace Genesis.Runtime.Rendering
 
             MeshDrawCall cube = assets.TerrainTextureMode == null
                 ? ImageCube(renderer, assets, transform, draw3d, tex)
-                : TerrainTexture(renderer, projectPath, assets, transform, draw3d, cameraEye, frameIndex);
+                : TerrainTexture(renderer, projectPath, assets, transform, draw3d, cameraEye, cameraForward, frameIndex);
             AppendMeshShaderPasses(renderer, projectPath, assets, cube, Outlined(queue, assets, entity));
         }
 

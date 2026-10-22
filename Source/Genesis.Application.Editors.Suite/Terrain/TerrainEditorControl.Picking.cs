@@ -46,7 +46,7 @@ public sealed partial class TerrainEditorControl
                 Matrix4x4 placement = Matrix4x4.CreateScale(placed.Scale)
                     * Matrix4x4.CreateFromYawPitchRoll(placed.Yaw * MathF.PI / 180, placed.Pitch * MathF.PI / 180, placed.Roll * MathF.PI / 180)
                     * Matrix4x4.CreateTranslation(placed.Position);
-                Matrix4x4 transform = Matrix4x4.CreateScale(spriteScale) * TerrainTextureGeometry.Facing(sprite.Get("Mode"), placement, _viewport.Camera.Eye) * placement;
+                Matrix4x4 transform = Matrix4x4.CreateScale(spriteScale) * TerrainTextureGeometry.Facing(sprite.Get("Mode"), placement, _viewport.Camera.Eye, _viewport.Camera.Target - _viewport.Camera.Eye) * placement;
                 if (!Matrix4x4.Invert(transform, out Matrix4x4 spriteInverse)) continue;
                 Vector3 spriteOrigin = Vector3.Transform(ray.Origin, spriteInverse), spriteDirection = Vector3.TransformNormal(ray.Direction, spriteInverse);
                 for (int triangle = 0; triangle < geometry.Indices.Length; triangle += 3)

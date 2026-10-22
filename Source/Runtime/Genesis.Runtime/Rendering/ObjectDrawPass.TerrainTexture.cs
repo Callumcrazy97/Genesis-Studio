@@ -108,7 +108,7 @@ public static partial class ObjectDrawPass
         draw.SurfaceParams = new Vector4(1, 0, 0, 0); draw.DetailParams = new Vector4(0, 0, 0, 1);
     }
     private static MeshDrawCall TerrainTexture(IRenderController renderer, string project, ObjectDrawAssetEntry assets,
-        TransformComponent transform, Draw3DComponent draw, Vector3 cameraEye, int frame)
+        TransformComponent transform, Draw3DComponent draw, Vector3 cameraEye, Vector3 cameraForward, int frame)
     {
         RenderCache cache = RenderCaches.GetOrCreateValue(renderer);
         ImageMaterialCacheEntry material = TerrainImageMaterial(renderer, project, assets.Image, frame);
@@ -156,7 +156,7 @@ public static partial class ObjectDrawPass
         {
             Mesh = mesh, Tint = RenderColor.White, Alpha = assets.SpriteAlpha, Flags = flags,
             World = Matrix4x4.CreateScale(assets.TerrainTextureScale)
-                * TerrainTextureGeometry.Facing(assets.TerrainTextureMode, placement, cameraEye) * placement,
+                * TerrainTextureGeometry.Facing(assets.TerrainTextureMode, placement, cameraEye, cameraForward) * placement,
         };
         if (material != null) BindTerrainImageMaterial(material, ref call);
         return call;

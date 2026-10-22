@@ -69,6 +69,7 @@ public enum TerrainEntityTextureMode
     Diagonal2D,
     Extruded2D,
     Plane3D,
+    Screen2D,
 }
 
 /// <summary>Audio-component spatialisation mode.</summary>

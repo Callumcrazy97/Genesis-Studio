@@ -961,6 +961,7 @@ public sealed partial class TerrainEntityWizardPanel : UserControl
                 TerrainEntityTextureMode.Billboard2D => "Faces the camera. Useful for trees, grass and sprite characters in a 3D scene.",
                 TerrainEntityTextureMode.Diagonal2D => "A flat sprite turned 45 degrees. Its angle stays fixed when the camera moves.",
                 TerrainEntityTextureMode.Extruded2D => "Adds shallow depth around the image silhouette and holes. Large images use up to 48 cells per axis.",
+                TerrainEntityTextureMode.Screen2D => "Upright and parallel to the screen, every sprite turned alike, as handheld games draw their characters.",
                 _ => "A flat image with a fixed angle. Rotate the placed asset to make a sign, wall or ground panel.",
             };
         }

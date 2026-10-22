@@ -132,7 +132,7 @@ public sealed class TerrainAssetPreview : UserControl
                 {
                     EnsureQuad(renderer); geometry = _quad;
                 }
-                Matrix4x4 rotation = TerrainTextureGeometry.Facing(mode, Matrix4x4.Identity, Viewport.Camera.Eye);
+                Matrix4x4 rotation = TerrainTextureGeometry.Facing(mode, Matrix4x4.Identity, Viewport.Camera.Eye, Viewport.Camera.Target - Viewport.Camera.Eye);
                 _draws.Items.Add(new MeshDrawCall { Mesh = geometry, World = Matrix4x4.CreateScale(scale) * rotation, Tint = RenderColor.White, Alpha = 1,
                     Flags = MeshRasterDefaults.ApplyOverride(MeshDrawFlags.Transparent, FaceCullingOverride.None, document.WindingOrder) });
             }

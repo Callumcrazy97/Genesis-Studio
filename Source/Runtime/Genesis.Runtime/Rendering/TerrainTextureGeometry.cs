@@ -10,13 +10,23 @@ public static class TerrainTextureGeometry
 {
     public static bool IsExtruded(string mode) => mode is "Extruded2D" or "2";
 
-    public static Matrix4x4 Facing(string mode, Matrix4x4 placement, Vector3 cameraEye)
+    /// <summary>Screen2D: upright and parallel to the screen, every sprite turned alike, as a handheld
+    /// game draws its characters (a billboard turned to the camera's position leans away at the sides).</summary>
+    public static bool FacesScreen(string mode) => mode is "Screen2D" or "4";
+
+    public static Matrix4x4 Facing(string mode, Matrix4x4 placement, Vector3 cameraEye, Vector3? cameraForward = null)
     {
         float angle = mode is "Diagonal2D" or "1" ? MathF.PI / 4 : 0;
-        if (mode is "Billboard2D" or "0" && Matrix4x4.Invert(placement, out Matrix4x4 inverse))
+        bool screen = FacesScreen(mode);
+        if ((mode is "Billboard2D" or "0" || screen) && Matrix4x4.Invert(placement, out Matrix4x4 inverse))
         {
-            Vector3 localEye = Vector3.Transform(cameraEye, inverse);
-            angle = MathF.Atan2(localEye.X, localEye.Z);
+            Vector3 toward = Vector3.Transform(cameraEye, inverse);
+            if (screen && cameraForward is { } forward)
+            {
+                Vector3 back = Vector3.TransformNormal(-forward, inverse);
+                if (back.X * back.X + back.Z * back.Z > 1e-8f) toward = back;
+            }
+            angle = MathF.Atan2(toward.X, toward.Z);
         }
         return Matrix4x4.CreateRotationY(angle);
     }
