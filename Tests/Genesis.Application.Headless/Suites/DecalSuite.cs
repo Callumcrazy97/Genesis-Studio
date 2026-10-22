@@ -60,6 +60,14 @@ internal static class DecalSuite
             WorldDecals.Follow(hole, 7, door);
             WorldDecals.UpdateFollowers(_ => null);
             Check(!WorldDecals.Exists(hole) && WorldDecals.Exists(other), "A decal stayed after its object went.");
+            // A shadow made in Create after the script moved its instance: followed from where the
+            // script put it, not from the transform its event has not written yet.
+            int shadow = WorldDecals.Add("shadow", new Vector3(4, 0.2f, 6), Vector3.UnitY, 0.8f, 0);
+            Matrix4x4 stale = Matrix4x4.CreateTranslation(0, 0, 0);
+            WorldDecals.Follow(shadow, 9, WorldDecals.AtScriptPosition(stale, Vector3.Zero, new Vector3(4, 0, 6)));
+            WorldDecals.UpdateFollowers(id => id == 9 ? Matrix4x4.CreateTranslation(5, 0, 6) : null);
+            Check(WorldDecals.TryGetPlacement(shadow, out Vector3 under, out _) && Vector3.Distance(under, new Vector3(5, 0.2f, 6)) < 1e-4f,
+                $"A decal made to follow its instance mid-event was not kept under it (at {under}).");
         }
         finally { WorldDecals.Reset(); }
     }

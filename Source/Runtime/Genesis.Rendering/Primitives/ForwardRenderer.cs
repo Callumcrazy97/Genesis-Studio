@@ -454,8 +454,11 @@ namespace Genesis.Rendering.Primitives
             public MeshDrawFlags RasterOverride;
             public Vector4 MaterialFactors;
             public Vector4 EmissionColor;
-            public bool Equals(SkinnedBatchKey o) => MaterialFactors == o.MaterialFactors && EmissionColor == o.EmissionColor && MeshId == o.MeshId && TextureId == o.TextureId && SkinPaletteId == o.SkinPaletteId && NormalId == o.NormalId && OrmId == o.OrmId && EmissionId == o.EmissionId && ShaderId == o.ShaderId && ShaderParams0 == o.ShaderParams0 && ShaderParams1 == o.ShaderParams1 && ShaderParams2 == o.ShaderParams2 && ShaderParams3 == o.ShaderParams3 && AuthoredTextures.SameBindings(o.AuthoredTextures) && NoFog == o.NoFog && NoReceiveShadow == o.NoReceiveShadow && Emissive == o.Emissive && RasterOverride == o.RasterOverride;
-            public override int GetHashCode() { var h = new HashCode(); h.Add(MeshId); h.Add(TextureId); h.Add(SkinPaletteId); h.Add(NormalId); h.Add(OrmId); h.Add(EmissionId); h.Add(ShaderId); h.Add(ShaderParams0); h.Add(ShaderParams1); h.Add(ShaderParams2); h.Add(ShaderParams3); h.Add(AuthoredTextures.TexId0); h.Add(AuthoredTextures.TexId1); h.Add(AuthoredTextures.TexId2); h.Add(AuthoredTextures.TexId3); h.Add(NoFog); h.Add(NoReceiveShadow); h.Add(Emissive); h.Add(RasterOverride); h.Add(MaterialFactors); h.Add(EmissionColor); return h.ToHashCode(); }
+            /// <summary>Drawn unlit (MeshDrawFlags.Unlit), and the picture's repeat and slide.</summary>
+            public bool Unlit;
+            public Vector4 DetailParams;
+            public bool Equals(SkinnedBatchKey o) => Unlit == o.Unlit && DetailParams == o.DetailParams && MaterialFactors == o.MaterialFactors && EmissionColor == o.EmissionColor && MeshId == o.MeshId && TextureId == o.TextureId && SkinPaletteId == o.SkinPaletteId && NormalId == o.NormalId && OrmId == o.OrmId && EmissionId == o.EmissionId && ShaderId == o.ShaderId && ShaderParams0 == o.ShaderParams0 && ShaderParams1 == o.ShaderParams1 && ShaderParams2 == o.ShaderParams2 && ShaderParams3 == o.ShaderParams3 && AuthoredTextures.SameBindings(o.AuthoredTextures) && NoFog == o.NoFog && NoReceiveShadow == o.NoReceiveShadow && Emissive == o.Emissive && RasterOverride == o.RasterOverride;
+            public override int GetHashCode() { var h = new HashCode(); h.Add(MeshId); h.Add(TextureId); h.Add(SkinPaletteId); h.Add(NormalId); h.Add(OrmId); h.Add(EmissionId); h.Add(ShaderId); h.Add(ShaderParams0); h.Add(ShaderParams1); h.Add(ShaderParams2); h.Add(ShaderParams3); h.Add(AuthoredTextures.TexId0); h.Add(AuthoredTextures.TexId1); h.Add(AuthoredTextures.TexId2); h.Add(AuthoredTextures.TexId3); h.Add(NoFog); h.Add(NoReceiveShadow); h.Add(Emissive); h.Add(RasterOverride); h.Add(MaterialFactors); h.Add(EmissionColor); h.Add(Unlit); h.Add(DetailParams); return h.ToHashCode(); }
         }
 
         private class SkinnedBatch
@@ -474,6 +477,8 @@ namespace Genesis.Rendering.Primitives
             public RuntimeShaderHandle Shader;
             public Vector4 ShaderParams0, ShaderParams1, ShaderParams2, ShaderParams3;
             public AuthoredGpuTextures AuthoredTextures;
+            public bool Unlit;
+            public Vector4 DetailParams;
             public readonly List<InstanceGpu> Instances = new();
         }
 
@@ -2873,6 +2878,7 @@ namespace Genesis.Rendering.Primitives
                         ShaderParams0 = shaderParams0, ShaderParams1 = shaderParams1,
                         ShaderParams2 = shaderParams2, ShaderParams3 = shaderParams3, AuthoredTextures = authoredTextures,
                         MaterialFactors = materialFactors, EmissionColor = emissionColor,
+                        Unlit = (flags & MeshDrawFlags.Unlit) != 0, DetailParams = detailParams,
                     };
                     if (!_skinnedBatches.TryGetValue(sKey, out var sBatch))
                     {
@@ -2896,6 +2902,8 @@ namespace Genesis.Rendering.Primitives
                         sBatch.AuthoredTextures = authoredTextures;
                         sBatch.MaterialFactors = materialFactors;
                         sBatch.EmissionColor = emissionColor;
+                        sBatch.Unlit = sKey.Unlit;
+                        sBatch.DetailParams = detailParams;
                         _skinnedBatches[sKey] = sBatch;
                         _skinnedBatchList.Add(sBatch);
                     }
@@ -4663,9 +4671,9 @@ namespace Genesis.Rendering.Primitives
 
                 int drawCount = Math.Min(b.Instances.Count, SoftMeshInstanceCap - skinInstOffset);
                 ApplyRuntimeMeshPass(b.Shader, b.RasterOverride);
-                UploadDrawCB(Matrix4x4.Identity, Vector4.One, b.Emissive, unlit: 0f, isFloor: 0f, useInstancing: 1,
+                UploadDrawCB(Matrix4x4.Identity, Vector4.One, b.Emissive, unlit: b.Unlit ? 1f : 0f, isFloor: 0f, useInstancing: 1,
                     instOffset: (uint)skinInstOffset, noFog: b.NoFog, gpuSkinning: true,
-                    skinMatrixOffset: 0, noReceiveShadow: b.NoReceiveShadow,
+                    skinMatrixOffset: 0, noReceiveShadow: b.NoReceiveShadow, detailParams: b.DetailParams,
                     materialFeatures: new Vector4(b.Orm.IsValid ? 1f : 0f, 0f, b.Emission.IsValid ? 1f : 0f, 0f),
                     materialFactors: b.MaterialFactors, emissionColor: b.EmissionColor);
                 _gpu.DrawIndexedInstanced(mesh.IndexCount, drawCount);
@@ -6376,6 +6384,8 @@ namespace Genesis.Rendering.Primitives
             batch.ShaderParams3 = default;
             batch.AuthoredTextures = default;
             batch.EmissionColor = default;
+            batch.Unlit = false;
+            batch.DetailParams = default;
             batch.Instances.Clear();
             return batch;
         }

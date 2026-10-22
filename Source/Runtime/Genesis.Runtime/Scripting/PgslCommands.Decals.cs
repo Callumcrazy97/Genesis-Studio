@@ -30,7 +30,16 @@ public static partial class PgslCommands
     {
         if (!double.IsFinite(decal) || !double.IsFinite(instance)) return false;
         Matrix4x4? world = WorldDecals.ObjectWorld(ActiveGameContext?.World as Genesis.Runtime.ECS.World, (int)instance);
-        return world is { } placed && WorldDecals.Follow((int)decal, (int)instance, placed);
+        if (world is not { } placed) return false;
+        // An instance making a decal follow itself mid-event: its script's x, y, z are not on its
+        // transform until the event ends (a shadow made in Create after moving there).
+        if (GetContext() is { } ctx && ctx.InstanceId == (int)instance
+            && TryTransform(instance, out Genesis.Shared.ECS.Entity entity, out Genesis.Runtime.ECS.World ecs))
+        {
+            ref Genesis.Runtime.ECS.Components.TransformComponent t = ref ecs.GetRef<Genesis.Runtime.ECS.Components.TransformComponent>(entity);
+            placed = WorldDecals.AtScriptPosition(placed, new Vector3(t.X, t.Y, t.Z), new Vector3((float)ctx.X, (float)ctx.Y, (float)ctx.Z));
+        }
+        return WorldDecals.Follow((int)decal, (int)instance, placed);
     }
 
     [PgslCommand("DecalUnfollow", "DecalUnfollow(decal) -> changed", "Stop a decal following its object; it stays where it is",

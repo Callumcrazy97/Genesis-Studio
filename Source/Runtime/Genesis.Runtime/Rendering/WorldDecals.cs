@@ -201,6 +201,18 @@ namespace Genesis.Runtime.Rendering
                 * Matrix4x4.CreateRotationZ((transform.RotationZ + transform.Rotation) * radians)
                 * Matrix4x4.CreateTranslation(transform.X, transform.Y, transform.Z);
         }
+        /// <summary>
+        /// An object's world as its own script has it mid-event: a script's x, y and z reach the
+        /// transform only when its event ends, so a decal it makes follow itself in the same event
+        /// (DecalFollow in Create, after moving) is placed from where the script put it.
+        /// </summary>
+        public static Matrix4x4 AtScriptPosition(Matrix4x4 objectWorld, Vector3 transformPosition, Vector3 scriptPosition)
+        {
+            Vector3 shift = scriptPosition - transformPosition;
+            if (Finite(shift)) objectWorld.Translation += shift;
+            return objectWorld;
+        }
+
         /// <summary>Stops a decal following its object; it stays where it is now.</summary>
         public static bool Unfollow(int id) => Edit(id, decal => decal.Follow = 0);
 
