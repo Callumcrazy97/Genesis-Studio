@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Numerics;
+using Genesis.Shared.Threading;
 using System.Threading;
 using System.Threading.Tasks;
 using Genesis.Shared.Interfaces;
@@ -346,27 +347,30 @@ public sealed class TerrainLodGround : IDisposable
         ushort[] heights = _asset.HeightsData;
         int resX = _asset.ResolutionX, resZ = _asset.ResolutionZ;
         float range = _asset.MaxHeight - _asset.MinHeight;
-        Parallel.For(minLeafZ, maxLeafZ + 1, leafZ =>
+        EngineJobs.For(maxLeafZ + 1 - minLeafZ, 1, (firstRow, endRow) =>
         {
-            for (int leafX = minLeafX; leafX <= maxLeafX; leafX++)
+            for (int leafZ = minLeafZ + firstRow; leafZ < minLeafZ + endRow; leafZ++)
             {
-                int x0 = leafX * NodeCells, z0 = leafZ * NodeCells;
-                int x1 = Math.Min(x0 + NodeCells, resX - 1), z1 = Math.Min(z0 + NodeCells, resZ - 1);
-                ushort low = ushort.MaxValue, high = 0;
-                for (int z = z0; z <= z1; z++)
+                for (int leafX = minLeafX; leafX <= maxLeafX; leafX++)
                 {
-                    int row = z * resX;
-                    for (int x = x0; x <= x1; x++)
+                    int x0 = leafX * NodeCells, z0 = leafZ * NodeCells;
+                    int x1 = Math.Min(x0 + NodeCells, resX - 1), z1 = Math.Min(z0 + NodeCells, resZ - 1);
+                    ushort low = ushort.MaxValue, high = 0;
+                    for (int z = z0; z <= z1; z++)
                     {
-                        ushort value = heights[row + x];
-                        if (value < low) low = value;
-                        if (value > high) high = value;
+                        int row = z * resX;
+                        for (int x = x0; x <= x1; x++)
+                        {
+                            ushort value = heights[row + x];
+                            if (value < low) low = value;
+                            if (value > high) high = value;
+                        }
                     }
-                }
 
-                int index = leafZ * _leavesX + leafX;
-                _leafMin[index] = _asset.MinHeight + low / (float)ushort.MaxValue * range;
-                _leafMax[index] = _asset.MinHeight + high / (float)ushort.MaxValue * range;
+                    int index = leafZ * _leavesX + leafX;
+                    _leafMin[index] = _asset.MinHeight + low / (float)ushort.MaxValue * range;
+                    _leafMax[index] = _asset.MinHeight + high / (float)ushort.MaxValue * range;
+                }
             }
         });
     }

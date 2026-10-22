@@ -13,6 +13,7 @@ using Genesis.Runtime.Scripting.VM;
 using Genesis.Shared.ECS;
 using Genesis.Shared.ECS.Components;
 using Genesis.Shared.Scripting;
+using Genesis.Shared.Threading;
 using Newtonsoft.Json.Linq;
 
 namespace Genesis.Application.Headless.Suites;
@@ -766,6 +767,51 @@ internal static class EngineSystemsSuite
             roads.SetAreaCost(0, 0, 12, 0.9f, 0.1f);
             var road = roads.FindPath(new Vector3(1.5f, 0, 2.5f), new Vector3(10.5f, 0, 2.5f));
             Check(road.Any(point => point.Z < 1f), "A route did not take a cheap road worth its detour.");
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Jobs.EngineJobsRunEveryBatchOnceInOrderOfTheirDependencies", () =>
+        {
+            // Every index of a loop once, on several threads, with a loop nested in each job's work.
+            int[] hits = new int[100_003];
+            var threads = new System.Collections.Concurrent.ConcurrentDictionary<int, bool>();
+            EngineJobs.For(hits.Length, 1000, (start, end) =>
+            {
+                threads[Environment.CurrentManagedThreadId] = true;
+                var spin = System.Diagnostics.Stopwatch.StartNew();
+                while (spin.Elapsed.TotalMilliseconds < 0.2) { }
+                for (int i = start; i < end; i++) Interlocked.Increment(ref hits[i]);
+            });
+            Check(hits.All(hit => hit == 1), $"A loop's indices were not each run once ({hits.Count(hit => hit != 1)} were not).");
+            Check(threads.Count > 1 || EngineJobs.WorkerCount == 1, $"A loop of 101 batches ran on {threads.Count} thread(s) with {EngineJobs.WorkerCount} workers.");
+            long nested = 0;
+            JobHandle outer = EngineJobs.ScheduleFor(8, 1, (start, end) =>
+                EngineJobs.For(10_000, 500, (a, b) => Interlocked.Add(ref nested, b - a)));
+            outer.Complete();
+            Check(nested == 80_000, $"Loops started inside jobs covered {nested} indices, not 80 000.");
+
+            // A job after another sees what the first did; a combined handle waits for both.
+            int first = 0, secondSaw = -1;
+            JobHandle a = EngineJobs.Schedule(() => { Thread.Sleep(30); Volatile.Write(ref first, 1); });
+            JobHandle b = EngineJobs.Schedule(() => secondSaw = Volatile.Read(ref first), a);
+            JobHandle late = EngineJobs.ScheduleFor(4, 1, (_, _) => Thread.Sleep(5), a);
+            JobHandle.Combine(b, late).Complete();
+            Check(secondSaw == 1 && late.IsCompleted, $"A job ran before the job it waited for (it saw {secondSaw}).");
+
+            // A failing batch fails its loop (rethrown to the caller) and the workers go on.
+            bool threw = false;
+            try { EngineJobs.For(10_000, 100, (start, _) => { if (start == 5000) throw new InvalidOperationException("batch 50"); }); }
+            catch (InvalidOperationException error) { threw = error.Message == "batch 50"; }
+            long after = 0;
+            EngineJobs.For(10_000, 100, (start, end) => Interlocked.Add(ref after, end - start));
+            Check(threw && after == 10_000, $"A failing loop threw {threw}; the loop after it covered {after} of 10 000.");
+
+            // The thread that waits for its loop never picks up someone else's long job meanwhile.
+            JobHandle slow = EngineJobs.Schedule(() => Thread.Sleep(2000));
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            for (int round = 0; round < 20; round++) EngineJobs.For(64, 1, (_, _) => Thread.SpinWait(200));
+            double waited = clock.Elapsed.TotalMilliseconds;
+            slow.Complete();
+            Check(waited < 1500, $"Twenty short loops took {waited:F0} ms while a 2 s job was queued: the caller ran the long job.");
         });
 
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Navigation.LinksJoinWhatWalkingCannot", () =>

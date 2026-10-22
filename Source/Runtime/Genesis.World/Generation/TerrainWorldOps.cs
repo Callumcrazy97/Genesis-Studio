@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
-using System.Threading.Tasks;
+using Genesis.Shared.Threading;
 
 namespace Genesis.World.Generation;
 
@@ -63,10 +63,13 @@ public sealed class HeightGrid
         factor = Math.Max(1, factor);
         int width = (Width - 1) / factor + 1, depth = (Depth - 1) / factor + 1;
         var coarse = new HeightGrid(width, depth, CellSize * factor, OriginX, OriginZ);
-        Parallel.For(0, depth, z =>
+        EngineJobs.For(depth, 4, (firstRow, endRow) =>
         {
-            for (int x = 0; x < width; x++)
-                coarse.Values[z * width + x] = Values[Math.Min(z * factor, Depth - 1) * Width + Math.Min(x * factor, Width - 1)];
+            for (int z = firstRow; z < endRow; z++)
+            {
+                for (int x = 0; x < width; x++)
+                    coarse.Values[z * width + x] = Values[Math.Min(z * factor, Depth - 1) * Width + Math.Min(x * factor, Width - 1)];
+            }
         });
         return coarse;
     }
@@ -78,13 +81,16 @@ public sealed class HeightGrid
     /// </summary>
     public void AddDifference(HeightGrid before, HeightGrid after)
     {
-        Parallel.For(0, Depth, z =>
+        EngineJobs.For(Depth, 4, (firstRow, endRow) =>
         {
-            float wz = WorldZ(z);
-            for (int x = 0; x < Width; x++)
+            for (int z = firstRow; z < endRow; z++)
             {
-                float wx = WorldX(x);
-                Values[z * Width + x] += after.Sample(wx, wz) - before.Sample(wx, wz);
+                float wz = WorldZ(z);
+                for (int x = 0; x < Width; x++)
+                {
+                    float wx = WorldX(x);
+                    Values[z * Width + x] += after.Sample(wx, wz) - before.Sample(wx, wz);
+                }
             }
         });
     }
@@ -255,24 +261,27 @@ public static class TerrainWorldOps
         }
 
         // Prefer the steepest neighbour over the flood order: it follows valleys more naturally.
-        Parallel.For(1, depth - 1, z =>
+        EngineJobs.For(depth - 1 - 1, 4, (firstRow, endRow) =>
         {
-            for (int x = 1; x < width - 1; x++)
+            for (int z = 1 + firstRow; z < 1 + endRow; z++)
             {
-                int index = z * width + x;
-                if (receiver[index] < 0) continue;
-                float best = 0f;
-                int choice = receiver[index];
-                for (int dz = -1; dz <= 1; dz++)
-                for (int dx = -1; dx <= 1; dx++)
+                for (int x = 1; x < width - 1; x++)
                 {
-                    if (dx == 0 && dz == 0) continue;
-                    int neighbour = (z + dz) * width + x + dx;
-                    float drop = (height[index] - height[neighbour]) / (dx != 0 && dz != 0 ? 1.4142f : 1f);
-                    if (drop > best) { best = drop; choice = neighbour; }
-                }
+                    int index = z * width + x;
+                    if (receiver[index] < 0) continue;
+                    float best = 0f;
+                    int choice = receiver[index];
+                    for (int dz = -1; dz <= 1; dz++)
+                    for (int dx = -1; dx <= 1; dx++)
+                    {
+                        if (dx == 0 && dz == 0) continue;
+                        int neighbour = (z + dz) * width + x + dx;
+                        float drop = (height[index] - height[neighbour]) / (dx != 0 && dz != 0 ? 1.4142f : 1f);
+                        if (drop > best) { best = drop; choice = neighbour; }
+                    }
 
-                receiver[index] = choice;
+                    receiver[index] = choice;
+                }
             }
         });
         return receiver;
@@ -472,28 +481,31 @@ public static class TerrainWorldOps
         float rockSlopeDegrees, int seed)
     {
         int width = grid.Width, depth = grid.Depth;
-        Parallel.For(0, depth, z =>
+        EngineJobs.For(depth, 4, (firstRow, endRow) =>
         {
-            for (int x = 0; x < width; x++)
+            for (int z = firstRow; z < endRow; z++)
             {
-                float height = grid[x, z];
-                float slope = grid.SlopeDegrees(x, z);
-                float wx = grid.WorldX(x), wz = grid.WorldZ(z);
-                float wobble = Noise.Fbm2(seed + 71, wx * 0.006f, wz * 0.006f, 3);
-                float fine = Noise.Fbm2(seed + 133, wx * 0.04f, wz * 0.04f, 2);
-                float rock = Smoothstep(rockSlopeDegrees - 7f, rockSlopeDegrees + 7f, slope + fine * 5f);
-                float snow = Smoothstep(snowHeight - 30f, snowHeight + 45f, height + wobble * 45f)
-                    * (1f - Smoothstep(rockSlopeDegrees + 6f, rockSlopeDegrees + 20f, slope));
-                float sand = 1f - Smoothstep(beachHeight - 1.5f, beachHeight + 2.5f + wobble * 1.5f, height);
-                sand *= 1f - rock * 0.6f;
-                rock *= 1f - snow;
-                float grass = MathF.Max(0f, 1f - rock - snow - sand);
-                float total = MathF.Max(0.0001f, grass + rock + sand + snow);
-                int at = (z * width + x) * 4;
-                splat[at] = (byte)(grass / total * 255f + 0.5f);
-                splat[at + 1] = (byte)(rock / total * 255f + 0.5f);
-                splat[at + 2] = (byte)(sand / total * 255f + 0.5f);
-                splat[at + 3] = (byte)(snow / total * 255f + 0.5f);
+                for (int x = 0; x < width; x++)
+                {
+                    float height = grid[x, z];
+                    float slope = grid.SlopeDegrees(x, z);
+                    float wx = grid.WorldX(x), wz = grid.WorldZ(z);
+                    float wobble = Noise.Fbm2(seed + 71, wx * 0.006f, wz * 0.006f, 3);
+                    float fine = Noise.Fbm2(seed + 133, wx * 0.04f, wz * 0.04f, 2);
+                    float rock = Smoothstep(rockSlopeDegrees - 7f, rockSlopeDegrees + 7f, slope + fine * 5f);
+                    float snow = Smoothstep(snowHeight - 30f, snowHeight + 45f, height + wobble * 45f)
+                        * (1f - Smoothstep(rockSlopeDegrees + 6f, rockSlopeDegrees + 20f, slope));
+                    float sand = 1f - Smoothstep(beachHeight - 1.5f, beachHeight + 2.5f + wobble * 1.5f, height);
+                    sand *= 1f - rock * 0.6f;
+                    rock *= 1f - snow;
+                    float grass = MathF.Max(0f, 1f - rock - snow - sand);
+                    float total = MathF.Max(0.0001f, grass + rock + sand + snow);
+                    int at = (z * width + x) * 4;
+                    splat[at] = (byte)(grass / total * 255f + 0.5f);
+                    splat[at + 1] = (byte)(rock / total * 255f + 0.5f);
+                    splat[at + 2] = (byte)(sand / total * 255f + 0.5f);
+                    splat[at + 3] = (byte)(snow / total * 255f + 0.5f);
+                }
             }
         });
     }

@@ -1,14 +1,14 @@
 using System;
 using System.Numerics;
-using System.Threading.Tasks;
 using Genesis.Rendering.D3dMath;
+using Genesis.Shared.Threading;
 using Genesis.Streaming;
 
 namespace Genesis.Runtime.Culling
 {
     /// <summary>
     /// Read-only parallel visibility tests. Results merge on the main thread into the submit list.
-    /// Does not touch D3D; jobs use StreamingJobQueue or Parallel.For under SystemScheduler order.
+    /// Does not touch D3D; jobs use StreamingJobQueue or EngineJobs under SystemScheduler order.
     /// </summary>
     public static class VisibilityJobs
     {
@@ -16,7 +16,8 @@ namespace Genesis.Runtime.Culling
 
         /// <summary>
         /// Frustum-test the first <paramref name="count"/> spheres. When
-        /// <paramref name="parallel"/> is true, uses <see cref="Parallel.For"/> (R7.10).
+        /// <paramref name="parallel"/> is true, uses the engine's workers in batches of 2 048
+        /// (<see cref="EngineJobs.For"/>); fewer spheres are tested on this thread.
         /// </summary>
         public static void TestSpheres(
             in Frustum frustum,
@@ -48,9 +49,11 @@ namespace Genesis.Runtime.Culling
                 return;
             }
 
-            Parallel.For(0, count, i =>
+            // In batches on the engine's workers: a task per sphere cost more than the test itself.
+            EngineJobs.For(count, 2048, (start, end) =>
             {
-                visibleOut[i] = local.ContainsSphere(centers[i], radii[i]) ? (byte)1 : (byte)0;
+                for (int i = start; i < end; i++)
+                    visibleOut[i] = local.ContainsSphere(centers[i], radii[i]) ? (byte)1 : (byte)0;
             });
         }
 
