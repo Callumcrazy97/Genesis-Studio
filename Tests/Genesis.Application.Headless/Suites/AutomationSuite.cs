@@ -232,7 +232,15 @@ internal static class AutomationSuite
                 "The engine did not read back the water the commands wrote.");
             HeadlessHarness.Assert(Genesis.World.Terrain.TerrainNatureSerializer.LoadComponentShaders(context.Resolve(terrain)).GetValueOrDefault("water:" + pondBody.Id) == shader,
                 "The pond's shader was not given to the terrain.");
-            HeadlessHarness.Assert(!Call("terrain.removeWater", $$"""{ "terrain": "{{terrain}}", "water": "Sea" }""").Ok, "Removing water did not need confirming.");
+            // As the game finds water: each body's own outline and surface, and of several the smallest.
+            var volumes = nature.WaterBodies.Select(water => Genesis.World.Terrain.TerrainColliderMesh.CreateVolume(water, System.Numerics.Matrix4x4.Identity)).ToList();
+            Genesis.Physics.PhysicsWaterVolume? Over(float x, float z) => Genesis.Physics.PhysicsWaterVolume.Find(volumes, x, z);
+            HeadlessHarness.Assert(Over(0f, 0f)?.Name == "Brook" && Math.Abs(Over(0f, 0f)!.SurfaceHeightAt(0f, 0f) - 1.35f) < 0.01f,
+                "Halfway along the brook its surface is not halfway between its ends' (1.35 m): " + Over(0f, 0f)?.Name + " " + Over(0f, 0f)?.SurfaceHeightAt(0f, 0f));
+            HeadlessHarness.Assert(Over(-6f, 2f)?.Name == "Pond" && Math.Abs(Over(-6f, 2f)!.SurfaceHeightAt(-6f, 2f) - 1.05f) < 0.001f,
+                "The pond within the sea's reach was not found as the pond: " + Over(-6f, 2f)?.Name);
+            HeadlessHarness.Assert(Over(0f, 2.5f)?.Name == "Sea" && Over(60f, 5f)?.Name == "Sea" && Math.Abs(Over(60f, 5f)!.SurfaceHeightAt(60f, 5f) - 0.2f) < 0.001f,
+                "Ground beside the brook, or open sea, was not the sea: " + Over(0f, 2.5f)?.Name + " / " + Over(60f, 5f)?.Name);            HeadlessHarness.Assert(!Call("terrain.removeWater", $$"""{ "terrain": "{{terrain}}", "water": "Sea" }""").Ok, "Removing water did not need confirming.");
             AutomationResult removed = Call("terrain.removeWater", $$"""{ "terrain": "{{terrain}}", "water": "Sea", "confirm": true }""");
             HeadlessHarness.Assert(removed.Ok && Genesis.World.Terrain.TerrainNatureSerializer.LoadOrDefault(context.Resolve(terrain)).WaterBodies.Count == 2, "terrain.removeWater left the sea: " + removed.Message);
         });

@@ -252,6 +252,24 @@ animation's time. A script that follows its own route reads
 `NavMeshRemoveLink(id)` takes a link away. Like costs, links are not saved with the grid. In a 2D
 room, x and y are the point and z is not used.
 
+## Ground from a model, and water that keeps its shape (22 October 2026)
+
+A ground made outside the Terrain editor (an imported scene, a hand-made landscape) becomes a real
+Terrain with `terrain.fromModel`: the heights of the surfaces chosen by material, and a paint layer
+per material. `hideSurfaces` lists those materials in the Model's new `hiddenMaterials`, so the
+model stops drawing the ground the terrain now stands in for (houses, props and trees stay). From
+then on the ground has everything a terrain has: grass and scatter layers, painted layers with
+their own pictures, paths and water. Water is added with `terrain.addWater`: lakes and ponds,
+rivers that fall along their course, and the sea.
+
+`WaterDepthAt`, `WaterSurfaceAt`, swimming and floating now follow each water's own outline
+and surface. A river's surface is the height along its course where you stand, a round lake ends
+at its shore rather than at the corners of a box around it, and where waters overlap the smallest
+one counts, so a pond within the sea's reach is the pond.
+
+Kinfield (Pennywick) was moved over this way: the ground, its stream, pond and sea, and its grass
+tufts (scatter layers of its own grass models on the grass paint) are terrain, not models and a
+script.
 ## Online games through a relay (22 October 2026)
 
 Games on a local network find each other with `NetDiscover` and connect by address. Over the

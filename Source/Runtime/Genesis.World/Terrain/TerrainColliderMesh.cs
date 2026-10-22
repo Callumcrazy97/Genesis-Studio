@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using Genesis.Physics;
 using Genesis.Shared.Assets;
@@ -75,14 +76,46 @@ public static class TerrainColliderMesh
     {
         ArgumentNullException.ThrowIfNull(definition);
         definition.Normalize();
+        float depth = MathF.Max(definition.PhysicsDepth, definition.SimulationDepth);
         Vector3 localMin = new(
             definition.Center.X - definition.SizeX * 0.5f,
-            definition.SurfaceHeight - MathF.Max(definition.PhysicsDepth, definition.SimulationDepth),
+            definition.SurfaceHeight - depth,
             definition.Center.Z - definition.SizeZ * 0.5f);
         Vector3 localMax = new(
             definition.Center.X + definition.SizeX * 0.5f,
             definition.SurfaceHeight,
             definition.Center.Z + definition.SizeZ * 0.5f);
+        // A river is where its course runs, as wide as it is there, with the surface its points give.
+        bool river = definition.Kind == TerrainWaterKind.River && definition.RiverPoints.Count >= 2;
+        if (river)
+        {
+            localMin = new Vector3(float.MaxValue); localMax = new Vector3(float.MinValue);
+            foreach (Water.WaterSplinePoint point in definition.RiverPoints)
+            {
+                Vector3 reach = new(point.Width * 0.5f, 0f, point.Width * 0.5f);
+                localMin = Vector3.Min(localMin, point.Position - reach - new Vector3(0f, MathF.Max(depth, point.Depth), 0f));
+                localMax = Vector3.Max(localMax, point.Position + reach);
+            }
+        }
+        Func<float, float, float> localSurface = definition.Kind switch
+        {
+            TerrainWaterKind.Ocean => null,
+            TerrainWaterKind.River when river => (x, z) => RiverSurface(definition.RiverPoints, x, z),
+            TerrainWaterKind.Water => (x, z) => definition.ContainsHorizontal(x, z) ? definition.SurfaceHeight : float.NaN,
+            _ => null,
+        };
+        Func<float, float, float> surfaceAt = null;
+        if (localSurface != null)
+        {
+            // Asked in world space; the outline is the terrain's own.
+            Matrix4x4 toLocal = Matrix4x4.Invert(placement, out Matrix4x4 inverse) ? inverse : Matrix4x4.Identity;
+            surfaceAt = (x, z) =>
+            {
+                Vector3 local = Vector3.Transform(new Vector3(x, 0f, z), toLocal);
+                float height = localSurface(local.X, local.Z);
+                return float.IsFinite(height) ? Vector3.Transform(new Vector3(local.X, height, local.Z), placement).Y : float.NaN;
+            };
+        }
         Vector3 minimum = new(float.MaxValue), maximum = new(float.MinValue);
         for (int corner = 0; corner < 8; corner++)
         {
@@ -96,7 +129,7 @@ public static class TerrainColliderMesh
         }
 
         Vector3 surfacePoint = Vector3.Transform(
-            new Vector3(definition.Center.X, definition.SurfaceHeight, definition.Center.Z),
+            new Vector3(definition.Center.X, river ? definition.RiverPoints.Average(point => point.Position.Y) : definition.SurfaceHeight, definition.Center.Z),
             placement);
         Vector3 flowDirection = Vector3.TransformNormal(Vector3.UnitX, placement);
         if (flowDirection.LengthSquared() > 1e-6f) flowDirection = Vector3.Normalize(flowDirection);
@@ -114,7 +147,27 @@ public static class TerrainColliderMesh
             FlowVelocity = definition.PhysicsMode == WaterPhysicsMode.None ? Vector3.Zero : flowDirection * definition.FlowSpeed,
             Swimmable = definition.Swimmable,
             Damaging = definition.PhysicsMode != WaterPhysicsMode.None && definition.Damaging,
+            SurfaceAt = surfaceAt,
         };
+    }
+
+    /// <summary>A river's surface over x, z: the height along its course at the nearest point within its width, or NaN off it.</summary>
+    private static float RiverSurface(List<Water.WaterSplinePoint> points, float x, float z)
+    {
+        Vector2 at = new(x, z);
+        float best = float.MaxValue, height = float.NaN;
+        for (int i = 0; i < points.Count - 1; i++)
+        {
+            Vector2 a = new(points[i].Position.X, points[i].Position.Z), b = new(points[i + 1].Position.X, points[i + 1].Position.Z);
+            Vector2 edge = b - a;
+            float t = edge.LengthSquared() < 1e-8f ? 0f : Math.Clamp(Vector2.Dot(at - a, edge) / edge.LengthSquared(), 0f, 1f);
+            float distance = Vector2.Distance(at, a + edge * t);
+            float halfWidth = float.Lerp(points[i].Width, points[i + 1].Width, t) * 0.5f;
+            if (distance > halfWidth || distance >= best) continue;
+            best = distance;
+            height = float.Lerp(points[i].Position.Y, points[i + 1].Position.Y, t);
+        }
+        return height;
     }
 
     public static int OverlayStride(TerrainAsset terrain)

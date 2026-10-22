@@ -302,14 +302,14 @@ public static partial class PgslCommands
     public static double WaterDepthAt(double x, double y, double z)
     {
         Genesis.Physics.PhysicsWaterVolume water = ActiveGameContext?.Scene?.FindWater(new System.Numerics.Vector3((float)x, (float)y, (float)z));
-        return water == null ? 0 : Math.Max(0, water.SurfaceY - y);
+        return water == null ? 0 : Math.Max(0, water.SurfaceHeightAt((float)x, (float)z) - y);
     }
 
     [PgslCommand("WaterSurfaceAt", "WaterSurfaceAt(x, z) -> number", "Authored water surface height, or terrain height when no water exists", "Terrain")]
     public static double WaterSurfaceAt(double x, double z)
     {
         Genesis.Physics.PhysicsWaterVolume water = ActiveGameContext?.Scene?.FindWater((float)x, (float)z);
-        return water?.SurfaceY ?? GetTerrainHeight(x, z);
+        return water?.SurfaceHeightAt((float)x, (float)z) ?? GetTerrainHeight(x, z);
     }
 
     [PgslCommand("WaterIsSwimmable", "WaterIsSwimmable(x, y, z) -> bool", "True when a point is inside a swimmable water volume", "Terrain")]

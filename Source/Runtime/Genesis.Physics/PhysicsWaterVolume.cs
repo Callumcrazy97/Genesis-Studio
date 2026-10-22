@@ -18,11 +18,42 @@ public sealed class PhysicsWaterVolume
     public Vector3 FlowVelocity { get; init; }
     public bool Swimmable { get; init; } = true;
     public bool Damaging { get; init; }
+    /// <summary>
+    /// The water's own outline and surface, when it is not simply its box: the surface height at a
+    /// world x, z, or NaN where the point is outside the water (a river's banks, a round lake's
+    /// corners). A river falls along its course, so its surface differs from place to place.
+    /// </summary>
+    public Func<float, float, float>? SurfaceAt { get; init; }
+
+    /// <summary>True when x, z is over this water (inside its box and its own outline).</summary>
+    public bool CoversHorizontal(float x, float z) =>
+        x >= Minimum.X && x <= Maximum.X && z >= Minimum.Z && z <= Maximum.Z
+        && (SurfaceAt == null || float.IsFinite(SurfaceAt(x, z)));
+
+    /// <summary>The surface height over x, z: the water's own where it has one, else <see cref="SurfaceY"/>.</summary>
+    public float SurfaceHeightAt(float x, float z) =>
+        SurfaceAt != null && SurfaceAt(x, z) is var height && float.IsFinite(height) ? height : SurfaceY;
 
     public bool Contains(Vector3 point) =>
-        point.X >= Minimum.X && point.X <= Maximum.X &&
-        point.Z >= Minimum.Z && point.Z <= Maximum.Z &&
-        point.Y >= Minimum.Y && point.Y <= SurfaceY;
+        CoversHorizontal(point.X, point.Z) && point.Y >= Minimum.Y && point.Y <= SurfaceHeightAt(point.X, point.Z);
+
+    /// <summary>
+    /// The water over x, z (and, given a height, the water that point is in): of several, the one
+    /// covering the least ground, so a pond within the sea's reach is the pond.
+    /// </summary>
+    public static PhysicsWaterVolume? Find(System.Collections.Generic.IReadOnlyList<PhysicsWaterVolume> volumes, float x, float z, float? y = null)
+    {
+        PhysicsWaterVolume? best = null;
+        float bestArea = float.MaxValue;
+        for (int i = volumes.Count - 1; i >= 0; i--)
+        {
+            PhysicsWaterVolume volume = volumes[i];
+            if (!(y is float height ? volume.Contains(new Vector3(x, height, z)) : volume.CoversHorizontal(x, z))) continue;
+            float area = (volume.Maximum.X - volume.Minimum.X) * (volume.Maximum.Z - volume.Minimum.Z);
+            if (area < bestArea) { best = volume; bestArea = area; }
+        }
+        return best;
+    }
 
     public float SubmergedFraction(Vector3 centre, Vector3 halfExtents)
     {

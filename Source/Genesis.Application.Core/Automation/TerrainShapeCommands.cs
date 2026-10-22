@@ -200,8 +200,10 @@ public static class TerrainShapeCommands
             if (!(cell > 0f)) throw new AutomationException("The cell size must be above 0.");
             System.Numerics.Vector3 offset = input.Position is { Length: 3 } place ? new(place[0], place[1], place[2])
                 : input.Position == null ? System.Numerics.Vector3.Zero : throw new AutomationException("The position is [x, y, z].");
-            // Imported first if it never was, as opening it in the Model editor does.
-            Genesis.Runtime.Modeling.GModelAsset model = Genesis.Runtime.Modeling.StudioModelResourceLoader.Load(modelPath);
+            // Its cooked model, or else its source read afresh; nothing is written (a cooked copy of a big
+            // scene would add hundreds of megabytes to the project for one look at its ground).
+            Genesis.Runtime.Modeling.GModelAsset model = Genesis.Runtime.Modeling.StudioModelResourceLoader.LoadReadOnly(modelPath);
+            if (!model.HasRenderableMeshes) model = Genesis.Runtime.Modeling.StudioModelResourceLoader.ImportSource(modelPath);
             List<string> names = [.. model.Materials.Select(material => material?.Name ?? string.Empty)];
 
             int Material(string name) => names.FindIndex(known => string.Equals(known, name, StringComparison.OrdinalIgnoreCase)) is int found and >= 0 ? found

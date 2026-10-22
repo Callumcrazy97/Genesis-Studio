@@ -235,24 +235,9 @@ namespace Genesis.Runtime
         public bool RemoveWaterVolume(string id) =>
             _waterVolumes.RemoveAll(volume => string.Equals(volume.Id, id, StringComparison.OrdinalIgnoreCase)) > 0;
 
-        public PhysicsWaterVolume FindWater(Vector3 position)
-        {
-            for (int i = _waterVolumes.Count - 1; i >= 0; i--)
-                if (_waterVolumes[i].Contains(position)) return _waterVolumes[i];
-            return null;
-        }
+        public PhysicsWaterVolume FindWater(Vector3 position) => PhysicsWaterVolume.Find(_waterVolumes, position.X, position.Z, position.Y);
 
-        public PhysicsWaterVolume FindWater(float worldX, float worldZ)
-        {
-            for (int i = _waterVolumes.Count - 1; i >= 0; i--)
-            {
-                PhysicsWaterVolume volume = _waterVolumes[i];
-                if (worldX >= volume.Minimum.X && worldX <= volume.Maximum.X &&
-                    worldZ >= volume.Minimum.Z && worldZ <= volume.Maximum.Z)
-                    return volume;
-            }
-            return null;
-        }
+        public PhysicsWaterVolume FindWater(float worldX, float worldZ) => PhysicsWaterVolume.Find(_waterVolumes, worldX, worldZ);
 
         public void UpdateFixed(float fixedDelta)
         {
