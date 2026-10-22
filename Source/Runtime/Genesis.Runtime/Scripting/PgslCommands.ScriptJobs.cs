@@ -57,16 +57,26 @@ public static partial class PgslCommands
         "Math", "3D Math", "Strings", "General", "Noise", "Grids", "Lists", "Maps", "Data Structures", "Arrays", "Variables", "JSON",
     };
 
-    private static readonly string[] DsFamilies = ["list", "grid", "map", "stack", "queue", "priority"];
+    private static readonly string[] DsFamilies = ["list", "grid", "map", "stack", "queue", "priority", "nlist"];
 
     private static readonly HashSet<string> WorkerRefused = new(StringComparer.OrdinalIgnoreCase)
     {
         "Random", "RandomRange", "Choose", "RandomSeed", "DsListShuffle", "PgListShuffle", "Print",
     };
 
+    // Commands of other categories a job may run: building a mesh lent to it (JobScriptMesh), which
+    // writes only the job's own build, and its per-worker caches.
+    private static readonly HashSet<string> WorkerAllowed = new(StringComparer.Ordinal)
+    {
+        "MeshClear", "MeshAddVertex", "MeshAddTriangle", "MeshAddCube", "MeshAddCubeTiles", "MeshAddQuad", "MeshAddQuadColors",
+        "MeshVertexCount", "MeshTriangleCount", "MeshAddQuadsFromList", "MeshAddQuadsFromNumList", "MeshAddVerticesFromList", "MeshAddVerticesFromNumList",
+        "JobCacheNumList", "JobCacheGet", "JobCacheSet",
+    };
+
     /// <summary>Whether a worker job may run a command, by its name and category.</summary>
     internal static bool WorkerMayRun(string name, string category) =>
-        name is not null && !WorkerRefused.Contains(name) && WorkerCategories.Contains(category ?? string.Empty);
+        name is not null && !WorkerRefused.Contains(name)
+        && (WorkerCategories.Contains(category ?? string.Empty) || WorkerAllowed.Contains(name));
 
     private sealed class ScriptJobSetup
     {
@@ -79,6 +89,10 @@ public static partial class PgslCommands
         public long Budget = DefaultScriptJobBudget;
         /// <summary>JobScriptShareAll: every structure and instance variable of the Object, as at the start.</summary>
         public bool ShareAll;
+        /// <summary>Meshes the job builds (JobScriptMesh): each starts empty in the job and is handed over at JobTake.</summary>
+        public readonly List<int> Meshes = [];
+        /// <summary>Jobs of this Object it waits for (JobScriptAfter); it reads what they changed.</summary>
+        public readonly List<int> After = [];
     }
 
     /// <summary>What a finished script job hands back: the function's result and the data to copy out.</summary>
@@ -91,6 +105,8 @@ public static partial class PgslCommands
         public bool Taken;
         /// <summary>How long the job ran on its worker, from taking a worker to its result, for speed reports.</summary>
         public double WorkerMilliseconds;
+        /// <summary>The meshes the job built, finished, for JobTake to hand to the game's meshes.</summary>
+        public List<(int Id, Genesis.Runtime.Rendering.MeshBuffers Build)> Meshes;
     }
 
     // Worker bridges are made from the game's command table and reused; each serves one job at a time.
@@ -195,6 +211,7 @@ public static partial class PgslCommands
             "grid" => ResolveRead<PgslGrid>("grid", handle) != null,
             "map" => ResolveRead<PgslMap>("map", handle) != null,
             "priority" => ResolveRead<PgslPriority>("priority", handle) != null,
+            "nlist" => ResolveRead<PgslNumberList>("nlist", handle) != null,
             _ => ResolveRead<List<object>>("list", handle) != null,
         };
         if (!exists) return Refuse($"No {family} with handle {StringOf(handle)} in this Object.");
@@ -328,9 +345,9 @@ public static partial class PgslCommands
 
         var run = new ScriptJobRun(setup.Function, driver, setup.Library, copied, data, variables, new Dictionary<string, object>(setup.Variables, StringComparer.Ordinal),
             setup.Shared.Where(entry => entry.CopyBack).Select(entry => (entry.Family, entry.Handle, entry.Region)).ToArray(),
-            setup.Budget, game, owner.RoomWidth, owner.RoomHeight, lentCopies);
+            setup.Budget, game, owner.RoomWidth, owner.RoomHeight, lentCopies, [.. setup.Meshes], [.. setup.After], pool);
         // The job lets go of its data once its work has ended (or it ended without running).
-        if (!pool.Launch(JobId(job), token => RunScriptJob(run, token), () => ReleaseShared(held)))
+        if (!pool.Launch(JobId(job), token => RunScriptJob(run, token), () => ReleaseShared(held), setup.After.Count > 0 ? setup.After : null))
         {
             ReleaseShared(held);
             ReturnGridCopies(lentCopies);
@@ -378,6 +395,11 @@ public static partial class PgslCommands
             object live = current is SharedData shared ? shared.Value : current;
             if (live?.GetType() == data?.GetType()) store[key] = data;
         }
+        // Meshes built in the job become the game's meshes' content as built: arrays taken, not copied.
+        if (outcome.Meshes is { } built)
+            foreach ((int id, Genesis.Runtime.Rendering.MeshBuffers build) in built)
+                Genesis.Runtime.Rendering.ScriptMeshes.TakeBuild(id, build);
+        outcome.Meshes = null;
         outcome.Taken = true;
         outcome.Outputs = [];
         ReturnGridCopies(outcome.LentCopies);
@@ -467,7 +489,27 @@ public static partial class PgslCommands
     private sealed record ScriptJobRun(string Function, CompileResult Driver, IReadOnlyDictionary<string, UserFunction> Library,
         object[] Arguments, Dictionary<string, object> Data, KeyValuePair<string, VmValue>[] SharedVariables, Dictionary<string, object> Variables,
         (string Family, int Handle, GridRect? Region)[] CopyBack, long Budget, PgslEngineBridge Game, double RoomWidth, double RoomHeight,
-        List<object> LentCopies);
+        List<object> LentCopies, int[] Meshes, int[] After, NativeJobPool Pool);
+
+    // A job with no mesh lent still has a table, so a mesh command in it names the mistake rather
+    // than reaching the game's meshes from a worker thread. Never written.
+    private static readonly Dictionary<int, Genesis.Runtime.Rendering.MeshBuffers> NoJobMeshes = [];
+
+    // What the jobs it waited for changed (and marked to come back) is what this job reads under
+    // those handles: a copy, since the game may take the original at JobTake and change it.
+    private static void ReadFinishedJobs(ScriptJobRun run, Dictionary<string, object> store)
+    {
+        foreach (int other in run.After)
+        {
+            NativeJobPool.Snapshot snapshot = run.Pool.Read(other);
+            if (snapshot.State == "invalid") continue;
+            if (snapshot.State != "succeeded")
+                throw new PgslWorkerJobException($"Job {other.ToString(CultureInfo.InvariantCulture)}, which this job waits for, {snapshot.State}" + (snapshot.Error.Length > 0 ? ": " + snapshot.Error : "."));
+            if (snapshot.Value is not ScriptJobOutcome finished) continue;
+            foreach ((string family, int handle, object data, GridRect? _) in finished.Outputs)
+                store[DsKey(family, handle)] = CopyStructure(data);
+        }
+    }
 
     // On a worker thread: a VM, bridge and context of the job's own; nothing of the game's is written.
     private static NativeJobPool.Result RunScriptJob(ScriptJobRun run, CancellationToken token)
@@ -479,9 +521,18 @@ public static partial class PgslCommands
         PgslEngineBridge bridge = RentWorkerBridge(run.Game);
         // The job's data was made for this job alone: it becomes the job's store as it is, not copied again.
         PgslContext context = new() { RoomWidth = run.RoomWidth, RoomHeight = run.RoomHeight, Variables = run.Data };
+        // Each mesh lent is built from nothing in pooled arrays of the job's own.
+        context.JobMeshes = NoJobMeshes;
+        if (run.Meshes.Length > 0)
+        {
+            context.JobMeshes = new Dictionary<int, Genesis.Runtime.Rendering.MeshBuffers>(run.Meshes.Length);
+            foreach (int mesh in run.Meshes) context.JobMeshes[mesh] = new Genesis.Runtime.Rendering.MeshBuffers();
+        }
         PgslContext previous = BindContext(context);
+        bool handedOver = false;
         try
         {
+            if (run.After.Length > 0) ReadFinishedJobs(run, context.Variables);
             bridge.SetContext(context);
             var vm = new PgslVm(bridge) { JobBudget = new PgslJobBudget(run.Budget, token), LibraryFunctions = run.Library };
             context.ActiveVm = vm;
@@ -501,6 +552,12 @@ public static partial class PgslCommands
                 if (context.Variables.TryGetValue(DsKey(family, handle), out object data) && data is not SharedData)
                     outcome.Outputs.Add((family, handle, data, region));
             outcome.LentCopies = run.LentCopies;
+            if (run.Meshes.Length > 0)
+            {
+                outcome.Meshes = new List<(int, Genesis.Runtime.Rendering.MeshBuffers)>(run.Meshes.Length);
+                foreach (int mesh in run.Meshes) outcome.Meshes.Add((mesh, context.JobMeshes[mesh]));
+            }
+            handedOver = true;
             outcome.WorkerMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
             return new NativeJobPool.Result("script", outcome);
         }
@@ -514,6 +571,10 @@ public static partial class PgslCommands
         }
         finally
         {
+            // A job that failed or was cancelled gives its meshes' arrays back to the pool.
+            if (!handedOver && context.JobMeshes != NoJobMeshes)
+                foreach (Genesis.Runtime.Rendering.MeshBuffers build in context.JobMeshes.Values) build.Release();
+            context.JobMeshes = null;
             context.ActiveVm = null;
             ReturnWorkerBridge(run.Game, bridge);
             BindContext(previous);

@@ -46,6 +46,9 @@ internal sealed class NativeJobPool
     private readonly Dictionary<int, Job> _jobs = [];
     private int _next;
     private readonly object _gate = new();
+    // Launched jobs held until the jobs they wait for (JobScriptAfter) have finished.
+    private sealed record Waiting(Job Job, Job[] After, Func<CancellationToken, Result> Operation, Action? Ended);
+    private readonly List<Waiting> _waiting = [];
 
     public int Start(string kind, Func<CancellationToken, Result> operation)
     {
@@ -80,24 +83,74 @@ internal sealed class NativeJobPool
 
     /// <summary>
     /// Starts a prepared job on a script worker; false when it is not prepared. <paramref name="ended"/>
-    /// runs once on the worker when the job's work has ended, whether it ran, failed or was cancelled first.
+    /// runs once on the worker when the job's work has ended, whether it ran, failed or was cancelled
+    /// first. With <paramref name="after"/>, the job reads as "waiting" until those jobs of this pool
+    /// have finished (succeeded, failed or cancelled), then goes to a worker.
     /// </summary>
-    public bool Launch(int id, Func<CancellationToken, Result> operation, Action? ended = null)
+    public bool Launch(int id, Func<CancellationToken, Result> operation, Action? ended = null, IReadOnlyList<int>? after = null)
     {
         lock (_gate)
         {
             if (!_jobs.TryGetValue(id, out Job? job)) return false;
+            List<Job>? pending = null;
+            if (after != null)
+                foreach (int other in after)
+                    if (other != id && _jobs.TryGetValue(other, out Job? dependency) && !IsFinished(dependency))
+                        (pending ??= []).Add(dependency);
             lock (job)
             {
                 if (job.State != "prepared") return false;
-                job.State = "queued"; job.Payload = null; job.WorkEnded = false;
+                job.State = pending == null ? "queued" : "waiting"; job.Payload = null; job.WorkEnded = false;
             }
-            RunOnScriptThread(job, job.Kind, operation, ended);
+            if (pending == null) RunOnScriptThread(job, job.Kind, operation, ended, this);
+            else _waiting.Add(new Waiting(job, [.. pending], operation, ended));
             return true;
         }
     }
 
-    private static void RunOnScriptThread(Job job, string kind, Func<CancellationToken, Result> operation, Action? ended)
+    private static bool IsFinished(Job job) { lock (job) return Finished(job); }
+
+    // A job of this pool has ended: those waiting for it go to a worker once everything they wait for
+    // has ended; a waiting job cancelled or released meanwhile ends without running.
+    private void OnJobEnded()
+    {
+        lock (_gate)
+        {
+            for (int i = 0; i < _waiting.Count; i++)
+            {
+                Waiting waiting = _waiting[i];
+                bool cancelled; lock (waiting.Job) cancelled = waiting.Job.Cancellation.IsCancellationRequested;
+                if (!cancelled && !Array.TrueForAll(waiting.After, IsFinished)) continue;
+                _waiting.RemoveAt(i--);
+                if (cancelled) { EndWaiting(waiting); continue; }
+                lock (waiting.Job) waiting.Job.State = "queued";
+                RunOnScriptThread(waiting.Job, waiting.Job.Kind, waiting.Operation, waiting.Ended, this);
+            }
+        }
+    }
+
+    private static void EndWaiting(Waiting waiting)
+    {
+        try { waiting.Ended?.Invoke(); }
+        catch (Exception) { }
+        lock (waiting.Job)
+        {
+            waiting.Job.State = "cancelled"; waiting.Job.WorkEnded = true;
+            if (waiting.Job.Released) DropLease(waiting.Job);
+        }
+    }
+
+    // A waiting job cancelled or released leaves the queue now, not when what it waits for ends.
+    private void DropWaiting(Job job)
+    {
+        int at = _waiting.FindIndex(w => ReferenceEquals(w.Job, job));
+        if (at < 0) return;
+        Waiting waiting = _waiting[at];
+        _waiting.RemoveAt(at);
+        EndWaiting(waiting);
+    }
+
+    private static void RunOnScriptThread(Job job, string kind, Func<CancellationToken, Result> operation, Action? ended, NativeJobPool owner)
     {
         ScriptQueue.Add(() =>
         {
@@ -124,6 +177,7 @@ internal sealed class NativeJobPool
             {
                 End();
                 lock (job) { job.WorkEnded = true; if (job.Released) DropLease(job); }
+                owner.OnJobEnded();
             }
         });
         // More threads while more jobs wait than threads are free, up to the limit.
@@ -205,7 +259,9 @@ internal sealed class NativeJobPool
                 // will not start: both are cancelled at once.
                 if (job.State == "prepared") { job.State = "cancelled"; job.Payload = null; return true; }
                 if (job.State == "queued" && job.Kind == "script") job.State = "cancelled";
-                job.Cancellation.Cancel(); return true;
+                job.Cancellation.Cancel();
+                if (job.State == "waiting") DropWaiting(job);
+                return true;
             }
         }
     }
@@ -219,7 +275,11 @@ internal sealed class NativeJobPool
             {
                 job.Released = true; job.Value = null; job.Payload = null;
                 if (Finished(job) || job.State == "prepared") DropLease(job);
-                else job.Cancellation.Cancel();
+                else
+                {
+                    job.Cancellation.Cancel();
+                    if (job.State == "waiting") DropWaiting(job);
+                }
             }
             return true;
         }

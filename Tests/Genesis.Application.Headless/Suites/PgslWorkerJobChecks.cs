@@ -157,7 +157,7 @@ internal static partial class PgslWorkerJobChecks
             while (true)
             {
                 string status = PgslCommands.JobStatus(job);
-                if (status is not ("queued" or "running")) return status;
+                if (status is not ("queued" or "running" or "waiting")) return status;
                 TimeSpan waited = Stopwatch.GetElapsedTime(start);
                 if (waited.TotalSeconds > seconds) return status + " (timed out)";
                 // Sleep(1) lasts about 15 ms on Windows: yield at first, so short waits are timed truly.
@@ -382,6 +382,7 @@ internal static partial class PgslWorkerJobChecks
             });
 
             RunSharedData(ctx, row);
+            RunMeshesAndLists(ctx, row);
 
             HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.Jobs.ManyAtOnceStayApart", () =>
             {

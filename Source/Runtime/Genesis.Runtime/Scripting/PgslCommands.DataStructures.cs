@@ -70,12 +70,12 @@ public static partial class PgslCommands
     // with the handles (up to MaxCachedDsKeys), and a destroyed structure's key is let go. Worker
     // threads share it: a lost write only means a key is formatted again.
     private const int MaxCachedDsKeys = 1 << 21;
-    private static readonly string[][] DsKeys = [new string[4096], new string[4096], new string[4096], new string[4096], new string[4096], new string[4096]];
+    private static readonly string[][] DsKeys = [new string[4096], new string[4096], new string[4096], new string[4096], new string[4096], new string[4096], new string[4096]];
     private static readonly object DsKeysGrow = new();
 
     private static int DsFamilyIndex(string family) => family switch
     {
-        "list" => 0, "grid" => 1, "map" => 2, "stack" => 3, "queue" => 4, "priority" => 5, _ => -1,
+        "list" => 0, "grid" => 1, "map" => 2, "stack" => 3, "queue" => 4, "priority" => 5, "nlist" => 6, _ => -1,
     };
 
     private static string DsKey(string family, int handle)

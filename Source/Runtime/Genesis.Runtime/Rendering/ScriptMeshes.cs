@@ -8,7 +8,9 @@ namespace Genesis.Runtime.Rendering
     /// <summary>
     /// Meshes a script builds and changes (a voxel chunk, a procedural rock, a trail): vertices and
     /// triangles added by PGSL, uploaded when next drawn after a change. One draw of a chunk replaces
-    /// thousands of instances. A mesh holds up to 65535 vertices.
+    /// thousands of instances. A mesh holds up to 65535 vertices. Its storage is pooled
+    /// (<see cref="MeshBuffers"/>), and a worker job can build a whole mesh and hand it over finished
+    /// (<see cref="TakeBuild"/>).
     /// </summary>
     public static class ScriptMeshes
     {
@@ -16,12 +18,10 @@ namespace Genesis.Runtime.Rendering
 
         private sealed class Builder
         {
-            public readonly List<MeshVertex> Vertices = new();
-            public readonly List<ushort> Indices = new();
+            public MeshBuffers Buffers = new();
             public MeshHandle Handle = MeshHandle.Invalid;
             public IRenderController Owner;
             public bool Dirty = true;
-            public bool Overflowed;
         }
 
         private static readonly Dictionary<int, Builder> Meshes = new();
@@ -46,7 +46,7 @@ namespace Genesis.Runtime.Rendering
                 if (Spare.Count > 0)
                 {
                     mesh = Spare.Pop();
-                    _spareBytes -= StorageBytes(mesh);
+                    _spareBytes -= mesh.Buffers.Bytes;
                 }
                 else mesh = new Builder();
                 Meshes[id] = mesh;
@@ -59,9 +59,7 @@ namespace Genesis.Runtime.Rendering
         public static void Clear(int id)
         {
             if (!TryGet(id, out Builder mesh)) return;
-            mesh.Vertices.Clear();
-            mesh.Indices.Clear();
-            mesh.Overflowed = false;
+            mesh.Buffers.Clear();
             mesh.Dirty = true;
         }
 
@@ -83,31 +81,28 @@ namespace Genesis.Runtime.Rendering
 
         private static void Recycle(Builder mesh)
         {
-            mesh.Vertices.Clear();
-            mesh.Indices.Clear();
+            mesh.Buffers.Clear();
             mesh.Handle = MeshHandle.Invalid;
             mesh.Owner = null;
             mesh.Dirty = true;
-            mesh.Overflowed = false;
-            long bytes = StorageBytes(mesh);
+            long bytes = mesh.Buffers.Bytes;
             lock (Meshes)
             {
-                if (_spareBytes + bytes > MaxSpareBytes) return;
-                Spare.Push(mesh);
-                _spareBytes += bytes;
+                if (_spareBytes + bytes <= MaxSpareBytes)
+                {
+                    Spare.Push(mesh);
+                    _spareBytes += bytes;
+                    return;
+                }
             }
+            // Not kept whole: its arrays still go back to the shared pool.
+            mesh.Buffers.Release();
         }
-
-        private static long StorageBytes(Builder mesh) =>
-            (long)mesh.Vertices.Capacity * System.Runtime.CompilerServices.Unsafe.SizeOf<MeshVertex>()
-            + (long)mesh.Indices.Capacity * sizeof(ushort);
 
         /// <summary>Makes room in a mesh for this many more vertices and indices (at most a full mesh).</summary>
         internal static void Reserve(int id, int vertices, int indices)
         {
-            if (!TryGet(id, out Builder mesh)) return;
-            if (vertices > 0) mesh.Vertices.EnsureCapacity(Math.Min(MaxVertices, mesh.Vertices.Count + vertices));
-            if (indices > 0) mesh.Indices.EnsureCapacity(Math.Min(MaxVertices * 6, mesh.Indices.Count + indices));
+            if (TryGet(id, out Builder mesh)) mesh.Buffers.Reserve(vertices, indices);
         }
 
         /// <summary>Storage kept for reuse, in bytes (for checks).</summary>
@@ -130,35 +125,42 @@ namespace Genesis.Runtime.Rendering
                 if (mesh.Handle.IsValid) mesh.Owner?.ReleaseMesh(mesh.Handle);
         }
 
-        /// <summary>Adds a vertex and returns its index; -1 when the mesh is full or unknown.</summary>
-        public static int AddVertex(int id, Vector3 position, Vector3 normal, Vector2 uv, Vector4 colour)
+        /// <summary>
+        /// A mesh's storage to add to directly (the batch commands), marked changed; null when the
+        /// mesh is unknown. Game thread only.
+        /// </summary>
+        internal static MeshBuffers BuffersToChange(int id)
         {
-            if (!TryGet(id, out Builder mesh)) return -1;
-            if (mesh.Vertices.Count >= MaxVertices) { mesh.Overflowed = true; return -1; }
-            mesh.Vertices.Add(new MeshVertex
-            {
-                Position = position,
-                Normal = normal.LengthSquared() > 1e-12f ? Vector3.Normalize(normal) : Vector3.UnitY,
-                UV = uv,
-                Color = colour,
-            });
+            if (!TryGet(id, out Builder mesh)) return null;
             mesh.Dirty = true;
-            return mesh.Vertices.Count - 1;
+            return mesh.Buffers;
         }
 
-        public static bool AddTriangle(int id, int a, int b, int c)
+        /// <summary>
+        /// A mesh built elsewhere (a worker job) becomes this mesh's content as it is: its arrays are
+        /// taken, not copied, and the mesh's previous storage goes back to the pool. Uploaded when next
+        /// drawn, within the frame's upload budget; the previous build draws until then. False (and the
+        /// build released) when the mesh no longer exists.
+        /// </summary>
+        public static bool TakeBuild(int id, MeshBuffers built)
         {
-            if (!TryGet(id, out Builder mesh)) return false;
-            int count = mesh.Vertices.Count;
-            if ((uint)a >= (uint)count || (uint)b >= (uint)count || (uint)c >= (uint)count) return false;
-            mesh.Indices.Add((ushort)a);
-            mesh.Indices.Add((ushort)b);
-            mesh.Indices.Add((ushort)c);
+            if (built is null) return false;
+            if (!TryGet(id, out Builder mesh)) { built.Release(); return false; }
+            MeshBuffers previous = mesh.Buffers;
+            mesh.Buffers = built;
             mesh.Dirty = true;
+            previous.Release();
             return true;
         }
 
-        /// <summary>Face bits for <see cref="AddCube"/>.</summary>
+        /// <summary>Adds a vertex and returns its index; -1 when the mesh is full or unknown.</summary>
+        public static int AddVertex(int id, Vector3 position, Vector3 normal, Vector2 uv, Vector4 colour) =>
+            BuffersToChange(id)?.AddVertex(position, normal, uv, colour) ?? -1;
+
+        public static bool AddTriangle(int id, int a, int b, int c) =>
+            BuffersToChange(id)?.AddTriangle(a, b, c) ?? false;
+
+        /// <summary>Face bits for <see cref="AddCube(int, Vector3, float, int, Vector4, Vector4)"/>.</summary>
         public const int PositiveX = 1, NegativeX = 2, PositiveY = 4, NegativeY = 8, PositiveZ = 16, NegativeZ = 32, AllFaces = 63;
 
         /// <summary>
@@ -172,36 +174,8 @@ namespace Genesis.Runtime.Rendering
         /// The same with a tile of its own for the top (+Y), the four sides and the bottom (-Y): a
         /// grass block, a log, a crate.
         /// </summary>
-        public static int AddCube(int id, Vector3 centre, float size, int faces, Vector4 colour, Vector4 top, Vector4 side, Vector4 bottom)
-        {
-            if (!TryGet(id, out Builder mesh)) return 0;
-            float h = size * 0.5f;
-            int added = 0;
-            void Face(int bit, Vector3 normal, Vector3 up, Vector3 right)
-            {
-                if ((faces & bit) == 0) return;
-                Vector4 uv = bit == PositiveY ? top : bit == NegativeY ? bottom : side;
-                if (mesh.Vertices.Count + 4 > MaxVertices) { mesh.Overflowed = true; return; }
-                Vector3 c = centre + normal * h;
-                ushort start = (ushort)mesh.Vertices.Count;
-                mesh.Vertices.Add(new MeshVertex { Position = c - right + up, Normal = normal, Color = colour, UV = new Vector2(uv.X, uv.Y) });
-                mesh.Vertices.Add(new MeshVertex { Position = c + right + up, Normal = normal, Color = colour, UV = new Vector2(uv.Z, uv.Y) });
-                mesh.Vertices.Add(new MeshVertex { Position = c + right - up, Normal = normal, Color = colour, UV = new Vector2(uv.Z, uv.W) });
-                mesh.Vertices.Add(new MeshVertex { Position = c - right - up, Normal = normal, Color = colour, UV = new Vector2(uv.X, uv.W) });
-                mesh.Indices.Add(start); mesh.Indices.Add((ushort)(start + 1)); mesh.Indices.Add((ushort)(start + 2));
-                mesh.Indices.Add(start); mesh.Indices.Add((ushort)(start + 2)); mesh.Indices.Add((ushort)(start + 3));
-                added++;
-            }
-            // The same face layout as the engine's own cube (MeshGeometry.BuildCube).
-            Face(PositiveY, Vector3.UnitY, new Vector3(0, 0, h), new Vector3(h, 0, 0));
-            Face(NegativeY, -Vector3.UnitY, new Vector3(0, 0, -h), new Vector3(h, 0, 0));
-            Face(PositiveX, Vector3.UnitX, new Vector3(0, h, 0), new Vector3(0, 0, h));
-            Face(NegativeX, -Vector3.UnitX, new Vector3(0, h, 0), new Vector3(0, 0, -h));
-            Face(PositiveZ, Vector3.UnitZ, new Vector3(0, h, 0), new Vector3(-h, 0, 0));
-            Face(NegativeZ, -Vector3.UnitZ, new Vector3(0, h, 0), new Vector3(h, 0, 0));
-            if (added > 0) mesh.Dirty = true;
-            return added;
-        }
+        public static int AddCube(int id, Vector3 centre, float size, int faces, Vector4 colour, Vector4 top, Vector4 side, Vector4 bottom) =>
+            BuffersToChange(id)?.AddCube(centre, size, faces, colour, top, side, bottom) ?? 0;
 
         /// <summary>
         /// A four-cornered face in one call: corners in order around it, turning the way
@@ -217,63 +191,42 @@ namespace Genesis.Runtime.Rendering
         /// corner colours blend evenly whichever way they differ.
         /// </summary>
         public static int AddQuad(int id, Vector3 p0, Vector3 p1, Vector3 p2, Vector3 p3, Vector3 normal, Vector4 uv,
-            Vector4 c0, Vector4 c1, Vector4 c2, Vector4 c3, bool flip)
-        {
-            if (!TryGet(id, out Builder mesh)) return -1;
-            if (mesh.Vertices.Count + 4 > MaxVertices) { mesh.Overflowed = true; return -1; }
-            Vector3 n = normal.LengthSquared() > 1e-12f ? Vector3.Normalize(normal) : Vector3.UnitY;
-            int start = mesh.Vertices.Count;
-            mesh.Vertices.Add(new MeshVertex { Position = p0, Normal = n, Color = c0, UV = new Vector2(uv.X, uv.Y) });
-            mesh.Vertices.Add(new MeshVertex { Position = p1, Normal = n, Color = c1, UV = new Vector2(uv.Z, uv.Y) });
-            mesh.Vertices.Add(new MeshVertex { Position = p2, Normal = n, Color = c2, UV = new Vector2(uv.Z, uv.W) });
-            mesh.Vertices.Add(new MeshVertex { Position = p3, Normal = n, Color = c3, UV = new Vector2(uv.X, uv.W) });
-            ushort a = (ushort)start, b = (ushort)(start + 1), c = (ushort)(start + 2), d = (ushort)(start + 3);
-            if (flip)
-            {
-                mesh.Indices.Add(b); mesh.Indices.Add(c); mesh.Indices.Add(d);
-                mesh.Indices.Add(b); mesh.Indices.Add(d); mesh.Indices.Add(a);
-            }
-            else
-            {
-                mesh.Indices.Add(a); mesh.Indices.Add(b); mesh.Indices.Add(c);
-                mesh.Indices.Add(a); mesh.Indices.Add(c); mesh.Indices.Add(d);
-            }
-            mesh.Dirty = true;
-            return start;
-        }
+            Vector4 c0, Vector4 c1, Vector4 c2, Vector4 c3, bool flip) =>
+            BuffersToChange(id)?.AddQuad(p0, p1, p2, p3, normal, uv, c0, c1, c2, c3, flip) ?? -1;
 
-        public static int VertexCount(int id) => TryGet(id, out Builder mesh) ? mesh.Vertices.Count : 0;
+        public static int VertexCount(int id) => TryGet(id, out Builder mesh) ? mesh.Buffers.VertexCount : 0;
 
-        public static int TriangleCount(int id) => TryGet(id, out Builder mesh) ? mesh.Indices.Count / 3 : 0;
+        public static int TriangleCount(int id) => TryGet(id, out Builder mesh) ? mesh.Buffers.IndexCount / 3 : 0;
 
-        public static bool Overflowed(int id) => TryGet(id, out Builder mesh) && mesh.Overflowed;
+        public static bool Overflowed(int id) => TryGet(id, out Builder mesh) && mesh.Buffers.Overflowed;
 
         /// <summary>A copy of the mesh's vertices and indices, for checks.</summary>
         internal static bool TryGetVertices(int id, out MeshVertex[] vertices, out ushort[] indices)
         {
-            vertices = Array.Empty<MeshVertex>();
-            indices = Array.Empty<ushort>();
+            vertices = [];
+            indices = [];
             if (!TryGet(id, out Builder mesh)) return false;
-            vertices = mesh.Vertices.ToArray();
-            indices = mesh.Indices.ToArray();
+            vertices = mesh.Buffers.VertexSpan.ToArray();
+            indices = mesh.Buffers.IndexSpan.ToArray();
             return true;
         }
 
         /// <summary>The mesh's triangles for a collider (positions and indices).</summary>
         public static bool TryGetGeometry(int id, out Vector3[] positions, out int[] indices)
         {
-            positions = Array.Empty<Vector3>();
-            indices = Array.Empty<int>();
-            if (!TryGet(id, out Builder mesh) || mesh.Indices.Count < 3) return false;
-            positions = new Vector3[mesh.Vertices.Count];
-            for (int i = 0; i < positions.Length; i++) positions[i] = mesh.Vertices[i].Position;
-            indices = new int[mesh.Indices.Count];
+            positions = [];
+            indices = [];
+            if (!TryGet(id, out Builder mesh) || mesh.Buffers.IndexCount < 3) return false;
+            MeshBuffers buffers = mesh.Buffers;
+            positions = new Vector3[buffers.VertexCount];
+            for (int i = 0; i < positions.Length; i++) positions[i] = buffers.Vertices[i].Position;
+            indices = new int[buffers.IndexCount];
             // Render triangles turn one way, physics wants the other (as ModelColliderBinding).
             for (int i = 0; i + 2 < indices.Length; i += 3)
             {
-                indices[i] = mesh.Indices[i];
-                indices[i + 1] = mesh.Indices[i + 2];
-                indices[i + 2] = mesh.Indices[i + 1];
+                indices[i] = buffers.Indices[i];
+                indices[i + 1] = buffers.Indices[i + 2];
+                indices[i + 2] = buffers.Indices[i + 1];
             }
             return true;
         }
@@ -299,7 +252,7 @@ namespace Genesis.Runtime.Rendering
 
         /// <summary>Whether a mesh's current build is on the GPU (false while it waits for its turn).</summary>
         public static bool IsUploaded(int id) =>
-            TryGet(id, out Builder mesh) && !mesh.Dirty && (mesh.Handle.IsValid || mesh.Indices.Count < 3);
+            TryGet(id, out Builder mesh) && !mesh.Dirty && (mesh.Handle.IsValid || mesh.Buffers.IndexCount < 3);
 
         /// <summary>The renderer's mesh for a script mesh, uploaded again if it changed since (within the frame's budget).</summary>
         public static MeshHandle Resolve(int id, IRenderController renderer)
@@ -316,10 +269,8 @@ namespace Genesis.Runtime.Rendering
             mesh.Handle = MeshHandle.Invalid;
             mesh.Owner = renderer;
             mesh.Dirty = false;
-            if (mesh.Indices.Count >= 3)
-                mesh.Handle = renderer.RegisterMesh(
-                    System.Runtime.InteropServices.CollectionsMarshal.AsSpan(mesh.Vertices),
-                    System.Runtime.InteropServices.CollectionsMarshal.AsSpan(mesh.Indices));
+            if (mesh.Buffers.IndexCount >= 3)
+                mesh.Handle = renderer.RegisterMesh(mesh.Buffers.VertexSpan, mesh.Buffers.IndexSpan);
             _frameUploadTicks += System.Diagnostics.Stopwatch.GetTimestamp() - started;
             _frameUploads++;
             return mesh.Handle;

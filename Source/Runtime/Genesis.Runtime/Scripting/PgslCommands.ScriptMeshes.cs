@@ -16,23 +16,41 @@ public static partial class PgslCommands
     public static double MeshCreate() => ScriptMeshes.Create();
 
     [PgslCommand("MeshClear", "MeshClear(mesh)", "Empty a mesh to build it again", "Meshes")]
-    public static void MeshClear(double mesh) => ScriptMeshes.Clear((int)mesh);
+    public static void MeshClear(double mesh) => MeshTarget(mesh)?.Clear();
 
     [PgslCommand("MeshDestroy", "MeshDestroy(mesh)", "Free a mesh", "Meshes")]
     public static void MeshDestroy(double mesh) => ScriptMeshes.Destroy((int)mesh);
+
+    // What a build command adds to: in a worker job, the job's own build of a mesh lent to it
+    // (JobScriptMesh), handed over finished at JobTake; on the game's thread, the game's mesh.
+    private static MeshBuffers MeshTarget(double mesh)
+    {
+        System.Collections.Generic.Dictionary<int, MeshBuffers> lent = GetContext()?.JobMeshes;
+        if (lent is null) return ScriptMeshes.BuffersToChange((int)mesh);
+        if (lent.TryGetValue((int)mesh, out MeshBuffers own)) return own;
+        throw new PgslWorkerJobException($"Mesh {StringOf(mesh)} was not given to this job: JobScriptMesh lends a mesh to a job before JobScriptStart.");
+    }
+
+    // A mesh's counts, read without marking it changed.
+    private static MeshBuffers MeshToRead(double mesh)
+    {
+        System.Collections.Generic.Dictionary<int, MeshBuffers> lent = GetContext()?.JobMeshes;
+        if (lent is null) return null;
+        return lent.TryGetValue((int)mesh, out MeshBuffers own) ? own : null;
+    }
 
     [PgslCommand("MeshAddVertex", "MeshAddVertex(mesh, x, y, z, nx, ny, nz, u, v, r, g, b, a) -> index",
         "Add a vertex (position, normal, texture coordinate, colour 0-255 and alpha 0-1); -1 when the mesh is full (65535)", "Meshes")]
     public static double MeshAddVertex(double mesh, double x, double y, double z, double nx, double ny, double nz,
         double u, double v, double r, double g, double b, double a) =>
         Finite3(x, y, z) && Finite3(nx, ny, nz) && double.IsFinite(u) && double.IsFinite(v)
-            ? ScriptMeshes.AddVertex((int)mesh, new Vector3((float)x, (float)y, (float)z), new Vector3((float)nx, (float)ny, (float)nz),
-                new Vector2((float)u, (float)v), Colour(r, g, b, a))
+            ? MeshTarget(mesh)?.AddVertex(new Vector3((float)x, (float)y, (float)z), new Vector3((float)nx, (float)ny, (float)nz),
+                new Vector2((float)u, (float)v), Colour(r, g, b, a)) ?? -1
             : -1;
 
     [PgslCommand("MeshAddTriangle", "MeshAddTriangle(mesh, a, b, c) -> bool", "Add a triangle of three vertex indices (counter-clockwise from its front)", "Meshes")]
     public static bool MeshAddTriangle(double mesh, double a, double b, double c) =>
-        ScriptMeshes.AddTriangle((int)mesh, (int)a, (int)b, (int)c);
+        MeshTarget(mesh)?.AddTriangle((int)a, (int)b, (int)c) ?? false;
 
     [PgslCommand("MeshAddCube", "MeshAddCube(mesh, x, y, z, size, faces, r, g, b, u0, v0, u1, v1) -> faces added",
         "Add a cube's faces centred on x, y, z: faces is a sum of 1 +X, 2 -X, 4 +Y, 8 -Y, 16 +Z, 32 -Z (63 all; a voxel adds only faces touching air); u0, v0 to u1, v1 is its tile of the texture atlas",
@@ -42,8 +60,8 @@ public static partial class PgslCommands
     {
         if (!Finite3(x, y, z) || !(size > 0) || !double.IsFinite(size)) return 0;
         Vector4 uv = Tile(u0, v0, u1, v1);
-        return ScriptMeshes.AddCube((int)mesh, new Vector3((float)x, (float)y, (float)z), (float)size,
-            (int)faces & ScriptMeshes.AllFaces, Colour(r, g, b, 1), uv);
+        return MeshTarget(mesh)?.AddCube(new Vector3((float)x, (float)y, (float)z), (float)size,
+            (int)faces & ScriptMeshes.AllFaces, Colour(r, g, b, 1), uv, uv, uv) ?? 0;
     }
 
     [PgslCommand("MeshAddCubeTiles", "MeshAddCubeTiles(mesh, x, y, z, size, faces, r, g, b, topU0, topV0, topU1, topV1, sideU0, sideV0, sideU1, sideV1, bottomU0, bottomV0, bottomU1, bottomV1) -> faces added",
@@ -56,9 +74,9 @@ public static partial class PgslCommands
         double bottomU0, double bottomV0, double bottomU1, double bottomV1)
     {
         if (!Finite3(x, y, z) || !(size > 0) || !double.IsFinite(size)) return 0;
-        return ScriptMeshes.AddCube((int)mesh, new Vector3((float)x, (float)y, (float)z), (float)size,
+        return MeshTarget(mesh)?.AddCube(new Vector3((float)x, (float)y, (float)z), (float)size,
             (int)faces & ScriptMeshes.AllFaces, Colour(r, g, b, 1),
-            Tile(topU0, topV0, topU1, topV1), Tile(sideU0, sideV0, sideU1, sideV1), Tile(bottomU0, bottomV0, bottomU1, bottomV1));
+            Tile(topU0, topV0, topU1, topV1), Tile(sideU0, sideV0, sideU1, sideV1), Tile(bottomU0, bottomV0, bottomU1, bottomV1)) ?? 0;
     }
 
     [PgslCommand("MeshAddQuad", "MeshAddQuad(mesh, x0, y0, z0, x1, y1, z1, x2, y2, z2, x3, y3, z3, nx, ny, nz, u0, v0, u1, v1, r, g, b, a) -> index",
@@ -72,10 +90,11 @@ public static partial class PgslCommands
     {
         if (!Finite3(x0, y0, z0) || !Finite3(x1, y1, z1) || !Finite3(x2, y2, z2) || !Finite3(x3, y3, z3) || !Finite3(nx, ny, nz))
             return -1;
-        return ScriptMeshes.AddQuad((int)mesh,
+        Vector4 colour = Colour(r, g, b, a);
+        return MeshTarget(mesh)?.AddQuad(
             new Vector3((float)x0, (float)y0, (float)z0), new Vector3((float)x1, (float)y1, (float)z1),
             new Vector3((float)x2, (float)y2, (float)z2), new Vector3((float)x3, (float)y3, (float)z3),
-            new Vector3((float)nx, (float)ny, (float)nz), Tile(u0, v0, u1, v1), Colour(r, g, b, a));
+            new Vector3((float)nx, (float)ny, (float)nz), Tile(u0, v0, u1, v1), colour, colour, colour, colour, flip: false) ?? -1;
     }
 
     [PgslCommand("MeshAddQuadColors", "MeshAddQuadColors(mesh, x0, y0, z0, x1, y1, z1, x2, y2, z2, x3, y3, z3, nx, ny, nz, u0, v0, u1, v1, r0, g0, b0, a0, r1, g1, b1, a1, r2, g2, b2, a2, r3, g3, b3, a3, flip) -> index",
@@ -88,16 +107,24 @@ public static partial class PgslCommands
         double r0, double g0, double b0, double a0, double r1, double g1, double b1, double a1,
         double r2, double g2, double b2, double a2, double r3, double g3, double b3, double a3, double flip)
     {
-        if (!Finite3(x0, y0, z0) || !Finite3(x1, y1, z1) || !Finite3(x2, y2, z2) || !Finite3(x3, y3, z3) || !Finite3(nx, ny, nz))
-            return -1;
-        return ScriptMeshes.AddQuad((int)mesh,
-            new Vector3((float)x0, (float)y0, (float)z0), new Vector3((float)x1, (float)y1, (float)z1),
-            new Vector3((float)x2, (float)y2, (float)z2), new Vector3((float)x3, (float)y3, (float)z3),
-            new Vector3((float)nx, (float)ny, (float)nz), Tile(u0, v0, u1, v1),
-            Colour(r0, g0, b0, a0), Colour(r1, g1, b1, a1), Colour(r2, g2, b2, a2), Colour(r3, g3, b3, a3),
-            flip: double.IsFinite(flip) && flip >= 0.5);
+        MeshBuffers target = MeshTarget(mesh);
+        if (target is null) return -1;
+        ReadOnlySpan<double> q = [x0, y0, z0, x1, y1, z1, x2, y2, z2, x3, y3, z3, nx, ny, nz, u0, v0, u1, v1,
+            r0, g0, b0, a0, r1, g1, b1, a1, r2, g2, b2, a2, r3, g3, b3, a3, flip];
+        return AddQuadNumbers(target, q);
     }
 
+    /// <summary>One quad from MeshAddQuadColors' 36 numbers; -1 when not added (not numbers, or the mesh is full).</summary>
+    private static int AddQuadNumbers(MeshBuffers target, ReadOnlySpan<double> q)
+    {
+        for (int k = 0; k < 15; k++) if (!double.IsFinite(q[k])) return -1;
+        return target.AddQuad(
+            new Vector3((float)q[0], (float)q[1], (float)q[2]), new Vector3((float)q[3], (float)q[4], (float)q[5]),
+            new Vector3((float)q[6], (float)q[7], (float)q[8]), new Vector3((float)q[9], (float)q[10], (float)q[11]),
+            new Vector3((float)q[12], (float)q[13], (float)q[14]), Tile(q[15], q[16], q[17], q[18]),
+            Colour(q[19], q[20], q[21], q[22]), Colour(q[23], q[24], q[25], q[26]), Colour(q[27], q[28], q[29], q[30]), Colour(q[31], q[32], q[33], q[34]),
+            flip: double.IsFinite(q[35]) && q[35] >= 0.5);
+    }
     [PgslCommand("MeshSetUploadBudget", "MeshSetUploadBudget(milliseconds)",
         "How long a frame may spend sending new or changed meshes to the GPU (default 4; 0 = no limit). The rest go on later frames: a changed mesh draws its previous build meanwhile",
         "Meshes")]
@@ -108,10 +135,10 @@ public static partial class PgslCommands
     public static bool MeshIsUploaded(double mesh) => ScriptMeshes.IsUploaded((int)mesh);
 
     [PgslCommand("MeshVertexCount", "MeshVertexCount(mesh) -> number", "Vertices in a mesh", "Meshes")]
-    public static double MeshVertexCount(double mesh) => ScriptMeshes.VertexCount((int)mesh);
+    public static double MeshVertexCount(double mesh) => MeshToRead(mesh)?.VertexCount ?? ScriptMeshes.VertexCount((int)mesh);
 
     [PgslCommand("MeshTriangleCount", "MeshTriangleCount(mesh) -> number", "Triangles in a mesh", "Meshes")]
-    public static double MeshTriangleCount(double mesh) => ScriptMeshes.TriangleCount((int)mesh);
+    public static double MeshTriangleCount(double mesh) => MeshToRead(mesh) is { } own ? own.IndexCount / 3 : ScriptMeshes.TriangleCount((int)mesh);
 
     [PgslCommand("DrawMesh3D", "DrawMesh3D(mesh, x, y, z, image)",
         "Draw a script's mesh in a Draw event of a 3D room at a position, textured by an Image (empty for none)", "Meshes")]

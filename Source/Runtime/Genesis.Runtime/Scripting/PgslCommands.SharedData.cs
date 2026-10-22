@@ -101,6 +101,7 @@ public static partial class PgslCommands
         List<object> => "lists",
         PgslMap => "maps",
         PgslPriority => "priority queues",
+        PgslNumberList => "number lists",
         _ => "other",
     };
 
@@ -110,6 +111,7 @@ public static partial class PgslCommands
         PgslGrid grid => (long)grid.Width * grid.Height * CellBytes(grid.Kind),
         List<object> list => (long)list.Capacity * 8,
         PgslMap map => (long)map.Values.Count * 48,
+        PgslNumberList numbers => (long)numbers.Items.Length * 8,
         _ => 0,
     };
 
@@ -123,6 +125,7 @@ public static partial class PgslCommands
         List<object> list => CopyList(list),
         PgslMap map => map.Copy(),
         PgslPriority priority => priority.Clone(),
+        PgslNumberList numbers => numbers.Clone(),
         _ => value,
     };
 
@@ -134,7 +137,7 @@ public static partial class PgslCommands
     {
         if (value is not SharedData shared)
         {
-            if (value is not (PgslGrid or List<object> or PgslMap or PgslPriority)) return null;
+            if (value is not (PgslGrid or List<object> or PgslMap or PgslPriority or PgslNumberList)) return null;
             shared = new SharedData(value);
             store[key] = shared;
         }

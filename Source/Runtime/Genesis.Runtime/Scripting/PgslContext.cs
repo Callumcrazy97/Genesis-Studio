@@ -90,6 +90,8 @@ namespace Genesis.Shared.Scripting
         public double TextTracking { get; set; }
         /// <summary>Where later text sits on its x: 0 starts there, 1 is centred on it, 2 ends there.</summary>
         public int TextAlign { get; set; }
+        /// <summary>In a worker job: the meshes lent to it (JobScriptMesh), each the job's own build; null elsewhere.</summary>
+        public Dictionary<int, Genesis.Runtime.Rendering.MeshBuffers> JobMeshes;
         /// <summary>Pixels added to every later GUI draw's position (DrawSetOffset), until changed.</summary>
         public double DrawOffsetX { get; set; }
         public double DrawOffsetY { get; set; }
