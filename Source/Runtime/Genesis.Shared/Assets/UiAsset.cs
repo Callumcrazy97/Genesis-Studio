@@ -18,6 +18,18 @@ public enum UiElementType
     Slider,
     /// <summary>An on/off switch: Value is 0 or 1 and flips when the player clicks it.</summary>
     Toggle,
+    /// <summary>A box the player types into once it has focus (a click, or the controller); UiGetText reads it.</summary>
+    TextInput,
+    /// <summary>A box whose children are stacked and scroll inside it, by the wheel, a drag or the controller.</summary>
+    ScrollList,
+}
+
+/// <summary>How a Panel or Scroll List places its children: where each says (None), or one after another.</summary>
+public enum UiLayoutMode
+{
+    None,
+    Vertical,
+    Horizontal,
 }
 
 /// <summary>How a box is filled: one colour, or Background shading into GradientEnd.</summary>
@@ -99,12 +111,19 @@ public readonly record struct UiLook(Color Background, Color GradientEnd, Color 
     /// The colours for a state ("hover", "pressed", "selected", "disabled", or empty for normal).
     /// A state without a look of its own changes nothing, except disabled, which fades to half.
     /// </summary>
-    public static UiLook Resolve(UiElement element, string state)
+    public static UiLook Resolve(UiElement element, string state, UiNamedStyle named = null)
     {
         Color background = ParseColor(element.Background, Color.FromArgb(204, 22, 27, 34));
         Color gradientEnd = ParseColor(element.GradientEnd, background);
         Color foreground = ParseColor(element.Foreground, Color.White);
         Color accent = ParseColor(element.Accent, Color.FromArgb(108, 140, 255));
+        if (named is not null)
+        {
+            background = ParseColor(named.Background, background);
+            gradientEnd = ParseColor(named.GradientEnd, string.IsNullOrWhiteSpace(named.Background) ? gradientEnd : background);
+            foreground = ParseColor(named.Foreground, foreground);
+            accent = ParseColor(named.Accent, accent);
+        }
         UiStateStyle style = string.IsNullOrEmpty(state) ? null : element.StateStyle(state);
         if (style is not null)
         {
@@ -114,6 +133,7 @@ public readonly record struct UiLook(Color Background, Color GradientEnd, Color 
             accent = ParseColor(style.Accent, accent);
         }
         Color border = ParseColor(element.BorderColor, element.Type == UiElementType.ProgressBar ? foreground : accent);
+        if (named is not null) border = ParseColor(named.BorderColor, border);
         if (style is not null) border = ParseColor(style.BorderColor, border);
         if (string.Equals(state, "disabled", StringComparison.OrdinalIgnoreCase) && (style is null || style.IsEmpty))
         {
@@ -186,6 +206,9 @@ public sealed class UiAssetDocument
     public int DesignWidth { get; set; } = 1280;
     public int DesignHeight { get; set; } = 720;
     public List<UiElement> Elements { get; set; } = new();
+    /// <summary>Named styles (the UI's theme), by name; UiSetTheme swaps them for another UI's at run time.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, UiNamedStyle> Styles { get; set; }
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -239,7 +262,9 @@ public sealed class UiAssetDocument
                 || !float.IsFinite(element.LetterSpacing) || element.BorderWidth is float border && (!float.IsFinite(border) || border < 0)
                 || !float.IsFinite(element.CropX) || !float.IsFinite(element.CropY) || !float.IsFinite(element.CropWidth) || !float.IsFinite(element.CropHeight)
                 || element.Step < 0 || element.CornerRadius < 0 || element.CropWidth <= 0 || element.CropHeight <= 0
-                || element.Type == UiElementType.Slider && element.Minimum >= element.Maximum)
+                || element.Type == UiElementType.Slider && element.Minimum >= element.Maximum
+                || !Enum.IsDefined(element.Layout) || !float.IsFinite(element.Spacing) || !float.IsFinite(element.Padding)
+                || element.Spacing < 0 || element.Padding < 0 || element.MaxLength < 0)
                 throw new InvalidDataException($"UI element '{element.Id}' contains invalid style values.");
         }
         foreach (UiElement element in Elements)
@@ -326,9 +351,20 @@ public sealed class UiElement
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public UiStateStyle Disabled { get; set; }
 
+    /// <summary>For a Panel or Scroll List: its children one after another (their X and Y are ignored).</summary>
+    public UiLayoutMode Layout { get; set; } = UiLayoutMode.None;
+    /// <summary>Design pixels between children a layout places, and inside its edges.</summary>
+    public float Spacing { get; set; }
+    public float Padding { get; set; }
+    /// <summary>A named style of the UI (its theme): its colours, corners and font win over the element's own.</summary>
+    public string Style { get; set; } = string.Empty;
+    /// <summary>A Text Input's grey hint while it is empty, and how many characters it takes (0: any number).</summary>
+    public string Placeholder { get; set; } = string.Empty;
+    public int MaxLength { get; set; }
+
     /// <summary>True for the element types the pointer can hover, press and change.</summary>
     [JsonIgnore]
-    public bool IsInteractive => Type is UiElementType.Button or UiElementType.Slider or UiElementType.Toggle;
+    public bool IsInteractive => Type is UiElementType.Button or UiElementType.Slider or UiElementType.Toggle or UiElementType.TextInput;
 
     /// <summary>The style for a state name (Hover, Pressed, Selected, Disabled); null when it has none.</summary>
     public UiStateStyle StateStyle(string state) => state?.Trim().ToLowerInvariant() switch
@@ -367,4 +403,19 @@ public sealed class UiElement
     }
 
     public static readonly string[] StateNames = ["Hover", "Pressed", "Selected", "Disabled"];
+}
+
+/// <summary>A named style of a UI: what elements that name it take in place of their own colours, corners and font.</summary>
+public sealed class UiNamedStyle
+{
+    public string Background { get; set; } = string.Empty;
+    public string GradientEnd { get; set; } = string.Empty;
+    public string Foreground { get; set; } = string.Empty;
+    public string Accent { get; set; } = string.Empty;
+    public string BorderColor { get; set; } = string.Empty;
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public float? CornerRadius { get; set; }
+    public string Font { get; set; } = string.Empty;
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public float? FontSize { get; set; }
 }

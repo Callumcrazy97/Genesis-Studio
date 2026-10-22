@@ -252,6 +252,36 @@ animation's time. A script that follows its own route reads
 `NavMeshRemoveLink(id)` takes a link away. Like costs, links are not saved with the grid. In a 2D
 room, x and y are the point and z is not used.
 
+## User Interface toolkit: lists, focus, typing and themes (22 October 2026)
+
+A User Interface resource has two more element types, and `DrawUi`/`UiUpdate` handle them:
+
+- **Scroll List**: a box whose children are stacked one after another and scroll inside it. The
+  mouse wheel scrolls the list under the pointer, moving the focus scrolls it to keep the focused
+  child in view, and `UiScrollTo(ui, list, offset)` and `UiGetScroll` set and read it. What is
+  outside the list is clipped, and the pointer cannot reach it there.
+- **Text Input**: a box the player types into once it has the focus, given by a click or by the
+  keys or controller. Backspace deletes, `MaxLength` limits the length, and `Placeholder` shows
+  a grey hint while it is empty. `UiGetText(ui, box)` reads it, `UiValueChanged` reports typing,
+  and `UiSubmitted(ui, box)` reports Enter once. Its letters are not shortcuts while it is typed
+  into.
+
+**Layout**: a Panel or Scroll List with `Layout` Vertical or Horizontal places its children one
+after another, in their `Order`, with `Spacing` between them and `Padding` inside its edges.
+The children's own X and Y are ignored, and a child anchored Stretch fills the width (or the
+height). Hidden children keep their place.
+
+**Keys and controllers**: the arrow keys, any controller's d-pad and its left stick move the focus
+to the nearest button, slider, toggle or text box that way, and the focus takes its Selected look.
+Enter, Space or A press the focused element. Left and right move a focused slider by its `Step`
+(5% of its range without one). A click moves the focus too. `UiGetFocused(ui)` reads it, and
+`UiSetFocus(ui, id)` sets it, for example to open a menu with its first button ready.
+
+**Themes**: the resource can hold named `Styles` (background, gradient, text and accent colours,
+border colour, corners, font and size). An element whose `Style` names one takes those values in
+place of its own. `UiSetTheme(ui, otherUi)` draws a UI on this instance with another UI
+resource's styles, such as a light or dark theme or a team's colours, and `UiSetTheme(ui, "")`
+goes back to its own.
 ## Animation Controllers (22 October 2026)
 
 An **Animation Controller** resource (`Animators` folder, `.animator.json`) holds how a

@@ -110,7 +110,9 @@ public static partial class PgslCommands
         {
             if (!element.IsInteractive || !IsUiElementVisible(context, asset, element, layout.Elements)) continue;
             if (!layout.Rectangles.TryGetValue(element.Id, out RectangleF design)) continue;
-            if (!ScaleUiRect(design, scaleX, scaleY).Contains(x, y)) continue;
+            if (!ScaleUiRect(UiScrolledRect(context, asset, layout, element, design), scaleX, scaleY).Contains(x, y)) continue;
+            // Inside a Scroll List, only where the list shows it.
+            if (UiClipRect(context, asset, layout, element) is RectangleF seen && !ScaleUiRect(seen, scaleX, scaleY).Contains(x, y)) continue;
             if (IsUiElementEnabled(context, asset, element)) hovered = element.Id;
             break;
         }
@@ -120,12 +122,14 @@ public static partial class PgslCommands
         string pressed = previous.Pressed;
         if (down && !wasDown) pressed = hovered;
 
+        ScrollUiWithWheel(context, asset, layout, x, y, scaleX, scaleY, input.WheelDelta);
+        string clickedNow = down && !wasDown ? hovered : string.Empty;
         if (pressed.Length > 0 && layout.Elements.TryGetValue(pressed, out UiElement active)
             && layout.Rectangles.TryGetValue(active.Id, out RectangleF activeDesign))
         {
             if (down && active.Type == UiElementType.Slider)
             {
-                RectangleF rect = ScaleUiRect(activeDesign, scaleX, scaleY);
+                RectangleF rect = ScaleUiRect(UiScrolledRect(context, asset, layout, active, activeDesign), scaleX, scaleY);
                 float knob = rect.Height * 0.5f;
                 float travel = MathF.Max(1f, rect.Width - (knob * 2));
                 SetUiValueFromPlayer(context, asset, active, SliderValueAt(active, (x - rect.X - knob) / travel));
@@ -146,6 +150,20 @@ public static partial class PgslCommands
         context.Variables[UiPointerKey(asset, "down")] = down;
         context.Variables[UiPointerKey(asset, "hovered")] = hovered;
         context.Variables[UiPointerKey(asset, "pressed")] = pressed;
+        // Once a frame: the pointer state above is kept per frame, so the keys are read once too.
+        if (!down || !wasDown || clickedNow.Length > 0)
+            UpdateUiNavigationOncePerFrame(context, asset, layout, input, clickedNow);
+    }
+
+    // UiUpdate and DrawUi may both run in one frame: the keys are acted on once.
+    private static void UpdateUiNavigationOncePerFrame(PgslContext context, string asset, UiLayoutCache layout, InputState input, string clicked)
+    {
+        string key = UiPointerKey(asset, "navigated");
+        long frame = ActiveGameContext?.FrameCount ?? -1;
+        // (A context that counts no frames, 0, acts on every call.)
+        if (frame > 0 && context.Variables.TryGetValue(key, out object last) && last is long done && done == frame) return;
+        context.Variables[key] = frame;
+        UpdateUiNavigation(context, asset, layout, input, clicked);
     }
 
     /// <summary>A slider's value at a fraction of its travel, snapped to its step.</summary>
@@ -171,6 +189,8 @@ public static partial class PgslCommands
         if (element.IsInteractive && pointer.Pressed.Equals(element.Id, StringComparison.OrdinalIgnoreCase)
             && (element.Type == UiElementType.Slider || pointer.Hovered.Equals(element.Id, StringComparison.OrdinalIgnoreCase))) return "pressed";
         if (element.IsInteractive && pointer.Hovered.Equals(element.Id, StringComparison.OrdinalIgnoreCase)) return "hover";
+        // The focus (moved by the keyboard or a controller) looks selected.
+        if (element.IsInteractive && UiFocus(context, asset).Equals(element.Id, StringComparison.OrdinalIgnoreCase)) return "selected";
         return UiFlag(context, asset, element, "selected", false) ? "selected" : string.Empty;
     }
 
@@ -182,20 +202,37 @@ public static partial class PgslCommands
     #region Drawing
 
     private static void DrawUiElement(IPgslDrawSurface surface, PgslContext context, string asset, UiElement element,
-        RectangleF rect, float scale, string state)
+        RectangleF rect, float scale, string state, UiNamedStyle named = null)
     {
-        (Color background, Color gradientEnd, Color foreground, Color accent, Color border) = UiLook.Resolve(element, state);
-        float radius = MathF.Max(0, element.CornerRadius * scale);
+        (Color background, Color gradientEnd, Color foreground, Color accent, Color border) = UiLook.Resolve(element, state, named);
+        float radius = MathF.Max(0, (named?.CornerRadius ?? element.CornerRadius) * scale);
         string text = TextOverride(context, asset, element);
+        string font = string.IsNullOrWhiteSpace(named?.Font) ? null : named.Font;
+        float? fontSize = named?.FontSize;
 
         switch (element.Type)
         {
             case UiElementType.Panel:
+            case UiElementType.ScrollList:
                 FillUiBox(surface, rect, radius, background, gradientEnd, element.Fill);
                 DrawUiBorder(surface, element, rect, radius, scale, border, legacyOutline: false);
                 break;
+            case UiElementType.TextInput:
+            {
+                FillUiBox(surface, rect, radius, background, gradientEnd, element.Fill);
+                DrawUiBorder(surface, element, rect, radius, scale, border, legacyOutline: true);
+                bool focused = UiFocus(context, asset).Equals(element.Id, StringComparison.OrdinalIgnoreCase);
+                // The text, or the grey hint while it is empty, then a caret that blinks while it has the focus.
+                string shown = text.Length > 0 ? text : element.Placeholder;
+                Color ink = text.Length > 0 ? foreground : Color.FromArgb(foreground.A / 2, foreground);
+                if (focused && (Environment.TickCount64 / 500) % 2 == 0) shown = text + "|";
+                float inset = 8f * scale;
+                DrawUiElementText(surface, element, shown, new RectangleF(rect.X + inset, rect.Y, MathF.Max(1, rect.Width - (inset * 2)), rect.Height),
+                    scale, ink, centredByDefault: false, font, fontSize);
+                break;
+            }
             case UiElementType.Text:
-                DrawUiElementText(surface, element, text, rect, scale, foreground, centredByDefault: false);
+                DrawUiElementText(surface, element, text, rect, scale, foreground, centredByDefault: false, font, fontSize);
                 break;
             case UiElementType.Image:
                 DrawUiImage(surface, element, rect, foreground.A / 255f);
@@ -203,7 +240,7 @@ public static partial class PgslCommands
             case UiElementType.Button:
                 FillUiBox(surface, rect, radius, background, gradientEnd, element.Fill);
                 DrawUiBorder(surface, element, rect, radius, scale, border, legacyOutline: true);
-                DrawUiElementText(surface, element, text, rect, scale, foreground, centredByDefault: true);
+                DrawUiElementText(surface, element, text, rect, scale, foreground, centredByDefault: true, font, fontSize);
                 break;
             case UiElementType.ProgressBar:
             {
@@ -251,7 +288,7 @@ public static partial class PgslCommands
                 float gap = 10f * scale;
                 RectangleF label = new(track.Right + gap, rect.Y, MathF.Max(1, rect.Width - switchWidth - gap), rect.Height);
                 if (!string.IsNullOrEmpty(text) && label.Width > 1)
-                    DrawUiElementText(surface, element, text, label, scale, foreground, centredByDefault: false);
+                    DrawUiElementText(surface, element, text, label, scale, foreground, centredByDefault: false, font, fontSize);
                 break;
             }
         }
@@ -327,19 +364,20 @@ public static partial class PgslCommands
     /// on the left, buttons centred, both in the middle); otherwise it is measured and placed.
     /// </summary>
     private static void DrawUiElementText(IPgslDrawSurface surface, UiElement element, string text, RectangleF rect, float scale,
-        Color colour, bool centredByDefault)
+        Color colour, bool centredByDefault, string fontOverride = null, float? sizeOverride = null)
     {
         if (string.IsNullOrEmpty(text) || colour.A == 0) return;
-        float size = MathF.Max(1, element.FontSize * scale);
+        float size = MathF.Max(1, (sizeOverride ?? element.FontSize) * scale);
+        string fontName = fontOverride ?? element.Font;
         if (element.TextAlign == UiHorizontalAlign.Auto && element.TextVerticalAlign == UiVerticalAlign.Auto && element.LetterSpacing == 0)
         {
-            surface.DrawUiText(text, element.Font, size, colour, Rectangle.Round(rect), centredByDefault);
+            surface.DrawUiText(text, fontName, size, colour, Rectangle.Round(rect), centredByDefault);
             return;
         }
         float tracking = element.LetterSpacing * scale;
         UiHorizontalAlign horizontal = element.TextAlign != UiHorizontalAlign.Auto ? element.TextAlign
             : centredByDefault ? UiHorizontalAlign.Center : UiHorizontalAlign.Left;
-        float width = surface.MeasureText(text, element.Font, size, tracking).X;
+        float width = surface.MeasureText(text, fontName, size, tracking).X;
         float lineHeight = size * 1.2f;
         float x = horizontal switch
         {
@@ -353,7 +391,7 @@ public static partial class PgslCommands
             UiVerticalAlign.Bottom => rect.Bottom - lineHeight,
             _ => rect.Y + MathF.Max(0, (rect.Height - lineHeight) * 0.5f),
         };
-        surface.DrawTextRun(text, element.Font, size, colour, MathF.Round(x), MathF.Round(y), tracking);
+        surface.DrawTextRun(text, fontName, size, colour, MathF.Round(x), MathF.Round(y), tracking);
     }
 
     /// <summary>An Image element: stretched (times its scale), contained, covering, or a crop.</summary>

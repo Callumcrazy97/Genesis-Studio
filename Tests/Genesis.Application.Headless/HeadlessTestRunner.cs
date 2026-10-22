@@ -1128,6 +1128,7 @@ internal static class HeadlessTestRunner
         Suites.Dx12PipelineLibrarySuite.Run(ctx);
         Suites.TextureStreamingSuite.Run(ctx);
         Suites.AnimationControllerSuite.Run(ctx);
+        Suites.UiToolkitSuite.Run(ctx);
         Suites.SkyLightExposureSuite.Run(ctx);
         Suites.ShaderPrecompiledSuite.Run(ctx);
 
@@ -1699,6 +1700,11 @@ internal static class HeadlessTestRunner
                 // Textures a script paints, drawn in the GUI and the 2D world on every renderer, and their cost.
                 PrepareFocusedProject(ctx, requireStudioServices: false);
                 Suites.ScriptTextureSuite.Run(ctx);
+                break;
+            case "ui-toolkit":
+                // User Interface toolkit: scroll lists, layout, focus by keys and controller, text input, themes.
+                PrepareFocusedProject(ctx, requireStudioServices: false);
+                Suites.UiToolkitSuite.Run(ctx);
                 break;
             case "animation-controller":
                 // Animation Controller resources: made, edited with undo, saved, and run as a state machine.

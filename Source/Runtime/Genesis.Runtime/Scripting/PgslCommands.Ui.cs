@@ -25,6 +25,10 @@ public static partial class PgslCommands
         public IReadOnlyList<UiElement> ReverseOrdered { get; init; }
         public IReadOnlyDictionary<string, UiElement> Elements { get; init; }
         public IReadOnlyDictionary<string, RectangleF> Rectangles { get; init; }
+        /// <summary>How long each laid-out Panel's or Scroll List's content is, in design pixels.</summary>
+        public IReadOnlyDictionary<string, float> ContentExtents { get; init; }
+        /// <summary>The Scroll Lists each element is inside, nearest first (elements in none are left out).</summary>
+        public IReadOnlyDictionary<string, string[]> ScrollAncestors { get; init; }
     }
 
     private static readonly object UiCacheGate = new();
@@ -47,17 +51,24 @@ public static partial class PgslCommands
         UpdateUiPointer(context, uiAsset, layout, scaleX, scaleY);
         UiPointerState pointer = ReadUiPointer(context, uiAsset);
 
+        // Children of a Scroll List are moved by its scroll and seen only through it.
+        RectangleF? clipped = null;
         foreach (UiElement element in layout.Ordered)
         {
             if (!IsUiElementVisible(context, uiAsset, element, layout.Elements)) continue;
             if (!layout.Rectangles.TryGetValue(element.Id, out RectangleF designRect)) continue;
-            RectangleF rect = new(
-                designRect.X * scaleX,
-                designRect.Y * scaleY,
-                designRect.Width * scaleX,
-                designRect.Height * scaleY);
-            DrawUiElement(surface, context, uiAsset, element, rect, MathF.Min(scaleX, scaleY), UiElementState(context, uiAsset, element, pointer));
+            RectangleF rect = ScaleUiRect(UiScrolledRect(context, uiAsset, layout, element, designRect), scaleX, scaleY);
+            RectangleF? clip = UiClipRect(context, uiAsset, layout, element) is RectangleF seen ? ScaleUiRect(seen, scaleX, scaleY) : null;
+            if (clip is RectangleF window && !window.IntersectsWith(rect)) continue;
+            if (clip != clipped)
+            {
+                surface.SetClip(clip ?? RectangleF.Empty);
+                clipped = clip;
+            }
+            DrawUiElement(surface, context, uiAsset, element, rect, MathF.Min(scaleX, scaleY), UiElementState(context, uiAsset, element, pointer),
+                UiNamed(context, uiAsset, document, element));
         }
+        if (clipped != null) surface.SetClip(RectangleF.Empty);
     }
 
     [PgslCommand("UiSetText", "UiSetText(uiAsset, elementId, text)", "Override text for one UI element on this instance", "User Interface")]
@@ -93,7 +104,8 @@ public static partial class PgslCommands
         {
             if (!IsUiElementVisible(context, uiAsset, element, layout.Elements)) continue;
             if (!layout.Rectangles.TryGetValue(element.Id, out RectangleF rect)) continue;
-            rect = new RectangleF(rect.X * scaleX, rect.Y * scaleY, rect.Width * scaleX, rect.Height * scaleY);
+            rect = ScaleUiRect(UiScrolledRect(context, uiAsset, layout, element, rect), scaleX, scaleY);
+            if (UiClipRect(context, uiAsset, layout, element) is RectangleF seen && !ScaleUiRect(seen, scaleX, scaleY).Contains((float)x, (float)y)) continue;
             if (rect.Contains((float)x, (float)y)) return element.Id;
         }
         return string.Empty;
@@ -112,18 +124,24 @@ public static partial class PgslCommands
         UiElement element,
         IReadOnlyDictionary<string, UiElement> elements,
         IDictionary<string, RectangleF> cache,
-        HashSet<string> visiting)
+        HashSet<string> visiting,
+        IReadOnlyDictionary<string, float> slots = null)
     {
         if (cache.TryGetValue(element.Id, out RectangleF cached)) return cached;
         RectangleF parent = new(0, 0, document.DesignWidth, document.DesignHeight);
+        UiElement container = null;
         if (!string.IsNullOrWhiteSpace(element.ParentId)
             && elements.TryGetValue(element.ParentId, out UiElement parentElement)
             && visiting.Add(element.Id))
         {
-            parent = ResolveUiRect(document, parentElement, elements, cache, visiting);
+            parent = ResolveUiRect(document, parentElement, elements, cache, visiting, slots);
             visiting.Remove(element.Id);
+            container = parentElement;
         }
-        RectangleF result = AnchorRect(parent, element);
+        // A laid-out parent places its children one after another; the rest are anchored.
+        RectangleF result = container is { Layout: not UiLayoutMode.None } && slots != null && slots.TryGetValue(element.Id, out float slot)
+            ? LayoutUiRect(parent, container, element, slot)
+            : AnchorRect(parent, element);
         cache[element.Id] = result;
         return result;
     }
@@ -221,14 +239,20 @@ public static partial class PgslCommands
             .GroupBy(element => element.Id, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.Last(), StringComparer.OrdinalIgnoreCase);
         Dictionary<string, RectangleF> rects = new(StringComparer.OrdinalIgnoreCase);
+        (Dictionary<string, float> slots, Dictionary<string, float> extents) = UiLayoutSlots(ordered, elements);
         foreach (UiElement element in ordered)
-            ResolveUiRect(document, element, elements, rects, []);
+            ResolveUiRect(document, element, elements, rects, [], slots);
+        Dictionary<string, string[]> scrollAncestors = new(StringComparer.OrdinalIgnoreCase);
+        foreach (UiElement element in ordered)
+            if (UiScrollAncestors(element, elements) is { Length: > 0 } lists) scrollAncestors[element.Id] = lists;
         return new UiLayoutCache
         {
             Ordered = ordered,
             ReverseOrdered = ordered.Reverse().ToArray(),
             Elements = elements,
             Rectangles = rects,
+            ContentExtents = extents,
+            ScrollAncestors = scrollAncestors,
         };
     }
 
