@@ -2632,6 +2632,14 @@ internal static partial class EditorGate
             var effect = Genesis.Audio.SoundEffect.FromWavFile(wave, settings);
             HeadlessHarness.Assert(effect is not null && Math.Abs(effect.DurationInSeconds - 0.6) < 0.0001,
                 "The actual runtime sound factory ignored the authored region.");
+            // Music with an intro: a looping play comes back to loopStart (a time in the source), not the start.
+            var withIntro = Genesis.Audio.SoundEffect.FromWavFile(wave,
+                Genesis.Shared.Audio.AudioAssetSettings.Parse("{\"loop\": true, \"TrimStart\": 0.2, \"loopStart\": 0.5}"));
+            var looped = withIntro?.CreatePlaybackBuffer(loop: true);
+            int expectedBegin = (int)(0.3 * clip.SampleRate);
+            HeadlessHarness.Assert(withIntro is not null && looped is not null && withIntro.LoopBeginFrames == expectedBegin
+                && looped.LoopBegin == expectedBegin && looped.LoopLength == withIntro.FrameCount - expectedBegin,
+                $"loopStart did not make the loop come back after the intro (begin {withIntro?.LoopBeginFrames}, expected {expectedBegin}).");
             editor.Play();
             HeadlessHarness.Assert(editor.IsAuditioning, "The real runtime mixer did not start an audition voice.");
             editor.Stop();

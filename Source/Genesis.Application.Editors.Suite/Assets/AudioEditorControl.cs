@@ -45,6 +45,8 @@ public sealed partial class AudioEditorControl : EditorSurfaceControl, IResource
         public float TrimEnd { get; set; }
         public float FadeIn { get; set; }
         public float FadeOut { get; set; }
+        /// <summary>Where a repeat comes back to, seconds in the source (music with an intro); 0 repeats it all.</summary>
+        public float LoopStart { get; set; }
     }
 
     private static readonly string[] BuiltInBuses = ["sfx", "music", "master"];
@@ -80,6 +82,7 @@ public sealed partial class AudioEditorControl : EditorSurfaceControl, IResource
     private readonly NumericUpDown _trimEndInput;
     private readonly NumericUpDown _fadeInInput;
     private readonly NumericUpDown _fadeOutInput;
+    private readonly NumericUpDown _loopStartInput;
     private PcmAudioClip? _sourceClip;
     private PcmAudioClip? _previewClip;
     private readonly TrackBar _listenerSlider;
@@ -122,6 +125,8 @@ public sealed partial class AudioEditorControl : EditorSurfaceControl, IResource
         _trimEndInput = MakeNumeric(0m, 86400m, 0.01m, 3, (decimal)_document.TrimEnd);
         _fadeInInput = MakeNumeric(0m, 86400m, 0.01m, 3, (decimal)_document.FadeIn);
         _fadeOutInput = MakeNumeric(0m, 86400m, 0.01m, 3, (decimal)_document.FadeOut);
+        _loopStartInput = MakeNumeric(0m, 86400m, 0.01m, 3, (decimal)_document.LoopStart);
+        _loopStartInput.Name = "AudioLoopStart";
         _busCombo = new ThemedComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 120 };
         _busCombo.Items.AddRange([.. Buses]);
         _busCombo.SelectedIndex = Math.Max(0, Array.IndexOf(Buses, _document.Bus));
@@ -180,6 +185,7 @@ public sealed partial class AudioEditorControl : EditorSurfaceControl, IResource
         rows.Controls.Add(LabelledRow("End (s)*", _trimEndInput));
         rows.Controls.Add(LabelledRow("Fade in (s)", _fadeInInput));
         rows.Controls.Add(LabelledRow("Fade out (s)", _fadeOutInput));
+        rows.Controls.Add(LabelledRow("Repeat from (s)", _loopStartInput));
         rows.Controls.Add(new Label { Text = "* 0 = clip end. Loop repeats this region.", AutoSize = true, ForeColor = EditorChrome.Muted });
         rows.Controls.Add(EditorChrome.SectionLabel("Mixing"));
         rows.Controls.Add(LabelledRow("Bus", _busCombo));
@@ -239,6 +245,7 @@ public sealed partial class AudioEditorControl : EditorSurfaceControl, IResource
         };
         _volumeSlider.ValueChanged += (_, _) => Commit(() => _document.Volume = _volumeSlider.Value / 100f);
         _loopCheck.CheckedChanged += (_, _) => Commit(() => _document.Loop = _loopCheck.Checked);
+        _loopStartInput.ValueChanged += (_, _) => { if (!_syncing) Commit(() => _document.LoopStart = (float)_loopStartInput.Value); };
         _spatialCheck.CheckedChanged += (_, _) => Commit(() => _document.Spatial = _spatialCheck.Checked);
         _busCombo.SelectedIndexChanged += (_, _) => Commit(() => _document.Bus = Buses[Math.Max(0, _busCombo.SelectedIndex)]);
         _environmentRoleCombo.SelectedIndexChanged += (_, _) => Commit(() =>
@@ -274,7 +281,7 @@ public sealed partial class AudioEditorControl : EditorSurfaceControl, IResource
             && Within(document.MinDistance, 0, 4096) && Within(document.MaxDistance, .1f, 8192)
             && Within(document.Falloff, .1f, 8) && Within(document.TrimStart, 0, 86400)
             && Within(document.TrimEnd, 0, 86400) && Within(document.FadeIn, 0, 86400)
-            && Within(document.FadeOut, 0, 86400);
+            && Within(document.FadeOut, 0, 86400) && Within(document.LoopStart, 0, 86400);
     }
 
     private static Control InfoCard(string title, string body)
@@ -334,6 +341,7 @@ public sealed partial class AudioEditorControl : EditorSurfaceControl, IResource
         EnvironmentRole = _document.EnvironmentRole,
         TrimStart = _document.TrimStart, TrimEnd = _document.TrimEnd,
         FadeIn = _document.FadeIn, FadeOut = _document.FadeOut,
+        LoopStart = _document.LoopStart,
     };
 
     public PcmAudioClip? PreviewClip => _previewClip;
@@ -421,6 +429,7 @@ public sealed partial class AudioEditorControl : EditorSurfaceControl, IResource
             _falloffInput.Value = Math.Clamp((decimal)_document.Falloff, _falloffInput.Minimum, _falloffInput.Maximum);
             _trimStartInput.Value = (decimal)_document.TrimStart; _trimEndInput.Value = (decimal)_document.TrimEnd;
             _fadeInInput.Value = (decimal)_document.FadeIn; _fadeOutInput.Value = (decimal)_document.FadeOut;
+            _loopStartInput.Value = (decimal)Math.Clamp(_document.LoopStart, 0f, 86400f);
             if (_quickPreset is not null) _quickPreset.SelectedIndex = _document.EnvironmentRole != "None" ? 2 : _document.Bus == "music" ? 1 : 0;
             if (_volumeCaption is not null) _volumeCaption.Text = $"Volume · {_document.Volume:P0}";
         }
@@ -462,6 +471,7 @@ public sealed partial class AudioEditorControl : EditorSurfaceControl, IResource
         new("Region", "trimEnd", "End (s), 0 = source end", _document.TrimEnd, Minimum: 0, Maximum: 86400, Increment: 0.01m, DecimalPlaces: 3),
         new("Region", "fadeIn", "Fade in (s)", _document.FadeIn, Minimum: 0, Maximum: 86400, Increment: 0.01m, DecimalPlaces: 3),
         new("Region", "fadeOut", "Fade out (s)", _document.FadeOut, Minimum: 0, Maximum: 86400, Increment: 0.01m, DecimalPlaces: 3),
+        new("Region", "loopStart", "Repeat from (s), 0 = all", _document.LoopStart, Minimum: 0, Maximum: 86400, Increment: 0.01m, DecimalPlaces: 3),
     ];
 
     public bool TryApplyLiveInspectorValue(string propertyPath, object? value) =>
@@ -532,6 +542,12 @@ public sealed partial class AudioEditorControl : EditorSurfaceControl, IResource
                 case "trimend": return SetRegion(_document.TrimStart, Convert.ToSingle(value, CultureInfo.InvariantCulture), _document.FadeIn, _document.FadeOut);
                 case "fadein": return SetRegion(_document.TrimStart, _document.TrimEnd, Convert.ToSingle(value, CultureInfo.InvariantCulture), _document.FadeOut);
                 case "fadeout": return SetRegion(_document.TrimStart, _document.TrimEnd, _document.FadeIn, Convert.ToSingle(value, CultureInfo.InvariantCulture));
+                case "loopstart":
+                {
+                    float loopStart = Convert.ToSingle(value, CultureInfo.InvariantCulture);
+                    if (!float.IsFinite(loopStart) || loopStart < 0 || loopStart > 86400) return false;
+                    Commit(() => _document.LoopStart = loopStart); return true;
+                }
                 default:
                     return false;
             }

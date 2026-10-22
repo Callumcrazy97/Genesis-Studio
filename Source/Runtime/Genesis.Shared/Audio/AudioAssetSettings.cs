@@ -66,6 +66,12 @@ namespace Genesis.Shared.Audio
         public float FadeOut { get; set; }
 
         /// <summary>
+        /// Seconds from the start of the clip where a looping sound comes back to: music plays its
+        /// intro once and then repeats from here to the end. Zero loops the whole clip.
+        /// </summary>
+        public float LoopStart { get; set; }
+
+        /// <summary>
         /// Attenuation multiplier for a spatial source at <paramref name="distance"/> from the
         /// listener. Returns 1 for non-spatial sounds so callers can apply it unconditionally.
         /// </summary>
@@ -111,6 +117,7 @@ namespace Genesis.Shared.Audio
                 settings.TrimEnd = ReadFloat(root, "TrimEnd", "trimEnd") ?? 0f;
                 settings.FadeIn = ReadFloat(root, "FadeIn", "fadeIn") ?? 0f;
                 settings.FadeOut = ReadFloat(root, "FadeOut", "fadeOut") ?? 0f;
+                settings.LoopStart = ReadFloat(root, "LoopStart", "loopStart") ?? 0f;
                 return settings;
             }
             catch (JsonException)

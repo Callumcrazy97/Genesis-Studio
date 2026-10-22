@@ -13,6 +13,8 @@ namespace Genesis.Audio
         // their address. Every play of the sound reads this one copy.
         private readonly byte[]     _data;
         private readonly IntPtr     _samples;
+        // Where a looping play comes back to, in sample frames (AudioAssetSettings.LoopStart); 0 is the start.
+        private int _loopBeginFrames;
 
         public float DurationInSeconds
         {
@@ -27,6 +29,12 @@ namespace Genesis.Audio
 
         /// <summary>1 for mono, 2 for stereo.</summary>
         public int Channels => _format?.Channels ?? 0;
+
+        /// <summary>Sample frames (one sample per channel) in the sound.</summary>
+        public int FrameCount => _format == null || _format.Channels == 0 ? 0 : _data.Length / (_format.Channels * (_format.BitsPerSample / 8));
+
+        /// <summary>Where a looping play comes back to, in sample frames.</summary>
+        public int LoopBeginFrames => _loopBeginFrames;
 
         /// <summary>The memory the decoded samples take.</summary>
         public long SampleBytes => _data?.LongLength ?? 0;
@@ -50,7 +58,16 @@ namespace Genesis.Audio
         {
             var buffer = new AudioBuffer(_samples, (uint)_data.Length, loop ? BufferFlags.None : BufferFlags.EndOfStream);
             if (loop)
+            {
                 buffer.LoopCount = 255; // XAUDIO2_LOOP_INFINITE
+                // An intro played once, then the rest repeated.
+                int frames = FrameCount;
+                if (_loopBeginFrames > 0 && _loopBeginFrames < frames)
+                {
+                    buffer.LoopBegin = (uint)_loopBeginFrames;
+                    buffer.LoopLength = (uint)(frames - _loopBeginFrames);
+                }
+            }
             return buffer;
         }
 
@@ -129,7 +146,11 @@ namespace Genesis.Audio
                 if (settings is not null) clip = clip.ApplyRegion(settings);
                 byte[] data = SampleArray(clip.Samples.Length * 2);
                 Buffer.BlockCopy(clip.Samples, 0, data, 0, data.Length);
-                return new SoundEffect(new WaveFormat(clip.SampleRate, 16, clip.Channels), data);
+                var effect = new SoundEffect(new WaveFormat(clip.SampleRate, 16, clip.Channels), data);
+                // The loop point is a time in the source; the trimmed clip starts at TrimStart.
+                if (settings is { LoopStart: > 0f } && float.IsFinite(settings.LoopStart))
+                    effect._loopBeginFrames = Math.Clamp((int)((settings.LoopStart - Math.Max(0f, settings.TrimStart)) * clip.SampleRate), 0, effect.FrameCount);
+                return effect;
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or OverflowException)
             {
