@@ -252,6 +252,24 @@ animation's time. A script that follows its own route reads
 `NavMeshRemoveLink(id)` takes a link away. Like costs, links are not saved with the grid. In a 2D
 room, x and y are the point and z is not used.
 
+## Online games through a relay (22 October 2026)
+
+Games on a local network find each other with `NetDiscover` and connect by address. Over the
+internet, routers stand in the way, so games meet at a **relay**: the Player run as
+`GenesisEngine.exe --relay 7777` on a machine both sides can reach (a server, or a PC with that UDP
+port forwarded).
+
+- `NetHostOnline("relay.example.com", 7777, maxPlayers)` asks the relay for a game.
+  `NetSessionCode()` then gives a six-character code (letters and digits that cannot be confused)
+  for the host to share, and `NetConnectState()` says `hosting`.
+- `NetJoinOnline("relay.example.com", 7777, code)` joins with it. `NetConnectState()` says
+  `connected`, or `failed` with `NetLastError()` giving the reason (`no such game`, `full`
+  or `wrong version`; only games of the same title and engine version meet).
+
+After that, everything works as it does on a local network: peers join and leave, and messages,
+broadcasts and object replication (with its smoothing of what other players move) all pass through
+the relay. Every message goes through the relay. Machines are not yet put in touch directly (NAT
+punch-through), so the relay carries all the traffic and its distance adds to the latency.
 ## User Interface toolkit: lists, focus, typing and themes (22 October 2026)
 
 A User Interface resource has two more element types, and `DrawUi`/`UiUpdate` handle them:

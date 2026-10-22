@@ -1129,6 +1129,7 @@ internal static class HeadlessTestRunner
         Suites.TextureStreamingSuite.Run(ctx);
         Suites.AnimationControllerSuite.Run(ctx);
         Suites.UiToolkitSuite.Run(ctx);
+        Suites.NetworkOnlineSuite.Run(ctx);
         Suites.SkyLightExposureSuite.Run(ctx);
         Suites.ShaderPrecompiledSuite.Run(ctx);
 
@@ -1700,6 +1701,11 @@ internal static class HeadlessTestRunner
                 // Textures a script paints, drawn in the GUI and the 2D world on every renderer, and their cost.
                 PrepareFocusedProject(ctx, requireStudioServices: false);
                 Suites.ScriptTextureSuite.Run(ctx);
+                break;
+            case "network-online":
+                // Games over the internet: a relay on this machine, a host's code, players joining with it.
+                PrepareFocusedProject(ctx, requireStudioServices: false);
+                Suites.NetworkOnlineSuite.Run(ctx);
                 break;
             case "ui-toolkit":
                 // User Interface toolkit: scroll lists, layout, focus by keys and controller, text input, themes.

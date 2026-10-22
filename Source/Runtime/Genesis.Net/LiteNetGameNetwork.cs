@@ -33,13 +33,15 @@ namespace Genesis.Net
     /// reasons, the socket errors it reports, and the reason a host of this engine gives when it
     /// turns a connection away.
     /// </remarks>
-    public sealed class LiteNetGameNetwork : IGameNetwork, IGameNetworkDiscovery, IGameNetworkStatus, INetEventListener
+    public sealed partial class LiteNetGameNetwork : IGameNetwork, IGameNetworkDiscovery, IGameNetworkStatus, INetEventListener
     {
         private sealed class PeerEntry
         {
             public int Id;
             public LiteNetPeer Peer;
             public string Address;
+            /// <summary>The peer's id at the relay, for a game played through one (Peer is then null).</summary>
+            public int RelayId;
         }
 
         /// <summary>A game that answered this machine's request, and when it last did.</summary>
@@ -318,6 +320,7 @@ namespace Genesis.Net
             Port = 0;
             _inbox.Clear(); _queuedPayloadBytes = 0; _connectionEvents.Clear(); _peerSnapshot.Clear();
             _state = LinkState.Idle; _lastError = ""; _target = null; _targetSocketError = LSocketError.Success;
+            ForgetRelay();
             // Looking for games belongs to the time before a session: hosting or joining ends it.
             StopDiscovery();
             foreach (var peer in disconnected) OnPeerDisconnected?.Invoke(peer);
@@ -457,7 +460,9 @@ namespace Genesis.Net
             if (peerId == 0) { Broadcast(tag, payload, delivery); return; }
             if (peerId == -1 && !IsHost)
                 foreach (var candidate in _peersById.Values) { peerId = candidate.Id; break; }
-            if (!_peersById.TryGetValue(peerId, out var entry) || entry.Peer == null) return;
+            if (!_peersById.TryGetValue(peerId, out var entry)) return;
+            if (entry.RelayId != 0) { SendThroughRelay(entry.RelayId, tag, payload, delivery); return; }
+            if (entry.Peer == null) return;
             var packet = BuildPacket(tag, payload);
             entry.Peer.Send(packet, MapDelivery(delivery));
         }
@@ -465,6 +470,7 @@ namespace Genesis.Net
         public void Broadcast(int tag, byte[] payload, NetDelivery delivery = NetDelivery.ReliableOrdered)
         {
             if (!IsHost || _manager == null) return;
+            if (_relay != null) { SendThroughRelay(0, tag, payload, delivery); return; }
             var packet = BuildPacket(tag, payload);
             _manager.SendToAll(packet, MapDelivery(delivery));
         }
@@ -514,6 +520,7 @@ namespace Genesis.Net
 
         void INetEventListener.OnPeerConnected(LiteNetPeer peer)
         {
+            if (RelayConnected(peer)) return;
             int id = _nextPeerId++;
             var entry = new PeerEntry { Id = id, Peer = peer, Address = peer?.ToString() ?? "unknown" };
             _peersById[id] = entry;
@@ -530,6 +537,7 @@ namespace Genesis.Net
 
         void INetEventListener.OnPeerDisconnected(LiteNetPeer peer, DisconnectInfo info)
         {
+            if (RelayDisconnected(peer, info)) return;
             if (peer != null && _peersByLiteId.TryGetValue(peer.Id, out var entry))
             {
                 _peersById.Remove(entry.Id);
@@ -553,6 +561,7 @@ namespace Genesis.Net
 
         void INetEventListener.OnNetworkReceive(LiteNetPeer peer, NetPacketReader reader, byte channel, DeliveryMethod delivery)
         {
+            if (RelayReceive(peer, reader)) return;
             try
             {
                 if (reader.AvailableBytes < 8 || reader.AvailableBytes > MaximumPayloadBytes + 8 || _inbox.Count >= MaximumQueuedMessages) return;

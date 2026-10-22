@@ -12,6 +12,11 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        // GenesisEngine.exe --relay [port]: a relay for games played over the internet, no game.
+        int relayAt = Array.FindIndex(args, argument => string.Equals(argument, "--relay", StringComparison.OrdinalIgnoreCase));
+        if (relayAt >= 0)
+            return RunRelay(relayAt + 1 < args.Length && int.TryParse(args[relayAt + 1], out int relayPort) ? relayPort : 7777);
+
         // The start-up trace's first line comes before any engine assembly is loaded, so a start that
         // stops before it never reached this program's code at all (the runtime's own start).
         string? trace = Environment.GetEnvironmentVariable("GENESIS_STARTUP_TRACE");
@@ -137,5 +142,25 @@ internal static class Program
                 // original failure with a second one.
             }
         }
+    }
+
+    /// <summary>Runs a relay (GenesisRelayServer) on a UDP port until the process is stopped.</summary>
+    private static int RunRelay(int port)
+    {
+        using var relay = new Genesis.Net.GenesisRelayServer();
+        if (port < 1 || port > 65535 || !relay.Start(port))
+        {
+            Console.Error.WriteLine($"Genesis relay: UDP port {port} could not be opened.");
+            return 1;
+        }
+        Console.WriteLine($"Genesis relay on UDP port {port}: games host with NetHostOnline and join with NetJoinOnline. Ctrl+C stops it.");
+        bool running = true;
+        Console.CancelKeyPress += (_, stop) => { stop.Cancel = true; running = false; };
+        while (running)
+        {
+            relay.Update();
+            System.Threading.Thread.Sleep(5);
+        }
+        return 0;
     }
 }

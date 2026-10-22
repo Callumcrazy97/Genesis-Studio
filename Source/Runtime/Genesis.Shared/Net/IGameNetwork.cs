@@ -77,6 +77,17 @@ namespace Genesis.Shared.Net
         /// <summary>Disconnect and stop hosting/connecting.</summary>
         void Disconnect();
 
+        /// <summary>Host a game over the internet through a relay; <see cref="SessionCode"/> is the code to share once it arrives.</summary>
+        void HostOnline(string relayAddress, int relayPort, int maximumPlayers = 8) =>
+            throw new NotSupportedException("This network cannot play through a relay.");
+
+        /// <summary>Join a game hosted through a relay, by its code.</summary>
+        void JoinOnline(string relayAddress, int relayPort, string code) =>
+            throw new NotSupportedException("This network cannot play through a relay.");
+
+        /// <summary>The code players join an online game with; empty when there is none.</summary>
+        string SessionCode => string.Empty;
+
         /// <summary>Send a tagged message to one peer (Id 0 = broadcast to all when host).</summary>
         void Send(int peerId, int tag, byte[] payload, NetDelivery delivery = NetDelivery.ReliableOrdered);
 
