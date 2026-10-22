@@ -580,6 +580,8 @@ public static class ExternalModelImporter
                     ? ParseAlphaMode(alphaMode.GetString())
                     : GModelAlphaMode.Opaque,
                 AlphaCutoff = json.TryGetProperty("alphaCutoff", out JsonElement alphaCutoff) ? alphaCutoff.GetSingle() : 0.5f,
+                Unlit = json.TryGetProperty("extensions", out JsonElement extensions) && extensions.ValueKind == JsonValueKind.Object
+                    && extensions.TryGetProperty("KHR_materials_unlit", out _),
             };
             CopyExtras(json, material.Metadata);
             if (json.TryGetProperty("emissiveFactor", out JsonElement emissive))

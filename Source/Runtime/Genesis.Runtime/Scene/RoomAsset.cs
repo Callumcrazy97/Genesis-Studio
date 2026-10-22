@@ -336,6 +336,11 @@ public sealed class RoomEnvironment
     /// </summary>
     [JsonProperty("shadows")] public bool Shadows { get; set; } = true;
     /// <summary>
+    /// The filmic tone curve over the picture (default), which rolls bright light off gently. Off
+    /// for pixel art and painted or handheld looks, whose colours must reach the screen as authored.
+    /// </summary>
+    [JsonProperty("toneMapping")] public bool ToneMapping { get; set; } = true;
+    /// <summary>
     /// Scripted objects further than this from the camera rest: their step events are skipped
     /// until the camera comes back. Zero runs every object every frame, as a small room should.
     /// </summary>

@@ -39,6 +39,7 @@ public sealed partial class ModelEditorControl
     private NumericUpDown? _uvOffsetVValue;
     private Label? _materialShaderValue;
     private Panel? _emissionColourSwatch;
+    private CheckBox? _materialUnlit;
     private NumericUpDown? _boxUvMetresValue;
     private CollapsibleSection? _morphSection;
     private readonly Dictionary<string, NumericUpDown> _morphInputs = new(StringComparer.OrdinalIgnoreCase);
@@ -238,7 +239,7 @@ public sealed partial class ModelEditorControl
         imagePaint.Content.Controls.Add(paintImage);
         imagePaint.Content.Controls.Add(new Label { Text = "Assign an Albedo Image below. Paint on its 2D canvas or on the Model, then Save Image to update gameplay.",
             Location = new Point(8, 44), Size = new Size(250, 58), ForeColor = EditorChrome.Muted });
-        CollapsibleSection material = Section(page, "MATERIAL & PBR", 500);
+        CollapsibleSection material = Section(page, "MATERIAL & PBR", 536);
         _material.SetBounds(8, 7, 166, 28);
         material.Content.Controls.Add(_material);
         _material.SelectedIndexChanged += (_, _) => { if (!_syncingGroups) AssignMaterial(_material.SelectedIndex); };
@@ -295,6 +296,14 @@ public sealed partial class ModelEditorControl
         // Box UVs in metres for a mesh without UVs: one repeat of the images every so many metres (0: off).
         AddNumber("Box UVs (m)", 466, ref _boxUvMetresValue, 0, 10000, 0, value => { if (!_syncingGroups) SetMaterialBoxUvMetres((float)value); });
         _boxUvMetresValue!.Name = "ModelMaterialBoxUvMetres";
+        // Unlit: the material's own colour with no light or shadow (painted scenery, signs, skies).
+        _materialUnlit = new CheckBox
+        {
+            Name = "ModelMaterialUnlit", Text = "Unlit (its own colour, no light or shadow)", Location = new Point(8, 502),
+            Size = new Size(250, 24), ForeColor = EditorChrome.Text,
+        };
+        _materialUnlit.CheckedChanged += (_, _) => { if (!_syncingGroups) SetMaterialUnlit(_materialUnlit.Checked); };
+        material.Content.Controls.Add(_materialUnlit);
 
         CollapsibleSection paint = Section(page, "VERTEX COLOUR", 100);
         _colour.SetBounds(8, 8, 250, 31);
@@ -865,6 +874,15 @@ public sealed partial class ModelEditorControl
     }
 
     /// <summary>Gives the selected material a mesh Shader resource of its own; empty uses the Object's.</summary>
+    /// <summary>Makes the selected material unlit or lit; kept in the descriptor (materialUnlit) across re-imports.</summary>
+    internal void SetMaterialUnlit(bool unlit)
+    {
+        GModelMaterial? material = SelectedMaterial();
+        if (material is null || material.Unlit == unlit) return;
+        ChangeAsset(unlit ? "Make material unlit" : "Make material lit", () => material.Unlit = unlit);
+        RefreshMaterialInspector();
+    }
+
     internal void SetMaterialShader(string shader)
     {
         GModelMaterial? material = SelectedMaterial();
@@ -946,6 +964,7 @@ public sealed partial class ModelEditorControl
             if(_normalValue is not null)_normalValue.Text=ShortAsset(material.NormalTexture);
             if(_ormValue is not null)_ormValue.Text=ShortAsset(material.MetallicRoughnessTexture);
             if(_materialShaderValue is not null)_materialShaderValue.Text=string.IsNullOrWhiteSpace(material.Shader)?"(the Object's)":material.Shader;
+            if(_materialUnlit is not null)_materialUnlit.Checked=material.Unlit;
             if(_roughnessValue is not null)_roughnessValue.Value=(decimal)Math.Clamp(material.RoughnessFactor,0,1);
             if(_metallicValue is not null)_metallicValue.Value=(decimal)Math.Clamp(material.MetallicFactor,0,1);
             if(_uvScaleValue is not null)_uvScaleValue.Value=(decimal)(material.Metadata.TryGetValue("UvScale",out string? text)&&float.TryParse(text,System.Globalization.NumberStyles.Float,System.Globalization.CultureInfo.InvariantCulture,out float scale)?Math.Clamp(scale,.01f,256f):1f);

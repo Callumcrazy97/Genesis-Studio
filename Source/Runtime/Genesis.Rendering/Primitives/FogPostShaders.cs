@@ -702,7 +702,8 @@ float4 PS(VSOut IN) : SV_Target
     // Always-on filmic tonemap, independent of whether fog is enabled. The scene buffer is now
     // HDR (FP16), so bright highlights (sun disc, emissive fire/magic/embers, bright sky) roll
     // off naturally here instead of being hard-clipped at 1.0 like the old 8-bit pipeline.
-    float3 mapped = ACESFilm(color);
+    // VignetteParams.w: the room asked for no tone curve (pixel art, handheld looks): colours as authored.
+    float3 mapped = VignetteParams.w > 0.5 ? color : ACESFilm(color);
     // Linear colour pipeline: encode the tonemapped linear result for the UNORM display target.
     if (ExposureParams.w > 0.5)
     {

@@ -363,6 +363,7 @@ namespace Genesis.Rendering.Primitives
             public bool TerrainGround;
             public MeshDrawFlags RasterOverride;
             public bool Foliage;
+            public bool Unlit;
             public bool IsFloor;
             public MaterialHeightMode HeightMode;
             public Vector4 SurfaceParams, DetailParams, SubsurfaceColorSteps;
@@ -376,7 +377,7 @@ namespace Genesis.Rendering.Primitives
                     ExtrasId != o.ExtrasId || FlowId != o.FlowId || ShaderId != o.ShaderId ||
                     NoFog != o.NoFog || NoReceiveShadow != o.NoReceiveShadow
                     || TerrainGround != o.TerrainGround || RasterOverride != o.RasterOverride
-                    || Foliage != o.Foliage || IsFloor != o.IsFloor || HeightMode != o.HeightMode
+                    || Foliage != o.Foliage || Unlit != o.Unlit || IsFloor != o.IsFloor || HeightMode != o.HeightMode
                     || SurfaceParams != o.SurfaceParams || DetailParams != o.DetailParams
                     || SubsurfaceColorSteps != o.SubsurfaceColorSteps || Emissive != o.Emissive
                     || MaterialFactors != o.MaterialFactors || EmissionColor != o.EmissionColor)
@@ -407,7 +408,7 @@ namespace Genesis.Rendering.Primitives
                     h.Add(AuthoredTextures.TexId2); h.Add(AuthoredTextures.TexId3);
                 }
                 h.Add(NoFog); h.Add(NoReceiveShadow); h.Add(TerrainGround); h.Add(RasterOverride);
-                h.Add(Foliage); h.Add(IsFloor); h.Add(HeightMode); h.Add(SurfaceParams); h.Add(DetailParams);
+                h.Add(Foliage); h.Add(Unlit); h.Add(IsFloor); h.Add(HeightMode); h.Add(SurfaceParams); h.Add(DetailParams);
                 h.Add(SubsurfaceColorSteps); h.Add(Emissive); h.Add(MaterialFactors); h.Add(EmissionColor);
                 return h.ToHashCode();
             }
@@ -415,6 +416,8 @@ namespace Genesis.Rendering.Primitives
 
         private class Batch
         {
+            /// <summary>Drawn unlit (MeshDrawFlags.Unlit).</summary>
+            public bool Unlit;
             public int SubmissionOrder;
             public int   MeshId;
             public int   TextureId;
@@ -2775,7 +2778,7 @@ namespace Genesis.Rendering.Primitives
                 AddToModelLayer(layer, new WorldMesh
                 {
                     MeshId = mesh.Id, Texture = texture, World = world, Color = color,
-                    Unlit = (flags & MeshDrawFlags.Emissive) != 0 && emissive >= 1f,
+                    Unlit = ((flags & MeshDrawFlags.Emissive) != 0 && emissive >= 1f) || (flags & MeshDrawFlags.Unlit) != 0,
                     Emissive = emissive, NoFog = true, NoReceiveShadow = noReceiveShadow,
                     RasterOverride = rasterOverride, SkinPaletteId = gpuSkinned ? skinPalette.Id : 0,
                     Shader = shader, ShaderParams0 = shaderParams0, ShaderParams1 = shaderParams1,
@@ -2926,7 +2929,7 @@ namespace Genesis.Rendering.Primitives
                     Texture = texture,
                     World = world,
                     Color = color,
-                    Unlit = noDepthWr,
+                    Unlit = noDepthWr || (flags & MeshDrawFlags.Unlit) != 0,
                     NoDepthWrite = noDepthWr || additive || multiply,
                     Transparent = transparent,
                     Additive = additive,
@@ -3100,7 +3103,7 @@ namespace Genesis.Rendering.Primitives
                     World        = world,
                     Color        = color,
                     IsFloor      = isFloor,
-                    Unlit        = noDepthWr && !isFloor,
+                    Unlit        = (noDepthWr && !isFloor) || (flags & MeshDrawFlags.Unlit) != 0,
                     NoDepthWrite = noDepthWr || additive || multiply,
                     Transparent  = transparent,
                     Additive     = additive,
@@ -3173,10 +3176,11 @@ namespace Genesis.Rendering.Primitives
                 NoFog = noFog, NoReceiveShadow = noReceiveShadow, TerrainGround = terrainGround,
                 RasterOverride = rasterOverride, HeightMode = heightMode, SurfaceParams = surfaceParams,
                 DetailParams = detailParams, SubsurfaceColorSteps = subsurfaceColorSteps, Emissive = emissive,
-                MaterialFactors = materialFactors, EmissionColor = emissionColor };
+                MaterialFactors = materialFactors, EmissionColor = emissionColor, Unlit = (flags & MeshDrawFlags.Unlit) != 0 };
             if (!_batches.TryGetValue(key, out var batch))
             {
                 batch = RentBatch(key);
+                batch.Unlit = key.Unlit;
                 batch.MeshId = mesh.Id;
                 batch.TextureId = textureId;
                 batch.Texture = texture;
@@ -3348,6 +3352,7 @@ namespace Genesis.Rendering.Primitives
                 TerrainGround = terrainGround,
                 RasterOverride = rasterOverride,
                 Foliage = foliage,
+                Unlit = (flags & MeshDrawFlags.Unlit) != 0,
                 IsFloor = isFloor,
                 Emissive = emissive,
                 ShaderId = shader.Id,
@@ -3369,6 +3374,7 @@ namespace Genesis.Rendering.Primitives
                 batch.NoReceiveShadow = noReceiveShadow;
                 batch.TerrainGround = terrainGround;
                 batch.Foliage = foliage;
+                batch.Unlit = key.Unlit;
                 batch.IsFloor = isFloor;
                 batch.RasterOverride = rasterOverride;
                 batch.Shader = shader;
@@ -4587,7 +4593,7 @@ namespace Genesis.Rendering.Primitives
                 int drawCount = Math.Min(b.Instances.Count, SoftMeshInstanceCap - instOffset);
                 ApplyRuntimeMeshPass(b.Shader, b.RasterOverride);
                 // Foliage is lit in the shader's foliage branch (wrapped sun, shadows, ambient, point lights).
-                float batchUnlit = 0f;
+                float batchUnlit = b.Unlit ? 1f : 0f;
                 UploadDrawCB(Matrix4x4.Identity, Vector4.One, b.Emissive, batchUnlit, b.IsFloor ? 1f : 0f, 1, (uint)instOffset,
                     noFog: b.NoFog, terrainGround: b.TerrainGround, foliage: b.Foliage,
                     surfaceParams: b.SurfaceParams, detailParams: b.DetailParams,
@@ -5096,7 +5102,7 @@ namespace Genesis.Rendering.Primitives
                     _state.Saturation,
                     LinearPipeline ? 1f : 0f), // w: encode the tonemapped result to sRGB
                 // y: break up the bands a slow sky gradient shows on a 256-level display.
-                VignetteParams          = new Vector4(_state.VignetteStrength, _state.AuthoredSkyEnabled ? 1f : 0f, SceneDepthFlag, 0f),
+                VignetteParams          = new Vector4(_state.VignetteStrength, _state.AuthoredSkyEnabled ? 1f : 0f, SceneDepthFlag, _state.NoToneMapping ? 1f : 0f),
                 AtmosphereLutParams     = new Vector4(
                     atmosphereLutEnabled ? 1f : 0f,
                     sunHeight,
@@ -6334,6 +6340,7 @@ namespace Genesis.Rendering.Primitives
             batch.TerrainGround = false;
             batch.RasterOverride = default;
             batch.Foliage = false;
+            batch.Unlit = false;
             batch.IsFloor = false;
             batch.Shader = default;
             batch.ShaderParams0 = default;

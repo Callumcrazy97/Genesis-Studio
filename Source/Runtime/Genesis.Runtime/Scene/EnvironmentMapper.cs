@@ -38,6 +38,7 @@ namespace Genesis.Runtime.Scene
                 CullFrontFaces        = options.FaceCulling && options.CullFrontFaces,
                 FrontCounterClockwise = options.FrontCounterClockwise,
                 ShadowsEnabled        = env.ShadowsEnabled,
+                NoToneMapping         = !env.ToneMapping,
                 ShadowStrength        = Math.Clamp(env.ShadowStrength, 0f, 1f),
                 ShadowBias            = env.ShadowBias,
                 ShadowOrthoSize       = env.ShadowOrthoSize,

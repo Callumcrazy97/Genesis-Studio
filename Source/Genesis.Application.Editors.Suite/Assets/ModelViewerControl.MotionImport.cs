@@ -96,6 +96,7 @@ public partial class ModelViewerControl
         document["rig"] = asset.Rig.IsValid ? "Canonical" : null;
         document["animations"] = new JsonArray(asset.Animations.Select(c => (JsonNode?)JsonValue.Create(c.Name)).ToArray());
         WriteMaterialShaders(document, asset);
+        WriteMaterialUnlit(document, asset);
         string canonical = StudioModelResourceLoader.CanonicalPath(ResourcePath);
         string staged = Path.Combine(ResourceAssociates.GetModelDataDirectory(ResourcePath), ".motion-import-" + Guid.NewGuid().ToString("N") + ".gmodel");
         string backup = staged + ".previous"; bool replaced = false, rollbackSucceeded = true;
@@ -124,6 +125,23 @@ public partial class ModelViewerControl
             if (File.Exists(staged)) File.Delete(staged);
             if (rollbackSucceeded && File.Exists(backup)) File.Delete(backup);
         }
+    }
+
+    /// <summary>
+    /// Keeps which materials are unlit in the descriptor's <c>materialUnlit</c>, so a re-import of
+    /// the source (which may say otherwise) cannot undo the choice. Written once any material is
+    /// unlit or the entry exists; every material is listed, lit ones as false.
+    /// </summary>
+    public static void WriteMaterialUnlit(JsonObject document, GModelAsset asset)
+    {
+        string property = document.Select(entry => entry.Key)
+            .FirstOrDefault(key => string.Equals(key, "materialUnlit", StringComparison.OrdinalIgnoreCase)) ?? "materialUnlit";
+        if (document[property] is null && !asset.Materials.Any(material => material?.Unlit == true)) return;
+        var map = new JsonObject();
+        foreach (GModelMaterial material in asset.Materials)
+            if (!string.IsNullOrWhiteSpace(material?.Name)) map[material.Name] = material.Unlit;
+        document.Remove(property);
+        document[property] = map;
     }
 
     /// <summary>

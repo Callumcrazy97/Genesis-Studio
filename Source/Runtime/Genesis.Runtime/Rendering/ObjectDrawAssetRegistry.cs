@@ -27,6 +27,8 @@ namespace Genesis.Runtime.Rendering
         public float TerrainTextureScale = 1f;
         public float TerrainTextureFps;
         public int TerrainTextureFrameCount;
+        /// <summary>The picture is drawn in its own colours, without light or shadow (terrainTexture Unlit): 2D sprite characters in 3D.</summary>
+        public bool TerrainTextureUnlit;
         /// <summary>Last successfully resolved 2D frame dimensions, used by generic debug picking.</summary>
         public int SpritePixelWidth = 32;
         public int SpritePixelHeight = 32;

@@ -404,6 +404,7 @@ public sealed class RoomSceneBuilder
             ? Math.Clamp(environment.ShadowDistance, 0f, 20000f)
             : 0f;
         scene.Environment.ShadowsEnabled = environment.Shadows;
+        scene.Environment.ToneMapping = environment.ToneMapping;
         scene.Environment.SimulationDistance = float.IsFinite(environment.SimulationDistance)
             ? Math.Clamp(environment.SimulationDistance, 0f, 100000f)
             : 0f;

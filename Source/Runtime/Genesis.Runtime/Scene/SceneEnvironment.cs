@@ -32,6 +32,8 @@ namespace Genesis.Runtime.Scene
         public Vector3? LightDirectionOverride { get; set; }
 
         public bool  ShadowsEnabled { get; set; } = true;
+        /// <summary>The filmic tone curve over the frame (default); off shows authored colours exactly.</summary>
+        public bool  ToneMapping { get; set; } = true;
         public float ShadowStrength { get; set; } = 1f;
         public float ShadowBias { get; set; } = 0.00015f;
         public float ShadowOrthoSize { get; set; } = 120f;

@@ -254,7 +254,7 @@ internal static class AutomationSuite
             string json = """
                 {"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"mesh":0}],
                  "meshes":[{"primitives":[{"attributes":{"POSITION":0},"material":0}]}],
-                 "materials":[{"name":"tiled","pbrMetallicRoughness":{"baseColorTexture":{"index":0}}}],
+                 "materials":[{"name":"tiled","pbrMetallicRoughness":{"baseColorTexture":{"index":0}},"extensions":{"KHR_materials_unlit":{}}}],"extensionsUsed":["KHR_materials_unlit"],
                  "textures":[{"source":0}],"images":[{"uri":"tile.png"}],
                  "buffers":[{"byteLength":36}],"bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":36}],
                  "accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[1,0,1]}]}
@@ -272,6 +272,16 @@ internal static class AutomationSuite
             HeadlessHarness.Assert(imported.Ok && model.Length > 0, "The .glb was not imported: " + imported.Message);
             string picture = Path.Combine(context.Resolve(model)[..^".model.json".Length] + ".modeldata", "tile.png");
             HeadlessHarness.Assert(File.Exists(picture), "The picture beside the .glb did not come with it: " + picture);
+            // glTF's unlit materials come in unlit, and the descriptor's materialUnlit (the Model editor's tick box) overrules them.
+            bool TiledUnlit() => Genesis.Runtime.Modeling.StudioModelResourceLoader.Load(context.Resolve(model)).Materials.Single(material => material.Name == "tiled").Unlit;
+            HeadlessHarness.Assert(TiledUnlit(), "A glTF KHR_materials_unlit material was not imported unlit.");
+            HeadlessHarness.Assert(Call("resource.set", $$"""{ "path": "{{model}}", "values": { "materialUnlit": { "tiled": false } } }""").Ok && !TiledUnlit(),
+                "materialUnlit did not make the material lit again.");
+            JsonObject descriptor = JsonNode.Parse(File.ReadAllText(context.Resolve(model)))!.AsObject();
+            var withUnlit = Genesis.Runtime.Modeling.StudioModelResourceLoader.Load(context.Resolve(model));
+            withUnlit.Materials[0].Unlit = true;
+            Genesis.Application.Editors.Suite.Assets.ModelViewerControl.WriteMaterialUnlit(descriptor, withUnlit);
+            HeadlessHarness.Assert(descriptor["materialUnlit"]?["tiled"]?.GetValue<bool>() == true, "The Model editor's unlit choice was not written to the descriptor.");
             // Turning "convert right-handed" on or off cooks the model again (it used to keep the old cook).
             float FarthestZ(bool mirrored)
             {
@@ -312,8 +322,8 @@ internal static class AutomationSuite
             AutomationResult removed = Call("room.removeInstance", $$"""{ "room": "{{room}}", "instance": "{{name}}", "confirm": true }""");
             HeadlessHarness.Assert(removed.Ok && Genesis.Runtime.Scene.RoomAssetLoader.Parse(context.Resolve(room)).Nodes.All(n => n.Name != name),
                 "room.removeInstance left the instance: " + removed.Message);
-            AutomationResult noShadows = Call("room.setEnvironment", $$"""{ "room": "{{room}}", "values": { "shadows": false } }""");
-            HeadlessHarness.Assert(noShadows.Ok && !Genesis.Runtime.Scene.RoomAssetLoader.Parse(context.Resolve(room)).Environment.Shadows,
+            AutomationResult noShadows = Call("room.setEnvironment", $$"""{ "room": "{{room}}", "values": { "shadows": false, "toneMapping": false } }""");
+            HeadlessHarness.Assert(noShadows.Ok && !Genesis.Runtime.Scene.RoomAssetLoader.Parse(context.Resolve(room)).Environment.Shadows && !Genesis.Runtime.Scene.RoomAssetLoader.Parse(context.Resolve(room)).Environment.ToneMapping,
                 "A room's sun shadows could not be switched off: " + noShadows.Message);
         });
 

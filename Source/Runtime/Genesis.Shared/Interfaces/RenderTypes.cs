@@ -205,6 +205,11 @@ namespace Genesis.Shared.Interfaces
         EditorReference = 131072,
         /// <summary>Multiply blend for soot, shadow wisps and stylised dark particles.</summary>
         Multiply     = 262144,
+        /// <summary>
+        /// The surface's own colour (texture times tint) with no lighting, shading or shadows: an
+        /// unlit material (glTF KHR_materials_unlit), as handheld-console scenery is drawn.
+        /// </summary>
+        Unlit        = 524288,
     }
 
     /// <summary>Culling stored on authored resources. Default inherits Preferences - Rendering.</summary>
@@ -778,6 +783,8 @@ namespace Genesis.Shared.Interfaces
         public float   Saturation;
         /// <summary>AF1.7 vignette strength 0..1 (default 0 = off).</summary>
         public float   VignetteStrength;
+        /// <summary>Colours go to the screen as they are, without the filmic tone curve (a room's toneMapping off).</summary>
+        public bool    NoToneMapping;
         /// <summary>AF1.7 bloom luma threshold (only matters when bloom is on).</summary>
         public float   BloomThreshold;
         /// <summary>AF1.7 bloom add intensity (only matters when bloom is on).</summary>

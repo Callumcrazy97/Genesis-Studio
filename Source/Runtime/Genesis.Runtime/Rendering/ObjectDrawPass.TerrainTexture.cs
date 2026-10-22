@@ -151,6 +151,7 @@ public static partial class ObjectDrawPass
             FaceCullingOverride.None, assets.WindingOrder);
         if (!draw.CastShadows) flags |= MeshDrawFlags.NoShadow;
         if (!draw.ReceiveShadows) flags |= MeshDrawFlags.NoReceiveShadow;
+        if (assets.TerrainTextureUnlit) flags |= MeshDrawFlags.Unlit | MeshDrawFlags.NoReceiveShadow;
         MeshDrawCall call = new()
         {
             Mesh = mesh, Tint = RenderColor.White, Alpha = assets.SpriteAlpha, Flags = flags,

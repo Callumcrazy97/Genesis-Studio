@@ -352,6 +352,7 @@ namespace Genesis.Runtime.Scene
                     drawAssets.TerrainTextureMode = TerrainPartBinding.Text(textureProps, "Mode", "Billboard2D");
                     drawAssets.TerrainTextureScale = Math.Clamp(TerrainPartBinding.Number(textureProps, "Scale", 1), .001f, 1000);
                     drawAssets.TerrainTextureFps = Math.Clamp(TerrainPartBinding.Number(textureProps, "AnimationFps", 0), 0, 240);
+                    drawAssets.TerrainTextureUnlit = textureProps["Unlit"] is JValue unlitValue && unlitValue.Type == JTokenType.Boolean && (bool)unlitValue;
                     drawAssets.TerrainTextureFrameCount = Math.Max(0, (int)TerrainPartBinding.Number(textureProps, "FrameCount", 0));
                 }
                 if (prefab["shaderVariant"] is JValue variantToken

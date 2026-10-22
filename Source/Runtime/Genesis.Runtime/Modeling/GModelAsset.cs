@@ -241,6 +241,11 @@ namespace Genesis.Runtime.Modeling
         public Vector3 EmissiveColor { get; set; } = Vector3.One;
         /// <summary>A mesh Shader resource this material is drawn with, in place of the Object's (empty for none).</summary>
         public string Shader { get; set; } = "";
+        /// <summary>
+        /// Drawn in its own colour (picture times colour) with no light, shade or shadow falling on
+        /// it: glTF's KHR_materials_unlit, painted handheld-game scenery, signs, skies.
+        /// </summary>
+        public bool Unlit { get; set; }
         public Dictionary<string, string> Metadata { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         /// <summary>
         /// Surfaces drawn with this material are left out of the drawn model (the Model resource's
