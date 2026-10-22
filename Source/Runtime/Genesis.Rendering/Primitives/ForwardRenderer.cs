@@ -3119,6 +3119,9 @@ namespace Genesis.Rendering.Primitives
                     AuthoredTextures = authoredTextures,
                     MaterialFactors = materialFactors,
                     EmissionColor = emissionColor,
+                    // The picture's repeat and slide (a see-through painted sea); flow maps are not
+                    // bound on this path, so their speed and strength are not passed as a slide.
+                    DetailParams = flow.IsValid ? default : new Vector4(0f, detailParams.Y, detailParams.Z, detailParams.W),
                 });
                 LastInstancesDrawn++;
                 return;
@@ -4753,7 +4756,8 @@ namespace Genesis.Rendering.Primitives
                         emissive: wm.Emissive, unlit: wm.Unlit ? 1f : 0f,
                         isFloor: wm.IsFloor ? 1f : 0f, useInstancing: 0, instOffset: 0, noFog: wm.NoFog,
                         terrainGround: wm.TerrainGround, gpuSkinning: skinned, skinMatrixOffset: 0,
-                        noReceiveShadow: wm.NoReceiveShadow, materialFactors: wm.MaterialFactors, emissionColor: wm.EmissionColor);
+                        noReceiveShadow: wm.NoReceiveShadow, materialFactors: wm.MaterialFactors, emissionColor: wm.EmissionColor,
+                        detailParams: wm.DetailParams);
 
                     _gpu.DrawIndexed(mesh.IndexCount);
                     _worldDrawBudgetLeft--;
@@ -4858,7 +4862,8 @@ namespace Genesis.Rendering.Primitives
                     emissive: wm.Emissive, unlit: wm.Unlit ? 1f : 0f,
                     isFloor: 0f, useInstancing: 0, instOffset: 0,
                     noFog: wm.NoFog, noDepthWrite: wm.NoDepthWrite,
-                    noReceiveShadow: wm.NoReceiveShadow, materialFactors: wm.MaterialFactors, emissionColor: wm.EmissionColor);
+                    noReceiveShadow: wm.NoReceiveShadow, materialFactors: wm.MaterialFactors, emissionColor: wm.EmissionColor,
+                    detailParams: wm.DetailParams);
 
                 _gpu.DrawIndexed(mesh.IndexCount);
                 _worldDrawBudgetLeft--;

@@ -447,7 +447,7 @@ namespace Genesis.Runtime.Modeling
                     OrmMap = ormMap,
                     EmissionMap = emissionMap,
                     SurfaceParams = new Vector4(normalMap.IsValid ? 1f : 0f, 0f, emissive, 0f),
-                    DetailParams = new Vector4(0f, 0f, 0f, MaterialUvScale(material)),
+                    DetailParams = MaterialDetail(material),
                     MaterialFactors = material is not null && !animation.FlatUntextured && drawsMaterialFactors
                         ? new Vector4(material.MetallicFactor, material.RoughnessFactor,
                             material.AlphaMode == GModelAlphaMode.Mask ? material.AlphaCutoff : 0f, 1f)
@@ -539,6 +539,15 @@ namespace Genesis.Runtime.Modeling
 
         private static RenderColor ToRenderColor(Vector4 c)
             => new(c.X, c.Y, c.Z, c.W <= 0f ? 1f : c.W);
+
+        /// <summary>The draw's MaterialDetail: its picture's slide (UV units a second, the shader's
+        /// MaterialDetail.yz when no flow map is bound) and how often the picture repeats.</summary>
+        public static Vector4 MaterialDetail(GModelMaterial material)
+        {
+            float u = material is not null && float.IsFinite(material.UvScrollU) ? Math.Clamp(material.UvScrollU, -64f, 64f) : 0f;
+            float v = material is not null && float.IsFinite(material.UvScrollV) ? Math.Clamp(material.UvScrollV, -64f, 64f) : 0f;
+            return new Vector4(0f, u, v, MaterialUvScale(material));
+        }
 
         public static float MaterialUvScale(GModelMaterial material)
         {

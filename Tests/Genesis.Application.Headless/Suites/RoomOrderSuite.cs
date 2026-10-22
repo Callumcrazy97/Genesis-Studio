@@ -36,6 +36,8 @@ internal static class RoomOrderSuite
                 "The room order was not saved with the project.");
             Check(ProjectRoomResolver.ResolveRoomName(project.RootPath, ProjectPaths.ReadStartRoom(project.RootPath)) == "Charlie",
                 "The Player, reading the project file as an exported game does, starts somewhere else.");
+            Check(ProjectRunLauncher.RoomToStart(project.RootPath, null) == "Charlie",
+                "A run without a room (automation's game.run) does not start in the project's start room.");
 
             ResourceItem folder = Find(new ResourceService(reopened).BuildTree(), rooms)
                 ?? throw new InvalidOperationException("The Rooms folder is missing from the Assets tree.");

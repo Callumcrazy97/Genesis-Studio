@@ -41,6 +41,7 @@ public sealed partial class ModelEditorControl
     private Panel? _emissionColourSwatch;
     private CheckBox? _materialUnlit;
     private NumericUpDown? _boxUvMetresValue;
+    private NumericUpDown? _uvScrollUValue, _uvScrollVValue;
     private CollapsibleSection? _morphSection;
     private readonly Dictionary<string, NumericUpDown> _morphInputs = new(StringComparer.OrdinalIgnoreCase);
     private CollapsibleSection? _socketSection;
@@ -239,7 +240,7 @@ public sealed partial class ModelEditorControl
         imagePaint.Content.Controls.Add(paintImage);
         imagePaint.Content.Controls.Add(new Label { Text = "Assign an Albedo Image below. Paint on its 2D canvas or on the Model, then Save Image to update gameplay.",
             Location = new Point(8, 44), Size = new Size(250, 58), ForeColor = EditorChrome.Muted });
-        CollapsibleSection material = Section(page, "MATERIAL & PBR", 536);
+        CollapsibleSection material = Section(page, "MATERIAL & PBR", 600);
         _material.SetBounds(8, 7, 166, 28);
         material.Content.Controls.Add(_material);
         _material.SelectedIndexChanged += (_, _) => { if (!_syncingGroups) AssignMaterial(_material.SelectedIndex); };
@@ -304,6 +305,11 @@ public sealed partial class ModelEditorControl
         };
         _materialUnlit.CheckedChanged += (_, _) => { if (!_syncingGroups) SetMaterialUnlit(_materialUnlit.Checked); };
         material.Content.Controls.Add(_materialUnlit);
+        // The picture slides across the surface (painted water): UV units a second, kept in the descriptor (materialUvScroll).
+        AddNumber("Slide U / sec", 534, ref _uvScrollUValue, -64, 64, 0, value => { if (!_syncingGroups) SetMaterialUvScroll((float)value, null); });
+        _uvScrollUValue!.Name = "ModelMaterialUvScrollU";
+        AddNumber("Slide V / sec", 566, ref _uvScrollVValue, -64, 64, 0, value => { if (!_syncingGroups) SetMaterialUvScroll(null, (float)value); });
+        _uvScrollVValue!.Name = "ModelMaterialUvScrollV";
 
         CollapsibleSection paint = Section(page, "VERTEX COLOUR", 100);
         _colour.SetBounds(8, 8, 250, 31);
@@ -873,7 +879,6 @@ public sealed partial class ModelEditorControl
         SetMaterialShader(picked.Reference);
     }
 
-    /// <summary>Gives the selected material a mesh Shader resource of its own; empty uses the Object's.</summary>
     /// <summary>Makes the selected material unlit or lit; kept in the descriptor (materialUnlit) across re-imports.</summary>
     internal void SetMaterialUnlit(bool unlit)
     {
@@ -883,6 +888,19 @@ public sealed partial class ModelEditorControl
         RefreshMaterialInspector();
     }
 
+    /// <summary>Sets how fast the selected material's picture slides (UV units a second); null keeps that axis.
+    /// Kept in the descriptor (materialUvScroll) across re-imports.</summary>
+    internal void SetMaterialUvScroll(float? u, float? v)
+    {
+        GModelMaterial? material = SelectedMaterial();
+        if (material is null) return;
+        float nextU = u ?? material.UvScrollU, nextV = v ?? material.UvScrollV;
+        if (nextU == material.UvScrollU && nextV == material.UvScrollV) return;
+        ChangeAsset("Slide material picture", () => { material.UvScrollU = nextU; material.UvScrollV = nextV; });
+        RefreshMaterialInspector();
+    }
+
+    /// <summary>Gives the selected material a mesh Shader resource of its own; empty uses the Object's.</summary>
     internal void SetMaterialShader(string shader)
     {
         GModelMaterial? material = SelectedMaterial();
@@ -965,6 +983,8 @@ public sealed partial class ModelEditorControl
             if(_ormValue is not null)_ormValue.Text=ShortAsset(material.MetallicRoughnessTexture);
             if(_materialShaderValue is not null)_materialShaderValue.Text=string.IsNullOrWhiteSpace(material.Shader)?"(the Object's)":material.Shader;
             if(_materialUnlit is not null)_materialUnlit.Checked=material.Unlit;
+            if(_uvScrollUValue is not null)_uvScrollUValue.Value=(decimal)Math.Clamp(float.IsFinite(material.UvScrollU)?material.UvScrollU:0f,-64f,64f);
+            if(_uvScrollVValue is not null)_uvScrollVValue.Value=(decimal)Math.Clamp(float.IsFinite(material.UvScrollV)?material.UvScrollV:0f,-64f,64f);
             if(_roughnessValue is not null)_roughnessValue.Value=(decimal)Math.Clamp(material.RoughnessFactor,0,1);
             if(_metallicValue is not null)_metallicValue.Value=(decimal)Math.Clamp(material.MetallicFactor,0,1);
             if(_uvScaleValue is not null)_uvScaleValue.Value=(decimal)(material.Metadata.TryGetValue("UvScale",out string? text)&&float.TryParse(text,System.Globalization.NumberStyles.Float,System.Globalization.CultureInfo.InvariantCulture,out float scale)?Math.Clamp(scale,.01f,256f):1f);

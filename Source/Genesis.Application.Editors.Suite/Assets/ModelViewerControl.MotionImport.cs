@@ -97,6 +97,7 @@ public partial class ModelViewerControl
         document["animations"] = new JsonArray(asset.Animations.Select(c => (JsonNode?)JsonValue.Create(c.Name)).ToArray());
         WriteMaterialShaders(document, asset);
         WriteMaterialUnlit(document, asset);
+        WriteMaterialUvScroll(document, asset);
         string canonical = StudioModelResourceLoader.CanonicalPath(ResourcePath);
         string staged = Path.Combine(ResourceAssociates.GetModelDataDirectory(ResourcePath), ".motion-import-" + Guid.NewGuid().ToString("N") + ".gmodel");
         string backup = staged + ".previous"; bool replaced = false, rollbackSucceeded = true;
@@ -142,6 +143,23 @@ public partial class ModelViewerControl
             if (!string.IsNullOrWhiteSpace(material?.Name)) map[material.Name] = material.Unlit;
         document.Remove(property);
         document[property] = map;
+    }
+
+    /// <summary>
+    /// Keeps how fast each material's picture slides in the descriptor's <c>materialUvScroll</c>
+    /// ([u, v] UV units a second), so a re-import of the source keeps it. Only moving materials are
+    /// listed; the entry goes once none moves.
+    /// </summary>
+    public static void WriteMaterialUvScroll(JsonObject document, GModelAsset asset)
+    {
+        string property = document.Select(entry => entry.Key)
+            .FirstOrDefault(key => string.Equals(key, "materialUvScroll", StringComparison.OrdinalIgnoreCase)) ?? "materialUvScroll";
+        var map = new JsonObject();
+        foreach (GModelMaterial material in asset.Materials)
+            if (!string.IsNullOrWhiteSpace(material?.Name) && (material.UvScrollU != 0f || material.UvScrollV != 0f))
+                map[material.Name] = new JsonArray(material.UvScrollU, material.UvScrollV);
+        document.Remove(property);
+        if (map.Count > 0) document[property] = map;
     }
 
     /// <summary>

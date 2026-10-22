@@ -119,7 +119,7 @@ cbuffer DrawConstants : register(b2)
     float              MaterialRoughness;     // roughness + 1 when the factors are set, else 0
     float              MaterialCutoff;        // alpha cut-off, 0 = 0.35
     float4             MaterialSurface;       // normal scale, height scale, emission, clearcoat
-    float4             MaterialDetail;        // subsurface, flow speed, flow strength, UV scale
+    float4             MaterialDetail;        // subsurface, flow speed, flow strength (without a flow map: UV slide a second), UV scale
     float4             SubsurfaceAndSteps;     // RGB tint, POM steps
     float4             MaterialFeatures;       // has ORM, height mode, has emission, extras + 2*flow
     uint               SkinMatrixOffset;
@@ -1022,6 +1022,10 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
         float2 direction = flow.rg * 2.0 - 1.0;
         materialUv += direction * flow.b * MaterialDetail.z * MaterialDetail.y * CameraPosTime.w;
     }
+    // Without a flow map, MaterialDetail.yz slides the picture by that many UV units a second
+    // (a model material's uvScroll: painted water). frac keeps the offset small as time grows.
+    else
+        materialUv += frac(MaterialDetail.yz * CameraPosTime.w);
     if (MaterialFeatures.y > 0.5 && MaterialFeatures.y < 2.5)
     {
         float3 dp1p = ddx(IN.WorldPos), dp2p = ddy(IN.WorldPos);

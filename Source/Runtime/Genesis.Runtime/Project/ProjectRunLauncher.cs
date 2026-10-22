@@ -263,6 +263,18 @@ namespace Genesis.Runtime.Project
             }
         }
 
+        /// <summary>The room a run starts in: the one asked for, else the project's start room (as the
+        /// Player picks it), else the first room.</summary>
+        internal static string RoomToStart(string projectPath, string roomName)
+        {
+            if (string.IsNullOrWhiteSpace(roomName))
+            {
+                try { roomName = ProjectPaths.ReadStartRoom(projectPath); }
+                catch (Exception ex) when (ex is IOException or InvalidDataException or System.Text.Json.JsonException) { roomName = null; }
+            }
+            return ProjectRoomResolver.ResolveRoomName(projectPath, roomName);
+        }
+
         public static LaunchOutcome Launch(
             string projectPath,
             string roomName = null,
@@ -291,7 +303,7 @@ namespace Genesis.Runtime.Project
                 };
             }
 
-            roomName = ProjectRoomResolver.ResolveRoomName(projectPath, roomName);
+            roomName = RoomToStart(projectPath, roomName);
             if (string.IsNullOrEmpty(roomName))
             {
                 return new LaunchOutcome

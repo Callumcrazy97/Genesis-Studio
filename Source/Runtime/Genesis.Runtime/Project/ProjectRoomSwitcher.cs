@@ -503,9 +503,9 @@ namespace Genesis.Runtime.Project
                     + string.Join(", ", System.Linq.Enumerable.Select(counts, pair => $"{pair.Value} {pair.Key}"));
         }
 
-        private static bool KeepSubsystem(ISceneSubsystem sub) =>
+        internal static bool KeepSubsystem(ISceneSubsystem sub) =>
             sub is ProjectRoomSwitcher or ProjectAssetLiveReloadSubsystem or ScriptHostSubsystem
-                or AutoshotSubsystem or MushroomMeadowRuntimeAcceptance;
+                or AutoshotSubsystem or TimedShots.ClockSubsystem or MushroomMeadowRuntimeAcceptance;
     }
 
     internal static class ProjectRoomPresentation

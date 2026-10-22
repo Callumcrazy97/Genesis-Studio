@@ -282,6 +282,21 @@ internal static class AutomationSuite
             withUnlit.Materials[0].Unlit = true;
             Genesis.Application.Editors.Suite.Assets.ModelViewerControl.WriteMaterialUnlit(descriptor, withUnlit);
             HeadlessHarness.Assert(descriptor["materialUnlit"]?["tiled"]?.GetValue<bool>() == true, "The Model editor's unlit choice was not written to the descriptor.");
+            // A material's picture can slide (painted water): materialUvScroll reaches the material and the draw's MaterialDetail.yz.
+            HeadlessHarness.Assert(Call("resource.set", $$"""{ "path": "{{model}}", "values": { "materialUvScroll": { "tiled": [0.25, -0.5] } } }""").Ok,
+                "materialUvScroll could not be set.");
+            var sliding = Genesis.Runtime.Modeling.StudioModelResourceLoader.Load(context.Resolve(model)).Materials.Single(material => material.Name == "tiled");
+            System.Numerics.Vector4 detail = Genesis.Runtime.Modeling.RuntimeModelRenderSystem.MaterialDetail(sliding);
+            HeadlessHarness.Assert(sliding.UvScrollU == 0.25f && sliding.UvScrollV == -0.5f && detail.Y == 0.25f && detail.Z == -0.5f && detail.W == 1f,
+                $"materialUvScroll did not reach the material and its draw: {sliding.UvScrollU}, {sliding.UvScrollV}, {detail}.");
+            sliding.UvScrollU = 0f; sliding.UvScrollV = 0f;
+            var still = new Genesis.Runtime.Modeling.GModelAsset(); still.Materials.Add(sliding);
+            Genesis.Application.Editors.Suite.Assets.ModelViewerControl.WriteMaterialUvScroll(descriptor, still);
+            HeadlessHarness.Assert(descriptor["materialUvScroll"] is null, "A material that no longer slides was left in materialUvScroll.");
+            still.Materials[0].UvScrollV = 0.125f;
+            Genesis.Application.Editors.Suite.Assets.ModelViewerControl.WriteMaterialUvScroll(descriptor, still);
+            HeadlessHarness.Assert(descriptor["materialUvScroll"]?["tiled"]?[1]?.GetValue<float>() == 0.125f, "The Model editor's slide was not written to the descriptor.");
+            HeadlessHarness.Assert(Call("resource.set", $$"""{ "path": "{{model}}", "values": { "materialUvScroll": { "tiled": [0, 0] } } }""").Ok, "materialUvScroll could not be stopped.");
             // Turning "convert right-handed" on or off cooks the model again (it used to keep the old cook).
             float FarthestZ(bool mirrored)
             {
@@ -556,6 +571,9 @@ internal static class AutomationSuite
             HeadlessHarness.Assert(!Call("game.run", """{ "steps": [ { "seconds": 2 } ], "shots": [5] }""").Ok, "A picture after the run's end was accepted.");
             HeadlessHarness.Assert(Call("game.benchmark", """{ "seconds": 0.5 }""").Message.Contains("Measure 1 to 900", StringComparison.Ordinal), "A benchmark too short to mean anything was accepted.");
             HeadlessHarness.Assert(Genesis.Runtime.Project.TimedShots.Parse("9, 2,x,5.5").SequenceEqual(new[] { 2f, 5.5f, 9f }), "GENESIS_SHOTS was not read in order.");
+            // A run's pictures after a door: the play-time clock must outlive the room it started in.
+            HeadlessHarness.Assert(Genesis.Runtime.Project.ProjectRoomSwitcher.KeepSubsystem(new Genesis.Runtime.Project.TimedShots([1f], ctx.Workspace, null).Clock(null)),
+                "A room change dropped the timed pictures' clock, so no picture was taken after it.");
         });
 
         HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.CommandLineAndMcpServeTheSameCommands", () =>

@@ -49,6 +49,8 @@ public static class StudioModelResourceLoader
         public Dictionary<string, float> MaterialBoxUvMetres { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         /// <summary>Material name to unlit (true) or lit (false), over what the source says (GModelMaterial.Unlit).</summary>
         public Dictionary<string, bool> MaterialUnlit { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        /// <summary>Material name to [u, v], how fast its picture slides in UV units a second (GModelMaterial.UvScrollU/V).</summary>
+        public Dictionary<string, float[]> MaterialUvScroll { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         /// <summary>Materials whose surfaces are not drawn (GModelMaterial.Hidden).</summary>
         public List<string> HiddenMaterials { get; set; } = [];
         /// <summary>SHA-256 of the source the cooked model was made from (see CanonicalMatchesSource).</summary>
@@ -185,6 +187,11 @@ public static class StudioModelResourceLoader
                 foreach (GModelMaterial material in asset.Materials)
                     if (material != null && unlit.TryGetValue(material.Name ?? string.Empty, out bool isUnlit))
                         material.Unlit = isUnlit;
+            if (asset != null && document.MaterialUvScroll is { Count: > 0 } scrolls)
+                foreach (GModelMaterial material in asset.Materials)
+                    if (material != null && scrolls.TryGetValue(material.Name ?? string.Empty, out float[] scroll) && scroll is { Length: 2 }
+                        && float.IsFinite(scroll[0]) && float.IsFinite(scroll[1]))
+                        (material.UvScrollU, material.UvScrollV) = (scroll[0], scroll[1]);
             if (asset != null && document.HiddenMaterials is { Count: > 0 } hidden)
             {
                 var names = new HashSet<string>(hidden, StringComparer.OrdinalIgnoreCase);

@@ -66,13 +66,17 @@ namespace Genesis.Runtime.Materials
                 TextureHandle Load(string relative, TextureColorSpace colorSpace) => string.IsNullOrWhiteSpace(relative) ? TextureHandle.Invalid
                     : renderer.LoadTexture(Path.IsPathRooted(relative) ? relative : Path.Combine(dir, relative), colorSpace);
                 float[] sc = def.SubsurfaceColor;
+                TextureHandle flow = Load(def.Maps.Flow, TextureColorSpace.Linear);
                 var gpu = new MaterialGpuHandles
                 {
                     Albedo = Load(def.Maps.Albedo, TextureColorSpace.Srgb), Normal = Load(def.Maps.Normal, TextureColorSpace.Linear), Height = Load(def.Maps.Height, TextureColorSpace.Linear),
                     Orm = Load(def.Maps.Orm, TextureColorSpace.Linear), Emission = Load(def.Maps.Emission, TextureColorSpace.Srgb), Extras = Load(def.Maps.Extras, TextureColorSpace.Linear),
-                    Flow = Load(def.Maps.Flow, TextureColorSpace.Linear), HeightMode = def.HeightMode,
+                    Flow = flow, HeightMode = def.HeightMode,
                     SurfaceParams = new Vector4(def.NormalScale, def.HeightScale, def.EmissionIntensity, def.ClearcoatStrength),
-                    DetailParams = new Vector4(def.SubsurfaceStrength, def.FlowSpeed, def.FlowStrength, def.UvScale),
+                    // Flow speed and strength only mean something with a flow map; without one the
+                    // shader reads these two as a steady slide of the picture, which this has not.
+                    DetailParams = flow.IsValid ? new Vector4(def.SubsurfaceStrength, def.FlowSpeed, def.FlowStrength, def.UvScale)
+                        : new Vector4(def.SubsurfaceStrength, 0f, 0f, def.UvScale),
                     SubsurfaceColorSteps = new Vector4(sc[0], sc[1], sc[2], def.ParallaxMaxSteps),
                 };
                 _cache[full] = new Entry { Stamp = stamp, Definition = def, Gpu = gpu };

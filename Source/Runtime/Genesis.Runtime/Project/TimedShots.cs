@@ -45,7 +45,7 @@ namespace Genesis.Runtime.Project
                 .OrderBy(seconds => seconds)];
         }
 
-        /// <summary>Counts play time in one room's scene; a new one is added for each room, sharing the count.</summary>
+        /// <summary>Counts play time in the game's scene; room changes keep it (ProjectRoomSwitcher.KeepSubsystem).</summary>
         public ISceneSubsystem Clock(Func<bool> countElapsed) => new ClockSubsystem(this, countElapsed);
 
         /// <summary>Hooked to the host's EndFrame: takes the picture that is due from the frame just drawn.</summary>
@@ -70,7 +70,7 @@ namespace Genesis.Runtime.Project
             if (_elapsed >= _seconds[_next]) _pending = true;
         }
 
-        private sealed class ClockSubsystem(TimedShots shots, Func<bool> countElapsed) : ISceneSubsystem
+        internal sealed class ClockSubsystem(TimedShots shots, Func<bool> countElapsed) : ISceneSubsystem
         {
             public void FixedUpdate(RuntimeScene scene, float fixedDelta) { }
 

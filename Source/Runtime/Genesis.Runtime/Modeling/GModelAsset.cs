@@ -246,6 +246,12 @@ namespace Genesis.Runtime.Modeling
         /// it: glTF's KHR_materials_unlit, painted handheld-game scenery, signs, skies.
         /// </summary>
         public bool Unlit { get; set; }
+        /// <summary>
+        /// The picture slides across the surface by this many UV units a second (painted water, a
+        /// conveyor belt); zero holds it still. A material bound to a flow map moves by that instead.
+        /// </summary>
+        public float UvScrollU { get; set; }
+        public float UvScrollV { get; set; }
         public Dictionary<string, string> Metadata { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         /// <summary>
         /// Surfaces drawn with this material are left out of the drawn model (the Model resource's
