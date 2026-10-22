@@ -30,5 +30,7 @@ public enum ResourceKind
     Pathing,
     UserInterface,
     Note,
+    /// <summary>A model's animation states, blends and transitions, shared by the Objects that use it.</summary>
+    AnimationController,
 }
 

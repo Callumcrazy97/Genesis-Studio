@@ -1210,6 +1210,8 @@ public sealed partial class StudioShellForm : DpiAwareForm
             resource, (path, projectRoot) => new Genesis.Application.Editors.Suite.Assets.ParticleEditorControl(path, projectRoot), "Particle Editor"));
         _editorRegistry.Register(ResourceKind.Physics, resource => Wrap(
             resource, (path, projectRoot) => new Genesis.Application.Editors.Suite.Assets.PhysicsEditorControl(path, projectRoot), "Physics Editor"));
+        _editorRegistry.Register(ResourceKind.AnimationController, resource => Wrap(
+            resource, (path, projectRoot) => new Genesis.Application.Editors.Suite.Animation.AnimationControllerEditorControl(path, projectRoot), "Animation Controller Editor"));
         _editorRegistry.Register(ResourceKind.Pathing, resource => Wrap(
             resource, (path, projectRoot) =>
             {

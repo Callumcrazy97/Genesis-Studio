@@ -1127,6 +1127,7 @@ internal static class HeadlessTestRunner
         Suites.GpuCullingSuite.Run(ctx);
         Suites.Dx12PipelineLibrarySuite.Run(ctx);
         Suites.TextureStreamingSuite.Run(ctx);
+        Suites.AnimationControllerSuite.Run(ctx);
         Suites.SkyLightExposureSuite.Run(ctx);
         Suites.ShaderPrecompiledSuite.Run(ctx);
 
@@ -1698,6 +1699,11 @@ internal static class HeadlessTestRunner
                 // Textures a script paints, drawn in the GUI and the 2D world on every renderer, and their cost.
                 PrepareFocusedProject(ctx, requireStudioServices: false);
                 Suites.ScriptTextureSuite.Run(ctx);
+                break;
+            case "animation-controller":
+                // Animation Controller resources: made, edited with undo, saved, and run as a state machine.
+                PrepareFocusedProject(ctx, requireStudioServices: false);
+                Suites.AnimationControllerSuite.Run(ctx);
                 break;
             case "texture-streaming":
                 // A big texture's detail follows the camera's distance and the memory budget, on every GPU renderer.

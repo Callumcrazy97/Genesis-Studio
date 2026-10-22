@@ -21,6 +21,7 @@ public static class ResourceFolderPolicy
         new("Notes", ResourceKind.Note),
         new("Models", ResourceKind.Model),
         new("Paths", ResourceKind.Pathing),
+        new("Animators", ResourceKind.AnimationController),
         new("User Interfaces", ResourceKind.UserInterface),
     ]);
 

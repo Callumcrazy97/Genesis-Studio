@@ -11,7 +11,7 @@ namespace Genesis.Shared.Assets;
 public enum ResourceType
 {
     Unknown, Image, Audio, Object, Room, Model, Shader, Particle, Physics,
-    Terrain, TerrainEntity, Pathing, UserInterface, Script, Note
+    Terrain, TerrainEntity, Pathing, UserInterface, Script, Note, AnimationController
 }
 
 /// <summary>Public identity and private storage location. Only Name is a resource reference.</summary>
@@ -32,7 +32,7 @@ public sealed partial class ResourceCatalog
 {
     public static readonly (string Extension, ResourceType Type)[] Definitions =
     {
-        (".terrainentity.json", ResourceType.TerrainEntity),
+        (".terrainentity.json", ResourceType.TerrainEntity), (".animator.json", ResourceType.AnimationController),
         (".particle.json", ResourceType.Particle), (".physics.json", ResourceType.Physics),
         (".terrain.json", ResourceType.Terrain), (".shader.json", ResourceType.Shader),
         (".object.json", ResourceType.Object), (".image.json", ResourceType.Image),

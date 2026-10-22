@@ -113,6 +113,29 @@ public static class ResourceDefinitions
               "components": []
             }
             """),
+        new(ResourceKind.AnimationController, "Animation Controller", ".animator.json", "◇",
+            """
+            {
+              "version": 1,
+              "defaultState": "Idle",
+              "parameters": [
+                { "name": "speed", "kind": "float", "default": 0 },
+                { "name": "jump", "kind": "trigger", "default": 0 }
+              ],
+              "states": [
+                { "name": "Idle", "clip": "Idle", "loop": true, "x": 80, "y": 140 },
+                { "name": "Move", "clip": "Walk", "loop": true, "blendParameter": "speed", "synced": true,
+                  "blend": [ { "clip": "Walk", "threshold": 1.5 }, { "clip": "Run", "threshold": 5 } ], "x": 320, "y": 140 },
+                { "name": "Jump", "clip": "Jump", "loop": false, "x": 200, "y": 300 }
+              ],
+              "transitions": [
+                { "from": "Idle", "to": "Move", "condition": "speed > 0.1", "blendSeconds": 0.2 },
+                { "from": "Move", "to": "Idle", "condition": "speed < 0.1", "blendSeconds": 0.2 },
+                { "from": "*", "to": "Jump", "condition": "jump", "blendSeconds": 0.1 },
+                { "from": "Jump", "to": "Idle", "condition": "AnimationFinished", "blendSeconds": 0.2 }
+              ]
+            }
+            """),
         new(ResourceKind.Pathing, "Pathing & Navigation", ".pathing", "⌁",
             """
             {

@@ -252,6 +252,28 @@ animation's time. A script that follows its own route reads
 `NavMeshRemoveLink(id)` takes a link away. Like costs, links are not saved with the grid. In a 2D
 room, x and y are the point and z is not used.
 
+## Animation Controllers (22 October 2026)
+
+An **Animation Controller** resource (`Animators` folder, `.animator.json`) holds how a
+character's animations follow one another: its states, the transitions between them and the
+parameters scripts set. One controller serves every Object that uses it, and each instance gets
+its own copy of the state machine. A new controller starts with Idle, Move (a blend from Walk to
+Run by `speed`) and Jump, a `speed` parameter, a `jump` trigger, and the transitions
+between them.
+
+In Studio's Animation Controller editor, states are boxes and transitions are arrows. Drag a state
+to move it. Ctrl+drag from one state to another, or from "Any state", to make a transition.
+Double-click empty space for a new state, and press Delete to remove the selection. The panel
+beside the graph sets the selected state's clip, looping and blend (a parameter, and clip=value
+pairs such as `Walk=1.5, Run=5`), or the selected transition's condition and blend time.
+Conditions read as `AnimationStateAddTransition` reads them: a bool or trigger parameter
+(`jump`), a comparison (`speed > 0.5`), `AnimationFinished` or `true`. The table on the
+left lists the parameters and their defaults. Every change can be undone.
+
+In a game, `AnimationControllerUse("Hero Animator")` builds the controller into the instance's
+model, starting from its default state; `AnimationControllerError()` says why when it cannot.
+Scripts drive it with `AnimationStateSetFloat`, `AnimationStateSetBool` and
+`AnimationStateSetTrigger`, and `AnimationStateCurrent()` gives the state it is in.
 ## Heads that look at things (19 October 2026)
 
 `AnimationBoneLookAt("Head", x, y, z)` turns a bone to face a point in the world after the animation
