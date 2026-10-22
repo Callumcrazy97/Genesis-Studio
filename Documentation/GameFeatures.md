@@ -220,6 +220,22 @@ the route's smoothing never cuts back across ground dearer than the route itself
 `NavMeshGetAreaCost(x, z)` reads a cell's cost back. Costs are not saved with the grid: set them
 after baking or after the room loads (its Create event), and routes found before keep their way.
 
+### Floors, sizes and obstacles (22 October 2026)
+
+In a 3D room, `NavMeshBake` also makes floors on the tops of static boxes an agent fits on, such
+as a bridge deck, an upper storey or the steps of a stair. Ground under something with headroom
+(1.8 m) stays walkable, so routes go under a bridge or up its stairs onto it, whichever way is
+asked for. A box low enough to step onto (0.45 m) raises the ground to its top. An agent stands on
+the floor under its feet, the highest no more than a step above it. The mesh file keeps the floors
+(version 2). 2D rooms bake one floor, as before.
+
+`NavMeshAgentSetRadius(radius)` makes an agent wider than the bake's 0.35, and its routes keep
+that much further from walls and edges, so a cart or a giant takes the wide way round. One bake
+serves every size. `NavMeshPathFind(..., radius)` does the same for a route a script follows.
+`NavMeshAddObstacle(x1, y1, z1, x2, y2, z2)` blocks the floors an agent would touch a box on
+(a cart parked, a door shut, a fallen tree), and returns its id. Routes found from then on go
+round it. `NavMeshRemoveObstacle(id)` takes it away again. Routes found before keep their way,
+as with costs and links. Studio's pathing previews show the ground floor.
 ### Jumps, gaps and ladders
 
 `NavMeshAddLink(x1, y1, z1, x2, y2, z2)` joins two points that walking cannot join, such as a ledge

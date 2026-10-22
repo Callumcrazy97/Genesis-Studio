@@ -814,6 +814,46 @@ internal static class EngineSystemsSuite
             Check(waited < 1500, $"Twenty short loops took {waited:F0} ms while a 2 s job was queued: the caller ran the long job.");
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Navigation.FloorsAboveAgentSizesAndObstaclesAtRunTime", () =>
+        {
+            // A bridge deck 3 m up (underside 2.7) from x 10 to 22, with a stair of eight 0.375 m steps
+            // at each end and ground in front of them: routes go under it, or up the stairs onto it.
+            var boxes = new List<NavigationObstacle> { new(new(10, 2.7f, 4), new(22, 3, 8)) };
+            for (int k = 1; k <= 8; k++)
+            {
+                boxes.Add(new(new(4 + (k - 1) * .75f, 0, 4), new(4 + k * .75f, k * .375f, 8)));
+                boxes.Add(new(new(28 - k * .75f, 0, 4), new(28 - (k - 1) * .75f, k * .375f, 8)));
+            }
+            var bridge = NavMeshBuilder.Build(0, 0, 64, 24, .5f, (_, _) => 0, boxes, floors: true);
+            var query = new NavMeshQuery(bridge);
+            Check(bridge.LayerColumns.Length > 0, "The bake made no floors on the deck or the steps.");
+            NavMeshRoute under = query.FindRoute(new Vector3(16, 0, 2), new Vector3(16, 0, 10));
+            Check(under.Count == 2 && under.All(point => point.Y < .1f), $"The route under the bridge left the ground ({under.Count} points, highest {(under.Count > 0 ? under.Max(p => p.Y) : -1)}).");
+            NavMeshRoute up = query.FindRoute(new Vector3(16, 0, 2), new Vector3(16, 3, 6));
+            Check(up.Count > 2 && MathF.Abs(up[^1].Y - 3f) < .01f && up.Any(point => point.X < 10.5f || point.X > 21.5f),
+                $"The route onto the deck did not go round by a stair ({up.Count} points: {string.Join(" ", up.Select(p => $"({p.X:F1},{p.Y:F2},{p.Z:F1})"))}).");
+            NavMeshRoute down = query.FindRoute(new Vector3(16, 3, 6), new Vector3(16, 0, 10));
+            Check(down.Count > 2 && MathF.Abs(down[^1].Y) < .01f, $"The route off the deck did not come down ({down.Count} points).");
+            string saved = Path.Combine(ctx.Workspace, "bridge.navmesh"); bridge.Save(saved);
+            var reloaded = new NavMeshQuery(NavMeshData.Load(saved));
+            Check(reloaded.Data.LayerColumns.Length == bridge.LayerColumns.Length && reloaded.FindRoute(new Vector3(16, 0, 2), new Vector3(16, 3, 6)).Count == up.Count,
+                "The floors did not survive saving and loading.");
+
+            // A wall across the grid with a 2.5 m gap: an agent of the bake's size passes, a 0.6 m one does not.
+            var walls = NavMeshBuilder.Build(0, 0, 40, 40, .5f, (_, _) => 0,
+                [new(new(0, 0, 9.5f), new(8.75f, 2, 10.5f)), new(new(11.25f, 0, 9.5f), new(20, 2, 10.5f))], floors: true);
+            var gap = new NavMeshQuery(walls);
+            Vector3 south = new(10, 0, 3), north = new(10, 0, 17);
+            Check(gap.FindRoute(south, north).Count >= 2, "An agent of the bake's size could not pass the gap.");
+            Check(gap.FindRoute(south, north, .6f).Count == 0, "A 0.6 m agent squeezed through a gap two cells wide.");
+            Check(gap.FindRoute(new Vector3(4, 0, 3), new Vector3(16, 0, 3), .6f).Count >= 2, "A 0.6 m agent could not cross open ground.");
+
+            // An obstacle placed while the game runs closes the gap until it is taken away.
+            int cart = gap.AddObstacle(new Vector3(9, 0, 9), new Vector3(11, 2, 11));
+            Check(cart > 0 && gap.FindRoute(south, north).Count == 0, "A route went through the obstacle.");
+            Check(gap.RemoveObstacle(cart) && gap.FindRoute(south, north).Count >= 2 && !gap.RemoveObstacle(cart), "The gap did not open again when the obstacle went.");
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Navigation.LinksJoinWhatWalkingCannot", () =>
         {
             // A 4 m cliff at x = 10, with a ramp round it beyond z = 11.5: walking from one side to

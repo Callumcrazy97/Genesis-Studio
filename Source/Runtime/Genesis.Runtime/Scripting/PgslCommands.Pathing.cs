@@ -212,7 +212,7 @@ public static partial class PgslCommands
                 Vector3 delta = target - position;
                 if (delta.Length() <= MathF.Max(route.FollowOffset, route.StoppingDistance)) continue;
                 Vector3 end = target - Vector3.Normalize(delta) * route.FollowOffset;
-                component.Agent.SetPath(FindPath(session, position, end, component.Agent.PlanarXY));
+                component.Agent.SetPath(FindPath(session, position, end, component.Agent.PlanarXY, component.Agent.Radius));
                 state.SegmentActive = component.Agent.HasPath;
                 continue;
             }
@@ -228,7 +228,7 @@ public static partial class PgslCommands
             component.Agent.SetPath(route.Mode == PathingRouteMode.WaypointPatrol
                 ? route.SegmentPoints(previousWaypoint, state.Waypoint).Select(point => planarXY
                     ? new Vector3(point.X, point.Y, position.Z) : point).ToArray()
-                : FindPath(session, position, destination, component.Agent.PlanarXY));
+                : FindPath(session, position, destination, component.Agent.PlanarXY, component.Agent.Radius));
             state.SegmentActive = component.Agent.HasPath;
         }
         if (remove is not null)
@@ -308,7 +308,7 @@ public static partial class PgslCommands
             float radius = MathF.Sqrt(NextRandom(state)) * state.Radius;
             Vector3 target = state.Origin + (agent.PlanarXY ? new Vector3(MathF.Cos(angle) * radius, MathF.Sin(angle) * radius, 0)
                 : new Vector3(MathF.Cos(angle) * radius, 0f, MathF.Sin(angle) * radius));
-            IReadOnlyList<Vector3> path = FindPath(session, position, target, agent.PlanarXY);
+            IReadOnlyList<Vector3> path = FindPath(session, position, target, agent.PlanarXY, agent.Radius);
             if (path.Count == 0) continue;
             agent.SetPath(path);
             return true;
@@ -316,12 +316,12 @@ public static partial class PgslCommands
         return false;
     }
 
-    private static IReadOnlyList<Vector3> FindPath(NavigationSession session, Vector3 from, Vector3 to, bool planarXY = false)
+    private static IReadOnlyList<Vector3> FindPath(NavigationSession session, Vector3 from, Vector3 to, bool planarXY = false, float radius = 0f)
     {
         if (session.Query is null) return [to];
-        if (!planarXY) return session.Query.FindRoute(from, to);
+        if (!planarXY) return session.Query.FindRoute(from, to, radius);
         // The route keeps the links it crosses.
-        return session.Query.FindRoute(new Vector3(from.X, 0, from.Y), new Vector3(to.X, 0, to.Y))
+        return session.Query.FindRoute(new Vector3(from.X, 0, from.Y), new Vector3(to.X, 0, to.Y), radius)
             .Moved(point => new Vector3(point.X, point.Z, from.Z));
     }
 

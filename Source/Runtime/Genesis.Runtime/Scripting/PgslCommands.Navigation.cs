@@ -99,8 +99,9 @@ public static partial class PgslCommands
         if (planarXY && game.Room is not null)
             foreach (var tile in new RoomTileCollisionMap(game.Room, ProjectPath).Solids)
                 obstacles.Add(new(new Vector3(tile.Left, -1, tile.Top), new Vector3(tile.Right, 2, tile.Bottom)));
+        // In a 3D room the tops of static boxes an agent fits on are floors of their own.
         var data = NavMeshBuilder.Build((float)originX, (float)originZ, (int)widthCells, (int)depthCells, (float)cellSize,
-            planarXY ? (_, _) => 0f : game.GetTerrainHeight, obstacles);
+            planarXY ? (_, _) => 0f : game.GetTerrainHeight, obstacles, floors: !planarXY);
         session.Query = new NavMeshQuery(data); session.Paths.Clear();
         game.World.Query<NavMeshAgentComponent>((entity, ref agent) => agent.Agent?.SetPath([]));
         string? file = NavigationFile();
@@ -119,6 +120,26 @@ public static partial class PgslCommands
     [PgslCommand("NavMeshGetAreaCost", "NavMeshGetAreaCost(x, z) -> number", "The area cost of the navigation cell at a point (1 unless set); in a 2D room z is y", "Navigation")]
     public static double NavMeshGetAreaCost(double x, double z) =>
         Navigation()?.Query?.AreaCostAt(new Vector3((float)x, 0, (float)z)) ?? 1;
+
+    [PgslCommand("NavMeshAddObstacle", "NavMeshAddObstacle(x1, y1, z1, x2, y2, z2) -> number",
+        "Block the navigation floors an agent would touch a box on (a cart parked, a door shut, a tree fallen) until NavMeshRemoveObstacle: routes found from then on go round it. In a 2D room x, y are the corners and z is not used. Returns its id; 0 without a mesh", "Navigation")]
+    public static double NavMeshAddObstacle(double x1, double y1, double z1, double x2, double y2, double z2)
+    {
+        var session = Navigation();
+        if (session?.Query == null || !Finite3(x1, y1, z1) || !Finite3(x2, y2, z2)) return 0;
+        bool planarXY = ActiveGameContext?.Room?.Dimension == Genesis.Runtime.Scene.RoomDimension.TwoD;
+        return planarXY
+            ? session.Query.AddObstacle(new Vector3((float)x1, -1, (float)y1), new Vector3((float)x2, 2, (float)y2))
+            : session.Query.AddObstacle(new Vector3((float)x1, (float)y1, (float)z1), new Vector3((float)x2, (float)y2, (float)z2));
+    }
+
+    [PgslCommand("NavMeshRemoveObstacle", "NavMeshRemoveObstacle(obstacleId) -> bool", "Take away an obstacle NavMeshAddObstacle placed; false when there is no such obstacle", "Navigation")]
+    public static bool NavMeshRemoveObstacle(double id) =>
+        double.IsFinite(id) && id >= 1 && id <= int.MaxValue && Navigation()?.Query?.RemoveObstacle((int)id) == true;
+
+    [PgslCommand("NavMeshAgentSetRadius", "NavMeshAgentSetRadius(radius)",
+        "How wide this agent is (its radius): its routes keep that far from walls and edges, so a cart or a giant takes the wide way round. 0 (the default) is the size the mesh was baked for, 0.35", "Navigation")]
+    public static void NavMeshAgentSetRadius(double radius) { if (Agent() is { } agent && double.IsFinite(radius)) agent.Radius = (float)Math.Clamp(radius, 0, 100); }
 
     [PgslCommand("NavMeshAddLink", "NavMeshAddLink(x1, y1, z1, x2, y2, z2, bothWays?, cost?) -> number",
         "Let routes go straight between two points walking cannot join (a jump down, a gap, a ladder, a door): one way unless bothWays (the default), for cost (the link's length when left out; more makes routes walk round instead). In a 2D room x, y are the point and z is not used. Set after NavMeshBake or a room load. Returns the link's id, 0 when an end is off the grid or cannot be stood on", "Navigation")]
@@ -150,13 +171,14 @@ public static partial class PgslCommands
         "How far across its link this agent is, 0 to 1 (for an arc or an animation's time); 0 while it walks", "Navigation")]
     public static double NavMeshAgentGetLinkProgress() => Agent()?.LinkProgress ?? 0;
 
-    [PgslCommand("NavMeshPathFind", "NavMeshPathFind(startX, startY, startZ, endX, endY, endZ) -> number", "Find a smoothed route; -1 means no route or mesh", "Navigation")]
-    public static double NavMeshPathFind(double startX, double startY, double startZ, double endX, double endY, double endZ)
+    [PgslCommand("NavMeshPathFind", "NavMeshPathFind(startX, startY, startZ, endX, endY, endZ, radius?) -> number", "Find a smoothed route (for an agent of radius, keeping that far from edges; the bake's 0.35 when left out); -1 means no route or mesh", "Navigation")]
+    public static double NavMeshPathFind(double startX, double startY, double startZ, double endX, double endY, double endZ, double radius = 0)
     {
         var session = Navigation();
         if (session?.Query == null || !Finite3(startX, startY, startZ) || !Finite3(endX, endY, endZ)) return -1;
         var path = FindPath(session, new((float)startX, (float)startY, (float)startZ),
-            new((float)endX, (float)endY, (float)endZ), ActiveGameContext?.Room?.Dimension == Genesis.Runtime.Scene.RoomDimension.TwoD);
+            new((float)endX, (float)endY, (float)endZ), ActiveGameContext?.Room?.Dimension == Genesis.Runtime.Scene.RoomDimension.TwoD,
+            double.IsFinite(radius) ? (float)Math.Clamp(radius, 0, 100) : 0f);
         if (path.Count == 0) return -1;
         if (session.Paths.Count >= 4096) throw new InvalidOperationException("Free unused navigation paths before requesting more.");
         int id = checked(session.NextPath++); session.Paths[id] = path; return id;
@@ -191,7 +213,7 @@ public static partial class PgslCommands
         var ctx = GetContext(); var agent = Agent(); var session = Navigation();
         if (ctx == null || agent == null || !Finite3(x, y, z)) return;
         agent.SetPath(session is null || session.Query is null ? [] : FindPath(session,
-            new((float)ctx.X, (float)ctx.Y, (float)ctx.Z), new((float)x, (float)y, agent.PlanarXY ? (float)ctx.Z : (float)z), agent.PlanarXY));
+            new((float)ctx.X, (float)ctx.Y, (float)ctx.Z), new((float)x, (float)y, agent.PlanarXY ? (float)ctx.Z : (float)z), agent.PlanarXY, agent.Radius));
     }
     [PgslCommand("NavMeshAgentSetSpeed", "NavMeshAgentSetSpeed(speed)", "Set movement speed in world units per second", "Navigation")]
     public static void NavMeshAgentSetSpeed(double speed) { if (Agent() is { } agent && double.IsFinite(speed)) agent.Speed = (float)Math.Clamp(speed, 0, 10000); }
@@ -335,19 +357,21 @@ public static partial class PgslCommands
                 avoidance = crowd.Enabled ? crowd.Steering : Vector3.Zero;
             }
             bool planarXY = component.Agent.PlanarXY;
+            float agentRadius = component.Agent.Radius;
             Vector3 to = component.Agent.Update(from, dt, (a, b) =>
             {
                 Vector3 navA = planarXY ? new Vector3(a.X, 0, a.Y) : a;
                 Vector3 navB = planarXY ? new Vector3(b.X, 0, b.Y) : b;
-                if (session.Query != null && !session.Query.CanTravel(navA, navB)) return false;
+                if (session.Query != null && !session.Query.CanTravel(navA, navB, agentRadius)) return false;
                 Vector3 delta = b - a; float length = delta.Length();
                 return length < 1e-5f || scene.Physics?.Raycast(scene.World, a + (planarXY ? Vector3.Zero : Vector3.UnitY * .9f), delta,
                     length + .35f, out _, entity) != true;
             }, avoidance);
-            int cell = session.Query?.Data.Cell(component.Agent.PlanarXY ? new Vector3(to.X, 0, to.Y) : to) ?? -1;
+            // The floor the agent is on (a deck, an upper storey or the ground under it).
+            int cell = session.Query?.Data.NodeAt(component.Agent.PlanarXY ? new Vector3(to.X, 0, to.Y) : to) ?? -1;
             // On a link the agent goes straight from one end's height to the other's.
             if (!component.Agent.PlanarXY && session.Query != null && cell >= 0 && component.Agent.CurrentLink == 0)
-                to.Y = session.Query.Data.Heights[cell];
+                to.Y = session.Query.Data.NodeHeight(cell);
             transform.X = to.X; transform.Y = to.Y; transform.Z = to.Z;
             if (hasCrowd)
             {

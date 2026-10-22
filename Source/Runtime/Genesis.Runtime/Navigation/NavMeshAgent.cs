@@ -32,6 +32,8 @@ public sealed class NavMeshAgent
     public bool PlanarXY { get; set; }
     public float Speed { get; set; } = 3.8f;
     public float StoppingDistance { get; set; } = .1f;
+    /// <summary>How wide the agent is: routes keep this far from edges (0: the size the mesh was baked for).</summary>
+    public float Radius { get; set; }
     public IReadOnlyList<Vector3> Path { get; private set; } = [];
     public int Waypoint { get; private set; }
     public bool HasPath => Path.Count > 0;
