@@ -312,6 +312,9 @@ internal static class AutomationSuite
             AutomationResult removed = Call("room.removeInstance", $$"""{ "room": "{{room}}", "instance": "{{name}}", "confirm": true }""");
             HeadlessHarness.Assert(removed.Ok && Genesis.Runtime.Scene.RoomAssetLoader.Parse(context.Resolve(room)).Nodes.All(n => n.Name != name),
                 "room.removeInstance left the instance: " + removed.Message);
+            AutomationResult noShadows = Call("room.setEnvironment", $$"""{ "room": "{{room}}", "values": { "shadows": false } }""");
+            HeadlessHarness.Assert(noShadows.Ok && !Genesis.Runtime.Scene.RoomAssetLoader.Parse(context.Resolve(room)).Environment.Shadows,
+                "A room's sun shadows could not be switched off: " + noShadows.Message);
         });
 
         HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.ObjectsAreComposedAsTheObjectEditorDoes", () =>

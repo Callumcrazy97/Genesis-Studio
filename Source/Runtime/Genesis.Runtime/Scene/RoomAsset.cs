@@ -331,6 +331,11 @@ public sealed class RoomEnvironment
     /// </summary>
     [JsonProperty("shadowDistance")] public float ShadowDistance { get; set; }
     /// <summary>
+    /// The sun casts shadows (default). Off for rooms whose shading is painted into their
+    /// pictures, as on handheld consoles, so no sun shadows fall across it.
+    /// </summary>
+    [JsonProperty("shadows")] public bool Shadows { get; set; } = true;
+    /// <summary>
     /// Scripted objects further than this from the camera rest: their step events are skipped
     /// until the camera comes back. Zero runs every object every frame, as a small room should.
     /// </summary>
