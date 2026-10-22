@@ -2418,6 +2418,21 @@ one is made in its place. The file is written when a viewport or the game closes
 seconds while new pipelines are being made. The render log gives each run's count ("Pipelines
 this run: N loaded from the library, M compiled"). `GENESIS_DX12_PIPELINE_LIBRARY=0` turns the
 library off. Vulkan's pipeline cache is not kept yet.
+## Texture streaming by distance (22 October 2026)
+
+Model textures are cooked at import to BC7 (normal maps to BC5) with their mips, and other
+textures get their mips when they are first read. A texture with mips larger than 512 texels a
+side now starts on the graphics card from the level that fits 512: a 4096 texture takes a
+sixty-fourth of its memory until something needs it, so a world full of big textures loads
+quickly. The texture's handle stays the same throughout.
+
+Each frame, every mesh drawn with a streamed texture says how much detail it needs: as many texels
+as the pixels it covers on screen. A texture asked for more is read again on a worker, from the
+level wanted, and swapped in at the start of a frame. When the textures on the card take more than
+the budget (`GENESIS_TEXTURE_BUDGET_MB`, 1 024 MB unless set), a texture whose detail has not
+been asked for in five seconds goes back to the level it is wanted at, never below its starting
+512. `GENESIS_TEXTURE_STREAMING=0` loads every texture whole, as before. The software renderer
+and pictures without mips (GUI images) are never streamed.
 ## Surface shaders, a shader per material and each instance's own camo
 
 Added 9 October 2026 (request 33 of the Aetherium port). [Mesh shaders](MeshShaders.md) has the

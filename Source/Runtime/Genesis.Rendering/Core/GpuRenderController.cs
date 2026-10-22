@@ -242,6 +242,8 @@ namespace Genesis.Rendering.Core
                 if (_texGpu[i].IsValid) _gpu.ReleaseTexture(_texGpu[i]);
             }
             _texGpu.Clear();
+            _streamed.Clear();
+            _streamedBytes = 0;
             _textureCache.Clear();
             if (_whiteTexture.IsValid) _gpu.ReleaseTexture(_whiteTexture);
             _whiteTexture = GpuTextureHandle.Invalid;
@@ -276,6 +278,7 @@ namespace Genesis.Rendering.Core
             DrainDeferredTextureReleases();
             BeginBackgroundTextureFrame();
             _gpu.BeginFrame();
+            UpdateTextureStreaming();
 
             _cameraPostProcessing = false;
             _fwd?.BeginSubmitFrame();
@@ -877,6 +880,7 @@ namespace Genesis.Rendering.Core
         public void SetCamera3D(Matrix4x4 view, Matrix4x4 projection)
         {
             _fwd?.SetCamera(view, projection);
+            NoteStreamingCamera(view, projection);
         }
 
         // Model layer images, given texture ids so GUI drawing can use them like any image.
@@ -1131,6 +1135,7 @@ namespace Genesis.Rendering.Core
                 if ((c.Flags & MeshDrawFlags.Emissive) != 0 && emissive <= 0f) emissive = 0.5f;
 
                 var color  = new Vector4(c.Tint.R, c.Tint.G, c.Tint.B, alpha);
+                if (_streamed.Count > 0) NoteStreamedTextureUse(c.Texture, c.Mesh, c.World);
                 GpuTextureHandle texture = GetGpuTexture(c.Texture);
                 GpuTextureHandle normal = ResolveGpuTexture(c.NormalMap.Id);
                 GpuTextureHandle orm = ResolveGpuTexture(c.OrmMap.Id);
@@ -1176,6 +1181,8 @@ namespace Genesis.Rendering.Core
         public void DrawMeshInstances(in MeshDrawCall template, ReadOnlySpan<MeshInstanceData> instances)
         {
             if (_fwd == null || !template.Mesh.IsValid || instances.IsEmpty) return;
+            if (_streamed.Count > 0 && _streamed.ContainsKey(template.Texture.Id))
+                for (int i = 0; i < instances.Length; i++) NoteStreamedTextureUse(template.Texture, template.Mesh, instances[i].World);
 
             float emissive = template.Emissive;
             if ((template.Flags & MeshDrawFlags.Emissive) != 0 && emissive <= 0f) emissive = 0.5f;
@@ -1546,6 +1553,7 @@ namespace Genesis.Rendering.Core
             // throw, DX12 draw black and Vulkan draw white for the rest of the frame.
             if (releaseGpu && _texGpu[idx].IsValid) _deferredTextureReleases.Add(_texGpu[idx]);
             _texGpu[idx] = GpuTextureHandle.Invalid;
+            ForgetStreamedTexture(handle.Id);
         }
 
         private readonly List<GpuTextureHandle> _deferredTextureReleases = new();

@@ -25,6 +25,10 @@ namespace Genesis.Rendering.Core
         {
             public GpuTextureDesc Desc;
             public byte[] Payload;
+            // A texture with mips: the whole picture's size, and the level its payload starts at
+            // (above 0 when the larger levels were left on disk; see TextureStreaming).
+            public bool Streamable;
+            public int FullWidth, FullHeight, FullMips, Top;
         }
 
         private sealed class TextureBeingRead
@@ -123,6 +127,7 @@ namespace Genesis.Rendering.Core
                     using var timed = LoadClock.Measure(LoadWork.Texture);
                     GpuTextureHandle texture = _gpu.CreateTexture(prepared.Desc, prepared.Payload);
                     _texGpu.Add(texture);
+                    RegisterStreamedTexture(_texGpu.Count, prepared, fullPath, space);
                     return new TextureHandle(_texGpu.Count);
                 }
                 catch (Exception exception)
@@ -160,7 +165,8 @@ namespace Genesis.Rendering.Core
             foreach ((string, TextureColorSpace) key in stale) _texturesBeingRead.Remove(key);
         }
 
-        private static async Task<PreparedTexture> ReadTextureWhenFreeAsync(string fullPath, TextureColorSpace colorSpace, bool softwareRasterizer)
+        private static async Task<PreparedTexture> ReadTextureWhenFreeAsync(string fullPath, TextureColorSpace colorSpace, bool softwareRasterizer,
+            int top = -1)
         {
             await TextureReaders.WaitAsync().ConfigureAwait(false);
             try
@@ -168,7 +174,7 @@ namespace Genesis.Rendering.Core
                 return await Task.Run(() =>
                 {
                     using (Genesis.Shared.Diagnostics.LoadProfile.Begin("texture read and decoded on a worker"))
-                        return PrepareTexture(fullPath, colorSpace, softwareRasterizer);
+                        return PrepareTexture(fullPath, colorSpace, softwareRasterizer, top);
                 }).ConfigureAwait(false);
             }
             finally
@@ -180,9 +186,10 @@ namespace Genesis.Rendering.Core
         /// <summary>
         /// Everything about loading a texture that needs no graphics card: the same choices, in
         /// the same order, as <see cref="LoadTextureUncached"/>. Safe on any thread. Null when
-        /// the file cannot be read as a texture.
+        /// the file cannot be read as a texture. A texture with mips starts at level
+        /// <paramref name="top"/> (-1: where streaming starts it; see TrimForStreaming).
         /// </summary>
-        private static PreparedTexture PrepareTexture(string fullPath, TextureColorSpace colorSpace, bool softwareRasterizer)
+        private static PreparedTexture PrepareTexture(string fullPath, TextureColorSpace colorSpace, bool softwareRasterizer, int top = -1)
         {
             try
             {
@@ -190,7 +197,7 @@ namespace Genesis.Rendering.Core
                     && CookedTextureManifestStore.TryResolve(fullPath, out string cookedPath, out CookedTextureManifest _)
                     && DdsTextureData.TryLoad(cookedPath, colorSpace, out DdsTextureData cooked))
                 {
-                    return new PreparedTexture
+                    return TrimForStreaming(new PreparedTexture
                     {
                         Desc = new GpuTextureDesc
                         {
@@ -204,7 +211,7 @@ namespace Genesis.Rendering.Core
                             DebugName = "Renderer.CookedTexture",
                         },
                         Payload = cooked.Payload,
-                    };
+                    }, top);
                 }
 
                 bool display = colorSpace == TextureColorSpace.Display;
@@ -262,7 +269,7 @@ namespace Genesis.Rendering.Core
                 }
 
                 byte[] chain = payload;
-                return new PreparedTexture
+                return TrimForStreaming(new PreparedTexture
                 {
                     Desc = new GpuTextureDesc
                     {
@@ -276,7 +283,7 @@ namespace Genesis.Rendering.Core
                         DebugName = srgb ? "Renderer.ColorTextureMips" : "Renderer.DataTextureMips",
                     },
                     Payload = chain,
-                };
+                }, softwareRasterizer ? NotStreamed : top);
             }
             catch (Exception exception)
             {

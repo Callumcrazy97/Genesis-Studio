@@ -6278,6 +6278,9 @@ namespace Genesis.Rendering.Primitives
 
         private bool IsMeshValid(int id) => TryGetMesh(id, out _);
 
+        /// <summary>The radius of a mesh's bounding sphere in its own space (1 when it is not known).</summary>
+        internal float MeshBoundsRadius(int id) => TryGetMesh(id, out MeshEntry mesh) && mesh.BoundsRadius > 0f ? mesh.BoundsRadius : 1f;
+
         private bool TryGetMesh(int id, out MeshEntry mesh)
         {
             if (id <= 0 || id > _meshes.Count)
