@@ -727,7 +727,8 @@ namespace Genesis.Rendering.Primitives
             0f, 0f, -1f, 0f,
             0f, 0f, 1f, 1f);
 
-        private Matrix4x4 SceneProj => _reversedDepth ? _proj * ReverseDepthClip : _proj;
+        // With temporal anti-aliasing the scene's projection carries this frame's nudge (Jittered).
+        private Matrix4x4 SceneProj => Jittered(_reversedDepth ? _proj * ReverseDepthClip : _proj);
         private Matrix4x4 SceneViewProj => _view * SceneProj;
         private float SceneClearDepth => _reversedDepth ? 0f : 1f;
         private float SceneDepthFlag => _reversedDepth ? 1f : 0f;
@@ -3531,6 +3532,8 @@ namespace Genesis.Rendering.Primitives
             // meaning it never wrote scene depth (held items, particles, etc.), so the post-process
             // structurally cannot see it and would otherwise leave it completely unfogged.
             bool canPost = allowPostProcess && viewW > 0 && viewH > 0;
+            // Before the main pass: the scene is drawn from the nudged camera.
+            PrepareTemporalJitter(canPost, viewW, viewH);
             bool screenFog = _state.FogEnabled && canPost;
             _particleLayerThisFrame = ShouldRunParticleLayer(canPost);
             _screenFogActiveThisFrame = screenFog;
@@ -3630,9 +3633,21 @@ namespace Genesis.Rendering.Primitives
                 // Outlines over the composited (and blurred) frame, under held items and post effects,
                 // so they stay sharp while the camera turns.
                 OutlinePass(composed, postDepth, viewW, viewH);
-                DrawViewModelPass(composed, whiteTexture);
+                if (antiAliasing != AntiAliasingMode.Taa)
+                    DrawViewModelPass(composed, whiteTexture);
                 if (antiAliasing != AntiAliasingMode.Off)
-                    RunAntiAliasing(antiAliasing, afterAntiAliasing, viewW, viewH);
+                    RunAntiAliasing(antiAliasing, afterAntiAliasing, viewW, viewH, postDepth);
+                if (antiAliasing == AntiAliasingMode.Taa)
+                {
+                    // The held items after the temporal pass, from the camera without the nudge:
+                    // they move with the camera, so their history would trail behind them.
+                    _taaThisFrame = false;
+                    Matrix4x4 lightFar = ComputeLightViewProj(ShadowCascadeKind.Far);
+                    Matrix4x4 lightMid = _cascade.CascadeCount >= 3 ? ComputeLightViewProj(ShadowCascadeKind.Mid) : lightFar;
+                    UploadPerFrame(SceneViewProj, lightFar, ComputeLightViewProj(ShadowCascadeKind.Near), lightMid);
+                    DrawViewModelPass(afterAntiAliasing, whiteTexture);
+                    _taaThisFrame = true;
+                }
                 if (HasPostEffects) RunPostEffects(target, postDepth, viewW, viewH, whiteTexture);
             }
             else

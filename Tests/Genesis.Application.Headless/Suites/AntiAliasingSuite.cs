@@ -157,8 +157,8 @@ internal static class AntiAliasingSuite
             Check(preferences.SelectCategory("Game"), "Preferences has no Game page.");
             GateSuite.Pump(3, 15);
             ComboBox picker = Descendants(preferences).OfType<ComboBox>().Single(combo => combo.Name == "AntiAliasingPicker");
-            Check(picker.Visible && picker.SelectedIndex == 0 && string.Join(",", picker.Items.Cast<object>()) == "Off,FXAA,SMAA",
-                $"The Game page does not offer Off/FXAA/SMAA with Off chosen: visible={picker.Visible} index={picker.SelectedIndex}.");
+            Check(picker.Visible && picker.SelectedIndex == 0 && string.Join(",", picker.Items.Cast<object>()) == "Off,FXAA,SMAA,TAA",
+                $"The Game page does not offer Off/FXAA/SMAA/TAA with Off chosen: visible={picker.Visible} index={picker.SelectedIndex}.");
             Button apply = Descendants(preferences).OfType<Button>().Single(button => button.Name == "ApplyPreferences");
             try
             {
@@ -408,10 +408,10 @@ internal static class AntiAliasingSuite
                     bool software = backend.Backend == RenderBackendOption.Software;
                     scene.PostEffects = Array.Empty<PostEffectRequest>();
 
-                    Bitmap? Frame(string mode)
+                    Bitmap? Frame(string mode, int frames = 3)
                     {
                         PgslCommands.RenderSetAntiAliasing(mode);
-                        Bitmap? image = viewport.ReadbackFrameToBitmap(3);
+                        Bitmap? image = viewport.ReadbackFrameToBitmap(frames);
                         image?.Save(Path.Combine(ctx.Captures, $"aa-{mode}-{name}.png"), ImageFormat.Png);
                         return image;
                     }
@@ -421,7 +421,10 @@ internal static class AntiAliasingSuite
                     AntiAliasingMode fxaaRan = viewport.Renderer?.GetStats().AntiAliasing ?? AntiAliasingMode.Off;
                     using Bitmap? smaa = Frame("smaa");
                     AntiAliasingMode smaaRan = viewport.Renderer?.GetStats().AntiAliasing ?? AntiAliasingMode.Off;
-                    if (off is null || fxaa is null || smaa is null || viewport.RenderFaultCount != 0 || off.Width < Width || off.Height < Height)
+                    // Temporal: enough frames for the history to take in every nudge of the camera.
+                    using Bitmap? taa = Frame("taa", 40);
+                    AntiAliasingMode taaRan = viewport.Renderer?.GetStats().AntiAliasing ?? AntiAliasingMode.Off;
+                    if (off is null || fxaa is null || smaa is null || taa is null || viewport.RenderFaultCount != 0 || off.Width < Width || off.Height < Height)
                     {
                         failures.Add(backend.ShortName + ": no frame " + viewport.LastRenderException);
                         continue;
@@ -430,34 +433,37 @@ internal static class AntiAliasingSuite
                     SaveZoom(ctx, off, $"aa-zoom-off-{name}.png");
                     SaveZoom(ctx, fxaa, $"aa-zoom-fxaa-{name}.png");
                     SaveZoom(ctx, smaa, $"aa-zoom-smaa-{name}.png");
+                    SaveZoom(ctx, taa, $"aa-zoom-taa-{name}.png");
 
                     int bright = off.GetPixel(100, 320).R;
-                    EdgeCounts plain = CountEdges(off, bright), soft = CountEdges(fxaa, bright), sharp = CountEdges(smaa, bright);
-                    readings.Add($"{backend.ShortName} bright={bright} off={plain} fxaa={soft} smaa={sharp} ran={fxaaRan}/{smaaRan}");
+                    EdgeCounts plain = CountEdges(off, bright), soft = CountEdges(fxaa, bright), sharp = CountEdges(smaa, bright), smooth = CountEdges(taa, bright);
+                    readings.Add($"{backend.ShortName} bright={bright} off={plain} fxaa={soft} smaa={sharp} taa={smooth} ran={fxaaRan}/{smaaRan}/{taaRan}");
 
-                    bool sameGuiFxaa = SameRegion(off, fxaa, GuiBox), sameGuiSmaa = SameRegion(off, smaa, GuiBox);
-                    if (!sameGuiFxaa || !sameGuiSmaa) failures.Add($"{backend.ShortName}: the GUI text changed (FXAA same={sameGuiFxaa}, SMAA same={sameGuiSmaa})");
+                    bool sameGuiFxaa = SameRegion(off, fxaa, GuiBox), sameGuiSmaa = SameRegion(off, smaa, GuiBox), sameGuiTaa = SameRegion(off, taa, GuiBox);
+                    if (!sameGuiFxaa || !sameGuiSmaa || !sameGuiTaa) failures.Add($"{backend.ShortName}: the GUI text changed (FXAA same={sameGuiFxaa}, SMAA same={sameGuiSmaa}, TAA same={sameGuiTaa})");
                     if (InkPixels(off, GuiBox) < 150) failures.Add($"{backend.ShortName}: the GUI text did not draw");
                     foreach (Point flat in new[] { new Point(100, 320), new Point(100, 60), new Point(600, 40), new Point(300, 330) })
                     {
-                        if (off.GetPixel(flat.X, flat.Y) != fxaa.GetPixel(flat.X, flat.Y) || off.GetPixel(flat.X, flat.Y) != smaa.GetPixel(flat.X, flat.Y))
+                        if (off.GetPixel(flat.X, flat.Y) != fxaa.GetPixel(flat.X, flat.Y) || off.GetPixel(flat.X, flat.Y) != smaa.GetPixel(flat.X, flat.Y)
+                            || off.GetPixel(flat.X, flat.Y) != taa.GetPixel(flat.X, flat.Y))
                             failures.Add($"{backend.ShortName}: a flat pixel at {flat} changed");
                     }
 
                     if (software)
                     {
                         // The CPU rasterizer runs no full-screen passes: the picture must not change.
-                        if (!SameRegion(off, fxaa, new Rectangle(0, 0, Width, Height)) || !SameRegion(off, smaa, new Rectangle(0, 0, Width, Height)))
+                        if (!SameRegion(off, fxaa, new Rectangle(0, 0, Width, Height)) || !SameRegion(off, smaa, new Rectangle(0, 0, Width, Height))
+                            || !SameRegion(off, taa, new Rectangle(0, 0, Width, Height)))
                             failures.Add("Software: asking for anti-aliasing changed the picture");
-                        if (fxaaRan != AntiAliasingMode.Off || smaaRan != AntiAliasingMode.Off)
-                            failures.Add($"Software: reports {fxaaRan}/{smaaRan} anti-aliasing");
+                        if (fxaaRan != AntiAliasingMode.Off || smaaRan != AntiAliasingMode.Off || taaRan != AntiAliasingMode.Off)
+                            failures.Add($"Software: reports {fxaaRan}/{smaaRan}/{taaRan} anti-aliasing");
                         continue;
                     }
 
                     if (bright < 120) failures.Add($"{backend.ShortName}: the shape is too dark ({bright}) to judge its edges");
                     if (plain.TopColumns != 0 || plain.SideRows != 0)
                         failures.Add($"{backend.ShortName}: without anti-aliasing the edges already hold in-between values ({plain})");
-                    foreach ((string mode, EdgeCounts counts, AntiAliasingMode ran) in new[] { ("FXAA", soft, fxaaRan), ("SMAA", sharp, smaaRan) })
+                    foreach ((string mode, EdgeCounts counts, AntiAliasingMode ran) in new[] { ("FXAA", soft, fxaaRan), ("SMAA", sharp, smaaRan), ("TAA", smooth, taaRan) })
                     {
                         if (counts.TopColumns < counts.TopTotal * 0.6 || counts.SideRows < counts.SideTotal * 0.6)
                             failures.Add($"{backend.ShortName}: {mode} left the edges hard ({counts})");

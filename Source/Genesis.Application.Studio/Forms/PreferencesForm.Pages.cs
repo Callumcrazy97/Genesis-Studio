@@ -499,10 +499,10 @@ public sealed partial class PreferencesForm
     {
         PreferencePage page = NewPage("Game");
         SettingsSection play = page.Section("Playing");
-        ConfigureCombo(_antiAliasing, ["Off", "FXAA", "SMAA"], 200);
+        ConfigureCombo(_antiAliasing, ["Off", "FXAA", "SMAA", "TAA"], 200);
         play.Add("Esc closes the game", "Turn off when the game uses Esc itself, for a pause menu.", _allowEscapeToClose, searchText: "escape");
-        play.Add("Smooth 3D edges", "Anti-aliasing before the GUI is drawn, so text stays sharp. FXAA is cheapest; SMAA is sharper. RenderSetAntiAliasing changes it in a game.",
-            _antiAliasing, 200, "anti-aliasing fxaa smaa");
+        play.Add("Smooth 3D edges", "Anti-aliasing before the GUI is drawn, so text stays sharp. FXAA is cheapest; SMAA is sharper; TAA blends frames over time for the smoothest edges and fine detail. RenderSetAntiAliasing changes it in a game.",
+            _antiAliasing, 200, "anti-aliasing fxaa smaa taa temporal");
         play.Add("Blend the GUI in linear light", "GUI shapes, text and images mix with the screen as light does. Off draws exactly as before.", _blendGuiInLinearLight);
 
         SettingsSection fog = page.Section("Engine fog");

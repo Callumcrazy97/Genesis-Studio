@@ -9,7 +9,7 @@ namespace Genesis.Runtime.Scripting;
 public static partial class PgslCommands
 {
     [PgslCommand("RenderSetAntiAliasing", "RenderSetAntiAliasing(mode) -> bool",
-        "Smooth the jagged edges of the 3D picture: \"off\", \"fxaa\" (one pass, softest) or \"smaa\" (sharper, three passes); the GUI is never softened. False for any other name", "Display")]
+        "Smooth the jagged edges of the 3D picture: \"off\", \"fxaa\" (one pass, softest) or \"smaa\" (sharper, three passes), or \"taa\" (frames blended over time: smoothest, best on fine detail); the GUI is never softened. False for any other name", "Display")]
     public static bool RenderSetAntiAliasing(string mode)
     {
         if (!AntiAliasingModes.TryParse(mode, out AntiAliasingMode parsed)) return false;
@@ -18,7 +18,7 @@ public static partial class PgslCommands
     }
 
     [PgslCommand("RenderGetAntiAliasing", "RenderGetAntiAliasing() -> string",
-        "The anti-aliasing asked for: \"off\", \"fxaa\" or \"smaa\"", "Display")]
+        "The anti-aliasing asked for: \"off\", \"fxaa\", \"smaa\" or \"taa\"", "Display")]
     public static string RenderGetAntiAliasing() => AntiAliasingModes.Name(MeshLightingDefaults.AntiAliasing);
 
     [PgslCommand("RenderSetQuality", "RenderSetQuality(tier) -> bool",

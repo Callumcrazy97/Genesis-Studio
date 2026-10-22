@@ -1773,11 +1773,11 @@ does not ask draws exactly as before.
 
 | Setting or command | Meaning |
 |---|---|
-| Preferences › Project › **Anti-aliasing (3D)** (`rendering.antiAliasing` in the project file: `"Off"`, `"FXAA"` or `"SMAA"`) | What the game starts with, in the Player and in an exported game, and what Studio's 3D viewports show. Off by default. |
-| `RenderSetAntiAliasing(mode)` | `"off"`, `"fxaa"` or `"smaa"`, from the next frame; false for any other name. |
+| Preferences › Project › **Anti-aliasing (3D)** (`rendering.antiAliasing` in the project file: `"Off"`, `"FXAA"`, `"SMAA"` or `"TAA"`) | What the game starts with, in the Player and in an exported game, and what Studio's 3D viewports show. Off by default. |
+| `RenderSetAntiAliasing(mode)` | `"off"`, `"fxaa"`, `"smaa"` or `"taa"`, from the next frame; false for any other name. |
 | `RenderGetAntiAliasing()` | The mode asked for. |
 | `Engine.Rendering.AntiAliasing` | The same as a property. |
-| `GENESIS_ANTI_ALIASING` | Environment override for one run (`off`, `fxaa`, `smaa`); it wins over the project file. |
+| `GENESIS_ANTI_ALIASING` | Environment override for one run (`off`, `fxaa`, `smaa`, `taa`); it wins over the project file. |
 
 **FXAA** is one full-screen pass: it finds each step whose change in brightness is large enough to
 see, walks along the edge to both ends and blends the pixel with its neighbour across the edge by
@@ -1788,6 +1788,15 @@ each way and its ends read as an L, U or Z) and the area the true edge would cov
 then each pixel is blended with its neighbours by those areas. Texture detail stays sharper. It
 finds horizontal and vertical edge patterns; the reference's diagonal and corner passes are not
 done, and no lookup textures ship. Both blend in linear light, as a multisampled resolve does.
+
+**TAA** (temporal, since 22 October 2026) draws each frame from a camera nudged by under a pixel, a
+different nudge each frame (eight points of the Halton 2, 3 sequence), and blends the frame into
+the image built up from the frames before it: about the last ten count. Each pixel takes that
+history from where its point was last frame, worked out from the depth buffer and the camera's
+motion, and keeps it within the range of colours around the pixel now, so a moving thing or a
+newly uncovered one does not leave a trail. Edges and fine detail (wires, leaves, distant fences)
+are the smoothest of the three; something moving by itself can look a little soft. The held items
+are drawn after it, so they stay sharp. Two full-screen passes.
 
 Where it runs in a frame: the composite (fog, bloom, exposure, grading, tonemap) → the held items
 (view models) → **anti-aliasing** → the project's post effects → the GUI. The GUI is drawn after

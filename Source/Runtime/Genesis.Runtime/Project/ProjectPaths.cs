@@ -169,7 +169,7 @@ namespace Genesis.Runtime.Project
         }
 
         /// <summary>
-        /// The project's <c>rendering.antiAliasing</c> setting ("Off", "FXAA" or "SMAA"); null when the
+        /// The project's <c>rendering.antiAliasing</c> setting ("Off", "FXAA", "SMAA" or "TAA"); null when the
         /// project names none or names one this engine does not know.
         /// </summary>
         public static Genesis.Shared.Interfaces.AntiAliasingMode? ReadAntiAliasing(string projectPath)

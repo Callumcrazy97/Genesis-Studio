@@ -25,22 +25,31 @@ namespace Genesis.Shared.Interfaces
         /// than FXAA; three passes.
         /// </summary>
         Smaa = 2,
+
+        /// <summary>
+        /// Temporal anti-aliasing: each frame is drawn from a camera nudged by under a pixel and
+        /// blended into the frames before it, followed by the camera's motion. Smoothest edges and
+        /// fine detail (thin wires, leaves, distant fences); things that move by themselves can
+        /// look a little soft.
+        /// </summary>
+        Taa = 3,
     }
 
     /// <summary>Names of <see cref="AntiAliasingMode"/> as scripts and project files write them.</summary>
     public static class AntiAliasingModes
     {
-        /// <summary>The script name of a mode: "off", "fxaa" or "smaa".</summary>
+        /// <summary>The script name of a mode: "off", "fxaa", "smaa" or "taa".</summary>
         public static string Name(AntiAliasingMode mode) => mode switch
         {
             AntiAliasingMode.Fxaa => "fxaa",
             AntiAliasingMode.Smaa => "smaa",
+            AntiAliasingMode.Taa => "taa",
             _ => "off",
         };
 
         /// <summary>
-        /// Reads "off", "fxaa" or "smaa" in any case ("none", "false" and "0" mean off; "1" is FXAA,
-        /// "2" is SMAA). False for anything else.
+        /// Reads "off", "fxaa", "smaa" or "taa" in any case ("none", "false" and "0" mean off; "1" is
+        /// FXAA, "2" is SMAA, "3" and "temporal" are TAA). False for anything else.
         /// </summary>
         public static bool TryParse(string text, out AntiAliasingMode mode)
         {
@@ -49,6 +58,7 @@ namespace Genesis.Shared.Interfaces
                 case "off": case "none": case "false": case "0": mode = AntiAliasingMode.Off; return true;
                 case "fxaa": case "1": mode = AntiAliasingMode.Fxaa; return true;
                 case "smaa": case "smaa1x": case "smaa 1x": case "2": mode = AntiAliasingMode.Smaa; return true;
+                case "taa": case "temporal": case "3": mode = AntiAliasingMode.Taa; return true;
                 default: mode = AntiAliasingMode.Off; return false;
             }
         }

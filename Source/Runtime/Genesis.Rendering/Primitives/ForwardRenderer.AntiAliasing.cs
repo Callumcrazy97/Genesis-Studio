@@ -64,6 +64,8 @@ namespace Genesis.Rendering.Primitives
             {
                 AntiAliasingMode.Fxaa when !IsSoftwareBackend && EnsureFxaaProgram() => AntiAliasingMode.Fxaa,
                 AntiAliasingMode.Smaa when !IsSoftwareBackend && EnsureSmaaPrograms() => AntiAliasingMode.Smaa,
+                // Decided before the scene was drawn (PrepareTemporalJitter): the nudge is in it.
+                AntiAliasingMode.Taa when _taaThisFrame => AntiAliasingMode.Taa,
                 _ => AntiAliasingMode.Off,
             };
             if (mode != _antiAliasLogged)
@@ -186,12 +188,14 @@ namespace Genesis.Rendering.Primitives
             _aaSourceTarget = GpuRenderTargetHandle.Invalid;
             _aaSourceTexture = GpuTextureHandle.Invalid;
             ReleaseSmaaTargets();
+            ReleaseTaaTargets();
             _aaWidth = _aaHeight = 0;
         }
 
         private void ReleaseAntiAliasResources()
         {
             ReleaseAntiAliasTargets();
+            ReleaseTaaResources();
             foreach (GpuShaderProgramHandle program in new[] { _fxaaProgram, _smaaEdgesProgram, _smaaWeightsProgram, _smaaBlendProgram })
                 if (program.IsValid) _gpu.ReleaseShaderProgram(program);
             _fxaaProgram = _smaaEdgesProgram = _smaaWeightsProgram = _smaaBlendProgram = GpuShaderProgramHandle.Invalid;
@@ -200,13 +204,17 @@ namespace Genesis.Rendering.Primitives
         }
 
         /// <summary>Anti-aliases the composed image into <paramref name="output"/>.</summary>
-        private void RunAntiAliasing(AntiAliasingMode mode, GpuRenderTargetHandle output, int width, int height)
+        private void RunAntiAliasing(AntiAliasingMode mode, GpuRenderTargetHandle output, int width, int height, GpuTextureHandle depth)
         {
             long started = Stopwatch.GetTimestamp();
             width = Math.Max(1, width);
             height = Math.Max(1, height);
             var metrics = new Vector4(1f / width, 1f / height, width, height);
-            if (mode == AntiAliasingMode.Smaa)
+            if (mode == AntiAliasingMode.Taa)
+            {
+                RunTemporalAntiAliasing(output, depth, width, height);
+            }
+            else if (mode == AntiAliasingMode.Smaa)
             {
                 DrawAntiAliasPass(_smaaEdgesTarget, _smaaEdgesProgram, metrics, SmaaParams, "SMAA edges",
                     _aaSourceTexture, GpuTextureHandle.Invalid, GpuTextureHandle.Invalid);

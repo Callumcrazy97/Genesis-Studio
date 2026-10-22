@@ -670,7 +670,7 @@ public sealed partial class PreferencesForm : DpiAwareForm
         ProjectRenderingSettings fog = _project.Manifest.Rendering;
         fog.FogEnabled = _fogEnabled.Checked;
         fog.BlendGuiInLinearLight = _blendGuiInLinearLight.Checked;
-        fog.AntiAliasing = _antiAliasing.SelectedIndex switch { 1 => "FXAA", 2 => "SMAA", _ => "Off" };
+        fog.AntiAliasing = _antiAliasing.SelectedIndex switch { 1 => "FXAA", 2 => "SMAA", 3 => "TAA", _ => "Off" };
         fog.FogColorHex = NormalizeFogHex(_fogColor.Text);
         fog.FogStart = (float)_fogDepth.Value;
         fog.FogEnd = fog.FogStart + Math.Max(0.1f, (float)_fogThickness.Value);
