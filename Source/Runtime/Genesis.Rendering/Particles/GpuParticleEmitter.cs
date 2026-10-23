@@ -28,6 +28,8 @@ public sealed class GpuParticleEmitter : IDisposable
     private double? _lastGpuMilliseconds;
     private bool _hasCounts;
     private float _sinceReadback;
+    // The first step is timed at once.
+    private float _sinceTiming = float.PositiveInfinity;
     private long _completedSteps;
     private readonly long _allocation;
     private readonly string _execution;
@@ -123,8 +125,14 @@ public sealed class GpuParticleEmitter : IDisposable
         }
         PollDiagnostics();
         GpuQueryHandle query = default;
-        if (_gpu.Capabilities.SupportsTimestampQueries && _timestamps.Count < 3)
+        // A step is timed as often as its counts are read (DiagnosticsInterval), not in every frame:
+        // a timestamp scope for each effect each frame, and its result looked for, were much of what
+        // the effects cost the CPU, for a number shown in diagnostics.
+        if (_gpu.Capabilities.SupportsTimestampQueries && _timestamps.Count < 3 && _sinceTiming >= _diagnosticsInterval)
+        {
             query = _gpu.BeginTimestampScope();
+            _sinceTiming = 0;
+        }
         Dispatch("BeginStep", 1);
         foreach (ParticleEventConnection link in parents)
         {
@@ -150,6 +158,7 @@ public sealed class GpuParticleEmitter : IDisposable
         if (query.IsValid) { _gpu.EndTimestampScope(query); _timestamps.Enqueue(query); }
         _time += delta; _completedSteps++;
         _sinceReadback += delta;
+        _sinceTiming += delta;
         if (!_readback.IsValid && (!_hasCounts || _sinceReadback >= _diagnosticsInterval))
         {
             _readback = _gpu.BeginBufferReadback(_pool, 0, GpuParticleProtocol.CounterBytes);

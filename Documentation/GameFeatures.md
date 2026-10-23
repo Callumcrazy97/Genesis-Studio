@@ -520,6 +520,11 @@ Vulkan device still allocates about half a kilobyte for each emitter's dispatche
 bursts still cost each emitter's GPU commands every frame (about 17 µs each on Direct3D 12): for
 hundreds, batch them.
 
+Since 23 October an emitter's step is timed on the graphics card as often as its counts are read
+(ten times a second), not in every frame. 300 standing bursts that day: 2.35 ms on Direct3D 11,
+4.87 ms on Direct3D 12, 4.16 ms on OpenGL and 6.72 ms on Vulkan (p90 2.80, 5.07, 4.26, 7.18), against
+the 9 October ranges above (other changes came between; not a same-day comparison).
+
 ## 2D lights and darkness in a room (11 October 2026)
 
 A 2D room is never darkened unless its game asks: `Light2DAmbient(amount, r, g, b)` darkens the
