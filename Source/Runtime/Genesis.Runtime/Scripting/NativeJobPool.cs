@@ -36,6 +36,9 @@ internal sealed class NativeJobPool
     /// <summary>Most script jobs that run at once.</summary>
     internal static readonly int ScriptWorkerCount = Math.Max(1, Environment.ProcessorCount - 2);
     private static readonly BlockingCollection<Action> ScriptQueue = new();
+    // Urgent jobs (JobScriptUrgent) are taken before any waiting in the normal queue.
+    private static readonly BlockingCollection<Action> UrgentQueue = new();
+    private static readonly BlockingCollection<Action>[] Queues = [UrgentQueue, ScriptQueue];
     private static int _scriptThreads, _idleScriptThreads;
     /// <summary>Script worker threads started so far.</summary>
     internal static int ScriptThreads => Volatile.Read(ref _scriptThreads);
@@ -47,7 +50,7 @@ internal sealed class NativeJobPool
     private int _next;
     private readonly object _gate = new();
     // Launched jobs held until the jobs they wait for (JobScriptAfter) have finished.
-    private sealed record Waiting(Job Job, Job[] After, Func<CancellationToken, Result> Operation, Action? Ended);
+    private sealed record Waiting(Job Job, Job[] After, Func<CancellationToken, Result> Operation, Action? Ended, bool Urgent);
     private readonly List<Waiting> _waiting = [];
 
     public int Start(string kind, Func<CancellationToken, Result> operation)
@@ -87,7 +90,7 @@ internal sealed class NativeJobPool
     /// first. With <paramref name="after"/>, the job reads as "waiting" until those jobs of this pool
     /// have finished (succeeded, failed or cancelled), then goes to a worker.
     /// </summary>
-    public bool Launch(int id, Func<CancellationToken, Result> operation, Action? ended = null, IReadOnlyList<int>? after = null)
+    public bool Launch(int id, Func<CancellationToken, Result> operation, Action? ended = null, IReadOnlyList<int>? after = null, bool urgent = false)
     {
         lock (_gate)
         {
@@ -102,8 +105,8 @@ internal sealed class NativeJobPool
                 if (job.State != "prepared") return false;
                 job.State = pending == null ? "queued" : "waiting"; job.Payload = null; job.WorkEnded = false;
             }
-            if (pending == null) RunOnScriptThread(job, job.Kind, operation, ended, this);
-            else _waiting.Add(new Waiting(job, [.. pending], operation, ended));
+            if (pending == null) RunOnScriptThread(job, job.Kind, operation, ended, this, urgent);
+            else _waiting.Add(new Waiting(job, [.. pending], operation, ended, urgent));
             return true;
         }
     }
@@ -124,7 +127,7 @@ internal sealed class NativeJobPool
                 _waiting.RemoveAt(i--);
                 if (cancelled) { EndWaiting(waiting); continue; }
                 lock (waiting.Job) waiting.Job.State = "queued";
-                RunOnScriptThread(waiting.Job, waiting.Job.Kind, waiting.Operation, waiting.Ended, this);
+                RunOnScriptThread(waiting.Job, waiting.Job.Kind, waiting.Operation, waiting.Ended, this, waiting.Urgent);
             }
         }
     }
@@ -150,9 +153,22 @@ internal sealed class NativeJobPool
         EndWaiting(waiting);
     }
 
-    private static void RunOnScriptThread(Job job, string kind, Func<CancellationToken, Result> operation, Action? ended, NativeJobPool owner)
+    /// <summary>
+    /// For checks: every script worker waits until <paramref name="release"/> is set, so jobs started
+    /// meanwhile queue behind them; <paramref name="holding"/> is signalled by each worker as it waits.
+    /// </summary>
+    internal static void HoldWorkers(ManualResetEventSlim release, CountdownEvent holding)
     {
-        ScriptQueue.Add(() =>
+        for (int i = 0; i < ScriptWorkerCount; i++)
+        {
+            ScriptQueue.Add(() => { holding.Signal(); release.Wait(); });
+            StartThreadsFor();
+        }
+    }
+
+    private static void RunOnScriptThread(Job job, string kind, Func<CancellationToken, Result> operation, Action? ended, NativeJobPool owner, bool urgent = false)
+    {
+        (urgent ? UrgentQueue : ScriptQueue).Add(() =>
         {
             bool endedCalled = false;
             void End()
@@ -180,8 +196,13 @@ internal sealed class NativeJobPool
                 owner.OnJobEnded();
             }
         });
-        // More threads while more jobs wait than threads are free, up to the limit.
-        while (ScriptQueue.Count > Volatile.Read(ref _idleScriptThreads))
+        StartThreadsFor();
+    }
+
+    // More threads while more jobs wait than threads are free, up to the limit.
+    private static void StartThreadsFor()
+    {
+        while (ScriptQueue.Count + UrgentQueue.Count > Volatile.Read(ref _idleScriptThreads))
         {
             int started = Volatile.Read(ref _scriptThreads);
             if (started >= ScriptWorkerCount) break;
@@ -197,7 +218,9 @@ internal sealed class NativeJobPool
     {
         while (true)
         {
-            Action work = ScriptQueue.Take();
+            // The urgent queue first (TakeFromAny takes from the first collection with work).
+            BlockingCollection<Action>.TakeFromAny(Queues, out Action? work);
+            if (work == null) continue;
             Interlocked.Decrement(ref _idleScriptThreads);
             work();
             Interlocked.Increment(ref _idleScriptThreads);

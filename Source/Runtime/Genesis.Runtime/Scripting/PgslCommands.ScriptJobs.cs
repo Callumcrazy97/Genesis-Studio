@@ -97,6 +97,8 @@ public static partial class PgslCommands
         public readonly List<int> Meshes = [];
         /// <summary>Jobs of this Object it waits for (JobScriptAfter); it reads what they changed.</summary>
         public readonly List<int> After = [];
+        /// <summary>Taken by a worker before normal jobs waiting (JobScriptUrgent).</summary>
+        public bool Urgent;
     }
 
     /// <summary>What a finished script job hands back: the function's result and the data to copy out.</summary>
@@ -254,6 +256,17 @@ public static partial class PgslCommands
         return true;
     }
 
+    [PgslCommand("JobScriptUrgent", "JobScriptUrgent(job, urgent) -> bool",
+        "Have a prepared job taken by the next free worker before the normal jobs waiting (the chunk beside the player before far ones); jobs of one kind still go in the order they start", "Native Jobs")]
+    public static bool JobScriptUrgent(double job, bool urgent)
+    {
+        ScriptJobSetup setup = PreparedJob(job);
+        if (setup == null) return Refuse("Not a prepared script job (JobScriptCreate makes one; it is marked before JobScriptStart).");
+        setup.Urgent = urgent;
+        SetJobError(string.Empty);
+        return true;
+    }
+
     [PgslCommand("JobScriptBudget", "JobScriptBudget(job, instructions) -> bool",
         "Instructions a prepared job may run in all (100 000 000 unless set; 1 000 to 2 000 000 000)", "Native Jobs")]
     public static bool JobScriptBudget(double job, double instructions)
@@ -366,7 +379,7 @@ public static partial class PgslCommands
             setup.Budget, game, owner.RoomWidth, owner.RoomHeight, lentCopies,
             setup.Meshes.Count == 0 ? [] : [.. setup.Meshes], setup.After.Count == 0 ? [] : [.. setup.After], pool);
         // The job lets go of its data once its work has ended (or it ended without running).
-        if (!pool.Launch(JobId(job), token => RunScriptJob(run, token), () => ReleaseShared(held), setup.After.Count > 0 ? setup.After : null))
+        if (!pool.Launch(JobId(job), token => RunScriptJob(run, token), () => ReleaseShared(held), setup.After.Count > 0 ? setup.After : null, setup.Urgent))
         {
             ReleaseShared(held);
             ReturnGridCopies(lentCopies);

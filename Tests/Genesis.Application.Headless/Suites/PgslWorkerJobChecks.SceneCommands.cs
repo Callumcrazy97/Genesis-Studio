@@ -132,6 +132,42 @@ internal static partial class PgslWorkerJobChecks
                 $"Only each job's ranges and rectangles should come back (got \"{after}\", wanted \"1110022200 1110022200 11000011\").");
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.Jobs.AnUrgentJobGoesBeforeOnesWaiting", () =>
+        {
+            using Bench bench = new();
+            int workers = NativeJobPool.ScriptWorkerCount;
+            // Every worker held, so both jobs queue; then let go. (Not disposed: a worker may still be
+            // leaving its wait, and one left waiting would hold a worker for good, hence the finally.)
+            var release = new ManualResetEventSlim(false);
+            var holding = new CountdownEvent(workers);
+            bool held;
+            double normal, urgent;
+            try
+            {
+                NativeJobPool.HoldWorkers(release, holding);
+                held = holding.Wait(TimeSpan.FromSeconds(20));
+                normal = bench.Number("""r = JobRunScript("WjSpin", 10);""");
+                urgent = bench.Number("""ju = JobScriptCreate("WjSpin"); JobScriptUrgent(ju, true); JobScriptStart(ju, 10); r = ju;""");
+            }
+            finally { release.Set(); }
+            bool inOrder = held;
+            long started = System.Diagnostics.Stopwatch.GetTimestamp();
+            while (System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalSeconds < 20)
+            {
+                // The normal job first: once it has left the queue the urgent one must have left before it.
+                string normalState = PgslCommands.JobStatus(normal);
+                string urgentState = PgslCommands.JobStatus(urgent);
+                if (normalState != "queued" && urgentState == "queued") { inOrder = false; break; }
+                if (normalState != "queued") break;
+                Thread.Yield();
+            }
+            string urgentEnd = bench.Wait(urgent), normalEnd = bench.Wait(normal);
+            PgslCommands.JobRelease(normal); PgslCommands.JobRelease(urgent);
+            row("Jobs: urgent", "an urgent job is taken before normal ones waiting", inOrder ? "PASS" : "FAIL", $"{workers} workers kept busy; urgent {urgentEnd}, normal {normalEnd}");
+            HeadlessHarness.Assert(inOrder && urgentEnd == "succeeded" && normalEnd == "succeeded",
+                $"The urgent job should leave the queue before the normal one started earlier (in order {inOrder}; {urgentEnd}, {normalEnd}).");
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Engine.Runtime.FrameBudget.ReportsEachPartAgainstItsBudget", () =>
         {
             bool wasEnabled = FrameBudget.Enabled;
