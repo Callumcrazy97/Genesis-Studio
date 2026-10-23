@@ -82,6 +82,7 @@ namespace Genesis.Runtime.Project
             Genesis.Runtime.Rendering.ScriptMeshes.Reset();
             Genesis.Runtime.Rendering.StaticMeshLayer.Clear();
             PgslCommands.ClearSceneCommands();
+            ListStorage.Clear();
             Genesis.Runtime.Particles.ParticleBursts.ResetLimit();
             Genesis.Runtime.Rendering.ScriptTextures.Reset();
             Genesis.Runtime.Rendering.ModelLayers.Reset();

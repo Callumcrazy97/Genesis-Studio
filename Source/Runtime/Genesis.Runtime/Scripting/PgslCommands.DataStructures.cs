@@ -140,7 +140,13 @@ public static partial class PgslCommands
     }
 
     [PgslCommand("DsListDestroy", "DsListDestroy(id)", "Release a list", "Lists")]
-    public static void DsListDestroy(double id) => Unbind("list", id);
+    public static void DsListDestroy(double id)
+    {
+        // A large list's own storage (not one a job still reads) is kept for a later DsListReserve.
+        if (double.IsFinite(id) && Store is { } store && store.TryGetValue(DsKey("list", (int)id), out object held) && held is List<object> list)
+            ListStorage.Return(list);
+        Unbind("list", id);
+    }
 
     [PgslCommand("DsListClear", "DsListClear(id)", "Remove every entry", "Lists")]
     public static void DsListClear(double id)
@@ -159,7 +165,14 @@ public static partial class PgslCommands
         List<object> list = Resolve<List<object>>("list", id);
         if (list is null) return;
         int wanted = (int)Math.Min(count, MaxCollectionElements);
-        if (list.Capacity < wanted) list.Capacity = wanted;
+        if (list.Capacity >= wanted) return;
+        // An empty list takes the storage of one destroyed earlier when there is one big enough.
+        if (list.Count == 0 && ListStorage.Take(wanted) is { } kept)
+        {
+            Bind("list", (int)id, kept);
+            return;
+        }
+        list.Capacity = wanted;
     }
 
     [PgslCommand("DsListSize", "DsListSize(id) -> number", "Entry count", "Lists")]

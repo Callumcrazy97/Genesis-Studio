@@ -38,7 +38,7 @@ internal readonly struct VmValue
     };
     public object ToObject()
     {
-        if (ReferenceEquals(_reference, DoubleMarker)) return BoxedNumbers.Of(_number);
+        if (ReferenceEquals(_reference, DoubleMarker)) return PgslCommands.BoxNumber(_number);
         if (ReferenceEquals(_reference, IntegerMarker)) return BoxedNumbers.Of((int)_number);
         if (IsBoolean) return _number != 0 ? BoxedNumbers.True : BoxedNumbers.False;
         return _reference;

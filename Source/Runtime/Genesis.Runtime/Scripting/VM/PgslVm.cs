@@ -252,7 +252,10 @@ public class PgslVm
     /// </summary>
     public IDisposable EnterScriptScope(object[] args, Dictionary<string, UserFunction> functions)
     {
-        var scope = new ScriptScope(this);
+        // Scopes are reused: a game calling a Script as a command every frame made a scope and two
+        // lists for each call.
+        ScriptScope scope = _scopePool.Count > 0 ? _scopePool.Pop() : new ScriptScope(this);
+        scope.Begin();
         int slots = Math.Max(args?.Length ?? 0, ArgumentCount());
         for (int i = 0; i < slots; i++) scope.Remember(SlotName(ArgumentNames, "argument", i));
         scope.Remember("argument_count");
@@ -268,6 +271,8 @@ public class PgslVm
             ? Math.Max(0, (int)Convert.ToDouble(value, System.Globalization.CultureInfo.InvariantCulture))
             : 0;
 
+    private readonly Stack<ScriptScope> _scopePool = new();
+
     private sealed class ScriptScope : IDisposable
     {
         private readonly PgslVm _vm;
@@ -276,6 +281,13 @@ public class PgslVm
         private bool _ended;
 
         public ScriptScope(PgslVm vm) => _vm = vm;
+
+        public void Begin()
+        {
+            _ended = false;
+            _variables.Clear();
+            _functions.Clear();
+        }
 
         public void Remember(string name)
         {
@@ -303,6 +315,10 @@ public class PgslVm
             foreach ((string name, UserFunction function) in _functions)
                 if (function != null) _vm._userFunctions[name] = function;
             if (_functions.Count > 0) _vm._callTargets.Clear();
+            // Emptied for the next scope (its remembered values would otherwise keep text alive).
+            _variables.Clear();
+            _functions.Clear();
+            if (_vm._scopePool.Count < 64) _vm._scopePool.Push(this);
         }
     }
 
@@ -1776,6 +1792,8 @@ public class PgslVm
     private static string SlotName(string[] cache, string prefix, int slot) =>
         (uint)slot < (uint)cache.Length ? cache[slot] : prefix + slot;
 
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> PlainUnsetReads = new(StringComparer.Ordinal);
+
     private VmValue ResolvePGSLPropertyOrZero(string name)
     {
         if (ScriptingDebugSettings.VmUseRegisterFile)
@@ -1787,12 +1805,23 @@ public class PgslVm
 
         if (_bridge is PgslEngineBridge engine)
         {
+            // A name already found to be no command, property or Script is 0 at once while the
+            // project's assets are unchanged: each such read went through every lookup and built an
+            // explanation (searching the resource catalog), every frame. Not in a worker job, where
+            // such a read is an error.
+            long generation = Genesis.Shared.Assets.RuntimeAssetPolicy.Generation;
+            if (!engine.IsWorker && PlainUnsetReads.TryGetValue(name, out long seen) && seen == generation)
+            {
+                Genesis.Runtime.Scripting.PgslRuntimeDiagnostics.Note(Genesis.Runtime.Scripting.PgslNoteKind.UnresolvedRead, name, "read before anything set it; used 0");
+                return 0;
+            }
             // A name nothing has set is answered without an exception (see TryInvokeKnown).
             bool known;
             object value;
             try
             {
                 if (engine.TryReadTypedProperty(name, out VmValue typed)) return typed;
+                if (engine.TryReadContextValue(name, out VmValue contextValue)) return contextValue;
                 known = engine.TryInvokeKnown(name, Array.Empty<object>(), out value);
             }
             catch (Exception ex) when (ex is not Genesis.Runtime.Scripting.PgslWorkerJobException)
@@ -1806,6 +1835,7 @@ public class PgslVm
             // else is a name read before anything set it.
             string why = Genesis.Runtime.Scripting.ScriptAssetRegistry.DescribeUnknown(name);
             bool unset = why.Contains("Unknown command", StringComparison.OrdinalIgnoreCase);
+            if (unset && PlainUnsetReads.Count < 65536) PlainUnsetReads[name] = generation;
             if (!unset) VMLogger.LogDiag1D($"LOAD_VAR '{name}' fallback 0: {why}");
             Genesis.Runtime.Scripting.PgslRuntimeDiagnostics.Note(
                 unset ? Genesis.Runtime.Scripting.PgslNoteKind.UnresolvedRead : Genesis.Runtime.Scripting.PgslNoteKind.ReadFailed,

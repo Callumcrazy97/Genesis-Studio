@@ -406,6 +406,9 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
     /// <summary>A worker bridge's VM, reused by each job the bridge serves (one at a time).</summary>
     internal PgslVm WorkerVm;
 
+    /// <summary>A worker job's bridge (only the commands a job may run).</summary>
+    internal bool IsWorker => _workerAllows != null;
+
     /// <summary>
     /// A copy of a built bridge's command table for worker jobs. It may be made on a worker thread:
     /// it only reads the game's tables, which are not changed once built (a rebuild replaces them).
@@ -631,6 +634,46 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
         /// <summary>For an Engine command: its method on <see cref="Engine"/> and its bare name in the pipeline.</summary>
         public MethodInfo EngineMethod;
         public string EngineName;
+    }
+
+    // A context value read by name (TryInvokeKnown's last step), as a getter made once per name: each
+    // read had normalised the name into two new strings, looked the property up and boxed its value.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Func<object, VmValue>> ContextReads = new(StringComparer.Ordinal);
+    private static readonly Func<object, VmValue> NoContextRead = _ => default;
+
+    /// <summary>
+    /// Reads a context value as <see cref="TryInvokeKnown"/> would (when nothing earlier in its order
+    /// has the name), without boxing; false leaves the read to it.
+    /// </summary>
+    internal bool TryReadContextValue(string name, out VmValue value)
+    {
+        value = default;
+        if (_workerAllows != null || _context == null || string.IsNullOrWhiteSpace(name)) return false;
+        if (!ContextReads.TryGetValue(name, out Func<object, VmValue> read))
+        {
+            read = BuildContextRead(name) ?? NoContextRead;
+            if (ContextReads.Count < 4096) ContextReads[name] = read;
+        }
+        // A Script of that name made since comes first, as in TryInvokeKnown.
+        if (ReferenceEquals(read, NoContextRead) || ScriptAssetRegistry.TryGet(name.Trim(), out _)) return false;
+        value = read(_context);
+        return true;
+    }
+
+    private Func<object, VmValue> BuildContextRead(string name)
+    {
+        if (ScriptAssetRegistry.TryGet(name.Trim(), out _) || name.StartsWith("scr_", StringComparison.OrdinalIgnoreCase)
+            || _commandDefs.ContainsKey(name) || PgslNamespaceResolver.TryResolveEngineCommand(name, out _, out _)
+            || GetOrCacheProperty(name) != null || GetOrCacheMethod("PgslCommands." + name, 0) != null)
+            return null;
+        PropertyInfo property = ResolveContextProperty(name);
+        if (property?.GetMethod is not { IsStatic: false } || property.GetIndexParameters().Length > 0) return null;
+        Type type = property.PropertyType;
+        var context = Expression.Parameter(typeof(object), "context");
+        Expression read = Expression.Property(Expression.Convert(context, property.DeclaringType!), property);
+        if (type == typeof(float) || type == typeof(long) || type == typeof(short) || type == typeof(byte)) read = Expression.Convert(read, typeof(double));
+        else if (type != typeof(double) && type != typeof(int) && type != typeof(bool) && type != typeof(string)) return null;
+        return Expression.Lambda<Func<object, VmValue>>(Expression.Convert(read, typeof(VmValue)), context).Compile();
     }
 
     private void InitializeContextPropCache()
