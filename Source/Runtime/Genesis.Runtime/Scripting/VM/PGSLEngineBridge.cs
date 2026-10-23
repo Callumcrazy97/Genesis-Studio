@@ -403,6 +403,9 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
     private bool[] _workerAllows;
     private Func<string, string, bool> _workerPredicate;
 
+    /// <summary>A worker bridge's VM, reused by each job the bridge serves (one at a time).</summary>
+    internal PgslVm WorkerVm;
+
     /// <summary>
     /// A copy of a built bridge's command table for worker jobs. It may be made on a worker thread:
     /// it only reads the game's tables, which are not changed once built (a rebuild replaces them).

@@ -58,6 +58,8 @@ public static partial class PgslCommands
     };
 
     private static readonly string[] DsFamilies = ["list", "grid", "map", "stack", "queue", "priority", "nlist"];
+    // The store keys of each family's next handle, made once rather than for every job started.
+    private static readonly string[] DsNextKeys = [.. DsFamilies.Select(family => "__ds_next_" + family)];
 
     private static readonly HashSet<string> WorkerRefused = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -308,8 +310,8 @@ public static partial class PgslCommands
         // Sized once: grown entry by entry, a voxel game's 2 500 structures reallocated it a dozen times a job.
         Dictionary<string, object> data = new(setup.ShareAll ? store.Count : setup.Shared.Count + DsFamilies.Length, StringComparer.Ordinal);
         // Structures the job makes get the handles they would get here, after the game's own.
-        foreach (string family in DsFamilies)
-            if (store.TryGetValue("__ds_next_" + family, out object next)) data["__ds_next_" + family] = next;
+        foreach (string nextKey in DsNextKeys)
+            if (store.TryGetValue(nextKey, out object next)) data[nextKey] = next;
         List<SharedData> held = new(setup.ShareAll ? store.Count : setup.Shared.Count);
         void Give(string key, object value)
         {
@@ -347,9 +349,16 @@ public static partial class PgslCommands
             variables = VariablesReadBy(setup.Library, setup.Function, game) is { } reads
                 ? ownerVm.ShareableVariables(reads) : ownerVm.ShareableVariables();
 
-        var run = new ScriptJobRun(setup.Function, driver, setup.Library, copied, data, variables, new Dictionary<string, object>(setup.Variables, StringComparer.Ordinal),
-            setup.Shared.Where(entry => entry.CopyBack).Select(entry => (entry.Family, entry.Handle, entry.Region)).ToArray(),
-            setup.Budget, game, owner.RoomWidth, owner.RoomHeight, lentCopies, [.. setup.Meshes], [.. setup.After], pool);
+        // The setup is the job's alone and is never changed once started: its variables go as they are.
+        int copyBackCount = 0;
+        foreach ((_, _, bool copyBack, _) in setup.Shared) if (copyBack) copyBackCount++;
+        (string Family, int Handle, GridRect? Region)[] copyBacks = copyBackCount == 0 ? [] : new (string, int, GridRect?)[copyBackCount];
+        copyBackCount = 0;
+        foreach ((string family, int handle, bool copyBack, GridRect? region) in setup.Shared)
+            if (copyBack) copyBacks[copyBackCount++] = (family, handle, region);
+        var run = new ScriptJobRun(setup.Function, driver, setup.Library, copied, data, variables, setup.Variables, copyBacks,
+            setup.Budget, game, owner.RoomWidth, owner.RoomHeight, lentCopies,
+            setup.Meshes.Count == 0 ? [] : [.. setup.Meshes], setup.After.Count == 0 ? [] : [.. setup.After], pool);
         // The job lets go of its data once its work has ended (or it ended without running).
         if (!pool.Launch(JobId(job), token => RunScriptJob(run, token), () => ReleaseShared(held), setup.After.Count > 0 ? setup.After : null))
         {
@@ -545,7 +554,11 @@ public static partial class PgslCommands
         {
             if (run.After.Length > 0) ReadFinishedJobs(run, context.Variables);
             bridge.SetContext(context);
-            var vm = new PgslVm(bridge) { JobBudget = new PgslJobBudget(run.Budget, token), LibraryFunctions = run.Library };
+            // The bridge's own VM, emptied: a VM per job was much of what a job allocated.
+            PgslVm vm = bridge.WorkerVm ??= new PgslVm(bridge);
+            vm.ResetForJob();
+            vm.JobBudget = new PgslJobBudget(run.Budget, token);
+            vm.LibraryFunctions = run.Library;
             context.ActiveVm = vm;
             if (run.SharedVariables != null) vm.LoadVariables(run.SharedVariables);
             foreach (KeyValuePair<string, object> pair in run.Variables) vm.SetVariable(pair.Key, pair.Value);
@@ -591,6 +604,8 @@ public static partial class PgslCommands
             if (!handedOver) SceneCommandBuffer.Return(context.SceneCommands);
             context.SceneCommands = null;
             context.ActiveVm = null;
+            // The pooled VM lets go of the job's data now, not when its next job starts.
+            bridge.WorkerVm?.ResetForJob();
             ReturnWorkerBridge(run.Game, bridge);
             BindContext(previous);
             if (ledger)

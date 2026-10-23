@@ -56,7 +56,44 @@ internal static partial class PgslWorkerJobChecks
                 row("Command calls", name, none ? "PASS" : "FAIL", perCall.ToString("F1", CultureInfo.InvariantCulture) + " bytes a call");
                 if (!none) failures.Add($"{name}: {perCall:F1} bytes a call");
             }
+            // A whole number or true/false given where any value goes (a list entry, a map value) is a shared box.
+            foreach ((string name, string call) in new[] {
+                ("a whole number as any value (DsListSet)", "DsListSet(bl, 0, Floor(bx) + 7);"),
+                ("true/false as any value (DsMapSet)", "DsMapSet(bm, \"k\", bx > 2);") })
+            {
+                double perCall = (Bytes(call) - baseline) / Calls;
+                row("Command calls", name, perCall < 0.5 ? "PASS" : "FAIL", perCall.ToString("F1", CultureInfo.InvariantCulture) + " bytes a call");
+                HeadlessHarness.Assert(perCall < 0.5, $"{name}: {perCall:F1} bytes a call.");
+            }
+            // A call of a hot numbers-only script function runs compiled, and allocates nothing either.
+            double compiled = (Bytes("bx = TjFib(3) + bx * 0;") - baseline) / Calls;
+            row("Command calls", "a hot script function (compiled)", compiled < 0.5 ? "PASS" : "FAIL", compiled.ToString("F1", CultureInfo.InvariantCulture) + " bytes a call");
+            HeadlessHarness.Assert(compiled < 0.5, $"A compiled script function call allocated {compiled:F1} bytes.");
             PgslCommands.ScriptInstructionLimit(0);
+        });
+
+        // What a worker job costs in garbage from JobScriptCreate to JobRelease: its VM is the worker
+        // bridge's own, reused, so what is left is the job's bookkeeping.
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.Jobs.AJobLeavesLittleGarbage", () =>
+        {
+            using Bench bench = new();
+            double Cycle(int jobs)
+            {
+                long before = GC.GetTotalAllocatedBytes(true);
+                for (int k = 0; k < jobs; k++)
+                {
+                    double job = bench.Number("""jg = JobScriptCreate("TjFib"); JobScriptStart(jg, 5); r = jg;""");
+                    bench.Wait(job);
+                    PgslCommands.JobTake(job);
+                    PgslCommands.JobRelease(job);
+                }
+                return (GC.GetTotalAllocatedBytes(true) - before) / (double)jobs;
+            }
+            Cycle(50);
+            double perJob = Math.Min(Cycle(200), Cycle(200));
+            row("Jobs: garbage", "a job created, started, taken and released (TjFib(5))", perJob < 8192 ? "PASS" : "FAIL",
+                (perJob / 1024).ToString("F2", CultureInfo.InvariantCulture) + " KB a job");
+            HeadlessHarness.Assert(perJob < 8192, $"A job allocated {perJob / 1024:F2} KB from create to release.");
         });
     }
 }

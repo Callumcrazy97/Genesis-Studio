@@ -140,6 +140,28 @@ public class PgslVm
         _debugMode = debugMode;
     }
 
+    /// <summary>
+    /// Empties the VM for the next worker job on its bridge: nothing of the last job is left
+    /// (variables, functions, frames, with-blocks, budget, counts), only its storage, so a job no
+    /// longer makes a VM of its own.
+    /// </summary>
+    internal void ResetForJob()
+    {
+        _variables.Clear();
+        _stack.Clear();
+        while (_frameCount > 0) ReleaseFrame(PopFrame());
+        _withStack.Clear();
+        _userFunctions.Clear();
+        _callTargets.Clear();
+        _constants = Array.Empty<object>();
+        _returnRequested = false;
+        _returnValue = default;
+        InstructionsExecuted = 0;
+        JobBudget = null;
+        LibraryFunctions = null;
+        Debugger = null;
+    }
+
     public void SetScriptArguments(object[] args)
     {
       if (args == null) return;
@@ -1488,7 +1510,8 @@ public class PgslVm
     // call to the interpreter (not compiled, or given text or other values).
     private bool TryRunCompiled(UserFunction function, int argCount)
     {
-        PgslCompiledTier.Entry entry = PgslCompiledTier.Get(_typedBridge, function, ResolveFunction);
+        // The resolver made once: a method group passed here made a new delegate on every call.
+        PgslCompiledTier.Entry entry = PgslCompiledTier.Get(_typedBridge, function, _resolveFunction ??= ResolveFunction);
         if (entry.Run == null) return false;
         VmValue[] values = _stack.Items;
         int start = _stack.Count - argCount;
@@ -1506,6 +1529,8 @@ public class PgslVm
         _stack.Push(PgslCompiledTier.NoValue ? default : (VmValue)result);
         return true;
     }
+
+    private Func<string, UserFunction> _resolveFunction;
 
     // A script function by name, as a call finds it.
     private UserFunction ResolveFunction(string name)
