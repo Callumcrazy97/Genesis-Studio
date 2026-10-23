@@ -702,7 +702,14 @@ public sealed class ResourceService
                 if (!source.StartsWith(sourcePrefix, StringComparison.OrdinalIgnoreCase)
                     || !destination.StartsWith(destinationPrefix, StringComparison.OrdinalIgnoreCase))
                     throw new InvalidDataException($"glTF dependency escapes its source directory: '{uri}'.");
-                if (!File.Exists(source)) throw new FileNotFoundException("A glTF dependency is missing.", source);
+                if (!File.Exists(source))
+                {
+                    // A picture that is not there leaves its material untextured (a model converted
+                    // from OBJ names its .mtl's pictures whether or not they came with it); the
+                    // geometry's own buffers must be there.
+                    if (propertyName == "images") continue;
+                    throw new FileNotFoundException("A glTF dependency is missing.", source);
+                }
                 if (copied.Add(destination)) transaction.Copy(source, destination);
             }
         }
