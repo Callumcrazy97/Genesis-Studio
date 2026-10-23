@@ -29,6 +29,7 @@ namespace Genesis.Runtime.Platform
     {
         private IWindow _window;
         private IInputContext _silkInput;
+        private SilkInputPolling _inputPolling;
         private readonly EngineInput _input = new EngineInput();
 
         private string _title;
@@ -113,6 +114,8 @@ namespace Genesis.Runtime.Platform
                 _hasFocus  = !OperatingSystem.IsWindows() || GetForegroundWindow() == NativeHandle;
                 ApplyWindowIcon();
                 _silkInput = _window.CreateInput();
+                _inputPolling = SilkInputPolling.TryTakeOver(_window, _silkInput);
+                Console.WriteLine("GENESIS_INPUT_POLLING " + (_inputPolling != null ? "engine" : "silk"));
                 HookInput(_silkInput);
                 ApplyMode();
                 ApplyUnattendedPlacement();
@@ -123,6 +126,8 @@ namespace Genesis.Runtime.Platform
 
             _window.Update += dt =>
             {
+                // Mice and controllers (empty controller slots twice a second: SilkInputPolling).
+                _inputPolling?.Update();
                 if (_cursorApplyPending)
                     ApplyCursorModeIfReady();
 

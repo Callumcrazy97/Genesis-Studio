@@ -6,6 +6,6 @@
   "Physics Pile": { "p95": 4, "p99": 8, "kbPerFrame": 8 },
   "Skinned Crowd": { "p95": 4, "p99": 6, "kbPerFrame": 16 },
   "GUI": { "p95": 3, "p99": 5, "kbPerFrame": 64 },
-  "Complex Scene": { "p95": 4, "p99": 6, "kbPerFrame": 200 },
-  "_complexNote": "Complex Scene first measured 23 Oct 2026 (DX11): p95 1.2 ms, p99 1.43, 73 KB a frame (the four update jobs a frame allocate most of it)."
+  "Complex Scene": { "p95": 12, "p99": 15, "kbPerFrame": 150 },
+  "_complexNote": "Complex Scene version 3 (streaming strips, 500 walkers, sparks, high tier) first measured 23 Oct 2026 10:14 (DX11): median 3.83 ms, p95 4.72, p99 5.08, 48.5 KB a frame."
 }

@@ -35,7 +35,7 @@ param(
     [switch]$Rebuild
 )
 # Raised whenever Build-Project makes something new, so an older project is made again.
-$projectVersion = "2"
+$projectVersion = "3"
 $ErrorActionPreference = "Stop"
 $Studio = [IO.Path]::GetFullPath($Studio)
 $Folder = [IO.Path]::GetFullPath($Folder)
@@ -153,6 +153,18 @@ function CxChunk(m, cx, cz) {
     }
     return MeshVertexCount(m);
 }
+// A streamed strip of the world: its 16 x 256 cells of the world grid worked out again for time t
+// (only that rectangle comes back) and their top faces meshed into the mesh lent to the job.
+function CxStream(m, world, slot, t) {
+    for (var gz = 0; gz < 256; gz = gz + 1) {
+        for (var lx = 0; lx < 16; lx = lx + 1) {
+            var h = CxHeight(slot * 16 + lx + t, gz);
+            DsGridSet(world, slot * 16 + lx, gz, h);
+            MeshAddCube(m, lx + 0.5, h + 0.5, gz + 0.5, 1, 4, 80 + h * 12, 140, 70 + h * 8, 0, 0, 1, 1);
+        }
+    }
+    return MeshVertexCount(m);
+}
 // A share of the movers circling their places, queued for the game to make when it takes the job.
 function CxMove(ids, homes, startAt, many, t) {
     for (var i = startAt; i < startAt + many; i = i + 1) {
@@ -163,6 +175,11 @@ function CxMove(ids, homes, startAt, many, t) {
 }
 '@ } | Out-Null
     Call "object.create" @{ name = "Complex Mover"; model = $crate } | Out-Null
+    # 500 entities that move themselves in their own Step events.
+    Call "object.create" @{ name = "Complex Walker"; model = $crate; events = @{
+        Create = "dx = RandomRange(-0.2, 0.2);`ndz = RandomRange(-0.2, 0.2);`n"
+        Step = "x = x + dx;`nz = z + dz;`nif (x < 0 || x > 128) { dx = -dx; }`nif (z < 0 || z > 128) { dz = -dz; }`n" } } | Out-Null
+    Call "particle.create" @{ name = "Complex Sparks"; preset = "Sparks" } | Out-Null
     $director = (Call "object.create" @{ name = "Complex Director"; events = @{
         Create = @'
 ScriptInstructionLimit(20000000);
@@ -192,6 +209,17 @@ prop = MeshCreate();
 MeshAddCube(prop, 0, 0, 0, 1, 63, 230, 200, 90, 0, 0, 1, 1);
 t = 0;
 noise = 0;
+// Post effects of the high tier.
+RenderSetQuality("high");
+// A world grid the size of a voxel game's row of chunks; eight strips of it streamed by jobs.
+world = DsGridCreate(4096, 256, "u16");
+streamMeshes = DsListCreate();
+for (var sm = 0; sm < 8; sm++) { var strip = MeshCreate(); DsListAdd(streamMeshes, strip); MeshStaticAdd(strip, "", sm * 16, -6, 140, 1, 1, 1, 0, ""); }
+streamJobs = DsListCreate();
+DsListAdd(streamJobs, 0);
+DsListAdd(streamJobs, 0);
+nextStream = 0;
+for (var w = 0; w < 500; w++) { CreateInstance("Complex Walker", Random(128), 1, Random(128)); }
 '@
         Step = @'
 ScriptInstructionLimit(20000000);
@@ -233,6 +261,27 @@ if (idle == 4) {
 var s = 0;
 for (var i = 0; i < 400; i++) { s = s + CxHeight(i, t * 10); }
 noise = s;
+// Two strips rebuilt at a time by jobs, as a world streams: each writes its part of the world grid and meshes it.
+for (var k4 = 0; k4 < 2; k4++) {
+    var sj = DsListGet(streamJobs, k4);
+    if (sj > 0) {
+        var ss = JobStatus(sj);
+        if (ss == "succeeded") { JobTake(sj); }
+        if (ss == "succeeded" || ss == "failed" || ss == "cancelled") { JobRelease(sj); DsListSet(streamJobs, k4, 0); sj = 0; }
+    }
+    if (sj == 0) {
+        var slot = nextStream % 8;
+        nextStream = nextStream + 1;
+        var strip = DsListGet(streamMeshes, slot);
+        var nj2 = JobScriptCreate("CxStream");
+        JobScriptGridRegion(nj2, world, slot * 16, 0, slot * 16 + 15, 255, true);
+        JobScriptMesh(nj2, strip);
+        JobScriptStart(nj2, strip, world, slot, Floor(t * 10));
+        DsListSet(streamJobs, k4, nj2);
+    }
+}
+// Sparks now and then.
+if (nextStream % 3 == 0) { ParticleBurstBatched("Complex Sparks", Random(128), 6, Random(128), 1); }
 '@
         Draw = @'
 for (var i = 0; i < 200; i++) {
@@ -290,7 +339,8 @@ if ($Track) {
     $earlier = @(if (Test-Path -LiteralPath $history) { Get-Content -LiteralPath $history | Where-Object { $_.Trim() } | ForEach-Object { try { $_ | ConvertFrom-Json } catch { } } })
     $md += @("", "## Against earlier runs (history.jsonl)", "")
     foreach ($row in $rows) {
-        $previousRuns = @($earlier | Where-Object { $_.scene -eq $row.Scene -and $_.p95 -gt 0 } | Select-Object -Last 10)
+        # Only runs of the same scenes compare: a new project version changes what is measured.
+        $previousRuns = @($earlier | Where-Object { $_.scene -eq $row.Scene -and $_.p95 -gt 0 -and "$($_.version)" -eq $projectVersion } | Select-Object -Last 10)
         $line = "$($row.Scene): median $($row.Median) ms, p95 $($row.P95) ms"
         if ($previousRuns.Count -gt 0) {
             $last = $previousRuns[-1]
@@ -298,9 +348,9 @@ if ($Track) {
             $change = [Math]::Round(($row.P95 - $last.p95) * 100 / [Math]::Max(0.01, $last.p95))
             $line += "; previous p95 $($last.p95) ms ($(if ($change -ge 0) { '+' })$change%), best of last $($previousRuns.Count) $best ms"
             if ($row.P95 -gt $best * 1.25) { $line += " - SLOWER than the best by more than 25%" }
-        } else { $line += " (first tracked run)" }
+        } else { $line += " (first tracked run of these scenes, version $projectVersion)" }
         $md += "- $line"
-        [ordered]@{ time = (Get-Date).ToString("s"); scene = $row.Scene; engine = $EngineHash; median = $row.Median; p95 = $row.P95; p99 = $row.P99
+        [ordered]@{ time = (Get-Date).ToString("s"); scene = $row.Scene; version = $projectVersion; engine = $EngineHash; median = $row.Median; p95 = $row.P95; p99 = $row.P99
             worst = $row.Worst; kbPerFrame = $row.KbPerFrame; draws = $row.Draws; triangles = $row.Triangles; backend = $row.Backend; parts = $row.Parts; over = $row.Over } |
             ConvertTo-Json -Compress | Add-Content -LiteralPath $history -Encoding utf8
     }
