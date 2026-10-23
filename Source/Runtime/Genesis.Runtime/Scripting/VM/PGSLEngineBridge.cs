@@ -38,6 +38,9 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
     public string NativeName(int id) =>
         _nativeNames != null && id >= 0 && id < _nativeNames.Length ? _nativeNames[id] : null;
 
+    /// <summary>The category a command is listed under ("Lists", "Variables"...), or null.</summary>
+    internal string NativeCategory(int id) => (uint)id < (uint)_nativeDefs.Length ? _nativeDefs[id]?.Category : null;
+
     public void LoadFromRegistry()
     {
         PgslCommandRegistry.Build(_hostType);

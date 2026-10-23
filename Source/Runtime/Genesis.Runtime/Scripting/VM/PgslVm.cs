@@ -1533,21 +1533,21 @@ public class PgslVm
         if (cached == null || !ReferenceEquals(cached.Bridge, _typedBridge))
             function.Tier = cached = new PgslCompiledTier.Cached(_typedBridge, PgslCompiledTier.Get(_typedBridge, function, _resolveFunction ??= ResolveFunction));
         PgslCompiledTier.Entry entry = cached.Entry;
-        if (entry.Run == null) return false;
-        // Each name it reads from outside must be a number now; else this call is interpreted. (In a
-        // worker job a name nothing set is an error only where the code really reads it, so the
-        // interpreter has the call.)
+        if (entry.Run == null) return entry.RunValues != null && RunCompiledValues(entry.RunValues, argCount);
+        // Each name it reads from outside must be a number now; else this call is interpreted, or
+        // runs compiled with values when it was compiled that way too. (In a worker job a name nothing
+        // set is an error only where the code really reads it, so the interpreter has the call.)
         VarRef[] free = entry.FreeReads;
         try
         {
             for (int i = 0; i < free.Length; i++)
-                if (!TryReadFreeNumber(free[i], out _)) return false;
+                if (!TryReadFreeNumber(free[i], out _)) return entry.RunValues != null && RunCompiledValues(entry.RunValues, argCount);
         }
         catch (Genesis.Runtime.Scripting.PgslWorkerJobException) { return false; }
         VmValue[] values = _stack.Items;
         int start = _stack.Count - argCount;
         for (int i = start; i < _stack.Count; i++)
-            if (!values[i].IsUnboxedNumber) return false;
+            if (!values[i].IsUnboxedNumber) return entry.RunValues != null && RunCompiledValues(entry.RunValues, argCount);
         double[] arguments = PgslCompiledTier.Scratch(argCount);
         for (int i = 0; i < argCount; i++)
         {
@@ -1578,6 +1578,100 @@ public class PgslVm
     }
 
     internal double ReadFreeNumber(VarRef variable) => TryReadFreeNumber(variable, out double value) ? value : 0;
+
+    // ── For functions compiled with values (PgslCompiledTier.Values): the same reads, writes and
+    // calls as the interpreter's, a value at a time.
+
+    /// <summary>A name the function does not hold, read as the interpreter reads it.</summary>
+    internal VmValue ReadFreeValue(VarRef variable)
+    {
+        if (variable.Kind == VarKind.Instance) return LoadInstanceVariableByName(variable.Name);
+        return TryGetVariable(variable.Symbol, variable.Name, _frameCount - 1, out VmValue read) ? read : ResolvePGSLPropertyOrZero(variable.Name);
+    }
+
+    internal void WriteInstanceValue(string name, VmValue value) => StoreInstanceVariableByName(name, value);
+
+    // Each function's numbers-only form for this VM's bridge, for calls from functions compiled with
+    // values (shared by every bridge); a worker's VM is reused job after job, so it is kept.
+    private Dictionary<UserFunction, PgslCompiledTier.Entry> _numbersEntries;
+
+    internal PgslCompiledTier.Entry NumbersEntry(UserFunction function)
+    {
+        _numbersEntries ??= new Dictionary<UserFunction, PgslCompiledTier.Entry>(ReferenceEqualityComparer.Instance);
+        if (!_numbersEntries.TryGetValue(function, out PgslCompiledTier.Entry entry))
+            _numbersEntries[function] = entry = PgslCompiledTier.Get(_typedBridge, function, _resolveFunction ??= ResolveFunction);
+        return entry;
+    }
+
+    /// <summary>Whether every one of these names is a number now (a compiled call's precondition, as in <see cref="TryRunCompiled"/>).</summary>
+    internal bool FreeReadsAreNumbers(VarRef[] free)
+    {
+        try
+        {
+            for (int i = 0; i < free.Length; i++)
+                if (!TryReadFreeNumber(free[i], out _)) return false;
+            return true;
+        }
+        catch (Genesis.Runtime.Scripting.PgslWorkerJobException) { return false; }
+    }
+
+    /// <summary>A built-in register as LOAD_REG reads it (sprite_index as text).</summary>
+    internal VmValue ReadRegisterValue(int slot)
+    {
+        var ctx = _bridge.GetContext();
+        if (ctx == null || slot < 0 || slot >= PgslRegisterFile.NumberGetters.Length) return 0.0;
+        if (slot == PgslRegisterFile.SlotSpriteIndex) return ctx.SpriteIndex ?? "";
+        return PgslRegisterFile.NumberGetters[slot](ctx);
+    }
+
+    /// <summary>A built-in register as STORE_REG writes it.</summary>
+    internal void WriteRegisterValue(int slot, VmValue value)
+    {
+        var ctx = _bridge.GetContext();
+        if (ctx != null && slot >= 0 && slot < PgslRegisterFile.NumberSetters.Length) PgslRegisterFile.Write(ctx, slot, value);
+    }
+
+    /// <summary>A command called with these values as the interpreter calls it; what it leaves.</summary>
+    internal VmValue CallNativeValues(int nativeId, int count, VmValue[] arguments)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            _stack.Push(arguments[i]);
+            arguments[i] = default;
+        }
+        ExecuteNativeCall(nativeId, count);
+        return _stack.Pop();
+    }
+
+    private bool RunCompiledValues(PgslCompiledTier.CompiledValues run, int argCount)
+    {
+        VmValue[] values = _stack.Items;
+        int start = _stack.Count - argCount;
+        VmValue[] arguments = PgslCompiledTier.ValueScratch(argCount);
+        for (int i = 0; i < argCount; i++)
+        {
+            arguments[i] = values[start + i];
+            values[start + i] = default;
+        }
+        _stack.Count = start;
+        _stack.Push(run(arguments, this));
+        return true;
+    }
+
+    /// <summary>
+    /// A command called from compiled code the interpreter's way (PgslCompiledTier): its arguments
+    /// pushed as the interpreter would have them, each number unboxed and each text constant as it
+    /// was written (<paramref name="texts"/>, nothing where the argument is a number), and its result
+    /// given back as a number (true and false as 1 and 0; nothing, or anything else, as 0).
+    /// </summary>
+    internal double CallNativeForCompiled(int nativeId, int count, double[] numbers, VmValue[] texts)
+    {
+        for (int i = 0; i < count; i++)
+            _stack.Push(texts[i].IsString ? texts[i] : (VmValue)numbers[i]);
+        ExecuteNativeCall(nativeId, count);
+        VmValue result = _stack.Pop();
+        return result.IsUnboxedNumber ? result.UnboxedNumber : 0;
+    }
 
     internal void WriteInstanceNumber(string name, double value) => StoreInstanceVariableByName(name, value);
 
@@ -1952,7 +2046,7 @@ public class PgslVm
         }
     }
 
-    private static bool VMEquals(VmValue a, VmValue b)
+    internal static bool VMEquals(VmValue a, VmValue b)
     {
         if (a.IsNull && b.IsNull) return true;
         if (a.IsNull || b.IsNull) return false;

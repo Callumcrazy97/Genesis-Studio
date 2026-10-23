@@ -18,7 +18,7 @@ namespace Genesis.Runtime.Scripting.VM;
 /// instructions are counted at every jump back, as the interpreter counts them in a loop.
 /// GENESIS_PGSL_TIER2=0 turns it off.
 /// </summary>
-internal static class PgslCompiledTier
+internal static partial class PgslCompiledTier
 {
     public delegate double Compiled(double[] arguments, PgslVm vm);
 
@@ -30,6 +30,11 @@ internal static class PgslCompiledTier
     internal sealed class Entry
     {
         public Compiled Run;
+        /// <summary>
+        /// The function compiled with values (text and objects as the interpreter holds them): made
+        /// when it cannot be compiled with numbers only, or when such a function calls it.
+        /// </summary>
+        public CompiledValues RunValues;
         public int Parameters;
         /// <summary>Why it stays interpreted (for checks and the profile).</summary>
         public string Reason;
@@ -61,7 +66,7 @@ internal static class PgslCompiledTier
         return entry;
     }
 
-    private sealed class Holder { public Compiled Run; }
+    private sealed class Holder { public Compiled Run; public CompiledValues RunValues; }
 
     /// <summary>A function's entry for one bridge, kept on the function (one reference, so no thread sees half of it).</summary>
     internal sealed class Cached(PgslEngineBridge bridge, Entry entry)
@@ -95,11 +100,28 @@ internal static class PgslCompiledTier
             entry.Run = null;
             entry.Reason = "could not compile: " + error.Message;
         }
+        // Not numbers only: with values, as the interpreter holds them.
+        if (entry.Run == null && ValuesEnabled)
+        {
+            try
+            {
+                entry.RunValues = CompileValues(bridge, function, resolve, building, table, out string reason, out VarRef[] freeReads);
+                if (entry.RunValues != null) { entry.Reason = null; entry.FreeReads = freeReads ?? []; }
+                else if (reason != null) entry.Reason = reason;
+            }
+            catch (Exception error)
+            {
+                entry.RunValues = null;
+                entry.Reason = "could not compile with values: " + error.Message;
+            }
+        }
         holder.Run = entry.Run;
+        holder.RunValues = entry.RunValues;
         building.Remove(function);
         table[function] = entry;
-        if (function.Name is { } named && Reasons.Count < 8192) Reasons[named] = entry.Run != null ? null : entry.Reason;
-        if (entry.Run != null) System.Threading.Interlocked.Increment(ref CompiledCount);
+        bool compiled = entry.Run != null || entry.RunValues != null;
+        if (function.Name is { } named && Reasons.Count < 8192) Reasons[named] = compiled ? null : entry.Reason;
+        if (compiled) System.Threading.Interlocked.Increment(ref CompiledCount);
         return entry;
     }
 
@@ -159,6 +181,7 @@ internal static class PgslCompiledTier
     private static readonly MethodInfo ReadFreeMethod = typeof(PgslVm).GetMethod(nameof(PgslVm.ReadFreeNumber), BindingFlags.Instance | BindingFlags.NonPublic);
     private static readonly MethodInfo WriteInstanceMethod = typeof(PgslVm).GetMethod(nameof(PgslVm.WriteInstanceNumber), BindingFlags.Instance | BindingFlags.NonPublic);
     private static readonly MethodInfo ReadRegisterMethod = typeof(PgslVm).GetMethod(nameof(PgslVm.ReadRegisterNumber), BindingFlags.Instance | BindingFlags.NonPublic);
+    private static readonly MethodInfo CallNativeMethod = typeof(PgslVm).GetMethod(nameof(PgslVm.CallNativeForCompiled), BindingFlags.Instance | BindingFlags.NonPublic);
     private static readonly MethodInfo WriteRegisterMethod = typeof(PgslVm).GetMethod(nameof(PgslVm.WriteRegisterNumber), BindingFlags.Instance | BindingFlags.NonPublic);
 
     private static Compiled Compile(PgslEngineBridge bridge, UserFunction function, Func<string, UserFunction> resolve,
@@ -198,28 +221,39 @@ internal static class PgslCompiledTier
         var natives = new PgslEngineBridge.NativeCall[n];
         var callees = new Holder[n];
         var calleeParameters = new int[n];
+        // A text constant may only be a command's argument (VariableSet("gjStep", n)), the command then
+        // called the interpreter's way; nothing else reads one. The text constants on the stack at each
+        // instruction, by depth (null when there are none), and each such call's text arguments.
+        var textsAt = new VmValue[n + 1][];
+        var generalTexts = new VmValue[n][];
+        bool textAcrossBranch = false;
         var work = new Stack<int>();
         int maxDepth = 0;
-        bool Reach(int pc, int d)
+        bool Reach(int pc, int d, VmValue[] texts)
         {
             if (pc < 0 || pc > n) return false;
-            if (depth[pc] == -1) { depth[pc] = d; work.Push(pc); return true; }
+            if (depth[pc] == -1) { depth[pc] = d; textsAt[pc] = texts; work.Push(pc); return true; }
+            if (texts != null || textsAt[pc] != null) { textAcrossBranch = true; return false; }
             return depth[pc] == d;
         }
-        if (!Reach(0, 0)) { reason = "empty"; return null; }
+        if (!Reach(0, 0, null)) { reason = "empty"; return null; }
         while (work.Count > 0)
         {
             int pc = work.Pop();
             if (pc == n) continue;
             int d = depth[pc];
+            VmValue[] texts = textsAt[pc];
             ref VmOp op = ref ops[pc];
             int need = 0, change = 0;
             int jump = -1;
             bool falls = true;
+            VmValue[] nextTexts = null;
+            bool keepsText = false;
             switch (op.Code)
             {
                 case Opcode.PUSH: case Opcode.LOAD_CONST:
-                    if (!op.Constant.IsUnboxedNumber) { reason = "a constant that is not a number"; return null; }
+                    if (op.Constant.IsString) { nextTexts = WithText(texts, d, op.Constant); keepsText = true; }
+                    else if (!op.Constant.IsUnboxedNumber) { reason = "a constant that is not a number"; return null; }
                     change = 1; break;
                 case Opcode.LOAD_VAR:
                 {
@@ -244,7 +278,8 @@ internal static class PgslCompiledTier
                     if (pc + 1 >= n || ops[pc + 1].Code != Opcode.RETURN) { reason = "uses a null value"; return null; }
                     change = 1; break;
                 case Opcode.STORE_REG: need = 1; change = -1; break;
-                case Opcode.POP: need = 1; change = -1; break;
+                // A text constant may be dropped (a command's result nobody uses is dropped too).
+                case Opcode.POP: need = 1; change = -1; keepsText = true; break;
                 case Opcode.DUP: need = 1; change = 1; break;
                 case Opcode.SWAP: need = 2; break;
                 case Opcode.ADD: case Opcode.SUB: case Opcode.MUL: case Opcode.DIV: case Opcode.MOD:
@@ -254,13 +289,24 @@ internal static class PgslCompiledTier
                 case Opcode.NEG: case Opcode.NOT: case Opcode.BIT_NOT: need = 1; break;
                 case Opcode.JUMP: jump = op.A; falls = false; break;
                 case Opcode.JUMP_IF_FALSE: case Opcode.JUMP_IF_TRUE: need = 1; change = -1; jump = op.A; break;
-                case Opcode.RETURN: falls = false; break;
+                case Opcode.RETURN:
+                    if (d > 0 && HasText(texts, d - 1, d)) { reason = "gives back text"; return null; }
+                    falls = false; break;
                 case Opcode.CALL_NATIVE:
                 {
                     PgslEngineBridge.NativeCall call = bridge.GetNativeCall(op.A, op.B);
-                    if (!NumbersOnly(call)) { reason = $"calls {bridge.NativeName(op.A)}, which takes more than numbers"; return null; }
-                    natives[pc] = call;
-                    need = op.B; change = 1 - op.B; break;
+                    bool textArguments = HasText(texts, d - op.B, d);
+                    if (!textArguments && NumbersOnly(call)) natives[pc] = call;
+                    else
+                    {
+                        bool discarded = pc + 1 < n && ops[pc + 1].Code == Opcode.POP;
+                        if (!CalledTheInterpretersWay(bridge, call, op.A, op.B, texts, d, discarded, ownNames, out reason)) return null;
+                        var given = new VmValue[op.B];
+                        for (int i = 0; i < op.B; i++)
+                            if (texts != null && d - op.B + i >= 0 && d - op.B + i < texts.Length) given[i] = texts[d - op.B + i];
+                        generalTexts[pc] = given;
+                    }
+                    need = op.B; change = 1 - op.B; keepsText = true; break;
                 }
                 case Opcode.CALL:
                 {
@@ -270,7 +316,11 @@ internal static class PgslCompiledTier
                     if (!building.TryGetValue(target, out Holder holder))
                     {
                         Entry other = Build(bridge, target, resolve, building, table);
-                        if (other.Run == null) { reason = $"calls '{name}', which stays interpreted ({other.Reason})"; return null; }
+                        if (other.Run == null)
+                        {
+                            reason = other.RunValues != null ? $"calls '{name}', which works with text" : $"calls '{name}', which stays interpreted ({other.Reason})";
+                            return null;
+                        }
                         // The callee would see this function's own names through its frame: refused where it reads one.
                         foreach (VarRef read in other.FreeReads)
                         {
@@ -289,10 +339,13 @@ internal static class PgslCompiledTier
                     return null;
             }
             if (d < need) { reason = "stack too shallow"; return null; }
+            // Only a command's call or a drop may take a text constant off the stack.
+            if (!keepsText && HasText(texts, d - need, d)) { reason = "uses text other than as a command's argument"; return null; }
             int after = d + change;
+            if (op.Code is not (Opcode.PUSH or Opcode.LOAD_CONST) || !op.Constant.IsString) nextTexts = Truncate(texts, d - need);
             maxDepth = Math.Max(maxDepth, Math.Max(after, d));
-            if (falls && !Reach(pc + 1, after)) { reason = "stack depth differs between paths"; return null; }
-            if (jump >= 0 && !Reach(jump, after)) { reason = "stack depth differs between paths"; return null; }
+            if (falls && !Reach(pc + 1, after, nextTexts)) { reason = textAcrossBranch ? "keeps text across a branch" : "stack depth differs between paths"; return null; }
+            if (jump >= 0 && !Reach(jump, after, nextTexts)) { reason = textAcrossBranch ? "keeps text across a branch" : "stack depth differs between paths"; return null; }
         }
 
         // 2. A variable of its own must be set before it is read on every path (the interpreter would
@@ -362,7 +415,9 @@ internal static class PgslCompiledTier
             switch (op.Code)
             {
                 case Opcode.PUSH: case Opcode.LOAD_CONST:
-                    body.Add(Expression.Assign(stack[d], Expression.Constant(op.Constant.UnboxedNumber))); break;
+                    // A text constant is only ever a command's argument: the call takes it as it is.
+                    if (!op.Constant.IsString) body.Add(Expression.Assign(stack[d], Expression.Constant(op.Constant.UnboxedNumber)));
+                    break;
                 case Opcode.LOAD_VAR:
                 {
                     VarRef variable = (VarRef)op.Ref;
@@ -420,7 +475,21 @@ internal static class PgslCompiledTier
                 }
                 case Opcode.RETURN:
                     body.Add(d > 0 ? Return(Top(0), false) : Return(Expression.Constant(0.0), true)); break;
-                case Opcode.CALL_NATIVE: body.Add(Expression.Assign(stack[d - op.B], NativeCallExpression(natives[pc], stack, d, op.B))); break;
+                case Opcode.CALL_NATIVE:
+                    if (generalTexts[pc] is VmValue[] textArguments)
+                    {
+                        // The interpreter's way: the numbers in a scratch array, the text as written.
+                        int count = op.B;
+                        ParameterExpression numbers = Expression.Variable(typeof(double[]), "n");
+                        var call = new List<Expression> { Expression.Assign(numbers, Expression.Call(ScratchMethod, Expression.Constant(count))) };
+                        for (int i = 0; i < count; i++)
+                            if (!textArguments[i].IsString) call.Add(Expression.Assign(Expression.ArrayAccess(numbers, Expression.Constant(i)), stack[d - count + i]));
+                        call.Add(Expression.Assign(stack[d - count], Expression.Call(vm, CallNativeMethod, Expression.Constant(op.A), Expression.Constant(count),
+                            numbers, Expression.Constant(textArguments))));
+                        body.Add(Expression.Block([numbers], call));
+                    }
+                    else body.Add(Expression.Assign(stack[d - op.B], NativeCallExpression(natives[pc], stack, d, op.B)));
+                    break;
                 case Opcode.CALL:
                 {
                     int count = calleeParameters[pc];
@@ -457,6 +526,102 @@ internal static class PgslCompiledTier
                 Expression.GreaterThan(Expression.AddAssign(spent, Expression.Constant((long)(from - to + 1))), check),
                 Expression.Assign(check, Expression.Call(CheckpointMethod, vm, spent, Expression.Constant(functionName))));
         }
+    }
+
+    private static bool HasText(VmValue[] texts, int from, int to)
+    {
+        if (texts == null) return false;
+        for (int k = Math.Max(0, from); k < Math.Min(to, texts.Length); k++)
+            if (texts[k].IsString) return true;
+        return false;
+    }
+
+    // The text constants below a depth; null when there are none.
+    private static VmValue[] Truncate(VmValue[] texts, int depth)
+    {
+        if (!HasText(texts, 0, depth)) return null;
+        var kept = new VmValue[depth];
+        Array.Copy(texts, kept, Math.Min(depth, texts.Length));
+        return kept;
+    }
+
+    private static VmValue[] WithText(VmValue[] texts, int at, VmValue text)
+    {
+        var next = new VmValue[at + 1];
+        if (texts != null) Array.Copy(texts, next, Math.Min(at, texts.Length));
+        next[at] = text;
+        return next;
+    }
+
+    // The commands that are data, text, maths, variables, drawing, or an instance's place and look:
+    // none of them runs a script, so none can change a variable the compiled function holds or reads
+    // behind its back.
+    private static readonly HashSet<string> InterpretersWayCategories = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Lists", "Arrays", "Maps", "Grids", "Data Structures", "Strings", "Text", "JSON", "Math", "3D Math", "Noise", "Time",
+        "Variables", "Instance Variables", "Engine Variables", "Drawing 2D", "Drawing 3D", "Meshes",
+        "Models", "Shaders", "Sprites", "Particles", "Audio", "Camera", "Lighting", "Display", "Instances",
+    };
+
+    // Commands of those categories that may run an event (an instance destroyed, the queued changes
+    // made), and CreateInstance, whose new instance's Create runs on its own VM but may set this
+    // instance's variables to text: only a function with values (which reads them as they are) calls it.
+    private static readonly HashSet<string> MayRunEvents = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "InstanceDestroy", "SceneQueueApply", "SceneQueueDestroy", "CreateInstance",
+    };
+    private static readonly HashSet<string> ValuesMayCall = new(StringComparer.OrdinalIgnoreCase) { "CreateInstance" };
+
+    private static readonly HashSet<string> VariableCategories = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Variables", "Instance Variables", "Engine Variables",
+    };
+
+    /// <summary>
+    /// Whether a command the compiled code cannot call typed (it takes text or values) may be called
+    /// the interpreter's way, with the same arguments the interpreter would give it: a command of the
+    /// categories above; text only where it takes text; a variable command naming a variable (one
+    /// text) none of this function's own, and taking no other text or values (so it cannot give a
+    /// variable text); and a result that is a number, true/false or nothing, unless it is dropped.
+    /// </summary>
+    private static bool CalledTheInterpretersWay(PgslEngineBridge bridge, PgslEngineBridge.NativeCall call, int id, int count,
+        VmValue[] texts, int depth, bool discarded, HashSet<string> ownNames, out string reason)
+    {
+        string name = bridge.NativeName(id);
+        reason = null;
+        string category = bridge.NativeCategory(id);
+        if (call == null || category == null || !InterpretersWayCategories.Contains(category) || (name != null && MayRunEvents.Contains(name)))
+        { reason = $"calls {name}, which takes more than numbers"; return false; }
+        bool variable = VariableCategories.Contains(category);
+        int textArguments = 0;
+        for (int i = 0; i < count; i++)
+        {
+            int at = depth - count + i;
+            bool text = texts != null && at >= 0 && at < texts.Length && texts[at].IsString;
+            PgslEngineBridge.ArgumentKind? kind = call.Kinds != null && i < call.Kinds.Length ? call.Kinds[i] : null;
+            if (text)
+            {
+                if (kind != PgslEngineBridge.ArgumentKind.Text) { reason = $"gives text to {name} where it takes {(kind == null ? "an untyped argument" : "a number or a value")}"; return false; }
+                textArguments++;
+                string named = texts[at].ToObject() as string ?? "";
+                if (variable)
+                    foreach (string own in ownNames)
+                        if (string.Equals(own, named, StringComparison.OrdinalIgnoreCase)) { reason = $"names its own variable '{named}' to {name}"; return false; }
+            }
+            else if (variable && kind is null or PgslEngineBridge.ArgumentKind.Text or PgslEngineBridge.ArgumentKind.Value)
+            { reason = $"calls {name} with a value it may store as text"; return false; }
+        }
+        if (variable && textArguments > 1) { reason = $"calls {name} with text it may store"; return false; }
+        if (!discarded && !GivesNumberOrNothing(call)) { reason = $"uses the text or value {name} gives back"; return false; }
+        return true;
+    }
+
+    // What the interpreter would leave on its stack is a number, true/false or nothing.
+    private static bool GivesNumberOrNothing(PgslEngineBridge.NativeCall call)
+    {
+        if (call.NumberCall != null || call.BoolCall != null || call.VoidCall != null || call.PushesNothing) return true;
+        Type type = call.Method?.ReturnType;
+        return type == typeof(double) || type == typeof(float) || type == typeof(int) || type == typeof(long) || type == typeof(bool) || type == typeof(void);
     }
 
     // A command whose arguments are numbers (doubles, floats, whole numbers, true/false) and whose

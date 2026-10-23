@@ -39,6 +39,24 @@ internal static partial class PgslWorkerJobChecks
         function GtJob(flag) { if (flag > 0) { return gtNeverSetInJob; } return 7; }
         function GtJobLoop(n) { var s = 0; for (var i = 0; i < n; i = i + 1) { s = s + GtJob(0); } return s; }
         function GtNothing(v) { if (v > 0) { return; } return v * 2; }
+        // Text only as a command's argument: a variable set by name, a map read by a number key, a list
+        // given text with nothing used back (compiled, the commands called the interpreter's way); a
+        // variable command naming the function's own variable, and text kept in a variable (interpreted).
+        function GtCount(n) { for (var i = 0; i < n; i = i + 1) { VariableSet("gtCounter", gtCounter + 1); } return gtCounter; }
+        function GtSeen(m, k) { if (DsMapExists(m, k)) { return 1; } DsMapSet(m, k, 1); DsListAddString(gtNames, "seen"); return 0; }
+        function GtOwnName(n) { var gtLocal = n; VariableSet("gtLocal", 5); return gtLocal; }
+        function GtWord(n) { var w = "a"; return n; }
+        // Text worked with (compiled with values): keys made from numbers, parts of a text, a value
+        // that is text or a number, text compared with a number, a numbers-only function called, a
+        // function building text by calling itself, and sprite_index.
+        function GtKey(x, y) { return StringOf(x) + "," + StringOf(y); }
+        function GtParts(s) { var n = 0; for (var i = 1; i <= 3; i = i + 1) { n = n + RealOf(StringSplitPart(s, ",", i)); } return n; }
+        function GtMix(a) { var t = "x"; if (a > 2) { t = t + a; } else { t = a; } return t; }
+        function GtEq(a) { return (a == "5") + (a != "5") * 10 + ("ab" + a == "ab5") * 100; }
+        function GtCallsNumbers(n) { var s = ""; for (var i = 0; i < n; i = i + 1) { s = s + GtScale(i) + ";"; } return s; }
+        function GtSelf(n) { if (n <= 0) { return ""; } return GtSelf(n - 1) + "a"; }
+        function GtSprite(n) { return sprite_index + n; }
+        function GtTextLoop(n) { var s = 0; var k = ""; for (var i = 0; i < n; i = i + 1) { k = StringOf(i % 100) + ","; s = s + StringLength(k) + i % 7 + gtOffset; } return s; }
         // A table a worker fills once and reads on later jobs.
         function MjCached(n) {
             var table = JobCacheNumList("squares", n);
@@ -225,6 +243,54 @@ internal static partial class PgslWorkerJobChecks
                 $"sum {sum}, live {live}, shadow {shadow}, text {word}, x {moved}, GtSum '{sumWhy}', GtShadow '{shadowWhy}', job {jobStatus} {jobResult}");
             PgslCommands.ScriptInstructionLimit(0);
             HeadlessHarness.Assert(pass, $"Compiled functions reading outside names: sum {sum} (10000), live {live} (145), shadow {shadow} (501), text '{word}' (ab5), x {moved} (60), GtSum '{sumWhy}' (compiled), GtShadow '{shadowWhy}', job {jobStatus} {jobResult} (420).");
+        });
+
+        // A function whose only text is a command's argument runs compiled, with what the interpreter
+        // gives: GenesisCraft's generation functions were all interpreted for a VariableSet("name", n).
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.FunctionsGivingTextToCommandsRunCompiled", () =>
+        {
+            string Results(bool compiled)
+            {
+                bool was = Genesis.Runtime.Scripting.VM.PgslCompiledTier.Enabled;
+                Genesis.Runtime.Scripting.VM.PgslCompiledTier.Enabled = compiled;
+                try
+                {
+                    using Bench bench = new();
+                    bench.Run("gtCounter = 0; gtNames = DsListCreate(); gtMap = DsMapCreate();");
+                    for (int i = 0; i < 60; i++) bench.Run("r = GtCount(1) + GtSeen(gtMap, 5) + GtOwnName(1) + GtWord(1);");
+                    double counted = bench.Number("r = GtCount(10);");
+                    double first = bench.Number("r = GtSeen(gtMap, 777);"), again = bench.Number("r = GtSeen(gtMap, 777);");
+                    double names = bench.Number("r = DsListSize(gtNames);");
+                    double own = bench.Number("r = GtOwnName(3);"), word = bench.Number("r = GtWord(4);");
+                    for (int i = 0; i < 60; i++)
+                        bench.Run("r = GtKey(1, 2) + GtParts(\"1,2,3\") + GtMix(1) + GtEq(5) + GtCallsNumbers(2) + GtSelf(2) + GtSprite(1);");
+                    string texts = string.Join(" | ",
+                        bench.Text("r = GtKey(12, -3.5);"), bench.Text("r = GtParts(\"1.5,x,4\");"), bench.Text("r = GtMix(7);"), bench.Text("r = GtMix(1);"),
+                        bench.Text("r = GtEq(5);"), bench.Text("r = GtEq(\"5\");"), bench.Text("r = GtEq(6);"), bench.Text("r = GtCallsNumbers(4);"),
+                        bench.Text("r = GtSelf(5);"), bench.Text("sprite_index = \"Hero\"; r = GtSprite(2);"));
+                    // How long a loop working with text takes this way (printed, not checked).
+                    bench.Run("gtOffset = 1; ScriptInstructionLimit(50000000);");
+                    for (int i = 0; i < 60; i++) bench.Run("r = GtTextLoop(10);");
+                    var clock = System.Diagnostics.Stopwatch.StartNew();
+                    double loop = bench.Number("r = GtTextLoop(200000);");
+                    Console.WriteLine($"GtTextLoop(200000) {(compiled ? "compiled" : "interpreted")}: {clock.Elapsed.TotalMilliseconds:F1} ms ({loop}).");
+                    PgslCommands.ScriptInstructionLimit(0);
+                    return $"counted {counted}, seen {first}/{again}, names {names}, own {own}, word {word}; {texts}";
+                }
+                finally { Genesis.Runtime.Scripting.VM.PgslCompiledTier.Enabled = was; }
+            }
+            string interpreted = Results(compiled: false);
+            string compiled = Results(compiled: true);
+            string Why(string name) => Genesis.Runtime.Scripting.VM.PgslCompiledTier.ReasonFor(name) ?? "never looked at";
+            string count = Why("GtCount"), seen = Why("GtSeen"), ownWhy = Why("GtOwnName");
+            string[] withValues = ["GtWord", "GtKey", "GtParts", "GtMix", "GtEq", "GtCallsNumbers", "GtSelf", "GtSprite"];
+            string valueWhy = string.Join(", ", withValues.Select(name => name + " '" + Why(name) + "'"));
+            bool pass = compiled == interpreted && count.Length == 0 && seen.Length == 0
+                && ownWhy.Contains("its own variable", StringComparison.Ordinal) && withValues.All(name => Why(name).Length == 0);
+            row("Compiled functions", "text as a command's argument, and text worked with (compiled with values)", pass ? "PASS" : "FAIL",
+                $"{compiled}; GtCount '{count}', GtSeen '{seen}', GtOwnName '{ownWhy}', {valueWhy}");
+            HeadlessHarness.Assert(pass, $"Functions with text: compiled '{compiled}', interpreted '{interpreted}'; GtCount '{count}' (compiled), "
+                + $"GtSeen '{seen}' (compiled), GtOwnName '{ownWhy}' (its own variable), {valueWhy} (each compiled).");
         });
 
         // What a worker keeps between jobs: filled once on each worker, read again afterwards.

@@ -15,6 +15,11 @@ public class UserFunction
     internal int Calls;
     /// <summary>The compiled tier's answer for the bridge last asked (so a call does not look it up again).</summary>
     internal PgslCompiledTier.Cached Tier;
+    /// <summary>
+    /// The function compiled with values (PgslCompiledTier.Values), the same for every bridge: its
+    /// commands are called through the running VM's own bridge, so a worker's is checked as ever.
+    /// </summary>
+    internal PgslCompiledTier.ValuesCompile Values;
 
     public UserFunction(string name, List<string> parameters)
     {

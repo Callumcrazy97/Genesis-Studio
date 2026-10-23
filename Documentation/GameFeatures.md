@@ -2663,8 +2663,16 @@ A script function called often whose work is numbers runs compiled: it may read 
 variables and the instance's number variables (and x, y and the other built-in fields), call
 commands that take and give numbers, and call other such functions. Each call checks that the
 instance's variables it reads hold numbers, and is interpreted otherwise, so results are always
-those of the interpreter. Text (a quoted string, a command that takes or gives text) keeps a
-function interpreted. `GENESIS_PGSL_TIER2=0` turns compiling off.
+those of the interpreter. Text given straight to a command (`VariableSet("gjStep", n)`,
+`DsMapGet(map, "key")`, `DsListAddString(list, "x")`) does not stop it: the command is called the
+interpreter's way. A function that works with text (keys made with `StringOf`, parts of a split
+text, a value that may be text) is compiled with values instead: each variable holds what the
+interpreter's would and each operation does what the interpreter's does, and it calls the
+numbers-only form of the functions it calls whenever their arguments are numbers. Either way only
+commands that cannot run a script are called this way (data, text, maths, variables, drawing, or
+numbers-only commands); one that may (`CreateInstance`, a room change) keeps a function interpreted.
+GenesisCraft flying at render distance 18: game thread 6.9 -> 5.7 ms a frame (scripts 6.2 -> 5.1 ms).
+`GENESIS_PGSL_TIER2=0` turns compiling off, `GENESIS_PGSL_TIER2_VALUES=0` only compiling with values.
 
 `ScriptProfileEnable(true)`, `ScriptProfileReport(count)` and `ScriptProfileReset()` time every
 script function (`GENESIS_SCRIPT_PROFILE=1` writes `Debug/Logs/script_profile.txt` at the end).
