@@ -2435,9 +2435,12 @@ namespace Genesis.Rendering.Primitives
             }
 
             center = (min + max) * 0.5f;
-            radius = 0f;
+            // The farthest vertex by squared distance, one square root at the end (a rebuilt 16 000-vertex
+            // chunk took one per vertex).
+            float farthest = 0f;
             for (int i = 0; i < vertices.Length; i++)
-                radius = MathF.Max(radius, Vector3.Distance(vertices[i].Position, center));
+                farthest = MathF.Max(farthest, Vector3.DistanceSquared(vertices[i].Position, center));
+            radius = MathF.Sqrt(farthest);
         }
 
         private static void ComputeBounds(ReadOnlySpan<SkinnedMeshVertex> vertices, out Vector3 center, out float radius)

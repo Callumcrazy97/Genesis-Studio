@@ -33,6 +33,12 @@ internal static class PgslCompiledTier
         public int Parameters;
         /// <summary>Why it stays interpreted (for checks and the profile).</summary>
         public string Reason;
+        /// <summary>
+        /// Names it (or a function it calls) reads but does not hold: each must be a number when a
+        /// call starts, or that call is interpreted. Within a compiled call they change only through
+        /// compiled code, which writes numbers.
+        /// </summary>
+        public VarRef[] FreeReads = [];
     }
 
     // Per bridge: a worker job's bridge refuses its own commands, so its functions compile against it.
@@ -57,6 +63,13 @@ internal static class PgslCompiledTier
 
     private sealed class Holder { public Compiled Run; }
 
+    // Why each function looked at stays interpreted, by name (null once compiled), for the profile report.
+    private static readonly ConcurrentDictionary<string, string> Reasons = new(StringComparer.Ordinal);
+
+    /// <summary>Why a function stays interpreted; empty when compiled, null when never looked at (called fewer than <see cref="HotCalls"/> times).</summary>
+    internal static string ReasonFor(string function) =>
+        function != null && Reasons.TryGetValue(function, out string reason) ? reason ?? string.Empty : null;
+
     private static Entry Build(PgslEngineBridge bridge, UserFunction function, Func<string, UserFunction> resolve,
         Dictionary<UserFunction, Holder> building, ConcurrentDictionary<UserFunction, Entry> table)
     {
@@ -66,8 +79,9 @@ internal static class PgslCompiledTier
         Entry entry = new() { Parameters = function.Parameters?.Count ?? 0 };
         try
         {
-            entry.Run = Compile(bridge, function, resolve, building, table, out string reason);
+            entry.Run = Compile(bridge, function, resolve, building, table, out string reason, out VarRef[] freeReads);
             entry.Reason = reason;
+            entry.FreeReads = freeReads ?? [];
         }
         catch (Exception error)
         {
@@ -77,6 +91,7 @@ internal static class PgslCompiledTier
         holder.Run = entry.Run;
         building.Remove(function);
         table[function] = entry;
+        if (function.Name is { } named && Reasons.Count < 8192) Reasons[named] = entry.Run != null ? null : entry.Reason;
         if (entry.Run != null) System.Threading.Interlocked.Increment(ref CompiledCount);
         return entry;
     }
@@ -134,17 +149,40 @@ internal static class PgslCompiledTier
     private static readonly MethodInfo FloorMethod = typeof(Math).GetMethod(nameof(Math.Floor), [typeof(double)]);
     private static readonly MethodInfo AbsMethod = typeof(Math).GetMethod(nameof(Math.Abs), [typeof(double)]);
     private static readonly FieldInfo NoValueField = typeof(PgslCompiledTier).GetField(nameof(NoValue), BindingFlags.NonPublic | BindingFlags.Static);
+    private static readonly MethodInfo ReadFreeMethod = typeof(PgslVm).GetMethod(nameof(PgslVm.ReadFreeNumber), BindingFlags.Instance | BindingFlags.NonPublic);
+    private static readonly MethodInfo WriteInstanceMethod = typeof(PgslVm).GetMethod(nameof(PgslVm.WriteInstanceNumber), BindingFlags.Instance | BindingFlags.NonPublic);
+    private static readonly MethodInfo ReadRegisterMethod = typeof(PgslVm).GetMethod(nameof(PgslVm.ReadRegisterNumber), BindingFlags.Instance | BindingFlags.NonPublic);
+    private static readonly MethodInfo WriteRegisterMethod = typeof(PgslVm).GetMethod(nameof(PgslVm.WriteRegisterNumber), BindingFlags.Instance | BindingFlags.NonPublic);
 
     private static Compiled Compile(PgslEngineBridge bridge, UserFunction function, Func<string, UserFunction> resolve,
-        Dictionary<UserFunction, Holder> building, ConcurrentDictionary<UserFunction, Entry> table, out string reason)
+        Dictionary<UserFunction, Holder> building, ConcurrentDictionary<UserFunction, Entry> table, out string reason, out VarRef[] freeReads)
     {
         reason = null;
+        freeReads = null;
         PgslProgram program = PgslProgram.ForFunction(function);
         VmOp[] ops = program.Ops;
         FrameLayout layout = program.Layout;
         int[] parameterSlots = layout.ParameterSlots;
         var isParameter = new bool[Math.Max(1, layout.Count)];
         foreach (int slot in parameterSlots) isParameter[slot] = true;
+
+        // 0. Which names are the function's own. The interpreter keeps a parameter, a `var` and a plain
+        // name the function assigns (not a register or a property) in the call's frame; every other
+        // name it reads is looked for in its callers' frames, the instance, then a property or register.
+        var assigned = new bool[Math.Max(1, layout.Count)];
+        foreach (VmOp each in ops)
+            if (each.Code == Opcode.STORE_VAR && each.Ref is VarRef stored && stored.Slot >= 0 && stored.Kind != VarKind.Instance && stored.RegisterSlot < 0)
+                assigned[stored.Slot] = true;
+        bool Own(VarRef v) => v.Slot >= 0 && v.Kind != VarKind.Instance
+            && (v.Kind == VarKind.FunctionLocal || isParameter[v.Slot] || (assigned[v.Slot] && v.RegisterSlot < 0 && !bridge.IsDeclaredProperty(v.Name)));
+        // The names a function it calls must not read: a callee sees its caller's frame.
+        var ownNames = new HashSet<string>(StringComparer.Ordinal);
+        if (function.Parameters != null) foreach (string parameter in function.Parameters) if (parameter != null) ownNames.Add(parameter);
+        foreach (VmOp each in ops)
+            if (each.Code is Opcode.LOAD_VAR or Opcode.STORE_VAR && each.Ref is VarRef named && Own(named)) ownNames.Add(named.Name);
+        var free = new List<VarRef>();
+        var freeKeys = new HashSet<(VarKind, string)>();
+        void AddFree(VarRef v) { if (freeKeys.Add((v.Kind == VarKind.Instance ? VarKind.Instance : VarKind.Plain, v.Name))) free.Add(v); }
 
         // 1. Every instruction must be one the tier knows, with the stack as deep on every path to it.
         int n = ops.Length;
@@ -178,17 +216,27 @@ internal static class PgslCompiledTier
                     change = 1; break;
                 case Opcode.LOAD_VAR:
                 {
+                    // Its own, or a name read from outside as the interpreter would (checked at each call's start).
                     VarRef variable = (VarRef)op.Ref;
-                    bool local = variable.Kind == VarKind.FunctionLocal || (variable.Kind == VarKind.Plain && variable.Slot >= 0 && isParameter[variable.Slot]);
-                    if (!local || variable.Slot < 0) { reason = $"reads '{variable.Name}', not its own variable"; return null; }
+                    if (!Own(variable)) AddFree(variable);
                     change = 1; break;
                 }
                 case Opcode.STORE_VAR:
                 {
+                    // Its own, an instance variable or a register; a property or a name with no slot stays interpreted.
                     VarRef variable = (VarRef)op.Ref;
-                    if (variable.Kind != VarKind.FunctionLocal || variable.Slot < 0) { reason = $"writes '{variable.Name}', not its own variable"; return null; }
+                    if (!Own(variable) && variable.Kind != VarKind.Instance && variable.RegisterSlot < 0)
+                    { reason = $"writes '{variable.Name}', not its own variable"; return null; }
                     need = 1; change = -1; break;
                 }
+                case Opcode.LOAD_REG:
+                    if (op.A == PgslRegisterFile.SlotSpriteIndex) { reason = "reads sprite_index (text)"; return null; }
+                    change = 1; break;
+                // `return;` (and a function's end): nothing comes back, as the interpreter's null.
+                case Opcode.PUSH_NULL:
+                    if (pc + 1 >= n || ops[pc + 1].Code != Opcode.RETURN) { reason = "uses a null value"; return null; }
+                    change = 1; break;
+                case Opcode.STORE_REG: need = 1; change = -1; break;
                 case Opcode.POP: need = 1; change = -1; break;
                 case Opcode.DUP: need = 1; change = 1; break;
                 case Opcode.SWAP: need = 2; break;
@@ -216,8 +264,15 @@ internal static class PgslCompiledTier
                     {
                         Entry other = Build(bridge, target, resolve, building, table);
                         if (other.Run == null) { reason = $"calls '{name}', which stays interpreted ({other.Reason})"; return null; }
+                        // The callee would see this function's own names through its frame: refused where it reads one.
+                        foreach (VarRef read in other.FreeReads)
+                        {
+                            if (read.Kind != VarKind.Instance && ownNames.Contains(read.Name)) { reason = $"calls '{name}', which reads '{read.Name}', a variable of this function"; return null; }
+                            AddFree(read);
+                        }
                         holder = new Holder { Run = other.Run };
                     }
+                    else if (!ReferenceEquals(target, function)) { reason = $"calls '{name}', which calls it back"; return null; }
                     callees[pc] = holder;
                     calleeParameters[pc] = op.B;
                     need = op.B; change = 1 - op.B; break;
@@ -247,8 +302,8 @@ internal static class PgslCompiledTier
             if (pc >= n || depth[pc] < 0) continue;
             bool[] state = (bool[])assignedIn[pc].Clone();
             ref VmOp op = ref ops[pc];
-            if (op.Code == Opcode.LOAD_VAR && !state[((VarRef)op.Ref).Slot]) { reason = $"may read '{((VarRef)op.Ref).Name}' before setting it"; return null; }
-            if (op.Code == Opcode.STORE_VAR) state[((VarRef)op.Ref).Slot] = true;
+            if (op.Code == Opcode.LOAD_VAR && Own((VarRef)op.Ref) && !state[((VarRef)op.Ref).Slot]) { reason = $"may read '{((VarRef)op.Ref).Name}' before setting it"; return null; }
+            if (op.Code == Opcode.STORE_VAR && Own((VarRef)op.Ref)) state[((VarRef)op.Ref).Slot] = true;
             void Flow(int next)
             {
                 if (next > n || next < 0) return;
@@ -301,8 +356,24 @@ internal static class PgslCompiledTier
             {
                 case Opcode.PUSH: case Opcode.LOAD_CONST:
                     body.Add(Expression.Assign(stack[d], Expression.Constant(op.Constant.UnboxedNumber))); break;
-                case Opcode.LOAD_VAR: body.Add(Expression.Assign(stack[d], locals[((VarRef)op.Ref).Slot])); break;
-                case Opcode.STORE_VAR: body.Add(Expression.Assign(locals[((VarRef)op.Ref).Slot], Top(0))); break;
+                case Opcode.LOAD_VAR:
+                {
+                    VarRef variable = (VarRef)op.Ref;
+                    body.Add(Expression.Assign(stack[d], Own(variable) ? locals[variable.Slot]
+                        : Expression.Call(vm, ReadFreeMethod, Expression.Constant(variable))));
+                    break;
+                }
+                case Opcode.STORE_VAR:
+                {
+                    VarRef variable = (VarRef)op.Ref;
+                    if (Own(variable)) body.Add(Expression.Assign(locals[variable.Slot], Top(0)));
+                    else if (variable.Kind == VarKind.Instance) body.Add(Expression.Call(vm, WriteInstanceMethod, Expression.Constant(variable.Name), Top(0)));
+                    else body.Add(Expression.Call(vm, WriteRegisterMethod, Expression.Constant(variable.RegisterSlot), Top(0)));
+                    break;
+                }
+                case Opcode.LOAD_REG: body.Add(Expression.Assign(stack[d], Expression.Call(vm, ReadRegisterMethod, Expression.Constant(op.A)))); break;
+                case Opcode.PUSH_NULL: body.Add(Return(Expression.Constant(0.0), true)); break;
+                case Opcode.STORE_REG: body.Add(Expression.Call(vm, WriteRegisterMethod, Expression.Constant(op.A), Top(0))); break;
                 case Opcode.POP: break;
                 case Opcode.DUP: body.Add(Expression.Assign(stack[d], Top(0))); break;
                 case Opcode.SWAP:
@@ -368,6 +439,7 @@ internal static class PgslCompiledTier
         Expression guarded = Expression.Block(typeof(double),
             Expression.Call(EnterMethod, Expression.Constant(functionName)),
             Expression.TryFinally(Expression.Block(typeof(double), variables, body), Expression.Call(ExitMethod)));
+        freeReads = [.. free];
         return Expression.Lambda<Compiled>(guarded, functionName, [arguments, vm]).Compile();
 
         // A jump back counts the instructions of the loop it closes, as the interpreter would.

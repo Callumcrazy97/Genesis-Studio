@@ -409,6 +409,9 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
     /// <summary>A worker job's bridge (only the commands a job may run).</summary>
     internal bool IsWorker => _workerAllows != null;
 
+    /// <summary>Whether a name is a property command (an assignment to it sets the property, not a variable).</summary>
+    internal bool IsDeclaredProperty(string name) => name != null && _commandDefs.TryGetValue(name, out CommandDef def) && def.IsProperty;
+
     /// <summary>
     /// A copy of a built bridge's command table for worker jobs. It may be made on a worker thread:
     /// it only reads the game's tables, which are not changed once built (a rebuild replaces them).

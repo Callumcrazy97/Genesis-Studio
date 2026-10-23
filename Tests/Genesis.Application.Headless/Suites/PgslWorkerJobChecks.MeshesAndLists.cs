@@ -29,6 +29,16 @@ internal static partial class PgslWorkerJobChecks
         }
         function MjSumHeights(heights) { return NumListSum(heights, 0, NumListSize(heights)); }
         function TjFib(n) { if (n < 2) { return n; } return TjFib(n - 1) + TjFib(n - 2); }
+        // Functions that read the instance's numbers (compiled, read live), one whose callee would see
+        // its own variable (interpreted), one given text (interpreted that call), one moving x.
+        function GtScale(v) { return v * gtFactor + gtOffset; }
+        function GtSum(n) { var s = 0; for (var i = 0; i < n; i = i + 1) { s = s + GtScale(i); } return s; }
+        function GtShadow(v) { var gtFactor = 100; return GtScale(v); }
+        function GtUse(v) { return gtWord + v; }
+        function GtMoveX(dx) { x = x + dx; return x; }
+        function GtJob(flag) { if (flag > 0) { return gtNeverSetInJob; } return 7; }
+        function GtJobLoop(n) { var s = 0; for (var i = 0; i < n; i = i + 1) { s = s + GtJob(0); } return s; }
+        function GtNothing(v) { if (v > 0) { return; } return v * 2; }
         // A table a worker fills once and reads on later jobs.
         function MjCached(n) {
             var table = JobCacheNumList("squares", n);
@@ -182,6 +192,39 @@ internal static partial class PgslWorkerJobChecks
                 // A function called from a compiled function runs inside it: its time is its caller's.
             }
             finally { Genesis.Runtime.Scripting.VM.PgslCompiledTier.Enabled = before; }
+        });
+
+        // Functions reading the instance's numbers compile and read them live; a callee that would see
+        // its caller's own variable, a name holding text, x and a job's unset name all keep the
+        // interpreter's answers.
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.FunctionsReadingInstanceNumbersRunCompiled", () =>
+        {
+            using Bench bench = new();
+            bench.Run("ScriptInstructionLimit(50000000); gtFactor = 2; gtOffset = 1; gtWord = \"ab\"; x = 10; r = 0;");
+            for (int i = 0; i < 60; i++) bench.Run("r = GtSum(3) + GtShadow(1) + GtMoveX(0);");
+            bench.Run("r = GtUse(1);");
+            for (int i = 0; i < 60; i++) bench.Run("r = GtUse(1);");
+            double sum = bench.Number("r = GtSum(100);");
+            double live = bench.Number("gtFactor = 3; r = GtSum(10);");
+            double shadow = bench.Number("r = GtShadow(5);");
+            string word = bench.Text("r = GtUse(5);");
+            double moved = bench.Number("x = 10; for (var i = 0; i < 50; i = i + 1) { GtMoveX(1); } r = x;");
+            string sumWhy = Genesis.Runtime.Scripting.VM.PgslCompiledTier.ReasonFor("GtSum") ?? "never looked at";
+            string shadowWhy = Genesis.Runtime.Scripting.VM.PgslCompiledTier.ReasonFor("GtShadow") ?? "never looked at";
+            for (int i = 0; i < 60; i++) bench.Run("r = GtNothing(-1); r = GtNothing(1);");
+            string nothing = bench.Text("r = GtNothing(1);") + "|" + bench.Text("r = GtNothing(-3);");
+            string nothingWhy = Genesis.Runtime.Scripting.VM.PgslCompiledTier.ReasonFor("GtNothing") ?? "never looked at";
+            HeadlessHarness.Assert(nothing == "|-6" && nothingWhy.Length == 0, $"A function with `return;` should compile and return nothing there (got \"{nothing}\", '{nothingWhy}').");
+            double job = bench.Number("""r = JobRunScript("GtJobLoop", 60);""");
+            string jobStatus = bench.Wait(job);
+            double jobResult = PgslCommands.JobResultNumber(job);
+            PgslCommands.JobRelease(job);
+            bool pass = sum == 10000 && live == 145 && shadow == 501 && word == "ab5" && moved == 60 && sumWhy.Length == 0
+                && shadowWhy.Contains("a variable of this function", StringComparison.Ordinal) && jobStatus == "succeeded" && jobResult == 420;
+            row("Compiled functions", "reading the instance's numbers (GtSum), a caller's own variable, text, x, a job's unset name", pass ? "PASS" : "FAIL",
+                $"sum {sum}, live {live}, shadow {shadow}, text {word}, x {moved}, GtSum '{sumWhy}', GtShadow '{shadowWhy}', job {jobStatus} {jobResult}");
+            PgslCommands.ScriptInstructionLimit(0);
+            HeadlessHarness.Assert(pass, $"Compiled functions reading outside names: sum {sum} (10000), live {live} (145), shadow {shadow} (501), text '{word}' (ab5), x {moved} (60), GtSum '{sumWhy}' (compiled), GtShadow '{shadowWhy}', job {jobStatus} {jobResult} (420).");
         });
 
         // What a worker keeps between jobs: filled once on each worker, read again afterwards.

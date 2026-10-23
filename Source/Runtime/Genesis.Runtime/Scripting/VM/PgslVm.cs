@@ -1529,6 +1529,16 @@ public class PgslVm
         // The resolver made once: a method group passed here made a new delegate on every call.
         PgslCompiledTier.Entry entry = PgslCompiledTier.Get(_typedBridge, function, _resolveFunction ??= ResolveFunction);
         if (entry.Run == null) return false;
+        // Each name it reads from outside must be a number now; else this call is interpreted. (In a
+        // worker job a name nothing set is an error only where the code really reads it, so the
+        // interpreter has the call.)
+        VarRef[] free = entry.FreeReads;
+        try
+        {
+            for (int i = 0; i < free.Length; i++)
+                if (!TryReadFreeNumber(free[i], out _)) return false;
+        }
+        catch (Genesis.Runtime.Scripting.PgslWorkerJobException) { return false; }
         VmValue[] values = _stack.Items;
         int start = _stack.Count - argCount;
         for (int i = start; i < _stack.Count; i++)
@@ -1547,6 +1557,36 @@ public class PgslVm
     }
 
     private Func<string, UserFunction> _resolveFunction;
+
+    // ── For compiled functions (PgslCompiledTier): names a function does not hold, as the interpreter
+    // reads them from a function with no frame of its own (its callers' frames, the instance, then a
+    // property or register), and the instance's variables and registers it writes.
+
+    /// <summary>A name's value if it is a number now; false (and 0) for text, an object or nothing.</summary>
+    internal bool TryReadFreeNumber(VarRef variable, out double value)
+    {
+        VmValue read;
+        if (variable.Kind == VarKind.Instance) read = LoadInstanceVariableByName(variable.Name);
+        else if (!TryGetVariable(variable.Symbol, variable.Name, _frameCount - 1, out read)) read = ResolvePGSLPropertyOrZero(variable.Name);
+        value = read.IsUnboxedNumber ? read.UnboxedNumber : 0;
+        return read.IsUnboxedNumber;
+    }
+
+    internal double ReadFreeNumber(VarRef variable) => TryReadFreeNumber(variable, out double value) ? value : 0;
+
+    internal void WriteInstanceNumber(string name, double value) => StoreInstanceVariableByName(name, value);
+
+    internal double ReadRegisterNumber(int slot)
+    {
+        var ctx = _bridge.GetContext();
+        return ctx == null || slot < 0 || slot >= PgslRegisterFile.NumberGetters.Length ? 0 : PgslRegisterFile.NumberGetters[slot](ctx);
+    }
+
+    internal void WriteRegisterNumber(int slot, double value)
+    {
+        var ctx = _bridge.GetContext();
+        if (ctx != null && slot >= 0 && slot < PgslRegisterFile.NumberSetters.Length) PgslRegisterFile.Write(ctx, slot, value);
+    }
 
     // A script function by name, as a call finds it.
     private UserFunction ResolveFunction(string name)

@@ -527,10 +527,13 @@ public sealed class DebugProfileRecording : IDisposable
             Line();
             Line("Time includes the functions each calls; a function called from compiled code counts in its caller.");
             Line();
-            Line("| Function | Calls | Total ms | Avg µs | Compiled calls |");
-            Line("|---|---|---|---|---|");
+            Line("| Function | Calls | Total ms | Avg µs | Compiled calls | Why interpreted |");
+            Line("|---|---|---|---|---|---|");
             foreach (Genesis.Runtime.Scripting.VM.PgslScriptProfile.FunctionTime function in functions)
-                Line($"| {Escape(function.Function)} | {function.Calls} | {F(function.TotalMilliseconds, "0.000")} | {F(function.AverageMicroseconds, "0.0")} | {function.CompiledCalls} |");
+            {
+                string why = function.CompiledCalls > 0 ? string.Empty : Genesis.Runtime.Scripting.VM.PgslCompiledTier.ReasonFor(function.Function) ?? "not looked at yet";
+                Line($"| {Escape(function.Function)} | {function.Calls} | {F(function.TotalMilliseconds, "0.000")} | {F(function.AverageMicroseconds, "0.0")} | {function.CompiledCalls} | {Escape(why)} |");
+            }
         }
 
         Line();
