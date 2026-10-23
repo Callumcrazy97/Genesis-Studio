@@ -249,18 +249,27 @@ namespace Genesis.Shared.Commands
                 if (ea.Cancel) return null;
             }
 
-            var sw = Stopwatch.IsHighResolution ? Stopwatch.StartNew() : null;
+            long started = Stopwatch.GetTimestamp();
             object result = b.Invoke(args);
-            long elapsedUs = 0;
-            if (sw != null)
-            {
-                sw.Stop();
-                elapsedUs = (long)(sw.Elapsed.TotalMilliseconds * 1000.0);
-            }
+            long elapsedUs = (long)(Stopwatch.GetElapsedTime(started).TotalMilliseconds * 1000.0);
             b.Stat.Record(elapsedUs);
 
             OnAfterInvoke?.Invoke(new CommandInvocation(name, b.Category, args, result, elapsedUs));
             return result;
+        }
+
+        /// <summary>Whether anything listens before or after commands; calls then go through <see cref="Invoke"/>.</summary>
+        public static bool HasHooks => OnBeforeInvoke != null || OnAfterInvoke != null;
+
+        /// <summary>
+        /// Records a call made straight to its method (PGSL's typed calls, which take numbers unboxed
+        /// and allocate nothing) in the command's statistics, as <see cref="Invoke"/> records one.
+        /// </summary>
+        public static void RecordElapsed(string name, long startTimestamp)
+        {
+            EnsureBuilt();
+            if (name != null && _byName.TryGetValue(name, out Bound b))
+                b.Stat.Record((long)(Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds * 1000.0));
         }
 
         /// <summary>Reset all accumulated statistics (e.g. between profiler frames).</summary>

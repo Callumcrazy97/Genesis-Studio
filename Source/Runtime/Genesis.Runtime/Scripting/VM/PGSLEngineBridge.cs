@@ -7,6 +7,7 @@ using System.Linq;
 using System.Linq.Expressions;
 
 using System.Reflection;
+using Genesis.Shared.Commands;
 using Genesis.Shared.Scripting;
 
 namespace Genesis.Runtime.Scripting.VM;
@@ -73,6 +74,15 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
                     _commandDefs[csharpName] = def;
             }
         }
+        // Engine commands (Engine.Camera3DSetPos...) are native commands too, so a script calls
+        // them through a typed call (numbers unboxed, no argument array) like any other command,
+        // rather than resolving the name and boxing every argument on every call.
+        foreach ((string bare, string namespaced, string category, MethodInfo method) in PgslNamespaceResolver.EngineCommands())
+        {
+            var def = new CommandDef { Name = "Engine." + bare, Category = category, IsImplemented = true, EngineMethod = method, EngineName = bare };
+            _commandDefs.TryAdd(def.Name, def);
+            if (namespaced != null) _commandDefs.TryAdd(namespaced, def);
+        }
         BuildNativeCallTable();
     }
 
@@ -125,6 +135,8 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
         public DirectShape Shape;
         /// <summary>Whether the call leaves nothing for the script (<see cref="IsNativeVoid"/>), worked out once.</summary>
         public bool PushesNothing;
+        /// <summary>An Engine command: values the typed call cannot take go through the command pipeline.</summary>
+        public bool IsEngine;
     }
 
     /// <summary>The form of <see cref="NativeCall.Direct"/>: how many numbers it takes and whether it returns one.</summary>
@@ -178,7 +190,19 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
         var call = new NativeCall { ArgumentCount = argumentCount, Entry = _nativeTable[id], PushesNothing = IsNativeVoid(id) };
         CommandDef def = _nativeDefs[id];
         // A command a worker job may not run keeps only its entry, which says so.
-        if (!def.IsProperty && (_workerAllows == null || _workerAllows[id]))
+        if (def.EngineMethod != null)
+        {
+            // Typed straight to the Engine method, its time recorded as the pipeline records it.
+            // While anything hooks the pipeline (gating, auditing), every call goes through it.
+            call.IsEngine = true;
+            if ((_workerAllows == null || _workerAllows[id]) && !EngineCommandPipeline.HasHooks)
+            {
+                call.Method = def.EngineMethod;
+                call.Plan = GetPlan(call.Method);
+                CompileTypedCall(call, def.EngineName);
+            }
+        }
+        else if (!def.IsProperty && (_workerAllows == null || _workerAllows[id]))
         {
             // The same overload CallMethod picks for this many arguments.
             call.Method = ResolveMethod(def.CSharpMember, argumentCount);
@@ -199,7 +223,7 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
     // true when not 0; text is passed as is, and so is any value given for an object parameter
     // (PgListSize(list), DsMapGet(map, key)...). Any other value (text for a number, a number too big
     // for an int...) takes the general path, which converts it or says why it cannot.
-    private static void CompileTypedCall(NativeCall call)
+    private static void CompileTypedCall(NativeCall call, string engineName = null)
     {
         ParameterInfo[] parameters = call.Plan.Parameters;
         // Fewer arguments than parameters is the same typed call when the rest have defaults
@@ -243,16 +267,32 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
         }
         Expression body = Expression.Call(null, call.Method, arguments);
         Type returns = call.Method.ReturnType;
+        if (engineName != null)
+        {
+            // started = Stopwatch.GetTimestamp(); result = Method(...); RecordElapsed(name, started); result
+            ParameterExpression started = Expression.Variable(typeof(long), "started");
+            Expression record = Expression.Call(RecordElapsedMethod, Expression.Constant(engineName), started);
+            Expression start = Expression.Assign(started, Expression.Call(GetTimestampMethod));
+            if (returns == typeof(void)) body = Expression.Block([started], start, body, record);
+            else
+            {
+                ParameterExpression result = Expression.Variable(returns, "result");
+                body = Expression.Block(returns, [started, result], start, Expression.Assign(result, body), record, result);
+            }
+        }
         if (returns == typeof(double)) call.NumberCall = Expression.Lambda<Func<double[], object[], double>>(body, numbers, texts).Compile();
         else if (returns == typeof(bool)) call.BoolCall = Expression.Lambda<Func<double[], object[], bool>>(body, numbers, texts).Compile();
         else if (returns == typeof(void)) call.VoidCall = Expression.Lambda<Action<double[], object[]>>(body, numbers, texts).Compile();
         else call.ObjectCall = Expression.Lambda<Func<double[], object[], object>>(Expression.Convert(body, typeof(object)), numbers, texts).Compile();
         call.Kinds = kinds;
         call.HasText = Array.IndexOf(kinds, ArgumentKind.Text) >= 0 || Array.IndexOf(kinds, ArgumentKind.Value) >= 0;
-        CreateDirectCall(call, kinds);
+        // An Engine command keeps its timed typed call: a direct delegate would skip the record.
+        if (engineName == null) CreateDirectCall(call, kinds);
     }
 
     private static readonly MethodInfo ToInt32FromDouble = typeof(Convert).GetMethod(nameof(Convert.ToInt32), new[] { typeof(double) })!;
+    private static readonly MethodInfo RecordElapsedMethod = typeof(EngineCommandPipeline).GetMethod(nameof(EngineCommandPipeline.RecordElapsed))!;
+    private static readonly MethodInfo GetTimestampMethod = typeof(System.Diagnostics.Stopwatch).GetMethod(nameof(System.Diagnostics.Stopwatch.GetTimestamp))!;
 
     // A parameter's declared default as a constant of its own type (an enum's comes as its number).
     private static Expression DefaultArgument(ParameterInfo parameter)
@@ -292,7 +332,7 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
 
     /// <summary>Calls a command through its cached plan: the same conversions and errors as <see cref="InvokeNative"/>.</summary>
     internal object InvokeNative(NativeCall call, object[] args) =>
-        call.Method == null ? call.Entry(args) : CallMethod(call.Method, call.Plan, args);
+        call.Method == null || call.IsEngine ? call.Entry(args) : CallMethod(call.Method, call.Plan, args);
 
     public void BuildNativeCallTable()
     {
@@ -312,7 +352,13 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
             _nativeNames[i] = def.Name ?? entries[i].Key;
             _nativeDefs[i] = def;
 
-            if (def.IsProperty)
+            if (def.EngineMethod != null)
+            {
+                string engineCommand = def.Name;
+                _nativeTable[i] = args => PgslNamespaceResolver.InvokeEngineCommand(engineCommand, args);
+                _nativeIsVoid[i] = def.EngineMethod.ReturnType == typeof(void);
+            }
+            else if (def.IsProperty)
             {
                 var captured = def;
                 _nativeTable[i] = args =>
@@ -396,6 +442,11 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
                     return null;
                 };
             }
+            else if (def.EngineMethod != null)
+            {
+                string engineCommand = def.Name;
+                worker._nativeTable[i] = args => PgslNamespaceResolver.InvokeEngineCommand(engineCommand, args);
+            }
             else
             {
                 worker._nativeTable[i] = args => worker.CallMethod(def.CSharpMember, args);
@@ -424,6 +475,7 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
             throw new InvalidOperationException($"Unknown command: {name}");
         }
         if (!WorkerAllows(def)) throw NotInWorker(def.Name);
+        if (def.EngineMethod != null) return PgslNamespaceResolver.InvokeEngineCommand(def.Name, args);
         if (def.IsProperty)
         {
             if (args.Length == 0) return GetProperty(def.Name);
@@ -441,6 +493,7 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
         if (_commandDefs.TryGetValue(name, out var def))
         {
             if (def.IsProperty) return false;
+            if (def.EngineMethod != null) return def.EngineMethod.ReturnType == typeof(void);
             var method = GetOrCacheMethod(def.CSharpMember, argCount);
             return method != null && method.ReturnType == typeof(void);
         }
@@ -526,6 +579,12 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
             return false;
         }
 
+        if (def.EngineMethod != null)
+        {
+            result = PgslNamespaceResolver.InvokeEngineCommand(def.Name, args);
+            return true;
+        }
+
         if (def.IsProperty)
         {
             if (args.Length == 0) result = GetProperty(def.Name);
@@ -566,6 +625,9 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
         public string Description;
         public bool IsProperty;
         public bool IsImplemented;
+        /// <summary>For an Engine command: its method on <see cref="Engine"/> and its bare name in the pipeline.</summary>
+        public MethodInfo EngineMethod;
+        public string EngineName;
     }
 
     private void InitializeContextPropCache()

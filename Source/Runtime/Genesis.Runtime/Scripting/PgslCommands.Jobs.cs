@@ -92,6 +92,9 @@ public static partial class PgslCommands
         {
             ReturnGridCopies(untaken.LentCopies);
             untaken.LentCopies = null;
+            if (untaken.Meshes is { } builds)
+                foreach ((int _, Genesis.Runtime.Rendering.MeshBuffers build) in builds) build.Release();
+            untaken.Meshes = null;
         }
         bool released = GetContext() != null && JobPools.TryGetValue(GetContext(), out NativeJobPool pool) && pool.Release(JobId(id));
         SetJobError(released ? "" : "Unknown or released job handle."); return released;

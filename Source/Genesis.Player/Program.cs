@@ -26,13 +26,15 @@ internal static class Program
             catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
         }
         Genesis.Shared.Diagnostics.LoadProfile.Trace("engine diagnostics loaded");
-        // A game, not a batch job: full collections run in the background rather than stopping every
-        // thread (GenesisCraft streaming chunks: a blocking gen 2 froze one frame for 561 ms). Only a
-        // collection Windows forces under real memory pressure still blocks.
-        // GENESIS_GC_LATENCY=interactive keeps .NET's default mode, for comparing the two.
-        System.Runtime.GCSettings.LatencyMode = string.Equals(Environment.GetEnvironmentVariable("GENESIS_GC_LATENCY"), "interactive", StringComparison.OrdinalIgnoreCase)
-            ? System.Runtime.GCLatencyMode.Interactive
-            : System.Runtime.GCLatencyMode.SustainedLowLatency;
+        // .NET's own mode (Interactive, with background collections): full collections already run
+        // beside the game rather than stopping it. SustainedLowLatency was the default until 23 Oct
+        // 2026; measured on a game's garbage (30 to 90 MB/s over a 400 MB heap with a turning-over
+        // cache) it saved no pause time and gave more frames over 8 ms (25-30 against 18-23 in 40 s),
+        // and GenesisCraft saw longer pauses with it. The pauses that remain are short collections,
+        // which only allocating less shortens. GENESIS_GC_LATENCY=sustained puts it back, to compare.
+        System.Runtime.GCSettings.LatencyMode = string.Equals(Environment.GetEnvironmentVariable("GENESIS_GC_LATENCY"), "sustained", StringComparison.OrdinalIgnoreCase)
+            ? System.Runtime.GCLatencyMode.SustainedLowLatency
+            : System.Runtime.GCLatencyMode.Interactive;
         // Packaging step: compile the engine's built-in shaders into the folder shipped beside
         // Studio and the Player. Opens no window and plays nothing.
         if (args.Length > 0 && string.Equals(args[0], Genesis.Rendering.Primitives.PrecompiledShaders.CommandLineSwitch, StringComparison.OrdinalIgnoreCase))

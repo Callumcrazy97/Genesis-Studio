@@ -74,6 +74,16 @@ public static class PgslNamespaceResolver
         return EngineCommandPipeline.Invoke(bareName, converted);
     }
 
+    /// <summary>Every Engine command: its bare name, its namespaced name (Engine.Camera.X) and its method.</summary>
+    public static IEnumerable<(string Bare, string Namespaced, string Category, MethodInfo Method)> EngineCommands()
+    {
+        foreach (KeyValuePair<string, (MethodInfo Method, EngineCommandAttribute Attribute)> pair in EngineMethods.Value)
+        {
+            string segment = NormalizeNamespaceSegment(pair.Value.Attribute.Category);
+            yield return (pair.Key, segment.Length == 0 ? null : "Engine." + segment + "." + pair.Key, pair.Value.Attribute.Category, pair.Value.Method);
+        }
+    }
+
     public static bool IsEngineCommandVoid(string commandName) =>
         TryResolveEngineCommand(commandName, out _, out MethodInfo method) && method.ReturnType == typeof(void);
 
