@@ -28,6 +28,7 @@ internal static partial class PgslWorkerJobChecks
             return NumListSize(heights);
         }
         function MjSumHeights(heights) { return NumListSum(heights, 0, NumListSize(heights)); }
+        function TjFib(n) { if (n < 2) { return n; } return TjFib(n - 1) + TjFib(n - 2); }
         // A table a worker fills once and reads on later jobs.
         function MjCached(n) {
             var table = JobCacheNumList("squares", n);
@@ -131,6 +132,56 @@ internal static partial class PgslWorkerJobChecks
                 $"state before the first started: {waiting}; ended {status}; sum {result}");
             HeadlessHarness.Assert(pass, $"Waiting job: '{waiting}' before, {status} after, sum {result} (expected 2450), game's list size {PgslCommands.NumListSize(bench.Number("r = hs;"))}.");
             PgslCommands.JobRelease(second); PgslCommands.JobRelease(first);
+        });
+
+        // A function called often whose work is numbers runs compiled: the same result, quicker, and
+        // the instruction limit still stops a loop that runs too long.
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.HotNumberFunctionsRunCompiled", () =>
+        {
+            using Bench bench = new();
+            double Time(string source, out double result)
+            {
+                double best = double.MaxValue; result = 0;
+                for (int round = 0; round < 5; round++)
+                {
+                    long start = System.Diagnostics.Stopwatch.GetTimestamp();
+                    result = bench.Number(source);
+                    best = Math.Min(best, System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+                }
+                return best;
+            }
+            const string Loop = "r = SnLoopScript(3000);";
+            bool before = Genesis.Runtime.Scripting.VM.PgslCompiledTier.Enabled;
+            try
+            {
+                Genesis.Runtime.Scripting.VM.PgslCompiledTier.Enabled = false;
+                double interpreted = Time(Loop, out double slowResult);
+                Genesis.Runtime.Scripting.VM.PgslCompiledTier.Enabled = true;
+                long compiledBefore = Genesis.Runtime.Scripting.VM.PgslCompiledTier.CompiledCount;
+                for (int i = 0; i < 50; i++) bench.Run("r = SnLoopScript(10); r = WjSpin(10); r = WjText(1, 2);");
+                bench.Run("ScriptProfileReset(); ScriptProfileEnable(true); r = 0;");
+                double compiled = Time(Loop, out double fastResult);
+                string report = bench.Text("r = ScriptProfileReport(5); ScriptProfileEnable(false);");
+                double fib = bench.Number("r = TjFib(20);");
+                string text = bench.Text("r = WjText(3, 4);");
+                string limit;
+                try { bench.Run("r = WjSpin(300000);"); limit = "ran"; }
+                catch (Exception error) { limit = error.Message; }
+                long made = Genesis.Runtime.Scripting.VM.PgslCompiledTier.CompiledCount - compiledBefore;
+                double speedup = interpreted / Math.Max(0.001, compiled);
+                bool same = fastResult == slowResult;
+                bool pass = same && speedup >= 2 && fib == 6765 && text == "3-4" && limit.Contains("Maximum instruction limit", StringComparison.Ordinal)
+                    && report.Contains("SnLoopScript | 5 |", StringComparison.Ordinal) && report.Contains("| 5" + Environment.NewLine, StringComparison.Ordinal);
+                row("Compiled functions", "SnLoopScript(3000): script value noise, interpreted against compiled", pass ? "PASS" : "FAIL",
+                    $"{interpreted:F2} ms -> {compiled:F2} ms ({speedup:F1}x), same result {same}; {made} functions compiled; TjFib(20) {fib}; limit: {(limit.Length > 40 ? limit[..40] : limit)}");
+                Console.WriteLine("Script profile:\n" + report);
+                HeadlessHarness.Assert(same, $"Compiled result {fastResult} differs from interpreted {slowResult}.");
+                HeadlessHarness.Assert(speedup >= 2, $"Compiled took {compiled:F2} ms against {interpreted:F2} ms interpreted ({speedup:F1}x).");
+                HeadlessHarness.Assert(fib == 6765 && text == "3-4", $"TjFib(20) gave {fib}, WjText gave '{text}'.");
+                HeadlessHarness.Assert(limit.Contains("Maximum instruction limit", StringComparison.Ordinal), "A compiled loop ran past the instruction limit: " + limit);
+                // A function called from a compiled function runs inside it: its time is its caller's.
+            }
+            finally { Genesis.Runtime.Scripting.VM.PgslCompiledTier.Enabled = before; }
         });
 
         // What a worker keeps between jobs: filled once on each worker, read again afterwards.

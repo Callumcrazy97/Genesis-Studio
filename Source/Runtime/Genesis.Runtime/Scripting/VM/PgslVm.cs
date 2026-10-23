@@ -1419,6 +1419,15 @@ public class PgslVm
             if (_frameCount >= MaxCallDepth || !System.Runtime.CompilerServices.RuntimeHelpers.TryEnsureSufficientExecutionStack())
                 ThrowTooDeep(funcName, _frameCount);
 
+            // Called often and numbers only: its compiled form (PgslCompiledTier).
+            bool profiling = PgslScriptProfile.Enabled;
+            long profileStart = profiling ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+            if (++userFunc.Calls >= PgslCompiledTier.HotCalls && TierTwoAllowed && TryRunCompiled(userFunc, argCount))
+            {
+                if (profiling) PgslScriptProfile.Record(funcName, System.Diagnostics.Stopwatch.GetTimestamp() - profileStart, compiled: true);
+                return;
+            }
+
             PgslProgram program = PgslProgram.ForFunction(userFunc);
             VariableFrame frame = AcquireFrame(program.Layout);
 
@@ -1449,6 +1458,7 @@ public class PgslVm
                 if (_frameCount > 0 && ReferenceEquals(_frames[_frameCount - 1], frame))
                     PopFrame();
                 ReleaseFrame(frame);
+                if (profiling) PgslScriptProfile.Record(funcName, System.Diagnostics.Stopwatch.GetTimestamp() - profileStart, compiled: false);
             }
             return;
         }
@@ -1467,6 +1477,47 @@ public class PgslVm
             ReleaseArgumentArray(args);
         }
     }
+
+    // The compiled tier runs only where the interpreter would show nothing different: no debugger,
+    // no step log, no per-command notes or allocation ledger.
+    private bool TierTwoAllowed =>
+        PgslCompiledTier.Enabled && _fastCalls && _typedBridge != null && Debugger is null && !_debugMode
+        && !PgslAllocationLedger.Enabled && !Genesis.Runtime.Scripting.PgslRuntimeDiagnostics.IsCollecting;
+
+    // Runs a function's compiled form when every argument is an unboxed number; false leaves the
+    // call to the interpreter (not compiled, or given text or other values).
+    private bool TryRunCompiled(UserFunction function, int argCount)
+    {
+        PgslCompiledTier.Entry entry = PgslCompiledTier.Get(_typedBridge, function, ResolveFunction);
+        if (entry.Run == null) return false;
+        VmValue[] values = _stack.Items;
+        int start = _stack.Count - argCount;
+        for (int i = start; i < _stack.Count; i++)
+            if (!values[i].IsUnboxedNumber) return false;
+        double[] arguments = PgslCompiledTier.Scratch(argCount);
+        for (int i = 0; i < argCount; i++)
+        {
+            arguments[i] = values[start + i].UnboxedNumber;
+            values[start + i] = default;
+        }
+        _stack.Count = start;
+        PgslCompiledTier.NoValue = false;
+        double result = entry.Run(arguments, this);
+        _stack.Push(PgslCompiledTier.NoValue ? default : (VmValue)result);
+        return true;
+    }
+
+    // A script function by name, as a call finds it.
+    private UserFunction ResolveFunction(string name)
+    {
+        if (_userFunctions.TryGetValue(name, out UserFunction function)) return function;
+        return (LibraryFunctions is { } library ? library.TryGetValue(name, out function) : Genesis.Runtime.Scripting.ScriptAssetRegistry.TryFindFunction(name, out function))
+            ? function : null;
+    }
+
+    internal void ThrowInstructionLimitFor(string function) => ThrowInstructionLimit(function);
+
+    internal void AddInstructions(long count) => InstructionsExecuted += count;
 
     // The budget is per event body and per function call: each call starts its own count.
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]

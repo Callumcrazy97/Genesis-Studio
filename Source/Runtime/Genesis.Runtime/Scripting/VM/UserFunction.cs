@@ -11,6 +11,8 @@ public class UserFunction
     public List<object> Constants { get; set; }
     /// <summary>The body decoded for the VM's fast loop, made on the first call.</summary>
     internal PgslProgram Program;
+    /// <summary>Calls so far, for the compiled tier's choice of what is hot (racy counts are fine).</summary>
+    internal int Calls;
 
     public UserFunction(string name, List<string> parameters)
     {
