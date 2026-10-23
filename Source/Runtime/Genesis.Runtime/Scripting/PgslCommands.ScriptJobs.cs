@@ -221,7 +221,10 @@ public static partial class PgslCommands
             _ => ResolveRead<List<object>>("list", handle) != null,
         };
         if (!exists) return Refuse($"No {family} with handle {StringOf(handle)} in this Object.");
-        int at = setup.Shared.FindIndex(entry => entry.Family == family && entry.Handle == (int)handle);
+        // A part lent is one of perhaps several parts of the same structure (each comes back); a whole
+        // structure given again replaces what was given before.
+        int at = setup.Shared.FindIndex(entry => entry.Family == family && entry.Handle == (int)handle
+            && (region == null ? entry.Region == null : entry.Region == region));
         if (at >= 0) setup.Shared[at] = (family, (int)handle, copyBack, region);
         else setup.Shared.Add((family, (int)handle, copyBack, region));
         SetJobError(string.Empty);
@@ -292,7 +295,8 @@ public static partial class PgslCommands
         {
             string key = DsKey(family, handle);
             if (!store.TryGetValue(key, out object entry)) return Refuse($"The {family} {handle} given to the job no longer exists.");
-            if (region == null) continue;
+            // A list lent in part is shared as a whole list is; only its range comes back.
+            if (region == null || family != "grid") continue;
             if ((entry is SharedData sharedEntry ? sharedEntry.Value : entry) is not PgslGrid) return Refuse($"The grid {handle} lent to the job is no longer a grid.");
             (lent ??= new HashSet<string>(StringComparer.Ordinal)).Add(key);
         }
@@ -336,8 +340,10 @@ public static partial class PgslCommands
         foreach ((string family, int handle, _, GridRect? region) in setup.Shared)
         {
             string key = DsKey(family, handle);
-            if (region == null) { Give(key, store[key]); continue; }
-            // The game goes on writing its own grid in place; only the rectangle comes back.
+            if (region == null || family != "grid") { Give(key, store[key]); continue; }
+            // The game goes on writing its own grid in place; only the rectangles come back. Several
+            // rectangles of one grid share one copy.
+            if (data.ContainsKey(key)) continue;
             PgslGrid copy = RentGridCopy((PgslGrid)(store[key] is SharedData sharedGrid ? sharedGrid.Value : store[key]));
             data[key] = copy;
             (lentCopies ??= []).Add(copy);
@@ -399,10 +405,13 @@ public static partial class PgslCommands
         {
             string key = DsKey(family, handle);
             if (store == null || !store.TryGetValue(key, out object current)) continue;
-            // A part lent: its rectangle is written into the game's grid; every other cell stays the game's.
+            // A part lent: its rectangle (or a list's range) is written into the game's own; everything
+            // else stays the game's.
             if (region is { } rect)
             {
                 if (data is PgslGrid fromJob) MergeGridRegion(handle, fromJob, rect);
+                else if (data is List<object> listFromJob) MergeListRange(handle, listFromJob, rect.X1, rect.X2);
+                else if (data is PgslNumberList numbersFromJob) MergeNumListRange(handle, numbersFromJob, rect.X1, rect.X2);
                 continue;
             }
             object live = current is SharedData shared ? shared.Value : current;

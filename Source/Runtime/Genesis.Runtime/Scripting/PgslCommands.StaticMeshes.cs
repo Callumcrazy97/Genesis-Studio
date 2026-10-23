@@ -75,6 +75,54 @@ public static partial class PgslCommands
         return moved;
     }
 
+    [PgslCommand("InstanceSetTransformsFromNumList", "InstanceSetTransformsFromNumList(instances, transforms) -> number",
+        "Place, turn and size many instances in one call: transforms holds 9 numbers for each id in the instances number list (x, y, z, pitch, yaw, roll in degrees, sx, sy, sz), as InstanceSetX/Y/Z, InstanceSetRotation3D and InstanceSetScale3D (the 3D pose and physics follow). Returns how many changed; ids that do not exist, and scales of 0, are skipped",
+        "Instances")]
+    public static double InstanceSetTransformsFromNumList(double instances, double transforms)
+    {
+        if (NumRead(instances) is not { } ids || NumRead(transforms) is not { } values || World is not { } world) return 0;
+        PgslContext ctx = GetContext();
+        int count = Math.Min(ids.Count, values.Count / 9), changed = 0;
+        for (int i = 0; i < count; i++)
+        {
+            ReadOnlySpan<double> v = values.Items.AsSpan(i * 9, 9);
+            if (!Finite3(v[0], v[1], v[2]) || !Finite3(v[3], v[4], v[5]) || !Finite3(v[6], v[7], v[8])
+                || Math.Abs(v[6]) < 1e-6 || Math.Abs(v[7]) < 1e-6 || Math.Abs(v[8]) < 1e-6
+                || !TryTransform(ids.Items[i], out Entity entity, out EcsWorld _)) continue;
+            ref Genesis.Runtime.ECS.Components.TransformComponent t = ref world.GetRef<Genesis.Runtime.ECS.Components.TransformComponent>(entity);
+            var ratio = new Vector3((float)v[6] / UnitScale(t.ScaleX), (float)v[7] / UnitScale(t.ScaleY), (float)v[8] / UnitScale(t.ScaleZ));
+            t.X = (float)v[0]; t.Y = (float)v[1]; t.Z = (float)v[2];
+            t.RotationX = (float)v[3]; t.RotationY = (float)v[4]; t.RotationZ = t.Rotation = (float)v[5];
+            t.ScaleX = (float)v[6]; t.ScaleY = (float)v[7]; t.ScaleZ = (float)v[8];
+            if (ctx != null && ctx.InstanceId == entity.Id)
+            {
+                ctx.X = v[0]; ctx.Y = v[1]; ctx.Z = v[2];
+                ctx.ImageAngle = v[5]; ctx.ImageXScale = v[6]; ctx.ImageYScale = v[7];
+            }
+            // A sprite with a physics body follows as a move does; anything else takes the whole pose.
+            if (world.Has<Genesis.Runtime.Scene.SpritePhysicsBindingComponent>(entity)) FollowMovedTransform(world, entity, ref t);
+            else SynchronizeTransform(world, entity, Vector3.Abs(ratio));
+            changed++;
+        }
+        return changed;
+    }
+
+    [PgslCommand("InstanceSetTintsFromNumList", "InstanceSetTintsFromNumList(instances, colours) -> number",
+        "Tint many model instances in one call: colours holds r, g, b, a (0-1) for each id in the instances number list, as ModelSetTint. Returns how many changed; ids that are not model instances are skipped",
+        "Instances")]
+    public static double InstanceSetTintsFromNumList(double instances, double colours)
+    {
+        if (NumRead(instances) is not { } ids || NumRead(colours) is not { } rgba || World is not { } world) return 0;
+        int count = Math.Min(ids.Count, rgba.Count / 4), changed = 0;
+        for (int i = 0; i < count; i++)
+        {
+            double r = rgba.Items[i * 4], g = rgba.Items[i * 4 + 1], b = rgba.Items[i * 4 + 2], a = rgba.Items[i * 4 + 3];
+            if (!Finite3(r, g, b) || !double.IsFinite(a) || !TryTransform(ids.Items[i], out Entity entity, out EcsWorld _)) continue;
+            if (Genesis.Runtime.Modeling.ModelInstance.SetTint(world, entity, new Vector4((float)r, (float)g, (float)b, (float)a))) changed++;
+        }
+        return changed;
+    }
+
     [PgslCommand("InstanceGetPositionsToNumList", "InstanceGetPositionsToNumList(instances, positions) -> number",
         "Read many instances' positions in one call: positions becomes x, y, z for each id in the instances number list (0, 0, 0 for one that does not exist). Returns how many exist",
         "Instances")]

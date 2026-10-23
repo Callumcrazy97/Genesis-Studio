@@ -25,6 +25,13 @@ internal static partial class PgslWorkerJobChecks
             return SceneQueueCount();
         }
         function ScApply() { return SceneQueueApply(); }
+        // Fills a range of a list and a number list and a row of a grid, and writes outside them too.
+        function ScRanges(lst, nums, grd, startAt, many, mark) {
+            for (var i = startAt; i < startAt + many; i = i + 1) { DsListSet(lst, i, mark); NumListSet(nums, i, mark); }
+            DsListSet(lst, 9, 99); NumListSet(nums, 9, 99);
+            for (var gx = 0; gx < 8; gx = gx + 1) { DsGridSet(grd, gx, 0, mark); }
+            return 1;
+        }
         """;
 
     private static void RunSceneCommands(HeadlessContext ctx, Action<string, string, string, string> row)
@@ -90,6 +97,39 @@ internal static partial class PgslWorkerJobChecks
                 PgslCommands.ClearSceneCommands();
                 PgslCommands.ActiveGameContext = previous;
             }
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.Jobs.ListRangesAndSeveralRectanglesComeBack", () =>
+        {
+            using Bench bench = new();
+            string result = bench.Text("""
+                rl = DsListCreate(); rn = NumListCreate(); rg = DsGridCreate(8, 4);
+                for (var i = 0; i < 10; i = i + 1) { DsListAdd(rl, 0); NumListAdd(rn, 0); }
+                ja = JobScriptCreate("ScRanges");
+                JobScriptListRegion(ja, rl, 0, 3, true); JobScriptNumListRegion(ja, rn, 0, 3, true);
+                JobScriptGridRegion(ja, rg, 0, 0, 1, 0, true); JobScriptGridRegion(ja, rg, 6, 0, 7, 0, true);
+                jb = JobScriptCreate("ScRanges");
+                JobScriptListRegion(jb, rl, 5, 3, true); JobScriptNumListRegion(jb, rn, 5, 3, true); JobScriptGrid(jb, rg, false);
+                JobScriptStart(ja, rl, rn, rg, 0, 3, 1); JobScriptStart(jb, rl, rn, rg, 5, 3, 2);
+                r = StringFormatNumber(ja, 0) + " " + StringFormatNumber(jb, 0);
+                """);
+            string[] jobs = result.Split(' ');
+            double ja = double.Parse(jobs[0], CultureInfo.InvariantCulture), jb = double.Parse(jobs[1], CultureInfo.InvariantCulture);
+            string statusA = bench.Wait(ja), statusB = bench.Wait(jb);
+            HeadlessHarness.Assert(statusA == "succeeded" && statusB == "succeeded", $"The range jobs ended {statusA} / {statusB}: {PgslCommands.JobError(ja)} {PgslCommands.JobError(jb)}");
+            HeadlessHarness.Assert(PgslCommands.JobTake(jb) && PgslCommands.JobTake(ja), "JobTake refused: " + PgslCommands.JobLastError());
+            string after = bench.Text("""
+                var s = "";
+                for (var i = 0; i < 10; i = i + 1) { s = s + StringFormatNumber(DsListGet(rl, i), 0); }
+                s = s + " ";
+                for (var i = 0; i < 10; i = i + 1) { s = s + StringFormatNumber(NumListGet(rn, i), 0); }
+                s = s + " ";
+                for (var gx = 0; gx < 8; gx = gx + 1) { s = s + StringFormatNumber(DsGridGet(rg, gx, 0), 0); }
+                r = s;
+                """);
+            PgslCommands.JobRelease(ja); PgslCommands.JobRelease(jb);
+            HeadlessHarness.Assert(after == "1110022200 1110022200 11000011",
+                $"Only each job's ranges and rectangles should come back (got \"{after}\", wanted \"1110022200 1110022200 11000011\").");
         });
 
         HeadlessHarness.RunCase(ctx.Report, "Engine.Runtime.FrameBudget.ReportsEachPartAgainstItsBudget", () =>

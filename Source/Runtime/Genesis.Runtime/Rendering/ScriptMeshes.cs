@@ -61,7 +61,29 @@ namespace Genesis.Runtime.Rendering
         {
             if (!TryGet(id, out Builder mesh)) return;
             mesh.Buffers.Clear();
+            MarkChanged(id, mesh);
+        }
+
+        // Meshes whose rebuild began since the static layer last looked (it keeps its entries' bounds
+        // until told): noted only while the layer has entries.
+        private static readonly HashSet<int> Rebuilt = new();
+        internal static bool TrackRebuilds;
+
+        private static void MarkChanged(int id, Builder mesh)
+        {
+            if (!mesh.Dirty && TrackRebuilds) lock (Rebuilt) Rebuilt.Add(id);
             mesh.Dirty = true;
+        }
+
+        /// <summary>Moves the meshes rebuilt since the last call into <paramref name="into"/>.</summary>
+        internal static void TakeRebuilt(List<int> into)
+        {
+            lock (Rebuilt)
+            {
+                if (Rebuilt.Count == 0) return;
+                into.AddRange(Rebuilt);
+                Rebuilt.Clear();
+            }
         }
 
         /// <summary>
@@ -114,6 +136,7 @@ namespace Genesis.Runtime.Rendering
         {
             UploadBudgetMilliseconds = DefaultUploadBudgetMilliseconds;
             BeginFrame();
+            lock (Rebuilt) Rebuilt.Clear();
             List<Builder> all;
             lock (Meshes)
             {
@@ -133,7 +156,7 @@ namespace Genesis.Runtime.Rendering
         internal static MeshBuffers BuffersToChange(int id)
         {
             if (!TryGet(id, out Builder mesh)) return null;
-            mesh.Dirty = true;
+            MarkChanged(id, mesh);
             return mesh.Buffers;
         }
 
@@ -149,7 +172,7 @@ namespace Genesis.Runtime.Rendering
             if (!TryGet(id, out Builder mesh)) { built.Release(); return false; }
             MeshBuffers previous = mesh.Buffers;
             mesh.Buffers = built;
-            mesh.Dirty = true;
+            MarkChanged(id, mesh);
             previous.Release();
             return true;
         }
@@ -256,9 +279,20 @@ namespace Genesis.Runtime.Rendering
             TryGet(id, out Builder mesh) && !mesh.Dirty && (mesh.Handle.IsValid || mesh.Buffers.IndexCount < 3);
 
         /// <summary>The renderer's mesh for a script mesh, uploaded again if it changed since (within the frame's budget).</summary>
-        public static MeshHandle Resolve(int id, IRenderController renderer)
+        public static MeshHandle Resolve(int id, IRenderController renderer) => Resolve(id, renderer, out _);
+
+        /// <summary>The same, with how many times the mesh has gone to a renderer (<see cref="UploadCount"/>), from one lookup.</summary>
+        public static MeshHandle Resolve(int id, IRenderController renderer, out int uploads)
         {
+            uploads = 0;
             if (renderer == null || !TryGet(id, out Builder mesh)) return MeshHandle.Invalid;
+            MeshHandle handle = ResolveBuilder(mesh, renderer);
+            uploads = mesh.Uploads;
+            return handle;
+        }
+
+        private static MeshHandle ResolveBuilder(Builder mesh, IRenderController renderer)
+        {
             bool sameOwner = ReferenceEquals(mesh.Owner, renderer);
             if (!mesh.Dirty && mesh.Handle.IsValid && sameOwner) return mesh.Handle;
             if (UploadBudgetMilliseconds > 0 && _frameUploads > 0

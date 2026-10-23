@@ -44,6 +44,18 @@ internal static class PgslScriptProfile
 
     public static void Reset() => Stats.Clear();
 
+    internal readonly record struct FunctionTime(string Function, long Calls, double TotalMilliseconds, double AverageMicroseconds, long CompiledCalls);
+
+    /// <summary>The functions that took longest, most first (the profile report's table).</summary>
+    internal static FunctionTime[] Top(int top) =>
+    [
+        .. Stats.OrderByDescending(pair => pair.Value.Ticks).Take(Math.Max(1, top)).Select(pair =>
+        {
+            double total = pair.Value.Ticks * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+            return new FunctionTime(pair.Key, pair.Value.Calls, total, total * 1000.0 / Math.Max(1, pair.Value.Calls), pair.Value.CompiledCalls);
+        }),
+    ];
+
     /// <summary>The functions that took longest, most first: one line each.</summary>
     public static string Report(int top)
     {

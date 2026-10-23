@@ -641,6 +641,12 @@ namespace Genesis.Runtime.Project
                     // debug screen drawn, no inspector, no live telemetry.
                     bool profile = ProfileRequested(args) && !debugMode;
                     host.DebugEngineCategory = DebugCategories.EngineRequested || profile;
+                    // A profile run also times each part of the frame and each script function, for its report.
+                    if (profile)
+                    {
+                        Genesis.Runtime.Diagnostics.FrameBudget.Enabled = true;
+                        Genesis.Runtime.Scripting.VM.PgslScriptProfile.Enabled = true;
+                    }
                     host.SceneBuilt += built =>
                     {
                         if (built.Debugger == null) return;

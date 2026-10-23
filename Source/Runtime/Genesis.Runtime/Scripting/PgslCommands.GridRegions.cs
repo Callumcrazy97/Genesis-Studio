@@ -72,6 +72,50 @@ public static partial class PgslCommands
             PgslGrid.CopyRun(from, (y * from.Width) + rect.X1, live, (y * live.Width) + rect.X1, width);
     }
 
+    /// <summary>
+    /// Writes a job's range of a list (first to last, as the job's list has them) into the game's,
+    /// entry for entry where both lists have the entry: a range lent cannot grow or shrink the list.
+    /// </summary>
+    private static void MergeListRange(int handle, List<object> from, int first, int last)
+    {
+        List<object> live = Resolve<List<object>>("list", handle);
+        if (live == null) return;
+        int end = Math.Min(last, Math.Min(from.Count, live.Count) - 1);
+        for (int i = first; i <= end; i++) live[i] = from[i];
+    }
+
+    private static void MergeNumListRange(int handle, PgslNumberList from, int first, int last)
+    {
+        PgslNumberList live = NumWrite(handle);
+        if (live == null) return;
+        int end = Math.Min(last, Math.Min(from.Count, live.Count) - 1);
+        if (end >= first) Array.Copy(from.Items, first, live.Items, first, end - first + 1);
+    }
+
+    // A range of a list, as a rectangle one entry high (X1 to X2).
+    private static bool LendRange(double job, string family, double handle, int length, double start, double count, bool copyBack)
+    {
+        if (!double.IsFinite(start) || !double.IsFinite(count) || count < 1) return Refuse("The range's start and count must be numbers, the count at least 1.");
+        int first = (int)Math.Max(0, Math.Floor(start));
+        int last = (int)Math.Min(length - 1L, Math.Floor(start) + Math.Floor(count) - 1);
+        if (first > last) return Refuse($"The range {StringOf(start)} + {StringOf(count)} is outside the {length}-entry list.");
+        return ShareWithJob(job, family, handle, copyBack, new GridRect(first, 0, last, 0));
+    }
+
+    [PgslCommand("JobScriptListRegion", "JobScriptListRegion(job, list, start, count, copyBack) -> bool",
+        "Give a prepared job a list it may fill part of (count entries from start): the job reads the whole list as it is when the job starts (shared, copied only if the job writes it), and with copyBack JobTake writes only that range into this list, keeping every other entry as the game has it; jobs given ranges that do not overlap all come back. The range cannot grow or shrink the list", "Native Jobs")]
+    public static bool JobScriptListRegion(double job, double list, double start, double count, bool copyBack) =>
+        ResolveRead<List<object>>("list", list) is { } found
+            ? LendRange(job, "list", list, found.Count, start, count, copyBack)
+            : Refuse($"No list with handle {StringOf(list)} in this Object.");
+
+    [PgslCommand("JobScriptNumListRegion", "JobScriptNumListRegion(job, numList, start, count, copyBack) -> bool",
+        "The same for a number list (NumListCreate): the job reads all of it, JobTake writes back only its range", "Native Jobs")]
+    public static bool JobScriptNumListRegion(double job, double numList, double start, double count, bool copyBack) =>
+        ResolveRead<PgslNumberList>("nlist", numList) is { } found
+            ? LendRange(job, "nlist", numList, found.Count, start, count, copyBack)
+            : Refuse($"No number list with handle {StringOf(numList)} in this Object.");
+
     [PgslCommand("JobScriptGridRegion", "JobScriptGridRegion(job, grid, x1, y1, x2, y2, copyBack) -> bool",
         "Give a prepared job a grid it may fill part of (x1, y1 to x2, y2, corners included): the job reads the whole grid as it is when the job starts, and with copyBack JobTake writes only that rectangle into this grid, keeping every other cell as the game has it. The game goes on changing its grid while the job runs, and jobs given parts that do not overlap all come back. The job's copy is made when it starts, in memory kept for the next job", "Native Jobs")]
     public static bool JobScriptGridRegion(double job, double grid, double x1, double y1, double x2, double y2, bool copyBack)

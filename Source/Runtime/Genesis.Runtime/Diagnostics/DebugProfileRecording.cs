@@ -504,6 +504,35 @@ public sealed class DebugProfileRecording : IDisposable
                 Line($"| {Escape(item.Object)}.{Escape(item.Event)} | {item.Calls} | {F(item.TotalMilliseconds, "0.000")} | {F(item.AverageMicroseconds, "0.0")} | {F(item.MaximumMicroseconds, "0.0")} | {item.Failures} |");
         }
 
+        // Where the frame's time went part by part, and which script functions took it (both on for a
+        // profile run: FrameBudget and PgslScriptProfile).
+        if (FrameBudget.Enabled && FrameBudget.Frames > 0)
+        {
+            Line();
+            Line("## Frame parts");
+            Line();
+            Line($"Each part of the frame over {FrameBudget.Frames} frames, against a {F(FrameBudget.FrameMilliseconds)} ms frame (subsystem updates and draws, physics, scripts' events, static meshes).");
+            Line();
+            Line("| Part | Average ms | Longest ms | Share of the frame | Frames over its budget |");
+            Line("|---|---|---|---|---|");
+            foreach (FrameBudget.FramePart part in FrameBudget.Snapshot(16))
+                Line($"| {Escape(part.Part)} | {F(part.AverageMilliseconds, "0.000")} | {F(part.LongestMilliseconds)} | {F(part.AverageMilliseconds * 100 / Math.Max(0.001, FrameBudget.FrameMilliseconds), "0.0")}% | {part.FramesOverBudget} |");
+        }
+        Genesis.Runtime.Scripting.VM.PgslScriptProfile.FunctionTime[] functions =
+            Genesis.Runtime.Scripting.VM.PgslScriptProfile.Enabled ? Genesis.Runtime.Scripting.VM.PgslScriptProfile.Top(25) : [];
+        if (functions.Length > 0 && functions[0].Calls > 0)
+        {
+            Line();
+            Line("## Hottest script functions");
+            Line();
+            Line("Time includes the functions each calls; a function called from compiled code counts in its caller.");
+            Line();
+            Line("| Function | Calls | Total ms | Avg µs | Compiled calls |");
+            Line("|---|---|---|---|---|");
+            foreach (Genesis.Runtime.Scripting.VM.PgslScriptProfile.FunctionTime function in functions)
+                Line($"| {Escape(function.Function)} | {function.Calls} | {F(function.TotalMilliseconds, "0.000")} | {F(function.AverageMicroseconds, "0.0")} | {function.CompiledCalls} |");
+        }
+
         Line();
         Line("## Allocation and GC");
         Line();

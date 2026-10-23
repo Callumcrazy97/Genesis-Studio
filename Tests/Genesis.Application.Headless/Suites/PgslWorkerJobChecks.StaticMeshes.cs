@@ -100,9 +100,26 @@ internal static partial class PgslWorkerJobChecks
 
                 bench.Run("MeshStaticClear();");
                 HeadlessHarness.Assert(StaticMeshLayer.Count == 0, "MeshStaticClear should remove every placed mesh.");
+
+                // 20 000 placed over 2 km: after the first look, a view skips whole cells out of sight.
+                bench.Run("""
+                    ScriptInstructionLimit(50000000);
+                    for (var i = 0; i < 20000; i = i + 1) { MeshStaticAdd(sm, "", (i % 200) * 10 - 1000, 0, Floor(i / 200) * 10 - 500, 1, 1, 1, 0, ""); }
+                    """);
+                sink.Meshes = 0;
+                ScriptMeshes.BeginFrame();
+                StaticMeshLayer.Submit(renderer, sink, viewProjection, "");
+                long started = System.Diagnostics.Stopwatch.GetTimestamp();
+                for (int frame = 0; frame < 10; frame++) { sink.Meshes = 0; StaticMeshLayer.Submit(renderer, sink, viewProjection, ""); }
+                double perView = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds / 10;
+                row("Static meshes", "20 000 placed over 2 km, one view", $"{perView:F2} ms a view", $"{sink.Meshes} drawn, {StaticMeshLayer.LastCellsCulled} of {StaticMeshLayer.CellCount} cells skipped whole");
+                HeadlessHarness.Assert(StaticMeshLayer.LastCellsCulled > StaticMeshLayer.CellCount / 2 && sink.Meshes > 0 && sink.Meshes < 20000 && perView < 4,
+                    $"A view of 20 000 placed meshes should skip most cells and take little time ({perView:F2} ms, {StaticMeshLayer.LastCellsCulled} of {StaticMeshLayer.CellCount} cells skipped, {sink.Meshes} drawn).");
+                bench.Run("MeshStaticClear();");
             }
             finally
             {
+                PgslCommands.ScriptInstructionLimit(0);
                 StaticMeshLayer.Clear();
                 ScriptMeshes.Reset();
             }
@@ -137,6 +154,20 @@ internal static partial class PgslWorkerJobChecks
                 TransformComponent third = world.GetRef<TransformComponent>(world.GetEntity(ids[2]));
                 HeadlessHarness.Assert(result == "5 5 18 30 3.5 0" && third.X == 20 && third.Y == 2.5f && third.Z == -2,
                     $"Five instances should move and read back in one call each, the unknown id skipped (got \"{result}\", third at {third.X}, {third.Y}, {third.Z}).");
+
+                // Position, turn and size in one call (a zero scale is skipped); tints only change model instances.
+                string transformed = Convert.ToString(bench.Run("""
+                    tf = NumListCreate();
+                    for (var i = 0; i < 6; i = i + 1) { NumListAdd3(tf, i, 1, 2); NumListAdd3(tf, 10, i * 15, 5); NumListAdd3(tf, 2, 3, 4); }
+                    NumListSet(tf, 4 * 9 + 7, 0);
+                    tints = NumListCreate(); for (var i = 0; i < 6; i = i + 1) { NumListAdd3(tints, 1, 0.5, 0.25); NumListAdd(tints, 1); }
+                    r = StringFormatNumber(InstanceSetTransformsFromNumList(ids, tf), 0) + " " + StringFormatNumber(InstanceSetTintsFromNumList(ids, tints), 0);
+                    """), CultureInfo.InvariantCulture) ?? "";
+                TransformComponent turned = world.GetRef<TransformComponent>(world.GetEntity(ids[2]));
+                TransformComponent unscaled = world.GetRef<TransformComponent>(world.GetEntity(ids[4]));
+                HeadlessHarness.Assert(transformed == "4 0" && turned.X == 2 && turned.RotationY == 30 && turned.RotationZ == 5 && turned.ScaleY == 3
+                    && unscaled.X == 40 && unscaled.ScaleY != 0,
+                    $"Four instances should be placed, turned and sized in one call, the zero scale skipped and no tint on a non-model (got \"{transformed}\", third {turned.X} yaw {turned.RotationY} sy {turned.ScaleY}, fifth x {unscaled.X}).");
             }
             finally { PgslCommands.ActiveGameContext = previous; }
         });
