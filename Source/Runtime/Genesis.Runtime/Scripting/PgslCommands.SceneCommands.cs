@@ -25,7 +25,7 @@ public static partial class PgslCommands
     {
         PgslContext ctx = GetContext();
         if (ctx?.JobMeshes == null) return GameSceneCommands;
-        return ctx.SceneCommands ??= new SceneCommandBuffer();
+        return ctx.SceneCommands ??= SceneCommandBuffer.Rent();
     }
 
     private static bool SceneId(double id, out int value)

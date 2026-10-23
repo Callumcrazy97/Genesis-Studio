@@ -323,6 +323,8 @@ public static class GameRunCommands
                 ["averageDrawCalls"] = Math.Round(Mean("DrawCalls"), 1),
                 ["averageTriangles"] = Math.Round(Mean("Triangles")),
                 ["scripts"] = new JsonArray([.. (summary["Pgsl"] as JsonArray ?? []).Take(12).Select(s => s?.DeepClone())]),
+                // Each part of the frame (subsystem updates and draws, physics, scripts' events) on average and at its longest.
+                ["frameParts"] = new JsonArray([.. (summary["FrameParts"] as JsonArray ?? []).Take(10).Select(s => s?.DeepClone())]),
                 ["folder"] = GameRun.Shown(context, folder),
             };
             var over = new List<string>();

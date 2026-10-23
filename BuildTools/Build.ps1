@@ -4,6 +4,7 @@ $ErrorActionPreference = 'Stop'
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $profile = 'Quick'; $config = 'Release'; $tests = 'Skipped'; $backends = @()
 $focused = $null; $installer = $false; $launch = $false; $explicitQuick = $false; $explicitFull = $false; $benchmarks = $false
+$track = $env:GENESIS_SKIP_BENCH_TRACK -ne '1'; $trackResult = 'Skipped'
 try {
     for ($i = 0; $i -lt $BuildArguments.Count; $i++) {
         switch ($BuildArguments[$i].ToLowerInvariant()) {
@@ -21,8 +22,11 @@ Genesis Studio - Quick Build / Full Build
   --full-tests             Add full regression to Quick.
   --quick-smoke            Add DX11/DX12 smokes.
   --full-smoke             Add all five renderer smokes.
-  --benchmarks             Add the six benchmark scenes (BuildTools/Benchmarks) measured
+  --benchmarks             Add the seven benchmark scenes (BuildTools/Benchmarks) measured
                            against budgets.json; over budget fails the build. Opens game windows.
+  --no-track               Skip the complex-scene benchmark that a publish (Quick or --tiers)
+                           runs after promotion when the engine changed, adding it to
+                           TestResults/Benchmarks/history.jsonl. GENESIS_SKIP_BENCH_TRACK=1 too.
   --skip-tests             Legacy Quick alias; startup smoke remains required.
   --debug                  Debug Quick Build. Full always uses Release.
   --installer              Compile installer from validated staging.
@@ -45,6 +49,7 @@ These profiles build Genesis Studio and Player. Game export is separate.
             '--quick-smoke' { $backends += @('dx11','dx12') }
             '--full-smoke' { $backends += @('dx11','dx12','vulkan','opengl','software') }
             '--benchmarks' { $benchmarks = $true }
+            '--no-track' { $track = $false }
             { $_ -in @('--test','-test','--backend','-backend') } {
                 $flag = $_
                 if (++$i -ge $BuildArguments.Count) { throw "$flag requires a value." }
@@ -310,6 +315,36 @@ try {
             throw
         }
     }
+    # A publish that changed the engine measures the synthetic complex scene with the published build
+    # and adds it to the history, so each engine change has its number. Not for focused test runs
+    # (they publish too, many times over one change). It never fails the build: it runs after promotion.
+    if ($track -and $tests -in @('Skipped','Tiers')) {
+        $engineFiles = @('Genesis.Runtime','Genesis.Rendering','Genesis.Rendering.Abstractions','Genesis.Physics','Genesis.World',
+            'Genesis.Shared','Genesis.Audio','Genesis.Streaming','Genesis.Net') | ForEach-Object { Join-Path $output "$_.dll" } | Where-Object { Test-Path -LiteralPath $_ }
+        $joined = [Text.Encoding]::UTF8.GetBytes((($engineFiles | ForEach-Object { (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash }) -join ''))
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try { $engineHash = ([BitConverter]::ToString($sha.ComputeHash($joined)) -replace '-', '').Substring(0, 16) } finally { $sha.Dispose() }
+        $history = Join-Path $repo 'TestResults/Benchmarks/history.jsonl'
+        $lastEngine = ''
+        if (Test-Path -LiteralPath $history) {
+            $lastComplex = @(Get-Content -LiteralPath $history | Where-Object { $_ -like '*"scene":"Complex Scene"*' } | Select-Object -Last 1)
+            if ($lastComplex.Count) { try { $lastEngine = ($lastComplex[0] | ConvertFrom-Json).engine } catch { } }
+        }
+        if ($engineHash -ne $lastEngine) {
+            Invoke-BuildStep 'Track the complex-scene benchmark' {
+                try {
+                    Invoke-Logged 'powershell.exe' @('-NoProfile','-ExecutionPolicy','Bypass','-File',
+                        (Join-Path $PSScriptRoot 'Benchmarks/BenchmarkScenes.ps1'),
+                        '-Studio',(Join-Path $output 'Genesis Application.exe'),'-Scenes','Complex Scene','-Track','-EngineHash',$engineHash,
+                        '-Seconds','8','-Warmup','6') 'benchmark-track.log'
+                    $script:trackResult = 'Passed'
+                } catch {
+                    $script:trackResult = 'Failed'
+                    Write-Host "Complex-scene benchmark: $($_.Exception.Message)" -ForegroundColor Yellow
+                }
+            }
+        } else { $trackResult = 'Unchanged engine' }
+    }
 } catch { $failure = $_.Exception.Message; Write-Host "`nBUILD FAILED: $failure" -ForegroundColor Red }
 finally {
     $clock.Stop()
@@ -335,6 +370,7 @@ finally {
         SkippedBackends = @(@('dx11','dx12','vulkan','opengl','software') | Where-Object { $_ -notin $passedBackends })
         ChecksNotRun = $checksNotRun
         Benchmarks = $(if (-not $benchmarks) { 'Skipped' } else { $b = @($stages | Where-Object { $_.Name -eq 'Benchmark scenes against budgets' }); if ($b.Count) { $b[0].Result } else { 'Not reached' } })
+        ComplexSceneTrack = $trackResult
         Signed = @($stages | Where-Object { $_.Name -eq 'Sign Genesis executables and libraries' -and $_.Result -eq 'Passed' }).Count -gt 0
         Stages = @($stages.ToArray())
     }
@@ -344,6 +380,7 @@ finally {
     Write-Host "`n$profile Build: $($summary.Result) in $($summary.Seconds)s. Regression: $($summary.Regression)."
     Write-Host "Renderer smokes passed: $($passedBackends -join ', '). Skipped: $($summary.SkippedBackends -join ', ')."
     if ($benchmarks) { Write-Host "Benchmark scenes: $($summary.Benchmarks). Report: TestResults/Benchmarks." }
+    if ($trackResult -ne 'Skipped') { Write-Host "Complex-scene benchmark: $trackResult. History: TestResults/Benchmarks/history.jsonl." }
     if ($checksNotRun.Count) {
         Write-Host "Regression checks NOT RUN ($($checksNotRun.Count)), not counted as passed:" -ForegroundColor Yellow
         foreach ($check in $checksNotRun) { Write-Host "  $check" -ForegroundColor Yellow }

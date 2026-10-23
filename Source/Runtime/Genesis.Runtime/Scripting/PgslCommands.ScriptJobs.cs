@@ -405,7 +405,11 @@ public static partial class PgslCommands
                 Genesis.Runtime.Rendering.ScriptMeshes.TakeBuild(id, build);
         outcome.Meshes = null;
         // Then the scene changes it queued, in the order it queued them.
-        outcome.SceneCommands?.Apply();
+        if (outcome.SceneCommands is { } queued)
+        {
+            queued.Apply();
+            SceneCommandBuffer.Return(queued);
+        }
         outcome.SceneCommands = null;
         outcome.Taken = true;
         outcome.Outputs = [];
@@ -583,6 +587,8 @@ public static partial class PgslCommands
             if (!handedOver && context.JobMeshes != NoJobMeshes)
                 foreach (Genesis.Runtime.Rendering.MeshBuffers build in context.JobMeshes.Values) build.Release();
             context.JobMeshes = null;
+            // A job that failed or was cancelled made none of its queued changes.
+            if (!handedOver) SceneCommandBuffer.Return(context.SceneCommands);
             context.SceneCommands = null;
             context.ActiveVm = null;
             ReturnWorkerBridge(run.Game, bridge);

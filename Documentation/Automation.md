@@ -101,6 +101,18 @@ grass and scattered rocks, a physics pile (500 crates) and a heavy GUI (400 labe
 `BuildTools\Benchmarks\budgets.json`. First run, 19 Oct (DX11), median ms: sprites 2.85, objects
 3.78, terrain 0.36, physics 0.56, GUI 0.52. Close Studio and games first: each run opens a game
 window.
+
+The seventh scene, **Complex Scene**, is synthetic: 64 chunk meshes built in worker jobs
+(`JobScriptMesh`) and placed once on the static layer (`MeshStaticAdd`), 1000 instances moved by four
+jobs a frame through queued scene changes (`SceneQueuePosition`, made at `JobTake`), 200
+`DrawMesh3DTransform` calls a frame, a hot numbers-only script function and a GUI. `-Scenes` picks
+scenes; `-Track` adds each scene's numbers to `TestResults\Benchmarks\history.jsonl` and compares
+them with its last ten runs (a p95 more than 25% over the best is called out). Every publish that
+changes the engine (`Build.bat --quick` or `--tiers`; not focused test runs) runs the complex scene
+with `-Track` after promotion, so each engine change has its number; `--no-track` or
+`GENESIS_SKIP_BENCH_TRACK=1` skips it. `game.benchmark` results also carry `frameParts`: each part of
+the frame (subsystem updates and draws, physics, scripts' events) on average and at its longest.
+First run, 23 Oct (DX11): median 1.08 ms, p95 1.2 ms, 73 KB a frame.
 ## What comes next
 
 These are the first stage and the second (terrain shape, sculpting and nature, room instances and

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace Genesis.Runtime.Scripting;
@@ -26,6 +27,21 @@ internal sealed class SceneCommandBuffer
 
     private readonly List<Record> _records = new();
 
+    // Buffers of jobs taken, kept with their room for later jobs: a game starting a few update jobs
+    // a frame otherwise grew a new 20 KB list for each.
+    private static readonly System.Collections.Concurrent.ConcurrentBag<SceneCommandBuffer> Spare = [];
+    private const int MaxSpare = 32, MaxKeptRecords = 1 << 16;
+
+    public static SceneCommandBuffer Rent() => Spare.TryTake(out SceneCommandBuffer buffer) ? buffer : new SceneCommandBuffer();
+
+    /// <summary>Gives a buffer back for reuse, emptied (a very large one is left to the collector).</summary>
+    public static void Return(SceneCommandBuffer buffer)
+    {
+        if (buffer == null) return;
+        buffer._records.Clear();
+        if (buffer._records.Capacity <= MaxKeptRecords && Spare.Count < MaxSpare) Spare.Add(buffer);
+    }
+
     public int Count => _records.Count;
 
     public bool Position(int id, double x, double y, double z) =>
@@ -52,11 +68,12 @@ internal sealed class SceneCommandBuffer
     public int Apply()
     {
         int made = 0;
-        // Taken first: a change that runs a script (a Destroy event) may queue more, for the next apply.
-        Record[] records = _records.ToArray();
-        _records.Clear();
-        foreach (Record record in records)
+        // Only those queued so far: a change that runs a script (a Destroy event) may queue more,
+        // which wait for the next apply.
+        int count = _records.Count;
+        for (int index = 0; index < count && index < _records.Count; index++)
         {
+            Record record = _records[index];
             switch (record.Kind)
             {
                 case Kind.Position:
@@ -76,6 +93,7 @@ internal sealed class SceneCommandBuffer
                     break;
             }
         }
+        _records.RemoveRange(0, Math.Min(count, _records.Count));
         return made;
     }
 }

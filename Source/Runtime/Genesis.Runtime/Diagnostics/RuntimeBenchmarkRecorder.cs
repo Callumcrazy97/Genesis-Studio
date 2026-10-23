@@ -34,6 +34,7 @@ public sealed class RuntimeBenchmarkRecorder : IDisposable
     private long _heap;
     private bool _written;
     private bool _capturedFrame;
+    private bool _partsCounted;
 
     public RuntimeBenchmarkRecorder(string directory, double seconds, double warmupSeconds = 5)
     {
@@ -71,6 +72,13 @@ public sealed class RuntimeBenchmarkRecorder : IDisposable
         _previousPause = paused;
         if (_capturedFrame) { _capturedFrame = false; return; }
         if (elapsed < _warmup) return;
+        // Where the measured frames' time goes, part by part, from the first measured frame on.
+        if (!_partsCounted)
+        {
+            _partsCounted = true;
+            FrameBudget.Reset();
+            FrameBudget.Enabled = true;
+        }
         double measured = elapsed - _warmup;
         if (measured >= _nextMemorySample)
         {
@@ -151,6 +159,7 @@ public sealed class RuntimeBenchmarkRecorder : IDisposable
             VisualAcceptance = "Pending native image and motion review",
             Captures = _captures,
             Pgsl = PgslProfiler.Snapshot(48),
+            FrameParts = FrameBudget.Snapshot(16),
         };
         string path = Path.Combine(_directory, "benchmark.json");
         File.WriteAllText(path + ".tmp", JsonSerializer.Serialize(summary, new JsonSerializerOptions { WriteIndented = true }));

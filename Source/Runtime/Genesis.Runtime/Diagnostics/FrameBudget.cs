@@ -81,6 +81,15 @@ namespace Genesis.Runtime.Diagnostics
             }
         }
 
+        public readonly record struct FramePart(string Part, double AverageMilliseconds, double LongestMilliseconds, long FramesOverBudget);
+
+        /// <summary>The parts that took longest on average, most first (the benchmark's record).</summary>
+        public static List<FramePart> Snapshot(int top) =>
+        [
+            .. Parts.OrderByDescending(pair => pair.Value.Total).Take(Math.Max(1, top)).Select(pair => new FramePart(pair.Key,
+                Math.Round(pair.Value.Total / Math.Max(1, _frames), 3), Math.Round(pair.Value.Longest, 3), pair.Value.Over)),
+        ];
+
         /// <summary>A part's average milliseconds over the frames counted (0 when never seen).</summary>
         public static double AverageMilliseconds(string part) =>
             _frames > 0 && part != null && Parts.TryGetValue(part.Trim(), out Part known) ? known.Total / _frames : 0;
