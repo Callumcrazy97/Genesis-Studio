@@ -158,6 +158,14 @@ internal static partial class PgslWorkerJobChecks
                 for (int frame = 0; frame < 10; frame++) StaticModelLayer.Submit(renderer, viewProjection, project);
                 double perView = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds / 10;
                 int drawn = StaticModelLayer.LastDrawn, cellsSkipped = StaticModelLayer.LastCellsCulled;
+                // Far across the field (2 km of view): with detail by size, rocks a pixel or two high are not drawn.
+                Matrix4x4 farProjection = Matrix4x4.CreatePerspectiveFieldOfView(MathF.PI / 3, 4f / 3f, 0.1f, 3000f);
+                Matrix4x4 farView = Matrix4x4.CreateLookAt(new Vector3(0, 2, -520), new Vector3(0, 0, 500), Vector3.UnitY) * farProjection;
+                StaticModelLayer.Submit(renderer, farView, project);
+                int allFar = StaticModelLayer.LastDrawn;
+                StaticModelLayer.Submit(renderer, farView, project, new Vector3(0, 2, -520), MathF.Abs(farProjection.M22));
+                int sizedFar = StaticModelLayer.LastDrawn;
+                HeadlessHarness.Assert(sizedFar > 0 && sizedFar < allFar, $"Detail by size should leave out the farthest rocks ({sizedFar} of {allFar} drawn).");
                 bool removed = bench.Number($"r = 0; if (ModelStaticRemove({one.ToString(CultureInfo.InvariantCulture)})) {{ r = 1; }}") == 1;
                 StaticModelLayer.Submit(renderer, viewProjection, project);
                 row("Static models", "20 000 rocks over 2 km, one view", $"{perView:F2} ms a view", $"{drawn} drawn, {cellsSkipped} cells skipped whole");

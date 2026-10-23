@@ -23,7 +23,8 @@ namespace Genesis.Runtime.Rendering
         {
             public string Model;
             public bool Shadows;
-            public readonly List<MeshInstanceData> Visible = new();
+            /// <summary>The copies in view this pass, by level of detail (0 full to 3 coarsest).</summary>
+            public readonly List<MeshInstanceData>[] Visible = [new(), new(), new(), new()];
             public bool BoundsKnown;
             public Vector3 Min, Max;
         }
@@ -35,7 +36,8 @@ namespace Genesis.Runtime.Rendering
             public Matrix4x4 World;
             public RenderColor Tint = RenderColor.White;
             public bool BoundsKnown;
-            public Vector3 Min, Max;
+            public Vector3 Min, Max, Centre;
+            public float Radius;
             public Cell Cell;
         }
 
@@ -165,17 +167,26 @@ namespace Genesis.Runtime.Rendering
                 lo = Vector3.Min(lo, p); hi = Vector3.Max(hi, p);
             }
             (entry.Min, entry.Max) = (lo, hi);
+            entry.Centre = (lo + hi) * 0.5f;
+            entry.Radius = MathF.Max(0.01f, Vector3.Distance(lo, hi) * 0.5f);
             entry.BoundsKnown = true;
             return true;
         }
 
-        /// <summary>Draws the placed models inside the camera's view; the host calls it once per camera pass.</summary>
-        public static void Submit(IRenderController renderer, in Matrix4x4 viewProjection, string projectPath)
+        /// <summary>
+        /// Draws the placed models inside the camera's view; the host calls it once per camera pass.
+        /// With <paramref name="projectionScale"/> (the projection's M22) each copy is drawn at the
+        /// level of detail its size on screen calls for, as models are (ModelLodView), and one too
+        /// small to see is not drawn.
+        /// </summary>
+        public static void Submit(IRenderController renderer, in Matrix4x4 viewProjection, string projectPath,
+            Vector3 cameraPosition = default, float projectionScale = 0f)
         {
             LastDrawn = 0; LastCulled = 0; LastCellsCulled = 0;
             if (Entries.Count == 0 || renderer == null) return;
             var frustum = new CameraFrustum(viewProjection);
-            foreach (Group group in GroupList) group.Visible.Clear();
+            bool detail = projectionScale > 1e-6f && ModelLodView.Enabled;
+            foreach (Group group in GroupList) foreach (List<MeshInstanceData> level in group.Visible) level.Clear();
             foreach (Cell cell in Cells)
             {
                 if (cell.Dirty || cell.HasUnknown) Measure(cell, projectPath);
@@ -191,17 +202,30 @@ namespace Genesis.Runtime.Rendering
                 {
                     if (!entry.BoundsKnown) continue; // its model is not loaded yet
                     if (!inside && !frustum.IntersectsAabb(entry.Min, entry.Max)) { LastCulled++; continue; }
-                    entry.Group.Visible.Add(new MeshInstanceData(entry.World, entry.Tint));
+                    int level = 0;
+                    if (detail)
+                    {
+                        float distance = MathF.Max(Vector3.Distance(entry.Centre, cameraPosition), entry.Radius);
+                        level = ModelLodView.LevelForSize(entry.Radius * projectionScale / distance);
+                        if (level < 0) { LastCulled++; continue; } // a pixel or two: not worth its draw
+                    }
+                    entry.Group.Visible[level].Add(new MeshInstanceData(entry.World, entry.Tint));
                 }
             }
             foreach (Group group in GroupList)
+                for (int level = 0; level < group.Visible.Length; level++)
+                    if (group.Visible[level].Count > 0) SubmitLevel(renderer, projectPath, group, level);
+        }
+
+        // One level's copies of a model: one instanced draw for each part of it at that level.
+        private static void SubmitLevel(IRenderController renderer, string projectPath, Group group, int level)
+        {
             {
-                if (group.Visible.Count == 0) continue;
                 ModelRenderQueue queue = ModelRenderQueue.Rent();
-                if (!ObjectDrawPass.Models.EnqueueAtLevel(queue, projectPath, group.Model, 0, group.Shadows, renderer)) continue;
+                if (!ObjectDrawPass.Models.EnqueueAtLevel(queue, projectPath, group.Model, level, group.Shadows, renderer)) return;
                 if (_templates.Length < queue.Count) _templates = new MeshDrawCall[queue.Count * 2];
                 int templates = queue.CopyTo(_templates, 0);
-                ReadOnlySpan<MeshInstanceData> copies = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(group.Visible);
+                ReadOnlySpan<MeshInstanceData> copies = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(group.Visible[level]);
                 for (int t = 0; t < templates; t++)
                 {
                     MeshDrawCall template = _templates[t];
@@ -222,7 +246,7 @@ namespace Genesis.Runtime.Rendering
                     }
                     renderer.DrawMeshInstances(template, _combined.AsSpan(0, copies.Length));
                 }
-                LastDrawn += group.Visible.Count;
+                LastDrawn += copies.Length;
             }
         }
     }

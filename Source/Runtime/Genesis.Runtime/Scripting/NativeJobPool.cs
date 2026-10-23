@@ -35,10 +35,26 @@ internal sealed class NativeJobPool
     // below normal priority so the game's own threads always come first; the rest wait in order.
     /// <summary>Most script jobs that run at once.</summary>
     internal static readonly int ScriptWorkerCount = Math.Max(1, Environment.ProcessorCount - 2);
-    private static readonly BlockingCollection<Action> ScriptQueue = new();
-    // Urgent jobs (JobScriptUrgent) are taken before any waiting in the normal queue.
-    private static readonly BlockingCollection<Action> UrgentQueue = new();
-    private static readonly BlockingCollection<Action>[] Queues = [UrgentQueue, ScriptQueue];
+    // Urgent jobs (JobScriptUrgent) are taken before any waiting in the normal order: one blocking
+    // collection over two queues (BlockingCollection.TakeFromAny allocated arrays on every take).
+    private readonly record struct Work(Action Run, bool Urgent);
+
+    private sealed class UrgentFirst : IProducerConsumerCollection<Work>
+    {
+        private readonly ConcurrentQueue<Work> _urgent = new(), _normal = new();
+        public int Count => _urgent.Count + _normal.Count;
+        public bool IsSynchronized => false;
+        public object SyncRoot => this;
+        public bool TryAdd(Work item) { (item.Urgent ? _urgent : _normal).Enqueue(item); return true; }
+        public bool TryTake(out Work item) => _urgent.TryDequeue(out item) || _normal.TryDequeue(out item);
+        public Work[] ToArray() => [.. _urgent, .. _normal];
+        public void CopyTo(Work[] array, int index) => ToArray().CopyTo(array, index);
+        public void CopyTo(Array array, int index) => ToArray().CopyTo(array, index);
+        public IEnumerator<Work> GetEnumerator() => ((IEnumerable<Work>)ToArray()).GetEnumerator();
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+    }
+
+    private static readonly BlockingCollection<Work> ScriptQueue = new(new UrgentFirst());
     private static int _scriptThreads, _idleScriptThreads;
     /// <summary>Script worker threads started so far.</summary>
     internal static int ScriptThreads => Volatile.Read(ref _scriptThreads);
@@ -161,14 +177,14 @@ internal sealed class NativeJobPool
     {
         for (int i = 0; i < ScriptWorkerCount; i++)
         {
-            ScriptQueue.Add(() => { holding.Signal(); release.Wait(); });
+            ScriptQueue.Add(new Work(() => { holding.Signal(); release.Wait(); }, false));
             StartThreadsFor();
         }
     }
 
     private static void RunOnScriptThread(Job job, string kind, Func<CancellationToken, Result> operation, Action? ended, NativeJobPool owner, bool urgent = false)
     {
-        (urgent ? UrgentQueue : ScriptQueue).Add(() =>
+        ScriptQueue.Add(new Work(() =>
         {
             bool endedCalled = false;
             void End()
@@ -195,14 +211,14 @@ internal sealed class NativeJobPool
                 lock (job) { job.WorkEnded = true; if (job.Released) DropLease(job); }
                 owner.OnJobEnded();
             }
-        });
+        }, urgent));
         StartThreadsFor();
     }
 
     // More threads while more jobs wait than threads are free, up to the limit.
     private static void StartThreadsFor()
     {
-        while (ScriptQueue.Count + UrgentQueue.Count > Volatile.Read(ref _idleScriptThreads))
+        while (ScriptQueue.Count > Volatile.Read(ref _idleScriptThreads))
         {
             int started = Volatile.Read(ref _scriptThreads);
             if (started >= ScriptWorkerCount) break;
@@ -218,11 +234,10 @@ internal sealed class NativeJobPool
     {
         while (true)
         {
-            // The urgent queue first (TakeFromAny takes from the first collection with work).
-            BlockingCollection<Action>.TakeFromAny(Queues, out Action? work);
-            if (work == null) continue;
+            // Urgent work first (UrgentFirst hands it out before the rest).
+            Work work = ScriptQueue.Take();
             Interlocked.Decrement(ref _idleScriptThreads);
-            work();
+            work.Run();
             Interlocked.Increment(ref _idleScriptThreads);
         }
     }

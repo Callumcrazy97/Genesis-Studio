@@ -599,7 +599,8 @@ namespace Genesis.Runtime
                 long staticStarted = System.Diagnostics.Stopwatch.GetTimestamp();
                 Genesis.Runtime.Rendering.StaticMeshLayer.Submit(_renderer, _frameQueue, viewProjection, Genesis.Runtime.Scripting.PgslCommands.ProjectPath);
                 if (Genesis.Runtime.Rendering.StaticMeshLayer.Count > 0) staticStarted = _scene.WorkTimes.Add("static meshes", staticStarted);
-                Genesis.Runtime.Rendering.StaticModelLayer.Submit(_renderer, viewProjection, Genesis.Runtime.Scripting.PgslCommands.ProjectPath);
+                Genesis.Runtime.Rendering.StaticModelLayer.Submit(_renderer, viewProjection, Genesis.Runtime.Scripting.PgslCommands.ProjectPath,
+                    _scene.Camera3D.Position, _scene.Camera3D.ProjectionMatrix.M44 == 0f ? MathF.Abs(_scene.Camera3D.ProjectionMatrix.M22) : 0f);
                 if (Genesis.Runtime.Rendering.StaticModelLayer.Count > 0) _scene.WorkTimes.Add("static models", staticStarted);
                 int drawCount = 0;
                 using (Genesis.Shared.Diagnostics.LoadProfile.Begin("gathering what to draw"))
