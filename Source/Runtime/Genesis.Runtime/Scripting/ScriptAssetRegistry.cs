@@ -126,22 +126,81 @@ namespace Genesis.Runtime.Scripting
         // Index public Script resources only. Object event programs are private implementation,
         // not globally visible modules that can shadow a named Script.
         _libraryNames.Clear();
+        var files = new List<string>();
+        var names = new List<string>();
+        string duplicate = null;
         foreach (string file in EnumerateScriptFiles(projectPath))
         {
           string name = ResourceNames.Name(projectPath, file, ResourceType.Script);
-          if (_byName.ContainsKey(name)) throw new InvalidDataException("Duplicate script resource name: " + name);
+          if (_libraryNames.Contains(name)) { duplicate = name; break; }
           _libraryNames.Add(name);
+          files.Add(file);
+          names.Add(name);
+        }
+
+        // Read and compiled on several threads, the largest first, then registered in turn: one
+        // after another, GenesisCraft's 195 Scripts (44 MB, most of it generated data) held its
+        // first room's Create events for over four seconds. Each Script still sees the names of the
+        // Scripts before it, as when they were compiled in turn (a call written without brackets).
+        var sources = new string[files.Count];
+        var compiled = new CompiledScriptAsset[files.Count];
+        var failures = new Exception[files.Count];
+        var order = new int[files.Count];
+        var sizes = new long[files.Count];
+        for (int i = 0; i < files.Count; i++)
+        {
+          order[i] = i;
+          try { sizes[i] = new FileInfo(files[i]).Length; } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
+        Array.Sort(sizes, order);
+        Array.Reverse(order);
+        string[] earlier = names.ToArray();
+        Genesis.Shared.Diagnostics.StartupWorkers.For(files.Count, slot =>
+        {
+          int i = order[slot];
+          IEnumerable<string> outer = _compileNames;
+          _compileNames = new ArraySegment<string>(earlier, 0, i);
           try
           {
-            Register(name, File.ReadAllText(file));
+            sources[i] = File.ReadAllText(files[i]);
+            compiled[i] = ScriptAssetCompiler.Compile(names[i], sources[i]);
           }
           catch (Exception ex)
           {
-            RecordLoadError(name, file, ex);
+            failures[i] = ex;
+          }
+          finally
+          {
+            _compileNames = outer;
+          }
+        }, name: "Genesis script compile");
+
+        // A Script that failed is not among the names the ones after it see: one whose text names
+        // it is compiled again, here, against the names registered before it.
+        List<string> failed = null;
+        for (int i = 0; i < files.Count; i++)
+        {
+          try
+          {
+            if (failures[i] != null) throw failures[i];
+            if (failed != null && failed.Any(name => sources[i].Contains(name, StringComparison.Ordinal)))
+              Register(names[i], sources[i]);
+            else
+              RegisterCompiled(names[i], sources[i], compiled[i]);
+          }
+          catch (Exception ex)
+          {
+            (failed ??= new List<string>()).Add(names[i]);
+            RecordLoadError(names[i], files[i], ex);
           }
         }
+        if (duplicate != null) throw new InvalidDataException("Duplicate script resource name: " + duplicate);
       }
     }
+
+    // Set on a thread compiling a Script for LoadFromProject: the names its calls without brackets
+    // may name, used instead of the registry's (whose lock the loading thread holds).
+    [ThreadStatic] private static IEnumerable<string> _compileNames;
 
     /// <summary>
     /// Reads the project's Scripts again for a game that is running (live reload), without the
@@ -302,7 +361,11 @@ namespace Genesis.Runtime.Scripting
             && _byName.ContainsKey(name))
           return;
       }
-      var asset = ScriptAssetCompiler.Compile(name, source);
+      RegisterCompiled(name, source, ScriptAssetCompiler.Compile(name, source));
+    }
+
+    private static void RegisterCompiled(string name, string source, CompiledScriptAsset asset)
+    {
       lock (_lock)
       {
         _sourceByName[name] = source;
@@ -510,6 +573,7 @@ namespace Genesis.Runtime.Scripting
     public static string ApplyScriptCallSyntax(string source)
     {
       if (string.IsNullOrEmpty(source)) return source;
+      if (_compileNames != null) return ScriptCallSyntax.Apply(source, _compileNames);
       lock (_lock)
         return ScriptCallSyntax.Apply(source, _byName.Keys);
     }

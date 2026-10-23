@@ -19,7 +19,6 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
     private readonly Dictionary<(string Member, int ArgumentCount), MethodInfo> _methodCache = new();
     private readonly Dictionary<string, PropertyInfo> _propertyCache = new();
     private static Dictionary<string, PropertyInfo> _staticContextPropCache;
-    private readonly Dictionary<MethodInfo, Func<object[], object>> _delegateCache = new();
     private readonly Type _hostType = typeof(PgslCommands);
     private PgslContext _context;
 
@@ -155,8 +154,19 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
         public Type[] ParamsElementTypes;
         /// <summary>A params parameter marked <see cref="Genesis.Shared.Scripting.ParamsNotKeptAttribute"/>.</summary>
         public bool[] ParamsReusable;
-        public Func<object[], object> Invoke;
+        public MethodInfo Method;
+        private Func<object[], object> _invoke;
+
+        /// <summary>
+        /// The call through an argument array, made the first time a call needs it: most commands
+        /// are called through their typed call, and compiling this one too for every command a game
+        /// used was a sixth of GenesisCraft's first Create event.
+        /// </summary>
+        public Func<object[], object> Invoke => _invoke ??= Invokers.GetOrAdd(Method, CompileMethod);
     }
+
+    // One for each method, whichever bridge (the game's or a worker's) first needs it.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<MethodInfo, Func<object[], object>> Invokers = new();
 
     // Per-thread params arrays by element type and length, for commands that do not keep them
     // (job scripts call commands on worker threads, hence per thread).
@@ -727,7 +737,7 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
             IsParams = new bool[parameters.Length],
             ParamsElementTypes = new Type[parameters.Length],
             ParamsReusable = new bool[parameters.Length],
-            Invoke = GetOrCreateDelegate(method),
+            Method = method,
         };
         for (int i = 0; i < parameters.Length; i++)
         {
@@ -781,14 +791,6 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
             Array.Clear(callArgs, 0, parameters.Length);
             ArrayPool<object>.Shared.Return(callArgs);
         }
-    }
-
-    private Func<object[], object> GetOrCreateDelegate(MethodInfo method)
-    {
-        if (_delegateCache.TryGetValue(method, out var del)) return del;
-        del = CompileMethod(method);
-        _delegateCache[method] = del;
-        return del;
     }
 
     private static Func<object[], object> CompileMethod(MethodInfo method)

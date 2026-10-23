@@ -1,11 +1,17 @@
 #nullable disable
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 
 namespace Genesis.Runtime.Scripting.VM;
 
 public class PgslParser
 {
+    // The methods a compile spends its time in are made optimised code at once: a game compiles its
+    // Scripts while it starts, when the JIT keeps new code unoptimised longest, and GenesisCraft's
+    // 17 MB data Script took half again as long that way.
+    private const MethodImplOptions Hot = MethodImplOptions.AggressiveOptimization;
+
     private readonly List<Token> _tokens;
     private readonly IReadOnlyDictionary<string, int> _nativeIdMap;
     private int _position = 0;
@@ -48,6 +54,7 @@ public class PgslParser
     // falls back to LOAD_VAR (string-keyed) for locals and unknown names.
     // `self.name` is the variable of the instance the code runs as, also inside a function (where a
     // plain assignment makes a local of the function).
+    [MethodImpl(Hot)]
     private static string SelfScoped(string name)
     {
         if (name.Length <= 5 || !name.StartsWith("self.", StringComparison.OrdinalIgnoreCase)) return null;
@@ -55,12 +62,14 @@ public class PgslParser
         return PgslRegisterFile.Slots.ContainsKey(member) ? member : InstanceVariablePrefix + member;
     }
 
+    [MethodImpl(Hot)]
     private string Scoped(string name) =>
         SelfScoped(name) is { } self ? self :
         _functionDepth > 0 && !name.StartsWith("@") && _declaredLocals.Contains(name)
             ? FunctionLocalPrefix + name
             : WithScoped(name);
 
+    [MethodImpl(Hot)]
     private string WithScoped(string name) =>
         _withDepth > 0 && !name.StartsWith("@") && !PgslRegisterFile.Slots.ContainsKey(name)
         && !_declaredLocals.Contains(name) && !name.StartsWith("argument", StringComparison.Ordinal)
@@ -72,6 +81,7 @@ public class PgslParser
         if (Check(TokenType.Identifier)) _declaredLocals.Add(Peek().Value);
     }
 
+    [MethodImpl(Hot)]
     private void EmitLoad(string name)
     {
         name = Scoped(name);
@@ -82,6 +92,7 @@ public class PgslParser
     }
 
     // Emit a variable store — uses STORE_REG for known instance registers.
+    [MethodImpl(Hot)]
     private void EmitStore(string name)
     {
         name = Scoped(name);
@@ -91,6 +102,7 @@ public class PgslParser
             Emit(Opcode.STORE_VAR, name);
     }
 
+    [MethodImpl(Hot)]
     public ParseResult Parse()
     {
         _instructions = new List<Instruction>();
@@ -118,6 +130,7 @@ public class PgslParser
         return new ParseResult(_instructions, _constants, _userFunctions);
     }
 
+    [MethodImpl(Hot)]
     private void ParseStatement()
     {
         if (Match(TokenType.If))
@@ -182,11 +195,13 @@ public class PgslParser
         Match(TokenType.Semicolon);
     }
 
+    [MethodImpl(Hot)]
     private void ParseExpressionStatement()
     {
         ParseAssignmentOrExpression(true);
     }
 
+    [MethodImpl(Hot)]
     private void ParseAssignmentOrExpression(bool expectSemicolon)
     {
         // Check for var prefix
@@ -248,15 +263,18 @@ public class PgslParser
                 throw new Exception($"Invalid assignment target: {lastInstr.Opcode} at line {Previous().Line}");
             }
             
-            if (expectSemicolon) Consume(TokenType.Semicolon, $"Expected ';' after assignment (found {Peek().Type}: '{Peek().Value}')");
+            // The message is made only when the `;` is missing: made for every statement, it was a
+            // tenth of a large Script's compile.
+            if (expectSemicolon && !Match(TokenType.Semicolon)) Consume(TokenType.Semicolon, $"Expected ';' after assignment (found {Peek().Type}: '{Peek().Value}')");
         }
         else
         {
-            if (expectSemicolon) Consume(TokenType.Semicolon, $"Expected ';' after expression (found {Peek().Type}: '{Peek().Value}')");
+            if (expectSemicolon && !Match(TokenType.Semicolon)) Consume(TokenType.Semicolon, $"Expected ';' after expression (found {Peek().Type}: '{Peek().Value}')");
             Emit(Opcode.POP);
         }
     }
 
+    [MethodImpl(Hot)]
     private void ParseIfStatement()
     {
         bool hasParen = Match(TokenType.LeftParen);
@@ -354,6 +372,7 @@ public class PgslParser
         DefineLabel(endLabel);
     }
 
+    [MethodImpl(Hot)]
     private void ParseBlockOrStatement()
     {
         if (Check(TokenType.LeftBrace))
@@ -474,6 +493,22 @@ public class PgslParser
         Emit(Opcode.WITH_END);
     }
 
+    // The tokens from the `{` at the current position to its `}`; 0 when no block starts here.
+    [MethodImpl(Hot)]
+    private int BodyTokenCount()
+    {
+        if (!Check(TokenType.LeftBrace)) return 0;
+        int depth = 0;
+        for (int i = _position; i < _tokens.Count; i++)
+        {
+            TokenType type = _tokens[i].Type;
+            if (type == TokenType.LeftBrace) depth++;
+            else if (type == TokenType.RightBrace && --depth == 0) return i - _position;
+        }
+        return 0;
+    }
+
+    [MethodImpl(Hot)]
     private void ParseFunctionDefinition()
     {
         Consume(TokenType.Identifier, "Expected function name");
@@ -505,17 +540,24 @@ public class PgslParser
         var savedLabels = _labels;
         var savedLabelReferences = _labelReferences;
 
-        _instructions = new List<Instruction>();
-        _constants = new List<object>();
+        // Sized from the body's tokens (about three instructions for every five, a constant for every
+        // six), not grown: a large data function's lists, grown by doubling, were copied again and
+        // again and each new array was a large-object allocation.
+        int bodyTokens = BodyTokenCount();
+        _instructions = new List<Instruction>(bodyTokens * 3 / 5 + 4);
+        _constants = new List<object>(bodyTokens / 6 + 4);
         _labels = new Dictionary<string, int>();
         _labelReferences = new List<(string, int)>();
 
         ParseBlock();
 
         ResolveLabels();
+        _instructions.TrimExcess();
+        _constants.TrimExcess();
 
-        userFunc.Bytecode = new List<Instruction>(_instructions);
-        userFunc.Constants = new List<object>(_constants);
+        // The function's own lists: nothing adds to them once the caller's are put back below.
+        userFunc.Bytecode = _instructions;
+        userFunc.Constants = _constants;
 
         _instructions = savedInstructions;
         _constants = savedConstants;
@@ -529,6 +571,7 @@ public class PgslParser
         _userFunctions[funcName] = userFunc;
     }
 
+    [MethodImpl(Hot)]
     private void ParseBlock()
     {
         Consume(TokenType.LeftBrace, "Expected '{' to start block");
@@ -539,11 +582,23 @@ public class PgslParser
         Consume(TokenType.RightBrace, "Expected '}' to end block");
     }
 
+    [MethodImpl(Hot)]
     private void ParseExpression()
     {
+        // A lone literal or name before `,` `)` `;` or `]` is where every level below would end up,
+        // each with no operator of its own to add: it is parsed as that at once, without the
+        // fourteen calls down (generated data Scripts are millions of them).
+        if (_position + 1 < _tokens.Count
+            && _tokens[_position + 1].Type is TokenType.Comma or TokenType.RightParen or TokenType.Semicolon or TokenType.RightBracket
+            && _tokens[_position].Type is TokenType.Number or TokenType.String or TokenType.Identifier or TokenType.True or TokenType.False)
+        {
+            ParsePrimary();
+            return;
+        }
         ParseTernary();
     }
 
+    [MethodImpl(Hot)]
     private void ParseTernary()
     {
         ParseLogicalOr();
@@ -563,6 +618,7 @@ public class PgslParser
         }
     }
 
+    [MethodImpl(Hot)]
     private void ParseLogicalOr()
     {
         ParseLogicalAnd();
@@ -583,6 +639,7 @@ public class PgslParser
         }
     }
 
+    [MethodImpl(Hot)]
     private void ParseLogicalAnd()
     {
         ParseBitwiseOr();
@@ -603,6 +660,7 @@ public class PgslParser
         }
     }
 
+    [MethodImpl(Hot)]
     private void ParseBitwiseOr()
     {
         ParseBitwiseXor();
@@ -613,6 +671,7 @@ public class PgslParser
         }
     }
 
+    [MethodImpl(Hot)]
     private void ParseBitwiseXor()
     {
         ParseBitwiseAnd();
@@ -623,6 +682,7 @@ public class PgslParser
         }
     }
 
+    [MethodImpl(Hot)]
     private void ParseBitwiseAnd()
     {
         ParseBitwiseShift();
@@ -633,6 +693,7 @@ public class PgslParser
         }
     }
 
+    [MethodImpl(Hot)]
     private void ParseBitwiseShift()
     {
         ParseEquality();
@@ -644,6 +705,7 @@ public class PgslParser
         }
     }
 
+    [MethodImpl(Hot)]
     private void ParseEquality()
     {
         ParseComparison();
@@ -660,6 +722,7 @@ public class PgslParser
         }
     }
 
+    [MethodImpl(Hot)]
     private void ParseComparison()
     {
         ParseTerm();
@@ -681,6 +744,7 @@ public class PgslParser
         }
     }
 
+    [MethodImpl(Hot)]
     private void ParseTerm()
     {
         ParseFactor();
@@ -694,6 +758,7 @@ public class PgslParser
         }
     }
 
+    [MethodImpl(Hot)]
     private void ParseFactor()
     {
         ParseUnary();
@@ -712,6 +777,7 @@ public class PgslParser
         }
     }
 
+    [MethodImpl(Hot)]
     private void ParseUnary()
     {
         if (Match(TokenType.Minus))
@@ -735,12 +801,14 @@ public class PgslParser
         }
     }
 
+    [MethodImpl(Hot)]
     private void ParsePrimary()
     {
         if (Match(TokenType.Number))
         {
-            double value = double.Parse(Previous().Value);
-            int constIndex = AddConstant(value);
+            // Read the same on every PC: in a culture writing 0,5 the current culture read 0.0625 as 625.
+            double value = double.Parse(Previous().Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture);
+            int constIndex = AddConstant(NumberConstant(value));
             Emit(Opcode.LOAD_CONST, constIndex);
         }
         else if (Match(TokenType.String))
@@ -843,6 +911,7 @@ public class PgslParser
         }
     }
 
+    [MethodImpl(Hot)]
     private void ParseFunctionCall(string functionName)
     {
         int argCount = 0;
@@ -865,11 +934,47 @@ public class PgslParser
         // Emit CALL_NATIVE when the command is in the pre-built native table (skips dictionary lookup at runtime).
         // Fall back to CALL for user functions, script assets, and any command not yet in the table.
         if (_nativeIdMap != null && !_declaredFunctions.Contains(functionName) && _nativeIdMap.TryGetValue(dispatchName, out int nativeId))
-            Emit(Opcode.CALL_NATIVE, (nativeId, argCount));
+            Emit(Opcode.CALL_NATIVE, NativeCallOperand(nativeId, argCount));
         else
-            Emit(Opcode.CALL, (dispatchName, argCount));
+            Emit(Opcode.CALL, CallOperand(dispatchName, argCount));
     }
 
+    // A whole-number operand (a constant's index, a register) shares one box with every other.
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void Emit(Opcode opcode, int operand) => Emit(opcode, BoxedNumbers.Of(operand));
+
+    // One box for each call shape and each number a compile meets: generated data Scripts make the
+    // same call with the same kind of arguments, and use the same few numbers, a million times.
+    private readonly Dictionary<(int, int), object> _nativeCalls = new();
+    private readonly Dictionary<(string, int), object> _calls = new();
+    private readonly Dictionary<double, object> _numbers = new();
+
+    [MethodImpl(Hot)]
+    private object NativeCallOperand(int nativeId, int argCount)
+    {
+        if (!_nativeCalls.TryGetValue((nativeId, argCount), out object operand))
+            _nativeCalls.Add((nativeId, argCount), operand = (nativeId, argCount));
+        return operand;
+    }
+
+    [MethodImpl(Hot)]
+    private object CallOperand(string name, int argCount)
+    {
+        if (!_calls.TryGetValue((name, argCount), out object operand))
+            _calls.Add((name, argCount), operand = (name, argCount));
+        return operand;
+    }
+
+    // Literals are never negative (a minus is its own operator), so -0 cannot share 0's box.
+    [MethodImpl(Hot)]
+    private object NumberConstant(double value)
+    {
+        if (!_numbers.TryGetValue(value, out object box))
+            _numbers.Add(value, box = value);
+        return box;
+    }
+
+    [MethodImpl(Hot)]
     private void Emit(Opcode opcode, object operand = null)
     {
         int position = _instructions.Count;
@@ -885,6 +990,7 @@ public class PgslParser
         op == Opcode.JUMP || op == Opcode.JUMP_IF_FALSE ||
         op == Opcode.JUMP_IF_TRUE || op == Opcode.WITH_NEXT;
 
+    [MethodImpl(Hot)]
     private int AddConstant(object value)
     {
         _constants.Add(value);
@@ -919,6 +1025,7 @@ public class PgslParser
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private bool Match(TokenType type)
     {
         if (Check(type))
@@ -929,28 +1036,33 @@ public class PgslParser
         return false;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private bool Check(TokenType type)
     {
         if (IsAtEnd()) return false;
         return Peek().Type == type;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private Token Advance()
     {
         if (!IsAtEnd()) _position++;
         return Previous();
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private bool IsAtEnd()
     {
         return Peek().Type == TokenType.EOF;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private Token Peek()
     {
         return _tokens[_position];
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private Token Previous()
     {
         return _tokens[_position - 1];

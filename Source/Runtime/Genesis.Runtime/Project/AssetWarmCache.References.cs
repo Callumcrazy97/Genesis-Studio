@@ -48,7 +48,9 @@ namespace Genesis.Runtime.Project
 
                 void Follow(string file)
                 {
-                    if (string.IsNullOrEmpty(file) || !File.Exists(file)) return;
+                    // Only a document or an asset is taken, so a name of any other kind is not looked
+                    // for on disk: half of this list's time was File.Exists on words a script quotes.
+                    if (string.IsNullOrEmpty(file) || !(IsDocument(file) || IsWarmCandidate(file)) || !File.Exists(file)) return;
                     string full = Path.GetFullPath(file);
                     if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase)) return;
                     if (IsDocument(full)) pending.Enqueue((full, depth + 1));
@@ -92,11 +94,10 @@ namespace Genesis.Runtime.Project
         }
 
         private static readonly Regex FunctionDefinition = new(@"\bfunction\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", RegexOptions.Compiled);
-        private static readonly Regex CallName = new(@"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(", RegexOptions.Compiled);
 
         /// <summary>The script files defining functions that <paramref name="document"/> calls. The map of
         /// function names to files is made on first use, from every script under Assets.</summary>
-        private static IEnumerable<string> ScriptsCalledFrom(string document, string root, ref Dictionary<string, string> functions)
+        internal static IEnumerable<string> ScriptsCalledFrom(string document, string root, ref Dictionary<string, string> functions)
         {
             if (functions == null)
             {
@@ -121,10 +122,23 @@ namespace Genesis.Runtime.Project
             try { text = File.ReadAllText(document); }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { return Array.Empty<string>(); }
             var called = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (Match match in CallName.Matches(text))
-                if (functions.TryGetValue(match.Groups[1].Value, out string script)
+            Dictionary<string, string>.AlternateLookup<ReadOnlySpan<char>> byName = functions.GetAlternateLookup<ReadOnlySpan<char>>();
+            ReadOnlySpan<char> code = text;
+            // Each `name(` (CallName's \b([A-Za-z_][A-Za-z0-9_]*)\s*\( ), found from its bracket: a
+            // match for every call of a generated data Script was a quarter of this list's time.
+            for (int bracket = code.IndexOf('('); bracket >= 0;)
+            {
+                int end = bracket;
+                while (end > 0 && char.IsWhiteSpace(code[end - 1])) end--;
+                int begin = end;
+                while (begin > 0 && (char.IsAsciiLetterOrDigit(code[begin - 1]) || code[begin - 1] == '_')) begin--;
+                if (begin < end && !char.IsAsciiDigit(code[begin]) && (begin == 0 || !ScriptCallSyntax.IsRegexWordChar(code[begin - 1]))
+                    && byName.TryGetValue(code[begin..end], out string script)
                     && !string.Equals(script, document, StringComparison.OrdinalIgnoreCase))
                     called.Add(script);
+                int next = code[(bracket + 1)..].IndexOf('(');
+                bracket = next < 0 ? -1 : bracket + 1 + next;
+            }
             return called;
         }
 
@@ -191,9 +205,11 @@ namespace Genesis.Runtime.Project
             }
         }
 
+        private static readonly System.Buffers.SearchValues<char> NotInAPath = System.Buffers.SearchValues.Create("\r\n\0<>|*?\"");
+
         private static bool IsPlausibleReference(string value) =>
             value.Length is >= 2 and <= 260
-            && value.IndexOfAny(new[] { '\r', '\n', '\0', '<', '>', '|', '*', '?', '"' }) < 0
+            && value.AsSpan().IndexOfAny(NotInAPath) < 0
             && !double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _);
     }
 }

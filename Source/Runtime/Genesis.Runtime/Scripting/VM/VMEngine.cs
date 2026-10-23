@@ -60,6 +60,18 @@ public static class VMEngine
         string processed;
         using (Genesis.Shared.Diagnostics.LoadProfile.Begin("VM: prepare the text"))
             processed = PgslCommands.PreProcessScript(source, true, PgslCommands.ProjectPath);
+        return CompilePrepared(processed);
+    }
+
+    /// <summary>
+    /// Compiles text <see cref="PgslCommands.PreProcessScript"/> has already prepared: preparing it
+    /// again changes nothing (Engine.Pgsl.PreparingAScriptTwiceChangesNothing), and for a Script
+    /// asset, prepared once already, it was a quarter of a large game's compile.
+    /// </summary>
+    internal static CompileResult CompilePrepared(string processed)
+    {
+        if (string.IsNullOrEmpty(processed)) return null;
+        if (!_initialized) Initialize();
         string cacheKey = ScriptingDebugSettings.VmBytecodeCacheSha256
             ? ComputeSha256Hex(processed)
             : processed;
@@ -76,10 +88,17 @@ public static class VMEngine
                 _recency.Remove(cached); _recency.AddFirst(cached);
                 return cached.Value.Result;
             }
-            var (instructions, constants, userFunctions) = _compiler.Compile(processed);
-            var result = new CompileResult(instructions, constants, userFunctions);
-            long bytes = 256 + cacheKey.Length * 2L + processed.Length * 2L + Estimate(instructions, constants);
-            foreach (UserFunction function in userFunctions.Values) bytes += Estimate(function.Bytecode, function.Constants);
+        }
+        // Compiled outside the lock (the compiler keeps nothing between calls), so a game's Scripts
+        // compile on several threads at once while it starts.
+        var (instructions, constants, userFunctions) = _compiler.Compile(processed);
+        var result = new CompileResult(instructions, constants, userFunctions);
+        long bytes = 256 + cacheKey.Length * 2L + processed.Length * 2L + Estimate(instructions, constants);
+        foreach (UserFunction function in userFunctions.Values) bytes += Estimate(function.Bytecode, function.Constants);
+        lock (CacheGate)
+        {
+            // The same text compiled on two threads at once: the first one kept is the one used.
+            if (_compiledCache.TryGetValue(cacheKey, out var raced)) return raced.Value.Result;
             // Oversized programs remain usable without pinning them in the cache.
             if (bytes <= MaximumCompileCacheBytes)
             {

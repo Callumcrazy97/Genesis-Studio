@@ -120,6 +120,20 @@ public static partial class PgslCommands
         return at;
     }
 
+    [PgslCommand("NumListAddNumbers", "NumListAddNumbers(id, text) -> added",
+        "Add every number in a text (\"0.5, 1, -2.25\": commas, semicolons or spaces between them) at the end in one call; returns how many were added. Generated data loads many times faster than with a NumListAdd for each number", "Lists")]
+    public static double NumListAddNumbers(double id, string text)
+    {
+        PgslNumberList list = NumWrite(id);
+        if (list is null) return 0;
+        return ForEachNumber(text, "NumListAddNumbers", value =>
+        {
+            if (!list.EnsureCapacity(list.Count + 1, MaxCollectionElements)) return false;
+            list.Items[list.Count++] = value;
+            return true;
+        });
+    }
+
     [PgslCommand("NumListGet", "NumListGet(id, index) -> number", "The number at an index (0 outside the list)", "Lists")]
     public static double NumListGet(double id, double index)
     {

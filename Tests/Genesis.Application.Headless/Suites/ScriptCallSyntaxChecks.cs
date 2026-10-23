@@ -42,6 +42,8 @@ internal static class ScriptCallSyntaxChecks
                 "Foo", "FooBar", "foo", "Bar", "Spawn", "_hidden", "A1", "Other", "x", "if", "while", "Time", "Bonus", "Café", "my",
                 "-", "script", ";", " ;", ":", " : ", "(", ")", "()", ".", " ", "  ", "\t", "\n", "\r\n", "\n\n", "\"Foo;\"", "\"",
                 "// Foo;\n", "/* Bar; */", "scr_", "scr_Foo(", "1", "==", "=", "{", "}",
+                // Generated data, and characters around a name that \b and \s treat specially.
+                "DsListAdd(l,0.5);", "DsListAdd(Foo,1);", " ", "\v", "é", "9", "x1", "́", "‍", "?",
             ];
             var random = new Random(9102026);
             for (int i = 0; i < 3000; i++)
@@ -81,6 +83,24 @@ internal static class ScriptCallSyntaxChecks
             string line2 = $"Rewriting a 400-line script against 253 Script names: {before:F1} ms per script before, {after:F2} ms now.";
             Console.WriteLine(line2);
             HeadlessHarness.Assert(after < 20 && after * 5 < before, line2);
+
+            // Generated data written as code (GenesisCraft's largest Script is 17 MB of DsListAdd
+            // calls): four megabytes are rewritten in a few milliseconds, as before where they hold
+            // a call.
+            var data = new StringBuilder();
+            for (int line = 0; data.Length < 4 << 20; line++)
+            {
+                data.Append("    ");
+                for (int n = 0; n < 12; n++) data.Append("DsListAdd(bmQ,0.").Append(line % 97).Append(n).Append(");");
+                data.Append(line % 500 == 0 ? " DsListAddString(names, \"oak_log\"); " + many[line % many.Length] + ";\n" : "\n");
+            }
+            string big = data.ToString();
+            string sample = big[..20000];
+            Same(sample[..sample.LastIndexOf('\n')], many);
+            double dataMs = Time(() => ScriptCallSyntax.Apply(big, many), 3);
+            string line3 = $"Rewriting {big.Length / 1048576.0:F1} M characters of generated data against 253 Script names: {dataMs:F1} ms.";
+            Console.WriteLine(line3);
+            HeadlessHarness.Assert(dataMs < 150, line3);
         });
     }
 

@@ -1,5 +1,6 @@
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.Text.RegularExpressions;
 using Genesis.Application.Core.Images;
 using Genesis.Application.Core.Projects;
 using Genesis.Application.Core.Resources;
@@ -390,6 +391,38 @@ internal static class AssetImportSuite
             gui.FillRectangle(Color.FromArgb(150, 0, 0, 0), new RectangleF(0, 0, 200, 100));
             Check(string.Join(",", hud.Order) == "rect,sprite,text,rect" && probe.Sprites.Count == 0,
                 $"GUI images did not keep their draw order: {string.Join(",", hud.Order)} ({probe.Sprites.Count} drawn beneath).");
+        });
+
+        // The first room's list follows a script's calls to the Script defining each function. The
+        // calls are found by a scan from each bracket, not a regex match for every call: it must
+        // name the same Scripts as the regex \b([A-Za-z_][A-Za-z0-9_]*)\s*\( did.
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Startup.TheFirstRoomFollowsTheScriptsAScriptCalls", () =>
+        {
+            string root = Path.Combine(parent, "Called Scripts");
+            string scripts = Path.Combine(root, "Assets", "Scripts");
+            Directory.CreateDirectory(scripts);
+            string[] kits = ["HallKit", "Hall", "_Torch", "Kit2", "Café"];
+            foreach (string kit in kits)
+                File.WriteAllText(Path.Combine(scripts, kit + ".pgsl"), $"function {kit}(a) {{ return a; }}\n");
+            string caller = Path.Combine(scripts, "Caller.pgsl");
+            string[] callers =
+            [
+                "HallKit(1);", "x = Hall (2) + _Torch\n(3);", "x.Kit2(1);", "9HallKit(1);", "éHall(1);", "Hall2(1);", "́Hall(1);",
+                "// HallKit(1)\n\"_Torch(\"", "HallKit", "Café(1);", "a(Hall(b(Kit2(c))));", "Caller(1); function Caller() {}", "",
+            ];
+            var expected = new Regex(@"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(");
+            foreach (string text in callers)
+            {
+                File.WriteAllText(caller, text + "\nfunction Caller() { }\n");
+                Dictionary<string, string>? functions = null;
+                string found = string.Join(",", Genesis.Runtime.Project.AssetWarmCache.ScriptsCalledFrom(caller, root, ref functions).Select(Path.GetFileNameWithoutExtension));
+                var before = new List<string>();
+                foreach (Match match in expected.Matches(File.ReadAllText(caller)))
+                    if (functions!.TryGetValue(match.Groups[1].Value, out string? script) && !string.Equals(script, caller, StringComparison.OrdinalIgnoreCase)
+                        && !before.Contains(Path.GetFileNameWithoutExtension(script)))
+                        before.Add(Path.GetFileNameWithoutExtension(script));
+                Check(found == string.Join(",", before), $"The Scripts '{text.Replace("\n", "\\n")}' calls are {found}, before {string.Join(",", before)}.");
+            }
         });
     }
 

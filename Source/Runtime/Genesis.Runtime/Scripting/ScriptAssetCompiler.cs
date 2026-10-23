@@ -17,6 +17,8 @@ public sealed class CompiledScriptAsset
 /// <summary>Compiles PGSL script assets for <see cref="ScriptAssetRegistry"/>.</summary>
 public static class ScriptAssetCompiler
 {
+    private const int LargeFunctionInstructions = 4096;
+
     public static CompiledScriptAsset Compile(string name, string source)
     {
         if (string.IsNullOrWhiteSpace(source))
@@ -30,7 +32,7 @@ public static class ScriptAssetCompiler
             hash = ComputeSha256(processed);
         CompileResult result;
         using (Genesis.Shared.Diagnostics.LoadProfile.Begin("compile a Script"))
-            result = VMEngine.Compile(processed);
+            result = VMEngine.CompilePrepared(processed);
         if (result == null)
         {
             try
@@ -46,6 +48,13 @@ public static class ScriptAssetCompiler
             if (result == null)
                 throw new InvalidOperationException($"Failed to compile script '{name}'.");
         }
+
+        // A large function is decoded for the interpreter here, on the thread compiling it while the
+        // game starts, not on the game's thread the first time it is called (GenesisCraft's generated
+        // data functions, all called by its first room's Create event).
+        if (result.UserFunctions != null)
+            foreach (UserFunction function in result.UserFunctions.Values)
+                if (function.Bytecode?.Count >= LargeFunctionInstructions) PgslProgram.ForFunction(function);
 
         return new CompiledScriptAsset
         {

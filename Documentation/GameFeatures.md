@@ -2687,6 +2687,26 @@ Silk.NET polled all sixteen gamepad and sixteen joystick slots on every window u
 are now looked at twice a second (connected controllers every frame, as before).
 `GENESIS_SILK_INPUT=every` keeps the old polling.
 
+### Large Scripts start in seconds
+
+A game's Scripts are read and compiled on several threads while it starts, the largest first, and
+each still sees the names of the Scripts before it (a call written without brackets) as when they
+were compiled in turn. Reading and compiling cost a fraction of what they did: the shorthand
+rewrite scans each `;` and `(` instead of matching every identifier, names and numbers are made
+into strings once, tokens are values rather than objects, a Script's text is prepared once rather
+than twice, and the compiler runs as optimised code from the start. A large function is decoded for
+the interpreter on the thread that compiled it. Number literals are read the same in every
+culture (a PC writing 0,5 read `0.0625` as 625).
+
+GenesisCraft (195 Scripts, 44 MB, most of it generated data) took 4.7 s to compile its Scripts and
+held its first room's Create event 4.7 s; now about 1.5 s for each, and its first room is ready
+under 5 s after the game starts instead of over 8. The list of what the first room uses follows
+quoted names only when they could be a file, and is half as long to make.
+
+For data loaded from a Script, `DsListAddNumbers(list, "0.5, 1, -2.25")` and
+`NumListAddNumbers(list, text)` add every number in a text in one call (commas, semicolons or spaces
+between them), many times faster to compile and to run than a `DsListAdd` for each number.
+
 ## Smaller changes
 
 - **Bushes and saplings.** The `Shrub` and `Sapling` foliage shapes are built from rounded solid

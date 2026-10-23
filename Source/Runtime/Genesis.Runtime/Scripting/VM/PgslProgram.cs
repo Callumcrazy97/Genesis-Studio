@@ -234,6 +234,7 @@ internal sealed class PgslProgram
             layout.SetParameters(parameters);
         }
         var ops = new VmOp[instructions.Count];
+        Dictionary<string, VarRef> refs = null;
         for (int i = 0; i < ops.Length; i++)
         {
             Instruction instruction = instructions[i];
@@ -266,7 +267,11 @@ internal sealed class PgslProgram
                     if (operand is string name)
                     {
                         op.Code = instruction.Opcode;
-                        op.Ref = DecodeName(name, layout);
+                        // One reference for each name (what it holds depends on the name alone): a
+                        // generated data function reads the same list thousands of times.
+                        refs ??= new Dictionary<string, VarRef>(StringComparer.Ordinal);
+                        if (!refs.TryGetValue(name, out VarRef reference)) refs.Add(name, reference = DecodeName(name, layout));
+                        op.Ref = reference;
                     }
                     break;
                 case Opcode.JUMP: case Opcode.JUMP_IF_FALSE: case Opcode.JUMP_IF_TRUE:

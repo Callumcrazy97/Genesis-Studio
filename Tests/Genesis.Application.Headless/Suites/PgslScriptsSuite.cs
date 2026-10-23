@@ -551,6 +551,174 @@ internal static class PgslScriptsSuite
             }
         });
 
+        // Generated data loaded as text, a call for many numbers: commas, semicolons or spaces between
+        // them, read the same in every culture, stopping at an entry that is not a number.
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.ManyNumbersAreAddedFromOneText", () =>
+        {
+            ObjectSandboxResult result = RunCreate(
+                "l = DsListCreate();\n" +
+                "a = DsListAddNumbers(l, \"0.5, 1;-2.25\\n3e2  4\");\n" +
+                "n = DsListSize(l); s = DsListGet(l, 0) + DsListGet(l, 2) + DsListGet(l, 3);\n" +
+                "b = DsListAddNumbers(l, \"7, x, 8\"); m = DsListSize(l); e = DsListAddNumbers(l, \"\");\n" +
+                "q = NumListCreate(); c = NumListAddNumbers(q, \" 1,2 ,3, \"); t = NumListGet(q, 2) + NumListSize(q);\n");
+            Check(result.Ok, "Adding numbers from a text broke the script: " + Errors(result));
+            Check(Near(result, "a", 5) && Near(result, "n", 5) && Near(result, "s", 298.25) && Near(result, "b", 1) && Near(result, "m", 6)
+                    && Near(result, "e", 0) && Near(result, "c", 3) && Near(result, "t", 6),
+                $"Wrong: a={Value(result, "a")} (5) n={Value(result, "n")} (5) s={Value(result, "s")} (298.25) b={Value(result, "b")} (1) m={Value(result, "m")} (6) "
+                + $"e={Value(result, "e")} (0) c={Value(result, "c")} (3) t={Value(result, "t")} (6).");
+        });
+
+        // A Script asset's text is prepared once and compiled as it is (VMEngine.CompilePrepared), not
+        // prepared a second time: that is only the same if preparing it again changes nothing, for
+        // the templates' Scripts and for each shorthand form.
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.PreparingAScriptTwiceChangesNothing", () =>
+        {
+            var sources = new List<(string Name, string Text)>();
+            string templates = Path.Combine(AppContext.BaseDirectory, "Projects", "Templates", "Assets");
+            if (Directory.Exists(templates))
+                foreach (string file in Directory.EnumerateFiles(templates, "*.pgsl", SearchOption.AllDirectories))
+                    sources.Add((Path.GetRelativePath(templates, file), File.ReadAllText(file)));
+            string[] shorthand =
+            [
+                "if a: HelperThree\nVoidCaller;\nVoidCaller ;\nx.VoidCaller;\n",
+                "if b = 1:\n  x = 1\nelse if c:\n  y = 2\nelse:\n  z = 3\nwhile k < 3:\n  k++\n",
+                "if x == 1 {\n}\nif y { z = 1; }\nwhile w {\n}\nif q\n",
+                "from Game.Ui:\n  Show();\n  from Inner:\n    Deep();\nHide();\n",
+                "s = \"if a: HelperThree\"; t = 'VoidCaller;'; // if c: VoidCaller\n/* while e: */ VoidCaller;\n",
+                "q = a ? b : c;\nif a ? b : c: HelperThree\nif a::\n",
+                "scr_ArgDoubler(); scr_VoidCaller(1); scr_HelperFour;\n",
+                "if (a = b) { }\nwhile (c=d) { }\nif (a <= b && c != d) { }\nif (f(x) = 1) { }\n",
+            ];
+            foreach (string text in shorthand) sources.Add(("(shorthand)", text));
+            string previous = PgslCommands.ProjectPath;
+            int changed = 0;
+            string? first = null;
+            try
+            {
+                PgslCommands.ProjectPath = project.RootPath;
+                ScriptAssetRegistry.ClearCache();
+                ScriptAssetRegistry.LoadFromProject(project.RootPath);
+                foreach ((string name, string text) in sources)
+                {
+                    string once = PgslCommands.PreProcessScript(text, isForVm: true, project.RootPath);
+                    string twice = PgslCommands.PreProcessScript(once, isForVm: true, project.RootPath);
+                    if (once == twice) continue;
+                    changed++;
+                    first ??= $"{name}: '{once.Replace("\n", "\\n")}' became '{twice.Replace("\n", "\\n")}'";
+                }
+            }
+            finally { PgslCommands.ProjectPath = previous; ScriptAssetRegistry.ClearCache(); }
+            Check(sources.Count > 100 && changed == 0,
+                $"Preparing a Script's text a second time changed {changed} of {sources.Count}: {first}");
+        });
+
+        // Generated data written as code, as GenesisCraft's block models (17 MB of DsListAdd calls in
+        // functions): four megabytes load in well under a second and every value arrives.
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.ALargeGeneratedDataScriptLoadsQuickly", () =>
+        {
+            var data = new System.Text.StringBuilder("// Generated: 20 numbers a line, 100 lines a function.\n");
+            int functions = 0, count = 0;
+            double expected = 0;
+            while (data.Length < 4 << 20)
+            {
+                data.Append("function ZqFill").Append(functions++).Append("() {\n");
+                for (int line = 0; line < 100; line++)
+                {
+                    data.Append("    ");
+                    for (int n = 0; n < 20; n++, count++)
+                    {
+                        double value = count * 7 % 64 / 16.0;
+                        expected += value;
+                        data.Append("DsListAdd(zqList,").Append(value.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(");");
+                    }
+                    data.Append(line % 25 == 0 ? " DsListAddString(zqNames, \"oak_log\");\n" : "\n");
+                }
+                data.Append("}\n");
+            }
+            Script("ZqData", data.ToString());
+            ResourceNames.Invalidate(project.RootPath);
+            var create = new System.Text.StringBuilder("zqList = DsListCreate(); zqNames = DsListCreate();\n");
+            for (int f = 0; f < functions; f++) create.Append("ZqFill").Append(f).Append("();\n");
+            // Values at a few places (summing them all would pass an event's instruction limit).
+            int[] at = [0, 1, 777, count / 2 + 3, count - 1];
+            create.Append("n = DsListSize(zqList); names = DsListSize(zqNames); total = 0;\n");
+            expected = 0;
+            foreach (int index in at)
+            {
+                expected += index * 7 % 64 / 16.0;
+                create.Append("total += DsListGet(zqList, ").Append(index).Append(");\n");
+            }
+            string previous = PgslCommands.ProjectPath;
+            try
+            {
+                PgslCommands.ProjectPath = project.RootPath;
+                ScriptAssetRegistry.ClearCache();
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                ScriptAssetRegistry.LoadFromProject(project.RootPath);
+                double loadMs = clock.Elapsed.TotalMilliseconds;
+                ObjectSandboxResult result = ObjectSandbox.Run(new Dictionary<string, string> { ["Create"] = create.ToString() }, frames: 1);
+                clock.Restart();
+                List<Genesis.Runtime.Scripting.VM.Token> tokens = new Genesis.Runtime.Scripting.VM.PgslLexer(data.ToString()).Tokenize();
+                double lexMs = clock.Elapsed.TotalMilliseconds;
+                clock.Restart();
+                new Genesis.Runtime.Scripting.VM.PgslParser(tokens, Genesis.Runtime.Scripting.VM.VMEngine.Bridge?.NativeIdMap).Parse();
+                double parseMs = clock.Elapsed.TotalMilliseconds;
+                string line = $"A {data.Length / 1048576.0:F1} MB generated data Script ({count} numbers in {functions} functions) loaded in {loadMs:F0} ms"
+                    + $" (read into {tokens.Count} tokens alone {lexMs:F0} ms, parsed and compiled alone {parseMs:F0} ms).";
+                Console.WriteLine(line);
+                Check(result.Ok && Near(result, "n", count) && Near(result, "names", functions * 4) && Near(result, "total", expected),
+                    $"The data did not all arrive: n={Value(result, "n")} ({count}), names={Value(result, "names")} ({functions * 4}), total={Value(result, "total")} ({expected}); {Errors(result)}");
+                Check(loadMs < 1500, line);
+            }
+            finally
+            {
+                PgslCommands.ProjectPath = previous; ScriptAssetRegistry.ClearCache();
+                File.Delete(Path.Combine(scripts, "ZqData.pgsl"));
+                ResourceNames.Invalidate(project.RootPath);
+            }
+        });
+
+        // The project's Scripts are compiled on several threads at once, yet each still sees the
+        // names of the Scripts before it that compiled, as when they were compiled one by one: a
+        // call without brackets to an earlier Script is made a call, one to a later Script or to one
+        // that did not compile is left as written.
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.ScriptsCompiledTogetherSeeTheNamesBeforeThem", () =>
+        {
+            string[] added = ["Zp1First", "Zp2Broken", "Zp3Caller", "Zp4Later", "Zp5Caller", "Zp6Last"];
+            Script("Zp1First", "function Zp1Fn() { return 1; }\nreturn 1;\n");
+            Script("Zp2Broken", "x = (;\n");
+            Script("Zp3Caller", "Zp1First;\nZp2Broken;\nZp4Later;\nreturn 0;\n");
+            Script("Zp4Later", "return 4;\n");
+            Script("Zp5Caller", "Zp1First;\nZp4Later;\nZp6Last;\nreturn 0;\n");
+            Script("Zp6Last", "return 6;\n");
+            ResourceNames.Invalidate(project.RootPath);
+            string previous = PgslCommands.ProjectPath;
+            try
+            {
+                PgslCommands.ProjectPath = project.RootPath;
+                ScriptAssetRegistry.ClearCache();
+                ScriptAssetRegistry.LoadFromProject(project.RootPath);
+                string Processed(string name) => ScriptAssetRegistry.TryGet(name, out CompiledScriptAsset asset) ? asset.ProcessedSource : "(not loaded)";
+                string third = Processed("Zp3Caller"), fifth = Processed("Zp5Caller");
+                Check(third.Contains("Zp1First();", StringComparison.Ordinal) && third.Contains("Zp2Broken;", StringComparison.Ordinal)
+                        && third.Contains("Zp4Later;", StringComparison.Ordinal),
+                    "A Script compiled with the others did not see just the Scripts before it that compiled: " + third.Replace("\n", " | "));
+                Check(fifth.Contains("Zp1First();", StringComparison.Ordinal) && fifth.Contains("Zp4Later();", StringComparison.Ordinal)
+                        && fifth.Contains("Zp6Last;", StringComparison.Ordinal),
+                    "A Script compiled with the others did not see just the Scripts before it: " + fifth.Replace("\n", " | "));
+                Check(ScriptAssetRegistry.LoadErrors.ContainsKey("Zp2Broken") && !ScriptAssetRegistry.TryGet("Zp2Broken", out _),
+                    "A Script that did not compile was loaded or not reported.");
+                Check(ScriptAssetRegistry.TryGet("Zp6Last", out _) && ScriptAssetRegistry.TryFindFunction("Zp1Fn", out _),
+                    "The Scripts compiled together were not all registered.");
+            }
+            finally
+            {
+                PgslCommands.ProjectPath = previous; ScriptAssetRegistry.ClearCache();
+                foreach (string name in added) File.Delete(Path.Combine(scripts, name + ".pgsl"));
+                ResourceNames.Invalidate(project.RootPath);
+            }
+        });
+
         // A function named like a Script with code of its own takes every call by that name: the
         // project check warns, and a call that does not fit the function says the names clash.
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.AFunctionNamedLikeAScriptIsReported", () =>

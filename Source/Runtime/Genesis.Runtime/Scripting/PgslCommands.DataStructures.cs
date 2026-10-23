@@ -197,6 +197,51 @@ public static partial class PgslCommands
         list.Add(value);
     }
 
+    [PgslCommand("DsListAddNumbers", "DsListAddNumbers(id, text) -> added",
+        "Append every number in a text (\"0.5, 1, -2.25\": commas, semicolons or spaces between them) in one call; returns how many were added. Generated data loads many times faster than with a DsListAdd for each number", "Lists")]
+    public static double DsListAddNumbers(double id, string text)
+    {
+        List<object> list = Resolve<List<object>>("list", id);
+        if (list is null) return 0;
+        return ForEachNumber(text, "DsListAddNumbers", value =>
+        {
+            if (list.Count >= MaxCollectionElements) return false;
+            list.Add(BoxNumber(value));
+            return true;
+        });
+    }
+
+    private static bool IsNumberSeparator(char c) => c is ',' or ';' || char.IsWhiteSpace(c);
+
+    /// <summary>
+    /// Gives <paramref name="add"/> each number in <paramref name="text"/>, read the same in every
+    /// culture, until it returns false; returns how many it took. An entry that is not a number
+    /// stops it there, and the log says which.
+    /// </summary>
+    private static int ForEachNumber(string text, string command, Func<double, bool> add)
+    {
+        if (string.IsNullOrEmpty(text)) return 0;
+        ReadOnlySpan<char> rest = text;
+        int taken = 0;
+        while (true)
+        {
+            int start = 0;
+            while (start < rest.Length && IsNumberSeparator(rest[start])) start++;
+            if (start == rest.Length) return taken;
+            rest = rest[start..];
+            int end = 0;
+            while (end < rest.Length && !IsNumberSeparator(rest[end])) end++;
+            if (!double.TryParse(rest[..end], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double value))
+            {
+                Genesis.Rendering.Diagnostics.RenderLog.Line($"{command}: '{rest[..Math.Min(end, 40)]}' is not a number; the {taken} before it were added.");
+                return taken;
+            }
+            if (!add(value)) return taken;
+            taken++;
+            rest = rest[end..];
+        }
+    }
+
     [PgslCommand("DsListInsert", "DsListInsert(id, position, value)", "Insert a number at a 0-based position", "Lists")]
     public static void DsListInsert(double id, double position, double value)
     {
