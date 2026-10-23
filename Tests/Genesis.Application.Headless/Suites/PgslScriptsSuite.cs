@@ -669,6 +669,19 @@ internal static class PgslScriptsSuite
                 Check(result.Ok && Near(result, "n", count) && Near(result, "names", functions * 4) && Near(result, "total", expected),
                     $"The data did not all arrive: n={Value(result, "n")} ({count}), names={Value(result, "names")} ({functions * 4}), total={Value(result, "total")} ({expected}); {Errors(result)}");
                 Check(loadMs < 1500, line);
+
+                // A large Script keeps its source's length and hash, not its text: reading the Scripts
+                // again leaves it as it was while unchanged and compiles it again once it changes.
+                ScriptAssetRegistry.TryGet("ZqData", out CompiledScriptAsset loaded);
+                ScriptAssetRegistry.Refresh(project.RootPath, out string? unchangedFailure);
+                ScriptAssetRegistry.TryGet("ZqData", out CompiledScriptAsset same);
+                File.AppendAllText(Path.Combine(scripts, "ZqData.pgsl"), "// changed\n");
+                ScriptAssetRegistry.Refresh(project.RootPath, out string? changedFailure);
+                ScriptAssetRegistry.TryGet("ZqData", out CompiledScriptAsset changed);
+                Check(loaded != null && ReferenceEquals(loaded, same) && changed != null && !ReferenceEquals(loaded, changed)
+                        && unchangedFailure == null && changedFailure == null && loaded.ProcessedSource == null,
+                    $"A large Script was compiled again unchanged, or not once changed (same {ReferenceEquals(loaded, same)}, changed {!ReferenceEquals(loaded, changed)}, "
+                    + $"text kept {loaded?.ProcessedSource != null}; {unchangedFailure}{changedFailure}).");
             }
             finally
             {

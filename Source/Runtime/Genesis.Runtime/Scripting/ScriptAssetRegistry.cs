@@ -17,9 +17,35 @@ namespace Genesis.Runtime.Scripting
       new(StringComparer.OrdinalIgnoreCase);
     private static readonly Dictionary<string, CompiledScriptAsset> _byHash =
       new(StringComparer.OrdinalIgnoreCase);
-    /// <summary>The exact source last registered under each name.</summary>
-    private static readonly Dictionary<string, string> _sourceByName =
+    /// <summary>The source last registered under each name.</summary>
+    private static readonly Dictionary<string, SourceStamp> _sourceByName =
       new(StringComparer.OrdinalIgnoreCase);
+
+    // A Script longer than this keeps its length and SHA-256, not its text, to tell whether its source
+    // changed, and lets go of its prepared text once registered: GenesisCraft's 44 MB of generated
+    // data Scripts, kept as text twice, were about 170 MB of its memory.
+    private const int KeepTextUpTo = 256 * 1024;
+
+    /// <summary>What a Script's source was: the text itself, or for a large one its length and hash.</summary>
+    private readonly struct SourceStamp
+    {
+      private readonly string _text;
+      private readonly int _length;
+      private readonly string _hash;
+
+      private SourceStamp(string text, int length, string hash) { _text = text; _length = length; _hash = hash; }
+
+      public static SourceStamp Of(string source) => source == null || source.Length <= KeepTextUpTo
+        ? new SourceStamp(source, source?.Length ?? 0, null)
+        : new SourceStamp(null, source.Length, Hash(source));
+
+      public bool Matches(string source) => _hash == null
+        ? string.Equals(_text, source, StringComparison.Ordinal)
+        : source != null && source.Length == _length && string.Equals(_hash, Hash(source), StringComparison.Ordinal);
+
+      private static string Hash(string source) =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Runtime.InteropServices.MemoryMarshal.AsBytes(source.AsSpan())));
+    }
     private static readonly object _lock = new();
     private static string _projectPath;
     private static int _callDepth;
@@ -143,6 +169,7 @@ namespace Genesis.Runtime.Scripting
         // first room's Create events for over four seconds. Each Script still sees the names of the
         // Scripts before it, as when they were compiled in turn (a call written without brackets).
         var sources = new string[files.Count];
+        var stamps = new SourceStamp[files.Count];
         var compiled = new CompiledScriptAsset[files.Count];
         var failures = new Exception[files.Count];
         var order = new int[files.Count];
@@ -163,6 +190,7 @@ namespace Genesis.Runtime.Scripting
           try
           {
             sources[i] = File.ReadAllText(files[i]);
+            stamps[i] = SourceStamp.Of(sources[i]);
             compiled[i] = ScriptAssetCompiler.Compile(names[i], sources[i]);
           }
           catch (Exception ex)
@@ -186,7 +214,7 @@ namespace Genesis.Runtime.Scripting
             if (failed != null && failed.Any(name => sources[i].Contains(name, StringComparison.Ordinal)))
               Register(names[i], sources[i]);
             else
-              RegisterCompiled(names[i], sources[i], compiled[i]);
+              RegisterCompiled(names[i], stamps[i], compiled[i]);
           }
           catch (Exception ex)
           {
@@ -225,7 +253,7 @@ namespace Genesis.Runtime.Scripting
           return keptUnchanged;
 
         var previous = new Dictionary<string, CompiledScriptAsset>(_byName, StringComparer.OrdinalIgnoreCase);
-        var previousSources = new Dictionary<string, string>(_sourceByName, StringComparer.OrdinalIgnoreCase);
+        var previousSources = new Dictionary<string, SourceStamp>(_sourceByName, StringComparer.OrdinalIgnoreCase);
         var previousErrors = new Dictionary<string, string>(_loadErrors, StringComparer.OrdinalIgnoreCase);
         string previousProject = _projectPath;
         try
@@ -256,7 +284,7 @@ namespace Genesis.Runtime.Scripting
           if (_byName.ContainsKey(name) || !previous.TryGetValue(name, out CompiledScriptAsset earlier)) continue;
           _byName[name] = earlier;
           _byHash[earlier.SourceHash] = earlier;
-          if (previousSources.TryGetValue(name, out string source)) _sourceByName[name] = source;
+          if (previousSources.TryGetValue(name, out SourceStamp source)) _sourceByName[name] = source;
           kept.Add(name);
           Genesis.Rendering.Diagnostics.RenderLog.Line($"PGSL script '{name}' keeps the version loaded before until it compiles.");
         }
@@ -298,7 +326,7 @@ namespace Genesis.Runtime.Scripting
           if (_byName.ContainsKey(name)) keptNames.Add(name);
           continue;
         }
-        if (_byName.ContainsKey(name) && _sourceByName.TryGetValue(name, out string known) && string.Equals(known, source, StringComparison.Ordinal))
+        if (_byName.ContainsKey(name) && _sourceByName.TryGetValue(name, out SourceStamp known) && known.Matches(source))
           continue;
         try
         {
@@ -356,19 +384,20 @@ namespace Genesis.Runtime.Scripting
       // discover nothing had changed.
       lock (_lock)
       {
-        if (_sourceByName.TryGetValue(name, out string known)
-            && string.Equals(known, source, StringComparison.Ordinal)
+        if (_sourceByName.TryGetValue(name, out SourceStamp known)
+            && known.Matches(source)
             && _byName.ContainsKey(name))
           return;
       }
-      RegisterCompiled(name, source, ScriptAssetCompiler.Compile(name, source));
+      RegisterCompiled(name, SourceStamp.Of(source), ScriptAssetCompiler.Compile(name, source));
     }
 
-    private static void RegisterCompiled(string name, string source, CompiledScriptAsset asset)
+    private static void RegisterCompiled(string name, SourceStamp source, CompiledScriptAsset asset)
     {
       lock (_lock)
       {
         _sourceByName[name] = source;
+        if (asset.ProcessedSource?.Length > KeepTextUpTo) asset.ProcessedSource = null;
         if (_byName.TryGetValue(name, out CompiledScriptAsset previous) && previous.SourceHash != asset.SourceHash)
         {
           VMEngine.ClearCompileCache();
