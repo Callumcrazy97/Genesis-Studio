@@ -132,7 +132,7 @@ public static class PgslCommandAutoTester
         // Flashes and decals the sweep makes would otherwise be drawn by the next game frame in
         // this process; DecalSetLimit would stay changed.
         bool flashesIdle = Genesis.Runtime.Rendering.FlashLights.Count == 0;
-        bool staticMeshesIdle = Genesis.Runtime.Rendering.StaticMeshLayer.Count == 0;
+        bool staticMeshesIdle = Genesis.Runtime.Rendering.StaticMeshLayer.Count == 0 && Genesis.Runtime.Rendering.StaticModelLayer.Count == 0;
         bool sceneQueueIdle = PgslCommands.SceneCommandsWaiting == 0;
         // RenderSetMotionBlur(1) would leave every later frame of the process blurred.
         float motionBlur = Genesis.Shared.Interfaces.MeshLightingDefaults.MotionBlur;
@@ -172,7 +172,7 @@ public static class PgslCommandAutoTester
                 }
             }
             if (flashesIdle) Genesis.Runtime.Rendering.FlashLights.Clear();
-            if (staticMeshesIdle) Genesis.Runtime.Rendering.StaticMeshLayer.Clear();
+            if (staticMeshesIdle) { Genesis.Runtime.Rendering.StaticMeshLayer.Clear(); Genesis.Runtime.Rendering.StaticModelLayer.Clear(); }
             if (sceneQueueIdle) PgslCommands.ClearSceneCommands();
             Genesis.Shared.Interfaces.MeshLightingDefaults.MotionBlur = motionBlur;
             Genesis.Runtime.Debugger.DebugKeys.GameAllows = debugKeysAllowed;

@@ -598,7 +598,9 @@ namespace Genesis.Runtime
                 _scene.WorkTimes.Add("scripts' Draw events", collectStarted);
                 long staticStarted = System.Diagnostics.Stopwatch.GetTimestamp();
                 Genesis.Runtime.Rendering.StaticMeshLayer.Submit(_renderer, _frameQueue, viewProjection, Genesis.Runtime.Scripting.PgslCommands.ProjectPath);
-                if (Genesis.Runtime.Rendering.StaticMeshLayer.Count > 0) _scene.WorkTimes.Add("static meshes", staticStarted);
+                if (Genesis.Runtime.Rendering.StaticMeshLayer.Count > 0) staticStarted = _scene.WorkTimes.Add("static meshes", staticStarted);
+                Genesis.Runtime.Rendering.StaticModelLayer.Submit(_renderer, viewProjection, Genesis.Runtime.Scripting.PgslCommands.ProjectPath);
+                if (Genesis.Runtime.Rendering.StaticModelLayer.Count > 0) _scene.WorkTimes.Add("static models", staticStarted);
                 int drawCount = 0;
                 using (Genesis.Shared.Diagnostics.LoadProfile.Begin("gathering what to draw"))
                     _scene.CollectMeshes(_meshBuffer, ref drawCount, _renderer);
@@ -607,7 +609,8 @@ namespace Genesis.Runtime
                 int instanceCount = _scene.SubmitInstanceBatches(_renderer);
                 Genesis.Runtime.Rendering.ModelLayers.Submit(_renderer, Genesis.Runtime.Scripting.PgslCommands.ProjectPath,
                     _scene.Camera3D, OverlayWidth, OverlayHeight);
-                _renderer.Set3DFrameActive(drawCount > 0 || instanceCount > 0 || _frameQueue.MeshCount > 0 || meshState.AuthoredSkyEnabled);
+                _renderer.Set3DFrameActive(drawCount > 0 || instanceCount > 0 || _frameQueue.MeshCount > 0 || meshState.AuthoredSkyEnabled
+                    || Genesis.Runtime.Rendering.StaticModelLayer.LastDrawn > 0);
                 if (drawCount > 0)
                     _renderer.DrawMeshBatch(_meshBuffer.AsSpan(0, drawCount));
                 _frameQueue.Flush(_renderer, includeMeshes: true, includeSprites: true);

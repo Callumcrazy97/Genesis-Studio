@@ -125,6 +125,55 @@ internal static partial class PgslWorkerJobChecks
             }
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.StaticModelsDrawTheirCopiesInViewTogether", () =>
+        {
+            string project = Path.Combine(ctx.Workspace, "StaticModelProject");
+            Directory.CreateDirectory(Path.Combine(project, "Models"));
+            Genesis.Runtime.Modeling.RuntimeModelStore.Save(Path.Combine(project, "Models", "Rock.gmodel"),
+                Genesis.Runtime.Modeling.GModelPrimitiveFactory.CreateCube("Rock", 1f));
+            string oldProject = PgslCommands.ProjectPath;
+            using Bench bench = new();
+            using System.Windows.Forms.Form host = UnattendedWindowing.NewHost(160, 120);
+            UnattendedWindowing.ShowWithoutFocus(host);
+            using IRenderController renderer = RenderControllerFactory.Create(RenderBackendOption.Software);
+            renderer.Initialize(host.Handle, 160, 120);
+            try
+            {
+                PgslCommands.ProjectPath = project;
+                StaticModelLayer.Clear();
+                // 20 000 rocks over 2 km in one call, a bad entry skipped; then one removed by its handle.
+                double placed = bench.Number("""
+                    ScriptInstructionLimit(50000000);
+                    rocks = NumListCreate();
+                    for (var i = 0; i < 20000; i = i + 1) { NumListAdd3(rocks, (i % 200) * 10 - 1000, 0, Floor(i / 200) * 10 - 500); NumListAdd3(rocks, 0, i, 0); NumListAdd(rocks, 1); }
+                    NumListAdd3(rocks, 0, 0, 0); NumListAdd3(rocks, 0, 0, 0); NumListAdd(rocks, 0);
+                    r = ModelStaticAddFromNumList("Rock", rocks, true);
+                    """);
+                double one = bench.Number("""r = ModelStaticAdd("Rock", 0, 0, 12, 0, 45, 0, 2, false);""");
+                Matrix4x4 viewProjection = Matrix4x4.CreateLookAt(Vector3.Zero, Vector3.UnitZ, Vector3.UnitY)
+                    * Matrix4x4.CreatePerspectiveFieldOfView(MathF.PI / 3, 4f / 3f, 0.1f, 100f);
+                StaticModelLayer.Submit(renderer, viewProjection, project);
+                int firstDrawn = StaticModelLayer.LastDrawn;
+                long started = System.Diagnostics.Stopwatch.GetTimestamp();
+                for (int frame = 0; frame < 10; frame++) StaticModelLayer.Submit(renderer, viewProjection, project);
+                double perView = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds / 10;
+                int drawn = StaticModelLayer.LastDrawn, cellsSkipped = StaticModelLayer.LastCellsCulled;
+                bool removed = bench.Number($"r = 0; if (ModelStaticRemove({one.ToString(CultureInfo.InvariantCulture)})) {{ r = 1; }}") == 1;
+                StaticModelLayer.Submit(renderer, viewProjection, project);
+                row("Static models", "20 000 rocks over 2 km, one view", $"{perView:F2} ms a view", $"{drawn} drawn, {cellsSkipped} cells skipped whole");
+                HeadlessHarness.Assert(placed == 20000 && one > 0 && StaticModelLayer.Count == 20000 && removed,
+                    $"20 000 rocks should be placed from the list and one more by itself, then removed (placed {placed}, handle {one}, {StaticModelLayer.Count} left).");
+                HeadlessHarness.Assert(firstDrawn > 0 && firstDrawn == drawn && drawn < 20000 && StaticModelLayer.LastDrawn == drawn - 1 && cellsSkipped > 100 && perView < 4,
+                    $"A view should draw only the rocks in sight ({firstDrawn} then {drawn}, {StaticModelLayer.LastDrawn} after one was removed, {cellsSkipped} cells skipped, {perView:F2} ms).");
+            }
+            finally
+            {
+                PgslCommands.ScriptInstructionLimit(0);
+                StaticModelLayer.Clear();
+                PgslCommands.ProjectPath = oldProject;
+            }
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.InstancePositionsMoveFromNumberLists", () =>
         {
             using Bench bench = new();

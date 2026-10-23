@@ -47,6 +47,49 @@ public static partial class PgslCommands
         "Placed meshes the last view drew (the rest were outside it)", "Meshes")]
     public static double MeshStaticDrawnCount() => StaticMeshLayer.LastDrawn;
 
+    [PgslCommand("ModelStaticAdd", "ModelStaticAdd(model, x, y, z, pitch, yaw, roll, scale, castShadows) -> id",
+        "Place a Model once, with no Object (a rock, a tree, a prop): the engine draws it in every view it is inside, the copies of one model together in one instanced draw, so thousands cost about what is in view. Turned by degrees, sized by scale; it does not animate. Stays until removed or the room ends; 0 when the numbers are bad",
+        "Models")]
+    public static double ModelStaticAdd(string model, double x, double y, double z, double pitch, double yaw, double roll, double scale, bool castShadows) =>
+        StaticModelWorld(x, y, z, pitch, yaw, roll, scale, out Matrix4x4 world) ? StaticModelLayer.Add(model, world, castShadows) : 0;
+
+    [PgslCommand("ModelStaticAddFromNumList", "ModelStaticAddFromNumList(model, transforms, castShadows) -> number",
+        "Place many copies of a Model in one call: transforms holds 7 numbers for each (x, y, z, pitch, yaw, roll, scale), as ModelStaticAdd. Returns how many were placed (bad entries are skipped)",
+        "Models")]
+    public static double ModelStaticAddFromNumList(string model, double transforms, bool castShadows)
+    {
+        if (string.IsNullOrWhiteSpace(model) || NumRead(transforms) is not { } values) return 0;
+        int placed = 0;
+        for (int i = 0; i + 7 <= values.Count; i += 7)
+        {
+            ReadOnlySpan<double> v = values.Items.AsSpan(i, 7);
+            if (StaticModelWorld(v[0], v[1], v[2], v[3], v[4], v[5], v[6], out Matrix4x4 world) && StaticModelLayer.Add(model, world, castShadows) > 0) placed++;
+        }
+        return placed;
+    }
+
+    [PgslCommand("ModelStaticRemove", "ModelStaticRemove(id) -> bool", "Stop drawing a placed model", "Models")]
+    public static bool ModelStaticRemove(double id) => double.IsFinite(id) && StaticModelLayer.Remove((int)id);
+
+    [PgslCommand("ModelStaticClear", "ModelStaticClear()", "Remove every placed model", "Models")]
+    public static void ModelStaticClear() => StaticModelLayer.Clear();
+
+    [PgslCommand("ModelStaticCount", "ModelStaticCount() -> number", "Models placed with ModelStaticAdd", "Models")]
+    public static double ModelStaticCount() => StaticModelLayer.Count;
+
+    [PgslCommand("ModelStaticDrawnCount", "ModelStaticDrawnCount() -> number", "Placed models the last view drew (the rest were outside it)", "Models")]
+    public static double ModelStaticDrawnCount() => StaticModelLayer.LastDrawn;
+
+    private static bool StaticModelWorld(double x, double y, double z, double pitch, double yaw, double roll, double scale, out Matrix4x4 world)
+    {
+        world = Matrix4x4.Identity;
+        if (!Finite3(x, y, z) || !Finite3(pitch, yaw, roll) || !double.IsFinite(scale) || Math.Abs(scale) < 1e-6) return false;
+        world = Matrix4x4.CreateScale((float)scale)
+            * Matrix4x4.CreateFromYawPitchRoll((float)(yaw * Math.PI / 180), (float)(pitch * Math.PI / 180), (float)(roll * Math.PI / 180))
+            * Matrix4x4.CreateTranslation((float)x, (float)y, (float)z);
+        return true;
+    }
+
     private static bool StaticWorld(double x, double y, double z, double sx, double sy, double sz, double yaw, out Matrix4x4 world)
     {
         world = Matrix4x4.Identity;
