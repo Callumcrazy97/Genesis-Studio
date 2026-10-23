@@ -834,6 +834,10 @@ internal static class PgslLogicSuite
 
         PgslWorkerJobChecks.Run(ctx, (group, name, result, detail) => rows.Add(new Row(group, name, result, detail)));
 
+        // The standard engine API: Engine.Area.Name, properties, with and for.
+        Group("EngineApi", PgslEngineApiChecks.Script);
+        PgslEngineApiChecks.Run(ctx, project, (group, name, result, detail) => rows.Add(new Row(group, name, result, detail)));
+
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EveryCommandIsCallable", () =>
         {
             PgslCommandTestReport sweep = PgslCommandAutoTester.Run(repeats: 1);

@@ -70,6 +70,40 @@ limits, and what happens on a mistake. Every statement below is checked by the h
 - A **function declared in a script** is called even when an engine command has the same name: a
   script's `function Depth(n)` is the script's, not the built-in `Depth`.
 
+## The engine API: Engine.Area.Name
+
+There is one standard way to reach the engine: **`Engine.<Area>.<Name>`**. The areas are Physics,
+Audio, Model, Image, Animation, Draw, Input, Network, Instance, Lighting, Sky, Rendering, Camera,
+View, Display, Room, Text, List, NumList, Array, Map, Grid, Stack, Queue, Math, Noise, Time, Ui,
+Save, File, Navigation, Job, Shader, Decal, Mesh, Particle, Terrain, Water, Weather, Game and the
+rest listed in `Documentation/EngineApi.md` (made by `--test pgsl-logic`).
+
+- **Every command** has its standard name: its area, then its name without the area's word.
+  `PhysicsApplyForce` is `Engine.Physics.ApplyForce`, `DsListAdd` is `Engine.List.Add`,
+  `SpriteSetFrame` is `Engine.Image.SetFrame`, `GetCameraX` is `Engine.Camera.GetX`. It is the same
+  command (the same call, as fast), so the old names keep working.
+- **Every value is a property**, read and set like a variable. Where an area has a Get/Set (or
+  Is/Set) pair, the value's own name is a property: `Engine.Physics.AirDrag` reads what
+  `PhysicsGetAirDrag()` gives and `Engine.Physics.AirDrag = 0.2;` does what `PhysicsSetAirDrag(0.2)`
+  does; `+=`, `-=` and the rest work too. Values with no pair have properties of their own:
+  `Engine.Physics.Mass`, `Engine.Model.Glow`, `Engine.Audio.MusicVolume`, `Engine.Camera.X`.
+  Setting one that can only be read is an error that says so.
+- **An instance's value is the current instance's**: its own in its events and functions, and each
+  target's in turn inside `with`, so a body works as GameMaker's `phy_` variables do:
+
+```
+with (Crate) { Engine.Physics.Bounciness = 0.8; Engine.Physics.GravityScale = 0; }
+for (var i = 0; i < InstanceNumber("Crate"); i++) {
+    with (InstanceFind("Crate", i)) { Engine.Physics.VelocityX = i * 2; }
+}
+if (Engine.Physics.Grounded && KeyPressed("space")) Engine.Physics.VelocityY = 6;
+```
+
+- Inside `from Engine.Physics: { ... }` the names are short (`Mass = 4;`, `ApplyImpulse(0, 5, 0);`).
+  Outside such a block bare words are always the script's own: `Mass = 5` is a variable, never a
+  body's mass.
+- An instance with no physics body reads 0 (false, "") for a body's values and ignores what is set.
+
 ## Limits
 
 | Limit | Value | When it is reached |

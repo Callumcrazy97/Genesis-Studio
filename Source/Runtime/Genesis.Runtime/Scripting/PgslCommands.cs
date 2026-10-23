@@ -543,7 +543,8 @@ public static partial class PgslCommands
                     try
                     {
                         using var events = host?.UseEventSources(definition.Events);
-                        var entity = Scene.PrefabSpawner.Spawn(ActiveGameContext.World, prefab, host, (float)x, (float)y);
+                        var entity = Scene.PrefabSpawner.Spawn(ActiveGameContext.World, prefab, host, (float)x, (float)y,
+                            out System.Collections.Generic.IReadOnlyDictionary<string, string> engineSettings);
                         ref var transform = ref ActiveGameContext.World.GetRef<TransformComponent>(entity);
                         transform.X = (float)x; transform.Y = (float)y; transform.Z = (float)z;
                         if (string.Equals((string)prefab["dimension"], "ThreeD", StringComparison.OrdinalIgnoreCase))
@@ -557,6 +558,8 @@ public static partial class PgslCommands
                             Scene.SpritePhysicsBinding.EnsureScene(ActiveGameContext.Scene, (ActiveGameContext as Project.ProjectGameContext)?.Room, ProjectPath);
                         if (definition.Events.Count > 0 && host != null && host.FindBehaviorForEntity(entity) == null)
                             host.Attach(ActiveGameContext.World, entity, ResourceNames.Name(ProjectPath, path, ResourceType.Object));
+                        // Placed and given its body: its engine settings, set before its Create.
+                        Scene.PrefabSpawner.ApplyEngineSettings(ActiveGameContext.World, entity, engineSettings, host);
                         var assets = Rendering.ObjectDrawAssetRegistry.TryGet(entity, out var entry) ? entry : new Rendering.ObjectDrawAssetEntry();
                         assets.Prefab = obj; Rendering.ObjectDrawAssetRegistry.Set(entity, assets);
                         if (!wasDeferring && host != null)

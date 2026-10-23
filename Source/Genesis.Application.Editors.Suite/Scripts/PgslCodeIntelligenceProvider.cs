@@ -33,7 +33,8 @@ public static class PgslCodeIntelligenceProvider
 
         foreach (PgslCommandInfo command in PgslCommandRegistry.GetFullCatalog())
         {
-            string candidate = prefix.Contains('.')
+            // A name with no bare form (Engine.Physics.Mass) is offered only in full.
+            string candidate = prefix.Contains('.') || !command.Flat
                 ? command.QualifiedName
                 : command.Name;
             AddIfMatch(
@@ -46,6 +47,20 @@ public static class PgslCodeIntelligenceProvider
                     string.IsNullOrWhiteSpace(command.Category) ? "Command" : $"Command · {command.Category}",
                     command.Description + (TypedSignature(command) is string typed ? " " + typed : string.Empty)),
                 kindRank: 0);
+        }
+
+        // The standard names (Engine.Physics.ApplyForce, and properties such as Engine.Physics.AirDrag).
+        if (prefix.Contains('.'))
+        {
+            foreach (Genesis.Runtime.Scripting.PgslApi.Entry entry in Genesis.Runtime.Scripting.PgslApi.Entries)
+            {
+                AddIfMatch(
+                    unique,
+                    prefix,
+                    entry.Name,
+                    new CodeCompletionItem(entry.Name, entry.Name, (entry.IsProperty ? "Property · " : "Command · ") + entry.Area, entry.Description),
+                    kindRank: 0);
+            }
         }
 
         foreach (EngineCommandInfo command in EngineCommandRegistry.GetCatalog().Where(command => command.IsImplemented))

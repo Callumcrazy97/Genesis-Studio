@@ -87,6 +87,8 @@ internal static class SuiteEditorSuite
         string heroObject = string.Empty;
         string arenaRoom = string.Empty;
 
+        RunCase("Editor.Suite.EngineSettings.InspectorAndRooms", () => EngineSettingsChecks.InspectorAndRooms(project, resources));
+
         RunCase("Editor.Suite.Room.PlaceSelectMoveUndo2D", () =>
         {
             heroObject = resources.CreateResource(objectsFolder, ResourceKind.GameObject, "SuiteHero");

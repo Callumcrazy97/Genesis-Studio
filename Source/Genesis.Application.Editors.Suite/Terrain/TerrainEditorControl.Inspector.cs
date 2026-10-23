@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Numerics;
 using Genesis.Application.Core.Resources;
+using Genesis.Application.Editors.Suite.Inspector;
+using Genesis.Runtime.Scripting;
 using Genesis.Shared.Interfaces;
 using Genesis.World.Terrain;
 
@@ -311,6 +313,8 @@ public sealed partial class TerrainEditorControl
                 AssetKind: ResourceKind.Shader));
         }
 
+        // What the terrain gives the room it is placed in (world values, set before its Create events).
+        EngineSettingsInspector.AddValues(values, _nature.EngineSettings, EngineSettingScope.World);
         return values;
     }
 
@@ -322,6 +326,22 @@ public sealed partial class TerrainEditorControl
         string text = Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;
         try
         {
+            if (propertyPath.StartsWith(EngineSettingsInspector.Prefix, StringComparison.Ordinal))
+            {
+                Dictionary<string, string>? before = _nature.EngineSettings is null ? null : new(_nature.EngineSettings, StringComparer.OrdinalIgnoreCase);
+                var working = new Dictionary<string, string>(before ?? new Dictionary<string, string>(), StringComparer.OrdinalIgnoreCase);
+                if (!EngineSettingsInspector.TryApply(propertyPath, value, working, EngineSettingScope.World)) return false;
+                Dictionary<string, string>? after = working.Count == 0 ? null : working;
+                void ApplySettings(Dictionary<string, string>? state)
+                {
+                    _nature.EngineSettings = state is null ? null : new Dictionary<string, string>(state, StringComparer.OrdinalIgnoreCase);
+                    NotifyInspectorStateChanged();
+                }
+                ApplySettings(after);
+                PushEdit("Terrain engine settings", () => ApplySettings(after), () => ApplySettings(before));
+                return true;
+            }
+
             if ((propertyPath.Equals("Water.PhysicsMode", StringComparison.OrdinalIgnoreCase)
                     || propertyPath.Equals("Water.PhysicsDepth", StringComparison.OrdinalIgnoreCase))
                 && SelectedWater() is { } selectedWater)

@@ -8,6 +8,56 @@ this page says a default changed.
 and multiplayer. [Menu features](MenuFeatures.md) covers the 3 October additions: text layout,
 smooth shapes, clipping, globals, quitting and menu input.
 
+## One engine API: Engine.Physics, Engine.Model, Engine.Audio... (24 October 2026)
+
+Every engine command and value now has one standard name, `Engine.<Area>.<Name>`, and every value
+is a property read and set like a variable (PgslLanguage.md, "The engine API"; the full list is
+[EngineApi.md](EngineApi.md)). A body's values are the current instance's, so physics reads like
+GameMaker's: `Engine.Physics.Mass = 4;`, `Engine.Physics.VelocityY += 3;`,
+`with (Crate) { Engine.Physics.Bounciness = 0.8; }`.
+
+| Engine.Physics property | What it is |
+|---|---|
+| `HasBody`, `BodyType`, `Shape` | Whether the instance has a body; "dynamic", "kinematic" or "static"; "box", "sphere", "capsule" or "cylinder" (setting either remakes the body where it is, moving as it was) |
+| `Mass`, `Weight`, `Friction`, `Bounciness` | The body's mass (its inertia follows), how little air slows it, its grip and how much it bounces |
+| `GravityScale`, `UseGravity`, `LinearDamping`, `AngularDamping` | How hard gravity pulls it, whether at all, and how fast movement and spin die away |
+| `LockRotation`, `Sensor`, `Enabled`, `Layer`, `Mask` | Kept upright; only noticing what passes through; in the simulation at all; its collision layer and the layers it hits |
+| `VelocityX/Y/Z`, `Speed`, `SpinX/Y/Z`, `Awake`, `Grounded` | Its velocity (pixels or metres a second), speed, spin in degrees a second, whether it is simulated or asleep, and whether it stands on something |
+| `AirDrag`, `GravityStrength`, `GravityX/Y/Z`, `MaxVelocity`, `AllowSleep`, `SleepThreshold`, `RecoveryVelocity` | The world's settings |
+
+`Engine.Physics.Use("Bouncy")` gives the instance the body a Physics resource describes (in place of
+any it had), `Engine.Physics.Remove()` takes its body away, and `ApplyForce`, `ApplyImpulse` and
+`SetVelocity` act on the current instance when given just x, y and z. The unfinished
+`Engine.Physics(type, shape, ...)` and `Engine.PhysicsUse(name)`, which only raised errors, are gone.
+Models (`Engine.Model.Glow`, `CastShadows`, `ReceiveShadows`, `EmissionScale`, `Layer`, `ScaleX/Y/Z`),
+images (`Engine.Image.Frame`, `Speed`, `Alpha`, `ScaleX/Y`, `BlendR/G/B`, `Width`, `Height`), audio
+(`Engine.Audio.MasterVolume`, `MusicVolume`, `SfxVolume`, `Music`), the camera (`Engine.Camera.X/Y/Z`,
+`Pitch`, `Yaw`) and the instance in 3D (`Engine.Instance.Pitch/Yaw/Roll`, `ScaleX/Y/Z`) work the same way.
+
+### Engine settings in the Inspector, and live on the debug screen
+
+The same values can be given to resources in Studio, without a script. The Inspector's **Engine
+settings** group lists the settings a resource carries, each editable, with **Add a setting** (only
+the values that suit it) and **Remove a setting**:
+
+| Where | What it gives | When the game sets them |
+|---|---|---|
+| Object | Each of its instances (Engine.Physics.Mass, Engine.Model.Glow, Engine.Instance.Yaw...) | Just before the instance's Create event, once its room has placed it and given it its body |
+| A room's instance (Room editor, selected) | That instance, on top of its Object's | The same; its values win |
+| Model | Each instance showing it | The same, before its Object's |
+| Room (Room editor, nothing selected) | The world (Engine.Physics.AirDrag, Engine.Sky.Coverage, Engine.Audio.MusicVolume...) | Just before the room's Create events |
+| Terrain | The world of the room it is placed in | The same, before the room's own |
+
+They are saved with the resource (an Object's as its `EngineSettings` component, a room's as
+`engineSettings`), and a game sets each as a script would, so Create sees them and may change them.
+
+On the F6 debug screen, an expanded instance in **World & Inspector** shows its **Engine values** as
+they are now (its body's, model's, animation's and image's), and the panel ends with the **World
+engine values** (physics, the audio buses, the game's speed): `-` and `+` nudge a number, **Flip**
+turns a true/false value over and **Next** moves a choice on (BodyType). The **Resources** tab now
+lists the loaded Scripts too, with how many functions and instructions each has, beside the models,
+textures and sounds.
+
 ## From C# and from events
 
 Every feature here can be reached from an Object's events (the commands in the tables) and from a

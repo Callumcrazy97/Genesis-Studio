@@ -8,6 +8,7 @@ using Genesis.Shared.Scripting;
 using Genesis.Shared.Interfaces;
 using Genesis.Application.Core.Resources;
 using Genesis.Application.Core.Images;
+using Genesis.Application.Editors.Suite.Inspector;
 using Genesis.Application.Editors.Suite.Scripts;
 using Genesis.Application.Editors.Suite.Objects.VisualActions;
 using Genesis.Runtime.Scripting;
@@ -338,8 +339,35 @@ public sealed partial class ObjectEditorControl : EditorSurfaceControl, ILiveRes
         }
         if (_visualActions.Visible)
             values.AddRange(_visualActions.GetSelectedInspectorValues());
+        EngineSettingsInspector.AddValues(values, ReadEngineSettings(), EngineSettingScope.Instance);
         return values;
     }
+
+    // The Object's engine settings: the props of its EngineSettings component (none when it has none).
+    private Dictionary<string, string> ReadEngineSettings()
+    {
+        var settings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (EngineSettingsComponent() is { } component && component["props"] is JObject props)
+            foreach (JProperty property in props.Properties())
+                settings[property.Name] = property.Value is JValue { Value: string text } ? text
+                    : property.Value is JValue scalar ? EngineSettings.Format(scalar.Value) : property.Value.ToString();
+        return settings;
+    }
+
+    private void WriteEngineSettings(Dictionary<string, string> settings)
+    {
+        // Set only when missing: assigning the document's own array again would store a copy of it.
+        if (_document["components"] is not JArray components) _document["components"] = components = new JArray();
+        JObject? component = EngineSettingsComponent();
+        if (settings.Count == 0) { component?.Remove(); return; }
+        if (component == null) components.Add(component = new JObject { ["type"] = EngineSettings.ComponentType });
+        var props = new JObject();
+        foreach ((string name, string text) in settings.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)) props[name] = text;
+        component["props"] = props;
+    }
+
+    private JObject? EngineSettingsComponent() => (_document["components"] as JArray)?.OfType<JObject>()
+        .FirstOrDefault(component => string.Equals((string?)component["type"], EngineSettings.ComponentType, StringComparison.OrdinalIgnoreCase));
 
     public bool TryApplyLiveInspectorValue(string propertyPath, object? value)
     {
@@ -365,6 +393,17 @@ public sealed partial class ObjectEditorControl : EditorSurfaceControl, ILiveRes
     public bool TryApplyInspectorValue(string propertyPath, object? value)
     {
         if (string.IsNullOrWhiteSpace(propertyPath)) return false;
+        if (propertyPath.StartsWith(EngineSettingsInspector.Prefix, StringComparison.Ordinal))
+        {
+            Dictionary<string, string> settings = ReadEngineSettings();
+            if (!EngineSettingsInspector.TryApply(propertyPath, value, settings, EngineSettingScope.Instance)) return false;
+            WriteEngineSettings(settings);
+            _sandbox.Invalidate(true);
+            MarkDirty();
+            UpdateStatus("Inspector updated engine settings · save to commit");
+            InspectorStateChanged?.Invoke(this, EventArgs.Empty);
+            return true;
+        }
         if (_visualActions.TryApplyInspectorValue(propertyPath, value))
         {
             UpdateStatus("Inspector updated visual action · save to commit");

@@ -36,6 +36,9 @@ namespace Genesis.Runtime.Scripting
       private SourceStamp(string text, int length, string hash) { _text = text; _length = length; _hash = hash; }
 
       /// <param name="hash">The source's <see cref="Hash"/> when already known.</param>
+      /// <summary>How many characters the source had.</summary>
+      public int Length => _length;
+
       public static SourceStamp Of(string source, string hash = null) => source == null || source.Length <= KeepTextUpTo
         ? new SourceStamp(source, source?.Length ?? 0, null)
         : new SourceStamp(null, source.Length, hash ?? Hash(source));
@@ -48,6 +51,27 @@ namespace Genesis.Runtime.Scripting
         Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Runtime.InteropServices.MemoryMarshal.AsBytes(source.AsSpan())));
     }
     private static readonly object _lock = new();
+
+    // The debug screen's Resources tab lists the loaded Scripts: their functions, size and any error.
+    static ScriptAssetRegistry() =>
+      Genesis.Shared.Diagnostics.DebugResourceCatalog.Register("scripts", _lock, Describe);
+
+    private static List<Genesis.Shared.Diagnostics.DebugResourceRow> Describe()
+    {
+      lock (_lock)
+      {
+        var rows = new List<Genesis.Shared.Diagnostics.DebugResourceRow>(_byName.Count + _loadErrors.Count);
+        foreach ((string name, CompiledScriptAsset asset) in _byName)
+        {
+          long bytes = _sourceByName.TryGetValue(name, out SourceStamp source) ? source.Length * 2L : 0;
+          rows.Add(new Genesis.Shared.Diagnostics.DebugResourceRow("Script", name, asset.CompileResult?.UserFunctions?.Count ?? 0, bytes,
+            $"{asset.CompileResult?.Instructions?.Count ?? 0} instructions"));
+        }
+        foreach ((string name, string error) in _loadErrors)
+          rows.Add(new Genesis.Shared.Diagnostics.DebugResourceRow("Script", name, 0, 0, "did not compile: " + error));
+        return rows;
+      }
+    }
     private static string _projectPath;
     private static int _callDepth;
     private const int MaxCallDepth = 64;

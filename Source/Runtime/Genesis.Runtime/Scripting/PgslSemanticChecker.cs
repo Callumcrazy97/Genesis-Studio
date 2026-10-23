@@ -607,14 +607,22 @@ namespace Genesis.Runtime.Scripting
             var contracts = new Dictionary<string, List<Arity>>(StringComparer.OrdinalIgnoreCase);
             try
             {
-                foreach (MethodInfo method in typeof(PgslCommands).GetMethods(BindingFlags.Public | BindingFlags.Static))
+                MethodInfo[] methods = typeof(PgslCommands).GetMethods(BindingFlags.Public | BindingFlags.Static);
+                foreach (MethodInfo method in methods)
                 {
                     foreach (PgslCommandAttribute attribute in method.GetCustomAttributes<PgslCommandAttribute>())
                     {
-                        Arity arity = MethodArity(method, attribute.IsImplemented, attribute.Signature);
-                        AddContract(contracts, attribute.Name, arity);
-                        if (!string.IsNullOrWhiteSpace(attribute.Namespace))
-                            AddContract(contracts, attribute.Namespace.Trim().Trim('.') + "." + attribute.Name, arity);
+                        // A command's overloads with no attribute of their own are its other forms
+                        // (PhysicsApplyForce(x, y, z) beside PhysicsApplyForce(instanceId, x, y, z)).
+                        foreach (MethodInfo form in methods.Where(other => other.Name == method.Name
+                            && (other == method || !other.IsDefined(typeof(PgslCommandAttribute), false))))
+                        {
+                            Arity arity = MethodArity(form, attribute.IsImplemented, attribute.Signature);
+                            bool namespaced = !string.IsNullOrWhiteSpace(attribute.Namespace);
+                            if (!namespaced || attribute.Flat) AddContract(contracts, attribute.Name, arity);
+                            if (namespaced)
+                                AddContract(contracts, attribute.Namespace.Trim().Trim('.') + "." + attribute.Name, arity);
+                        }
                     }
                 }
 
@@ -624,10 +632,21 @@ namespace Genesis.Runtime.Scripting
                     {
                         int maximum = property.CanWrite ? 1 : 0;
                         var arity = new Arity(0, maximum, attribute.IsImplemented, attribute.Signature);
-                        AddContract(contracts, attribute.Name, arity);
-                        if (!string.IsNullOrWhiteSpace(attribute.Namespace))
+                        bool namespaced = !string.IsNullOrWhiteSpace(attribute.Namespace);
+                        if (!namespaced || attribute.Flat) AddContract(contracts, attribute.Name, arity);
+                        if (namespaced)
                             AddContract(contracts, attribute.Namespace.Trim().Trim('.') + "." + attribute.Name, arity);
                     }
+                }
+
+                // The standard names (Engine.Physics.ApplyForce) take what the command they name takes;
+                // a property made from a Get/Set pair is read with nothing or set with one value.
+                foreach (PgslApi.Entry entry in PgslApi.Entries)
+                {
+                    if (entry.Command == null)
+                        AddContract(contracts, entry.Name, new Arity(0, entry.SetterCommand != null ? 1 : 0, true, entry.Signature));
+                    else if (contracts.TryGetValue(entry.Command, out List<Arity> named))
+                        foreach (Arity arity in named.ToList()) AddContract(contracts, entry.Name, arity);
                 }
             }
             catch (Exception exception)
@@ -654,6 +673,13 @@ namespace Genesis.Runtime.Scripting
                     string commandNamespace = PgslNamespaceResolver.NamespaceForEngineCategory(attribute.Category);
                     if (commandNamespace.Length > 0)
                         AddContract(contracts, commandNamespace + "." + name, arity);
+                }
+                // The standard name of an Engine command (Engine.Audio.Play for Engine.AudioPlay).
+                foreach (PgslApi.Entry entry in PgslApi.Entries)
+                {
+                    if (entry.Command != null && entry.Command.StartsWith("Engine.", StringComparison.Ordinal)
+                        && contracts.TryGetValue(entry.Command, out List<Arity> named))
+                        foreach (Arity arity in named.ToList()) AddContract(contracts, entry.Name, arity);
                 }
             }
             catch (Exception exception)

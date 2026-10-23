@@ -1983,7 +1983,7 @@ internal static class RuntimeGateChecks
             catalog.Single(command => command.Name == "SetCameraFarPlane").IsImplemented
             && catalog.Single(command => command.Name == "Camera3DCreate").IsImplemented
             && catalog.Single(command => command.Name == "Camera2DCreate").IsImplemented
-            && !catalog.Single(command => command.Name == "PhysicsUse").IsImplemented,
+            && !catalog.Single(command => command.Name == "Start3D").IsImplemented,
             "The Engine command catalogue still labels explicit NotImplementedException placeholders as live, "
             + "or still marks the CAM-1 camera registry as roadmap.");
         PgslValidationReport liveCommand = PgslScriptValidator.ValidateSource(
@@ -1991,7 +1991,7 @@ internal static class RuntimeGateChecks
         PgslValidationReport liveCameraRegistry = PgslScriptValidator.ValidateSource(
             "Engine.Camera3DCreate(1);", "live-camera-registry", strict: true);
         PgslValidationReport roadmapCommand = PgslScriptValidator.ValidateSource(
-            "Engine.PhysicsUse(\"Wood\");", "roadmap-engine-command", strict: true);
+            "Engine.Start3D();", "roadmap-engine-command", strict: true);
         HeadlessHarness.Assert(
             liveCommand.Success && liveCameraRegistry.Success && !roadmapCommand.Success,
             "Strict F5 validation did not distinguish live Engine commands from catalogued roadmap entries.");

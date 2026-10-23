@@ -12,6 +12,12 @@ namespace Genesis.Shared.Scripting
         /// <summary>Optional additive command namespace, for example <c>Engine.Rendering</c>.</summary>
         public string Namespace { get; set; } = string.Empty;
         public bool IsImplemented { get; set; } = true;
+        /// <summary>
+        /// Whether a namespaced command is also reachable by its bare name. Off for names that would
+        /// take an ordinary word from scripts (Engine.Physics.Mass must not make <c>Mass = 5</c> set
+        /// a body's mass).
+        /// </summary>
+        public bool Flat { get; set; } = true;
 
         public PgslCommandAttribute(string name, string signature, string description, string category)
         {
@@ -43,5 +49,7 @@ namespace Genesis.Shared.Scripting
         public string QualifiedName => string.IsNullOrWhiteSpace(Namespace) ? Name : Namespace + "." + Name;
         public bool IsProperty { get; set; }
         public bool IsImplemented { get; set; } = true;
+        /// <summary>Whether the bare name reaches it too (see <see cref="PgslCommandAttribute.Flat"/>).</summary>
+        public bool Flat { get; set; } = true;
     }
 }

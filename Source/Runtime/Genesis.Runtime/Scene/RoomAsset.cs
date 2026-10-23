@@ -27,6 +27,12 @@ public sealed class RoomAsset
     [JsonProperty("viewports")] public List<RoomViewport> Viewports { get; set; } = new();
     [JsonProperty("layers")] public List<RoomLayer> Layers { get; set; } = new();
     [JsonProperty("nodes")] public List<RoomNode> Nodes { get; set; } = new();
+    /// <summary>
+    /// The room's engine settings (Engine.Physics.AirDrag = 0.2, Engine.Sky.Coverage = 0.4): set as
+    /// a script would, just before the room's Create events. Null when the room has none.
+    /// </summary>
+    [JsonProperty("engineSettings", NullValueHandling = NullValueHandling.Ignore)]
+    public Dictionary<string, string> EngineSettings { get; set; }
 
     /// <summary>The layer with this id, or null. A loop, not a lambda: it runs per node per frame.</summary>
     public RoomLayer FindLayer(string id)

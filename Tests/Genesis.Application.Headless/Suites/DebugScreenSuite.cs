@@ -44,6 +44,7 @@ internal static class DebugScreenSuite
 
     private static void RunCases(HeadlessContext ctx)
     {
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.DebugScreen.EngineValuesAndScriptList", () => EngineSettingsChecks.DebugScreen(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Runtime.DebugScreen.ResourceFilterSearchAndSort", () =>
         {
             DebugResourceRow[] rows =

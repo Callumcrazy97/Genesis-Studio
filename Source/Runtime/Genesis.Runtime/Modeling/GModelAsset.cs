@@ -56,6 +56,11 @@ namespace Genesis.Runtime.Modeling
         public GModelPivot Pivot { get; set; } = new();
         /// <summary>Project-owned collision shapes carried with the model into gameplay.</summary>
         public List<GModelCollider> Colliders { get; set; } = new();
+    /// <summary>
+    /// Engine settings each instance showing this model starts with (Engine.Model.Glow = 2), before
+    /// its Object's own; null when the model has none.
+    /// </summary>
+    public Dictionary<string, string> EngineSettings { get; set; }
         public GModelRig Rig { get; set; } = new();
         public List<GModelPose> Poses { get; set; } = new();
         /// <summary>Editable pose assignments; generated clips remain ordinary runtime animations.</summary>

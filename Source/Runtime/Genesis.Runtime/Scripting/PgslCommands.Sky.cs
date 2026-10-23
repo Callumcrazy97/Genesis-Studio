@@ -303,9 +303,13 @@ public static partial class PgslCommands
         return true;
     }
 
-    [PgslCommand("AtmospherePreset", "Engine.Sky.AtmospherePreset", "The room's atmosphere preset by name (empty with no sky)",
+    [PgslCommand("AtmospherePreset", "Engine.Sky.AtmospherePreset", "The room's atmosphere preset by name (empty with no sky); setting it changes the preset, as SetAtmospherePreset does",
         "Engine · Sky", Namespace = "Engine.Sky")]
-    public static string SkyAtmospherePreset => ResolveAtmosphere()?.Preset.ToString() ?? string.Empty;
+    public static string SkyAtmospherePreset
+    {
+        get => ResolveAtmosphere()?.Preset.ToString() ?? string.Empty;
+        set => SetAtmospherePreset(value);
+    }
 
     private static AtmosphereOptions ResolveAtmosphere() => ActiveSkyScene?.Atmosphere?.Options;
 

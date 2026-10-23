@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using Genesis.Application.Core.Resources;
+using Genesis.Application.Editors.Suite.Inspector;
 using Genesis.Application.Editors.Suite.Objects;
 using Genesis.Runtime.Scene;
 using Genesis.Runtime.Scripting;
@@ -47,6 +48,8 @@ public sealed partial class RoomEditorControl
         if (node is not null && (!ReferenceEquals(node, _selected) || !CanInspectNodeInActiveContext(node))) return false;
         try
         {
+            if (propertyPath.StartsWith(EngineSettingsInspector.Prefix, StringComparison.Ordinal))
+                return node is null ? SetRoomEngineSettings(propertyPath, value) : SetInstanceEngineSettings(node, propertyPath, value);
             if (propertyPath.StartsWith(ContextPlacementPrefix, StringComparison.OrdinalIgnoreCase))
                 return TryApplyContextPlacementValue(propertyPath, value);
             if (TryApplySelectedTileLiveValue(propertyPath, value)) return true;
@@ -108,6 +111,54 @@ public sealed partial class RoomEditorControl
                 -gravity[1] * SpritePhysicsBinding.PixelsPerMetre, Increment: 10m, DecimalPlaces: 2,
                 Description: "Positive values pull Physics2D bodies down. Scripted movement can use its own gravity."));
         }
+        EngineSettingsInspector.AddValues(values, _room.EngineSettings, EngineSettingScope.World);
+    }
+
+    // The room's own engine settings (world values), with undo.
+    private bool SetRoomEngineSettings(string path, object? value)
+    {
+        Dictionary<string, string>? before = _room.EngineSettings is null ? null : new(_room.EngineSettings, StringComparer.OrdinalIgnoreCase);
+        var working = new Dictionary<string, string>(before ?? new Dictionary<string, string>(), StringComparer.OrdinalIgnoreCase);
+        if (!EngineSettingsInspector.TryApply(path, value, working, EngineSettingScope.World)) return false;
+        Dictionary<string, string>? after = working.Count == 0 ? null : working;
+        void Apply(Dictionary<string, string>? state) =>
+            _room.EngineSettings = state is null ? null : new Dictionary<string, string>(state, StringComparer.OrdinalIgnoreCase);
+        Apply(after);
+        PushEdit("Room engine settings", () => Apply(after), () => Apply(before));
+        return true;
+    }
+
+    // A placed instance's engine settings: an EngineSettings override on top of its Object's own.
+    private static Dictionary<string, string> InstanceEngineSettings(RoomGameObjectData gameObject)
+    {
+        var settings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        RoomComponentOverride? existing = gameObject.ComponentOverrides.FirstOrDefault(candidate =>
+            candidate.ComponentId.Equals(EngineSettings.ComponentType, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
+            foreach ((string name, JToken token) in existing.Properties)
+                settings[name] = token.Type == JTokenType.String ? (string?)token ?? "" : EngineSettings.Format(((JValue)token).Value);
+        return settings;
+    }
+
+    private bool SetInstanceEngineSettings(RoomNode node, string path, object? value)
+    {
+        if (node.GameObject is not { } gameObject || IsNodeLocked(node) || !CanEditNodeInActiveContext(node)) return false;
+        Dictionary<string, string> settings = InstanceEngineSettings(gameObject);
+        if (!EngineSettingsInspector.TryApply(path, value, settings, EngineSettingScope.Instance)) return false;
+        RoomComponentOverride? existing = gameObject.ComponentOverrides.FirstOrDefault(candidate =>
+            candidate.ComponentId.Equals(EngineSettings.ComponentType, StringComparison.OrdinalIgnoreCase));
+        RoomComponentOverride? before = existing is null ? null : CloneContextOverride(existing);
+        RoomComponentOverride? after = null;
+        if (settings.Count > 0)
+        {
+            after = new RoomComponentOverride { ComponentId = EngineSettings.ComponentType };
+            foreach ((string name, string text) in settings) after.Properties[name] = text;
+        }
+        int insertionIndex = existing is null ? gameObject.ComponentOverrides.Count : gameObject.ComponentOverrides.IndexOf(existing);
+        void Apply(RoomComponentOverride? state) => ApplyContextOverrideSnapshot(gameObject, EngineSettings.ComponentType, state, insertionIndex);
+        Apply(after);
+        PushEdit($"Engine settings of '{node.Name}'", () => Apply(after), () => Apply(before));
+        return true;
     }
 
     private void AddContextSelectionValues(List<ResourceInspectorLiveValue> values, RoomNode node)
@@ -153,6 +204,8 @@ public sealed partial class RoomEditorControl
         AddContextKindValues(values, node, locked);
         AddInheritedComponentValues(values, node, locked);
         AddContextSurfaceValues(values, node, locked);
+        if (node.GameObject is { } gameObject)
+            EngineSettingsInspector.AddValues(values, InstanceEngineSettings(gameObject), EngineSettingScope.Instance, locked);
     }
 
     private void AddContextKindValues(List<ResourceInspectorLiveValue> values, RoomNode node, bool readOnly)

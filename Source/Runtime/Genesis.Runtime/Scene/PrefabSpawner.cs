@@ -37,6 +37,36 @@ namespace Genesis.Runtime.Scene
             float originX = 0f,
             float originY = 0f)
         {
+            Entity e = Spawn(world, prefab, scriptHost, originX, originY, out IReadOnlyDictionary<string, string> engineSettings);
+            ApplyEngineSettings(world, e, engineSettings, scriptHost);
+            return e;
+        }
+
+        /// <summary>
+        /// Gives a spawned instance its engine settings: its script sets them just before its Create
+        /// event, or they are set at once (as the room's Create events, once a room has placed it).
+        /// </summary>
+        public static void ApplyEngineSettings(EcsWorld world, Entity entity, IReadOnlyDictionary<string, string> settings, ScriptHostSystem scriptHost)
+        {
+            if (settings == null || settings.Count == 0 || !world.IsAlive(entity)) return;
+            if (scriptHost != null) scriptHost.ApplyEngineSettings(entity, settings);
+            else Genesis.Runtime.Scripting.EngineSettings.Apply(settings, new Genesis.Shared.Scripting.PgslContext { InstanceId = entity.Id });
+        }
+
+        /// <summary>
+        /// <see cref="Spawn(EcsWorld, JObject, ScriptHostSystem, float, float)"/> handing back the
+        /// instance's engine settings (its model's, then its Object's) for the caller to give it once
+        /// it has placed it and given it its body.
+        /// </summary>
+        public static Entity Spawn(
+            EcsWorld world,
+            JObject prefab,
+            ScriptHostSystem scriptHost,
+            float originX,
+            float originY,
+            out IReadOnlyDictionary<string, string> engineSettingsToApply)
+        {
+            engineSettingsToApply = null;
             Entity e = world.CreateEntity();
             world.Set(e, new EntityLifecycleComponent { NeedsStart = true, Enabled = true });
 
@@ -56,6 +86,7 @@ namespace Genesis.Runtime.Scene
             float modelScaleX = 1f, modelScaleY = 1f, modelScaleZ = 1f;
             bool hasDraw2D = false;
             bool hasDraw3D = false;
+            Dictionary<string, string> engineSettings = null;
             FaceCullingOverride culling = MeshRasterDefaults.ParseCulling(
                 (string)prefab["culling"], FaceCullingOverride.Default);
             FrontFaceWindingOverride winding = MeshRasterDefaults.ParseWinding(
@@ -276,6 +307,13 @@ namespace Genesis.Runtime.Scene
                         });
                         ComponentLifecycle.OnAttach(world, e, type);
                         break;
+                    case Genesis.Runtime.Scripting.EngineSettings.ComponentType:
+                        engineSettings ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                        foreach (JProperty setting in props.Properties())
+                            engineSettings[setting.Name] = setting.Value.Type == JTokenType.Boolean
+                                ? ((bool)setting.Value ? "true" : "false")
+                                : setting.Value.ToString(Newtonsoft.Json.Formatting.None).Trim('"');
+                        break;
                     case "ScriptComponent":
                         string scriptClass = (string)props["ScriptClass"];
                         scriptHost?.Attach(world, e, scriptClass, ToDict(props));
@@ -380,7 +418,32 @@ namespace Genesis.Runtime.Scene
                 }
             }
 
+            // Engine settings: the model's first, then the Object's own (and its room instance's).
+            Dictionary<string, string> modelSettings = ModelEngineSettings(modelName);
+            if (modelSettings != null || engineSettings != null)
+            {
+                var settings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                if (modelSettings != null) foreach ((string name, string value) in modelSettings) settings[name] = value;
+                if (engineSettings != null) foreach ((string name, string value) in engineSettings) settings[name] = value;
+                engineSettingsToApply = settings;
+            }
+
             return e;
+        }
+
+        private static Dictionary<string, string> ModelEngineSettings(string modelName)
+        {
+            string project = Genesis.Runtime.Scripting.PgslCommands.ProjectPath;
+            if (string.IsNullOrWhiteSpace(modelName) || string.IsNullOrWhiteSpace(project)) return null;
+            try
+            {
+                Dictionary<string, string> settings = Genesis.Runtime.Modeling.RuntimeModelAssetRegistry.Shared.Load(project, modelName)?.EngineSettings;
+                return settings is { Count: > 0 } ? settings : null;
+            }
+            catch (Exception)
+            {
+                return null; // A model that will not load says so where it is drawn.
+            }
         }
 
         private static void ApplyTransform(EcsWorld world, Entity e, JObject props, float ox, float oy)

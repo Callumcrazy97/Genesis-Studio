@@ -4,7 +4,9 @@ using System.Text.Json;
 using Genesis.Application.Core.Resources;
 using Genesis.Application.Core.UI;
 using Genesis.Application.Editors.Image.Controls;
+using Genesis.Application.Editors.Suite.Inspector;
 using Genesis.Application.Editors.Suite.Objects;
+using Genesis.Runtime.Scripting;
 using Genesis.Shared.Assets;
 
 namespace Genesis.Application.Editors.Suite.Assets;
@@ -288,21 +290,43 @@ public partial class ModelViewerControl : IResourceInspectorTarget, ILiveResourc
         RequestOpenLinkedResource(path); return path;
     }
 
-    public IReadOnlyList<ResourceInspectorLiveValue> GetLiveInspectorValues() =>
-    [
-        new("Model pivot", "Model.Pivot.X", "X", Asset.Pivot.Position.X),
-        new("Model pivot", "Model.Pivot.Y", "Y", Asset.Pivot.Position.Y),
-        new("Model pivot", "Model.Pivot.Z", "Z", Asset.Pivot.Position.Z),
-        new("Model information", "Model.Meshes", "Meshes", Asset.Meshes.Count, true),
-        new("Model information", "Model.Joints", "Joints", Asset.Rig.Bones.Count, true),
-        new("Model information", "Model.Animations", "Animation clips", Asset.Animations.Count, true),
-        new("Preview", "Preview.Animation", "Selected animation", ActiveClip.Length == 0 ? "None" : ActiveClip, true),
-    ];
+    public IReadOnlyList<ResourceInspectorLiveValue> GetLiveInspectorValues()
+    {
+        List<ResourceInspectorLiveValue> values =
+        [
+            new("Model pivot", "Model.Pivot.X", "X", Asset.Pivot.Position.X),
+            new("Model pivot", "Model.Pivot.Y", "Y", Asset.Pivot.Position.Y),
+            new("Model pivot", "Model.Pivot.Z", "Z", Asset.Pivot.Position.Z),
+            new("Model information", "Model.Meshes", "Meshes", Asset.Meshes.Count, true),
+            new("Model information", "Model.Joints", "Joints", Asset.Rig.Bones.Count, true),
+            new("Model information", "Model.Animations", "Animation clips", Asset.Animations.Count, true),
+            new("Preview", "Preview.Animation", "Selected animation", ActiveClip.Length == 0 ? "None" : ActiveClip, true),
+        ];
+        // What each instance showing this model starts with (Engine.Model.Glow, Engine.Physics.Mass...).
+        if (!IsAnimationLibrary) EngineSettingsInspector.AddValues(values, Asset.EngineSettings, EngineSettingScope.Instance, _importing);
+        return values;
+    }
 
     public bool TryApplyLiveInspectorValue(string propertyPath, object? value) => TryApplyInspectorValue(propertyPath, value);
 
     public bool TryApplyInspectorValue(string propertyPath, object? value)
     {
+        if (propertyPath.StartsWith(EngineSettingsInspector.Prefix, StringComparison.Ordinal))
+        {
+            if (_importing || IsAnimationLibrary) return false;
+            Dictionary<string, string>? settingsBefore = Asset.EngineSettings is null ? null : new(Asset.EngineSettings, StringComparer.OrdinalIgnoreCase);
+            var working = new Dictionary<string, string>(settingsBefore ?? new Dictionary<string, string>(), StringComparer.OrdinalIgnoreCase);
+            if (!EngineSettingsInspector.TryApply(propertyPath, value, working, EngineSettingScope.Instance)) return false;
+            Dictionary<string, string>? settingsAfter = working.Count == 0 ? null : working;
+            void SetSettings(Dictionary<string, string>? state)
+            {
+                Asset.EngineSettings = state is null ? null : new Dictionary<string, string>(state, StringComparer.OrdinalIgnoreCase);
+                InspectorStateChanged?.Invoke(this, EventArgs.Empty);
+            }
+            SetSettings(settingsAfter);
+            PushEdit("Model engine settings", () => SetSettings(settingsAfter), () => SetSettings(settingsBefore));
+            return true;
+        }
         if (_importing || IsAnimationLibrary || !propertyPath.StartsWith("Model.Pivot.", StringComparison.Ordinal)
             || !float.TryParse(Convert.ToString(value, CultureInfo.InvariantCulture), NumberStyles.Float,
                 CultureInfo.InvariantCulture, out float number) || !float.IsFinite(number)) return false;

@@ -287,6 +287,29 @@ namespace Genesis.Runtime.Scripting
         }
 
         /// <summary>
+        /// Gives an instance its engine settings (<see cref="EngineSettings"/>): its script sets them
+        /// just before its Create event (or at once when that has run); an instance with no script
+        /// has them set at once.
+        /// </summary>
+        public void ApplyEngineSettings(Entity entity, IReadOnlyDictionary<string, string> settings)
+        {
+            if (settings == null || settings.Count == 0) return;
+            for (int i = _instances.Count - 1; i >= 0; i--)
+            {
+                if (_instances[i] is PgslBehavior pgsl && pgsl.Entity == entity)
+                {
+                    pgsl.ApplyEngineSettings(settings);
+                    return;
+                }
+            }
+            // While a room loads, after its placement, as the Create events are.
+            if (DeferCreateEvents) _deferredSettings.Add((entity, settings));
+            else EngineSettings.Apply(settings, new Genesis.Shared.Scripting.PgslContext { InstanceId = entity.Id });
+        }
+
+        private readonly List<(Entity Entity, IReadOnlyDictionary<string, string> Settings)> _deferredSettings = new();
+
+        /// <summary>
         /// While set, <see cref="Attach"/> queues OnCreate instead of firing it inline. Room loading
         /// turns this on because it applies each instance's placement transform *after* spawning its
         /// components: firing Create inline meant the script saw x=0,y=0 instead of where the
@@ -298,6 +321,14 @@ namespace Genesis.Runtime.Scripting
         /// <summary>Fire every OnCreate queued while <see cref="DeferCreateEvents"/> was set.</summary>
         public void FlushDeferredCreates()
         {
+            // Engine settings of instances with no script: placed now, as their room put them.
+            if (_deferredSettings.Count > 0)
+            {
+                var settings = new List<(Entity Entity, IReadOnlyDictionary<string, string> Settings)>(_deferredSettings);
+                _deferredSettings.Clear();
+                foreach ((Entity entity, IReadOnlyDictionary<string, string> values) in settings)
+                    EngineSettings.Apply(values, new Genesis.Shared.Scripting.PgslContext { InstanceId = entity.Id });
+            }
             if (_deferredCreates.Count == 0) return;
 
             // Snapshot: a Create event may spawn more instances, which must not mutate this loop.

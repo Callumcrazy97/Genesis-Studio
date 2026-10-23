@@ -276,7 +276,7 @@ public static partial class PgslCommands
     [PgslCommand("PhysicsSolverIterations", "PhysicsSolverIterations() -> number", "Solver iterations per step", "Physics")]
     public static double PhysicsSolverIterations() => PhysicsWorld?.SolverIterations ?? 0;
 
-    [PgslCommand("PhysicsApplyImpulse", "PhysicsApplyImpulse(instanceId, x, y, z)", "Push one body", "Physics")]
+    [PgslCommand("PhysicsApplyImpulse", "PhysicsApplyImpulse(instanceId, x, y, z) or PhysicsApplyImpulse(x, y, z)", "Push one body (given x, y and z only: the current instance's)", "Physics")]
     public static void PhysicsApplyImpulse(double instanceId, double x, double y, double z)
     {
         if (!TryGetDynamicBody((int)instanceId, out Genesis.Physics.PhysicsWorld physics,
@@ -288,7 +288,7 @@ public static partial class PgslCommands
             SpritePhysicsBinding.ToPhysics(world, (int)instanceId, new Vector3((float)x, (float)y, (float)z)));
     }
 
-    [PgslCommand("PhysicsApplyForce", "PhysicsApplyForce(instanceId, x, y, z)", "Apply a force for the current frame", "Physics")]
+    [PgslCommand("PhysicsApplyForce", "PhysicsApplyForce(instanceId, x, y, z) or PhysicsApplyForce(x, y, z)", "Apply a force for the current frame (given x, y and z only: to the current instance)", "Physics")]
     public static void PhysicsApplyForce(double instanceId, double x, double y, double z)
     {
         if (!TryGetDynamicBody((int)instanceId, out Genesis.Physics.PhysicsWorld physics,
@@ -300,7 +300,7 @@ public static partial class PgslCommands
             SpritePhysicsBinding.ToPhysics(world, (int)instanceId, new Vector3((float)x, (float)y, (float)z)) * delta);
     }
 
-    [PgslCommand("PhysicsSetVelocity", "PhysicsSetVelocity(instanceId, x, y, z)", "Set Dynamic or Kinematic velocity; 2D sprite bodies use pixels/second with Y down, 3D uses metres/second", "Physics")]
+    [PgslCommand("PhysicsSetVelocity", "PhysicsSetVelocity(instanceId, x, y, z) or PhysicsSetVelocity(x, y, z)", "Set Dynamic or Kinematic velocity (given x, y and z only: the current instance's); 2D sprite bodies use pixels/second with Y down, 3D uses metres/second", "Physics")]
     public static void PhysicsSetVelocity(double instanceId, double x, double y, double z)
     {
         if (!TryGetDynamicBody((int)instanceId, out Genesis.Physics.PhysicsWorld physics,

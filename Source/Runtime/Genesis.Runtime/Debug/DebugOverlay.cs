@@ -722,6 +722,23 @@ namespace Genesis.Runtime.Debugger
                             y += 16f;
                         }
                     }
+
+                    // The instance's engine values (Engine.Physics.Mass...), live: read now, nudged here.
+                    if (ent.Behavior is { World: { } world, Context: { } context } behavior)
+                    {
+                        var engine = Genesis.Runtime.Scripting.EngineSettings.InstanceValues(world, behavior.Entity, context);
+                        if (engine.Count > 0)
+                        {
+                            hud.Text("Engine values", panelX + 18f, y, 10f, DebugOverlayPalette.Muted);
+                            y += 15f;
+                            foreach ((Genesis.Runtime.Scripting.EngineSettings.Setting setting, object value) in engine)
+                            {
+                                if (y > panelY + panelH - 130f) break;
+                                y = DrawEngineValue(hud, panelX, y, panelW, setting, value, ent.Name,
+                                    text => behavior.ApplyEngineSettings(new Dictionary<string, string> { [setting.Name] = text }));
+                            }
+                        }
+                    }
                     y += 6f;
                 }
             }
@@ -767,6 +784,54 @@ namespace Genesis.Runtime.Debugger
                 y += 18f;
                 if (y > panelY + panelH - 20f) break;
             }
+
+            // The world's engine values: physics, the audio buses, the game's speed.
+            var worldValues = Genesis.Runtime.Scripting.EngineSettings.WorldValuesNow();
+            if (worldValues.Count > 0 && y < panelY + panelH - 40f)
+            {
+                y += 6f;
+                hud.Text("World engine values", panelX + 10f, y, 11f, DebugOverlayPalette.Accent);
+                y += 20f;
+                foreach ((Genesis.Runtime.Scripting.EngineSettings.Setting setting, object value) in worldValues)
+                {
+                    if (y > panelY + panelH - 20f) break;
+                    y = DrawEngineValue(hud, panelX - 6f, y, panelW + 6f, setting, value, "World", text =>
+                        Genesis.Runtime.Scripting.EngineSettings.Apply(
+                            new[] { new KeyValuePair<string, string>(setting.Name, text) }, new Genesis.Shared.Scripting.PgslContext()));
+                }
+            }
+        }
+
+        // One engine value: its name and value, with - and + for a number, Flip for true/false and
+        // Next for a choice; an edit is set as a script would set it.
+        private float DrawEngineValue(IHudCanvas hud, float panelX, float y, float panelW,
+            Genesis.Runtime.Scripting.EngineSettings.Setting setting, object value, string owner, Action<string> set)
+        {
+            string shown = value switch
+            {
+                double number => number.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture),
+                float single => single.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture),
+                bool flag => flag ? "true" : "false",
+                null => "",
+                _ => value.ToString(),
+            };
+            hud.Text($"{setting.Name["Engine.".Length..]}: {shown}", panelX + 18f, y, 9.5f, DebugOverlayPalette.Text);
+            void Edit(int steps)
+            {
+                if (Genesis.Runtime.Scripting.EngineSettings.NudgedText(setting, value, steps) is not { } text) return;
+                set(text);
+                Log($"[INFO] {owner}: {setting.Name} = {text}");
+            }
+            if (setting.Type == typeof(bool) || setting.Choices is { Count: > 0 })
+            {
+                if (DrawButton(hud, panelX + panelW - 48f, y - 2f, 40f, 16f, setting.Type == typeof(bool) ? "Flip" : "Next", false)) Edit(1);
+            }
+            else if (setting.Type != typeof(string))
+            {
+                if (DrawButton(hud, panelX + panelW - 48f, y - 2f, 18f, 16f, "-", false)) Edit(-1);
+                if (DrawButton(hud, panelX + panelW - 26f, y - 2f, 18f, 16f, "+", false)) Edit(1);
+            }
+            return y + 16f;
         }
 
         /// <summary>

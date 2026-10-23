@@ -104,7 +104,36 @@ namespace Genesis.Runtime.Scripting
             InitializeVm();
             RegisterLive();
             SyncToContext();
+            _created = true;
+            // Engine settings (its Object's, its model's, its room instance's) are the values it
+            // starts with: set before Create, so Create sees them and may change them.
+            if (_pendingEngineSettings != null)
+            {
+                IReadOnlyDictionary<string, string> settings = _pendingEngineSettings;
+                _pendingEngineSettings = null;
+                EngineSettings.Apply(settings, _ctx);
+            }
             ExecuteScript(_onCreateScript, "Create");
+            SyncFromContext();
+        }
+
+        private bool _created;
+        private IReadOnlyDictionary<string, string> _pendingEngineSettings;
+
+        /// <summary>
+        /// Gives this instance engine settings: set just before its Create event when that is still
+        /// to come, at once (through its context) when it has run.
+        /// </summary>
+        internal void ApplyEngineSettings(IReadOnlyDictionary<string, string> settings)
+        {
+            if (settings == null || settings.Count == 0) return;
+            if (!_created)
+            {
+                _pendingEngineSettings = settings;
+                return;
+            }
+            SyncToContext();
+            EngineSettings.Apply(settings, _ctx);
             SyncFromContext();
         }
 

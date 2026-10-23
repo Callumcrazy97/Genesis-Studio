@@ -58,6 +58,10 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
                 IsProperty = info.IsProperty,
                 IsImplemented = info.IsImplemented,
             };
+            // A property is found by its C# member, not its name: Engine.Physics.Mass and a Mass of
+            // another area are two properties.
+            if (info.IsProperty && !string.IsNullOrEmpty(info.CSharpMember))
+                def.Property = _hostType.GetProperty(info.CSharpMember[(info.CSharpMember.LastIndexOf('.') + 1)..], BindingFlags.Public | BindingFlags.Static);
             if (string.IsNullOrWhiteSpace(info.Namespace))
             {
                 _commandDefs[info.Name] = def;
@@ -65,11 +69,11 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
             else
             {
                 _commandDefs[info.QualifiedName] = def;
-                if (!_commandDefs.ContainsKey(info.Name))
+                if (info.Flat && !_commandDefs.ContainsKey(info.Name))
                     _commandDefs[info.Name] = def;
             }
 
-            if (!string.IsNullOrEmpty(info.CSharpMember) && info.CSharpMember.Contains('.'))
+            if (info.Flat && !string.IsNullOrEmpty(info.CSharpMember) && info.CSharpMember.Contains('.'))
             {
                 string csharpName = info.CSharpMember.Substring(info.CSharpMember.LastIndexOf('.') + 1);
                 if (!_commandDefs.ContainsKey(csharpName))
@@ -84,6 +88,22 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
             var def = new CommandDef { Name = "Engine." + bare, Category = category, IsImplemented = true, EngineMethod = method, EngineName = bare };
             _commandDefs.TryAdd(def.Name, def);
             if (namespaced != null) _commandDefs.TryAdd(namespaced, def);
+        }
+        // The standard names (PgslApi): Engine.Physics.ApplyForce is PhysicsApplyForce itself, and
+        // the value of a Get/Set pair is a property of its own (Engine.Physics.AirDrag).
+        foreach (PgslApi.Entry entry in PgslApi.Entries)
+        {
+            if (_commandDefs.ContainsKey(entry.Name)) continue;
+            if (entry.Command != null)
+            {
+                if (_commandDefs.TryGetValue(entry.Command, out CommandDef target)) _commandDefs[entry.Name] = target;
+                continue;
+            }
+            _commandDefs[entry.Name] = new CommandDef
+            {
+                Name = entry.Name, Category = entry.Category, Description = entry.Description, IsProperty = true,
+                IsImplemented = true, GetterMember = entry.GetterMember, SetterMember = entry.SetterMember,
+            };
         }
         BuildNativeCallTable();
     }
@@ -349,20 +369,34 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
 
     public void BuildNativeCallTable()
     {
-        var entries = new List<KeyValuePair<string, CommandDef>>(_commandDefs);
-        _nativeTable = new Func<object[], object>[entries.Count];
-        _nativeIsVoid = new bool[entries.Count];
-        _nativeNames = new string[entries.Count];
-        _nativeDefs = new CommandDef[entries.Count];
-        _nativeCalls = new NativeCall[entries.Count];
-        _nativeIdMap = new Dictionary<string, int>(entries.Count, StringComparer.OrdinalIgnoreCase);
+        // One id per command: its other names (Engine.Physics.ApplyForce, a namespaced command's
+        // bare name) share it, so a call by any of its names is the same call.
+        var ids = new Dictionary<CommandDef, int>();
+        var defs = new List<CommandDef>(_commandDefs.Count);
+        var keys = new List<string>(_commandDefs.Count);
+        _nativeIdMap = new Dictionary<string, int>(_commandDefs.Count, StringComparer.OrdinalIgnoreCase);
+        foreach (KeyValuePair<string, CommandDef> pair in _commandDefs)
+        {
+            if (!ids.TryGetValue(pair.Value, out int id))
+            {
+                id = defs.Count;
+                ids.Add(pair.Value, id);
+                defs.Add(pair.Value);
+                keys.Add(pair.Key);
+            }
+            _nativeIdMap[pair.Key] = id;
+        }
+        _nativeTable = new Func<object[], object>[defs.Count];
+        _nativeIsVoid = new bool[defs.Count];
+        _nativeNames = new string[defs.Count];
+        _nativeDefs = new CommandDef[defs.Count];
+        _nativeCalls = new NativeCall[defs.Count];
         Generation++;
 
-        for (int i = 0; i < entries.Count; i++)
+        for (int i = 0; i < defs.Count; i++)
         {
-            var def = entries[i].Value;
-            _nativeIdMap[entries[i].Key] = i;
-            _nativeNames[i] = def.Name ?? entries[i].Key;
+            var def = defs[i];
+            _nativeNames[i] = def.Name ?? keys[i];
             _nativeDefs[i] = def;
 
             if (def.EngineMethod != null)
@@ -376,10 +410,8 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
                 var captured = def;
                 _nativeTable[i] = args =>
                 {
-                    var prop = GetOrCacheProperty(captured.Name);
-                    if (prop == null) return null;
-                    if (args.Length == 0) return prop.GetValue(null);
-                    prop.SetValue(null, ConvertArg(args[0], prop.PropertyType));
+                    if (args.Length == 0) return ReadProperty(captured);
+                    WriteProperty(captured, args[0]);
                     return null;
                 };
                 _nativeIsVoid[i] = false;
@@ -457,10 +489,8 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
             {
                 worker._nativeTable[i] = args =>
                 {
-                    var prop = worker.GetOrCacheProperty(def.Name);
-                    if (prop == null) return null;
-                    if (args.Length == 0) return prop.GetValue(null);
-                    prop.SetValue(null, ConvertArg(args[0], prop.PropertyType));
+                    if (args.Length == 0) return worker.ReadProperty(def);
+                    worker.WriteProperty(def, args[0]);
                     return null;
                 };
             }
@@ -500,8 +530,8 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
         if (def.EngineMethod != null) return PgslNamespaceResolver.InvokeEngineCommand(def.Name, args);
         if (def.IsProperty)
         {
-            if (args.Length == 0) return GetProperty(def.Name);
-            SetProperty(def.Name, args[0]);
+            if (args.Length == 0) return ReadProperty(def);
+            WriteProperty(def, args[0]);
             return null;
         }
         return CallMethod(def.CSharpMember, args);
@@ -609,8 +639,8 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
 
         if (def.IsProperty)
         {
-            if (args.Length == 0) result = GetProperty(def.Name);
-            else SetProperty(def.Name, args[0]);
+            if (args.Length == 0) result = ReadProperty(def);
+            else WriteProperty(def, args[0]);
             return true;
         }
 
@@ -627,7 +657,7 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
             return false;
         }
         if (_workerAllows != null && !WorkerAllows(def)) throw NotInWorker(def.Name);
-        SetProperty(def.Name, value);
+        WriteProperty(def, value);
         return true;
     }
 
@@ -636,7 +666,35 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
         if (string.IsNullOrWhiteSpace(name) || !_commandDefs.TryGetValue(name, out CommandDef def) || !def.IsProperty)
             return false;
         if (_workerAllows != null && !WorkerAllows(def)) throw NotInWorker(def.Name);
-        SetProperty(def.Name, value.ToObject()); return true;
+        WriteProperty(def, value.ToObject()); return true;
+    }
+
+    // A property's value: its C# property, or the commands of a Get/Set pair (PgslApi: the value
+    // Engine.Physics.AirDrag is read by PhysicsGetAirDrag and set by PhysicsSetAirDrag).
+    private object ReadProperty(CommandDef def)
+    {
+        if (def.Property != null)
+        {
+            if (!def.Property.CanRead) throw new InvalidOperationException($"{def.Name} can be set but not read.");
+            return def.Property.GetValue(null);
+        }
+        if (def.GetterMember != null) return CallMethod(def.GetterMember, Array.Empty<object>());
+        if (def.SetterMember != null) throw new InvalidOperationException($"{def.Name} can be set but not read.");
+        return GetOrCacheProperty(def.Name)?.GetValue(null);
+    }
+
+    private void WriteProperty(CommandDef def, object value)
+    {
+        if (def.Property != null)
+        {
+            if (!def.Property.CanWrite) throw new InvalidOperationException($"{def.Name} can be read but not set.");
+            def.Property.SetValue(null, ConvertArg(value, def.Property.PropertyType));
+            return;
+        }
+        if (def.SetterMember != null) { CallMethod(def.SetterMember, new[] { value }); return; }
+        if (def.GetterMember != null) throw new InvalidOperationException($"{def.Name} can be read but not set.");
+        PropertyInfo property = GetOrCacheProperty(def.Name);
+        property?.SetValue(null, ConvertArg(value, property.PropertyType));
     }
 
     private sealed class CommandDef
@@ -650,6 +708,10 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
         /// <summary>For an Engine command: its method on <see cref="Engine"/> and its bare name in the pipeline.</summary>
         public MethodInfo EngineMethod;
         public string EngineName;
+        /// <summary>A property command's C# property.</summary>
+        public PropertyInfo Property;
+        /// <summary>A property made from a Get/Set pair (PgslApi): the commands that read and set it.</summary>
+        public string GetterMember, SetterMember;
     }
 
     // A context value read by name (TryInvokeKnown's last step), as a getter made once per name: each
@@ -705,20 +767,6 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
     {
         var key = name.Replace("_", "").ToLowerInvariant();
         return _staticContextPropCache != null && _staticContextPropCache.TryGetValue(key, out var prop) ? prop : null;
-    }
-
-    private object GetProperty(string pgslName)
-    {
-        var prop = GetOrCacheProperty(pgslName);
-        if (prop == null) throw new InvalidOperationException($"Property not found: {pgslName}");
-        return prop.GetValue(null);
-    }
-
-    private void SetProperty(string pgslName, object value)
-    {
-        var prop = GetOrCacheProperty(pgslName);
-        if (prop == null) throw new InvalidOperationException($"Property not found: {pgslName}");
-        prop.SetValue(null, ConvertArg(value, prop.PropertyType));
     }
 
     private object CallMethod(string csharpMember, object[] args)
@@ -893,7 +941,7 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
     // Typed getters for the engine's number, whole-number and true/false properties: DeltaTime and
     // the like, read by most scripts every frame, were boxed by the reflection call on every read
     // (Kinfield).
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<PropertyInfo, Func<VmValue>> TypedGetters = new();
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<MethodInfo, Func<VmValue>> TypedGetters = new();
 
     /// <summary>
     /// Reads an engine property as <see cref="TryInvokeKnown"/> would, without boxing it, when the
@@ -909,23 +957,27 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
         if (_workerAllows != null || string.IsNullOrWhiteSpace(name) || NotTypedProperties.ContainsKey(name)
             || name.StartsWith("scr_", StringComparison.OrdinalIgnoreCase) || ScriptAssetRegistry.TryGet(name.Trim(), out _))
             return false;
-        string propertyName = name;
+        MethodInfo getter;
         if (_commandDefs.TryGetValue(name, out CommandDef def))
         {
             if (!def.IsProperty) return NotTyped(name);
-            propertyName = def.Name;
+            // A property of a Get/Set pair reads through its getter command, when that takes nothing.
+            getter = def.Property != null ? def.Property.GetMethod
+                : def.GetterMember != null ? ResolveMethod(def.GetterMember, 0)
+                : GetOrCacheProperty(def.Name)?.GetMethod;
         }
         else if (PgslNamespaceResolver.TryResolveEngineCommand(name, out _, out _))
             return NotTyped(name);
-        PropertyInfo property = GetOrCacheProperty(propertyName);
-        if (property?.GetMethod is not { IsStatic: true } getter) return NotTyped(name);
-        Func<VmValue> read = TypedGetters.GetOrAdd(property, static (_, method) =>
+        else getter = GetOrCacheProperty(name)?.GetMethod;
+        if (getter is not { IsStatic: true } || getter.GetParameters().Length != 0) return NotTyped(name);
+        Func<VmValue> read = TypedGetters.GetOrAdd(getter, static method =>
         {
             if (method.ReturnType == typeof(double)) { var number = method.CreateDelegate<Func<double>>(); return () => number(); }
+            if (method.ReturnType == typeof(float)) { var single = method.CreateDelegate<Func<float>>(); return () => single(); }
             if (method.ReturnType == typeof(int)) { var whole = method.CreateDelegate<Func<int>>(); return () => whole(); }
             if (method.ReturnType == typeof(bool)) { var flag = method.CreateDelegate<Func<bool>>(); return () => flag(); }
             return null;
-        }, getter);
+        });
         if (read == null) return NotTyped(name);
         value = read();
         return true;

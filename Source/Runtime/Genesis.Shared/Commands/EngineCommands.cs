@@ -862,17 +862,8 @@ namespace Genesis.Shared.Commands
             }
         }
 
-        // --- Physics ---
-
-        [EngineCommand("Engine.PhysicsUse(assetName)", "Physics", phase: 10,
-            description: "Apply a named Physics asset to this instance (zero-script tag)", implemented: false)]
-        public static void PhysicsUse(string assetName) =>
-            throw new NotImplementedException("Engine.PhysicsUse — Phase 10");
-
-        [EngineCommand("Engine.Physics(type, shape, mass, friction, restitution, gravityScale)", "Physics", phase: 10,
-            description: "One-line declarative body setup", implemented: false)]
-        public static void Physics(string type, string shape, float mass, float friction = 0.5f, float restitution = 0.1f, float gravityScale = 1.0f) =>
-            throw new NotImplementedException("Engine.Physics — Phase 10");
+        // Physics is Engine.Physics.* (PgslCommands.PhysicsApi): Engine.Physics.Use(physics) gives an
+        // instance a Physics resource's body, and the body's settings are properties.
 
         // ── Legacy Engine Getters/Setters & Utilities ──────────────────────────────
 

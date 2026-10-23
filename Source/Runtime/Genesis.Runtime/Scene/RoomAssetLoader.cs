@@ -323,6 +323,7 @@ public sealed class RoomSceneBuilder
         }
 
         result.SpawnMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(0, spawnTicks).TotalMilliseconds;
+        if (!terrainOnly) ApplyRoomEngineSettings(asset);
         long createStarted = System.Diagnostics.Stopwatch.GetTimestamp();
         using (Genesis.Shared.Diagnostics.LoadProfile.Begin("room: Create events"))
             _scriptHost?.FlushDeferredCreates();
@@ -651,16 +652,17 @@ public sealed class RoomSceneBuilder
         JObject prefab, IReadOnlyDictionary<string, string> events)
     {
         Entity entity;
+        IReadOnlyDictionary<string, string> engineSettings;
         if (events is { Count: > 0 } && _scriptHost != null)
         {
             using (_scriptHost.UseEventSources(events))
             {
-                entity = PrefabSpawner.Spawn(world, prefab, _scriptHost);
+                entity = PrefabSpawner.Spawn(world, prefab, _scriptHost, 0f, 0f, out engineSettings);
             }
         }
         else
         {
-            entity = PrefabSpawner.Spawn(world, prefab, _scriptHost);
+            entity = PrefabSpawner.Spawn(world, prefab, _scriptHost, 0f, 0f, out engineSettings);
         }
         RoomTransform worldTransform = ResolveWorldTransform(room, node);
         ref TransformComponent transform = ref world.GetRef<TransformComponent>(entity);
@@ -682,6 +684,8 @@ public sealed class RoomSceneBuilder
             if (!_spawningCopy) AttachAuthoredPhysics(world, entity, prefab, transform);
         }
         else if (!_spawningCopy) SpritePhysicsBinding.Attach(world, entity, _projectPath, prefab, transform);
+        // Placed and given its body: now its engine settings (before its Create, when it has one to come).
+        PrefabSpawner.ApplyEngineSettings(world, entity, engineSettings, _scriptHost);
         if (world.Has<WildlifeComponent>(entity))
         {
             ref WildlifeComponent wildlife = ref world.GetRef<WildlifeComponent>(entity);
@@ -935,6 +939,30 @@ public sealed class RoomSceneBuilder
     private static float PropFloat(JObject props, string name, float fallback) =>
         float.TryParse(props?[name]?.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out float value) && float.IsFinite(value) ? value : fallback;
 
+    /// <summary>
+    /// The room's engine settings, then each of its terrains', set as a script would (world values:
+    /// Engine.Physics.AirDrag, Engine.Sky.Coverage...) just before the room's Create events.
+    /// </summary>
+    private void ApplyRoomEngineSettings(RoomAsset asset)
+    {
+        var settings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (RoomNode node in asset.Nodes)
+        {
+            if (node.Kind != RoomNodeKind.Terrain || string.IsNullOrWhiteSpace(node.Terrain?.Asset) || !RoomHierarchyTransforms.IsActive(asset, node)) continue;
+            string path = ResourceCatalog.Resolve(_projectPath, node.Terrain.Asset, ResourceType.Terrain);
+            string nature = string.IsNullOrWhiteSpace(path) ? "" : Genesis.World.Terrain.TerrainNatureSerializer.SidecarPath(path);
+            // Read the (large) nature file only when it carries settings.
+            if (nature.Length == 0 || !File.Exists(nature) || !File.ReadAllText(nature).Contains("\"engineSettings\"", StringComparison.Ordinal)) continue;
+            Dictionary<string, string> terrain = Genesis.World.Terrain.TerrainNatureSerializer.LoadOrDefault(path).EngineSettings;
+            if (terrain != null) foreach ((string name, string value) in terrain) settings[name] = value;
+        }
+        if (asset.EngineSettings != null) foreach ((string name, string value) in asset.EngineSettings) settings[name] = value;
+        if (settings.Count == 0) return;
+        var problems = new List<string>();
+        Genesis.Runtime.Scripting.EngineSettings.Apply(settings, new Genesis.Shared.Scripting.PgslContext(), problems);
+        foreach (string problem in problems) Console.Error.WriteLine($"[Room] {asset.Name} engine setting: {problem}");
+    }
+
     public static JObject ApplyOverrides(JObject source, List<RoomComponentOverride> overrides)
     {
         if (source == null) return null;
@@ -945,6 +973,9 @@ public sealed class RoomSceneBuilder
             JObject component = components.OfType<JObject>().FirstOrDefault(c =>
                 string.Equals(c["id"]?.ToString(), ov.ComponentId, StringComparison.OrdinalIgnoreCase)
                 || (c["id"] == null && string.Equals(c["type"]?.ToString(), ov.ComponentId, StringComparison.OrdinalIgnoreCase)));
+            // A room instance may give engine settings to an Object that has none of its own.
+            if (component == null && string.Equals(ov.ComponentId, Genesis.Runtime.Scripting.EngineSettings.ComponentType, StringComparison.OrdinalIgnoreCase))
+                components.Add(component = new JObject { ["type"] = Genesis.Runtime.Scripting.EngineSettings.ComponentType, ["props"] = new JObject() });
             if (component == null) continue;
             if (ov.Enabled.HasValue) component["enabled"] = ov.Enabled.Value;
             var props = component["props"] as JObject;

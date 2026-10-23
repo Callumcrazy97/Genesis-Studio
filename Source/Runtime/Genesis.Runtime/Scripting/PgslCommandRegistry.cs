@@ -181,6 +181,7 @@ namespace Genesis.Shared.Scripting
                 Namespace = commandNamespace,
                 IsProperty = isProperty,
                 IsImplemented = attribute.IsImplemented,
+                Flat = attribute.Flat || commandNamespace.Length == 0,
             };
             _catalog.Add(info);
             _byQualifiedName[qualifiedName] = info;
@@ -188,7 +189,7 @@ namespace Genesis.Shared.Scripting
             // Namespace support is additive. A namespaced declaration owns its qualified name and
             // retains the legacy flat alias when that alias is not already claimed by another command.
             // This lets existing PGSL keep working while new scripts opt into Engine.X qualification.
-            if (!_byName.ContainsKey(attribute.Name))
+            if (info.Flat && !_byName.ContainsKey(attribute.Name))
                 _byName[attribute.Name] = info;
         }
     }

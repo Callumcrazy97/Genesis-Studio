@@ -708,6 +708,12 @@ public sealed class TerrainNatureDocument
     public List<TerrainScatterLayer> ScatterLayers { get; set; } = new();
     /// <summary>Grass grown from a rule around the camera; off unless switched on.</summary>
     public TerrainGrassRuleSettings GrassRule { get; set; } = new();
+    /// <summary>
+    /// Engine settings the terrain gives the room it is in (Engine.Water.Reflections = true...), set
+    /// as a script would before the room's Create events; null when it has none.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, string> EngineSettings { get; set; }
 
     public void Normalize()
     {
