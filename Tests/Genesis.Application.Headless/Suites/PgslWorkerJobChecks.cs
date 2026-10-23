@@ -384,6 +384,7 @@ internal static partial class PgslWorkerJobChecks
             RunSharedData(ctx, row);
             RunMeshesAndLists(ctx, row);
             RunBridge(ctx, row);
+            RunStaticMeshes(ctx, row);
 
             HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.Jobs.ManyAtOnceStayApart", () =>
             {

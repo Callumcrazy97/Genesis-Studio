@@ -105,6 +105,20 @@ public static partial class PgslCommands
         {
             if (axis == 0) ctx.X = value; else if (axis == 1) ctx.Y = value; else ctx.Z = value;
         }
+        FollowMovedTransform(world, entity, ref t);
+    }
+
+    /// <summary>The same for all three axes at once (InstanceSetPositionsFromNumList).</summary>
+    private static void PlaceInstance(EcsWorld world, Entity entity, double x, double y, double z, PgslContext ctx)
+    {
+        ref TransformComponent t = ref world.GetRef<TransformComponent>(entity);
+        t.X = (float)x; t.Y = (float)y; t.Z = (float)z;
+        if (ctx != null && ctx.InstanceId == entity.Id) { ctx.X = x; ctx.Y = y; ctx.Z = z; }
+        FollowMovedTransform(world, entity, ref t);
+    }
+
+    private static void FollowMovedTransform(EcsWorld world, Entity entity, ref TransformComponent t)
+    {
         if (!world.Has<Genesis.Shared.ECS.Components.Transform3DComponent>(entity)) return;
         if (world.Has<Genesis.Runtime.Scene.SpritePhysicsBindingComponent>(entity))
         {

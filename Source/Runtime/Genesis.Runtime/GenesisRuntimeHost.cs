@@ -596,6 +596,9 @@ namespace Genesis.Runtime
                     ScriptHost?.DispatchPgslWorldDraw(_renderer, _frameQueue);
                 }
                 _scene.WorkTimes.Add("scripts' Draw events", collectStarted);
+                long staticStarted = System.Diagnostics.Stopwatch.GetTimestamp();
+                Genesis.Runtime.Rendering.StaticMeshLayer.Submit(_renderer, _frameQueue, viewProjection, Genesis.Runtime.Scripting.PgslCommands.ProjectPath);
+                if (Genesis.Runtime.Rendering.StaticMeshLayer.Count > 0) _scene.WorkTimes.Add("static meshes", staticStarted);
                 int drawCount = 0;
                 using (Genesis.Shared.Diagnostics.LoadProfile.Begin("gathering what to draw"))
                     _scene.CollectMeshes(_meshBuffer, ref drawCount, _renderer);

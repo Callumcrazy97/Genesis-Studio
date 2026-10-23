@@ -510,6 +510,15 @@ namespace Genesis.Runtime.Scripting
             if (!_is3DActive || _renderer == null) return;
             MeshHandle mesh = Genesis.Runtime.Rendering.ScriptMeshes.Resolve(meshId, _renderer);
             if (!mesh.IsValid) return;
+            MeshDrawCall call = BuildScriptMeshCall(_renderer, _projectPath ?? PgslCommands.ProjectPath, mesh, world, image, shader, tint, alpha, options);
+            if (_commands != null) _commands.DrawMesh(call);
+            else _renderer.DrawMesh(call);
+        }
+
+        /// <summary>A script mesh's draw call (DrawMeshShader3D, and the static layer's entries once each).</summary>
+        internal static MeshDrawCall BuildScriptMeshCall(IRenderController renderer, string projectPath, MeshHandle mesh, Matrix4x4 world,
+            string image, string shader, Color tint, float alpha, ScriptMeshDrawOptions options)
+        {
             float a = Math.Clamp(alpha, 0f, 1f) * (tint.A / 255f);
             MeshDrawFlags flags = a < 0.999f || options.Transparent
                 ? MeshDrawFlags.Transparent | MeshDrawFlags.NoDepthWrite | MeshDrawFlags.NoShadow
@@ -520,14 +529,13 @@ namespace Genesis.Runtime.Scripting
             if (options.TwoSided) flags |= MeshDrawFlags.NoCull;
             float glow = float.IsFinite(options.Glow) ? Math.Max(0f, options.Glow) : 0f;
             if (glow > 0.001f) flags |= MeshDrawFlags.Emissive;
-            string projectPath = _projectPath ?? PgslCommands.ProjectPath;
             MeshDrawCall call = new()
             {
                 Mesh = mesh,
                 World = world,
                 Texture = string.IsNullOrWhiteSpace(image)
                     ? TextureHandle.Invalid
-                    : ObjectDrawPass.ResolveImageTexture(_renderer, projectPath, image),
+                    : ObjectDrawPass.ResolveImageTexture(renderer, projectPath, image),
                 Tint = new RenderColor(tint.R / 255f, tint.G / 255f, tint.B / 255f, a),
                 Alpha = a,
                 Emissive = glow,
@@ -536,9 +544,8 @@ namespace Genesis.Runtime.Scripting
                 Layer = options.Sky ? MeshDrawCall.SkyLayer : 0,
             };
             if (!string.IsNullOrWhiteSpace(shader))
-                ObjectDrawPass.TryApplyMeshShader(_renderer, projectPath, shader, options.ShaderParameters, options.ShaderResources, ref call);
-            if (_commands != null) _commands.DrawMesh(call);
-            else _renderer.DrawMesh(call);
+                ObjectDrawPass.TryApplyMeshShader(renderer, projectPath, shader, options.ShaderParameters, options.ShaderResources, ref call);
+            return call;
         }
 
         public void QueueCube3D(float x, float y, float z, float sx, float sy, float sz, Color color, float alpha)

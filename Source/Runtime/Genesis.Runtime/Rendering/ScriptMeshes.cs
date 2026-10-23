@@ -22,6 +22,7 @@ namespace Genesis.Runtime.Rendering
             public MeshHandle Handle = MeshHandle.Invalid;
             public IRenderController Owner;
             public bool Dirty = true;
+            public int Uploads;
         }
 
         private static readonly Dictionary<int, Builder> Meshes = new();
@@ -271,9 +272,28 @@ namespace Genesis.Runtime.Rendering
             mesh.Dirty = false;
             if (mesh.Buffers.IndexCount >= 3)
                 mesh.Handle = renderer.RegisterMesh(mesh.Buffers.VertexSpan, mesh.Buffers.IndexSpan);
+            mesh.Uploads++;
             _frameUploadTicks += System.Diagnostics.Stopwatch.GetTimestamp() - started;
             _frameUploads++;
             return mesh.Handle;
+        }
+
+        /// <summary>How many times the mesh has gone to a renderer; a change means a new build is drawn.</summary>
+        public static int UploadCount(int id) => TryGet(id, out Builder mesh) ? mesh.Uploads : 0;
+
+        /// <summary>The box around the mesh's vertices (its own space); false when it has none.</summary>
+        public static bool TryGetBounds(int id, out Vector3 min, out Vector3 max)
+        {
+            min = max = Vector3.Zero;
+            if (!TryGet(id, out Builder mesh) || mesh.Buffers.VertexCount == 0) return false;
+            ReadOnlySpan<MeshVertex> vertices = mesh.Buffers.VertexSpan;
+            min = max = vertices[0].Position;
+            for (int i = 1; i < vertices.Length; i++)
+            {
+                min = Vector3.Min(min, vertices[i].Position);
+                max = Vector3.Max(max, vertices[i].Position);
+            }
+            return true;
         }
 
         private static bool TryGet(int id, out Builder mesh)
