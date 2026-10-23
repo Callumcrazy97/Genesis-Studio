@@ -2606,6 +2606,87 @@ post effect finds a box's id (and the hidden box's negative id), and that an out
 script reaches its model's draws (and only its own) through the draw pass a game uses. It also
 measures the cost at 1920 x 1080 on DX11.
 
+## Big worlds at hundreds of frames a second (22-23 October 2026)
+
+Commands for games with large worlds, many things in them and a lot of script work: data kept as
+numbers, meshes and changes made on worker jobs, things placed once and drawn by the engine, and
+measurements that show where a frame goes.
+
+### Numbers kept as numbers
+
+`NumListCreate()` makes a list that holds only numbers, unboxed: `NumListAdd`, `NumListAdd3`,
+`NumListGet`, `NumListSet`, `NumListResize`, `NumListReserve`, and range commands (`NumListFill`,
+`NumListCopy`, `NumListAddRange`, `NumListScale`, `NumListSort`, `NumListSum`, `NumListMin`,
+`NumListMax`, `NumListIndexOf`, `NumListToList`). `DsGridToNumList` and `DsGridFromNumList` move a
+grid's cells in one call, `DsListCopyRange` and `DsListAddRange` move ranges of ordinary lists.
+Ordinary lists and maps still take any value; a whole number from -1024 to 65535 or true/false
+stored in one shares a box with every other copy (nothing allocated), and a large list destroyed
+gives its storage to the next `DsListReserve` on an empty list.
+
+### Meshes built on jobs and things placed once
+
+| Command | What it does |
+|---|---|
+| `JobScriptMesh(job, mesh)` | Lends a mesh to a job: the job builds it (`MeshAddQuad...`, `MeshAddCube`, `MeshAddQuadsFromNumList`) in pooled arrays, and `JobTake` hands the finished build over; it is uploaded within `MeshSetUploadBudget`. |
+| `MeshStaticAdd(mesh, shader, x, y, z, sx, sy, sz, yaw, image)` | Places a script mesh once (the arguments of `DrawMeshShader3D`); the engine draws it in every view it is inside, with no Draw event. `MeshStaticMove`, `MeshStaticRemove`, `MeshStaticClear`, `MeshStaticCount`, `MeshStaticDrawnCount`. |
+| `ModelStaticAdd(model, x, y, z, pitch, yaw, roll, scale, castShadows)` | Places a Model once with no Object: rocks, trees, props by the thousand. The copies of one model in view are drawn together (one instanced draw per part), at the level of detail their size on screen calls for. `ModelStaticAddFromNumList(model, list, castShadows)` places many (7 numbers each). `ModelStaticRemove`, `ModelStaticClear`, `ModelStaticCount`, `ModelStaticDrawnCount`. |
+| `InstanceSetPositionsFromNumList(ids, xyz)`, `InstanceGetPositionsToNumList(ids, xyz)` | Moves or reads many instances in one call. |
+| `InstanceSetTransformsFromNumList(ids, list)` | Places, turns and sizes many instances (9 numbers each: x, y, z, pitch, yaw, roll, sx, sy, sz). |
+| `InstanceSetTintsFromNumList(ids, rgba)` | Tints many model instances (4 numbers each). |
+
+Placed meshes and models are kept in 64 m cells: a view skips every cell out of sight and then
+each placement by its bounds, so 20 000 placements over 2 km take under half a millisecond a view.
+They end with the room.
+
+### More on jobs
+
+| Command | What it does |
+|---|---|
+| `JobScriptAfter(job, other)` | The job waits ("waiting") until the other has finished, then reads what it changed. |
+| `JobScriptNumList(job, list, copyBack)` | Gives a job a number list. |
+| `JobScriptListRegion(job, list, start, count, copyBack)`, `JobScriptNumListRegion(...)` | The job reads the whole list; `JobTake` writes back only its range. Several `JobScriptGridRegion` rectangles of one grid may be given to one job. |
+| `JobCacheNumList(name, size)`, `JobCacheGet(name)`, `JobCacheSet(name, value)`, `JobCacheReset()` | A worker's own tables and numbers kept between its jobs (a lookup table filled once). |
+| `JobScriptUrgent(job, true)` | The job is taken by the next free worker before normal jobs waiting. |
+| `SceneQueuePosition(id, x, y, z)`, `SceneQueuePositionsFromNumList`, `SceneQueueVariable(id, name, value)`, `SceneQueueDestroy(id)`, `SceneQueueStaticMove(...)` | In a job: changes made in order when the game takes the job, so jobs can update their share of the instances side by side. Elsewhere: made after the frame's Step events (`SceneQueueApply()` makes them at once). `SceneQueueCount()`. |
+
+A job uses its worker's own script engine, reused, and costs about 3 KB of garbage from
+`JobScriptCreate` to `JobRelease`.
+
+### Faster script functions
+
+A script function called often whose work is numbers runs compiled: it may read and write its own
+variables and the instance's number variables (and x, y and the other built-in fields), call
+commands that take and give numbers, and call other such functions. Each call checks that the
+instance's variables it reads hold numbers, and is interpreted otherwise, so results are always
+those of the interpreter. Text (a quoted string, a command that takes or gives text) keeps a
+function interpreted. `GENESIS_PGSL_TIER2=0` turns compiling off.
+
+`ScriptProfileEnable(true)`, `ScriptProfileReport(count)` and `ScriptProfileReset()` time every
+script function (`GENESIS_SCRIPT_PROFILE=1` writes `Debug/Logs/script_profile.txt` at the end).
+
+### Where a frame goes
+
+`FrameBudgetEnable(true)` counts each part of every frame (each subsystem's update and draws,
+physics, the scripts' events, static meshes and models) against a budget: `FrameBudgetSetFrame(ms)`,
+`FrameBudgetSet(part, ms)`, `FrameBudgetReport(count)`, `FrameBudgetPartMs(part)`,
+`FrameBudgetReset()`; `GENESIS_FRAME_BUDGET=1` writes `Debug/Logs/frame_budget.txt`. A profile
+recording (`GENESIS_PROFILE=1` or `--profile`) does both on its own: its report gains **Frame parts**
+and **Hottest script functions**, the second saying why each interpreted function is not compiled.
+
+### The engine's own benchmark
+
+`BuildTools/Benchmarks/BenchmarkScenes.ps1` has a synthetic **Complex Scene**: chunk meshes built
+on jobs and placed once, a 4096 x 256 world grid streamed by jobs, 1000 instances moved by jobs, 500
+with their own Step events, 100 000 placed props, 200 script mesh draws a frame, sparks and the high
+quality tier. Every publish that changes the engine measures it and adds it to
+`TestResults/Benchmarks/history.jsonl` (23 October: about 250 frames a second on the DX11 test PC).
+
+### Controllers
+
+Silk.NET polled all sixteen gamepad and sixteen joystick slots on every window update; empty slots
+are now looked at twice a second (connected controllers every frame, as before).
+`GENESIS_SILK_INPUT=every` keeps the old polling.
+
 ## Smaller changes
 
 - **Bushes and saplings.** The `Shrub` and `Sapling` foliage shapes are built from rounded solid
