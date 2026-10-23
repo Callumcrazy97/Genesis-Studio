@@ -44,6 +44,73 @@ public static partial class PgslCommands
         return PgslGrid.Over(source.Kind, source.Width, source.Height, storage);
     }
 
+    /// <summary>
+    /// A job's copy of a grid lent in part, made when the job starts on its worker (off the game's
+    /// frame) or, if the game writes the grid before then, at that write: either way the job reads the
+    /// grid as it was when the job started. A 2 MB world row was copied on the game thread at every
+    /// JobScriptStart.
+    /// </summary>
+    private sealed class PendingGridCopy
+    {
+        public PgslGrid Source;
+        /// <summary>The job's grid: 0 x 0 until the copy is made.</summary>
+        public PgslGrid Target;
+        public bool Done;
+    }
+
+    private static readonly object LendGate = new();
+
+    private static PendingGridCopy LendLater(PgslGrid source)
+    {
+        var pending = new PendingGridCopy { Source = source, Target = PgslGrid.Create(source.Kind, 0, 0) };
+        lock (LendGate) (source.Pending ??= []).Add(pending);
+        return pending;
+    }
+
+    /// <summary>Makes a pending copy now (once); the worker calls it as the job starts, the game before writing the grid.</summary>
+    private static void Settle(PendingGridCopy pending)
+    {
+        lock (pending)
+        {
+            if (!pending.Done)
+            {
+                pending.Target.AdoptCells(RentGridCopy(pending.Source));
+                pending.Done = true;
+            }
+        }
+        Forget(pending);
+    }
+
+    private static void Forget(PendingGridCopy pending)
+    {
+        lock (LendGate)
+        {
+            List<PendingGridCopy> list = pending.Source.Pending;
+            if (list == null) return;
+            list.Remove(pending);
+            if (list.Count == 0) pending.Source.Pending = null;
+        }
+    }
+
+    /// <summary>Every copy still owed to a job is made before the game writes the grid.</summary>
+    private static void SettleAll(PgslGrid grid)
+    {
+        PendingGridCopy[] owed;
+        lock (LendGate)
+        {
+            if (grid.Pending == null) return;
+            owed = [.. grid.Pending];
+        }
+        foreach (PendingGridCopy pending in owed) Settle(pending);
+    }
+
+    /// <summary>A job that ended (or never ran) owes no copies any more.</summary>
+    private static void DropPending(List<PendingGridCopy> pendings)
+    {
+        if (pendings == null) return;
+        foreach (PendingGridCopy pending in pendings) Forget(pending);
+    }
+
     /// <summary>Gives the cell arrays of lent copies back for later jobs; the copies are emptied, so a stray use fails.</summary>
     private static void ReturnGridCopies(List<object> copies)
     {

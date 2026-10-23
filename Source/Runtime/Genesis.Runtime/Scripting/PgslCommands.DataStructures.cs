@@ -49,7 +49,10 @@ public static partial class PgslCommands
         if (store is null) return null;
         string key = DsKey(family, (int)handle);
         if (!store.TryGetValue(key, out object existing)) return null;
-        return existing is SharedData shared ? Unshare<T>(store, key, shared) : existing as T;
+        T result = existing is SharedData shared ? Unshare<T>(store, key, shared) : existing as T;
+        // A grid lent in part to jobs not started yet: their copies are made before it changes.
+        if (result is PgslGrid { Pending: not null } lent) SettleAll(lent);
+        return result;
     }
 
     private static void Bind(string family, int handle, object value)

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using Genesis.Shared.Scripting;
 
@@ -36,6 +37,15 @@ public static partial class PgslCommands
         public GridKind Kind;
         public int Width;
         public int Height;
+        /// <summary>Copies of this grid owed to jobs it was lent to in part (made before the game writes it).</summary>
+        public List<PendingGridCopy> Pending;
+
+        /// <summary>Takes another grid's kind, size and cells as they are (no copy).</summary>
+        public void AdoptCells(PgslGrid from)
+        {
+            Kind = from.Kind; Width = from.Width; Height = from.Height;
+            Cells = from.Cells; U8 = from.U8; U16 = from.U16; I32 = from.I32; F32 = from.F32;
+        }
 
         public static PgslGrid Create(GridKind kind, int width, int height)
         {

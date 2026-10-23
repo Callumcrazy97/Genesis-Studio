@@ -25,6 +25,8 @@ internal static partial class PgslWorkerJobChecks
             return SceneQueueCount();
         }
         function ScApply() { return SceneQueueApply(); }
+        // Reads a cell outside its rectangle, writes one inside.
+        function ScGridPeek(grd) { var seen = DsGridGet(grd, 7, 0); DsGridSet(grd, 0, 0, 5); return seen; }
         // Fills a range of a list and a number list and a row of a grid, and writes outside them too.
         function ScRanges(lst, nums, grd, startAt, many, mark) {
             for (var i = startAt; i < startAt + many; i = i + 1) { DsListSet(lst, i, mark); NumListSet(nums, i, mark); }
@@ -166,6 +168,38 @@ internal static partial class PgslWorkerJobChecks
             row("Jobs: urgent", "an urgent job is taken before normal ones waiting", inOrder ? "PASS" : "FAIL", $"{workers} workers kept busy; urgent {urgentEnd}, normal {normalEnd}");
             HeadlessHarness.Assert(inOrder && urgentEnd == "succeeded" && normalEnd == "succeeded",
                 $"The urgent job should leave the queue before the normal one started earlier (in order {inOrder}; {urgentEnd}, {normalEnd}).");
+        });
+
+        // A grid lent in part is copied on the worker as the job starts; a game write before then makes
+        // the copy first, so the job still reads the grid as it was when it started.
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.Jobs.ALentGridIsCopiedOffTheFrameAsItWas", () =>
+        {
+            using Bench bench = new();
+            var release = new ManualResetEventSlim(false);
+            var holding = new CountdownEvent(NativeJobPool.ScriptWorkerCount);
+            double job;
+            bool held;
+            try
+            {
+                NativeJobPool.HoldWorkers(release, holding);
+                held = holding.Wait(TimeSpan.FromSeconds(20));
+                job = bench.Number("""
+                    pg = DsGridCreate(8, 2, "u16"); DsGridSet(pg, 7, 0, 3);
+                    pj = JobScriptCreate("ScGridPeek"); JobScriptGridRegion(pj, pg, 0, 0, 3, 0, true); JobScriptStart(pj, pg);
+                    DsGridSet(pg, 7, 0, 9); DsGridSet(pg, 1, 0, 4);
+                    r = pj;
+                    """);
+            }
+            finally { release.Set(); }
+            string status = bench.Wait(job);
+            double seen = PgslCommands.JobResultNumber(job);
+            bool taken = PgslCommands.JobTake(job);
+            string cells = bench.Text("r = StringFormatNumber(DsGridGet(pg, 0, 0), 0) + StringFormatNumber(DsGridGet(pg, 1, 0), 0) + StringFormatNumber(DsGridGet(pg, 7, 0), 0);");
+            PgslCommands.JobRelease(job);
+            // The job saw 3 (not the game's later 9); its rectangle came back (0,0 = 5, and 1,0 is the job's copy's 0,
+            // as the rectangle replaces the game's cells), the cell outside kept the game's 9.
+            HeadlessHarness.Assert(held && status == "succeeded" && seen == 3 && taken && cells == "509",
+                $"The job should read the grid as at its start and give back only its rectangle (held {held}, {status}, saw {seen}, cells '{cells}').");
         });
 
         HeadlessHarness.RunCase(ctx.Report, "Engine.Runtime.FrameBudget.ReportsEachPartAgainstItsBudget", () =>

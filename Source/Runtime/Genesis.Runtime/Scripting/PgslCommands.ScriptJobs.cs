@@ -350,16 +350,19 @@ public static partial class PgslCommands
             structures.Clear();
         }
         List<object> lentCopies = null;
+        List<PendingGridCopy> pendingCopies = null;
         foreach ((string family, int handle, _, GridRect? region) in setup.Shared)
         {
             string key = DsKey(family, handle);
             if (region == null || family != "grid") { Give(key, store[key]); continue; }
             // The game goes on writing its own grid in place; only the rectangles come back. Several
-            // rectangles of one grid share one copy.
+            // rectangles of one grid share one copy, made on the worker as the job starts (or by the
+            // game's next write of the grid, if that comes first).
             if (data.ContainsKey(key)) continue;
-            PgslGrid copy = RentGridCopy((PgslGrid)(store[key] is SharedData sharedGrid ? sharedGrid.Value : store[key]));
-            data[key] = copy;
-            (lentCopies ??= []).Add(copy);
+            PendingGridCopy pending = LendLater((PgslGrid)(store[key] is SharedData sharedGrid ? sharedGrid.Value : store[key]));
+            data[key] = pending.Target;
+            (lentCopies ??= []).Add(pending.Target);
+            (pendingCopies ??= []).Add(pending);
         }
         // The Object's variables the job's code can read, not all of them: a game with thousands of
         // variables copied every one for each job (unless the code reads variables by name).
@@ -377,11 +380,14 @@ public static partial class PgslCommands
             if (copyBack) copyBacks[copyBackCount++] = (family, handle, region);
         var run = new ScriptJobRun(setup.Function, driver, setup.Library, copied, data, variables, setup.Variables, copyBacks,
             setup.Budget, game, owner.RoomWidth, owner.RoomHeight, lentCopies,
-            setup.Meshes.Count == 0 ? [] : [.. setup.Meshes], setup.After.Count == 0 ? [] : [.. setup.After], pool);
-        // The job lets go of its data once its work has ended (or it ended without running).
-        if (!pool.Launch(JobId(job), token => RunScriptJob(run, token), () => ReleaseShared(held), setup.After.Count > 0 ? setup.After : null, setup.Urgent))
+            setup.Meshes.Count == 0 ? [] : [.. setup.Meshes], setup.After.Count == 0 ? [] : [.. setup.After], pool, pendingCopies);
+        // The job lets go of its data once its work has ended (or it ended without running), and owes
+        // no copies of grids any more.
+        if (!pool.Launch(JobId(job), token => RunScriptJob(run, token), () => { ReleaseShared(held); DropPending(pendingCopies); },
+                setup.After.Count > 0 ? setup.After : null, setup.Urgent))
         {
             ReleaseShared(held);
+            DropPending(pendingCopies);
             ReturnGridCopies(lentCopies);
             return Refuse("Not a prepared script job (it may have started already).");
         }
@@ -531,7 +537,7 @@ public static partial class PgslCommands
     private sealed record ScriptJobRun(string Function, CompileResult Driver, IReadOnlyDictionary<string, UserFunction> Library,
         object[] Arguments, Dictionary<string, object> Data, KeyValuePair<string, VmValue>[] SharedVariables, Dictionary<string, object> Variables,
         (string Family, int Handle, GridRect? Region)[] CopyBack, long Budget, PgslEngineBridge Game, double RoomWidth, double RoomHeight,
-        List<object> LentCopies, int[] Meshes, int[] After, NativeJobPool Pool);
+        List<object> LentCopies, int[] Meshes, int[] After, NativeJobPool Pool, List<PendingGridCopy> PendingCopies = null);
 
     // A job with no mesh lent still has a table, so a mesh command in it names the mistake rather
     // than reaching the game's meshes from a worker thread. Never written.
@@ -574,6 +580,9 @@ public static partial class PgslCommands
         bool handedOver = false;
         try
         {
+            // The job's copies of grids lent in part, made here off the game's frame (unless the game
+            // wrote the grid first and made them then).
+            if (run.PendingCopies != null) foreach (PendingGridCopy pending in run.PendingCopies) Settle(pending);
             if (run.After.Length > 0) ReadFinishedJobs(run, context.Variables);
             bridge.SetContext(context);
             // The bridge's own VM, emptied: a VM per job was much of what a job allocated.
