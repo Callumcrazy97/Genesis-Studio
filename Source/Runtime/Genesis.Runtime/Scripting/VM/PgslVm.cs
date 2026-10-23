@@ -1526,8 +1526,13 @@ public class PgslVm
     // call to the interpreter (not compiled, or given text or other values).
     private bool TryRunCompiled(UserFunction function, int argCount)
     {
-        // The resolver made once: a method group passed here made a new delegate on every call.
-        PgslCompiledTier.Entry entry = PgslCompiledTier.Get(_typedBridge, function, _resolveFunction ??= ResolveFunction);
+        // The function keeps its answer for this bridge: a function that cannot compile (text, say)
+        // looked itself up in two tables on every call. The resolver is made once: a method group
+        // passed here made a new delegate on every call.
+        PgslCompiledTier.Cached cached = function.Tier;
+        if (cached == null || !ReferenceEquals(cached.Bridge, _typedBridge))
+            function.Tier = cached = new PgslCompiledTier.Cached(_typedBridge, PgslCompiledTier.Get(_typedBridge, function, _resolveFunction ??= ResolveFunction));
+        PgslCompiledTier.Entry entry = cached.Entry;
         if (entry.Run == null) return false;
         // Each name it reads from outside must be a number now; else this call is interpreted. (In a
         // worker job a name nothing set is an error only where the code really reads it, so the

@@ -8,8 +8,10 @@
     Scenes: 2D sprites (3000 bouncing), 3D objects (4096 crates), terrain with grass and scattered
     rocks, a physics pile (500 crates falling on a floor), a skinned crowd (200 rigged figures, each
     with its own animation graph), a heavy GUI (400 labelled panels) and a synthetic complex scene
-    (64 chunk meshes built in worker jobs and placed once on the static layer, 1000 instances moved
-    by four jobs a frame through queued scene changes, 200 script mesh draws a frame, a hot script
+    (64 chunk meshes built in worker jobs and placed once on the static layer, strips of a 4096 x 256
+    world grid rebuilt by jobs as a world streams, 1000 instances moved by four jobs a frame through
+    queued scene changes, 500 entities with their own Step events, 100 000 props placed once on the
+    static model layer, 200 script mesh draws a frame, sparks, the high quality tier, a hot script
     function and a GUI).
     The project is made in -Folder (generated output) only when missing, made by an older version
     of this script, or with -Rebuild. The report goes to TestResults\Benchmarks\<time>.md and .json.
@@ -35,7 +37,7 @@ param(
     [switch]$Rebuild
 )
 # Raised whenever Build-Project makes something new, so an older project is made again.
-$projectVersion = "3"
+$projectVersion = "4"
 $ErrorActionPreference = "Stop"
 $Studio = [IO.Path]::GetFullPath($Studio)
 $Folder = [IO.Path]::GetFullPath($Folder)
@@ -220,6 +222,12 @@ DsListAdd(streamJobs, 0);
 DsListAdd(streamJobs, 0);
 nextStream = 0;
 for (var w = 0; w < 500; w++) { CreateInstance("Complex Walker", Random(128), 1, Random(128)); }
+// 100 000 props over 2 km placed once from one list, drawn instanced by what is in view.
+props = NumListCreate();
+NumListReserve(props, 700000);
+for (var p = 0; p < 100000; p++) { NumListAdd3(props, (p % 400) * 5 - 936, 0.25, Floor(p / 400) * 8 - 936); NumListAdd3(props, 0, (p * 37) % 360, 0); NumListAdd(props, 0.5); }
+ModelStaticAddFromNumList("Crate Model", props, false);
+NumListDestroy(props);
 '@
         Step = @'
 ScriptInstructionLimit(20000000);

@@ -185,10 +185,12 @@ namespace Genesis.Runtime.Rendering
                     LastCulled += cell.Entries.Count;
                     continue;
                 }
+                // A cell wholly in view needs no test for each entry.
+                bool inside = !cell.HasUnknown && frustum.ContainsAabbFully(cell.Min, cell.Max);
                 foreach (Entry entry in cell.Entries)
                 {
                     if (!entry.BoundsKnown) continue; // its model is not loaded yet
-                    if (!frustum.IntersectsAabb(entry.Min, entry.Max)) { LastCulled++; continue; }
+                    if (!inside && !frustum.IntersectsAabb(entry.Min, entry.Max)) { LastCulled++; continue; }
                     entry.Group.Visible.Add(new MeshInstanceData(entry.World, entry.Tint));
                 }
             }

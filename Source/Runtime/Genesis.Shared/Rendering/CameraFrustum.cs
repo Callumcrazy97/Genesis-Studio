@@ -58,6 +58,22 @@ namespace Genesis.Shared.Rendering
 
         public bool ContainsBox(Vector3 min, Vector3 max) => IntersectsAabb(min, max);
 
+        /// <summary>Whether the whole box is inside (its every corner on the inner side of each plane).</summary>
+        public bool ContainsAabbFully(Vector3 min, Vector3 max)
+        {
+            ReadOnlySpan<Vector4> planes = stackalloc Vector4[] { Left, Right, Bottom, Top, Near, Far };
+            foreach (Vector4 plane in planes)
+            {
+                Vector3 p;
+                p.X = plane.X >= 0f ? min.X : max.X;
+                p.Y = plane.Y >= 0f ? min.Y : max.Y;
+                p.Z = plane.Z >= 0f ? min.Z : max.Z;
+                if (Dot(plane, p) < 0f) return false;
+            }
+
+            return true;
+        }
+
         private static float Dot(Vector4 plane, Vector3 point) =>
             plane.X * point.X + plane.Y * point.Y + plane.Z * point.Z + plane.W;
 

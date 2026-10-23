@@ -75,6 +75,18 @@ internal static partial class PgslWorkerJobChecks
             double perList = (GC.GetAllocatedBytesForCurrentThread() - listBefore) / (double)Lists;
             row("Command calls", "a 6000-entry reserved list made and destroyed", perList < 1024 ? "PASS" : "FAIL", perList.ToString("F0", CultureInfo.InvariantCulture) + " bytes a list");
             HeadlessHarness.Assert(perList < 1024, $"A reserved list made and destroyed allocated {perList:F0} bytes (its storage was not reused).");
+            // What an interpreted call costs (a function that takes text, so it never compiles), for the speed page.
+            const int TextCalls = 20000;
+            string textLoop = $"for (var i = 0; i < {TextCalls}; i = i + 1) {{ bt = WjText(i, 2); }} r = 0;";
+            bench.Run(textLoop);
+            double bestCall = double.MaxValue;
+            for (int round = 0; round < 3; round++)
+            {
+                long started = System.Diagnostics.Stopwatch.GetTimestamp();
+                bench.Run(textLoop);
+                bestCall = Math.Min(bestCall, System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds * 1e6 / TextCalls);
+            }
+            row("Command calls", "an interpreted script function call (WjText: text, never compiled)", "INFO", bestCall.ToString("F0", CultureInfo.InvariantCulture) + " ns a call, its body included");
             // A call of a hot numbers-only script function runs compiled, and allocates nothing either.
             double compiled = (Bytes("bx = TjFib(3) + bx * 0;") - baseline) / Calls;
             row("Command calls", "a hot script function (compiled)", compiled < 0.5 ? "PASS" : "FAIL", compiled.ToString("F1", CultureInfo.InvariantCulture) + " bytes a call");

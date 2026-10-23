@@ -63,6 +63,13 @@ internal static class PgslCompiledTier
 
     private sealed class Holder { public Compiled Run; }
 
+    /// <summary>A function's entry for one bridge, kept on the function (one reference, so no thread sees half of it).</summary>
+    internal sealed class Cached(PgslEngineBridge bridge, Entry entry)
+    {
+        public readonly PgslEngineBridge Bridge = bridge;
+        public readonly Entry Entry = entry;
+    }
+
     // Why each function looked at stays interpreted, by name (null once compiled), for the profile report.
     private static readonly ConcurrentDictionary<string, string> Reasons = new(StringComparer.Ordinal);
 

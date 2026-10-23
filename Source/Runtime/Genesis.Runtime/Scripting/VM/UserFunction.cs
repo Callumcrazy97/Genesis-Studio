@@ -13,6 +13,8 @@ public class UserFunction
     internal PgslProgram Program;
     /// <summary>Calls so far, for the compiled tier's choice of what is hot (racy counts are fine).</summary>
     internal int Calls;
+    /// <summary>The compiled tier's answer for the bridge last asked (so a call does not look it up again).</summary>
+    internal PgslCompiledTier.Cached Tier;
 
     public UserFunction(string name, List<string> parameters)
     {

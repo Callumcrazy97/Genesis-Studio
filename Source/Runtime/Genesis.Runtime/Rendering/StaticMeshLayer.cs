@@ -180,10 +180,12 @@ namespace Genesis.Runtime.Rendering
                     LastCulled += cell.Entries.Count;
                     continue;
                 }
+                // A cell wholly in view needs no test for each entry.
+                bool inside = !cell.HasUnknown && frustum.ContainsAabbFully(cell.Min, cell.Max);
                 foreach (Entry entry in cell.Entries)
                 {
                     // Bounds already known are tested before the mesh is looked up (most of a big world is out of view).
-                    if (entry.BoundsKnown && !frustum.IntersectsAabb(entry.Min, entry.Max)) { LastCulled++; continue; }
+                    if (entry.BoundsKnown && !inside && !frustum.IntersectsAabb(entry.Min, entry.Max)) { LastCulled++; continue; }
                     MeshHandle mesh = ScriptMeshes.Resolve(entry.Mesh, renderer, out int uploads);
                     if (!mesh.IsValid) continue;
                     if (!ReferenceEquals(entry.Renderer, renderer))
