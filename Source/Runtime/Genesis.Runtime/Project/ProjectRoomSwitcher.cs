@@ -187,6 +187,7 @@ namespace Genesis.Runtime.Project
                 Genesis.Runtime.Rendering.FlashLights.Clear();
                 Genesis.Runtime.Rendering.WorldDecals.Clear();
                 Genesis.Runtime.Rendering.StaticMeshLayer.Clear();
+                Genesis.Runtime.Scripting.PgslCommands.ClearSceneCommands();
             }
             _framesSpread = 0;
             _longestPieceMilliseconds = 0;

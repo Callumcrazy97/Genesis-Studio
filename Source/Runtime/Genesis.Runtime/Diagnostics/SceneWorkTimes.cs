@@ -27,6 +27,9 @@ namespace Genesis.Runtime.Diagnostics
         /// <summary>Forgets what has been added, ready for the next frame.</summary>
         public void Clear() => _ticks.Clear();
 
+        /// <summary>Each part and its timestamp ticks since the last <see cref="Clear"/> (no allocation).</summary>
+        public Dictionary<string, long>.Enumerator GetEnumerator() => _ticks.GetEnumerator();
+
         /// <summary>The time added to one part since the last <see cref="Clear"/>, in milliseconds.</summary>
         public double Milliseconds(string part) =>
             _ticks.TryGetValue(part, out long ticks) ? Stopwatch.GetElapsedTime(0, ticks).TotalMilliseconds : 0;

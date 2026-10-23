@@ -81,6 +81,7 @@ namespace Genesis.Runtime.Project
             Genesis.Runtime.Debugger.DebugKeys.Reset();
             Genesis.Runtime.Rendering.ScriptMeshes.Reset();
             Genesis.Runtime.Rendering.StaticMeshLayer.Clear();
+            PgslCommands.ClearSceneCommands();
             Genesis.Runtime.Particles.ParticleBursts.ResetLimit();
             Genesis.Runtime.Rendering.ScriptTextures.Reset();
             Genesis.Runtime.Rendering.ModelLayers.Reset();
@@ -700,6 +701,12 @@ namespace Genesis.Runtime.Project
                             host.LastSimulationMilliseconds, host.LastCollectMilliseconds,
                             host.LastDrawMilliseconds, host.LastPresentMilliseconds,
                             parts?.Describe() ?? string.Empty, host.LastOverlayMilliseconds);
+                        if (Genesis.Runtime.Diagnostics.FrameBudget.Enabled)
+                        {
+                            if ((host.BootSplash == null || host.BootSplash.IsComplete) && host.Scene?.RoomChange == null)
+                                Genesis.Runtime.Diagnostics.FrameBudget.FrameEnded(parts);
+                            else Genesis.Runtime.Diagnostics.FrameBudget.FrameEnded(null);
+                        }
                         parts?.Clear();
                         // The Objects' models are read once the game is on screen, not while it loads.
                         if ((host.BootSplash == null || host.BootSplash.IsComplete) && host.Scene != null && host.Scene.RoomChange == null)

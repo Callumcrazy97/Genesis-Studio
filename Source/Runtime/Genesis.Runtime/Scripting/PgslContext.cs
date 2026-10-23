@@ -92,6 +92,8 @@ namespace Genesis.Shared.Scripting
         public int TextAlign { get; set; }
         /// <summary>In a worker job: the meshes lent to it (JobScriptMesh), each the job's own build; null elsewhere.</summary>
         public Dictionary<int, Genesis.Runtime.Rendering.MeshBuffers> JobMeshes;
+        /// <summary>In a worker job: the scene changes it queued (SceneQueue*), made at JobTake; null elsewhere.</summary>
+        internal Genesis.Runtime.Scripting.SceneCommandBuffer SceneCommands;
         /// <summary>Pixels added to every later GUI draw's position (DrawSetOffset), until changed.</summary>
         public double DrawOffsetX { get; set; }
         public double DrawOffsetY { get; set; }

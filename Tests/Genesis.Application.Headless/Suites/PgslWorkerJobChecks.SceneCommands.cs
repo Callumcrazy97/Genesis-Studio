@@ -1,0 +1,135 @@
+using System.Diagnostics;
+using System.Globalization;
+using Genesis.Runtime.Diagnostics;
+using Genesis.Runtime.ECS.Components;
+using Genesis.Runtime.Scripting;
+using Genesis.Shared.ECS;
+using EcsWorld = Genesis.Runtime.ECS.World;
+
+namespace Genesis.Application.Headless.Suites;
+
+/// <summary>
+/// Scene changes queued in jobs (each updating its share of the instances side by side) and made by
+/// the game in order at JobTake, the game's own queue made together, and the per-part frame budget report.
+/// </summary>
+internal static partial class PgslWorkerJobChecks
+{
+    private const string SceneLibrary = """
+        // A job's share of the instances: each gets a new position (and a value) queued, made at JobTake.
+        function ScUpdate(idList, startAt, many, gap) {
+            for (var i = startAt; i < startAt + many; i = i + 1) {
+                var who = NumListGet(idList, i);
+                SceneQueuePosition(who, i * gap, 1, 0 - i);
+                SceneQueueVariable(who, "hp", i + 100);
+            }
+            return SceneQueueCount();
+        }
+        function ScApply() { return SceneQueueApply(); }
+        """;
+
+    private static void RunSceneCommands(HeadlessContext ctx, Action<string, string, string, string> row)
+    {
+        ScriptAssetRegistry.Register("SceneJobLibrary", SceneLibrary);
+
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.Jobs.SceneChangesQueuedInJobsLandAtTake", () =>
+        {
+            using Bench bench = new();
+            IGameContext? previous = PgslCommands.ActiveGameContext;
+            EcsWorld world = new();
+            PgslCommands.ActiveGameContext = new NullGameContext { World = world };
+            try
+            {
+                var ids = new List<int>();
+                for (int i = 0; i < 8; i++)
+                {
+                    Entity entity = world.CreateEntity();
+                    world.Set(entity, new TransformComponent { X = -1, ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+                    ids.Add(entity.Id);
+                }
+                string list = string.Join(" ", ids.Select(id => $"NumListAdd(ids, {id.ToString(CultureInfo.InvariantCulture)});"));
+                bench.Run($$"""
+                    ids = NumListCreate(); {{list}}
+                    ja = JobScriptCreate("ScUpdate"); JobScriptNumList(ja, ids, false);
+                    jb = JobScriptCreate("ScUpdate"); JobScriptNumList(jb, ids, false);
+                    okA = JobScriptStart(ja, ids, 0, 4, 10); okB = JobScriptStart(jb, ids, 4, 4, 10);
+                    applyJob = JobRunScript("ScApply");
+                    r = 0;
+                    """);
+                double ja = bench.Number("r = ja;"), jb = bench.Number("r = jb;"), applyJob = bench.Number("r = applyJob;");
+                string statusA = bench.Wait(ja), statusB = bench.Wait(jb), applyStatus = bench.Wait(applyJob);
+                HeadlessHarness.Assert(statusA == "succeeded" && statusB == "succeeded",
+                    $"The update jobs ended {statusA} / {statusB}: {PgslCommands.JobError(ja)} {PgslCommands.JobError(jb)}");
+                HeadlessHarness.Assert(PgslCommands.JobResultNumber(ja) == 8 && PgslCommands.JobResultNumber(jb) == 8,
+                    $"Each job should have queued 8 changes (got {PgslCommands.JobResultNumber(ja)}, {PgslCommands.JobResultNumber(jb)}).");
+                HeadlessHarness.Assert(applyStatus == "failed" && PgslCommands.JobError(applyJob).Contains("not available in a worker job", StringComparison.Ordinal),
+                    $"SceneQueueApply in a job should be refused (ended {applyStatus}: {PgslCommands.JobError(applyJob)}).");
+                float X(int index) => world.GetRef<TransformComponent>(world.GetEntity(ids[index])).X;
+                HeadlessHarness.Assert(X(0) == -1 && X(7) == -1, "Nothing should move before the game takes a job.");
+
+                // Taken in the other order: each job's share lands when it is taken.
+                HeadlessHarness.Assert(PgslCommands.JobTake(jb), "JobTake refused: " + PgslCommands.JobLastError());
+                bool secondHalfFirst = X(0) == -1 && X(5) == 50;
+                HeadlessHarness.Assert(PgslCommands.JobTake(ja), "JobTake refused: " + PgslCommands.JobLastError());
+                TransformComponent third = world.GetRef<TransformComponent>(world.GetEntity(ids[3]));
+                HeadlessHarness.Assert(secondHalfFirst && X(0) == 0 && X(7) == 70 && third.Y == 1 && third.Z == -3,
+                    $"Each job's moves should land at its JobTake (x0 {X(0)}, x7 {X(7)}, third at {third.X}, {third.Y}, {third.Z}).");
+                PgslCommands.JobRelease(ja); PgslCommands.JobRelease(jb); PgslCommands.JobRelease(applyJob);
+
+                // The game's own queue waits for the end of the Step events (here, SceneQueueApply).
+                string queued = bench.Text($$"""
+                    SceneQueuePosition({{ids[1].ToString(CultureInfo.InvariantCulture)}}, 5, 6, 7); SceneQueueDestroy(-1);
+                    waiting = SceneQueueCount(); before = InstanceGetX({{ids[1].ToString(CultureInfo.InvariantCulture)}});
+                    made = SceneQueueApply();
+                    r = StringFormatNumber(waiting, 0) + " " + StringFormatNumber(before, 0) + " " + StringFormatNumber(made, 0) + " " + StringFormatNumber(InstanceGetX({{ids[1].ToString(CultureInfo.InvariantCulture)}}), 0) + " " + StringFormatNumber(SceneQueueCount(), 0);
+                    """);
+                HeadlessHarness.Assert(queued == "1 10 1 5 0", $"The game's queue should hold a move until applied (got \"{queued}\").");
+                row("Jobs: scene commands", "two jobs queue moves for 4 instances each; made at JobTake", "PASS", "8 changes a job; order kept; SceneQueueApply refused in jobs");
+            }
+            finally
+            {
+                PgslCommands.ClearSceneCommands();
+                PgslCommands.ActiveGameContext = previous;
+            }
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Runtime.FrameBudget.ReportsEachPartAgainstItsBudget", () =>
+        {
+            bool wasEnabled = FrameBudget.Enabled;
+            double frameBudget = FrameBudget.FrameMilliseconds;
+            try
+            {
+                FrameBudget.Reset();
+                FrameBudget.Enabled = true;
+                FrameBudget.FrameMilliseconds = 1000;
+                FrameBudget.SetBudget("physics step", 3);
+                var parts = new SceneWorkTimes();
+                long Ms(double milliseconds) => (long)(milliseconds * Stopwatch.Frequency / 1000.0);
+                FrameBudget.FrameEnded(parts); // the first frame only starts the clock
+                for (int frame = 0; frame < 10; frame++)
+                {
+                    long now = Stopwatch.GetTimestamp();
+                    parts.Add("physics step", now - Ms(frame < 4 ? 5 : 1));
+                    parts.Add("Terrain update", now - Ms(2));
+                    FrameBudget.FrameEnded(parts);
+                    parts.Clear();
+                }
+                string report = FrameBudget.Report(10);
+                double physics = FrameBudget.AverageMilliseconds("physics step");
+                double terrain = FrameBudget.AverageMilliseconds("Terrain update");
+                string[] lines = report.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                string physicsLine = lines.FirstOrDefault(line => line.StartsWith("physics step |", StringComparison.Ordinal)) ?? "";
+                HeadlessHarness.Assert(FrameBudget.Frames == 10 && lines[0].StartsWith("frames 10 |", StringComparison.Ordinal)
+                    && Math.Abs(physics - 2.6) < 0.05 && Math.Abs(terrain - 2) < 0.05
+                    && lines[2].StartsWith("physics step |", StringComparison.Ordinal) && physicsLine.EndsWith("| 3.00 | 4", StringComparison.Ordinal),
+                    $"The report should count 10 frames, physics 2.6 ms on average and over its 3 ms budget 4 times:\n{report}");
+            }
+            finally
+            {
+                FrameBudget.Reset();
+                FrameBudget.SetBudget("physics step", 0);
+                FrameBudget.FrameMilliseconds = frameBudget;
+                FrameBudget.Enabled = wasEnabled;
+            }
+        });
+    }
+}

@@ -71,6 +71,8 @@ public static partial class PgslCommands
         "MeshClear", "MeshAddVertex", "MeshAddTriangle", "MeshAddCube", "MeshAddCubeTiles", "MeshAddQuad", "MeshAddQuadColors",
         "MeshVertexCount", "MeshTriangleCount", "MeshAddQuadsFromList", "MeshAddQuadsFromNumList", "MeshAddVerticesFromList", "MeshAddVerticesFromNumList",
         "JobCacheNumList", "JobCacheGet", "JobCacheSet",
+        // Scene changes queued in the job's own buffer, made by the game at JobTake.
+        "SceneQueuePosition", "SceneQueuePositionsFromNumList", "SceneQueueVariable", "SceneQueueDestroy", "SceneQueueStaticMove", "SceneQueueCount",
     };
 
     /// <summary>Whether a worker job may run a command, by its name and category.</summary>
@@ -107,6 +109,8 @@ public static partial class PgslCommands
         public double WorkerMilliseconds;
         /// <summary>The meshes the job built, finished, for JobTake to hand to the game's meshes.</summary>
         public List<(int Id, Genesis.Runtime.Rendering.MeshBuffers Build)> Meshes;
+        /// <summary>Scene changes the job queued (SceneQueue*), made by JobTake in order.</summary>
+        public SceneCommandBuffer SceneCommands;
     }
 
     // Worker bridges are made from the game's command table and reused; each serves one job at a time.
@@ -400,6 +404,9 @@ public static partial class PgslCommands
             foreach ((int id, Genesis.Runtime.Rendering.MeshBuffers build) in built)
                 Genesis.Runtime.Rendering.ScriptMeshes.TakeBuild(id, build);
         outcome.Meshes = null;
+        // Then the scene changes it queued, in the order it queued them.
+        outcome.SceneCommands?.Apply();
+        outcome.SceneCommands = null;
         outcome.Taken = true;
         outcome.Outputs = [];
         ReturnGridCopies(outcome.LentCopies);
@@ -557,6 +564,7 @@ public static partial class PgslCommands
                 outcome.Meshes = new List<(int, Genesis.Runtime.Rendering.MeshBuffers)>(run.Meshes.Length);
                 foreach (int mesh in run.Meshes) outcome.Meshes.Add((mesh, context.JobMeshes[mesh]));
             }
+            outcome.SceneCommands = context.SceneCommands;
             handedOver = true;
             outcome.WorkerMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
             return new NativeJobPool.Result("script", outcome);
@@ -575,6 +583,7 @@ public static partial class PgslCommands
             if (!handedOver && context.JobMeshes != NoJobMeshes)
                 foreach (Genesis.Runtime.Rendering.MeshBuffers build in context.JobMeshes.Values) build.Release();
             context.JobMeshes = null;
+            context.SceneCommands = null;
             context.ActiveVm = null;
             ReturnWorkerBridge(run.Game, bridge);
             BindContext(previous);

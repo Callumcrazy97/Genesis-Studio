@@ -133,6 +133,7 @@ public static class PgslCommandAutoTester
         // this process; DecalSetLimit would stay changed.
         bool flashesIdle = Genesis.Runtime.Rendering.FlashLights.Count == 0;
         bool staticMeshesIdle = Genesis.Runtime.Rendering.StaticMeshLayer.Count == 0;
+        bool sceneQueueIdle = PgslCommands.SceneCommandsWaiting == 0;
         // RenderSetMotionBlur(1) would leave every later frame of the process blurred.
         float motionBlur = Genesis.Shared.Interfaces.MeshLightingDefaults.MotionBlur;
         bool decalsIdle = Genesis.Runtime.Rendering.WorldDecals.Count == 0
@@ -172,6 +173,7 @@ public static class PgslCommandAutoTester
             }
             if (flashesIdle) Genesis.Runtime.Rendering.FlashLights.Clear();
             if (staticMeshesIdle) Genesis.Runtime.Rendering.StaticMeshLayer.Clear();
+            if (sceneQueueIdle) PgslCommands.ClearSceneCommands();
             Genesis.Shared.Interfaces.MeshLightingDefaults.MotionBlur = motionBlur;
             Genesis.Runtime.Debugger.DebugKeys.GameAllows = debugKeysAllowed;
             if (decalsIdle)

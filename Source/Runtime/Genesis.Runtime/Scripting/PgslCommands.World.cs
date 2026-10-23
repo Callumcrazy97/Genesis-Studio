@@ -108,6 +108,14 @@ public static partial class PgslCommands
         FollowMovedTransform(world, entity, ref t);
     }
 
+    /// <summary>Moves an instance on all three axes; false when it does not exist (the scene command buffer).</summary>
+    internal static bool PlaceInstanceById(double instanceId, double x, double y, double z)
+    {
+        if (!Finite3(x, y, z) || !TryTransform(instanceId, out Entity entity, out EcsWorld world)) return false;
+        PlaceInstance(world, entity, x, y, z, GetContext());
+        return true;
+    }
+
     /// <summary>The same for all three axes at once (InstanceSetPositionsFromNumList).</summary>
     private static void PlaceInstance(EcsWorld world, Entity entity, double x, double y, double z, PgslContext ctx)
     {

@@ -307,6 +307,12 @@ namespace Genesis.Runtime
             }
             Scheduler.RunVariablePhase(dt);
             mark = WorkTimes.Add("systems", mark);
+            // Changes the Step events queued (SceneQueue*) land together once they have all run.
+            if (Genesis.Runtime.Scripting.PgslCommands.SceneCommandsWaiting > 0)
+            {
+                Genesis.Runtime.Scripting.PgslCommands.ApplySceneCommands();
+                mark = WorkTimes.Add("queued scene changes", mark);
+            }
 
             // Drain completed streaming jobs even during boot splash (providers stay gated below).
             Streaming.ProcessMainThreadCallbacks();
