@@ -45,6 +45,7 @@ internal static partial class PgslWorkerJobChecks
         function GtCount(n) { for (var i = 0; i < n; i = i + 1) { VariableSet("gtCounter", gtCounter + 1); } return gtCounter; }
         function GtSeen(m, k) { if (DsMapExists(m, k)) { return 1; } DsMapSet(m, k, 1); DsListAddString(gtNames, "seen"); return 0; }
         function GtOwnName(n) { var gtLocal = n; VariableSet("gtLocal", 5); return gtLocal; }
+        function GtOwnRead(n) { var gtLocal2 = n; return VariableGet("gtLocal2"); }
         function GtWord(n) { var w = "a"; return n; }
         // Text worked with (compiled with values): keys made from numbers, parts of a text, a value
         // that is text or a number, text compared with a number, a numbers-only function called, a
@@ -56,6 +57,20 @@ internal static partial class PgslWorkerJobChecks
         function GtCallsNumbers(n) { var s = ""; for (var i = 0; i < n; i = i + 1) { s = s + GtScale(i) + ";"; } return s; }
         function GtSelf(n) { if (n <= 0) { return ""; } return GtSelf(n - 1) + "a"; }
         function GtSprite(n) { return sprite_index + n; }
+        // Functions calling each other (compiled together), a pair where one cannot compile (the other,
+        // made while it was, is withdrawn), and a variable of its own read before it is set.
+        function GtEven(n) { if (n <= 0) { return "even"; } return GtOdd(n - 1); }
+        function GtOdd(n) { if (n <= 0) { return "odd"; } return GtEven(n - 1); }
+        function GtRevA(n) { if (n <= 0) { return "a"; } var r = GtRevB(n - 1); var q = [n]; return r + q[0]; }
+        // A callee reading its caller's variable (the caller gives it its frame), and a function calling
+        // interpreted ones (indexing a list keeps them interpreted), one of them reading the caller's variable.
+        function GtScopeInner() { return gtScopeV * 2; }
+        function GtScopeOuter(n) { var gtScopeV = n + 1; return GtScopeInner(); }
+        function GtInterp(n) { var q = [n]; return q[0] + 1; }
+        function GtInterpRead() { var q = [0]; return q[0] + gtT2; }
+        function GtCallsInterp(n) { var gtT2 = n * 3; return GtInterp(n) + GtInterpRead(); }
+        function GtRevB(n) { return GtRevA(n) + "b"; }
+        function GtUnset(flag) { if (flag > 0) { gtU = 5; } return gtU; }
         function GtTextLoop(n) { var s = 0; var k = ""; for (var i = 0; i < n; i = i + 1) { k = StringOf(i % 100) + ","; s = s + StringLength(k) + i % 7 + gtOffset; } return s; }
         // A table a worker fills once and reads on later jobs.
         function MjCached(n) {
@@ -237,8 +252,9 @@ internal static partial class PgslWorkerJobChecks
             string jobStatus = bench.Wait(job);
             double jobResult = PgslCommands.JobResultNumber(job);
             PgslCommands.JobRelease(job);
+            // GtShadow's callee reads its own variable: compiled with values, it gives the callee its frame.
             bool pass = sum == 10000 && live == 145 && shadow == 501 && word == "ab5" && moved == 60 && sumWhy.Length == 0
-                && shadowWhy.Contains("a variable of this function", StringComparison.Ordinal) && jobStatus == "succeeded" && jobResult == 420;
+                && shadowWhy.Length == 0 && jobStatus == "succeeded" && jobResult == 420;
             row("Compiled functions", "reading the instance's numbers (GtSum), a caller's own variable, text, x, a job's unset name", pass ? "PASS" : "FAIL",
                 $"sum {sum}, live {live}, shadow {shadow}, text {word}, x {moved}, GtSum '{sumWhy}', GtShadow '{shadowWhy}', job {jobStatus} {jobResult}");
             PgslCommands.ScriptInstructionLimit(0);
@@ -268,6 +284,13 @@ internal static partial class PgslWorkerJobChecks
                         bench.Text("r = GtKey(12, -3.5);"), bench.Text("r = GtParts(\"1.5,x,4\");"), bench.Text("r = GtMix(7);"), bench.Text("r = GtMix(1);"),
                         bench.Text("r = GtEq(5);"), bench.Text("r = GtEq(\"5\");"), bench.Text("r = GtEq(6);"), bench.Text("r = GtCallsNumbers(4);"),
                         bench.Text("r = GtSelf(5);"), bench.Text("sprite_index = \"Hero\"; r = GtSprite(2);"));
+                    for (int i = 0; i < 60; i++) bench.Run("r = GtRevA(1) + GtEven(3) + GtUnset(1) + GtOwnRead(1);");
+                    texts += " | own read " + bench.Text("r = GtOwnRead(9);");
+                    for (int i = 0; i < 60; i++) bench.Run("r = GtScopeOuter(1) + GtCallsInterp(1);");
+                    texts += " | scope " + bench.Text("r = GtScopeOuter(4);") + " | interpreted " + bench.Text("r = GtCallsInterp(5);");
+                    for (int i = 0; i < 60; i++) bench.Run("r = GtRevB(1);");
+                    texts += " | " + string.Join(" | ", bench.Text("r = GtEven(7);"), bench.Text("r = GtEven(4);"), bench.Text("r = GtRevA(3);"),
+                        bench.Text("r = GtRevB(2);"), bench.Text("gtU = 77; r = GtUnset(0);"), bench.Text("r = GtUnset(1);"));
                     // How long a loop working with text takes this way (printed, not checked).
                     bench.Run("gtOffset = 1; ScriptInstructionLimit(50000000);");
                     for (int i = 0; i < 60; i++) bench.Run("r = GtTextLoop(10);");
@@ -282,15 +305,21 @@ internal static partial class PgslWorkerJobChecks
             string interpreted = Results(compiled: false);
             string compiled = Results(compiled: true);
             string Why(string name) => Genesis.Runtime.Scripting.VM.PgslCompiledTier.ReasonFor(name) ?? "never looked at";
-            string count = Why("GtCount"), seen = Why("GtSeen"), ownWhy = Why("GtOwnName");
-            string[] withValues = ["GtWord", "GtKey", "GtParts", "GtMix", "GtEq", "GtCallsNumbers", "GtSelf", "GtSprite"];
+            // A variable set by name never reaches a function's own (GtOwnName); one read by name, and a
+            // callee reading the caller's, see the caller's variables in the frame it gives them (GtOwnRead,
+            // GtScopeOuter); interpreted functions are called the interpreter's way (GtCallsInterp).
+            string count = Why("GtCount"), seen = Why("GtSeen"), ownWhy = Why("GtOwnRead");
+            string[] withValues = ["GtWord", "GtKey", "GtParts", "GtMix", "GtEq", "GtCallsNumbers", "GtSelf", "GtSprite", "GtEven", "GtOdd", "GtUnset",
+                "GtOwnName", "GtOwnRead", "GtScopeOuter", "GtScopeInner", "GtCallsInterp"];
             string valueWhy = string.Join(", ", withValues.Select(name => name + " '" + Why(name) + "'"));
-            bool pass = compiled == interpreted && count.Length == 0 && seen.Length == 0
-                && ownWhy.Contains("its own variable", StringComparison.Ordinal) && withValues.All(name => Why(name).Length == 0);
+            string revA = Why("GtRevA"), revB = Why("GtRevB"), interp = Why("GtInterp");
+            valueWhy += $", GtRevA '{revA}', GtRevB '{revB}', GtInterp '{interp}'";
+            bool pass = compiled == interpreted && count.Length == 0 && seen.Length == 0 && withValues.All(name => Why(name).Length == 0)
+                && revA.Length > 0 && revB.Contains("calls it back", StringComparison.Ordinal) && interp.Length > 0;
             row("Compiled functions", "text as a command's argument, and text worked with (compiled with values)", pass ? "PASS" : "FAIL",
-                $"{compiled}; GtCount '{count}', GtSeen '{seen}', GtOwnName '{ownWhy}', {valueWhy}");
+                $"{compiled}; GtCount '{count}', GtSeen '{seen}', GtOwnRead '{ownWhy}', {valueWhy}");
             HeadlessHarness.Assert(pass, $"Functions with text: compiled '{compiled}', interpreted '{interpreted}'; GtCount '{count}' (compiled), "
-                + $"GtSeen '{seen}' (compiled), GtOwnName '{ownWhy}' (its own variable), {valueWhy} (each compiled).");
+                + $"GtSeen '{seen}' (compiled), {valueWhy} (each compiled but GtRevA, GtRevB withdrawn, GtInterp).");
         });
 
         // What a worker keeps between jobs: filled once on each worker, read again afterwards.

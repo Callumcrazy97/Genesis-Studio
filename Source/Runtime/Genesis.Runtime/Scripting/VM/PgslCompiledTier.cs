@@ -35,6 +35,11 @@ internal static partial class PgslCompiledTier
         /// when it cannot be compiled with numbers only, or when such a function calls it.
         /// </summary>
         public CompiledValues RunValues;
+        /// <summary>
+        /// Compiled with values, it calls something that may read any variable of its callers' frames
+        /// (a function interpreted, a command that runs a script): a compiled caller gives it a frame.
+        /// </summary>
+        public bool ReadsUnknown;
         public int Parameters;
         /// <summary>Why it stays interpreted (for checks and the profile).</summary>
         public string Reason;
@@ -62,7 +67,16 @@ internal static partial class PgslCompiledTier
         ConcurrentDictionary<UserFunction, Entry> table = Cache.GetOrCreateValue(bridge);
         if (table.TryGetValue(function, out Entry entry)) return entry;
         var building = new Dictionary<UserFunction, Holder>();
-        entry = Build(bridge, function, resolve, building, table);
+        bool root = _pending == null;
+        if (root) _pending = new PendingBuild();
+        try
+        {
+            entry = Build(bridge, function, resolve, building, table);
+        }
+        finally
+        {
+            if (root) _pending = null;
+        }
         return entry;
     }
 
@@ -105,8 +119,8 @@ internal static partial class PgslCompiledTier
         {
             try
             {
-                entry.RunValues = CompileValues(bridge, function, resolve, building, table, out string reason, out VarRef[] freeReads);
-                if (entry.RunValues != null) { entry.Reason = null; entry.FreeReads = freeReads ?? []; }
+                entry.RunValues = CompileValues(bridge, function, resolve, building, table, out string reason, out VarRef[] freeReads, out bool readsUnknown);
+                if (entry.RunValues != null) { entry.Reason = null; entry.FreeReads = freeReads ?? []; entry.ReadsUnknown = readsUnknown; }
                 else if (reason != null) entry.Reason = reason;
             }
             catch (Exception error)
@@ -119,6 +133,7 @@ internal static partial class PgslCompiledTier
         holder.RunValues = entry.RunValues;
         building.Remove(function);
         table[function] = entry;
+        if (ValuesEnabled) Settled(holder, entry.RunValues, function, entry, entry.FreeReads);
         bool compiled = entry.Run != null || entry.RunValues != null;
         if (function.Name is { } named && Reasons.Count < 8192) Reasons[named] = compiled ? null : entry.Reason;
         if (compiled) System.Threading.Interlocked.Increment(ref CompiledCount);

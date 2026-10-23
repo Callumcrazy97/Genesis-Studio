@@ -2668,10 +2668,16 @@ those of the interpreter. Text given straight to a command (`VariableSet("gjStep
 interpreter's way. A function that works with text (keys made with `StringOf`, parts of a split
 text, a value that may be text) is compiled with values instead: each variable holds what the
 interpreter's would and each operation does what the interpreter's does, and it calls the
-numbers-only form of the functions it calls whenever their arguments are numbers. Either way only
-commands that cannot run a script are called this way (data, text, maths, variables, drawing, or
-numbers-only commands); one that may (`CreateInstance`, a room change) keeps a function interpreted.
-GenesisCraft flying at render distance 18: game thread 6.9 -> 5.7 ms a frame (scripts 6.2 -> 5.1 ms).
+numbers-only form of the functions it calls whenever their arguments are numbers. A function
+compiled with numbers only calls commands that cannot run a script (data, text, maths, variables,
+drawing, or numbers-only commands). One compiled with values calls any command and any function,
+interpreted ones too: before a command that may run a script (`CreateInstance`, a room change), a
+call by a computed name, a variable read by a computed name, or a function that reads its caller's
+variables, it puts its variables in a frame as the interpreter would have them, so the code called
+sees what it would interpreted. Functions that call each other are compiled together, a variable
+read before it is set gives what the interpreter's gives, and a function that still cannot be
+compiled says why in the profile report. GenesisCraft flying at render distance 18: game thread
+6.9 -> 5.4 ms a frame (scripts 6.2 -> 4.8 ms).
 `GENESIS_PGSL_TIER2=0` turns compiling off, `GENESIS_PGSL_TIER2_VALUES=0` only compiling with values.
 
 `ScriptProfileEnable(true)`, `ScriptProfileReport(count)` and `ScriptProfileReset()` time every

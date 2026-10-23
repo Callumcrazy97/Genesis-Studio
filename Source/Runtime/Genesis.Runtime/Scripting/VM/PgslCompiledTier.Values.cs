@@ -25,6 +25,11 @@ internal static partial class PgslCompiledTier
 
     [ThreadStatic] private static VmValue[][] _valueScratch;
 
+    private static readonly HashSet<string> VariableReaders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "VariableGet", "VariableGetBool", "VariableGetText",
+    };
+
     public static VmValue[] ValueScratch(int count)
     {
         _valueScratch ??= new VmValue[33][];
@@ -104,10 +109,69 @@ internal static partial class PgslCompiledTier
         [Opcode.NOT] = Op(nameof(Not)), [Opcode.NEG] = Op(nameof(Neg)), [Opcode.BIT_NOT] = Op(nameof(BitNot)),
     };
     private static readonly MethodInfo ReadFreeValueMethod = typeof(PgslVm).GetMethod(nameof(PgslVm.ReadFreeValue), BindingFlags.Instance | BindingFlags.NonPublic);
+    private static readonly MethodInfo ReadUnsetOwnValueMethod = typeof(PgslVm).GetMethod(nameof(PgslVm.ReadUnsetOwnValue), BindingFlags.Instance | BindingFlags.NonPublic);
     private static readonly MethodInfo WriteInstanceValueMethod = typeof(PgslVm).GetMethod(nameof(PgslVm.WriteInstanceValue), BindingFlags.Instance | BindingFlags.NonPublic);
     private static readonly MethodInfo ReadRegisterValueMethod = typeof(PgslVm).GetMethod(nameof(PgslVm.ReadRegisterValue), BindingFlags.Instance | BindingFlags.NonPublic);
     private static readonly MethodInfo WriteRegisterValueMethod = typeof(PgslVm).GetMethod(nameof(PgslVm.WriteRegisterValue), BindingFlags.Instance | BindingFlags.NonPublic);
     private static readonly MethodInfo CallNativeValuesMethod = typeof(PgslVm).GetMethod(nameof(PgslVm.CallNativeValues), BindingFlags.Instance | BindingFlags.NonPublic);
+    private static readonly MethodInfo CallFunctionByNameMethod = typeof(PgslVm).GetMethod(nameof(PgslVm.CallFunctionByName), BindingFlags.Instance | BindingFlags.NonPublic);
+    private static readonly MethodInfo BeginSnapshotMethod = typeof(PgslVm).GetMethod(nameof(PgslVm.BeginSnapshot), BindingFlags.Instance | BindingFlags.NonPublic);
+    private static readonly MethodInfo PushSnapshotMethod = typeof(PgslVm).GetMethod(nameof(PgslVm.PushSnapshot), BindingFlags.Instance | BindingFlags.NonPublic);
+    private static readonly MethodInfo EndSnapshotMethod = typeof(PgslVm).GetMethod(nameof(PgslVm.EndSnapshot), BindingFlags.Instance | BindingFlags.NonPublic);
+
+    /// <summary>
+    /// Functions calling each other (A calls B, which calls A) compile with values together: B, made
+    /// while A still is, calls A through A's holder. Should A not compile after all, every function made
+    /// meanwhile that calls it, itself or through another, is withdrawn again.
+    /// </summary>
+    private sealed class PendingBuild
+    {
+        // Each function made in this build that waits on a function still being made, by that one's holder.
+        public readonly Dictionary<CompiledValues, HashSet<Holder>> Waiting = new(ReferenceEqualityComparer.Instance);
+        public readonly Dictionary<CompiledValues, (UserFunction Function, Entry Entry, VarRef[] FreeReads)> Made = new(ReferenceEqualityComparer.Instance);
+    }
+
+    [ThreadStatic] private static PendingBuild _pending;
+
+    // A function with values was made (or not) and its holder filled: what waited on it is settled. One
+    // left waiting on nothing is kept on its function for every bridge only now.
+    private static void Settled(Holder holder, CompiledValues made, UserFunction function, Entry entry, VarRef[] freeReads)
+    {
+        PendingBuild pending = _pending;
+        if (pending == null) return;
+        if (made != null) pending.Made[made] = (function, entry, freeReads);
+        var withdrawn = new List<CompiledValues>();
+        var ready = new List<CompiledValues>();
+        foreach (KeyValuePair<CompiledValues, HashSet<Holder>> waiting in pending.Waiting)
+        {
+            if (!waiting.Value.Contains(holder)) continue;
+            if (holder.RunValues == null) { withdrawn.Add(waiting.Key); continue; }
+            waiting.Value.Remove(holder);
+            if (waiting.Value.Count == 0) ready.Add(waiting.Key);
+        }
+        foreach (CompiledValues run in ready)
+        {
+            pending.Waiting.Remove(run);
+            if (pending.Made.TryGetValue(run, out (UserFunction Function, Entry Entry, VarRef[] FreeReads) done))
+                done.Function.Values = new ValuesCompile(run, done.FreeReads, null, done.Entry?.ReadsUnknown ?? true);
+        }
+        foreach (CompiledValues run in withdrawn)
+        {
+            pending.Waiting.Remove(run);
+            if (!pending.Made.TryGetValue(run, out (UserFunction Function, Entry Entry, VarRef[] FreeReads) gone)) continue;
+            string reason = $"calls '{function.Name}', which calls it back and stays interpreted";
+            gone.Function.Values = new ValuesCompile(null, null, reason);
+            if (gone.Entry != null && ReferenceEquals(gone.Entry.RunValues, run))
+            {
+                gone.Entry.RunValues = null;
+                if (gone.Entry.Run == null)
+                {
+                    gone.Entry.Reason = reason;
+                    if (gone.Function.Name is { } named) Reasons[named] = reason;
+                }
+            }
+        }
+    }
 
     /// <summary>
     /// A function compiled with numbers only, compiled with values too, for a function with values
@@ -119,47 +183,61 @@ internal static partial class PgslCompiledTier
         if (entry.RunValues != null) return entry.RunValues;
         var holder = new Holder();
         building[function] = holder;
+        CompiledValues values = null;
+        VarRef[] freeReads = null;
         try
         {
-            CompiledValues values = CompileValues(bridge, function, resolve, building, table, out _, out _);
+            values = CompileValues(bridge, function, resolve, building, table, out _, out freeReads, out bool readsUnknown);
             holder.RunValues = values;
-            if (values != null) entry.RunValues = values;
+            if (values != null) { entry.RunValues = values; entry.ReadsUnknown = readsUnknown; }
             return values;
         }
         catch (Exception) { return null; }
-        finally { building.Remove(function); }
+        finally
+        {
+            building.Remove(function);
+            Settled(holder, values, function, entry, freeReads ?? entry.FreeReads);
+        }
     }
 
     /// <summary>A function compiled with values (or why not), kept on the function for every bridge.</summary>
-    internal sealed class ValuesCompile(CompiledValues run, VarRef[] freeReads, string reason)
+    internal sealed class ValuesCompile(CompiledValues run, VarRef[] freeReads, string reason, bool readsUnknown = false)
     {
         public readonly CompiledValues Run = run;
         public readonly VarRef[] FreeReads = freeReads;
         public readonly string Reason = reason;
+        /// <summary>It calls something that may read any of its callers' variables (see <see cref="Entry.ReadsUnknown"/>).</summary>
+        public readonly bool ReadsUnknown = readsUnknown;
     }
 
     // Compiled once for all bridges: the 26 worker bridges each compiling a large function again cost
     // more than running it interpreted. A refusal is kept only from the game's bridge (a worker's
     // refuses commands a job may not call, which the game's calls).
     private static CompiledValues CompileValues(PgslEngineBridge bridge, UserFunction function, Func<string, UserFunction> resolve,
-        Dictionary<UserFunction, Holder> building, ConcurrentDictionary<UserFunction, Entry> table, out string reason, out VarRef[] freeReads)
+        Dictionary<UserFunction, Holder> building, ConcurrentDictionary<UserFunction, Entry> table, out string reason, out VarRef[] freeReads,
+        out bool readsUnknown)
     {
         if (function.Values is { } known && (known.Run != null || !bridge.IsWorker))
         {
             reason = known.Reason;
             freeReads = known.FreeReads;
+            readsUnknown = known.ReadsUnknown;
             return known.Run;
         }
-        CompiledValues run = CompileValuesNow(bridge, function, resolve, building, table, out reason, out freeReads);
-        if (run != null || !bridge.IsWorker) function.Values = new ValuesCompile(run, freeReads, reason);
+        CompiledValues run = CompileValuesNow(bridge, function, resolve, building, table, out reason, out freeReads, out readsUnknown);
+        // One that waits on a function still being made is kept there once that one is (Settled).
+        bool waiting = run != null && _pending != null && _pending.Waiting.ContainsKey(run);
+        if (!waiting && (run != null || !bridge.IsWorker)) function.Values = new ValuesCompile(run, freeReads, reason, readsUnknown);
         return run;
     }
 
     private static CompiledValues CompileValuesNow(PgslEngineBridge bridge, UserFunction function, Func<string, UserFunction> resolve,
-        Dictionary<UserFunction, Holder> building, ConcurrentDictionary<UserFunction, Entry> table, out string reason, out VarRef[] freeReads)
+        Dictionary<UserFunction, Holder> building, ConcurrentDictionary<UserFunction, Entry> table, out string reason, out VarRef[] freeReads,
+        out bool readsUnknownResult)
     {
         reason = null;
         freeReads = null;
+        readsUnknownResult = false;
         PgslProgram program = PgslProgram.ForFunction(function);
         VmOp[] ops = program.Ops;
         FrameLayout layout = program.Layout;
@@ -190,6 +268,16 @@ internal static partial class PgslCompiledTier
         var textsAt = new VmValue[n + 1][];
         var callees = new Expression[n];
         var calleeFunctions = new UserFunction[n];
+        // The functions still being made that this one calls, itself or through those it calls.
+        var waitsOn = new HashSet<Holder>();
+        building.TryGetValue(function, out Holder ownHolder);
+        // Calls before which this function's variables are put in a frame for the callee to see, those
+        // made the interpreter's way, its calls of itself, and whether anything it calls may read names
+        // no one can list (an interpreted function, a script a command runs).
+        var snapshotAt = new bool[n];
+        var byName = new bool[n];
+        var selfCalls = new List<int>();
+        bool readsUnknown = false;
         var work = new Stack<int>();
         int maxDepth = 0;
         bool Reach(int pc, int d, VmValue[] texts)
@@ -242,35 +330,59 @@ internal static partial class PgslCompiledTier
                 case Opcode.RETURN: falls = false; break;
                 case Opcode.CALL_NATIVE:
                 {
+                    // Any command, the interpreter's way; one that may run a script, or reads a
+                    // variable by name, sees this function's variables in a frame as it would then.
                     PgslEngineBridge.NativeCall call = bridge.GetNativeCall(op.A, op.B);
-                    if (!CalledWithValues(bridge, call, op.A, op.B, texts, d, ownNames, out reason)) return null;
+                    if (NeedsFrame(bridge, call, op.A, op.B, texts, d, ownNames)) { snapshotAt[pc] = true; readsUnknown = true; }
                     need = op.B; change = 1 - op.B; break;
                 }
                 case Opcode.CALL:
                 {
                     string name = op.Ref as string;
                     UserFunction target = name == null ? null : resolve(name);
-                    if (target == null || (target.Parameters?.Count ?? -1) != op.B) { reason = $"calls '{name}', which is not a script function taking {op.B}"; return null; }
+                    if (target == null || (target.Parameters?.Count ?? -1) != op.B)
+                    {
+                        // A Script, a command called by name, or a call the interpreter answers with an
+                        // error: made the interpreter's way, with this function's frame for it to see.
+                        byName[pc] = true; snapshotAt[pc] = true; readsUnknown = true;
+                        need = op.B; change = 1 - op.B; break;
+                    }
                     if (building.TryGetValue(target, out Holder holder))
                     {
-                        // Itself: read from its holder when called, as it is still being made.
-                        if (!ReferenceEquals(target, function)) { reason = $"calls '{name}', which calls it back"; return null; }
+                        // Itself, or a function that calls this one and is still being made: read from
+                        // its holder when called (and withdrawn should that one not compile).
+                        if (_pending == null && !ReferenceEquals(target, function)) { reason = $"calls '{name}', which calls it back"; return null; }
+                        if (!ReferenceEquals(holder, ownHolder))
+                        {
+                            // What it reads is not known yet: it sees this function's frame.
+                            waitsOn.Add(holder);
+                            snapshotAt[pc] = true; readsUnknown = true;
+                        }
+                        else selfCalls.Add(pc);
                         callees[pc] = Expression.Field(Expression.Constant(holder), nameof(Holder.RunValues));
                     }
                     else
                     {
                         Entry other = Build(bridge, target, resolve, building, table);
-                        if (other.Run == null && other.RunValues == null) { reason = $"calls '{name}', which stays interpreted ({other.Reason})"; return null; }
-                        CompiledValues values = other.RunValues ?? ValuesOf(bridge, target, other, resolve, table, building);
-                        if (values == null) { reason = $"calls '{name}', which cannot be compiled with values"; return null; }
-                        // The callee would see this function's own names through its frame: refused where it reads one.
+                        CompiledValues values = other.Run == null && other.RunValues == null ? null
+                            : other.RunValues ?? ValuesOf(bridge, target, other, resolve, table, building);
+                        if (values == null)
+                        {
+                            // Interpreted: called the interpreter's way, with this function's frame for it to see.
+                            byName[pc] = true; snapshotAt[pc] = true; readsUnknown = true;
+                            need = op.B; change = 1 - op.B; break;
+                        }
+                        // The callee sees this function's own names through its frame: given one where it reads one.
                         foreach (VarRef read in other.FreeReads)
                         {
-                            if (read.Kind != VarKind.Instance && ownNames.Contains(read.Name)) { reason = $"calls '{name}', which reads '{read.Name}', a variable of this function"; return null; }
-                            AddFree(read);
+                            if (read.Kind != VarKind.Instance && ownNames.Contains(read.Name)) snapshotAt[pc] = true;
+                            else AddFree(read);
                         }
+                        if (other.ReadsUnknown) { snapshotAt[pc] = true; readsUnknown = true; }
                         calleeFunctions[pc] = other.Run != null ? target : null;
                         callees[pc] = Expression.Constant(values);
+                        if (_pending != null && _pending.Waiting.TryGetValue(values, out HashSet<Holder> itWaits))
+                            foreach (Holder waited in itWaits) if (!ReferenceEquals(waited, ownHolder)) waitsOn.Add(waited);
                     }
                     need = op.B; change = 1 - op.B; break;
                 }
@@ -286,10 +398,19 @@ internal static partial class PgslCompiledTier
             if (jump >= 0 && !Reach(jump, after, nextTexts)) { reason = "stack depth differs between paths"; return null; }
         }
 
-        // 2. A variable of its own must be set before it is read on every path (the interpreter would
-        // otherwise look for the name in its callers or the instance).
+        // A call of itself, in a function whose calls may read anything, gives the inner call this one's frame.
+        if (readsUnknown) foreach (int pc in selfCalls) snapshotAt[pc] = true;
+        var ownSlot = new bool[Math.Max(1, layout.Count)];
+        foreach (int slot in parameterSlots) ownSlot[slot] = true;
+        foreach (VmOp each in ops)
+            if (each.Code is Opcode.LOAD_VAR or Opcode.STORE_VAR && each.Ref is VarRef mine && Own(mine)) ownSlot[mine.Slot] = true;
+
+        // 2. Where a variable of its own may be read before this call set it: there it is read as the
+        // interpreter reads it then (its callers, the instance, then a property), by a flag kept for it.
         int slots = Math.Max(1, layout.Count);
         var assignedIn = new bool[n + 1][];
+        var mayBeUnset = new bool[n];
+        var flagged = new bool[slots];
         var queue = new Queue<int>();
         var entryState = new bool[slots];
         foreach (int slot in parameterSlots) entryState[slot] = true;
@@ -300,7 +421,7 @@ internal static partial class PgslCompiledTier
             if (pc >= n || depth[pc] < 0) continue;
             bool[] state = (bool[])assignedIn[pc].Clone();
             ref VmOp op = ref ops[pc];
-            if (op.Code == Opcode.LOAD_VAR && Own((VarRef)op.Ref) && !state[((VarRef)op.Ref).Slot]) { reason = $"may read '{((VarRef)op.Ref).Name}' before setting it"; return null; }
+            if (op.Code == Opcode.LOAD_VAR && Own((VarRef)op.Ref) && !state[((VarRef)op.Ref).Slot]) { mayBeUnset[pc] = true; flagged[((VarRef)op.Ref).Slot] = true; }
             if (op.Code == Opcode.STORE_VAR && Own((VarRef)op.Ref)) state[((VarRef)op.Ref).Slot] = true;
             void Flow(int next)
             {
@@ -318,12 +439,20 @@ internal static partial class PgslCompiledTier
                 default: Flow(pc + 1); break;
             }
         }
+        // A frame given to a callee holds what this call has set: a variable perhaps not set there has a flag.
+        for (int pc = 0; pc < n; pc++)
+            if (snapshotAt[pc] && depth[pc] >= 0 && assignedIn[pc] != null)
+                for (int s = 0; s < slots; s++)
+                    if (ownSlot[s] && !assignedIn[pc][s]) flagged[s] = true;
 
         // 3. The code: each variable and each stack depth a VmValue.
         ParameterExpression arguments = Expression.Parameter(typeof(VmValue[]), "arguments");
         ParameterExpression vm = Expression.Parameter(typeof(PgslVm), "vm");
         var locals = new ParameterExpression[slots];
         for (int s = 0; s < slots; s++) locals[s] = Expression.Variable(typeof(VmValue), "v" + s);
+        // Whether this call has set each flagged variable (a parameter has been).
+        var set = new ParameterExpression[slots];
+        for (int s = 0; s < slots; s++) if (flagged[s]) set[s] = Expression.Variable(typeof(bool), "set" + s);
         var stack = new ParameterExpression[maxDepth + 1];
         for (int s = 0; s <= maxDepth; s++) stack[s] = Expression.Variable(typeof(VmValue), "s" + s);
         ParameterExpression spent = Expression.Variable(typeof(long), "spent");
@@ -334,7 +463,10 @@ internal static partial class PgslCompiledTier
         string functionName = function.Name ?? "";
         var body = new List<Expression>();
         for (int i = 0; i < parameterSlots.Length; i++)
+        {
             body.Add(Expression.Assign(locals[parameterSlots[i]], Expression.ArrayIndex(arguments, Expression.Constant(i))));
+            if (set[parameterSlots[i]] != null) body.Add(Expression.Assign(set[parameterSlots[i]], Expression.Constant(true)));
+        }
         body.Add(Expression.Assign(check, Expression.Call(FirstCheckpointMethod, vm)));
         Expression Return(Expression value) => Expression.Block(Expression.Call(SpentMethod, vm, spent), Expression.Return(done, value));
         Expression Nothing() => Expression.Default(typeof(VmValue));
@@ -353,14 +485,18 @@ internal static partial class PgslCompiledTier
                 case Opcode.LOAD_VAR:
                 {
                     VarRef variable = (VarRef)op.Ref;
-                    body.Add(Expression.Assign(stack[d], Own(variable) ? locals[variable.Slot]
-                        : Expression.Call(vm, ReadFreeValueMethod, Expression.Constant(variable))));
+                    Expression read = !Own(variable) ? Expression.Call(vm, ReadFreeValueMethod, Expression.Constant(variable))
+                        : mayBeUnset[pc] ? Expression.Condition(set[variable.Slot], locals[variable.Slot], Expression.Call(vm, ReadUnsetOwnValueMethod, Expression.Constant(variable)))
+                        : locals[variable.Slot];
+                    body.Add(Expression.Assign(stack[d], read));
                     break;
                 }
                 case Opcode.STORE_VAR:
                 {
                     VarRef variable = (VarRef)op.Ref;
-                    if (Own(variable)) body.Add(Expression.Assign(locals[variable.Slot], Top(0)));
+                    if (Own(variable) && set[variable.Slot] != null)
+                        body.Add(Expression.Block(Expression.Assign(locals[variable.Slot], Top(0)), Expression.Assign(set[variable.Slot], Expression.Constant(true))));
+                    else if (Own(variable)) body.Add(Expression.Assign(locals[variable.Slot], Top(0)));
                     else if (variable.Kind == VarKind.Instance) body.Add(Expression.Call(vm, WriteInstanceValueMethod, Expression.Constant(variable.Name), Top(0)));
                     else body.Add(Expression.Call(vm, WriteRegisterValueMethod, Expression.Constant(variable.RegisterSlot), Top(0)));
                     break;
@@ -400,10 +536,30 @@ internal static partial class PgslCompiledTier
                     Expression result;
                     if (op.Code == Opcode.CALL_NATIVE)
                         result = Expression.Call(vm, CallNativeValuesMethod, Expression.Constant(op.A), Expression.Constant(count), args);
+                    else if (byName[pc])
+                        result = Expression.Call(vm, CallFunctionByNameMethod, Expression.Constant((string)op.Ref), Expression.Constant(count), args);
                     else if (calleeFunctions[pc] is UserFunction numbers)
                         result = Expression.Call(CallNumbersOrValuesMethod, Expression.Constant(numbers), callees[pc], args, Expression.Constant(count), vm);
                     else result = Expression.Invoke(callees[pc], args, vm);
-                    call.Add(Expression.Assign(stack[d - count], result));
+                    Expression made = Expression.Assign(stack[d - count], result);
+                    if (snapshotAt[pc])
+                    {
+                        // This function's variables in a frame for the call to see, as the interpreter's frame would be.
+                        ParameterExpression frame = Expression.Variable(typeof(VariableFrame), "f");
+                        var open = new List<Expression> { Expression.Assign(frame, Expression.Call(vm, BeginSnapshotMethod, Expression.Constant(layout), Expression.Constant(functionName))) };
+                        Expression values = Expression.Field(frame, nameof(VariableFrame.Values)), present = Expression.Field(frame, nameof(VariableFrame.Present));
+                        for (int s = 0; s < slots; s++)
+                        {
+                            if (!ownSlot[s]) continue;
+                            open.Add(Expression.Assign(Expression.ArrayAccess(values, Expression.Constant(s)), locals[s]));
+                            open.Add(Expression.Assign(Expression.ArrayAccess(present, Expression.Constant(s)),
+                                assignedIn[pc] != null && assignedIn[pc][s] ? Expression.Constant(true) : set[s]));
+                        }
+                        open.Add(Expression.Call(vm, PushSnapshotMethod, frame));
+                        open.Add(Expression.TryFinally(made, Expression.Call(vm, EndSnapshotMethod)));
+                        call.Add(Expression.Block([frame], open));
+                    }
+                    else call.Add(made);
                     body.Add(Expression.Block([args], call));
                     break;
                 }
@@ -418,12 +574,16 @@ internal static partial class PgslCompiledTier
         body.Add(Expression.Label(done, Nothing()));
 
         var variables = new List<ParameterExpression>(locals) { spent, check };
+        foreach (ParameterExpression flag in set) if (flag != null) variables.Add(flag);
         variables.AddRange(stack);
         Expression guarded = Expression.Block(typeof(VmValue),
             Expression.Call(EnterMethod, Expression.Constant(functionName)),
             Expression.TryFinally(Expression.Block(typeof(VmValue), variables, body), Expression.Call(ExitMethod)));
         freeReads = [.. free];
-        return Expression.Lambda<CompiledValues>(guarded, functionName, [arguments, vm]).Compile();
+        readsUnknownResult = readsUnknown;
+        CompiledValues compiled = Expression.Lambda<CompiledValues>(guarded, functionName, [arguments, vm]).Compile();
+        if (waitsOn.Count > 0) _pending.Waiting[compiled] = waitsOn;
+        return compiled;
 
         // A jump back counts the instructions of the loop it closes, as the interpreter would.
         Expression Charge(int from, int to)
@@ -436,29 +596,30 @@ internal static partial class PgslCompiledTier
     }
 
     /// <summary>
-    /// Whether a function with values may call a command: one the numbers-only tier calls, or one of
-    /// the categories that cannot run a script. A variable command must name its variable with text
-    /// written in the code, and not one of the function's own (it has no frame for the command to see).
+    /// Whether a command, called the interpreter's way, must see this function's variables in a frame
+    /// as it would in the interpreter: one that may run a script (anything but the categories that
+    /// cannot), or one reading a variable by name (it looks in the frames first) unless the name is
+    /// written in the code and none of this function's. A variable set by name goes to the VM's own
+    /// variables, never a function's frame.
     /// </summary>
-    private static bool CalledWithValues(PgslEngineBridge bridge, PgslEngineBridge.NativeCall call, int id, int count,
-        VmValue[] texts, int depth, HashSet<string> ownNames, out string reason)
+    private static bool NeedsFrame(PgslEngineBridge bridge, PgslEngineBridge.NativeCall call, int id, int count,
+        VmValue[] texts, int depth, HashSet<string> ownNames)
     {
-        reason = null;
         string name = bridge.NativeName(id);
         string category = bridge.NativeCategory(id);
         bool listed = name != null && ValuesMayCall.Contains(name)
             || (category != null && InterpretersWayCategories.Contains(category) && (name == null || !MayRunEvents.Contains(name)));
-        if (call == null || (!listed && !NumbersOnly(call))) { reason = $"calls {name}, which may run a script"; return false; }
-        if (category == null || !VariableCategories.Contains(category)) return true;
+        if (call == null || !listed) return true;
+        if (name == null || !VariableReaders.Contains(name)) return false;
         for (int i = 0; i < count; i++)
         {
             if (call.Kinds == null || i >= call.Kinds.Length || call.Kinds[i] != PgslEngineBridge.ArgumentKind.Text) continue;
             int at = depth - count + i;
-            if (texts == null || at < 0 || at >= texts.Length || !texts[at].IsString) { reason = $"names a variable to {name} with text it works out"; return false; }
+            if (texts == null || at < 0 || at >= texts.Length || !texts[at].IsString) return true;
             string named = texts[at].ToObject() as string ?? "";
             foreach (string own in ownNames)
-                if (string.Equals(own, named, StringComparison.OrdinalIgnoreCase)) { reason = $"names its own variable '{named}' to {name}"; return false; }
+                if (string.Equals(own, named, StringComparison.OrdinalIgnoreCase)) return true;
         }
-        return true;
+        return false;
     }
 }

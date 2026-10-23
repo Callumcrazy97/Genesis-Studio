@@ -1591,6 +1591,13 @@ public class PgslVm
 
     internal void WriteInstanceValue(string name, VmValue value) => StoreInstanceVariableByName(name, value);
 
+    /// <summary>A name of the function's own read before this call set it, as LoadVariable reads it then.</summary>
+    internal VmValue ReadUnsetOwnValue(VarRef variable)
+    {
+        if (TryGetVariable(variable.Symbol, variable.Name, _frameCount - 1, out VmValue value)) return value;
+        return variable.Kind == VarKind.FunctionLocal ? 0.0 : ResolvePGSLPropertyOrZero(variable.Name);
+    }
+
     // Each function's numbers-only form for this VM's bridge, for calls from functions compiled with
     // values (shared by every bridge); a worker's VM is reused job after job, so it is kept.
     private Dictionary<UserFunction, PgslCompiledTier.Entry> _numbersEntries;
@@ -1629,6 +1636,34 @@ public class PgslVm
     {
         var ctx = _bridge.GetContext();
         if (ctx != null && slot >= 0 && slot < PgslRegisterFile.NumberSetters.Length) PgslRegisterFile.Write(ctx, slot, value);
+    }
+
+    // A function compiled with values has no frame of its own. Before a call that may look at its
+    // callers' variables (a function interpreted, a command running a script, a function reading
+    // one of this one's), it puts one on the VM as the interpreter's call would have it: its own
+    // variables, those it has set, read but never written by what it calls.
+
+    internal VariableFrame BeginSnapshot(FrameLayout layout, string function)
+    {
+        VariableFrame frame = AcquireFrame(layout);
+        frame.Function = function;
+        return frame;
+    }
+
+    internal void PushSnapshot(VariableFrame frame) => PushFrame(frame);
+
+    internal void EndSnapshot() => ReleaseFrame(PopFrame());
+
+    /// <summary>A call made the interpreter's way (ExecuteCall): what it leaves.</summary>
+    internal VmValue CallFunctionByName(string name, int count, VmValue[] arguments)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            _stack.Push(arguments[i]);
+            arguments[i] = default;
+        }
+        ExecuteCall(name, count);
+        return _stack.Pop();
     }
 
     /// <summary>A command called with these values as the interpreter calls it; what it leaves.</summary>
