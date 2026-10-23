@@ -315,13 +315,24 @@ try {
             throw
         }
     }
-    # A publish that changed the engine measures the synthetic complex scene with the published build
+    # A publish that changed the engine's source measures the synthetic complex scene with the published build
     # and adds it to the history, so each engine change has its number. Not for focused test runs
     # (they publish too, many times over one change). It never fails the build: it runs after promotion.
     if ($track -and $tests -in @('Skipped','Tiers')) {
-        $engineFiles = @('Genesis.Runtime','Genesis.Rendering','Genesis.Rendering.Abstractions','Genesis.Physics','Genesis.World',
-            'Genesis.Shared','Genesis.Audio','Genesis.Streaming','Genesis.Net') | ForEach-Object { Join-Path $output "$_.dll" } | Where-Object { Test-Path -LiteralPath $_ }
-        $joined = [Text.Encoding]::UTF8.GetBytes((($engineFiles | ForEach-Object { (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash }) -join ''))
+        # The engine's source, not its libraries (their bytes differ from build to build of the same
+        # code): the committed tree of Source/Runtime and any change to it not committed yet.
+        $engineSource = Join-Path $repo 'Source/Runtime'
+        $savedPreference = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+        try {
+            $tree = & git -C $repo rev-parse 'HEAD:Source/Runtime' 2>$null
+            $pending = (& git -C $repo status --porcelain -- 'Source/Runtime' 2>$null) -join "`n"
+            $changed = (& git -C $repo diff HEAD -- 'Source/Runtime' 2>$null) -join "`n"
+        } finally { $ErrorActionPreference = $savedPreference }
+        $fingerprint = if ($tree) { "$tree`n$pending`n$changed" } else {
+            (Get-ChildItem -LiteralPath $engineSource -Recurse -File -Include '*.cs','*.csproj','*.hlsl' | Sort-Object FullName |
+                ForEach-Object { $_.FullName + ':' + (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }) -join "`n"
+        }
+        $joined = [Text.Encoding]::UTF8.GetBytes($fingerprint)
         $sha = [Security.Cryptography.SHA256]::Create()
         try { $engineHash = ([BitConverter]::ToString($sha.ComputeHash($joined)) -replace '-', '').Substring(0, 16) } finally { $sha.Dispose() }
         $history = Join-Path $repo 'TestResults/Benchmarks/history.jsonl'
