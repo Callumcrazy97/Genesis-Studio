@@ -2708,6 +2708,16 @@ held its first room's Create event 4.7 s; now about 1.5 s for each, and its firs
 under 5 s after the game starts instead of over 8. The list of what the first room uses follows
 quoted names only when they could be a file, and is half as long to make.
 
+A Script of 64 K characters or more is also kept compiled on disk, in
+`%LOCALAPPDATA%\GenesisRuntime\ScriptCache` (`GENESIS_SCRIPT_CACHE`: another folder, or 0 to turn it
+off): while it, the names of the Scripts before it, the command table and the engine build are
+unchanged, the next start reads it back instead of preparing and compiling it. Only the three
+newest engine builds' entries are kept, and an entry that cannot be read is compiled again. With
+it GenesisCraft's Scripts take 0.7 s and its first room is ready about 3.1 s after the game starts.
+A large Script also keeps only a hash of its source and drops its prepared text once compiled (about
+170 MB less memory for GenesisCraft). The load profile (`GENESIS_LOAD_PROFILE=1`) now says how much
+of the start went to the JIT (GenesisCraft: 9,400 methods, about 1 s over all threads).
+
 For data loaded from a Script, `DsListAddNumbers(list, "0.5, 1, -2.25")` and
 `NumListAddNumbers(list, text)` add every number in a text in one call (commas, semicolons or spaces
 between them), many times faster to compile and to run than a `DsListAdd` for each number.

@@ -691,6 +691,100 @@ internal static class PgslScriptsSuite
             }
         });
 
+        // A large Script compiled once is read back compiled on the next load (ScriptCompileCache):
+        // exactly what compiling it gives, run the same; a changed source or a damaged entry is
+        // compiled again.
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.ALargeScriptIsReadBackCompiledOnTheNextLoad", () =>
+        {
+            var text = new System.Text.StringBuilder();
+            text.Append("// A large Script for the compile cache.\nzcList = 0;\n");
+            text.Append("function ZcAdd(a, b) { return a + b; }\nfunction ZcText(s) { return s + \"!\"; }\n");
+            text.Append("function ZcBig(n) {\n    var t = 0;\n    for (var i = 0; i < n; i++) { t += i; }\n");
+            text.Append("    if (t > 10 && true) { t = t - 1; } else { t = t + 1; }\n    while (t > 100) { t = t / 2; }\n    return t;\n}\n");
+            for (int f = 0; text.Length < 3 * ScriptCompileCache.SmallestCached; f++)
+            {
+                text.Append("function ZcFill").Append(f).Append("() {\n");
+                for (int line = 0; line < 40; line++)
+                    text.Append("    DsListAdd(zcList, ").Append((line % 7 / 4.0).ToString(System.Globalization.CultureInfo.InvariantCulture)).Append("); DsListAddString(zcList, \"word").Append(line % 5)
+                        .Append("\"); q = ZcAdd(").Append(line).Append(", 2) > 3 || false; r = -q;\n");
+                text.Append("}\n");
+            }
+            Script("ZcLarge", text.ToString());
+            ResourceNames.Invalidate(project.RootPath);
+            string previous = PgslCommands.ProjectPath;
+            string Dump(Genesis.Runtime.Scripting.VM.CompileResult result)
+            {
+                var dump = new System.Text.StringBuilder();
+                void Program(List<Genesis.Runtime.Scripting.VM.Instruction> code, List<object> constants)
+                {
+                    foreach (Genesis.Runtime.Scripting.VM.Instruction instruction in code)
+                        dump.Append(instruction.Opcode).Append('@').Append(instruction.LineNumber).Append(' ').Append(instruction.Operand switch
+                        {
+                            null => "-", int i => "i" + i, string s => "s" + s, ValueTuple<int, int> n => $"n{n.Item1},{n.Item2}",
+                            ValueTuple<string, int> c => $"c{c.Item1},{c.Item2}", object other => "?" + other.GetType().Name,
+                        }).Append('\n');
+                    foreach (object constant in constants)
+                        dump.Append(constant switch { double d => "d" + d.ToString("R", System.Globalization.CultureInfo.InvariantCulture), int i => "i" + i, string s => "s" + s, _ => "?" }).Append('\n');
+                }
+                Program(result.Instructions, result.Constants);
+                foreach (KeyValuePair<string, Genesis.Runtime.Scripting.VM.UserFunction> pair in result.UserFunctions)
+                {
+                    dump.Append("function ").Append(pair.Key).Append(' ').Append(pair.Value.Name).Append('(').Append(string.Join(",", pair.Value.Parameters)).Append(")\n");
+                    Program(pair.Value.Bytecode, pair.Value.Constants);
+                }
+                return dump.ToString();
+            }
+            try
+            {
+                PgslCommands.ProjectPath = project.RootPath;
+                int hits = ScriptCompileCache.Hits, writes = ScriptCompileCache.Writes;
+                ScriptAssetRegistry.ClearCache();
+                ScriptAssetRegistry.LoadFromProject(project.RootPath);
+                ScriptCompileCache.LastBackgroundWrite?.Join(30000);
+                ScriptAssetRegistry.TryGet("ZcLarge", out CompiledScriptAsset fresh);
+                string compiled = Dump(fresh.CompileResult);
+                Check(ScriptCompileCache.Writes > writes, "A large Script compiled was not written to the cache.");
+
+                ScriptAssetRegistry.ClearCache();
+                ScriptAssetRegistry.LoadFromProject(project.RootPath);
+                ScriptAssetRegistry.TryGet("ZcLarge", out CompiledScriptAsset cached);
+                string readBack = Dump(cached.CompileResult);
+                int firstDifference = Enumerable.Range(0, Math.Min(compiled.Length, readBack.Length)).FirstOrDefault(i => compiled[i] != readBack[i]);
+                Check(ScriptCompileCache.Hits > hits && !ReferenceEquals(fresh, cached) && compiled == readBack && cached.SourceHash == fresh.SourceHash,
+                    $"A large Script read back from the cache differs from its compile (hits {ScriptCompileCache.Hits - hits}; {compiled.Length} / {readBack.Length} characters, "
+                    + $"first difference at {firstDifference}: '{compiled.Substring(Math.Max(0, firstDifference - 40), Math.Min(80, compiled.Length - Math.Max(0, firstDifference - 40)))}').");
+
+                ObjectSandboxResult result = ObjectSandbox.Run(new Dictionary<string, string>
+                {
+                    ["Create"] = "zcList = DsListCreate(); a = ZcAdd(2, 3); b = ZcText(\"a\"); c = ZcBig(10); ZcFill0(); n = DsListSize(zcList);\n",
+                }, frames: 1);
+                Check(result.Ok && Near(result, "a", 5) && Near(result, "c", 44) && Near(result, "n", 80) && result.Strings.GetValueOrDefault("b") == "a!",
+                    $"A Script read back from the cache runs differently: a={Value(result, "a")} (5) c={Value(result, "c")} (44) n={Value(result, "n")} (80) b={result.Strings.GetValueOrDefault("b")}; {Errors(result)}");
+
+                // A damaged entry, then a changed source: each compiled again.
+                string folder = ScriptCompileCache.Folder();
+                foreach (string entry in Directory.GetFiles(folder, "*.pgslc")) File.WriteAllBytes(entry, [1, 2, 3, 4, 5]);
+                int misses = ScriptCompileCache.Misses;
+                ScriptAssetRegistry.ClearCache();
+                ScriptAssetRegistry.LoadFromProject(project.RootPath);
+                ScriptAssetRegistry.TryGet("ZcLarge", out CompiledScriptAsset recompiled);
+                ScriptCompileCache.LastBackgroundWrite?.Join(30000);
+                Check(ScriptCompileCache.Misses > misses && recompiled != null && Dump(recompiled.CompileResult) == compiled,
+                    "A damaged cache entry was not compiled again.");
+                File.AppendAllText(Path.Combine(scripts, "ZcLarge.pgsl"), "function ZcLater() { return 7; }\n");
+                ScriptAssetRegistry.ClearCache();
+                ScriptAssetRegistry.LoadFromProject(project.RootPath);
+                Check(ScriptAssetRegistry.TryFindFunction("ZcLater", out _), "A changed large Script was read from the cache unchanged.");
+                ScriptCompileCache.LastBackgroundWrite?.Join(30000);
+            }
+            finally
+            {
+                PgslCommands.ProjectPath = previous; ScriptAssetRegistry.ClearCache();
+                File.Delete(Path.Combine(scripts, "ZcLarge.pgsl"));
+                ResourceNames.Invalidate(project.RootPath);
+            }
+        });
+
         // The project's Scripts are compiled on several threads at once, yet each still sees the
         // names of the Scripts before it that compiled, as when they were compiled one by one: a
         // call without brackets to an earlier Script is made a call, one to a later Script or to one

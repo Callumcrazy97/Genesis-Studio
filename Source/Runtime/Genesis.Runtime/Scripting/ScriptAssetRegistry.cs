@@ -35,15 +35,16 @@ namespace Genesis.Runtime.Scripting
 
       private SourceStamp(string text, int length, string hash) { _text = text; _length = length; _hash = hash; }
 
-      public static SourceStamp Of(string source) => source == null || source.Length <= KeepTextUpTo
+      /// <param name="hash">The source's <see cref="Hash"/> when already known.</param>
+      public static SourceStamp Of(string source, string hash = null) => source == null || source.Length <= KeepTextUpTo
         ? new SourceStamp(source, source?.Length ?? 0, null)
-        : new SourceStamp(null, source.Length, Hash(source));
+        : new SourceStamp(null, source.Length, hash ?? Hash(source));
 
       public bool Matches(string source) => _hash == null
         ? string.Equals(_text, source, StringComparison.Ordinal)
         : source != null && source.Length == _length && string.Equals(_hash, Hash(source), StringComparison.Ordinal);
 
-      private static string Hash(string source) =>
+      public static string Hash(string source) =>
         Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Runtime.InteropServices.MemoryMarshal.AsBytes(source.AsSpan())));
     }
     private static readonly object _lock = new();
@@ -182,16 +183,41 @@ namespace Genesis.Runtime.Scripting
         Array.Sort(sizes, order);
         Array.Reverse(order);
         string[] earlier = names.ToArray();
+        // A large Script unchanged since an earlier run is read back compiled (ScriptCompileCache).
+        string cacheFolder = files.Count > 0 ? ScriptCompileCache.Folder() : null;
+        if (cacheFolder != null && !VMEngine.IsInitialized) VMEngine.Initialize();
+        string table = cacheFolder != null ? ScriptCompileCache.TableIdentity(VMEngine.Bridge?.NativeIdMap) : null;
+        var toCache = new List<(string Key, CompiledScriptAsset Asset)>();
         Genesis.Shared.Diagnostics.StartupWorkers.For(files.Count, slot =>
         {
           int i = order[slot];
           IEnumerable<string> outer = _compileNames;
-          _compileNames = new ArraySegment<string>(earlier, 0, i);
+          var before = new ArraySegment<string>(earlier, 0, i);
+          _compileNames = before;
           try
           {
-            sources[i] = File.ReadAllText(files[i]);
-            stamps[i] = SourceStamp.Of(sources[i]);
-            compiled[i] = ScriptAssetCompiler.Compile(names[i], sources[i]);
+            string source;
+            using (Genesis.Shared.Diagnostics.LoadProfile.Begin("read a Script's file"))
+              source = sources[i] = File.ReadAllText(files[i]);
+            bool cached = cacheFolder != null && source.Length >= ScriptCompileCache.SmallestCached;
+            string hash = null;
+            if (cached || source.Length > KeepTextUpTo)
+              using (Genesis.Shared.Diagnostics.LoadProfile.Begin("hash a Script's source"))
+                hash = SourceStamp.Hash(source);
+            stamps[i] = SourceStamp.Of(source, hash);
+            string key = cached ? ScriptCompileCache.Key(hash, before, table) : null;
+            CompiledScriptAsset asset = null;
+            if (cached)
+              using (Genesis.Shared.Diagnostics.LoadProfile.Begin("read a compiled Script back"))
+                asset = ScriptCompileCache.TryRead(cacheFolder, key, names[i]);
+            if (asset != null)
+              ScriptAssetCompiler.DecodeLargeFunctions(asset.CompileResult);
+            else
+            {
+              asset = ScriptAssetCompiler.Compile(names[i], source);
+              if (cached) lock (toCache) toCache.Add((key, asset));
+            }
+            compiled[i] = asset;
           }
           catch (Exception ex)
           {
@@ -202,6 +228,8 @@ namespace Genesis.Runtime.Scripting
             _compileNames = outer;
           }
         }, name: "Genesis script compile");
+        // Written behind the game, not in its start: the next run reads them.
+        if (toCache.Count > 0) ScriptCompileCache.WriteInBackground(cacheFolder, toCache);
 
         // A Script that failed is not among the names the ones after it see: one whose text names
         // it is compiled again, here, against the names registered before it.

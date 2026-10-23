@@ -63,6 +63,8 @@ internal static class HeadlessTestRunner
         Directory.CreateDirectory(workspace);
         Directory.CreateDirectory(captures);
         Directory.CreateDirectory(logs);
+        // Large Scripts the tests compile are kept with the run, not in the user's own cache.
+        Genesis.Runtime.Scripting.ScriptCompileCache.RootOverride = Path.Combine(workspace, "ScriptCache");
 
         HeadlessContext ctx = new()
         {

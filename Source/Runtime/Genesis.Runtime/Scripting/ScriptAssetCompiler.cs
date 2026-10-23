@@ -49,12 +49,7 @@ public static class ScriptAssetCompiler
                 throw new InvalidOperationException($"Failed to compile script '{name}'.");
         }
 
-        // A large function is decoded for the interpreter here, on the thread compiling it while the
-        // game starts, not on the game's thread the first time it is called (GenesisCraft's generated
-        // data functions, all called by its first room's Create event).
-        if (result.UserFunctions != null)
-            foreach (UserFunction function in result.UserFunctions.Values)
-                if (function.Bytecode?.Count >= LargeFunctionInstructions) PgslProgram.ForFunction(function);
+        DecodeLargeFunctions(result);
 
         return new CompiledScriptAsset
         {
@@ -63,6 +58,18 @@ public static class ScriptAssetCompiler
             ProcessedSource = processed,
             CompileResult = result
         };
+    }
+
+    /// <summary>
+    /// Decodes each large function for the interpreter here, on the thread compiling (or reading) it
+    /// while the game starts, not on the game's thread the first time it is called (GenesisCraft's
+    /// generated data functions, all called by its first room's Create event).
+    /// </summary>
+    internal static void DecodeLargeFunctions(CompileResult result)
+    {
+        if (result?.UserFunctions == null) return;
+        foreach (UserFunction function in result.UserFunctions.Values)
+            if (function.Bytecode?.Count >= LargeFunctionInstructions) PgslProgram.ForFunction(function);
     }
 
     public static string ComputeSha256(string text)

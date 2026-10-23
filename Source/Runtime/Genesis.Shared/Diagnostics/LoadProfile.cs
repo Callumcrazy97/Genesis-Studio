@@ -237,6 +237,9 @@ public static class LoadProfile
                 Marks.Clear();
             }
         }
+        // How much of the start went to compiling the engine's own code (all threads together).
+        lines.Add($"  JIT: {System.Runtime.JitInfo.GetCompiledMethodCount()} methods compiled in "
+            + $"{System.Runtime.JitInfo.GetCompilationTime().TotalMilliseconds.ToString("F0", CultureInfo.InvariantCulture)} ms so far");
 
         Write(lines, game, 1, "wall time on the game's thread");
         Write(lines, workers, 1, "summed over threads, which overlap");
