@@ -1752,6 +1752,10 @@ internal static class HeadlessTestRunner
                 // LightFlash: bright at once, fading over its life, lit on every renderer, never shadowed, and its cost at 1080p on DX11.
                 Suites.FlashLightSuite.Run(ctx);
                 break;
+            case "mesh-pool":
+                // RegisterMeshPooled: a released mesh's buffers reused (updated in place) for a later mesh, drawn right, on every renderer.
+                Suites.PooledMeshBuffersSuite.Run(ctx);
+                break;
             case "decals":
                 // DecalAdd: on a wall and on terrain, fading, the limit, surfaces facing away and order, on every renderer; their cost on DX11.
                 PrepareFocusedProject(ctx, requireStudioServices: true);

@@ -136,6 +136,11 @@ namespace Genesis.Shared.Interfaces
 
         // ── 3D mesh management ───────────────────────────────────────────────────
         MeshHandle RegisterMesh(ReadOnlySpan<MeshVertex> vertices, ReadOnlySpan<ushort> indices);
+        /// <summary>
+        /// <see cref="RegisterMesh"/> for a mesh rebuilt often (a script's chunk): a renderer may keep its
+        /// buffers when it is released and update them in place for a later mesh of a similar size.
+        /// </summary>
+        MeshHandle RegisterMeshPooled(ReadOnlySpan<MeshVertex> vertices, ReadOnlySpan<ushort> indices) => RegisterMesh(vertices, indices);
         MeshHandle RegisterSkinnedMesh(ReadOnlySpan<SkinnedMeshVertex> vertices, ReadOnlySpan<ushort> indices);
         SkinPaletteHandle CreateSkinPalette(int matrixCount);
         void       UpdateSkinPalette(SkinPaletteHandle handle, ReadOnlySpan<Matrix4x4> matrices);

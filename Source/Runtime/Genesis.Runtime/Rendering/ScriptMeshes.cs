@@ -304,8 +304,9 @@ namespace Genesis.Runtime.Rendering
             mesh.Handle = MeshHandle.Invalid;
             mesh.Owner = renderer;
             mesh.Dirty = false;
+            // Pooled: a script's meshes are rebuilt again and again, and their buffers are reused.
             if (mesh.Buffers.IndexCount >= 3)
-                mesh.Handle = renderer.RegisterMesh(mesh.Buffers.VertexSpan, mesh.Buffers.IndexSpan);
+                mesh.Handle = renderer.RegisterMeshPooled(mesh.Buffers.VertexSpan, mesh.Buffers.IndexSpan);
             mesh.Uploads++;
             _frameUploadTicks += System.Diagnostics.Stopwatch.GetTimestamp() - started;
             _frameUploads++;

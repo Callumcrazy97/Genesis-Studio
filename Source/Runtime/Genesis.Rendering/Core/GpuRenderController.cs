@@ -1242,6 +1242,12 @@ namespace Genesis.Rendering.Core
         public MeshHandle RegisterMesh(ReadOnlySpan<MeshVertex> vertices, ReadOnlySpan<ushort> indices)
             => _fwd?.RegisterMesh(vertices, indices) ?? MeshHandle.Invalid;
 
+        public MeshHandle RegisterMeshPooled(ReadOnlySpan<MeshVertex> vertices, ReadOnlySpan<ushort> indices)
+            => _fwd?.RegisterMeshPooled(vertices, indices) ?? MeshHandle.Invalid;
+
+        /// <summary>Buffers made and reused for pooled meshes so far (for checks).</summary>
+        public (long Made, long Reused) PooledMeshBuffers => _fwd == null ? (0, 0) : (_fwd.PooledBuffersMade, _fwd.PooledBuffersReused);
+
         public MeshHandle RegisterSkinnedMesh(ReadOnlySpan<SkinnedMeshVertex> vertices, ReadOnlySpan<ushort> indices)
             => _fwd?.RegisterSkinnedMesh(vertices, indices) ?? MeshHandle.Invalid;
 

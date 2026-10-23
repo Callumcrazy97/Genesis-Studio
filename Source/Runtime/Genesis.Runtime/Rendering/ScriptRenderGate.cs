@@ -88,6 +88,8 @@ namespace Genesis.Runtime.Rendering
 
         public MeshHandle RegisterMesh(ReadOnlySpan<MeshVertex> vertices, ReadOnlySpan<ushort> indices)
             => _inner.RegisterMesh(vertices, indices);
+        public MeshHandle RegisterMeshPooled(ReadOnlySpan<MeshVertex> vertices, ReadOnlySpan<ushort> indices)
+            => _inner.RegisterMeshPooled(vertices, indices);
         public MeshHandle RegisterSkinnedMesh(ReadOnlySpan<SkinnedMeshVertex> vertices, ReadOnlySpan<ushort> indices)
             => _inner.RegisterSkinnedMesh(vertices, indices);
         public SkinPaletteHandle CreateSkinPalette(int matrixCount)

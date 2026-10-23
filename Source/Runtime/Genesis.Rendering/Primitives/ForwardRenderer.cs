@@ -338,9 +338,118 @@ namespace Genesis.Rendering.Primitives
             public int[] SkinJoints;
             /// <summary>True when some vertices carry no weight and therefore stay at their bind position.</summary>
             public bool HasUnweightedVertices;
+            /// <summary>Registered with <see cref="RegisterMeshPooled"/>: its buffers (of these sizes) go back to the pool when released.</summary>
+            public bool Pooled;
+            public int VertexCapacity, IndexCapacity;
         }
 
         private int _meshRevision;
+
+        // Buffers of pooled meshes released, by size, for later meshes of a similar size: a script's
+        // chunk rebuilt again and again made two new GPU buffers each time (a committed resource each
+        // on D3D12). A released buffer rests until the frames that may still read it are done (some
+        // backends write it straight into mapped memory), then is updated in place.
+        private readonly Dictionary<(int Capacity, bool Vertex), Stack<GpuBufferHandle>> _bufferPool = new();
+        private readonly Queue<(GpuBufferHandle Buffer, int Capacity, bool Vertex, long Flush, long Ticks)> _restingBuffers = new();
+        private long _pooledBufferBytes, _flushes;
+        private const long MaxPooledBufferBytes = 128L << 20;
+        private const int RestFlushes = 8;
+        private static readonly long RestTicks = System.Diagnostics.Stopwatch.Frequency / 10;
+
+        /// <summary>Buffers made and reused for pooled meshes so far (for checks).</summary>
+        public long PooledBuffersMade { get; private set; }
+        public long PooledBuffersReused { get; private set; }
+
+        /// <summary>
+        /// <see cref="RegisterMesh"/> for a mesh rebuilt often (a script's chunk): its buffers are sized
+        /// to a power of two and, when it is released, kept for a later mesh of the same size class,
+        /// which updates them in place rather than making new ones.
+        /// </summary>
+        public MeshHandle RegisterMeshPooled(ReadOnlySpan<MeshVertex> vertices, ReadOnlySpan<ushort> indices)
+        {
+            int stride = Marshal.SizeOf<MeshVertex>();
+            ComputeBounds(vertices, out Vector3 boundsCenter, out float boundsRadius);
+            ReadOnlySpan<byte> vertexBytes = MemoryMarshal.AsBytes(vertices), indexBytes = MemoryMarshal.AsBytes(indices);
+            int vertexCapacity = PoolCapacity(vertexBytes.Length), indexCapacity = PoolCapacity(indexBytes.Length);
+            ReleaseRestedBuffers();
+            var created = new MeshEntry
+            {
+                VB = TakePooledBuffer(vertexCapacity, true, vertexBytes),
+                IB = TakePooledBuffer(indexCapacity, false, indexBytes),
+                IndexCount = indices.Length,
+                BoundsCenter = boundsCenter,
+                BoundsRadius = boundsRadius,
+                VertexStride = stride,
+                VertexCount = vertices.Length,
+                Revision = ++_meshRevision,
+                Pooled = true,
+                VertexCapacity = vertexCapacity,
+                IndexCapacity = indexCapacity,
+            };
+            if (_freeMeshIds.Count > 0)
+            {
+                int recycledId = _freeMeshIds.Pop();
+                _meshes[recycledId - 1] = created;
+                return new MeshHandle(recycledId);
+            }
+            _meshes.Add(created);
+            return new MeshHandle(_meshes.Count);
+        }
+
+        private static int PoolCapacity(int bytes) => (int)System.Numerics.BitOperations.RoundUpToPowerOf2((uint)Math.Max(4096, bytes));
+
+        private GpuBufferHandle TakePooledBuffer(int capacity, bool vertex, ReadOnlySpan<byte> data)
+        {
+            if (_bufferPool.TryGetValue((capacity, vertex), out Stack<GpuBufferHandle> free) && free.Count > 0)
+            {
+                GpuBufferHandle reused = free.Pop();
+                _pooledBufferBytes -= capacity;
+                _gpu.UpdateBuffer(reused, data);
+                PooledBuffersReused++;
+                return reused;
+            }
+            // Made whole (an immutable buffer needs its full contents at creation), the rest zeroes.
+            byte[] padded = System.Buffers.ArrayPool<byte>.Shared.Rent(capacity);
+            try
+            {
+                data.CopyTo(padded);
+                padded.AsSpan(data.Length, capacity - data.Length).Clear();
+                PooledBuffersMade++;
+                return _gpu.CreateBuffer(new GpuBufferDesc
+                {
+                    SizeBytes = capacity,
+                    Usage = GpuBufferUsage.Immutable,
+                    BindFlags = vertex ? GpuBindFlags.VertexBuffer : GpuBindFlags.IndexBuffer,
+                    DebugName = vertex ? "Forward mesh vertices (pooled)" : "Forward mesh indices (pooled)",
+                }, padded.AsSpan(0, capacity));
+            }
+            finally { System.Buffers.ArrayPool<byte>.Shared.Return(padded); }
+        }
+
+        // A pooled mesh's buffers rest before reuse; past the pool's size they are released.
+        private void ReturnPooledBuffers(in MeshEntry entry)
+        {
+            foreach ((GpuBufferHandle buffer, int capacity, bool vertex) in new[] { (entry.VB, entry.VertexCapacity, true), (entry.IB, entry.IndexCapacity, false) })
+            {
+                if (!buffer.IsValid) continue;
+                if (_pooledBufferBytes + capacity > MaxPooledBufferBytes) { _gpu.ReleaseBuffer(buffer); continue; }
+                _pooledBufferBytes += capacity;
+                _restingBuffers.Enqueue((buffer, capacity, vertex, _flushes, System.Diagnostics.Stopwatch.GetTimestamp()));
+            }
+        }
+
+        private void ReleaseRestedBuffers()
+        {
+            long now = System.Diagnostics.Stopwatch.GetTimestamp();
+            while (_restingBuffers.Count > 0)
+            {
+                var (buffer, capacity, vertex, flush, ticks) = _restingBuffers.Peek();
+                if (_flushes - flush < RestFlushes || now - ticks < RestTicks) break;
+                _restingBuffers.Dequeue();
+                if (!_bufferPool.TryGetValue((capacity, vertex), out Stack<GpuBufferHandle> free)) _bufferPool[(capacity, vertex)] = free = new Stack<GpuBufferHandle>();
+                free.Push(buffer);
+            }
+        }
 
         private struct SkinPaletteEntry
         {
@@ -2391,8 +2500,12 @@ namespace Genesis.Rendering.Primitives
             if (entry.IsReleased)
                 return;
 
-            _gpu.ReleaseBuffer(entry.VB);
-            _gpu.ReleaseBuffer(entry.IB);
+            if (entry.Pooled) ReturnPooledBuffers(entry);
+            else
+            {
+                _gpu.ReleaseBuffer(entry.VB);
+                _gpu.ReleaseBuffer(entry.IB);
+            }
             entry = new MeshEntry { IsReleased = true };
             _freeMeshIds.Push(handle.Id);
         }
@@ -3479,6 +3592,7 @@ namespace Genesis.Rendering.Primitives
             int viewW = 0, int viewH = 0, GpuTextureHandle depthTexture = default,
             bool allowPostProcess = true)
         {
+            _flushes++; // pooled mesh buffers rest a number of these before reuse
             FollowDepthChoice();
             if (!depthTexture.IsValid)
             {
@@ -6490,6 +6604,9 @@ namespace Genesis.Rendering.Primitives
 
         public void Dispose()
         {
+            foreach (Stack<GpuBufferHandle> free in _bufferPool.Values) while (free.Count > 0) _gpu.ReleaseBuffer(free.Pop());
+            while (_restingBuffers.Count > 0) _gpu.ReleaseBuffer(_restingBuffers.Dequeue().Buffer);
+            _pooledBufferBytes = 0;
             ReleasePostEffectTargets();
             ReleaseAntiAliasResources();
             ReleaseGpuCulling();
