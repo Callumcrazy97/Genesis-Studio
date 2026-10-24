@@ -133,7 +133,7 @@ system or editor that already exists, reachable from PGSL as `Engine.Area.Part.V
 | Top-down 2D RPG or action game | **Ready** | Rooms, tiles, room changes without a freeze, UI toolkit lists, languages, saves (Nuvema Town plays end to end) | The game starter screens |
 | Voxel or block-building game | **Ready** | Meshes a script builds, chunk meshing on jobs (6,700 to 13,700 chunks a second), compact grids, mesh streaming that holds memory level | None found |
 | Third-person action-adventure | **Ready, with gaps** | Orbit, shoulder and collision camera, root motion, look-at and reach IK, Animation Controllers, navigation agents, decals, flash lights | Ragdolls (below); play from the editor's camera (P1 6) |
-| First-person shooter, solo campaign (Halo 1) | **Possible now, with gaps** | First-person arms and held items, character bodies, ray and shape casts, bullet-hole decals, muzzle flashes, navigation with jumps, gaps and ladders, 3D sound and acoustics, outdoor terrain, sky and weather, rebindable actions, several pads | **Ragdolls:** the Physics editor's Ragdoll Lab is a preview and games have ball joints between instances only; a model's bones should become bodies through *physics on a model part*, the same route as cloth. **Split-screen co-op:** 2D rooms have up to eight views, but the 3D camera draws one; `Engine.View` should reach 3D as well (online co-op through the relay already works). **Many enemies thinking at once:** sight is ray casts and moving is navigation, all PGSL, so PGSL to IL (P1 10). Vehicles are Objects with a body and a ray cast per wheel in PGSL; a genre starter would show one. Cutscenes are camera moves and animation events from PGSL (the timeline was declined) |
+| First-person shooter, solo campaign (Halo 1) | **Possible now, with gaps** | First-person arms and held items, character bodies, ray and shape casts, bullet-hole decals, muzzle flashes, navigation with jumps, gaps and ladders, 3D sound and acoustics, outdoor terrain, sky and weather, rebindable actions, several pads | **Ragdolls** are Objects with physics, no system of their own: one body per limb joined by `PhysicsCreateJoint`, each limb's turn copied onto the character's bones with `AnimationBoneSetRotation`. Two general pieces are missing: joint limits and hinges (only free ball joints exist, so knees bend backwards; doors and suspension want them too), and reading a bone's place in the world (PGSL can set bones but not read where they are). **Split screen works already**, in 3D as in 2D: each enabled viewport gets a full pass and follows its own Object, with a pad per player (two physical keyboards cannot be told apart on Windows; keyboard players share one). **Many enemies thinking at once:** sight is ray casts and moving is navigation, all PGSL, so PGSL to IL (P1 10). Vehicles are Objects with a body and a ray cast per wheel in PGSL; a genre starter would show one. Cutscenes are camera moves and animation events from PGSL (the timeline was declined) |
 | Open-world RPG (Skyrim-like) | **The world yes, the game in part** | Worlds kilometres across, terrain drawn by distance, forests of hundreds of thousands of trees with collision near what moves, scenery streaming, automatic levels of detail, texture streaming, several terrains, time of day, seasons and weather, routes that prefer roads, model layers for armour, UI lists for inventory and dialogue, saves, languages | ~~People and things that stream and remember~~ (done 24 October: streamed Objects come back where they were with their variables, destroyed ones stay gone, persistent rooms come back as left, persistent Objects are no longer made twice; still to do: keeping that in save files, and Objects made at run time). **Terrain streaming by tile:** each terrain file is read whole and neighbours are not stitched. **Far shadows:** done for terrain (24 October: a mountain behind the camera shades the view); distant scatter and Objects behind the camera still cast none. **Far towns:** distant stand-ins (P2 12). **Hundreds of NPC schedules:** PGSL to IL. Quests and dialogue are PGSL with the UI toolkit; a genre starter would show the pattern rather than a quest system |
 | Online co-op, small sessions | **Ready, small scale** | LAN discovery, relay, replication with interest distance, each player's character shown to the others | Measured only at small player counts |
 | Strategy with many units | **Possible, speed untested** | Navigation agents with avoidance, GPU culling of instanced batches, script jobs | PGSL to IL for hundreds of units' logic; box selection and orders are PGSL and GUI drawing |
@@ -145,8 +145,9 @@ system or editor that already exists, reachable from PGSL as `Engine.Area.Part.V
 Halo 1's size can be made today; the work is content and PGSL. A Skyrim-like game's world can be
 made today, and since the evening of 24 October its people and things stream and remember within
 a game session (saving that to a save file is next). The blockers shared by the most games are
-now ragdolls (physics on a model part), PGSL to IL, render scale, 3D split screen, and the game
-starter screens, in that order of work.
+now joint limits and bone reads (which make ragdolls a PGSL recipe), render scale, PGSL to IL,
+terrain streamed by tile, and the game starter screens, in that order of work. (Split screen was
+listed here by mistake: 3D rooms already draw several views.)
 
 **Fixed on 24 October evening** (each with a regression case in the Full Build): streamed Objects
 remember their state and destroyed ones stay gone (`Engine.Room.Streaming.*`); the Room's
@@ -157,4 +158,15 @@ compiles every script first; the Inspector's settings list shows each default.
 
 ## Release run
 
-(Filled in after the Full Build.)
+24 October 2026, 19:37, commit 0598c56 (Studio revision 23), on a quiet machine:
+
+- `Build.bat --full --installer`: **passed** in 28.5 minutes. Full regression **1407 of 1407**
+  checks (859 images), none left unrun; renderer smokes passed on DX11, DX12, Vulkan, OpenGL and
+  software; installer written to `Dist\GenesisStudio-Setup.exe`. Unsigned (by choice; signing is
+  ready through `GENESIS_SIGN_COMMAND`).
+- `BuildTools\InstallDrill.ps1`: **passed**, 6 steps: a silent install for the current user with
+  no administrator (2,686 files, 579 MB, version 0.1.0), Studio started from a folder it may only
+  read, an upgrade over the top, and an uninstall.
+- The day's earlier runs: release3 had one failure, from a compile of mine during its regression
+  (the 2D gate passes alone); the 18:58 tiers run had one, the post-effect worker test whose game
+  stopped drawing under another session's GPU load (the stall its notes describe); both passed here.

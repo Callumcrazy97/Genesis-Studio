@@ -80,7 +80,7 @@ Engine.Navigation.Agent (Speed, StoppingDistance). Colours are "#rrggbb" text.
 | Engine.Camera.Focus (depth of field) | + Enabled, + Distance, + Range, + Blur, + Auto (focus on what is at the centre) |
 | Engine.Camera.Layers | ✓ ModelLayer.Fov/Near/Visible [ModelLayerSetFov...], ✓ ViewLayer.Fov/Near [ViewLayerSetFov] |
 
-## Engine.View (2D views and split screens)
+## Engine.View (views and split screens, in 2D and 3D rooms)
 
 | Part | Values |
 |---|---|

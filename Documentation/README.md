@@ -17,10 +17,20 @@ in [Design/EngineApiAreas.md](Design/EngineApiAreas.md).
   light probes in editor views and tests (probes now run only in games); the rest were tests left
   behind by earlier changes (the 16 October Hub and Preferences redesigns, Animation Controllers on
   22 October, the 15 October Mushroom Meadow content, sounds rechecking files twice a second), each
-  updated after checking that the code does what the change intended. The release run is recorded
-  below when it is done.
-- **Not done yet** (see the recommendations): render scale and dynamic resolution, a game starter
-  with menus, options and save slots, genre starters, PGSL compiled to IL, Linux.
+  updated after checking that the code does what the change intended.
+- **Evening:** streamed Objects come back as they left and destroyed ones stay gone
+  (`Engine.Room.Streaming.*`); the Room's Persistent setting, which the runtime ignored, brings a
+  room back as it was left; persistent Objects are no longer made twice on returning to their room;
+  terrain behind the camera casts its shadow into the view; `Engine.Weather` wind, rain, snow,
+  lightning and temperature from PGSL; Export compiles every script first; the Inspector's settings
+  list shows each default.
+- **Release run (19:37, commit 0598c56):** `Build.bat --full --installer` passed in 28.5 minutes,
+  full regression 1407 of 1407 with none left unrun, smokes on DX11, DX12, Vulkan, OpenGL and
+  software; the install drill passed (install without administrator, start from a read-only
+  folder, upgrade, uninstall). The installer is unsigned by choice.
+- **Not done yet** (see the recommendations): joint limits and bone reads (for ragdolls), render
+  scale and dynamic resolution, PGSL compiled to IL, terrain streamed by tile, a game starter with
+  menus, options and save slots, genre starters, Linux.
 
 ## Release readiness, 2 October 2026
 

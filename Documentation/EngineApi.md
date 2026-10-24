@@ -6,7 +6,7 @@ variable and, when it can be set, set like one (`Engine.Physics.Mass = 4;`, `Eng
 an instance's property is the current instance's, each target's in turn inside `with`. The flat
 names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
-1620 names: 369 properties (310 can be set), 1251 commands.
+1656 names: 403 properties (343 can be set), 1253 commands.
 
 ## Engine.Alarm
 
@@ -178,6 +178,12 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `Enabled` | property | The sound-effects bus (true unless set); off keeps its volume for when it comes back |
 | `Volume` | property | The sound-effects bus's volume, 0 to 1 (1 unless set) |
 
+## Engine.Audio.Listener
+
+| Name | Kind | What it is |
+|---|---|---|
+| `FollowCamera` | property | Positioned sounds are heard from the 3D camera (true unless set); false keeps the listener where SetAudioListener put it |
+
 ## Engine.Audio.Music
 
 | Name | Kind | What it is |
@@ -322,6 +328,12 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `ScreenshotSave` | command | Save a picture of this frame once it is drawn, as name.png in the project's debug images folder; one run can take many |
 | `TestCheck` | command | Report a self-test result (pass or fail with a detail); Studio's game.run collects them from the project's Logs/checks.log |
 | `Watch` | command | Publish a named value to the in-game debugger's Watch window. |
+
+## Engine.Debug.Keys
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Enabled` | property | The engine's debug keys (F6 debug screen, F12 screenshot...) in this run (true in Studio's Run, false in an exported game, unless set) |
 
 ## Engine.Decal
 
@@ -538,6 +550,13 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `TimeMs` | command | Milliseconds of real time since the game started, unaffected by pause or time scale |
 | `Version` | read only | The game's version, from its project ("1.0" unless the project sets one): for a title or about screen; it is in crash reports too |
 
+## Engine.Game.Scripts
+
+| Name | Kind | What it is |
+|---|---|---|
+| `InstructionLimit` | property | Instructions each event body and function call may run before it is stopped as a hang (100000 unless set; up to 1000000000) |
+| `Profile` | property | Time every event and function, for Engine.Game.Scripts.Report() (false unless set) |
+
 ## Engine.Global
 
 | Name | Kind | What it is |
@@ -714,6 +733,7 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | Name | Kind | What it is |
 |---|---|---|
 | `DeadZone` | property | How far both sticks must move before they count, 0 to 0.9 (the engine's unless set) |
+| `KeyboardEmulation` | property | A controller also presses the keys a keyboard game listens for (arrows, Space, Enter, Escape) (true unless set) |
 
 ## Engine.Input.Mouse
 
@@ -1104,6 +1124,12 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `UploadBudget` | property | Sets (MeshSetUploadBudget): How long a frame may spend sending new or changed meshes to the GPU (default 4; 0 = no limit). The rest go on later frames: a changed mesh draws its previous build meanwhile |
 | `VertexCount` | command | Vertices in a mesh |
 
+## Engine.Mesh.Upload
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Budget` | property | How long a frame may spend sending script meshes to the graphics card before the rest wait for the next (4 unless set) |
+
 ## Engine.Model
 
 | Name | Kind | What it is |
@@ -1167,6 +1193,20 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `StaticRemove` | command | Stop drawing a placed model |
 | `ViewLayer` | property | Whether this instance's model is drawn in the view layer (layer 1: a first-person weapon) |
 
+## Engine.Model.Glow
+
+| Name | Kind | What it is |
+|---|---|---|
+| `EmissionScale` | property | The light this model's materials give off: 0 puts its lamps out, 1 is as authored (1 unless set) |
+| `Strength` | property | How brightly this instance's model glows in its own colours, 0 to 32 (0 unless set) |
+
+## Engine.Model.Shadows
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Cast` | property | Whether this instance's model casts a shadow (true unless set) |
+| `Receive` | property | Whether shadows fall on this instance's model (true unless set) |
+
 ## Engine.Navigation
 
 | Name | Kind | What it is |
@@ -1200,6 +1240,13 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `RemoveLink` | command | Take a link away (routes already found keep it); false when there is no such link |
 | `RemoveObstacle` | command | Take away an obstacle NavMeshAddObstacle placed; false when there is no such obstacle |
 | `SetAreaCost` | command | Make the navigation cells in a rectangle cheaper or dearer to cross (a road 0.5, mud 3; 1 is normal, 0.05 to 1000), so routes prefer or avoid them; in a 2D room z is y. Set after NavMeshBake or a room load. Returns how many cells changed |
+
+## Engine.Navigation.Agent
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Speed` | property | How fast this instance's navigation agent moves, world units a second, 0 to 10000 (3.8 unless set) |
+| `StoppingDistance` | property | How close to its destination this instance's agent counts as arrived, 0 to 100 (0.1 unless set) |
 
 ## Engine.Network
 
@@ -1325,6 +1372,12 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `SetRate` | command | Particles emitted per second |
 | `SpawnParticleEmitter` | command | Spawn a Particle resource through the runtime Object component system |
 | `Update` | command | Advance an emitter's simulation |
+
+## Engine.Particle.Bursts
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Limit` | property | How many particle bursts may be alive at once, the oldest ending first (256 unless set) |
 
 ## Engine.Physics
 
@@ -1714,6 +1767,15 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `ScriptExecute` | command | Execute a named PGSL Script resource; supports spaces in resource names. Returns 0 when no Script VM is active |
 | `TypeOf` | command | Return the resource type for a project name, or an empty string when absent |
 
+## Engine.Room.Change
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Fade` | property | How long the cover takes to fade from a room just shown, 0 to 5 seconds (0.2 unless set; 0 lifts it at once) |
+| `MinimumTime` | property | The least time a room change's cover stays up, so a loading screen can be read, 0 to 60 seconds (0 unless set) |
+| `ProgressBar` | property | Whether the engine draws its progress bar and text on a room change's cover (true unless set) |
+| `Text` | property | The words above the progress bar during a room change ("Loading" unless set; "" for none) |
+
 ## Engine.Room
 
 | Name | Kind | What it is |
@@ -1746,6 +1808,14 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `ValueGet` | command | Read a room-scoped numeric script value |
 | `ValueSet` | command | Set a numeric value shared by scripts in the current room; not a global or a save file |
 | `Width` | read only | Current room width in pixels |
+
+## Engine.Room.Streaming
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Forget` | command | Forgets what every streamed Object was like and which were destroyed: each comes back as its room first made it (a new day's foes, a reset dungeon) |
+| `Remember` | property | Streamed Objects ("streamable": true) come back where they were with their variables, and Objects or scenery a script destroyed stay gone, for the rest of the game, room by room (true unless set) |
+| `Remembered` | read only | How many streamed Objects and destroyed things are remembered now, in every room (read) |
 
 ## Engine.Save
 
@@ -1970,6 +2040,12 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `RemoveAt` | command | Remove a live tile and its collision without changing the saved room (on an autotiled layer its neighbours take the tiles that now fit) |
 | `SetAt` | command | Replace an existing live tile and invalidate collision; does not edit the saved room |
 
+## Engine.Tile.Autotile
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Enabled` | property | Painting and erasing tiles from a script picks each tile from its neighbours on an autotiled tile set (true unless set) |
+
 ## Engine.Time
 
 | Name | Kind | What it is |
@@ -2081,6 +2157,12 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `SetZoom` | command | Set 2D zoom while preserving viewport centre |
 | `Shake` | command | Apply a decaying camera shake |
 
+## Engine.View.Camera
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Zoom` | property | How far the active view is zoomed in, 0.01 to 100 (1 unless set) |
+
 ## Engine.Water
 
 | Name | Kind | What it is |
@@ -2092,6 +2174,12 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `Reflections` | property | Enable one half-resolution planar reflection for the dominant water plane; software uses sky fallback |
 | `SurfaceAt` | command | Authored water surface height, or terrain height when no water exists |
 
+## Engine.Water.Reflections
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Enabled` | property | Water mirrors the scene above it (off unless set; a half-resolution pass) |
+
 ## Engine.Weather
 
 | Name | Kind | What it is |
@@ -2100,5 +2188,43 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `LightningFlash` | command | From 0 to 1: the light a lightning strike is adding to the scene right now |
 | `LightningStrikes` | command | How many times lightning has struck since the room began; compare with the last value to react to a strike |
 | `Preset` | property | The weather: "clear", "overcast", "wind", "rain", "thunderstorm", "snow", "hail", "fog" or "coldsnap"; setting it changes over Engine.Weather.Transition seconds and stops automatic weather ("clear" unless the room sets another) |
+| `Release` | command | The wind, rain, snow, lightning and temperature a script set follow the weather again, and every weather part is on |
 | `StrikeLightning` | command | Make lightning strike now at this distance, whatever the weather; thunder follows. The room must draw its own weather |
 | `Transition` | property | How long a change of weather takes, 0 to 600 seconds (20 unless set) |
+
+## Engine.Weather.Lightning
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Amount` | property | How often lightning strikes, 0 to 1 (the weather's unless set: 0.85 in a thunderstorm, 0 otherwise) |
+| `Enabled` | property | Lightning in storms (true unless set); a script's own strikes still happen when off |
+
+## Engine.Weather.Rain
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Amount` | property | How hard it rains, 0 to 1 (the weather's unless set: 0 in clear weather, 0.72 in rain) |
+| `Enabled` | property | Rain (true unless set); off, no rain falls whatever the weather |
+| `Wetness` | property | How wet the ground and surfaces are, 0 to 1 (0 unless set); rain wets them and warmth and wind dry them from there |
+
+## Engine.Weather.Snow
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Amount` | property | How hard it snows, 0 to 1 (the weather's unless set: 0.78 in snow) |
+| `Cover` | property | How much snow lies on the ground and surfaces, 0 to 1 (0 unless set); snow builds it and warmth melts it from there |
+| `Enabled` | property | Snow (true unless set); off, no snow falls whatever the weather |
+
+## Engine.Weather.Temperature
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Celsius` | property | The air's temperature at sea level, -60 to 60 degrees (the weather's unless set: 18 in clear weather); below 0 snow lies and above it melts |
+
+## Engine.Weather.Wind
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Direction` | property | The way the wind blows towards, 0 to 360 degrees: 0 along +Z, 90 along +X (the weather's unless set) |
+| `Enabled` | property | Wind (true unless set); off, the weather's wind is still whatever the weather |
+| `Strength` | property | The wind's speed, 0 to 60 metres a second (the weather's unless set: 1.2 in clear weather, 11 in a thunderstorm) |
