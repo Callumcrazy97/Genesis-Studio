@@ -172,6 +172,10 @@ internal static class PgslEngineApiChecks
         Engine.Rendering.Detail.Quality = 2;
         detail = Engine.Rendering.Detail.Quality;
         Engine.Rendering.Detail.Quality = 1;
+        dTransition = Engine.Weather.Transition;
+        Engine.Weather.Transition = 900;
+        transition = Engine.Weather.Transition;
+        Engine.Weather.Transition = 20;
         """;
 
     private static void Parts(ProjectSession project, Action<string, string, string, string> row)
@@ -210,8 +214,9 @@ internal static class PgslEngineApiChecks
                 && Number("dOrbit") == 7.5 && !Flag("dOrbitOn"),
                 $"shadow strength {Number("dShadow")}, fog start {Number("dFogStart")}, sun {Number("dSun")}, toon steps {Number("dSteps")}, orbit {Number("dOrbit")} (attached {Flag("dOrbitOn")})");
             Check("values keep what a script sets, kept in range",
-                Flag("fogOn") && Number("fogStart") == 12 && Text("fogColor") == "#ff8000" && Number("pitch") == 90 && Number("orbit") == 3 && Number("detail") == 2,
-                $"fog {Flag("fogOn")} from {Number("fogStart")} in {Text("fogColor")}, sun pitch {Number("pitch")} (90), orbit {Number("orbit")}, detail {Number("detail")}");
+                Flag("fogOn") && Number("fogStart") == 12 && Text("fogColor") == "#ff8000" && Number("pitch") == 90 && Number("orbit") == 3 && Number("detail") == 2
+                && Number("dTransition") == 20 && Number("transition") == 600,
+                $"fog {Flag("fogOn")} from {Number("fogStart")} in {Text("fogColor")}, sun pitch {Number("pitch")} (90), orbit {Number("orbit")}, detail {Number("detail")}, weather transition {Number("dTransition")} then {Number("transition")} (20, 600)");
             Check("a part turned on turns its area on", Flag("lightingAfterToon") && Flag("toonOn"),
                 $"lighting {Flag("lightingAfterToon")} and toon {Flag("toonOn")} after Engine.Lighting.Toon.Enabled = true (game lighting now {game.Scene?.Environment.LightingEnabled})");
             Check("pausing keeps the speed for when it resumes", Flag("paused") && Number("resumed") == 1, $"paused {Flag("paused")}, speed after {Number("resumed")}");

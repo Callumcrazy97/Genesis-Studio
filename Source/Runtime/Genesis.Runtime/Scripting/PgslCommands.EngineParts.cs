@@ -366,6 +366,52 @@ public static partial class PgslCommands
     [PgslCommand("Enabled", "Engine.Sky.Stars.Enabled = true", "Stars and the moon's glow at night (the quality tier's unless set)", "Sky", Namespace = "Engine.Sky.Stars", Flat = false)]
     public static bool SkyStarsEnabled { get => CelestialExtrasEnabled; set => CelestialExtrasEnabled = value; }
 
+    // ── Engine.Sky.Time's clock and Engine.Weather ───────────────────────────────────────
+
+    private static Genesis.Runtime.Climate.EnvironmentService? Climate => ActiveGameContext?.Scene?.Climate;
+
+    [PgslCommand("Speed", "Engine.Sky.Time.Speed = multiplier", "How much faster than real time the day goes, 0 to 100000 (24 unless the room sets another: a day an hour)", "Sky", Namespace = "Engine.Sky.Time", Flat = false)]
+    public static double SkyTimeSpeed
+    {
+        get => Climate?.Options.TimeScale ?? 24;
+        set { if (Climate is { } climate) climate.Options.TimeScale = Finite(value, 0, 100000, 24f); }
+    }
+
+    [PgslCommand("Paused", "Engine.Sky.Time.Paused = true", "Stop the time of day where it is (false unless set)", "Sky", Namespace = "Engine.Sky.Time", Flat = false)]
+    public static bool SkyTimePaused
+    {
+        get => Climate?.Options.Paused ?? false;
+        set { if (Climate is { } climate) climate.Options.Paused = value; }
+    }
+
+    private static double _weatherTransition = 20;
+
+    [PgslCommand("Preset", "Engine.Weather.Preset = \"rain\"", "The weather: \"clear\", \"overcast\", \"wind\", \"rain\", \"thunderstorm\", \"snow\", \"hail\", \"fog\" or \"coldsnap\"; setting it changes over Engine.Weather.Transition seconds and stops automatic weather (\"clear\" unless the room sets another)", "Weather", Namespace = "Engine.Weather", Flat = false)]
+    public static string WeatherPreset
+    {
+        get => (Climate?.ActiveWeather ?? Genesis.Runtime.Climate.WeatherKind.Clear).ToString().ToLowerInvariant();
+        set
+        {
+            if (Climate is { } climate && Enum.TryParse(value?.Trim(), true, out Genesis.Runtime.Climate.WeatherKind kind))
+                climate.SetWeather(kind, (float)_weatherTransition);
+        }
+    }
+
+    [PgslCommand("Transition", "Engine.Weather.Transition = seconds", "How long a change of weather takes, 0 to 600 seconds (20 unless set)", "Weather", Namespace = "Engine.Weather", Flat = false)]
+    public static double WeatherTransition { get => _weatherTransition; set => _weatherTransition = Finite(value, 0, 600, 20f); }
+
+    [PgslCommand("Auto", "Engine.Weather.Auto = true", "The weather changes by itself through the day (the room's choice unless set); setting a preset turns it off", "Weather", Namespace = "Engine.Weather", Flat = false)]
+    public static bool WeatherAuto
+    {
+        get => Climate?.Options.AutomaticWeather ?? false;
+        set
+        {
+            if (Climate is not { } climate) return;
+            if (value) climate.ResumeAutomaticWeather();
+            else climate.Options.AutomaticWeather = false;
+        }
+    }
+
     // ── Engine.Audio's parts ─────────────────────────────────────────────────────────────
 
     // A turned-off bus keeps the volume it had, for when it is turned on again.

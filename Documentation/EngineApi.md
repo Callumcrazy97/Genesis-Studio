@@ -6,7 +6,7 @@ variable and, when it can be set, set like one (`Engine.Physics.Mass = 4;`, `Eng
 an instance's property is the current instance's, each target's in turn inside `with`. The flat
 names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
-1615 names: 364 properties (305 can be set), 1251 commands.
+1620 names: 369 properties (310 can be set), 1251 commands.
 
 ## Engine.Alarm
 
@@ -1867,6 +1867,8 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `DayOfYear` | property | The day of the year, 1 to 365: the sun's height through the seasons (the room's unless set) |
 | `Latitude` | property | How far north (positive) or south the world is, for the sun's path (the room's unless set) |
 | `OfDay` | property | The time of day, 0 to 24 hours: moves the sun and moon (the room's unless set) |
+| `Paused` | property | Stop the time of day where it is (false unless set) |
+| `Speed` | property | How much faster than real time the day goes, 0 to 100000 (24 unless the room sets another: a day an hour) |
 
 ## Engine.Stack
 
@@ -2094,6 +2096,9 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
 | Name | Kind | What it is |
 |---|---|---|
+| `Auto` | property | The weather changes by itself through the day (the room's choice unless set); setting a preset turns it off |
 | `LightningFlash` | command | From 0 to 1: the light a lightning strike is adding to the scene right now |
 | `LightningStrikes` | command | How many times lightning has struck since the room began; compare with the last value to react to a strike |
+| `Preset` | property | The weather: "clear", "overcast", "wind", "rain", "thunderstorm", "snow", "hail", "fog" or "coldsnap"; setting it changes over Engine.Weather.Transition seconds and stops automatic weather ("clear" unless the room sets another) |
 | `StrikeLightning` | command | Make lightning strike now at this distance, whatever the weather; thunder follows. The room must draw its own weather |
+| `Transition` | property | How long a change of weather takes, 0 to 600 seconds (20 unless set) |
