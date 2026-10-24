@@ -104,7 +104,7 @@ internal static class Program
                 string error = ProjectPlayerApp.LastError ?? $"The game could not start (exit code {code}). Check the project and its start room.";
                 WriteCrashReport(error);
                 if (!quiet)
-                    MessageBox.Show(error, "Genesis Player — game error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    MessageBox.Show(error + ReportNote(), "Genesis Player — game error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             return code;
         }
@@ -113,14 +113,20 @@ internal static class Program
             // Reported rather than swallowed: an exception escaping here is what the user sees as a
             // silent hang, and the stack is the only thing that identifies the cause.
             WriteCrashReport(ex);
-            if (!quiet) MessageBox.Show(ex.Message, "Genesis Player — game error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            if (!quiet) MessageBox.Show(ex.Message + ReportNote(), "Genesis Player — game error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return 3;
         }
     }
 
+    private static string ReportNote() =>
+        _lastCrashReport == null ? "" : $"{Environment.NewLine}{Environment.NewLine}A report was saved to {_lastCrashReport}";
+
+    /// <summary>Where the last crash report was written, for the error dialog to name; null before one is.</summary>
+    private static string? _lastCrashReport;
+
     private static void WriteCrashReport(object? error)
     {
-        string text = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] GenesisEngine crashed{Environment.NewLine}{error}";
+        string text = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] GenesisEngine crashed{Environment.NewLine}{CrashContext()}{error}";
         Console.Error.WriteLine(text);
 
         // Beside the game first, where its author looks. A game installed under Program Files may
@@ -135,7 +141,9 @@ internal static class Program
             try
             {
                 Directory.CreateDirectory(folder);
-                File.AppendAllText(Path.Combine(folder, "GenesisEngine.crash.log"), text + Environment.NewLine + Environment.NewLine);
+                string report = Path.Combine(folder, "GenesisEngine.crash.log");
+                File.AppendAllText(report, text + Environment.NewLine + Environment.NewLine);
+                _lastCrashReport = report;
                 return;
             }
             catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
@@ -144,6 +152,39 @@ internal static class Program
                 // original failure with a second one.
             }
         }
+    }
+
+    // What a report needs to be acted on: which game and version, which engine build and renderer,
+    // the room and the machine, and what the game logged last.
+    private static string CrashContext()
+    {
+        var context = new System.Text.StringBuilder();
+        try
+        {
+            string project = Genesis.Runtime.Scripting.PgslCommands.ProjectPath ?? "";
+            (string name, string version) = Genesis.Runtime.Project.ProjectPaths.ReadGameInfo(project);
+            string engine = typeof(Genesis.Runtime.Project.ProjectPlayerApp).Assembly
+                .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+                .OfType<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion
+                ?? typeof(Genesis.Runtime.Project.ProjectPlayerApp).Assembly.GetName().Version?.ToString() ?? "unknown";
+            context.AppendLine($"Game: {(name.Length > 0 ? name : "unknown")} {version}");
+            context.AppendLine($"Engine: {engine}, built {File.GetLastWriteTime(typeof(Genesis.Runtime.Project.ProjectPlayerApp).Assembly.Location):yyyy-MM-dd HH:mm}");
+            context.AppendLine($"Renderer: {Environment.GetEnvironmentVariable("GENESIS_RENDER_BACKEND") ?? "default"}");
+            context.AppendLine($"Room: {Genesis.Runtime.Scripting.PgslCommands.ActiveGameContext?.Room?.Name ?? "none"}");
+            context.AppendLine($"System: {System.Runtime.InteropServices.RuntimeInformation.OSDescription}, .NET {Environment.Version}, {Environment.ProcessorCount} threads");
+            string[] tail = Genesis.Runtime.Project.ProjectLogger.Tail(40);
+            if (tail.Length > 0)
+            {
+                context.AppendLine("Last lines of the game's log:");
+                foreach (string line in tail) context.AppendLine("  " + line);
+            }
+        }
+        catch (Exception exception)
+        {
+            // A report that cannot gather its context still reports the failure.
+            context.AppendLine("(context unavailable: " + exception.Message + ")");
+        }
+        return context.ToString();
     }
 
     /// <summary>Runs a relay (GenesisRelayServer) on a UDP port until the process is stopped.</summary>

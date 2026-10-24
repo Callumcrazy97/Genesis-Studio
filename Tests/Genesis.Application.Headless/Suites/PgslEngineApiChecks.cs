@@ -134,6 +134,107 @@ internal static class PgslEngineApiChecks
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiPhysicsWithAndFor", () => Physics(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.AutotilesAndAcoustics", () => AutotilesAndAcoustics(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.ThreadsShareCullingAndDrawTheSame", () => SharedCulling(row));
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiPartsDefaultsAndValues", () => Parts(project, row));
+    }
+
+    // Engine.Area.Part.Value in a running room: each value reads its default until set, keeps what a
+    // script sets (kept in range), and a part turned on turns its area on.
+    private const string PartsScript = """
+        dShadow = Engine.Rendering.Shadows.Strength;
+        dFogStart = Engine.Rendering.Fog.Start;
+        dSun = Engine.Lighting.Sun.Intensity;
+        dSteps = Engine.Lighting.Toon.Steps;
+        dOrbit = Engine.Camera.Orbit.Distance;
+        dOrbitOn = Engine.Camera.Orbit.Enabled;
+        Engine.Rendering.Fog.Enabled = true;
+        Engine.Rendering.Fog.Start = 12;
+        Engine.Rendering.Fog.Color = "#ff8000";
+        fogOn = Engine.Rendering.Fog.Enabled;
+        fogStart = Engine.Rendering.Fog.Start;
+        fogColor = Engine.Rendering.Fog.Color;
+        Engine.Lighting.Sun.Pitch = 120;
+        pitch = Engine.Lighting.Sun.Pitch;
+        Engine.Lighting.Enabled = false;
+        Engine.Lighting.Toon.Enabled = true;
+        lightingAfterToon = Engine.Lighting.Enabled;
+        toonOn = Engine.Lighting.Toon.Enabled;
+        Engine.Game.Paused = true;
+        paused = Engine.Game.Paused && Engine.Game.Speed == 0;
+        Engine.Game.Paused = false;
+        resumed = Engine.Game.Speed;
+        Engine.Audio.Acoustics.Place = "hall";
+        Engine.Audio.Acoustics.Enabled = false;
+        offPlace = Engine.Audio.Acoustics.Place;
+        Engine.Audio.Acoustics.Enabled = true;
+        backPlace = Engine.Audio.Acoustics.Place;
+        Engine.Camera.Orbit.Distance = 3;
+        orbit = Engine.Camera.Orbit.Distance;
+        Engine.Rendering.Detail.Quality = 2;
+        detail = Engine.Rendering.Detail.Quality;
+        Engine.Rendering.Detail.Quality = 1;
+        """;
+
+    private static void Parts(ProjectSession project, Action<string, string, string, string> row)
+    {
+        RoomAsset room = RoomAsset.Create("PartsRoom", RoomDimension.ThreeD);
+        using var scene = new RuntimeScene("Parts");
+        var game = new ProjectGameContext(project.RootPath, scene, null, null, room, null);
+        PgslContext previousContext = PgslCommands.BindContext(new PgslContext());
+        var previousGame = PgslCommands.ActiveGameContext;
+        string previousPath = PgslCommands.ProjectPath;
+        PgslCommands.ActiveGameContext = game;
+        PgslCommands.ProjectPath = project.RootPath;
+        try
+        {
+            VMEngine.Initialize();
+            var host = new ScriptHostSystem();
+            host.SetContext(game);
+            Entity entity = scene.World.CreateEntity();
+            scene.World.Set(entity, new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+            using (host.UseEventSources(new Dictionary<string, string> { ["Create"] = PartsScript })) host.Attach(scene.World, entity, "PartsProbe");
+            var vars = host.Instances.OfType<PgslBehavior>().Single(behavior => behavior.Entity == entity).GetVariablesSnapshot();
+            double Number(string name) => vars.TryGetValue(name, out object? value) && value is not string ? Convert.ToDouble(value, CultureInfo.InvariantCulture) : double.NaN;
+            // A comparison or && gives 1 or 0; a property read gives true or false.
+            bool Flag(string name) => vars.TryGetValue(name, out object? value)
+                && (value is true || value is not (string or bool or null) && Convert.ToDouble(value, CultureInfo.InvariantCulture) != 0);
+            string Text(string name) => vars.TryGetValue(name, out object? value) ? value as string ?? "" : "";
+            string diagnostics = string.Join("; ", host.RecentDiagnostics.Select(d => d.Message));
+            void Check(string name, bool pass, string detail)
+            {
+                row("Engine API parts", name, pass ? "PASS" : "FAIL", detail);
+                HeadlessHarness.Assert(pass, $"{name}: {detail} {diagnostics}");
+            }
+
+            Check("values read their defaults until set",
+                Number("dShadow") == 1 && Number("dFogStart") == 35 && Math.Abs(Number("dSun") - 1.1) < 1e-6 && Number("dSteps") == 1
+                && Number("dOrbit") == 7.5 && !Flag("dOrbitOn"),
+                $"shadow strength {Number("dShadow")}, fog start {Number("dFogStart")}, sun {Number("dSun")}, toon steps {Number("dSteps")}, orbit {Number("dOrbit")} (attached {Flag("dOrbitOn")})");
+            Check("values keep what a script sets, kept in range",
+                Flag("fogOn") && Number("fogStart") == 12 && Text("fogColor") == "#ff8000" && Number("pitch") == 90 && Number("orbit") == 3 && Number("detail") == 2,
+                $"fog {Flag("fogOn")} from {Number("fogStart")} in {Text("fogColor")}, sun pitch {Number("pitch")} (90), orbit {Number("orbit")}, detail {Number("detail")}");
+            Check("a part turned on turns its area on", Flag("lightingAfterToon") && Flag("toonOn"),
+                $"lighting {Flag("lightingAfterToon")} and toon {Flag("toonOn")} after Engine.Lighting.Toon.Enabled = true (game lighting now {game.Scene?.Environment.LightingEnabled})");
+            Check("pausing keeps the speed for when it resumes", Flag("paused") && Number("resumed") == 1, $"paused {Flag("paused")}, speed after {Number("resumed")}");
+            Check("a part turned off comes back as it was", Text("offPlace") == "outdoors" && Text("backPlace") == "hall",
+                $"acoustics off: {Text("offPlace")}, on again: {Text("backPlace")}");
+
+            // A setting added in the Inspector starts at the value's own default.
+            string Default(string name) => EngineSettings.TryFind(name, out EngineSettings.Setting setting) ? EngineSettings.DefaultText(setting) : "(not a setting)";
+            PgslCommands.ActiveGameContext = previousGame;
+            string fogStart = Default("Engine.Rendering.Fog.Start"), bounce = Default("Engine.Lighting.Bounce.Strength"),
+                quality = Default("Engine.Lighting.Probe.Quality"), muffle = Default("Engine.Audio.Music.Muffle"), sun = Default("Engine.Lighting.Sun.Color");
+            Check("a setting added in the Inspector starts at its default",
+                fogStart == "35" && bounce == "1" && quality == "2" && muffle == "0" && sun == "#fff2d1",
+                $"fog start {fogStart} (35), bounce {bounce} (1), probe quality {quality} (2), music muffle {muffle} (0), sun colour {sun} (#fff2d1)");
+        }
+        finally
+        {
+            PgslCommands.AudioApiAcoustics = "outdoors";
+            Genesis.Runtime.Modeling.ModelLodView.Quality = 1f;
+            PgslCommands.ActiveGameContext = previousGame;
+            PgslCommands.ProjectPath = previousPath;
+            PgslCommands.BindContext(previousContext);
+        }
     }
 
     // Engine.Game.Threads shares the culling of a frame's Objects between threads: what is drawn, in

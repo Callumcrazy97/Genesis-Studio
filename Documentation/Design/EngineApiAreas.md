@@ -11,7 +11,27 @@
   (`Engine.Lighting.Bounce.Enabled = true` also sets `Engine.Lighting.Enabled`), all the way up.
   Turning an area off switches everything in it off; its parts come back as they were.
 - Values marked "instance" belong to the current instance (`with`, `for`); the rest belong to the world.
-- The complete list of today's 1498 names, with descriptions, is `Documentation/EngineApi.md`.
+- The complete list of today's names, with descriptions, is `Documentation/EngineApi.md`.
+
+**Built so far** (24 October, afternoon; each value's default is in its description and in EngineApi.md):
+Engine.Display.Window (X, Y, Resizable, AlwaysOnTop, Maximized, Minimized, Focus(), Centre()),
+Engine.Display.Monitor (Index, Count, Width, Height, RefreshRate), Engine.Display.Cursor.Enabled;
+Engine.Camera (Fov, Near, Far), Camera.FreeFly.Enabled, Camera.Orbit (Enabled, Distance, Yaw, Pitch,
+MouseLook, Sensitivity), Camera.Shoulder (X, Y, Z), Camera.Collision (Enabled, Clearance,
+RecoverySpeed), Camera.Shake (Start(), Roll()); Engine.Rendering.Shadows (Enabled, Strength, Distance,
+Bias, Cascades, Resolution, Contact, LampBudget), Rendering.Fog (Enabled, Start, End, Density,
+HeightBase, HeightFalloff, Noise, Color, Shafts), Rendering.Ao.Enabled, Rendering.Bloom.Enabled,
+Rendering.Exposure (Value, Auto), Rendering.Grading (Contrast, Saturation, Vignette),
+Rendering.AntiAliasing.Mode, Rendering.MotionBlur.Strength, Rendering.Culling (Frustum, Occlusion),
+Rendering.Detail (Enabled, Quality, CullSize, AnimationBySize); Engine.Lighting.Sun (Intensity, Yaw,
+Pitch, Color), Lighting.Ambient (Sky, Ground, Mode, Strength), Lighting.Toon (Enabled, Steps, Wrap,
+Specular, Rim, Saturation), Lighting.Glow.Strength, plus Bounce, Reflections and Probe; Engine.Sky.Time
+(OfDay, DayOfYear, Latitude), Sky.Clouds (Enabled, Coverage, Density, Altitude, Thickness, Quality),
+Sky.Sun (Visible, Size), Sky.Moon.Visible, Sky.Stars.Enabled; Engine.Audio.Enabled, Audio.Music
+(Enabled, Volume, Track, Muffle), Audio.Effects (Enabled, Volume), Audio.Acoustics (Enabled, Place,
+Amount); Engine.Physics.World (AirDrag, MaxVelocity, RecoveryVelocity), Physics.Gravity (Strength, X,
+Y, Z), Physics.Sleep (Enabled, Threshold); Engine.Input.Mouse.Captured, Input.Gamepad.DeadZone;
+Engine.Game.Paused, Engine.Game.Threads. Colours are "#rrggbb" text.
 
 ---
 

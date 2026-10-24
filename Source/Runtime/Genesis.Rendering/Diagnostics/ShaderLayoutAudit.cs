@@ -111,6 +111,7 @@ namespace Genesis.Rendering.Diagnostics
             ("CloudTemporalShaders", CloudTemporalShaders.Source),
             ("AutoExposureShaders", AutoExposureShaders.Source),
             ("LightProbeShaders", LightProbeShaders.Source),
+            ("DepthOfFieldShaders", DepthOfFieldShaders.Source),
         };
 
         // Managed struct  ↔  HLSL cbuffer name.  Every declaration of that name, in any shader
@@ -129,6 +130,7 @@ namespace Genesis.Rendering.Diagnostics
             (typeof(ForwardRenderer), "CloudTemporalCB", "CloudTemporalConstants"),
             (typeof(ForwardRenderer), "AutoExposureCB", "AutoExposureConstants"),
             (typeof(ForwardRenderer), "LightProbeCB", "LightProbeConstants"),
+            (typeof(ForwardRenderer), "DepthOfFieldCB", "DepthOfFieldConstants"),
             (typeof(SpriteRenderer),  "SpriteCB",   "SpriteConstants"),
         };
 

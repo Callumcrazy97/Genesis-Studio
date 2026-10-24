@@ -91,6 +91,53 @@ for how much is heard. Each room starts outdoors; a room (or its terrain) choose
 the Engine setting in its Inspector. `Engine.Audio.MusicMuffle` (0 clear to 1 heard through a wall)
 muffles the music, for a pause menu, underwater or a dream. Music is never echoed.
 
+## Depth of field (24 October 2026)
+
+`Engine.Camera.Focus.Enabled = true` keeps what is near the focus distance sharp and blurs nearer
+and farther things the more the farther they are from it, for cutscenes, aiming down sights or a
+photo mode. `Engine.Camera.Focus.Distance` (10 metres unless set), `Range` (4 metres either side
+stays sharp), `Blur` (the strongest blur, 8 pixels of a 1080-line picture) and `Auto` (focus on
+whatever is in the middle of the screen). Off unless a game turns it on; a sharp thing in front
+never smears over a blurred background or the reverse. DX11, DX12, Vulkan and OpenGL; the
+Software renderer draws without it.
+
+## The game's version, and crash reports a player can send (24 October 2026)
+
+Preferences, Project page, Release: **Game version** ("1.0" unless set), saved in the project. A
+game reads it as `Engine.Game.Version` and its name as `Engine.Game.Name`. When a game stops on an
+error, the Player writes `GenesisEngine.crash.log` beside the game (or in
+`%LOCALAPPDATA%\Genesis\CrashReports` when the game's folder cannot be written) with the game and
+its version, the engine build, the renderer, the room, the machine and the last 40 lines of the
+game's log, and its error message says where the report is.
+
+## Every area in parts, each value with a default (24 October 2026)
+
+The engine API is `Engine.Area.Part.Value`: an area (Display, Camera, Rendering, Lighting, Sky,
+Audio, Physics, Input, Game...) has parts, and each part has `Enabled` and its values. Every value
+starts at a default (given in its description) and keeps what a script sets; a part turned on turns
+its area on, and an area turned off comes back with its parts as they were.
+
+```
+Engine.Display.Window.Centre();            // window management
+Engine.Display.Window.AlwaysOnTop = true;
+Engine.Display.Monitor.Index = 1;          // move to the second monitor
+Engine.Camera.Fov = 75;
+Engine.Camera.Orbit.Distance = 4;          // this instance's third-person camera
+Engine.Rendering.Fog.Enabled = true;
+Engine.Rendering.Fog.Color = "#a0c8f0";
+Engine.Rendering.Shadows.Strength = 0.7;
+Engine.Lighting.Sun.Pitch = 15;            // evening
+Engine.Lighting.Toon.Enabled = true;       // turns Engine.Lighting on too
+Engine.Sky.Time.OfDay = 18.5;
+Engine.Audio.Music.Enabled = false;        // keeps the music volume for later
+Engine.Physics.Gravity.Strength = 3.7;
+Engine.Game.Paused = true;
+```
+
+Each one is also a room or Object Engine setting in the Inspector. `Documentation/Design/EngineApiAreas.md`
+lists every area and part, what is built and what can be added; `Documentation/EngineApi.md` lists
+every name with its default.
+
 ## Frame work on every core (24 October 2026)
 
 The culling of a frame's 3D Objects (their bounds, the view, what hides them, whether they are too

@@ -3703,6 +3703,11 @@ namespace Genesis.Rendering.Primitives
                 if (_particleLayerThisFrame)
                     ParticleLayerPass(_sceneDepthTexture, viewW, viewH);
                 GpuTextureHandle postDepth = _sceneDepthTexture;
+                // Depth of field, when a game turns it on: what reads the scene from here reads it blurred.
+                LastDepthOfFieldMs = 0;
+                GpuTextureHandle sceneColor = DepthOfFieldThisFrame(canPost)
+                    ? DepthOfFieldPass(_sceneTexture, postDepth, viewW, viewH)
+                    : _sceneTexture;
                 bool runGtao = ShouldRunGtao(canPost);
                 if (runGtao)
                     GtaoPass(postDepth, viewW, viewH);
@@ -3724,7 +3729,7 @@ namespace Genesis.Rendering.Primitives
                     LastSmokeExtinctionMs = 0;
                 bool runBloom = ShouldRunBloom(canPost);
                 if (runBloom)
-                    BloomPass(_sceneTexture, viewW, viewH);
+                    BloomPass(sceneColor, viewW, viewH);
                 else
                     LastBloomMs = 0;
                 bool runAtmosphereLut = ShouldRunAtmosphereLut(canPost);
@@ -3745,7 +3750,7 @@ namespace Genesis.Rendering.Primitives
                 }
 
                 // Eye adaptation meters the HDR scene (the GUI and view models come later).
-                RunAutoExposure(canPost, _sceneTexture, postDepth, viewW, viewH);
+                RunAutoExposure(canPost, sceneColor, postDepth, viewW, viewH);
 
                 // With project post effects the composite and the held items draw into an image of
                 // their own, which the effects then read; the last effect draws the real target.
@@ -3758,7 +3763,7 @@ namespace Genesis.Rendering.Primitives
                     : afterAntiAliasing;
                 // Camera motion blur goes before the held items: they move with the camera.
                 bool runMotionBlur = MotionBlurThisFrame(canPost);
-                CompositePost(runMotionBlur ? MotionBlurInput(viewW, viewH) : composed, _sceneTexture, postDepth, viewW, viewH,
+                CompositePost(runMotionBlur ? MotionBlurInput(viewW, viewH) : composed, sceneColor, postDepth, viewW, viewH,
                     runGtao ? _aoTexture : GpuTextureHandle.Invalid, runGtao,
                     runContact ? _contactTexture : GpuTextureHandle.Invalid, runContact,
                     runLocalVol ? _localVolTexture : GpuTextureHandle.Invalid, runLocalVol,
@@ -6628,6 +6633,7 @@ namespace Genesis.Rendering.Primitives
             ReleaseOutlineResources();
             ReleaseAutoExposure();
             ReleaseLightProbe();
+            ReleaseDepthOfField();
             if (_reflectionTarget.IsValid) _gpu.ReleaseRenderTarget(_reflectionTarget);
             _gpu.ReleaseVertexLayout(_layout);
             _gpu.ReleaseVertexLayout(_layoutSkinned);

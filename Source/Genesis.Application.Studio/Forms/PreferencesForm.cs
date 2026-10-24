@@ -98,6 +98,7 @@ public sealed partial class PreferencesForm : DpiAwareForm
 
     private readonly Genesis.Application.Studio.Controls.AnimatedIconPlayer _projectIconPreview = new() { Size = new Size(128, 128), SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.FromArgb(40, 44, 52), Cursor = Cursors.Hand };
     private readonly NumericUpDown _projectIconFps = new();
+    private readonly TextBox _gameVersion = new() { Name = "GameVersionBox" };
     private string _projectIconPath = string.Empty;
     private readonly Label _systemRequirementsSummary = new()
     {
@@ -539,7 +540,8 @@ public sealed partial class PreferencesForm : DpiAwareForm
         {
             _projectIconPath = _project.Manifest.ProjectIcon ?? string.Empty;
             _projectIconFps.Value = Math.Clamp(_project.Manifest.ProjectIconFps, 0, 60);
-            
+            _gameVersion.Text = string.IsNullOrWhiteSpace(_project.Manifest.Version) ? "1.0" : _project.Manifest.Version;
+
             if (!string.IsNullOrWhiteSpace(_projectIconPath))
             {
                 string absolutePath = ResourceNames.Resolve(_project.RootPath, _projectIconPath, ResourceType.Image);
@@ -678,6 +680,7 @@ public sealed partial class PreferencesForm : DpiAwareForm
 
         _project.Manifest.ProjectIcon = _projectIconPath;
         _project.Manifest.ProjectIconFps = (int)_projectIconFps.Value;
+        _project.Manifest.Version = string.IsNullOrWhiteSpace(_gameVersion.Text) ? "1.0" : _gameVersion.Text.Trim();
 
         new ProjectService().Save(_project);
         RenderingPreferencesBridge.ApplyProject(_project.Manifest);

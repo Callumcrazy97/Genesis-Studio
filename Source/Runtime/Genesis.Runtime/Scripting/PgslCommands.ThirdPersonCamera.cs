@@ -18,6 +18,18 @@ public static partial class PgslCommands
             world.Set(entity, new ThirdPersonCameraComponent { Rig = new ThirdPersonCamera() });
         return world.GetRef<ThirdPersonCameraComponent>(entity).Rig;
     }
+
+    // The current instance's orbit camera when it has one; reading a value never attaches one.
+    private static ThirdPersonCamera? OrbitIfAny()
+    {
+        var ctx = GetContext();
+        var world = ActiveGameContext?.World;
+        if (ctx == null || world == null) return null;
+        var entity = world.GetEntity(ctx.InstanceId);
+        return world.IsAlive(entity) && world.Has<ThirdPersonCameraComponent>(entity)
+            ? world.GetRef<ThirdPersonCameraComponent>(entity).Rig
+            : null;
+    }
     [PgslCommand("CameraSetOrbitDistance", "CameraSetOrbitDistance(distance)", "Attach/configure this instance's third-person spring arm", "Camera")]
     public static void CameraSetOrbitDistance(double distance) { if (Orbit() is { } rig && double.IsFinite(distance)) rig.Distance = (float)Math.Clamp(distance, .05, 1000); }
     [PgslCommand("CameraSetOrbitPitch", "CameraSetOrbitPitch(pitch)", "Set orbit pitch in degrees, clamped -25 to 75", "Camera")]

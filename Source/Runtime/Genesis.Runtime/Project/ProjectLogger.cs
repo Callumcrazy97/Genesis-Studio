@@ -37,9 +37,36 @@ namespace Genesis.Runtime.Project
                 catch (Exception again) when (again is UnauthorizedAccessException or IOException) { }
             }
             catch { _path = null; }
+            if (_path != null && (CurrentLogPath == null || logFileName == "project_player.log")) CurrentLogPath = _path;
         }
 
         public string LogPath => _path;
+
+        /// <summary>The log the game is writing, for a crash report to quote; null before one opens.</summary>
+        public static string CurrentLogPath { get; private set; }
+
+        /// <summary>The last <paramref name="lines"/> lines of the game's log, read while it is still open; empty when there is none.</summary>
+        public static string[] Tail(int lines)
+        {
+            string path = CurrentLogPath;
+            if (string.IsNullOrEmpty(path) || lines <= 0) return Array.Empty<string>();
+            try
+            {
+                using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                using var reader = new StreamReader(stream, Encoding.UTF8);
+                var kept = new System.Collections.Generic.Queue<string>(lines);
+                for (string line = reader.ReadLine(); line != null; line = reader.ReadLine())
+                {
+                    if (kept.Count == lines) kept.Dequeue();
+                    kept.Enqueue(line);
+                }
+                return kept.ToArray();
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                return Array.Empty<string>();
+            }
+        }
 
         public void Line(string message)
         {

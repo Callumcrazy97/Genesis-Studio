@@ -41,6 +41,9 @@ public static class EngineSettings
         ["Engine.Physics.BodyType"] = new[] { "dynamic", "kinematic", "static" },
         ["Engine.Physics.Shape"] = new[] { "box", "sphere", "capsule", "cylinder" },
         ["Engine.Audio.Acoustics"] = new[] { "outdoors", "room", "hall", "cave" },
+        ["Engine.Audio.Acoustics.Place"] = new[] { "outdoors", "room", "hall", "cave" },
+        ["Engine.Rendering.AntiAliasing.Mode"] = new[] { "off", "fxaa", "smaa", "taa" },
+        ["Engine.Lighting.Ambient.Mode"] = new[] { "zenith", "hemisphere" },
     };
 
     /// <summary>One setting a resource can carry: its full name, the type of its value and what it is.</summary>
@@ -66,8 +69,14 @@ public static class EngineSettings
         string[] parts = name.Split('.');
         if (parts.Length < 3) return EngineSettingScope.World;
         if (InstanceAreas.Contains(parts[1])) return EngineSettingScope.Instance;
+        // Parts of an area that belong to one instance or to the world (Engine.Camera.Orbit.Distance).
+        if (parts.Length >= 4 && InstanceParts.Contains(parts[1] + "." + parts[2])) return EngineSettingScope.Instance;
+        if (parts.Length >= 4 && WorldParts.Contains(parts[1] + "." + parts[2])) return EngineSettingScope.World;
         return parts[1] == "Physics" && !WorldPhysics.Contains(parts[^1]) ? EngineSettingScope.Instance : EngineSettingScope.World;
     }
+
+    private static readonly HashSet<string> InstanceParts = new(StringComparer.Ordinal) { "Camera.Orbit", "Camera.Shoulder", "Camera.Collision" };
+    private static readonly HashSet<string> WorldParts = new(StringComparer.Ordinal) { "Physics.World", "Physics.Gravity", "Physics.Sleep" };
 
     /// <summary>A setting's saved text as the value its property takes (a number, true/false or text).</summary>
     public static object Parse(string? text, Type type)
@@ -88,9 +97,29 @@ public static class EngineSettings
         _ => value.ToString() ?? "",
     };
 
-    /// <summary>The text a new setting starts with: 1, true, or the first of its choices.</summary>
-    public static string DefaultText(Setting setting) =>
-        setting.Choices is { Count: > 0 } choices ? choices[0] : setting.Type == typeof(bool) ? "true" : setting.Type == typeof(string) ? "" : "1";
+    /// <summary>
+    /// The text a new setting starts with: the value's own default, as its description gives it
+    /// ("(35 unless set)") or as it reads where nothing has set it; otherwise 1, true, or the first
+    /// of its choices.
+    /// </summary>
+    public static string DefaultText(Setting setting)
+    {
+        System.Text.RegularExpressions.Match stated = System.Text.RegularExpressions.Regex.Match(setting.Description ?? "",
+            @"\((?<value>-?[0-9]+(?:\.[0-9]+)?|true|false|""[^""]*"")(?:[^()]*?)\bunless\b");
+        if (stated.Success)
+        {
+            string value = stated.Groups["value"].Value.Trim('"');
+            if (setting.Choices is not { Count: > 0 } choices || choices.Contains(value, StringComparer.OrdinalIgnoreCase)) return value;
+        }
+        if (TryRead(setting.Name, new PgslContext(), out object? current) && current != null
+            && (setting.Type != typeof(double) || Convert.ToDouble(current, CultureInfo.InvariantCulture) != 0)
+            && (setting.Type != typeof(string) || current is string { Length: > 0 }))
+        {
+            string text = Format(current);
+            if (setting.Choices is not { Count: > 0 } choices || choices.Contains(text, StringComparer.OrdinalIgnoreCase)) return text;
+        }
+        return setting.Choices is { Count: > 0 } list ? list[0] : setting.Type == typeof(bool) ? "true" : setting.Type == typeof(string) ? "" : "1";
+    }
 
     /// <summary>
     /// Sets each setting through the standard API with <paramref name="context"/> as the current

@@ -6,7 +6,7 @@ variable and, when it can be set, set like one (`Engine.Physics.Mass = 4;`, `Eng
 an instance's property is the current instance's, each target's in turn inside `with`. The flat
 names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
-1494 names: 247 properties (194 can be set), 1247 commands.
+1615 names: 364 properties (305 can be set), 1251 commands.
 
 ## Engine.Alarm
 
@@ -132,6 +132,7 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `AcousticsAmount` | property | How much of the acoustics is heard, 0 (none) to 1 (0.5 unless set) |
 | `BusDuck` | command | Ducking: while any sound on byBus plays, bus drops by amount (0.6 leaves 40%), down over attack seconds (default 0.15) and back over release (default 0.6): BusDuck("music", "voice", 0.6). Amount 0 turns it off |
 | `BusDuckLevel` | command | How far a ducked bus is down now: 1 when not ducked, 0.4 when ducked by 0.6 |
+| `Enabled` | property | All of the game's sound (true unless set); off keeps every volume as it was for when it comes back |
 | `GetBusVolume` | command | The volume of a group of sounds: "music", "sfx" or "master" |
 | `GetMasterVolume` | command | Current overall output volume |
 | `IsSoundPlaying` | command | True while a channel is still audible |
@@ -139,7 +140,7 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `MasterVolume` | property | Reads (GetMasterVolume) and sets (SetMasterVolume): Current overall output volume |
 | `Music` | property | The music track playing ("" for none): setting it cross-fades to that track over a second, "" fades it out |
 | `MusicCurrent` | command | The track MusicPlay is playing, or empty |
-| `MusicMuffle` | property | How muffled the music is, 0 (clear) to 1 (heard through a wall): for a pause menu, underwater or a dream |
+| `MusicMuffle` | property | How muffled the music is, 0 (clear) to 1 (heard through a wall): for a pause menu, underwater or a dream (0 unless set) |
 | `MusicPlay` | command | Play a looping music track on the music bus, cross-fading from the one playing over fadeSeconds (default 1); the same track already playing only moves to the new volume |
 | `MusicStop` | command | Fade the music MusicPlay started to silence (default 1 second) and stop it |
 | `MusicVolume` | property | The volume of the music bus (0-1) |
@@ -162,14 +163,48 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `StopSound` | command | Stop one playing channel |
 | `StopSoundFaded` | command | Fade a playing channel to silence over a time, then stop it |
 
+## Engine.Audio.Acoustics
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Amount` | property | How much of the echo is heard, 0 to 1 (0.5 unless set) |
+| `Enabled` | property | Echo for sound effects: off is outdoors, on brings back the last place chosen ("room" unless one was) |
+| `Place` | property | How the place sounds: "outdoors" (no echo, unless the room chooses another), "room", "hall" or "cave" |
+
+## Engine.Audio.Effects
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Enabled` | property | The sound-effects bus (true unless set); off keeps its volume for when it comes back |
+| `Volume` | property | The sound-effects bus's volume, 0 to 1 (1 unless set) |
+
+## Engine.Audio.Music
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Enabled` | property | The music bus (true unless set); off keeps its volume for when it comes back |
+| `Muffle` | property | How muffled the music is, 0 (clear) to 1 (heard through a wall); (0 unless set) |
+| `Track` | property | The music playing ("" for none): setting it cross-fades to that track over a second, "" fades it out |
+| `Volume` | property | The music bus's volume, 0 to 1 (1 unless set) |
+
+## Engine.Camera.Collision
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Clearance` | property | How far the orbit camera keeps from a wall it moves in front of, 0 to 5 (0.25 unless set) |
+| `Enabled` | property | Whether the orbit camera moves in front of walls between it and this instance (true unless set) |
+| `RecoverySpeed` | property | How quickly the orbit camera moves back out once the wall is gone, 0.1 to 100 (10 unless set) |
+
 ## Engine.Camera
 
 | Name | Kind | What it is |
 |---|---|---|
 | `CollisionEnabled` | property | Sets (CameraSetCollisionEnabled): Enable camera occlusion avoidance |
+| `Far` | property | How far from the 3D camera things are still drawn (the room's distance unless set) |
 | `ForwardX` | read only | Reads (GetCameraForwardX): Get camera forward look vector X |
 | `ForwardY` | read only | Reads (GetCameraForwardY): Get camera forward look vector Y |
 | `ForwardZ` | read only | Reads (GetCameraForwardZ): Get camera forward look vector Z |
+| `Fov` | property | The 3D camera's vertical field of view, 1 to 179 degrees (60 unless the room sets another) |
 | `FreeFly` | property | Sets (CameraSetFreeFly): The engine's own fly camera (WASD, Space, Ctrl and mouse look in a room with no physics player): false turns it off, true keeps it on. By default it runs until a script moves the camera |
 | `GetForwardX` | command | Get camera forward look vector X |
 | `GetForwardY` | command | Get camera forward look vector Y |
@@ -189,6 +224,7 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `MoveForward` | command | Move the active view forward |
 | `MoveRight` | command | Move the active view right |
 | `MoveUp` | command | Move the active view up |
+| `Near` | property | How close to the 3D camera things are still drawn (0.1 unless the room sets another) |
 | `OrbitDistance` | property | Sets (CameraSetOrbitDistance): Attach/configure this instance's third-person spring arm |
 | `OrbitEnabled` | property | Sets (CameraSetOrbitEnabled): Enable/disable this instance's orbit camera |
 | `OrbitMouseLook` | property | Sets (CameraSetOrbitMouseLook): Enable built-in mouse orbit; disable when scripting yaw/pitch from input |
@@ -223,6 +259,48 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `Y` | property | The play camera's height |
 | `Yaw` | property | Reads (GetCameraYaw) and sets (SetCameraYaw): Get play camera Yaw |
 | `Z` | property | The play camera's position along Z |
+
+## Engine.Camera.Focus
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Auto` | property | Focus on whatever is in the middle of the screen instead of the focus distance (false unless set) |
+| `Blur` | property | The strongest blur, in pixels of a 1080-line picture, 0 to 32 (8 unless set) |
+| `Distance` | property | How far from the camera things are sharpest, 0.1 to 100000 (10 unless set) |
+| `Enabled` | property | Depth of field: what is near the focus distance stays sharp, nearer and farther things blur (false unless set) |
+| `Range` | property | How far either side of the focus distance stays sharp, 0 to 100000 (4 unless set) |
+
+## Engine.Camera.FreeFly
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Enabled` | property | Fly the 3D camera with the mouse and WASD, for looking round a level (false unless set) |
+
+## Engine.Camera.Orbit
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Distance` | property | How far behind this instance the orbit camera sits, 0.05 to 1000 (7.5 unless set) |
+| `Enabled` | property | This instance's third-person camera, following it on a spring arm (true once any Orbit value is set) |
+| `MouseLook` | property | Whether moving the mouse turns the orbit camera (true unless set); off when a script turns it |
+| `Pitch` | property | How far the orbit camera looks down on this instance, -25 to 75 degrees (15 unless set) |
+| `Sensitivity` | property | Degrees the orbit camera turns for each pixel the mouse moves, 0.01 to 2 (0.15 unless set) |
+| `Yaw` | property | Which way round this instance the orbit camera looks (0 unless set) |
+
+## Engine.Camera.Shake
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Roll` | command | Shake the 3D view and tilt it by up to this many degrees, dying away over the seconds given |
+| `Start` | command | Shake the 3D view, dying away over the seconds given |
+
+## Engine.Camera.Shoulder
+
+| Name | Kind | What it is |
+|---|---|---|
+| `X` | property | How far to the side of this instance the orbit camera looks over (1.2 unless set; negative for the left shoulder) |
+| `Y` | property | How high above this instance the orbit camera looks from (2.4 unless set) |
+| `Z` | property | How far forward of this instance the orbit camera's focus is (0 unless set) |
 
 ## Engine.Debug
 
@@ -267,6 +345,12 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `SetSize` | command | A decal's width and height, and how deep through the surface it reaches (half its size at first: deeper reaches bumpier ground, but also anything standing on it) |
 | `Unfollow` | command | Stop a decal following its object; it stays where it is |
 
+## Engine.Display.Cursor
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Enabled` | property | Whether the system pointer shows over the game (true unless set); a captured mouse stays hidden and the choice applies when it is released |
+
 ## Engine.Display
 
 | Name | Kind | What it is |
@@ -310,6 +394,29 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `UseRoomFps` | command | Follow the rooms' Frame rate and VSync settings again, after GameSetMaxFps or WindowSetVSync chose them: the current room's apply at once |
 | `VSync` | property | Reads (WindowGetVSync) and sets (WindowSetVSync): Whether vsync is on |
 | `Width` | property | The window's width (setting it resizes the window, as WindowSetSize does) |
+
+## Engine.Display.Monitor
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Count` | read only | How many monitors there are (1 where it cannot tell) |
+| `Height` | read only | The game's monitor's height in pixels (0 where there is no window) |
+| `Index` | property | Which monitor the game is on, 0 for the first; setting it moves the window there (centred, or filling it in full screen) |
+| `RefreshRate` | read only | How many times a second the game's monitor refreshes (0 where it cannot tell) |
+| `Width` | read only | The game's monitor's width in pixels (0 where there is no window) |
+
+## Engine.Display.Window
+
+| Name | Kind | What it is |
+|---|---|---|
+| `AlwaysOnTop` | property | Whether the window stays above other windows (false unless set) |
+| `Centre` | command | Put a windowed game's window in the middle of its monitor |
+| `Focus` | command | Bring the game's window to the front and give it the keyboard |
+| `Maximized` | property | Whether a windowed game's window fills its monitor's working area, border and title kept (false unless set); false restores it |
+| `Minimized` | property | Whether the window is minimised to the taskbar; false restores it |
+| `Resizable` | property | Whether the player can resize a windowed game's window by its edges (true unless set) |
+| `X` | property | Where a windowed game's window is across the desktop (its left edge); 0 where there is no window |
+| `Y` | property | Where a windowed game's window is down the desktop (its top edge); 0 where there is no window |
 
 ## Engine.Draw
 
@@ -415,6 +522,8 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `EventUser` | command | Run this object's User Event 0-7 after the current handler returns |
 | `Fps` | read only | Current frames per second |
 | `GetSpeed` | command | How fast game time is running; 1 is normal |
+| `Name` | read only | The game's name, from its project |
+| `Paused` | property | Stop the game's time (Step events and physics see no time passing; Draw events still run) and start it again at the speed it had (false unless set) |
 | `Print` | command | Print to output |
 | `Quit` | command | End the game and close its window (the same as GameEnd) |
 | `Real` | command | To number |
@@ -427,6 +536,7 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `String` | command | To string |
 | `Threads` | property | How many of the computer's threads the engine shares its frame work between (culling, terrain, generation): reads the number in use; 0 chooses automatically (every core but two, the default), 1 keeps it all on the game's thread. Lasts until the game ends |
 | `TimeMs` | command | Milliseconds of real time since the game started, unaffected by pause or time scale |
+| `Version` | read only | The game's version, from its project ("1.0" unless the project sets one): for a title or about screen; it is in crash reports too |
 
 ## Engine.Global
 
@@ -599,6 +709,18 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `ReplayStop` | command | Stop a replay; the real devices are read again from the next frame |
 | `SetMouseCaptured` | command | Capture the mouse for mouse look (the pointer is hidden and locked), or release it |
 
+## Engine.Input.Gamepad
+
+| Name | Kind | What it is |
+|---|---|---|
+| `DeadZone` | property | How far both sticks must move before they count, 0 to 0.9 (the engine's unless set) |
+
+## Engine.Input.Mouse
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Captured` | property | The mouse is locked to the window and hidden, for mouse look (false unless set) |
+
 ## Engine.Instance
 
 | Name | Kind | What it is |
@@ -729,6 +851,15 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `Name` | property | Reads (LanguageGet) and sets (LanguageSet): The language the game's text is read in: the player's own when the game has it, else English, else the first there is |
 | `Set` | command | Read the game's text in another language ("fr" for Assets/Text/fr.txt); false, keeping the current one, when there is no such file |
 
+## Engine.Lighting.Ambient
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Ground` | property | The light from below where no sun reaches, as #rrggbb (the sky's unless set) |
+| `Mode` | property | "zenith" (the two colours above) or "hemisphere" (the drawn sky's own light) (the room's unless set) |
+| `Sky` | property | The light from above where no sun reaches, as #rrggbb (the sky's unless set) |
+| `Strength` | property | How strong the hemisphere sky light is (1 unless set) |
+
 ## Engine.Lighting.Bounce
 
 | Name | Kind | What it is |
@@ -772,6 +903,12 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `SetTertiaryColor` | command | Set the third light colour used by colour cycling |
 | `Shadow2DContact` | command | Soft elliptical ground/contact shadow; zero opacity removes it |
 
+## Engine.Lighting.Glow
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Strength` | property | How much every surface glows in its own colours, 0 to 4 (0 unless the room sets another) |
+
 ## Engine.Lighting.Probe
 
 | Name | Kind | What it is |
@@ -787,6 +924,26 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 |---|---|---|
 | `Enabled` | property | Reflections: smooth and metal surfaces mirror what is around them, rough ones show it blurred. On in each room unless its settings or a script turn it off |
 | `Strength` | property | How strongly surfaces reflect what is around them, 0 to 4: 1 is physically balanced (unless the room set its own environment reflection) |
+
+## Engine.Lighting.Sun
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Color` | property | The sunlight's colour as #rrggbb (warm white unless the room sets another) |
+| `Intensity` | property | How bright the sunlight is, 0 to 20 (1.1 unless the room sets another) |
+| `Pitch` | property | How high the sun is, -90 to 90 degrees (42 unless the room sets another) |
+| `Yaw` | property | Which way the sunlight comes from round the horizon (135 unless the room sets another) |
+
+## Engine.Lighting.Toon
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Enabled` | property | Stylized (toon) lighting: stepped shading, a rim and its own highlight (off unless the room turns it on) |
+| `Rim` | property | The strength of the light round silhouettes, 0 to 4 (0.18 unless set) |
+| `Saturation` | property | How colourful toon-lit surfaces are, 0.5 to 2 (1 unless set) |
+| `Specular` | property | The strength of the toon highlight, 0 to 4 (0.2 unless set) |
+| `Steps` | property | How many bands the shading is cut into, 1 (smooth) to 8 (1 unless set) |
+| `Wrap` | property | How far light wraps round the shaded side, 0 to 1 (0.5 unless set) |
 
 ## Engine.List
 
@@ -1280,6 +1437,30 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `VelocityZ` | property | The body's speed along Z (always 0 for a 2D body) |
 | `Weight` | property | How little air drag slows the body (heavier falls through air faster); 0 uses the world's default |
 
+## Engine.Physics.Gravity
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Strength` | property | How strongly everything falls, metres a second squared (9.81 unless the room sets another) |
+| `X` | property | Gravity along X (0 unless set) |
+| `Y` | property | Gravity along Y (-9.81 unless set: down) |
+| `Z` | property | Gravity along Z (0 unless set) |
+
+## Engine.Physics.Sleep
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Enabled` | property | Bodies at rest stop being simulated until something touches them (true unless set) |
+| `Threshold` | property | How slowly a body must move to fall asleep (the engine's unless set) |
+
+## Engine.Physics.World
+
+| Name | Kind | What it is |
+|---|---|---|
+| `AirDrag` | property | How much the air slows every body, 0 to 1 (the room's unless set) |
+| `MaxVelocity` | property | The fastest any body may move, metres a second (the room's unless set) |
+| `RecoveryVelocity` | property | How fast bodies pushed into each other are moved apart (the room's unless set) |
+
 ## Engine.PostEffect
 
 | Name | Kind | What it is |
@@ -1392,6 +1573,31 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `VolumetricFogQuality` | property | Volumetric fog quality for every room: 0 low, 1 medium, 2 high; -1 leaves each room's own |
 | `WaterReflections` | property | Enable one half-resolution planar reflection for the dominant water plane; software uses sky fallback |
 
+## Engine.Rendering.AntiAliasing
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Mode` | property | Smoothing of jagged edges: "off", "fxaa", "smaa" or "taa" (the quality tier's unless set) |
+
+## Engine.Rendering.Ao
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Enabled` | property | Ambient occlusion: soft darkening in corners and creases (the quality tier's unless set) |
+
+## Engine.Rendering.Bloom
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Enabled` | property | A glow round bright light (the quality tier's unless set) |
+
+## Engine.Rendering.Culling
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Frustum` | property | Skip drawing what is outside the view (true unless set) |
+| `Occlusion` | property | Skip drawing what is hidden behind large things (false unless set) |
+
 ## Engine.Rendering.Decals
 
 | Name | Kind | What it is |
@@ -1412,6 +1618,44 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `DecalSetSeeThrough` | command | Put a decal on a see-through surface (a bullet hole in a window pane): drawn as a flat picture in its own plane after glass and other see-through draws, seen from both sides and hidden only by opaque things in front, instead of projected onto the opaque world. Off by default |
 | `DecalSetSize` | command | A decal's width and height, and how deep through the surface it reaches (half its size at first: deeper reaches bumpier ground, but also anything standing on it) |
 | `DecalUnfollow` | command | Stop a decal following its object; it stays where it is |
+
+## Engine.Rendering.Detail
+
+| Name | Kind | What it is |
+|---|---|---|
+| `AnimationBySize` | property | Figures small on screen are posed less often (true unless set) |
+| `CullSize` | property | Models smaller than this share of the screen's height are not drawn, 0 to 0.1 (0.0025 unless set) |
+| `Enabled` | property | Automatic detail: models far away drawn simpler and tiny ones not at all (true unless set) |
+| `Quality` | property | How long models keep full detail as they shrink on screen, 0.05 to 8: 2 keeps it to half the size (1 unless set) |
+
+## Engine.Rendering.Exposure
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Auto` | property | Eye adaptation: the picture brightens in the dark and darkens in bright light (off unless the room turns it on) |
+| `Value` | property | How bright the picture is made, 0.1 to 8 (1 unless set) |
+
+## Engine.Rendering.Fog
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Color` | property | The fog's colour as #rrggbb (the room's unless set) |
+| `Density` | property | How thick the fog is, 0 to 1 (0.012 unless the room sets another) |
+| `Enabled` | property | Distance fog (off unless the room turns it on) |
+| `End` | property | Where the fog hides everything (120 unless the room sets another) |
+| `HeightBase` | property | The height fog thins out above (0 unless set) |
+| `HeightFalloff` | property | How quickly fog thins with height, 0 (even) to 10 (0.35 unless set) |
+| `Noise` | property | How patchy the fog is, 0 to 1 (0.04 unless set) |
+| `Shafts` | property | Volumetric fog and its light shafts: 0 off, 1 or 2 for more detail (the quality tier's unless set) |
+| `Start` | property | Where the fog begins (35 unless the room sets another) |
+
+## Engine.Rendering.Grading
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Contrast` | property | The picture's contrast (1 unless set) |
+| `Saturation` | property | How colourful the picture is: 0 grey, 1 as drawn (1 unless set) |
+| `Vignette` | property | How much the picture darkens towards its corners, 0 to 1 (0 unless set) |
 
 ## Engine.Rendering.Lights
 
@@ -1439,6 +1683,25 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | Name | Kind | What it is |
 |---|---|---|
 | `KeepPreviousTransform` | property | Keep entity position, rotation and proportional model scale when a model or animation changes |
+
+## Engine.Rendering.MotionBlur
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Strength` | property | Blur along movement, 0 (off) to 1 (0 unless set) |
+
+## Engine.Rendering.Shadows
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Bias` | property | How far shadows are pushed off the surfaces casting them, against speckled self-shadowing, 0 to 0.01 (0.00015 unless set) |
+| `Cascades` | property | How many shadow maps share the view, 2 or 3 (the quality tier's unless set) |
+| `Contact` | property | Small screen-space shadows where things touch (the quality tier's unless set) |
+| `Distance` | property | How far from the camera the sun's shadows reach, 0 for automatic (0 unless the room sets another) |
+| `Enabled` | property | The sun's shadows (true unless the room turns them off) |
+| `LampBudget` | property | How many point and spot lights may cast shadows at once (the quality tier's unless set) |
+| `Resolution` | property | The sun's shadow map size in pixels (the quality tier's unless set) |
+| `Strength` | property | How dark shadows are, 0 (none) to 1 (1 unless the room sets another) |
 
 ## Engine.Resource
 
@@ -1566,6 +1829,44 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `Thickness` | property | Cloud slab thickness in metres |
 | `TimeOfDay` | property | Time of day in hours (0..24) |
 | `Visibility` | property | How far one can see through the atmosphere's fog, in metres (0 = the preset's own) |
+
+## Engine.Sky.Clouds
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Altitude` | property | How high the cloud layer starts (the room's unless set) |
+| `Coverage` | property | How much of the sky is cloud, 0 to 1 (the room's unless set) |
+| `Density` | property | How thick the clouds are (the room's unless set) |
+| `Enabled` | property | Volumetric clouds (the room's unless set) |
+| `Quality` | property | The clouds' detail (the quality tier's unless set) |
+| `Thickness` | property | How deep the cloud layer is (the room's unless set) |
+
+## Engine.Sky.Moon
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Visible` | property | Whether the moon's disc is drawn in the sky (true unless set) |
+
+## Engine.Sky.Stars
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Enabled` | property | Stars and the moon's glow at night (the quality tier's unless set) |
+
+## Engine.Sky.Sun
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Size` | property | How large the sun's disc is drawn (1 unless set) |
+| `Visible` | property | Whether the sun's disc is drawn in the sky (true unless set) |
+
+## Engine.Sky.Time
+
+| Name | Kind | What it is |
+|---|---|---|
+| `DayOfYear` | property | The day of the year, 1 to 365: the sun's height through the seasons (the room's unless set) |
+| `Latitude` | property | How far north (positive) or south the world is, for the sun's path (the room's unless set) |
+| `OfDay` | property | The time of day, 0 to 24 hours: moves the sun and moon (the room's unless set) |
 
 ## Engine.Stack
 

@@ -540,6 +540,13 @@ public sealed partial class PreferencesForm
         };
         icon.Add("Icon", "Shown on the Project Hub card. An animated image plays at the speed below.", ControlRow(_projectIconPreview, pickIcon), searchText: "project icon");
         icon.Add("Animation speed (frames per second)", null, _projectIconFps, 80, "fps");
+
+        SettingsSection release = page.Section("Release");
+        _gameVersion.Size = new Size(140, 32);
+        _gameVersion.MaxLength = 32;
+        _gameVersion.PlaceholderText = "1.0";
+        release.Add("Game version", "Shown in crash reports and readable by the game as Engine.Game.Version, for a title or about screen.",
+            _gameVersion, 140, "game version release number");
         return page;
     }
 

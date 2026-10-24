@@ -201,7 +201,7 @@ public static partial class PgslCommands
         }
     }
 
-    [PgslCommand("MusicMuffle", "Engine.Audio.MusicMuffle = amount", "How muffled the music is, 0 (clear) to 1 (heard through a wall): for a pause menu, underwater or a dream", "Audio", Namespace = "Engine.Audio", Flat = false)]
+    [PgslCommand("MusicMuffle", "Engine.Audio.MusicMuffle = amount", "How muffled the music is, 0 (clear) to 1 (heard through a wall): for a pause menu, underwater or a dream (0 unless set)", "Audio", Namespace = "Engine.Audio", Flat = false)]
     public static double AudioApiMusicMuffle
     {
         get => _musicMuffle;

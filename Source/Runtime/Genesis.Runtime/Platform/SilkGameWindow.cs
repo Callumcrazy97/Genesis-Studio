@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using Silk.NET.Maths;
@@ -452,6 +453,89 @@ namespace Genesis.Runtime.Platform
             _window.Size = new Vector2D<int>(width, height);
         }
 
+        // ── Window management (Engine.Display.Window, Engine.Display.Monitor) ─────────────
+
+        private bool _resizable = true, _alwaysOnTop;
+
+        /// <summary>The window's position on the desktop (its top-left corner); 0, 0 where there is no window.</summary>
+        public (int X, int Y) Position => _window == null ? (0, 0) : (_window.Position.X, _window.Position.Y);
+
+        /// <summary>Moves a windowed game's window; borderless and full-screen windows keep their monitor's corner.</summary>
+        public void SetPosition(int x, int y)
+        {
+            if (_window == null || _mode != WindowMode.Windowed) return;
+            _window.Position = new Vector2D<int>(x, y);
+        }
+
+        /// <summary>Whether a windowed game's window can be resized by dragging its edges (true unless set).</summary>
+        public bool Resizable
+        {
+            get => _resizable;
+            set
+            {
+                if (_resizable == value) return;
+                _resizable = value;
+                _pendingModeApply = true;
+            }
+        }
+
+        /// <summary>Whether the window stays above other windows (false unless set).</summary>
+        public bool AlwaysOnTop
+        {
+            get => _alwaysOnTop;
+            set
+            {
+                _alwaysOnTop = value;
+                if (_window != null) _window.TopMost = value;
+            }
+        }
+
+        public bool IsMaximized => _window?.WindowState == WindowState.Maximized;
+
+        public void Minimize() { if (_window != null) _window.WindowState = WindowState.Minimized; }
+
+        /// <summary>Fills the monitor's working area as a window (its border and title stay).</summary>
+        public void Maximize() { if (_window != null && _mode == WindowMode.Windowed) _window.WindowState = WindowState.Maximized; }
+
+        public void Restore() { if (_window != null) RestoreNormal(); }
+
+        public void Focus() => _window?.Focus();
+
+        /// <summary>Puts a windowed game's window in the middle of its monitor.</summary>
+        public void Centre()
+        {
+            if (_window?.Monitor is not { } monitor || _mode != WindowMode.Windowed) return;
+            var bounds = monitor.Bounds;
+            _window.Position = new Vector2D<int>(
+                bounds.Origin.X + Math.Max(0, (bounds.Size.X - _window.Size.X) / 2),
+                bounds.Origin.Y + Math.Max(0, (bounds.Size.Y - _window.Size.Y) / 2));
+        }
+
+        /// <summary>The window's monitor: its index, size in pixels and refresh rate (0s where there is none).</summary>
+        public (int Index, int Count, int Width, int Height, int RefreshRate) MonitorInfo
+        {
+            get
+            {
+                if (_window?.Monitor is not { } monitor) return (0, 0, 0, 0, 0);
+                int count = 0;
+                try { count = Silk.NET.Windowing.Monitor.GetMonitors(_window).Count(); } catch { count = 1; }
+                var size = monitor.VideoMode.Resolution ?? monitor.Bounds.Size;
+                return (monitor.Index, Math.Max(1, count), size.X, size.Y, monitor.VideoMode.RefreshRate ?? 0);
+            }
+        }
+
+        /// <summary>Moves the window to monitor <paramref name="index"/> (0 is the first): centred as a window, or filling it.</summary>
+        public void MoveToMonitor(int index)
+        {
+            if (_window == null) return;
+            IMonitor target = null;
+            try { target = Silk.NET.Windowing.Monitor.GetMonitors(_window).ElementAtOrDefault(index); } catch { }
+            if (target == null || target.Index == _window.Monitor?.Index) return;
+            _window.Monitor = target;
+            if (_mode == WindowMode.Windowed) Centre();
+            else _pendingModeApply = true;
+        }
+
         /// <summary>
         /// F11: from either full-screen mode back to a window, and from a window back to the
         /// full-screen mode last used (a game that set Borderless returns to Borderless). Toggling
@@ -574,7 +658,7 @@ namespace Genesis.Runtime.Platform
             {
                 case WindowMode.Windowed:
                     RestoreNormal();
-                    _window.WindowBorder = WindowBorder.Resizable;
+                    _window.WindowBorder = _resizable ? WindowBorder.Resizable : WindowBorder.Fixed;
                     if (_savedPlacement)
                     {
                         _window.Size     = _savedSize;

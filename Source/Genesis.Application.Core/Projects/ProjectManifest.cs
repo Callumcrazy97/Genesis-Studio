@@ -14,6 +14,12 @@ public sealed class ProjectManifest
 
     public string Description { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The game's version, as players see it (a crash report, an about screen): "1.0" unless set.
+    /// A game reads it as Engine.Game.Version.
+    /// </summary>
+    public string Version { get; set; } = "1.0";
+
     public string ProjectIcon { get; set; } = string.Empty;
 
     public int ProjectIconFps { get; set; } = 15;

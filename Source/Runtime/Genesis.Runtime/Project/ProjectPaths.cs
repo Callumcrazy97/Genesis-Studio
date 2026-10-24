@@ -286,6 +286,26 @@ namespace Genesis.Runtime.Project
             }
         }
 
+        /// <summary>The game's name and version from its project file ("1.0" when it sets none); empty where there is none.</summary>
+        public static (string Name, string Version) ReadGameInfo(string projectPath)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(projectPath) || !Directory.Exists(projectPath)) return ("", "");
+                string[] projects = Directory.EnumerateFiles(projectPath, "*.genesisproj", SearchOption.TopDirectoryOnly).ToArray();
+                if (projects.Length != 1) return ("", "");
+                using JsonDocument manifest = JsonDocument.Parse(File.ReadAllText(projects[0]));
+                string Text(string property) => manifest.RootElement.TryGetProperty(property, out JsonElement value)
+                    && value.ValueKind == JsonValueKind.String ? value.GetString() ?? "" : "";
+                string version = Text("version");
+                return (Text("name"), version.Length > 0 ? version : "1.0");
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+            {
+                return ("", "");
+            }
+        }
+
         public static string ReadStartRoom(string projectPath)
         {
             if (string.IsNullOrEmpty(projectPath)) return null;

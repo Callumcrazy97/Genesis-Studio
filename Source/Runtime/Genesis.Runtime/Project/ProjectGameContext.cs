@@ -165,6 +165,9 @@ namespace Genesis.Runtime.Project
         public bool WindowHasFocus => _window?.HasFocus ?? true;
         public bool WindowIsMinimized => _window?.IsMinimized ?? false;
 
+        /// <summary>The game's window, for window management (Engine.Display.Window); null where there is none.</summary>
+        public SilkGameWindow Window => _window;
+
         // The game's own choice (its settings menu) outranks the rooms' authored defaults from here on.
         public void SetVSync(bool enabled)
         {
