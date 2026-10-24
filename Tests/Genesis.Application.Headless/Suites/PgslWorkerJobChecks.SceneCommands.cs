@@ -157,9 +157,18 @@ internal static partial class PgslWorkerJobChecks
             while (System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalSeconds < 20)
             {
                 // The normal job first: once it has left the queue the urgent one must have left before it.
+                // Workers let go together can take both at once, and the one with the urgent job may be
+                // paused before it marks it running, so it gets a moment to show it has left too.
                 string normalState = PgslCommands.JobStatus(normal);
                 string urgentState = PgslCommands.JobStatus(urgent);
-                if (normalState != "queued" && urgentState == "queued") { inOrder = false; break; }
+                if (normalState != "queued" && urgentState == "queued")
+                {
+                    long seen = System.Diagnostics.Stopwatch.GetTimestamp();
+                    while (PgslCommands.JobStatus(urgent) == "queued" && System.Diagnostics.Stopwatch.GetElapsedTime(seen).TotalMilliseconds < 250)
+                        Thread.Yield();
+                    if (PgslCommands.JobStatus(urgent) == "queued") inOrder = false;
+                    break;
+                }
                 if (normalState != "queued") break;
                 Thread.Yield();
             }

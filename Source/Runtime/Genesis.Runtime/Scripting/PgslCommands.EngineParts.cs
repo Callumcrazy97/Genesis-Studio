@@ -412,6 +412,104 @@ public static partial class PgslCommands
         }
     }
 
+    // Wind, rain, snow, lightning and temperature follow the weather until a script sets one; it
+    // then holds there whatever the weather does, until Engine.Weather.Release() or the next room.
+    // A part turned off holds its amount at 0 and keeps the value set for when it is turned on.
+    private static Genesis.Runtime.Climate.WeatherOverrides? WeatherHeld => Climate?.Overrides;
+
+    [PgslCommand("Release", "Engine.Weather.Release()", "The wind, rain, snow, lightning and temperature a script set follow the weather again, and every weather part is on", "Weather", Namespace = "Engine.Weather", Flat = false)]
+    public static void WeatherRelease() => WeatherHeld?.Clear();
+
+    [PgslCommand("Enabled", "Engine.Weather.Wind.Enabled = false", "Wind (true unless set); off, the weather's wind is still whatever the weather", "Weather", Namespace = "Engine.Weather.Wind", Flat = false)]
+    public static bool WeatherWindEnabled
+    {
+        get => WeatherHeld?.WindEnabled ?? true;
+        set { if (WeatherHeld is { } held) held.WindEnabled = value; }
+    }
+
+    [PgslCommand("Strength", "Engine.Weather.Wind.Strength = metresPerSecond", "The wind's speed, 0 to 60 metres a second (the weather's unless set: 1.2 in clear weather, 11 in a thunderstorm)", "Weather", Namespace = "Engine.Weather.Wind", Flat = false)]
+    public static double WeatherWindStrength
+    {
+        get => WeatherHeld?.WindSpeed ?? Climate?.OwnWeather.WindSpeed ?? 1.2;
+        set { if (WeatherHeld is { } held) held.WindSpeed = Finite(value, 0, 60, 1.2f); }
+    }
+
+    [PgslCommand("Direction", "Engine.Weather.Wind.Direction = degrees", "The way the wind blows towards, 0 to 360 degrees: 0 along +Z, 90 along +X (the weather's unless set)", "Weather", Namespace = "Engine.Weather.Wind", Flat = false)]
+    public static double WeatherWindDirection
+    {
+        get
+        {
+            if (WeatherHeld?.WindDirectionDegrees is { } held) return held;
+            System.Numerics.Vector3 wind = Climate?.OwnWeather.WindDirection ?? System.Numerics.Vector3.UnitZ;
+            double degrees = Math.Atan2(wind.X, wind.Z) * 180.0 / Math.PI;
+            return degrees < 0 ? degrees + 360 : degrees;
+        }
+        set { if (WeatherHeld is { } held && double.IsFinite(value)) held.WindDirectionDegrees = (float)(((value % 360) + 360) % 360); }
+    }
+
+    [PgslCommand("Enabled", "Engine.Weather.Rain.Enabled = false", "Rain (true unless set); off, no rain falls whatever the weather", "Weather", Namespace = "Engine.Weather.Rain", Flat = false)]
+    public static bool WeatherRainEnabled
+    {
+        get => WeatherHeld?.RainEnabled ?? true;
+        set { if (WeatherHeld is { } held) held.RainEnabled = value; }
+    }
+
+    [PgslCommand("Amount", "Engine.Weather.Rain.Amount = 0.5", "How hard it rains, 0 to 1 (the weather's unless set: 0 in clear weather, 0.72 in rain)", "Weather", Namespace = "Engine.Weather.Rain", Flat = false)]
+    public static double WeatherRainAmount
+    {
+        get => WeatherHeld?.Rain ?? Climate?.OwnWeather.Rain ?? 0;
+        set { if (WeatherHeld is { } held) held.Rain = Finite(value, 0, 1, 0f); }
+    }
+
+    [PgslCommand("Wetness", "Engine.Weather.Rain.Wetness = 1", "How wet the ground and surfaces are, 0 to 1 (0 unless set); rain wets them and warmth and wind dry them from there", "Weather", Namespace = "Engine.Weather.Rain", Flat = false)]
+    public static double WeatherRainWetness
+    {
+        get => Climate?.GroundWetness ?? 0;
+        set { if (Climate is { } climate) climate.GroundWetness = Finite(value, 0, 1, 0f); }
+    }
+
+    [PgslCommand("Enabled", "Engine.Weather.Snow.Enabled = false", "Snow (true unless set); off, no snow falls whatever the weather", "Weather", Namespace = "Engine.Weather.Snow", Flat = false)]
+    public static bool WeatherSnowEnabled
+    {
+        get => WeatherHeld?.SnowEnabled ?? true;
+        set { if (WeatherHeld is { } held) held.SnowEnabled = value; }
+    }
+
+    [PgslCommand("Amount", "Engine.Weather.Snow.Amount = 0.5", "How hard it snows, 0 to 1 (the weather's unless set: 0.78 in snow)", "Weather", Namespace = "Engine.Weather.Snow", Flat = false)]
+    public static double WeatherSnowAmount
+    {
+        get => WeatherHeld?.Snow ?? Climate?.OwnWeather.Snow ?? 0;
+        set { if (WeatherHeld is { } held) held.Snow = Finite(value, 0, 1, 0f); }
+    }
+
+    [PgslCommand("Cover", "Engine.Weather.Snow.Cover = 1", "How much snow lies on the ground and surfaces, 0 to 1 (0 unless set); snow builds it and warmth melts it from there", "Weather", Namespace = "Engine.Weather.Snow", Flat = false)]
+    public static double WeatherSnowCover
+    {
+        get => Climate?.SnowCover ?? 0;
+        set { if (Climate is { } climate) climate.SnowCover = Finite(value, 0, 1, 0f); }
+    }
+
+    [PgslCommand("Enabled", "Engine.Weather.Lightning.Enabled = false", "Lightning in storms (true unless set); a script's own strikes still happen when off", "Weather", Namespace = "Engine.Weather.Lightning", Flat = false)]
+    public static bool WeatherLightningEnabled
+    {
+        get => WeatherHeld?.LightningEnabled ?? true;
+        set { if (WeatherHeld is { } held) held.LightningEnabled = value; }
+    }
+
+    [PgslCommand("Amount", "Engine.Weather.Lightning.Amount = 0.5", "How often lightning strikes, 0 to 1 (the weather's unless set: 0.85 in a thunderstorm, 0 otherwise)", "Weather", Namespace = "Engine.Weather.Lightning", Flat = false)]
+    public static double WeatherLightningAmount
+    {
+        get => WeatherHeld?.Lightning ?? Climate?.OwnWeather.Lightning ?? 0;
+        set { if (WeatherHeld is { } held) held.Lightning = Finite(value, 0, 1, 0f); }
+    }
+
+    [PgslCommand("Celsius", "Engine.Weather.Temperature.Celsius = -5", "The air's temperature at sea level, -60 to 60 degrees (the weather's unless set: 18 in clear weather); below 0 snow lies and above it melts", "Weather", Namespace = "Engine.Weather.Temperature", Flat = false)]
+    public static double WeatherTemperatureCelsius
+    {
+        get => WeatherHeld?.TemperatureC ?? Climate?.OwnWeather.TemperatureC ?? 18;
+        set { if (WeatherHeld is { } held) held.TemperatureC = Finite(value, -60, 60, 18f); }
+    }
+
     // ── Engine.Audio's parts ─────────────────────────────────────────────────────────────
 
     // A turned-off bus keeps the volume it had, for when it is turned on again.

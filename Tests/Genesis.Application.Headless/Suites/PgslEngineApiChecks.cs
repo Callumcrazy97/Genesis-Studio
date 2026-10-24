@@ -135,6 +135,7 @@ internal static class PgslEngineApiChecks
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.AutotilesAndAcoustics", () => AutotilesAndAcoustics(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.ThreadsShareCullingAndDrawTheSame", () => SharedCulling(row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiPartsDefaultsAndValues", () => Parts(project, row));
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiWeatherPartsHoldAndRelease", () => WeatherParts(project, row));
     }
 
     // Engine.Area.Part.Value in a running room: each value reads its default until set, keeps what a
@@ -245,6 +246,81 @@ internal static class PgslEngineApiChecks
             Genesis.Runtime.Modeling.ModelLodView.Quality = 1f;
             PgslCommands.ActiveGameContext = previousGame;
             PgslCommands.ProjectPath = previousPath;
+            PgslCommands.BindContext(previousContext);
+        }
+    }
+
+    // Engine.Weather's parts in a rainy room: each follows the weather until set, then holds whatever
+    // the weather does; a part turned off holds its amount at 0; Release() hands them back.
+    private const string WeatherScript = """
+        dWind = Engine.Weather.Wind.Strength;
+        dRain = Engine.Weather.Rain.Amount;
+        dCelsius = Engine.Weather.Temperature.Celsius;
+        Engine.Weather.Wind.Strength = 0;
+        Engine.Weather.Wind.Direction = 450;
+        Engine.Weather.Rain.Amount = 2;
+        Engine.Weather.Rain.Wetness = 0.5;
+        Engine.Weather.Snow.Enabled = false;
+        Engine.Weather.Snow.Amount = 0.4;
+        Engine.Weather.Temperature.Celsius = -5;
+        wind = Engine.Weather.Wind.Strength;
+        windTowards = Engine.Weather.Wind.Direction;
+        rain = Engine.Weather.Rain.Amount;
+        wet = Engine.Weather.Rain.Wetness;
+        snowOn = Engine.Weather.Snow.Enabled;
+        snowKept = Engine.Weather.Snow.Amount;
+        """;
+
+    private static void WeatherParts(ProjectSession project, Action<string, string, string, string> row)
+    {
+        RoomAsset room = RoomAsset.Create("WeatherRoom", RoomDimension.ThreeD);
+        using var scene = new RuntimeScene("Weather parts");
+        scene.ConfigureClimate(new Genesis.Runtime.Climate.EnvironmentOptions { AutomaticWeather = false }, Genesis.Runtime.Climate.WeatherKind.Rain);
+        var game = new ProjectGameContext(project.RootPath, scene, null, null, room, null);
+        PgslContext previousContext = PgslCommands.BindContext(new PgslContext());
+        var previousGame = PgslCommands.ActiveGameContext;
+        PgslCommands.ActiveGameContext = game;
+        try
+        {
+            VMEngine.Initialize();
+            var host = new ScriptHostSystem();
+            host.SetContext(game);
+            Entity entity = scene.World.CreateEntity();
+            scene.World.Set(entity, new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+            using (host.UseEventSources(new Dictionary<string, string> { ["Create"] = WeatherScript })) host.Attach(scene.World, entity, "WeatherProbe");
+            var vars = host.Instances.OfType<PgslBehavior>().Single(behavior => behavior.Entity == entity).GetVariablesSnapshot();
+            double Number(string name) => vars.TryGetValue(name, out object? value) && value is not (string or bool or null) ? Convert.ToDouble(value, CultureInfo.InvariantCulture) : double.NaN;
+            bool Flag(string name) => vars.TryGetValue(name, out object? value) && value is true;
+            string diagnostics = string.Join("; ", host.RecentDiagnostics.Select(d => d.Message));
+            void Check(string name, bool pass, string detail)
+            {
+                row("Engine API parts", name, pass ? "PASS" : "FAIL", detail);
+                HeadlessHarness.Assert(pass, $"{name}: {detail} {diagnostics}");
+            }
+
+            Genesis.Runtime.Climate.EnvironmentService climate = scene.Climate;
+            climate.Update(0.1f, Vector3.Zero);
+            Genesis.Runtime.Climate.EnvironmentFrame held = climate.Current;
+            Check("weather values follow the weather until set",
+                Math.Abs(Number("dWind") - 5.2) < 1e-4 && Math.Abs(Number("dRain") - 0.72) < 1e-4 && Math.Abs(Number("dCelsius") - 11) < 1e-4,
+                $"wind {Number("dWind")} (5.2), rain {Number("dRain")} (0.72), temperature {Number("dCelsius")} (11) in rain");
+            Check("weather values hold what a script sets, kept in range",
+                Number("wind") == 0 && Math.Abs(Number("windTowards") - 90) < 1e-4 && Number("rain") == 1 && Math.Abs(Number("wet") - 0.5) < 1e-3
+                && !Flag("snowOn") && Math.Abs(Number("snowKept") - 0.4) < 1e-4
+                && held.Weather.WindSpeed == 0 && held.LocalWind.Length() < 1e-6 && held.Weather.Rain == 1 && held.Weather.Snow == 0
+                && Math.Abs(held.Weather.TemperatureC + 5) < 1e-4 && Math.Abs(held.Weather.WindDirection.X - 1) < 1e-4,
+                $"script read wind {Number("wind")}, direction {Number("windTowards")} (90), rain {Number("rain")} (1), wetness {Number("wet")}, snow on {Flag("snowOn")} keeping {Number("snowKept")}; "
+                + $"the world had wind {held.Weather.WindSpeed} towards {held.Weather.WindDirection}, rain {held.Weather.Rain}, snow {held.Weather.Snow}, {held.Weather.TemperatureC} C");
+            PgslCommands.WeatherRelease();
+            climate.Update(0.1f, Vector3.Zero);
+            Check("Engine.Weather.Release() hands the values back to the weather",
+                Math.Abs(climate.Current.Weather.WindSpeed - 5.2f) < 1e-4 && Math.Abs(climate.Current.Weather.Rain - 0.72f) < 1e-4
+                && Math.Abs(climate.Current.Weather.TemperatureC - 11) < 1e-4 && PgslCommands.WeatherSnowEnabled,
+                $"wind {climate.Current.Weather.WindSpeed}, rain {climate.Current.Weather.Rain}, {climate.Current.Weather.TemperatureC} C, snow on {PgslCommands.WeatherSnowEnabled}");
+        }
+        finally
+        {
+            PgslCommands.ActiveGameContext = previousGame;
             PgslCommands.BindContext(previousContext);
         }
     }

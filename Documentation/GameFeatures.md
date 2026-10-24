@@ -232,6 +232,24 @@ has. Turn on **Draw rain, snow and lightning** in the Room editor under **Lighti
 | Lightning | In a thunderstorm the scene is lit by two quick pulses over 0.45 seconds at each strike. |
 | Thunder | Set **Thunder audio** (`thunderAudio`) to a sound. It plays after each strike, later for a more distant one (343 m/s). The soundscape's `thunder` level scales it. |
 
+**The weather's values from a script (24 October 2026).** `Engine.Weather.Wind` (Enabled,
+Strength in m/s, Direction in degrees), `Engine.Weather.Rain` (Enabled, Amount, Wetness),
+`Engine.Weather.Snow` (Enabled, Amount, Cover), `Engine.Weather.Lightning` (Enabled, Amount) and
+`Engine.Weather.Temperature.Celsius`. In a room with a dynamic sky (the only rooms with weather),
+each reads the weather's own value until a script sets it,
+then holds there whatever the weather does, for the rain, snow, wind and lightning drawn here and
+for everything else that reads the climate; a part turned off holds its amount at 0 and keeps
+what was set. `Engine.Weather.Release()` hands them all back to the weather, as does the next
+room. Wetness and Cover set how wet and how snowy surfaces are now; rain, snow and warmth carry
+on from there. They are not kept in save files: a game that holds them sets them again after a load.
+
+```gml
+Engine.Weather.Preset = "thunderstorm";
+Engine.Weather.Rain.Amount = 0.3;          // a storm, but only a light rain
+Engine.Weather.Wind.Direction = 90;        // blowing towards +X
+Engine.Weather.Snow.Enabled = false;       // never snow in this valley
+```
+
 Script commands:
 
 | Command | Meaning |

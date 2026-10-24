@@ -33,7 +33,10 @@ Amount); Engine.Physics.World (AirDrag, MaxVelocity, RecoveryVelocity), Physics.
 Y, Z), Physics.Sleep (Enabled, Threshold); Engine.Input.Mouse.Captured, Input.Gamepad.DeadZone;
 Engine.Game.Paused, Engine.Game.Threads, Engine.Game.Name, Engine.Game.Version, Game.Scripts
 (InstructionLimit, Profile); Engine.Camera.Focus (Enabled, Auto, Distance, Range, Blur); Engine.Sky.Time
-(Speed, Paused); Engine.Weather (Preset, Transition, Auto); Engine.Room.Change (Fade, MinimumTime,
+(Speed, Paused); Engine.Weather (Preset, Transition, Auto, Release()), Weather.Wind (Enabled, Strength,
+Direction), Weather.Rain (Enabled, Amount, Wetness), Weather.Snow (Enabled, Amount, Cover),
+Weather.Lightning (Enabled, Amount), Weather.Temperature.Celsius (each follows the weather until a
+script sets it, then holds); Engine.Audio.Listener.FollowCamera; Engine.Room.Change (Fade, MinimumTime,
 ProgressBar, Text); Engine.Debug.Keys.Enabled; Engine.Particle.Bursts.Limit; Engine.Mesh.Upload.Budget;
 Engine.Water.Reflections.Enabled; Engine.Tile.Autotile.Enabled; Engine.Model.Shadows (Cast, Receive),
 Model.Glow (Strength, EmissionScale); Engine.Input.Gamepad.KeyboardEmulation; Engine.View.Camera.Zoom;
@@ -123,12 +126,12 @@ Engine.Navigation.Agent (Speed, StoppingDistance). Colours are "#rrggbb" text.
 
 | Part | Values |
 |---|---|
-| Engine.Weather | + Enabled, + Preset ("clear", "rain", "storm", "snow", "fog"), + Transition (seconds) |
-| Engine.Weather.Wind | + Enabled, + Strength, + DirectionX, + DirectionZ, + Gusts |
-| Engine.Weather.Rain | + Enabled, + Amount, + Wetness (surfaces), + Splashes.Enabled, + Sound.Enabled |
-| Engine.Weather.Snow | + Enabled, + Amount, + Cover (snow on surfaces) |
-| Engine.Weather.Lightning | + Enabled, + Frequency, ✓ Strike(x, z) [StrikeLightning], ✓ Flash() [LightningFlash], ✓ Strikes (read) |
-| Engine.Weather.Temperature | + Celsius |
+| Engine.Weather | + Enabled, ✓ Preset ("clear", "rain", "thunderstorm", "snow", "fog"...), ✓ Transition (seconds), ✓ Auto, ✓ Release() |
+| Engine.Weather.Wind | ✓ Enabled, ✓ Strength, ✓ Direction (degrees), + Gusts |
+| Engine.Weather.Rain | ✓ Enabled, ✓ Amount, ✓ Wetness (surfaces), + Splashes.Enabled, + Sound.Enabled |
+| Engine.Weather.Snow | ✓ Enabled, ✓ Amount, ✓ Cover (snow on surfaces) |
+| Engine.Weather.Lightning | ✓ Enabled, ✓ Amount (how often), ✓ Strike(x, z) [StrikeLightning], ✓ Flash() [LightningFlash], ✓ Strikes (read) |
+| Engine.Weather.Temperature | ✓ Celsius |
 
 ## Engine.Water
 

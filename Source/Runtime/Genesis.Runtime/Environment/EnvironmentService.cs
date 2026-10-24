@@ -55,6 +55,51 @@ public readonly record struct WeatherState(
     private static float Lerp(float a, float b, float t) => a + (b - a) * t;
 }
 
+/// <summary>
+/// Weather values a script holds whatever the weather is doing (Engine.Weather.Wind.Strength and
+/// the rest). A value left null follows the weather; a part turned off holds its amount at 0.
+/// </summary>
+public sealed class WeatherOverrides
+{
+    public bool WindEnabled { get; set; } = true;
+    public float? WindSpeed { get; set; }
+    /// <summary>The way the wind blows towards, in degrees: 0 along +Z, 90 along +X.</summary>
+    public float? WindDirectionDegrees { get; set; }
+    public bool RainEnabled { get; set; } = true;
+    public float? Rain { get; set; }
+    public bool SnowEnabled { get; set; } = true;
+    public float? Snow { get; set; }
+    public bool LightningEnabled { get; set; } = true;
+    public float? Lightning { get; set; }
+    public float? TemperatureC { get; set; }
+
+    /// <summary>Every value follows the weather again.</summary>
+    public void Clear()
+    {
+        WindEnabled = RainEnabled = SnowEnabled = LightningEnabled = true;
+        WindSpeed = WindDirectionDegrees = Rain = Snow = Lightning = TemperatureC = null;
+    }
+
+    public WeatherState Apply(in WeatherState weather)
+    {
+        Vector3 direction = weather.WindDirection;
+        if (WindDirectionDegrees is { } degrees)
+        {
+            float radians = float.DegreesToRadians(degrees);
+            direction = new Vector3(MathF.Sin(radians), 0f, MathF.Cos(radians));
+        }
+        return weather with
+        {
+            WindDirection = direction,
+            WindSpeed = WindEnabled ? WindSpeed ?? weather.WindSpeed : 0f,
+            Rain = RainEnabled ? Rain ?? weather.Rain : 0f,
+            Snow = SnowEnabled ? Snow ?? weather.Snow : 0f,
+            Lightning = LightningEnabled ? Lightning ?? weather.Lightning : 0f,
+            TemperatureC = TemperatureC ?? weather.TemperatureC,
+        };
+    }
+}
+
 /// <summary>Local shelter/altitude information supplied by the active world implementation.</summary>
 public readonly record struct EnvironmentLocalSample(
     float RainOcclusion,
@@ -180,6 +225,26 @@ public sealed class EnvironmentService
     public int DayIndex => (int)Math.Floor(_simulatedSeconds / 86_400.0);
     public float TimeOfDayHours => WrapHours((float)(_simulatedSeconds / 3600.0));
     public WeatherKind ActiveWeather => Options.UseEpisodicWeather && Options.AutomaticWeather ? _weather.Kind : _transitionTarget.Kind;
+    /// <summary>Values a script holds whatever the weather; applied to every frame from the next update.</summary>
+    public WeatherOverrides Overrides { get; } = new();
+    /// <summary>The weather as the world sees it: the weather's own values with <see cref="Overrides"/> applied.</summary>
+    public WeatherState Weather => Overrides.Apply(_weather);
+    /// <summary>The weather's own values, before <see cref="Overrides"/>.</summary>
+    public WeatherState OwnWeather => _weather;
+
+    /// <summary>How wet the ground is, 0 to 1: rises in rain and dries in warmth and wind.</summary>
+    public float GroundWetness
+    {
+        get => _groundWetness;
+        set { if (float.IsFinite(value)) _groundWetness = Math.Clamp(value, 0f, 1f); }
+    }
+
+    /// <summary>How much snow lies on surfaces, 0 to 1: builds in snow and melts above freezing.</summary>
+    public float SnowCover
+    {
+        get => _snowAccumulation;
+        set { if (float.IsFinite(value)) _snowAccumulation = Math.Clamp(value, 0f, 1f); }
+    }
 
     public void SetTimeOfDay(float hours)
     {
@@ -225,14 +290,15 @@ public sealed class EnvironmentService
             UpdateWeatherTransition(dt);
         }
 
-        EnvironmentLocalSample local = _query.Sample(observerPosition, _weather.WindDirection);
+        WeatherState weather = Weather;
+        EnvironmentLocalSample local = _query.Sample(observerPosition, weather.WindDirection);
         float rainOcclusion = Math.Clamp(local.RainOcclusion, 0f, 1f);
         float windOcclusion = Math.Clamp(local.WindOcclusion, 0f, 1f);
-        float localRain = _weather.Rain * (1f - rainOcclusion);
-        float localSnow = _weather.Snow * (1f - rainOcclusion);
-        float localHail = _weather.Hail * (1f - rainOcclusion);
-        Vector3 localWind = _weather.WindDirection * _weather.WindSpeed * (1f - windOcclusion);
-        float temperature = _weather.TemperatureC - MathF.Max(0f, local.AltitudeMeters) * 0.0065f;
+        float localRain = weather.Rain * (1f - rainOcclusion);
+        float localSnow = weather.Snow * (1f - rainOcclusion);
+        float localHail = weather.Hail * (1f - rainOcclusion);
+        Vector3 localWind = weather.WindDirection * weather.WindSpeed * (1f - windOcclusion);
+        float temperature = weather.TemperatureC - MathF.Max(0f, local.AltitudeMeters) * 0.0065f;
         float precipitation = Math.Clamp(localRain + localSnow + localHail, 0f, 1f);
         float drying = MathF.Max(0f, temperature) * 0.0003f + localWind.Length() * 0.00015f;
         _groundWetness = Math.Clamp(_groundWetness + precipitation * dt * 0.035f - drying * dt, 0f, 1f);
@@ -401,14 +467,12 @@ public sealed class EnvironmentService
         _weather = WeatherState.Blend(_transitionFrom, _transitionTarget, t);
     }
 
-    private EnvironmentFrame BuildFrame(Vector3 observer) => BuildFrame(
-        observer,
-        EnvironmentLocalSample.Open(observer),
-        _weather.WindDirection * _weather.WindSpeed,
-        _weather.Rain,
-        _weather.Snow,
-        _weather.Hail,
-        _weather.TemperatureC);
+    private EnvironmentFrame BuildFrame(Vector3 observer)
+    {
+        WeatherState weather = Weather;
+        return BuildFrame(observer, EnvironmentLocalSample.Open(observer), weather.WindDirection * weather.WindSpeed,
+            weather.Rain, weather.Snow, weather.Hail, weather.TemperatureC);
+    }
 
     private EnvironmentFrame BuildFrame(
         Vector3 observer,
@@ -426,7 +490,7 @@ public sealed class EnvironmentService
         (Vector4 background, Vector4 fog, Vector3 ambientSky, Vector3 ambientGround) =
             SkyPalette(TimeOfDayHours, night, _weather.CloudCover, _weather.FogDensity);
         return new EnvironmentFrame(
-            _elapsedRealSeconds, DayIndex, TimeOfDayHours, sun, moon, night, moonPhase, _weather,
+            _elapsedRealSeconds, DayIndex, TimeOfDayHours, sun, moon, night, moonPhase, Weather,
             localWind, localRain, localSnow, localHail, temperature, _groundWetness,
             _snowAccumulation, local, background, fog, ambientSky, ambientGround);
     }
