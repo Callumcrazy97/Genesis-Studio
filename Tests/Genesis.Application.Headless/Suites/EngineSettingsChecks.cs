@@ -40,10 +40,17 @@ internal static class EngineSettingsChecks
             ResourceInspectorLiveValue? Row(string path) => editor.GetLiveInspectorValues().FirstOrDefault(value => value.PropertyPath == path);
 
             IReadOnlyList<string> choices = Row(EngineSettingsInspector.AddPath)?.Choices ?? [];
-            // Listed without "Engine." so typing an area's first letters finds it; either form can be chosen.
-            HeadlessHarness.Assert(choices.Contains("Physics.Mass") && choices.Contains("Instance.Yaw") && choices.Contains("Model.Glow")
-                && !choices.Contains("Physics.AirDrag") && !choices.Any(choice => choice.StartsWith("Engine.", StringComparison.Ordinal)),
-                $"The Object's Add a setting list is not the instance values ({choices.Count} offered).");
+            // Listed without "Engine." and with each default, so typing an area's first letters finds it
+            // and the list says what it starts at; the listed form, a short name or a full name can be chosen.
+            bool Listed(string name) => choices.Any(choice => choice.StartsWith(name + " (", StringComparison.Ordinal) && choice.EndsWith(')'));
+            HeadlessHarness.Assert(Listed("Physics.Mass") && Listed("Instance.Yaw") && Listed("Model.Glow")
+                && !Listed("Physics.AirDrag") && !choices.Any(choice => choice.StartsWith("Engine.", StringComparison.Ordinal)),
+                $"The Object's Add a setting list is not the instance values with their defaults ({choices.Count} offered: {string.Join(", ", choices.Take(4))}).");
+            string glow = choices.First(choice => choice.StartsWith("Model.Glow (", StringComparison.Ordinal));
+            HeadlessHarness.Assert(editor.TryApplyInspectorValue(EngineSettingsInspector.AddPath, glow)
+                && Row(Prefix + "Engine.Model.Glow")?.Description?.Contains("Default: ", StringComparison.Ordinal) == true
+                && editor.TryApplyInspectorValue(EngineSettingsInspector.RemovePath, "Model.Glow"),
+                $"Choosing '{glow}' from the list did not add the setting with its default described.");
             HeadlessHarness.Assert(editor.TryApplyInspectorValue(EngineSettingsInspector.AddPath, "Instance.Yaw")
                 && editor.TryApplyInspectorValue(Prefix + "Engine.Instance.Yaw", 45d)
                 && editor.TryApplyInspectorValue(EngineSettingsInspector.AddPath, "Engine.Instance.ScaleX")

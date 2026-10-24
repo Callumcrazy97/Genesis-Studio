@@ -98,8 +98,10 @@ templates and today's features:
 6. **Play from here.** Done in part today: **Run This Room** (Shift+F5, File menu) starts the game
    in the Room open in the editor instead of the start room. Still to do: start with the camera (3D)
    or view (2D) where the editor's is.
-7. **Engine settings picker by area.** The Inspector's "Add a setting" as a two-level menu
-   (Rendering, then Fog, then Start), showing each value's default and range beside it.
+7. **Engine settings picker by area.** Done in part today: the Inspector's "Add a setting" list
+   shows each value's default beside it (`Rendering.Fog.Start (10)`), and each setting's
+   description ends with its default. Still to do: a two-level menu (Rendering, then Fog, then
+   Start) and each value's range.
 8. **More parts.** The 444 values still marked + in `EngineApiAreas.md`, in the order there:
    Weather, Water, Terrain, Particles, Navigation, Instance.Update, Ui, Tile layers.
 9. **Genre starters.** A 2D platformer, a top-down 2D action game, a 3D third-person game and a

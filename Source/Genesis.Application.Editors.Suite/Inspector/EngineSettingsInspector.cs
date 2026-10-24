@@ -27,12 +27,15 @@ public static class EngineSettingsInspector
             bool known = EngineSettings.TryFind(name, out EngineSettings.Setting setting);
             object value = known ? EngineSettings.Parse(text, setting.Type) : text;
             values.Add(new ResourceInspectorLiveValue(Group, Prefix + name, ShortName(name), value, readOnly,
-                known ? setting.Description : "Not an engine value that can be set: the game skips it.", known ? setting.Choices : null));
+                known ? $"{setting.Description} Default: {DefaultOf(setting)}." : "Not an engine value that can be set: the game skips it.",
+                known ? setting.Choices : null));
         }
         if (readOnly) return;
-        // Listed without "Engine." (Rendering.Fog.Start), so typing the area's first letters finds it.
-        string[] add = EngineSettings.Available(scope).Select(setting => setting.Name)
-            .Where(name => settings == null || !settings.ContainsKey(name)).Select(ListName).ToArray();
+        // Listed without "Engine." and with each value's default (Rendering.Fog.Start (10)), so typing
+        // the area's first letters finds it and the list says what it starts at.
+        string[] add = EngineSettings.Available(scope)
+            .Where(setting => settings == null || !settings.ContainsKey(setting.Name))
+            .Select(setting => $"{ListName(setting.Name)} ({DefaultOf(setting)})").ToArray();
         values.Add(new ResourceInspectorLiveValue(Group, AddPath, "Add a setting", "",
             Description: scope == EngineSettingScope.Instance
                 ? "A value each instance starts with, set just before its Create event (as a script would set it). It starts at the value's default."
@@ -47,9 +50,26 @@ public static class EngineSettingsInspector
     public static string ListName(string name) =>
         name.StartsWith("Engine.", StringComparison.Ordinal) ? name["Engine.".Length..] : name;
 
-    // A list's choice back to the full name; a full name is taken as it is.
-    private static string FullName(string chosen) =>
-        chosen.Length == 0 || chosen.StartsWith("Engine.", StringComparison.Ordinal) ? chosen : "Engine." + chosen;
+    // Worked out once a setting: the default can mean reading the value with no game running.
+    private static readonly Dictionary<string, string> Defaults = new(StringComparer.Ordinal);
+
+    private static string DefaultOf(EngineSettings.Setting setting)
+    {
+        lock (Defaults)
+        {
+            if (!Defaults.TryGetValue(setting.Name, out string? text))
+                Defaults[setting.Name] = text = EngineSettings.DefaultText(setting);
+            return text;
+        }
+    }
+
+    // A list's choice back to the full name, without the default after it; a full name is taken as it is.
+    private static string FullName(string chosen)
+    {
+        int cut = chosen.IndexOf(" (", StringComparison.Ordinal);
+        if (cut > 0) chosen = chosen[..cut];
+        return chosen.Length == 0 || chosen.StartsWith("Engine.", StringComparison.Ordinal) ? chosen : "Engine." + chosen;
+    }
 
     /// <summary>
     /// Applies an Inspector edit to <paramref name="settings"/>: a value, an added setting (starting
