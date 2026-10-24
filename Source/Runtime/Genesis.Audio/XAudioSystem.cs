@@ -154,6 +154,29 @@ namespace Genesis.Audio
 
         private bool _muted;
 
+        private static bool IsMusic(string bus) => string.Equals(bus, "music", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>The acoustics sound effects play in: "outdoors" (none), "room", "hall" or "cave".</summary>
+        public string Acoustics
+        {
+            get => _engine?.Acoustics ?? "outdoors";
+            set { if (_engine != null) _engine.Acoustics = value; }
+        }
+
+        /// <summary>How much of the acoustics is heard, 0 to 1.</summary>
+        public float AcousticsAmount
+        {
+            get => _engine?.AcousticsAmount ?? .5f;
+            set { if (_engine != null) _engine.AcousticsAmount = value; }
+        }
+
+        /// <summary>How muffled the music is, 0 (clear) to 1.</summary>
+        public float MusicMuffle
+        {
+            get => _engine?.MusicMuffle ?? 0f;
+            set { if (_engine != null) _engine.MusicMuffle = value; }
+        }
+
         /// <summary>
         /// Silences the device without changing what <see cref="MasterVolume"/> reads back, so a
         /// game's own volume setting cannot turn the sound back on. Used for test windows.
@@ -431,7 +454,7 @@ namespace Genesis.Audio
 
                 if (!state.BusChosen) state.Bus = entry.Bus;
                 IXAudio2SourceVoice? voice = entry.Effect.PlayVoice(_engine, state.BaseVolume * BusGain(state.Bus),
-                    state.PendingPitch * state.AssetPitch, state.Loop);
+                    state.PendingPitch * state.AssetPitch, state.Loop, IsMusic(state.Bus));
                 state.Pending = false;
                 if (voice == null)
                 {
@@ -496,7 +519,7 @@ namespace Genesis.Audio
 
             bool wantLoop = loop || entry.Loop;
             float gain = volume * entry.Gain * BusGain(entry.Bus);
-            var voice = entry.Effect.PlayVoice(_engine, gain, pitch * entry.Pitch, wantLoop);
+            var voice = entry.Effect.PlayVoice(_engine, gain, pitch * entry.Pitch, wantLoop, IsMusic(entry.Bus));
             if (voice == null) return AudioChannel.Invalid;
 
             int channelId = _nextChannelId++;

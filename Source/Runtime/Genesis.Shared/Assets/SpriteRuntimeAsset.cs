@@ -134,6 +134,10 @@ public sealed class SpriteRuntimeTileset
     public int Spacing { get; set; }
     public int Columns { get; set; }
     public List<int> Collision { get; set; } = [];
+    /// <summary>Tiles painted on it pick themselves from their neighbours (a 4×4 block from AutotileColumn, AutotileRow).</summary>
+    public bool Autotile { get; set; }
+    public int AutotileColumn { get; set; }
+    public int AutotileRow { get; set; }
 }
 
 public sealed class SpriteRuntimePoint

@@ -6,7 +6,7 @@ variable and, when it can be set, set like one (`Engine.Physics.Mass = 4;`, `Eng
 an instance's property is the current instance's, each target's in turn inside `with`. The flat
 names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
-1478 names: 234 properties (181 can be set), 1244 commands.
+1484 names: 238 properties (185 can be set), 1246 commands.
 
 ## Engine.Alarm
 
@@ -128,6 +128,8 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
 | Name | Kind | What it is |
 |---|---|---|
+| `Acoustics` | property | How the place sounds for sound effects: "outdoors" (no echo), "room", "hall" or "cave". Each room starts outdoors unless its settings choose another |
+| `AcousticsAmount` | property | How much of the acoustics is heard, 0 (none) to 1 (0.5 unless set) |
 | `BusDuck` | command | Ducking: while any sound on byBus plays, bus drops by amount (0.6 leaves 40%), down over attack seconds (default 0.15) and back over release (default 0.6): BusDuck("music", "voice", 0.6). Amount 0 turns it off |
 | `BusDuckLevel` | command | How far a ducked bus is down now: 1 when not ducked, 0.4 when ducked by 0.6 |
 | `GetBusVolume` | command | The volume of a group of sounds: "music", "sfx" or "master" |
@@ -137,6 +139,7 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `MasterVolume` | property | Reads (GetMasterVolume) and sets (SetMasterVolume): Current overall output volume |
 | `Music` | property | The music track playing ("" for none): setting it cross-fades to that track over a second, "" fades it out |
 | `MusicCurrent` | command | The track MusicPlay is playing, or empty |
+| `MusicMuffle` | property | How muffled the music is, 0 (clear) to 1 (heard through a wall): for a pause menu, underwater or a dream |
 | `MusicPlay` | command | Play a looping music track on the music bus, cross-fading from the one playing over fadeSeconds (default 1); the same track already playing only moves to the new volume |
 | `MusicStop` | command | Fade the music MusicPlay started to silence (default 1 second) and stop it |
 | `MusicVolume` | property | The volume of the music bus (0-1) |
@@ -1629,11 +1632,14 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
 | Name | Kind | What it is |
 |---|---|---|
+| `Autotile` | property | Whether tiles painted or erased on a layer whose tile set autotiles take the tiles their neighbours call for (on unless set off) |
+| `EraseAt` | command | Take away the tile at x, y (as TileRemoveAt): on an autotiled layer its neighbours take the tiles that now fit |
 | `IndexAt` | command | Read a painted tile index, or -1 for empty; layer is the tile node name or id |
 | `Meeting` | command | Test the caller's authored sprite mask against solid room tiles |
 | `MoveX` | command | Sweep the sprite against tiles and return its allowed new X; assign x to the result |
 | `MoveY` | command | Sweep the sprite against tiles and return its allowed new Y; assign y to the result |
-| `RemoveAt` | command | Remove a live tile and its collision without changing the saved room |
+| `PaintAt` | command | Put a tile in the cell at x, y of the front tile layer there (or the one named) whose tile set autotiles: it and its neighbours take the tiles that fit; false on a layer that does not autotile or a cell already painted |
+| `RemoveAt` | command | Remove a live tile and its collision without changing the saved room (on an autotiled layer its neighbours take the tiles that now fit) |
 | `SetAt` | command | Replace an existing live tile and invalidate collision; does not edit the saved room |
 
 ## Engine.Time

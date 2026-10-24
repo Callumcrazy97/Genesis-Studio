@@ -105,6 +105,106 @@ internal static class PgslEngineApiChecks
     {
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiNamesEveryCommand", () => Names(ctx, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiPhysicsWithAndFor", () => Physics(project, row));
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.AutotilesAndAcoustics", () => AutotilesAndAcoustics(project, row));
+    }
+
+    // A wall painted three tiles long takes its two ends and its middle from an autotiled tile set;
+    // erasing the middle leaves two single tiles. Then the acoustics: set, refused, clamped, and played.
+    private static void AutotilesAndAcoustics(ProjectSession project, Action<string, string, string, string> row)
+    {
+        var resources = new ResourceService(project);
+        string tiles = resources.CreateResource(ResourceFolderPolicy.RootFor(project, ResourceKind.Image), ResourceKind.Image, "AutotileWalls");
+        var session = new Genesis.Application.Core.Images.ImageDocumentSession(
+            Genesis.Application.Core.Images.ImageDocumentSerializer.LoadAtomic(tiles).Document, tiles, Genesis.Application.Core.Images.ImageDocumentAccess.Editor);
+        session.Document.Usage.Allowed = Genesis.Application.Core.Images.ImageUsage.Tileset;
+        session.Document.Usage.Tileset.TileWidth = session.Document.Usage.Tileset.TileHeight = 16;
+        session.Document.Usage.Tileset.Autotile = true;
+        session.Document.Usage.Tileset.AutotileColumn = 1;
+        Genesis.Application.Editors.Image.Imaging.ImageWorkspaceStorage.Save(session,
+            Genesis.Application.Editors.Image.Imaging.ImageWorkspace.CreateBlank(96, 64, System.Drawing.Color.Gray));
+        ResourceCatalog.Invalidate(project.RootPath);
+
+        RoomAsset room = RoomAsset.Create("AutotileRoom", RoomDimension.TwoD);
+        var walls = new RoomNode
+        {
+            Name = "Walls", Kind = RoomNodeKind.TileLayer,
+            TileLayer = new RoomTileLayerData { Tileset = ResourceCatalog.Name(project.RootPath, tiles), CellWidth = 16, CellHeight = 16 },
+        };
+        room.Nodes.Add(walls);
+        using var scene = new RuntimeScene("Autotiles");
+        var game = new ProjectGameContext(project.RootPath, scene, null, null, room, null);
+        PgslContext previousContext = PgslCommands.BindContext(new PgslContext());
+        var previousGame = PgslCommands.ActiveGameContext;
+        string previousPath = PgslCommands.ProjectPath;
+        PgslCommands.ActiveGameContext = game;
+        PgslCommands.ProjectPath = project.RootPath;
+        try
+        {
+            VMEngine.Initialize();
+            var host = new ScriptHostSystem();
+            host.SetContext(game);
+            IReadOnlyDictionary<string, object> Run(string name, string code)
+            {
+                Entity entity = scene.World.CreateEntity();
+                scene.World.Set(entity, new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+                using (host.UseEventSources(new Dictionary<string, string> { ["Create"] = code })) host.Attach(scene.World, entity, name);
+                return host.Instances.OfType<PgslBehavior>().Single(behavior => behavior.Entity == entity).GetVariablesSnapshot();
+            }
+            double Number(IReadOnlyDictionary<string, object> vars, string name) =>
+                vars.TryGetValue(name, out object? value) && value is not string ? Convert.ToDouble(value, CultureInfo.InvariantCulture) : double.NaN;
+            string Tile(int x) => walls.TileLayer.Cells.FirstOrDefault(cell => cell.X == x && cell.Y == 0) is { } cell ? $"{cell.TileX},{cell.TileY}" : "none";
+            string diagnostics() => string.Join("; ", host.RecentDiagnostics.Select(d => d.Message));
+            void Check(string name, bool pass, string detail)
+            {
+                row("Autotiles and acoustics", name, pass ? "PASS" : "FAIL", detail);
+                HeadlessHarness.Assert(pass, $"{name}: {detail} {diagnostics()}");
+            }
+
+            var painted = Run("TilePainter", "a = Engine.Tile.PaintAt(8, 8); b = Engine.Tile.PaintAt(24, 8); c = Engine.Tile.PaintAt(40, 8); again = Engine.Tile.PaintAt(24, 8);");
+            // The block starts at column 1: an end with a neighbour to its right is 2 (1 + 2, 0), the middle
+            // 2 + 8 = 10 (1 + 2, 2), the other end 8 (1 + 0, 2).
+            Check("painting picks the ends and the middle", Number(painted, "a") == 1 && Number(painted, "b") == 1 && Number(painted, "c") == 1
+                && Number(painted, "again") == 0 && Tile(0) == "3,0" && Tile(1) == "3,2" && Tile(2) == "1,2",
+                $"tiles {Tile(0)} {Tile(1)} {Tile(2)} (3,0 3,2 1,2), again {Number(painted, "again")}");
+            var erased = Run("TileEraser", "mid = Engine.Tile.EraseAt(24, 8);");
+            Check("erasing the middle leaves two single tiles", Number(erased, "mid") == 1 && Tile(1) == "none" && Tile(0) == "1,0" && Tile(2) == "1,0",
+                $"tiles {Tile(0)} {Tile(1)} {Tile(2)} (1,0 none 1,0)");
+
+            var sound = Run("SoundPlace", "Engine.Audio.Acoustics = \"cave\"; Engine.Audio.Acoustics = \"spaceship\"; acoustics = Engine.Audio.Acoustics;"
+                + " Engine.Audio.AcousticsAmount = 2; amount = Engine.Audio.AcousticsAmount; Engine.Audio.MusicMuffle = 0.5; muffle = Engine.Audio.MusicMuffle;");
+            Check("acoustics are set, a name it does not know is refused, amounts are kept in range",
+                sound.TryGetValue("acoustics", out object? place) && place as string == "cave" && Number(sound, "amount") == 1 && Number(sound, "muffle") == 0.5,
+                $"acoustics {place}, amount {Number(sound, "amount")}, muffle {Number(sound, "muffle")}");
+            PgslCommands.AudioApiAcoustics = "outdoors";
+            PgslCommands.AudioApiAcousticsAmount = 0.5;
+            PgslCommands.AudioApiMusicMuffle = 0;
+
+            // The sound device itself: effects through the reverb, music through the filter (played silently).
+            Genesis.Audio.AudioEngine? engine = null;
+            try { engine = new Genesis.Audio.AudioEngine(); }
+            catch (Exception exception) { row("Autotiles and acoustics", "sound device", "NOT RUN", "no sound device here: " + exception.GetBaseException().Message); }
+            if (engine != null)
+            {
+                using (engine)
+                {
+                    engine.Acoustics = "hall";
+                    engine.AcousticsAmount = 0.7f;
+                    engine.MusicMuffle = 1f;
+                    var tone = Genesis.Audio.SoundEffect.Tone(440, 0.05f);
+                    bool effect = tone.PlayVoice(engine, 0f, 1f, false, music: false) != null;
+                    bool music = tone.PlayVoice(engine, 0f, 1f, false, music: true) != null;
+                    engine.Acoustics = "outdoors";
+                    Check("the sound device plays through the acoustics and the muffled music", effect && music && engine.ActiveVoices == 2,
+                        $"effect {effect}, music {music}, voices {engine.ActiveVoices}");
+                }
+            }
+        }
+        finally
+        {
+            PgslCommands.BindContext(previousContext);
+            PgslCommands.ActiveGameContext = previousGame;
+            PgslCommands.ProjectPath = previousPath;
+        }
     }
 
     private static void Names(HeadlessContext ctx, Action<string, string, string, string> row)

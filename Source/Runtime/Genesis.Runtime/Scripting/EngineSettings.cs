@@ -40,6 +40,7 @@ public static class EngineSettings
     {
         ["Engine.Physics.BodyType"] = new[] { "dynamic", "kinematic", "static" },
         ["Engine.Physics.Shape"] = new[] { "box", "sphere", "capsule", "cylinder" },
+        ["Engine.Audio.Acoustics"] = new[] { "outdoors", "room", "hall", "cave" },
     };
 
     /// <summary>One setting a resource can carry: its full name, the type of its value and what it is.</summary>

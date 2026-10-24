@@ -74,6 +74,23 @@ part may have parts.
 | `Attach(id, x, y, z)` | Keep another instance on this one, x, y and z from it |
 | `Detach()` | Let this instance go from the one it is kept on; it stays where it is |
 
+## Autotiling and acoustics (24 October 2026)
+
+**Autotiling.** Tick **Autotile** in an Image's Tile set settings (Inspector) and painting on a layer
+that uses it picks each tile from its neighbours, so a wall or a path is painted in one stroke and its
+ends, edges and corners choose themselves; erasing fixes the tiles around. The tile set holds the 16
+tiles for every mix of neighbours in a 4×4 block starting at **Autotile column** and **Autotile row**:
+a neighbour above adds 1, right 2, below 4, left 8, and tile *n* is at the block's column + *n* % 4,
+row + *n* / 4. In a game, `Engine.Tile.PaintAt(x, y, layer?)` and `Engine.Tile.EraseAt(x, y, layer?)` do
+the same at a point (the front tile layer there, or the one named), as does `TileRemoveAt`;
+`Engine.Tile.Autotile = false` lets a script place exact tiles without the neighbours changing.
+
+**Acoustics.** `Engine.Audio.Acoustics` is how a place sounds for sound effects: `"outdoors"` (no
+echo), `"room"`, `"hall"` or `"cave"`, with `Engine.Audio.AcousticsAmount` (0 to 1, 0.5 unless set)
+for how much is heard. Each room starts outdoors; a room (or its terrain) chooses other acoustics with
+the Engine setting in its Inspector. `Engine.Audio.MusicMuffle` (0 clear to 1 heard through a wall)
+muffles the music, for a pause menu, underwater or a dream. Music is never echoed.
+
 ## From C# and from events
 
 Every feature here can be reached from an Object's events (the commands in the tables) and from a

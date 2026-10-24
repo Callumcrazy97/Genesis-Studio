@@ -121,6 +121,12 @@ internal sealed class ImageResourceInspectorAdapter(
                 next => document.Usage.Tileset.Margin = next, Math.Clamp(Convert.ToInt32(value, CultureInfo.InvariantCulture), 0, 16_384)),
             "usage.tileset.spacing" => Apply("Tile spacing", () => document.Usage.Tileset.Spacing,
                 next => document.Usage.Tileset.Spacing = next, Math.Clamp(Convert.ToInt32(value, CultureInfo.InvariantCulture), 0, 16_384)),
+            "usage.tileset.autotile" => Apply("Autotile", () => document.Usage.Tileset.Autotile,
+                next => document.Usage.Tileset.Autotile = next, Convert.ToBoolean(value, CultureInfo.InvariantCulture)),
+            "usage.tileset.autotilecolumn" => Apply("Autotile column", () => document.Usage.Tileset.AutotileColumn,
+                next => document.Usage.Tileset.AutotileColumn = next, Math.Clamp(Convert.ToInt32(value, CultureInfo.InvariantCulture), 0, 16_384)),
+            "usage.tileset.autotilerow" => Apply("Autotile row", () => document.Usage.Tileset.AutotileRow,
+                next => document.Usage.Tileset.AutotileRow = next, Math.Clamp(Convert.ToInt32(value, CultureInfo.InvariantCulture), 0, 16_384)),
             "usage.background.mode" => ApplyEnum("Background mode", () => document.Usage.Background.Mode,
                 next => document.Usage.Background.Mode = next, value),
             "usage.background.repeatx" => Apply("Repeat background X", () => document.Usage.Background.RepeatX,
@@ -195,6 +201,10 @@ internal sealed class ImageResourceInspectorAdapter(
         values.Add(Number("Tile set", "usage.tileset.margin", "Margin", settings.Margin, 0, 16_384, 1, 0));
         values.Add(Number("Tile set", "usage.tileset.spacing", "Spacing", settings.Spacing, 0, 16_384, 1, 0));
         values.Add(new("Tile set", "Summary.SolidTiles", "Solid tiles", settings.Collision.Count, ReadOnly: true));
+        values.Add(new("Tile set", "usage.tileset.autotile", "Autotile", settings.Autotile,
+            Description: "Painting picks each tile from its neighbours. Put the 16 tiles for every mix of neighbours in a 4x4 block: above adds 1, right 2, below 4, left 8, and tile n is at the block's column + n % 4, row + n / 4."));
+        values.Add(Number("Tile set", "usage.tileset.autotileColumn", "Autotile column", settings.AutotileColumn, 0, 16_384, 1, 0));
+        values.Add(Number("Tile set", "usage.tileset.autotileRow", "Autotile row", settings.AutotileRow, 0, 16_384, 1, 0));
     }
 
     private static void AddBackground(List<ResourceInspectorLiveValue> values, ImageBackgroundSettings settings)

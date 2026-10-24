@@ -737,6 +737,7 @@ public sealed partial class RoomEditorControl
         Vector3 local = Vector3.Transform(new Vector3(worldX, worldY, 0), inverse);
         int cellX = (int)MathF.Floor(local.X / Math.Max(1, layer.CellWidth));
         int cellY = (int)MathF.Floor(local.Y / Math.Max(1, layer.CellHeight));
+        if (_activeTileSet.Autotile) return PaintAutotile(layer, cellX, cellY, erase, journal);
         RoomTileCell? existing = layer.Cells.FirstOrDefault(cell => cell.X == cellX && cell.Y == cellY);
         if (erase)
         {
@@ -776,6 +777,25 @@ public sealed partial class RoomEditorControl
                     if (replaced is not null) layer.Cells.Add(CloneTile(replaced));
                     RefreshPhase4Ui();
                 });
+        }
+        return true;
+    }
+
+    // An autotiled tile set: the cell and its neighbours take the tiles their neighbours call for, so
+    // one undo restores them all.
+    private bool PaintAutotile(RoomTileLayerData layer, int cellX, int cellY, bool erase, bool journal)
+    {
+        RoomTileCell? existing = layer.Cells.FirstOrDefault(cell => cell.X == cellX && cell.Y == cellY);
+        if (erase ? existing is null : existing is not null) return false;
+        List<RoomTileCell> before = CloneTiles(layer.Cells);
+        if (erase) layer.Cells.Remove(existing!);
+        else layer.Cells.Add(new RoomTileCell { X = cellX, Y = cellY });
+        TileAutotile.Refresh(layer, _activeTileSet!.AutotileColumn, _activeTileSet.AutotileRow, cellX, cellY);
+        if (journal)
+        {
+            List<RoomTileCell> after = CloneTiles(layer.Cells);
+            void Restore(List<RoomTileCell> cells) { layer.Cells = CloneTiles(cells); RefreshPhase4Ui(); }
+            PushEdit(erase ? "Erase tile" : "Paint tile", () => Restore(after), () => Restore(before));
         }
         return true;
     }

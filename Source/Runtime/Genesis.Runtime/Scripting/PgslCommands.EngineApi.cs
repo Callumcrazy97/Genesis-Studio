@@ -169,6 +169,53 @@ public static partial class PgslCommands
     [PgslCommand("OffsetY", "Engine.Draw.OffsetY = pixels", "How far down what is drawn next is moved (as DrawSetOffset)", "Drawing 2D", Namespace = "Engine.Draw", Flat = false)]
     public static double DrawApiOffsetY { get => DrawGetOffsetY(); set => DrawSetOffset(DrawGetOffsetX(), value); }
 
+    // What scripts set is kept here too, so it reads back without a sound device (a test, a server).
+    private static string _acoustics = "outdoors";
+    private static double _acousticsAmount = .5, _musicMuffle;
+    private static readonly string[] AcousticsNames = { "outdoors", "room", "hall", "cave" };
+
+    [PgslCommand("Acoustics", "Engine.Audio.Acoustics = \"cave\"",
+        "How the place sounds for sound effects: \"outdoors\" (no echo), \"room\", \"hall\" or \"cave\". Each room starts outdoors unless its settings choose another",
+        "Audio", Namespace = "Engine.Audio", Flat = false)]
+    public static string AudioApiAcoustics
+    {
+        get => _acoustics;
+        set
+        {
+            string name = value?.Trim().ToLowerInvariant() ?? "";
+            if (Array.IndexOf(AcousticsNames, name) < 0) return;
+            _acoustics = name;
+            if (ActiveGameContext?.Audio is { } audio) audio.Acoustics = name;
+        }
+    }
+
+    [PgslCommand("AcousticsAmount", "Engine.Audio.AcousticsAmount = amount", "How much of the acoustics is heard, 0 (none) to 1 (0.5 unless set)", "Audio", Namespace = "Engine.Audio", Flat = false)]
+    public static double AudioApiAcousticsAmount
+    {
+        get => _acousticsAmount;
+        set
+        {
+            if (!double.IsFinite(value)) return;
+            _acousticsAmount = Math.Clamp(value, 0, 1);
+            if (ActiveGameContext?.Audio is { } audio) audio.AcousticsAmount = (float)_acousticsAmount;
+        }
+    }
+
+    [PgslCommand("MusicMuffle", "Engine.Audio.MusicMuffle = amount", "How muffled the music is, 0 (clear) to 1 (heard through a wall): for a pause menu, underwater or a dream", "Audio", Namespace = "Engine.Audio", Flat = false)]
+    public static double AudioApiMusicMuffle
+    {
+        get => _musicMuffle;
+        set
+        {
+            if (!double.IsFinite(value)) return;
+            _musicMuffle = Math.Clamp(value, 0, 1);
+            if (ActiveGameContext?.Audio is { } audio) audio.MusicMuffle = (float)_musicMuffle;
+        }
+    }
+
+    /// <summary>A room starts outdoors: its own engine settings may then choose other acoustics.</summary>
+    internal static void ResetRoomAcoustics() => AudioApiAcoustics = "outdoors";
+
     // ── Engine.Camera ────────────────────────────────────────────────────────────────────
 
     [PgslCommand("X", "Engine.Camera.X = x", "The play camera's position across", "Camera", Namespace = "Engine.Camera", Flat = false)]

@@ -216,6 +216,16 @@ public sealed class ImageTilesetSettings
 
     /// <summary>Indices of tiles flagged solid — absorbed from the deleted Tile Set kind.</summary>
     public List<int> Collision { get; set; } = [];
+
+    /// <summary>
+    /// Painting picks each tile from its neighbours: the 16 tiles for every mix of neighbours (above 1,
+    /// right 2, below 4, left 8) are a 4×4 block from <see cref="AutotileColumn"/>, <see cref="AutotileRow"/>.
+    /// </summary>
+    public bool Autotile { get; set; }
+
+    public int AutotileColumn { get; set; }
+
+    public int AutotileRow { get; set; }
 }
 
 public sealed class ImageBackgroundSettings

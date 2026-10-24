@@ -983,6 +983,9 @@ public sealed class RoomSceneBuilder
     /// </summary>
     private void ApplyRoomEngineSettings(RoomAsset asset)
     {
+        // Each room sounds as its own settings say: outdoors unless they choose other acoustics.
+        if (Genesis.Runtime.Scripting.PgslCommands.ActiveGameContext?.Room == asset)
+            Genesis.Runtime.Scripting.PgslCommands.ResetRoomAcoustics();
         var settings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (RoomNode node in asset.Nodes)
         {

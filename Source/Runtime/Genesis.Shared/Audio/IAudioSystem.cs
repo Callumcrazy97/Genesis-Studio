@@ -125,6 +125,18 @@ namespace Genesis.Shared.Audio
         float GetBusDuckLevel(string bus) => 1f;
 
         /// <summary>
+        /// The acoustics sound effects play in: "outdoors" (none), "room", "hall" or "cave" (a reverb).
+        /// A system with no effects stays outdoors.
+        /// </summary>
+        string Acoustics { get => "outdoors"; set { } }
+
+        /// <summary>How much of the acoustics is heard, 0 to 1.</summary>
+        float AcousticsAmount { get => .5f; set { } }
+
+        /// <summary>How muffled the music is, 0 (clear) to 1 (heard through a wall).</summary>
+        float MusicMuffle { get => 0f; set { } }
+
+        /// <summary>
         /// Starts decoding a sound off the game's thread so that a later play of it starts at once.
         /// Returns the sound's id (as <see cref="LoadSound"/> does), or 0 when there is no such
         /// sound. A system that cannot decode ahead loads it now.

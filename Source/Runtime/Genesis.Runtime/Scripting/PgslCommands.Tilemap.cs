@@ -76,15 +76,41 @@ public static partial class PgslCommands
         return true;
     }
 
-    [PgslCommand("TileRemoveAt", "TileRemoveAt(x,y,layer?) -> bool", "Remove a live tile and its collision without changing the saved room", "Tiles")]
+    [PgslCommand("TileRemoveAt", "TileRemoveAt(x,y,layer?) -> bool", "Remove a live tile and its collision without changing the saved room (on an autotiled layer its neighbours take the tiles that now fit)", "Tiles")]
     public static bool TileRemoveAt(double x, double y, string layer = "")
     {
         RoomTileCollisionMap map = TileMap;
         if (map == null || !map.TryCell((float)x, (float)y, layer, out RoomNode node, out RoomTileCell cell, out _)) return false;
         node.TileLayer.Cells.Remove(cell);
+        if (TileApiAutotile && map.TryGridCell((float)x, (float)y, node.Id, out _, out _, out _, out var tileset) && tileset is { Autotile: true })
+            TileAutotile.Refresh(node.TileLayer, tileset.AutotileColumn, tileset.AutotileRow, cell.X, cell.Y);
         RoomTileCollisionMap.Invalidate(ActiveGameContext.Room);
         return true;
     }
+
+    [PgslCommand("Autotile", "Engine.Tile.Autotile = true",
+        "Whether tiles painted or erased on a layer whose tile set autotiles take the tiles their neighbours call for (on unless set off)",
+        "Tiles", Namespace = "Engine.Tile", Flat = false)]
+    public static bool TileApiAutotile { get; set; } = true;
+
+    [PgslCommand("PaintAt", "Engine.Tile.PaintAt(x, y, layer?) -> bool",
+        "Put a tile in the cell at x, y of the front tile layer there (or the one named) whose tile set autotiles: it and its neighbours take the tiles that fit; false on a layer that does not autotile or a cell already painted",
+        "Tiles", Namespace = "Engine.Tile", Flat = false)]
+    public static bool TileApiPaintAt(double x, double y, string layer = "")
+    {
+        RoomTileCollisionMap map = TileMap;
+        if (map == null || !map.TryGridCell((float)x, (float)y, layer, out RoomNode node, out int cellX, out int cellY, out var tileset)
+            || tileset is not { Autotile: true } || node.TileLayer.Cells.Exists(cell => cell.X == cellX && cell.Y == cellY)) return false;
+        node.TileLayer.Cells.Add(new RoomTileCell { X = cellX, Y = cellY });
+        if (TileApiAutotile) TileAutotile.Refresh(node.TileLayer, tileset.AutotileColumn, tileset.AutotileRow, cellX, cellY);
+        RoomTileCollisionMap.Invalidate(ActiveGameContext.Room);
+        return true;
+    }
+
+    [PgslCommand("EraseAt", "Engine.Tile.EraseAt(x, y, layer?) -> bool",
+        "Take away the tile at x, y (as TileRemoveAt): on an autotiled layer its neighbours take the tiles that now fit",
+        "Tiles", Namespace = "Engine.Tile", Flat = false)]
+    public static bool TileApiEraseAt(double x, double y, string layer = "") => TileRemoveAt(x, y, layer);
 
     [PgslCommand("RoomValueSet", "RoomValueSet(name,value)", "Set a numeric value shared by scripts in the current room; not a global or a save file", "Rooms")]
     public static void RoomValueSet(string name, double value)

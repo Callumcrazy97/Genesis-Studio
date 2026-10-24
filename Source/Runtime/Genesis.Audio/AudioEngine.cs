@@ -38,6 +38,106 @@ namespace Genesis.Audio
             _master  = _xaudio.CreateMasteringVoice();
         }
 
+        // ── Acoustics ──────────────────────────────────────────────────────────────────────────
+        // Sounds play through one of two stereo submixes, made on first use: the world's (sound
+        // effects, through a reverb for the room's acoustics) and the music's (through a low-pass
+        // filter that muffles it). A device that cannot make them plays straight to the speakers.
+
+        private IXAudio2SubmixVoice? _world, _music;
+        private bool _routingFailed;
+        private string _acoustics = "outdoors";
+        private float _acousticsAmount = .5f, _musicMuffle;
+
+        /// <summary>The acoustics sound effects play in: "outdoors" (none), "room", "hall" or "cave".</summary>
+        public string Acoustics
+        {
+            get => _acoustics;
+            set { _acoustics = Preset(value) == null && !IsOutdoors(value) ? _acoustics : value.Trim().ToLowerInvariant(); ApplyAcoustics(); }
+        }
+
+        /// <summary>How much of the acoustics is heard, 0 to 1 (0.5 unless set).</summary>
+        public float AcousticsAmount
+        {
+            get => _acousticsAmount;
+            set { _acousticsAmount = float.IsFinite(value) ? Math.Clamp(value, 0f, 1f) : _acousticsAmount; ApplyAcoustics(); }
+        }
+
+        /// <summary>How muffled the music is, 0 (clear) to 1 (heard through a wall).</summary>
+        public float MusicMuffle
+        {
+            get => _musicMuffle;
+            set { _musicMuffle = float.IsFinite(value) ? Math.Clamp(value, 0f, 1f) : _musicMuffle; ApplyMuffle(); }
+        }
+
+        /// <summary>The submix a new voice plays into, music or the world's; null to play to the speakers.</summary>
+        internal IXAudio2Voice? OutputFor(bool music)
+        {
+            if (_disposed || _routingFailed) return null;
+            if (_world == null)
+            {
+                try
+                {
+                    uint rate = _master.VoiceDetails.InputSampleRate;
+                    using (SharpGen.Runtime.ComObject reverb = Vortice.XAudio2.Fx.Fx.XAudio2CreateReverb())
+                    {
+                        var chain = new[] { new EffectDescriptor(reverb, 2) { InitialState = false } };
+                        _world = _xaudio.CreateSubmixVoice(2, rate, SubmixVoiceFlags.None, 0, chain);
+                    }
+                    _music = _xaudio.CreateSubmixVoice(2, rate, SubmixVoiceFlags.UseFilter, 0, null);
+                    ApplyAcoustics();
+                    ApplyMuffle();
+                }
+                catch (Exception)
+                {
+                    _routingFailed = true;
+                    return null;
+                }
+            }
+            return music ? _music : _world;
+        }
+
+        private static bool IsOutdoors(string? name) => string.Equals(name?.Trim(), "outdoors", StringComparison.OrdinalIgnoreCase);
+
+        private static Vortice.XAudio2.Fx.ReverbI3DL2Parameters? Preset(string? name) => name?.Trim().ToLowerInvariant() switch
+        {
+            "room" => Vortice.XAudio2.Fx.Presets.Room,
+            "hall" => Vortice.XAudio2.Fx.Presets.ConcertHall,
+            "cave" => Vortice.XAudio2.Fx.Presets.Cave,
+            _ => null,
+        };
+
+        private void ApplyAcoustics()
+        {
+            if (_disposed || _world == null) return;
+            try
+            {
+                if (Preset(_acoustics) is not { } preset || _acousticsAmount <= 0f)
+                {
+                    _world.DisableEffect(0);
+                    return;
+                }
+                // The preset's own wet/dry is all reverb: here the dry sound stays, with up to 60% reverb.
+                preset.WetDryMix = 60f * _acousticsAmount;
+                _world.SetEffectParameters(0, preset, false, 0);
+                _world.EnableEffect(0);
+            }
+            catch (SharpGen.Runtime.SharpGenException) { }
+        }
+
+        private void ApplyMuffle()
+        {
+            if (_disposed || _music == null) return;
+            try
+            {
+                // From 20 kHz (clear) down to 350 Hz (through a wall), even in pitch between.
+                float rate = Math.Max(8000f, _master.VoiceDetails.InputSampleRate);
+                float cutoff = 20000f * MathF.Pow(350f / 20000f, _musicMuffle);
+                float frequency = Math.Min(1f, 2f * MathF.Sin(MathF.PI * Math.Min(cutoff, rate / 2f) / rate));
+                _music.SetFilterParameters(new FilterParameters { Type = FilterType.LowPassFilter, Frequency = frequency, OneOverQ = 1f }, 0);
+            }
+            catch (SharpGen.Runtime.SharpGenException) { }
+        }
+
         // Call once per frame to recycle finished source voices.
         public void Update()
         {
@@ -103,6 +203,11 @@ namespace Genesis.Audio
                 foreach (var v in _active) { try { v.Voice.DestroyVoice(); v.Voice.Dispose(); } catch { } }
                 _active.Clear();
             }
+
+            // The submixes after the voices playing into them, before the speakers they play to.
+            foreach (IXAudio2SubmixVoice? submix in new[] { _world, _music })
+                try { submix?.DestroyVoice(); submix?.Dispose(); } catch { }
+            _world = _music = null;
 
             try { _master?.Dispose(); } catch { }
             try { _xaudio?.Dispose(); } catch { }

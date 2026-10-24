@@ -19,7 +19,10 @@ public sealed record TileSetInfo(
     int TileHeight,
     int Margin,
     int Separation,
-    IReadOnlyList<int> Collision)
+    IReadOnlyList<int> Collision,
+    bool Autotile = false,
+    int AutotileColumn = 0,
+    int AutotileRow = 0)
 {
     /// <summary>Tiles across a sheet of <paramref name="imageWidth"/> pixels.</summary>
     public int ColumnsFor(int imageWidth) =>
@@ -100,6 +103,9 @@ public sealed record TileSetInfo(
             tiles.TileHeight,
             Math.Max(0, tiles.Margin),
             Math.Max(0, tiles.Spacing),
-            tiles.Collision ?? []);
+            tiles.Collision ?? [],
+            tiles.Autotile,
+            Math.Max(0, tiles.AutotileColumn),
+            Math.Max(0, tiles.AutotileRow));
     }
 }

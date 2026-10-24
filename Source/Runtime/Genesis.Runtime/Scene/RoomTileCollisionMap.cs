@@ -26,7 +26,7 @@ public sealed class RoomTileCollisionMap
     private readonly Dictionary<(int X, int Y), List<int>> _buckets = new();
     private readonly List<RectangleF> _solids = new();
     private readonly List<Layer> _layers = new();
-    private sealed record Layer(RoomNode Node, Matrix4x4 Matrix, Matrix4x4 Inverse, int Columns);
+    private sealed record Layer(RoomNode Node, Matrix4x4 Matrix, Matrix4x4 Inverse, int Columns, SpriteRuntimeTileset Tileset);
 
     public static RoomTileCollisionMap Get(RoomAsset room, string project) => room == null ? null
         : Cache.GetValue(room, value => new RoomTileCollisionMap(value, project));
@@ -51,7 +51,7 @@ public sealed class RoomTileCollisionMap
                 : Genesis.Runtime.Spatial.SpriteCollisionBounds.Load(project, tile.Tileset);
             int columns = image == null ? 1 : Math.Max(1,
                 (image.Canvas.Width - tile.Margin * 2 + tile.Separation) / (tile.CellWidth + tile.Separation));
-            _layers.Add(new Layer(node, matrix, inverse, columns));
+            _layers.Add(new Layer(node, matrix, inverse, columns, image?.Usage?.Tileset));
             if (!tile.CollisionEnabled) continue;
             HashSet<int> selected = image == null ? null : new HashSet<int>(image.Usage?.Tileset?.Collision ?? new List<int>());
             foreach (RoomTileCell cell in tile.Cells)
@@ -253,6 +253,29 @@ public sealed class RoomTileCollisionMap
         p0 = horizontal ? box.Top : box.Left; p1 = horizontal ? box.Bottom : box.Right;
     }
 
+    /// <summary>
+    /// The grid cell of a tile layer under a point, filled or not: the front layer there, or the one
+    /// named. Its tile set comes with it (for autotiling).
+    /// </summary>
+    public bool TryGridCell(float x, float y, string layerName, out RoomNode node, out int cellX, out int cellY, out SpriteRuntimeTileset tileset)
+    {
+        node = null; cellX = cellY = 0; tileset = null;
+        if (!float.IsFinite(x) || !float.IsFinite(y)) return false;
+        for (int i = _layers.Count - 1; i >= 0; i--)
+        {
+            Layer layer = _layers[i];
+            if (!string.IsNullOrEmpty(layerName) && !string.Equals(layer.Node.Name, layerName, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(layer.Node.Id, layerName, StringComparison.OrdinalIgnoreCase)) continue;
+            Vector3 local = Vector3.Transform(new Vector3(x, y, 0), layer.Inverse);
+            RoomTileLayerData tiles = layer.Node.TileLayer;
+            node = layer.Node;
+            tileset = layer.Tileset;
+            cellX = (int)MathF.Floor(local.X / Math.Max(1, tiles.CellWidth));
+            cellY = (int)MathF.Floor(local.Y / Math.Max(1, tiles.CellHeight));
+            return true;
+        }
+        return false;
+    }
     public bool TryCell(float x, float y, string layerName, out RoomNode node, out RoomTileCell cell, out int index)
     {
         node = null; cell = null; index = -1;

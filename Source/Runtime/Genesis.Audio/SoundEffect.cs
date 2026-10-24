@@ -77,12 +77,15 @@ namespace Genesis.Audio
             => PlayVoice(engine, volume, pitch, loop: false);
 
         /// <summary>Start a source voice; returns the tracked voice for Stop/loop control.</summary>
-        public IXAudio2SourceVoice? PlayVoice(AudioEngine engine, float volume = 1f, float pitch = 1f, bool loop = false)
+        public IXAudio2SourceVoice? PlayVoice(AudioEngine engine, float volume = 1f, float pitch = 1f, bool loop = false, bool music = false)
         {
             if (engine == null || _data.Length == 0) return null;
             try
             {
                 var voice = engine.XAudio.CreateSourceVoice(_format, false);
+                // Music through the music submix (muffling), everything else through the world's (acoustics).
+                if (engine.OutputFor(music) is { } output)
+                    voice.SetOutputVoices(new[] { new VoiceSendDescriptor { OutputVoice = output } });
                 voice.SetVolume(volume);
                 if (MathF.Abs(pitch - 1f) > 0.001f)
                     voice.SetFrequencyRatio(pitch, 0);
