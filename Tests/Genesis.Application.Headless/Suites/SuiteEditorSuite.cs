@@ -363,6 +363,20 @@ internal static class SuiteEditorSuite
                 "Running a project with zero Rooms must log a clear 'no Room' error instead of falling through to launch.");
         });
 
+        RunCase("Editor.Suite.Room.RunThisRoomStartsInTheOpenRoom", () =>
+        {
+            // Shift+F5 runs the game from the Room open in the editor; with anything else in front it is unavailable.
+            ResourceItem Item(string name, ResourceKind kind) => new()
+            {
+                Name = name, FullPath = Path.Combine(ctx.Workspace, name), RelativePath = name, Kind = kind, IsFolder = false,
+            };
+            string? room = StudioShellForm.ActiveRoomName(new ShellCommandContext(null, new StubDocument(Item("Cellar", ResourceKind.Room)), null, false));
+            string? image = StudioShellForm.ActiveRoomName(new ShellCommandContext(null, new StubDocument(Item("Torch", ResourceKind.Image)), null, false));
+            string? none = StudioShellForm.ActiveRoomName(new ShellCommandContext(null, null, null, false));
+            HeadlessHarness.Assert(room == "Cellar" && image == null && none == null,
+                $"Run This Room named '{room}' for a Room, '{image}' for an Image and '{none}' with nothing open (Cellar, none, none).");
+        });
+
         RunCase("Editor.Suite.Terrain.SculptPaintUndoCapture", () =>
         {
             string terrain = resources.CreateResource(

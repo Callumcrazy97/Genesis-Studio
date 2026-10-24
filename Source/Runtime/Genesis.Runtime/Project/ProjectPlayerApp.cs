@@ -72,6 +72,8 @@ namespace Genesis.Runtime.Project
             // GENESIS_LOAD_PROFILE=1: where start-up and each room's loading time goes, written to the log.
             Genesis.Shared.Diagnostics.LoadProfile.UseCurrentThreadAsGameThread();
             Genesis.Shared.Diagnostics.LoadProfile.Mark("player started");
+            // A game captures light probes (automatic reflections and bounced light); editor views do not.
+            Genesis.Shared.Rendering.LightProbes.InGame = true;
             Genesis.Shared.Diagnostics.LoadProfile.Span startProfile = Genesis.Shared.Diagnostics.LoadProfile.Begin("start-up before the window");
             LastError = null;
             _exitCode = 0;

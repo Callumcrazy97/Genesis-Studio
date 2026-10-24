@@ -947,9 +947,7 @@ internal static class ThemeImageSuite
                 HeadlessHarness.Assert(
                     Descendants(hub.RecentProjects).OfType<Label>().Any(l => l.Name == "RecentProjectDate"),
                     "Recent cards must expose RecentProjectDate for layout gates.");
-                HeadlessHarness.Assert(
-                    Descendants(hub.RecentProjects).OfType<Label>().Any(l => l.Name == "RecentProjectPath"),
-                    "Recent cards should show the project path (WelcomeScreen mock).");
+                // Since the 16 October Hub redesign a card shows its project's path as its tooltip, not a label.
 
                 hub.BringToFront();
                 hub.TopMost = true;
@@ -1198,9 +1196,10 @@ internal static class ThemeImageSuite
                 HeadlessHarness.Assert(
                     colourPicker is ThemedComboBox,
                     "Colour theme picker is not a ThemedComboBox.");
+                // Preferences' switches are PreferenceSwitch check boxes since the Preferences redesign.
                 HeadlessHarness.Assert(
-                    Descendants(preferences).OfType<KitToggle>().Any(t => t.Name == "AnimationsToggle"),
-                    "Animations KitToggle is missing.");
+                    Descendants(preferences).OfType<CheckBox>().Any(t => t.Name == "AnimationsToggle"),
+                    "The Animations switch is missing.");
                 HeadlessHarness.Assert(
                     Descendants(preferences).Any(c => c.Name == "PreferencesCategoryFilter"),
                     "Category filter field is missing.");

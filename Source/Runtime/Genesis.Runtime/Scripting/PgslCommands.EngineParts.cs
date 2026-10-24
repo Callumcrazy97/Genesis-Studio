@@ -529,6 +529,12 @@ public static partial class PgslCommands
         set { GamepadSetDeadZone("left", value); GamepadSetDeadZone("right", value); }
     }
 
+    [PgslCommand("KeyboardEmulation", "Engine.Input.Gamepad.KeyboardEmulation = true", "A controller also presses the keys a keyboard game listens for (arrows, Space, Enter, Escape) (true unless set)", "Input", Namespace = "Engine.Input.Gamepad", Flat = false)]
+    public static bool InputGamepadKeyboardEmulation { get => ActiveGameContext?.Input?.GamepadEmulatesKeyboard ?? true; set => GamepadKeyboardEmulation(value); }
+
+    [PgslCommand("Zoom", "Engine.View.Camera.Zoom = amount", "How far the active view is zoomed in, 0.01 to 100 (1 unless set)", "Views", Namespace = "Engine.View.Camera", Flat = false)]
+    public static double ViewCameraZoom { get => ViewGetZoom(ViewGetActive()); set => ViewSetZoom(ViewGetActive(), value); }
+
     // ── Engine.Game ──────────────────────────────────────────────────────────────────────
 
     // The project file is read once per project, not on every read.
@@ -564,6 +570,60 @@ public static partial class PgslCommands
             else GameSetSpeed(_speedBeforePause > 0 ? _speedBeforePause : 1);
         }
     }
+
+    // ── Engine.Model's parts (this instance's model) ─────────────────────────────────────
+
+    [PgslCommand("Cast", "Engine.Model.Shadows.Cast = true", "Whether this instance's model casts a shadow (true unless set)", "Models", Namespace = "Engine.Model.Shadows", Flat = false)]
+    public static bool ModelShadowsCast { get => ModelApiCastShadows; set => ModelApiCastShadows = value; }
+
+    [PgslCommand("Receive", "Engine.Model.Shadows.Receive = true", "Whether shadows fall on this instance's model (true unless set)", "Models", Namespace = "Engine.Model.Shadows", Flat = false)]
+    public static bool ModelShadowsReceive { get => ModelApiReceiveShadows; set => ModelApiReceiveShadows = value; }
+
+    [PgslCommand("Strength", "Engine.Model.Glow.Strength = amount", "How brightly this instance's model glows in its own colours, 0 to 32 (0 unless set)", "Models", Namespace = "Engine.Model.Glow", Flat = false)]
+    public static double ModelGlowStrength { get => ModelApiGlow; set => ModelApiGlow = value; }
+
+    [PgslCommand("EmissionScale", "Engine.Model.Glow.EmissionScale = scale", "The light this model's materials give off: 0 puts its lamps out, 1 is as authored (1 unless set)", "Models", Namespace = "Engine.Model.Glow", Flat = false)]
+    public static double ModelGlowEmissionScale { get => ModelApiEmissionScale; set => ModelApiEmissionScale = value; }
+
+    // ── Smaller parts: room changes, debug keys, scripts, bursts, uploads, water, tiles, root motion ──
+    // Values the engine only lets a script set are kept here too, starting at the engine's default.
+
+    [PgslCommand("Fade", "Engine.Room.Change.Fade = seconds", "How long the cover takes to fade from a room just shown, 0 to 5 seconds (0.2 unless set; 0 lifts it at once)", "Rooms", Namespace = "Engine.Room.Change", Flat = false)]
+    public static double RoomChangeFadePart { get => Project.RoomChangeScreen.FadeSeconds; set => RoomChangeFade(value); }
+
+    [PgslCommand("MinimumTime", "Engine.Room.Change.MinimumTime = seconds", "The least time a room change's cover stays up, so a loading screen can be read, 0 to 60 seconds (0 unless set)", "Rooms", Namespace = "Engine.Room.Change", Flat = false)]
+    public static double RoomChangeMinimumTimePart { get => Project.RoomChangeScreen.MinimumSeconds; set => RoomChangeMinimumTime(value); }
+
+    [PgslCommand("ProgressBar", "Engine.Room.Change.ProgressBar = true", "Whether the engine draws its progress bar and text on a room change's cover (true unless set)", "Rooms", Namespace = "Engine.Room.Change", Flat = false)]
+    public static bool RoomChangeProgressBarPart { get => Project.RoomChangeScreen.ShowProgress; set => RoomChangeProgressBar(value); }
+
+    [PgslCommand("Text", "Engine.Room.Change.Text = \"Loading\"", "The words above the progress bar during a room change (\"Loading\" unless set; \"\" for none)", "Rooms", Namespace = "Engine.Room.Change", Flat = false)]
+    public static string RoomChangeTextPart { get => Project.RoomChangeScreen.Text; set => RoomChangeText(value); }
+
+    [PgslCommand("Enabled", "Engine.Debug.Keys.Enabled = true", "The engine's debug keys (F6 debug screen, F12 screenshot...) in this run (true in Studio's Run, false in an exported game, unless set)", "Debug", Namespace = "Engine.Debug.Keys", Flat = false)]
+    public static bool DebugKeysEnabledPart { get => DebugKeysEnabled(); set => DebugKeysSetEnabled(value); }
+
+    [PgslCommand("InstructionLimit", "Engine.Game.Scripts.InstructionLimit = count", "Instructions each event body and function call may run before it is stopped as a hang (100000 unless set; up to 1000000000)", "Game", Namespace = "Engine.Game.Scripts", Flat = false)]
+    public static double GameScriptsInstructionLimit { get => VM.PgslVm.CallInstructionLimit; set => ScriptInstructionLimit(value); }
+
+    private static bool _scriptProfile;
+
+    [PgslCommand("Profile", "Engine.Game.Scripts.Profile = true", "Time every event and function, for Engine.Game.Scripts.Report() (false unless set)", "Game", Namespace = "Engine.Game.Scripts", Flat = false)]
+    public static bool GameScriptsProfile { get => _scriptProfile; set { _scriptProfile = value; ScriptProfileEnable(value); } }
+
+    private static double _burstLimit = 256;
+
+    [PgslCommand("Limit", "Engine.Particle.Bursts.Limit = count", "How many particle bursts may be alive at once, the oldest ending first (256 unless set)", "Particles", Namespace = "Engine.Particle.Bursts", Flat = false)]
+    public static double ParticleBurstsLimit { get => _burstLimit; set { if (double.IsFinite(value)) { _burstLimit = Math.Clamp(Math.Round(value), 1, 100000); ParticleSetBurstLimit(_burstLimit); } } }
+
+    [PgslCommand("Budget", "Engine.Mesh.Upload.Budget = milliseconds", "How long a frame may spend sending script meshes to the graphics card before the rest wait for the next (4 unless set)", "Meshes", Namespace = "Engine.Mesh.Upload", Flat = false)]
+    public static double MeshUploadBudgetPart { get => Rendering.ScriptMeshes.UploadBudgetMilliseconds; set => MeshSetUploadBudget(value); }
+
+    [PgslCommand("Enabled", "Engine.Water.Reflections.Enabled = true", "Water mirrors the scene above it (off unless set; a half-resolution pass)", "Water", Namespace = "Engine.Water.Reflections", Flat = false)]
+    public static bool WaterReflectionsEnabled { get => WaterReflections; set => WaterReflections = value; }
+
+    [PgslCommand("Enabled", "Engine.Tile.Autotile.Enabled = true", "Painting and erasing tiles from a script picks each tile from its neighbours on an autotiled tile set (true unless set)", "Tiles", Namespace = "Engine.Tile.Autotile", Flat = false)]
+    public static bool TileAutotileEnabled { get => TileApiAutotile; set => TileApiAutotile = value; }
 
     // ── Colours as #rrggbb ───────────────────────────────────────────────────────────────
 

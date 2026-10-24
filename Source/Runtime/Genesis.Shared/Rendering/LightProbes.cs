@@ -49,6 +49,24 @@ public static class LightProbes
     public static bool Available { get; } =
         Environment.GetEnvironmentVariable(EnvironmentVariable) is not { } value || value.Trim() is not ("0" or "false");
 
+    /// <summary>
+    /// Whether this process captures light probes: a game turns it on when it starts. Editor views
+    /// change their scene without the camera moving (a shader moved to another part, an Object
+    /// placed), so a probe there would show what was, not what is; they keep the flat look.
+    /// </summary>
+    public static bool InGame
+    {
+        get => _inGame;
+        set
+        {
+            _inGame = value;
+            // No capture is coming any more: culling must stop keeping things for one.
+            if (!value) PendingCapture = default;
+        }
+    }
+
+    private static bool _inGame;
+
     /// <summary>Smooth and metal surfaces mirror what is around them. On unless a room or script turns it off.</summary>
     public static bool Reflections { get; set; } = true;
 

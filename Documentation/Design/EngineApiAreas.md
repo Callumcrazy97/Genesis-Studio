@@ -31,7 +31,11 @@ Sky.Sun (Visible, Size), Sky.Moon.Visible, Sky.Stars.Enabled; Engine.Audio.Enabl
 (Enabled, Volume, Track, Muffle), Audio.Effects (Enabled, Volume), Audio.Acoustics (Enabled, Place,
 Amount); Engine.Physics.World (AirDrag, MaxVelocity, RecoveryVelocity), Physics.Gravity (Strength, X,
 Y, Z), Physics.Sleep (Enabled, Threshold); Engine.Input.Mouse.Captured, Input.Gamepad.DeadZone;
-Engine.Game.Paused, Engine.Game.Threads. Colours are "#rrggbb" text.
+Engine.Game.Paused, Engine.Game.Threads, Engine.Game.Name, Engine.Game.Version, Game.Scripts
+(InstructionLimit, Profile); Engine.Camera.Focus (Enabled, Auto, Distance, Range, Blur); Engine.Sky.Time
+(Speed, Paused); Engine.Weather (Preset, Transition, Auto); Engine.Room.Change (Fade, MinimumTime,
+ProgressBar, Text); Engine.Debug.Keys.Enabled; Engine.Particle.Bursts.Limit; Engine.Mesh.Upload.Budget;
+Engine.Water.Reflections.Enabled; Engine.Tile.Autotile.Enabled. Colours are "#rrggbb" text.
 
 ---
 

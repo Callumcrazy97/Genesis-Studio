@@ -162,7 +162,7 @@ internal static class ResourceLibraryCoreCases
         }));
         check("Library.KindValuesRemainSerializationCompatible", () =>
         {
-            string[] expected = ["Unknown", "Folder", "Image", "Audio", "Shader", "PgslScript", "GameObject", "Room", "Model", "Particle", "Physics", "Terrain", "TerrainEntity", "Pathing", "UserInterface", "Note"];
+            string[] expected = ["Unknown", "Folder", "Image", "Audio", "Shader", "PgslScript", "GameObject", "Room", "Model", "Particle", "Physics", "Terrain", "TerrainEntity", "Pathing", "UserInterface", "Note", "AnimationController"];
             Assert(Enum.GetValues<ResourceKind>().Select(kind => kind.ToString()).SequenceEqual(expected), "Resource kind values changed during file separation.");
         });
     }

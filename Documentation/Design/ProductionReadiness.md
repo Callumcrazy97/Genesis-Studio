@@ -69,16 +69,17 @@ templates and today's features:
 
 **P0: needed for a production release**
 
-1. **Crash reports.** On an unhandled exception the Player writes the log tail, the engine version,
-   the renderer and the room to `%LOCALAPPDATA%\<Game>\Crashes\<time>.txt` and shows one dialog
-   ("Something went wrong. A report was saved."). `Engine.Game.Version` (from the project) is
-   shown in that report and readable from PGSL.
+1. **Crash reports.** Done today: the Player's crash report holds the game and its version
+   (`Engine.Game.Version`, set in Preferences > Project > Release), the engine build, renderer, room,
+   machine and the last 40 lines of the game's log, in a file of its own named by the time of the
+   crash (`crash-20261024-153012.txt`, the id a player quotes), and its error dialog says where it is.
 2. **A game starter with the screens every game needs.** Main menu, options (display mode,
    resolution, VSync, frame cap, volume per bus, key and pad rebinding through `Engine.Input.Actions`),
    pause menu, save slots and a loading screen, as a template both new projects and the existing
    templates can start from. All of it uses the engine API, so a game edits it like its own code.
-3. **Release checklist in Export.** Export runs the checks that matter before shipping: every room
-   loads, every script compiles, no missing resource, licences included, version set. One button.
+3. **Release checklist in Export.** Done in part today: Export runs the project validator first,
+   lists the problems in the Console and asks before exporting a project with errors. Still to do:
+   load every room once and compile every script as part of it.
 4. **Full Build and install drill green on the release build** (run today, see below).
 
 **P1: makes complex games effortless**
@@ -87,8 +88,9 @@ templates and today's features:
    `Engine.Display.Resolution.Dynamic.Enabled` with `TargetFps`: the 3D scene drawn smaller and
    upscaled in the composite, the GUI kept sharp. Large: about ten passes read scene-sized
    images (composite, outlines, AA, held items, TAA history), so each must take the scene size.
-6. **Play from here.** In the Room editor, F5 with Shift starts the game in this room with the
-   camera (3D) or view (2D) where the editor's is.
+6. **Play from here.** Done in part today: **Run This Room** (Shift+F5, File menu) starts the game
+   in the Room open in the editor instead of the start room. Still to do: start with the camera (3D)
+   or view (2D) where the editor's is.
 7. **Engine settings picker by area.** The Inspector's "Add a setting" as a two-level menu
    (Rendering, then Fog, then Start), showing each value's default and range beside it.
 8. **More parts.** The 444 values still marked + in `EngineApiAreas.md`, in the order there:

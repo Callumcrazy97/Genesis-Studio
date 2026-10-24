@@ -101,12 +101,20 @@ whatever is in the middle of the screen). Off unless a game turns it on; a sharp
 never smears over a blurred background or the reverse. DX11, DX12, Vulkan and OpenGL; the
 Software renderer draws without it.
 
+## Run This Room, and a check before export (24 October 2026)
+
+**Run This Room** (Shift+F5, File menu, or the command palette) saves and runs the game starting in
+the Room open in the editor rather than the start room, for testing a level without playing up to
+it. **Export Game** now runs the project's checks first: problems are listed in the Console and the
+export goes ahead only when you say so.
+
 ## The game's version, and crash reports a player can send (24 October 2026)
 
 Preferences, Project page, Release: **Game version** ("1.0" unless set), saved in the project. A
 game reads it as `Engine.Game.Version` and its name as `Engine.Game.Name`. When a game stops on an
-error, the Player writes `GenesisEngine.crash.log` beside the game (or in
-`%LOCALAPPDATA%\Genesis\CrashReports` when the game's folder cannot be written) with the game and
+error, the Player writes a report named by the time of the crash (`crash-20261024-153012.txt`, also
+added to `GenesisEngine.crash.log`) beside the game, or in `%LOCALAPPDATA%\Genesis\CrashReports` when
+the game's folder cannot be written, with the game and
 its version, the engine build, the renderer, the room, the machine and the last 40 lines of the
 game's log, and its error message says where the report is.
 
@@ -153,7 +161,8 @@ it all on the game's thread, and 0 goes back to automatic. It lasts until the ga
 
 ## Reflections and bounced light, automatically (24 October 2026)
 
-In a 3D room the engine captures what is around the camera into a light probe: six small views
+In a running game's 3D rooms (not Studio's editor views, whose scene changes under a still camera,
+so they keep the flat look) the engine captures what is around the camera into a light probe: six small views
 from one point, with the sky filled in where nothing was drawn. It does this when the room starts,
 when a script calls `Engine.Lighting.Probe.Recapture()` (after a big change, such as a door opening),
 when the camera has travelled 40 metres from the last capture, and when the light has changed (the sun

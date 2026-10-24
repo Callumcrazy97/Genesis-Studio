@@ -65,6 +65,9 @@ internal sealed class MushroomMeadowRuntimeAcceptance : ISceneSubsystem
     }
 
     private void OnDiagnostic(ScriptDiagnostic diagnostic) => _diagnostics.Add(diagnostic.Message);
+
+    // What the room had when it first started, for the restart to be measured against.
+    private int _startScripted, _startLiving;
     private Entity Hero => _scripts.Instances.OfType<PgslBehavior>().Single(behavior => ObjectDrawAssetRegistry.TryGet(behavior.Entity, out var asset)
         && asset.Prefab.Contains("Explorer", StringComparison.OrdinalIgnoreCase)).Entity;
     private PgslBehavior Player => (PgslBehavior)_scripts.FindBehaviorForEntity(Hero);
@@ -98,6 +101,8 @@ internal sealed class MushroomMeadowRuntimeAcceptance : ISceneSubsystem
             {
                 case 0:
                     Require(Value("state") == 0 && Position.X == 112, "Title did not hold the authored spawn.");
+                    // The room as it starts: authored objects plus what their Create events make. A restart must come back to this.
+                    if (_stageFrames == 1) { _startScripted = _scripts.Instances.Count; _startLiving = scene.World.LivingEntityCount; }
                     if (_stageFrames >= 3) _pendingCapture = "title";
                     break;
                 case 1:
@@ -151,12 +156,13 @@ internal sealed class MushroomMeadowRuntimeAcceptance : ISceneSubsystem
                 case 6:
                     if (_stageFrames >= 3)
                     {
-                        // Every authored object comes back once; the petal emitter Level Rules starts may add one entity.
+                        // Every instance the room started with comes back once (authored objects and what their
+                        // Create events made); the petal emitter Level Rules starts may differ by one entity.
                         int authored = _game.Room.Nodes.Count(node => node.Kind == RoomNodeKind.GameObject);
                         Require(Value("state") == 0 && Value("lives") == 5 && Value("hearts") == 3 && Value("coins") == 0
-                            && _scripts.Instances.Count == authored
-                            && scene.World.LivingEntityCount >= authored && scene.World.LivingEntityCount <= authored + 1,
-                            $"Production restart did not restore the title, counters and all {authored} actors (living {scene.World.LivingEntityCount}, scripted {_scripts.Instances.Count}).");
+                            && _scripts.Instances.Count == _startScripted
+                            && Math.Abs(scene.World.LivingEntityCount - _startLiving) <= 1,
+                            $"Production restart did not restore the title, counters and the {_startScripted} instances it started with ({authored} authored; living {scene.World.LivingEntityCount} of {_startLiving}, scripted {_scripts.Instances.Count}).");
                         _pendingCapture = "restarted";
                     }
                     break;

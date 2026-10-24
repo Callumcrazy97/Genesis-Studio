@@ -141,8 +141,10 @@ internal static class Program
             try
             {
                 Directory.CreateDirectory(folder);
-                string report = Path.Combine(folder, "GenesisEngine.crash.log");
-                File.AppendAllText(report, text + Environment.NewLine + Environment.NewLine);
+                File.AppendAllText(Path.Combine(folder, "GenesisEngine.crash.log"), text + Environment.NewLine + Environment.NewLine);
+                // And one file for this crash alone, named by when it happened: the id a player quotes.
+                string report = Path.Combine(folder, $"crash-{DateTime.Now:yyyyMMdd-HHmmss}.txt");
+                File.WriteAllText(report, text + Environment.NewLine);
                 _lastCrashReport = report;
                 return;
             }

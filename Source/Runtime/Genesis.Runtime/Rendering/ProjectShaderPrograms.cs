@@ -98,7 +98,7 @@ namespace Genesis.Runtime.Rendering
                         string vertex = pass.VertexEntry?.Trim() ?? string.Empty;
                         if (document.Pipeline == ShaderAssetPipeline.Mesh)
                         {
-                            // GpuRenderController.RegisterRuntimeMeshPass.
+                            // The programs the renderer's RegisterRuntimeMeshPass makes for a mesh pass.
                             Program(variant, source, vertex, GpuShaderStage.Vertex);
                             Program(variant, source, pass.SkinnedVertexEntry?.Trim() ?? string.Empty, GpuShaderStage.Vertex);
                         }

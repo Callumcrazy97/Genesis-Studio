@@ -38,6 +38,8 @@ internal static class ReleaseSuite
         ("ZstdSharp.Port", "ZstdSharp"),
         ("DockPanelSuite", "DockPanel Suite"),
         ("AssimpNetter", "AssimpNetter"),
+        // The AI assistant's OCR (16 October): the wrapper, its engine, Leptonica and the English data.
+        ("Tesseract", "Tesseract (.NET wrapper)"),
         ("CommunityToolkit.HighPerformance", "CommunityToolkit.HighPerformance"),
         ("Microsoft.CodeAnalysis", "Roslyn"),
         ("Microsoft.Direct3D.DXC", "DirectX Shader Compiler"),

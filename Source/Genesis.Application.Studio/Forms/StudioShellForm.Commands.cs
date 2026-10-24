@@ -38,6 +38,12 @@ public sealed partial class StudioShellForm
             _ => SaveAll(), Keys.Control | Keys.Shift | Keys.S, keywords: "save all windows");
         Register("project.run", "Run", "Project", "Save and run the project in its matching Player.", _ => RunProject(false), Keys.F5);
         Register("project.debug", "Debug", "Project", "Save and run with the in-game debugger attached.", _ => RunProject(true), Keys.F6);
+        Register("project.runRoom", "Run This Room", "Project", "Save and run the game starting in the Room open in the editor, not the start room.",
+            context => RunProject(false, ActiveRoomName(context)), Keys.Shift | Keys.F5,
+            context => ActiveRoomName(context) is not null
+                ? CommandAvailability.Available
+                : CommandAvailability.Unavailable("Open a Room to run the game from it."),
+            keywords: "play from here test room");
         Register("project.export", "Export Game…", "Project", "Save all resources and open the game exporter.", _ => ExportProject(), Keys.Control | Keys.B, keywords: "build package ship");
         Register("studio.exit", "Exit", "Studio", "Close Studio using its normal unsaved-document prompts.", _ => Close(), Keys.Alt | Keys.F4);
         RegisterEdit("edit.undo", "Undo", EditCommand.Undo, Keys.Control | Keys.Z);
@@ -163,6 +169,12 @@ public sealed partial class StudioShellForm
             if (ReferenceEquals(control, ancestor)) return true;
         return false;
     }
+
+    /// <summary>The Room open in the editor (the document in front), by its name; null when that is not a Room.</summary>
+    internal static string? ActiveRoomName(ShellCommandContext context) =>
+        context.Document is { Resource: { Kind: ResourceKind.Room, IsFolder: false } room } document && document is not Control { IsDisposed: true }
+            ? room.Name
+            : null;
 
     private static CommandAvailability DocumentAvailability(ShellCommandContext context, StudioDocumentCommand command)
     {

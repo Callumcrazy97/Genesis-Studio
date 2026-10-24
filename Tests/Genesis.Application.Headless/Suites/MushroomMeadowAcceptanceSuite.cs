@@ -393,7 +393,14 @@ internal static class MushroomMeadowAcceptanceSuite
             new RoomSceneBuilder(project.RootPath, Host).Build(Scene, room);
             Host.BeginRoom(beginGame: true);
             _switcher = new(project.RootPath, Game, Host, null, null, null, room.Name);
+            // The room as it starts: its authored objects plus what their Create events make (a
+            // Glowspore since the 15 October content). A restart must come back to exactly this.
+            Scene.World.FlushDeferred();
+            _startScripted = Host.Instances.Count;
+            _startLiving = Scene.World.LivingEntityCount;
         }
+
+        private readonly int _startScripted, _startLiving;
 
         public double Value(string name) => Convert.ToDouble(Player.GetVariablesSnapshot()[name], CultureInfo.InvariantCulture);
         public void Set(string name, double value) => Check(Player.TrySetLiveValue(name, value), "Missing live game field " + name);
@@ -407,10 +414,11 @@ internal static class MushroomMeadowAcceptanceSuite
             foreach (var behavior in Host.Instances) Genesis.Runtime.ECS.ComponentLifecycle.OnUpdate(Scene.World, behavior.Entity, 1f / 60f);
             _switcher.Update(Scene, Scene.GameTime); Scene.Input.NextFrame();
         }
-        /// <summary>Authored room objects; the Explorer's Create may add one ambient particle emitter entity.</summary>
+        /// <summary>Authored room objects; their Create events may make a few more (a Glowspore, a particle emitter).</summary>
         public int Authored => Game.Room.Nodes.Count(node => node.Kind == RoomNodeKind.GameObject);
-        public bool CleanRun => Host.Instances.Count == Authored
-            && Scene.World.LivingEntityCount >= Authored && Scene.World.LivingEntityCount <= Authored + 1;
+        /// <summary>The same scripted instances as when the room first started, and within one living entity (the ambient emitter).</summary>
+        public bool CleanRun => Host.Instances.Count == _startScripted
+            && Math.Abs(Scene.World.LivingEntityCount - _startLiving) <= 1;
         public double Count(string objectName) => PgslCommands.InstanceNumber(objectName);
         public Entity Actor(string name) => Host.Instances.First(behavior => ObjectDrawAssetRegistry.TryGet(behavior.Entity, out ObjectDrawAssetEntry asset)
             && asset.Prefab.Contains(name, StringComparison.OrdinalIgnoreCase)).Entity;

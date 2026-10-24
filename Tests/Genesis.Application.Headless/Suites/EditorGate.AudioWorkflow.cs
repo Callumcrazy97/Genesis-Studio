@@ -90,6 +90,9 @@ internal static partial class EditorGate
                 SoundEffect Effect() => (SoundEffect)Entry().GetType().GetField("Effect")!.GetValue(Entry())!;
                 HeadlessHarness.Assert(Math.Abs(Effect().DurationInSeconds - .6) < .0001, "Gameplay played the untrimmed source.");
                 editor.SetVolume(.37f); editor.SetRegion(.1f, .5f, .04f, .04f); editor.Save();
+                // A sound rechecks its files at most twice a second (XAudioSystem.IsCurrent): an edit is
+                // picked up within half a second, not on the very next play.
+                System.Threading.Thread.Sleep(600);
                 HeadlessHarness.Assert(audio.LoadSound(asset) == sound && Math.Abs(Effect().DurationInSeconds - .4) < .0001
                     && Math.Abs((float)Entry().GetType().GetField("Gain")!.GetValue(Entry())! - .37f) < .001,
                     "The cached runtime asset did not reload actual samples/settings after Audio Editor Save.");

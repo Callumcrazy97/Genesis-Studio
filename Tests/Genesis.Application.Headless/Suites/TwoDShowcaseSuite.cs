@@ -54,7 +54,8 @@ internal static class TwoDShowcaseSuite
             ProjectSession p = Require(project);
             ResourceService resources = new(p);
             Assert(!Directory.Exists(Path.Combine(p.AssetsPath, "Voxels")), "A voxel root was created.");
-            Assert(ResourceFolderPolicy.Roots.Count == 13, "The supported standalone resource kinds need thirteen roots.");
+            // Fourteen since Animation Controllers became resources of their own (22 October).
+            Assert(ResourceFolderPolicy.Roots.Count == 14, $"The supported standalone resource kinds need fourteen roots, not {ResourceFolderPolicy.Roots.Count}.");
             foreach (ResourceRootFolder root in ResourceFolderPolicy.Roots)
             {
                 string folder = Path.Combine(p.AssetsPath, root.Name);
@@ -444,10 +445,11 @@ internal static class TwoDShowcaseSuite
                 ScriptAssetRegistry.ClearCache(); ScriptAssetRegistry.LoadFromProject(p.RootPath);
                 RoomBuildResult built = new RoomSceneBuilder(p.RootPath, host).Build(scene.World, room);
                 int authored = room.Nodes.Count(node => node.Kind == RoomNodeKind.GameObject);
-                // Level Rules may add one script-spawned entity: the ambient petal particle emitter.
-                Assert(authored == 66 && built.SpawnedEntities.Count == authored
-                    && scene.World.LivingEntityCount >= authored && scene.World.LivingEntityCount <= authored + 1,
-                    $"Expected 66 authored objects, not hundreds of invisible tile instances; spawned {built.SpawnedEntities.Count}, living {scene.World.LivingEntityCount}.");
+                // Create events may add two script-spawned entities: Level Rules' ambient petal particle
+                // emitter and, since the 15 October content, a Glowspore.
+                Assert(authored is >= 66 and < 200 && built.SpawnedEntities.Count == authored
+                    && scene.World.LivingEntityCount >= authored && scene.World.LivingEntityCount <= authored + 2,
+                    $"Expected about 66 authored objects ({authored}), not hundreds of invisible tile instances; spawned {built.SpawnedEntities.Count}, living {scene.World.LivingEntityCount}.");
                 Entity hero = built.EntitiesByNodeId[room.Nodes.Single(node => node.Name == "Explorer").Id];
                 Entity acorn = built.EntitiesByNodeId[room.Nodes.First(node => node.Name == "Acorn 1").Id];
                 Assert(scene.World.Has<SpriteComponent>(hero) && scene.World.Has<SpriteComponent>(acorn),

@@ -331,6 +331,7 @@ public sealed partial class StudioShellForm : DpiAwareForm
         file.DropDownItems.Add(CommandMenuItem("project.saveAll"));
         file.DropDownItems.Add(new ToolStripSeparator());
         file.DropDownItems.Add(CommandMenuItem("project.run"));
+        file.DropDownItems.Add(CommandMenuItem("project.runRoom"));
         file.DropDownItems.Add(CommandMenuItem("project.debug"));
         file.DropDownItems.Add(new ToolStripSeparator());
         file.DropDownItems.Add(CommandMenuItem("project.export"));
@@ -1889,6 +1890,25 @@ public sealed partial class StudioShellForm : DpiAwareForm
     private void ExportProject()
     {
         if (!TrySaveProject("Export")) return;
+        // Before shipping, the project's own checks: errors are listed in the Console and the
+        // export goes ahead only when asked to (an unattended run lists them and goes ahead).
+        IReadOnlyList<ProjectValidationIssue> issues = _services.Validator.Validate(_project);
+        int errors = issues.Count(issue => issue.Severity == ProjectValidationSeverity.Error);
+        if (errors > 0)
+        {
+            foreach (ProjectValidationIssue issue in issues.Where(issue => issue.Severity == ProjectValidationSeverity.Error))
+                _services.Log.Error("Validation", $"{issue.Code}: {issue.Message} ({issue.Path})");
+            UpdateValidationBadge(errors, issues.Count(issue => issue.Severity == ProjectValidationSeverity.Warning));
+            ShowToolWindow(_console);
+            bool unattended = Environment.GetEnvironmentVariable("GENESIS_UNATTENDED_WINDOW") == "1";
+            if (!unattended && MessageBox.Show(this,
+                    $"The project has {errors} problem{(errors == 1 ? "" : "s")}, listed in the Console. A game exported now may not run as it should.{Environment.NewLine}{Environment.NewLine}Export anyway?",
+                    "Export Game", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+            {
+                SetStatus("Export stopped: fix the problems listed in the Console first.");
+                return;
+            }
+        }
         using ExportGameDialog dialog = new(_project);
         dialog.ShowDialog(this);
         if (dialog.Result is not { } result) return;

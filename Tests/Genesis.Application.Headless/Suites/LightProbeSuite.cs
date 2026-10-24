@@ -121,6 +121,8 @@ internal static class LightProbeSuite
     {
         RenderBackendOption previous = RenderBackendSelection.RequestedBackend;
         var report = new List<string>();
+        // As a game has them (the Player turns them on; editor views keep the flat look).
+        LightProbes.InGame = true;
         try
         {
             foreach (RenderBackendOption backend in GpuBackends)
@@ -153,6 +155,7 @@ internal static class LightProbeSuite
         {
             RenderBackendSelection.Configure(previous);
             LightProbes.ResetForRoom();
+            LightProbes.InGame = false;
             File.WriteAllLines(Path.Combine(ctx.Captures, "light-probe-backends.txt"), report);
         }
     }

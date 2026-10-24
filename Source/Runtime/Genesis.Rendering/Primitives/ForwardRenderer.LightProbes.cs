@@ -65,6 +65,7 @@ namespace Genesis.Rendering.Primitives
 
         private bool LightProbesWanted() =>
             Probes.Available
+            && Probes.InGame
             && (Probes.Reflections || Probes.BouncedLight)
             && _state.LightingEnabled
             && !string.Equals(_gpu.BackendName, "Software", StringComparison.OrdinalIgnoreCase);
@@ -358,6 +359,10 @@ namespace Genesis.Rendering.Primitives
 
         private void ReleaseLightProbe()
         {
+            // A capture this renderer decided on will never be made: culling must stop keeping things for it.
+            if (_probeCapturePending || _probeNextFace >= 0) Probes.PendingCapture = default;
+            _probeCapturePending = false;
+            _probeNextFace = -1;
             ReleaseLightProbeTargets();
             if (_probeComposeProgram.IsValid) _gpu.ReleaseShaderProgram(_probeComposeProgram);
             if (_probeAverageProgram.IsValid) _gpu.ReleaseShaderProgram(_probeAverageProgram);
