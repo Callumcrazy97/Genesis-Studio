@@ -306,6 +306,15 @@ namespace Genesis.Runtime.Project
             long changeStarted = Stopwatch.GetTimestamp();
             int collectionsBefore = GC.CollectionCount(2);
             TimeSpan pausedBefore = GC.GetTotalPauseDuration();
+            // Leaving a persistent room: what its Objects are like now, for when the game comes back.
+            if (!liveReload && _context?.Room is { Settings.Persistent: true } leaving)
+            {
+                var scripts = new Dictionary<Genesis.Shared.ECS.Entity, PgslBehavior>();
+                foreach (var instance in _scriptHost.Instances)
+                    if (instance is PgslBehavior behavior) scripts[behavior.Entity] = behavior;
+                Genesis.Runtime.Scene.RoomMemory.Leave(scene.World, leaving.Name,
+                    entity => scripts.TryGetValue(entity, out PgslBehavior script) ? script : null);
+            }
             _scriptHost.EndRoom(endGame: false);
             if (CollectBeforeMeasuring && !liveReload) WatchForLeaks(scene);
             scene.UnloadRoomContent(_scriptHost, KeepSubsystem, preservePersistent: !liveReload);

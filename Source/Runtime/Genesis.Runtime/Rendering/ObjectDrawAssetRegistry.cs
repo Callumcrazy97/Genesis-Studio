@@ -12,6 +12,8 @@ namespace Genesis.Runtime.Rendering
         /// <summary>The prefab resource that created this entity, used by typed instance queries.</summary>
         public string Prefab;
         public string RoomNodeId;
+        /// <summary>The room whose node (<see cref="RoomNodeId"/>) placed this entity.</summary>
+        public string RoomName;
         public string InstanceName;
         public string Image;
         public string Model;

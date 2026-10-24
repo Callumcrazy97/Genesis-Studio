@@ -281,6 +281,13 @@ public sealed class RoomSceneBuilder
         // Only the time spent placing objects is counted, not the frames drawn between pieces.
         long spawnTicks = 0;
         long mark = System.Diagnostics.Stopwatch.GetTimestamp();
+        // Persistent Objects this room placed that the game kept from an earlier visit: not made twice.
+        _kept = terrainOnly ? null : KeptPersistentObjects(world);
+        // A persistent room comes back as the game left it: each Object where it was with its
+        // variables (put back after the Create events), and what a script destroyed stays gone.
+        bool remembers = !terrainOnly && asset.Settings.Persistent && RoomMemory.Remember;
+        var placedNodes = remembers ? new List<string>() : null;
+        var restores = remembers ? new List<(Entity Entity, IReadOnlyDictionary<string, object> Variables)>() : null;
         try
         {
             List<RoomNode> ordered = asset.Nodes.OrderBy(n => LayerOrder(asset, n)).ThenBy(n => n.Order).ToList();
@@ -291,9 +298,20 @@ public sealed class RoomSceneBuilder
                 if (!terrainOnly && node.Kind == RoomNodeKind.GameObject && node.GameObject != null)
                 {
                     if (TryDeferScenery(asset, node)) continue;
+                    RoomMemory.Entry left = remembers ? RoomMemory.Recall(asset.Name, node.Id) : null;
+                    if (left is { Gone: true }) continue;
                     long one = System.Diagnostics.Stopwatch.GetTimestamp();
                     using (Genesis.Shared.Diagnostics.LoadProfile.Begin("room: place Objects"))
                         SpawnGameObject(world, asset, node, result);
+                    if (remembers)
+                    {
+                        placedNodes.Add(node.Id);
+                        if (left != null && result.EntitiesByNodeId.TryGetValue(node.Id, out Entity again) && world.IsAlive(again))
+                        {
+                            RoomMemory.Place(world, again, left);
+                            if (left.Variables is { Count: > 0 }) restores.Add((again, left.Variables));
+                        }
+                    }
                     result.RecordSpawn(node.Name ?? node.GameObject.Prefab,
                         System.Diagnostics.Stopwatch.GetElapsedTime(one).TotalMilliseconds);
                     spawnTicks += System.Diagnostics.Stopwatch.GetTimestamp() - mark;
@@ -327,7 +345,28 @@ public sealed class RoomSceneBuilder
         long createStarted = System.Diagnostics.Stopwatch.GetTimestamp();
         using (Genesis.Shared.Diagnostics.LoadProfile.Begin("room: Create events"))
             _scriptHost?.FlushDeferredCreates();
+        if (remembers)
+        {
+            foreach ((Entity entity, IReadOnlyDictionary<string, object> variables) in restores)
+                if (world.IsAlive(entity)) ScriptOf(entity)?.RestoreVariables(variables);
+            RoomMemory.PlacedBy(asset.Name, placedNodes);
+        }
+        _kept = null;
         result.CreateEventsMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(createStarted).TotalMilliseconds;
+    }
+
+    private Dictionary<(string Room, string Node), Entity> _kept;
+
+    // The persistent Objects alive now, by the room and node that placed them.
+    private static Dictionary<(string Room, string Node), Entity> KeptPersistentObjects(EcsWorld world)
+    {
+        Dictionary<(string Room, string Node), Entity> kept = null;
+        world.Query<PersistentObjectComponent>((Entity entity, ref PersistentObjectComponent _) =>
+        {
+            if (!ObjectDrawAssetRegistry.TryGet(entity, out ObjectDrawAssetEntry drawn) || string.IsNullOrEmpty(drawn.RoomNodeId)) return;
+            (kept ??= new())[(drawn.RoomName ?? "", drawn.RoomNodeId)] = entity;
+        });
+        return kept;
     }
 
     /// <summary>Places the Objects a terrain carries, one between each value returned; the value is the share placed, from 0 to 1.</summary>
@@ -652,6 +691,13 @@ public sealed class RoomSceneBuilder
 
     private void SpawnGameObject(EcsWorld world, RoomAsset room, RoomNode node, RoomBuildResult result)
     {
+        // A persistent Object the game kept when it last left this room is that room's Object
+        // still: the room does not make a second one.
+        if (_kept != null && _kept.TryGetValue((room.Name ?? "", node.Id ?? ""), out Entity kept) && world.IsAlive(kept))
+        {
+            result.EntitiesByNodeId[node.Id] = kept;
+            return;
+        }
         JObject prefab = ResolvePrefab(node.GameObject.Prefab);
         if (prefab == null) return;
         prefab = ApplyOverrides(prefab, node.GameObject.ComponentOverrides);
@@ -755,6 +801,7 @@ public sealed class RoomSceneBuilder
             : new ObjectDrawAssetEntry();
         drawAssets.Prefab = node.GameObject.Prefab;
         drawAssets.RoomNodeId = node.Id;
+        drawAssets.RoomName = room.Name;
         drawAssets.InstanceName = node.Name;
         ObjectDrawAssetRegistry.Set(entity, drawAssets);
 

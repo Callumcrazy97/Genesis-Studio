@@ -72,90 +72,24 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem, IRoomWarmUpSubsystem
     }
 
     /// <summary>
-    /// What a streamed Object was like when it went out of range, so that it comes back as it
-    /// left: where it was and its script's variables. An object a script destroyed is remembered
-    /// as gone. Kept for the game's session room by room, so leaving a room and coming back finds
-    /// the same world.
-    /// </summary>
-    private sealed class Memory
-    {
-        public bool Gone;
-        public bool Placed;
-        public Genesis.Runtime.ECS.Components.TransformComponent Transform;
-        public bool HasTransform3D;
-        public Transform3DComponent Transform3D;
-        public IReadOnlyDictionary<string, object> Variables;
-    }
-
-    private static readonly Dictionary<(string Room, string Node), Memory> Remembered = new();
-
-    /// <summary>
     /// Streamed Objects come back as they left, and destroyed ones stay gone (true unless set):
-    /// <c>Engine.Room.Streaming.Remember</c>. Off, each comes back as the room first made it.
+    /// <c>Engine.Room.Streaming.Remember</c>. Kept in <see cref="RoomMemory"/>, with what
+    /// persistent rooms remember.
     /// </summary>
-    public static bool Remember { get; set; } = true;
+    public static bool Remember { get => RoomMemory.Remember; set => RoomMemory.Remember = value; }
 
-    /// <summary>Forgets every streamed Object's state: each comes back as its room first made it.</summary>
-    public static void ForgetAll()
-    {
-        lock (Remembered) Remembered.Clear();
-    }
+    /// <summary>Forgets every room's Objects: each comes back as its room first made it.</summary>
+    public static void ForgetAll() => RoomMemory.ForgetAll();
 
-    /// <summary>Forgets the streamed Objects of one room (one reloaded after an edit).</summary>
-    public static void ForgetRoom(string room)
-    {
-        lock (Remembered)
-        {
-            var keys = new List<(string Room, string Node)>();
-            foreach ((string Room, string Node) key in Remembered.Keys)
-                if (string.Equals(key.Room, room ?? "", StringComparison.Ordinal)) keys.Add(key);
-            foreach ((string Room, string Node) key in keys) Remembered.Remove(key);
-        }
-    }
+    /// <summary>Forgets the Objects of one room (one reloaded after an edit).</summary>
+    public static void ForgetRoom(string room) => RoomMemory.ForgetRoom(room);
 
-    /// <summary>Streamed Objects remembered now, in every room.</summary>
-    public static int RememberedCount
-    {
-        get { lock (Remembered) return Remembered.Count; }
-    }
+    /// <summary>Objects remembered now, in every room.</summary>
+    public static int RememberedCount => RoomMemory.Count;
 
-    private (string Room, string Node) KeyOf(Item item) => (_room?.Name ?? "", item.Node?.Id ?? "");
+    private RoomMemory.Entry Recall(Item item) => RoomMemory.Recall(_room?.Name, item.Node?.Id);
 
-    private Memory Recall(Item item)
-    {
-        lock (Remembered) return Remembered.TryGetValue(KeyOf(item), out Memory memory) ? memory : null;
-    }
-
-    private void Keep(Item item, Memory memory)
-    {
-        lock (Remembered) Remembered[KeyOf(item)] = memory;
-    }
-
-    // Before the object's Create event: back where it was when it went out of range.
-    private static void Place(EcsWorld world, Entity entity, Memory memory)
-    {
-        if (world.Has<Genesis.Runtime.ECS.Components.TransformComponent>(entity))
-            world.GetRef<Genesis.Runtime.ECS.Components.TransformComponent>(entity) = memory.Transform;
-        if (memory.HasTransform3D && world.Has<Transform3DComponent>(entity))
-            world.GetRef<Transform3DComponent>(entity) = memory.Transform3D;
-    }
-
-    private Memory Capture(EcsWorld world, Item item)
-    {
-        var memory = new Memory();
-        if (world.Has<Genesis.Runtime.ECS.Components.TransformComponent>(item.Entity))
-        {
-            memory.Transform = world.GetRef<Genesis.Runtime.ECS.Components.TransformComponent>(item.Entity);
-            memory.Placed = true;
-        }
-        if (world.Has<Transform3DComponent>(item.Entity))
-        {
-            memory.Transform3D = world.GetRef<Transform3DComponent>(item.Entity);
-            memory.HasTransform3D = true;
-        }
-        memory.Variables = _builder?.ScriptOf(item.Entity)?.GetVariablesSnapshot();
-        return memory;
-    }
+    private void Keep(Item item, RoomMemory.Entry entry) => RoomMemory.Keep(_room?.Name, item.Node?.Id, entry);
 
     /// <summary>What a stand-in is made from: the collider exactly as the loaded object has it.</summary>
     private sealed class ColliderRecipe
@@ -409,7 +343,7 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem, IRoomWarmUpSubsystem
             DropStand(scene, item);
             _far.Remove(item);
         }
-        Keep(item, new Memory { Gone = true });
+        Keep(item, new RoomMemory.Entry { Gone = true });
     }
 
     private void Load(RuntimeScene scene, Item item)
@@ -417,7 +351,7 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem, IRoomWarmUpSubsystem
         EcsWorld world = scene.World;
         // A streamed Object that has been here before comes back where it was, with its variables;
         // one a script destroyed, or scenery it removed, stays gone.
-        Memory memory = Remember ? Recall(item) : null;
+        RoomMemory.Entry memory = Remember ? Recall(item) : null;
         if (memory is { Gone: true })
         {
             item.Gone = true;
@@ -433,7 +367,7 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem, IRoomWarmUpSubsystem
         }
 
         item.Entity = _builder.SpawnScenery(world, _room, item.Node,
-            memory is { Placed: true } ? entity => Place(world, entity, memory) : null);
+            memory is { Placed: true } ? entity => RoomMemory.Place(world, entity, memory) : null);
         if (memory?.Variables is { Count: > 0 } variables && !item.Entity.IsNull && world.IsAlive(item.Entity))
             _builder.ScriptOf(item.Entity)?.RestoreVariables(variables);
         item.Loaded = true;
@@ -728,7 +662,7 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem, IRoomWarmUpSubsystem
 
             if (item.Streamable)
             {
-                if (Remember) Keep(item, Capture(world, item));
+                if (Remember) Keep(item, RoomMemory.Capture(world, item.Entity, _builder?.ScriptOf(item.Entity)));
                 _builder?.DetachScripts(item.Entity);
             }
 

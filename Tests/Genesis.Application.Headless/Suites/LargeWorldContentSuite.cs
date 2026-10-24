@@ -492,8 +492,125 @@ internal static class LargeWorldContentSuite
         });
 
         RunStreamedMemory(context);
+        RunPersistentRooms(context);
         RunStreaming(context);
         RunReadAheadAndLights(context);
+    }
+
+    /// <summary>
+    /// A persistent room comes back as the game left it (each Object where it was with its
+    /// variables, what was destroyed gone); a persistent Object kept from the room is not made a
+    /// second time when the game comes back to it; a room that is not persistent starts afresh.
+    /// </summary>
+    private static void RunPersistentRooms(HeadlessContext context)
+    {
+        HeadlessHarness.RunCase(context.Report, "Engine.World.Rooms.PersistentRoomsAndObjectsComeBackAsLeft", () =>
+        {
+            const string model = """{"type":"ModelRendererComponent","props":{"ModelAsset":"House Model"}}""";
+            string parent = Path.Combine(context.Workspace, "PersistProjects");
+            Directory.CreateDirectory(parent);
+            ProjectSession project = new ProjectService().CreateProject(parent, "Persist" + Guid.NewGuid().ToString("N")[..6], "Blank");
+            var resources = new ResourceService(project);
+            string objects = ResourceFolderPolicy.RootFor(project, ResourceKind.GameObject);
+            void Scripted(string name, string create, bool persistent)
+            {
+                string path = resources.CreateResource(objects, ResourceKind.GameObject, name);
+                File.WriteAllText(path, "{\"schemaVersion\":2,\"dimension\":\"ThreeD\",\"model\":\"\"" + (persistent ? ",\"persistent\":true" : "")
+                    + ",\"components\":[" + model + ",{\"type\":\"ScriptComponent\",\"props\":{\"ScriptClass\":\"" + name + "\"}}],\"events\":[\"Create\"]}");
+                string createFile = ObjectEventStore.PathFor(path, "Create");
+                Directory.CreateDirectory(Path.GetDirectoryName(createFile)!);
+                File.WriteAllText(createFile, create);
+            }
+            Scripted("Keep Crate", "hp = 3;\n", persistent: false);
+            Scripted("Keep Lamp", "lit = 1;\n", persistent: true);
+            File.WriteAllText(resources.CreateResource(objects, ResourceKind.GameObject, "Keep Rock"),
+                $$"""{"schemaVersion":2,"dimension":"ThreeD","model":"","components":[{{model}}],"events":[]}""");
+            ResourceNames.Invalidate(project.RootPath);
+
+            RoomAsset Room(string name, bool persistent, params (string Prefab, float X)[] placed)
+            {
+                RoomAsset made = RoomAsset.Create(name, RoomDimension.ThreeD);
+                made.Settings.Persistent = persistent;
+                foreach ((string prefab, float x) in placed)
+                    made.Nodes.Add(new RoomNode
+                    {
+                        Name = prefab, Kind = RoomNodeKind.GameObject, LayerId = made.Layers[0].Id, EnabledIn2D = false,
+                        Transform = new RoomTransform { X = x, ScaleX = 1, ScaleY = 1, ScaleZ = 1 },
+                        GameObject = new RoomGameObjectData { Prefab = prefab },
+                    });
+                return made;
+            }
+            RoomAsset hall = Room("Keep Hall", true, ("Keep Crate", 0f), ("Keep Rock", 5f), ("Keep Lamp", 10f));
+            RoomAsset yard = Room("Keep Yard", false, ("Keep Crate", 0f));
+
+            Genesis.Runtime.Scripting.VM.VMEngine.Initialize();
+            RoomMemory.ForgetAll();
+            RoomMemory.Remember = true;
+            using var scene = new RuntimeScene("Persist");
+            var host = new ScriptHostSystem();
+            try
+            {
+                void Build(RoomAsset room) => new RoomSceneBuilder(project.RootPath, host).Build(scene, room);
+                PgslBehavior? ScriptOf(Genesis.Shared.ECS.Entity entity) =>
+                    host.Instances.OfType<PgslBehavior>().FirstOrDefault(behavior => behavior.Entity == entity);
+                List<Genesis.Shared.ECS.Entity> Of(string prefab)
+                {
+                    var found = new List<Genesis.Shared.ECS.Entity>();
+                    scene.World.Query<Genesis.Runtime.ECS.Components.TransformComponent>(
+                        (Genesis.Shared.ECS.Entity entity, ref Genesis.Runtime.ECS.Components.TransformComponent _) =>
+                        {
+                            if (Genesis.Runtime.Rendering.ObjectDrawAssetRegistry.TryGet(entity, out var drawn) && drawn.Prefab == prefab) found.Add(entity);
+                        });
+                    return found;
+                }
+                double Var(Genesis.Shared.ECS.Entity entity, string name) =>
+                    ScriptOf(entity)?.GetVariablesSnapshot() is { } vars && vars.TryGetValue(name, out object? value) && value is not (string or bool or null)
+                        ? Convert.ToDouble(value, System.Globalization.CultureInfo.InvariantCulture) : double.NaN;
+                void Leave(RoomAsset room)
+                {
+                    if (room.Settings.Persistent) RoomMemory.Leave(scene.World, room.Name, ScriptOf);
+                    scene.UnloadRoomContent(host, null, preservePersistent: true);
+                }
+
+                Build(hall);
+                Genesis.Shared.ECS.Entity crate = Of("Keep Crate").Single(), lamp = Of("Keep Lamp").Single();
+                HeadlessHarness.Assert(Var(crate, "hp") == 3 && Of("Keep Rock").Count == 1 && Var(lamp, "lit") == 1,
+                    $"The hall should start with its crate (hp {Var(crate, "hp")}), rock ({Of("Keep Rock").Count}) and lit lamp.");
+                // The player knocks the crate about and moves it, and breaks the rock.
+                HeadlessHarness.Assert(ScriptOf(crate)!.TrySetLiveValue("hp", 1d), "Could not change the crate's hp.");
+                scene.World.GetRef<Genesis.Runtime.ECS.Components.TransformComponent>(crate).X = 2f;
+                if (scene.World.Has<Genesis.Shared.ECS.Components.Transform3DComponent>(crate))
+                    scene.World.GetRef<Genesis.Shared.ECS.Components.Transform3DComponent>(crate).Position.X = 2f;
+                scene.World.DestroyEntity(Of("Keep Rock").Single());
+                scene.World.FlushDeferred();
+
+                Leave(hall);
+                HeadlessHarness.Assert(scene.World.IsAlive(lamp) && Of("Keep Crate").Count == 0,
+                    "Leaving the hall should keep only the persistent lamp.");
+                Build(yard);
+                Leave(yard);
+                Build(hall);
+                List<Genesis.Shared.ECS.Entity> crates = Of("Keep Crate"), lamps = Of("Keep Lamp");
+                double crateX = crates.Count == 1 ? scene.World.GetRef<Genesis.Runtime.ECS.Components.TransformComponent>(crates[0]).X : double.NaN;
+                HeadlessHarness.Assert(crates.Count == 1 && Math.Abs(crateX - 2) < 1e-4 && Var(crates[0], "hp") == 1 && Of("Keep Rock").Count == 0,
+                    $"Back in the persistent hall the crate should be at 2 m with hp 1 and the rock gone; {crates.Count} crates at {crateX}, hp {(crates.Count == 1 ? Var(crates[0], "hp") : double.NaN)}, {Of("Keep Rock").Count} rocks.");
+                HeadlessHarness.Assert(lamps.Count == 1 && lamps[0] == lamp,
+                    $"The persistent lamp kept from the hall should be the hall's only lamp on return; {lamps.Count} lamps.");
+
+                // A room that is not persistent starts as it was made.
+                Leave(hall);
+                hall.Settings.Persistent = false;
+                Build(hall);
+                crates = Of("Keep Crate");
+                HeadlessHarness.Assert(crates.Count == 1 && Var(crates[0], "hp") == 3 && Of("Keep Rock").Count == 1 && Of("Keep Lamp").Count == 1,
+                    $"A hall that is not persistent should be as made, with still one lamp; {crates.Count} crates (hp {(crates.Count == 1 ? Var(crates[0], "hp") : double.NaN)}), {Of("Keep Rock").Count} rocks, {Of("Keep Lamp").Count} lamps.");
+            }
+            finally
+            {
+                RoomMemory.Remember = true;
+                RoomMemory.ForgetAll();
+            }
+        });
     }
 
     /// <summary>

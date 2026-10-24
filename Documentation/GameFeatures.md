@@ -91,6 +91,24 @@ for how much is heard. Each room starts outdoors; a room (or its terrain) choose
 the Engine setting in its Inspector. `Engine.Audio.MusicMuffle` (0 clear to 1 heard through a wall)
 muffles the music, for a pause menu, underwater or a dream. Music is never echoed.
 
+## Persistent rooms and Objects (24 October 2026)
+
+- **A persistent Object** (Persistent ticked in the Object editor) goes with the game from room to
+  room with its scripts and variables, as before. Now, when the game comes back to the room that
+  placed it, the room does not make a second one: the one kept is that room's Object still.
+- **A persistent room** (Persistent in the Room's settings, which the game used to ignore) comes
+  back as the game left it: each Object it placed is where it was with its script's variables
+  (its Create event runs, then the variables it had are put back), and anything a script
+  destroyed there stays gone. A room that is not persistent starts as it was made, as before.
+  Objects a script made at run time in a persistent room are not kept.
+- **Streamed Objects** in any room come back as they left as well (see
+  [Large worlds](LargeWorlds.md)). Both are held for the game's session in one place:
+  `Engine.Room.Streaming.Remember = false` turns them off, `Engine.Room.Streaming.Forget()` gives
+  every room back as it was made, and a new game forgets them. They are not in save files.
+
+Checked by `Engine.World.Rooms.PersistentRoomsAndObjectsComeBackAsLeft` and
+`Engine.World.Scenery.StreamedObjectsComeBackAsTheyLeft` (`--test large-world`).
+
 ## Depth of field (24 October 2026)
 
 `Engine.Camera.Focus.Enabled = true` keeps what is near the focus distance sharp and blurs nearer
