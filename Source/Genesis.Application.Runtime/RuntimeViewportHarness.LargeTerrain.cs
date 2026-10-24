@@ -72,8 +72,9 @@ public sealed partial class RuntimeViewportHarness
     /// Draws <paramref name="terrain"/> from a camera once its detail has finished streaming in.
     /// </summary>
     public (ImageMetrics Metrics, RenderStats Stats, TerrainLodStatistics Lod) CaptureLargeTerrain(
-        string outputFile, TerrainAsset terrain, Vector3 eye, Vector3 target, float detail = 1f)
+        string outputFile, TerrainAsset terrain, Vector3 eye, Vector3 target, float detail = 1f, Vector3 sunDirection = default)
     {
+        _largeSun = sunDirection;
         EnsureReady();
         IRenderController renderer = _viewport.Renderer ?? throw new InvalidOperationException("Renderer is unavailable.");
         if (!ReferenceEquals(_largeTerrain, terrain) || !ReferenceEquals(_largeGroundRenderer, renderer))
@@ -116,8 +117,12 @@ public sealed partial class RuntimeViewportHarness
     private TerrainLodView LargeTerrainView()
     {
         (Matrix4x4 view, Matrix4x4 projection) = LargeTerrainCamera();
-        return new TerrainLodView(_largeEye, view * projection, _largeDetail);
+        var lod = new TerrainLodView(_largeEye, view * projection, _largeDetail);
+        return _largeSun == Vector3.Zero ? lod : lod.WithShadowDirection(_largeSun);
     }
+
+    // The sun's direction for the capture, so ground outside the view that shades it is chosen too.
+    private Vector3 _largeSun;
 
     private void RenderLargeTerrain(IRenderController renderer)
     {

@@ -32,6 +32,16 @@ public readonly struct TerrainLodView
 
     public bool HasFrustum { get; }
 
+    /// <summary>
+    /// The way the sun's light travels, in terrain space (zero for none). Ground outside the view
+    /// whose shadow falls in it is then drawn as well, coarse, so a hill behind the camera still
+    /// shades what is in front of it.
+    /// </summary>
+    public Vector3 ShadowDirection { get; private init; }
+
+    /// <summary>This view, also keeping the ground whose shadow, along <paramref name="lightDirection"/>, falls in it.</summary>
+    public TerrainLodView WithShadowDirection(Vector3 lightDirection) => this with { ShadowDirection = lightDirection };
+
     /// <summary>A view with no frustum: every node is a candidate, detail by distance only.</summary>
     public static TerrainLodView From(Vector3 cameraLocal, float detail = 1f) => new(cameraLocal, detail);
 
@@ -46,7 +56,11 @@ public readonly struct TerrainLodView
 
 /// <summary>Counts from the last selection, for diagnostics and tests.</summary>
 public readonly record struct TerrainLodStatistics(
-    int NodesDrawn, int TrianglesDrawn, int MeshesResident, int BuildsPending, int FinestLevelDrawn, int CoarsestLevelDrawn);
+    int NodesDrawn, int TrianglesDrawn, int MeshesResident, int BuildsPending, int FinestLevelDrawn, int CoarsestLevelDrawn)
+{
+    /// <summary>Of the nodes drawn, those outside the view kept for the shadow they cast into it.</summary>
+    public int ShadowCasters { get; init; }
+}
 
 /// <summary>
 /// Draws a large <see cref="TerrainAsset"/> as a quadtree of fixed-size grids whose spacing doubles
@@ -209,6 +223,8 @@ public sealed class TerrainLodGround : IDisposable
         _drawn.Clear();
         CameraFrustum frustum = view.HasFrustum ? new CameraFrustum(view.LocalViewProjection) : default;
         float detail = Math.Clamp(view.Detail <= 0f ? 1f : view.Detail, 0.25f, 8f);
+        _shadow = view.ShadowDirection.LengthSquared() > 1e-6f ? Vector3.Normalize(view.ShadowDirection) : Vector3.Zero;
+        _lowest = _root == null ? 0f : WorldBounds(_root).Min.Y;
         Select(_root, view.CameraLocal, view.HasFrustum, frustum, detail);
 
         int triangles = 0, finest = int.MaxValue, coarsest = -1;
@@ -234,7 +250,7 @@ public sealed class TerrainLodGround : IDisposable
         StartBuilds();
         ReleaseIdle();
         Statistics = new TerrainLodStatistics(_drawn.Count, triangles, _resident.Count,
-            _wanted.Count + _activeBuilds, finest == int.MaxValue ? -1 : finest, coarsest);
+            _wanted.Count + _activeBuilds, finest == int.MaxValue ? -1 : finest, coarsest) { ShadowCasters = ShadowCasterNodes };
     }
 
     /// <summary>Blocks until every mesh the last selection asked for is uploaded (tests, captures).</summary>
@@ -264,11 +280,45 @@ public sealed class TerrainLodGround : IDisposable
 
     // ── Selection ─────────────────────────────────────────────────────────────
 
+    // The way the light travels for the selection being made, and the terrain's lowest point.
+    private Vector3 _shadow;
+    private float _lowest;
+
+    /// <summary>Furthest a shadow from ground outside the view is followed into it, in metres.</summary>
+    public float ShadowReach { get; set; } = 3000f;
+
+    /// <summary>Ground nodes drawn by the last selection only for the shadow they cast into the view.</summary>
+    public int ShadowCasterNodes { get; private set; }
+
+    // Whether the shadow of a box outside the view falls in it: the box swept along the light
+    // down to the terrain's lowest point, tested against the view.
+    private bool CastsIntoView(Vector3 min, Vector3 max, in CameraFrustum frustum)
+    {
+        if (_shadow.Y > -0.02f) return false;
+        float reach = MathF.Min(ShadowReach, (max.Y - _lowest) / -_shadow.Y);
+        if (!(reach > 0f)) return false;
+        Vector3 moved = _shadow * reach;
+        return frustum.IntersectsAabb(Vector3.Min(min, min + moved), Vector3.Max(max, max + moved));
+    }
+
     private void Select(Node node, Vector3 camera, bool cull, in CameraFrustum frustum, float detail)
     {
+        if (node == _root) ShadowCasterNodes = 0;
         node.LastUsedFrame = _frame;
         (Vector3 min, Vector3 max) = WorldBounds(node);
-        if (cull && !frustum.IntersectsAabb(min, max)) return;
+        if (cull && !frustum.IntersectsAabb(min, max))
+        {
+            // Not in view, but its shadow may be: drawn as it is, never in more detail, since only
+            // its shadow is seen (and it lies wholly outside the view, so it is never drawn on screen).
+            if (!CastsIntoView(min, max, frustum)) return;
+            if (node.Dirty) Want(node, camera);
+            if (node.State == NodeState.Ready)
+            {
+                _drawn.Add(node);
+                ShadowCasterNodes++;
+            }
+            return;
+        }
 
         float span = (NodeCells << node.Level) * _asset.CellSize;
         bool split = node.Level > 0 && DistanceToBox(camera, min, max) < span * SplitDistanceFactor * detail;

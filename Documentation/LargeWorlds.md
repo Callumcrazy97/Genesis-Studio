@@ -616,8 +616,11 @@ Four other full runs during this work each failed one or two checks that pass al
   made itself are not streamed with it.
 - **Scatter collision is boxes.** A solid copy is an upright box, not the model's shape, and
   distant scatter casts no shadows.
-- **Shadows from behind the camera.** Terrain tiles outside the view are not drawn, so a mountain
-  behind the camera does not shade what is in front of it.
+- **Shadows from behind the camera** (done 24 October for terrain). Terrain tiles outside the view
+  whose shadow, followed along the sun up to 3 km, falls in it are drawn as well, at the detail
+  they have (never finer), so a mountain behind the camera shades what is in front of it. They lie
+  wholly outside the view, so they cost their vertices only. Scatter and placed Objects behind the
+  camera still cast no shadow into it.
 - **Parts of a room change are single steps.** The change is spread over frames, but Create
   events, room-start events, the first use of a particle effect and the first use of a shader the
   driver has not compiled each take one frame, behind the cover. A room whose scripts do a second

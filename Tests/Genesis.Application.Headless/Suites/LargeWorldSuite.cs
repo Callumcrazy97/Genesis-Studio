@@ -156,6 +156,17 @@ internal static class LargeWorldSuite
                     $"Lower detail did not reduce the triangles ({groundLow.Lod.TrianglesDrawn:N0} vs {ground.Lod.TrianglesDrawn:N0}).");
                 HeadlessHarness.Assert(ground.Lod.MeshesResident < 500,
                     $"{ground.Lod.MeshesResident} terrain meshes are resident; the cache is not releasing.");
+
+                // A low sun behind the camera: ground behind it whose shadow falls ahead is chosen as
+                // well, coarse (a hill behind the camera shades what is in front of it).
+                Vector3 ahead = Vector3.Normalize(new Vector3(peak.X - groundEye.X, 0f, peak.Z - groundEye.Z));
+                Vector3 sunBehind = Vector3.Normalize(ahead + new Vector3(0f, -0.35f, 0f));
+                var shaded = harness.CaptureLargeTerrain(
+                    Path.Combine(context.Captures, "large-terrain-ground-sun.png"), terrain, groundEye, peak, sunDirection: sunBehind);
+                HeadlessHarness.Assert(ground.Lod.ShadowCasters == 0 && shaded.Lod.ShadowCasters > 0
+                    && shaded.Lod.NodesDrawn > ground.Lod.NodesDrawn && shaded.Lod.TrianglesDrawn < ground.Lod.TrianglesDrawn * 3,
+                    $"With the sun behind the camera, {shaded.Lod.ShadowCasters} ground nodes behind it were kept for their shadows "
+                    + $"({shaded.Lod.NodesDrawn} nodes, {shaded.Lod.TrianglesDrawn:N0} triangles; without the sun {ground.Lod.NodesDrawn}, {ground.Lod.TrianglesDrawn:N0}).");
             }
             finally { RenderBackendSelection.Configure(previous); }
         });

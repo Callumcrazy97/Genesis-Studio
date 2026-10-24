@@ -656,7 +656,16 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
     }
 
     public void SubmitMeshes(RuntimeScene scene, MeshDrawCall[] buffer, ref int count, IRenderController renderer)
-        => SubmitPreviewMeshes(scene.Camera3D.Position, scene.Camera3D.ViewProjection, buffer, ref count, renderer);
+    {
+        // In a game the sun's shadows reach the view from ground outside it: a hill behind the camera.
+        Vector3 sun = Vector3.Zero;
+        if (scene.Environment is { SunEnabled: true, ShadowsEnabled: true, LightingEnabled: true } look)
+        {
+            look.GetLighting(out Vector3 light, out _, out _);
+            sun = light;
+        }
+        SubmitPreviewMeshes(scene.Camera3D.Position, scene.Camera3D.ViewProjection, buffer, ref count, renderer, sun);
+    }
 
     /// <summary>Reserves every authored ground chunk, path and water surface before submission.
     /// Editors use the same terrain renderer without creating or stepping a gameplay scene.</summary>
@@ -678,7 +687,7 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
     /// <summary>Draws the F5 terrain composition from an editor camera. This does not register
     /// physics, run object scripts, or alter the authored room/terrain resources.</summary>
     public void SubmitPreviewMeshes(Vector3 camera, Matrix4x4 viewProjection,
-        MeshDrawCall[] buffer, ref int count, IRenderController renderer)
+        MeshDrawCall[] buffer, ref int count, IRenderController renderer, Vector3 sunDirection = default)
     {
         foreach (Entry entry in _entries)
         {
@@ -693,10 +702,11 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
             if (entry.Ground.UsesLevelOfDetail)
             {
                 // Detail is chosen in the terrain's own space, so a placed or scaled terrain behaves.
-                Vector3 cameraLocal = Matrix4x4.Invert(placement, out Matrix4x4 inverse)
-                    ? Vector3.Transform(camera, inverse)
-                    : camera;
+                bool inverted = Matrix4x4.Invert(placement, out Matrix4x4 inverse);
+                Vector3 cameraLocal = inverted ? Vector3.Transform(camera, inverse) : camera;
                 view = new TerrainLodView(cameraLocal, placement * viewProjection, TerrainDetail);
+                if (sunDirection != Vector3.Zero)
+                    view = view.WithShadowDirection(inverted ? Vector3.TransformNormal(sunDirection, inverse) : sunDirection);
             }
 
             long started = System.Diagnostics.Stopwatch.GetTimestamp();
