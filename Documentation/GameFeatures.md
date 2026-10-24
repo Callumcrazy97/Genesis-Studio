@@ -91,6 +91,19 @@ for how much is heard. Each room starts outdoors; a room (or its terrain) choose
 the Engine setting in its Inspector. `Engine.Audio.MusicMuffle` (0 clear to 1 heard through a wall)
 muffles the music, for a pause menu, underwater or a dream. Music is never echoed.
 
+## Frame work on every core (24 October 2026)
+
+The culling of a frame's 3D Objects (their bounds, the view, what hides them, whether they are too
+small to see) is shared between the engine's worker threads; what is drawn, and in what order, is
+the same as on one thread. Nothing to set up. `Engine.Game.Threads` reads how many threads the
+engine shares its frame work between (every core but two unless set); `Engine.Game.Threads = 1` keeps
+it all on the game's thread, and 0 goes back to automatic. It lasts until the game ends.
+
+| Benchmark scene (uncapped) | Before | After |
+|---|---|---|
+| Objects 3D (4096 crates) | 2.99 ms, 334 fps; Object draws 1.77 ms | 2.40 ms, 417 fps; Object draws 1.22 ms |
+| Complex Scene | 3.76 ms, p95 8.0; Object draws 1.00 ms | 3.68 ms, p95 5.17; Object draws 0.55 ms |
+
 ## From C# and from events
 
 Every feature here can be reached from an Object's events (the commands in the tables) and from a

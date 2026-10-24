@@ -65,6 +65,12 @@ internal static class PgslEngineApiChecks
         var total = 0;
         for (var k = 0; k < 60; k++) { total = ApiStep(k); }
         t_compiled = total == 118 && image_index == 59;
+        // The engine's threads: the number in use, one, and back to automatic.
+        var threadsAuto = Engine.Game.Threads;
+        Engine.Game.Threads = 1;
+        var threadsOne = Engine.Game.Threads;
+        Engine.Game.Threads = 0;
+        t_threads = threadsAuto >= 1 && threadsOne == 1 && Engine.Game.Threads == threadsAuto;
         """;
 
     private const string Controller = """
@@ -106,6 +112,66 @@ internal static class PgslEngineApiChecks
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiNamesEveryCommand", () => Names(ctx, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiPhysicsWithAndFor", () => Physics(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.AutotilesAndAcoustics", () => AutotilesAndAcoustics(project, row));
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.ThreadsShareCullingAndDrawTheSame", () => SharedCulling(row));
+    }
+
+    // Engine.Game.Threads shares the culling of a frame's Objects between threads: what is drawn, in
+    // what order, and how many are left out are the same as on one thread.
+    private static void SharedCulling(Action<string, string, string, string> row)
+    {
+        using var scene = new RuntimeScene("Shared culling");
+        var world = scene.World;
+        var entities = new List<Entity>();
+        bool frustumCulling = Genesis.Shared.Rendering.RenderAutoState.FrustumCulling;
+        bool occlusionCulling = Genesis.Shared.Rendering.RenderAutoState.OcclusionCulling;
+        try
+        {
+            // 2000 Objects on a grid in front of the camera and well beyond its sides.
+            for (int i = 0; i < 2000; i++)
+            {
+                Entity entity = world.CreateEntity();
+                float x = (i % 50 - 25) * 4f, z = -10f - i / 50 * 4f;
+                world.Set(entity, new TransformComponent { X = x, Z = z, ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+                world.Set(entity, new Genesis.Runtime.ECS.Components.Draw3DComponent { Visible = true, Procedural = true });
+                Genesis.Runtime.Rendering.ObjectDrawAssetRegistry.Remove(entity);
+                Genesis.Runtime.Rendering.ProceduralMeshDrawRegistry.Set(entity,
+                    [new Genesis.Shared.Interfaces.MeshDrawCall { SurfaceParams = new Vector4(x, z, 0, 0) }]);
+                entities.Add(entity);
+            }
+            Genesis.Shared.Rendering.RenderAutoState.FrustumCulling = true;
+            Genesis.Shared.Rendering.RenderAutoState.OcclusionCulling = false;
+            Vector3 eye = new(0, 2, 0), forward = -Vector3.UnitZ;
+            Matrix4x4 viewProjection = Matrix4x4.CreateLookAt(eye, eye + forward, Vector3.UnitY)
+                * Matrix4x4.CreatePerspectiveFieldOfView(MathF.PI / 3, 16f / 9f, 0.1f, 120f);
+            var renderer = new EditorInteractionRenderProbe();
+            string Submit(int threads, out int culled)
+            {
+                Genesis.Shared.Threading.EngineJobs.ThreadLimit = threads;
+                int before = Genesis.Shared.Rendering.RenderAutoState.CulledByFrustum;
+                var draws = new Genesis.Shared.Interfaces.MeshDrawCall[4096];
+                int count = 0;
+                Genesis.Runtime.Rendering.ObjectDrawPass.SubmitMeshes3D(world, "", draws, ref count, renderer, eye, forward, viewProjection);
+                culled = Genesis.Shared.Rendering.RenderAutoState.CulledByFrustum - before;
+                return string.Join(";", draws.Take(count).Select(draw => $"{draw.SurfaceParams.X},{draw.SurfaceParams.Y}"));
+            }
+
+            string one = Submit(1, out int culledOne);
+            string shared = Submit(0, out int culledShared);
+            int threads = Genesis.Shared.Threading.EngineJobs.Threads;
+            int drawn = one.Length == 0 ? 0 : one.Split(';').Length;
+            bool pass = one == shared && culledOne == culledShared && drawn > 0 && culledOne > 0 && drawn + culledOne == entities.Count
+                && (Environment.ProcessorCount < 3 || threads > 1);
+            string detail = $"{threads} threads: {drawn} drawn and {culledOne} left out on one thread, the same {(one == shared ? "draws" : "NOT the same draws")} and {culledShared} left out shared";
+            row("Threads", "culling shared between threads draws the same", pass ? "PASS" : "FAIL", detail);
+            HeadlessHarness.Assert(pass, detail);
+        }
+        finally
+        {
+            Genesis.Shared.Threading.EngineJobs.ThreadLimit = 0;
+            Genesis.Shared.Rendering.RenderAutoState.FrustumCulling = frustumCulling;
+            Genesis.Shared.Rendering.RenderAutoState.OcclusionCulling = occlusionCulling;
+            foreach (Entity entity in entities) Genesis.Runtime.Rendering.ProceduralMeshDrawRegistry.Remove(entity);
+        }
     }
 
     // A wall painted three tiles long takes its two ends and its middle from an autotiled tile set;

@@ -6,7 +6,7 @@ variable and, when it can be set, set like one (`Engine.Physics.Mass = 4;`, `Eng
 an instance's property is the current instance's, each target's in turn inside `with`. The flat
 names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
-1484 names: 238 properties (185 can be set), 1246 commands.
+1485 names: 239 properties (186 can be set), 1246 commands.
 
 ## Engine.Alarm
 
@@ -425,6 +425,7 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `SetSpeed` | command | How fast game time runs: 1 is normal, 0.25 is slow motion, 0 holds physics, scripts' delta time and animation still (0 to 8) |
 | `Speed` | property | Reads (GameGetSpeed) and sets (GameSetSpeed): How fast game time is running; 1 is normal |
 | `String` | command | To string |
+| `Threads` | property | How many of the computer's threads the engine shares its frame work between (culling, terrain, generation): reads the number in use; 0 chooses automatically (every core but two, the default), 1 keeps it all on the game's thread. Lasts until the game ends |
 | `TimeMs` | command | Milliseconds of real time since the game started, unaffected by pause or time scale |
 
 ## Engine.Global

@@ -216,6 +216,20 @@ public static partial class PgslCommands
     /// <summary>A room starts outdoors: its own engine settings may then choose other acoustics.</summary>
     internal static void ResetRoomAcoustics() => AudioApiAcoustics = "outdoors";
 
+    // ── Engine.Game ──────────────────────────────────────────────────────────────────────
+
+    [PgslCommand("Threads", "Engine.Game.Threads = threads",
+        "How many of the computer's threads the engine shares its frame work between (culling, terrain, generation): reads the number in use; 0 chooses automatically (every core but two, the default), 1 keeps it all on the game's thread. Lasts until the game ends",
+        "Game", Namespace = "Engine.Game", Flat = false)]
+    public static double GameApiThreads
+    {
+        get => Genesis.Shared.Threading.EngineJobs.Threads;
+        set
+        {
+            if (double.IsFinite(value)) Genesis.Shared.Threading.EngineJobs.ThreadLimit = (int)Math.Max(0, Math.Round(value));
+        }
+    }
+
     // ── Engine.Camera ────────────────────────────────────────────────────────────────────
 
     [PgslCommand("X", "Engine.Camera.X = x", "The play camera's position across", "Camera", Namespace = "Engine.Camera", Flat = false)]

@@ -109,19 +109,43 @@ namespace Genesis.Runtime.Culling
             float radius,
             bool testOcclusion)
         {
+            switch (Test(frustum, viewProjection, center, radius, testOcclusion))
+            {
+                case Verdict.OutsideView:
+                    RenderAutoState.CulledByFrustum++;
+                    return false;
+                case Verdict.Hidden:
+                    RenderAutoState.CulledByOcclusion++;
+                    return false;
+                default:
+                    return true;
+            }
+        }
+
+        /// <summary>What <see cref="IsVisible"/> decides about a sphere.</summary>
+        public enum Verdict : byte
+        {
+            Visible,
+            OutsideView,
+            Hidden,
+        }
+
+        /// <summary>
+        /// The test of <see cref="IsVisible"/> without counting what it leaves out, so several
+        /// threads may test at once; the caller counts.
+        /// </summary>
+        public static Verdict Test(
+            in Frustum frustum,
+            in Matrix4x4 viewProjection,
+            Vector3 center,
+            float radius,
+            bool testOcclusion)
+        {
             if (!frustum.ContainsSphere(center, radius))
-            {
-                RenderAutoState.CulledByFrustum++;
-                return false;
-            }
-
+                return Verdict.OutsideView;
             if (testOcclusion && RenderAutoState.OcclusionCulling && Occluders.IsOccluded(viewProjection, center, radius))
-            {
-                RenderAutoState.CulledByOcclusion++;
-                return false;
-            }
-
-            return true;
+                return Verdict.Hidden;
+            return Verdict.Visible;
         }
 
         /// <summary>Visibility mark for read-only sphere tests (use <see cref="VisibilityJobs"/> for parallel).</summary>

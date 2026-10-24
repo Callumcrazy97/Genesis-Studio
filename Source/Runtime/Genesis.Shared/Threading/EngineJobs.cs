@@ -150,6 +150,22 @@ public static class EngineJobs
     /// <summary>Worker threads (a thread that waits for a job also runs jobs).</summary>
     public static int WorkerCount { get; } = Math.Clamp(Environment.ProcessorCount - 2, 1, 15);
 
+    private static int _threadLimit;
+
+    /// <summary>
+    /// Most threads a loop (<see cref="For"/>) is shared between, the thread that asks included:
+    /// 0 (automatic) for every worker, 1 to run each loop on the thread that asks. Work scheduled
+    /// to run apart keeps at least one worker. Engine.Game.Threads.
+    /// </summary>
+    public static int ThreadLimit
+    {
+        get => Volatile.Read(ref _threadLimit);
+        set => Volatile.Write(ref _threadLimit, Math.Clamp(value, 0, WorkerCount + 1));
+    }
+
+    /// <summary>The threads a loop is shared between now: the limit, or every worker and the thread that asks.</summary>
+    public static int Threads => ThreadLimit is > 0 and var limit ? limit : WorkerCount + 1;
+
     private static void EnsureWorkers()
     {
         if (Volatile.Read(ref _workers) != null) return;
@@ -228,14 +244,15 @@ public static class EngineJobs
         ArgumentNullException.ThrowIfNull(body);
         if (count <= 0) return;
         batch = Math.Max(1, batch);
-        if (count <= batch)
+        int threads = Threads;
+        if (count <= batch || threads <= 1)
         {
             body(0, count);
             return;
         }
         // This thread takes batches too, so the workers are given one share fewer than the batches.
         var job = new ForJob(count, batch, body);
-        job.Shares = Math.Min(WorkerCount, job.Batches - 1);
+        job.Shares = Math.Min(threads - 1, job.Batches - 1);
         Enqueue(job);
         job.Run();
         Wait(new JobHandle(job));
@@ -247,7 +264,7 @@ public static class EngineJobs
         ArgumentNullException.ThrowIfNull(body);
         if (count <= 0) return Schedule(static () => { }, after);
         var job = new ForJob(count, Math.Max(1, batch), body);
-        job.Shares = Math.Min(WorkerCount, job.Batches);
+        job.Shares = Math.Min(Math.Max(1, Math.Min(WorkerCount, Threads - 1)), job.Batches);
         return Start(job, after);
     }
 

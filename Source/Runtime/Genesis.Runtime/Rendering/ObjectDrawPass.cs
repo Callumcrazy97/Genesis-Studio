@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using Genesis.Rendering.D3dMath;
 using Genesis.Rendering.Meshes;
 using Genesis.Runtime.Assets;
@@ -17,6 +18,7 @@ using Genesis.Shared.ECS;
 using Genesis.Shared.Interfaces;
 using Genesis.Shared.Materials;
 using Genesis.Shared.Rendering;
+using Genesis.Shared.Threading;
 using EcsWorld = Genesis.Runtime.ECS.World;
 
 namespace Genesis.Runtime.Rendering
@@ -192,46 +194,73 @@ namespace Genesis.Runtime.Rendering
             else
                 cull = false;
 
-            int drawCount = count;
+            // 1. The Objects to draw, in order, with their models' bounds. On this thread: the
+            // model cache is not shared, and Objects showing one model ask for it once.
+            PrepareDraws prepare = Interlocked.Exchange(ref _prepareDraws, null) ?? new PrepareDraws();
+            PreparedDraw[] draws = prepare.Draws;
+            int objects = 0;
+            string boundsModel = null;
+            bool boundsFound = false;
+            Vector3 boundsCentre = default;
+            float boundsRadius = 0f;
             // The delegate-free query: the lambda was a closure (drawCount, buffer, frustum...) every frame.
             foreach (var item in world.Query<TransformComponent, Draw3DComponent>())
             {
-                Entity entity = item.Entity;
-                ref TransformComponent transform = ref item.C1;
-                ref Draw3DComponent draw3d = ref item.C2;
-                if (!draw3d.Visible || drawCount >= buffer.Length) continue;
-
-                Vector3 pos = new(transform.X, transform.Y, transform.Z);
-                bool measured = false;
-                float radius = BoundsHelper.BoundingRadiusFromScale(
-                    transform.ScaleX, transform.ScaleY, transform.ScaleZ, baseRadius: 1.2f);
-                // Authored geometry can be much larger than a unit cube and offset from its
-                // Object origin. Test the same pivot, scale and rotation used by the draw.
-                if (world.Has<ModelRendererComponent>(entity))
+                if (!item.C2.Visible) continue;
+                if (objects == draws.Length) Array.Resize(ref draws, draws.Length * 2);
+                ref PreparedDraw draw = ref draws[objects++];
+                draw.Entity = item.Entity;
+                draw.Transform = item.C1;
+                draw.Draw3D = item.C2;
+                draw.HasModel = draw.Bounded = false;
+                if (!world.Has<ModelRendererComponent>(item.Entity)) continue;
+                string modelAsset = world.GetRef<ModelRendererComponent>(item.Entity).ModelAsset;
+                if (string.IsNullOrWhiteSpace(modelAsset)) continue;
+                draw.HasModel = true;
+                if (!string.Equals(modelAsset, boundsModel, StringComparison.Ordinal))
                 {
-                    ref ModelRendererComponent modelBounds = ref world.GetRef<ModelRendererComponent>(entity);
-                    bool bounded;
-                    Vector3 min = default, max = default;
+                    boundsModel = modelAsset;
+                    Vector3 min, max;
                     using (Genesis.Shared.Diagnostics.LoadProfile.Begin("model bounds for culling"))
-                        bounded = !string.IsNullOrWhiteSpace(modelBounds.ModelAsset)
-                            && ModelRenderer.TryGetBounds(projectPath, modelBounds.ModelAsset, out min, out max, includePivot: true);
-                    if (bounded)
-                    {
-                        Matrix4x4 matrix = RuntimeModelRenderSystem.TransformMatrix(transform, modelBounds);
-                        pos = Vector3.Transform((min + max) * .5f, matrix);
-                        radius = Vector3.Distance(min, max) * .5f * MatrixScaleHelper.MaxScale(matrix);
-                        measured = true;
-                    }
+                        boundsFound = ModelRenderer.TryGetBounds(projectPath, modelAsset, out min, out max, includePivot: true);
+                    boundsCentre = (min + max) * .5f;
+                    boundsRadius = Vector3.Distance(min, max) * .5f;
                 }
-                if (cull && !IsPosedByAnimation(world, entity)
-                    && !Visibility.IsVisible(frustum, viewProjection, pos, radius, occlude))
-                    continue;
-                // A model that would cover a pixel or two costs a draw call and shows nothing.
-                if (measured && ModelLodView.Active && ModelLodView.LevelFor(pos, radius) < 0)
+                draw.Bounded = boundsFound;
+                draw.BoundsCentre = boundsCentre;
+                draw.BoundsRadius = boundsRadius;
+            }
+            prepare.Draws = draws;
+
+            // 2. Culling and detail, shared between the engine's threads when there are many.
+            prepare.World = world;
+            prepare.Cull = cull;
+            prepare.Occlude = occlude;
+            prepare.Frustum = frustum;
+            prepare.ViewProjection = viewProjection;
+            try
+            {
+                EngineJobs.For(objects, PrepareDraws.Batch, prepare.Body);
+            }
+            finally
+            {
+                prepare.World = null;
+            }
+
+            // 3. In order on this thread: the draws of what is seen.
+            int drawCount = count;
+            for (int next = 0; next < objects && drawCount < buffer.Length; next++)
+            {
+                ref PreparedDraw prepared = ref draws[next];
+                switch (prepared.Skip)
                 {
-                    ModelLodView.Count(-1);
-                    continue;
+                    case PreparedDraw.OutsideView: RenderAutoState.CulledByFrustum++; continue;
+                    case PreparedDraw.Hidden: RenderAutoState.CulledByOcclusion++; continue;
+                    case PreparedDraw.TooSmall: ModelLodView.Count(-1); continue;
                 }
+                Entity entity = prepared.Entity;
+                ref TransformComponent transform = ref prepared.Transform;
+                ref Draw3DComponent draw3d = ref prepared.Draw3D;
 
                 bool hasAssets = ObjectDrawAssetRegistry.TryGet(entity, out ObjectDrawAssetEntry assets);
                 if (hasAssets && assets.Is3D == false) continue;
@@ -256,36 +285,33 @@ namespace Genesis.Runtime.Rendering
                     continue;
                 }
 
-                if (world.Has<ModelRendererComponent>(entity))
+                if (prepared.HasModel)
                 {
                     ref ModelRendererComponent model = ref world.GetRef<ModelRendererComponent>(entity);
-                    if (!string.IsNullOrWhiteSpace(model.ModelAsset))
+                    RuntimeModelAnimationState anim = ReadAnimation(world, entity, model.KeepPreviousTransform);
+                    var queue = ModelRenderQueue.Rent();
+                    bool enqueued;
+                    using (Genesis.Shared.Diagnostics.LoadProfile.Begin("models enqueued"))
+                        enqueued = ModelRenderer.Enqueue(queue, projectPath, model.ModelAsset, model.MaterialOverride,
+                            prepared.ModelMatrix, draw3d, model, anim, renderer,
+                            InstanceShaderParameters(hasAssets ? assets : null), InstanceShaderResources(hasAssets ? assets : null));
+                    if (enqueued)
                     {
-                        RuntimeModelAnimationState anim = ReadAnimation(world, entity, model.KeepPreviousTransform);
-                        var queue = ModelRenderQueue.Rent();
-                        bool enqueued;
-                        using (Genesis.Shared.Diagnostics.LoadProfile.Begin("models enqueued"))
-                            enqueued = ModelRenderer.Enqueue(queue, projectPath, model.ModelAsset, model.MaterialOverride,
-                                RuntimeModelRenderSystem.TransformMatrix(transform, model), draw3d, model, anim, renderer,
-                                InstanceShaderParameters(hasAssets ? assets : null), InstanceShaderResources(hasAssets ? assets : null));
-                        if (enqueued)
-                        {
-                            int before = drawCount;
-                            drawCount = queue.CopyTo(buffer, drawCount);
-                            if (hasAssets && assets.TerrainTextureMode != null)
-                                for (int index = before; index < drawCount; index++)
-                                    ApplyTerrainImageMaterial(renderer, projectPath, assets, ReadSpriteFrameIndex(world, entity), ref buffer[index]);
-                            bool shaded;
-                            ShaderCacheEntry shader = default;
-                            using (Genesis.Shared.Diagnostics.LoadProfile.Begin("Object's mesh shader"))
-                                shaded = hasAssets && drawCount > before
-                                    && TryResolveShader(renderer, projectPath, assets, ShaderAssetPipeline.Mesh, out shader);
-                            if (shaded)
-                                drawCount = ExpandObjectShaderPasses(renderer, projectPath, assets, shader, buffer, before, drawCount);
-                            if (hasAssets) MarkOutline(assets, entity, buffer, before, drawCount);
-                            RenderAutoState.SubmittedMeshes += drawCount - before;
-                            continue;
-                        }
+                        int before = drawCount;
+                        drawCount = queue.CopyTo(buffer, drawCount);
+                        if (hasAssets && assets.TerrainTextureMode != null)
+                            for (int index = before; index < drawCount; index++)
+                                ApplyTerrainImageMaterial(renderer, projectPath, assets, ReadSpriteFrameIndex(world, entity), ref buffer[index]);
+                        bool shaded;
+                        ShaderCacheEntry shader = default;
+                        using (Genesis.Shared.Diagnostics.LoadProfile.Begin("Object's mesh shader"))
+                            shaded = hasAssets && drawCount > before
+                                && TryResolveShader(renderer, projectPath, assets, ShaderAssetPipeline.Mesh, out shader);
+                        if (shaded)
+                            drawCount = ExpandObjectShaderPasses(renderer, projectPath, assets, shader, buffer, before, drawCount);
+                        if (hasAssets) MarkOutline(assets, entity, buffer, before, drawCount);
+                        RenderAutoState.SubmittedMeshes += drawCount - before;
+                        continue;
                     }
                 }
 
@@ -308,7 +334,76 @@ namespace Genesis.Runtime.Rendering
                 if ((cube.Flags & MeshDrawFlags.NoShadow) == 0) RenderAutoState.ShadowCastersSubmitted++;
             }
             count = drawCount;
+            Volatile.Write(ref _prepareDraws, prepare);
         }
+
+        // An Object's draw as SubmitMeshes3DFrame prepares it: its components as the frame began,
+        // its model's bounds and matrix, and whether culling leaves it out.
+        private struct PreparedDraw
+        {
+            public const byte OutsideView = 1, Hidden = 2, TooSmall = 3;
+
+            public Entity Entity;
+            public TransformComponent Transform;
+            public Draw3DComponent Draw3D;
+            public Matrix4x4 ModelMatrix;
+            public Vector3 BoundsCentre;
+            public float BoundsRadius;
+            public bool HasModel, Bounded;
+            // 0 when drawn; otherwise why it is not.
+            public byte Skip;
+        }
+
+        // The culling of SubmitMeshes3DFrame, for the engine's threads to share. It only reads: the
+        // world's components, the bounds found beforehand, the frustum and the occlusion buffer.
+        // What it leaves out is counted afterwards, in order, on the thread that asked.
+        private sealed class PrepareDraws
+        {
+            // About 30 microseconds of culling a batch: fewer Objects are culled on the thread that asks.
+            public const int Batch = 256;
+
+            public readonly Action<int, int> Body;
+            public PreparedDraw[] Draws = new PreparedDraw[256];
+            public EcsWorld World;
+            public bool Cull, Occlude;
+            public Frustum Frustum;
+            public Matrix4x4 ViewProjection;
+
+            public PrepareDraws() => Body = Run;
+
+            private void Run(int start, int end)
+            {
+                PreparedDraw[] draws = Draws;
+                for (int index = start; index < end; index++)
+                {
+                    ref PreparedDraw draw = ref draws[index];
+                    ref TransformComponent transform = ref draw.Transform;
+                    Vector3 pos = new(transform.X, transform.Y, transform.Z);
+                    float radius = BoundsHelper.BoundingRadiusFromScale(
+                        transform.ScaleX, transform.ScaleY, transform.ScaleZ, baseRadius: 1.2f);
+                    // Authored geometry can be much larger than a unit cube and offset from its
+                    // Object origin. Test the same pivot, scale and rotation used by the draw.
+                    if (draw.HasModel)
+                    {
+                        draw.ModelMatrix = RuntimeModelRenderSystem.TransformMatrix(transform, World.GetRef<ModelRendererComponent>(draw.Entity));
+                        if (draw.Bounded)
+                        {
+                            pos = Vector3.Transform(draw.BoundsCentre, draw.ModelMatrix);
+                            radius = draw.BoundsRadius * MatrixScaleHelper.MaxScale(draw.ModelMatrix);
+                        }
+                    }
+                    draw.Skip = 0;
+                    if (Cull && !IsPosedByAnimation(World, draw.Entity))
+                        draw.Skip = (byte)Visibility.Test(Frustum, ViewProjection, pos, radius, Occlude);
+                    // A model that would cover a pixel or two costs a draw call and shows nothing.
+                    if (draw.Skip == 0 && draw.Bounded && ModelLodView.Active && ModelLodView.LevelFor(pos, radius) < 0)
+                        draw.Skip = PreparedDraw.TooSmall;
+                }
+            }
+        }
+
+        // One set of prepared draws, taken while a frame is submitted (a second frame at once makes its own).
+        private static PrepareDraws _prepareDraws;
 
         /// <summary>
         /// Gives an Object's model draws in <paramref name="buffer"/>[<paramref name="start"/>,
