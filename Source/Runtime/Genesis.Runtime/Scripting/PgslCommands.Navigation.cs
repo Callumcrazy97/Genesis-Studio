@@ -197,6 +197,25 @@ public static partial class PgslCommands
     public static double NavMeshPathGetWaypointZ(double id, double index) => NavigationWaypoint(id, index).Z;
     [PgslCommand("NavMeshPathFree", "NavMeshPathFree(pathId)", "Release a path handle", "Navigation")]
     public static void NavMeshPathFree(double id) { if (NavigationPath(id) != null) Navigation()?.Paths.Remove((int)id); }
+    // The current instance's navigation agent when it has one; reading a value never attaches one.
+    private static NavMeshAgent? AgentIfAny()
+    {
+        var ctx = GetContext(); var world = ActiveGameContext?.World;
+        if (ctx == null || world == null) return null;
+        var entity = world.GetEntity(ctx.InstanceId);
+        return world.IsAlive(entity) && world.Has<NavMeshAgentComponent>(entity) ? world.GetRef<NavMeshAgentComponent>(entity).Agent : null;
+    }
+
+    [PgslCommand("Speed", "Engine.Navigation.Agent.Speed = speed", "How fast this instance's navigation agent moves, world units a second, 0 to 10000 (3.8 unless set)", "Navigation", Namespace = "Engine.Navigation.Agent", Flat = false)]
+    public static double NavigationAgentSpeed { get => AgentIfAny()?.Speed ?? 3.8; set => NavMeshAgentSetSpeed(value); }
+
+    [PgslCommand("StoppingDistance", "Engine.Navigation.Agent.StoppingDistance = distance", "How close to its destination this instance's agent counts as arrived, 0 to 100 (0.1 unless set)", "Navigation", Namespace = "Engine.Navigation.Agent", Flat = false)]
+    public static double NavigationAgentStoppingDistance
+    {
+        get => AgentIfAny()?.StoppingDistance ?? 0.1;
+        set { if (Agent() is { } agent && double.IsFinite(value)) agent.StoppingDistance = (float)Math.Clamp(value, 0, 100); }
+    }
+
     private static NavMeshAgent? Agent()
     {
         var ctx = GetContext(); var world = ActiveGameContext?.World;

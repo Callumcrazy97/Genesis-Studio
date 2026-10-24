@@ -40,10 +40,11 @@ internal static class EngineSettingsChecks
             ResourceInspectorLiveValue? Row(string path) => editor.GetLiveInspectorValues().FirstOrDefault(value => value.PropertyPath == path);
 
             IReadOnlyList<string> choices = Row(EngineSettingsInspector.AddPath)?.Choices ?? [];
-            HeadlessHarness.Assert(choices.Contains("Engine.Physics.Mass") && choices.Contains("Engine.Instance.Yaw") && choices.Contains("Engine.Model.Glow")
-                && !choices.Contains("Engine.Physics.AirDrag"),
+            // Listed without "Engine." so typing an area's first letters finds it; either form can be chosen.
+            HeadlessHarness.Assert(choices.Contains("Physics.Mass") && choices.Contains("Instance.Yaw") && choices.Contains("Model.Glow")
+                && !choices.Contains("Physics.AirDrag") && !choices.Any(choice => choice.StartsWith("Engine.", StringComparison.Ordinal)),
                 $"The Object's Add a setting list is not the instance values ({choices.Count} offered).");
-            HeadlessHarness.Assert(editor.TryApplyInspectorValue(EngineSettingsInspector.AddPath, "Engine.Instance.Yaw")
+            HeadlessHarness.Assert(editor.TryApplyInspectorValue(EngineSettingsInspector.AddPath, "Instance.Yaw")
                 && editor.TryApplyInspectorValue(Prefix + "Engine.Instance.Yaw", 45d)
                 && editor.TryApplyInspectorValue(EngineSettingsInspector.AddPath, "Engine.Instance.ScaleX")
                 && editor.TryApplyInspectorValue(Prefix + "Engine.Instance.ScaleX", 2d),

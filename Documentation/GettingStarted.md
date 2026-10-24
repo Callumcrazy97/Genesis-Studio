@@ -11,7 +11,7 @@ The Home page shows these four steps and ticks them off as you go.
 1. **Draw a sprite.** On Home, choose *Draw a sprite* and give it a name. Draw with the tools on the left. The steps along the top are Draw, Animate, Rig and Use in game.
 2. **Make an Object.** Choose *Make an Object*. On the *Look* step pick your sprite. On the *Behaviour* step choose a recipe such as **Move with arrow keys** or **Platformer controls**: it writes the code for you, and you can read and change it afterwards.
 3. **Build a Room.** Choose *Build a Room*. On the *Place* step pick your Object on the left and click in the Room to place it.
-4. **Press Run.** The blue Run button at the top right plays your game. F5 does the same from anywhere.
+4. **Press Run.** The blue Run button at the top right plays your game. F5 does the same from anywhere; **Shift+F5** (*File › Run This Room*) starts it in the Room you have open instead, for testing one level.
 
 ## Recipes you can combine
 
@@ -33,6 +33,7 @@ Open them any time from an Object's *Options › Behaviour recipes…*.
 2. Choose **Use in game** to make a 3D Room that contains the terrain.
 3. In the Room, the *Sky* step has scene presets: *Sunny day*, *Golden hour*, *Night* and more. One click sets the sky, time and weather.
 4. Create a **Model**. In the Model editor, *Start* offers shapes and *Generate › Tree… / Rock…*. Choose **Use in game** to make an Object from it, then place it on the Room's *Place* step.
+5. Press **Run**. In the game, smooth and metal surfaces reflect what is around them and shaded sides are lit by the light around them, with nothing to set up. Change any of it from code (`Engine.Lighting.Bounce.Strength = 0.5;`) or as an Engine setting in the Room's Inspector.
 
 ## Where things are
 
@@ -46,7 +47,8 @@ Open them any time from an Object's *Options › Behaviour recipes…*.
 
 ## If something goes wrong
 
-- **Validate** lists problems in the Console; double-click one to open the resource.
+- **Validate** lists problems in the Console; double-click one to open the resource. **Export Game** runs the same checks and asks before exporting a project with problems.
+- If a game stops on an error, it saves a crash report (`crash-<date>-<time>.txt` beside the game) with the game's version and its last log lines; the error message says where. Set the version in *Preferences › Project › Release*.
 - Every change can be undone with Ctrl+Z, including recipes, landforms and scene presets.
 - This guide is always at *Help › Getting started* (F1).
 - *Help › Genesis Documentation* opens the folder with the other guides.

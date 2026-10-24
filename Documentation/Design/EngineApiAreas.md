@@ -35,7 +35,9 @@ Engine.Game.Paused, Engine.Game.Threads, Engine.Game.Name, Engine.Game.Version, 
 (InstructionLimit, Profile); Engine.Camera.Focus (Enabled, Auto, Distance, Range, Blur); Engine.Sky.Time
 (Speed, Paused); Engine.Weather (Preset, Transition, Auto); Engine.Room.Change (Fade, MinimumTime,
 ProgressBar, Text); Engine.Debug.Keys.Enabled; Engine.Particle.Bursts.Limit; Engine.Mesh.Upload.Budget;
-Engine.Water.Reflections.Enabled; Engine.Tile.Autotile.Enabled. Colours are "#rrggbb" text.
+Engine.Water.Reflections.Enabled; Engine.Tile.Autotile.Enabled; Engine.Model.Shadows (Cast, Receive),
+Model.Glow (Strength, EmissionScale); Engine.Input.Gamepad.KeyboardEmulation; Engine.View.Camera.Zoom;
+Engine.Navigation.Agent (Speed, StoppingDistance). Colours are "#rrggbb" text.
 
 ---
 

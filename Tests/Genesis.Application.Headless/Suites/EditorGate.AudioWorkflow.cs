@@ -107,6 +107,7 @@ internal static partial class EditorGate
                 WriteToneWave(source, 660, 3);
                 editor.HandleAssetChanges(new ProjectAssetChangeSet(fixture.Blank.RootPath, [source], [editor.ResourcePath], generation: 1));
                 editor.SetRegion(0, 0, 0, 0); editor.Save();
+                System.Threading.Thread.Sleep(600); // within the half second a sound takes to see a file change
                 HeadlessHarness.Assert(editor.PreviewClip?.Duration == 3 && audio.LoadSound(asset) == sound && Math.Abs(Effect().DurationInSeconds - 3) < .0001,
                     "A source WAV edit did not refresh both editor samples and gameplay playback.");
                 scripts.Shutdown();

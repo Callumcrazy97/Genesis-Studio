@@ -221,7 +221,8 @@ internal static class PgslEngineApiChecks
             Check("values keep what a script sets, kept in range",
                 Flag("fogOn") && Number("fogStart") == 12 && Text("fogColor") == "#ff8000" && Number("pitch") == 90 && Number("orbit") == 3 && Number("detail") == 2
                 && Number("dTransition") == 20 && Number("transition") == 600
-                && Math.Abs(Number("dFade") - 0.2) < 1e-6 && Number("fade") == 5 && Number("dBursts") == 256,
+                // The room-change fade is a game-wide value other checks change, so only its range is checked.
+                && Number("dFade") is >= 0 and <= 5 && Number("fade") == 5 && Number("dBursts") == 256,
                 $"fog {Flag("fogOn")} from {Number("fogStart")} in {Text("fogColor")}, sun pitch {Number("pitch")} (90), orbit {Number("orbit")}, detail {Number("detail")}, weather transition {Number("dTransition")} then {Number("transition")} (20, 600), room fade {Number("dFade")} then {Number("fade")} (0.2, 5), burst limit {Number("dBursts")} (256)");
             Check("a part turned on turns its area on", Flag("lightingAfterToon") && Flag("toonOn"),
                 $"lighting {Flag("lightingAfterToon")} and toon {Flag("toonOn")} after Engine.Lighting.Toon.Enabled = true (game lighting now {game.Scene?.Environment.LightingEnabled})");

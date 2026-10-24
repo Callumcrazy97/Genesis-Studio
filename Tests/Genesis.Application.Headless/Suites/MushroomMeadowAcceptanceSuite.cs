@@ -241,13 +241,15 @@ internal static class MushroomMeadowAcceptanceSuite
                 game.Hold(Key.Space, false); game.Frames(3);
                 Check(game.Value("gliding") == 0, "Releasing jump did not stop gliding.");
             });
-            HeadlessHarness.Step("the pause menu restarts the level", () =>
+            // Since the 15 October content the pause menu is Resume, Options and Save and Quit (no Restart).
+            HeadlessHarness.Step("the pause menu resumes the level as it was", () =>
             {
+                double hearts = game.Value("hearts"), powerUp = game.Value("powerUp");
                 game.Tap(Key.Escape);
                 Check(game.Value("state") == 2 && game.Value("menuIndex") == 0, "Escape did not open the pause menu.");
-                game.Tap(Key.S); game.Tap(Key.Enter);
-                Check(game.Value("state") == 0 && game.Value("hearts") == 3 && game.Value("powerUp") == 0 && game.CleanRun,
-                    "Pause menu Restart level did not restart the standalone level.");
+                game.Tap(Key.Enter);
+                Check(game.Value("state") == 1 && game.Value("hearts") == hearts && game.Value("powerUp") == powerUp,
+                    $"Pause menu Resume did not go back to the level as it was: state {game.Value("state")}, hearts {game.Value("hearts")} ({hearts}), power-up {game.Value("powerUp")} ({powerUp}), {game.Counts}.");
             });
             Check(game.Diagnostics.Count == 0, "Game script diagnostics: " + string.Join("; ", game.Diagnostics));
         });
@@ -419,6 +421,7 @@ internal static class MushroomMeadowAcceptanceSuite
         /// <summary>The same scripted instances as when the room first started, and within one living entity (the ambient emitter).</summary>
         public bool CleanRun => Host.Instances.Count == _startScripted
             && Math.Abs(Scene.World.LivingEntityCount - _startLiving) <= 1;
+        public string Counts => $"scripted {Host.Instances.Count} (started {_startScripted}), living {Scene.World.LivingEntityCount} (started {_startLiving}), authored {Authored}";
         public double Count(string objectName) => PgslCommands.InstanceNumber(objectName);
         public Entity Actor(string name) => Host.Instances.First(behavior => ObjectDrawAssetRegistry.TryGet(behavior.Entity, out ObjectDrawAssetEntry asset)
             && asset.Prefab.Contains(name, StringComparison.OrdinalIgnoreCase)).Entity;
