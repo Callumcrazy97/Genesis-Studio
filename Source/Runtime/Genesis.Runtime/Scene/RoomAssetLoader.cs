@@ -614,17 +614,23 @@ public sealed class RoomSceneBuilder
 
     private bool _spawningCopy;
 
-    /// <summary>Creates one deferred scenery object now and returns it.</summary>
-    internal Entity SpawnScenery(EcsWorld world, RoomAsset room, RoomNode node)
+    /// <summary>
+    /// Creates one deferred scenery object now and returns it. <paramref name="placed"/> runs once
+    /// it is in its place and before its Create event, to put a returning object back where it was.
+    /// </summary>
+    internal Entity SpawnScenery(EcsWorld world, RoomAsset room, RoomNode node, Action<Entity> placed = null)
     {
         var result = new RoomBuildResult { Asset = room };
         // As when a room is built: the object is put in its place before its Create event runs,
         // or the event would see it at the origin.
         bool deferring = _scriptHost != null && !_scriptHost.DeferCreateEvents;
         if (deferring) _scriptHost.DeferCreateEvents = true;
+        Entity entity;
         try
         {
             SpawnGameObject(world, room, node, result);
+            if (!result.EntitiesByNodeId.TryGetValue(node.Id, out entity)) entity = Entity.Null;
+            if (!entity.IsNull && world.IsAlive(entity)) placed?.Invoke(entity);
         }
         finally
         {
@@ -632,7 +638,16 @@ public sealed class RoomSceneBuilder
         }
 
         if (deferring) _scriptHost.FlushDeferredCreates();
-        return result.EntitiesByNodeId.TryGetValue(node.Id, out Entity entity) ? entity : Entity.Null;
+        return entity;
+    }
+
+    /// <summary>The script behaviour running on <paramref name="entity"/>, if any.</summary>
+    internal Genesis.Runtime.Scripting.PgslBehavior ScriptOf(Entity entity)
+    {
+        if (_scriptHost == null || entity.IsNull) return null;
+        foreach (var instance in _scriptHost.Instances)
+            if (instance is Genesis.Runtime.Scripting.PgslBehavior behavior && behavior.Entity == entity) return behavior;
+        return null;
     }
 
     private void SpawnGameObject(EcsWorld world, RoomAsset room, RoomNode node, RoomBuildResult result)

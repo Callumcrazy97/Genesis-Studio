@@ -31,6 +31,8 @@ public static partial class PgslCommands
         Genesis.Runtime.Scripting.VM.PgslVm.CallInstructionLimit = Genesis.Runtime.Scripting.VM.PgslVm.DefaultCallInstructionLimit;
         Genesis.Shared.Threading.EngineJobs.ThreadLimit = 0;
         Genesis.Shared.Rendering.DepthOfField.Reset();
+        Genesis.Runtime.Scene.RoomSceneryStreamer.ForgetAll();
+        Genesis.Runtime.Scene.RoomSceneryStreamer.Remember = true;
     }
 
     [PgslCommand("GlobalSet", "GlobalSet(name, value)", "Store a number every room's scripts can read for the rest of the game", "Game")]

@@ -606,7 +606,14 @@ Four other full runs during this work each failed one or two checks that pass al
 - **Scripted objects load together unless they ask not to.** Scenery streams, and so does an
   Object marked `"streamable": true`. Any other Object with a script, events, physics or
   persistence exists from room load. Activity distance stops its Step events but does not unload
-  it. A streamed Object keeps nothing between visits.
+  it. Since 24 October a streamed Object comes back as it left: where it was and its script's
+  variables (its Create event runs, then the variables it had are put back), and an Object or
+  piece of scenery a script destroyed stays gone, for the rest of the game and room by room.
+  `Engine.Room.Streaming.Remember = false` turns that off; `Engine.Room.Streaming.Forget()`
+  gives every room back as it was made (a new day's foes); `Engine.Room.Streaming.Remembered`
+  counts what is kept. A room reloaded after an edit forgets its own. What is kept is not in save
+  files: a game that saves its world saves what it needs, as before. Objects a streamed Object
+  made itself are not streamed with it.
 - **Scatter collision is boxes.** A solid copy is an upright box, not the model's shape, and
   distant scatter casts no shadows.
 - **Shadows from behind the camera.** Terrain tiles outside the view are not drawn, so a mountain

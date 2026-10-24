@@ -256,6 +256,12 @@ namespace Genesis.Runtime.Scripting
         public IReadOnlyDictionary<string, object> GetVariablesSnapshot() =>
             _vm?.GetVariables() ?? new Dictionary<string, object>();
 
+        /// <summary>Puts back variables from <see cref="GetVariablesSnapshot"/>, making any not set yet.</summary>
+        public void RestoreVariables(IReadOnlyDictionary<string, object> variables)
+        {
+            if (variables != null) _vm?.RestoreVariables(variables);
+        }
+
         /// <summary>Edit the retained VM instance without replaying Create or losing its ECS bindings.</summary>
         public bool TrySetLiveValue(string name, object value)
         {

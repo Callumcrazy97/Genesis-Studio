@@ -309,6 +309,8 @@ namespace Genesis.Runtime.Project
             _scriptHost.EndRoom(endGame: false);
             if (CollectBeforeMeasuring && !liveReload) WatchForLeaks(scene);
             scene.UnloadRoomContent(_scriptHost, KeepSubsystem, preservePersistent: !liveReload);
+            // A room reloaded because it was edited starts as the editor now has it.
+            if (liveReload) Genesis.Runtime.Scene.RoomSceneryStreamer.ForgetRoom(room.Name);
             double unloadMilliseconds = Stopwatch.GetElapsedTime(changeStarted).TotalMilliseconds;
             yield return (0.03f, false);
 

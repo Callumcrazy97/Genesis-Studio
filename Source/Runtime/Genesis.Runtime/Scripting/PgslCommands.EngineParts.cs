@@ -701,6 +701,19 @@ public static partial class PgslCommands
     [PgslCommand("Text", "Engine.Room.Change.Text = \"Loading\"", "The words above the progress bar during a room change (\"Loading\" unless set; \"\" for none)", "Rooms", Namespace = "Engine.Room.Change", Flat = false)]
     public static string RoomChangeTextPart { get => Project.RoomChangeScreen.Text; set => RoomChangeText(value); }
 
+    [PgslCommand("Remember", "Engine.Room.Streaming.Remember = true", "Streamed Objects (\"streamable\": true) come back where they were with their variables, and Objects or scenery a script destroyed stay gone, for the rest of the game, room by room (true unless set)", "Rooms", Namespace = "Engine.Room.Streaming", Flat = false)]
+    public static bool RoomStreamingRemember
+    {
+        get => Genesis.Runtime.Scene.RoomSceneryStreamer.Remember;
+        set => Genesis.Runtime.Scene.RoomSceneryStreamer.Remember = value;
+    }
+
+    [PgslCommand("Forget", "Engine.Room.Streaming.Forget()", "Forgets what every streamed Object was like and which were destroyed: each comes back as its room first made it (a new day's foes, a reset dungeon)", "Rooms", Namespace = "Engine.Room.Streaming", Flat = false)]
+    public static void RoomStreamingForget() => Genesis.Runtime.Scene.RoomSceneryStreamer.ForgetAll();
+
+    [PgslCommand("Remembered", "Engine.Room.Streaming.Remembered", "How many streamed Objects and destroyed things are remembered now, in every room (read)", "Rooms", Namespace = "Engine.Room.Streaming", Flat = false)]
+    public static double RoomStreamingRemembered => Genesis.Runtime.Scene.RoomSceneryStreamer.RememberedCount;
+
     [PgslCommand("Enabled", "Engine.Debug.Keys.Enabled = true", "The engine's debug keys (F6 debug screen, F12 screenshot...) in this run (true in Studio's Run, false in an exported game, unless set)", "Debug", Namespace = "Engine.Debug.Keys", Flat = false)]
     public static bool DebugKeysEnabledPart { get => DebugKeysEnabled(); set => DebugKeysSetEnabled(value); }
 

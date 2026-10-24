@@ -2113,6 +2113,16 @@ public class PgslVm
     public Dictionary<string, object> GetVariables() => _variables.ToDictionary(pair => pair.Key, pair => pair.Value.ToObject());
 
     /// <summary>
+    /// Puts back user variables taken with <see cref="GetVariables"/>, each as it was, making any
+    /// the script has not set yet: a streamed Object coming back as it left.
+    /// </summary>
+    public void RestoreVariables(IReadOnlyDictionary<string, object> variables)
+    {
+        foreach (KeyValuePair<string, object> pair in variables)
+            if (!string.IsNullOrWhiteSpace(pair.Key)) _variables[pair.Key] = VmValue.FromObject(pair.Value);
+    }
+
+    /// <summary>
     /// Mutates one value in this live VM without recompiling or clearing its state. Built-in
     /// instance registers are written through to the active <see cref="PgslContext"/>; user
     /// variables retain the type established by the running script.

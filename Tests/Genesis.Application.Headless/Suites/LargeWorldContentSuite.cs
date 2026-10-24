@@ -491,8 +491,154 @@ internal static class LargeWorldContentSuite
             HeadlessHarness.Assert(deer == herd.Loaded && deer is >= 4 and <= 6, $"{deer} deer exist around the camera at 3 km; expected the wanderer and the four that live there.");
         });
 
+        RunStreamedMemory(context);
         RunStreaming(context);
         RunReadAheadAndLights(context);
+    }
+
+    /// <summary>
+    /// A streamed Object comes back as it left (where it was, its variables) and one a script
+    /// destroyed stays gone, in the same visit and the next; Engine.Room.Streaming.Forget() and
+    /// Remember = false give back the room as it was made.
+    /// </summary>
+    private static void RunStreamedMemory(HeadlessContext context)
+    {
+        HeadlessHarness.RunCase(context.Report, "Engine.World.Scenery.StreamedObjectsComeBackAsTheyLeft", () =>
+        {
+            const string model = """{"type":"ModelRendererComponent","props":{"ModelAsset":"House Model"}}""";
+            string parent = Path.Combine(context.Workspace, "MemoryProjects");
+            Directory.CreateDirectory(parent);
+            ProjectSession project = new ProjectService().CreateProject(parent, "Memory" + Guid.NewGuid().ToString("N")[..6], "Blank");
+            var resources = new ResourceService(project);
+            string objects = ResourceFolderPolicy.RootFor(project, ResourceKind.GameObject);
+            string Streamed(string name, string create)
+            {
+                string path = resources.CreateResource(objects, ResourceKind.GameObject, name);
+                File.WriteAllText(path, "{\"schemaVersion\":2,\"dimension\":\"ThreeD\",\"model\":\"\",\"streamable\":true,\"components\":[" + model
+                    + ",{\"type\":\"ScriptComponent\",\"props\":{\"ScriptClass\":\"" + name + "\"}}],\"events\":[\"Create\"]}");
+                string create_ = ObjectEventStore.PathFor(path, "Create");
+                Directory.CreateDirectory(Path.GetDirectoryName(create_)!);
+                File.WriteAllText(create_, create);
+                return path;
+            }
+            Streamed("Memory Chest", "opened = 0;\ncoins = 5;\n");
+            Streamed("Memory Foe", "hp = 3;\n");
+            File.WriteAllText(resources.CreateResource(objects, ResourceKind.GameObject, "Memory Tree"),
+                $$"""{"schemaVersion":2,"dimension":"ThreeD","model":"","components":[{{model}}],"events":[]}""");
+            ResourceNames.Invalidate(project.RootPath);
+
+            RoomAsset room = RoomAsset.Create("Memory Vale", RoomDimension.ThreeD);
+            void Place(string name, string prefab, float x) => room.Nodes.Add(new RoomNode
+            {
+                Name = name, Kind = RoomNodeKind.GameObject, LayerId = room.Layers[0].Id, EnabledIn2D = false,
+                Transform = new RoomTransform { X = x, ScaleX = 1, ScaleY = 1, ScaleZ = 1 },
+                GameObject = new RoomGameObjectData { Prefab = prefab },
+            });
+            Place("Chest", "Memory Chest", 0f);
+            Place("Foe", "Memory Foe", 100f);
+            Place("Tree", "Memory Tree", 200f);
+
+            Genesis.Runtime.Scripting.VM.VMEngine.Initialize();
+            RoomSceneryStreamer.ForgetAll();
+            RoomSceneryStreamer.Remember = true;
+            var time = new GameTime();
+            time.Advance(1f / 60f);
+            try
+            {
+                // One visit: a scene, a builder with its own script host, and the camera at x.
+                (RuntimeScene Scene, RoomSceneryStreamer Streamer, ScriptHostSystem Host) Visit()
+                {
+                    var scene = new RuntimeScene("Memory");
+                    var host = new ScriptHostSystem();
+                    var streamer = new RoomSceneryStreamer(350f);
+                    var builder = new RoomSceneBuilder(project.RootPath, host) { Scenery = streamer };
+                    builder.Build(scene, room);
+                    streamer.Attach(builder, room);
+                    return (scene, streamer, host);
+                }
+                void Look((RuntimeScene Scene, RoomSceneryStreamer Streamer, ScriptHostSystem Host) at, float x, int frames = 4)
+                {
+                    at.Scene.Camera3D.Position = new Vector3(x, 2f, 0f);
+                    for (int frame = 0; frame < frames; frame++) { at.Streamer.Update(at.Scene, time); at.Scene.World.FlushDeferred(); }
+                }
+                Genesis.Shared.ECS.Entity At((RuntimeScene Scene, RoomSceneryStreamer Streamer, ScriptHostSystem Host) at, float x)
+                {
+                    Genesis.Shared.ECS.Entity found = Genesis.Shared.ECS.Entity.Null;
+                    at.Scene.World.Query<Genesis.Runtime.ECS.Components.TransformComponent>(
+                        (Genesis.Shared.ECS.Entity entity, ref Genesis.Runtime.ECS.Components.TransformComponent transform) =>
+                        {
+                            if (MathF.Abs(transform.X - x) < 0.5f) found = entity;
+                        });
+                    return found;
+                }
+                double Var((RuntimeScene Scene, RoomSceneryStreamer Streamer, ScriptHostSystem Host) at, Genesis.Shared.ECS.Entity entity, string name) =>
+                    at.Host.Instances.OfType<PgslBehavior>().FirstOrDefault(behavior => behavior.Entity == entity)?.GetVariablesSnapshot() is { } vars
+                    && vars.TryGetValue(name, out object? value) && value is not (string or bool or null)
+                        ? Convert.ToDouble(value, System.Globalization.CultureInfo.InvariantCulture) : double.NaN;
+
+                var first = Visit();
+                Look(first, 0f);
+                Genesis.Shared.ECS.Entity chest = At(first, 0f), foe = At(first, 100f), tree = At(first, 200f);
+                HeadlessHarness.Assert(first.Streamer.Loaded == 3 && !chest.IsNull && !foe.IsNull && !tree.IsNull && Var(first, chest, "coins") == 5,
+                    $"Expected the chest, foe and tree loaded with the chest's Create run; {first.Streamer.Loaded} loaded, coins {Var(first, chest, "coins")}.");
+
+                // The player opens the chest, takes three coins and drags it 10 m; kills the foe; fells the tree.
+                PgslBehavior chestScript = first.Host.Instances.OfType<PgslBehavior>().First(behavior => behavior.Entity == chest);
+                HeadlessHarness.Assert(chestScript.TrySetLiveValue("opened", 1d) && chestScript.TrySetLiveValue("coins", 2d), "Could not change the chest's variables.");
+                first.Scene.World.GetRef<Genesis.Runtime.ECS.Components.TransformComponent>(chest).X = 10f;
+                if (first.Scene.World.Has<Genesis.Shared.ECS.Components.Transform3DComponent>(chest))
+                    first.Scene.World.GetRef<Genesis.Shared.ECS.Components.Transform3DComponent>(chest).Position.X = 10f;
+                first.Host.Detach(foe);
+                first.Scene.World.DestroyEntity(foe);
+                first.Scene.World.DestroyEntity(tree);
+                Look(first, 0f);
+
+                // Walk away and come back in the same visit.
+                Look(first, 5000f, 8);
+                HeadlessHarness.Assert(first.Streamer.Loaded == 0, $"{first.Streamer.Loaded} objects stayed loaded 5 km away.");
+                Look(first, 0f);
+                Genesis.Shared.ECS.Entity back = At(first, 10f);
+                HeadlessHarness.Assert(!back.IsNull && Var(first, back, "opened") == 1 && Var(first, back, "coins") == 2
+                    && first.Streamer.Loaded == 1 && At(first, 100f).IsNull && At(first, 200f).IsNull,
+                    $"Coming back, the chest should be at 10 m, opened, with 2 coins, and the foe and tree gone; chest found {!back.IsNull}, opened {Var(first, back, "opened")}, coins {Var(first, back, "coins")}, {first.Streamer.Loaded} loaded.");
+                Look(first, 5000f, 8);
+                first.Scene.Dispose();
+
+                // The next visit to the room finds the same.
+                var second = Visit();
+                Look(second, 0f);
+                Genesis.Shared.ECS.Entity again = At(second, 10f);
+                HeadlessHarness.Assert(!again.IsNull && Var(second, again, "coins") == 2 && second.Streamer.Loaded == 1
+                    && RoomSceneryStreamer.RememberedCount == 3 && PgslCommands.RoomStreamingRemembered == 3,
+                    $"Returning to the room, the chest should keep its 2 coins and the foe and tree stay gone; coins {Var(second, again, "coins")}, {second.Streamer.Loaded} loaded, {RoomSceneryStreamer.RememberedCount} remembered.");
+                second.Scene.Dispose();
+
+                // Forget() gives back the room as it was made.
+                PgslCommands.RoomStreamingForget();
+                var third = Visit();
+                Look(third, 0f);
+                HeadlessHarness.Assert(third.Streamer.Loaded == 3 && Var(third, At(third, 0f), "coins") == 5 && RoomSceneryStreamer.RememberedCount == 0,
+                    $"After Engine.Room.Streaming.Forget() the room should be as made; {third.Streamer.Loaded} loaded, chest coins {Var(third, At(third, 0f), "coins")}.");
+                third.Scene.Dispose();
+
+                // Remember = false: nothing is kept.
+                PgslCommands.RoomStreamingRemember = false;
+                var fourth = Visit();
+                Look(fourth, 0f);
+                fourth.Scene.World.DestroyEntity(At(fourth, 200f));
+                Look(fourth, 0f);
+                Look(fourth, 5000f, 8);
+                Look(fourth, 0f);
+                HeadlessHarness.Assert(fourth.Streamer.Loaded == 3 && RoomSceneryStreamer.RememberedCount == 0,
+                    $"With Remember off, a felled tree should grow back on return; {fourth.Streamer.Loaded} loaded, {RoomSceneryStreamer.RememberedCount} remembered.");
+                fourth.Scene.Dispose();
+            }
+            finally
+            {
+                RoomSceneryStreamer.Remember = true;
+                RoomSceneryStreamer.ForgetAll();
+            }
+        });
     }
 
     /// <summary>
