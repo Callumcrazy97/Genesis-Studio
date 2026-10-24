@@ -648,6 +648,43 @@ public sealed class RoomSceneBuilder
         SpawnResolvedObject(world, room, node, result, prefab, events);
     }
 
+    // The Objects being made as parts, outermost first: an Object is never a part of itself.
+    private readonly List<string> _partChain = new();
+
+    /// <summary>
+    /// Each of the Object's parts (<see cref="ObjectParts"/>) made as an instance of its own where its
+    /// offset puts it, then kept on the instance and destroyed with it.
+    /// </summary>
+    private void SpawnParts(EcsWorld world, RoomAsset room, RoomNode node, RoomBuildResult result, JObject prefab, Entity parent)
+    {
+        List<ObjectParts.Part> parts = ObjectParts.Read(prefab);
+        if (parts.Count == 0 || _partChain.Count >= ObjectParts.MaxDepth) return;
+        RoomTransform parentWorld = ResolveWorldTransform(room, node);
+        _partChain.Add(node.GameObject.Prefab ?? "");
+        try
+        {
+            for (int i = 0; i < parts.Count; i++)
+            {
+                ObjectParts.Part part = parts[i];
+                if (_partChain.Contains(part.Object, StringComparer.OrdinalIgnoreCase)) continue;
+                var partNode = new RoomNode
+                {
+                    Id = node.Id + "/part" + (i + 1), Name = node.Name + " · " + part.Object, Kind = RoomNodeKind.GameObject,
+                    LayerId = node.LayerId, Order = node.Order, Enabled = node.Enabled,
+                    GameObject = new RoomGameObjectData { Prefab = part.Object },
+                    Transform = RoomHierarchyTransforms.Compose(parentWorld, part.Local),
+                };
+                SpawnGameObject(world, room, partNode, result);
+                if (result.EntitiesByNodeId.TryGetValue(partNode.Id, out Entity child))
+                    ModelSocketRuntime.Attach(world, child, parent, part.Offset, part: true);
+            }
+        }
+        finally
+        {
+            _partChain.RemoveAt(_partChain.Count - 1);
+        }
+    }
+
     private void SpawnResolvedObject(EcsWorld world, RoomAsset room, RoomNode node, RoomBuildResult result,
         JObject prefab, IReadOnlyDictionary<string, string> events)
     {
@@ -686,6 +723,7 @@ public sealed class RoomSceneBuilder
         else if (!_spawningCopy) SpritePhysicsBinding.Attach(world, entity, _projectPath, prefab, transform);
         // Placed and given its body: now its engine settings (before its Create, when it has one to come).
         PrefabSpawner.ApplyEngineSettings(world, entity, engineSettings, _scriptHost);
+        SpawnParts(world, room, node, result, prefab, entity);
         if (world.Has<WildlifeComponent>(entity))
         {
             ref WildlifeComponent wildlife = ref world.GetRef<WildlifeComponent>(entity);

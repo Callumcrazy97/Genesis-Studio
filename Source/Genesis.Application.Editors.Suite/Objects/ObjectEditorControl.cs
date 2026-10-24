@@ -339,8 +339,92 @@ public sealed partial class ObjectEditorControl : EditorSurfaceControl, ILiveRes
         }
         if (_visualActions.Visible)
             values.AddRange(_visualActions.GetSelectedInspectorValues());
+        AddPartValues(values);
         EngineSettingsInspector.AddValues(values, ReadEngineSettings(), EngineSettingScope.Instance);
         return values;
+    }
+
+    // ── Parts: Objects inside this one (a cart's wheels), made with it wherever it is made ──────
+
+    private const string PartsGroup = "Parts";
+    private const string PartsPrefix = "Parts.";
+    private const string AddPartPath = PartsPrefix + "+Add";
+    private const string RemovePartPath = PartsPrefix + "+Remove";
+
+    private bool ObjectIsThreeD => string.Equals((string?)_document["dimension"], "ThreeD", StringComparison.OrdinalIgnoreCase);
+
+    private string[] PartChoices() => ProjectAssetIndex.Enumerate(ProjectRoot, ResourceKind.GameObject)
+        .Select(entry => entry.Reference).Where(name => !string.Equals(name, ObjectStem, StringComparison.OrdinalIgnoreCase))
+        .OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToArray();
+
+    private void AddPartValues(List<ResourceInspectorLiveValue> values)
+    {
+        string[] choices = PartChoices();
+        JArray parts = _document["parts"] as JArray ?? new JArray();
+        bool threeD = ObjectIsThreeD;
+        for (int i = 0; i < parts.Count; i++)
+        {
+            if (parts[i] is not JObject part) continue;
+            string prefix = $"{PartsPrefix}{i}.";
+            int number = i + 1;
+            double Value(string name, double fallback) => (double?)part[name] ?? fallback;
+            values.Add(new(PartsGroup, prefix + "Object", $"Part {number}", (string?)part["object"] ?? "", Choices: choices,
+                Description: "The Object made as this part, kept on this one wherever it goes and destroyed with it."));
+            values.Add(new(PartsGroup, prefix + "X", $"Part {number} X", Value("x", 0), Increment: threeD ? 0.1m : 1m, DecimalPlaces: threeD ? 3 : 1));
+            values.Add(new(PartsGroup, prefix + "Y", $"Part {number} Y", Value("y", 0), Increment: threeD ? 0.1m : 1m, DecimalPlaces: threeD ? 3 : 1));
+            if (threeD)
+            {
+                values.Add(new(PartsGroup, prefix + "Z", $"Part {number} Z", Value("z", 0), Increment: 0.1m, DecimalPlaces: 3));
+                values.Add(new(PartsGroup, prefix + "Yaw", $"Part {number} turn (°)", Value("yaw", 0), Increment: 1m, DecimalPlaces: 1));
+            }
+            else values.Add(new(PartsGroup, prefix + "Roll", $"Part {number} angle (°)", Value("roll", 0), Increment: 1m, DecimalPlaces: 1));
+            values.Add(new(PartsGroup, prefix + "Scale", $"Part {number} scale", Value("scale", 1), Increment: 0.05m, DecimalPlaces: 3));
+        }
+        values.Add(new(PartsGroup, AddPartPath, "Add a part", "", Choices: [.. choices.Prepend("")],
+            Description: "Another Object made with this one and kept on it, x, y (and z) from it: a cart's wheel, a knight's sword."));
+        if (parts.Count > 0)
+            values.Add(new(PartsGroup, RemovePartPath, "Remove a part", "",
+                Choices: [.. parts.Select((part, i) => $"{i + 1} · {(string?)part["object"]}").Prepend("")]));
+    }
+
+    private bool TryApplyPartValue(string propertyPath, object? value)
+    {
+        JArray parts = _document["parts"] as JArray ?? new JArray();
+        string text = Convert.ToString(value, CultureInfo.InvariantCulture)?.Trim() ?? "";
+        if (propertyPath == AddPartPath)
+        {
+            if (!PartChoices().Contains(text, StringComparer.OrdinalIgnoreCase)) return false;
+            parts.Add(new JObject { ["object"] = text, ["x"] = 0d, ["y"] = 0d, ["z"] = 0d, ["scale"] = 1d });
+        }
+        else if (propertyPath == RemovePartPath)
+        {
+            int dot = text.IndexOf(' ');
+            if (dot <= 0 || !int.TryParse(text[..dot], NumberStyles.Integer, CultureInfo.InvariantCulture, out int number)
+                || number < 1 || number > parts.Count) return false;
+            parts.RemoveAt(number - 1);
+        }
+        else
+        {
+            string[] path = propertyPath[PartsPrefix.Length..].Split('.');
+            if (path.Length != 2 || !int.TryParse(path[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out int index)
+                || index < 0 || index >= parts.Count || parts[index] is not JObject part) return false;
+            if (path[1] == "Object")
+            {
+                if (!PartChoices().Contains(text, StringComparer.OrdinalIgnoreCase)) return false;
+                part["object"] = text;
+            }
+            else
+            {
+                string field = path[1].ToLowerInvariant();
+                if (field is not ("x" or "y" or "z" or "yaw" or "roll" or "scale")
+                    || !double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double number) || !double.IsFinite(number)
+                    || (field == "scale" && number <= 0)) return false;
+                part[field] = number;
+            }
+        }
+        if (parts.Count == 0) _document.Remove("parts");
+        else if (_document["parts"] is not JArray) _document["parts"] = parts;
+        return true;
     }
 
     // The Object's engine settings: the props of its EngineSettings component (none when it has none).
@@ -393,6 +477,15 @@ public sealed partial class ObjectEditorControl : EditorSurfaceControl, ILiveRes
     public bool TryApplyInspectorValue(string propertyPath, object? value)
     {
         if (string.IsNullOrWhiteSpace(propertyPath)) return false;
+        if (propertyPath.StartsWith(PartsPrefix, StringComparison.Ordinal))
+        {
+            if (!TryApplyPartValue(propertyPath, value)) return false;
+            _sandbox.Invalidate(true);
+            MarkDirty();
+            UpdateStatus("Inspector updated parts · save to commit");
+            InspectorStateChanged?.Invoke(this, EventArgs.Empty);
+            return true;
+        }
         if (propertyPath.StartsWith(EngineSettingsInspector.Prefix, StringComparison.Ordinal))
         {
             Dictionary<string, string> settings = ReadEngineSettings();

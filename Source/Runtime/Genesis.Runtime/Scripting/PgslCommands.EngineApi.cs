@@ -1,6 +1,10 @@
 #nullable enable
 using System;
+using System.Collections.Generic;
+using System.Numerics;
 using Genesis.Runtime.ECS.Components;
+using Genesis.Runtime.Modeling;
+using Genesis.Shared.ECS.Components;
 using Genesis.Shared.ECS;
 using Genesis.Shared.Scripting;
 
@@ -195,6 +199,77 @@ public static partial class PgslCommands
 
     [PgslCommand("ScaleZ", "Engine.Instance.ScaleZ = scale", "This instance's scale along Z", "Instances", Namespace = "Engine.Instance", Flat = false)]
     public static double InstanceApiScaleZ { get => InstanceGetScaleZ(SelfId()); set => SetScaleAxis(2, value); }
+
+    // ── Engine.Instance: parts (Objects inside Objects) ────────────────────────────────────────
+
+    [PgslCommand("Parent", "Engine.Instance.Parent = id", "The instance this one is kept on (an Object's part, or attached by Attach); 0 for none. Setting it keeps it on that instance where it is now, 0 lets it go", "Instances", Namespace = "Engine.Instance", Flat = false)]
+    public static double InstanceApiParent
+    {
+        get
+        {
+            var world = ActiveGameContext?.World;
+            if (world == null || !Instance(SelfId(), world, out Entity self) || !world.Has<ModelSocketAttachmentComponent>(self)) return 0;
+            ModelSocketAttachmentComponent link = world.GetRef<ModelSocketAttachmentComponent>(self);
+            return link.Enabled && world.IsAlive(world.GetEntity(link.ParentEntityId)) ? link.ParentEntityId : 0;
+        }
+        set
+        {
+            var world = ActiveGameContext?.World;
+            if (world == null || !Instance(SelfId(), world, out Entity self)) return;
+            if (value <= 0 || !Instance(value, world, out Entity parent))
+            {
+                InstanceApiDetach();
+                return;
+            }
+            // Kept where it is now: its offset is where it stands seen from the new parent.
+            bool threeD = world.Has<Transform3DComponent>(parent);
+            Matrix4x4 here = ModelSocketRuntime.InstanceMatrix(world.GetRef<TransformComponent>(self), threeD);
+            if (!Matrix4x4.Invert(ModelSocketRuntime.InstanceMatrix(world.GetRef<TransformComponent>(parent), threeD), out Matrix4x4 inverse)) return;
+            ModelSocketRuntime.Attach(world, self, parent, here * inverse, part: false);
+        }
+    }
+
+    [PgslCommand("ChildCount", "Engine.Instance.ChildCount", "How many instances are kept on this one (its parts, and what was attached to it)", "Instances", Namespace = "Engine.Instance", Flat = false)]
+    public static double InstanceApiChildCount => Children().Count;
+
+    [PgslCommand("Child", "Engine.Instance.Child(index) -> id", "The id of one of the instances kept on this one, from 0 in the order they were made; 0 past the end", "Instances", Namespace = "Engine.Instance", Flat = false)]
+    public static double InstanceApiChild(double index)
+    {
+        List<int> children = Children();
+        return double.IsFinite(index) && index >= 0 && index < children.Count ? children[(int)index] : 0;
+    }
+
+    [PgslCommand("Attach", "Engine.Instance.Attach(id, x, y, z) -> bool", "Keep another instance on this one, x, y and z from it, turning and moving with it", "Instances", Namespace = "Engine.Instance", Flat = false)]
+    public static bool InstanceApiAttach(double id, double x, double y, double z)
+    {
+        var world = ActiveGameContext?.World;
+        if (world == null || !Finite3(x, y, z) || !Instance(SelfId(), world, out Entity self) || !Instance(id, world, out Entity child)) return false;
+        return ModelSocketRuntime.Attach(world, child, self, ModelSocketRuntime.Offset((float)x, (float)y, (float)z, 0, 0, 0, 1), part: false);
+    }
+
+    [PgslCommand("Detach", "Engine.Instance.Detach() -> bool", "Let this instance go from the one it is kept on (it stays where it is); false when it was on none", "Instances", Namespace = "Engine.Instance", Flat = false)]
+    public static bool InstanceApiDetach()
+    {
+        var world = ActiveGameContext?.World;
+        if (world == null || !Instance(SelfId(), world, out Entity self) || !world.Has<ModelSocketAttachmentComponent>(self)) return false;
+        ref ModelSocketAttachmentComponent link = ref world.GetRef<ModelSocketAttachmentComponent>(self);
+        bool was = link.Enabled;
+        link.Enabled = false;
+        link.Part = false;
+        return was;
+    }
+
+    // The instances kept on the current one, in the order they were made (entity id).
+    private static List<int> Children()
+    {
+        var children = new List<int>();
+        var world = ActiveGameContext?.World;
+        if (world == null || !Instance(SelfId(), world, out Entity self)) return children;
+        foreach (var item in world.Query<ModelSocketAttachmentComponent>())
+            if (item.C1.Enabled && item.C1.ParentEntityId == self.Id && world.IsAlive(item.Entity)) children.Add(item.Entity.Id);
+        children.Sort();
+        return children;
+    }
 
     private static void SetRotationAxis(int axis, double value)
     {

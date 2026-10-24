@@ -117,8 +117,9 @@ namespace Genesis.Runtime.ECS.Components
     }
 
     /// <summary>
-    /// Runtime relationship that keeps this entity on a named socket owned by another model entity.
-    /// The socket and optional offset are entirely asset/script supplied.
+    /// Runtime relationship that keeps this entity on a named socket owned by another model entity,
+    /// or (with no socket) on the other instance itself: an Object's part, or anything a script
+    /// attached with Engine.Instance.Attach. The socket and optional offset are asset/script supplied.
     /// </summary>
     public struct ModelSocketAttachmentComponent : IComponent
     {
@@ -126,5 +127,7 @@ namespace Genesis.Runtime.ECS.Components
         public int ParentEntityId;
         public string SocketName;
         public System.Numerics.Matrix4x4 LocalOffset;
+        /// <summary>A part of the instance it is attached to: destroyed with it.</summary>
+        public bool Part;
     }
 }

@@ -524,6 +524,33 @@ public static partial class PgslCommands
 
     private static int _createDepth;
 
+    // The Objects whose parts are being made: an Object is never a part of itself.
+    private static readonly System.Collections.Generic.HashSet<string> PartsBeingMade = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Each part of a new instance's Object (<see cref="Scene.ObjectParts"/>) made as an instance of
+    /// its own at its offset, then kept on it and destroyed with it.
+    /// </summary>
+    private static void CreateParts(Genesis.Runtime.ECS.World world, Genesis.Shared.ECS.Entity parent, string obj, Newtonsoft.Json.Linq.JObject prefab)
+    {
+        System.Collections.Generic.List<Scene.ObjectParts.Part> parts = Scene.ObjectParts.Read(prefab);
+        if (parts.Count == 0 || !PartsBeingMade.Add(obj)) return;
+        try
+        {
+            TransformComponent at = world.GetRef<TransformComponent>(parent);
+            foreach (Scene.ObjectParts.Part part in parts)
+            {
+                if (PartsBeingMade.Contains(part.Object)) continue;
+                int id = CreateInstance(part.Object, at.X, at.Y, at.Z);
+                if (id >= 0) Modeling.ModelSocketRuntime.Attach(world, world.GetEntity(id), parent, part.Offset, part: true);
+            }
+        }
+        finally
+        {
+            PartsBeingMade.Remove(obj);
+        }
+    }
+
     [PgslCommand("CreateInstance", "CreateInstance(obj,x,y,z)", "Create object instance", "Instances")]
     public static int CreateInstance(string obj, double x, double y, double z = 0)
     {
@@ -560,6 +587,7 @@ public static partial class PgslCommands
                             host.Attach(ActiveGameContext.World, entity, ResourceNames.Name(ProjectPath, path, ResourceType.Object));
                         // Placed and given its body: its engine settings, set before its Create.
                         Scene.PrefabSpawner.ApplyEngineSettings(ActiveGameContext.World, entity, engineSettings, host);
+                        CreateParts(ActiveGameContext.World, entity, obj, prefab);
                         var assets = Rendering.ObjectDrawAssetRegistry.TryGet(entity, out var entry) ? entry : new Rendering.ObjectDrawAssetEntry();
                         assets.Prefab = obj; Rendering.ObjectDrawAssetRegistry.Set(entity, assets);
                         if (!wasDeferring && host != null)

@@ -6,7 +6,7 @@ variable and, when it can be set, set like one (`Engine.Physics.Mass = 4;`, `Eng
 an instance's property is the current instance's, each target's in turn inside `with`. The flat
 names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
-1473 names: 232 properties (180 can be set), 1241 commands.
+1478 names: 234 properties (181 can be set), 1244 commands.
 
 ## Engine.Alarm
 
@@ -600,10 +600,14 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | Name | Kind | What it is |
 |---|---|---|
 | `Alive` | command | True when an instance still exists |
+| `Attach` | command | Keep another instance on this one, x, y and z from it, turning and moving with it |
+| `Child` | command | The id of one of the instances kept on this one, from 0 in the order they were made; 0 past the end |
+| `ChildCount` | read only | How many instances are kept on this one (its parts, and what was attached to it) |
 | `Count` | command | How many instances are alive |
 | `Create` | command | Create object instance |
 | `Depth` | property | Draw depth |
 | `Destroy` | command | Destroy instance |
+| `Detach` | command | Let this instance go from the one it is kept on (it stays where it is); false when it was on none |
 | `Direction` | property | Direction in degrees |
 | `DistanceTo` | command | Distance from an instance to a point; -1 when it does not exist |
 | `Exists` | command | Instance exists |
@@ -631,6 +635,7 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `Nearest` | command | Closest instance to a point, optionally of one Object; 0 when none |
 | `NearestOther` | command | Closest instance excluding the caller |
 | `Number` | command | How many live instances of an Object there are ("all" counts every scripted instance) |
+| `Parent` | property | The instance this one is kept on (an Object's part, or attached by Attach); 0 for none. Setting it keeps it on that instance where it is now, 0 lets it go |
 | `Pitch` | property | This instance's rotation about X, in degrees (its body turns with it) |
 | `Roll` | property | This instance's rotation about Z, in degrees (image_angle in 2D) |
 | `ScaleX` | property | This instance's scale along X (its body is resized with it) |

@@ -58,6 +58,22 @@ turns a true/false value over and **Next** moves a choice on (BodyType). The **R
 lists the loaded Scripts too, with how many functions and instructions each has, beside the models,
 textures and sounds.
 
+## Objects inside Objects (24 October 2026)
+
+An Object can have **parts**: other Objects made with it wherever it is made (placed in a room, or by
+`CreateInstance`), kept on it as it moves, turns and scales, and destroyed with it: a cart's wheels, a
+knight's sword, a lamp on a post. In the Object's Inspector, **Parts** has **Add a part** (any other
+Object), each part's offset (X, Y and, in 3D, Z and turn; the angle in 2D) and scale, and **Remove a
+part**. A part is an instance of its own: it runs its own events and has its own engine settings, and a
+part may have parts.
+
+| Engine.Instance | What it is |
+|---|---|
+| `Parent` | The instance this one is kept on (0 for none); setting it keeps it on that instance where it stands now, 0 lets it go |
+| `ChildCount`, `Child(index)` | How many instances are kept on this one, and the id of each from 0 (`with (Engine.Instance.Child(0)) { ... }`) |
+| `Attach(id, x, y, z)` | Keep another instance on this one, x, y and z from it |
+| `Detach()` | Let this instance go from the one it is kept on; it stays where it is |
+
 ## From C# and from events
 
 Every feature here can be reached from an Object's events (the commands in the tables) and from a

@@ -5,6 +5,7 @@ using System.Numerics;
 using Genesis.Runtime.ECS;
 using Genesis.Runtime.ECS.Components;
 using Genesis.Shared.ECS;
+using Genesis.Shared.ECS.Components;
 using EcsWorld = Genesis.Runtime.ECS.World;
 
 namespace Genesis.Runtime.Modeling;
@@ -21,11 +22,29 @@ public static class ModelSocketRuntime
             Entity entity = item.Entity;
             ref TransformComponent child = ref item.C1;
             ref ModelSocketAttachmentComponent attachment = ref item.C2;
-            if (!attachment.Enabled || attachment.ParentEntityId < 0 || attachment.ParentEntityId == entity.Id
-                || string.IsNullOrWhiteSpace(attachment.SocketName)) continue;
+            if (!attachment.Enabled || attachment.ParentEntityId < 0 || attachment.ParentEntityId == entity.Id) continue;
             Entity parent = world.GetEntity(attachment.ParentEntityId);
-            if (!world.IsAlive(parent) || !world.Has<TransformComponent>(parent)
-                || !world.Has<ModelRendererComponent>(parent)) continue;
+            if (!world.IsAlive(parent) || !world.Has<TransformComponent>(parent))
+            {
+                // A part goes with the instance it is part of.
+                if (attachment.Part)
+                {
+                    attachment.Enabled = false;
+                    Genesis.Runtime.Scripting.PgslCommands.InstanceDestroy(entity.Id);
+                }
+                continue;
+            }
+            if (string.IsNullOrWhiteSpace(attachment.SocketName))
+            {
+                // On the instance itself: its position, turn and scale, as a room's hierarchy places a child.
+                Matrix4x4 local = IsUsable(attachment.LocalOffset) ? attachment.LocalOffset : Matrix4x4.Identity;
+                bool threeD = world.Has<Transform3DComponent>(parent);
+                if (Matrix4x4.Decompose(local * InstanceMatrix(world.GetRef<TransformComponent>(parent), threeD),
+                        out Vector3 partScale, out Quaternion partRotation, out Vector3 partPosition))
+                    Place(world, entity, ref child, partPosition, partRotation, partScale, threeD);
+                continue;
+            }
+            if (!world.Has<ModelRendererComponent>(parent)) continue;
 
             ref TransformComponent parentTransform = ref world.GetRef<TransformComponent>(parent);
             ref ModelRendererComponent parentModel = ref world.GetRef<ModelRendererComponent>(parent);
@@ -63,6 +82,67 @@ public static class ModelSocketRuntime
             child.RotationZ = euler.Z;
             Genesis.Runtime.Scripting.PgslCommands.SynchronizeTransform(world, entity, Vector3.One);
         }
+    }
+
+    /// <summary>
+    /// An instance's place as a matrix, scale then turn then position (the room hierarchy's order):
+    /// in 3D its pitch, yaw and roll, in 2D its image angle.
+    /// </summary>
+    public static Matrix4x4 InstanceMatrix(in TransformComponent t, bool threeD) =>
+        Matrix4x4.CreateScale(SafeScale(t.ScaleX), SafeScale(t.ScaleY), SafeScale(t.ScaleZ))
+        * Matrix4x4.CreateFromYawPitchRoll(t.RotationY * MathF.PI / 180f, t.RotationX * MathF.PI / 180f,
+            (threeD ? t.RotationZ : t.Rotation) * MathF.PI / 180f)
+        * Matrix4x4.CreateTranslation(t.X, t.Y, t.Z);
+
+    /// <summary>A part's offset from what it is part of: position, turn in degrees, uniform scale.</summary>
+    public static Matrix4x4 Offset(float x, float y, float z, float pitch, float yaw, float roll, float scale) =>
+        Matrix4x4.CreateScale(SafeScale(scale))
+        * Matrix4x4.CreateFromYawPitchRoll(yaw * MathF.PI / 180f, pitch * MathF.PI / 180f, roll * MathF.PI / 180f)
+        * Matrix4x4.CreateTranslation(x, y, z);
+
+    /// <summary>
+    /// Keeps <paramref name="child"/> on <paramref name="parent"/> at <paramref name="offset"/>, placed
+    /// there now; a part is destroyed with it. False when either is gone or they are the same.
+    /// </summary>
+    public static bool Attach(EcsWorld world, Entity child, Entity parent, Matrix4x4 offset, bool part)
+    {
+        if (world is null || !world.IsAlive(child) || !world.IsAlive(parent) || child == parent
+            || !world.Has<TransformComponent>(child) || !world.Has<TransformComponent>(parent)) return false;
+        // Not onto something that is (or is on) the child: that would be a loop.
+        for (Entity above = parent; world.IsAlive(above) && world.Has<ModelSocketAttachmentComponent>(above);)
+        {
+            ref ModelSocketAttachmentComponent link = ref world.GetRef<ModelSocketAttachmentComponent>(above);
+            if (!link.Enabled) break;
+            if (link.ParentEntityId == child.Id) return false;
+            above = world.GetEntity(link.ParentEntityId);
+        }
+        world.Set(child, new ModelSocketAttachmentComponent
+        {
+            Enabled = true, ParentEntityId = parent.Id, SocketName = "", LocalOffset = offset, Part = part,
+        });
+        bool threeD = world.Has<Transform3DComponent>(parent);
+        if (Matrix4x4.Decompose(offset * InstanceMatrix(world.GetRef<TransformComponent>(parent), threeD),
+                out Vector3 scale, out Quaternion rotation, out Vector3 position))
+            Place(world, child, ref world.GetRef<TransformComponent>(child), position, rotation, scale, threeD);
+        return true;
+    }
+
+    private static void Place(EcsWorld world, Entity entity, ref TransformComponent child, Vector3 position,
+        Quaternion rotation, Vector3 scale, bool threeD)
+    {
+        Vector3 euler = EulerDegrees(rotation);
+        child.X = position.X;
+        child.Y = position.Y;
+        child.Z = position.Z;
+        child.ScaleX = SafeScale(scale.X);
+        child.ScaleY = SafeScale(scale.Y);
+        child.ScaleZ = SafeScale(scale.Z);
+        child.RotationX = euler.X;
+        child.RotationY = euler.Y;
+        child.RotationZ = euler.Z;
+        // A room's convention: a 3D instance's Rotation is its yaw, a 2D one's its image angle.
+        child.Rotation = threeD ? euler.Y : euler.Z;
+        Genesis.Runtime.Scripting.PgslCommands.SynchronizeTransform(world, entity, Vector3.One);
     }
 
     public static bool TryResolve(

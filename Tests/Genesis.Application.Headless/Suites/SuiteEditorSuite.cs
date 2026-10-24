@@ -88,6 +88,7 @@ internal static class SuiteEditorSuite
         string arenaRoom = string.Empty;
 
         RunCase("Editor.Suite.EngineSettings.InspectorAndRooms", () => EngineSettingsChecks.InspectorAndRooms(project, resources));
+        RunCase("Editor.Suite.ObjectParts.InspectorRoomsAndPgsl", () => ObjectPartsChecks.PartsInRooms(project, resources));
 
         RunCase("Editor.Suite.Room.PlaceSelectMoveUndo2D", () =>
         {

@@ -1331,6 +1331,12 @@ internal static class HeadlessTestRunner
                 PrepareFocusedProject(ctx, requireStudioServices: true);
                 Suites.SuiteEditorSuite.Run(ctx, focusedPrefix: "Editor.Suite.TerrainEntity.");
                 break;
+            case "engine-settings":
+                // Engine settings and Objects inside Objects: Inspector, rooms and PGSL.
+                PrepareFocusedProject(ctx, requireStudioServices: true);
+                Suites.SuiteEditorSuite.Run(ctx, focusedPrefix: "Editor.Suite.EngineSettings.");
+                Suites.SuiteEditorSuite.Run(ctx, focusedPrefix: "Editor.Suite.ObjectParts.");
+                break;
             case "terrain-parts-runtime":
                 PrepareFocusedProject(ctx, requireStudioServices: true);
                 Suites.TerrainPartRuntimeSuite.Run(ctx);
