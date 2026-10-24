@@ -4,7 +4,8 @@
 was improved today, and the improvements recommended so a complex 2D or 3D game can be made
 without fighting the tools. Each recommendation follows the house rules: automatic by default,
 one setting or starter, one route per function, and everything reachable as `Engine.Area.Part.Value`
-from PGSL. No plugins or asset store.
+from PGSL. No plugins or asset store, and no system made for one kind of game: each improvement is
+to a system or editor that exists, which PGSL then reaches.
 
 ## Where Genesis stands
 
@@ -14,7 +15,7 @@ from PGSL. No plugins or asset store.
 | 3D: PBR, shadows, terrain, foliage, water | Yes | Yes | No | Best | Yes: forward PBR, cascades, lamp shadows, terrain with grass and scatter, water, sky with clouds, decals |
 | Reflections and bounced light | Probes (placed by hand), SSR, baked GI | SDFGI, VoxelGI, probes | No | Lumen | Automatic light probe (today): reflections and bounced light with nothing to place |
 | Depth of field | Post stack | Yes | No | Yes | Yes (today): `Engine.Camera.Focus.*` |
-| Render scale / dynamic resolution, upscaling | Yes (FSR, DLSS) | Yes (FSR) | No | Yes (TSR) | **No** (recommended, P1) |
+| Render scale / dynamic resolution, upscaling | Yes (FSR, DLSS) | Yes (FSR) | No | Yes (TSR) | **No** (on tomorrow's list) |
 | Post effects | Volume stack | Environment | Shaders | Volumes | Bloom, AO, contact shadows, fog with shafts, eye adaptation, grading, AA (FXAA/SMAA/TAA), motion blur, project post effects |
 | Physics | PhysX/Box2D | Godot/Jolt | Box2D | Chaos | Jolt-style bodies, characters, joints, ray/shape casts; one API `Engine.Physics.*` |
 | Animation | Mecanim, Timeline | AnimationTree | Sequences | AnimBP, Sequencer | Clips, state machine editor, blend trees, layers, IK (look, reach), root motion, 2D rig |
@@ -29,9 +30,9 @@ from PGSL. No plugins or asset store.
 | Platforms | All | All | All | All | **Windows only** (Linux declined for now) |
 | Build and install | Player builds | Export templates | Builds | Packaging | Exports and a Windows installer with an install drill |
 
-Genesis now covers what a single developer needs for complex 2D and 3D games. The gaps that remain
-are platforms, render scaling, a cutscene timeline (declined), node-based shaders, and production
-features around the game rather than in it (below).
+Genesis now covers what a single developer needs for complex 2D and 3D games, from scratch or from
+the templates it ships. The gaps that remain are platforms, render scaling, a cutscene timeline
+(declined) and node-based shaders.
 
 ## Improved today (24 October)
 
@@ -45,7 +46,8 @@ features around the game rather than in it (below).
    Game; a part turned on turns its area on; Inspector settings start at each value's default.
 4. **Depth of field.** `Engine.Camera.Focus.Enabled/Distance/Range/Blur/Auto`, off unless wanted.
 5. **Objects inside Objects, autotiling and acoustics** (earlier today).
-6. **Release work.** Run This Room (Shift+F5); Export checks the project first; crash reports with
+6. **Release work.** Run This Room (Shift+F5; it repeats the Room editor's own ▶ Play, so one of
+   the two should go); Export checks the project first; crash reports with
    the game's version, engine build, renderer, room and last log lines, one file per crash; the
    game's version in Preferences and `Engine.Game.Version`; the Inspector's settings list named
    without "Engine." so typing finds an area; light probes only in games (editor views showed
@@ -53,79 +55,96 @@ features around the game rather than in it (below).
    16 October redesigns, the 22 October Animation Controllers and the 15 October Mushroom Meadow
    content.
 
-## How people use the editors, and what gets in the way
+## How people use the editors, and what was found
 
-A game in Genesis is made in this order: start a project from a template; draw or import images and
-models; make Objects (look, behaviour, physics); build rooms (place, light, play); script in PGSL;
-press F5 to play, F6 to look inside; export. The friction points found while working through the
-templates and today's features:
+A game in Genesis is made from scratch or from a template: draw or import images and models; make
+Objects (look, behaviour, physics); build rooms (place, light, play); script in PGSL; press F5 to
+play, F6 to look inside; export. What was looked at on 24 October, with Cal's answers:
 
-- **Starting.** Two templates (Mushroom Meadow 2D, Tumble Isles 3D). Most games need a menu, an
-  options screen, save slots, a pause menu and a loading screen; each project writes them again.
-- **Engine settings in the Inspector.** About 300 values in one "Add a setting" list. Sorted by
-  area and part, but long.
-- **Seeing what a value does.** Values have defaults and descriptions in EngineApi.md, but the
-  Inspector shows only the description.
-- **Playtesting.** F5 starts at the room's start; there is no "play from here" with the camera
-  where the editor's camera is.
-- **Performance on small machines.** No render scale, so a handheld (Legion Go) runs every pixel.
-- **Releasing.** Installer and exports work; there is no crash report a player can send, no
-  version shown in the game, and no update path.
+- **Starting.** Not a limitation. A project can start from scratch or from a template, and the
+  templates Genesis ships, Mushroom Meadow (2D) and Golden Stag (3D), come with a main menu,
+  options, save slots, a pause menu and loading screens, so people play them and learn from them.
+- **Engine settings in the Inspector.** About 300 values in one "Add a setting" list, sorted by
+  area and part. Long, and kept that way on purpose: it shows everything a game can do. Not the
+  easiest list for a novice, but the right one for someone making a good game.
+- **Seeing what a value does.** On tomorrow's list (below). Done in part on 24 October: the "Add a
+  setting" list shows each value's default (`Rendering.Fog.Start (10)`) and each setting's
+  description ends with its default.
+- **Playtesting.** Nothing missing: the Room editor has its own ▶ Play and Blender-like view and
+  HUD camera options. (The Run This Room command added to the File menu on 24 October, Shift+F5,
+  does what the Room editor's ▶ Play already does: one route per function says one of them goes.)
+- **Performance on small machines.** No render scale yet, so a handheld (Legion Go) draws every
+  pixel. On tomorrow's list.
+- **Releasing.** Genesis has no users yet and no service to receive reports or send updates, so
+  crash reporting and an update path are not needed now. The Player still writes a crash report
+  file of its own (game, version, engine build, renderer, room, last log lines).
 
-## Recommendations
+## Tomorrow (25 October), agreed with Cal
 
-**P0: needed for a production release**
+1. **What a value does, in the Inspector.** Each engine setting shows its default and its range
+   beside it, as well as its description, so the Inspector says what a value does without
+   EngineApi.md.
+2. **Render scale and dynamic resolution.** `Engine.Display.Resolution.Scale` (1 unless set) and
+   `Engine.Display.Resolution.Dynamic.Enabled` with `TargetFps`: the 3D scene drawn with fewer
+   pixels and stretched up, the GUI and text kept sharp; dynamic resolution lowers the scale when
+   frames run slow and raises it again when there is room. Large: about ten passes read
+   scene-sized images (composite, outlines, AA, held items, TAA history), so each must take the
+   scene's size.
+3. **PGSL to IL.** Hot functions compiled to real code; the biggest remaining speed gap against
+   GameMaker's YYC and Unity's IL2CPP, and what many NPCs or units thinking at once need.
+4. **Terrain streamed by tile.** One large terrain split on disk and read in tiles, neighbours
+   stitched so no seam shows.
+5. **Remembered rooms in save files.** What streamed Objects and persistent rooms remember, kept in
+   a save and given back on load; and Objects a script made at run time kept with their room.
+6. **Engine values and an Object's own variables previewed in the editors** (Cal, 24 October). A
+   value set in the Inspector, an `Engine.Area.Part.Value` or a variable an Object declares, shows
+   at once in the Room, Object, Model, Image and Terrain views, drawn by the same code the game
+   runs, without pressing F5. One route: the editors read the same values the game reads, so there
+   is nothing per editor. Design note: settings are applied through the running game's context
+   (`EngineSettings.Apply` via `PgslCommands.ActiveGameContext`), and some are process-wide (light
+   probes, depth of field, threads), so an editor view must apply them to its own preview scene
+   under a context of its own and put the process-wide ones back afterwards, or one view's preview
+   leaks into every other (as the light probes did in editor views on 24 October).
+7. **More parts.** The values still marked + in `EngineApiAreas.md`, in the order there: Water,
+   Terrain, Particles, Navigation, Instance.Update, Ui, Tile layers.
+8. **Export loads every room once** as part of its check, as it already compiles every script.
 
-1. **Crash reports.** Done today: the Player's crash report holds the game and its version
-   (`Engine.Game.Version`, set in Preferences > Project > Release), the engine build, renderer, room,
-   machine and the last 40 lines of the game's log, in a file of its own named by the time of the
-   crash (`crash-20261024-153012.txt`, the id a player quotes), and its error dialog says where it is.
-2. **A game starter with the screens every game needs.** Main menu, options (display mode,
-   resolution, VSync, frame cap, volume per bus, key and pad rebinding through `Engine.Input.Actions`),
-   pause menu, save slots and a loading screen, as a template both new projects and the existing
-   templates can start from. All of it uses the engine API, so a game edits it like its own code.
-3. **Release checklist in Export.** Done in part today: Export runs the project validator and the
-   strict script check F5 makes, lists the problems in the Console and asks before exporting a
-   project with errors. Still to do: load every room once as part of it.
-4. **Full Build and install drill green on the release build** (run today, see below).
+**Ragdolls, and anything like them** (Cal, 24 October): no system of their own. A ragdoll is
+Objects with physics, and Bepu, which Genesis uses, handles them in 2D and 3D; PGSL only gives it
+what it needs. The joints are there (`PhysicsCreateJoint`, with `PhysicsJointHinge`,
+`PhysicsJointLimitSwing` and `PhysicsJointLimitTwist` since 24 October), a bone's place is read with
+`ModelSocketX/Y/Z(bone)` and `AnimationBoneLookAt` aims a bone at the next limb. An explosion
+throwing the limbs is plain PGSL, with no dedicated function:
 
-**P1: makes complex games effortless**
+```gml
+// The explosion's Create event: each limb thrown away from it, harder the nearer it is.
+var ex = x, ey = y, ez = z, power = 60;
+with (Limb) {
+    var dx = x - ex, dy = y - ey, dz = z - ez;
+    var distance = Max(0.5, Sqrt(dx * dx + dy * dy + dz * dz));
+    var push = power / (distance * distance);
+    PhysicsApplyImpulse(dx / distance * push, (dy / distance + 0.3) * push, dz / distance * push);
+}
+```
 
-5. **Render scale and dynamic resolution.** `Engine.Display.Resolution.Scale` (1 unless set) and
-   `Engine.Display.Resolution.Dynamic.Enabled` with `TargetFps`: the 3D scene drawn smaller and
-   upscaled in the composite, the GUI kept sharp. Large: about ten passes read scene-sized
-   images (composite, outlines, AA, held items, TAA history), so each must take the scene size.
-6. **Play from here.** Done in part today: **Run This Room** (Shift+F5, File menu) starts the game
-   in the Room open in the editor instead of the start room. Still to do: start with the camera (3D)
-   or view (2D) where the editor's is.
-7. **Engine settings picker by area.** Done in part today: the Inspector's "Add a setting" list
-   shows each value's default beside it (`Rendering.Fog.Start (10)`), and each setting's
-   description ends with its default. Still to do: a two-level menu (Rendering, then Fog, then
-   Start) and each value's range.
-8. **More parts.** The 444 values still marked + in `EngineApiAreas.md`, in the order there:
-   Weather, Water, Terrain, Particles, Navigation, Instance.Update, Ui, Tile layers.
-9. **Genre starters.** A 2D platformer, a top-down 2D action game, a 3D third-person game and a
-   first-person game, each small and complete, built from the game starter (2).
-10. **PGSL to IL.** Hot functions compiled to real code (on the to-do list); the biggest remaining
-    speed gap against GameMaker's YYC and Unity's IL2CPP.
+The same holds for everything on this page: an improvement to a system or editor that exists,
+reached from PGSL, never a system for one kind of game.
 
-11. **Engine values and an Object's own variables previewed in the editors** (Cal, 24 October;
-    end of day if there is time after 21:00, otherwise next). A value set in the Inspector, an
-    `Engine.Area.Part.Value` or a variable an Object declares, shows at once in the Room, Object,
-    Model, Image and Terrain views, drawn by the same code the game runs, without pressing F5.
-    One route: the editors read the same values the game reads, so there is nothing per editor.
-    Design note (24 October): settings are applied through the running game's context
-    (`EngineSettings.Apply` via `PgslCommands.ActiveGameContext`), and some are process-wide
-    (light probes, depth of field, threads), so an editor view must apply them to its own preview
-    scene under a context of its own and put the process-wide ones back afterwards, or one view's
-    preview leaks into every other (as the light probes did in editor views on 24 October).
+## Later
 
-**P2: later**
+- Distant stand-ins (impostors) and level-of-detail fades, automatic like detail is today.
+- Node view in the Shader editor (if wanted).
+- Linux (the Player already runs on Vulkan and OpenGL).
+- Crash reports sent to a service and an update path for shipped games, once Genesis has users
+  and somewhere to receive them.
 
-12. Distant stand-ins (impostors) and level-of-detail fades, automatic like detail is today.
-13. Node view in the Shader editor (if wanted).
-14. Linux (the Player already runs on Vulkan and OpenGL).
-15. Update path for shipped games (a patch file the installer applies).
+## Not needed (Cal, 24 October)
+
+- Game starter screens and genre starters: the shipped templates carry menus, options, save
+  slots, pause and loading screens, and a project can start from scratch.
+- A two-level settings picker: the full list is the point.
+- Play from here: the Room editor has ▶ Play and its own view and HUD camera options.
+- 3D split screen: 3D rooms already draw several views.
 
 ## What games Genesis can make today, and what blocks the rest
 
@@ -134,26 +153,26 @@ system or editor that already exists, reachable from PGSL as `Engine.Area.Part.V
 
 | Game | Today | What it already has | What blocks it, as an improvement to an existing system |
 |---|---|---|---|
-| 2D platformer, metroidvania | **Ready** | Tiles with autotile and solid tiles, 2D lights and darkness, Image animation and 2D rig, particles, saves (Mushroom Meadow is one) | Only the game starter screens (P0 2) |
-| Top-down 2D RPG or action game | **Ready** | Rooms, tiles, room changes without a freeze, UI toolkit lists, languages, saves (Nuvema Town plays end to end) | The game starter screens |
+| 2D platformer, metroidvania | **Ready** | Tiles with autotile and solid tiles, 2D lights and darkness, Image animation and 2D rig, particles, saves (Mushroom Meadow is one) | None (Mushroom Meadow ships as a template) |
+| Top-down 2D RPG or action game | **Ready** | Rooms, tiles, room changes without a freeze, UI toolkit lists, languages, saves (Nuvema Town plays end to end) | None |
 | Voxel or block-building game | **Ready** | Meshes a script builds, chunk meshing on jobs (6,700 to 13,700 chunks a second), compact grids, mesh streaming that holds memory level | None found |
-| Third-person action-adventure | **Ready, with gaps** | Orbit, shoulder and collision camera, root motion, look-at and reach IK, Animation Controllers, navigation agents, decals, flash lights | Ragdolls (below); play from the editor's camera (P1 6) |
-| First-person shooter, solo campaign (Halo 1) | **Possible now, with gaps** | First-person arms and held items, character bodies, ray and shape casts, bullet-hole decals, muzzle flashes, navigation with jumps, gaps and ladders, 3D sound and acoustics, outdoor terrain, sky and weather, rebindable actions, several pads | **Ragdolls** are Objects with physics, no system of their own: one body per limb joined by `PhysicsCreateJoint`, each limb's turn copied onto the character's bones with `AnimationBoneSetRotation`. The one general piece missing, joint limits and hinges, was added on the evening of 24 October (`PhysicsJointHinge`, `PhysicsJointLimitSwing`, `PhysicsJointLimitTwist`); a bone's place in the world was already readable (`ModelSocketX/Y/Z(bone)`), and `AnimationBoneLookAt` aims a bone at the next limb's body. A ragdoll starter Object is still to do. **Split screen works already**, in 3D as in 2D: each enabled viewport gets a full pass and follows its own Object, with a pad per player (two physical keyboards cannot be told apart on Windows; keyboard players share one). **Many enemies thinking at once:** sight is ray casts and moving is navigation, all PGSL, so PGSL to IL (P1 10). Vehicles are Objects with a body and a ray cast per wheel in PGSL; a genre starter would show one. Cutscenes are camera moves and animation events from PGSL (the timeline was declined) |
-| Open-world RPG (Skyrim-like) | **The world yes, the game in part** | Worlds kilometres across, terrain drawn by distance, forests of hundreds of thousands of trees with collision near what moves, scenery streaming, automatic levels of detail, texture streaming, several terrains, time of day, seasons and weather, routes that prefer roads, model layers for armour, UI lists for inventory and dialogue, saves, languages | ~~People and things that stream and remember~~ (done 24 October: streamed Objects come back where they were with their variables, destroyed ones stay gone, persistent rooms come back as left, persistent Objects are no longer made twice; still to do: keeping that in save files, and Objects made at run time). **Terrain streaming by tile:** each terrain file is read whole and neighbours are not stitched. **Far shadows:** done for terrain (24 October: a mountain behind the camera shades the view); distant scatter and Objects behind the camera still cast none. **Far towns:** distant stand-ins (P2 12). **Hundreds of NPC schedules:** PGSL to IL. Quests and dialogue are PGSL with the UI toolkit; a genre starter would show the pattern rather than a quest system |
+| Third-person action-adventure | **Ready, with gaps** | Orbit, shoulder and collision camera, root motion, look-at and reach IK, Animation Controllers, navigation agents, decals, flash lights | None: ragdolls are Objects with physics and joint limits (see Tomorrow); the Room editor's ▶ Play runs a room |
+| First-person shooter, solo campaign (Halo 1) | **Possible now, with gaps** | First-person arms and held items, character bodies, ray and shape casts, bullet-hole decals, muzzle flashes, navigation with jumps, gaps and ladders, 3D sound and acoustics, outdoor terrain, sky and weather, rebindable actions, several pads | **Ragdolls** are Objects with physics, no system of their own: one body per limb joined by `PhysicsCreateJoint`, each limb's turn copied onto the character's bones with `AnimationBoneSetRotation`. The one general piece missing, joint limits and hinges, was added on the evening of 24 October (`PhysicsJointHinge`, `PhysicsJointLimitSwing`, `PhysicsJointLimitTwist`); a bone's place in the world was already readable (`ModelSocketX/Y/Z(bone)`), and `AnimationBoneLookAt` aims a bone at the next limb's body. An explosion throwing the limbs is plain PGSL (see Tomorrow). **Split screen works already**, in 3D as in 2D: each enabled viewport gets a full pass and follows its own Object, with a pad per player (two physical keyboards cannot be told apart on Windows; keyboard players share one). **Many enemies thinking at once:** sight is ray casts and moving is navigation, all PGSL, so PGSL to IL (tomorrow). Vehicles are Objects with a body and a ray cast per wheel in PGSL; an example would show one. Cutscenes are camera moves and animation events from PGSL (the timeline was declined) |
+| Open-world RPG (Skyrim-like) | **The world yes, the game in part** | Worlds kilometres across, terrain drawn by distance, forests of hundreds of thousands of trees with collision near what moves, scenery streaming, automatic levels of detail, texture streaming, several terrains, time of day, seasons and weather, routes that prefer roads, model layers for armour, UI lists for inventory and dialogue, saves, languages | ~~People and things that stream and remember~~ (done 24 October: streamed Objects come back where they were with their variables, destroyed ones stay gone, persistent rooms come back as left, persistent Objects are no longer made twice; still to do: keeping that in save files, and Objects made at run time). **Terrain streaming by tile:** each terrain file is read whole and neighbours are not stitched. **Far shadows:** done for terrain (24 October: a mountain behind the camera shades the view); distant scatter and Objects behind the camera still cast none. **Far towns:** distant stand-ins (later). **Hundreds of NPC schedules:** PGSL to IL. Quests and dialogue are PGSL with the UI toolkit; Golden Stag, shipped as a template, shows the pattern rather than a quest system |
 | Online co-op, small sessions | **Ready, small scale** | LAN discovery, relay, replication with interest distance, each player's character shown to the others | Measured only at small player counts |
 | Strategy with many units | **Possible, speed untested** | Navigation agents with avoidance, GPU culling of instanced batches, script jobs | PGSL to IL for hundreds of units' logic; box selection and orders are PGSL and GUI drawing |
-| Arcade racing | **Possible** | Bodies, ray casts, motion blur, depth of field | A starter showing it; a simulation tyre model is out of scope (one kind of game) |
-| Any game on a handheld PC | **Runs, every pixel** | Quality tiers, frame cap, VSync | Render scale and dynamic resolution (P1 5) |
-| Any game on Linux, Mac or consoles | **Blocked** | Player renders on Vulkan and OpenGL | Windows only (P2 14) |
+| Arcade racing | **Possible** | Bodies, ray casts, motion blur, depth of field | An example showing it; a simulation tyre model is out of scope (one kind of game) |
+| Any game on a handheld PC | **Runs, every pixel** | Quality tiers, frame cap, VSync | Render scale and dynamic resolution (tomorrow) |
+| Any game on Linux, Mac or consoles | **Blocked** | Player renders on Vulkan and OpenGL | Windows only (later) |
 
 **In short:** 2D games of any common kind, voxel games and third-person or first-person games of
 Halo 1's size can be made today; the work is content and PGSL. A Skyrim-like game's world can be
 made today, and since the evening of 24 October its people and things stream and remember within
 a game session (saving that to a save file is next). The blockers shared by the most games are
-now render scale, PGSL to IL, terrain streamed by tile, and the game starter screens, in that
-order of work (joint limits, which make ragdolls a PGSL recipe, were added after the release run
-and are checked by `--test engine-systems`). (Split screen was
-listed here by mistake: 3D rooms already draw several views.)
+now render scale, PGSL to IL and terrain streamed by tile, all on tomorrow's list. Joint limits,
+which make ragdolls plain PGSL, were added after the release run and are checked by
+`--test engine-systems`. (Split screen and starter screens were listed here by mistake: 3D rooms
+already draw several views, and the shipped templates carry the screens every game needs.)
 
 **Fixed on 24 October evening** (each with a regression case in the Full Build): streamed Objects
 remember their state and destroyed ones stay gone (`Engine.Room.Streaming.*`); the Room's

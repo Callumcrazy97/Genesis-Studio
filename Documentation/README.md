@@ -28,9 +28,11 @@ in [Design/EngineApiAreas.md](Design/EngineApiAreas.md).
   full regression 1407 of 1407 with none left unrun, smokes on DX11, DX12, Vulkan, OpenGL and
   software; the install drill passed (install without administrator, start from a read-only
   folder, upgrade, uninstall). The installer is unsigned by choice.
-- **Not done yet** (see the recommendations): joint limits and bone reads (for ragdolls), render
-  scale and dynamic resolution, PGSL compiled to IL, terrain streamed by tile, a game starter with
-  menus, options and save slots, genre starters, Linux.
+- **After the release run:** joint hinges and limits (`PhysicsJointHinge`, `PhysicsJointLimitSwing`,
+  `PhysicsJointLimitTwist`), which make a ragdoll plain PGSL over Objects with physics.
+- **Tomorrow** (agreed with the owner; see the recommendations): each engine setting's default and
+  range shown in the Inspector, render scale and dynamic resolution, PGSL compiled to IL, terrain
+  streamed by tile, remembered rooms in save files, engine values previewed in the editors.
 
 ## Release readiness, 2 October 2026
 
