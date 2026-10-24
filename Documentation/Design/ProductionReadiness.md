@@ -134,7 +134,7 @@ system or editor that already exists, reachable from PGSL as `Engine.Area.Part.V
 | Voxel or block-building game | **Ready** | Meshes a script builds, chunk meshing on jobs (6,700 to 13,700 chunks a second), compact grids, mesh streaming that holds memory level | None found |
 | Third-person action-adventure | **Ready, with gaps** | Orbit, shoulder and collision camera, root motion, look-at and reach IK, Animation Controllers, navigation agents, decals, flash lights | Ragdolls (below); play from the editor's camera (P1 6) |
 | First-person shooter, solo campaign (Halo 1) | **Possible now, with gaps** | First-person arms and held items, character bodies, ray and shape casts, bullet-hole decals, muzzle flashes, navigation with jumps, gaps and ladders, 3D sound and acoustics, outdoor terrain, sky and weather, rebindable actions, several pads | **Ragdolls:** the Physics editor's Ragdoll Lab is a preview and games have ball joints between instances only; a model's bones should become bodies through *physics on a model part*, the same route as cloth. **Split-screen co-op:** 2D rooms have up to eight views, but the 3D camera draws one; `Engine.View` should reach 3D as well (online co-op through the relay already works). **Many enemies thinking at once:** sight is ray casts and moving is navigation, all PGSL, so PGSL to IL (P1 10). Vehicles are Objects with a body and a ray cast per wheel in PGSL; a genre starter would show one. Cutscenes are camera moves and animation events from PGSL (the timeline was declined) |
-| Open-world RPG (Skyrim-like) | **The world yes, the game in part** | Worlds kilometres across, terrain drawn by distance, forests of hundreds of thousands of trees with collision near what moves, scenery streaming, automatic levels of detail, texture streaming, several terrains, time of day, seasons and weather, routes that prefer roads, model layers for armour, UI lists for inventory and dialogue, saves, languages | **People and things that stream and remember:** scripted Objects (every NPC, chest, door) load with the room and a streamed Object keeps nothing between visits; streaming should save an Object's state when it leaves and give it back when it returns, through the save slots that exist. **Terrain streaming by tile:** each terrain file is read whole and neighbours are not stitched. **Far shadows:** a mountain behind the camera does not shade the view and distant scatter casts no shadow. **Far towns:** distant stand-ins (P2 12). **Hundreds of NPC schedules:** PGSL to IL. Quests and dialogue are PGSL with the UI toolkit; a genre starter would show the pattern rather than a quest system |
+| Open-world RPG (Skyrim-like) | **The world yes, the game in part** | Worlds kilometres across, terrain drawn by distance, forests of hundreds of thousands of trees with collision near what moves, scenery streaming, automatic levels of detail, texture streaming, several terrains, time of day, seasons and weather, routes that prefer roads, model layers for armour, UI lists for inventory and dialogue, saves, languages | ~~People and things that stream and remember~~ (done 24 October: streamed Objects come back where they were with their variables, destroyed ones stay gone, persistent rooms come back as left, persistent Objects are no longer made twice; still to do: keeping that in save files, and Objects made at run time). **Terrain streaming by tile:** each terrain file is read whole and neighbours are not stitched. **Far shadows:** done for terrain (24 October: a mountain behind the camera shades the view); distant scatter and Objects behind the camera still cast none. **Far towns:** distant stand-ins (P2 12). **Hundreds of NPC schedules:** PGSL to IL. Quests and dialogue are PGSL with the UI toolkit; a genre starter would show the pattern rather than a quest system |
 | Online co-op, small sessions | **Ready, small scale** | LAN discovery, relay, replication with interest distance, each player's character shown to the others | Measured only at small player counts |
 | Strategy with many units | **Possible, speed untested** | Navigation agents with avoidance, GPU culling of instanced batches, script jobs | PGSL to IL for hundreds of units' logic; box selection and orders are PGSL and GUI drawing |
 | Arcade racing | **Possible** | Bodies, ray casts, motion blur, depth of field | A starter showing it; a simulation tyre model is out of scope (one kind of game) |
@@ -143,9 +143,17 @@ system or editor that already exists, reachable from PGSL as `Engine.Area.Part.V
 
 **In short:** 2D games of any common kind, voxel games and third-person or first-person games of
 Halo 1's size can be made today; the work is content and PGSL. A Skyrim-like game's world can be
-made today; its people cannot yet stream and remember, which is the largest single blocker for
-open worlds. The blockers shared by the most games are ragdolls (physics on a model part), Objects
-that stream with their state, PGSL to IL, render scale, and the game starter screens.
+made today, and since the evening of 24 October its people and things stream and remember within
+a game session (saving that to a save file is next). The blockers shared by the most games are
+now ragdolls (physics on a model part), PGSL to IL, render scale, 3D split screen, and the game
+starter screens, in that order of work.
+
+**Fixed on 24 October evening** (each with a regression case in the Full Build): streamed Objects
+remember their state and destroyed ones stay gone (`Engine.Room.Streaming.*`); the Room's
+Persistent setting, which the runtime ignored, now brings a room back as it was left; persistent
+Objects are no longer duplicated on returning to their room; terrain behind the camera casts its
+shadow into the view; weather values settable and held from PGSL (`Engine.Weather.*`); Export
+compiles every script first; the Inspector's settings list shows each default.
 
 ## Release run
 
