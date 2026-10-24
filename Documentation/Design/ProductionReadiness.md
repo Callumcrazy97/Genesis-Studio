@@ -45,6 +45,13 @@ features around the game rather than in it (below).
    Game; a part turned on turns its area on; Inspector settings start at each value's default.
 4. **Depth of field.** `Engine.Camera.Focus.Enabled/Distance/Range/Blur/Auto`, off unless wanted.
 5. **Objects inside Objects, autotiling and acoustics** (earlier today).
+6. **Release work.** Run This Room (Shift+F5); Export checks the project first; crash reports with
+   the game's version, engine build, renderer, room and last log lines, one file per crash; the
+   game's version in Preferences and `Engine.Game.Version`; the Inspector's settings list named
+   without "Engine." so typing finds an area; light probes only in games (editor views showed
+   stale ones); and every full-regression failure fixed, most of them tests left behind by the
+   16 October redesigns, the 22 October Animation Controllers and the 15 October Mushroom Meadow
+   content.
 
 ## How people use the editors, and what gets in the way
 

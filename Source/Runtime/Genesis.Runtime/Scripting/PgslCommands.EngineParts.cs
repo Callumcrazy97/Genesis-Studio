@@ -488,6 +488,9 @@ public static partial class PgslCommands
     [PgslCommand("Amount", "Engine.Audio.Acoustics.Amount = amount", "How much of the echo is heard, 0 to 1 (0.5 unless set)", "Audio", Namespace = "Engine.Audio.Acoustics", Flat = false)]
     public static double AudioAcousticsAmountPart { get => AudioApiAcousticsAmount; set => AudioApiAcousticsAmount = value; }
 
+    [PgslCommand("FollowCamera", "Engine.Audio.Listener.FollowCamera = true", "Positioned sounds are heard from the 3D camera (true unless set); false keeps the listener where SetAudioListener put it", "Audio", Namespace = "Engine.Audio.Listener", Flat = false)]
+    public static bool AudioListenerFollowsCameraPart { get => !AudioListenerManual; set => AudioListenerManual = !value; }
+
     // ── Engine.Physics' World, Gravity and Sleep ─────────────────────────────────────────
 
     [PgslCommand("AirDrag", "Engine.Physics.World.AirDrag = amount", "How much the air slows every body, 0 to 1 (the room's unless set)", "Physics", Namespace = "Engine.Physics.World", Flat = false)]

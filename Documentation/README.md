@@ -1,5 +1,27 @@
 # Genesis Studio Master
 
+## Release readiness, 24 October 2026
+
+The owner asked for Genesis to be compared with Unity, Godot, GameMaker and Unreal, improved, and
+taken to a production release that makes complex 2D and 3D games effortless. The comparison, what
+was improved and the recommendations that remain are in
+[Design/ProductionReadiness.md](Design/ProductionReadiness.md); every engine area and its parts are
+in [Design/EngineApiAreas.md](Design/EngineApiAreas.md).
+
+- **New today:** engine jobs used by the 3D draw list; automatic reflections and bounced light in
+  games; every engine area in parts (`Engine.Area.Part.Value`) with Enabled and a default for every
+  value; depth of field; window management and monitors from PGSL; Objects inside Objects;
+  autotiling; acoustics; Run This Room; an export that checks the project first; crash reports
+  with the game's version and its last log lines.
+- **Full regression:** the first run on 24 October found 29 failures. About ten came from the new
+  light probes in editor views and tests (probes now run only in games); the rest were tests left
+  behind by earlier changes (the 16 October Hub and Preferences redesigns, Animation Controllers on
+  22 October, the 15 October Mushroom Meadow content, sounds rechecking files twice a second), each
+  updated after checking that the code does what the change intended. The release run is recorded
+  below when it is done.
+- **Not done yet** (see the recommendations): render scale and dynamic resolution, a game starter
+  with menus, options and save slots, genre starters, PGSL compiled to IL, Linux.
+
 ## Release readiness, 2 October 2026
 
 The owner asked whether Genesis is ready to ship, and for whatever stood in the way to be fixed.
