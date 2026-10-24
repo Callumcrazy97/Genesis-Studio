@@ -638,6 +638,16 @@ internal static class StudioFoundationSuite
             }
             finally { surface.Fail = false; document.Save(); }
         });
+        Check("Export.ChecksScriptsBeforeExporting", () =>
+        {
+            using StudioFixture fixture = new();
+            Assert(fixture.Shell.ReportExportProblems() == 0, "A new project reported problems before export.");
+            ResourceItem script = fixture.Create(ResourceKind.PgslScript, "Scripts", "Broken Score");
+            File.WriteAllText(script.FullPath, "score = ;\n");
+            Assert(fixture.Shell.ReportExportProblems() >= 1
+                && fixture.Services.Log.Entries.Any(entry => entry.Source == "Scripts" && entry.Message.Contains(Path.GetFileName(script.FullPath), StringComparison.OrdinalIgnoreCase)),
+                "Export's check missed a script that does not compile.");
+        });
         Check("Documentation.PublishedAndSourcePathsFindMaster", () =>
         {
             string root = Path.Combine(Path.GetTempPath(), "Genesis-doc-path-" + Guid.NewGuid().ToString("N"));

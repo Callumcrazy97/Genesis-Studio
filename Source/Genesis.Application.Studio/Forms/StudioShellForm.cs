@@ -1887,19 +1887,34 @@ public sealed partial class StudioShellForm : DpiAwareForm
         SetStatus(debug ? $"Debug play launched ({launch.RoomName})." : $"Play launched ({launch.RoomName}).");
     }
 
+    /// <summary>
+    /// The checks made before an export: the project's own and the strict script check F5 makes.
+    /// Each error goes to the Console; returns how many there are.
+    /// </summary>
+    internal int ReportExportProblems()
+    {
+        IReadOnlyList<ProjectValidationIssue> issues = _services.Validator.Validate(_project);
+        Genesis.Runtime.Scripting.PgslValidationReport scripts =
+            Genesis.Runtime.Scripting.PgslScriptValidator.ValidateProject(_project.RootPath, strict: true);
+        int projectErrors = issues.Count(issue => issue.Severity == ProjectValidationSeverity.Error);
+        if (projectErrors + scripts.Errors.Count == 0) return 0;
+        foreach (ProjectValidationIssue issue in issues.Where(issue => issue.Severity == ProjectValidationSeverity.Error))
+            _services.Log.Error("Validation", $"{issue.Code}: {issue.Message} ({issue.Path})");
+        foreach (string error in scripts.Errors)
+            _services.Log.Error("Scripts", error);
+        UpdateValidationBadge(projectErrors, issues.Count(issue => issue.Severity == ProjectValidationSeverity.Warning));
+        ShowToolWindow(_console);
+        return projectErrors + scripts.Errors.Count;
+    }
+
     private void ExportProject()
     {
         if (!TrySaveProject("Export")) return;
-        // Before shipping, the project's own checks: errors are listed in the Console and the
-        // export goes ahead only when asked to (an unattended run lists them and goes ahead).
-        IReadOnlyList<ProjectValidationIssue> issues = _services.Validator.Validate(_project);
-        int errors = issues.Count(issue => issue.Severity == ProjectValidationSeverity.Error);
+        // Errors are listed in the Console and the export goes ahead only when asked to (an
+        // unattended run lists them and goes ahead).
+        int errors = ReportExportProblems();
         if (errors > 0)
         {
-            foreach (ProjectValidationIssue issue in issues.Where(issue => issue.Severity == ProjectValidationSeverity.Error))
-                _services.Log.Error("Validation", $"{issue.Code}: {issue.Message} ({issue.Path})");
-            UpdateValidationBadge(errors, issues.Count(issue => issue.Severity == ProjectValidationSeverity.Warning));
-            ShowToolWindow(_console);
             bool unattended = Environment.GetEnvironmentVariable("GENESIS_UNATTENDED_WINDOW") == "1";
             if (!unattended && MessageBox.Show(this,
                     $"The project has {errors} problem{(errors == 1 ? "" : "s")}, listed in the Console. A game exported now may not run as it should.{Environment.NewLine}{Environment.NewLine}Export anyway?",
