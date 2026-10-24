@@ -114,6 +114,11 @@ templates and today's features:
     `Engine.Area.Part.Value` or a variable an Object declares, shows at once in the Room, Object,
     Model, Image and Terrain views, drawn by the same code the game runs, without pressing F5.
     One route: the editors read the same values the game reads, so there is nothing per editor.
+    Design note (24 October): settings are applied through the running game's context
+    (`EngineSettings.Apply` via `PgslCommands.ActiveGameContext`), and some are process-wide
+    (light probes, depth of field, threads), so an editor view must apply them to its own preview
+    scene under a context of its own and put the process-wide ones back afterwards, or one view's
+    preview leaks into every other (as the light probes did in editor views on 24 October).
 
 **P2: later**
 
