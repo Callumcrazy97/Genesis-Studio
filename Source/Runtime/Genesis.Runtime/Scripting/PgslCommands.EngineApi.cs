@@ -216,6 +216,109 @@ public static partial class PgslCommands
     /// <summary>A room starts outdoors: its own engine settings may then choose other acoustics.</summary>
     internal static void ResetRoomAcoustics() => AudioApiAcoustics = "outdoors";
 
+    // ── Engine.Lighting, and its parts Bounce, Reflections and Probe ─────────────────────
+    // Each part has Enabled; turning a part on turns Engine.Lighting on (PgslEngineBridge), and
+    // turning Engine.Lighting off turns the room's 3D lighting off with every part in it.
+
+    // Kept here too, so it reads back where there is no game (a test, an editor's sandbox).
+    private static bool _lightingEnabled = true;
+
+    [PgslCommand("Enabled", "Engine.Lighting.Enabled = true",
+        "The room's 3D lighting (the sun, lamps, shadows and every part of Engine.Lighting): off draws everything in its own colours. Turning a part on (Engine.Lighting.Bounce.Enabled = true) turns this on too",
+        "Lighting", Namespace = "Engine.Lighting", Flat = false)]
+    public static bool LightingApiEnabled
+    {
+        get => ActiveGameContext?.Scene?.Environment is { } environment ? environment.LightingEnabled : _lightingEnabled;
+        set
+        {
+            _lightingEnabled = value;
+            if (ActiveGameContext?.Scene?.Environment is { } environment) environment.LightingEnabled = value;
+        }
+    }
+
+    [PgslCommand("Enabled", "Engine.Lighting.Bounce.Enabled = true",
+        "Bounced light: surfaces are lit by the light around them (the sky where nothing is in the way, the lit walls and ground where something is) instead of the room's two flat ambient colours. On in each room unless turned off",
+        "Lighting", Namespace = "Engine.Lighting.Bounce", Flat = false)]
+    public static bool LightingApiBounceEnabled
+    {
+        get => Genesis.Shared.Rendering.LightProbes.BouncedLight;
+        set => Genesis.Shared.Rendering.LightProbes.BouncedLight = value;
+    }
+
+    [PgslCommand("Strength", "Engine.Lighting.Bounce.Strength = amount",
+        "How much the bounced light takes the place of the room's flat ambient colours, 0 to 1 (1 unless set)",
+        "Lighting", Namespace = "Engine.Lighting.Bounce", Flat = false)]
+    public static double LightingApiBounceStrength
+    {
+        get => Genesis.Shared.Rendering.LightProbes.BouncedLightStrength;
+        set
+        {
+            if (double.IsFinite(value)) Genesis.Shared.Rendering.LightProbes.BouncedLightStrength = (float)value;
+        }
+    }
+
+    [PgslCommand("Enabled", "Engine.Lighting.Reflections.Enabled = true",
+        "Reflections: smooth and metal surfaces mirror what is around them, rough ones show it blurred. On in each room unless its settings or a script turn it off",
+        "Lighting", Namespace = "Engine.Lighting.Reflections", Flat = false)]
+    public static bool LightingApiReflectionsEnabled
+    {
+        get => Genesis.Shared.Rendering.LightProbes.Reflections;
+        set => Genesis.Shared.Rendering.LightProbes.Reflections = value;
+    }
+
+    [PgslCommand("Strength", "Engine.Lighting.Reflections.Strength = amount",
+        "How strongly surfaces reflect what is around them, 0 to 4: 1 is physically balanced (unless the room set its own environment reflection)",
+        "Lighting", Namespace = "Engine.Lighting.Reflections", Flat = false)]
+    public static double LightingApiReflectionsStrength
+    {
+        get => Genesis.Shared.Rendering.LightProbes.ReflectionStrength;
+        set
+        {
+            if (double.IsFinite(value)) Genesis.Shared.Rendering.LightProbes.ReflectionStrength = (float)value;
+        }
+    }
+
+    [PgslCommand("Quality", "Engine.Lighting.Probe.Quality = 2",
+        "The detail of the light probe reflections and bounced light come from, 1 (32 pixels a side) to 3 (128); 2 unless set",
+        "Lighting", Namespace = "Engine.Lighting.Probe", Flat = false)]
+    public static double LightingApiProbeQuality
+    {
+        get => Genesis.Shared.Rendering.LightProbes.ReflectionQuality;
+        set
+        {
+            if (double.IsFinite(value)) Genesis.Shared.Rendering.LightProbes.ReflectionQuality = (int)Math.Round(value);
+        }
+    }
+
+    [PgslCommand("Distance", "Engine.Lighting.Probe.Distance = metres",
+        "How far the camera travels from the last capture before the light probe is captured again, 5 to 1000 metres (40 unless set)",
+        "Lighting", Namespace = "Engine.Lighting.Probe", Flat = false)]
+    public static double LightingApiProbeDistance
+    {
+        get => Genesis.Shared.Rendering.LightProbes.RecaptureDistance;
+        set
+        {
+            if (double.IsFinite(value)) Genesis.Shared.Rendering.LightProbes.RecaptureDistance = (float)value;
+        }
+    }
+
+    [PgslCommand("Radius", "Engine.Lighting.Probe.Radius = metres",
+        "What lies within this distance of a capture is drawn into it wherever the camera looks, 10 to 2000 metres (80 unless set)",
+        "Lighting", Namespace = "Engine.Lighting.Probe", Flat = false)]
+    public static double LightingApiProbeRadius
+    {
+        get => Genesis.Shared.Rendering.LightProbes.CaptureRadius;
+        set
+        {
+            if (double.IsFinite(value)) Genesis.Shared.Rendering.LightProbes.CaptureRadius = (float)value;
+        }
+    }
+
+    [PgslCommand("Recapture", "Engine.Lighting.Probe.Recapture()",
+        "Captures what is around the camera again at the next frame, for reflections and bounced light: after a big change to the scene, such as a door opening or a building placed",
+        "Lighting", Namespace = "Engine.Lighting.Probe", Flat = false)]
+    public static void LightingApiProbeRecapture() => Genesis.Shared.Rendering.LightProbes.Recapture();
+
     // ── Engine.Game ──────────────────────────────────────────────────────────────────────
 
     [PgslCommand("Threads", "Engine.Game.Threads = threads",

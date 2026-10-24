@@ -83,6 +83,9 @@ cbuffer EngineConstants : register(b1)
     float4       SkyLightZenith;
     float4       SkyLightHorizon;
     float4       SkyLightGround;
+    // The light probe (ForwardRenderer.LightProbes.cs): x = reflections' strength (0 off), y = bounced
+    // light (0-1), z = pixels a side of each view, w = 1 while bound. Zero leaves the lighting as it was.
+    float4       LightProbeParams;
 };
 
 cbuffer DrawConstants : register(b2)
@@ -153,8 +156,53 @@ StructuredBuffer<SkinMatrixData> SkinMatrices  : register(t12);
 StructuredBuffer<uint>           TileLightIndices : register(t13);
 Texture2D<float>               ShadowMapMid    : register(t14); // AF1.1 mid cascade
 Texture2D<float>               LocalShadowAtlas : register(t15); // point/spot light shadow atlas
+Texture2D                      LightProbeAtlas  : register(t18); // six views from the light probe, 3 x 2
+Texture2D                      LightProbeAmbient : register(t19); // the light arriving from each side, 6 x 1
 SamplerState                   AlbedoSamp      : register(s0);
 SamplerComparisonState         ShadowSamp      : register(s1);
+
+// The light probe's light arriving along unit direction d: its six sides weighted as d's axes.
+float3 LightProbeAmbientFrom(float3 d)
+{
+    float3 sq = d * d;
+    return sq.x * LightProbeAmbient.Load(int3(d.x >= 0.0 ? 0 : 1, 0, 0)).rgb
+         + sq.y * LightProbeAmbient.Load(int3(d.y >= 0.0 ? 2 : 3, 0, 0)).rgb
+         + sq.z * LightProbeAmbient.Load(int3(d.z >= 0.0 ? 4 : 5, 0, 0)).rgb;
+}
+
+// What the light probe sees along d: the view it falls in (faced as LightProbeShaders.FaceBasis),
+// kept half a texel inside its tile so a neighbouring view never bleeds in.
+float3 LightProbeMirror(float3 d)
+{
+    float3 a = abs(d);
+    int face;
+    float3 forward, up;
+    if (a.x >= a.y && a.x >= a.z)
+    {
+        face = d.x >= 0.0 ? 0 : 1;
+        forward = float3(d.x >= 0.0 ? 1.0 : -1.0, 0, 0);
+        up = float3(0, 1, 0);
+    }
+    else if (a.y >= a.z)
+    {
+        face = d.y >= 0.0 ? 2 : 3;
+        forward = float3(0, d.y >= 0.0 ? 1.0 : -1.0, 0);
+        up = float3(0, 0, d.y >= 0.0 ? -1.0 : 1.0);
+    }
+    else
+    {
+        face = d.z >= 0.0 ? 4 : 5;
+        forward = float3(0, 0, d.z >= 0.0 ? 1.0 : -1.0);
+        up = float3(0, 1, 0);
+    }
+    float3 right = cross(up, forward);
+    float along = max(dot(d, forward), 1e-4);
+    float2 uv = float2(dot(d, right), dot(d, up)) / along * float2(0.5, -0.5) + 0.5;
+    float inset = 0.5 / max(LightProbeParams.z, 1.0);
+    uv = clamp(uv, inset, 1.0 - inset);
+    float2 tile = float2(face % 3, face / 3);
+    return LightProbeAtlas.SampleLevel(AlbedoSamp, (tile + uv) / float2(3.0, 2.0), 0).rgb;
+}
 
 // Local light shadow atlas: a row of six 512² tiles per slot (cube faces; a spot light uses face 0).
 cbuffer LocalShadowConstants : register(b4)
@@ -1261,6 +1309,10 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
     // touches (the far side of the mountain, undersides) dim rather than pure black.
     float hemiBlend  = n.y * 0.5 + 0.5;
     float3 hemiAmbient = lerp(AmbientGroundColor.rgb, AmbientColor.rgb, hemiBlend);
+    // Bounced light: the light around the surface, as the light probe caught it (the sky where
+    // nothing is in the way, the lit walls and ground where something is), for the flat colours.
+    if (LightProbeParams.y > 0.0)
+        hemiAmbient = lerp(hemiAmbient, LightProbeAmbientFrom(n), LightProbeParams.y);
 #ifdef GENESIS_SURFACE
     float3 orm = gsOrm;
 #else
@@ -1302,10 +1354,13 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
     // blurred towards the hemisphere ambient as it roughens, weighted by Karis's analytic
     // split-sum approximation. Metals take their colour from it instead of going black away from
     // lights; their diffuse ambient gives way to it, as it does in a physically based renderer.
-    if (StylizedParams2.w > 0.0)
+    // With the light probe bound, its reflections' strength (0 when off); without, the room's own.
+    float envAmount = LightProbeParams.w > 0.5 ? LightProbeParams.x : StylizedParams2.w;
+    if (envAmount > 0.0)
     {
         float3 reflected = reflect(viewDir, n);
         float3 envMirror = lerp(AmbientGroundColor.rgb, AmbientColor.rgb, saturate(reflected.y * 0.5 + 0.5));
+        float3 envRough = hemiAmbient;
         // Hemisphere sky light: a smooth surface mirrors the sky as it is drawn (horizon to
         // zenith) and the lit ground below the horizon; rough ones still blur to the sky light.
         if (SkyLightParams.x > 0.5)
@@ -1313,13 +1368,20 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
             float3 mirrorSky = lerp(SkyLightHorizon.rgb, SkyLightZenith.rgb, pow(max(reflected.y, 1e-4), 0.45));
             envMirror = lerp(SkyLightGround.rgb, mirrorSky, saturate(reflected.y * 8.0 + 0.5));
         }
-        float3 envLight = lerp(envMirror, hemiAmbient, roughness);
+        // Reflections: what is around, as the light probe saw it; a rough surface blurs it to the
+        // light arriving from that side.
+        if (LightProbeParams.w > 0.5)
+        {
+            envMirror = LightProbeMirror(reflected);
+            envRough = LightProbeAmbientFrom(reflected);
+        }
+        float3 envLight = lerp(envMirror, envRough, roughness);
         float4 envC0 = float4(-1.0, -0.0275, -0.572, 0.022);
         float4 envC1 = float4(1.0, 0.0425, 1.04, -0.04);
         float4 envR = roughness * envC0 + envC1;
         float envA = min(envR.x * envR.x, exp2(-9.28 * ndotv)) * envR.x + envR.y;
         float2 envAB = float2(-1.04, 1.04) * envA + envR.zw;
-        float3 envSpecular = envLight * (F0 * envAB.x + envAB.y) * StylizedParams2.w;
+        float3 envSpecular = envLight * (F0 * envAB.x + envAB.y) * envAmount;
         ambient = hemiAmbient * base * (1.0 - metallic) * ao + envSpecular * ao;
     }
 

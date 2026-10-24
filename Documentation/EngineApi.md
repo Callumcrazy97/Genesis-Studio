@@ -6,7 +6,7 @@ variable and, when it can be set, set like one (`Engine.Physics.Mass = 4;`, `Eng
 an instance's property is the current instance's, each target's in turn inside `with`. The flat
 names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
-1485 names: 239 properties (186 can be set), 1246 commands.
+1494 names: 247 properties (194 can be set), 1247 commands.
 
 ## Engine.Alarm
 
@@ -729,12 +729,20 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `Name` | property | Reads (LanguageGet) and sets (LanguageSet): The language the game's text is read in: the player's own when the game has it, else English, else the first there is |
 | `Set` | command | Read the game's text in another language ("fr" for Assets/Text/fr.txt); false, keeping the current one, when there is no such file |
 
+## Engine.Lighting.Bounce
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Enabled` | property | Bounced light: surfaces are lit by the light around them (the sky where nothing is in the way, the lit walls and ground where something is) instead of the room's two flat ambient colours. On in each room unless turned off |
+| `Strength` | property | How much the bounced light takes the place of the room's flat ambient colours, 0 to 1 (1 unless set) |
+
 ## Engine.Lighting
 
 | Name | Kind | What it is |
 |---|---|---|
 | `ColorCount` | property | Sets (LightEmitterSetColorCount): Use one, two, or three authored light colours |
 | `Enable` | command | Enable or disable this object's persistent Light Emitter |
+| `Enabled` | property | The room's 3D lighting (the sun, lamps, shadows and every part of Engine.Lighting): off draws everything in its own colours. Turning a part on (Engine.Lighting.Bounce.Enabled = true) turns this on too |
 | `Falloff` | property | Sets (LightEmitterSetFalloff): Set light falloff (1 linear, 2 quadratic, larger values concentrate light near the emitter) |
 | `Flash` | command | A short point light at x, y, z: full brightness at once, fading to nothing over life seconds, then gone (a muzzle flash, an explosion, a spark). Colour 0-255; intensity and radius as DrawPointLight3D. It lights surfaces and fog but is never shadowed and never takes a lamp's shadow. Up to 256 at once (a new one then replaces the one nearest its end). 0 when nothing would be lit |
 | `FlashClear` | command | Put every flash out (a room change does this too) |
@@ -763,6 +771,22 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `SetSecondaryColor` | command | Set the second light colour used by colour cycling |
 | `SetTertiaryColor` | command | Set the third light colour used by colour cycling |
 | `Shadow2DContact` | command | Soft elliptical ground/contact shadow; zero opacity removes it |
+
+## Engine.Lighting.Probe
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Distance` | property | How far the camera travels from the last capture before the light probe is captured again, 5 to 1000 metres (40 unless set) |
+| `Quality` | property | The detail of the light probe reflections and bounced light come from, 1 (32 pixels a side) to 3 (128); 2 unless set |
+| `Radius` | property | What lies within this distance of a capture is drawn into it wherever the camera looks, 10 to 2000 metres (80 unless set) |
+| `Recapture` | command | Captures what is around the camera again at the next frame, for reflections and bounced light: after a big change to the scene, such as a door opening or a building placed |
+
+## Engine.Lighting.Reflections
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Enabled` | property | Reflections: smooth and metal surfaces mirror what is around them, rough ones show it blurred. On in each room unless its settings or a script turn it off |
+| `Strength` | property | How strongly surfaces reflect what is around them, 0 to 4: 1 is physically balanced (unless the room set its own environment reflection) |
 
 ## Engine.List
 

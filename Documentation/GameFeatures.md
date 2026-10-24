@@ -104,6 +104,44 @@ it all on the game's thread, and 0 goes back to automatic. It lasts until the ga
 | Objects 3D (4096 crates) | 2.99 ms, 334 fps; Object draws 1.77 ms | 2.40 ms, 417 fps; Object draws 1.22 ms |
 | Complex Scene | 3.76 ms, p95 8.0; Object draws 1.00 ms | 3.68 ms, p95 5.17; Object draws 0.55 ms |
 
+## Reflections and bounced light, automatically (24 October 2026)
+
+In a 3D room the engine captures what is around the camera into a light probe: six small views
+from one point, with the sky filled in where nothing was drawn. It does this when the room starts,
+when a script calls `Engine.Lighting.Probe.Recapture()` (after a big change, such as a door opening),
+when the camera has travelled 40 metres from the last capture, and when the light has changed (the sun
+turning about 5 degrees through the day, or its light or the ambient colours changing). Those last
+two recapture one view a frame while the old probe stays in use, so they never cost a long frame.
+Nothing needs placing.
+
+- **Reflections.** Smooth and metal surfaces mirror what is around them; rougher ones show it blurred.
+  A room that set no environment reflection gets 1; one that set its own keeps it.
+- **Bounced light.** Every surface is lit by the light arriving from each side (the sky where nothing is
+  in the way, the sunlit walls and ground where something is) in place of the room's two flat ambient
+  colours. A white wall beside a red one turns pink; a room's shaded sides are lit by its floor.
+
+Lighting is an area with parts, each with `Enabled`. Turning a part on turns its area on
+(`Engine.Lighting.Bounce.Enabled = true` sets `Engine.Lighting.Enabled` too); turning the area off
+turns everything in it off, and its parts come back as they were when it is turned on again. The
+same rule holds for every `Engine.Area.Part.Enabled`.
+
+| Value | What it does |
+|---|---|
+| `Engine.Lighting.Enabled` | The room's 3D lighting, with every part below |
+| `Engine.Lighting.Bounce.Enabled` | Bounced light; on in each room unless turned off |
+| `Engine.Lighting.Bounce.Strength` | 0 (the room's flat ambient colours) to 1 (all bounced light; unless set) |
+| `Engine.Lighting.Reflections.Enabled` | Reflections; on in each room unless turned off (off also turns the room's own environment reflection off) |
+| `Engine.Lighting.Reflections.Strength` | 0 to 4; 1 (physically balanced) unless the room set its own environment reflection |
+| `Engine.Lighting.Probe.Quality` | 1 to 3: 32, 64 (unless set) or 128 pixels a side |
+| `Engine.Lighting.Probe.Distance` | Metres the camera travels before a recapture, 5 to 1000 (40 unless set) |
+| `Engine.Lighting.Probe.Radius` | Metres around a capture drawn into it wherever the camera looks, 10 to 2000 (80 unless set) |
+| `Engine.Lighting.Probe.Recapture()` | Capture again at the next frame |
+
+Each value is a room Engine setting in the Inspector, and the Enabled and Strength values are world values on the F6 debug screen. The
+Software renderer keeps the flat ambient colours. `GENESIS_LIGHT_PROBES=0` turns it off for a whole
+run, to compare with the old look. One probe lights the whole view, so light from a wall right
+behind the camera reaches everything in front of it.
+
 ## From C# and from events
 
 Every feature here can be reached from an Object's events (the commands in the tables) and from a

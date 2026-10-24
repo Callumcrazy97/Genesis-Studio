@@ -43,7 +43,7 @@ namespace Genesis.Rendering.Primitives
 
         /// <summary>A projection with this frame's nudge, when temporal anti-aliasing runs (never for a reflection).</summary>
         private Matrix4x4 Jittered(Matrix4x4 projection) =>
-            _taaThisFrame && !_reflectionPassActive ? projection * _taaJitter : projection;
+            _taaThisFrame && !_reflectionPassActive && !_probeCaptureActive ? projection * _taaJitter : projection;
 
         /// <summary>The scene's camera without the nudge, for working out where a point was last frame.</summary>
         private Matrix4x4 UnjitteredSceneViewProj => _view * (_reversedDepth ? _proj * ReverseDepthClip : _proj);

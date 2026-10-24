@@ -94,6 +94,9 @@ namespace Genesis.Rendering.Primitives
             public Vector4 SkyLightZenith;
             public Vector4 SkyLightHorizon;
             public Vector4 SkyLightGround;
+            // The light probe (ForwardRenderer.LightProbes.cs), appended: x = reflections, y = bounced
+            // light, z = face pixels, w = 1 when captured. Only ForwardShaders declares it.
+            public Vector4 LightProbeParams;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -2945,7 +2948,9 @@ namespace Genesis.Rendering.Primitives
                 && _chunkBounds.TryGetValue(chunkId, out var chunkBox))
             {
                 if (!_frustum.ContainsBox(chunkBox.Min, chunkBox.Max)
-                    && !(_hasReflectionFrustum && _reflectionFrustum.ContainsBox(chunkBox.Min, chunkBox.Max)))
+                    && !(_hasReflectionFrustum && _reflectionFrustum.ContainsBox(chunkBox.Min, chunkBox.Max))
+                    && !Genesis.Shared.Rendering.LightProbes.KeepsForCapture((chunkBox.Min + chunkBox.Max) * .5f,
+                        Vector3.Distance(chunkBox.Min, chunkBox.Max) * .5f))
                 {
                     LastInstancesCulled++;
                     return;
@@ -2958,7 +2963,8 @@ namespace Genesis.Rendering.Primitives
                 Vector3 worldCenter = Vector3.Transform(boundsCenter, world);
                 float worldRadius = boundsRadius * MatrixScaleHelper.MaxScale(world);
                 if (!_frustum.ContainsSphere(worldCenter, worldRadius)
-                    && !(_hasReflectionFrustum && _reflectionFrustum.ContainsSphere(worldCenter, worldRadius)))
+                    && !(_hasReflectionFrustum && _reflectionFrustum.ContainsSphere(worldCenter, worldRadius))
+                    && !Genesis.Shared.Rendering.LightProbes.KeepsForCapture(worldCenter, worldRadius))
                 {
                     LastInstancesCulled++;
                     visible = false;
@@ -3655,6 +3661,7 @@ namespace Genesis.Rendering.Primitives
             UploadAllInstances();
             CullBatchesOnGpu();
             RenderPlanarReflection(whiteTexture, viewW, viewH);
+            UpdateLightProbe(whiteTexture);
 
             // The HDR offscreen target + post composite (tonemap, fog, shadow-aware volumetric
             // light shafts) now runs by default whenever we have a valid viewport + depth to
@@ -4619,6 +4626,8 @@ namespace Genesis.Rendering.Primitives
                 _gpu.SetTexture(GpuShaderStage.Pixel, 15, _localShadowAtlasTexture);
             else
                 _gpu.ClearTexture(GpuShaderStage.Pixel, 15);
+            // t18, t19: the light probe (reflections and bounced light), when captured.
+            BindLightProbe();
 
             // Always bind the local shadow CB (Params.x gates sampling) so inactive frames stay deterministic.
             _gpu.SetConstantBuffer(GpuShaderStage.Vertex, 4, _cbOmni);
@@ -5007,7 +5016,7 @@ namespace Genesis.Rendering.Primitives
             DrawDecalCardPass();
             // With the particle layer active only multiply particles stay here; the rest are fogged
             // at their own depth in ParticleLayerPass.
-            if (!_reflectionPassActive)
+            if (!_reflectionPassActive && !_probeCaptureActive)
                 ExternalParticles?.Invoke(_view, SceneProj,
                     _particleLayerThisFrame ? ParticleDrawPhase.MultiplyOnly : ParticleDrawPhase.All,
                     _rtWidth, _rtHeight);
@@ -5019,6 +5028,7 @@ namespace Genesis.Rendering.Primitives
             _gpu.ClearTexture(GpuShaderStage.Pixel, 6);
             for (int t = 15; t <= 20; t++)
                 _gpu.ClearTexture(GpuShaderStage.Pixel, t);
+            _probeBound = false;
             _gpu.EndRenderPass();
         }
 
@@ -6126,13 +6136,16 @@ namespace Genesis.Rendering.Primitives
                     Math.Max(s.StylizedSpecularStrength, 0f),
                     Math.Max(s.StylizedRimStrength, 0f),
                     SceneDepthFlag,
-                    float.IsFinite(s.EnvironmentReflection) ? Math.Clamp(s.EnvironmentReflection, 0f, 4f) : 0f),
+                    // Engine.Lighting.Reflections.Enabled = false turns the room's own reflection off too.
+                    float.IsFinite(s.EnvironmentReflection) && Genesis.Shared.Rendering.LightProbes.Reflections
+                        ? Math.Clamp(s.EnvironmentReflection, 0f, 4f) : 0f),
                 WeatherWindRain = s.WeatherWindRain,
                 WeatherSurface = s.WeatherSurface,
                 SkyLightParams = skyLightParams,
                 SkyLightZenith = skyLightZenith,
                 SkyLightHorizon = skyLightHorizon,
                 SkyLightGround = skyLightGround,
+                LightProbeParams = LightProbeParams(),
             };
             _gpu.UpdateConstantBuffer(_cbEngine, data);
         }
@@ -6614,6 +6627,7 @@ namespace Genesis.Rendering.Primitives
             ReleaseModelLayers();
             ReleaseOutlineResources();
             ReleaseAutoExposure();
+            ReleaseLightProbe();
             if (_reflectionTarget.IsValid) _gpu.ReleaseRenderTarget(_reflectionTarget);
             _gpu.ReleaseVertexLayout(_layout);
             _gpu.ReleaseVertexLayout(_layoutSkinned);

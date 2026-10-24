@@ -1145,7 +1145,7 @@ internal static class HeadlessTestRunner
     internal static readonly IReadOnlyDictionary<string, string[]> Tiers = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
     {
         ["tier-editor"] = ["studio-foundation", "shell-layout", "resource-names", "code-assistance", "editor-suite", "room-workspace", "model-intake", "model-sprites", "pixel-model", "menu-clips", "automation"],
-        ["tier-engine"] = ["engine-systems", "asset-import", "readback-alpha", "post-effects", "large-world", "runtime", "model-system", "debug-screen", "terrain-layers-grass", "shader-precompiled", "gui-linear", "sprite-draw-alloc", "opengl-compat", "window-lifecycle", "anti-aliasing", "frame-rate-choice"],
+        ["tier-engine"] = ["engine-systems", "asset-import", "readback-alpha", "post-effects", "large-world", "runtime", "model-system", "debug-screen", "terrain-layers-grass", "shader-precompiled", "gui-linear", "sprite-draw-alloc", "opengl-compat", "window-lifecycle", "anti-aliasing", "frame-rate-choice", "light-probes"],
         ["tier-pgsl"] = ["pgsl-values", "pgsl-cache", "pgsl-scripts", "pgsl-logic", "input-replay", "pgsl-project", "export-pgsl", "live-reload", "runtime-resources"],
         // A running game's files, sounds, post effects and profile (the 2026-10-09 game requests).
         ["game-runtime"] = ["live-reload", "runtime-resources", "post-effects", "debug-screen", "sky-light-exposure"],
@@ -1768,6 +1768,11 @@ internal static class HeadlessTestRunner
                 // DecalAdd: on a wall and on terrain, fading, the limit, surfaces facing away and order, on every renderer; their cost on DX11.
                 PrepareFocusedProject(ctx, requireStudioServices: true);
                 Suites.DecalSuite.Run(ctx);
+                break;
+            case "light-probes":
+                // Automatic reflections and bounced light (Engine.Lighting.*), on every renderer.
+                PrepareFocusedProject(ctx, requireStudioServices: false);
+                Suites.LightProbeSuite.Run(ctx);
                 break;
             case "sky-light-exposure":
             case "sky-light":

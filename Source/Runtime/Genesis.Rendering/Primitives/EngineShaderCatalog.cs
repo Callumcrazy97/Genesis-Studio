@@ -61,6 +61,10 @@ namespace Genesis.Rendering.Primitives
             new("AutoExposureShaders.hlsl", AutoExposureShaders.Source, "PS_Meter", GpuShaderStage.Pixel),
             new("AutoExposureShaders.hlsl", AutoExposureShaders.Source, "PS_Reduce", GpuShaderStage.Pixel),
             new("AutoExposureShaders.hlsl", AutoExposureShaders.Source, "PS_Adapt", GpuShaderStage.Pixel),
+            // Reflections and bounced light: made the first frame a 3D room is drawn.
+            new("LightProbeShaders.hlsl", LightProbeShaders.Source, "VS", GpuShaderStage.Vertex),
+            new("LightProbeShaders.hlsl", LightProbeShaders.Source, "PS_Compose", GpuShaderStage.Pixel),
+            new("LightProbeShaders.hlsl", LightProbeShaders.Source, "PS_Average", GpuShaderStage.Pixel),
         };
 
         /// <summary>

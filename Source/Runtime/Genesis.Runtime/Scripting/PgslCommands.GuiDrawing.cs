@@ -413,8 +413,11 @@ public static partial class PgslCommands
         "How strongly models reflect the sky and ground: 0 off, 1 physically balanced, up to 4. Gives metals their colour away from lights", "Lighting")]
     public static void EnvironmentSetReflection(double strength)
     {
+        if (!double.IsFinite(strength)) return;
         var environment = ActiveGameContext?.Scene?.Environment;
-        if (environment != null && double.IsFinite(strength)) environment.EnvironmentReflection = (float)Math.Clamp(strength, 0, 4);
+        if (environment != null) environment.EnvironmentReflection = (float)Math.Clamp(strength, 0, 4);
+        // The same strength as Engine.Lighting.Reflections.Strength, which the light probe's reflections use.
+        Genesis.Shared.Rendering.LightProbes.ReflectionStrength = (float)strength;
     }
 
     [PgslCommand("EnvironmentGetReflection", "EnvironmentGetReflection() -> number", "The room's sky and ground reflection strength", "Lighting")]

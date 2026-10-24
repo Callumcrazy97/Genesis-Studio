@@ -438,6 +438,9 @@ public sealed partial class RuntimeViewportHarness : IDisposable
         }
 
         _lastRenderError = null;
+        // Each capture starts as a room does: the light probe is captured afresh from its own scene,
+        // not kept from the last capture's.
+        Genesis.Shared.Rendering.LightProbes.Recapture();
         using Bitmap? bitmap = ReadbackWithOneRetry();
         if (bitmap is null)
         {

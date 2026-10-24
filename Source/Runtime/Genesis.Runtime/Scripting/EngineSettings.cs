@@ -168,7 +168,9 @@ public static class EngineSettings
     private static readonly string[] WorldValues =
     {
         "Engine.Physics.AirDrag", "Engine.Physics.GravityStrength", "Engine.Physics.MaxVelocity", "Engine.Audio.MasterVolume",
-        "Engine.Audio.MusicVolume", "Engine.Audio.SfxVolume", "Engine.Game.Speed",
+        "Engine.Audio.MusicVolume", "Engine.Audio.SfxVolume", "Engine.Game.Speed", "Engine.Game.Threads",
+        "Engine.Lighting.Enabled", "Engine.Lighting.Bounce.Enabled", "Engine.Lighting.Bounce.Strength",
+        "Engine.Lighting.Reflections.Enabled", "Engine.Lighting.Reflections.Strength",
     };
 
     /// <summary>

@@ -275,8 +275,9 @@ public static class PgslApi
             bool namespaced = !string.IsNullOrWhiteSpace(info.Namespace);
             if (!TryPlace(info.Name, info.Category, out string area, out string member)) continue;
             string name = "Engine." + area + "." + member;
-            // A command written with its standard name (Engine.Physics.Mass) is that name already.
-            if (namespaced && string.Equals(name, info.QualifiedName, StringComparison.OrdinalIgnoreCase)) continue;
+            // A command written with its standard name (Engine.Physics.Mass, Engine.Lighting.Bounce.Strength)
+            // is that name already: one in a part of an area gets no shorter name beside it.
+            if (namespaced && (!info.Flat || string.Equals(name, info.QualifiedName, StringComparison.OrdinalIgnoreCase))) continue;
             if (taken.Contains(name) || built.ByName.ContainsKey(name))
             {
                 built.Skipped.Add($"{name}: {info.QualifiedName} (already {(taken.Contains(name) ? "an existing name" : built.ByName[name].Command)})");

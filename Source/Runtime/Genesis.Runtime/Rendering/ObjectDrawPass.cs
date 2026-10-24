@@ -393,7 +393,8 @@ namespace Genesis.Runtime.Rendering
                         }
                     }
                     draw.Skip = 0;
-                    if (Cull && !IsPosedByAnimation(World, draw.Entity))
+                    // A light probe captured next frame sees all around the camera: what is near it stays.
+                    if (Cull && !IsPosedByAnimation(World, draw.Entity) && !LightProbes.KeepsForCapture(pos, radius))
                         draw.Skip = (byte)Visibility.Test(Frustum, ViewProjection, pos, radius, Occlude);
                     // A model that would cover a pixel or two costs a draw call and shows nothing.
                     if (draw.Skip == 0 && draw.Bounded && ModelLodView.Active && ModelLodView.LevelFor(pos, radius) < 0)

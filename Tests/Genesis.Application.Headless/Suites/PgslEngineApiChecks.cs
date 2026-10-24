@@ -71,6 +71,27 @@ internal static class PgslEngineApiChecks
         var threadsOne = Engine.Game.Threads;
         Engine.Game.Threads = 0;
         t_threads = threadsAuto >= 1 && threadsOne == 1 && Engine.Game.Threads == threadsAuto;
+        // Lighting's parts: on unless turned off, values kept in range.
+        var partsOn = Engine.Lighting.Reflections.Enabled && Engine.Lighting.Bounce.Enabled;
+        Engine.Lighting.Reflections.Enabled = false;
+        var reflectionsOff = !Engine.Lighting.Reflections.Enabled;
+        Engine.Lighting.Reflections.Enabled = true;
+        Engine.Lighting.Probe.Quality = 9;
+        var detail = Engine.Lighting.Probe.Quality;
+        Engine.Lighting.Probe.Quality = 2;
+        Engine.Lighting.Bounce.Strength = 0.25;
+        var bounce = Engine.Lighting.Bounce.Strength;
+        Engine.Lighting.Bounce.Strength = 1;
+        Engine.Lighting.Probe.Distance = 2;
+        var distance = Engine.Lighting.Probe.Distance;
+        Engine.Lighting.Probe.Distance = 40;
+        Engine.Lighting.Probe.Recapture();
+        t_lighting = partsOn && reflectionsOff && detail == 3 && bounce == 0.25 && distance == 5 && Engine.Lighting.Reflections.Enabled;
+        // Turning a part on turns its area on.
+        Engine.Lighting.Enabled = false;
+        var lightingOff = !Engine.Lighting.Enabled;
+        Engine.Lighting.Bounce.Enabled = true;
+        t_partTurnsAreaOn = lightingOff && Engine.Lighting.Enabled;
         """;
 
     private const string Controller = """

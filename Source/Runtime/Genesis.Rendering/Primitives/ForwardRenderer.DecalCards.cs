@@ -82,7 +82,7 @@ internal sealed partial class ForwardRenderer
     private void DrawDecalCardPass()
     {
         int count = _pendingDecalCardCount;
-        if (count == 0 || _reflectionPassActive || !_mainPassHdrMrt) return;
+        if (count == 0 || _reflectionPassActive || _probeCaptureActive || !_mainPassHdrMrt) return;
         if (!EnsureDecalCardResources() || !TryGetMesh(_decalQuad.Id, out MeshEntry quad)) return;
 
         if (_decalCardKeys.Length < count)

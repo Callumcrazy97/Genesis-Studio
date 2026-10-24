@@ -245,7 +245,7 @@ namespace Genesis.Rendering.Primitives
         /// </summary>
         private bool TryDrawCulledBatch(int index)
         {
-            if (_reflectionPassActive || _cullDevice == null || index >= _cullSlots.Count) return false;
+            if (_reflectionPassActive || _probeCaptureActive || _cullDevice == null || index >= _cullSlots.Count) return false;
             int slot = _cullSlots[index];
             if (slot < 0) return false;
             _gpu.SetStructuredBuffer(GpuShaderStage.Vertex, 0, _cullVisible);

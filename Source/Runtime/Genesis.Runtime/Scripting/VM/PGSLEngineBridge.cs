@@ -52,6 +52,7 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
             var def = new CommandDef
             {
                 Name = info.Name,
+                QualifiedName = info.QualifiedName,
                 CSharpMember = info.CSharpMember,
                 Category = info.Category,
                 Description = info.Description,
@@ -689,17 +690,39 @@ public sealed class PgslEngineBridge : IPgslEngineBridge
         {
             if (!def.Property.CanWrite) throw new InvalidOperationException($"{def.Name} can be read but not set.");
             def.Property.SetValue(null, ConvertArg(value, def.Property.PropertyType));
-            return;
         }
-        if (def.SetterMember != null) { CallMethod(def.SetterMember, new[] { value }); return; }
-        if (def.GetterMember != null) throw new InvalidOperationException($"{def.Name} can be read but not set.");
-        PropertyInfo property = GetOrCacheProperty(def.Name);
-        property?.SetValue(null, ConvertArg(value, property.PropertyType));
+        else if (def.SetterMember != null) CallMethod(def.SetterMember, new[] { value });
+        else if (def.GetterMember != null) throw new InvalidOperationException($"{def.Name} can be read but not set.");
+        else
+        {
+            PropertyInfo property = GetOrCacheProperty(def.Name);
+            property?.SetValue(null, ConvertArg(value, property.PropertyType));
+        }
+        EnableParentArea(def.QualifiedName ?? def.Name, value);
+    }
+
+    // Turning a part of an area on turns the area on: Engine.Lighting.Bounce.Enabled = true sets
+    // Engine.Lighting.Enabled too, and so on up. Turning an area off leaves its parts as they are
+    // (they come back with it).
+    private void EnableParentArea(string name, object value)
+    {
+        const string Enabled = ".Enabled";
+        if (!name.EndsWith(Enabled, StringComparison.OrdinalIgnoreCase)) return;
+        if (!(value is true || value is double number && number != 0 || value is float single && single != 0 || value is int whole && whole != 0)) return;
+        string area = name[..^Enabled.Length];
+        int dot = area.LastIndexOf('.');
+        // Engine.Area.Part.Enabled -> Engine.Area.Enabled; Engine.Area.Enabled has no parent.
+        if (dot <= 0 || area.IndexOf('.') == dot) return;
+        if (_commandDefs.TryGetValue(area[..dot] + Enabled, out CommandDef parent) && parent.IsProperty
+            && (parent.Property?.CanWrite == true || parent.SetterMember != null))
+            WriteProperty(parent, true);
     }
 
     private sealed class CommandDef
     {
         public string Name;
+        /// <summary>The full name of a namespaced command (Engine.Lighting.Bounce.Enabled); null for others.</summary>
+        public string QualifiedName;
         public string CSharpMember;
         public string Category;
         public string Description;

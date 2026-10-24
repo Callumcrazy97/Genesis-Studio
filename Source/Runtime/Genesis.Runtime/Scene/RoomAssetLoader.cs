@@ -984,8 +984,12 @@ public sealed class RoomSceneBuilder
     private void ApplyRoomEngineSettings(RoomAsset asset)
     {
         // Each room sounds as its own settings say: outdoors unless they choose other acoustics.
+        // And it is lit afresh: reflections and bounced light on, captured from its own scene.
         if (Genesis.Runtime.Scripting.PgslCommands.ActiveGameContext?.Room == asset)
+        {
             Genesis.Runtime.Scripting.PgslCommands.ResetRoomAcoustics();
+            Genesis.Shared.Rendering.LightProbes.ResetForRoom(asset.Environment?.EnvironmentReflection ?? 0f);
+        }
         var settings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (RoomNode node in asset.Nodes)
         {
