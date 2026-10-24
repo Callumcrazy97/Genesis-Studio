@@ -351,6 +351,24 @@ public static partial class PgslCommands
     public static bool PhysicsDestroyJoint(double jointId) =>
         PhysicsWorld?.DestroyScriptJoint((int)jointId) ?? false;
 
+    [PgslCommand("PhysicsJointLimitSwing", "PhysicsJointLimitSwing(jointId, axisX, axisY, axisZ, maxDegrees) -> bool",
+        "Keep a joint's second body within maxDegrees of the first along a world direction, taken as the bodies are now (a shoulder or hip: the direction along the limb). With PhysicsJointLimitTwist and PhysicsJointHinge, a ragdoll is limbs joined like a body's", "Physics")]
+    public static bool PhysicsJointLimitSwing(double jointId, double axisX, double axisY, double axisZ, double maxDegrees) =>
+        Finite3(axisX, axisY, axisZ) && double.IsFinite(maxDegrees)
+        && (PhysicsWorld?.LimitScriptJointSwing((int)jointId, new Vector3((float)axisX, (float)axisY, (float)axisZ), (float)maxDegrees) ?? false);
+
+    [PgslCommand("PhysicsJointLimitTwist", "PhysicsJointLimitTwist(jointId, axisX, axisY, axisZ, minDegrees, maxDegrees) -> bool",
+        "Let a joint's second body turn about a world direction, relative to the first, only between minDegrees and maxDegrees from how they are now (a forearm's twist)", "Physics")]
+    public static bool PhysicsJointLimitTwist(double jointId, double axisX, double axisY, double axisZ, double minDegrees, double maxDegrees) =>
+        Finite3(axisX, axisY, axisZ) && double.IsFinite(minDegrees) && double.IsFinite(maxDegrees)
+        && (PhysicsWorld?.LimitScriptJointTwist((int)jointId, new Vector3((float)axisX, (float)axisY, (float)axisZ), (float)minDegrees, (float)maxDegrees) ?? false);
+
+    [PgslCommand("PhysicsJointHinge", "PhysicsJointHinge(jointId, axisX, axisY, axisZ, minDegrees, maxDegrees) -> bool",
+        "Let a joint turn only about one world axis, between minDegrees and maxDegrees from how the bodies are now: a knee, an elbow, a door on its hinges", "Physics")]
+    public static bool PhysicsJointHinge(double jointId, double axisX, double axisY, double axisZ, double minDegrees, double maxDegrees) =>
+        Finite3(axisX, axisY, axisZ) && double.IsFinite(minDegrees) && double.IsFinite(maxDegrees)
+        && (PhysicsWorld?.HingeScriptJoint((int)jointId, new Vector3((float)axisX, (float)axisY, (float)axisZ), (float)minDegrees, (float)maxDegrees) ?? false);
+
     private static Vector3 PhysicsVelocity(int instanceId)
     {
         return TryGetDynamicBody(instanceId, out Genesis.Physics.PhysicsWorld physics,

@@ -6,7 +6,7 @@ variable and, when it can be set, set like one (`Engine.Physics.Mass = 4;`, `Eng
 an instance's property is the current instance's, each target's in turn inside `with`. The flat
 names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
-1656 names: 403 properties (343 can be set), 1253 commands.
+1659 names: 403 properties (343 can be set), 1256 commands.
 
 ## Engine.Alarm
 
@@ -1438,6 +1438,9 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `Grounded` | read only | Whether the body stands on something |
 | `HasBody` | read only | Whether this instance has a physics body |
 | `IsGrounded` | command | Check for ground below a physics body |
+| `JointHinge` | command | Let a joint turn only about one world axis, between minDegrees and maxDegrees from how the bodies are now: a knee, an elbow, a door on its hinges |
+| `JointLimitSwing` | command | Keep a joint's second body within maxDegrees of the first along a world direction, taken as the bodies are now (a shoulder or hip: the direction along the limb). With PhysicsJointLimitTwist and PhysicsJointHinge, a ragdoll is limbs joined like a body's |
+| `JointLimitTwist` | command | Let a joint's second body turn about a world direction, relative to the first, only between minDegrees and maxDegrees from how they are now (a forearm's twist) |
 | `Layer` | property | The body's collision layer (0-31) |
 | `LinearDamping` | property | How quickly the body's movement dies away by itself (0 none) |
 | `LockRotation` | property | Whether the body is kept upright (it moves but never turns) |

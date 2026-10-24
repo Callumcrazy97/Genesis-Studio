@@ -91,6 +91,32 @@ for how much is heard. Each room starts outdoors; a room (or its terrain) choose
 the Engine setting in its Inspector. `Engine.Audio.MusicMuffle` (0 clear to 1 heard through a wall)
 muffles the music, for a pause menu, underwater or a dream. Music is never echoed.
 
+## Joints limited like a body's, and ragdolls from Objects (24 October 2026)
+
+A joint made with `PhysicsCreateJoint` turns freely. Three commands limit it, each taking a world
+direction and working from how the two bodies are when it is called; `PhysicsDestroyJoint` removes
+them with the joint:
+
+| Command | What it does |
+|---|---|
+| `PhysicsJointHinge(joint, ax, ay, az, minDegrees, maxDegrees)` | Turns only about the axis, between the two angles: a knee, an elbow, a door |
+| `PhysicsJointLimitSwing(joint, ax, ay, az, maxDegrees)` | Keeps the second body within a cone about the direction: a shoulder, a hip |
+| `PhysicsJointLimitTwist(joint, ax, ay, az, minDegrees, maxDegrees)` | Limits the turn about the direction: a forearm's twist |
+
+A ragdoll needs nothing more: it is Objects with physics. One body Object per limb, placed where
+the character's bones are (`ModelSocketX/Y/Z(bone)` reads any bone's place in the world), joined and
+limited as a body is, and the character's bones aimed at the limb bodies each Step:
+
+```gml
+// When the character falls: a shin hanging from the thigh, bending one way only.
+knee = PhysicsCreateJoint(thigh, shin, ModelSocketX("knee"), ModelSocketY("knee"), ModelSocketZ("knee"));
+PhysicsJointHinge(knee, 1, 0, 0, 0, 140);
+// Each Step: the model's bones follow the bodies.
+AnimationBoneLookAt("thigh", InstanceGetX(shin), InstanceGetY(shin), InstanceGetZ(shin), 1, 180);
+```
+
+Checked by `Runtime.PGSL.PhysicsJointsHingeAndLimits` (`--test engine-systems`).
+
 ## Persistent rooms and Objects (24 October 2026)
 
 - **A persistent Object** (Persistent ticked in the Object editor) goes with the game from room to

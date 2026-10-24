@@ -487,6 +487,56 @@ internal static class EngineSystemsSuite
             graph.Advance(.4f, -1, asset); Check(Near(graph.RootMotionDelta.X, -.4f), "Reverse root motion is discontinuous.");
             graph.Advance(0, 1, asset); Check(graph.RootMotionDelta == Vector3.Zero, "A paused tick repeated root motion.");
         });
+        // Joints limited like a body's (what a ragdoll's limbs need): a hinged plank stops at its
+        // limit instead of hanging straight down, a swing-limited one too, and removing the joint
+        // removes its limits with it.
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.PGSL.PhysicsJointsHingeAndLimits", () => WithScene(ctx, (scene, context, game) =>
+        {
+            var world = scene.World;
+            scene.Physics = Genesis.Physics.PhysicsWorld.Create(new Genesis.Shared.Assets.PhysicsWorldAsset { AllowSleep = false });
+            scene.Physics.EnableThreadDispatcher = false;
+            Entity Body(RigidBodyComponent body, Vector3 at)
+            {
+                Entity entity = world.CreateEntity();
+                world.Set(entity, new TransformComponent { X = at.X, Y = at.Y, Z = at.Z, ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+                world.Set(entity, Transform3DComponent.Default);
+                world.GetRef<Transform3DComponent>(entity).Position = at;
+                world.Set(entity, body);
+                scene.Physics.RegisterEntity(world, entity, ref world.GetRef<RigidBodyComponent>(entity), ref world.GetRef<Transform3DComponent>(entity));
+                return entity;
+            }
+            Body(RigidBodyComponent.StaticBox(new Vector3(20, .5f, 20)), new Vector3(0, -.5f, 0));
+            // A tall block, so a plank hanging straight down from it would still clear the floor.
+            Entity torso = Body(RigidBodyComponent.DynamicBox(new Vector3(1, 1.5f, 1), 1000f), new Vector3(0, 1.5f, 0));
+            Entity shin = Body(RigidBodyComponent.DynamicBox(new Vector3(1, .1f, .25f), 1f), new Vector3(2.2f, 2.9f, 0));
+            Entity arm = Body(RigidBodyComponent.DynamicBox(new Vector3(1, .1f, .25f), 1f), new Vector3(-2.2f, 2.9f, 0));
+            double knee = PgslCommands.PhysicsCreateJoint(torso.Id, shin.Id, 1.1, 2.9, 0);
+            double shoulder = PgslCommands.PhysicsCreateJoint(torso.Id, arm.Id, -1.1, 2.9, 0);
+            Check(knee > 0 && shoulder > 0, "Joints between the bodies could not be made.");
+            Check(PgslCommands.PhysicsJointHinge(knee, 0, 0, 1, -30, 30) && PgslCommands.PhysicsJointLimitSwing(shoulder, -1, 0, 0, 20)
+                && !PgslCommands.PhysicsJointHinge(9999, 0, 0, 1, -30, 30) && !PgslCommands.PhysicsJointLimitSwing(shoulder, 0, 0, 0, 20),
+                "A hinge or swing limit was refused, or a missing joint or a zero axis was accepted.");
+            // How far a body's axis has dropped below the horizontal, in degrees.
+            float Droop(Entity entity, Vector3 along)
+            {
+                Vector3 axis = Vector3.Transform(along, world.GetRef<Transform3DComponent>(entity).Rotation);
+                return MathF.Asin(Math.Clamp(-axis.Y, -1f, 1f)) * 180f / MathF.PI;
+            }
+            void Run(int steps)
+            {
+                for (int i = 0; i < steps; i++) { scene.Physics.Step(world, 1f / 60); scene.Physics.SyncTransforms(world); }
+            }
+            Run(180);
+            float kneeDroop = Droop(shin, Vector3.UnitX), shoulderDroop = Droop(arm, -Vector3.UnitX);
+            Vector3 kneeAxis = Vector3.Transform(Vector3.UnitZ, world.GetRef<Transform3DComponent>(shin).Rotation);
+            Check(kneeDroop is > 24f and < 36f && MathF.Abs(kneeAxis.Z) > .98f,
+                $"The hinged shin should stop at 30 degrees and keep its hinge axis; it droops {kneeDroop:F1} degrees, axis {kneeAxis}.");
+            Check(shoulderDroop is > 14f and < 26f, $"The swing-limited arm should stop at 20 degrees; it droops {shoulderDroop:F1}.");
+            Check(PgslCommands.PhysicsDestroyJoint(knee), "The hinged joint could not be removed.");
+            Run(90);
+            Check(world.GetRef<Transform3DComponent>(shin).Position.Y < .5f,
+                $"With its joint and limits removed the shin should fall to the floor; it is at {world.GetRef<Transform3DComponent>(shin).Position}.");
+        }));
         HeadlessHarness.RunCase(ctx.Report, "Runtime.PGSL.TransformsAndRaycast", () => WithScene(ctx, (scene, context, game) =>
         {
             var world = scene.World; Entity entity = world.CreateEntity();

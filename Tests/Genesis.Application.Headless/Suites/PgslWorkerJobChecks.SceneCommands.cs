@@ -176,7 +176,7 @@ internal static partial class PgslWorkerJobChecks
             PgslCommands.JobRelease(normal); PgslCommands.JobRelease(urgent);
             row("Jobs: urgent", "an urgent job is taken before normal ones waiting", inOrder ? "PASS" : "FAIL", $"{workers} workers kept busy; urgent {urgentEnd}, normal {normalEnd}");
             HeadlessHarness.Assert(inOrder && urgentEnd == "succeeded" && normalEnd == "succeeded",
-                $"The urgent job should leave the queue before the normal one started earlier (in order {inOrder}; {urgentEnd}, {normalEnd}).");
+                $"The urgent job should leave the queue before the normal one started earlier (in order {inOrder}; every one of the {workers} workers held {held}; {urgentEnd}, {normalEnd}).");
         });
 
         // A grid lent in part is copied on the worker as the job starts; a game write before then makes
