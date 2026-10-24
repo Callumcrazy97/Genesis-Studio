@@ -84,9 +84,9 @@ templates and today's features:
    resolution, VSync, frame cap, volume per bus, key and pad rebinding through `Engine.Input.Actions`),
    pause menu, save slots and a loading screen, as a template both new projects and the existing
    templates can start from. All of it uses the engine API, so a game edits it like its own code.
-3. **Release checklist in Export.** Done in part today: Export runs the project validator first,
-   lists the problems in the Console and asks before exporting a project with errors. Still to do:
-   load every room once and compile every script as part of it.
+3. **Release checklist in Export.** Done in part today: Export runs the project validator and the
+   strict script check F5 makes, lists the problems in the Console and asks before exporting a
+   project with errors. Still to do: load every room once as part of it.
 4. **Full Build and install drill green on the release build** (run today, see below).
 
 **P1: makes complex games effortless**
@@ -107,12 +107,43 @@ templates and today's features:
 10. **PGSL to IL.** Hot functions compiled to real code (on the to-do list); the biggest remaining
     speed gap against GameMaker's YYC and Unity's IL2CPP.
 
+11. **Engine values and an Object's own variables previewed in the editors** (Cal, 24 October;
+    end of day if there is time after 21:00, otherwise next). A value set in the Inspector, an
+    `Engine.Area.Part.Value` or a variable an Object declares, shows at once in the Room, Object,
+    Model, Image and Terrain views, drawn by the same code the game runs, without pressing F5.
+    One route: the editors read the same values the game reads, so there is nothing per editor.
+
 **P2: later**
 
-11. Distant stand-ins (impostors) and level-of-detail fades, automatic like detail is today.
-12. Node view in the Shader editor (if wanted).
-13. Linux (the Player already runs on Vulkan and OpenGL).
-14. Update path for shipped games (a patch file the installer applies).
+12. Distant stand-ins (impostors) and level-of-detail fades, automatic like detail is today.
+13. Node view in the Shader editor (if wanted).
+14. Linux (the Player already runs on Vulkan and OpenGL).
+15. Update path for shipped games (a patch file the installer applies).
+
+## What games Genesis can make today, and what blocks the rest
+
+The rule for every blocker below: no system for one kind of game. Each is an improvement to a
+system or editor that already exists, reachable from PGSL as `Engine.Area.Part.Value`.
+
+| Game | Today | What it already has | What blocks it, as an improvement to an existing system |
+|---|---|---|---|
+| 2D platformer, metroidvania | **Ready** | Tiles with autotile and solid tiles, 2D lights and darkness, Image animation and 2D rig, particles, saves (Mushroom Meadow is one) | Only the game starter screens (P0 2) |
+| Top-down 2D RPG or action game | **Ready** | Rooms, tiles, room changes without a freeze, UI toolkit lists, languages, saves (Nuvema Town plays end to end) | The game starter screens |
+| Voxel or block-building game | **Ready** | Meshes a script builds, chunk meshing on jobs (6,700 to 13,700 chunks a second), compact grids, mesh streaming that holds memory level | None found |
+| Third-person action-adventure | **Ready, with gaps** | Orbit, shoulder and collision camera, root motion, look-at and reach IK, Animation Controllers, navigation agents, decals, flash lights | Ragdolls (below); play from the editor's camera (P1 6) |
+| First-person shooter, solo campaign (Halo 1) | **Possible now, with gaps** | First-person arms and held items, character bodies, ray and shape casts, bullet-hole decals, muzzle flashes, navigation with jumps, gaps and ladders, 3D sound and acoustics, outdoor terrain, sky and weather, rebindable actions, several pads | **Ragdolls:** the Physics editor's Ragdoll Lab is a preview and games have ball joints between instances only; a model's bones should become bodies through *physics on a model part*, the same route as cloth. **Split-screen co-op:** the camera draws one view; the camera area should take several views (online co-op through the relay already works). **Many enemies thinking at once:** sight is ray casts and moving is navigation, all PGSL, so PGSL to IL (P1 10). Vehicles are Objects with a body and a ray cast per wheel in PGSL; a genre starter would show one. Cutscenes are camera moves and animation events from PGSL (the timeline was declined) |
+| Open-world RPG (Skyrim-like) | **The world yes, the game in part** | Worlds kilometres across, terrain drawn by distance, forests of hundreds of thousands of trees with collision near what moves, scenery streaming, automatic levels of detail, texture streaming, several terrains, time of day, seasons and weather, routes that prefer roads, model layers for armour, UI lists for inventory and dialogue, saves, languages | **People and things that stream and remember:** scripted Objects (every NPC, chest, door) load with the room and a streamed Object keeps nothing between visits; streaming should save an Object's state when it leaves and give it back when it returns, through the save slots that exist. **Terrain streaming by tile:** each terrain file is read whole and neighbours are not stitched. **Far shadows:** a mountain behind the camera does not shade the view and distant scatter casts no shadow. **Far towns:** distant stand-ins (P2 12). **Hundreds of NPC schedules:** PGSL to IL. Quests and dialogue are PGSL with the UI toolkit; a genre starter would show the pattern rather than a quest system |
+| Online co-op, small sessions | **Ready, small scale** | LAN discovery, relay, replication with interest distance, each player's character shown to the others | Measured only at small player counts |
+| Strategy with many units | **Possible, speed untested** | Navigation agents with avoidance, GPU culling of instanced batches, script jobs | PGSL to IL for hundreds of units' logic; box selection and orders are PGSL and GUI drawing |
+| Arcade racing | **Possible** | Bodies, ray casts, motion blur, depth of field | A starter showing it; a simulation tyre model is out of scope (one kind of game) |
+| Any game on a handheld PC | **Runs, every pixel** | Quality tiers, frame cap, VSync | Render scale and dynamic resolution (P1 5) |
+| Any game on Linux, Mac or consoles | **Blocked** | Player renders on Vulkan and OpenGL | Windows only (P2 14) |
+
+**In short:** 2D games of any common kind, voxel games and third-person or first-person games of
+Halo 1's size can be made today; the work is content and PGSL. A Skyrim-like game's world can be
+made today; its people cannot yet stream and remember, which is the largest single blocker for
+open worlds. The blockers shared by the most games are ragdolls (physics on a model part), Objects
+that stream with their state, PGSL to IL, render scale, and the game starter screens.
 
 ## Release run
 
