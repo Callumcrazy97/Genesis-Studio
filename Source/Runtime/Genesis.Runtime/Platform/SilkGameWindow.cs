@@ -132,7 +132,7 @@ namespace Genesis.Runtime.Platform
                 if (_cursorApplyPending)
                     ApplyCursorModeIfReady();
 
-                _input.LookDelta = _mouseCaptured ? _lookAccum : Vector2.Zero;
+                _input.LookDelta = _mouseCaptured ? Genesis.Runtime.Input.InputSettings.Look(_lookAccum) : Vector2.Zero;
                 _lookAccum = Vector2.Zero;
 
                 // An unattended run neither reads nor vibrates a controller: the person at the

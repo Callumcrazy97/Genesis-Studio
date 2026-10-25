@@ -6,7 +6,7 @@ variable and, when it can be set, set like one (`Engine.Physics.Mass = 4;`, `Eng
 an instance's property is the current instance's, each target's in turn inside `with`. The flat
 names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
-1681 names: 416 properties (349 can be set), 1265 commands.
+1684 names: 419 properties (352 can be set), 1265 commands.
 
 ## Engine.Alarm
 
@@ -750,12 +750,15 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 |---|---|---|
 | `DeadZone` | property | How far both sticks must move before they count, 0 to 0.9 (the engine's unless set) |
 | `KeyboardEmulation` | property | A controller also presses the keys a keyboard game listens for (arrows, Space, Enter, Escape) (true unless set) |
+| `VibrationStrength` | property | How strongly controllers vibrate when the game runs their motors, 0 (never) to 1 (as asked) (1 unless set) |
 
 ## Engine.Input.Mouse
 
 | Name | Kind | What it is |
 |---|---|---|
 | `Captured` | property | The mouse is locked to the window and hidden, for mouse look (false unless set) |
+| `InvertY` | property | Moving the mouse up looks down, for players who prefer it (false unless set) |
+| `Sensitivity` | property | How far the view turns for a mouse movement, 0.05 to 10 (1 unless set); the engine's cameras and Engine.Input.Mouse.LookDelta both follow it |
 
 ## Engine.Instance
 

@@ -266,13 +266,18 @@ internal static class PgslEngineApiChecks
         updateDistance = Engine.Instance.Update.Distance;
         drawCalls = Engine.Rendering.DrawCalls;
         backendLength = StringLength(Engine.Rendering.Backend);
+        Engine.Input.Mouse.Sensitivity = 2;
+        Engine.Input.Mouse.InvertY = true;
+        Engine.Input.Gamepad.VibrationStrength = 0.5;
+        GamepadVibrate(1, 0.8, 1);
+        sensitivity = Engine.Input.Mouse.Sensitivity;
         """;
 
     private static void TilesAndUpdate(ProjectSession project, Action<string, string, string, string> row)
     {
         RoomAsset room = RoomAsset.Create("TilesRoom", RoomDimension.TwoD);
         room.Nodes.Add(new RoomNode { Name = "Back", Kind = RoomNodeKind.TileLayer, LayerId = room.Layers[0].Id, TileLayer = new RoomTileLayerData() });
-        using var scene = new RuntimeScene("Tile layers");
+        using var scene = new RuntimeScene("Tile layers") { Input = new Genesis.Runtime.Input.InputState() };
         scene.AddSubsystem(new Genesis.Runtime.Rendering.RoomRenderSubsystem(project.RootPath, room));
         var game = new ProjectGameContext(project.RootPath, scene, null, null, room, null);
         PgslContext previousContext = PgslCommands.BindContext(new PgslContext());
@@ -289,15 +294,21 @@ internal static class PgslEngineApiChecks
             var vars = host.Instances.OfType<PgslBehavior>().Single(behavior => behavior.Entity == entity).GetVariablesSnapshot();
             double Number(string name) => vars.TryGetValue(name, out object? value) && value is not (string or null) ? Convert.ToDouble(value, CultureInfo.InvariantCulture) : double.NaN;
             string diagnostics = string.Join("; ", host.RecentDiagnostics.Select(d => d.Message));
+            System.Numerics.Vector2 look = Genesis.Runtime.Input.InputSettings.Look(new System.Numerics.Vector2(1f, 1f));
+            var rumble = scene.Input.GetRumble(0);
             bool pass = Number("backVisible") == 1 && Number("hidden") == 0 && Number("missing") == 0 && Number("alpha") == 1
                 && Number("ox") == 12 && Number("oy") == -4 && Number("updateDistance") == 250 && scene.Environment.SimulationDistance == 250
-                && Number("drawCalls") == 0 && Number("backendLength") == 0;
-            string detail = $"visible {Number("backVisible")} then {Number("hidden")}, missing layer {Number("missing")}, alpha {Number("alpha")} (1), offset {Number("ox")},{Number("oy")} (12,-4), update distance {Number("updateDistance")} (250), draw calls {Number("drawCalls")} and backend length {Number("backendLength")} with no renderer (0, 0)";
+                && Number("drawCalls") == 0 && Number("backendLength") == 0
+                && Number("sensitivity") == 2 && look == new System.Numerics.Vector2(2f, -2f)
+                && Math.Abs(rumble.Low - 0.5f) < 1e-4 && Math.Abs(rumble.High - 0.4f) < 1e-4;
+            string detail = $"visible {Number("backVisible")} then {Number("hidden")}, missing layer {Number("missing")}, alpha {Number("alpha")} (1), offset {Number("ox")},{Number("oy")} (12,-4), update distance {Number("updateDistance")} (250), draw calls {Number("drawCalls")} and backend length {Number("backendLength")} with no renderer (0, 0), "
+                + $"mouse movement 1,1 looks {look} (2,-2), rumble {rumble.Low},{rumble.High} (0.5,0.4)";
             row("Engine API parts", "tile layers, update distance and frame costs", pass ? "PASS" : "FAIL", detail);
             HeadlessHarness.Assert(pass, $"{detail} {diagnostics}");
         }
         finally
         {
+            Genesis.Runtime.Input.InputSettings.Reset();
             PgslCommands.ActiveGameContext = previousGame;
             PgslCommands.BindContext(previousContext);
         }

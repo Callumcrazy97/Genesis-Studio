@@ -755,6 +755,29 @@ public static partial class PgslCommands
     [PgslCommand("KeyboardEmulation", "Engine.Input.Gamepad.KeyboardEmulation = true", "A controller also presses the keys a keyboard game listens for (arrows, Space, Enter, Escape) (true unless set)", "Input", Namespace = "Engine.Input.Gamepad", Flat = false)]
     public static bool InputGamepadKeyboardEmulation { get => ActiveGameContext?.Input?.GamepadEmulatesKeyboard ?? true; set => GamepadKeyboardEmulation(value); }
 
+    // ── The player's own input settings (an options screen's), applied for the engine's cameras and every script ──
+
+    [PgslCommand("Sensitivity", "Engine.Input.Mouse.Sensitivity = 1.5", "How far the view turns for a mouse movement, 0.05 to 10 (1 unless set); the engine's cameras and Engine.Input.Mouse.LookDelta both follow it", "Input", Namespace = "Engine.Input.Mouse", Flat = false)]
+    public static double InputMouseSensitivity
+    {
+        get => Input.InputSettings.LookSensitivity;
+        set => Input.InputSettings.LookSensitivity = Finite(value, 0.05, 10, 1f);
+    }
+
+    [PgslCommand("InvertY", "Engine.Input.Mouse.InvertY = true", "Moving the mouse up looks down, for players who prefer it (false unless set)", "Input", Namespace = "Engine.Input.Mouse", Flat = false)]
+    public static bool InputMouseInvertY
+    {
+        get => Input.InputSettings.InvertLookY;
+        set => Input.InputSettings.InvertLookY = value;
+    }
+
+    [PgslCommand("VibrationStrength", "Engine.Input.Gamepad.VibrationStrength = 0.5", "How strongly controllers vibrate when the game runs their motors, 0 (never) to 1 (as asked) (1 unless set)", "Input", Namespace = "Engine.Input.Gamepad", Flat = false)]
+    public static double InputGamepadVibrationStrength
+    {
+        get => Input.InputSettings.VibrationStrength;
+        set => Input.InputSettings.VibrationStrength = Finite(value, 0, 1, 1f);
+    }
+
     [PgslCommand("Zoom", "Engine.View.Camera.Zoom = amount", "How far the active view is zoomed in, 0.01 to 100 (1 unless set)", "Views", Namespace = "Engine.View.Camera", Flat = false)]
     public static double ViewCameraZoom { get => ViewGetZoom(ViewGetActive()); set => ViewSetZoom(ViewGetActive(), value); }
 

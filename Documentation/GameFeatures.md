@@ -114,6 +114,8 @@ muffles the music, for a pause menu, underwater or a dream. Music is never echoe
 | `Engine.Tile.Layer.SetOffset("Layer", x, y)`, `OffsetX/OffsetY("Layer")` | Draws it moved by pixels: a background scrolled slower than the view for parallax (what is solid stays where it was painted) |
 | `Engine.Instance.Update.Distance` | Instances farther than this from the camera skip their Step events (the room's simulation distance unless set; 0 updates all) |
 | `Engine.Rendering.Backend`, `DrawCalls`, `Triangles`, `GpuMs`, `Instances.Drawn`, `Instances.Culled` | What the last frame drew and cost (read), for a game's own performance display or to choose its own quality |
+| `Engine.Input.Mouse.Sensitivity`, `Engine.Input.Mouse.InvertY` | The player's look settings, 0.05 to 10 and true/false: applied where the mouse's movement enters, so the engine's cameras and every script follow them |
+| `Engine.Input.Gamepad.VibrationStrength` | How strongly controllers vibrate, 0 to 1, whatever the game asks for |
 
 Each command for a layer the room does not have returns false (or 0). Checked by
 `Engine.Pgsl.Logic.EngineApiTileLayersUpdateDistanceAndFrameCosts`.

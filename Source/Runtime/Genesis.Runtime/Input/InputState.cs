@@ -135,8 +135,9 @@ namespace Genesis.Runtime.Input
         /// <summary>Runs the controller's motors: the heavy low one and the light high one, each 0 to 1.</summary>
         public void Rumble(float low, float high, float seconds)
         {
-            RumbleLow = Math.Clamp(float.IsFinite(low) ? low : 0f, 0f, 1f);
-            RumbleHigh = Math.Clamp(float.IsFinite(high) ? high : 0f, 0f, 1f);
+            // As strongly as the player's setting lets (Engine.Input.Gamepad.VibrationStrength).
+            RumbleLow = Math.Clamp(float.IsFinite(low) ? low : 0f, 0f, 1f) * InputSettings.VibrationStrength;
+            RumbleHigh = Math.Clamp(float.IsFinite(high) ? high : 0f, 0f, 1f) * InputSettings.VibrationStrength;
             RumbleSeconds = Math.Clamp(float.IsFinite(seconds) ? seconds : 0f, 0f, 10f);
         }
 
@@ -249,8 +250,8 @@ namespace Genesis.Runtime.Input
             if (pad == 0) { Rumble(low, high, seconds); return; }
             OtherGamepad other = Other(pad);
             if (other == null) return;
-            other.RumbleLow = Math.Clamp(float.IsFinite(low) ? low : 0f, 0f, 1f);
-            other.RumbleHigh = Math.Clamp(float.IsFinite(high) ? high : 0f, 0f, 1f);
+            other.RumbleLow = Math.Clamp(float.IsFinite(low) ? low : 0f, 0f, 1f) * InputSettings.VibrationStrength;
+            other.RumbleHigh = Math.Clamp(float.IsFinite(high) ? high : 0f, 0f, 1f) * InputSettings.VibrationStrength;
             other.RumbleSeconds = Math.Clamp(float.IsFinite(seconds) ? seconds : 0f, 0f, 10f);
         }
 
