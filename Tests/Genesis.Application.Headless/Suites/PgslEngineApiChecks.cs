@@ -138,6 +138,7 @@ internal static class PgslEngineApiChecks
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiWeatherPartsHoldAndRelease", () => WeatherParts(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiTileLayersUpdateDistanceAndFrameCosts", () => TilesAndUpdate(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiWaterSurfaceLook", () => WaterSurface(project, row));
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiTerrainEditsTheGroundAsItPlays", () => TerrainEdits(project, row));
     }
 
     // Engine.Area.Part.Value in a running room: each value reads its default until set, keeps what a
@@ -383,6 +384,73 @@ internal static class PgslEngineApiChecks
         {
             PgslCommands.ActiveGameContext = previousGame;
             PgslCommands.BindContext(previousContext);
+        }
+    }
+
+    // Engine.Terrain.Edit in a running room (its ground starts at 10): the ground rises, falls, levels and takes paint where a
+    // script says, its height reads back at once, and an edit off the terrain reports false.
+    private const string TerrainEditScript = """
+        before = Engine.Terrain.GetHeight(0, 0);
+        raised = Engine.Terrain.Edit.Raise(0, 0, 6, 3);
+        mound = Engine.Terrain.GetHeight(0, 0);
+        Engine.Terrain.Edit.Raise(12, 12, 6, 4);
+        Engine.Terrain.Edit.Lower(12, 12, 6, 1);
+        dug = Engine.Terrain.GetHeight(12, 12);
+        Engine.Terrain.Edit.Flatten(-12, -12, 5, 5);
+        level = Engine.Terrain.GetHeight(-12, -12);
+        painted = Engine.Terrain.Edit.Paint(0, 0, 4, 2, 1);
+        offTerrain = Engine.Terrain.Edit.Raise(500, 500, 6, 3);
+        dDetail = Engine.Terrain.Detail.Quality;
+        Engine.Terrain.Detail.Quality = 9;
+        detail = Engine.Terrain.Detail.Quality;
+        """;
+
+    private static void TerrainEdits(ProjectSession project, Action<string, string, string, string> row)
+    {
+        var resources = new ResourceService(project);
+        string terrainPath = resources.CreateResource(ResourceFolderPolicy.RootFor(project, ResourceKind.Terrain), ResourceKind.Terrain, "Edit Vale");
+        new Genesis.World.Terrain.TerrainAsset(33, 33, 2f, -32f, -32f, 0f, 20f).Save(terrainPath + ".gterrain");
+        ResourceCatalog.Invalidate(project.RootPath);
+        RoomAsset room = RoomAsset.Create("EditRoom", RoomDimension.ThreeD);
+        room.Nodes.Add(new RoomNode
+        {
+            Name = "Vale", Kind = RoomNodeKind.Terrain, LayerId = room.Layers[0].Id,
+            Terrain = new RoomTerrainData { Asset = Path.GetRelativePath(project.RootPath, terrainPath).Replace('\\', '/') },
+        });
+        using var scene = new RuntimeScene("Terrain edits");
+        var game = new ProjectGameContext(project.RootPath, scene, null, null, room, null);
+        var terrains = scene.AddSubsystem(new RoomTerrainSubsystem(project.RootPath, room, game));
+        PgslContext previousContext = PgslCommands.BindContext(new PgslContext());
+        var previousGame = PgslCommands.ActiveGameContext;
+        PgslCommands.ActiveGameContext = game;
+        try
+        {
+            VMEngine.Initialize();
+            var host = new ScriptHostSystem();
+            host.SetContext(game);
+            Entity entity = scene.World.CreateEntity();
+            scene.World.Set(entity, new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+            using (host.UseEventSources(new Dictionary<string, string> { ["Create"] = TerrainEditScript })) host.Attach(scene.World, entity, "GroundProbe");
+            var vars = host.Instances.OfType<PgslBehavior>().Single(behavior => behavior.Entity == entity).GetVariablesSnapshot();
+            double Number(string name) => vars.TryGetValue(name, out object? value) && value is not (string or null) ? Convert.ToDouble(value, CultureInfo.InvariantCulture) : double.NaN;
+            bool Flag(string name) => vars.TryGetValue(name, out object? value) && value is true;
+            var terrain = terrains.LoadedTerrains.Single();
+            var splat = terrain.GetSplat(16, 16);
+            double ground = Number("before");
+            bool pass = Flag("raised") && Math.Abs(Number("mound") - ground - 3) < 0.05
+                && Math.Abs(Number("dug") - ground - 3) < 0.05 && Math.Abs(Number("level") - 5) < 0.05
+                && Flag("painted") && splat.G > 240 && !Flag("offTerrain") && terrains.GroundEdits == 5
+                && Number("dDetail") == 1 && Number("detail") == 4 && Math.Abs(terrains.TerrainDetail - 4f) < 1e-4;
+            string detail = $"ground {Number("before"):0.##} raised to {Number("mound"):0.##} (+3), raised 4 and lowered 1 to {Number("dug"):0.##} (+3), levelled to {Number("level"):0.##} (5); " +
+                $"layer 2 painted {splat.G}/255, off the terrain {Flag("offTerrain")}, {terrains.GroundEdits} edits (5); detail {Number("dDetail")} then {Number("detail")} (4, kept in range)";
+            row("Engine API parts", "the ground changed as it plays", pass ? "PASS" : "FAIL", detail);
+            HeadlessHarness.Assert(pass, $"{detail} {string.Join("; ", host.RecentDiagnostics.Select(d => d.Message))}");
+        }
+        finally
+        {
+            PgslCommands.ActiveGameContext = previousGame;
+            PgslCommands.BindContext(previousContext);
+            Genesis.Runtime.Project.RoomTerrainSubsystem.GameTerrainDetail = 1f;
         }
     }
 

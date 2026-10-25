@@ -431,7 +431,10 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
     /// Level-of-detail multiplier for large terrains: 1 is the default, 2 keeps full detail twice
     /// as far from the camera, 0.5 half as far.
     /// </summary>
-    public float TerrainDetail { get; set; } = 1f;
+    public float TerrainDetail { get; set; } = GameTerrainDetail;
+
+    /// <summary>The detail every room's terrains start with in a game (Engine.Terrain.Detail.Quality; 1 unless set).</summary>
+    public static float GameTerrainDetail { get; set; } = 1f;
 
     /// <summary>Level-of-detail counts for each terrain, in Room order (zero for small terrains).</summary>
     public IReadOnlyList<TerrainLodStatistics> TerrainLodStatistics =>

@@ -391,6 +391,52 @@ public static partial class PgslCommands
         set { if (TryHexColor(value, out System.Numerics.Vector3 colour)) SetWaterLook(look => { look.DeepColor = colour; return look; }); }
     }
 
+    // ── Engine.Terrain: the room's ground, changed as the game plays ─────────────────────
+
+    private static bool EditGround(RoomTerrainSubsystem.GroundEdit edit, double x, double z, double radius, double amount, int layer = 1)
+    {
+        if (ActiveGameContext?.Scene is not { } scene) return false;
+        bool changed = false;
+        foreach (var subsystem in scene.Subsystems)
+            if (subsystem is RoomTerrainSubsystem terrains)
+                changed |= terrains.Edit(scene, edit, (float)x, (float)z, (float)Math.Clamp(radius, 0, 10000), (float)amount, layer);
+        return changed;
+    }
+
+    [PgslCommand("Raise", "Engine.Terrain.Edit.Raise(x, z, radius, metres) -> bool", "Raises the ground of the room's terrains around world x, z by up to the metres given at the centre, falling off smoothly to the radius (a mound, a bank of earth); its look, grass and collision follow at once and last while the room runs; false where no terrain is", "Terrain", Namespace = "Engine.Terrain.Edit", Flat = false)]
+    public static bool TerrainEditRaise(double x, double z, double radius, double metres) =>
+        EditGround(RoomTerrainSubsystem.GroundEdit.Raise, x, z, radius, metres);
+
+    [PgslCommand("Lower", "Engine.Terrain.Edit.Lower(x, z, radius, metres) -> bool", "Lowers the ground around world x, z by up to the metres given at the centre (a crater where a shell lands, a hole a player digs); false where no terrain is", "Terrain", Namespace = "Engine.Terrain.Edit", Flat = false)]
+    public static bool TerrainEditLower(double x, double z, double radius, double metres) =>
+        EditGround(RoomTerrainSubsystem.GroundEdit.Lower, x, z, radius, metres);
+
+    [PgslCommand("Flatten", "Engine.Terrain.Edit.Flatten(x, z, radius, height) -> bool", "Levels the ground around world x, z to the world height given, blending out to the radius (a floor for a building a player puts down); false where no terrain is", "Terrain", Namespace = "Engine.Terrain.Edit", Flat = false)]
+    public static bool TerrainEditFlatten(double x, double z, double radius, double height) =>
+        EditGround(RoomTerrainSubsystem.GroundEdit.Flatten, x, z, radius, height);
+
+    [PgslCommand("Smooth", "Engine.Terrain.Edit.Smooth(x, z, radius, strength) -> bool", "Softens the ground around world x, z toward its neighbours' heights, by 0 to 1 (an edge worn down); false where no terrain is", "Terrain", Namespace = "Engine.Terrain.Edit", Flat = false)]
+    public static bool TerrainEditSmooth(double x, double z, double radius, double strength) =>
+        EditGround(RoomTerrainSubsystem.GroundEdit.Smooth, x, z, radius, strength);
+
+    [PgslCommand("Paint", "Engine.Terrain.Edit.Paint(x, z, radius, layer, strength) -> bool", "Paints the terrain's layer 1 to 8 around world x, z at 0 to 1 strength (scorched earth, a path worn to dirt, snow settling); false where no terrain is", "Terrain", Namespace = "Engine.Terrain.Edit", Flat = false)]
+    public static bool TerrainEditPaint(double x, double z, double radius, double layer, double strength) =>
+        double.IsFinite(layer) && EditGround(RoomTerrainSubsystem.GroundEdit.Paint, x, z, radius, strength, (int)Math.Round(layer));
+
+    [PgslCommand("Quality", "Engine.Terrain.Detail.Quality = 1", "How far large terrains keep their full detail from the camera, 0.25 to 4 (1 unless set): 2 keeps it twice as far for a sharper distance, 0.5 half as far for a faster frame; lasts across rooms", "Terrain", Namespace = "Engine.Terrain.Detail", Flat = false)]
+    public static double TerrainDetailQuality
+    {
+        get => RoomTerrainSubsystem.GameTerrainDetail;
+        set
+        {
+            if (!double.IsFinite(value)) return;
+            RoomTerrainSubsystem.GameTerrainDetail = (float)Math.Clamp(value, 0.25, 4);
+            if (ActiveGameContext?.Scene is not { } scene) return;
+            foreach (var subsystem in scene.Subsystems)
+                if (subsystem is RoomTerrainSubsystem terrains) terrains.TerrainDetail = RoomTerrainSubsystem.GameTerrainDetail;
+        }
+    }
+
     // ── Engine.Physics.Character: this instance's character, changed as it plays ─────────
 
     [PgslCommand("StepHeight", "Engine.Physics.Character.StepHeight = metres", "How high a step this instance's character walks up without jumping, 0 to half its height (as made by CharacterCreate, 0.3 unless set); a crouch or a heavy load can lower it", "Physics", Namespace = "Engine.Physics.Character", Flat = false)]

@@ -139,7 +139,7 @@ Engine.Navigation.Agent (Speed, StoppingDistance); 25 October: Engine.Display.Re
 |---|---|
 | Engine.Water | + Enabled, ✓ DepthAt(x, z), ✓ SurfaceAt(x, z), ✓ FlowX/FlowZ(x, z), ✓ IsSwimmable(x, z) |
 | Engine.Water.Reflections | ✓ Enabled [Reflections], + Resolution, + Distortion |
-| Engine.Water.Surface | + Waves, + WaveSpeed, + Foam.Enabled, + Foam.Width, + ShallowColor, + DeepColor, + Clarity |
+| Engine.Water.Surface | ✓ Waves, ✓ WaveSpeed, + Foam.Enabled, ✓ FoamWidth, ✓ ShallowColor, ✓ DeepColor, ✓ Clarity |
 | Engine.Water.Holes (terrain water) | ✓ Radius, ✓ Shape, ✓ AngleBias, ✓ DischargeCoefficient [Engine.Terrain.Water.Hole*], ✓ Punch(x, z), ✓ Clear() |
 | Engine.Water.Swimming | + Buoyancy, + Drag |
 
@@ -148,11 +148,11 @@ Engine.Navigation.Agent (Speed, StoppingDistance); 25 October: Engine.Display.Re
 | Part | Values |
 |---|---|
 | Engine.Terrain | + Enabled (drawn), ✓ HeightAt(x, z) [GetHeight], + NormalAt(x, z), + MaterialAt(x, z), + Width (read), + Depth (read) |
-| Engine.Terrain.Detail | + Quality (LOD), + Distance, + Tessellation |
+| Engine.Terrain.Detail | ✓ Quality (LOD), + Distance, + Tessellation |
 | Engine.Terrain.Grass | + Enabled, + Density, + Distance, + Height, + Wind |
 | Engine.Terrain.Scatter (trees, rocks) | + Enabled, + Density, + Distance, + Shadows |
 | Engine.Terrain.Collision | + Enabled, + Distance (how far collision is built around bodies) |
-| Engine.Terrain.Edit | + Raise(x, z, radius, amount), + Flatten(...), + Paint(x, z, radius, "Layer") |
+| Engine.Terrain.Edit | ✓ Raise(x, z, radius, metres), ✓ Lower(...), ✓ Flatten(x, z, radius, height), ✓ Smooth(...), ✓ Paint(x, z, radius, layer, strength) |
 
 ## Engine.Rendering
 

@@ -119,9 +119,12 @@ muffles the music, for a pause menu, underwater or a dream. Music is never echoe
 | `Engine.Physics.Character.StepHeight`, `SlopeLimit`, `Radius`, `Height` | This instance's character changed as it plays (a crouch, a heavy load, a slippery spell); radius and height read |
 | `Engine.Network.Replication.Rate` | How many times a second the host sends shared Objects, 1 to 120 (20 unless set) |
 | `Engine.Water.Surface.Waves`, `WaveSpeed`, `FoamWidth`, `Clarity`, `ShallowColor`, `DeepColor` | The look of every water body of the room's terrains, set at once (murky after a storm, rough in a gale); each reads the first body's |
+| `Engine.Terrain.Edit.Raise/Lower(x, z, radius, metres)`, `Flatten(x, z, radius, height)`, `Smooth(x, z, radius, strength)`, `Paint(x, z, radius, layer, strength)` | Changes the ground as the game plays, with the Terrain editor's own brushes: a crater where a shell lands, a floor levelled for a building, a path worn to dirt. Its look, grass and collision follow at once; the resource is untouched |
+| `Engine.Terrain.Detail.Quality` | How far large terrains keep full detail, 0.25 to 4 (1 unless set); lasts across rooms |
 
-Each command for a layer the room does not have returns false (or 0). Checked by
-`Engine.Pgsl.Logic.EngineApiTileLayersUpdateDistanceAndFrameCosts`.
+Each command for a layer the room does not have returns false (or 0), as does a terrain edit
+where no terrain is. Checked by `Engine.Pgsl.Logic.EngineApiTileLayersUpdateDistanceAndFrameCosts`,
+`EngineApiWaterSurfaceLook` and `EngineApiTerrainEditsTheGroundAsItPlays`.
 
 ## Render scale and dynamic resolution (25 October 2026)
 

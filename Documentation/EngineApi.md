@@ -6,7 +6,7 @@ variable and, when it can be set, set like one (`Engine.Physics.Mass = 4;`, `Eng
 an instance's property is the current instance's, each target's in turn inside `with`. The flat
 names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
-1695 names: 430 properties (361 can be set), 1265 commands.
+1701 names: 431 properties (362 can be set), 1270 commands.
 
 ## Engine.Alarm
 
@@ -2006,6 +2006,22 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `Push` | command | Push a number |
 | `Size` | command | Entry count |
 | `Top` | command | Peek the top value; 0 when empty |
+
+## Engine.Terrain.Detail
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Quality` | property | How far large terrains keep their full detail from the camera, 0.25 to 4 (1 unless set): 2 keeps it twice as far for a sharper distance, 0.5 half as far for a faster frame; lasts across rooms |
+
+## Engine.Terrain.Edit
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Flatten` | command | Levels the ground around world x, z to the world height given, blending out to the radius (a floor for a building a player puts down); false where no terrain is |
+| `Lower` | command | Lowers the ground around world x, z by up to the metres given at the centre (a crater where a shell lands, a hole a player digs); false where no terrain is |
+| `Paint` | command | Paints the terrain's layer 1 to 8 around world x, z at 0 to 1 strength (scorched earth, a path worn to dirt, snow settling); false where no terrain is |
+| `Raise` | command | Raises the ground of the room's terrains around world x, z by up to the metres given at the centre, falling off smoothly to the radius (a mound, a bank of earth); its look, grass and collision follow at once and last while the room runs; false where no terrain is |
+| `Smooth` | command | Softens the ground around world x, z toward its neighbours' heights, by 0 to 1 (an edge worn down); false where no terrain is |
 
 ## Engine.Terrain
 
