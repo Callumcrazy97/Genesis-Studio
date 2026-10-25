@@ -56,6 +56,17 @@ internal static class EngineSettingsChecks
             $"The room view should show the room's fog from 12 m as the game will; it changes {string.Join(", ", changes.Select(change => change.Field.Name + "=" + change.Value))}.");
         HeadlessHarness.Assert(Genesis.Shared.Rendering.DepthOfField.Enabled == focusBefore,
             "Previewing the room's settings left depth of field changed for the whole of Studio.");
+
+        // The Object editor's view shows an Object's own engine settings on its instance.
+        var preview = new Genesis.Application.Editors.Suite.Objects.ObjectCompositionPreviewControl(project.RootPath, compact: true) { Dock = DockStyle.Fill };
+        host.Controls.Add(preview);
+        System.Windows.Forms.Application.DoEvents();
+        var previousGame = PgslCommands.ActiveGameContext;
+        preview.Reload(JObject.Parse("{\"schemaVersion\":2,\"dimension\":\"ThreeD\",\"components\":[{\"type\":\"" + EngineSettings.ComponentType
+            + "\",\"props\":{\"Engine.Instance.ScaleX\":\"2\"}}]}"));
+        float scaleX = preview.PreviewWorld is { } world && world.IsAlive(preview.PreviewEntity) ? world.GetRef<TransformComponent>(preview.PreviewEntity).ScaleX : float.NaN;
+        HeadlessHarness.Assert(Math.Abs(scaleX - 2f) < 1e-4 && ReferenceEquals(PgslCommands.ActiveGameContext, previousGame),
+            $"The Object view should show the Object's Engine.Instance.ScaleX of 2 (it shows {scaleX}) and leave Studio's game as it was.");
     }
 
     public static void InspectorAndRooms(ProjectSession project, ResourceService resources)

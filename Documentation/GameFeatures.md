@@ -49,8 +49,10 @@ room's look is made the game's way with and without them and every value of the 
 is laid over the editor's view, so nothing is written per setting; a setting is set only where it
 can be read first and is put back afterwards, so values all of Studio shares (depth of field,
 render scale, threads) never change for the other views. Settings with nothing to draw in a still
-view (audio, input, the window) change nothing there. Checked by
-`Editor.Suite.EngineSettings.RoomViewShowsTheRoomsSettings`.
+view (audio, input, the window) change nothing there. **The Object editor's view** likewise shows an
+Object's own settings on its instance (`Engine.Instance.Yaw`, `Engine.Model.Glow`...), set as a room
+sets them (after its body is made) with the view's own game in front; its variables show in its live
+sandbox, which runs its events. Checked by `Editor.Suite.EngineSettings.RoomViewShowsTheRoomsSettings`.
 
 | Where | What it gives | When the game sets them |
 |---|---|---|

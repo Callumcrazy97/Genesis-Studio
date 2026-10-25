@@ -162,7 +162,8 @@ public sealed class ObjectCompositionPreviewControl : UserControl
         _scene = new RuntimeScene("Object Composition Preview") { Input = _input };
         _composition = _scene.AddSubsystem(new ObjectCompositionSubsystem(_projectRoot, _audio,
             !string.Equals((string?)clone["dimension"], "ThreeD", StringComparison.OrdinalIgnoreCase)));
-        _entity = PrefabSpawner.Spawn(_scene.World, clone);
+        // As a room places it: made, given its body, then its engine settings (below).
+        _entity = PrefabSpawner.Spawn(_scene.World, clone, null, 0f, 0f, out IReadOnlyDictionary<string, string> engineSettings);
         if (string.Equals((string?)clone["dimension"], "ThreeD", StringComparison.OrdinalIgnoreCase))
         {
             _scene.Physics = PhysicsWorld.Create(new PhysicsWorldAsset());
@@ -176,9 +177,11 @@ public sealed class ObjectCompositionPreviewControl : UserControl
             _scene.World.Set(floor, RigidBodyComponent.InfiniteFloor());
             _scene.UpdateFixed(1f / 60f);
         }
+        var game = new ProjectGameContext(_projectRoot, _scene, _viewport.Host.Renderer, null,
+            new RoomAsset { Dimension = (string?)clone["dimension"] == "ThreeD" ? RoomDimension.ThreeD : RoomDimension.TwoD }, null, _audio);
+        ApplyEngineSettings(game, engineSettings);
         _scripts = new ScriptHostSystem();
-        _scripts.SetContext(new ProjectGameContext(_projectRoot, _scene, _viewport.Host.Renderer, null,
-            new RoomAsset { Dimension = (string?)clone["dimension"] == "ThreeD" ? RoomDimension.ThreeD : RoomDimension.TwoD }, null, _audio));
+        _scripts.SetContext(game);
         if (EventSources is not null)
         {
             using (_scripts.UseEventSources(EventSources))
@@ -194,6 +197,27 @@ public sealed class ObjectCompositionPreviewControl : UserControl
         FrameAsset(clone);
         _viewport.Invalidate(true);
     }
+
+    // The Object's engine settings (Engine.Model.Glow, Engine.Instance.Yaw...) set on the preview's
+    // instance as a room sets them, with this preview's own game in front, so the view shows them
+    // without running anything and no other view's game is touched.
+    private void ApplyEngineSettings(ProjectGameContext game, IReadOnlyDictionary<string, string>? settings)
+    {
+        if (settings is not { Count: > 0 } || _scene is null) return;
+        var previousGame = PgslCommands.ActiveGameContext;
+        string previousPath = PgslCommands.ProjectPath;
+        PgslCommands.ActiveGameContext = game;
+        PgslCommands.ProjectPath = _projectRoot;
+        try { PrefabSpawner.ApplyEngineSettings(_scene.World, _entity, settings, null); }
+        finally
+        {
+            PgslCommands.ActiveGameContext = previousGame;
+            PgslCommands.ProjectPath = previousPath;
+        }
+    }
+
+    /// <summary>The preview's world (tests).</summary>
+    internal Genesis.Runtime.ECS.World? PreviewWorld => _scene?.World;
 
     public void FrameAsset(JObject prefab, bool force = false)
     {
