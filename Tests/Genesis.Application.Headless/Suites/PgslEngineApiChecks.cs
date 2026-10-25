@@ -271,6 +271,13 @@ internal static class PgslEngineApiChecks
         Engine.Input.Gamepad.VibrationStrength = 0.5;
         GamepadVibrate(1, 0.8, 1);
         sensitivity = Engine.Input.Mouse.Sensitivity;
+        CharacterCreate(0.4, 1.8, 0.3, 45);
+        Engine.Physics.Character.StepHeight = 0.5;
+        step = Engine.Physics.Character.StepHeight;
+        Engine.Physics.Character.SlopeLimit = 120;
+        slope = Engine.Physics.Character.SlopeLimit;
+        radius = Engine.Physics.Character.Radius;
+        rate = Engine.Network.Replication.Rate;
         """;
 
     private static void TilesAndUpdate(ProjectSession project, Action<string, string, string, string> row)
@@ -278,6 +285,7 @@ internal static class PgslEngineApiChecks
         RoomAsset room = RoomAsset.Create("TilesRoom", RoomDimension.TwoD);
         room.Nodes.Add(new RoomNode { Name = "Back", Kind = RoomNodeKind.TileLayer, LayerId = room.Layers[0].Id, TileLayer = new RoomTileLayerData() });
         using var scene = new RuntimeScene("Tile layers") { Input = new Genesis.Runtime.Input.InputState() };
+        scene.Physics = Genesis.Physics.PhysicsWorld.Create(new PhysicsWorldAsset());
         scene.AddSubsystem(new Genesis.Runtime.Rendering.RoomRenderSubsystem(project.RootPath, room));
         var game = new ProjectGameContext(project.RootPath, scene, null, null, room, null);
         PgslContext previousContext = PgslCommands.BindContext(new PgslContext());
@@ -300,9 +308,10 @@ internal static class PgslEngineApiChecks
                 && Number("ox") == 12 && Number("oy") == -4 && Number("updateDistance") == 250 && scene.Environment.SimulationDistance == 250
                 && Number("drawCalls") == 0 && Number("backendLength") == 0
                 && Number("sensitivity") == 2 && look == new System.Numerics.Vector2(2f, -2f)
-                && Math.Abs(rumble.Low - 0.5f) < 1e-4 && Math.Abs(rumble.High - 0.4f) < 1e-4;
+                && Math.Abs(rumble.Low - 0.5f) < 1e-4 && Math.Abs(rumble.High - 0.4f) < 1e-4
+                && Math.Abs(Number("step") - 0.5) < 1e-4 && Number("slope") == 89 && Math.Abs(Number("radius") - 0.4) < 1e-4 && Number("rate") == 20;
             string detail = $"visible {Number("backVisible")} then {Number("hidden")}, missing layer {Number("missing")}, alpha {Number("alpha")} (1), offset {Number("ox")},{Number("oy")} (12,-4), update distance {Number("updateDistance")} (250), draw calls {Number("drawCalls")} and backend length {Number("backendLength")} with no renderer (0, 0), "
-                + $"mouse movement 1,1 looks {look} (2,-2), rumble {rumble.Low},{rumble.High} (0.5,0.4)";
+                + $"mouse movement 1,1 looks {look} (2,-2), rumble {rumble.Low},{rumble.High} (0.5,0.4), character step {Number("step")} (0.5), slope {Number("slope")} (89), radius {Number("radius")} (0.4), replication rate {Number("rate")} (20 without a network)";
             row("Engine API parts", "tile layers, update distance and frame costs", pass ? "PASS" : "FAIL", detail);
             HeadlessHarness.Assert(pass, $"{detail} {diagnostics}");
         }

@@ -6,7 +6,7 @@ variable and, when it can be set, set like one (`Engine.Physics.Mass = 4;`, `Eng
 an instance's property is the current instance's, each target's in turn inside `with`. The flat
 names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
-1684 names: 419 properties (352 can be set), 1265 commands.
+1689 names: 424 properties (355 can be set), 1265 commands.
 
 ## Engine.Alarm
 
@@ -1324,6 +1324,12 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `SetNumber` | command | Give a shared instance a named number every machine can read from its copy. Only the machine that controls the instance can set it |
 | `SetText` | command | Give a shared instance a named piece of text every machine can read from its copy |
 
+## Engine.Network.Replication
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Rate` | property | How many times a second the host sends shared Objects to the players, 1 to 120 (20 unless set): more is smoother and costs more of the connection |
+
 ## Engine.Noise
 
 | Name | Kind | What it is |
@@ -1517,6 +1523,15 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `VelocityY` | property | The body's speed along Y |
 | `VelocityZ` | property | The body's speed along Z (always 0 for a 2D body) |
 | `Weight` | property | How little air drag slows the body (heavier falls through air faster); 0 uses the world's default |
+
+## Engine.Physics.Character
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Height` | read only | How tall this instance's character is now, in metres (read; CharacterSetHeight changes it where it fits) |
+| `Radius` | read only | How wide this instance's character is, its capsule's radius in metres, as CharacterCreate made it (read) |
+| `SlopeLimit` | property | The steepest slope this instance's character walks up, 0 to 89 degrees (as made by CharacterCreate, 45 unless set); steeper ground it slides from |
+| `StepHeight` | property | How high a step this instance's character walks up without jumping, 0 to half its height (as made by CharacterCreate, 0.3 unless set); a crouch or a heavy load can lower it |
 
 ## Engine.Physics.Gravity
 

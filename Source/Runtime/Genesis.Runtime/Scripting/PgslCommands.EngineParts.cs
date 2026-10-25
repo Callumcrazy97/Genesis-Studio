@@ -326,6 +326,45 @@ public static partial class PgslCommands
     [PgslCommand("Culled", "Engine.Rendering.Instances.Culled", "Instances the last frame left out as unseen (read)", "Rendering", Namespace = "Engine.Rendering.Instances", Flat = false)]
     public static double RenderingInstancesCulled => LastFrame().InstancesCulled;
 
+    // ── Engine.Physics.Character: this instance's character, changed as it plays ─────────
+
+    [PgslCommand("StepHeight", "Engine.Physics.Character.StepHeight = metres", "How high a step this instance's character walks up without jumping, 0 to half its height (as made by CharacterCreate, 0.3 unless set); a crouch or a heavy load can lower it", "Physics", Namespace = "Engine.Physics.Character", Flat = false)]
+    public static double PhysicsCharacterStepHeight
+    {
+        get => TryCharacter(out Genesis.Physics.KinematicCharacter character, out _, out _) ? character.StepHeight : 0.3;
+        set
+        {
+            if (TryCharacter(out Genesis.Physics.KinematicCharacter character, out _, out _) && double.IsFinite(value))
+                character.StepHeight = (float)Math.Clamp(value, 0, character.Height * 0.5);
+        }
+    }
+
+    [PgslCommand("SlopeLimit", "Engine.Physics.Character.SlopeLimit = degrees", "The steepest slope this instance's character walks up, 0 to 89 degrees (as made by CharacterCreate, 45 unless set); steeper ground it slides from", "Physics", Namespace = "Engine.Physics.Character", Flat = false)]
+    public static double PhysicsCharacterSlopeLimit
+    {
+        get => TryCharacter(out Genesis.Physics.KinematicCharacter character, out _, out _) ? character.MaxSlopeDegrees : 45;
+        set
+        {
+            if (TryCharacter(out Genesis.Physics.KinematicCharacter character, out _, out _) && double.IsFinite(value))
+                character.MaxSlopeDegrees = (float)Math.Clamp(value, 0, 89);
+        }
+    }
+
+    [PgslCommand("Radius", "Engine.Physics.Character.Radius", "How wide this instance's character is, its capsule's radius in metres, as CharacterCreate made it (read)", "Physics", Namespace = "Engine.Physics.Character", Flat = false)]
+    public static double PhysicsCharacterRadius => TryCharacter(out Genesis.Physics.KinematicCharacter character, out _, out _) ? character.Radius : 0;
+
+    [PgslCommand("Height", "Engine.Physics.Character.Height", "How tall this instance's character is now, in metres (read; CharacterSetHeight changes it where it fits)", "Physics", Namespace = "Engine.Physics.Character", Flat = false)]
+    public static double PhysicsCharacterHeight => TryCharacter(out Genesis.Physics.KinematicCharacter character, out _, out _) ? character.Height : 0;
+
+    // ── Engine.Network.Replication: how often shared Objects are sent ───────────────────
+
+    [PgslCommand("Rate", "Engine.Network.Replication.Rate = 30", "How many times a second the host sends shared Objects to the players, 1 to 120 (20 unless set): more is smoother and costs more of the connection", "Network", Namespace = "Engine.Network.Replication", Flat = false)]
+    public static double NetworkReplicationRate
+    {
+        get => ActiveReplication?.SendRate ?? 20;
+        set { if (ActiveReplication != null && double.IsFinite(value)) ActiveReplication.SendRate = (float)Math.Clamp(value, 1, 120); }
+    }
+
     // ── Engine.Tile.Layer: a 2D room's tile layers by name, as the game runs ─────────────
 
     private static Rendering.RoomRenderSubsystem.TileLayerLook? TileLayerLook(string layer, bool make)

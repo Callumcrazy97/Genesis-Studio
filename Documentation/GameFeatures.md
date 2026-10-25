@@ -116,6 +116,8 @@ muffles the music, for a pause menu, underwater or a dream. Music is never echoe
 | `Engine.Rendering.Backend`, `DrawCalls`, `Triangles`, `GpuMs`, `Instances.Drawn`, `Instances.Culled` | What the last frame drew and cost (read), for a game's own performance display or to choose its own quality |
 | `Engine.Input.Mouse.Sensitivity`, `Engine.Input.Mouse.InvertY` | The player's look settings, 0.05 to 10 and true/false: applied where the mouse's movement enters, so the engine's cameras and every script follow them |
 | `Engine.Input.Gamepad.VibrationStrength` | How strongly controllers vibrate, 0 to 1, whatever the game asks for |
+| `Engine.Physics.Character.StepHeight`, `SlopeLimit`, `Radius`, `Height` | This instance's character changed as it plays (a crouch, a heavy load, a slippery spell); radius and height read |
+| `Engine.Network.Replication.Rate` | How many times a second the host sends shared Objects, 1 to 120 (20 unless set) |
 
 Each command for a layer the room does not have returns false (or 0). Checked by
 `Engine.Pgsl.Logic.EngineApiTileLayersUpdateDistanceAndFrameCosts`.
