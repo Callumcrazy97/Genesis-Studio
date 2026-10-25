@@ -22,7 +22,7 @@ namespace Genesis.Application.Editors.Suite.Terrain;
 /// and aerial haze. Saves <c>.terrain.json</c> settings plus a binary <c>.gterrain</c>
 /// sidecar the runtime's <c>RoomTerrainSubsystem</c> loads directly.
 /// </summary>
-public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResourceInspectorTarget, ILiveResourceInspectorTarget
+public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResourceInspectorTarget, ILiveResourceInspectorTarget, IRunnableResource
 {
     public enum TerrainBrush
     {

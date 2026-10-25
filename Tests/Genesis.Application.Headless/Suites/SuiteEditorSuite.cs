@@ -363,18 +363,27 @@ internal static class SuiteEditorSuite
                 "Running a project with zero Rooms must log a clear 'no Room' error instead of falling through to launch.");
         });
 
-        RunCase("Editor.Suite.Room.RunThisRoomStartsInTheOpenRoom", () =>
+        RunCase("Editor.Suite.RunThisResourceRunsTheSelectedOrOpenResource", () =>
         {
-            // Shift+F5 runs the game from the Room open in the editor; with anything else in front it is unavailable.
-            ResourceItem Item(string name, ResourceKind kind) => new()
+            // Shift+F5 runs the resource selected in Assets while Assets has focus, otherwise the one
+            // open in front, otherwise the one selected: a Room as the game, others in their editor's sandbox.
+            ResourceItem Item(string name, ResourceKind kind, bool folder = false) => new()
             {
-                Name = name, FullPath = Path.Combine(ctx.Workspace, name), RelativePath = name, Kind = kind, IsFolder = false,
+                Name = name, FullPath = Path.Combine(ctx.Workspace, name), RelativePath = name, Kind = kind, IsFolder = folder,
             };
-            string? room = StudioShellForm.ActiveRoomName(new ShellCommandContext(null, new StubDocument(Item("Cellar", ResourceKind.Room)), null, false));
-            string? image = StudioShellForm.ActiveRoomName(new ShellCommandContext(null, new StubDocument(Item("Torch", ResourceKind.Image)), null, false));
-            string? none = StudioShellForm.ActiveRoomName(new ShellCommandContext(null, null, null, false));
-            HeadlessHarness.Assert(room == "Cellar" && image == null && none == null,
-                $"Run This Room named '{room}' for a Room, '{image}' for an Image and '{none}' with nothing open (Cellar, none, none).");
+            ResourceItem cellar = Item("Cellar", ResourceKind.Room), crate = Item("Crate", ResourceKind.GameObject);
+            string? Pick(IStudioDocument? open, ResourceItem? selected, bool assetsFocused) =>
+                StudioShellForm.ResourceToRun(new ShellCommandContext(null, open, selected, assetsFocused))?.Name;
+            string? focused = Pick(new StubDocument(cellar), crate, true), open = Pick(new StubDocument(cellar), crate, false),
+                fallback = Pick(null, crate, false), folder = Pick(null, Item("Rooms", ResourceKind.Folder, folder: true), true), none = Pick(null, null, false);
+            HeadlessHarness.Assert(focused == "Crate" && open == "Cellar" && fallback == "Crate" && folder == null && none == null,
+                $"Run This Resource picked '{focused}' with Assets focused, '{open}' with a Room open, '{fallback}' with only a selection, '{folder}' for a folder and '{none}' with nothing (Crate, Cellar, Crate, none, none).");
+            Type runnable = typeof(Genesis.Application.Editors.Suite.IRunnableResource);
+            HeadlessHarness.Assert(runnable.IsAssignableFrom(typeof(ObjectEditorControl))
+                && runnable.IsAssignableFrom(typeof(Genesis.Application.Editors.Suite.Assets.AudioEditorControl))
+                && runnable.IsAssignableFrom(typeof(Genesis.Application.Editors.Suite.Assets.ModelViewerControl))
+                && runnable.IsAssignableFrom(typeof(Genesis.Application.Editors.Suite.Terrain.TerrainEditorControl)),
+                "An Object, sound, model or terrain editor does not run its resource.");
         });
 
         RunCase("Editor.Suite.Terrain.SculptPaintUndoCapture", () =>

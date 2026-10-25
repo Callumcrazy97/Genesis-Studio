@@ -331,7 +331,7 @@ public sealed partial class StudioShellForm : DpiAwareForm
         file.DropDownItems.Add(CommandMenuItem("project.saveAll"));
         file.DropDownItems.Add(new ToolStripSeparator());
         file.DropDownItems.Add(CommandMenuItem("project.run"));
-        file.DropDownItems.Add(CommandMenuItem("project.runRoom"));
+        file.DropDownItems.Add(CommandMenuItem("project.runResource"));
         file.DropDownItems.Add(CommandMenuItem("project.debug"));
         file.DropDownItems.Add(new ToolStripSeparator());
         file.DropDownItems.Add(CommandMenuItem("project.export"));

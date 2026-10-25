@@ -26,9 +26,22 @@ public static class EngineSettingsInspector
         {
             bool known = EngineSettings.TryFind(name, out EngineSettings.Setting setting);
             object value = known ? EngineSettings.Parse(text, setting.Type) : text;
-            values.Add(new ResourceInspectorLiveValue(Group, Prefix + name, ShortName(name), value, readOnly,
-                known ? $"{setting.Description} Default: {DefaultOf(setting)}." : "Not an engine value that can be set: the game skips it.",
-                known ? setting.Choices : null));
+            if (!known)
+            {
+                values.Add(new ResourceInspectorLiveValue(Group, Prefix + name, ShortName(name), value, readOnly,
+                    "Not an engine value that can be set: the game skips it."));
+                continue;
+            }
+            // The default beside the name, as the Add list shows it; the range in the description and
+            // kept by the number box.
+            string fallback = DefaultOf(setting);
+            bool ranged = EngineSettings.TryRange(setting, out double minimum, out double maximum);
+            string description = $"{setting.Description} Default: {fallback}." + (ranged ? $" From {Number(minimum)} to {Number(maximum)}." : "");
+            int places = !ranged ? 0 : maximum - minimum <= 2 ? 3 : maximum - minimum <= 20 ? 2 : maximum - minimum <= 2000 ? 1 : 0;
+            values.Add(new ResourceInspectorLiveValue(Group, Prefix + name, $"{ShortName(name)} ({fallback})", value, readOnly,
+                description, setting.Choices,
+                Minimum: ranged ? (decimal)minimum : null, Maximum: ranged ? (decimal)maximum : null,
+                Increment: ranged ? (decimal)Math.Pow(10, -places) : null, DecimalPlaces: ranged ? places : null));
         }
         if (readOnly) return;
         // Listed without "Engine." and with each value's default (Rendering.Fog.Start (10)), so typing
@@ -96,6 +109,8 @@ public static class EngineSettingsInspector
         settings[name] = text;
         return true;
     }
+
+    private static string Number(double value) => value.ToString("0.###", CultureInfo.InvariantCulture);
 
     /// <summary>Engine.Physics.Mass shows as "Physics · Mass".</summary>
     public static string ShortName(string name)

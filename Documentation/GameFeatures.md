@@ -38,7 +38,10 @@ images (`Engine.Image.Frame`, `Speed`, `Alpha`, `ScaleX/Y`, `BlendR/G/B`, `Width
 
 The same values can be given to resources in Studio, without a script. The Inspector's **Engine
 settings** group lists the settings a resource carries, each editable, with **Add a setting** (only
-the values that suit it) and **Remove a setting**:
+the values that suit it, each with its default) and **Remove a setting**. Each setting shows its
+default beside its name (`Model · Glow · Strength (0)`); pointing at it shows what it does, its
+default and its range, and a number keeps to its range. (Every Inspector row with a description
+shows it when pointed at, since 25 October.)
 
 | Where | What it gives | When the game sets them |
 |---|---|---|
@@ -145,12 +148,14 @@ whatever is in the middle of the screen). Off unless a game turns it on; a sharp
 never smears over a blurred background or the reverse. DX11, DX12, Vulkan and OpenGL; the
 Software renderer draws without it.
 
-## Run This Room, and a check before export (24 October 2026)
+## Run This Resource, and a check before export (24-25 October 2026)
 
-**Run This Room** (Shift+F5, File menu, or the command palette) saves and runs the game starting in
-the Room open in the editor rather than the start room, for testing a level without playing up to
-it. **Export Game** now runs the project's checks first: problems are listed in the Console and the
-export goes ahead only when you say so.
+**Run This Resource** (Shift+F5, File menu, or the command palette) runs the resource selected in
+Assets (while Assets has focus) or the one open in front, as that resource's own sandbox: a Room runs
+as the game starting in that room (as the Room editor's ▶ Play), an Object in its live sandbox (as F5
+in the Object editor), a sound plays, a model's clip plays, a terrain's preview runs. An editor joins
+in by implementing `IRunnableResource`. **Export Game** runs the project's checks and the strict
+script check first: problems are listed in the Console and the export goes ahead only when you say so.
 
 ## The game's version, and crash reports a player can send (24 October 2026)
 

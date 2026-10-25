@@ -24,7 +24,7 @@ namespace Genesis.Application.Editors.Suite.Assets;
 /// editor used to play every clip at full volume no matter what the sliders said — the
 /// designer heard something the game would never produce.
 /// </remarks>
-public sealed partial class AudioEditorControl : EditorSurfaceControl, IResourceInspectorTarget, ILiveResourceInspectorTarget
+public sealed partial class AudioEditorControl : EditorSurfaceControl, IResourceInspectorTarget, ILiveResourceInspectorTarget, IRunnableResource
 {
     private sealed class AudioDocument
     {
@@ -810,6 +810,13 @@ public sealed partial class AudioEditorControl : EditorSurfaceControl, IResource
         string.IsNullOrWhiteSpace(_document.Source)
             ? null
             : ResourceNames.ResolveFile(ProjectRoot, _document.Source, ResourceType.Audio);
+
+    /// <summary>Run This Resource: the sound plays.</summary>
+    public bool RunResource()
+    {
+        Play();
+        return true;
+    }
 
     /// <summary>
     /// Audition the clip on the same mixer the game uses, so gain, pitch, bus, loop and

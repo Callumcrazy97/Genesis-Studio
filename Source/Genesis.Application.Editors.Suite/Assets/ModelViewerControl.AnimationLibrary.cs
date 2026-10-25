@@ -69,6 +69,13 @@ public partial class ModelViewerControl
 
     public void SetLibraryPreviewTime(float seconds) { SetAnimationTime(seconds); Surface.Invalidate(true); }
     public void PlayLibraryClip() => SetPlaying(true);
+
+    /// <summary>Run This Resource: the model's selected clip plays.</summary>
+    public bool RunResource()
+    {
+        SetPlaying(true);
+        return true;
+    }
     public void PauseLibraryClip() => SetPlaying(false);
 
     /// <summary>

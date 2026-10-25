@@ -326,6 +326,13 @@ public sealed partial class ObjectEditorControl
         Disposed += (_, _) => _watchTimer.Dispose();
     }
 
+    /// <summary>Run This Resource: the Object's live sandbox, as F5 in the editor.</summary>
+    public bool RunResource()
+    {
+        RunLiveSandbox();
+        return true;
+    }
+
     public void RunLiveSandbox()
     {
         _objectWorkflow?.SetCurrent("Test");

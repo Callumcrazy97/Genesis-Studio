@@ -122,6 +122,27 @@ public static class EngineSettings
     }
 
     /// <summary>
+    /// The range a number setting keeps to, as its description gives it ("0 to 600 seconds");
+    /// false when it states none.
+    /// </summary>
+    public static bool TryRange(Setting setting, out double minimum, out double maximum)
+    {
+        minimum = maximum = 0;
+        if (setting.Type != typeof(double)) return false;
+        foreach (System.Text.RegularExpressions.Match range in System.Text.RegularExpressions.Regex.Matches(setting.Description ?? "",
+                     @"(?<!\w)(?<min>-?[0-9]+(?:\.[0-9]+)?) to (?<max>-?[0-9]+(?:\.[0-9]+)?)(?!\w)"))
+        {
+            double low = double.Parse(range.Groups["min"].Value, CultureInfo.InvariantCulture);
+            double high = double.Parse(range.Groups["max"].Value, CultureInfo.InvariantCulture);
+            if (!(low < high)) continue;
+            minimum = low;
+            maximum = high;
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Sets each setting through the standard API with <paramref name="context"/> as the current
     /// instance; a name that is not a property that can be set is skipped and reported.
     /// Returns how many were set.

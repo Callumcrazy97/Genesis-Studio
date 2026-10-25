@@ -30,6 +30,10 @@ internal static class EngineSettingsChecks
     public static void InspectorAndRooms(ProjectSession project, ResourceService resources)
     {
         string objectPath = resources.CreateResource(Path.Combine(resources.AssetsRoot, "Objects"), ResourceKind.GameObject, "SettingsProbe");
+        // A 3D Object whatever the project's own dimension, so its 3D values (Physics, Model) are offered.
+        JObject probeObject = JObject.Parse(File.ReadAllText(objectPath));
+        probeObject["dimension"] = "ThreeD";
+        File.WriteAllText(objectPath, probeObject.ToString());
         const string Prefix = EngineSettingsInspector.Prefix;
         using (Form host = new() { Width = 1280, Height = 800, ShowInTaskbar = false })
         {
@@ -51,6 +55,13 @@ internal static class EngineSettingsChecks
                 && Row(Prefix + "Engine.Model.Glow")?.Description?.Contains("Default: ", StringComparison.Ordinal) == true
                 && editor.TryApplyInspectorValue(EngineSettingsInspector.RemovePath, "Model.Glow"),
                 $"Choosing '{glow}' from the list did not add the setting with its default described.");
+            // A setting's row shows its default beside its name, says its default and range, and keeps to the range.
+            HeadlessHarness.Assert(editor.TryApplyInspectorValue(EngineSettingsInspector.AddPath, "Model.Glow.Strength"), "Model.Glow.Strength could not be added.");
+            ResourceInspectorLiveValue? glowRow = Row(Prefix + "Engine.Model.Glow.Strength");
+            HeadlessHarness.Assert(glowRow is { Label: "Model · Glow · Strength (0)", Minimum: 0m, Maximum: 32m }
+                && glowRow.Description?.Contains("Default: 0. From 0 to 32.", StringComparison.Ordinal) == true,
+                $"The glow row reads '{glowRow?.Label}' ({glowRow?.Minimum} to {glowRow?.Maximum}): {glowRow?.Description}");
+            HeadlessHarness.Assert(editor.TryApplyInspectorValue(EngineSettingsInspector.RemovePath, "Model.Glow.Strength"), "Model.Glow.Strength could not be removed.");
             HeadlessHarness.Assert(editor.TryApplyInspectorValue(EngineSettingsInspector.AddPath, "Instance.Yaw")
                 && editor.TryApplyInspectorValue(Prefix + "Engine.Instance.Yaw", 45d)
                 && editor.TryApplyInspectorValue(EngineSettingsInspector.AddPath, "Engine.Instance.ScaleX")

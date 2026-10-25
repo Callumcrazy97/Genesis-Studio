@@ -39,7 +39,7 @@ namespace Genesis.Application.Editors.Suite.Objects;
 /// grouped Inspector and component dialog, while generated blocks round-trip to the same event PGSL
 /// files instead of creating a second scripting model.
 /// </remarks>
-public sealed partial class ObjectEditorControl : EditorSurfaceControl, ILiveResourceInspectorTarget, IResourceInspectorTarget
+public sealed partial class ObjectEditorControl : EditorSurfaceControl, ILiveResourceInspectorTarget, IResourceInspectorTarget, IRunnableResource
 {
     /// <summary>Event ids in catalogue order. Retained for callers that enumerate events.</summary>
     public static IReadOnlyList<string> EventNames { get; } =

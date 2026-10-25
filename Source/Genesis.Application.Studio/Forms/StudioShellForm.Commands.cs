@@ -38,12 +38,13 @@ public sealed partial class StudioShellForm
             _ => SaveAll(), Keys.Control | Keys.Shift | Keys.S, keywords: "save all windows");
         Register("project.run", "Run", "Project", "Save and run the project in its matching Player.", _ => RunProject(false), Keys.F5);
         Register("project.debug", "Debug", "Project", "Save and run with the in-game debugger attached.", _ => RunProject(true), Keys.F6);
-        Register("project.runRoom", "Run This Room", "Project", "Save and run the game starting in the Room open in the editor, not the start room.",
-            context => RunProject(false, ActiveRoomName(context)), Keys.Shift | Keys.F5,
-            context => ActiveRoomName(context) is not null
+        Register("project.runResource", "Run This Resource", "Project",
+            "Run the selected or open resource as its own sandbox: a Room runs as the game from that room, an Object in its live sandbox, a sound, a model's clip or a terrain's preview plays.",
+            context => RunResource(context), Keys.Shift | Keys.F5,
+            context => ResourceToRun(context) is { } resource && (resource.Kind == ResourceKind.Room || RunsInItsEditor(resource.Kind))
                 ? CommandAvailability.Available
-                : CommandAvailability.Unavailable("Open a Room to run the game from it."),
-            keywords: "play from here test room");
+                : CommandAvailability.Unavailable("Select or open a Room, Object, sound, model or terrain to run it."),
+            keywords: "run resource sandbox play test room object");
         Register("project.export", "Export Game…", "Project", "Save all resources and open the game exporter.", _ => ExportProject(), Keys.Control | Keys.B, keywords: "build package ship");
         Register("studio.exit", "Exit", "Studio", "Close Studio using its normal unsaved-document prompts.", _ => Close(), Keys.Alt | Keys.F4);
         RegisterEdit("edit.undo", "Undo", EditCommand.Undo, Keys.Control | Keys.Z);
@@ -170,11 +171,47 @@ public sealed partial class StudioShellForm
         return false;
     }
 
-    /// <summary>The Room open in the editor (the document in front), by its name; null when that is not a Room.</summary>
-    internal static string? ActiveRoomName(ShellCommandContext context) =>
-        context.Document is { Resource: { Kind: ResourceKind.Room, IsFolder: false } room } document && document is not Control { IsDisposed: true }
-            ? room.Name
-            : null;
+    /// <summary>
+    /// The resource Run This Resource runs: the one selected in Assets while Assets has focus,
+    /// otherwise the one open in front, otherwise the one selected in Assets.
+    /// </summary>
+    internal static ResourceItem? ResourceToRun(ShellCommandContext context)
+    {
+        ResourceItem? selected = context.BrowserResource is { IsFolder: false } browser ? browser : null;
+        if (context.BrowserHasFocus && selected is not null) return selected;
+        if (context.Document is { Resource: { IsFolder: false } open } document && document is not Control { IsDisposed: true }) return open;
+        return selected;
+    }
+
+    // The kinds whose editors run them as their own sandbox (IRunnableResource).
+    private static bool RunsInItsEditor(ResourceKind kind) =>
+        kind is ResourceKind.GameObject or ResourceKind.Audio or ResourceKind.Model or ResourceKind.Terrain;
+
+    // A Room runs as the game from that room; anything else opens in its editor, which runs it.
+    private void RunResource(ShellCommandContext context)
+    {
+        if (ResourceToRun(context) is not { } resource) return;
+        if (resource.Kind == ResourceKind.Room)
+        {
+            RunProject(false, resource.Name);
+            return;
+        }
+        OpenResource(resource);
+        IStudioDocument? document = _dockPanel.Contents.OfType<IStudioDocument>().FirstOrDefault(
+            open => string.Equals(open.DocumentIdentity, ResourceIdentity(resource), StringComparison.OrdinalIgnoreCase));
+        if (document is Control control && FindRunnable(control) is { } runnable && runnable.RunResource())
+            SetStatus($"Running {resource.Name}.");
+        else
+            SetStatus($"{resource.Name} has nothing to run.");
+    }
+
+    private static Genesis.Application.Editors.Suite.IRunnableResource? FindRunnable(Control root)
+    {
+        if (root is Genesis.Application.Editors.Suite.IRunnableResource runnable) return runnable;
+        foreach (Control child in root.Controls)
+            if (FindRunnable(child) is { } found) return found;
+        return null;
+    }
 
     private static CommandAvailability DocumentAvailability(ShellCommandContext context, StudioDocumentCommand command)
     {

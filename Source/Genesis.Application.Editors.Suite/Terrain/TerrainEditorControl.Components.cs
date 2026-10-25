@@ -86,6 +86,13 @@ public sealed partial class TerrainEditorControl
         _viewport.Invalidate();
     }
 
+    /// <summary>Run This Resource: the terrain's preview runs (water, wind, scatter moving).</summary>
+    public bool RunResource()
+    {
+        PlayPreview();
+        return true;
+    }
+
     public void PausePreview()
     {
         _viewportSession.Clock.Pause();

@@ -1031,6 +1031,24 @@ public sealed class ResourceInspectorPropertySurface : Panel
         _fieldCount++;
     }
 
+    // What each row does (its description: for an engine setting, its default and range too),
+    // shown on its name and its editor, so the Inspector says it without EngineApi.md.
+    private ToolTip? _descriptions;
+
+    private void Describe(Control control, string? description)
+    {
+        if (string.IsNullOrWhiteSpace(description)) return;
+        if (_descriptions == null)
+        {
+            _descriptions = new ToolTip { AutoPopDelay = 30000, InitialDelay = 350, ReshowDelay = 100 };
+            Disposed += (_, _) => _descriptions?.Dispose();
+        }
+        _descriptions.SetToolTip(control, description);
+    }
+
+    /// <summary>The description a row's name shows when pointed at (tests).</summary>
+    internal string? DescriptionShownFor(Control control) => _descriptions?.GetToolTip(control);
+
     private void AddGroup(string title, List<FieldSpec> fields, bool expanded, bool register = true)
     {
         if (register)
@@ -1144,6 +1162,8 @@ public sealed class ResourceInspectorPropertySurface : Panel
                 UseMnemonic = false,
             };
             Control editor = MakeEditor(field);
+            Describe(label, field.Description);
+            Describe(editor, field.Description);
             editor.Enabled = !field.ReadOnly;
             editor.Dock = DockStyle.Fill;
             if (editor is NumericUpDown or ComboBox or TextBoxBase)

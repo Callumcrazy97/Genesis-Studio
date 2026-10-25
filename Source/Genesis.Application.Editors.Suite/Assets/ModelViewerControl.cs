@@ -16,7 +16,7 @@ namespace Genesis.Application.Editors.Suite.Assets;
 public enum ModelPreviewShading { Textured, Untextured, Wireframe }
 
 /// <summary>Dedicated model inspection surface. View settings never change the source document.</summary>
-public partial class ModelViewerControl : EditorSurfaceControl
+public partial class ModelViewerControl : EditorSurfaceControl, IRunnableResource
 {
     protected GModelAsset Asset;
     protected readonly EditorViewport3D Surface = new() { Dock = DockStyle.Fill, FloorStyle = EditorFloorStyle.GridOnly };
