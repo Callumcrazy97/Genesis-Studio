@@ -136,6 +136,7 @@ internal static class PgslEngineApiChecks
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.ThreadsShareCullingAndDrawTheSame", () => SharedCulling(row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiPartsDefaultsAndValues", () => Parts(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiWeatherPartsHoldAndRelease", () => WeatherParts(project, row));
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EventBodiesCompileAndMatchTheInterpreter", () => EventBodies(project, row));
     }
 
     // Engine.Area.Part.Value in a running room: each value reads its default until set, keeps what a
@@ -248,6 +249,62 @@ internal static class PgslEngineApiChecks
             PgslCommands.ProjectPath = previousPath;
             PgslCommands.BindContext(previousContext);
         }
+    }
+
+    // An event body runs compiled once hot (Step, every frame) and gives exactly what the interpreter
+    // gives: its plain names are the instance's variables, `var` too, as at the interpreter's top level.
+    private const string EventCreate = "t = 0; a = 0; b = 1; total = 0; label = \"steps\";";
+    private const string EventStep = """
+        t = t + 1;
+        var k = t * 2;
+        a = a + k * 0.5;
+        if (a > 1000) { a = a - 1000; }
+        b = b * 1.001 + Max(0, 3 - t * 0.01);
+        total = total + Max(a, b) - Min(a, b) * 0.25;
+        """;
+
+    private static void EventBodies(ProjectSession project, Action<string, string, string, string> row)
+    {
+        (IReadOnlyDictionary<string, object> Variables, long Compiled) Run(bool compile)
+        {
+            RoomAsset room = RoomAsset.Create("EventRoom", RoomDimension.ThreeD);
+            using var scene = new RuntimeScene("Event bodies");
+            var game = new ProjectGameContext(project.RootPath, scene, null, null, room, null);
+            PgslContext previousContext = PgslCommands.BindContext(new PgslContext());
+            var previousGame = PgslCommands.ActiveGameContext;
+            bool previousCompile = PgslVm.EventsCompile;
+            PgslCommands.ActiveGameContext = game;
+            try
+            {
+                PgslVm.EventsCompile = compile;
+                VMEngine.Initialize();
+                var host = new ScriptHostSystem();
+                host.SetContext(game);
+                Entity entity = scene.World.CreateEntity();
+                scene.World.Set(entity, new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+                var sources = new Dictionary<string, string> { ["Create"] = EventCreate, ["Step"] = EventStep };
+                using (host.UseEventSources(sources)) host.Attach(scene.World, entity, compile ? "EventProbeCompiled" : "EventProbeInterpreted");
+                PgslBehavior behavior = host.Instances.OfType<PgslBehavior>().Single(b => b.Entity == entity);
+                long before = Genesis.Runtime.Scripting.VM.PgslCompiledTier.CompiledCount;
+                for (int frame = 0; frame < 200; frame++) behavior.OnUpdate(1f / 60f);
+                return (behavior.GetVariablesSnapshot(), Genesis.Runtime.Scripting.VM.PgslCompiledTier.CompiledCount - before);
+            }
+            finally
+            {
+                PgslVm.EventsCompile = previousCompile;
+                PgslCommands.ActiveGameContext = previousGame;
+                PgslCommands.BindContext(previousContext);
+            }
+        }
+        var interpreted = Run(false);
+        var compiled = Run(true);
+        string Show(IReadOnlyDictionary<string, object> vars) => string.Join(", ", new[] { "t", "a", "b", "total", "k", "label" }
+            .Select(name => $"{name}={(vars.TryGetValue(name, out object? value) ? Convert.ToString(value, CultureInfo.InvariantCulture) : "-")}"));
+        bool same = new[] { "t", "a", "b", "total", "k", "label" }.All(name =>
+            interpreted.Variables.TryGetValue(name, out object? x) == compiled.Variables.TryGetValue(name, out object? y) && Equals(x, y));
+        bool pass = same && compiled.Compiled >= 1 && interpreted.Variables.TryGetValue("t", out object? steps) && Equals(steps, 200d);
+        row("Engine API parts", "event bodies compile and match the interpreter", pass ? "PASS" : "FAIL", $"compiled {compiled.Compiled}: {Show(compiled.Variables)}; interpreted: {Show(interpreted.Variables)}");
+        HeadlessHarness.Assert(pass, $"An event body compiled ({compiled.Compiled} compiled) should end as the interpreter does: compiled {Show(compiled.Variables)}; interpreted {Show(interpreted.Variables)}.");
     }
 
     // Engine.Weather's parts in a rainy room: each follows the weather until set, then holds whatever

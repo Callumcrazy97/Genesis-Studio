@@ -43,6 +43,15 @@ default beside its name (`Model · Glow · Strength (0)`); pointing at it shows 
 default and its range, and a number keeps to its range. (Every Inspector row with a description
 shows it when pointed at, since 25 October.)
 
+**The Room editor shows a room's settings** (25 October): its 3D view draws the room as the game will
+with the room's engine settings (fog, sun, ambient, shadows, exposure, grading...), without F5. The
+room's look is made the game's way with and without them and every value of the frame they change
+is laid over the editor's view, so nothing is written per setting; a setting is set only where it
+can be read first and is put back afterwards, so values all of Studio shares (depth of field,
+render scale, threads) never change for the other views. Settings with nothing to draw in a still
+view (audio, input, the window) change nothing there. Checked by
+`Editor.Suite.EngineSettings.RoomViewShowsTheRoomsSettings`.
+
 | Where | What it gives | When the game sets them |
 |---|---|---|
 | Object | Each of its instances (Engine.Physics.Mass, Engine.Model.Glow, Engine.Instance.Yaw...) | Just before the instance's Create event, once its room has placed it and given it its body |
@@ -2979,6 +2988,16 @@ read before it is set gives what the interpreter's gives, and a function that st
 compiled says why in the profile report. GenesisCraft flying at render distance 18: game thread
 6.9 -> 5.4 ms a frame (scripts 6.2 -> 4.8 ms).
 `GENESIS_PGSL_TIER2=0` turns compiling off, `GENESIS_PGSL_TIER2_VALUES=0` only compiling with values.
+
+**Event bodies compile too (25 October 2026).** An event's own code (Step, Draw, Create...) runs
+compiled once it has run 40 times, as a function does, so the code every instance runs every frame
+is machine code. At an event's top level a plain name the event assigns is the instance's variable
+(a `var` there too), where in a function it would be the call's own, so the compiled event reads and
+writes the instance's variables exactly as the interpreter's top level does; names it only reads
+(a property, an Object's name) are read the interpreter's way, and an event that cannot be compiled
+(a `with` block, say) stays interpreted. `GENESIS_PGSL_TIER2_EVENTS=0` keeps events interpreted.
+Checked by `Engine.Pgsl.Logic.EventBodiesCompileAndMatchTheInterpreter`: the same Step event run
+200 times compiled and interpreted ends with the same values.
 
 `ScriptProfileEnable(true)`, `ScriptProfileReport(count)` and `ScriptProfileReset()` time every
 script function (`GENESIS_SCRIPT_PROFILE=1` writes `Debug/Logs/script_profile.txt` at the end).

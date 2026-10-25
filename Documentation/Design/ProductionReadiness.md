@@ -89,13 +89,13 @@ play, F6 to look inside; export. What was looked at on 24 October, with Cal's an
    frames run slow and raises it again when there is room. Large: about ten passes read
    scene-sized images (composite, outlines, AA, held items, TAA history), so each must take the
    scene's size.
-3. **PGSL to IL.** Hot functions compiled to real code; the biggest remaining speed gap against
+3. **PGSL to IL.** Done 25 October: hot functions already compiled through .NET expression trees (IL); event bodies (Step, Draw, Create) now compile too, with the interpreter's exact results. Hot functions compiled to real code; the biggest remaining speed gap against
    GameMaker's YYC and Unity's IL2CPP, and what many NPCs or units thinking at once need.
 4. **Terrain streamed by tile.** One large terrain split on disk and read in tiles, neighbours
    stitched so no seam shows.
 5. **Remembered rooms in save files.** Done 25 October: `Engine.Room.Streaming.Save()` and
    `Load(text)`, and Objects a script made at run time come back with a persistent room.
-6. **Engine values and an Object's own variables previewed in the editors** (Cal, 24 October). A
+6. **Engine values and an Object's own variables previewed in the editors** (Cal, 24 October). Done in part 25 October: the Room editor's view shows the room's engine settings as the game will (the game's own look code, with and without them, laid over the view); an Object's variables show in its live sandbox, which runs its events. A
    value set in the Inspector, an `Engine.Area.Part.Value` or a variable an Object declares, shows
    at once in the Room, Object, Model, Image and Terrain views, drawn by the same code the game
    runs, without pressing F5. One route: the editors read the same values the game reads, so there

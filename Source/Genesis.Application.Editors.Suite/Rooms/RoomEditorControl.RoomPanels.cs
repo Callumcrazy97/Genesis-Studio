@@ -917,7 +917,27 @@ public sealed partial class RoomEditorControl
 
         ApplyRoomEnvironmentPreview(ref state);
         ApplyRoomFogPreview(ref state);
+        RoomEngineSettingsPreview.Apply(ref state, EngineSettingsPreviewChanges());
         return state;
+    }
+
+    // The room's engine settings as the game will show them, worked out again only when they or the
+    // room's environment change.
+    private IReadOnlyList<RoomEngineSettingsPreview.Change> _settingsPreview = [];
+    private string? _settingsPreviewKey;
+    private RoomEnvironment? _settingsPreviewEnvironment;
+
+    /// <summary>The frame-state values the room's engine settings change in the view (tests).</summary>
+    internal IReadOnlyList<RoomEngineSettingsPreview.Change> EngineSettingsPreviewChanges()
+    {
+        string key = _room.EngineSettings is { Count: > 0 } settings
+            ? string.Join(";", settings.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase).Select(pair => pair.Key + "=" + pair.Value))
+            : "";
+        if (key == _settingsPreviewKey && ReferenceEquals(_settingsPreviewEnvironment, _room.Environment)) return _settingsPreview;
+        _settingsPreviewKey = key;
+        _settingsPreviewEnvironment = _room.Environment;
+        _settingsPreview = key.Length == 0 ? [] : RoomEngineSettingsPreview.Changes(ProjectRoot, _room, _room.EngineSettings);
+        return _settingsPreview;
     }
 
     private static int To255(float value) => (int)Math.Clamp(value * 255f, 0f, 255f);

@@ -27,6 +27,37 @@ namespace Genesis.Application.Headless.Suites;
 /// </summary>
 internal static class EngineSettingsChecks
 {
+    /// <summary>
+    /// The Room editor's view shows the room's engine settings as the game will (fog from 12 m), with
+    /// nothing changed for a room without settings, and values Studio shares (depth of field) put back.
+    /// </summary>
+    public static void RoomPreview(ProjectSession project, ResourceService resources)
+    {
+        string roomPath = resources.CreateResource(Path.Combine(resources.AssetsRoot, "Rooms"), ResourceKind.Room, "Settings Preview Room");
+        RoomAsset room = RoomAssetLoader.Parse(roomPath);
+        room.Dimension = RoomDimension.ThreeD;
+        room.EngineSettings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Engine.Rendering.Fog.Enabled"] = "true",
+            ["Engine.Rendering.Fog.Start"] = "12",
+            ["Engine.Camera.Focus.Enabled"] = "true",
+        };
+        RoomAssetLoader.Save(room, roomPath);
+        ResourceCatalog.Invalidate(project.RootPath);
+        bool focusBefore = Genesis.Shared.Rendering.DepthOfField.Enabled;
+        using Form host = new() { Width = 1280, Height = 800, ShowInTaskbar = false };
+        var editor = new Genesis.Application.Editors.Suite.Rooms.RoomEditorControl(roomPath, project.RootPath) { Dock = DockStyle.Fill };
+        host.Controls.Add(editor);
+        GateSuite.ShowHost(host);
+        System.Windows.Forms.Application.DoEvents();
+        var changes = editor.EngineSettingsPreviewChanges();
+        object? Changed(string field) => changes.FirstOrDefault(change => change.Field.Name == field)?.Value;
+        HeadlessHarness.Assert(Changed("FogStart") is float start && Math.Abs(start - 12f) < 1e-4,
+            $"The room view should show the room's fog from 12 m as the game will; it changes {string.Join(", ", changes.Select(change => change.Field.Name + "=" + change.Value))}.");
+        HeadlessHarness.Assert(Genesis.Shared.Rendering.DepthOfField.Enabled == focusBefore,
+            "Previewing the room's settings left depth of field changed for the whole of Studio.");
+    }
+
     public static void InspectorAndRooms(ProjectSession project, ResourceService resources)
     {
         string objectPath = resources.CreateResource(Path.Combine(resources.AssetsRoot, "Objects"), ResourceKind.GameObject, "SettingsProbe");
