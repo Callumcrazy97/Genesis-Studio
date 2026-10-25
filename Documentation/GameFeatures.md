@@ -51,8 +51,11 @@ can be read first and is put back afterwards, so values all of Studio shares (de
 render scale, threads) never change for the other views. Settings with nothing to draw in a still
 view (audio, input, the window) change nothing there. **The Object editor's view** likewise shows an
 Object's own settings on its instance (`Engine.Instance.Yaw`, `Engine.Model.Glow`...), set as a room
-sets them (after its body is made) with the view's own game in front, and **the Terrain editor's view** shows a terrain's own settings as the Room editor does; an Object's variables show in its live
-sandbox, which runs its events. Checked by `Editor.Suite.EngineSettings.RoomViewShowsTheRoomsSettings`.
+sets them (after its body is made) with the view's own game in front, **the Terrain editor's view** shows a terrain's own settings as the Room editor does, and **the Model viewer** draws the model as
+an instance showing it is drawn (`Engine.Model.Glow.Strength`, `Engine.Model.Shadows.Cast`,
+`Engine.Model.ScaleY`...: the settings given to a stand-in instance by the game's code); an Object's
+variables show in its live sandbox, which runs its events. Image resources carry no settings of
+their own (an image's look in a game is its Object's). Checked by `Editor.Suite.EngineSettings.RoomViewShowsTheRoomsSettings`.
 
 | Where | What it gives | When the game sets them |
 |---|---|---|

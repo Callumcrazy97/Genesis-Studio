@@ -215,20 +215,33 @@ namespace Genesis.Runtime.Modeling
             IRenderController renderer,
             int lodPolicy = 0)
         {
+            ModelRendererComponent look = new()
+            {
+                CastShadows = true,
+                ScaleX = 1f,
+                ScaleY = 1f,
+                ScaleZ = 1f,
+                LodPolicy = Math.Max(0, lodPolicy),
+            };
+            return DrawAsset(asset, projectPath, world, animation, renderer, new Draw3DComponent { Visible = true, CastShadows = true }, look);
+        }
+
+        /// <summary>
+        /// Draws an in-memory asset as an instance with these values would be drawn (its glow,
+        /// shadows, scale...): the Model viewer showing a model's own engine settings.
+        /// </summary>
+        public bool DrawAsset(
+            GModelAsset asset,
+            string projectPath,
+            Matrix4x4 world,
+            RuntimeModelAnimationState animation,
+            IRenderController renderer,
+            Draw3DComponent draw3d,
+            ModelRendererComponent look)
+        {
             if (asset == null || renderer == null) return false;
             var queue = ModelRenderQueue.Rent();
-            bool added = EnqueueAsset(
-                queue, asset, projectPath, string.Empty, world,
-                new Draw3DComponent { Visible = true, CastShadows = true },
-                new ModelRendererComponent
-                {
-                    CastShadows = true,
-                    ScaleX = 1f,
-                    ScaleY = 1f,
-                    ScaleZ = 1f,
-                    LodPolicy = Math.Max(0, lodPolicy),
-                },
-                animation, renderer);
+            bool added = EnqueueAsset(queue, asset, projectPath, string.Empty, world, draw3d, look, animation, renderer);
             if (added) queue.Draw(renderer);
             return added;
         }

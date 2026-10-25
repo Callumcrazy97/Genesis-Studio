@@ -389,7 +389,8 @@ public partial class ModelViewerControl : EditorSurfaceControl, IRunnableResourc
         if (!Asset.HasRenderableMeshes) return;
         var center = (ModelBounds.Min + ModelBounds.Max) * .5f;
         Matrix4x4 world = Matrix4x4.CreateTranslation(-center) * Matrix4x4.CreateRotationY(_spin) * Matrix4x4.CreateTranslation(center);
-        PreviewRenderer.DrawAsset(Asset, ProjectRoot, world, new RuntimeModelAnimationState(_clip, _time, SelectedClip?.Fps ?? 30, Loop, ignoreTextures: _shading != ModelPreviewShading.Textured), renderer);
+        var (draw, look) = InstanceLook();
+        PreviewRenderer.DrawAsset(Asset, ProjectRoot, world, new RuntimeModelAnimationState(_clip, _time, SelectedClip?.Fps ?? 30, Loop, ignoreTextures: _shading != ModelPreviewShading.Textured), renderer, draw, look);
     }
     protected virtual Mesh3DState CreateSceneState()
     {

@@ -79,6 +79,24 @@ internal static class EngineSettingsChecks
         object? terrainFog = terrainEditor.EngineSettingsPreviewChanges().FirstOrDefault(change => change.Field.Name == "FogStart")?.Value;
         HeadlessHarness.Assert(terrainFog is float fogStart && Math.Abs(fogStart - 12f) < 1e-4,
             $"The Terrain view should show the terrain's fog from 12 m; it shows {terrainFog ?? "nothing"}.");
+
+        // The Model viewer draws the model as an instance with the model's own settings is drawn.
+        string modelPath = resources.CreateResource(ResourceFolderPolicy.RootFor(project, ResourceKind.Model), ResourceKind.Model, "Settings Preview Model");
+        var viewer = new Genesis.Application.Editors.Suite.Assets.ModelViewerControl(modelPath, project.RootPath) { Dock = DockStyle.Fill };
+        host.Controls.Add(viewer);
+        System.Windows.Forms.Application.DoEvents();
+        var plain = viewer.InstanceLook();
+        bool given = viewer.TryApplyInspectorValue(EngineSettingsInspector.AddPath, "Model.Glow.Strength")
+            && viewer.TryApplyInspectorValue(EngineSettingsInspector.Prefix + "Engine.Model.Glow.Strength", 3d)
+            && viewer.TryApplyInspectorValue(EngineSettingsInspector.AddPath, "Model.Shadows.Cast")
+            && viewer.TryApplyInspectorValue(EngineSettingsInspector.Prefix + "Engine.Model.Shadows.Cast", false)
+            && viewer.TryApplyInspectorValue(EngineSettingsInspector.AddPath, "Model.ScaleY")
+            && viewer.TryApplyInspectorValue(EngineSettingsInspector.Prefix + "Engine.Model.ScaleY", 2d);
+        var (_, look) = viewer.InstanceLook();
+        HeadlessHarness.Assert(given && plain.Look.Glow == 0 && plain.Look.CastShadows && Math.Abs(look.Glow - 3f) < 1e-4 && !look.CastShadows
+            && Math.Abs(look.ScaleY - 2f) < 1e-4 && ReferenceEquals(PgslCommands.ActiveGameContext, previousGame),
+            $"The Model view should draw the model glowing at 3, casting no shadow and twice as tall (settings given {given}); " +
+            $"it draws glow {look.Glow}, shadow {look.CastShadows}, height {look.ScaleY} (before: glow {plain.Look.Glow}, shadow {plain.Look.CastShadows}).");
     }
 
     public static void InspectorAndRooms(ProjectSession project, ResourceService resources)

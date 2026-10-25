@@ -98,7 +98,7 @@ play, F6 to look inside; export. What was looked at on 24 October, with Cal's an
    the nature goes with them, and the room streams them (LargeWorlds.md, In the editors).
 5. **Remembered rooms in save files.** Done 25 October: `Engine.Room.Streaming.Save()` and
    `Load(text)`, and Objects a script made at run time come back with a persistent room.
-6. **Engine values and an Object's own variables previewed in the editors** (Cal, 24 October). Done in part 25 October: the Room editor's view shows the room's engine settings as the game will (the game's own look code, with and without them, laid over the view); an Object's variables show in its live sandbox, which runs its events. A
+6. **Engine values and an Object's own variables previewed in the editors** (Cal, 24 October). Done 25 October: the Room and Terrain views show their engine settings as the game will (the game's own look code, with and without them, laid over the view), the Object view and the Model viewer show an Object's and a model's settings on a stand-in instance given them by the game's code, and an Object's variables show in its live sandbox, which runs its events (Images carry no settings of their own). A
    value set in the Inspector, an `Engine.Area.Part.Value` or a variable an Object declares, shows
    at once in the Room, Object, Model, Image and Terrain views, drawn by the same code the game
    runs, without pressing F5. One route: the editors read the same values the game reads, so there
@@ -108,7 +108,10 @@ play, F6 to look inside; export. What was looked at on 24 October, with Cal's an
    under a context of its own and put the process-wide ones back afterwards, or one view's preview
    leaks into every other (as the light probes did in editor views on 24 October).
 7. **More parts.** The values still marked + in `EngineApiAreas.md`, in the order there: Water,
-   Terrain, Particles, Navigation, Instance.Update, Ui, Tile layers.
+   Terrain, Particles, Navigation, Instance.Update, Ui, Tile layers. Done 25 October: Engine.Water.Surface,
+   Engine.Terrain.Edit and Detail.Quality, Engine.Particle.Emitter and Quality, Engine.Navigation.Mesh,
+   Baked and Avoidance Radius and Priority, Engine.Instance.Update.Distance, Engine.Ui Enabled, Scale and
+   focus navigation, Engine.Tile.Layer (GameFeatures.md).
 8. **Export loads every room once** as part of its check, as it already compiles every script. Done 25 October (`RoomCheck`: each room loads, and every Object and Terrain it places exists).
 
 **Ragdolls, and anything like them** (Cal, 24 October): no system of their own. A ragdoll is
