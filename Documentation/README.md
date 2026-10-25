@@ -1,5 +1,32 @@
 # Genesis Studio Master
 
+## Release readiness, 25 October 2026
+
+The list agreed with the owner on 24 October, all done
+([Design/ProductionReadiness.md](Design/ProductionReadiness.md) has each item):
+
+- **Run This Resource** (Shift+F5, the owner's change): runs the selected or open resource as its
+  own sandbox does, a room as the game.
+- **The Inspector** shows each engine setting's default beside its name and keeps a number to its
+  range; **render scale and dynamic resolution** (`Engine.Display.Resolution.*`).
+- **Terrain by tile:** terrains laid edge to edge meet, and the Room editor splits one large
+  terrain into tiles the room streams (Split terrain into tiles). **Saves** keep remembered rooms
+  and Objects made at run time. **Export** loads every room first.
+- **Previews:** the Room, Object, Terrain and Model views show their engine settings as the game will.
+- **PGSL to IL:** hot functions already compile to IL; compiling event bodies too was measured
+  slower and taken out (heavy work goes in functions).
+- **More parts:** every value left in Water, Terrain, Particles, Navigation, Instance, Ui and Tile
+  layers, each checked by a regression case; the few that cannot apply are marked "–" in
+  [Design/EngineApiAreas.md](Design/EngineApiAreas.md) with the reason.
+- **Fixed:** the Inspector's engine settings, asked for before anything had filled the PGSL
+  registry, kept only the few they found (and a room's preview then showed none of its fog).
+- **Release run (16:50, commit b863f4e):** `Build.bat --full --installer` passed in 68 minutes,
+  full regression 1422 of 1422 (859 images) with none left unrun, smokes on DX11, DX12, Vulkan,
+  OpenGL and software; the install drill passed (2,702 files, 579 MB, install without
+  administrator, start from a read-only folder, upgrade, uninstall). Unsigned by choice.
+- **Still open:** giving event bodies' own locals fast slots needs the owner's decision on what a
+  top-level `var` in an event is (today it belongs to the instance).
+
 ## Release readiness, 24 October 2026
 
 The owner asked for Genesis to be compared with Unity, Godot, GameMaker and Unreal, improved, and

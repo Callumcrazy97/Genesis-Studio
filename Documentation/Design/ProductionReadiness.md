@@ -46,8 +46,8 @@ the templates it ships. The gaps that remain are platforms, render scaling, a cu
    Game; a part turned on turns its area on; Inspector settings start at each value's default.
 4. **Depth of field.** `Engine.Camera.Focus.Enabled/Distance/Range/Blur/Auto`, off unless wanted.
 5. **Objects inside Objects, autotiling and acoustics** (earlier today).
-6. **Release work.** Run This Room (Shift+F5; it repeats the Room editor's own ▶ Play, so one of
-   the two should go); Export checks the project first; crash reports with
+6. **Release work.** Run This Room (Shift+F5; on 25 October, at Cal's word, made Run This Resource:
+   it runs the selected or open resource as its own sandbox does); Export checks the project first; crash reports with
    the game's version, engine build, renderer, room and last log lines, one file per crash; the
    game's version in Preferences and `Engine.Game.Version`; the Inspector's settings list named
    without "Engine." so typing finds an area; light probes only in games (editor views showed
@@ -173,10 +173,11 @@ system or editor that already exists, reachable from PGSL as `Engine.Area.Part.V
 **In short:** 2D games of any common kind, voxel games and third-person or first-person games of
 Halo 1's size can be made today; the work is content and PGSL. A Skyrim-like game's world can be
 made today, and since the evening of 24 October its people and things stream and remember within
-a game session (saving that to a save file is next). The blockers shared by the most games are
-now render scale, PGSL to IL and terrain streamed by tile, all on tomorrow's list. Joint limits,
-which make ragdolls plain PGSL, were added after the release run and are checked by
-`--test engine-systems`. (Split screen and starter screens were listed here by mistake: 3D rooms
+a game session, and since 25 October it saves to a save file. The blockers shared by the most
+games on 24 October (render scale, PGSL to IL, terrain streamed by tile) were dealt with on 25
+October: render scale and dynamic resolution are built, a big terrain is split into streamed tiles,
+and heavy PGSL belongs in functions, which compile to IL. Joint limits, which make ragdolls plain
+PGSL, are checked by `--test engine-systems`. (Split screen and starter screens were listed here by mistake: 3D rooms
 already draw several views, and the shipped templates carry the screens every game needs.)
 
 **Fixed on 24 October evening** (each with a regression case in the Full Build): streamed Objects
@@ -187,6 +188,17 @@ shadow into the view; weather values settable and held from PGSL (`Engine.Weathe
 compiles every script first; the Inspector's settings list shows each default.
 
 ## Release run
+
+25 October 2026, 15:41 to 16:50, commit b863f4e (Studio revision 23), after the day's list:
+
+- `Build.bat --full --installer`: **passed** in 68 minutes. Full regression **1422 of 1422** checks
+  (859 images), none left unrun; renderer smokes passed on DX11, DX12, Vulkan, OpenGL and software;
+  installer written to `Dist\GenesisStudio-Setup.exe`. Unsigned (by choice).
+- `BuildTools\InstallDrill.ps1`: **passed**, 6 steps: a silent install for the current user with no
+  administrator (2,702 files, 579 MB, version 0.1.0), Studio started from a folder it may only read,
+  an upgrade over the top, and an uninstall.
+- The day's focused runs: one pgsl-logic run failed `Jobs.AReservedListKeepsItsRoomInAJob` on
+  allocation noise (352.7 KB measured) and passed on the rerun and in the Full Build.
 
 24 October 2026, 19:37, commit 0598c56 (Studio revision 23), on a quiet machine:
 
