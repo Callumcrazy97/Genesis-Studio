@@ -65,17 +65,21 @@ namespace Genesis.Runtime.Scripting
         private void FillStepSnapshot()
         {
             _stepSnapshot.Clear();
+            // Instances a script froze (Engine.Instance.Enabled = false) rest wherever they are.
+            bool anyFrozen = Genesis.Runtime.ECS.Components.InstanceFrozenComponent.Any;
             if (SimulationDistance <= 0f || !float.IsFinite(SimulationDistance))
             {
-                _stepSnapshot.AddRange(_dispatchSnapshot);
+                if (!anyFrozen) _stepSnapshot.AddRange(_dispatchSnapshot);
+                else foreach (EntityBehavior behavior in _dispatchSnapshot) if (!Frozen(behavior)) _stepSnapshot.Add(behavior);
                 LastStepped = _stepSnapshot.Count;
-                LastResting = 0;
+                LastResting = _dispatchSnapshot.Count - _stepSnapshot.Count;
                 return;
             }
 
             float limit = SimulationDistance * SimulationDistance;
             foreach (EntityBehavior behavior in _dispatchSnapshot)
             {
+                if (anyFrozen && Frozen(behavior)) continue;
                 EcsWorld world = behavior.World;
                 if (world != null && world.IsAlive(behavior.Entity) && !_alwaysActive.Contains(behavior.Entity.Id)
                     && world.Has<Genesis.Runtime.ECS.Components.Draw3DComponent>(behavior.Entity)
@@ -93,6 +97,11 @@ namespace Genesis.Runtime.Scripting
             LastStepped = _stepSnapshot.Count;
             LastResting = _dispatchSnapshot.Count - _stepSnapshot.Count;
         }
+
+        private static bool Frozen(EntityBehavior behavior) =>
+            behavior.World is { } world && world.IsAlive(behavior.Entity)
+            && world.Has<Genesis.Runtime.ECS.Components.InstanceFrozenComponent>(behavior.Entity)
+            && world.GetRef<Genesis.Runtime.ECS.Components.InstanceFrozenComponent>(behavior.Entity).Frozen;
 
         // Behaviours whose OnCreate is waiting for the loader to finish placing them.
         private readonly List<EntityBehavior> _deferredCreates = new();

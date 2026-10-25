@@ -709,6 +709,30 @@ public static partial class PgslCommands
 
     // ── Engine.Instance.Update: how far from the camera instances still take their Step ──
 
+    [PgslCommand("Enabled", "Engine.Instance.Enabled = false", "Whether this instance's Step events run (true unless set); off, it is frozen where it is, still drawn and still solid, until another instance turns it on with `with`: a statue spell, an enemy held by a cutscene", "Instances", Namespace = "Engine.Instance", Flat = false)]
+    public static bool InstanceEnabled
+    {
+        get
+        {
+            var world = ActiveGameContext?.World;
+            int id = GetContext()?.InstanceId ?? 0;
+            if (world == null || id <= 0) return true;
+            var entity = world.GetEntity(id);
+            return !world.IsAlive(entity) || !world.Has<Genesis.Runtime.ECS.Components.InstanceFrozenComponent>(entity)
+                || !world.GetRef<Genesis.Runtime.ECS.Components.InstanceFrozenComponent>(entity).Frozen;
+        }
+        set
+        {
+            var world = ActiveGameContext?.World;
+            int id = GetContext()?.InstanceId ?? 0;
+            if (world == null || id <= 0) return;
+            var entity = world.GetEntity(id);
+            if (!world.IsAlive(entity) || value && !world.Has<Genesis.Runtime.ECS.Components.InstanceFrozenComponent>(entity)) return;
+            if (!value) Genesis.Runtime.ECS.Components.InstanceFrozenComponent.Any = true;
+            world.Set(entity, new Genesis.Runtime.ECS.Components.InstanceFrozenComponent { Frozen = !value });
+        }
+    }
+
     [PgslCommand("Distance", "Engine.Instance.Update.Distance = metres", "Instances farther than this from the camera skip their Step events until it comes near, 0 to 100000 metres; 0 updates every instance however far (the room's simulation distance unless set)", "Instances", Namespace = "Engine.Instance.Update", Flat = false)]
     public static double InstanceUpdateDistance
     {

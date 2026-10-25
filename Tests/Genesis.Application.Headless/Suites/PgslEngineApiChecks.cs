@@ -143,6 +143,7 @@ internal static class PgslEngineApiChecks
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiTerrainGroundGrassScatterAndQueries", () => TerrainLook(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiParticleEmitterLookAndQuality", () => ParticleEmitterLook(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiParticleSwitches", () => ParticleSwitches(project, row));
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiInstanceFrozenAndBack", () => InstanceFreeze(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiNavigationBakeAndPriority", () => NavigationParts(project, row));
     }
 
@@ -706,6 +707,53 @@ internal static class PgslEngineApiChecks
             PgslCommands.ActiveGameContext = previousGame;
             PgslCommands.BindContext(previousContext);
             Genesis.Runtime.ECS.Components.ParticleQuality.Reset();
+        }
+    }
+
+    // Engine.Instance.Enabled: an instance that freezes itself in Create counts no Steps while the
+    // other counts five; turned back on, it counts the next three.
+    private static void InstanceFreeze(ProjectSession project, Action<string, string, string, string> row)
+    {
+        using var scene = new RuntimeScene("Instance freeze");
+        var game = new ProjectGameContext(project.RootPath, scene, null, null, RoomAsset.Create("Freeze", RoomDimension.ThreeD), null);
+        PgslContext previousContext = PgslCommands.BindContext(new PgslContext());
+        var previousGame = PgslCommands.ActiveGameContext;
+        PgslCommands.ActiveGameContext = game;
+        try
+        {
+            VMEngine.Initialize();
+            var host = new ScriptHostSystem();
+            host.SetContext(game);
+            Entity Counter(string name, string create)
+            {
+                Entity counter = scene.World.CreateEntity();
+                scene.World.Set(counter, new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+                using (host.UseEventSources(new Dictionary<string, string> { ["Create"] = create, ["Step"] = "steps += 1;" })) host.Attach(scene.World, counter, name);
+                return counter;
+            }
+            Entity statue = Counter("FrozenCounter", "steps = 0; Engine.Instance.Enabled = false; frozenRead = Engine.Instance.Enabled;");
+            Entity walker = Counter("LiveCounter", "steps = 0;");
+            host.BeginRoom(beginGame: true);
+            for (int i = 0; i < 5; i++) host.Update(1f / 60);
+            double Steps(Entity entity) => host.Instances.OfType<PgslBehavior>().Single(behavior => behavior.Entity == entity).GetVariablesSnapshot()
+                .TryGetValue("steps", out object? value) && value is not (string or null) ? Convert.ToDouble(value, CultureInfo.InvariantCulture) : double.NaN;
+            double frozenSteps = Steps(statue), liveSteps = Steps(walker);
+            bool readFrozen = host.Instances.OfType<PgslBehavior>().Single(behavior => behavior.Entity == statue).GetVariablesSnapshot()
+                .TryGetValue("frozenRead", out object? read) && read is false;
+            PgslContext back = PgslCommands.BindContext(new PgslContext { InstanceId = statue.Id });
+            PgslCommands.InstanceEnabled = true;
+            PgslCommands.BindContext(back);
+            for (int i = 0; i < 3; i++) host.Update(1f / 60);
+            double thawed = Steps(statue);
+            bool pass = frozenSteps == 0 && liveSteps == 5 && readFrozen && thawed == 3;
+            string detail = $"frozen counted {frozenSteps} (0) and read itself off {readFrozen}, the other {liveSteps} (5); turned on, it counted {thawed} (3)";
+            row("Engine API parts", "an instance frozen and back", pass ? "PASS" : "FAIL", detail);
+            HeadlessHarness.Assert(pass, $"{detail} {string.Join("; ", host.RecentDiagnostics.Select(d => d.Message))}");
+        }
+        finally
+        {
+            PgslCommands.ActiveGameContext = previousGame;
+            PgslCommands.BindContext(previousContext);
         }
     }
 

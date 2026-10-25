@@ -271,13 +271,13 @@ Engine.Navigation.Agent (Speed, StoppingDistance); 25 October: Engine.Display.Re
 
 | Part | Values |
 |---|---|
-| Engine.Instance | + Enabled (updated: off = frozen), ✓ Visible, ✓ Solid, ✓ Depth, ✓ X, ✓ Y, ✓ Z, ✓ Yaw, ✓ Pitch, ✓ Roll, ✓ ScaleX/Y/Z, ✓ Create, ✓ Destroy, ✓ Exists, ✓ Count, ✓ Find, ✓ Number |
-| Engine.Instance.Motion | ✓ Speed, ✓ Direction, ✓ HSpeed, ✓ VSpeed, + Friction, + Gravity, + GravityDirection |
+| Engine.Instance | ✓ Enabled (updated: off = frozen), ✓ Visible, ✓ Solid, ✓ Depth, ✓ X, ✓ Y, ✓ Z, ✓ Yaw, ✓ Pitch, ✓ Roll, ✓ ScaleX/Y/Z, ✓ Create, ✓ Destroy, ✓ Exists, ✓ Count, ✓ Find, ✓ Number |
+| Engine.Instance.Motion | ✓ Speed, ✓ Direction, ✓ HSpeed, ✓ VSpeed, ✓ Friction, ✓ Gravity, ✓ GravityDirection [the instance variables speed, direction, hspeed, vspeed, friction, gravity, gravity_direction] |
 | Engine.Instance.Parts (Objects inside Objects) | ✓ Parent, ✓ ChildCount [Count], ✓ Child(i), ✓ Attach(id, x, y, z), ✓ Detach() |
 | Engine.Instance.Nearby | ✓ Nearest, ✓ NearestOther, ✓ Furthest, ✓ InRadius, ✓ FirstInRadius, ✓ DistanceTo |
 | Engine.Instance.Variables | ✓ Get, ✓ Set, ✓ Exists |
 | Engine.Instance.Bulk | ✓ SetPositionsFromNumList, ✓ SetTransformsFromNumList, ✓ SetTintsFromNumList, ✓ GetPositionsToNumList, ✓ SceneQueue* |
-| Engine.Instance.Update | ✓ Distance (beyond this an instance's Step is skipped), + Rate (steps a second when far) |
+| Engine.Instance.Update | ✓ Distance (beyond this an instance's Step is skipped), – Rate (a far instance stepping a few times a second would be handed Step time it did not have; far ones rest, KeepActive keeps one running) |
 
 ## Engine.Input
 

@@ -6,7 +6,7 @@ variable and, when it can be set, set like one (`Engine.Physics.Mass = 4;`, `Eng
 an instance's property is the current instance's, each target's in turn inside `with`. The flat
 names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
-1751 names: 476 properties (404 can be set), 1275 commands.
+1752 names: 477 properties (405 can be set), 1275 commands.
 
 ## Engine.Alarm
 
@@ -775,6 +775,7 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `Detach` | command | Let this instance go from the one it is kept on (it stays where it is); false when it was on none |
 | `Direction` | property | Direction in degrees |
 | `DistanceTo` | command | Distance from an instance to a point; -1 when it does not exist |
+| `Enabled` | property | Whether this instance's Step events run (true unless set); off, it is frozen where it is, still drawn and still solid, until another instance turns it on with `with`: a statue spell, an enemy held by a cutscene |
 | `Exists` | command | Instance exists |
 | `Find` | command | The id of the n-th live instance of an Object, counting from 0; 0 when there is none |
 | `FirstInRadius` | command | An instance within a radius, excluding the caller; 0 when none |
