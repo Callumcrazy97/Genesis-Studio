@@ -47,6 +47,12 @@ public static class EngineRenderingDefaults
     /// <summary>Optional half-resolution planar water pass; software retains the analytic sky fallback.</summary>
     public static bool WaterReflections { get; set; }
 
+    /// <summary>The share of the view's size the water's reflection is drawn at, 0.25 to 1 (Engine.Water.Reflections.Resolution; 0.5 unless set).</summary>
+    public static float WaterReflectionResolution { get; set; } = 0.5f;
+
+    /// <summary>How much the water's waves ripple its reflection, times the usual (Engine.Water.Reflections.Distortion; 1 unless set).</summary>
+    public static float WaterReflectionDistortion { get; set; } = 1f;
+
     public const string ReversedDepthEnvironmentVariable = "GENESIS_REVERSED_DEPTH";
 
     /// <summary>

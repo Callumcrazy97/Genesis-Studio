@@ -35,6 +35,8 @@ public static partial class PgslCommands
         Genesis.Runtime.ECS.Components.ParticleQuality.Reset();
         ResetNavigationBake();
         ResetUiParts();
+        Genesis.Rendering.Core.EngineRenderingDefaults.WaterReflectionResolution = 0.5f;
+        Genesis.Rendering.Core.EngineRenderingDefaults.WaterReflectionDistortion = 1f;
         Genesis.Shared.Rendering.RenderScale.Reset();
         Genesis.Runtime.Input.InputSettings.Reset();
         Genesis.Runtime.Scene.RoomSceneryStreamer.ForgetAll();

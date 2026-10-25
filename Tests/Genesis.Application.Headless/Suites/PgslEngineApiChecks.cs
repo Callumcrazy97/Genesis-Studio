@@ -138,6 +138,7 @@ internal static class PgslEngineApiChecks
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiWeatherPartsHoldAndRelease", () => WeatherParts(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiTileLayersUpdateDistanceAndFrameCosts", () => TilesAndUpdate(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiWaterSurfaceLook", () => WaterSurface(project, row));
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiWaterSwimmingSwitchAndReflections", () => WaterSwimming(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiTerrainEditsTheGroundAsItPlays", () => TerrainEdits(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiParticleEmitterLookAndQuality", () => ParticleEmitterLook(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiNavigationBakeAndPriority", () => NavigationParts(project, row));
@@ -387,6 +388,100 @@ internal static class PgslEngineApiChecks
             PgslCommands.ActiveGameContext = previousGame;
             PgslCommands.BindContext(previousContext);
         }
+    }
+
+    // Engine.Water.Swimming and Engine.Water.Enabled on a crate held under water: at buoyancy 2 it
+    // rises, at 1 it hovers, at 0 it sinks slowed by the water, with the water off it falls freely;
+    // the switch also stops a terrain's water being drawn, foam goes and comes back, and the
+    // reflection's resolution and distortion keep to their ranges.
+    private static void WaterSwimming(ProjectSession project, Action<string, string, string, string> row)
+    {
+        float Height(string script)
+        {
+            using var scene = new RuntimeScene("Water swimming");
+            scene.Physics = PhysicsWorld.Create(new PhysicsWorldAsset());
+            scene.Physics.EnableThreadDispatcher = false;
+            scene.RegisterWaterVolume(new PhysicsWaterVolume { Minimum = new Vector3(-20, -20, -20), Maximum = new Vector3(20, 0, 20), SurfaceY = 0 });
+            var game = new ProjectGameContext(project.RootPath, scene, null, null, RoomAsset.Create("Pool", RoomDimension.ThreeD), null);
+            PgslContext previousContext = PgslCommands.BindContext(new PgslContext());
+            var previousGame = PgslCommands.ActiveGameContext;
+            PgslCommands.ActiveGameContext = game;
+            try
+            {
+                VMEngine.Initialize();
+                var host = new ScriptHostSystem();
+                host.SetContext(game);
+                Entity crate = scene.World.CreateEntity();
+                scene.World.Set(crate, new TransformComponent { Y = -5, ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+                scene.World.Set(crate, new Transform3DComponent { Position = new Vector3(0, -5, 0), Rotation = Quaternion.Identity, Scale = Vector3.One });
+                scene.World.Set(crate, RigidBodyComponent.DynamicBox(new Vector3(0.5f), 1f));
+                scene.Physics.RegisterEntity(scene.World, crate, ref scene.World.GetRef<RigidBodyComponent>(crate), ref scene.World.GetRef<Transform3DComponent>(crate));
+                using (host.UseEventSources(new Dictionary<string, string> { ["Create"] = script })) host.Attach(scene.World, crate, "SwimCrate");
+                for (int i = 0; i < 30; i++) scene.UpdateFixed(1f / 60);
+                return scene.World.GetRef<Transform3DComponent>(crate).Position.Y;
+            }
+            finally
+            {
+                PgslCommands.ActiveGameContext = previousGame;
+                PgslCommands.BindContext(previousContext);
+            }
+        }
+        float salt = Height("Engine.Water.Swimming.Buoyancy = 2;"), usual = Height(""), stone = Height("Engine.Water.Swimming.Buoyancy = 0;");
+        float drained = Height("Engine.Water.Enabled = false;"), swamp = Height("Engine.Water.Swimming.Buoyancy = 0; Engine.Water.Swimming.Drag = 10;");
+
+        // A terrain's water: not drawn with the switch off; foam off and back keeps its width.
+        var resources = new ResourceService(project);
+        string terrainPath = resources.CreateResource(ResourceFolderPolicy.RootFor(project, ResourceKind.Terrain), ResourceKind.Terrain, "Water Switch Vale");
+        new Genesis.World.Terrain.TerrainAsset(33, 33, 2f, -32f, -32f, 0f, 20f).Save(terrainPath + ".gterrain");
+        var nature = Genesis.World.Terrain.TerrainNatureSerializer.LoadOrDefault(terrainPath);
+        nature.WaterBodies.Add(new Genesis.World.Terrain.TerrainWaterDefinition { Name = "Mere", Kind = Genesis.World.Terrain.TerrainWaterKind.Water });
+        Genesis.World.Terrain.TerrainNatureSerializer.Save(terrainPath, nature);
+        ResourceCatalog.Invalidate(project.RootPath);
+        RoomAsset room = RoomAsset.Create("SwitchRoom", RoomDimension.ThreeD);
+        room.Nodes.Add(new RoomNode
+        {
+            Name = "Vale", Kind = RoomNodeKind.Terrain, LayerId = room.Layers[0].Id,
+            Terrain = new RoomTerrainData { Asset = Path.GetRelativePath(project.RootPath, terrainPath).Replace('\\', '/') },
+        });
+        using var valeScene = new RuntimeScene("Water switch");
+        valeScene.Physics = PhysicsWorld.Create(new PhysicsWorldAsset());
+        var valeGame = new ProjectGameContext(project.RootPath, valeScene, null, null, room, null);
+        var terrains = valeScene.AddSubsystem(new RoomTerrainSubsystem(project.RootPath, room, valeGame));
+        PgslContext before = PgslCommands.BindContext(new PgslContext());
+        var beforeGame = PgslCommands.ActiveGameContext;
+        PgslCommands.ActiveGameContext = valeGame;
+        bool foamOn, foamOff, foamBack, drawn, hidden;
+        float width = float.NaN, widthOff = float.NaN, widthBack = float.NaN;
+        double resolution, distortion;
+        try
+        {
+            void Width(ref float into) { float seen = float.NaN; terrains.ForEachWaterBody(body => seen = body.Material.FoamWidth); into = seen; }
+            foamOn = PgslCommands.WaterSurfaceFoamEnabled; Width(ref width);
+            PgslCommands.WaterSurfaceFoamEnabled = false; foamOff = !PgslCommands.WaterSurfaceFoamEnabled; Width(ref widthOff);
+            PgslCommands.WaterSurfaceFoamEnabled = true; foamBack = PgslCommands.WaterSurfaceFoamEnabled; Width(ref widthBack);
+            drawn = terrains.WaterEnabled;
+            PgslCommands.WaterEnabled = false;
+            hidden = !terrains.WaterEnabled && !valeScene.Physics.WaterEnabled && !PgslCommands.WaterEnabled;
+            PgslCommands.WaterReflectionsResolution = 4;
+            PgslCommands.WaterReflectionsDistortion = -1;
+            resolution = PgslCommands.WaterReflectionsResolution;
+            distortion = PgslCommands.WaterReflectionsDistortion;
+        }
+        finally
+        {
+            PgslCommands.ActiveGameContext = beforeGame;
+            PgslCommands.BindContext(before);
+            Genesis.Rendering.Core.EngineRenderingDefaults.WaterReflectionResolution = 0.5f;
+            Genesis.Rendering.Core.EngineRenderingDefaults.WaterReflectionDistortion = 1f;
+        }
+
+        bool pass = salt > -4.5f && Math.Abs(usual + 5f) < 0.1f && stone < -5.05f && drained < stone - 0.3f && swamp > stone
+            && foamOn && foamOff && foamBack && width > 0 && widthOff == 0 && widthBack == width && drawn && hidden
+            && resolution == 1 && distortion == 0;
+        string detail = $"from -5 m: buoyancy 2 to {salt:0.##}, 1 to {usual:0.##}, 0 to {stone:0.##}, water off to {drained:0.##}, 0 in a swamp to {swamp:0.##}; " +
+            $"foam {foamOn}/{foamOff}/{foamBack} width {width} then {widthOff} then {widthBack}; water drawn {drawn} then off {hidden}; reflection {resolution} (1) and {distortion} (0), kept in range";
+        row("Engine API parts", "swimming, the water switch and reflections", pass ? "PASS" : "FAIL", detail);
+        HeadlessHarness.Assert(pass, detail);
     }
 
     // Engine.Terrain.Edit in a running room (its ground starts at 10): the ground rises, falls, levels and takes paint where a

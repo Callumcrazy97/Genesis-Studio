@@ -1117,8 +1117,12 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
     // Kept between frames: a new list a frame regrew its array each time (Golden Stag village).
     private readonly List<MeshDrawCall> _waterDraws = new();
 
+    /// <summary>Whether the room's terrain water is drawn (Engine.Water.Enabled; true unless set).</summary>
+    public bool WaterEnabled { get; set; } = true;
+
     private void SubmitWater(Entry entry, Vector3 camera, Matrix4x4 placement, IRenderController renderer, MeshDrawCall[] buffer, ref int count)
     {
+        if (!WaterEnabled) return;
         List<MeshDrawCall> draws = _waterDraws;
         foreach (WaterRuntime water in entry.Waters)
         {

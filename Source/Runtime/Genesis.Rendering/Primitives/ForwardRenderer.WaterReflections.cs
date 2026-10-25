@@ -43,7 +43,10 @@ internal sealed partial class ForwardRenderer
         }
         if (best == float.MinValue || !PlanarReflectionMath.TryCreate(_view, _proj, _cameraPos, planeHeight,
             out var view, out var projection, out var camera)) return;
-        int w = Math.Clamp(width / 2, 1, 1024), h = Math.Clamp(height / 2, 1, 1024);
+        // Half the view unless a game asks for more or less (at most 1024 across at half or under, 2048 above).
+        float share = Math.Clamp(EngineRenderingDefaults.WaterReflectionResolution, 0.25f, 1f);
+        int largest = share > 0.5f ? 2048 : 1024;
+        int w = Math.Clamp((int)(width * share), 1, largest), h = Math.Clamp((int)(height * share), 1, largest);
         if (!_reflectionTarget.IsValid || w != _reflectionWidth || h != _reflectionHeight)
         {
             if (_reflectionTarget.IsValid) _gpu.ReleaseRenderTarget(_reflectionTarget);

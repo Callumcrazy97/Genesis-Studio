@@ -8,11 +8,21 @@ namespace Genesis.Physics;
 
 public sealed partial class PhysicsWorld
 {
+    /// <summary>Whether bodies float in and are slowed by the room's water (Engine.Water.Enabled; true unless set).</summary>
+    public bool WaterEnabled { get; set; } = true;
+
+    /// <summary>How strongly water lifts bodies, times each water's own (Engine.Water.Swimming.Buoyancy; 1 unless set).</summary>
+    public float WaterBuoyancyScale { get; set; } = 1f;
+
+    /// <summary>How strongly water slows bodies, times each water's own (Engine.Water.Swimming.Drag; 1 unless set).</summary>
+    public float WaterDragScale { get; set; } = 1f;
+
     /// <summary>Applies authored buoyancy, drag and flow to all registered dynamic ECS bodies.</summary>
     public void ApplyWater(IEcsWorld world, IReadOnlyList<PhysicsWaterVolume> volumes, float dt)
     {
-        if (world == null || volumes == null || volumes.Count == 0 || dt <= 0f)
+        if (!WaterEnabled || world == null || volumes == null || volumes.Count == 0 || dt <= 0f)
             return;
+        float lift = MathF.Max(0f, WaterBuoyancyScale), slow = MathF.Max(0f, WaterDragScale);
         Vector3 gravity = GetGravityAcceleration();
         foreach ((int _, BodyBinding binding) in EnumerateDynamicBindings())
         {
@@ -33,13 +43,13 @@ public sealed partial class PhysicsWorld
             }
             if (selected == null || fraction <= 0f) continue;
 
-            float drag = MathF.Exp(-MathF.Max(0f, selected.LinearDrag) * fraction * dt);
+            float drag = MathF.Exp(-MathF.Max(0f, selected.LinearDrag) * slow * fraction * dt);
             Vector3 velocity = reference.Velocity.Linear * drag;
             float densityScale = MathF.Max(0f, selected.Density) / 1000f;
-            velocity += -gravity * MathF.Max(0f, selected.Buoyancy) * densityScale * fraction * dt;
+            velocity += -gravity * MathF.Max(0f, selected.Buoyancy) * lift * densityScale * fraction * dt;
             velocity += (selected.FlowVelocity - velocity) * Math.Clamp(fraction * dt, 0f, 1f);
             reference.Velocity.Linear = velocity;
-            reference.Velocity.Angular *= MathF.Exp(-MathF.Max(0f, selected.AngularDrag) * fraction * dt);
+            reference.Velocity.Angular *= MathF.Exp(-MathF.Max(0f, selected.AngularDrag) * slow * fraction * dt);
             reference.Awake = true;
         }
     }

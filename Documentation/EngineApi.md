@@ -6,7 +6,7 @@ variable and, when it can be set, set like one (`Engine.Physics.Mass = 4;`, `Eng
 an instance's property is the current instance's, each target's in turn inside `with`. The flat
 names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
-1721 names: 451 properties (381 can be set), 1270 commands.
+1727 names: 457 properties (387 can be set), 1270 commands.
 
 ## Engine.Alarm
 
@@ -2302,6 +2302,7 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | Name | Kind | What it is |
 |---|---|---|
 | `DepthAt` | command | Water depth above a world point, or 0 outside water |
+| `Enabled` | property | Whether the room's water is there: drawn, and lifting and slowing bodies in it (true unless set); off for a drained lake or a dream |
 | `FlowX` | command | Water current X velocity at a point |
 | `FlowZ` | command | Water current Z velocity at a point |
 | `IsSwimmable` | command | True when a point is inside a swimmable water volume |
@@ -2312,7 +2313,9 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
 | Name | Kind | What it is |
 |---|---|---|
+| `Distortion` | property | How much the water's waves ripple its reflection, 0 to 5 times the usual (1 unless set): 0 for a still mirror |
 | `Enabled` | property | Water mirrors the scene above it (off unless set; a half-resolution pass) |
+| `Resolution` | property | The share of the view's size the water's reflection is drawn at, 0.25 to 1 (0.5 unless set): sharper at 1, cheaper at 0.25 |
 
 ## Engine.Water.Surface
 
@@ -2324,6 +2327,19 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `ShallowColor` | property | The water's colour where it is shallow, as "#rrggbb" (each body's own unless set) |
 | `Waves` | property | How high the water's waves rise, 0 to 5 metres, on every water body of the room's terrains (each body's own unless set; 0.08 for new water) |
 | `WaveSpeed` | property | How fast the water's surface moves and flows, 0 to 10 (each body's own unless set; 0.35 for new water) |
+
+## Engine.Water.Surface.Foam
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Enabled` | property | Whether foam is drawn where the room's water meets the shore (true unless set); off keeps each body's foam width for when it comes back |
+
+## Engine.Water.Swimming
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Buoyancy` | property | How strongly the room's water lifts bodies, 0 to 10 times each water's own (1 unless set): 0 and things sink like stones, 2 for a salt lake |
+| `Drag` | property | How strongly the room's water slows bodies moving in it, 0 to 10 times each water's own (1 unless set): more for a swamp, less for a fast river |
 
 ## Engine.Weather
 

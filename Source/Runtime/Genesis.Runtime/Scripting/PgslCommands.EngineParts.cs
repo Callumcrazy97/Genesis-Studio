@@ -391,6 +391,79 @@ public static partial class PgslCommands
         set { if (TryHexColor(value, out System.Numerics.Vector3 colour)) SetWaterLook(look => { look.DeepColor = colour; return look; }); }
     }
 
+    // Foam widths put by while Engine.Water.Surface.Foam is off, for when it comes back on.
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Genesis.World.Water.WaterBody, System.Runtime.CompilerServices.StrongBox<float>> _foamPutBy = new();
+
+    [PgslCommand("Enabled", "Engine.Water.Surface.Foam.Enabled = false", "Whether foam is drawn where the room's water meets the shore (true unless set); off keeps each body's foam width for when it comes back", "Water", Namespace = "Engine.Water.Surface.Foam", Flat = false)]
+    public static bool WaterSurfaceFoamEnabled
+    {
+        get
+        {
+            bool on = true;
+            TerrainWaters(body => on &= !_foamPutBy.TryGetValue(body, out _));
+            return on;
+        }
+        set => TerrainWaters(body =>
+        {
+            Genesis.World.Water.WaterMaterialSettings look = body.Material;
+            if (!value && !_foamPutBy.TryGetValue(body, out _))
+            {
+                _foamPutBy.Add(body, new System.Runtime.CompilerServices.StrongBox<float>(look.FoamWidth));
+                look.FoamWidth = 0f;
+            }
+            else if (value && _foamPutBy.TryGetValue(body, out var width))
+            {
+                look.FoamWidth = width.Value;
+                _foamPutBy.Remove(body);
+            }
+            body.Material = look;
+        });
+    }
+
+    // The room's terrains and its physics, for the area's switch and the swimming values.
+    private static RuntimeScene? WaterScene() => ActiveGameContext?.Scene;
+
+    [PgslCommand("Enabled", "Engine.Water.Enabled = false", "Whether the room's water is there: drawn, and lifting and slowing bodies in it (true unless set); off for a drained lake or a dream", "Water", Namespace = "Engine.Water", Flat = false)]
+    public static bool WaterEnabled
+    {
+        get => WaterScene()?.Physics?.WaterEnabled ?? true;
+        set
+        {
+            if (WaterScene() is not { } scene) return;
+            if (scene.Physics != null) scene.Physics.WaterEnabled = value;
+            foreach (var subsystem in scene.Subsystems)
+                if (subsystem is RoomTerrainSubsystem terrains) terrains.WaterEnabled = value;
+        }
+    }
+
+    [PgslCommand("Buoyancy", "Engine.Water.Swimming.Buoyancy = 2", "How strongly the room's water lifts bodies, 0 to 10 times each water's own (1 unless set): 0 and things sink like stones, 2 for a salt lake", "Water", Namespace = "Engine.Water.Swimming", Flat = false)]
+    public static double WaterSwimmingBuoyancy
+    {
+        get => WaterScene()?.Physics?.WaterBuoyancyScale ?? 1;
+        set { if (double.IsFinite(value) && WaterScene()?.Physics is { } physics) physics.WaterBuoyancyScale = (float)Math.Clamp(value, 0, 10); }
+    }
+
+    [PgslCommand("Drag", "Engine.Water.Swimming.Drag = 3", "How strongly the room's water slows bodies moving in it, 0 to 10 times each water's own (1 unless set): more for a swamp, less for a fast river", "Water", Namespace = "Engine.Water.Swimming", Flat = false)]
+    public static double WaterSwimmingDrag
+    {
+        get => WaterScene()?.Physics?.WaterDragScale ?? 1;
+        set { if (double.IsFinite(value) && WaterScene()?.Physics is { } physics) physics.WaterDragScale = (float)Math.Clamp(value, 0, 10); }
+    }
+
+    [PgslCommand("Resolution", "Engine.Water.Reflections.Resolution = 1", "The share of the view's size the water's reflection is drawn at, 0.25 to 1 (0.5 unless set): sharper at 1, cheaper at 0.25", "Water", Namespace = "Engine.Water.Reflections", Flat = false)]
+    public static double WaterReflectionsResolution
+    {
+        get => Genesis.Rendering.Core.EngineRenderingDefaults.WaterReflectionResolution;
+        set { if (double.IsFinite(value)) Genesis.Rendering.Core.EngineRenderingDefaults.WaterReflectionResolution = (float)Math.Clamp(value, 0.25, 1); }
+    }
+
+    [PgslCommand("Distortion", "Engine.Water.Reflections.Distortion = 2", "How much the water's waves ripple its reflection, 0 to 5 times the usual (1 unless set): 0 for a still mirror", "Water", Namespace = "Engine.Water.Reflections", Flat = false)]
+    public static double WaterReflectionsDistortion
+    {
+        get => Genesis.Rendering.Core.EngineRenderingDefaults.WaterReflectionDistortion;
+        set { if (double.IsFinite(value)) Genesis.Rendering.Core.EngineRenderingDefaults.WaterReflectionDistortion = (float)Math.Clamp(value, 0, 5); }
+    }
+
     // ── Engine.Terrain: the room's ground, changed as the game plays ─────────────────────
 
     private static bool EditGround(RoomTerrainSubsystem.GroundEdit edit, double x, double z, double radius, double amount, int layer = 1)

@@ -5176,7 +5176,7 @@ namespace Genesis.Rendering.Primitives
                 SkyHorizonFlow = new Vector4(ToLinearColor(new Vector3(skyHorizon.X, skyHorizon.Y, skyHorizon.Z)), skyHorizon.W),
                 SkyZenithPad = new Vector4(ToLinearColor(new Vector3(skyZenith.X, skyZenith.Y, skyZenith.Z)), skyZenith.W),
                 ReflectionViewProjection = _reflectionViewProjection,
-                ReflectionParams = new Vector4(reflection ? 1 : 0, .015f, _nearPlane,
+                ReflectionParams = new Vector4(reflection ? 1 : 0, .015f * Math.Clamp(Genesis.Rendering.Core.EngineRenderingDefaults.WaterReflectionDistortion, 0f, 5f), _nearPlane,
                     _state.CameraFarPlane > 0f ? _state.CameraFarPlane : 1000f),
                 WeatherWindRain = _state.WeatherWindRain,
                 DepthParams = new Vector4(SceneDepthFlag, 0f, 0f, 0f),

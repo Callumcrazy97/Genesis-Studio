@@ -137,11 +137,11 @@ Engine.Navigation.Agent (Speed, StoppingDistance); 25 October: Engine.Display.Re
 
 | Part | Values |
 |---|---|
-| Engine.Water | + Enabled, ✓ DepthAt(x, z), ✓ SurfaceAt(x, z), ✓ FlowX/FlowZ(x, z), ✓ IsSwimmable(x, z) |
-| Engine.Water.Reflections | ✓ Enabled [Reflections], + Resolution, + Distortion |
-| Engine.Water.Surface | ✓ Waves, ✓ WaveSpeed, + Foam.Enabled, ✓ FoamWidth, ✓ ShallowColor, ✓ DeepColor, ✓ Clarity |
+| Engine.Water | ✓ Enabled, ✓ DepthAt(x, z), ✓ SurfaceAt(x, z), ✓ FlowX/FlowZ(x, z), ✓ IsSwimmable(x, z) |
+| Engine.Water.Reflections | ✓ Enabled [Reflections], ✓ Resolution, ✓ Distortion |
+| Engine.Water.Surface | ✓ Waves, ✓ WaveSpeed, ✓ Foam.Enabled, ✓ FoamWidth, ✓ ShallowColor, ✓ DeepColor, ✓ Clarity |
 | Engine.Water.Holes (terrain water) | ✓ Radius, ✓ Shape, ✓ AngleBias, ✓ DischargeCoefficient [Engine.Terrain.Water.Hole*], ✓ Punch(x, z), ✓ Clear() |
-| Engine.Water.Swimming | + Buoyancy, + Drag |
+| Engine.Water.Swimming | ✓ Buoyancy, ✓ Drag |
 
 ## Engine.Terrain
 
@@ -277,7 +277,7 @@ Engine.Navigation.Agent (Speed, StoppingDistance); 25 October: Engine.Display.Re
 | Engine.Instance.Nearby | ✓ Nearest, ✓ NearestOther, ✓ Furthest, ✓ InRadius, ✓ FirstInRadius, ✓ DistanceTo |
 | Engine.Instance.Variables | ✓ Get, ✓ Set, ✓ Exists |
 | Engine.Instance.Bulk | ✓ SetPositionsFromNumList, ✓ SetTransformsFromNumList, ✓ SetTintsFromNumList, ✓ GetPositionsToNumList, ✓ SceneQueue* |
-| Engine.Instance.Update | + Distance (beyond this an instance's Step is skipped), + Rate (steps a second when far) |
+| Engine.Instance.Update | ✓ Distance (beyond this an instance's Step is skipped), + Rate (steps a second when far) |
 
 ## Engine.Input
 
@@ -362,7 +362,7 @@ Engine.Navigation.Agent (Speed, StoppingDistance); 25 October: Engine.Display.Re
 |---|---|
 | Engine.Tile | + Enabled (tile layers drawn), ✓ SetAt, ✓ IndexAt, ✓ RemoveAt, ✓ Meeting, ✓ MoveX, ✓ MoveY |
 | Engine.Tile.Autotile | ✓ Enabled [Autotile], ✓ PaintAt, ✓ EraseAt |
-| Engine.Tile.Layer (by name) | + Visible, + Alpha, + Depth, + Solid, + ScrollX, + ScrollY |
+| Engine.Tile.Layer (by name) | ✓ Visible, ✓ Alpha, + Depth, + Solid, ✓ ScrollX/ScrollY [OffsetX/OffsetY, SetOffset] |
 | Engine.Tile.Animation | + Enabled, + Speed |
 
 ## Engine.Room
