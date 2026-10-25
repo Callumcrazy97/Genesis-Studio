@@ -67,6 +67,18 @@ internal static class EngineSettingsChecks
         float scaleX = preview.PreviewWorld is { } world && world.IsAlive(preview.PreviewEntity) ? world.GetRef<TransformComponent>(preview.PreviewEntity).ScaleX : float.NaN;
         HeadlessHarness.Assert(Math.Abs(scaleX - 2f) < 1e-4 && ReferenceEquals(PgslCommands.ActiveGameContext, previousGame),
             $"The Object view should show the Object's Engine.Instance.ScaleX of 2 (it shows {scaleX}) and leave Studio's game as it was.");
+
+        // The Terrain editor's view shows the terrain's own engine settings too.
+        string terrainPath = resources.CreateResource(ResourceFolderPolicy.RootFor(project, ResourceKind.Terrain), ResourceKind.Terrain, "Settings Preview Terrain");
+        var terrainEditor = new Genesis.Application.Editors.Suite.Terrain.TerrainEditorControl(terrainPath, project.RootPath) { Dock = DockStyle.Fill };
+        host.Controls.Add(terrainEditor);
+        System.Windows.Forms.Application.DoEvents();
+        HeadlessHarness.Assert(terrainEditor.TryApplyInspectorValue(EngineSettingsInspector.AddPath, "Rendering.Fog.Start")
+            && terrainEditor.TryApplyInspectorValue(EngineSettingsInspector.Prefix + "Engine.Rendering.Fog.Start", 12d),
+            "Could not give the terrain an engine setting in the Inspector.");
+        object? terrainFog = terrainEditor.EngineSettingsPreviewChanges().FirstOrDefault(change => change.Field.Name == "FogStart")?.Value;
+        HeadlessHarness.Assert(terrainFog is float fogStart && Math.Abs(fogStart - 12f) < 1e-4,
+            $"The Terrain view should show the terrain's fog from 12 m; it shows {terrainFog ?? "nothing"}.");
     }
 
     public static void InspectorAndRooms(ProjectSession project, ResourceService resources)

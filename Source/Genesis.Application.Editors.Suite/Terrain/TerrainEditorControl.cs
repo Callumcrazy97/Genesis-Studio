@@ -1558,7 +1558,27 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
 
         state.Wireframe = _wireframe;
         state.ShadowOrthoSize = MathF.Max(90f, extent * 0.75f);
+        Rooms.RoomEngineSettingsPreview.Apply(ref state, EngineSettingsPreviewChanges());
         return state;
+    }
+
+    // The terrain's engine settings as a game will show them (in a room with the default look),
+    // worked out again only when they change.
+    private IReadOnlyList<Rooms.RoomEngineSettingsPreview.Change> _settingsPreview = [];
+    private string? _settingsPreviewKey;
+
+    /// <summary>The frame-state values the terrain's engine settings change in the view (tests).</summary>
+    internal IReadOnlyList<Rooms.RoomEngineSettingsPreview.Change> EngineSettingsPreviewChanges()
+    {
+        string key = _nature.EngineSettings is { Count: > 0 } settings
+            ? string.Join(";", settings.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase).Select(pair => pair.Key + "=" + pair.Value))
+            : "";
+        if (key == _settingsPreviewKey) return _settingsPreview;
+        _settingsPreviewKey = key;
+        _settingsPreview = key.Length == 0
+            ? []
+            : Rooms.RoomEngineSettingsPreview.Changes(ProjectRoot, Genesis.Runtime.Scene.RoomAsset.Create("Terrain preview", Genesis.Runtime.Scene.RoomDimension.ThreeD), _nature.EngineSettings);
+        return _settingsPreview;
     }
 
     private void DrawTerrainScene(IRenderController renderer)
