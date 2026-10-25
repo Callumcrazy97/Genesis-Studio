@@ -125,12 +125,16 @@ muffles the music, for a pause menu, underwater or a dream. Music is never echoe
 | `Engine.Particle.Quality` | How many particles every effect makes, 0.1 to 1 of what it was authored with (1 unless set), for a slow machine |
 | `Engine.Navigation.Mesh.AgentRadius`, `AgentHeight`, `MaxSlope`, `StepHeight`, `CellSize` | The agent the next `Engine.Navigation.Bake()` is made for (0.35 m, 1.8 m, 45°, 0.45 m unless set; the cell worked out from the room unless set): a giant's mesh keeps wider of walls |
 | `Engine.Navigation.Baked` | Whether the room has a mesh to find routes on (read) |
+| `Engine.Ui.Enabled` | Whether User Interfaces are drawn and answer the pointer, keys and controllers (true unless set): off for a photo mode |
+| `Engine.Ui.Scale.Value`, `Engine.Ui.Scale.Auto.Enabled` | How large User Interfaces are drawn, 0.25 to 4 (1 unless set), with what is anchored to a side of the window kept there; and whether they stretch to the window (true unless set) or are drawn at their design pixels, crisp on a large screen |
+| `Engine.Ui.Focus.Navigation.Enabled` | Whether the arrows, d-pad and left stick move the focus and Enter, Space or A press (true unless set) |
 | `Engine.Navigation.Avoidance.Radius`, `Priority` | How much room this instance's agent keeps from others, and who gives way, 0 to 100 (50 unless set): a guard of 90 walks through a crowd of 50 |
 
 Each command for a layer the room does not have returns false (or 0), as does a terrain edit
 where no terrain is. Checked by `Engine.Pgsl.Logic.EngineApiTileLayersUpdateDistanceAndFrameCosts`,
 `EngineApiWaterSurfaceLook`, `EngineApiTerrainEditsTheGroundAsItPlays`,
-`EngineApiParticleEmitterLookAndQuality` and `EngineApiNavigationBakeAndPriority`.
+`EngineApiParticleEmitterLookAndQuality` and `EngineApiNavigationBakeAndPriority`; the Ui parts by
+`Runtime.UI.Toolkit.ScaleStretchEnabledAndFocusNavigation`.
 
 ## Render scale and dynamic resolution (25 October 2026)
 

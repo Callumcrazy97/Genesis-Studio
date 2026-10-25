@@ -320,11 +320,11 @@ Engine.Navigation.Agent (Speed, StoppingDistance); 25 October: Engine.Display.Re
 
 | Part | Values |
 |---|---|
-| Engine.Ui | + Enabled (drawn and clickable), ✓ Theme [SetTheme], ✓ Draw() [DrawUi], ✓ Update() |
-| Engine.Ui.Focus | ✓ Focused (read) [GetFocused], ✓ Set(id), ✓ Hovered (read), + Navigation.Enabled (keys/gamepad move focus) |
+| Engine.Ui | ✓ Enabled (drawn and clickable), ✓ Theme [SetTheme], ✓ Draw() [DrawUi], ✓ Update() |
+| Engine.Ui.Focus | ✓ Focused (read) [GetFocused], ✓ Set(id), ✓ Hovered (read), ✓ Navigation.Enabled (keys/gamepad move focus) |
 | Engine.Ui.Widget (by id) | ✓ Visible, ✓ Enabled, ✓ Text, ✓ Value, ✓ Selected, ✓ Scroll, ✓ Clicked, ✓ Submitted, ✓ ValueChanged, ✓ HitTest |
 | Engine.Ui.Mouse | ✓ X, ✓ Y |
-| Engine.Ui.Scale | + Value, + Auto.Enabled |
+| Engine.Ui.Scale | ✓ Value, ✓ Auto.Enabled |
 
 ## Engine.Draw (2D drawing state and 3D debug shapes)
 

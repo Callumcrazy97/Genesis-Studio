@@ -106,5 +106,68 @@ internal static class UiToolkitSuite
                 PgslCommands.BindContext(oldContext); PgslCommands.ActiveGameContext = oldGame; PgslCommands.ProjectPath = oldPath;
             }
         });
+
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.UI.Toolkit.ScaleStretchEnabledAndFocusNavigation", () => ScaleAndSwitches(ctx));
+    }
+
+    // Engine.Ui on a 640x360 design drawn in a 1280x720 window: a button anchored 10 px in from the
+    // bottom-right corner keeps to the corner when the UI is scaled and when it stops stretching;
+    // with Engine.Ui.Enabled off nothing is hit, and with focus navigation off the keys leave the focus.
+    private static void ScaleAndSwitches(HeadlessContext ctx)
+    {
+        const string Hud = "Scaled";
+        string parent = Path.Combine(ctx.Workspace, "UiScale");
+        if (Directory.Exists(parent)) Directory.Delete(parent, recursive: true);
+        Directory.CreateDirectory(parent);
+        ProjectSession project = new ProjectService().CreateProject(parent, "Scale Game", "Blank");
+        string folder = Path.Combine(project.AssetsPath, "User Interfaces");
+        Directory.CreateDirectory(folder);
+        var ui = new UiAssetDocument { DesignWidth = 640, DesignHeight = 360 };
+        ui.Elements.Add(new UiElement { Id = "Top", Type = UiElementType.Button, X = 20, Y = 20, Width = 100, Height = 40, Order = 1 });
+        ui.Elements.Add(new UiElement { Id = "Corner", Type = UiElementType.Button, Anchor = UiAnchor.BottomRight, X = 10, Y = 10, Width = 100, Height = 40, Order = 2 });
+        UiAssetDocument.Save(Path.Combine(folder, "Scaled.ui.json"), ui);
+        ResourceCatalog.Invalidate(project.RootPath);
+
+        InputState input = new();
+        IGameContext? oldGame = PgslCommands.ActiveGameContext;
+        string oldPath = PgslCommands.ProjectPath;
+        PgslContext context = new() { RoomWidth = 1280, RoomHeight = 720, DrawSurface = new PgslRecordingDrawSurface() };
+        PgslContext? oldContext = PgslCommands.BindContext(context);
+        PgslCommands.ActiveGameContext = new NullGameContext { Input = input, ProjectPath = project.RootPath };
+        PgslCommands.ProjectPath = project.RootPath;
+        void Press(Key key) { input.NextFrame(); input.OnKeyDown(key); PgslCommands.UiUpdate(Hud); input.NextFrame(); input.OnKeyUp(key); }
+        try
+        {
+            bool defaults = PgslCommands.UiEnabledPart && PgslCommands.UiScaleValue == 1 && PgslCommands.UiScaleAutoEnabled && PgslCommands.UiFocusNavigationEnabled;
+            // Stretched twice over: the corner button covers 1060-1260 by 620-700.
+            bool stretched = PgslCommands.UiHitTest(Hud, 1250, 690) == "Corner" && PgslCommands.UiHitTest(Hud, 1000, 600) == "";
+            // Half as large again: 300 by 120 ending 30 px in from the corner (10 design px, three times).
+            PgslCommands.UiScaleValue = 1.5;
+            bool scaled = PgslCommands.UiHitTest(Hud, 1000, 600) == "Corner" && PgslCommands.UiHitTest(Hud, 1255, 695) == ""
+                && PgslCommands.UiHitTest(Hud, 1245, 685) == "Corner";
+            // At its design pixels, anchored to the window: 1170-1270 by 670-710.
+            PgslCommands.UiScaleValue = 1;
+            PgslCommands.UiScaleAutoEnabled = false;
+            bool pixels = PgslCommands.UiHitTest(Hud, 1265, 705) == "Corner" && PgslCommands.UiHitTest(Hud, 1100, 650) == ""
+                && PgslCommands.UiHitTest(Hud, 50, 30) == "Top";
+            PgslCommands.UiEnabledPart = false;
+            bool off = PgslCommands.UiHitTest(Hud, 1265, 705) == "";
+            PgslCommands.UiEnabledPart = true;
+            PgslCommands.UiSetFocus(Hud, "Top");
+            PgslCommands.UiFocusNavigationEnabled = false;
+            Press(Key.Right);
+            string heldFocus = PgslCommands.UiGetFocused(Hud);
+            PgslCommands.UiFocusNavigationEnabled = true;
+            Press(Key.Right);
+            string movedFocus = PgslCommands.UiGetFocused(Hud);
+            HeadlessHarness.Assert(defaults && stretched && scaled && pixels && off && heldFocus == "Top" && movedFocus == "Corner",
+                $"defaults {defaults}; stretched {stretched}; scaled 1.5 {scaled}; design pixels {pixels}; off {off}; " +
+                $"Right with navigation off kept {heldFocus} (Top), on moved to {movedFocus} (Corner).");
+        }
+        finally
+        {
+            PgslCommands.ResetUiParts();
+            PgslCommands.BindContext(oldContext); PgslCommands.ActiveGameContext = oldGame; PgslCommands.ProjectPath = oldPath;
+        }
     }
 }

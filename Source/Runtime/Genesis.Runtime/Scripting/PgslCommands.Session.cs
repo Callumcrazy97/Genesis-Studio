@@ -34,6 +34,7 @@ public static partial class PgslCommands
         Genesis.Runtime.Project.RoomTerrainSubsystem.GameTerrainDetail = 1f;
         Genesis.Runtime.ECS.Components.ParticleQuality.Reset();
         ResetNavigationBake();
+        ResetUiParts();
         Genesis.Shared.Rendering.RenderScale.Reset();
         Genesis.Runtime.Input.InputSettings.Reset();
         Genesis.Runtime.Scene.RoomSceneryStreamer.ForgetAll();

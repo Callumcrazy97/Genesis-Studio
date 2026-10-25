@@ -6,7 +6,7 @@ variable and, when it can be set, set like one (`Engine.Physics.Mass = 4;`, `Eng
 an instance's property is the current instance's, each target's in turn inside `with`. The flat
 names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
-1717 names: 447 properties (377 can be set), 1270 commands.
+1721 names: 451 properties (381 can be set), 1270 commands.
 
 ## Engine.Alarm
 
@@ -2181,6 +2181,7 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 |---|---|---|
 | `Clicked` | command | True once after the player presses and releases the pointer on a button, slider or toggle; reading it clears it |
 | `DrawUi` | command | Draw a User Interface resource in the GUI pass |
+| `Enabled` | property | Whether User Interface resources are drawn and answer the pointer, keys and controllers (true unless set): off for a photo mode or a cutscene, everything in them kept as it was |
 | `GetFocused` | command | The element the keyboard and controller act on (it has its Selected look), or an empty string |
 | `GetHovered` | command | The enabled button, slider or toggle under the pointer, or an empty string |
 | `GetScroll` | command | How far a Scroll List is scrolled, in design pixels |
@@ -2200,6 +2201,24 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `Submitted` | command | True once after the player presses Enter in a Text Input; reading it clears it |
 | `Update` | command | Track the pointer over a User Interface: hover, press, clicks, slider drags and toggle flips. DrawUi does this too; call it in Step to read clicks before drawing |
 | `ValueChanged` | command | True once after the player moves a slider or flips a toggle; reading it clears it |
+
+## Engine.Ui.Focus.Navigation
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Enabled` | property | Whether the arrow keys, a controller's d-pad and left stick move the focus between a User Interface's elements and Enter, Space or A press them (true unless set); off, a game moves the focus itself |
+
+## Engine.Ui.Scale.Auto
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Enabled` | property | Whether User Interfaces stretch to fill the window (true unless set); off, they are drawn at their design pixels, times Engine.Ui.Scale.Value, anchored to the window's sides, crisp on a wide or large screen |
+
+## Engine.Ui.Scale
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Value` | property | How large User Interfaces are drawn, 0.25 to 4 times (1 unless set): a player's text-size setting; what is anchored to a side of the window stays there |
 
 ## Engine.Variable
 

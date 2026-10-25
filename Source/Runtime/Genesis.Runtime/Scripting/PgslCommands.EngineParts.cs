@@ -1115,6 +1115,28 @@ public static partial class PgslCommands
         set { if (TryHexColor(value, out Vector3 tint)) SetEmitterLook(look => look with { Tint = tint }); }
     }
 
+    // ── Engine.Ui: every User Interface resource the game draws ──────────────────────────
+
+    private static bool _uiEnabled = true, _uiScaleAuto = true, _uiFocusNavigation = true;
+    private static float _uiScale = 1f;
+
+    internal static void ResetUiParts()
+    {
+        _uiEnabled = true; _uiScaleAuto = true; _uiFocusNavigation = true; _uiScale = 1f;
+    }
+
+    [PgslCommand("Enabled", "Engine.Ui.Enabled = false", "Whether User Interface resources are drawn and answer the pointer, keys and controllers (true unless set): off for a photo mode or a cutscene, everything in them kept as it was", "User Interface", Namespace = "Engine.Ui", Flat = false)]
+    public static bool UiEnabledPart { get => _uiEnabled; set => _uiEnabled = value; }
+
+    [PgslCommand("Value", "Engine.Ui.Scale.Value = 1.25", "How large User Interfaces are drawn, 0.25 to 4 times (1 unless set): a player's text-size setting; what is anchored to a side of the window stays there", "User Interface", Namespace = "Engine.Ui.Scale", Flat = false)]
+    public static double UiScaleValue { get => _uiScale; set { if (double.IsFinite(value)) _uiScale = (float)Math.Clamp(value, 0.25, 4); } }
+
+    [PgslCommand("Enabled", "Engine.Ui.Scale.Auto.Enabled = false", "Whether User Interfaces stretch to fill the window (true unless set); off, they are drawn at their design pixels, times Engine.Ui.Scale.Value, anchored to the window's sides, crisp on a wide or large screen", "User Interface", Namespace = "Engine.Ui.Scale.Auto", Flat = false)]
+    public static bool UiScaleAutoEnabled { get => _uiScaleAuto; set => _uiScaleAuto = value; }
+
+    [PgslCommand("Enabled", "Engine.Ui.Focus.Navigation.Enabled = false", "Whether the arrow keys, a controller's d-pad and left stick move the focus between a User Interface's elements and Enter, Space or A press them (true unless set); off, a game moves the focus itself", "User Interface", Namespace = "Engine.Ui.Focus.Navigation", Flat = false)]
+    public static bool UiFocusNavigationEnabled { get => _uiFocusNavigation; set => _uiFocusNavigation = value; }
+
     [PgslCommand("Budget", "Engine.Mesh.Upload.Budget = milliseconds", "How long a frame may spend sending script meshes to the graphics card before the rest wait for the next (4 unless set)", "Meshes", Namespace = "Engine.Mesh.Upload", Flat = false)]
     public static double MeshUploadBudgetPart { get => Rendering.ScriptMeshes.UploadBudgetMilliseconds; set => MeshSetUploadBudget(value); }
 

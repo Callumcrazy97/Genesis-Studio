@@ -24,10 +24,9 @@ public static partial class PgslCommands
     public static void UiUpdate(string uiAsset)
     {
         PgslContext context = GetContext();
-        if (context is null || !TryLoadUi(uiAsset, out UiAssetDocument document)) return;
-        SizeF target = UiTargetSize(context);
-        UpdateUiPointer(context, uiAsset, GetUiLayout(document),
-            target.Width / Math.Max(1, document.DesignWidth), target.Height / Math.Max(1, document.DesignHeight));
+        if (!_uiEnabled || context is null || !TryLoadUi(uiAsset, out UiAssetDocument document)) return;
+        (UiLayoutCache layout, float scaleX, float scaleY) = UiPlaced(document, UiTargetSize(context));
+        UpdateUiPointer(context, uiAsset, layout, scaleX, scaleY);
     }
 
     [PgslCommand("UiGetValue", "UiGetValue(uiAsset, elementId) -> number",

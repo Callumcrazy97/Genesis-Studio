@@ -265,6 +265,13 @@ public static partial class PgslCommands
             if (input.WasPressed(Key.Enter)) context.Variables[UiOverrideKey(asset, focused.Id, "submitted")] = true;
         }
 
+        // With Engine.Ui.Focus.Navigation off the keys and controllers leave the focus to the pointer and scripts.
+        if (!_uiFocusNavigation)
+        {
+            context.Variables[UiPointerKey(asset, "focus")] = focus;
+            return;
+        }
+
         bool up = UiDirectionPressed(input, Key.Up, GamepadButton.DPadUp, GamepadDirection.LeftStickUp);
         bool down = UiDirectionPressed(input, Key.Down, GamepadButton.DPadDown, GamepadDirection.LeftStickDown);
         bool left = UiDirectionPressed(input, Key.Left, GamepadButton.DPadLeft, GamepadDirection.LeftStickLeft);

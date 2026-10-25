@@ -33,21 +33,16 @@ public static partial class PgslCommands
 
     private static readonly object UiCacheGate = new();
     private static readonly Dictionary<string, UiDocumentCacheEntry> UiDocumentCache = new(StringComparer.OrdinalIgnoreCase);
-    private static readonly ConditionalWeakTable<UiAssetDocument, UiLayoutCache> UiLayoutCaches = new();
+    private static readonly ConditionalWeakTable<UiAssetDocument, UiPlacement> UiLayoutCaches = new();
 
     [PgslCommand("DrawUi", "DrawUi(uiAsset)", "Draw a User Interface resource in the GUI pass", "User Interface")]
     public static void DrawUi(string uiAsset)
     {
         IPgslDrawSurface surface = Draw;
         PgslContext context = GetContext();
-        if (surface is null || context is null || !TryLoadUi(uiAsset, out UiAssetDocument document)) return;
+        if (!_uiEnabled || surface is null || context is null || !TryLoadUi(uiAsset, out UiAssetDocument document)) return;
 
-        SizeF target = UiTargetSize(context);
-        float targetWidth = target.Width;
-        float targetHeight = target.Height;
-        float scaleX = targetWidth / Math.Max(1, document.DesignWidth);
-        float scaleY = targetHeight / Math.Max(1, document.DesignHeight);
-        UiLayoutCache layout = GetUiLayout(document);
+        (UiLayoutCache layout, float scaleX, float scaleY) = UiPlaced(document, UiTargetSize(context));
         UpdateUiPointer(context, uiAsset, layout, scaleX, scaleY);
         UiPointerState pointer = ReadUiPointer(context, uiAsset);
 
@@ -95,11 +90,8 @@ public static partial class PgslCommands
     public static string UiHitTest(string uiAsset, double x, double y)
     {
         PgslContext context = GetContext();
-        if (context is null || !TryLoadUi(uiAsset, out UiAssetDocument document)) return string.Empty;
-        SizeF target = UiTargetSize(context);
-        float scaleX = target.Width / Math.Max(1, document.DesignWidth);
-        float scaleY = target.Height / Math.Max(1, document.DesignHeight);
-        UiLayoutCache layout = GetUiLayout(document);
+        if (!_uiEnabled || context is null || !TryLoadUi(uiAsset, out UiAssetDocument document)) return string.Empty;
+        (UiLayoutCache layout, float scaleX, float scaleY) = UiPlaced(document, UiTargetSize(context));
         foreach (UiElement element in layout.ReverseOrdered)
         {
             if (!IsUiElementVisible(context, uiAsset, element, layout.Elements)) continue;
@@ -125,16 +117,17 @@ public static partial class PgslCommands
         IReadOnlyDictionary<string, UiElement> elements,
         IDictionary<string, RectangleF> cache,
         HashSet<string> visiting,
-        IReadOnlyDictionary<string, float> slots = null)
+        IReadOnlyDictionary<string, float> slots = null,
+        SizeF root = default)
     {
         if (cache.TryGetValue(element.Id, out RectangleF cached)) return cached;
-        RectangleF parent = new(0, 0, document.DesignWidth, document.DesignHeight);
+        RectangleF parent = root.IsEmpty ? new(0, 0, document.DesignWidth, document.DesignHeight) : new(0, 0, root.Width, root.Height);
         UiElement container = null;
         if (!string.IsNullOrWhiteSpace(element.ParentId)
             && elements.TryGetValue(element.ParentId, out UiElement parentElement)
             && visiting.Add(element.Id))
         {
-            parent = ResolveUiRect(document, parentElement, elements, cache, visiting, slots);
+            parent = ResolveUiRect(document, parentElement, elements, cache, visiting, slots, root);
             visiting.Remove(element.Id);
             container = parentElement;
         }
@@ -228,10 +221,46 @@ public static partial class PgslCommands
         }
     }
 
-    private static UiLayoutCache GetUiLayout(UiAssetDocument document) =>
-        UiLayoutCaches.GetValue(document, BuildUiLayout);
+    // The UI's layout as last placed on the screen (its design size until first drawn).
+    private static UiLayoutCache GetUiLayout(UiAssetDocument document)
+    {
+        UiPlacement placement = UiLayoutCaches.GetValue(document, static _ => new UiPlacement());
+        lock (placement)
+            return placement.Layout ??= BuildUiLayout(document, default);
+    }
 
-    private static UiLayoutCache BuildUiLayout(UiAssetDocument document)
+    /// <summary>
+    /// The UI laid out for the screen it is drawn on, and the factors from its design pixels to the
+    /// screen's: stretched to the window (Engine.Ui.Scale.Auto.Enabled) or at its design pixels with
+    /// its anchors on the window's edges, times Engine.Ui.Scale.Value either way.
+    /// </summary>
+    private static (UiLayoutCache Layout, float ScaleX, float ScaleY) UiPlaced(UiAssetDocument document, SizeF target)
+    {
+        float scale = _uiScale;
+        float fitX = _uiScaleAuto ? target.Width / Math.Max(1, document.DesignWidth) : 1f;
+        float fitY = _uiScaleAuto ? target.Height / Math.Max(1, document.DesignHeight) : 1f;
+        SizeF root = scale == 1f && _uiScaleAuto ? default
+            : _uiScaleAuto ? new SizeF(document.DesignWidth / scale, document.DesignHeight / scale)
+            : new SizeF(MathF.Max(1f, target.Width / scale), MathF.Max(1f, target.Height / scale));
+        UiPlacement placement = UiLayoutCaches.GetValue(document, static _ => new UiPlacement());
+        lock (placement)
+        {
+            if (placement.Layout == null || placement.Root != root)
+            {
+                placement.Layout = BuildUiLayout(document, root);
+                placement.Root = root;
+            }
+            return (placement.Layout, fitX * scale, fitY * scale);
+        }
+    }
+
+    private sealed class UiPlacement
+    {
+        public SizeF Root;
+        public UiLayoutCache Layout;
+    }
+
+    private static UiLayoutCache BuildUiLayout(UiAssetDocument document, SizeF root)
     {
         UiElement[] ordered = document.Elements.OrderBy(element => element.Order).ToArray();
         Dictionary<string, UiElement> elements = ordered
@@ -241,7 +270,7 @@ public static partial class PgslCommands
         Dictionary<string, RectangleF> rects = new(StringComparer.OrdinalIgnoreCase);
         (Dictionary<string, float> slots, Dictionary<string, float> extents) = UiLayoutSlots(ordered, elements);
         foreach (UiElement element in ordered)
-            ResolveUiRect(document, element, elements, rects, [], slots);
+            ResolveUiRect(document, element, elements, rects, [], slots, root);
         Dictionary<string, string[]> scrollAncestors = new(StringComparer.OrdinalIgnoreCase);
         foreach (UiElement element in ordered)
             if (UiScrollAncestors(element, elements) is { Length: > 0 } lists) scrollAncestors[element.Id] = lists;
