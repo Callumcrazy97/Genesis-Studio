@@ -1234,6 +1234,18 @@ public static partial class PgslCommands
         set { if (double.IsFinite(value)) Genesis.Runtime.ECS.Components.ParticleQuality.Amount = (float)value; }
     }
 
+    [PgslCommand("Enabled", "Engine.Particle.Enabled = false", "Whether particle effects run and are drawn (true unless set); off, every effect stops where it is and carries on when back on: a photo mode, a pause screen", "Particles", Namespace = "Engine.Particle", Flat = false)]
+    public static bool ParticleEnabledPart { get => Genesis.Runtime.ECS.Components.ParticleQuality.Enabled; set => Genesis.Runtime.ECS.Components.ParticleQuality.Enabled = value; }
+
+    [PgslCommand("Enabled", "Engine.Particle.Bursts.Enabled = false", "Whether new one-off bursts start, from ParticleBurstAt, batched bursts and the engine's own (true unless set); those playing finish", "Particles", Namespace = "Engine.Particle.Bursts", Flat = false)]
+    public static bool ParticleBurstsEnabled { get => Genesis.Runtime.ECS.Components.ParticleQuality.Bursts; set => Genesis.Runtime.ECS.Components.ParticleQuality.Bursts = value; }
+
+    [PgslCommand("Enabled", "Engine.Particle.Particles2D.Enabled = false", "Whether a 2D room's particles (Particle2DBurst, Particle2DFlow) start and are drawn (true unless set); its lights and darkness stay", "Particles", Namespace = "Engine.Particle.Particles2D", Flat = false)]
+    public static bool ParticleParticles2DEnabled { get => Genesis.Runtime.ECS.Components.ParticleQuality.Particles2D; set => Genesis.Runtime.ECS.Components.ParticleQuality.Particles2D = value; }
+
+    [PgslCommand("Enabled", "Engine.Particle.Gpu.Collision.Enabled = false", "Whether effects' particles bounce off, stick to or die on the ground and geometry as each effect was made to (true unless set); off, they pass through, for a cheaper frame", "Particles", Namespace = "Engine.Particle.Gpu.Collision", Flat = false)]
+    public static bool ParticleGpuCollisionEnabled { get => Genesis.Runtime.ECS.Components.ParticleQuality.Collisions; set => Genesis.Runtime.ECS.Components.ParticleQuality.Collisions = value; }
+
     // ── Engine.Particle.Emitter: this instance's attached particles, changed as it plays ──
 
     private static bool TryEmitter(out Genesis.Runtime.ECS.World? world, out Genesis.Shared.ECS.Entity entity)

@@ -49,6 +49,9 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomW
         public ParticleConfig? Authored;
         /// <summary>The look the layer's config was last given (null: as authored).</summary>
         public ParticleLook? AppliedLook;
+        /// <summary>How the emitter's particles meet the world as authored, and whether that is applied (Engine.Particle.Gpu.Collision).</summary>
+        public ParticleCollisionMode AuthoredCollision;
+        public bool CollisionsApplied = true;
         public ParticleSimulation? Simulation;
         public GpuParticleEmitter? GpuEmitter;
         public IGpuParticleRenderer? GpuOwner;
@@ -172,7 +175,8 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomW
                 }
             }
 
-            component.Age += dt;
+            // A stopped effect (Engine.Particle off) does not age, so a burst is not taken away unseen.
+            if (ParticleQuality.Enabled) component.Age += dt;
             if (component.RemoveWhenDone)
             {
                 // A burst is over once its last particle has lived its life. An effect that emits
@@ -329,7 +333,8 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomW
         int smokeCount = 0;
 
         ParticleExecutionDecision execution = ParticleExecutionPolicy.Resolve(renderer);
-        foreach (ParticleState state in _particles.Values)
+        // With Engine.Particle off every effect stops where it is and is not drawn.
+        foreach (ParticleState state in ParticleQuality.Enabled ? _particles.Values : Enumerable.Empty<ParticleState>())
         {
             if (execution.Target == ParticleExecutionTarget.Gpu)
             {
@@ -369,7 +374,7 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomW
             }
         }
 
-        if (execution.Target == ParticleExecutionTarget.Gpu && renderer is IGpuParticleRenderer batchedRenderer)
+        if (ParticleQuality.Enabled && execution.Target == ParticleExecutionTarget.Gpu && renderer is IGpuParticleRenderer batchedRenderer)
             SubmitBatchedBursts(renderer, batchedRenderer);
 
         if (smokeExtinction)
@@ -542,6 +547,7 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomW
                     AuthoredRate = emitter.EmitRate,
                     AuthoredWindX = layout.WindX,
                     AuthoredWindZ = layout.WindZ,
+                    AuthoredCollision = layout.CollisionMode,
                     MeshSurfaceSamples = LoadMeshSurfaceSamples(emitter),
                     PendingBurst = !emitter.Loop ? QualityBurst(emitter.BurstCount) : 0,
                 });
@@ -563,6 +569,7 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomW
         foreach (ParticleLayerState layer in state.Layers)
         {
             if (component.Look != layer.AppliedLook) ApplyParticleLook(layer, component.Look);
+            if (layer.CollisionsApplied != ParticleQuality.Collisions) ApplyParticleCollisions(layer);
             double rate = Math.Max(0, component.HasEmitRateOverride || component.EmitRate > 0 ? component.EmitRate : layer.AuthoredRate * scale) * quality;
             // The emitter's own wind, when it has been given one, in place of the effect's.
             double windX = component.Wind?.X ?? layer.AuthoredWindX, windZ = component.Wind?.Y ?? layer.AuthoredWindZ;
@@ -572,6 +579,16 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomW
             layer.Config.WindZ = windZ;
             layer.Simulation?.UpdateConfig(layer.Config);
         }
+    }
+
+    // Particles meet the world as the effect was made to, or pass through it while collisions are off.
+    private static void ApplyParticleCollisions(ParticleLayerState layer)
+    {
+        layer.CollisionsApplied = ParticleQuality.Collisions;
+        layer.Config.CollisionMode = layer.CollisionsApplied ? layer.AuthoredCollision : ParticleCollisionMode.None;
+        layer.GpuDefinition = null;
+        layer.GpuLookup = null;
+        layer.Simulation?.UpdateConfig(layer.Config);
     }
 
     // A one-off burst's particles at the game's particle quality, never fewer than one.

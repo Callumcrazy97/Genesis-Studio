@@ -153,7 +153,7 @@ public sealed class RoomEffects2D : IDisposable
     public void Emit(string project, string asset, float x, float y, int count, float direction,
         bool flow = false, float targetX = 0, float targetY = 0)
     {
-        if (Paused || !Finite(x, y, targetX, targetY) || !float.IsFinite(direction) || count <= 0 || string.IsNullOrWhiteSpace(asset)) return;
+        if (Paused || !Genesis.Runtime.ECS.Components.ParticleQuality.Particles2D || !Finite(x, y, targetX, targetY) || !float.IsFinite(direction) || count <= 0 || string.IsNullOrWhiteSpace(asset)) return;
         if (!_configs.TryGetValue(asset, out ParticleConfig[] configurations))
         {
             ParticleConfig effect = ParticleAssetLoader.Load(project, asset);
@@ -238,7 +238,7 @@ public sealed class RoomEffects2D : IDisposable
                 size, size, new RenderColor(light.Color.X, light.Color.Y, light.Color.Z),
                 MathF.Min(.28f, light.Intensity * .13f), -8020);
         }
-        for (int i = 0; i < _count; i++)
+        for (int i = 0; i < (Genesis.Runtime.ECS.Components.ParticleQuality.Particles2D ? _count : 0); i++)
         {
             ref Particle particle = ref _particles[i];
             ParticleConfig config = particle.Config;

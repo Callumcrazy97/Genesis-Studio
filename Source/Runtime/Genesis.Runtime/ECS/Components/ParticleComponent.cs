@@ -54,6 +54,22 @@ namespace Genesis.Runtime.ECS.Components
             set => _amount = float.IsFinite(value) ? System.Math.Clamp(value, 0.1f, 1f) : 1f;
         }
 
-        public static void Reset() => _amount = 1f;
+        /// <summary>Whether effects run and are drawn (Engine.Particle.Enabled); off, each stops where it is.</summary>
+        public static bool Enabled { get; set; } = true;
+
+        /// <summary>Whether new one-off bursts start (Engine.Particle.Bursts.Enabled).</summary>
+        public static bool Bursts { get; set; } = true;
+
+        /// <summary>Whether a 2D room's particles start and are drawn (Engine.Particle.Particles2D.Enabled).</summary>
+        public static bool Particles2D { get; set; } = true;
+
+        /// <summary>Whether effects' particles collide with the ground and geometry (Engine.Particle.Gpu.Collision.Enabled).</summary>
+        public static bool Collisions { get; set; } = true;
+
+        public static void Reset()
+        {
+            _amount = 1f;
+            Enabled = Bursts = Particles2D = Collisions = true;
+        }
     }
 }

@@ -6,7 +6,7 @@ variable and, when it can be set, set like one (`Engine.Physics.Mass = 4;`, `Eng
 an instance's property is the current instance's, each target's in turn inside `with`. The flat
 names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
-1745 names: 470 properties (398 can be set), 1275 commands.
+1749 names: 474 properties (402 can be set), 1275 commands.
 
 ## Engine.Alarm
 
@@ -1410,6 +1410,7 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `DestroyAll` | command | Release every emitter |
 | `Effects2DPause` | command | Freeze/unfreeze room particle time |
 | `EmitterCount` | command | How many emitters exist |
+| `Enabled` | property | Whether particle effects run and are drawn (true unless set); off, every effect stops where it is and carries on when back on: a photo mode, a pause screen |
 | `Exists` | command | True while an emitter is alive |
 | `GetRate` | command | Particles emitted per second |
 | `Particle2DBurst` | command | Burst canonical Particle Editor emitters into a bounded room-owned 2D pool (never darkens the room) |
@@ -1427,6 +1428,7 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
 | Name | Kind | What it is |
 |---|---|---|
+| `Enabled` | property | Whether new one-off bursts start, from ParticleBurstAt, batched bursts and the engine's own (true unless set); those playing finish |
 | `Limit` | property | How many particle bursts may be alive at once, the oldest ending first (256 unless set) |
 
 ## Engine.Particle.Emitter
@@ -1440,6 +1442,18 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `Rate` | property | Particles this instance's attached effect makes a second, 0 to 10000 (the effect's own unless set) |
 | `Size` | property | How big this instance's particles are, 0 to 10 times the effect's own (1 unless set): a fire that grows as it catches |
 | `Speed` | property | How fast this instance's particles leave, 0 to 10 times the effect's own (1 unless set): an engine's exhaust at full throttle |
+
+## Engine.Particle.Gpu.Collision
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Enabled` | property | Whether effects' particles bounce off, stick to or die on the ground and geometry as each effect was made to (true unless set); off, they pass through, for a cheaper frame |
+
+## Engine.Particle.Particles2D
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Enabled` | property | Whether a 2D room's particles (Particle2DBurst, Particle2DFlow) start and are drawn (true unless set); its lights and darkness stay |
 
 ## Engine.Physics
 

@@ -142,6 +142,7 @@ internal static class PgslEngineApiChecks
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiTerrainEditsTheGroundAsItPlays", () => TerrainEdits(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiTerrainGroundGrassScatterAndQueries", () => TerrainLook(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiParticleEmitterLookAndQuality", () => ParticleEmitterLook(project, row));
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiParticleSwitches", () => ParticleSwitches(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiNavigationBakeAndPriority", () => NavigationParts(project, row));
     }
 
@@ -704,6 +705,69 @@ internal static class PgslEngineApiChecks
         {
             PgslCommands.ActiveGameContext = previousGame;
             PgslCommands.BindContext(previousContext);
+            Genesis.Runtime.ECS.Components.ParticleQuality.Reset();
+        }
+    }
+
+    // Engine.Particle's switches: off, a running effect stops (it does not age); bursts off start
+    // none; 2D particles off start none; collisions off make the running effect pass through the
+    // world and on again meet it as it was made to.
+    private static void ParticleSwitches(ProjectSession project, Action<string, string, string, string> row)
+    {
+        using var scene = new RuntimeScene("Particle switches");
+        using var effects = new Genesis.Runtime.Rendering.ObjectCompositionSubsystem(project.RootPath);
+        try
+        {
+            Entity entity = scene.World.CreateEntity();
+            scene.World.Set(entity, new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+            // An effect whose particles bounce off the ground.
+            Directory.CreateDirectory(Path.Combine(project.RootPath, "Assets"));
+            File.WriteAllText(Path.Combine(project.RootPath, "Assets", "Bouncing.particle.json"), "{\"emitRate\":20,\"collisionMode\":1}");
+            ResourceCatalog.Invalidate(project.RootPath);
+            scene.World.Set(entity, new Genesis.Runtime.ECS.Components.ParticleComponent { Asset = "Assets/Bouncing.particle.json", ParticleTypeId = -1, RateScale = 1f, FollowEntity = true, Emitting = true });
+            var time = new Genesis.Runtime.Core.GameTime();
+            void Step() { time.Advance(1f / 30f); effects.Update(scene, time); }
+            Step();
+            float Age() => scene.World.GetRef<Genesis.Runtime.ECS.Components.ParticleComponent>(entity).Age;
+            float ageOn = Age();
+            PgslCommands.ParticleEnabledPart = false;
+            Step(); Step();
+            float ageOff = Age();
+            PgslCommands.ParticleEnabledPart = true;
+            Step();
+            bool stopped = ageOn > 0 && ageOff == ageOn && Age() > ageOff;
+
+            var authored = effects.RunningEmitter(entity)!.CollisionMode;
+            PgslCommands.ParticleGpuCollisionEnabled = false;
+            Step();
+            var passing = effects.RunningEmitter(entity)!.CollisionMode;
+            PgslCommands.ParticleGpuCollisionEnabled = true;
+            Step();
+            var back = effects.RunningEmitter(entity)!.CollisionMode;
+
+            PgslCommands.ParticleBurstsEnabled = false;
+            Entity none = Genesis.Runtime.Particles.ParticleBursts.Play(scene.World, "builtin://Explosion", Vector3.Zero);
+            bool batchedNone = !Genesis.Runtime.Particles.ParticleBursts.PlayBatched(scene.World, "builtin://Explosion", Vector3.Zero);
+            PgslCommands.ParticleBurstsEnabled = true;
+            Entity some = Genesis.Runtime.Particles.ParticleBursts.Play(scene.World, "builtin://Explosion", Vector3.Zero);
+
+            using var room2D = new Genesis.Runtime.Rendering.RoomEffects2D();
+            PgslCommands.ParticleParticles2DEnabled = false;
+            room2D.Emit(project.RootPath, "builtin://Sparks", 10, 10, 20, 0);
+            int off2D = room2D.ParticleCount;
+            PgslCommands.ParticleParticles2DEnabled = true;
+            room2D.Emit(project.RootPath, "builtin://Sparks", 10, 10, 20, 0);
+            int on2D = room2D.ParticleCount;
+
+            bool pass = stopped && authored == Genesis.Runtime.Particles.ParticleCollisionMode.Bounce && passing == Genesis.Runtime.Particles.ParticleCollisionMode.None && back == authored
+                && none.IsNull && batchedNone && !some.IsNull && off2D == 0 && on2D > 0;
+            string detail = $"age {ageOn:0.###} held at {ageOff:0.###} while off, then {Age():0.###}; collision {authored} to {passing} and back to {back}; " +
+                $"bursts off made {(none.IsNull ? "none" : "one")} (batched none {batchedNone}), on {(some.IsNull ? "none" : "one")}; 2D particles off {off2D}, on {on2D}";
+            row("Engine API parts", "the particle switches", pass ? "PASS" : "FAIL", detail);
+            HeadlessHarness.Assert(pass, detail);
+        }
+        finally
+        {
             Genesis.Runtime.ECS.Components.ParticleQuality.Reset();
         }
     }

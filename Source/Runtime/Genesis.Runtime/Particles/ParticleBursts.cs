@@ -55,7 +55,7 @@ public static class ParticleBursts
     /// <returns>The emitter, which removes itself; <see cref="Entity.Null"/> when nothing could be made.</returns>
     public static Entity Play(EcsWorld world, string asset, Vector3 position, float scale = 1f, float emitSeconds = 0f)
     {
-        if (world == null || string.IsNullOrWhiteSpace(asset)) return Entity.Null;
+        if (world == null || string.IsNullOrWhiteSpace(asset) || !Genesis.Runtime.ECS.Components.ParticleQuality.Bursts) return Entity.Null;
         float size = float.IsFinite(scale) && scale > 0f ? scale : 1f;
         var prefab = new JObject
         {
@@ -91,7 +91,7 @@ public static class ParticleBursts
     /// <returns>False when nothing was asked for (no effect named, or the queue is full).</returns>
     public static bool PlayBatched(EcsWorld world, string asset, Vector3 position, float scale = 1f)
     {
-        if (world == null || string.IsNullOrWhiteSpace(asset)
+        if (world == null || string.IsNullOrWhiteSpace(asset) || !Genesis.Runtime.ECS.Components.ParticleQuality.Bursts
             || !float.IsFinite(position.X) || !float.IsFinite(position.Y) || !float.IsFinite(position.Z))
             return false;
         Ledger ledger = Ledgers.GetOrCreateValue(world);
