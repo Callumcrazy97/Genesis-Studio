@@ -537,6 +537,68 @@ internal static class LargeWorldContentSuite
             HeadlessHarness.Assert(!turned && !offset && !apart && Math.Abs(a.GetHeight(32, 16) - 10f) < 0.01f,
                 $"Turned ({turned}), off the grid ({offset}) or apart ({apart}) terrains should be left as they are.");
         });
+
+        // One terrain made into 2 by 2 tiles: each tile its quarter of the heights and paint, sharing
+        // its edges; the water goes with the tile it is in and the rules with all; placed where the
+        // original was, the tiles are the same ground to the centimetre.
+        HeadlessHarness.RunCase(context.Report, "Engine.World.Terrain.ATerrainSplitIntoTilesIsTheSameGround", () =>
+        {
+            string parent = Path.Combine(context.Workspace, "TileProjects");
+            Directory.CreateDirectory(parent);
+            ProjectSession project = new ProjectService().CreateProject(parent, "Tiles" + Guid.NewGuid().ToString("N")[..6], "Blank");
+            var resources = new ResourceService(project);
+            string path = resources.CreateResource(ResourceFolderPolicy.RootFor(project, ResourceKind.Terrain), ResourceKind.Terrain, "Big Vale");
+            var whole = new TerrainAsset(65, 65, 2f, -64f, -64f, 0f, 40f);
+            for (int z = 0; z < 65; z++)
+                for (int x = 0; x < 65; x++)
+                {
+                    whole.SetHeight(x, z, 15f + 6f * MathF.Sin(x * 0.2f) + 4f * MathF.Cos(z * 0.15f));
+                    if (x > 40 && z < 20) whole.SetLayerAt(z * 65 + x, 1);
+                }
+            whole.Save(path + ".gterrain");
+            var nature = TerrainNatureSerializer.LoadOrDefault(path);
+            nature.WaterBodies.Add(new TerrainWaterDefinition { Name = "Pond", Center = new Vector3(30f, 0f, 30f) });
+            nature.ScatterLayers.Add(new TerrainScatterLayer { Name = "Stones" });
+            TerrainNatureSerializer.Save(path, nature);
+
+            var tiles = Genesis.Application.Core.Terrain.TerrainTileSplit.Split(resources, path, 2, 2);
+            TerrainAsset Load(int column, int row) => TerrainAsset.Load(tiles.Single(tile => tile.Column == column && tile.Row == row).ResourcePath + ".gterrain");
+            TerrainAsset sw = Load(0, 0), se = Load(1, 0), nw = Load(0, 1), ne = Load(1, 1);
+            int[] ponds = tiles.Select(tile => TerrainNatureSerializer.LoadOrDefault(tile.ResourcePath).WaterBodies.Count).ToArray();
+            int[] stones = tiles.Select(tile => TerrainNatureSerializer.LoadOrDefault(tile.ResourcePath).ScatterLayers.Count).ToArray();
+            bool shaped = tiles.Count == 4 && sw.ResolutionX == 33 && se.OriginX == 0f && nw.OriginZ == 0f && ne.OriginX == 0f
+                && sw.GetRawHeight(32, 10) == se.GetRawHeight(0, 10) && sw.GetRawHeight(10, 32) == nw.GetRawHeight(10, 0)
+                && se.GetLayerWeight(45 - 32, 5, 1) == 255 && ponds.Sum() == 1 && TerrainNatureSerializer.LoadOrDefault(tiles.Single(tile => tile.Column == 1 && tile.Row == 1).ResourcePath).WaterBodies.Count == 1
+                && stones.All(count => count == 1);
+
+            RoomAsset Room(params string[] assets)
+            {
+                RoomAsset made = RoomAsset.Create("Vale", RoomDimension.ThreeD);
+                foreach (string asset in assets)
+                    made.Nodes.Add(new RoomNode
+                    {
+                        Name = Path.GetFileName(asset), Kind = RoomNodeKind.Terrain, LayerId = made.Layers[0].Id,
+                        Terrain = new RoomTerrainData { Asset = Path.GetRelativePath(project.RootPath, asset).Replace('\\', '/') },
+                    });
+                return made;
+            }
+            ResourceNames.Invalidate(project.RootPath);
+            var original = new Genesis.Runtime.Project.RoomTerrainSubsystem(project.RootPath, Room(path), null);
+            var tiled = new Genesis.Runtime.Project.RoomTerrainSubsystem(project.RootPath, Room([.. tiles.Select(tile => tile.ResourcePath)]), null);
+            float worst = 0f;
+            var random = new Random(7);
+            for (int i = 0; i < 200; i++)
+            {
+                // Every fifth point on a seam between tiles.
+                float x = i % 5 == 0 ? 0f : (float)(random.NextDouble() * 124 - 62), z = (float)(random.NextDouble() * 124 - 62);
+                worst = MathF.Max(worst, MathF.Abs(original.SampleHeight(x, z) - tiled.SampleHeight(x, z)));
+            }
+            HeadlessHarness.Assert(shaped && worst < 0.01f && tiled.StitchedEdges == 4,
+                $"Split into {tiles.Count} tiles ({sw.ResolutionX} samples across, east tile from x {se.OriginX}, north from z {nw.OriginZ}); shared edges alike " +
+                $"{sw.GetRawHeight(32, 10) == se.GetRawHeight(0, 10)}/{sw.GetRawHeight(10, 32) == nw.GetRawHeight(10, 0)}; paint kept {se.GetLayerWeight(13, 5, 1)}; " +
+                $"ponds per tile {string.Join(",", ponds)} (one, in the north-east); stones rule per tile {string.Join(",", stones)}; " +
+                $"heights differ by up to {worst:0.####} m (under 0.01); {tiled.StitchedEdges} edges met (4).");
+        });
     }
 
     /// <summary>

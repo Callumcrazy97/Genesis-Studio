@@ -32,7 +32,7 @@ public static class TerrainShapeCommands
         settings[name] is JsonValue value && value.TryGetValue(out double number) ? (float)number : fallback;
 
     /// <summary>The generator's parameters from a terrain's settings, as the editor reads them.</summary>
-    private static TerrainGenParams Params(JsonObject settings)
+    internal static TerrainGenParams Params(JsonObject settings)
     {
         JsonArray? resolution = settings["resolution"] as JsonArray;
         Enum.TryParse(settings["preset"]?.GetValue<string>() ?? settings["seedProfile"]?.GetValue<string>(), out TerrainPreset preset);

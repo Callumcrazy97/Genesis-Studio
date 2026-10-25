@@ -90,6 +90,7 @@ internal static class SuiteEditorSuite
         RunCase("Editor.Suite.EngineSettings.InspectorAndRooms", () => EngineSettingsChecks.InspectorAndRooms(project, resources));
         RunCase("Editor.Suite.EngineSettings.RoomViewShowsTheRoomsSettings", () => EngineSettingsChecks.RoomPreview(project, resources));
         RunCase("Editor.Suite.ObjectParts.InspectorRoomsAndPgsl", () => ObjectPartsChecks.PartsInRooms(project, resources));
+        RunCase("Editor.Suite.Room.SplitTerrainIntoTilesPlacesTheTiles", () => RoomTerrainTileChecks.SplitIntoTiles(project, resources));
 
         RunCase("Editor.Suite.Room.PlaceSelectMoveUndo2D", () =>
         {

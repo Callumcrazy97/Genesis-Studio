@@ -93,8 +93,9 @@ play, F6 to look inside; export. What was looked at on 24 October, with Cal's an
    GameMaker's YYC and Unity's IL2CPP, and what many NPCs or units thinking at once need.
 4. **Terrain streamed by tile.** Done 25 October for tiles: terrains laid edge to edge meet as each
    joins the room (shared edges set to the average height, meshes and collision remade), so a big world
-   built from tiles streams by distance with no seams. Still to do: splitting one large terrain file
-   on disk (the Terrain editor could offer it).
+   built from tiles streams by distance with no seams. And one large terrain is split into tiles from
+   the Room editor (Split terrain into tiles on a Terrain in the outliner): tiles share their edges,
+   the nature goes with them, and the room streams them (LargeWorlds.md, In the editors).
 5. **Remembered rooms in save files.** Done 25 October: `Engine.Room.Streaming.Save()` and
    `Load(text)`, and Objects a script made at run time come back with a persistent room.
 6. **Engine values and an Object's own variables previewed in the editors** (Cal, 24 October). Done in part 25 October: the Room editor's view shows the room's engine settings as the game will (the game's own look code, with and without them, laid over the view); an Object's variables show in its live sandbox, which runs its events. A

@@ -146,6 +146,9 @@ public static class PgslApi
     {
         var rows = new Dictionary<string, (string Name, bool IsProperty, bool CanSet, string Signature, string Description)>(StringComparer.OrdinalIgnoreCase);
         var catalog = new Dictionary<string, PgslCommandInfo>(StringComparer.OrdinalIgnoreCase);
+        // The registry is filled when something first needs it (a game, the script editor); the
+        // Inspector's settings can be asked for before either, and keep what they were given.
+        if (PgslCommandRegistry.GetCatalog().Count == 0) PgslCommands.WarmRegistry();
         foreach (PgslCommandInfo info in PgslCommandRegistry.GetCatalog()) catalog.TryAdd(info.QualifiedName, info);
         bool Settable(PgslCommandInfo info) => info.IsProperty && typeof(PgslCommands)
             .GetProperty(info.CSharpMember[(info.CSharpMember.LastIndexOf('.') + 1)..], BindingFlags.Public | BindingFlags.Static)?.CanWrite == true;

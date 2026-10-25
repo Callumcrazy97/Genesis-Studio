@@ -94,6 +94,11 @@ public sealed partial class RoomEditorControl
         menu.Items.Add("Copy", null, (_, _) => CopySelected());
         menu.Items.Add("Paste", null, (_, _) => PasteCopied());
         menu.Items.Add("Duplicate", null, (_, _) => DuplicateSelectionNodes());
+        ToolStripMenuItem splitTerrain = new("Split terrain into tiles") { Name = "RoomSplitTerrainTiles" };
+        foreach (int perSide in TerrainTileCounts)
+            splitTerrain.DropDownItems.Add($"{perSide} × {perSide}", null, (_, _) => SplitSelectedTerrain(perSide));
+        menu.Items.Add(splitTerrain);
+        menu.Opening += (_, _) => splitTerrain.Visible = _selected?.Kind == RoomNodeKind.Terrain && _selection.Count == 1;
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Delete", null, (_, _) => DeleteSelectionNodes());
         _outliner.ContextMenuStrip = menu;

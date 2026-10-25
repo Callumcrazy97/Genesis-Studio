@@ -333,6 +333,16 @@ flickering through each other; with it on they keep their near plane.
 The test world's room opens in the Room editor in about 5 seconds and its terrain in the Terrain
 editor in about 5 seconds.
 
+**Split terrain into tiles** (25 October), on a Terrain in the Room editor's outliner (right-click,
+2 × 2 up to 8 × 8): the terrain's resource is made into tiles beside it ("Isle 1-1", "Isle 2-1"...),
+each a Terrain of its own with the original's settings and look, its share of the heights and paint,
+and its share of the nature (the rules, grass and scatter, go to every tile; water, paths, points of
+interest and terrain entities go with the tile their centre is in). The node is replaced, in one
+undoable step, by a node for each tile where the original was, and a room with no terrain distance
+is given a tile and a half, so the tiles stream from the first run. Neighbouring tiles share their
+edge samples, so the ground is the same to the centimetre (`Engine.World.Terrain.ATerrainSplitIntoTilesIsTheSameGround`,
+`Editor.Suite.Room.SplitTerrainIntoTilesPlacesTheTiles`). The original resource is left as it was.
+
 ## Measuring
 
 Run the Player with `--benchmark-output <folder> --benchmark-seconds N`. `frames.json` records, for
@@ -607,8 +617,8 @@ Four other full runs during this work each failed one or two checks that pass al
   remade along the edge, and a neighbour's collision is remade at once, so no seam shows and nothing
   falls through. They meet when not turned, scaled alike, of one cell size, with grids that line up
   along the edge (`Engine.World.Terrain.NeighbouringTerrainsMeet`). One very large terrain is still
-  read whole: split it into tiles to stream it. A large terrain's collision tiles already built
-  along the edge keep the edge as it was until rebuilt.
+  read whole: split it into tiles to stream it (In the editors, below). A large terrain's collision
+  tiles already built along the edge keep the edge as it was until rebuilt.
 - **Scripted objects load together unless they ask not to.** Scenery streams, and so does an
   Object marked `"streamable": true`. Any other Object with a script, events, physics or
   persistence exists from room load. Activity distance stops its Step events but does not unload
