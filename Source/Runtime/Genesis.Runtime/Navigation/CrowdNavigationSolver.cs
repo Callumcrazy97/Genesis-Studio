@@ -14,7 +14,8 @@ public readonly record struct CrowdAgentSample(
     float AvoidanceStrength,
     int MaxNeighbors,
     bool Recalculate,
-    Vector3 PreviousSteering);
+    Vector3 PreviousSteering,
+    float Priority = CrowdNavigationSolver.UsualPriority);
 
 /// <summary>
 /// Deterministic XZ spatial-hash local avoidance. The solver reuses its buckets and output map,
@@ -22,6 +23,9 @@ public readonly record struct CrowdAgentSample(
 /// </summary>
 public sealed class CrowdNavigationSolver
 {
+    /// <summary>An agent's priority unless set (0 to 100): it gives way to those above it, and those below give way to it.</summary>
+    public const float UsualPriority = 50f;
+
     private readonly Dictionary<(int X, int Z), List<int>> _buckets = [];
     private readonly Stack<List<int>> _bucketPool = [];
     private readonly Dictionary<int, Vector3> _steering = [];
@@ -78,11 +82,12 @@ public sealed class CrowdNavigationSolver
                     float distanceSquared = offset.LengthSquared();
                     if (distanceSquared > maximumDistanceSquared) continue;
                     InsertNearest(nearest, ref nearestCount, maxNeighbors,
-                        new Neighbor(other.EntityId, offset, distanceSquared, other.Radius));
+                        new Neighbor(other.EntityId, offset, distanceSquared, other.Radius, other.Priority));
                 }
             }
 
             Vector3 separation = Vector3.Zero;
+            float pushed = 0f, giving = 0f;
             for (int neighborIndex = 0; neighborIndex < nearestCount; neighborIndex++)
             {
                 Neighbor neighbor = nearest[neighborIndex];
@@ -106,10 +111,13 @@ public sealed class CrowdNavigationSolver
                     ? 1f + (contactDistance - distance) / contactDistance
                     : 0f;
                 separation += away * (rangeWeight + overlapWeight);
+                // An agent gives way the more its neighbour outranks it (twice as much at 50 above, a tenth at 45 below).
+                pushed += rangeWeight + overlapWeight;
+                giving += (rangeWeight + overlapWeight) * Math.Clamp(1f + (neighbor.Priority - agent.Priority) / 50f, 0.1f, 2f);
             }
 
             if (separation.LengthSquared() > 1e-8f)
-                separation = Vector3.Normalize(separation) * Math.Clamp(agent.AvoidanceStrength, 0f, 2f);
+                separation = Vector3.Normalize(separation) * Math.Clamp(agent.AvoidanceStrength * (pushed > 0f ? giving / pushed : 1f), 0f, 2f);
             _steering[agent.EntityId] = separation;
         }
     }
@@ -141,5 +149,5 @@ public sealed class CrowdNavigationSolver
         count = Math.Min(capacity, count + 1);
     }
 
-    private readonly record struct Neighbor(int EntityId, Vector3 Offset, float DistanceSquared, float Radius);
+    private readonly record struct Neighbor(int EntityId, Vector3 Offset, float DistanceSquared, float Radius, float Priority);
 }

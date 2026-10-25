@@ -123,11 +123,14 @@ muffles the music, for a pause menu, underwater or a dream. Music is never echoe
 | `Engine.Terrain.Detail.Quality` | How far large terrains keep full detail, 0.25 to 4 (1 unless set); lasts across rooms |
 | `Engine.Particle.Emitter.Enabled`, `Rate`, `Size`, `Speed`, `Life`, `Gravity`, `Color` | This instance's attached effect changed as it plays: a fire that grows as it catches, exhaust at full throttle, a spell in the caster's colour. Size, speed, life and gravity are times the effect's own (1 unless set); the colour multiplies its colours (#ffffff unless set) |
 | `Engine.Particle.Quality` | How many particles every effect makes, 0.1 to 1 of what it was authored with (1 unless set), for a slow machine |
+| `Engine.Navigation.Mesh.AgentRadius`, `AgentHeight`, `MaxSlope`, `StepHeight`, `CellSize` | The agent the next `Engine.Navigation.Bake()` is made for (0.35 m, 1.8 m, 45°, 0.45 m unless set; the cell worked out from the room unless set): a giant's mesh keeps wider of walls |
+| `Engine.Navigation.Baked` | Whether the room has a mesh to find routes on (read) |
+| `Engine.Navigation.Avoidance.Radius`, `Priority` | How much room this instance's agent keeps from others, and who gives way, 0 to 100 (50 unless set): a guard of 90 walks through a crowd of 50 |
 
 Each command for a layer the room does not have returns false (or 0), as does a terrain edit
 where no terrain is. Checked by `Engine.Pgsl.Logic.EngineApiTileLayersUpdateDistanceAndFrameCosts`,
-`EngineApiWaterSurfaceLook`, `EngineApiTerrainEditsTheGroundAsItPlays` and
-`EngineApiParticleEmitterLookAndQuality`.
+`EngineApiWaterSurfaceLook`, `EngineApiTerrainEditsTheGroundAsItPlays`,
+`EngineApiParticleEmitterLookAndQuality` and `EngineApiNavigationBakeAndPriority`.
 
 ## Render scale and dynamic resolution (25 October 2026)
 

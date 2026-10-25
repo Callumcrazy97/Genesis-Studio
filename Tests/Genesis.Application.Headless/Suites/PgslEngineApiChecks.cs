@@ -140,6 +140,7 @@ internal static class PgslEngineApiChecks
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiWaterSurfaceLook", () => WaterSurface(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiTerrainEditsTheGroundAsItPlays", () => TerrainEdits(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiParticleEmitterLookAndQuality", () => ParticleEmitterLook(project, row));
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiNavigationBakeAndPriority", () => NavigationParts(project, row));
     }
 
     // Engine.Area.Part.Value in a running room: each value reads its default until set, keeps what a
@@ -521,6 +522,89 @@ internal static class PgslEngineApiChecks
             PgslCommands.ActiveGameContext = previousGame;
             PgslCommands.BindContext(previousContext);
             Genesis.Runtime.ECS.Components.ParticleQuality.Reset();
+        }
+    }
+
+    // Engine.Navigation.Mesh shapes the next bake, Engine.Navigation.Baked reads it, and an agent's
+    // Engine.Navigation.Avoidance.Priority decides who gives way.
+    private const string NavigationScript = """
+        dRadius = Engine.Navigation.Mesh.AgentRadius;
+        dSlope = Engine.Navigation.Mesh.MaxSlope;
+        dCell = Engine.Navigation.Mesh.CellSize;
+        dBaked = Engine.Navigation.Baked;
+        dPriority = Engine.Navigation.Avoidance.Priority;
+        dKeep = Engine.Navigation.Avoidance.Radius;
+        Engine.Navigation.Mesh.AgentRadius = 0.8;
+        Engine.Navigation.Mesh.AgentHeight = 2.5;
+        Engine.Navigation.Mesh.MaxSlope = 120;
+        Engine.Navigation.Mesh.StepHeight = 0.3;
+        Engine.Navigation.Mesh.CellSize = 2;
+        Engine.Navigation.Bake();
+        baked = Engine.Navigation.Baked;
+        Engine.Navigation.Avoidance.Priority = 90;
+        Engine.Navigation.Avoidance.Radius = 0.6;
+        priority = Engine.Navigation.Avoidance.Priority;
+        keep = Engine.Navigation.Avoidance.Radius;
+        """;
+
+    private static void NavigationParts(ProjectSession project, Action<string, string, string, string> row)
+    {
+        RoomAsset room = RoomAsset.Create("NavigationRoom", RoomDimension.ThreeD);
+        room.Settings.Width = 64;
+        room.Settings.Depth = 48;
+        using var scene = new RuntimeScene("Navigation parts");
+        var game = new ProjectGameContext(project.RootPath, scene, null, null, room, null);
+        PgslContext previousContext = PgslCommands.BindContext(new PgslContext());
+        var previousGame = PgslCommands.ActiveGameContext;
+        PgslCommands.ActiveGameContext = game;
+        try
+        {
+            VMEngine.Initialize();
+            var host = new ScriptHostSystem();
+            host.SetContext(game);
+            Entity entity = scene.World.CreateEntity();
+            scene.World.Set(entity, new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+            using (host.UseEventSources(new Dictionary<string, string> { ["Create"] = NavigationScript })) host.Attach(scene.World, entity, "NavigationProbe");
+            var vars = host.Instances.OfType<PgslBehavior>().Single(behavior => behavior.Entity == entity).GetVariablesSnapshot();
+            double Number(string name) => vars.TryGetValue(name, out object? value) && value is not (string or null) ? Convert.ToDouble(value, CultureInfo.InvariantCulture) : double.NaN;
+            bool Flag(string name) => vars.TryGetValue(name, out object? value) && value is true;
+            var mesh = PgslCommands.NavigationMeshData;
+
+            // Two agents face to face: alike, each steers aside as hard as the other; at 90 against 50
+            // the higher one barely moves and the lower one gives way.
+            static (float First, float Second) Steering(float firstPriority, float secondPriority)
+            {
+                var solver = new Genesis.Runtime.Navigation.CrowdNavigationSolver();
+                solver.Solve([
+                    new Genesis.Runtime.Navigation.CrowdAgentSample(1, new Vector3(0, 0, 0), Vector3.Zero, .35f, 3f, .75f, 12, true, Vector3.Zero, firstPriority),
+                    new Genesis.Runtime.Navigation.CrowdAgentSample(2, new Vector3(.5f, 0, 0), Vector3.Zero, .35f, 3f, .75f, 12, true, Vector3.Zero, secondPriority),
+                ]);
+                solver.TryGetSteering(1, out Vector3 first);
+                solver.TryGetSteering(2, out Vector3 second);
+                return (first.Length(), second.Length());
+            }
+            (float alikeFirst, float alikeSecond) = Steering(50, 50);
+            (float guard, float crowd) = Steering(90, 50);
+
+            bool pass = Number("dRadius") == 0.35 && Number("dSlope") == 45 && Number("dCell") == 0 && !Flag("dBaked")
+                && Number("dPriority") == 50 && Math.Abs(Number("dKeep") - 0.35) < 1e-6 && Flag("baked")
+                && mesh != null && Math.Abs(mesh.AgentRadius - 0.8f) < 1e-6 && Math.Abs(mesh.AgentHeight - 2.5f) < 1e-6
+                && mesh.MaxSlopeDegrees == 89 && Math.Abs(mesh.MaxStep - 0.3f) < 1e-6 && mesh.CellSize == 2 && mesh.Width == 32 && mesh.Depth == 24
+                && Number("priority") == 90 && Math.Abs(Number("keep") - 0.6) < 1e-6
+                && Math.Abs(alikeFirst - .75f) < 1e-4 && Math.Abs(alikeSecond - .75f) < 1e-4 && guard < .2f && crowd > 1.3f;
+            string detail = $"bake agent {Number("dRadius")} m, {Number("dSlope")}°, cell {Number("dCell")} (auto); baked {Flag("dBaked")} then {Flag("baked")}; " +
+                (mesh == null ? "no mesh; " : $"mesh for {mesh.AgentRadius} m by {mesh.AgentHeight} m, {mesh.MaxSlopeDegrees}° (89, kept in range), {mesh.MaxStep} m steps, {mesh.Width}x{mesh.Depth} cells of {mesh.CellSize} m; ") +
+                $"priority {Number("dPriority")} then {Number("priority")}, room kept {Number("dKeep"):0.###} then {Number("keep"):0.###}; " +
+                $"alike both steer {alikeFirst:0.##}/{alikeSecond:0.##} (0.75), at 90 against 50 {guard:0.##} and {crowd:0.##}";
+            row("Engine API parts", "navigation bake and who gives way", pass ? "PASS" : "FAIL", detail);
+            HeadlessHarness.Assert(pass, $"{detail} {string.Join("; ", host.RecentDiagnostics.Select(d => d.Message))}");
+        }
+        finally
+        {
+            PgslCommands.ActiveGameContext = previousGame;
+            PgslCommands.BindContext(previousContext);
+            PgslCommands.ResetNavigationBake();
+            PgslCommands.ClearNavigation(scene);
         }
     }
 

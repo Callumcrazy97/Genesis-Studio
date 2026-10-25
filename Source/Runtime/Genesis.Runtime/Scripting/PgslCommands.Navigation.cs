@@ -63,10 +63,43 @@ public static partial class PgslCommands
         var terrain = game.Scene?.Subsystems.OfType<RoomTerrainSubsystem>().FirstOrDefault();
         if (game.Room.Dimension != Genesis.Runtime.Scene.RoomDimension.TwoD && terrain != null
             && terrain.TryGetNavigationBounds(out var terrainMin, out var terrainMax)) { min = terrainMin; max = terrainMax; }
-        float cell = MathF.Max(1, MathF.Max(max.X - min.X, max.Z - min.Z) / 512);
-        NavMeshBakeGrid(min.X, min.Z, Math.Ceiling((max.X - min.X) / cell), Math.Ceiling((max.Z - min.Z) / cell), cell);
+        float extent = MathF.Max(max.X - min.X, max.Z - min.Z);
+        // Engine.Navigation.Mesh.CellSize when set, never finer than the grid's million cells allow.
+        float cell = _bakeCell > 0 ? MathF.Max((float)_bakeCell, extent / 1024f) : MathF.Max(1, extent / 512);
+        NavMeshBakeGrid(min.X, min.Z, Math.Max(1, Math.Ceiling((max.X - min.X) / cell)), Math.Max(1, Math.Ceiling((max.Z - min.Z) / cell)), cell);
     }
-    [PgslCommand("NavMeshBakeGrid", "NavMeshBakeGrid(originX, originZ, widthCells, depthCells, cellSize)", "Bake explicit navigation bounds with 0.35m agent radius, 1.8m height and 45 degree slope limit", "Navigation")]
+
+    // ── Engine.Navigation.Mesh: the agent the next bake is made for ──────────────────────
+
+    private static double _bakeRadius = .35, _bakeHeight = 1.8, _bakeSlope = 45, _bakeStep = .45, _bakeCell;
+
+    internal static void ResetNavigationBake()
+    {
+        _bakeRadius = .35; _bakeHeight = 1.8; _bakeSlope = 45; _bakeStep = .45; _bakeCell = 0;
+    }
+
+    [PgslCommand("AgentRadius", "Engine.Navigation.Mesh.AgentRadius = 0.5", "How wide the agents the next bake is made for are, 0 to 10 metres (0.35 unless set): walls and edges are kept this far away", "Navigation", Namespace = "Engine.Navigation.Mesh", Flat = false)]
+    public static double NavigationMeshAgentRadius { get => _bakeRadius; set { if (double.IsFinite(value)) _bakeRadius = Math.Clamp(value, 0, 10); } }
+
+    [PgslCommand("AgentHeight", "Engine.Navigation.Mesh.AgentHeight = 2.5", "How tall the agents the next bake is made for are, 0.1 to 50 metres (1.8 unless set): floors need this much headroom", "Navigation", Namespace = "Engine.Navigation.Mesh", Flat = false)]
+    public static double NavigationMeshAgentHeight { get => _bakeHeight; set { if (double.IsFinite(value)) _bakeHeight = Math.Clamp(value, 0.1, 50); } }
+
+    [PgslCommand("MaxSlope", "Engine.Navigation.Mesh.MaxSlope = 30", "The steepest ground the next bake lets agents walk, 0 to 89 degrees (45 unless set)", "Navigation", Namespace = "Engine.Navigation.Mesh", Flat = false)]
+    public static double NavigationMeshMaxSlope { get => _bakeSlope; set { if (double.IsFinite(value)) _bakeSlope = Math.Clamp(value, 0, 89); } }
+
+    [PgslCommand("StepHeight", "Engine.Navigation.Mesh.StepHeight = 0.3", "The highest step the next bake lets agents climb, 0 to 10 metres (0.45 unless set)", "Navigation", Namespace = "Engine.Navigation.Mesh", Flat = false)]
+    public static double NavigationMeshStepHeight { get => _bakeStep; set { if (double.IsFinite(value)) _bakeStep = Math.Clamp(value, 0, 10); } }
+
+    [PgslCommand("CellSize", "Engine.Navigation.Mesh.CellSize = 0.5", "How fine a grid Engine.Navigation.Bake() lays over the room, 0 to 100 metres a cell (0 unless set: worked out from the room's size, 512 cells across); finer finds narrower ways at more memory", "Navigation", Namespace = "Engine.Navigation.Mesh", Flat = false)]
+    public static double NavigationMeshCellSize { get => _bakeCell; set { if (double.IsFinite(value)) _bakeCell = Math.Clamp(value, 0, 100); } }
+
+    /// <summary>The running room's navigation mesh, null without one (for checks).</summary>
+    internal static NavMeshData? NavigationMeshData => Navigation()?.Query?.Data;
+
+    [PgslCommand("Baked", "Engine.Navigation.Baked", "Whether the room has a navigation mesh to find routes on: baked this run, or loaded from beside the room (read)", "Navigation", Namespace = "Engine.Navigation", Flat = false)]
+    public static bool NavigationBaked => Navigation()?.Query != null;
+
+    [PgslCommand("NavMeshBakeGrid", "NavMeshBakeGrid(originX, originZ, widthCells, depthCells, cellSize)", "Bake explicit navigation bounds for Engine.Navigation.Mesh's agent (0.35 m radius, 1.8 m height, 45 degree slopes and 0.45 m steps unless set)", "Navigation")]
     public static void NavMeshBakeGrid(double originX, double originZ, double widthCells, double depthCells, double cellSize)
     {
         var game = ActiveGameContext; var session = Navigation();
@@ -101,7 +134,8 @@ public static partial class PgslCommands
                 obstacles.Add(new(new Vector3(tile.Left, -1, tile.Top), new Vector3(tile.Right, 2, tile.Bottom)));
         // In a 3D room the tops of static boxes an agent fits on are floors of their own.
         var data = NavMeshBuilder.Build((float)originX, (float)originZ, (int)widthCells, (int)depthCells, (float)cellSize,
-            planarXY ? (_, _) => 0f : game.GetTerrainHeight, obstacles, floors: !planarXY);
+            planarXY ? (_, _) => 0f : game.GetTerrainHeight, obstacles,
+            agentRadius: (float)_bakeRadius, agentHeight: (float)_bakeHeight, maxStep: (float)_bakeStep, maxSlope: (float)_bakeSlope, floors: !planarXY);
         session.Query = new NavMeshQuery(data); session.Paths.Clear();
         game.World.Query<NavMeshAgentComponent>((entity, ref agent) => agent.Agent?.SetPath([]));
         string? file = NavigationFile();
@@ -287,6 +321,42 @@ public static partial class PgslCommands
         world.Set(entity, crowd);
     }
 
+    // ── Engine.Navigation.Avoidance: how this instance's agent keeps clear of others ─────
+
+    // The current instance's avoidance as it is; reading a value never attaches one.
+    private static CrowdAgentComponent CrowdIfAny()
+    {
+        var context = GetContext(); var world = ActiveGameContext?.World;
+        if (context == null || world == null) return DefaultCrowd();
+        var entity = world.GetEntity(context.InstanceId);
+        return world.IsAlive(entity) && world.Has<CrowdAgentComponent>(entity) ? world.GetRef<CrowdAgentComponent>(entity) : DefaultCrowd();
+    }
+
+    [PgslCommand("Radius", "Engine.Navigation.Avoidance.Radius = 0.6", "How much room this instance's agent keeps from other agents, 0.01 to 100 metres (0.35 unless set); setting it turns avoidance on", "Navigation", Namespace = "Engine.Navigation.Avoidance", Flat = false)]
+    public static double NavigationAvoidanceRadius
+    {
+        get => CrowdIfAny().Radius;
+        set
+        {
+            if (!double.IsFinite(value) || !TryCrowd(out var world, out var entity, out var crowd)) return;
+            crowd.Radius = (float)Math.Clamp(value, .01, 100);
+            crowd.NeighborDistance = MathF.Max(crowd.NeighborDistance, crowd.Radius * 2f);
+            world.Set(entity, crowd);
+        }
+    }
+
+    [PgslCommand("Priority", "Engine.Navigation.Avoidance.Priority = 90", "Who gives way, 0 to 100 (50 unless set): this instance's agent steers aside more for agents above it and less for those below, so a guard of 90 walks through a crowd of 50; setting it turns avoidance on", "Navigation", Namespace = "Engine.Navigation.Avoidance", Flat = false)]
+    public static double NavigationAvoidancePriority
+    {
+        get => CrowdNavigationSolver.UsualPriority + CrowdIfAny().PriorityOffset;
+        set
+        {
+            if (!double.IsFinite(value) || !TryCrowd(out var world, out var entity, out var crowd)) return;
+            crowd.PriorityOffset = (float)Math.Clamp(value, 0, 100) - CrowdNavigationSolver.UsualPriority;
+            world.Set(entity, crowd);
+        }
+    }
+
     private static bool TryCrowd(
         out Genesis.Runtime.ECS.World world,
         out Genesis.Shared.ECS.Entity entity,
@@ -357,7 +427,8 @@ public static partial class PgslCommands
                 crowd.AvoidanceStrength,
                 crowd.MaxNeighbors,
                 recalculate,
-                crowd.Steering));
+                crowd.Steering,
+                CrowdNavigationSolver.UsualPriority + crowd.PriorityOffset));
         }
         session.CrowdSolver.Solve(session.CrowdSamples);
 

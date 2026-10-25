@@ -6,7 +6,7 @@ variable and, when it can be set, set like one (`Engine.Physics.Mass = 4;`, `Eng
 an instance's property is the current instance's, each target's in turn inside `with`. The flat
 names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
-1709 names: 439 properties (370 can be set), 1270 commands.
+1717 names: 447 properties (377 can be set), 1270 commands.
 
 ## Engine.Alarm
 
@@ -1249,7 +1249,8 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `AgentSetRadius` | command | How wide this agent is (its radius): its routes keep that far from walls and edges, so a cart or a giant takes the wide way round. 0 (the default) is the size the mesh was baked for, 0.35 |
 | `AgentSetSpeed` | command | Set movement speed in world units per second |
 | `Bake` | command | Bake a navigation grid from live terrain bounds and static colliders; save beside the room |
-| `BakeGrid` | command | Bake explicit navigation bounds with 0.35m agent radius, 1.8m height and 45 degree slope limit |
+| `Baked` | read only | Whether the room has a navigation mesh to find routes on: baked this run, or loaded from beside the room (read) |
+| `BakeGrid` | command | Bake explicit navigation bounds for Engine.Navigation.Mesh's agent (0.35 m radius, 1.8 m height, 45 degree slopes and 0.45 m steps unless set) |
 | `GetAreaCost` | command | The area cost of the navigation cell at a point (1 unless set); in a 2D room z is y |
 | `PathFind` | command | Find a smoothed route (for an agent of radius, keeping that far from edges; the bake's 0.35 when left out); -1 means no route or mesh |
 | `PathFollow` | command | Follow a reusable Pathing resource; loopMode is Loop, PingPong, Once, or an empty string to use the asset |
@@ -1272,6 +1273,23 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 |---|---|---|
 | `Speed` | property | How fast this instance's navigation agent moves, world units a second, 0 to 10000 (3.8 unless set) |
 | `StoppingDistance` | property | How close to its destination this instance's agent counts as arrived, 0 to 100 (0.1 unless set) |
+
+## Engine.Navigation.Avoidance
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Priority` | property | Who gives way, 0 to 100 (50 unless set): this instance's agent steers aside more for agents above it and less for those below, so a guard of 90 walks through a crowd of 50; setting it turns avoidance on |
+| `Radius` | property | How much room this instance's agent keeps from other agents, 0.01 to 100 metres (0.35 unless set); setting it turns avoidance on |
+
+## Engine.Navigation.Mesh
+
+| Name | Kind | What it is |
+|---|---|---|
+| `AgentHeight` | property | How tall the agents the next bake is made for are, 0.1 to 50 metres (1.8 unless set): floors need this much headroom |
+| `AgentRadius` | property | How wide the agents the next bake is made for are, 0 to 10 metres (0.35 unless set): walls and edges are kept this far away |
+| `CellSize` | property | How fine a grid Engine.Navigation.Bake() lays over the room, 0 to 100 metres a cell (0 unless set: worked out from the room's size, 512 cells across); finer finds narrower ways at more memory |
+| `MaxSlope` | property | The steepest ground the next bake lets agents walk, 0 to 89 degrees (45 unless set) |
+| `StepHeight` | property | The highest step the next bake lets agents climb, 0 to 10 metres (0.45 unless set) |
 
 ## Engine.Network
 

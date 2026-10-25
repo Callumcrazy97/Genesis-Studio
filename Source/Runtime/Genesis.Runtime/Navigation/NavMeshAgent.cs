@@ -25,6 +25,8 @@ public struct CrowdAgentComponent : IComponent
     public float UpdateCountdown;
     public Vector3 Steering;
     public Vector3 Velocity;
+    /// <summary>The agent's priority less the usual 50 (Engine.Navigation.Avoidance.Priority), so one made without it is usual.</summary>
+    public float PriorityOffset;
 }
 
 public sealed class NavMeshAgent
