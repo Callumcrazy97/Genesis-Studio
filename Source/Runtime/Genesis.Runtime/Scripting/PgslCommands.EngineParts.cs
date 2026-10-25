@@ -496,6 +496,119 @@ public static partial class PgslCommands
     public static bool TerrainEditPaint(double x, double z, double radius, double layer, double strength) =>
         double.IsFinite(layer) && EditGround(RoomTerrainSubsystem.GroundEdit.Paint, x, z, radius, strength, (int)Math.Round(layer));
 
+    // The room's terrain subsystems: each value is set on all and read from the first.
+    private static void ForTerrains(Action<RoomTerrainSubsystem> change)
+    {
+        if (ActiveGameContext?.Scene is not { } scene) return;
+        foreach (var subsystem in scene.Subsystems)
+            if (subsystem is RoomTerrainSubsystem terrains) change(terrains);
+    }
+
+    private static RoomTerrainSubsystem? FirstTerrains()
+    {
+        RoomTerrainSubsystem? first = null;
+        ForTerrains(terrains => first ??= terrains);
+        return first;
+    }
+
+    private static System.Numerics.Vector3 TerrainNormal(double x, double z)
+    {
+        System.Numerics.Vector3 normal = System.Numerics.Vector3.UnitY;
+        if (double.IsFinite(x) && double.IsFinite(z)) FirstTerrains()?.TrySurface((float)x, (float)z, out _, out normal);
+        return normal;
+    }
+
+    [PgslCommand("Enabled", "Engine.Terrain.Enabled = false", "Whether the room's terrains' ground and paths are drawn (true unless set); what stands on it still stands, for an x-ray or a map view", "Terrain", Namespace = "Engine.Terrain", Flat = false)]
+    public static bool TerrainEnabled { get => FirstTerrains()?.GroundDrawn ?? true; set => ForTerrains(terrains => terrains.GroundDrawn = value); }
+
+    [PgslCommand("NormalX", "Engine.Terrain.NormalX(x, z) -> number", "Which way the ground at world x, z faces, across x (with NormalY and NormalZ, a direction of length 1; straight up where no terrain is)", "Terrain", Namespace = "Engine.Terrain", Flat = false)]
+    public static double TerrainNormalX(double x, double z) => TerrainNormal(x, z).X;
+
+    [PgslCommand("NormalY", "Engine.Terrain.NormalY(x, z) -> number", "Which way the ground at world x, z faces, upward: 1 on the flat, less the steeper it is", "Terrain", Namespace = "Engine.Terrain", Flat = false)]
+    public static double TerrainNormalY(double x, double z) => TerrainNormal(x, z).Y;
+
+    [PgslCommand("NormalZ", "Engine.Terrain.NormalZ(x, z) -> number", "Which way the ground at world x, z faces, across z", "Terrain", Namespace = "Engine.Terrain", Flat = false)]
+    public static double TerrainNormalZ(double x, double z) => TerrainNormal(x, z).Z;
+
+    [PgslCommand("SlopeAt", "Engine.Terrain.SlopeAt(x, z) -> degrees", "How steep the ground at world x, z is, 0 (flat) to 90 degrees: a vehicle that cannot climb, a skier that speeds up", "Terrain", Namespace = "Engine.Terrain", Flat = false)]
+    public static double TerrainSlopeAt(double x, double z) =>
+        Math.Acos(Math.Clamp(TerrainNormal(x, z).Y, -1, 1)) * 180 / Math.PI;
+
+    [PgslCommand("MaterialAt", "Engine.Terrain.MaterialAt(x, z) -> layer", "The painted layer (1 to 8) most of the ground at world x, z is, 0 where no terrain is: footstep sounds, grip, where crops grow", "Terrain", Namespace = "Engine.Terrain", Flat = false)]
+    public static double TerrainMaterialAt(double x, double z) =>
+        double.IsFinite(x) && double.IsFinite(z) ? FirstTerrains()?.LayerAt((float)x, (float)z) ?? 0 : 0;
+
+    private static (System.Numerics.Vector3 Min, System.Numerics.Vector3 Max)? TerrainExtent() =>
+        FirstTerrains() is { } terrains && terrains.TryGetNavigationBounds(out var min, out var max) ? (min, max) : null;
+
+    [PgslCommand("Width", "Engine.Terrain.Width", "How wide the room's loaded terrains are together, along x, in metres (read; 0 without a terrain)", "Terrain", Namespace = "Engine.Terrain", Flat = false)]
+    public static double TerrainWidth => TerrainExtent() is { } extent ? extent.Max.X - extent.Min.X : 0;
+
+    [PgslCommand("Depth", "Engine.Terrain.Depth", "How deep the room's loaded terrains are together, along z, in metres (read; 0 without a terrain)", "Terrain", Namespace = "Engine.Terrain", Flat = false)]
+    public static double TerrainDepth => TerrainExtent() is { } extent ? extent.Max.Z - extent.Min.Z : 0;
+
+    [PgslCommand("Distance", "Engine.Terrain.Detail.Distance = 2000", "How near the camera a streamed terrain tile is read, 0 to 1000000 metres (the room's terrain distance unless set); only for a room that streams its terrains", "Terrain", Namespace = "Engine.Terrain.Detail", Flat = false)]
+    public static double TerrainDetailDistance
+    {
+        get => FirstTerrains()?.TerrainDistance ?? 0;
+        set { if (double.IsFinite(value)) ForTerrains(terrains => terrains.TerrainDistance = (float)value); }
+    }
+
+    [PgslCommand("Enabled", "Engine.Terrain.Grass.Enabled = false", "Grass grown round the camera on every terrain, or none (each terrain's own rule unless set): off for a burnt field", "Terrain", Namespace = "Engine.Terrain.Grass", Flat = false)]
+    public static bool TerrainGrassEnabled
+    {
+        get => FirstTerrains()?.GrassOn ?? true;
+        set => ForTerrains(terrains => terrains.GrassOn = value);
+    }
+
+    [PgslCommand("Density", "Engine.Terrain.Grass.Density = 0.5", "How thickly the grass grows, 0.05 to 4 times each terrain's own (1 unless set): thinner on a slow machine", "Terrain", Namespace = "Engine.Terrain.Grass", Flat = false)]
+    public static double TerrainGrassDensity
+    {
+        get => FirstTerrains()?.GrassDensity ?? 1;
+        set { if (double.IsFinite(value)) ForTerrains(terrains => terrains.GrassDensity = (float)Math.Clamp(value, 0.05, 4)); }
+    }
+
+    [PgslCommand("Distance", "Engine.Terrain.Grass.Distance = 2", "How far from the camera grass grows, 0.1 to 10 times each terrain's own (1 unless set)", "Terrain", Namespace = "Engine.Terrain.Grass", Flat = false)]
+    public static double TerrainGrassDistance
+    {
+        get => FirstTerrains()?.GrassDistance ?? 1;
+        set { if (double.IsFinite(value)) ForTerrains(terrains => terrains.GrassDistance = (float)Math.Clamp(value, 0.1, 10)); }
+    }
+
+    [PgslCommand("Height", "Engine.Terrain.Grass.Height = 1.5", "How tall the grass grows, 0.1 to 4 times each terrain's own (1 unless set): long grass after rain, cut grass in a garden", "Terrain", Namespace = "Engine.Terrain.Grass", Flat = false)]
+    public static double TerrainGrassHeight
+    {
+        get => FirstTerrains()?.GrassHeight ?? 1;
+        set { if (double.IsFinite(value)) ForTerrains(terrains => terrains.GrassHeight = (float)Math.Clamp(value, 0.1, 4)); }
+    }
+
+    [PgslCommand("Enabled", "Engine.Terrain.Scatter.Enabled = false", "Whether the terrains' scattered trees and rocks are drawn (true unless set); their collision stays", "Terrain", Namespace = "Engine.Terrain.Scatter", Flat = false)]
+    public static bool TerrainScatterEnabled { get => FirstTerrains()?.ScatterDrawn ?? true; set => ForTerrains(terrains => terrains.ScatterDrawn = value); }
+
+    [PgslCommand("Density", "Engine.Terrain.Scatter.Density = 0.5", "How many trees and rocks the terrains scatter, 0 to 4 times each layer's own (1 unless set): the copies and their collision are placed again", "Terrain", Namespace = "Engine.Terrain.Scatter", Flat = false)]
+    public static double TerrainScatterDensity
+    {
+        get => FirstTerrains()?.ScatterDensity ?? 1;
+        set { if (double.IsFinite(value) && ActiveGameContext?.Scene is { } scene) ForTerrains(terrains => terrains.SetScatterDensity(scene, (float)value)); }
+    }
+
+    [PgslCommand("Distance", "Engine.Terrain.Scatter.Distance = 0.5", "How far the scattered trees and rocks are drawn, 0.1 to 10 times each terrain's own (1 unless set)", "Terrain", Namespace = "Engine.Terrain.Scatter", Flat = false)]
+    public static double TerrainScatterDistance
+    {
+        get => FirstTerrains()?.ScatterDistance ?? 1;
+        set { if (double.IsFinite(value)) ForTerrains(terrains => terrains.ScatterDistance = (float)value); }
+    }
+
+    [PgslCommand("Shadows", "Engine.Terrain.Scatter.Shadows = false", "Whether the scattered trees and rocks cast shadows (true unless set)", "Terrain", Namespace = "Engine.Terrain.Scatter", Flat = false)]
+    public static bool TerrainScatterShadows { get => FirstTerrains()?.ScatterShadows ?? true; set => ForTerrains(terrains => terrains.ScatterShadows = value); }
+
+    [PgslCommand("Distance", "Engine.Terrain.Collision.Distance = 40", "How far round each moving body a large terrain's collision is built, 4 to 500 metres (24 unless set): more for fast vehicles", "Terrain", Namespace = "Engine.Terrain.Collision", Flat = false)]
+    public static double TerrainCollisionDistance
+    {
+        get => FirstTerrains()?.ColliderRadiusAroundBodies ?? 24;
+        set { if (double.IsFinite(value)) ForTerrains(terrains => terrains.ColliderRadiusAroundBodies = (float)Math.Clamp(value, 4, 500)); }
+    }
+
     [PgslCommand("Quality", "Engine.Terrain.Detail.Quality = 1", "How far large terrains keep their full detail from the camera, 0.25 to 4 (1 unless set): 2 keeps it twice as far for a sharper distance, 0.5 half as far for a faster frame; lasts across rooms", "Terrain", Namespace = "Engine.Terrain.Detail", Flat = false)]
     public static double TerrainDetailQuality
     {

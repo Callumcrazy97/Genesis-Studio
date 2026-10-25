@@ -17,14 +17,14 @@ public sealed partial class RoomTerrainSubsystem
     /// Grows and draws grass around the camera when the terrain's nature document switches the
     /// rule on. Growth is budgeted per frame inside the field, so this never holds a frame up.
     /// </summary>
-    private static void SubmitGrassRule(
+    private void SubmitGrassRule(
         Entry entry,
         Vector3 camera,
         Matrix4x4 viewProjection,
         Matrix4x4 placement,
         IRenderController renderer)
     {
-        TerrainGrassRuleSettings rule = entry.Nature?.GrassRule;
+        TerrainGrassRuleSettings rule = GrassRuleFor(entry);
         if (rule is not { Enabled: true } || entry.Terrain == null || renderer == null)
         {
             if (entry.GrassField != null)

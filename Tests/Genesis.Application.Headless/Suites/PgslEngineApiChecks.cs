@@ -140,6 +140,7 @@ internal static class PgslEngineApiChecks
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiWaterSurfaceLook", () => WaterSurface(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiWaterSwimmingSwitchAndReflections", () => WaterSwimming(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiTerrainEditsTheGroundAsItPlays", () => TerrainEdits(project, row));
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiTerrainGroundGrassScatterAndQueries", () => TerrainLook(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiParticleEmitterLookAndQuality", () => ParticleEmitterLook(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiNavigationBakeAndPriority", () => NavigationParts(project, row));
     }
@@ -482,6 +483,93 @@ internal static class PgslEngineApiChecks
             $"foam {foamOn}/{foamOff}/{foamBack} width {width} then {widthOff} then {widthBack}; water drawn {drawn} then off {hidden}; reflection {resolution} (1) and {distortion} (0), kept in range";
         row("Engine API parts", "swimming, the water switch and reflections", pass ? "PASS" : "FAIL", detail);
         HeadlessHarness.Assert(pass, detail);
+    }
+
+    // Engine.Terrain's other values on a 64 m terrain sloping 1 in 2 with a patch of layer 3: the
+    // slope, facing and layer at a point, the terrains' size, and the ground, grass, scatter and
+    // collision a game changes, each a multiple of the terrain's own.
+    private const string TerrainLookScript = """
+        slope = Engine.Terrain.SlopeAt(0, 0);
+        up = Engine.Terrain.NormalY(0, 0);
+        across = Engine.Terrain.NormalX(0, 0);
+        patch = Engine.Terrain.MaterialAt(20, 20);
+        plain = Engine.Terrain.MaterialAt(-20, -20);
+        offGround = Engine.Terrain.MaterialAt(500, 500);
+        wide = Engine.Terrain.Width;
+        deep = Engine.Terrain.Depth;
+        dGrass = Engine.Terrain.Grass.Density;
+        dReach = Engine.Terrain.Collision.Distance;
+        Engine.Terrain.Enabled = false;
+        Engine.Terrain.Grass.Density = 2;
+        Engine.Terrain.Grass.Height = 1.5;
+        Engine.Terrain.Scatter.Density = 2;
+        Engine.Terrain.Scatter.Distance = 0.5;
+        Engine.Terrain.Scatter.Shadows = false;
+        Engine.Terrain.Collision.Distance = 1000;
+        Engine.Terrain.Detail.Distance = 300;
+        reach = Engine.Terrain.Collision.Distance;
+        """;
+
+    private static void TerrainLook(ProjectSession project, Action<string, string, string, string> row)
+    {
+        var resources = new ResourceService(project);
+        string terrainPath = resources.CreateResource(ResourceFolderPolicy.RootFor(project, ResourceKind.Terrain), ResourceKind.Terrain, "Look Slope");
+        var slope = new Genesis.World.Terrain.TerrainAsset(33, 33, 2f, -32f, -32f, 0f, 40f);
+        for (int z = 0; z < 33; z++)
+            for (int x = 0; x < 33; x++)
+            {
+                slope.SetHeight(x, z, x * 1f);
+                if (x > 20 && z > 20) slope.SetLayerAt(z * 33 + x, 2);
+            }
+        slope.Save(terrainPath + ".gterrain");
+        var nature = Genesis.World.Terrain.TerrainNatureSerializer.LoadOrDefault(terrainPath);
+        nature.GrassRule.Enabled = true;
+        nature.ScatterLayers.Add(new Genesis.World.Terrain.TerrainScatterLayer { Name = "Stones", DensityPerHectare = 50 });
+        Genesis.World.Terrain.TerrainNatureSerializer.Save(terrainPath, nature);
+        ResourceCatalog.Invalidate(project.RootPath);
+        RoomAsset room = RoomAsset.Create("LookRoom", RoomDimension.ThreeD);
+        room.Nodes.Add(new RoomNode
+        {
+            Name = "Slope", Kind = RoomNodeKind.Terrain, LayerId = room.Layers[0].Id,
+            Terrain = new RoomTerrainData { Asset = Path.GetRelativePath(project.RootPath, terrainPath).Replace('\\', '/') },
+        });
+        using var scene = new RuntimeScene("Terrain look");
+        var game = new ProjectGameContext(project.RootPath, scene, null, null, room, null);
+        var terrains = scene.AddSubsystem(new RoomTerrainSubsystem(project.RootPath, room, game));
+        PgslContext previousContext = PgslCommands.BindContext(new PgslContext());
+        var previousGame = PgslCommands.ActiveGameContext;
+        PgslCommands.ActiveGameContext = game;
+        try
+        {
+            VMEngine.Initialize();
+            var host = new ScriptHostSystem();
+            host.SetContext(game);
+            var before = terrains.LookNow().Single();
+            float authoredSpacing = before.Grass.Spacing, authoredNear = before.ScatterNear;
+            Entity entity = scene.World.CreateEntity();
+            scene.World.Set(entity, new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+            using (host.UseEventSources(new Dictionary<string, string> { ["Create"] = TerrainLookScript })) host.Attach(scene.World, entity, "LookProbe");
+            var vars = host.Instances.OfType<PgslBehavior>().Single(behavior => behavior.Entity == entity).GetVariablesSnapshot();
+            double Number(string name) => vars.TryGetValue(name, out object? value) && value is not (string or null) ? Convert.ToDouble(value, CultureInfo.InvariantCulture) : double.NaN;
+            var after = terrains.LookNow().Single();
+            double expectedSlope = Math.Atan(0.5) * 180 / Math.PI;
+            bool pass = Math.Abs(Number("slope") - expectedSlope) < 0.5 && Math.Abs(Number("up") - Math.Cos(Math.Atan(0.5))) < 0.01 && Number("across") < -0.4
+                && Number("patch") == 3 && Number("plain") == 1 && Number("offGround") == 0 && Number("wide") == 64 && Number("deep") == 64
+                && Number("dGrass") == 1 && Number("dReach") == 24 && Number("reach") == 500
+                && !terrains.GroundDrawn && Math.Abs(after.Grass.Spacing - authoredSpacing / MathF.Sqrt(2)) < 1e-3 && Math.Abs(after.Grass.MaximumScale - before.Grass.MaximumScale * 1.5f) < 1e-3
+                && after.Scatter.Single().DensityPerHectare == 100 && Math.Abs(after.ScatterNear - authoredNear * 0.5f) < 1e-3 && after.ScatterShadow == 0
+                && terrains.TerrainDistance == 300;
+            string detail = $"slope {Number("slope"):0.##}° ({expectedSlope:0.##}), facing up {Number("up"):0.###} and across {Number("across"):0.###}; layer {Number("patch")} on the patch (3), {Number("plain")} elsewhere (1), {Number("offGround")} off it; " +
+                $"{Number("wide")} by {Number("deep")} m; ground drawn {terrains.GroundDrawn}; grass spacing {authoredSpacing:0.###} to {after.Grass.Spacing:0.###}, height {before.Grass.MaximumScale:0.##} to {after.Grass.MaximumScale:0.##}; " +
+                $"stones {after.Scatter.Single().DensityPerHectare}/ha (100), near {authoredNear} to {after.ScatterNear}, shadows to {after.ScatterShadow}; collision {Number("dReach")} to {Number("reach")} m (kept to 500); distance {terrains.TerrainDistance}";
+            row("Engine API parts", "the ground, grass, scatter and what is at a point", pass ? "PASS" : "FAIL", detail);
+            HeadlessHarness.Assert(pass, $"{detail} {string.Join("; ", host.RecentDiagnostics.Select(d => d.Message))}");
+        }
+        finally
+        {
+            PgslCommands.ActiveGameContext = previousGame;
+            PgslCommands.BindContext(previousContext);
+        }
     }
 
     // Engine.Terrain.Edit in a running room (its ground starts at 10): the ground rises, falls, levels and takes paint where a

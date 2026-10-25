@@ -80,6 +80,10 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
         public WaterMeshCache WaterCache;
         public IRenderController Renderer;
         public Dictionary<string, string> ComponentShaders = new(StringComparer.OrdinalIgnoreCase);
+        /// <summary>The grass rule as the game changed it (Engine.Terrain.Grass), made from the source it names; null until changed.</summary>
+        public TerrainGrassRuleSettings GameGrassRule, GameGrassSource;
+        /// <summary>The scatter layers as authored, kept once the game changes their density.</summary>
+        public List<TerrainScatterLayer> AuthoredScatter;
         public FaceCullingOverride Culling = FaceCullingOverride.Default;
         public FrontFaceWindingOverride WindingOrder = FrontFaceWindingOverride.Default;
     }
@@ -290,7 +294,7 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
     }
 
     private readonly List<StreamedTerrain> _streamed = new();
-    private readonly float _terrainDistance;
+    private float _terrainDistance;
     private bool _terrainsPrimed;
 
     /// <summary>Terrains this room streams by distance, and how many of them are loaded now.</summary>
@@ -727,9 +731,10 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
             entry.Ground.AppendDrawCalls(buffer, ref count, view, terrainRaster);
             for (int i = terrainStart; i < count; i++) buffer[i].World *= placement;
             SubmitPaths(entry, placement, buffer, ref count);
+            if (!GroundDrawn) count = terrainStart;
             long afterGround = System.Diagnostics.Stopwatch.GetTimestamp();
             SubmitFoliage(entry, camera, viewProjection, placement, renderer);
-            entry.Scatter?.Submit(renderer, camera, viewProjection, placement, buffer, ref count);
+            if (ScatterDrawn) entry.Scatter?.Submit(renderer, camera, viewProjection, placement, buffer, ref count);
             SubmitGrassRule(entry, camera, viewProjection, placement, renderer);
             long afterScatter = System.Diagnostics.Stopwatch.GetTimestamp();
             SubmitWater(entry, camera, placement, renderer, buffer, ref count);

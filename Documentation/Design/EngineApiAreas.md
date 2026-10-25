@@ -147,11 +147,11 @@ Engine.Navigation.Agent (Speed, StoppingDistance); 25 October: Engine.Display.Re
 
 | Part | Values |
 |---|---|
-| Engine.Terrain | + Enabled (drawn), ✓ HeightAt(x, z) [GetHeight], + NormalAt(x, z), + MaterialAt(x, z), + Width (read), + Depth (read) |
-| Engine.Terrain.Detail | ✓ Quality (LOD), + Distance, + Tessellation |
-| Engine.Terrain.Grass | + Enabled, + Density, + Distance, + Height, + Wind |
-| Engine.Terrain.Scatter (trees, rocks) | + Enabled, + Density, + Distance, + Shadows |
-| Engine.Terrain.Collision | + Enabled, + Distance (how far collision is built around bodies) |
+| Engine.Terrain | ✓ Enabled (drawn), ✓ HeightAt(x, z) [GetHeight], ✓ NormalAt(x, z) [NormalX/Y/Z, SlopeAt], ✓ MaterialAt(x, z), ✓ Width (read), ✓ Depth (read) |
+| Engine.Terrain.Detail | ✓ Quality (LOD), ✓ Distance (the streaming distance), – Tessellation (the engine has no tessellation) |
+| Engine.Terrain.Grass | ✓ Enabled, ✓ Density, ✓ Distance, ✓ Height, – Wind (the weather's wind moves the grass: Engine.Weather.Wind) |
+| Engine.Terrain.Scatter (trees, rocks) | ✓ Enabled, ✓ Density, ✓ Distance, ✓ Shadows |
+| Engine.Terrain.Collision | – Enabled (everything would fall through; Engine.Terrain.Enabled hides the ground instead), ✓ Distance (how far collision is built around bodies) |
 | Engine.Terrain.Edit | ✓ Raise(x, z, radius, metres), ✓ Lower(...), ✓ Flatten(x, z, radius, height), ✓ Smooth(...), ✓ Paint(x, z, radius, layer, strength) |
 
 ## Engine.Rendering

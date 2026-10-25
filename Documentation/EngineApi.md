@@ -6,7 +6,7 @@ variable and, when it can be set, set like one (`Engine.Physics.Mass = 4;`, `Eng
 an instance's property is the current instance's, each target's in turn inside `with`. The flat
 names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
-1727 names: 457 properties (387 can be set), 1270 commands.
+1745 names: 470 properties (398 can be set), 1275 commands.
 
 ## Engine.Alarm
 
@@ -2038,10 +2038,31 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `Size` | command | Entry count |
 | `Top` | command | Peek the top value; 0 when empty |
 
+## Engine.Terrain.Collision
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Distance` | property | How far round each moving body a large terrain's collision is built, 4 to 500 metres (24 unless set): more for fast vehicles |
+
+## Engine.Terrain
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Depth` | read only | How deep the room's loaded terrains are together, along z, in metres (read; 0 without a terrain) |
+| `Enabled` | property | Whether the room's terrains' ground and paths are drawn (true unless set); what stands on it still stands, for an x-ray or a map view |
+| `GetHeight` | command | Sample terrain elevation at world XZ |
+| `MaterialAt` | command | The painted layer (1 to 8) most of the ground at world x, z is, 0 where no terrain is: footstep sounds, grip, where crops grow |
+| `NormalX` | command | Which way the ground at world x, z faces, across x (with NormalY and NormalZ, a direction of length 1; straight up where no terrain is) |
+| `NormalY` | command | Which way the ground at world x, z faces, upward: 1 on the flat, less the steeper it is |
+| `NormalZ` | command | Which way the ground at world x, z faces, across z |
+| `SlopeAt` | command | How steep the ground at world x, z is, 0 (flat) to 90 degrees: a vehicle that cannot climb, a skier that speeds up |
+| `Width` | read only | How wide the room's loaded terrains are together, along x, in metres (read; 0 without a terrain) |
+
 ## Engine.Terrain.Detail
 
 | Name | Kind | What it is |
 |---|---|---|
+| `Distance` | property | How near the camera a streamed terrain tile is read, 0 to 1000000 metres (the room's terrain distance unless set); only for a room that streams its terrains |
 | `Quality` | property | How far large terrains keep their full detail from the camera, 0.25 to 4 (1 unless set): 2 keeps it twice as far for a sharper distance, 0.5 half as far for a faster frame; lasts across rooms |
 
 ## Engine.Terrain.Edit
@@ -2054,11 +2075,23 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `Raise` | command | Raises the ground of the room's terrains around world x, z by up to the metres given at the centre, falling off smoothly to the radius (a mound, a bank of earth); its look, grass and collision follow at once and last while the room runs; false where no terrain is |
 | `Smooth` | command | Softens the ground around world x, z toward its neighbours' heights, by 0 to 1 (an edge worn down); false where no terrain is |
 
-## Engine.Terrain
+## Engine.Terrain.Grass
 
 | Name | Kind | What it is |
 |---|---|---|
-| `GetHeight` | command | Sample terrain elevation at world XZ |
+| `Density` | property | How thickly the grass grows, 0.05 to 4 times each terrain's own (1 unless set): thinner on a slow machine |
+| `Distance` | property | How far from the camera grass grows, 0.1 to 10 times each terrain's own (1 unless set) |
+| `Enabled` | property | Grass grown round the camera on every terrain, or none (each terrain's own rule unless set): off for a burnt field |
+| `Height` | property | How tall the grass grows, 0.1 to 4 times each terrain's own (1 unless set): long grass after rain, cut grass in a garden |
+
+## Engine.Terrain.Scatter
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Density` | property | How many trees and rocks the terrains scatter, 0 to 4 times each layer's own (1 unless set): the copies and their collision are placed again |
+| `Distance` | property | How far the scattered trees and rocks are drawn, 0.1 to 10 times each terrain's own (1 unless set) |
+| `Enabled` | property | Whether the terrains' scattered trees and rocks are drawn (true unless set); their collision stays |
+| `Shadows` | property | Whether the scattered trees and rocks cast shadows (true unless set) |
 
 ## Engine.Terrain.Water
 
